@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
+using BuildingBlocks.Web;
 using Cart.Infrastructure;
 using Checkout.Infrastructure;
 using Mediator;
@@ -12,6 +13,8 @@ using Products.Infrastructure;
 using Worker;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddJsonConsoleLogging();
 
 // Fail fast on captive scope/lifetime mistakes (everything that touches the DbContext is Scoped).
 if (builder.Environment.IsDevelopment())
@@ -35,6 +38,8 @@ builder.Services.AddDbContext<ProducerDbContext>((sp, opt) =>
     opt.UseSqlServer(workerConnString)
        .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
 
+builder.Services.AddReadinessHealthChecks();
+
 builder.Services.AddSingleton(new ModuleAssemblies(WorkerModuleAssemblies.All, []));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 
@@ -49,7 +54,7 @@ builder.Services.AddPaymentsModule();
 
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapPolHealthChecks();
 
 app.Run();
 

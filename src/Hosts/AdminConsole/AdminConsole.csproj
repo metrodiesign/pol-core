@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\Contracts\Contracts.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
     <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Products\Products.Application\Products.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Products\Products.Infrastructure\Products.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Cart\Cart.Application\Cart.Application.csproj" />
@@ -21,7 +22,6 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>

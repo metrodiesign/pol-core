@@ -43,7 +43,7 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         CancellationToken cancellationToken)
     {
         var session = await _sessions.GetByIdAsync(command.PaymentSessionId, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"PaymentSession {command.PaymentSessionId} not found.");
+            ?? throw new NotFoundException($"PaymentSession {command.PaymentSessionId} not found.");
 
         // Idempotent re-entry: a session already redirected (e.g. a retried click) returns its existing
         // hosted URL — never a second PSP charge.

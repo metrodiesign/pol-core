@@ -2,15 +2,15 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
+using BuildingBlocks.Web;
 using Cart.Infrastructure;
 using Checkout.Infrastructure;
 using Mediator;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using Orders.Infrastructure;
 using Payments.Application.CreatePaymentSession;
 using Payments.Application.HandlePspWebhook;
+using Payments.Application.StartRedirect;
 using Payments.Domain;
 using Payments.Infrastructure;
 using Products.Application;
@@ -18,6 +18,8 @@ using Products.Infrastructure;
 using TenantConsole;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.AddJsonConsoleLogging();
 
 // Fail fast on captive scope/lifetime mistakes (TenantGuardBehavior + ITenantContext are Scoped, PLAN #7).
 if (builder.Environment.IsDevelopment())
@@ -61,54 +63,29 @@ builder.Services.AddPaymentsModule();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
 
-// Google SSO skeleton (PLAN #5): validate issuer/audience/lifetime, require a verified email and the
-// configured hosted domain. // ponytail: real JWKS/key wiring is config-driven; this is a compiling,
-// correctly-configured skeleton — no real Google keys are embedded.
-var googleClientId = builder.Configuration["Google:ClientId"];
-var googleHostedDomain = builder.Configuration["Google:HostedDomain"];
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = "https://accounts.google.com";
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuers = ["https://accounts.google.com", "accounts.google.com"],
-            ValidateAudience = true,
-            ValidAudience = googleClientId,
-            ValidateLifetime = true,
-            RequireExpirationTime = true,
-        };
-        options.Events = new JwtBearerEvents
-        {
-            OnTokenValidated = context =>
-            {
-                var principal = context.Principal;
-                if (principal?.FindFirst("email_verified")?.Value is not "true")
-                {
-                    context.Fail("The 'email_verified' claim is required.");
-                    return Task.CompletedTask;
-                }
+// Real Google ID-token validation (issuer/audience/lifetime/email_verified/hosted-domain + RS256 against
+// Google's JWKS via Authority), shared with AdminConsole. See BuildingBlocks.Web.GoogleAuthenticationExtensions.
+builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
 
-                if (!string.IsNullOrEmpty(googleHostedDomain) &&
-                    principal.FindFirst("hd")?.Value != googleHostedDomain)
-                {
-                    context.Fail("The token's hosted domain ('hd') is not allowed.");
-                }
-
-                return Task.CompletedTask;
-            },
-        };
-    });
-builder.Services.AddAuthorization();
+// Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
+builder.Services.AddProblemDetailsHandling();
+builder.Services.AddReadinessHealthChecks();
+builder.Services.AddWebhookRateLimiter();
 
 var app = builder.Build();
 
+// Order matters: correlation id OUTERMOST so the logging scope is still active when the exception handler
+// logs a failure (the scope is popped as the exception unwinds, so it must wrap UseExceptionHandler); the
+// exception handler then wraps auth + the endpoints; rate limiter before the mapped endpoints run.
+app.UseCorrelationId();
+app.UseExceptionHandler();
+
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Liveness (process only) + readiness (DB + vault), anonymous, minimal body — no topology leak.
+app.MapPolHealthChecks();
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT tenant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
@@ -138,7 +115,7 @@ app.MapPost("/webhooks/{pspConnectionId:guid}", async (
     return result.Outcome == WebhookOutcome.Rejected
         ? Results.Unauthorized()
         : Results.Ok(new { outcome = result.Outcome.ToString() });
-});
+}).RequireRateLimiting(WebhookRateLimiting.PolicyName);
 
 // Tenant-facing convenience endpoints (tenant comes from the authenticated principal via ITenantContext).
 app.MapPost("/products", async (
@@ -161,6 +138,18 @@ app.MapPost("/payment-sessions", async (
     var result = await mediator.Send(new CreatePaymentSessionCommand(
         body.OrderId, tenant.TenantId, body.AmountMinorUnits, body.Currency, body.Method, body.Psp), ct);
     return Results.Ok(new { paymentSessionId = result.PaymentSessionId });
+}).RequireAuthorization();
+
+// Claims-then-charges redirect (PLAN #11). Tenant scoping is automatic: the command is ITenantScoped, so
+// TenantGuardBehavior + RLS resolve the session for the authenticated tenant only. Errors flow through the
+// shared ProblemDetails handler (not found -> 404, illegal state / concurrent claim -> 409).
+app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
+    Guid paymentSessionId,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
+    return Results.Ok(new { redirectUrl = result.RedirectUrl });
 }).RequireAuthorization();
 
 app.Run();
