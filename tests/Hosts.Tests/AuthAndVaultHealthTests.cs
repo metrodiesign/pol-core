@@ -95,7 +95,14 @@ public sealed class VaultReadinessCheckTests
         Assert.Equal(HealthStatus.Healthy, result.Status);
     }
 
-    private static Task<HealthCheckResult> Check(string? masterKeyBase64) =>
-        new VaultReadinessCheck(Options.Create(new VaultOptions { MasterKeyBase64 = masterKeyBase64 ?? string.Empty }))
-            .CheckHealthAsync(new HealthCheckContext());
+    // Build the keyring via the real factory (legacy MasterKeyBase64 shim) behind a provider, exactly as the
+    // host wires it; a missing/malformed key makes the factory throw, which the readiness check turns into
+    // not-ready (never a 500, never echoing the key).
+    private static Task<HealthCheckResult> Check(string? masterKeyBase64)
+    {
+        var services = new ServiceCollection()
+            .AddSingleton(_ => VaultKeyringFactory.Build(new VaultOptions { MasterKeyBase64 = masterKeyBase64 ?? string.Empty }))
+            .BuildServiceProvider();
+        return new VaultReadinessCheck(services).CheckHealthAsync(new HealthCheckContext());
+    }
 }

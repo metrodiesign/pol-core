@@ -67,6 +67,11 @@ builder.Services.AddReadinessHealthChecks();
 
 var app = builder.Build();
 
+// Fail-fast: build the vault keyring now so a missing/short/invalid master key crash-loops the host at
+// boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
+// singletons, so this explicit resolve is what delivers the boot-time custody guarantee.
+_ = app.Services.GetRequiredService<VaultKeyring>();
+
 // Correlation id outermost so the logging scope is still active when the exception handler logs a failure.
 app.UseCorrelationId();
 app.UseExceptionHandler();
