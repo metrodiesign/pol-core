@@ -52,14 +52,19 @@ tests/
 - 2 `DbContext` แยก: `AdminDbContext` (schema `admin`) · `ProducerDbContext` (schema `producer`)
 - `IEntityTypeConfiguration<T>` ต่อ entity (`{Entity}Configuration`) — ไม่ config inline ใน `OnModelCreating`
 - migration: `dotnet ef migrations add <PascalCaseName> --context <Ctx> --project src/Modules/<M>/<M>.Infrastructure`
-- datetime เก็บ UTC, column ลงท้าย `Utc` · multi-tenant: global query filter กรอง `TenantId` (RLS) ที่ context — ไม่พึ่ง app code
-- **provisioning** (`Tenant`/`PspConnection`/`VaultSecret`/active) ต้องอยู่ใน transaction เดียว + idempotent ด้วย tenant key
+- datetime เก็บ UTC, column ลงท้าย `Utc`
+- **multi-tenant isolation floor = SQL Server native RLS + `SESSION_CONTEXT('TenantId')`** ต่อ request (ไม่พึ่ง app code).
+  EF global query filter = ชั้นสะดวกเสริม **ไม่ใช่** floor. ban raw SQL / `IgnoreQueryFilters` ข้าม tenant + test พิสูจน์ leak ปิด (รวม pooled connection ไม่ retain tenant เดิม). admin cross-tenant = DB principal แยก
+- `Money` value object ใน SharedKernel: `{ MinorUnits: long, Currency: ISO4217 }` — ไม่ map decimal/float ที่ cross-module seam
+- **provisioning = saga ข้าม store** (DB + vault คนละที่ ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. idempotent ด้วย tenant key
 
 ## Mediator (martinothamar/Mediator) — source-generated
 
 - `Mediator.SourceGenerator` ใส่ที่ **project ปลายสุด** (Hosts) `PrivateAssets=all` · `Mediator.Abstractions` ที่ project นิยาม message/handler
 - CQRS: write = `ICommand<,>`, read = `IQuery<,>`, cross-module event = `INotification` · `Handle` คืน `ValueTask<T>`
-- `AddMediator(...)` (generator สร้างให้, handler ลงทะเบียนอัตโนมัติ) · pipeline behaviors เพิ่มเอง (เช่น `IdempotencyBehavior`, validation) · lifetime แนะนำ Singleton
+- `AddMediator(...)` (generator สร้างให้, handler ลงทะเบียนอัตโนมัติ) · pipeline behaviors เพิ่มเอง (เช่น `IdempotencyBehavior`, validation)
+- **lifetime:** `IMediator` Singleton (perf) ได้ แต่ **handler/pipeline ที่พึ่ง `DbContext` ต้อง Scoped** (หรือ inject `IDbContextFactory`) — กัน captive dependency. เปิด `ValidateScopes=true` + มี DI validation test
+- `IdempotencyBehavior`: unique key `(psp,eventId)` + `(psp,externalChargeId,normalizedStatus)`, atomic upsert; publish `PaymentPaid` ผ่าน **outbox** (table + dispatcher poll lock/lease + poison/DLQ + idempotent consumer)
 - ได้ diagnostic ตอน **build** ถ้า request ไม่มี handler — อย่าปิด warning นี้
 
 ## Testing

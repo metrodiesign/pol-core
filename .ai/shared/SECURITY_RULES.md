@@ -167,19 +167,30 @@ fork or weaken these checks per harness.
   (2C2P hosted page · Omise Links API `paymentUri` · source+charge `authorizeUri`). flow แบบ non-redirect = ห้าม.
 - **ไม่ถือเงิน (out of funds flow).** No settlement / payout / money ledger / wallet / float / escrow / disbursement.
   เงิน settle จาก PSP เข้าบัญชี merchant ของบริษัทโดยตรง. Reconciliation = **reporting เท่านั้น** ห้ามลอจิกเคลื่อนเงิน/ปรับยอดจริง.
-- **Credential vault — สินทรัพย์อ่อนไหวสุด.** PSP key เก็บใน vault: **encrypt + แยก key ต่อ tenant**, เก็บคนละที่กับ config DB.
+- **Credential vault — สินทรัพย์อ่อนไหวสุด.** PSP key เก็บใน vault: **envelope encryption — per-tenant KEK ใน KMS/HSM**,
+  DEK ต่อ secret, เก็บคนละที่กับ config DB. เก็บ **key id + version** + มี **rotation / re-encrypt runbook**.
   field `secrets.*` เป็น **write-only** — API อ่านกลับต้อง **mask เสมอ** (`••••3a9f`) ห้ามส่ง plaintext คืน. ห้าม log.
+  (SQL Always Encrypted เข้าเกณฑ์เฉพาะเมื่อ CMK อยู่ใน external Key Vault/HSM แยกจาก config DB.)
 - **Webhook = source of truth.** อัปเดตสถานะการจ่ายจาก webhook ที่ **verify ลายเซ็น + idempotent + fetch-to-confirm** เท่านั้น
   (`IWebhookVerifier`). **ห้ามตัดสินสถานะจาก browser return/redirect** (return handler = UX เท่านั้น).
-- **Multi-tenant isolation (RLS).** ทุก query กรอง `TenantId` ที่ data layer (global query filter) — ไม่พึ่ง UI/app code.
-  backend ร่วมกัน → leak ข้าม tenant = ช่องโหว่ร้ายแรง.
+  **ห้าม trust tenant/PSP จาก URL path ก่อน verify signature** — resolve connection จาก path/signed path → verify webhook secret → fetch-to-confirm ค่อยเชื่อ.
+- **Multi-tenant isolation (RLS) — data-layer floor.** ชั้นจริง = **SQL Server native RLS + `SESSION_CONTEXT('TenantId')`**
+  set ต่อ request (ไม่พึ่ง app code). EF global query filter = ชั้นสะดวกเสริม **ไม่ใช่** floor. **ban raw SQL / `IgnoreQueryFilters`**
+  ที่ข้าม tenant scope + test พิสูจน์ leak ปิด (รวม pooled-connection ไม่ retain tenant เดิม). leak ข้าม tenant = ช่องโหว่ร้ายแรง.
 - **แยก authz scope Admin ↔ Tenant ให้ขาด.** endpoint อำนาจสูง (cross-tenant / approve / config / vault) ต้องเรียกผ่าน
   session ของ Tenant Console **ไม่ได้**. การแยกเป็น 2 แอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ backend authorization.
   Identity: verify Google id_token (sig/`iss`/`aud`/exp/`email_verified`) → `hd` guard → lookup ตาราง identity ของ console นั้น → scope `TenantId`.
+  **Admin cross-tenant bypass RLS** ผ่าน **DB principal แยก** (admin connection) เท่านั้น — tenant console principal ทำไม่ได้ + ทุก bypass มี reason + correlation id → audit.
 - **Maker-checker** สำหรับ action อ่อนไหว: approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist.
 - **Captive allowlist.** เปิดเฉพาะ vCentral / vCommerce / vSouvenir. ห้าม public/self-serve onboarding สำหรับคนนอก.
-- **Idempotency.** webhook/payment ประมวลผลซ้ำไม่ได้ — map event id → payment_id ภายใน (`IdempotencyBehavior`).
-- **Audit log** append-only: actor / scope / before-after / เหตุผล.
+- **Idempotency.** webhook/payment ประมวลผลซ้ำไม่ได้ — unique key DB `(psp, eventId)` **และ** `(psp, externalChargeId, normalizedStatus)`
+  (กัน PSP replay ด้วย event id ต่าง / ไม่มี stable id) + guard ที่ fetch-confirmed transition `(paymentId, transition)`, atomic upsert ใน tx.
+  publish `PaymentPaid` ผ่าน **outbox** (เขียนใน tx เดียวกับ transition) + dispatcher poll ด้วย lock/lease + poison/DLQ + idempotent consumer. TTL = cleanup ไม่ใช่ guard หลัก.
+- **Provisioning = saga (ไม่ใช่ single transaction).** DB กับ vault คนละ store → atomic tx เดียวเป็นไปไม่ได้.
+  `PendingProvisioning` → write DB → write vault (idempotency key) → verify secrets → **activate ขั้นสุดท้าย** → compensation/retry ถ้าล้ม. idempotent ด้วย tenant key.
+- **Audit log** append-only + **tamper-evident** (immutable table policy / hash-chain / WORM export) + actor correlation id: actor / scope / before-after / เหตุผล.
+- **Spec-lint gate (CI-enforced, ไม่ใช่ design-level ล้วน).** regex/checklist fail บน: card field / `Omise.js` / hosted-fields / iframe จ่าย / display-QR ·
+  response มี secret field ไม่ mask · query/handler ไม่มี tenant scope · term ของ 7 Non-Goals — + allowlist docs/fixtures (กัน false-pos) + human security checklist ควบ. hook เข้า `.ai/bin` + spec-trace.
 
 ## When a guard fires
 

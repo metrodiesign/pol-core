@@ -28,10 +28,13 @@ gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet t
 **martinothamar/Mediator** (source-generated, compile-time wiring, AOT-friendly — ไม่ reflection/assembly-scan):
 - CQRS: `ICommand<,>` / `IQuery<,>` (แยก command/query); cross-module event: `INotification`
 - handler: `IRequestHandler<,>` / `INotificationHandler<>`; cross-cutting: `IPipelineBehavior<,>` (เช่น `IdempotencyBehavior`)
-- `Handle` คืน `ValueTask<T>` · `AddMediator(...)` (gen ให้) · pipeline behaviors เพิ่มเอง · lifetime แนะนำ Singleton
+- `Handle` คืน `ValueTask<T>` · `AddMediator(...)` (gen ให้) · pipeline behaviors เพิ่มเอง
+- **lifetime:** `IMediator` Singleton ได้ แต่ handler/pipeline ที่พึ่ง `DbContext` ต้อง **Scoped** (หรือ `IDbContextFactory`) — กัน captive dependency; `ValidateScopes=true` + DI validation test
 - ได้ error ตอน **build** ถ้าไม่มี handler ของ request
 
-**Secret:** PSP key เก็บใน vault (encrypt, แยก key ต่อ tenant), write-only, อ่านกลับ mask เสมอ — ไม่ hardcode (ดู [SECURITY_RULES.md](SECURITY_RULES.md))
+**Money (cross-module seam):** `Money { MinorUnits: long, Currency: ISO4217 }` ใน SharedKernel — ไม่มี decimal/float ที่ seam; Orders verify amount+currency ตอนรับ `PaymentPaid` (ดู [ARCHITECTURE.md](ARCHITECTURE.md))
+
+**Secret:** PSP key เก็บใน vault (envelope encryption, per-tenant KEK ใน KMS/HSM, key id+version+rotation), write-only, อ่านกลับ mask เสมอ — ไม่ hardcode (ดู [SECURITY_RULES.md](SECURITY_RULES.md))
 
 ### Naming (หลักสำคัญ — ตารางเต็มใน `docs/reference/payment-orchestration-modules.md`)
 

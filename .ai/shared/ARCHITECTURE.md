@@ -83,13 +83,16 @@ Orders → Paid. จบ ไม่มี issuance.
 - Orders รับ `PaymentPaid` ต้อง **verify amount/currency** ไม่ใช่แค่ `PaymentId` (กันจ่ายไม่ครบ/สกุลผิด)
 - Orders ถือ `PaymentId` ตั้งแต่เรียก Payments → จับคู่ได้ทันที ไม่มี attach-race
 
-**Cross-cutting (บังคับทั้งระบบ):**
-- Multi-tenant isolation — RLS ที่ data layer กรอง `TenantId` ทุก query (ไม่พึ่ง UI/app code; backend ร่วมกัน)
-- แยก backend authz scope ให้ขาด — endpoint admin (cross-tenant/approve/config) เรียกผ่าน session ของ Tenant Console ไม่ได้
-- Credential vault — encrypt + แยก key ต่อ tenant (สินทรัพย์อ่อนไหวสุด); secret เป็น write-only, อ่านกลับ mask เสมอ
-- Identity — Google SSO; แยก domain ด้วย `aud` (OAuth client ต่อ console) + `hd` guard + ตาราง identity คนละ schema (`AdminUser` / `TenantUser`)
-- Maker-checker (approve tenant, เปลี่ยน routing, แก้ allowlist) · idempotency · audit log (append-only)
-- Provisioning: ขั้น INSERT `Tenant` / `PspConnection` / `VaultSecret` / active ต้องอยู่ใน transaction เดียว + validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย tenant key
+**Cross-cutting (บังคับทั้งระบบ — security detail: [SECURITY_RULES.md](SECURITY_RULES.md) Product security):**
+- Multi-tenant isolation — **floor = SQL Server native RLS + `SESSION_CONTEXT('TenantId')`** ต่อ request (ไม่พึ่ง app code);
+  EF global query filter = ชั้นสะดวกเสริมไม่ใช่ floor. ban raw SQL / `IgnoreQueryFilters` ข้าม tenant + test leak. backend ร่วมกัน
+- แยก backend authz scope ให้ขาด — endpoint admin (cross-tenant/approve/config) เรียกผ่าน session ของ Tenant Console ไม่ได้;
+  admin cross-tenant bypass RLS ผ่าน **DB principal แยก** เท่านั้น + reason/correlation id → audit
+- Credential vault — **envelope encryption (per-tenant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
+- Identity — Google SSO; verify sig/`iss`/`aud`/exp/`email_verified`; แยก console ด้วย `aud` (OAuth client ต่อ console) + `hd` guard (เพราะ `iss` ร่วมกัน) + ตาราง identity คนละ schema (`AdminUser` / `TenantUser`)
+- Maker-checker (approve tenant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
+- Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย tenant key
+- Money — `Money { MinorUnits: long, Currency: ISO4217 }` ใน SharedKernel (minor-unit ตาม registry); ไม่มี decimal/float ที่ cross-module seam; Orders verify amount+currency ตอนรับ `PaymentPaid`
 
 ## Naming Conventions
 
