@@ -155,6 +155,32 @@ fork or weaken these checks per harness.
 - **Enforced by:** `.githooks/pre-push` (blocks pushes to `main`/`develop` and
   non-fast-forward force pushes, ref-based) for ALL agents and humans (Tier 1).
 
+### Product security (pol-core) — payment platform hard guardrails
+
+> These are DESIGN-level constraints, not automated `.ai/bin` checks — no script blocks them.
+> Enforced by review + the spec gates + "stop and ask". Violating one changes the platform's
+> legal status (ใบอนุญาต) or expands PCI scope. เจอ requirement/ticket/ไอเดียที่นำไปสู่ข้อใด → หยุดถามก่อน
+> อย่า implement เอง. Full context: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) (Non-Goals) + [ARCHITECTURE.md](ARCHITECTURE.md) (cross-cutting).
+
+- **PCI SAQ A — redirect-only, ห้ามแตะข้อมูลบัตร.** No collect/store/transmit/tokenize PAN. ห้ามมี
+  card input field / hosted-fields / iframe / Omise.js / display-QR บนโดเมนเรา. ใช้ **full redirect ไปหน้า PSP เท่านั้น**
+  (2C2P hosted page · Omise Links API `paymentUri` · source+charge `authorizeUri`). flow แบบ non-redirect = ห้าม.
+- **ไม่ถือเงิน (out of funds flow).** No settlement / payout / money ledger / wallet / float / escrow / disbursement.
+  เงิน settle จาก PSP เข้าบัญชี merchant ของบริษัทโดยตรง. Reconciliation = **reporting เท่านั้น** ห้ามลอจิกเคลื่อนเงิน/ปรับยอดจริง.
+- **Credential vault — สินทรัพย์อ่อนไหวสุด.** PSP key เก็บใน vault: **encrypt + แยก key ต่อ tenant**, เก็บคนละที่กับ config DB.
+  field `secrets.*` เป็น **write-only** — API อ่านกลับต้อง **mask เสมอ** (`••••3a9f`) ห้ามส่ง plaintext คืน. ห้าม log.
+- **Webhook = source of truth.** อัปเดตสถานะการจ่ายจาก webhook ที่ **verify ลายเซ็น + idempotent + fetch-to-confirm** เท่านั้น
+  (`IWebhookVerifier`). **ห้ามตัดสินสถานะจาก browser return/redirect** (return handler = UX เท่านั้น).
+- **Multi-tenant isolation (RLS).** ทุก query กรอง `TenantId` ที่ data layer (global query filter) — ไม่พึ่ง UI/app code.
+  backend ร่วมกัน → leak ข้าม tenant = ช่องโหว่ร้ายแรง.
+- **แยก authz scope Admin ↔ Tenant ให้ขาด.** endpoint อำนาจสูง (cross-tenant / approve / config / vault) ต้องเรียกผ่าน
+  session ของ Tenant Console **ไม่ได้**. การแยกเป็น 2 แอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ backend authorization.
+  Identity: verify Google id_token (sig/`iss`/`aud`/exp/`email_verified`) → `hd` guard → lookup ตาราง identity ของ console นั้น → scope `TenantId`.
+- **Maker-checker** สำหรับ action อ่อนไหว: approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist.
+- **Captive allowlist.** เปิดเฉพาะ vCentral / vCommerce / vSouvenir. ห้าม public/self-serve onboarding สำหรับคนนอก.
+- **Idempotency.** webhook/payment ประมวลผลซ้ำไม่ได้ — map event id → payment_id ภายใน (`IdempotencyBehavior`).
+- **Audit log** append-only: actor / scope / before-after / เหตุผล.
+
 ## When a guard fires
 
 A blocked command means the floor is working. Do not try to bypass it (that itself is

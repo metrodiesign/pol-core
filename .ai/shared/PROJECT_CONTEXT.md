@@ -1,31 +1,62 @@
 > Canonical source for ALL agents (Claude loads via .claude/rules stub; Codex/OpenCode/Pi read directly).
 > แก้ที่นี่ที่เดียว — single source of truth.
 
-> Fill this in for YOUR product — it is the always-on product canon every agent reads first (see CLAUDE.md / AGENTS.md).
-> นี่คือ template เปล่า: แทนที่ทุก `<...>` ด้วยเนื้อหาจริงของโปรเจกต์คุณ แล้วลบบรรทัดคำแนะนำทิ้งได้.
-
 # Product Overview
+
+> Source: `docs/reference/payment-orchestration-modules.md` (รายละเอียดเต็มของ Payments อยู่ที่นั่น)
 
 ## Purpose
 
-<อธิบายว่าผลิตภัณฑ์นี้คืออะไร + pitch หนึ่งบรรทัด: ใคร ทำอะไร ได้คุณค่าอะไร>
+**Internal Payment Orchestration Platform (captive)** — SaaS อีคอมเมิร์ซประกันภัย multi-tenant
+ที่ให้บริษัทในเครือ (vCentral / vCommerce / vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
+(2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** — เรา "ใช้" PSP ไม่ใช่ "เป็น" PSP
+
+ระบบคือ scope เดียวกัน มี 5 โมดูล (Products · Cart · Checkout · Orders · Payments) คุยกันผ่าน
+**Mediator (martinothamar/Mediator)** แบบ modular ไม่อ้างถึงกันตรง — โมดูลที่ build out มากสุดคือ Payments
 
 ## Target Users
 
-<ระบุกลุ่มผู้ใช้/ผู้มีส่วนได้เสียหลัก 1–3 กลุ่ม และสิ่งที่แต่ละกลุ่มต้องการจากผลิตภัณฑ์>
+- **ผู้ผลิต (Tenant Console)** — พนักงานบริษัทในเครือ: เลือกแผน/กรมธรรม์ → ตะกร้า → checkout → สร้าง Order
+  เห็นเฉพาะข้อมูล tenant ตน (scope ด้วย `TenantId`)
+- **ลูกค้า** — เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น) ผ่าน redirect ไปหน้า PSP
+- **ทีมกลาง (Admin Console)** — internal-only: provision tenant, เก็บ PSP credential/config, ตั้ง routing, monitor, audit
 
 ## Problem It Solves
 
-<อธิบายปัญหา/ความเจ็บปวดที่ผลิตภัณฑ์นี้แก้ และเหตุผลว่าทำไมต้องมีมัน>
+บริษัทในเครือต้องรับชำระเงินออนไลน์ แต่การ "เป็น" PSP เองทำให้เข้าข่ายใบอนุญาตประเภทที่ 3 (ธปท.)
+และขยาย PCI scope. แพลตฟอร์มนี้แก้ด้วยโมเดล **captive + ไม่ถือเงิน**: เป็น merchant/orchestrator ที่
+redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A** รายนิติบุคคล, ใบอนุญาตอยู่ที่ PSP, เงิน settle จาก PSP
+เข้าบัญชี merchant ของแต่ละบริษัทโดยตรง
 
 ## Key Features
 
-<ไล่รายการขอบเขต/ฟีเจอร์หลัก (in-scope) ที่ระบบต้องทำ — สั้น ๆ เป็นข้อ ๆ>
+- **5 SaaS modules** ผ่าน Mediator — Products → Cart → Checkout → Orders → Payments (จบที่ emit `PaymentPaid`)
+- **2 console คนละแอป** — Tenant Console (public-facing, 3 บริษัทใช้ร่วม) + Admin Console (internal-only) บน backend/data ชุดเดียว เพื่อลด blast radius
+- **PSP adapter** 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร / PromptPay / ผ่อน), normalize เป็นสัญญาเดียว
+- **Webhook = source of truth** — verify ลายเซ็น + idempotent + fetch-to-confirm ก่อนอัปเดตสถานะ (ไม่เชื่อ browser redirect)
+- **Multi-tenant provisioning** — Admin สร้าง tenant + เก็บ PSP credential ลง vault (encrypt, แยก key ต่อ tenant)
+- **Identity & RBAC** — Google SSO, hd-gate default-deny (Admin), register→approve (Tenant), maker-checker สำหรับ action อ่อนไหว
+- **Notification (background)** — Orders ส่งลิงก์หน้าสรุปผ่าน Message Queue → Worker, retry backoff → DLQ, ลิงก์มี TTL
+- **Reconciliation = reporting**, retry/dunning, idempotency, audit log (append-only)
 
 ## Business Objectives
 
-<นิยาม success criteria ที่วัดผลได้: เป้าหมาย/metric/เกณฑ์ผ่าน ที่ใช้ตัดสินว่างานเสร็จและดีพอ>
+- รับชำระ redirect-only ได้ครบ 3 ช่องทางทั้ง 2 PSP โดย **คง SAQ A** (ไม่แตะข้อมูลบัตรบนโดเมนเรา)
+- **Multi-tenant isolation** เด็ดขาดด้วย RLS ที่ data layer (ทุก query กรอง `TenantId`) — backend ร่วมกันแต่ข้อมูลไม่รั่ว
+- คงสถานะ **captive + ไม่ถือเงิน** → อยู่นอก funds flow เสมอ (ไม่เข้าข่ายใบอนุญาตประเภทที่ 3)
+- จ่ายไม่ผิด/ไม่ซ้ำ: idempotency + verify amount/currency ตอน Orders รับ `PaymentPaid` (ไม่ใช่แค่ `PaymentId`)
 
-## Non-Goals
+## Non-Goals — ฟังก์ชันที่ "ห้าม implement"
 
-<ระบุสิ่งที่ตั้งใจ NOT ทำในขอบเขตนี้ (out of scope) — กันการขยายงานเกินจำเป็น>
+> อยู่นอก scope โดยตั้งใจ — เพิ่มเข้ามาจะเปลี่ยนสถานะทางกฎหมาย + ขยาย PCI scope ทันที
+> **เจอ requirement/ticket/ไอเดียที่นำไปสู่ข้อใดข้างล่าง → หยุดและถามก่อน อย่า implement เอง** แม้จะดู "เป็นประโยชน์"
+
+1. **ห้าม settlement / payout engine** — ไม่มี money ledger / wallet / float / escrow / disbursement (อยู่นอก funds flow เสมอ)
+2. **ห้าม billing / เก็บค่าบริการ** — ใช้ฟรี ไม่มี subscription / invoice / usage metering / fee deduction
+3. **ห้าม public/self-serve onboarding** — allowlist เฉพาะ vCentral / vCommerce / vSouvenir ไม่ต่อ KYB/AML provider ภายนอก
+4. **ห้ามแตะข้อมูลบัตร** — ไม่ collect/store/transmit/tokenize PAN, ไม่มี card field/hosted-fields/iframe/Omise.js บนโดเมนเรา
+5. **ห้ามสร้างฟังก์ชันของ PSP/acquirer เอง** — ไม่มี acquiring, card scheme, 3DS/ACS, payment processing (เราใช้ PSP ไม่ใช่เป็น)
+6. **ห้าม flow แบบ non-redirect** — ไม่ display-QR/iframe/hosted-fields บนหน้าเรา ใช้ full redirect ไปหน้า PSP เท่านั้น (คง SAQ A)
+7. **Reconciliation = reporting เท่านั้น** — ห้ามลอจิกที่เคลื่อนเงิน/ปรับยอดจริง
+
+นอกจากนี้ SaaS **ไม่มีขั้นจัดส่ง/ออกกรมธรรม์ (issuance)** — จบที่ "รับชำระเสร็จ → emit `PaymentPaid`"

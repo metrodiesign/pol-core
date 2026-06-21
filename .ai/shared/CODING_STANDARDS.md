@@ -3,8 +3,53 @@
 
 # Technology Stack
 
-> Stack-neutral. This framework does not assume a language, runtime, UI framework, or test
-> runner. The rules below are universal; concrete stack picks come from the project itself.
+> Stack-neutral framework rules อยู่ด้านล่าง (universal). **Concrete stack ของ pol-core อยู่ที่นี่** —
+> stack ถูกตัดสินแล้ว, adopt มัน อย่าแตกแนว.
+
+## Stack (pol-core) — ตัดสินแล้ว, pin version
+
+**สถาปัตยกรรม:** Modular Monolith ตามแนว **Clean Architecture + CQRS** (command/query แยกชัด, dependency ชี้เข้าใน domain)
+
+| สิ่ง | version (pin) | หมายเหตุ |
+|---|---|---|
+| .NET / ASP.NET Core | **10** (LTS) | runtime + web |
+| C# | **14** | เปิด nullable + type checking เข้มสุด |
+| EF Core | **10** (align กับ .NET 10) | ORM |
+| SQL Server | **2025 Standard** | เก็บ UTC (`...Utc`) · 2 schema แยก: `admin`, `producer` |
+| martinothamar/Mediator | **3.x** | in-process command/query/handler + pipeline behaviors |
+| Omise API | `apiVersion` **2019-05-29** | external PSP API (ต่อ tenant, จาก config) |
+
+> exact version (รวม patch) pin ที่ `Directory.Packages.props` / `.csproj` + commit lock — ห้าม floating (`*`/`latest`).
+> ขึ้น major ใหม่ = ต้องมีเหตุผลบันทึก + ขออนุมัติก่อน (ดู Dependency rules).
+
+**Commands / layout / EF / Mediator idioms เต็ม:** [stack/dotnet.md](stack/dotnet.md) ·
+gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet test"`
+
+**martinothamar/Mediator** (source-generated, compile-time wiring, AOT-friendly — ไม่ reflection/assembly-scan):
+- CQRS: `ICommand<,>` / `IQuery<,>` (แยก command/query); cross-module event: `INotification`
+- handler: `IRequestHandler<,>` / `INotificationHandler<>`; cross-cutting: `IPipelineBehavior<,>` (เช่น `IdempotencyBehavior`)
+- `Handle` คืน `ValueTask<T>` · `AddMediator(...)` (gen ให้) · pipeline behaviors เพิ่มเอง · lifetime แนะนำ Singleton
+- ได้ error ตอน **build** ถ้าไม่มี handler ของ request
+
+**Secret:** PSP key เก็บใน vault (encrypt, แยก key ต่อ tenant), write-only, อ่านกลับ mask เสมอ — ไม่ hardcode (ดู [SECURITY_RULES.md](SECURITY_RULES.md))
+
+### Naming (หลักสำคัญ — ตารางเต็มใน `docs/reference/payment-orchestration-modules.md`)
+
+- **C# identifier ↔ entity ↔ table ↔ column สะกดตรงกัน (PascalCase)** → EF Core map ตรงไม่ต้อง alias
+- Acronym ≥3 ตัว = PascalCase → ใช้ **`Psp`** ตลอด (ไม่ใช่ `PSP`): `PspConnection`, `IPspAdapter`, `pspConnectionId`
+- `2C2P` ขึ้นต้นด้วยเลข เป็น identifier ตรงไม่ได้ → enum member **`TwoCTwoP`** · `Omise` ใช้ตรงได้
+- async method ลงท้าย `Async` · interface `I` นำหน้า · private field `_camelCase` · PK = `{Entity}Id` · FK = `{Navigation}Id`
+- **Wire format คนละ convention:** JSON property = **camelCase** (`JsonNamingPolicy.CamelCase` ตั้งครั้งเดียว) · JWT/OIDC claim = ตามสเปก (`iss`/`aud`/`sub`/`hd`/`email_verified`)
+- **ค่า code string เสถียร** (แยกจากชื่อ enum): `"2c2p"`/`"omise"` · `"card"`/`"promptpay"`/`"installment"`
+- **ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ:** Omise source types (`installment_kbank`...), `authorize_uri`, `return_uri`, event `charge.complete` — ห้ามเปลี่ยน
+- canonical entities: `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `TenantUser` · `AdminUser` · `ExternalLogin` · `RegistrationTicket` · `Profile`
+- ถ้าจะใช้ snake_case ใน DB → ตั้ง global convention ครั้งเดียว (`UseSnakeCaseNamingConvention()`) อย่าสลับมือทีละตาราง
+
+---
+
+## (universal framework rules)
+
+> Stack-neutral. The rules below are universal; concrete picks สำหรับ pol-core อยู่ด้านบน.
 
 ## Languages & Runtimes
 

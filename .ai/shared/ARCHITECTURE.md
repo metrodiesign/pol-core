@@ -51,6 +51,46 @@ retrospectives/       # บันทึก retro รายเดือน
 (link map issue<->task) — commit เข้า repo, เฉพาะคำสั่ง sync เขียน; ห้ามแก้มือ,
 ห้ามใส่ link ลง tasks.md
 
+## pol-core application architecture (payment platform)
+
+> สถาปัตยกรรมจริงของผลิตภัณฑ์ (ยังไม่มี source code — นี่คือ target shape).
+> รายละเอียดเต็ม: `docs/reference/payment-orchestration-modules.md` · product canon: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+
+**รูปทรง:** Modular Monolith ตามแนว **Clean Architecture + CQRS** — 1 deployable backend, แยกเป็นโมดูล,
+dependency ชี้เข้า domain, command/query แยกผ่าน Mediator (`ICommand`/`IQuery`).
+
+แยก **2 ระนาบที่ขาดจากกัน** — control plane ไม่แตะเส้นทางเงิน, data plane จัดการ request การจ่าย + สถานะ (ไม่ใช่ตัวเงิน):
+
+```
+ช่องทางบริษัทในเครือ
+   → control plane: Tenant Console (app#1) · Admin Console (app#2)   ← คนละ deploy, backend/data ชุดเดียว
+   → platform core: Session layer (Create / Return / Webhook) · Engine (Method router, Credential vault,
+                    Retry & dunning, Reconciliation, Idempotency store)
+   → PSP adapter: IPspAdapter (2C2P · Omise/Opn) — normalize เป็นสัญญาเดียว
+   → PSP (ใน PCI scope) → เงิน settle เข้าบัญชี merchant ของบริษัทโดยตรง (นอกแพลตฟอร์ม)
+```
+
+**5 โมดูล (in-process, คุยผ่าน Mediator — ไม่อ้างถึงกันตรง):**
+Products → Cart → Checkout → Orders → Payments. cross-module event ใช้ `INotification` (เช่น `PaymentPaid`).
+
+**Flow แกน (happy path):** Checkout ล็อก 1 ช่องทางจ่าย → สร้าง Order (`PendingPayment`, ยังไม่แตะ PSP) →
+Orders ส่งลิงก์หน้าสรุป (background) → ลูกค้าเปิด Payments → กดยืนยัน → **Payments แตะ PSP ครั้งแรก** (สร้าง `paymentUri`) →
+redirect → ลูกค้าจ่าย → **webhook = source of truth** (verify + idempotent + fetch-to-confirm) → emit `PaymentPaid` →
+Orders → Paid. จบ ไม่มี issuance.
+
+**Seam ที่ต้องระวัง (Payments ↔ Orders):**
+- `PaymentPaid.Amount` ปัจจุบันเป็น `long` สตางค์ แต่ Orders ใช้ `decimal` บาท → ควรย้าย `Money` ไป Contracts/SharedKernel ให้ใช้ร่วม
+- Orders รับ `PaymentPaid` ต้อง **verify amount/currency** ไม่ใช่แค่ `PaymentId` (กันจ่ายไม่ครบ/สกุลผิด)
+- Orders ถือ `PaymentId` ตั้งแต่เรียก Payments → จับคู่ได้ทันที ไม่มี attach-race
+
+**Cross-cutting (บังคับทั้งระบบ):**
+- Multi-tenant isolation — RLS ที่ data layer กรอง `TenantId` ทุก query (ไม่พึ่ง UI/app code; backend ร่วมกัน)
+- แยก backend authz scope ให้ขาด — endpoint admin (cross-tenant/approve/config) เรียกผ่าน session ของ Tenant Console ไม่ได้
+- Credential vault — encrypt + แยก key ต่อ tenant (สินทรัพย์อ่อนไหวสุด); secret เป็น write-only, อ่านกลับ mask เสมอ
+- Identity — Google SSO; แยก domain ด้วย `aud` (OAuth client ต่อ console) + `hd` guard + ตาราง identity คนละ schema (`AdminUser` / `TenantUser`)
+- Maker-checker (approve tenant, เปลี่ยน routing, แก้ allowlist) · idempotency · audit log (append-only)
+- Provisioning: ขั้น INSERT `Tenant` / `PspConnection` / `VaultSecret` / active ต้องอยู่ใน transaction เดียว + validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย tenant key
+
 ## Naming Conventions
 
 - type/interface: PascalCase

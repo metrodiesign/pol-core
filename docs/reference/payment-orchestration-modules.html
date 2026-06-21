@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Payment Orchestration Platform — Module Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+--fg: #1f1e1c; --muted: #5f5e5a; --bg: #ffffff; --surface: #f7f6f2;
+--border: #e3e1d8; --accent: #534ab7; --code-bg: #f1efe8;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+font-family: "IBM Plex Sans Thai", "Sarabun", "Noto Sans Thai",
+-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+color: var(--fg); background: var(--bg); line-height: 1.7; font-size: 16px;
+margin: 0; padding: 48px 20px 96px;
+}
+.content { max-width: 820px; margin: 0 auto; }
+h1, h2, h3, h4 { line-height: 1.35; font-weight: 600; color: #161514; }
+h1 { font-size: 1.9rem; margin: 0 0 1.2rem; }
+h2 { font-size: 1.45rem; margin: 2.6rem 0 1rem; padding-bottom: .4rem; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.15rem; margin: 1.8rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.2rem 0 .5rem; }
+p { margin: .8rem 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid var(--border); margin: 2.4rem 0; }
+ul, ol { padding-left: 1.5rem; }
+li { margin: .35rem 0; }
+blockquote {
+margin: 1.2rem 0; padding: .8rem 1.2rem; background: var(--surface);
+border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; color: var(--fg);
+}
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+code {
+font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
+font-size: .88em; background: var(--code-bg); padding: .12em .38em; border-radius: 4px;
+}
+pre {
+background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+padding: 1rem 1.2rem; overflow-x: auto; line-height: 1.55;
+}
+pre code { background: none; padding: 0; font-size: .85rem; }
+table { border-collapse: collapse; width: 100%; margin: 1.2rem 0; font-size: .94rem; }
+th, td { border: 1px solid var(--border); padding: .55rem .8rem; text-align: left; vertical-align: top; }
+th { background: var(--surface); font-weight: 600; }
+tr:nth-child(even) td { background: #fbfaf7; }
+svg { max-width: 100%; height: auto; display: block; margin: 1.6rem auto; }
+em { color: var(--muted); }
+p > em:only-child { display: block; text-align: center; font-size: .9rem; margin: -.6rem 0 1.8rem; }
+.flag { background:#fff7e6; border-left:3px solid #d08700; }
+
+html { scroll-behavior: smooth; }
+.doc-header { margin: 0 0 1.4rem; padding-bottom: 1.4rem; border-bottom: 2px solid var(--border); }
+.doc-header h1 { margin: 0 0 .8rem; }
+.doc-meta { color: var(--muted); font-size: .9rem; }
+.doc-sub { background: var(--surface); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: .8rem 1.2rem; margin: 1rem 0 0; font-size: .92rem; }
+.doc-sub p { margin: .3rem 0; }
+.toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.3rem 1.1rem; margin: 0 0 2.4rem; }
+.toc-label { font-weight: 600; color:#161514; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; margin-bottom: .5rem; }
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc > ul > li { margin: .15rem 0; }
+.toc ul.sub { padding-left: 1rem; margin: .1rem 0 .35rem; }
+.toc ul.sub a { color: var(--muted); font-size: .9rem; }
+.toc a { display: inline-block; padding: .12rem 0; }
+h2[id], h3[id] { scroll-margin-top: 16px; }
+.mermaid { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1rem 1.1rem; overflow-x: auto; margin: 1.3rem 0; }
+.mermaid svg { max-width: 100%; height: auto; }
+.backtop { position: fixed; right: 22px; bottom: 22px; background: var(--accent); color:#fff; border:none;
+  width: 42px; height: 42px; border-radius: 50%; font-size: 1.1rem; cursor: pointer; opacity: 0; transition: opacity .2s;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+.backtop.show { opacity: .92; }
+@media (max-width: 600px){ body{ padding: 28px 14px 80px; } }
+</style>
+</head>
+<body>
+<div class="content">
+  <header class="doc-header">
+    <h1>สรุปโมดูลและบทบาท — Internal Payment Orchestration Platform (captive)</h1>
+    <div class="doc-meta">เอกสารอ้างอิงภายในสำหรับทีมพัฒนา · อัปเดต 2026-06-21</div>
+    <div class="doc-sub">
+<p>โมเดล <strong>captive / internal</strong> · redirect-only · multi-tenant · ไม่ถือเงิน · ใช้ฟรีภายในเครือ
+Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลายทาง: 2C2P + Omise/Opn
+เวอร์ชันอัปเดต: สะท้อนการตัดสินใจล่าสุด (2 SaaS console, no payout, no fee, captive)</p>
+</div>
+  </header>
+  <nav class="toc"><div class="toc-label">สารบัญ</div><ul><li><a href="#s1">ภาพรวม</a><ul class="sub"></ul></li><li><a href="#s2">ขอบเขตงาน (in scope) — ทั้ง SaaS</a><ul class="sub"></ul></li><li><a href="#s3">ลำดับเหตุการณ์ E2E (sequence)</a><ul class="sub"><li><a href="#s3-1">เส้นทางหลัก (happy path)</a></li><li><a href="#s3-2">การแจ้งเตือน (Message Queue + retry) และวงจรลิงก์ (หมดอายุ/ส่งซ้ำ)</a></li></ul></li><li><a href="#s4">นอกขอบเขต — ฟังก์ชันที่ "ห้าม implement"</a><ul class="sub"></ul></li><li><a href="#s5">1. ชั้นช่องทาง (Channels)</a><ul class="sub"><li><a href="#s5-1">เก็บเบี้ย / รับชำระ (premium / payment in)</a></li></ul></li><li><a href="#s6">2. Control plane — แยกเป็น 2 SaaS apps</a><ul class="sub"><li><a href="#s6-1">2.1 Tenant Console (SaaS app #1)</a></li><li><a href="#s6-2">2.2 Admin Console (SaaS app #2)</a></li><li><a href="#s6-3">2.3 Permission model (RBAC)</a></li><li><a href="#s6-4">2.4 Provisioning (admin-driven)</a></li><li><a href="#s6-5">2.5 Identity & RBAC (Google SSO)</a></li></ul></li><li><a href="#s7">3. แพลตฟอร์มกลาง (Platform core) — captive · ไม่ถือเงิน</a><ul class="sub"><li><a href="#s7-1">3.1 Session layer</a></li><li><a href="#s7-2">3.2 Engine</a></li></ul></li><li><a href="#s8">4. PSP adapter layer</a><ul class="sub"><li><a href="#s8-1">4.1 2C2P adapter</a></li><li><a href="#s8-2">4.2 Omise/Opn adapter (redirect-only ทุกช่องทาง)</a></li></ul></li><li><a href="#s9">5. PSP & payment methods (ใน PCI scope) + settlement</a><ul class="sub"><li><a href="#s9-1">5.1 2C2P hosted page</a></li><li><a href="#s9-2">5.2 Opn hosted pages</a></li><li><a href="#s9-3">Settlement (อยู่นอกแพลตฟอร์ม)</a></li><li><a href="#s9-4">ช่องทาง × PSP (เปิดได้ทั้ง 2 PSP · redirect-only ทุก cell)</a></li></ul></li><li><a href="#s10">6. ประเด็นข้ามระบบ (Cross-cutting)</a><ul class="sub"></ul></li><li><a href="#s11">7. ข้อสรุปกำกับดูแล (regulatory)</a><ul class="sub"></ul></li><li><a href="#s12">Naming conventions (C# / EF Core / SQL Server)</a><ul class="sub"><li><a href="#s12-1">C# (Framework Design Guidelines)</a></li><li><a href="#s12-2">EF Core</a></li><li><a href="#s12-3">SQL Server</a></li><li><a href="#s12-4">JSON / REST API payload & JWT claims</a></li><li><a href="#s12-5">ถ้าทีมเลือก snake_case ใน DB</a></li><li><a href="#s12-6">ชื่อ canonical เฉพาะโปรเจกต์</a></li><li><a href="#s12-7">In-process mediator — martinothamar/Mediator</a></li></ul></li><li><a href="#s13">ตารางสรุปโมดูล (quick reference)</a><ul class="sub"></ul></li></ul></nav>
+  
+
+
+<h2 id="s1">ภาพรวม</h2>
+<p><strong>ทั้งระบบคือ scope เดียวกัน — SaaS อีคอมเมิร์ซประกันภัย</strong> ที่มี 5 โมดูลอยู่ใน scope เดียว (<strong>Products · Cart · Checkout · Orders · Payments</strong>) คุยกันผ่าน <strong>Mediator (martinothamar/Mediator)</strong> แบบ modular ไม่อ้างถึงกันตรง · เอกสารนี้ลงรายละเอียด <strong>โมดูล Payments</strong> เป็นหลัก (โมดูลที่ build out มากสุด)</p>
+<p>โมดูล Payments นี้คือ <strong>แพลตฟอร์ม orchestration การชำระเงินภายในเครือ</strong> ที่ให้บริษัทในเครือ (vCentral/vCommerce/vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว — คุณ <strong>"ใช้" PSP ไม่ใช่ "เป็น" PSP</strong> และ <strong>เงินจริงไม่วิ่งผ่านแพลตฟอร์ม</strong></p>
+<p>แบ่งเป็น 2 ระนาบที่แยกขาดกัน:
+- <strong>Control plane</strong> — การตั้งค่า/กำกับดูแล (console → backend) ไม่แตะเส้นทางเงิน
+- <strong>Data plane</strong> — request การจ่าย + สถานะ (ไม่ใช่ตัวเงิน เงิน settle ตรงจาก PSP เข้าบริษัท)</p>
+<p>หลักการที่บังคับทั้งระบบ: <strong>multi-tenant isolation (RLS)</strong>, <strong>redirect-only (PCI SAQ A รายนิติบุคคล)</strong>, <strong>webhook = source of truth</strong>, <strong>maker-checker สำหรับ action อ่อนไหว</strong>, <strong>idempotency</strong>, <strong>credential vault security</strong>, <strong>แยก Tenant/Admin console เป็นคนละแอป (blast radius)</strong></p>
+<p>ชั้นจากบนลงล่าง: ช่องทางบริษัทในเครือ → control plane (2 console) → platform core → PSP adapter → PSP (ใน PCI scope) โดยเงิน settle จาก PSP เข้าบัญชีบริษัทโดยตรง</p>
+<hr/>
+<h2 id="s2">ขอบเขตงาน (in scope) — ทั้ง SaaS</h2>
+<p><strong>ทั้งระบบคือ scope เดียวกัน</strong> — SaaS อีคอมเมิร์ซประกันภัยที่มี 5 โมดูลอยู่ใน scope เดียวกัน คุยกันผ่าน Mediator แบบ modular:</p>
+<table>
+<thead>
+<tr>
+<th>โมดูลใน SaaS (in scope)</th>
+<th>บทบาท</th>
+<th>เทียบอีคอมเมิร์ซ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Products</strong></td>
+<td>แผนประกัน / กรมธรรม์ (แคตตาล็อก + quote เบี้ย)</td>
+<td>สินค้า / SKU</td>
+</tr>
+<tr>
+<td><strong>Cart</strong></td>
+<td>ตะกร้าสินค้า — รวมแผนที่เลือก + quote (แก้ไขได้)</td>
+<td>ตะกร้า / cart</td>
+</tr>
+<tr>
+<td><strong>Checkout</strong></td>
+<td>หน้าสรุปคำสั่งซื้อ + ส่วนลด + ข้อมูลผู้ซื้อ + <strong>เลือกช่องทางจ่าย 1 ช่องทาง (ล็อก)</strong> + ตั้งค่าผู้รับแจ้งเตือน → สร้าง Order</td>
+<td>checkout</td>
+</tr>
+<tr>
+<td><strong>Orders</strong></td>
+<td>ข้อมูลคำสั่งซื้อ + <strong>ลิงก์</strong>ไปหน้าสรุป (ที่ Payments ให้บริการ) · <strong>ส่งแจ้งเตือน + ลิงก์ให้ลูกค้าแบบ background</strong> (ระบุผู้รับได้) · <code>PendingPayment</code> <strong>ยังไม่แตะ PSP</strong> · รับ <code>PaymentPaid</code> → Paid</td>
+<td>คำสั่งซื้อ / order</td>
+</tr>
+<tr>
+<td><strong>Payments</strong></td>
+<td><strong>หน้าจอสรุปคำสั่งซื้อสำหรับลูกค้า</strong> (ดึงข้อมูลจาก Orders) · ลูกค้ากดยืนยัน → สร้าง <strong>รายการจ่ายกับ PSP</strong> + redirect URL (<code>paymentUri</code>) → รับชำระ redirect-only, captive</td>
+<td>ชำระเงิน / payment</td>
+</tr>
+</tbody>
+</table>
+<p>Flow ใน SaaS: Products → <strong>Cart</strong> → <strong>Checkout</strong> → Orders → <strong>Payments</strong> · จบที่ <strong>"รับชำระเสร็จ → emit <code>PaymentPaid</code>"</strong> — SaaS <strong>ไม่มีขั้นจัดส่ง/ออกกรมธรรม์ (issuance)</strong></p>
+<p><strong>ผู้เกี่ยวข้อง:</strong> <em>ผู้ผลิต (Tenant Console)</em> = ผู้เลือกแผน/กรมธรรม์ → ตะกร้า → checkout · <em>ลูกค้า</em> = เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น)</p>
+<blockquote>
+<p><strong>ลำดับสำคัญ:</strong> สร้าง Order <strong>ไม่ได้สร้างรายการกับ PSP</strong> — Order อยู่ <code>PendingPayment</code> + มีลิงก์ไปหน้าสรุป · รายการกับ PSP (<code>paymentUri</code>) ถูกสร้างใน <strong>Payments เมื่อลูกค้าเปิดหน้าสรุป (ของ Payments) แล้วกดยืนยัน</strong> → Orders ไม่ผูกกับ PSP โดยตรง เปลี่ยน/เพิ่ม PSP ได้โดยไม่แตะ Orders</p>
+<p><strong>การแจ้งเตือน (background):</strong> Orders ส่งผ่าน <strong>Message Queue → Notification Worker</strong> · ล้มเหลว → <strong>retry แบบ backoff</strong> สูงสุด N ครั้ง → ครบแล้วเข้า <strong>DLQ</strong> + แจ้งผู้ผลิต · <strong>ลิงก์หน้าสรุปมี TTL</strong> เปิดหลังหมดอายุ = error · <strong>ส่งซ้ำ / ออกลิงก์ใหม่</strong> = Orders ออก token ใหม่ + ต่ออายุ แล้ว enqueue รอบใหม่</p>
+<p><strong>ช่องทางชำระเงิน:</strong> Checkout เลือก <strong>1 ช่องทางต่อ Order</strong> (บัตร / PromptPay / ผ่อน อย่างใดอย่างหนึ่ง) แล้ว <strong>ล็อก</strong> — ลูกค้า <strong>เลือก/เปลี่ยนเองไม่ได้</strong> ที่หน้าสรุป · Payments สร้างรายการ PSP ตามช่องทางที่ล็อกไว้ (routing primary/fallback เป็นเรื่องภายในของช่องทางนั้น)</p>
+<p>เอกสารนี้ลงรายละเอียด <strong>โมดูล Payments</strong> เป็นหลัก (หัวข้อ 1–7) · Products/Cart/Checkout/Orders มีสเปกของตัวเองแยก แต่ทั้งหมดอยู่ใน <strong>scope เดียวกันของ SaaS</strong></p>
+</blockquote>
+<p><strong>โมดูล Payments ทำอะไร:</strong>
+- รับ payment intent จากช่องทางของบริษัทในเครือ → ออก <strong>redirect ไปหน้า PSP</strong> (สัญญากลางรูปทรงเดียวทุก PSP)
+- รับผลจริงทาง <strong>webhook (source of truth)</strong> → verify ลายเซ็น + fetch-to-confirm → อัปเดตสถานะ → emit <code>PaymentPaid</code>
+- <strong>Multi-tenant provisioning</strong> — Admin Console สร้าง tenant + เก็บ PSP credential/config ต่อบริษัท (vault)
+- <strong>2 SaaS console</strong> (Tenant/Admin) คนละแอป + <strong>RBAC</strong> + <strong>identity (Google SSO)</strong>
+- <strong>PSP adapter</strong> 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร/PromptPay/ผ่อน)
+- <strong>Reconciliation = reporting</strong>, retry/dunning, idempotency, audit log</p>
+<p><strong>โมเดล Payments (captive):</strong>
+- <strong>Captive</strong> — เปิดเฉพาะ 3 นิติบุคคลในเครือ (allowlist) ไม่รับคนนอก
+- <strong>No payout</strong> — เงิน settle จาก PSP เข้าบัญชี merchant ของแต่ละบริษัท <strong>โดยตรง</strong> → อยู่นอก funds flow
+- <strong>Free</strong> — ไม่มี billing/ค่าบริการ
+- <strong>Regulatory</strong> — captive + ไม่ถือเงิน → เป็น merchant/tech provider ไม่เข้าข่ายใบอนุญาตประเภทที่ 3 ของ ธปท. ใบอนุญาตอยู่ที่ PSP <em>(ควรคอนเฟิร์ม ธปท. หากนิติบุคคลไม่ได้อยู่ใต้การควบคุมเดียวกัน หรือวันใดเปิดให้คนนอกใช้)</em>
+- <strong>PCI</strong> — SAQ A รายนิติบุคคล (redirect-only ไม่แตะข้อมูลบัตร)</p>
+<p><strong>รอยต่อข้ามโมดูล (Payments ↔ Orders) ที่ต้องระวัง:</strong>
+- ชนิดเงินที่ seam <code>PaymentPaid</code> — Contracts ปัจจุบัน <code>Amount</code> เป็น <code>long</code> สตางค์ แต่ Orders ใช้ <code>decimal</code> บาท → ควรย้าย <code>Money</code> ไป Contracts/SharedKernel ให้ทุกโมดูลใช้ร่วม
+- <strong>verify amount/currency</strong> ตอน Orders รับ <code>PaymentPaid</code> ไม่ใช่แค่ <code>PaymentId</code> (กันจ่ายไม่ครบ/สกุลผิด)
+- <strong>correlation:</strong> Orders ถือ <code>PaymentId</code> ตั้งแต่ตอนเรียก Payments → จับคู่ <code>PaymentPaid</code> ได้ทันที (ไม่มี attach-race) · จะใส่ <code>OrderId</code> ใน <code>PaymentPaid</code> เพิ่มก็ได้เพื่อความชัด</p>
+<hr/>
+<h2 id="s3">ลำดับเหตุการณ์ E2E (sequence)</h2>
+<p>ไดอะแกรมเรนเดอร์ด้วย mermaid.js (โหลดจาก CDN — ต้องต่อเน็ตครั้งแรก)</p>
+<h3 id="s3-1">เส้นทางหลัก (happy path)</h3>
+<div class="mermaid">sequenceDiagram
+  autonumber
+  participant Pd as ผู้ผลิต · Tenant Console
+  participant Pr as Products
+  participant Ca as Cart
+  participant Ck as Checkout
+  participant O as Orders
+  participant Cu as ลูกค้า
+  participant Pay as Payments
+  participant PSP as PSP (2C2P/Opn)
+  loop เลือกได้หลายแผน/กรมธรรม์
+    Pd-&gt;&gt;Pr: เลือกแผนประกัน
+    Pr--&gt;&gt;Pd: quote เบี้ย
+    Pd-&gt;&gt;Ca: add ลงตะกร้า
+  end
+  Pd-&gt;&gt;Ck: สรุป + ส่วนลด + ข้อมูลผู้ซื้อ + เลือกช่องทางจ่าย (1 อย่าง)
+  Ck-&gt;&gt;O: สร้าง Order (+ ช่องทางจ่ายที่ล็อก + ผู้รับแจ้งเตือน)
+  Note over O: PendingPayment · มีลิงก์หน้าสรุป · ยังไม่แตะ PSP
+  O-)Cu: แจ้งเตือน + ลิงก์หน้าสรุป (background · ระบุผู้รับได้)
+  Cu-&gt;&gt;Pay: เปิดหน้าสรุปคำสั่งซื้อ (จากลิงก์)
+  Pay-&gt;&gt;O: ดึงข้อมูลคำสั่งซื้อ
+  O--&gt;&gt;Pay: ข้อมูลคำสั่งซื้อ
+  Pay--&gt;&gt;Cu: แสดงหน้าสรุป (รอยืนยัน)
+  Note over Cu,Pay: ช่องทางจ่ายล็อกจาก checkout · ลูกค้าเลือกเองไม่ได้
+  Cu-&gt;&gt;Pay: กดยืนยัน
+  Pay-&gt;&gt;PSP: สร้างรายการจ่าย (ช่องทางที่ล็อก)
+  Note over Pay,PSP: PSP ถูกแตะครั้งแรก
+  PSP--&gt;&gt;Pay: redirect URL (paymentUri)
+  Pay--&gt;&gt;Cu: redirect ไปหน้า PSP (paymentUri)
+  Cu-&gt;&gt;PSP: จ่าย (redirect-only)
+  PSP-&gt;&gt;Pay: webhook (charge.complete)
+  Note over Pay,PSP: PSP แตะครั้งที่ 2 = source of truth
+  Pay-&gt;&gt;Pay: verify + idempotent + fetch-to-confirm
+  Pay-&gt;&gt;O: emit PaymentPaid (Mediator)
+  O-&gt;&gt;O: PendingPayment → Paid
+  Note over O: จบ — ไม่มี issuance/จัดส่ง
+</div>
+<h3 id="s3-2">การแจ้งเตือน (Message Queue + retry) และวงจรลิงก์ (หมดอายุ/ส่งซ้ำ)</h3>
+<div class="mermaid">sequenceDiagram
+  autonumber
+  participant Pd as ผู้ผลิต
+  participant O as Orders
+  participant MQ as Message Queue
+  participant W as Notify Worker
+  participant Cu as ลูกค้า
+  participant Pay as Payments
+  Note over O,MQ: ส่งแจ้งเตือนแบบ background ผ่านคิว
+  O-&gt;&gt;MQ: enqueue NotifyCustomer (OrderId, ผู้รับ, ลิงก์)
+  MQ--&gt;&gt;W: deliver job
+  loop retry · backoff สูงสุด N ครั้ง
+    W-&gt;&gt;Cu: ส่งแจ้งเตือน + ลิงก์หน้าสรุป
+    alt ส่งสำเร็จ
+      Cu--&gt;&gt;W: ack (delivered)
+    else ล้มเหลว / timeout
+      W-&gt;&gt;MQ: requeue (attempt+1)
+    end
+  end
+  Note over W,MQ: ครบ N ครั้ง → DLQ + แจ้งผู้ผลิต
+  Cu-&gt;&gt;Pay: เปิดลิงก์หน้าสรุป (token)
+  Pay-&gt;&gt;O: ตรวจ token + วันหมดอายุ
+  alt ลิงก์ยังไม่หมดอายุ
+    O--&gt;&gt;Pay: valid → ข้อมูลคำสั่งซื้อ
+    Pay--&gt;&gt;Cu: แสดงหน้าสรุป (รอยืนยัน)
+  else ลิงก์หมดอายุ
+    O--&gt;&gt;Pay: expired
+    Pay--&gt;&gt;Cu: ลิงก์หมดอายุ
+  end
+  Pd-&gt;&gt;O: ขอส่งซ้ำ / ออกลิงก์ใหม่
+  O-&gt;&gt;O: ออก token ใหม่ + ต่ออายุ TTL
+  O-&gt;&gt;MQ: enqueue NotifyCustomer (ลิงก์ใหม่)
+</div>
+<hr/>
+<h2 id="s4">นอกขอบเขต — ฟังก์ชันที่ "ห้าม implement"</h2>
+<blockquote>
+<p>สิ่งเหล่านี้อยู่ <strong>นอก scope ของ SaaS โดยตั้งใจ</strong> — ถ้าเพิ่มเข้ามาจะเปลี่ยนสถานะทางกฎหมายและขยาย PCI scope ทันที <strong>ห้าม implement และห้าม "ช่วยเพิ่มให้เอง"</strong></p>
+</blockquote>
+<ol>
+<li><strong>ห้ามสร้าง settlement / payout engine</strong> — ระบบต้องไม่รับ ถือ หรือจ่ายเงินต่อ ไม่มี money ledger / wallet / float / escrow / disbursement เงิน settle จาก PSP เข้าบัญชี merchant ของแต่ละบริษัทโดยตรง (เราอยู่นอก funds flow เสมอ)</li>
+<li><strong>ห้ามทำ billing / เก็บค่าบริการ</strong> — ใช้ฟรี ไม่มี subscription / invoice / usage metering เพื่อเรียกเก็บเงิน / fee deduction</li>
+<li><strong>ห้ามทำ public หรือ self-serve onboarding สำหรับคนนอก</strong> — onboarding เป็น allowlist เฉพาะ vCentral / vCommerce / vSouvenir ไม่ต้องต่อ KYB/AML provider ของ merchant ภายนอก ไม่ต้องมีหน้าสมัครแบบเปิด</li>
+<li><strong>ห้ามแตะข้อมูลบัตร</strong> — ห้าม collect / store / transmit / tokenize PAN ห้ามมี card input field / hosted-fields / iframe ที่รับข้อมูลบัตรบนโดเมนเรา (ตัด client-side tokenization เช่น Omise.js card ออกทั้งหมด)</li>
+<li><strong>ห้ามสร้างฟังก์ชันของ PSP / acquirer เอง</strong> — ไม่มี acquiring, card scheme connectivity, 3DS/ACS, payment processing เราเป็น merchant/orchestrator ที่ "ใช้" 2C2P/Omise ไม่ใช่ "เป็น" PSP</li>
+<li><strong>ห้าม flow แบบ non-redirect</strong> — ห้ามทำ display-QR-บนหน้าเรา, iframe, hosted-fields หรือ flow ใดที่ render UI การจ่ายบนโดเมนเรา ใช้ <strong>full redirect ไปหน้า PSP เท่านั้น</strong> (เพื่อคง SAQ A)</li>
+<li><strong>Reconciliation = reporting เท่านั้น</strong> — ห้ามสร้างลอจิกที่เคลื่อนเงิน/ปรับยอดจริง เป็นการกระทบยอดเพื่อแสดงผลเท่านั้น</li>
+</ol>
+<blockquote>
+<p><strong>หมายเหตุสำหรับ AI agent ที่พัฒนาระบบ:</strong> ถ้าเจอ requirement, ticket หรือไอเดียที่นำไปสู่ข้อใดข้างต้น ให้ <strong>หยุดและถามก่อน</strong> อย่า implement เอง แม้จะดู "เป็นประโยชน์" — เพราะกระทบสถานะใบอนุญาตและ PCI scope ของทั้ง SaaS</p>
+</blockquote>
+<hr/>
+<h2 id="s5">1. ชั้นช่องทาง (Channels)</h2>
+<h3 id="s5-1">เก็บเบี้ย / รับชำระ (premium / payment in)</h3>
+<ul>
+<li><strong>บทบาท:</strong> จุดที่ลูกค้าของแต่ละบริษัทในเครือกดจ่าย (ออนไลน์/แอป/ช่องทางของบริษัทนั้น)</li>
+<li><strong>อินพุต:</strong> การกระทำของลูกค้า + ข้อมูลรายการ</li>
+<li><strong>เอาต์พุต:</strong> payment intent ส่งเข้า Create session</li>
+<li><strong>หมายเหตุ:</strong> ไม่มี disbursement/payout ผ่านแพลตฟอร์ม (ถูกตัดในโมเดล captive)</li>
+</ul>
+<hr/>
+<h2 id="s6">2. Control plane — แยกเป็น 2 SaaS apps</h2>
+<p>ทั้งสองแอปเป็นคนละ frontend/คนละ deploy แต่ <strong>นั่งบน backend + data ชุดเดียวกัน</strong></p>
+<h3 id="s6-1">2.1 Tenant Console (SaaS app #1)</h3>
+<ul>
+<li><strong>บทบาท:</strong> แอปเดียวที่ทั้ง 3 บริษัทใช้ร่วมกัน โดย scope ต่อรายผ่าน tenant context จากตอน login</li>
+<li><strong>หน้าที่หลัก:</strong> ดู dashboard/รายงาน/reconciliation เฉพาะตน, ตั้งค่าระดับที่อนุญาต — <strong>ไม่ได้สร้าง tenant หรือกรอก PSP credential เอง</strong> (admin provision ให้)</li>
+<li><strong>คุณสมบัติ:</strong> public-facing · เห็นเฉพาะข้อมูล tenant ตน</li>
+<li><strong>หมายเหตุ:</strong> ไม่มี code path ไปฟังก์ชัน admin เลย</li>
+</ul>
+<h3 id="s6-2">2.2 Admin Console (SaaS app #2)</h3>
+<ul>
+<li><strong>บทบาท:</strong> แอปของทีมกลาง เข้าถึงข้ามทุก tenant</li>
+<li><strong>หน้าที่หลัก:</strong> <strong>สร้าง/provision Tenant Console ให้แต่ละบริษัท</strong>, กรอกและเก็บ PSP integration config + credential รายบริษัทลง vault, ตั้ง webhook/return URL mapping ต่อ tenant, จัดการ tenant/allowlist, ตั้ง routing, มอนิเตอร์, audit</li>
+<li><strong>คุณสมบัติ:</strong> <strong>internal-only</strong> (VPN/IP allowlist, MFA เข้มกว่า, แยก identity provider) · แยก deploy/codebase เพื่อลด blast radius</li>
+<li><strong>หมายเหตุ:</strong> เป็น control plane ตัวจริง — ฟังก์ชันอำนาจสูงทั้งหมดอยู่ที่นี่</li>
+</ul>
+<h3 id="s6-3">2.3 Permission model (RBAC)</h3>
+<ul>
+<li><strong>โครงสร้าง:</strong> สิทธิ = Scope × Resource × Action</li>
+<li><strong>Role ใน Tenant Console:</strong> Tenant Admin / Finance / Viewer (scope = tenant ตนเท่านั้น)</li>
+<li><strong>Role ใน Admin Console:</strong> Platform Owner / Operator / Risk &amp; Compliance / Support (scope = ทุก tenant)</li>
+<li><strong>maker-checker:</strong> ใช้กับ action อ่อนไหว เช่น approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist</li>
+<li><strong>บังคับใช้:</strong> การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ <strong>backend authorization แยก permission scope ให้ขาด</strong> endpoint ของ admin (cross-tenant/approve/config) ต้องเรียกผ่าน session ของ Tenant Console ไม่ได้</li>
+</ul>
+<h3 id="s6-4">2.4 Provisioning (admin-driven)</h3>
+<ul>
+<li><strong>ลำดับ:</strong> Admin สร้าง tenant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ tenant → provision Tenant Console + พื้นที่ข้อมูลแยก → tenant พร้อมใช้</li>
+<li><strong>บทบาท:</strong> ทีมกลาง provision ทั้งหมดผ่าน Admin Console (ไม่ใช่ self-serve ของ tenant) เหมาะกับ captive เพราะ 3 บริษัทอยู่ในเครือ ทีมกลางถือ credential ได้</li>
+<li><strong>ขอบเขต:</strong> เฉพาะ vCentral / vCommerce / vSouvenir (allowlist) · ไม่มี billing</li>
+<li><strong>ข้อมูลที่ provision (data model):</strong> <code>Tenant</code> (Name/Status/EnabledChannels/Currency) → <code>PspConnection</code> ต่อ PSP (Psp, MerchantId, EnabledMethods, WebhookPath) → <code>VaultSecret</code> ต่อ connection (SecretKey/PublicKey/WebhookSecret — เก็บเป็น ciphertext เข้ารหัส) · runtime: <code>PaymentSession</code> อ้าง TenantId + ConnectionId</li>
+<li><strong>การอ่านตอน runtime:</strong> adapter อ่าน <code>PspConnection</code> แล้ว decrypt <code>VaultSecret</code> ที่เกี่ยว ไปเรียก 2C2P/Omise แล้วเขียน <code>PaymentSession</code></li>
+</ul>
+<h4>Config payload (admin submit)</h4>
+<p>ตัวอย่าง payload เต็ม (100%) ที่ทีมกลางกรอกผ่าน Admin Console — vCommerce ใช้ทั้ง 2C2P + Omise โดยทั้ง 2 PSP เปิดครบ 3 ช่องทาง:</p>
+<pre><code class="language-json">{
+  "tenant": {
+    "code": "vcommerce",
+    "displayName": "vCommerce Co., Ltd.",
+    "legalEntityId": "0105560000000",
+    "status": "active",
+    "country": "TH",
+    "currency": "THB",
+    "timezone": "Asia/Bangkok",
+    "locale": "th-TH",
+    "enabledChannels": ["card", "promptpay", "installment"],
+    "branding": {
+      "statementName": "VCOMMERCE",
+      "supportEmail": "support@vcommerce.co.th",
+      "logoUrl": "https://cdn.vgroup.internal/vcommerce/logo.png"
+    },
+    "routing": {
+      "card":        { "primary": "2c2p",  "fallback": "omise" },
+      "promptpay":   { "primary": "2c2p",  "fallback": null },
+      "installment": { "primary": "omise", "fallback": "2c2p" }
+    },
+    "session": {
+      "expiryMinutes": 30,
+      "idempotencyTtlHours": 24
+    },
+    "createdByAdmin": "ops-007"
+  },
+  "pspConnections": [
+    {
+      "psp": "2c2p",
+      "environment": "production",
+      "merchantId": "764764000012345",
+      "currencyCode": "764",
+      "enabledMethods": ["card", "promptpay", "installment"],
+      "card": { "secure3ds": true },
+      "installment": { "terms": [3, 6, 10], "banks": ["KBANK", "BAY", "SCB", "BBL"] },
+      "frontendReturnUrl": "https://pay.vgroup.internal/return/vcommerce/2c2p",
+      "backendReturnUrl": "https://pay.vgroup.internal/webhook/vcommerce/2c2p",
+      "webhookPath": "/webhook/vcommerce/2c2p",
+      "locale": "th",
+      "secrets": {
+        "secretKey": "&lt;2c2p merchant secret key · JWT signing · write-only&gt;"
+      }
+    },
+    {
+      "psp": "omise",
+      "environment": "production",
+      "accountId": "acct_5xxxxxxxxxxxxxxx",
+      "apiVersion": "2019-05-29",
+      "enabledMethods": ["card", "promptpay", "installment"],
+      "card": { "via": "links_api", "secure3ds": true },
+      "alternativeMethods": { "via": "source_charge" },
+      "enabledSources": ["promptpay", "installment_kbank", "installment_bay", "installment_scb"],
+      "installment": { "terms": [3, 6, 10], "minAmountThb": 3000 },
+      "returnUri": "https://pay.vgroup.internal/return/vcommerce/omise",
+      "webhookPath": "/webhook/vcommerce/omise",
+      "secrets": {
+        "publicKey": "pkey_xxxxxxxxxxxxxxxx",
+        "secretKey": "&lt;omise skey · server-side API · write-only&gt;",
+        "webhookSecret": "&lt;omise webhook signing secret · write-only&gt;"
+      }
+    }
+  ]
+}
+</code></pre>
+<p><strong>Field reference (ที่เพิ่มจากเวอร์ชันย่อ):</strong>
+- <code>tenant.routing</code> — เพราะทั้ง 2 PSP ทำได้ครบ 3 ช่องทาง ต้องระบุ <strong>primary/fallback ต่อช่องทาง</strong> (เช่น installment → Omise ก่อน, ตกไป 2C2P) feed เข้า Method router
+- <code>tenant.branding</code> / <code>locale</code> / <code>timezone</code> — แสดงบนหน้า PSP + จัด session expiry ตามเวลาไทย
+- <code>tenant.session</code> — คุม expiry ของ redirect session + TTL ของ idempotency
+- <code>psp.environment</code> — <code>production</code> / <code>sandbox</code> แยก key คนละชุด
+- <strong>2C2P:</strong> <code>currencyCode</code> เป็นรหัสตัวเลข ISO (<code>764</code> = THB) · <code>installment.terms/banks</code> · <code>card.secure3ds</code> · แยก <code>frontendReturnUrl</code> (UX) กับ <code>backendReturnUrl</code> (truth)
+- <strong>Omise:</strong> <code>apiVersion</code> (Omise-Version header) · <code>card.via = "links_api"</code> (บัตรผ่าน Links API → <code>paymentUri</code> ไม่ใช่ Omise.js) · <code>alternativeMethods.via = "source_charge"</code> (PromptPay/ผ่อน → <code>authorizeUri</code>) · <code>enabledSources</code> คือ source types จริงของ Omise</p>
+<p><strong>Map ลงตาราง:</strong>
+- <code>tenant.*</code> (รวม nested <code>branding</code>/<code>routing</code>/<code>session</code>) → <code>Tenant</code> (คอลัมน์ตรง + ส่วนยืดหยุ่นเก็บใน <code>Metadata</code> json)
+- แต่ละ <code>pspConnections[]</code> (ยกเว้น <code>secrets</code>) → <code>PspConnection</code> (config ไม่ลับ; <code>card</code>/<code>installment</code>/<code>enabledSources</code> เก็บใน json ของแถวนั้น)
+- ทุกคีย์ใน <code>secrets</code> → <code>VaultSecret</code> (เข้ารหัส, <code>Kind</code> = ชื่อ field, 1 แถวต่อ secret)</p>
+<ul>
+<li><strong>กฎ secret:</strong> ฟิลด์ใน <code>secrets</code> เป็น <strong>write-only</strong> — API อ่านกลับต้อง mask เสมอ (เช่น <code>"secretKey": "••••3a9f"</code>) ไม่ส่ง plaintext คืน</li>
+<li><strong>WebhookPath / returnUri:</strong> ต้องเอาไปตั้งใน dashboard ของ PSP ฝั่งบริษัทด้วย เพื่อให้ callback/return แยก tenant/PSP ได้</li>
+</ul>
+<h4>Provisioning sequence</h4>
+<ol>
+<li>Admin → Backend: submit config (JSON)</li>
+<li>Backend: validate (allowlist = vCentral/vCommerce/vSouvenir เท่านั้น + schema)</li>
+<li>Backend → DB: INSERT <code>Tenant</code></li>
+<li>Backend → DB: INSERT <code>PspConnection</code> (config ไม่ลับ)</li>
+<li>Backend → Vault: encrypt → <code>VaultSecret</code> (เก็บคนละที่กับ DB)</li>
+<li>Backend → DB: provision space · status = active</li>
+<li>Backend → Admin: done (secrets masked)</li>
+<li>หลังจากนั้น: ผู้ใช้ของ tenant login เข้า Tenant Console ใช้งานได้ทันที</li>
+</ol>
+<h4>ข้อควรทำ (สำหรับ AI agent ที่ implement)</h4>
+<ul>
+<li>ขั้น 3–6 (<code>Tenant</code> / <code>PspConnection</code> / <code>VaultSecret</code> / active) ต้องอยู่ใน <strong>transaction เดียว</strong> กัน partial provision</li>
+<li><strong>validate ก่อนเขียน:</strong> allowlist + schema</li>
+<li><strong>idempotent</strong> ด้วย tenant key กันกดสร้างซ้ำ</li>
+<li>secret เข้า vault แยกจาก config และ <strong>อ่านกลับ mask เสมอ</strong></li>
+</ul>
+<h3 id="s6-5">2.5 Identity &amp; RBAC (Google SSO)</h3>
+<p><strong>IdP:</strong> ทั้งสอง console ใช้ Google SSO (Sign in with Google) → <code>iss</code> ร่วมกัน (<code>accounts.google.com</code>) จึง <strong>แยก domain ด้วย <code>aud</code> (OAuth client คนละตัวต่อ console) + ตาราง identity ฝั่ง platform + <code>hd</code> guard</strong> ไม่ใช่ด้วย <code>iss</code></p>
+<p><strong>Authn vs authz:</strong> Google ทำแค่ authentication (ยืนยันเจ้าของอีเมล → ให้ <code>sub</code>/<code>email</code>/<code>hd</code>) ส่วน role/tenant ตัดสินที่ platform เสมอ</p>
+<h4>Admin Console</h4>
+<ul>
+<li><strong>ด่านเข้า (default-deny):</strong> ตรวจ <code>aud=admin-client</code> + <strong><code>hd=platform.com</code></strong> ทุก request — ไม่ผ่าน → 403</li>
+<li><strong>Role:</strong> ผ่าน hd-gate ครั้งแรก → <strong>role ต่ำสุดเป็น default</strong> (read-only) elevate เป็น Operator/Risk/Owner ผ่าน record ที่ทีมกลางกำหนด</li>
+<li><strong>Bootstrap owner:</strong> seed owner คนแรกผ่าน config/migration (ตารางว่างตอน deploy → elevate ตัวเองผ่าน UI ไม่ได้)</li>
+<li><strong>Roles:</strong> Platform Owner · Operator · Risk &amp; Compliance · Support (cross-tenant)</li>
+<li><strong>สมมติฐานที่ต้องจริงตลอด:</strong> ทุกบัญชี @platform.com = คนที่ให้เข้า admin ได้ (โดเมนสงวนเฉพาะทีมกลาง) ถ้าวันใดโดเมนขยายใช้ทั่วไป ต้องกลับไปใช้ allowlist รายคน</li>
+</ul>
+<h4>Tenant Console (producer)</h4>
+<ul>
+<li><strong>Key:</strong> <code>ExternalLogin(provider, sub)</code> — ใช้ Google <code>sub</code> (immutable) ไม่ใช่ email</li>
+<li><strong>Register flow:</strong> login Google → ไม่พบ ExternalLogin = ผู้สมัครใหม่ → ออก <strong>registration ticket</strong> (พก verified identity, short-lived + single-use, ยังไม่ใช่ session) → กรอกฟอร์ม → สร้าง <code>TenantUser(PendingApproval)</code> + ExternalLogin + Profile → แจ้ง admin</li>
+<li><strong>Approval:</strong> admin <strong>เลือก tenant จาก <code>Tenant</code> ที่มีอยู่</strong> (ทางเดียวทุกเคส รวม gmail) + กำหนด role → Active · <code>TenantId</code> resolve จากที่ admin เลือกเท่านั้น (ไม่เชื่อค่าจากฟอร์ม) + validate ว่า tenant exists/active</li>
+<li><strong>State machine:</strong> New → PendingApproval → Active / Rejected · Rejected → correction ticket → resubmit (→Pending) · Pending → 403 "รออนุมัติ"</li>
+<li><strong>Roles:</strong> Tenant Admin · Finance · Viewer (scope = tenant ตน, RLS ด้วย <code>TenantId</code>)</li>
+<li><strong>โดเมน:</strong> บริษัท (@vcentral/@vcommerce/@vsouvenir) ใช้ <code>hd</code> เป็น guard เสริมได้ · @gmail = personal account ไม่มี <code>hd</code>, offboarding ต้องลบแถวเอง → allowlist รายคนคือด่านเดียว</li>
+</ul>
+<h4>ตาราง identity (แยก schema)</h4>
+<ul>
+<li><code>AdminUser</code> (schema admin): <code>Email</code>/<code>Sub</code> PK · <code>Role</code> · <code>Status</code></li>
+<li><code>TenantUser</code> (schema producer): <code>Sub</code> PK · <code>TenantId</code> FK · <code>Role</code> · <code>Status</code> — คู่กับ <code>ExternalLogin</code> · <code>Profile</code> · <code>RegistrationTicket</code></li>
+<li>แยก 2 schema → อีเมลในตารางหนึ่งไม่ได้สิทธิอีกฝั่งโดยอัตโนมัติ (คนละ RBAC realm)</li>
+</ul>
+<h4>Enforcement (ทุก request)</h4>
+<p>verify Google id_token (sig/<code>iss</code>/<code>aud</code>/exp/email_verified) → guard <code>hd</code> (ถ้ามี) → lookup table ของ console นั้น (ไม่พบ/disabled = 403) → scope ด้วยคอลัมน์ <code>TenantId</code> (RLS, ฝั่ง tenant) · token ข้าม domain ตกที่ <code>aud</code> ไม่ตรง</p>
+<hr/>
+<h2 id="s7">3. แพลตฟอร์มกลาง (Platform core) — captive · ไม่ถือเงิน</h2>
+<p>backend + data ที่ทั้งสอง console ใช้ร่วมกัน</p>
+<h3 id="s7-1">3.1 Session layer</h3>
+<h4>Create session</h4>
+<ul>
+<li>ออก redirect URL ให้เบราว์เซอร์ (สัญญากลาง รูปทรงเดียวทุก PSP)</li>
+</ul>
+<h4>Return handler</h4>
+<ul>
+<li>รับ browser redirect กลับ แสดง UX — <strong>ไม่ตัดสินสถานะการจ่าย</strong></li>
+</ul>
+<h4>Webhook handler</h4>
+<ul>
+<li><strong>แหล่งความจริง</strong> ของสถานะ: verify ลายเซ็น + idempotent + fetch-to-confirm → อัปเดตสถานะ + แจ้งบริษัท</li>
+</ul>
+<h3 id="s7-2">3.2 Engine</h3>
+<h4>Method router</h4>
+<ul>
+<li>ตัดสินช่องทาง → PSP ต่อ tenant ตาม config <code>enabledMethods</code> — ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP (ทุก cell redirect-only/SAQ A — หมวด 5)</li>
+</ul>
+<h4>Credential vault</h4>
+<ul>
+<li><strong>สินทรัพย์อ่อนไหวที่สุดของระบบ</strong> — เก็บ PSP keys รายบริษัท (แทนที่ card tokenization ที่ไม่มีแล้วเพราะ redirect-only) ต้อง encrypt + แยก key ต่อ tenant</li>
+</ul>
+<h4>Retry &amp; dunning</h4>
+<ul>
+<li>จัดการตัดเบี้ยไม่ผ่าน กันกรมธรรม์/รายการขาดอายุ</li>
+</ul>
+<h4>Reconciliation</h4>
+<ul>
+<li>กระทบยอดเป็น <strong>reporting</strong> เท่านั้น (ไม่เคลื่อนเงิน เพราะอยู่นอก funds flow)</li>
+</ul>
+<h4>Idempotency store</h4>
+<ul>
+<li>กันประมวลผล webhook/รายการซ้ำ ด้วย event id → map เป็น payment_id ภายใน</li>
+</ul>
+<hr/>
+<h2 id="s8">4. PSP adapter layer</h2>
+<p>normalize PSP ที่ทำ redirect คนละกลไกให้เป็นสัญญาเดียว: <code>createPaymentSession() → {redirect_url}</code>, <code>handleReturn()</code>, <code>handleWebhook() → normalized status</code></p>
+<h3 id="s8-1">4.1 2C2P adapter</h3>
+<ul>
+<li>กลไก: Payment Token Request → <code>webPaymentUrl</code>; ผลจริงทาง <code>backendReturnUrl</code>; ยืนยันซ้ำด้วย Payment Inquiry API</li>
+<li>ช่องทาง: บัตร · PromptPay · ผ่อนชำระ (redirect แท้ทั้งหมด → SAQ A)</li>
+</ul>
+<h3 id="s8-2">4.2 Omise/Opn adapter (redirect-only ทุกช่องทาง)</h3>
+<ul>
+<li><strong>บัตร:</strong> Links API → สร้าง link (one-time) → <code>paymentUri</code> (หน้า hosted ของ Opn ลูกค้ากรอกบัตรที่นั่น — ไม่ใช้ Omise.js ไม่แตะหน้าเรา)</li>
+<li><strong>วิธีจ่ายทางเลือก (PromptPay/ผ่อน/e-wallet):</strong> source + charge (มี <code>returnUri</code>, สถานะ pending) → <code>authorizeUri</code></li>
+<li>ผลจริงทุกช่องทางทาง webhook <code>charge.complete</code>; ยืนยันด้วย <code>GET /charges/{id}</code></li>
+<li>ทุกช่องทาง redirect แท้ → SAQ A</li>
+</ul>
+<hr/>
+<h2 id="s9">5. PSP &amp; payment methods (ใน PCI scope) + settlement</h2>
+<h3 id="s9-1">5.1 2C2P hosted page</h3>
+<ul>
+<li>หน้าจ่ายที่ 2C2P โฮสต์ · รับ บัตร / PromptPay / ผ่อน</li>
+</ul>
+<h3 id="s9-2">5.2 Opn hosted pages</h3>
+<ul>
+<li><strong>บัตร:</strong> Links API <code>paymentUri</code> → หน้า hosted ของ Opn (<code>link.omise.co</code>) — กรอกบัตรที่ Opn</li>
+<li><strong>PromptPay / ผ่อน / e-wallet:</strong> <code>authorizeUri</code> → หน้า Opn (แสดง QR / redirect ธนาคาร)</li>
+<li>ทุกหน้าจ่ายอยู่ฝั่ง Opn → ไม่แตะบัตรบนหน้าเรา · SAQ A</li>
+</ul>
+<h3 id="s9-3">Settlement (อยู่นอกแพลตฟอร์ม)</h3>
+<ul>
+<li>แต่ละบริษัทผูก <strong>merchant account ของตัวเอง</strong> กับ 2C2P/Omise → เงิน settle จาก acquirer/PSP เข้าบัญชีบริษัทนั้น <strong>โดยตรง</strong> แพลตฟอร์มไม่แตะเงิน</li>
+</ul>
+<h3 id="s9-4">ช่องทาง × PSP (เปิดได้ทั้ง 2 PSP · redirect-only ทุก cell)</h3>
+<p>ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ tenant ผ่าน config <code>enabledMethods</code> — ทุก cell เป็น <strong>redirect แท้ → SAQ A</strong> (ฝั่ง Opn ใช้ Links API สำหรับบัตร + source/charge สำหรับวิธีอื่น)</p>
+<table>
+<thead>
+<tr>
+<th>ช่องทาง</th>
+<th>PSP</th>
+<th>กลไก</th>
+<th>redirect / PCI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>บัตร</td>
+<td>2C2P</td>
+<td>hosted page (Redirect API)</td>
+<td>redirect แท้ · SAQ A</td>
+</tr>
+<tr>
+<td>บัตร</td>
+<td>Omise/Opn</td>
+<td><strong>Links API</strong> → <code>paymentUri</code> (หน้า hosted ของ Opn)</td>
+<td>redirect แท้ · SAQ A</td>
+</tr>
+<tr>
+<td>PromptPay</td>
+<td>2C2P</td>
+<td>hosted page (redirect)</td>
+<td>redirect แท้ · SAQ A</td>
+</tr>
+<tr>
+<td>PromptPay</td>
+<td>Omise/Opn</td>
+<td>source+charge (<code>returnUri</code>→<code>authorizeUri</code>)</td>
+<td>redirect แท้ · SAQ A</td>
+</tr>
+<tr>
+<td>ผ่อนชำระ</td>
+<td>2C2P</td>
+<td>hosted page (redirect)</td>
+<td>redirect แท้ · SAQ A</td>
+</tr>
+<tr>
+<td>ผ่อนชำระ</td>
+<td>Omise/Opn</td>
+<td>source+charge (<code>returnUri</code>→<code>authorizeUri</code>)</td>
+<td>redirect แท้ · SAQ A</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:</strong> บัตรใช้ <strong>Links API</strong> (<code>paymentUri</code> → หน้า hosted <code>link.omise.co</code> ลูกค้ากรอกบัตรที่ Opn — <em>ไม่ใช้ Omise.js, ไม่แตะเลขบัตรบนหน้าเรา</em>) · วิธีจ่ายทางเลือก (PromptPay/ผ่อน/e-wallet) ใช้ source+charge ที่ได้ <code>authorizeUri</code> (redirect ไปหน้า Opn ไม่ใช่ display-QR บนหน้าเรา) → <strong>สอดคล้องกับ directive out-of-scope ทั้งหมด</strong> (ไม่แตะบัตร · ไม่มี non-redirect/display-QR · SAQ A ล้วน)</p>
+</blockquote>
+<hr/>
+<h2 id="s10">6. ประเด็นข้ามระบบ (Cross-cutting)</h2>
+<ul>
+<li><strong>Multi-tenant isolation</strong> — ทุก query กรองคอลัมน์ <code>TenantId</code> ด้วย row-level security ที่ data layer (ไม่พึ่ง UI/app code) เพราะ backend ร่วมกัน</li>
+<li><strong>แยก Tenant/Admin เป็น 2 แอป</strong> — ลด blast radius; ฝั่ง tenant ไม่มี code path ไป admin; แต่ต้องแยก backend authz scope ให้ขาดด้วย</li>
+<li><strong>PCI SAQ A รายนิติบุคคล</strong> — redirect-only ไม่แตะข้อมูลบัตร</li>
+<li><strong>Webhook = source of truth</strong> — เชื่อ webhook ที่ลงลายเซ็น + fetch-to-confirm ไม่เชื่อ browser redirect</li>
+<li><strong>Maker-checker</strong> — สำหรับ action อ่อนไหว (approve tenant, เปลี่ยน routing, แก้ allowlist)</li>
+<li><strong>Idempotency</strong> — กันการประมวลผลซ้ำ</li>
+<li><strong>Credential vault security</strong> — encrypt + isolate PSP keys ต่อ tenant (สินทรัพย์อ่อนไหวหลัก)</li>
+<li><strong>Audit log</strong> — append-only เก็บ actor/scope/before-after/เหตุผล</li>
+</ul>
+<hr/>
+<h2 id="s11">7. ข้อสรุปกำกับดูแล (regulatory)</h2>
+<ul>
+<li><strong>Captive + ไม่ถือเงิน → เอนไป merchant/tech provider</strong> ไม่เข้าข่ายใบอนุญาตประเภทที่ 3 (รับชำระแทนผู้ขายรายอื่น) ใบอนุญาตอยู่ที่ PSP</li>
+<li><strong>Caveat:</strong> หากนิติบุคคลไม่ได้อยู่ใต้การควบคุมเดียวกันจริง หรือวันใดเปิดให้คนนอกใช้ → ภาพเปลี่ยน ควรหารือ ธปท.</li>
+<li><strong>KYC/AML posture</strong> ควรสะอาด (ภาคบริการชำระเงินถูกจับตาเข้ม) — allowlist เฉพาะในเครือช่วยลดความเสี่ยงตรงนี้</li>
+</ul>
+<hr/>
+<h2 id="s12">Naming conventions (C# / EF Core / SQL Server)</h2>
+<blockquote>
+<p>มาตรฐานการตั้งชื่อทั้งโปรเจกต์ อิง Microsoft Framework Design Guidelines — ใช้เป็นข้อมูลอ้างอิงของทีม หลักคือ <strong>C# identifier ↔ entity ↔ table ↔ column สะกดตรงกัน (PascalCase)</strong> เพื่อให้ EF Core map ตรงโดยไม่ต้อง alias</p>
+</blockquote>
+<h3 id="s12-1">C# (Framework Design Guidelines)</h3>
+<table>
+<thead>
+<tr>
+<th>สิ่ง</th>
+<th>แบบ</th>
+<th>ตัวอย่าง</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Namespace / Class / Struct / Record / Enum</td>
+<td>PascalCase</td>
+<td><code>PaymentSession</code></td>
+</tr>
+<tr>
+<td>Interface</td>
+<td><code>I</code> + PascalCase</td>
+<td><code>IPspAdapter</code></td>
+</tr>
+<tr>
+<td>Method (async ลงท้าย <code>Async</code>)</td>
+<td>PascalCase</td>
+<td><code>CreateSessionAsync</code></td>
+</tr>
+<tr>
+<td>Property</td>
+<td>PascalCase</td>
+<td><code>TenantId</code>, <code>IsActive</code></td>
+</tr>
+<tr>
+<td>Parameter / local variable</td>
+<td>camelCase</td>
+<td><code>tenantId</code></td>
+</tr>
+<tr>
+<td>Private field</td>
+<td><code>_</code> + camelCase</td>
+<td><code>_vault</code></td>
+</tr>
+<tr>
+<td>Constant / static readonly</td>
+<td>PascalCase</td>
+<td><code>DefaultCurrency</code></td>
+</tr>
+<tr>
+<td>Enum member</td>
+<td>PascalCase</td>
+<td><code>PaymentStatus.Pending</code></td>
+</tr>
+<tr>
+<td>Generic type parameter</td>
+<td><code>T</code> + PascalCase</td>
+<td><code>TKey</code></td>
+</tr>
+<tr>
+<td>Boolean</td>
+<td><code>Is</code>/<code>Has</code>/<code>Can</code> นำหน้า</td>
+<td><code>IsActive</code>, <code>HasWebhookSecret</code></td>
+</tr>
+<tr>
+<td>Collection</td>
+<td>พหูพจน์</td>
+<td><code>PspConnections</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Acronym:</strong> 3 ตัวอักษรขึ้นไป PascalCase → <code>Psp</code> (ไม่ใช่ <code>PSP</code>), <code>Html</code>, <code>Url</code> · 2 ตัวอักษรพิมพ์ใหญ่ทั้งคู่ → <code>IO</code> ⇒ โปรเจกต์นี้ใช้ <strong><code>Psp</code></strong> ตลอด (<code>PspConnection</code>, <code>PspAdapter</code>, <code>pspConnectionId</code>)</li>
+<li><strong>ชื่อแบรนด์/ขึ้นต้นด้วยตัวเลข:</strong> <code>2C2P</code> เป็น identifier ตรงๆ ไม่ได้ (ขึ้นต้นด้วยเลข) → ใช้ enum member <code>TwoCTwoP</code> หรือเก็บเป็น string · <code>Omise</code> ใช้ตรงได้</li>
+<li><strong>ห้าม:</strong> Hungarian notation (<code>strName</code>), prefix <code>m_</code>, ตัวย่อกำกวม</li>
+</ul>
+<h3 id="s12-2">EF Core</h3>
+<table>
+<thead>
+<tr>
+<th>สิ่ง</th>
+<th>แบบ</th>
+<th>ตัวอย่าง</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Entity</td>
+<td>PascalCase เอกพจน์</td>
+<td><code>Tenant</code>, <code>PspConnection</code>, <code>VaultSecret</code></td>
+</tr>
+<tr>
+<td>DbSet</td>
+<td>PascalCase พหูพจน์</td>
+<td><code>Tenants</code>, <code>PspConnections</code></td>
+</tr>
+<tr>
+<td>Navigation property</td>
+<td>PascalCase</td>
+<td><code>Tenant.PspConnections</code>, <code>PspConnection.Tenant</code></td>
+</tr>
+<tr>
+<td>Primary key</td>
+<td><code>{Entity}Id</code></td>
+<td><code>TenantId</code>, <code>ConnectionId</code></td>
+</tr>
+<tr>
+<td>Foreign key</td>
+<td><code>{Navigation}Id</code></td>
+<td><code>TenantId</code> (บน <code>PspConnection</code>)</td>
+</tr>
+<tr>
+<td>DbContext</td>
+<td><code>{Name}DbContext</code></td>
+<td><code>AdminDbContext</code>, <code>ProducerDbContext</code></td>
+</tr>
+<tr>
+<td>Entity configuration</td>
+<td><code>{Entity}Configuration</code></td>
+<td><code>TenantConfiguration : IEntityTypeConfiguration&lt;Tenant&gt;</code></td>
+</tr>
+<tr>
+<td>Migration</td>
+<td>PascalCase สื่อความหมาย</td>
+<td><code>AddPspConnection</code>, <code>AddTenantUserStatus</code></td>
+</tr>
+<tr>
+<td>Schema</td>
+<td>lowercase ตาม domain</td>
+<td><code>admin</code>, <code>producer</code> → <code>ToTable("PspConnection", "producer")</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="s12-3">SQL Server</h3>
+<table>
+<thead>
+<tr>
+<th>สิ่ง</th>
+<th>แบบ</th>
+<th>ตัวอย่าง</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Table</td>
+<td>PascalCase เอกพจน์ (ตรงกับ entity)</td>
+<td><code>Tenant</code>, <code>PspConnection</code></td>
+</tr>
+<tr>
+<td>Column</td>
+<td>PascalCase</td>
+<td><code>TenantId</code>, <code>MerchantId</code></td>
+</tr>
+<tr>
+<td>datetime (เก็บ UTC)</td>
+<td>ลงท้าย <code>Utc</code></td>
+<td><code>CreatedAtUtc</code>, <code>RotatedAtUtc</code></td>
+</tr>
+<tr>
+<td>Boolean</td>
+<td><code>bit</code> ชื่อ <code>Is...</code></td>
+<td><code>IsActive</code></td>
+</tr>
+<tr>
+<td>PK constraint</td>
+<td><code>PK_{Table}</code></td>
+<td><code>PK_Tenant</code></td>
+</tr>
+<tr>
+<td>FK constraint</td>
+<td><code>FK_{Child}_{Parent}</code></td>
+<td><code>FK_PspConnection_Tenant</code></td>
+</tr>
+<tr>
+<td>Index</td>
+<td><code>IX_{Table}_{Columns}</code></td>
+<td><code>IX_PaymentSession_TenantId</code></td>
+</tr>
+<tr>
+<td>Unique</td>
+<td><code>UQ_{Table}_{Columns}</code></td>
+<td><code>UQ_ExternalLogin_Provider_Sub</code></td>
+</tr>
+<tr>
+<td>Schema</td>
+<td>ตาม domain</td>
+<td><code>admin</code>, <code>producer</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="s12-4">JSON / REST API payload &amp; JWT claims</h3>
+<p>ชั้น wire format ใช้ convention คนละชุดกับ C#/SQL — แยกให้ชัด:</p>
+<table>
+<thead>
+<tr>
+<th>ชั้น</th>
+<th>แบบ</th>
+<th>ตัวอย่าง</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>JSON property (request/response)</td>
+<td><strong>camelCase</strong></td>
+<td><code>pspConnections</code>, <code>merchantId</code>, <code>webhookPath</code>, <code>secretKey</code></td>
+</tr>
+<tr>
+<td>ตั้งครั้งเดียวใน .NET</td>
+<td><code>JsonNamingPolicy.CamelCase</code></td>
+<td>map <code>MerchantId</code> (C#) ↔ <code>merchantId</code> (JSON) อัตโนมัติ</td>
+</tr>
+<tr>
+<td>JWT/OIDC claim (มาตรฐาน)</td>
+<td>ตามสเปก (lowercase)</td>
+<td><code>iss</code>, <code>aud</code>, <code>sub</code>, <code>exp</code>, <code>hd</code>, <code>email_verified</code></td>
+</tr>
+<tr>
+<td>Custom claim</td>
+<td>คงชื่อตาม IdP/สเปก</td>
+<td><code>tenant_id</code>, <code>role</code> (เป็นคนละ namespace กับ <code>TenantId</code> ที่เป็นคอลัมน์)</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>ค่า (value) ของ provider/method</strong> เก็บเป็น code string เสถียร: <code>"2c2p"</code> / <code>"omise"</code> · <code>"card"</code> / <code>"promptpay"</code> / <code>"installment"</code> (แยกจากชื่อ enum member ในโค้ด เช่น <code>TwoCTwoP</code>)</li>
+<li><strong>ค่าจาก PSP ภายนอก</strong> คงรูปเดิมเสมอ: Omise source types <code>installment_kbank</code>/<code>installment_bay</code>/…, field เช่น <code>authorize_uri</code>, <code>return_uri</code>, event <code>charge.complete</code> — เป็นของ Omise ห้ามเปลี่ยน</li>
+</ul>
+<h3 id="s12-5">ถ้าทีมเลือก snake_case ใน DB</h3>
+<p>ถ้าอยากให้ table/column เป็น snake_case (เช่น <code>psp_connection</code>, <code>tenant_id</code>) ขณะที่ C# ยังเป็น PascalCase → ตั้ง <strong>global convention ครั้งเดียว</strong> (เช่น package <code>EFCore.NamingConventions</code> → <code>optionsBuilder.UseSnakeCaseNamingConvention()</code>) อย่าตั้งชื่อสลับมือทีละตาราง <strong>เลือกแบบเดียวแล้วใช้ทั้งโปรเจกต์</strong> ไม่ปนกัน (ER diagram ก่อนหน้าใช้ snake_case เชิงแนวคิด ตอน implement ให้ยึด convention ที่เลือกที่นี่)</p>
+<h3 id="s12-6">ชื่อ canonical เฉพาะโปรเจกต์</h3>
+<ul>
+<li><strong>Entities:</strong> <code>Tenant</code> · <code>PspConnection</code> · <code>VaultSecret</code> · <code>PaymentSession</code> · <code>TenantUser</code> · <code>AdminUser</code> · <code>ExternalLogin</code> · <code>RegistrationTicket</code> · <code>Profile</code></li>
+<li><strong>Enums:</strong> <code>PspProvider { TwoCTwoP, Omise }</code> · <code>PaymentMethod { Card, PromptPay, Installment }</code> · <code>PaymentStatus { Pending, Paid, Failed, Expired }</code> · <code>TenantUserStatus { PendingApproval, Active, Rejected, Disabled }</code></li>
+<li><strong>Interfaces:</strong> <code>IPspAdapter</code> · <code>ICredentialVault</code> · <code>IWebhookVerifier</code></li>
+<li><strong>Services:</strong> <code>PspRouter</code> · <code>ProvisioningService</code> · <code>ReconciliationReporter</code></li>
+</ul>
+<h3 id="s12-7">In-process mediator — martinothamar/Mediator</h3>
+<p>โปรเจกต์ใช้ <strong><code>martinothamar/Mediator</code></strong> (source-generated) สำหรับสื่อสารใน-process ระหว่างโมดูล — wiring เป็น <strong>compile-time</strong> (ไม่ reflection / ไม่ assembly-scan) จึงเร็วและ AOT-friendly</p>
+<table>
+<thead>
+<tr>
+<th>ประเด็น</th>
+<th>martinothamar/Mediator</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>แพ็กเกจ</td>
+<td><code>Mediator.SourceGenerator</code> (ใส่ใน project ปลายสุด เช่น Host/ASP.NET · <code>PrivateAssets=all</code>) + <code>Mediator.Abstractions</code> (ที่นิยาม message/handler)</td>
+</tr>
+<tr>
+<td>Message</td>
+<td><code>IRequest&lt;,&gt;</code> · <code>ICommand&lt;,&gt;</code> · <code>IQuery&lt;,&gt;</code> · <code>INotification</code> (event ข้ามโมดูลใช้ <code>INotification</code>)</td>
+</tr>
+<tr>
+<td>Handler</td>
+<td><code>IRequestHandler&lt;,&gt;</code> · <code>INotificationHandler&lt;&gt;</code> · pipeline <code>IPipelineBehavior&lt;TMessage,TResponse&gt;</code> (เช่น <code>IdempotencyBehavior</code>)</td>
+</tr>
+<tr>
+<td>Entry point</td>
+<td><code>IMediator</code> / <code>ISender</code> / <code>IPublisher</code> — <code>Send</code> / <code>Publish</code></td>
+</tr>
+<tr>
+<td>Return type</td>
+<td><code>Handle</code> คืน <strong><code>ValueTask&lt;T&gt;</code></strong> (ใช้ทั้ง request และ pipeline behavior)</td>
+</tr>
+<tr>
+<td>DI</td>
+<td>source generator สร้าง <code>AddMediator(...)</code> ให้ — handler ลงทะเบียนอัตโนมัติ; <strong>pipeline behaviors เพิ่มเอง</strong> (<code>MediatorOptions.PipelineBehaviors</code> หรือ <code>AddSingleton(typeof(IPipelineBehavior&lt;,&gt;), …)</code>)</td>
+</tr>
+<tr>
+<td>Lifetime</td>
+<td>แนะนำ <code>ServiceLifetime.Singleton</code> (perf) · <code>CachingMode.Lazy</code> ถ้า cold-start/AOT</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>ข้อดีที่ได้:</strong> error ตอน <strong>build</strong> (diagnostic ถ้าไม่มี handler ของ request) แทน error ตอน runtime + รองรับ NativeAOT</li>
+<li><strong>สรุปการใช้:</strong> message ใช้ <code>IRequest</code>/<code>INotification</code> (หรือ <code>ICommand</code>/<code>IQuery</code> เมื่ออยากแยก command/query ให้ชัด) · handler คู่กับ <code>IRequestHandler</code>/<code>INotificationHandler</code> · cross-cutting ทำเป็น <code>IPipelineBehavior</code> (เช่น <code>IdempotencyBehavior</code>)</li>
+</ul>
+<hr/>
+<h2 id="s13">ตารางสรุปโมดูล (quick reference)</h2>
+<table>
+<thead>
+<tr>
+<th>โมดูล</th>
+<th>ระนาบ</th>
+<th>บทบาทย่อ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Products</td>
+<td>domain</td>
+<td>แผนประกัน/กรมธรรม์ + quote เบี้ย (→ Order)</td>
+</tr>
+<tr>
+<td>Cart</td>
+<td>domain</td>
+<td>ตะกร้าสินค้า — รวมแผน + quote (แก้ไขได้)</td>
+</tr>
+<tr>
+<td>Checkout</td>
+<td>domain</td>
+<td>หน้าสรุป + ส่วนลด + ข้อมูลผู้ซื้อ + ตั้งค่าผู้รับแจ้งเตือน → สร้าง Order</td>
+</tr>
+<tr>
+<td>Orders</td>
+<td>domain</td>
+<td>ข้อมูลคำสั่งซื้อ + ลิงก์หน้าสรุป (Payments) · แจ้งเตือนลูกค้า background · รับ <code>PaymentPaid</code>→Paid</td>
+</tr>
+<tr>
+<td>เก็บเบี้ย/รับชำระ</td>
+<td>data</td>
+<td>จุดที่ลูกค้าบริษัทในเครือจ่าย</td>
+</tr>
+<tr>
+<td>Tenant Console (SaaS)</td>
+<td>control</td>
+<td>แอปเดียว 3 tenant ใช้ร่วม scope ต่อราย</td>
+</tr>
+<tr>
+<td>Admin Console (SaaS)</td>
+<td>control</td>
+<td>แอปทีมกลาง internal-only ข้ามทุก tenant</td>
+</tr>
+<tr>
+<td>Permission model</td>
+<td>control</td>
+<td>RBAC scope×resource×action + maker-checker</td>
+</tr>
+<tr>
+<td>Provisioning (admin-driven)</td>
+<td>control</td>
+<td>admin สร้าง tenant + กรอก PSP config/credential</td>
+</tr>
+<tr>
+<td>Identity &amp; RBAC</td>
+<td>control</td>
+<td>Google SSO · hd-gate default-deny · register→approve</td>
+</tr>
+<tr>
+<td>Create session</td>
+<td>data</td>
+<td>ออก redirect URL</td>
+</tr>
+<tr>
+<td>Return handler</td>
+<td>data</td>
+<td>รับ browser กลับ (UX, ไม่ตัดสิน)</td>
+</tr>
+<tr>
+<td>Webhook handler</td>
+<td>data</td>
+<td>แหล่งความจริง อัปเดตสถานะ</td>
+</tr>
+<tr>
+<td>Method router</td>
+<td>data</td>
+<td>ช่องทาง → PSP ต่อ tenant (เปิดได้ทั้ง 2 PSP)</td>
+</tr>
+<tr>
+<td>Credential vault</td>
+<td>data</td>
+<td>PSP keys รายบริษัท (อ่อนไหวสุด)</td>
+</tr>
+<tr>
+<td>Retry &amp; dunning</td>
+<td>data</td>
+<td>กันรายการขาดอายุ</td>
+</tr>
+<tr>
+<td>Reconciliation</td>
+<td>data</td>
+<td>reporting (ไม่เคลื่อนเงิน)</td>
+</tr>
+<tr>
+<td>Idempotency store</td>
+<td>data</td>
+<td>กันประมวลผลซ้ำ</td>
+</tr>
+<tr>
+<td>2C2P adapter</td>
+<td>data</td>
+<td>Redirect API · บัตร/PromptPay/ผ่อน</td>
+</tr>
+<tr>
+<td>Omise/Opn adapter</td>
+<td>data</td>
+<td>Links API (บัตร) + source/charge (อื่นๆ) · redirect ทุกช่องทาง</td>
+</tr>
+<tr>
+<td>2C2P hosted page</td>
+<td>data (PCI)</td>
+<td>หน้าจ่าย บัตร/PromptPay/ผ่อน</td>
+</tr>
+<tr>
+<td>Opn hosted pages</td>
+<td>data (PCI)</td>
+<td>Links <code>paymentUri</code> (บัตร) + <code>authorizeUri</code> (อื่นๆ) · SAQ A</td>
+</tr>
+<tr>
+<td>Settlement</td>
+<td>นอกระบบ</td>
+<td>PSP → บัญชีบริษัทโดยตรง</td>
+</tr>
+</tbody>
+</table>
+</div>
+<button class="backtop" aria-label="กลับขึ้นบน" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+<script>
+const bt=document.querySelector('.backtop');
+addEventListener('scroll',()=>{ bt.classList.toggle('show', scrollY>400); });
+</script>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+mermaid.initialize({ startOnLoad:false, theme:'base', fontFamily:'"IBM Plex Sans Thai", sans-serif',
+  themeVariables:{ darkMode:dark, fontSize:'13px', fontFamily:'"IBM Plex Sans Thai", sans-serif',
+    lineColor: dark?'#9c9a92':'#73726c', textColor: dark?'#e8e6df':'#1d1c1a',
+    actorBkg: dark?'#3C3489':'#EEEDFE', actorBorder: dark?'#AFA9EC':'#534AB7',
+    actorTextColor: dark?'#EEEDFE':'#26215C', actorLineColor: dark?'#9c9a92':'#73726c',
+    signalColor: dark?'#9c9a92':'#73726c', signalTextColor: dark?'#c2c0b6':'#3d3d3a',
+    labelBoxBkgColor: dark?'#3C3489':'#EEEDFE', labelBoxBorderColor: dark?'#AFA9EC':'#534AB7',
+    labelTextColor: dark?'#EEEDFE':'#26215C', noteBkgColor: dark?'#633806':'#FAEEDA',
+    noteBorderColor: dark?'#EF9F27':'#BA7517', noteTextColor: dark?'#FAEEDA':'#412402',
+    activationBkgColor: dark?'#085041':'#E1F5EE', activationBorderColor: dark?'#5DCAA5':'#0F6E56' } });
+try { await document.fonts.ready; await mermaid.run({ querySelector:'.mermaid' }); }
+catch(e){ console.error('mermaid render error', e); }
+</script>
+</body>
+</html>
