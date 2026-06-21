@@ -22,7 +22,9 @@ public sealed class TenantGuardBehavior<TMessage, TResponse> : IPipelineBehavior
     {
         if (message is ITenantScoped && !_tenant.IsAdmin && !_tenant.HasTenant)
         {
-            throw new InvalidOperationException(
+            // Security-floor violation: a tenant-scoped message with no tenant means RLS scoping is absent.
+            // Mapped to an opaque 500 by the host — never confirm/deny binding state to the caller.
+            throw new TenantBindingException(
                 $"Message '{typeof(TMessage).Name}' is tenant-scoped but no tenant is bound to the request.");
         }
 
