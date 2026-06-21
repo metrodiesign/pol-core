@@ -69,8 +69,78 @@ Evidence:
   into Infrastructure would drag ASP.NET into the data layer — worse); TenantId is not on the error-log scope
   for StartRedirect (auth runs after correlation) — deferred.
 
-## PR3 — PSP real HTTP adapters (Z1)  (needs 2C2P + Omise sandbox keys)
-- [ ] 2C2P + Omise/Opn HTTP via IHttpClientFactory + Polly; mock-tested; sandbox smoke-test on key handoff.
+## PR3 — PSP real HTTP adapters (Z1)  (IN PROGRESS, branch feat/prod-hardening-psp-adapters)
 
-## PR4 — Vault + secret custody hardening (Z2, self-host)
-- [ ] Master key from env/secret-file (not appsettings); key id+version rotation; runbook; reveal audit.
+Design + adversarial payments-security critique run as a multi-agent workflow (w5rckuawo, 7 agents).
+Critique verdict NEEDS_WORK -> 8 must-fix resolved below before any code. Locked design:
+
+- Correlation key (critical fix): 2C2P ExternalChargeId = a STABLE invoiceNo (session.Id "N") used
+  identically by create + ParseWebhook + FetchChargeAsync (paymentInquiry) so GetByExternalChargeAsync
+  always matches; never paymentToken (per-attempt). Omise uses the charge/link id consistently.
+- 2C2P contract: JWT-wrapped JSON (body {"payload": HS256-JWT}). paymentToken (create) -> webPaymentUrl
+  (hosted, SAQ A); paymentInquiry (fetch) -> respCode authoritative ("0000"=Paid, "0001"/"2001"/"4009"=
+  Pending, else Failed). Webhook = body JWT; VerifyWebhook validates HS256 + pins alg (reject none/conf)
+  + checks merchantID. Secret = JSON envelope {merchantId, secretKey}. Base host by UseSandbox
+  (sandbox-pgw.2c2p.com / pgw.2c2p.com). amount = major-unit decimal via Iso4217.MinorUnitDigits;
+  currencyCode alpha. invoiceNo + idempotencyID stable -> retry-safe.
+- Omise contract: Basic auth (secretKey:""). card -> POST /charges (NO card data; authorize_uri hosted
+  3DS redirect) + deterministic Idempotency-Key (session.Id) so a retried POST returns the same charge.
+  promptpay -> Payment Links+ (linksplus-api.omise.co/external/links) hosted transaction_url; NEVER
+  source+charge (offline QR = forbidden). fetch GET /charges/{id}: successful=Paid, pending=Pending
+  (NEVER Failed), failed/expired/reversed=Failed. Secret = JSON envelope {secretKey, promptPayTemplateId,
+  promptPayTeamId}. Host constant; KEY prefix decides test/live -> guard skey_test_ XOR UseSandbox.
+- Omise webhook HMAC: DEFERRED honestly. The signing secret differs from the API secret and the timestamp
+  is not threaded through the (rawPayload,signature,secret) seam. VerifyWebhook does a well-formedness
+  check only; the mandatory server-side fetch-to-confirm (handler runs it before every MarkPaid) is the
+  sole authority; PR2 webhook rate limiter bounds forged-id probe exposure. Real Omise HMAC = follow-up
+  that custodies a second signing secret. (2C2P HMAC IS real — same secret, signature in the body JWT.)
+- Resilience: keep adapters DI SINGLETON + inject IHttpClientFactory (named clients "2c2p"/"omise",
+  per-call CreateClient). charge-create POST = single-shot (NO retry, code path) so a timeout never
+  double-charges; fetch GET = bounded retry (2x, expo backoff + jitter, transient only) via a hand-rolled
+  helper. No circuit breaker (captive 2-PSP platform earns nothing).
+- Deps: ONE new first-party pin Microsoft.Extensions.Http (platform HttpClientFactory, MIT, ships w/ SDK).
+  JWT HS256 + the retry are hand-rolled (no third-party Polly / IdentityModel / WireMock) — lazy-correct,
+  keeps the zero-third-party streak and lets us pin the JWT alg.
+- Seam preserved: IPspAdapter/PspCharge/WebhookEvent/PspChargeStatus and PspAdapterFactory UNCHANGED;
+  swap only the two adapter bodies + PaymentsModuleRegistration + one host line (Configure<PspOptions>).
+  StubPspAdapter + PspWebhookPayload deleted (per-adapter parsing replaces the shared stub status map);
+  Architecture.Tests anchor re-pointed to PspAdapterFactory. RLS (PR1) + PR2 floors untouched.
+
+Implemented + adversarially reviewed (workflow w3hr2many, 21 agents, 17 findings). Remediated all confirmed
+in-scope findings:
+- CRITICAL: Omise PromptPay correlation key was a Links+ transaction id while the webhook/fetch key off the
+  charge id -> customer charged, order never fulfils. Resolved by DEFERRING PromptPay (throws NotSupported)
+  rather than shipping a known-broken path that cannot be verified without a sandbox. CARD stays (charge id
+  is correlation-consistent across create/webhook/fetch).
+- MED: the hand-rolled JWT verifier threw (uncaught) on a non-string alg/payload from an untrusted webhook
+  -> 500 instead of clean Rejected. Guarded alg/payload ValueKind == String; added a non-string-alg test.
+- MED/LOW (tests): added the create->fetch invoiceNo correlation assertion, forged-response-JWT negatives
+  (create + fetch), a ParseWebhook respCode->status theory; aligned 2C2P ParseWebhook to the fetch mapping
+  (pending codes -> Pending, not Failed); collapsed the dead VerifyWebhook signature-arm; deduped GetString
+  into the base; added the Omise fetch-path env guard + a minor-units-verbatim amount theory.
+
+Deferred (documented, need the sandbox key handoff): Omise card-create exact field set (real Omise may need
+a token/source) and Omise webhook HMAC (separate signing-secret custody) and PromptPay (Links+ link->charge
+correlation). AdminConsole/Worker intentionally do not bind PspOptions (adapter HTTP surface is
+TenantConsole-only).
+
+Evidence: dotnet build 31 projects 0/0; unit 173 passed (Payments.Tests 14 -> 48, incl. the adapter suite);
+integration unaffected (PR3 touches no data-layer/RLS/migration file). ZERO third-party deps (1 first-party
+Microsoft.Extensions.Http); JWT HS256 + retry hand-rolled.
+
+## PR4 — Vault + secret custody hardening (Z2, self-host)  (SCOUTED)
+
+Current: LocalEnvelopeVaultStore = AES-256-GCM envelope (per-secret random DEK, per-tenant KEK via
+HKDF-SHA256 from one master key). Master key from VaultOptions.MasterKeyBase64 (IOptions/config); KeyId
+hardcoded "local-envelope-v1"; VaultSecretBlob already PERSISTS KeyId but RevealAsync ignores it (single
+key). Gaps to close in PR4:
+- Master key custody: support a secret-FILE source (Docker/K8s mounted path) + env, forbid a literal key
+  in committed appsettings, fail-fast when unset/short. (env already works via Vault__ override.)
+- Key rotation: introduce a versioned keyring (active key id + id->key map). New/rotated secrets encrypt
+  with the ACTIVE key; RevealAsync decrypts with the key named by blob.KeyId (already stored) so old blobs
+  keep working across a master-key roll; add a re-wrap path. This is the load-bearing change.
+- Reveal audit: tamper-evident (hash-chained) record on RevealAsync — tenant/name/when, NEVER the secret.
+- Rotation runbook in docs/.
+- Confirm .gitignore covers the secret-file pattern; no key ever committed.
+
+- [ ] Implement per the above via design-workflow -> implement -> review-workflow -> PR (after PR3 lands).
