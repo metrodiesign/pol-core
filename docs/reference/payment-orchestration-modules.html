@@ -351,8 +351,9 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
       "apiVersion": "2019-05-29",
       "enabledMethods": ["card", "promptpay", "installment"],
       "card": { "via": "links_api", "secure3ds": true },
+      "promptpay": { "via": "payment_links_plus" },
       "alternativeMethods": { "via": "source_charge" },
-      "enabledSources": ["promptpay", "installment_kbank", "installment_bay", "installment_scb"],
+      "enabledSources": ["installment_kbank", "installment_bay", "installment_scb"],
       "installment": { "terms": [3, 6, 10], "minAmountThb": 3000 },
       "returnUri": "https://pay.vgroup.internal/return/vcommerce/omise",
       "webhookPath": "/webhook/vcommerce/omise",
@@ -371,7 +372,7 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 - <code>tenant.session</code> — คุม expiry ของ redirect session + TTL ของ idempotency
 - <code>psp.environment</code> — <code>production</code> / <code>sandbox</code> แยก key คนละชุด
 - <strong>2C2P:</strong> <code>currencyCode</code> เป็นรหัสตัวเลข ISO (<code>764</code> = THB) · <code>installment.terms/banks</code> · <code>card.secure3ds</code> · แยก <code>frontendReturnUrl</code> (UX) กับ <code>backendReturnUrl</code> (truth)
-- <strong>Omise:</strong> <code>apiVersion</code> (Omise-Version header) · <code>card.via = "links_api"</code> (บัตรผ่าน Links API → <code>paymentUri</code> ไม่ใช่ Omise.js) · <code>alternativeMethods.via = "source_charge"</code> (PromptPay/ผ่อน → <code>authorizeUri</code>) · <code>enabledSources</code> คือ source types จริงของ Omise</p>
+- <strong>Omise:</strong> <code>apiVersion</code> (Omise-Version header) · <code>card.via = "links_api"</code> (บัตรผ่าน Links API → <code>paymentUri</code> ไม่ใช่ Omise.js) · <code>promptpay.via = "payment_links_plus"</code> (PromptPay ผ่าน Payment Links+ → <code>transaction_url</code> hosted, <strong>ไม่ใช่</strong> source+charge ที่เป็น offline-QR) · <code>alternativeMethods.via = "source_charge"</code> (ผ่อน/e-wallet → <code>authorizeUri</code>) · <code>enabledSources</code> คือ source types จริงของ Omise (เฉพาะ method ที่ redirect ผ่าน authorize_uri — ไม่รวม promptpay)</p>
 <p><strong>Map ลงตาราง:</strong>
 - <code>tenant.*</code> (รวม nested <code>branding</code>/<code>routing</code>/<code>session</code>) → <code>Tenant</code> (คอลัมน์ตรง + ส่วนยืดหยุ่นเก็บใน <code>Metadata</code> json)
 - แต่ละ <code>pspConnections[]</code> (ยกเว้น <code>secrets</code>) → <code>PspConnection</code> (config ไม่ลับ; <code>card</code>/<code>installment</code>/<code>enabledSources</code> เก็บใน json ของแถวนั้น)
@@ -474,7 +475,8 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 <h3 id="s8-2">4.2 Omise/Opn adapter (redirect-only ทุกช่องทาง)</h3>
 <ul>
 <li><strong>บัตร:</strong> Links API → สร้าง link (one-time) → <code>paymentUri</code> (หน้า hosted ของ Opn ลูกค้ากรอกบัตรที่นั่น — ไม่ใช้ Omise.js ไม่แตะหน้าเรา)</li>
-<li><strong>วิธีจ่ายทางเลือก (PromptPay/ผ่อน/e-wallet):</strong> source + charge (มี <code>returnUri</code>, สถานะ pending) → <code>authorizeUri</code></li>
+<li><strong>PromptPay:</strong> <strong>Payment Links+</strong> → <code>transaction_url</code> (หน้า hosted <code>linksplus.omise.co</code> ที่ render QR ฝั่ง Opn). <strong>ห้ามใช้ direct source+charge</strong> — flow นั้นคืน <code>scannable_code.image.download_uri</code> (QR ให้ merchant แสดงเอง = offline, ไม่มี redirect) → ขัด redirect-only/SAQ A</li>
+<li><strong>ผ่อน / e-wallet (internet-banking-style):</strong> source + charge (มี <code>returnUri</code>, สถานะ pending) → <code>authorizeUri</code> (redirect ไปหน้า bank/wallet)</li>
 <li>ผลจริงทุกช่องทางทาง webhook <code>charge.complete</code>; ยืนยันด้วย <code>GET /charges/{id}</code></li>
 <li>ทุกช่องทาง redirect แท้ → SAQ A</li>
 </ul>
@@ -487,7 +489,8 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 <h3 id="s9-2">5.2 Opn hosted pages</h3>
 <ul>
 <li><strong>บัตร:</strong> Links API <code>paymentUri</code> → หน้า hosted ของ Opn (<code>link.omise.co</code>) — กรอกบัตรที่ Opn</li>
-<li><strong>PromptPay / ผ่อน / e-wallet:</strong> <code>authorizeUri</code> → หน้า Opn (แสดง QR / redirect ธนาคาร)</li>
+<li><strong>PromptPay:</strong> Payment Links+ <code>transaction_url</code> → หน้า hosted ของ Opn (<code>linksplus.omise.co</code>) — QR render ฝั่ง Opn (ไม่ใช่บนหน้าเรา)</li>
+<li><strong>ผ่อน / e-wallet:</strong> <code>authorizeUri</code> → หน้า Opn / redirect ธนาคาร</li>
 <li>ทุกหน้าจ่ายอยู่ฝั่ง Opn → ไม่แตะบัตรบนหน้าเรา · SAQ A</li>
 </ul>
 <h3 id="s9-3">Settlement (อยู่นอกแพลตฟอร์ม)</h3>
@@ -495,7 +498,7 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 <li>แต่ละบริษัทผูก <strong>merchant account ของตัวเอง</strong> กับ 2C2P/Omise → เงิน settle จาก acquirer/PSP เข้าบัญชีบริษัทนั้น <strong>โดยตรง</strong> แพลตฟอร์มไม่แตะเงิน</li>
 </ul>
 <h3 id="s9-4">ช่องทาง × PSP (เปิดได้ทั้ง 2 PSP · redirect-only ทุก cell)</h3>
-<p>ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ tenant ผ่าน config <code>enabledMethods</code> — ทุก cell เป็น <strong>redirect แท้ → SAQ A</strong> (ฝั่ง Opn ใช้ Links API สำหรับบัตร + source/charge สำหรับวิธีอื่น)</p>
+<p>ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ tenant ผ่าน config <code>enabledMethods</code> — ทุก cell เป็น <strong>redirect แท้ → SAQ A</strong> (ฝั่ง Opn: Links API บัตร · <strong>Payment Links+ PromptPay</strong> · source/charge→<code>authorizeUri</code> ผ่อน/e-wallet)</p>
 <table>
 <thead>
 <tr>
@@ -527,7 +530,7 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 <tr>
 <td>PromptPay</td>
 <td>Omise/Opn</td>
-<td>source+charge (<code>returnUri</code>→<code>authorizeUri</code>)</td>
+<td><strong>Payment Links+</strong> → <code>transaction_url</code> (หน้า hosted <code>linksplus.omise.co</code>, QR ฝั่ง Opn)</td>
 <td>redirect แท้ · SAQ A</td>
 </tr>
 <tr>
@@ -545,7 +548,8 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 </tbody>
 </table>
 <blockquote>
-<p><strong>Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:</strong> บัตรใช้ <strong>Links API</strong> (<code>paymentUri</code> → หน้า hosted <code>link.omise.co</code> ลูกค้ากรอกบัตรที่ Opn — <em>ไม่ใช้ Omise.js, ไม่แตะเลขบัตรบนหน้าเรา</em>) · วิธีจ่ายทางเลือก (PromptPay/ผ่อน/e-wallet) ใช้ source+charge ที่ได้ <code>authorizeUri</code> (redirect ไปหน้า Opn ไม่ใช่ display-QR บนหน้าเรา) → <strong>สอดคล้องกับ directive out-of-scope ทั้งหมด</strong> (ไม่แตะบัตร · ไม่มี non-redirect/display-QR · SAQ A ล้วน)</p>
+<p><strong>Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:</strong> บัตรใช้ <strong>Links API</strong> (<code>paymentUri</code> → หน้า hosted <code>link.omise.co</code>) · <strong>PromptPay ใช้ Payment Links+</strong> (<code>transaction_url</code> → หน้า hosted <code>linksplus.omise.co</code> ที่ render QR ฝั่ง Opn) · ผ่อน/e-wallet ใช้ source+charge ที่ได้ <code>authorizeUri</code> (redirect ไปหน้า bank/Opn) → <strong>สอดคล้องกับ directive out-of-scope ทั้งหมด</strong> (ไม่แตะบัตร · ไม่มี non-redirect/display-QR บนหน้าเรา · SAQ A ล้วน)</p>
+<p><strong>สำคัญ (PromptPay):</strong> ห้ามใช้ Omise <strong>direct source+charge</strong> สำหรับ PromptPay — flow นั้นคืน <code>scannable_code.image.download_uri</code> (QR ให้ merchant แสดงเอง = offline, ไม่มี redirect/<code>authorizeUri</code>) → ขัด non-goal #6 (display-QR) + SAQ A. ต้องผ่าน <strong>Payment Links+ hosted page</strong> เท่านั้น. (verified: docs.omise.co/promptpay + payment-links-apis, 2026-06-21)</p>
 </blockquote>
 <hr/>
 <h2 id="s10">6. ประเด็นข้ามระบบ (Cross-cutting)</h2>
@@ -966,7 +970,7 @@ Tenant: <strong>vCentral · vCommerce · vSouvenir</strong> · PSP ปลาย�
 <tr>
 <td>Opn hosted pages</td>
 <td>data (PCI)</td>
-<td>Links <code>paymentUri</code> (บัตร) + <code>authorizeUri</code> (อื่นๆ) · SAQ A</td>
+<td>Links <code>paymentUri</code> (บัตร) + Links+ <code>transaction_url</code> (PromptPay) + <code>authorizeUri</code> (ผ่อน/e-wallet) · SAQ A</td>
 </tr>
 <tr>
 <td>Settlement</td>

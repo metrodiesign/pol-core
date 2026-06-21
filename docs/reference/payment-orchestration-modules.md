@@ -264,8 +264,9 @@ sequenceDiagram
       "apiVersion": "2019-05-29",
       "enabledMethods": ["card", "promptpay", "installment"],
       "card": { "via": "links_api", "secure3ds": true },
+      "promptpay": { "via": "payment_links_plus" },
       "alternativeMethods": { "via": "source_charge" },
-      "enabledSources": ["promptpay", "installment_kbank", "installment_bay", "installment_scb"],
+      "enabledSources": ["installment_kbank", "installment_bay", "installment_scb"],
       "installment": { "terms": [3, 6, 10], "minAmountThb": 3000 },
       "returnUri": "https://pay.vgroup.internal/return/vcommerce/omise",
       "webhookPath": "/webhook/vcommerce/omise",
@@ -285,7 +286,7 @@ sequenceDiagram
 - `tenant.session` — คุม expiry ของ redirect session + TTL ของ idempotency
 - `psp.environment` — `production` / `sandbox` แยก key คนละชุด
 - **2C2P:** `currencyCode` เป็นรหัสตัวเลข ISO (`764` = THB) · `installment.terms/banks` · `card.secure3ds` · แยก `frontendReturnUrl` (UX) กับ `backendReturnUrl` (truth)
-- **Omise:** `apiVersion` (Omise-Version header) · `card.via = "links_api"` (บัตรผ่าน Links API → `paymentUri` ไม่ใช่ Omise.js) · `alternativeMethods.via = "source_charge"` (PromptPay/ผ่อน → `authorizeUri`) · `enabledSources` คือ source types จริงของ Omise
+- **Omise:** `apiVersion` (Omise-Version header) · `card.via = "links_api"` (บัตรผ่าน Links API → `paymentUri` ไม่ใช่ Omise.js) · `promptpay.via = "payment_links_plus"` (PromptPay ผ่าน Payment Links+ → `transaction_url` hosted, **ไม่ใช่** source+charge ที่เป็น offline-QR) · `alternativeMethods.via = "source_charge"` (ผ่อน/e-wallet → `authorizeUri`) · `enabledSources` คือ source types จริงของ Omise (เฉพาะ method ที่ redirect ผ่าน authorize_uri — ไม่รวม promptpay)
 
 **Map ลงตาราง:**
 - `tenant.*` (รวม nested `branding`/`routing`/`session`) → `Tenant` (คอลัมน์ตรง + ส่วนยืดหยุ่นเก็บใน `Metadata` json)
@@ -573,5 +574,5 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 | 2C2P adapter | data | Redirect API · บัตร/PromptPay/ผ่อน |
 | Omise/Opn adapter | data | Links API (บัตร) + source/charge (อื่นๆ) · redirect ทุกช่องทาง |
 | 2C2P hosted page | data (PCI) | หน้าจ่าย บัตร/PromptPay/ผ่อน |
-| Opn hosted pages | data (PCI) | Links `paymentUri` (บัตร) + `authorizeUri` (อื่นๆ) · SAQ A |
+| Opn hosted pages | data (PCI) | Links `paymentUri` (บัตร) + Links+ `transaction_url` (PromptPay) + `authorizeUri` (ผ่อน/e-wallet) · SAQ A |
 | Settlement | นอกระบบ | PSP → บัญชีบริษัทโดยตรง |
