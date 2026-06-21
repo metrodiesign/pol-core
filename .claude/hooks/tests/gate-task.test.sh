@@ -142,6 +142,19 @@ HUNK_WRITEPATH="$(printf '%s\n' \
   '- [x] 6. Flip with the old synthetic write-path token' \
   '     Evidence: n/a (Write path)')"
 
+# (Codex PR#1) the DOCUMENTED multiline Evidence block — `Evidence:` header on its
+# own line followed by bullets — must PASS (TESTING_PROTOCOL.md canonical form).
+HUNK_MULTILINE="$(printf '%s\n' \
+  '- [x] 7. Flip with the documented multiline Evidence block' \
+  'Evidence:' \
+  '  - test: `npm test` -> 47 passed / 0 failed' \
+  '  - viewports: 375 OK | 768 OK | 1440 OK' \
+  '  - deviations: none')"
+# a bare `Evidence:` header with NO bullets must still BLOCK (no gaming the header).
+HUNK_BARE_HEADER="$(printf '%s\n' \
+  '- [x] 8. Flip with only a bare Evidence header' \
+  'Evidence:')"
+
 echo "=== #6/#19 PARITY: same flip, three input shapes -> SAME verdict (BLOCK, no own Evidence) ==="
 check_engine block "OpenCode whole-file, flipped task has no own Evidence" "$WHOLE_NOEV"
 check_engine block "Claude scoped hunk, flipped task has no Evidence"      "$HUNK_NOEV"
@@ -151,6 +164,10 @@ echo "=== #6 PARITY: same flip, three input shapes -> SAME verdict (ALLOW, prope
 check_engine allow "OpenCode whole-file, flipped task properly evidenced"  "$WHOLE_EV"
 check_engine allow "Claude scoped hunk, flipped task properly evidenced"   "$HUNK_EV"
 check_engine allow "Codex added-lines hunk, flipped task properly evidenced" "$HUNK_EV"
+
+echo "=== Codex PR#1: documented multiline Evidence block ==="
+check_engine allow "multiline Evidence header + bullets is accepted" "$HUNK_MULTILINE"
+check_engine block "bare Evidence header with no bullets still blocks" "$HUNK_BARE_HEADER"
 
 echo "=== #19 PER-TASK: decoy Evidence on another task does NOT rescue the flipped one ==="
 # flipped task carries TRIVIAL evidence while a DIFFERENT task has good evidence; the

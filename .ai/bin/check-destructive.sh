@@ -20,6 +20,16 @@ C="${*:-$(cat)}"
 # ทิศ fail-safe เดิมคงไว้: ถ้า quoted destructive string โดน block เกินจริง = ยอมรับได้.
 N=$(printf '%s' "$C" | tr -d '\\'\''"')
 
+# strip git GLOBAL options that sit BEFORE the subcommand: git accepts
+# `git -C dir push`, `git -c k=v commit` (global opts come before <command>).
+# Every `git <subcmd>` check below anchors on the subcommand right after `git`,
+# so without this an inserted global option would slip past the guard. Collapse
+# `git -c k=v -C dir push` -> `git push`. Value-taking opts (-c/-C) swallow their
+# following token; long/short flags stand alone. ponytail: covers the documented
+# global options; an exotic value-flag could still slip — Tier-1 git hooks + CI
+# remain the real floor.
+N=$(printf '%s' "$N" | sed -E 's/((^|[;&|]|[[:space:]])git)([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[A-Za-z][A-Za-z-]*(=[^[:space:]]*)?|-[A-Za-z]+))+/\1/g')
+
 # anchor ตำแหน่ง token คำสั่ง: ต้นบรรทัด / หลัง ; & | $( / หลัง whitespace
 # (ครอบ indent, xargs/sudo/env-prefix, path prefix เช่น /bin/rm) + optional rtk proxy
 POS='(^|[;&|][[:space:]]*|\$\([[:space:]]*|[[:space:]])(rtk[[:space:]]+(proxy[[:space:]]+)?)?([^[:space:]]*/)?'

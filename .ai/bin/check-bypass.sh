@@ -69,6 +69,12 @@ echo "$C" | grep -q 'SECRET_GUARD_SKIP=' &&
 # a single line when de-quoted — otherwise sed (line-oriented) leaves an in-message -n
 # behind and false-blocks (issue #28). real -n/--no-verify outside quotes still survives.
 DQ=$(printf '%s' "$C" | tr '\n' ' ' | sed -e "s/'[^']*'/ /g" -e 's/"[^"]*"/ /g')
+# strip git GLOBAL options before the subcommand so `git -c k=v commit -n` is seen
+# as `git commit -n` (git accepts global opts before <command>); otherwise the
+# adjacency in `git[[:space:]]+commit` lets -n slip past. -c/-C swallow a value
+# token; long/short flags stand alone. ponytail: documented global opts only —
+# Tier-1 git hooks + CI remain the real floor.
+DQ=$(printf '%s' "$DQ" | sed -E 's/((^|[;&|]|[[:space:]])git)([[:space:]]+(-[cC][[:space:]]+[^[:space:]]+|--[A-Za-z][A-Za-z-]*(=[^[:space:]]*)?|-[A-Za-z]+))+/\1/g')
 echo "$DQ" | grep -qE 'git[[:space:]]+commit.*[[:space:]]-[a-zA-Z]*n[a-zA-Z]*([[:space:]]|$)' &&
   block 'git commit -n (--no-verify) ข้าม secret-guard — commit ตามปกติ'
 

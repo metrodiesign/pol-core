@@ -84,37 +84,46 @@ fi
 # real character and not be a bare placeholder (TODO/TBD/???/-/.). The explicit `n/a`
 # escape stays valid — but it is the AGENT's choice in the file, never auto-fabricated.
 EV_FAIL=$(printf '%s\n' "$NEW" | awk '
+  # real() = a value that is neither empty nor a bare placeholder. Shared by the
+  # inline Evidence form and the multiline-block bullets so both judge content
+  # the same way.
+  function real(s,  l) {
+    gsub(/^[[:space:]`"'"'"']+|[[:space:]`"'"'"']+$/, "", s)
+    l=tolower(s)
+    return (s != "" && l != "todo" && l != "tbd" && l != "???" && \
+            l != "-" && l != "." && l != "none" && l != "pending" && \
+            l != "n/a (write path)")
+  }
   # A checkbox line starts a new task region. Track only [x] regions for Evidence.
   /^[[:space:]]*-[[:space:]]\[[xX]\]/ {
     # entering a new [x] task: the previous [x] region just closed — verdict it.
     if (in_x && !have_ev) { print prev_task; failed=1 }
-    in_x=1; have_ev=0
+    in_x=1; have_ev=0; ev_open=0
     prev_task=$0
     next
   }
   /^[[:space:]]*-[[:space:]]\[[[:space:]]\]/ {
     # a [ ] (unchecked) task closes any open [x] region.
     if (in_x && !have_ev) { print prev_task; failed=1 }
-    in_x=0; have_ev=0
+    in_x=0; have_ev=0; ev_open=0
     next
   }
   {
-    # within the current region, look for a non-trivial Evidence: line.
+    # within the current region, look for non-trivial Evidence.
     if (in_x && !have_ev) {
       line=$0
       # match an Evidence: label (case-insensitive), capture the value after the colon.
       if (line ~ /^[[:space:]]*[Ee][Vv][Ii][Dd][Ee][Nn][Cc][Ee]:/) {
         val=line
         sub(/^[[:space:]]*[Ee][Vv][Ii][Dd][Ee][Nn][Cc][Ee]:[[:space:]]*/, "", val)
-        # strip surrounding whitespace + common decorative chars (backticks/quotes).
-        gsub(/^[[:space:]`"'"'"']+|[[:space:]`"'"'"']+$/, "", val)
-        lc=tolower(val)
-        # trivial / placeholder values do NOT count as real evidence.
-        if (val != "" && lc != "todo" && lc != "tbd" && lc != "???" && \
-            lc != "-" && lc != "." && lc != "none" && lc != "pending" && \
-            lc != "n/a (write path)") {
-          have_ev=1
-        }
+        if (real(val)) have_ev=1          # inline form: `Evidence: <value>`
+        else if (val == "") ev_open=1     # documented header form: bullets follow
+      } else if (ev_open && line ~ /^[[:space:]]*[-*][[:space:]]/) {
+        # a bullet inside the Evidence: block (`- test: ...`, `- viewports: ...`):
+        # one with real content satisfies the gate.
+        v=line
+        sub(/^[[:space:]]*[-*][[:space:]]*/, "", v)
+        if (real(v)) have_ev=1
       }
     }
   }

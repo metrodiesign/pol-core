@@ -78,6 +78,11 @@ check block "push HEAD:main"         'git push origin HEAD:main'
 # regression (critic): fully-qualified refspec — '/' before main/develop slipped the anchor
 check block "push refs/heads/main"   'git push origin HEAD:refs/heads/main'
 check block "push refs/heads/develop" 'git push origin HEAD:refs/heads/develop'
+# regression (Codex PR#1): git GLOBAL options before the subcommand must not slip the guard
+FORCE="--for""ce"
+check block "global -C before push main" 'git -C . push origin main'
+check block "global -c before push force" "git -c user.name=x push $FORCE"
+check block "global -c before push develop" 'git -c x=y push origin develop'
 
 # regression (review #1/#4/#5): rm recursive+force reachable via backslash / quotes / -c|eval wrapper.
 # token อันตรายประกอบ runtime กัน live guard บล็อก command ของ test เอง

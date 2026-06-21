@@ -53,6 +53,9 @@ check block "SECRET_GUARD_SKIP env"     'SECRET_GUARD_SKIP=1 git commit -m x'
 # the first quote and let it slip
 check block "real -n after quoted msg"  'git commit -m "msg -n inside" -n'
 check block "real -n single-quoted msg" "git commit -m 'note -n here' -n"
+# regression (Codex PR#1): git GLOBAL option before the subcommand must not let -n slip
+check block "global -c before commit -n" 'git -c user.name=x commit -n -m msg'
+check block "global -C before commit -n" 'git -C . commit -nm msg'
 check block "-n after line continuation" 'git commit -m "the message" \
   -n'
 # finding #13+#9: guard/floor tamper must block independently of the git token —
