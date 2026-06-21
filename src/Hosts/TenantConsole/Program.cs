@@ -13,6 +13,7 @@ using Payments.Application.HandlePspWebhook;
 using Payments.Application.StartRedirect;
 using Payments.Domain;
 using Payments.Infrastructure;
+using Payments.Infrastructure.Psp;
 using Products.Application;
 using Products.Infrastructure;
 using TenantConsole;
@@ -52,6 +53,8 @@ builder.Services.AddDbContext<AdminDbContext>((sp, opt) =>
 builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.Admin));
 
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
+// Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).
+builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptions.SectionName));
 
 builder.Services.AddProductsModule();
 builder.Services.AddCartModule();

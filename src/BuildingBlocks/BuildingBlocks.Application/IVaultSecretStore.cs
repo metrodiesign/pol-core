@@ -6,6 +6,10 @@ namespace BuildingBlocks.Application;
 /// server-side PSP calls and is never logged. Display and audit paths use <see cref="MaskedAsync"/>.
 /// The concrete KEK custody provider (Azure Key Vault / AWS KMS / SQL Always Encrypted) is a
 /// pre-implementation hosting decision; <see cref="IVaultSecretStore"/> is the stable seam.
+/// <para>For a PSP connection the revealed plaintext is a per-PSP camelCase JSON envelope, NOT a raw key
+/// (2C2P: {merchantId, secretKey}; Omise: {secretKey, promptPayTemplateId, promptPayTeamId}). The seam
+/// stays a single reveal; each PSP adapter parses the envelope it expects. Every adapter and test double
+/// MUST agree on this shape.</para>
 /// </summary>
 public interface IVaultSecretStore
 {

@@ -60,7 +60,7 @@ public class ArchitectureBoundaryTests
         "Cart" => typeof(global::Cart.Infrastructure.CartRepository).Assembly,
         "Checkout" => typeof(global::Checkout.Infrastructure.CheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Infrastructure.OrderRepository).Assembly,
-        "Payments" => typeof(global::Payments.Infrastructure.Psp.StubPspAdapter).Assembly,
+        "Payments" => typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
     };
 

@@ -16,6 +16,8 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
     <!-- ASP.NET Core auth (Google SSO via OIDC/JWT) -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
+    <!-- Platform HttpClientFactory for the real PSP adapters (named clients + pooled handlers) -->
+    <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.8" />
     <!-- Test stack -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.8" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
