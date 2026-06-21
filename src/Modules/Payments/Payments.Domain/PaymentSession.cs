@@ -38,6 +38,11 @@ public sealed class PaymentSession : AggregateRoot<Guid>
 
     public DateTime UpdatedAtUtc { get; private set; }
 
+    /// <summary>Optimistic-concurrency token (mapped as a SQL Server rowversion). It serialises the
+    /// redirect claim so two concurrent <c>StartRedirect</c> requests cannot both create a PSP charge
+    /// (PLAN #11).</summary>
+    public byte[] RowVersion { get; private set; } = [];
+
     /// <summary>The validated money seam, reconstituted from the two scalar columns.</summary>
     public Money Amount => Money.Of(AmountMinorUnits, AmountCurrency);
 
@@ -87,25 +92,40 @@ public sealed class PaymentSession : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Binds the hosted PSP charge to this session exactly once (PLAN #11 — no double-charge). Throws
-    /// if a charge is already attached or the session has left the <see cref="PaymentStatus.Created"/>
-    /// state. Moves the session to <see cref="PaymentStatus.Redirected"/>.
+    /// Claims the redirect: moves <see cref="PaymentStatus.Created"/> to
+    /// <see cref="PaymentStatus.Redirected"/>. This is saved (under the <see cref="RowVersion"/>
+    /// concurrency token) BEFORE the PSP charge is created, so only one concurrent request proceeds to
+    /// call the PSP — the loser's save fails the concurrency check and never creates a charge (PLAN #11).
     /// </summary>
-    public void AttachPspCharge(string externalChargeId, string redirectUrl, DateTime occurredAtUtc)
+    public void BeginRedirect(DateTime occurredAtUtc)
+    {
+        if (Status != PaymentStatus.Created)
+            throw new InvalidOperationException(
+                $"PaymentSession {Id} cannot begin a redirect from status {Status}.");
+
+        Status = PaymentStatus.Redirected;
+        UpdatedAtUtc = occurredAtUtc;
+    }
+
+    /// <summary>
+    /// Binds the hosted PSP charge to a session that has already claimed the redirect, exactly once
+    /// (PLAN #11 — no double-charge). Requires <see cref="PaymentStatus.Redirected"/> and throws if a
+    /// charge is already attached.
+    /// </summary>
+    public void SetPspCharge(string externalChargeId, string redirectUrl, DateTime occurredAtUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(externalChargeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(redirectUrl);
 
+        if (Status != PaymentStatus.Redirected)
+            throw new InvalidOperationException(
+                $"PaymentSession {Id} cannot set a PSP charge from status {Status}.");
         if (PspExternalChargeId is not null)
             throw new InvalidOperationException(
                 $"PaymentSession {Id} already has a PSP charge attached ({PspExternalChargeId}).");
-        if (Status != PaymentStatus.Created)
-            throw new InvalidOperationException(
-                $"PaymentSession {Id} cannot attach a charge from status {Status}.");
 
         PspExternalChargeId = externalChargeId;
         RedirectUrl = redirectUrl;
-        Status = PaymentStatus.Redirected;
         UpdatedAtUtc = occurredAtUtc;
     }
 

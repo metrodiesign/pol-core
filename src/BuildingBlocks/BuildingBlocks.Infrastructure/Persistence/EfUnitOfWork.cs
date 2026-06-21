@@ -11,8 +11,20 @@ public sealed class EfUnitOfWork : IUnitOfWork
 
     public EfUnitOfWork(ProducerDbContext db) => _db = db;
 
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken) =>
-        _db.SaveChangesAsync(cancellationToken);
+    public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            // Translate the provider-specific concurrency failure into an application-layer signal so
+            // handlers can react without referencing EF Core.
+            throw new ConcurrencyConflictException(
+                "A concurrent change to the same record was detected; the save was rejected.", ex);
+        }
+    }
 
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

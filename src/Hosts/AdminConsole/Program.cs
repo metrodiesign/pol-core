@@ -43,7 +43,7 @@ builder.Services.AddDbContext<AdminDbContext>((sp, opt) =>
     opt.UseSqlServer(adminConnString)
        .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
 
-builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.All));
+builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.Admin));
 
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 

@@ -47,7 +47,7 @@ builder.Services.AddDbContext<AdminDbContext>((sp, opt) =>
        .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
 
 // Module entity configurations are discovered from these assemblies at model-build time.
-builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.All));
+builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.Admin));
 
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 

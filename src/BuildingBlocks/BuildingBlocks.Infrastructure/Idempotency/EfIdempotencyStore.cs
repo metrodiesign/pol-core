@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace BuildingBlocks.Infrastructure.Idempotency;
@@ -27,6 +28,14 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
         if (distinct.Count == 0)
             return true;
 
+        // Fast path (provider-agnostic): if any key is already claimed, this is a replay.
+        var alreadyClaimed = await _db.IdempotencyRecords
+            .AsNoTracking()
+            .AnyAsync(r => distinct.Contains(r.Key), cancellationToken)
+            .ConfigureAwait(false);
+        if (alreadyClaimed)
+            return false;
+
         foreach (var key in distinct)
             _db.IdempotencyRecords.Add(new IdempotencyRecord(key, context, _clock.UtcNow));
 
@@ -35,14 +44,22 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
             await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             return true;
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            // Any key already present => this is a replay. Drop the pending inserts so the caller's
-            // DbContext is clean to roll back.
+            // Concurrent first-deliveries raced past the pre-check; the unique constraint is the
+            // backstop. Drop the pending inserts so the caller's DbContext is clean to roll back.
             foreach (var entry in _db.ChangeTracker.Entries<IdempotencyRecord>().ToList())
                 entry.State = EntityState.Detached;
 
             return false;
         }
+
+        // NOTE: any OTHER DbUpdateException (deadlock, timeout, schema/size error, ...) is NOT a
+        // duplicate. It propagates so the webhook fails loudly (5xx) and the PSP retries — never
+        // silently swallowed as "already processed", which would drop the payment event.
     }
+
+    // SQL Server: 2627 = PK/unique-constraint violation, 2601 = unique-index violation.
+    private static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is SqlException { Number: 2627 or 2601 };
 }

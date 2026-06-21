@@ -21,6 +21,11 @@ internal static class HostModuleAssemblies
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
     ];
 
+    // The admin control plane has no entities of its own yet, so AdminDbContext maps NOTHING from the
+    // producer modules (otherwise admin migrations would recreate Products/Orders/PaymentSessions under
+    // the admin schema). Add control-plane assemblies here when they exist.
+    public static IReadOnlyList<Assembly> Admin { get; } = [];
+
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;
     // this localhost default just lets the model build for migrations.
     public static string DesignConnectionString =>
@@ -36,7 +41,7 @@ public sealed class ProducerDbContextFactory : IDesignTimeDbContextFactory<Produ
         var options = new DbContextOptionsBuilder<ProducerDbContext>()
             .UseSqlServer(HostModuleAssemblies.DesignConnectionString)
             .Options;
-        return new ProducerDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.All));
+        return new ProducerDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.Admin));
     }
 }
 
@@ -48,6 +53,6 @@ public sealed class AdminDbContextFactory : IDesignTimeDbContextFactory<AdminDbC
         var options = new DbContextOptionsBuilder<AdminDbContext>()
             .UseSqlServer(HostModuleAssemblies.DesignConnectionString)
             .Options;
-        return new AdminDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.All));
+        return new AdminDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.Admin));
     }
 }

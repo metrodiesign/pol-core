@@ -31,6 +31,9 @@ public sealed class PaymentSessionConfiguration : IEntityTypeConfiguration<Payme
         builder.Property(x => x.CreatedAtUtc).IsRequired();
         builder.Property(x => x.UpdatedAtUtc).IsRequired();
 
+        // Optimistic concurrency: serialises the redirect claim (PLAN #11).
+        builder.Property(x => x.RowVersion).IsRowVersion();
+
         // Webhook lookup + no double-attach: one external charge maps to at most one session.
         builder.HasIndex(x => new { x.Psp, x.PspExternalChargeId })
             .IsUnique()
