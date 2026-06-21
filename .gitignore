@@ -1,9 +1,23 @@
 # Personal, per-project overrides — never commit
 CLAUDE.local.md
 .claude/settings.local.json
+.workflows/
 
 # OS noise
 .DS_Store
+
+# .NET build output
+bin/
+obj/
+# env-specific app config holds dev/real values — commit only the *.json.example template
+# (the secret guard forbids committing appsettings.<Environment>.json)
+appsettings.*.json
+*.user
+[Bb]in/
+[Oo]bj/
+.vs/
+*.binlog
+TestResults/
 
 # Dependencies / build
 node_modules/

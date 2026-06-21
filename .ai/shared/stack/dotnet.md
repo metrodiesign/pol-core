@@ -31,6 +31,9 @@ dependency ชี้เข้า domain (Domain ไม่อ้าง Infrastruc
 src/
   SharedKernel/            # Money, base types, primitives — ทุกโมดูลใช้ร่วม
   Contracts/               # cross-module messages (INotification เช่น PaymentPaid) — ตัวเดียวที่โมดูลอื่น reference ได้
+  BuildingBlocks/
+    BuildingBlocks.Application/     # cross-cutting ports: ITenantContext, IClock, IUnitOfWork, IOutbox, IIdempotencyStore, IVaultSecretStore, ITenantScoped, pipeline behaviors
+    BuildingBlocks.Infrastructure/  # cross-cutting impl: ProducerDbContext/AdminDbContext, SessionContextConnectionInterceptor (RLS floor), outbox+dispatcher, idempotency store, envelope vault, EfUnitOfWork
   Modules/
     Payments/
       Payments.Domain/         # entity, value object, domain rule (ไม่พึ่ง EF/ASP.NET)
