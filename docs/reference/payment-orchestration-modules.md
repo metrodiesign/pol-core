@@ -388,9 +388,13 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 
 ### 4.2 Omise/Opn adapter (redirect-only ทุกช่องทาง)
 - **บัตร:** Links API → สร้าง link (one-time) → `paymentUri` (หน้า hosted ของ Opn ลูกค้ากรอกบัตรที่นั่น — ไม่ใช้ Omise.js ไม่แตะหน้าเรา)
-- **วิธีจ่ายทางเลือก (PromptPay/ผ่อน/e-wallet):** source + charge (มี `returnUri`, สถานะ pending) → `authorizeUri`
+- **PromptPay:** **Payment Links+** → `transaction_url` (หน้า hosted `linksplus.omise.co` ที่ render QR ฝั่ง Opn). **ห้ามใช้ direct source+charge** — flow นั้นคืน `scannable_code.image.download_uri` (QR ให้ merchant แสดงเอง = offline, ไม่มี redirect) → ขัด redirect-only/SAQ A
+- **ผ่อน / e-wallet (internet-banking-style):** source + charge (มี `returnUri`, สถานะ pending) → `authorizeUri` (redirect ไปหน้า bank/wallet)
 - ผลจริงทุกช่องทางทาง webhook `charge.complete`; ยืนยันด้วย `GET /charges/{id}`
 - ทุกช่องทาง redirect แท้ → SAQ A
+- <!-- correction 2026-06-21: PromptPay เดิมระบุ source+charge→authorizeUri (ผิด — PromptPay เป็น offline-QR). แก้เป็น Payment Links+ hosted. ยืนยันกับ docs.omise.co/promptpay + payment-links-apis -->
+
+
 
 ---
 
@@ -401,7 +405,8 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 
 ### 5.2 Opn hosted pages
 - **บัตร:** Links API `paymentUri` → หน้า hosted ของ Opn (`link.omise.co`) — กรอกบัตรที่ Opn
-- **PromptPay / ผ่อน / e-wallet:** `authorizeUri` → หน้า Opn (แสดง QR / redirect ธนาคาร)
+- **PromptPay:** Payment Links+ `transaction_url` → หน้า hosted ของ Opn (`linksplus.omise.co`) — QR render ฝั่ง Opn (ไม่ใช่บนหน้าเรา)
+- **ผ่อน / e-wallet:** `authorizeUri` → หน้า Opn / redirect ธนาคาร
 - ทุกหน้าจ่ายอยู่ฝั่ง Opn → ไม่แตะบัตรบนหน้าเรา · SAQ A
 
 ### Settlement (อยู่นอกแพลตฟอร์ม)
@@ -409,18 +414,20 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 
 ### ช่องทาง × PSP (เปิดได้ทั้ง 2 PSP · redirect-only ทุก cell)
 
-ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ tenant ผ่าน config `enabledMethods` — ทุก cell เป็น **redirect แท้ → SAQ A** (ฝั่ง Opn ใช้ Links API สำหรับบัตร + source/charge สำหรับวิธีอื่น)
+ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ tenant ผ่าน config `enabledMethods` — ทุก cell เป็น **redirect แท้ → SAQ A** (ฝั่ง Opn: Links API บัตร · **Payment Links+ PromptPay** · source/charge→`authorizeUri` ผ่อน/e-wallet)
 
 | ช่องทาง | PSP | กลไก | redirect / PCI |
 |---|---|---|---|
 | บัตร | 2C2P | hosted page (Redirect API) | redirect แท้ · SAQ A |
 | บัตร | Omise/Opn | **Links API** → `paymentUri` (หน้า hosted ของ Opn) | redirect แท้ · SAQ A |
 | PromptPay | 2C2P | hosted page (redirect) | redirect แท้ · SAQ A |
-| PromptPay | Omise/Opn | source+charge (`returnUri`→`authorizeUri`) | redirect แท้ · SAQ A |
+| PromptPay | Omise/Opn | **Payment Links+** → `transaction_url` (หน้า hosted `linksplus.omise.co`, QR ฝั่ง Opn) | redirect แท้ · SAQ A |
 | ผ่อนชำระ | 2C2P | hosted page (redirect) | redirect แท้ · SAQ A |
 | ผ่อนชำระ | Omise/Opn | source+charge (`returnUri`→`authorizeUri`) | redirect แท้ · SAQ A |
 
-> **Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:** บัตรใช้ **Links API** (`paymentUri` → หน้า hosted `link.omise.co` ลูกค้ากรอกบัตรที่ Opn — *ไม่ใช้ Omise.js, ไม่แตะเลขบัตรบนหน้าเรา*) · วิธีจ่ายทางเลือก (PromptPay/ผ่อน/e-wallet) ใช้ source+charge ที่ได้ `authorizeUri` (redirect ไปหน้า Opn ไม่ใช่ display-QR บนหน้าเรา) → **สอดคล้องกับ directive out-of-scope ทั้งหมด** (ไม่แตะบัตร · ไม่มี non-redirect/display-QR · SAQ A ล้วน)
+> **Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:** บัตรใช้ **Links API** (`paymentUri` → หน้า hosted `link.omise.co`) · **PromptPay ใช้ Payment Links+** (`transaction_url` → หน้า hosted `linksplus.omise.co` ที่ render QR ฝั่ง Opn) · ผ่อน/e-wallet ใช้ source+charge ที่ได้ `authorizeUri` (redirect ไปหน้า bank/Opn) → **สอดคล้องกับ directive out-of-scope ทั้งหมด** (ไม่แตะบัตร · ไม่มี non-redirect/display-QR บนหน้าเรา · SAQ A ล้วน)
+>
+> **สำคัญ (PromptPay):** ห้ามใช้ Omise **direct source+charge** สำหรับ PromptPay — flow นั้นคืน `scannable_code.image.download_uri` (QR ให้ merchant แสดงเอง = offline, ไม่มี redirect/`authorizeUri`) → ขัด non-goal #6 (display-QR) + SAQ A. ต้องผ่าน **Payment Links+ hosted page** เท่านั้น. (verified: docs.omise.co/promptpay + payment-links-apis, 2026-06-21)
 
 ---
 

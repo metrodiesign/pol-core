@@ -164,7 +164,8 @@ fork or weaken these checks per harness.
 
 - **PCI SAQ A — redirect-only, ห้ามแตะข้อมูลบัตร.** No collect/store/transmit/tokenize PAN. ห้ามมี
   card input field / hosted-fields / iframe / Omise.js / display-QR บนโดเมนเรา. ใช้ **full redirect ไปหน้า PSP เท่านั้น**
-  (2C2P hosted page · Omise Links API `paymentUri` · source+charge `authorizeUri`). flow แบบ non-redirect = ห้าม.
+  (2C2P hosted page · Omise บัตร = Links API `paymentUri` · Omise PromptPay = **Payment Links+ `transaction_url`** · Omise ผ่อน/e-wallet = source+charge `authorizeUri`). flow แบบ non-redirect = ห้าม.
+  **กับดัก PromptPay:** Omise **direct source+charge** คืน QR `scannable_code.image.download_uri` (offline, ต้องแสดง QR เอง = ขัด SAQ A) — PromptPay ต้องผ่าน **Payment Links+ hosted page** เท่านั้น.
 - **ไม่ถือเงิน (out of funds flow).** No settlement / payout / money ledger / wallet / float / escrow / disbursement.
   เงิน settle จาก PSP เข้าบัญชี merchant ของบริษัทโดยตรง. Reconciliation = **reporting เท่านั้น** ห้ามลอจิกเคลื่อนเงิน/ปรับยอดจริง.
 - **Credential vault — สินทรัพย์อ่อนไหวสุด.** PSP key เก็บใน vault: **envelope encryption — per-tenant KEK ใน KMS/HSM**,
