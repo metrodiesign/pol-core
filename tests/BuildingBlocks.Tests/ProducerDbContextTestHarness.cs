@@ -55,3 +55,13 @@ internal sealed class FixedClock(DateTime utcNow) : IClock
 {
     public DateTime UtcNow { get; } = utcNow;
 }
+
+/// <summary>A bound tenant for store tests (the column is required; RLS itself is SQL-Server-only).</summary>
+internal sealed class FixedTenant(Guid tenantId) : ITenantContext
+{
+    public static readonly FixedTenant Default = new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+
+    public Guid TenantId { get; } = tenantId;
+    public bool IsAdmin => false;
+    public bool HasTenant => true;
+}

@@ -8,6 +8,15 @@ namespace BuildingBlocks.Infrastructure.Outbox;
 public sealed class OutboxMessage
 {
     public Guid Id { get; private set; }
+
+    /// <summary>
+    /// The tenant the event belongs to, taken from the writer's tenant context at enqueue. The
+    /// producer table carries a BLOCK-after-insert RLS predicate, so a tenant principal can only
+    /// insert a row whose <c>TenantId</c> matches its own <c>SESSION_CONTEXT</c> — it cannot forge
+    /// another tenant's id. The dispatcher trusts this value to re-establish the tenant context
+    /// before invoking in-process consumers (PLAN decision #3, #10).
+    /// </summary>
+    public Guid TenantId { get; private set; }
     public string Type { get; private set; } = default!;
     public string Payload { get; private set; } = default!;
     public DateTime OccurredAtUtc { get; private set; }
@@ -19,10 +28,11 @@ public sealed class OutboxMessage
 
     private OutboxMessage() { }
 
-    public static OutboxMessage Create(Guid id, string type, string payload, DateTime occurredAtUtc) =>
+    public static OutboxMessage Create(Guid id, Guid tenantId, string type, string payload, DateTime occurredAtUtc) =>
         new()
         {
             Id = id,
+            TenantId = tenantId,
             Type = type,
             Payload = payload,
             OccurredAtUtc = occurredAtUtc,

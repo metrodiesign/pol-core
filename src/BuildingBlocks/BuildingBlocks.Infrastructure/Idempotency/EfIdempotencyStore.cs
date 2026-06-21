@@ -15,11 +15,13 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
 {
     private readonly ProducerDbContext _db;
     private readonly IClock _clock;
+    private readonly ITenantContext _tenant;
 
-    public EfIdempotencyStore(ProducerDbContext db, IClock clock)
+    public EfIdempotencyStore(ProducerDbContext db, IClock clock, ITenantContext tenant)
     {
         _db = db;
         _clock = clock;
+        _tenant = tenant;
     }
 
     public async Task<bool> TryBeginAsync(IReadOnlyCollection<string> keys, string context, CancellationToken cancellationToken)
@@ -27,6 +29,11 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
         var distinct = keys.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct().ToList();
         if (distinct.Count == 0)
             return true;
+
+        // Claims are RLS-scoped: the row's TenantId must equal SESSION_CONTEXT. The webhook resolves
+        // the tenant before claiming, so a missing tenant here is a programming error.
+        if (!_tenant.HasTenant)
+            throw new InvalidOperationException("Cannot claim an idempotency key without a bound tenant.");
 
         // Fast path (provider-agnostic): if any key is already claimed, this is a replay.
         var alreadyClaimed = await _db.IdempotencyRecords
@@ -37,7 +44,7 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
             return false;
 
         foreach (var key in distinct)
-            _db.IdempotencyRecords.Add(new IdempotencyRecord(key, context, _clock.UtcNow));
+            _db.IdempotencyRecords.Add(new IdempotencyRecord(key, _tenant.TenantId, context, _clock.UtcNow));
 
         try
         {

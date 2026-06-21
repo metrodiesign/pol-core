@@ -16,7 +16,7 @@ public sealed class EfIdempotencyStoreTests
     {
         using var harness = ProducerDbContextTestHarness.Create();
         await using var db = harness.NewContext();
-        var store = new EfIdempotencyStore(db, new FixedClock(Now));
+        var store = new EfIdempotencyStore(db, new FixedClock(Now), FixedTenant.Default);
 
         var first = await store.TryBeginAsync(["evt-1"], "webhook", CancellationToken.None);
 
@@ -30,13 +30,13 @@ public sealed class EfIdempotencyStoreTests
 
         await using (var db1 = harness.NewContext())
         {
-            var store1 = new EfIdempotencyStore(db1, new FixedClock(Now));
+            var store1 = new EfIdempotencyStore(db1, new FixedClock(Now), FixedTenant.Default);
             Assert.True(await store1.TryBeginAsync(["evt-1"], "webhook", CancellationToken.None));
         }
 
         // Replay arrives on a fresh per-scope context, exactly as the host would hand a new handler.
         await using var db2 = harness.NewContext();
-        var store2 = new EfIdempotencyStore(db2, new FixedClock(Now));
+        var store2 = new EfIdempotencyStore(db2, new FixedClock(Now), FixedTenant.Default);
 
         var replay = await store2.TryBeginAsync(["evt-1"], "webhook", CancellationToken.None);
 
@@ -50,13 +50,13 @@ public sealed class EfIdempotencyStoreTests
 
         await using (var db1 = harness.NewContext())
         {
-            var store1 = new EfIdempotencyStore(db1, new FixedClock(Now));
+            var store1 = new EfIdempotencyStore(db1, new FixedClock(Now), FixedTenant.Default);
             Assert.True(await store1.TryBeginAsync(["shared-key", "first-only"], "webhook", CancellationToken.None));
         }
 
         // A different multi-key delivery that overlaps on just ONE key must still be a replay.
         await using var db2 = harness.NewContext();
-        var store2 = new EfIdempotencyStore(db2, new FixedClock(Now));
+        var store2 = new EfIdempotencyStore(db2, new FixedClock(Now), FixedTenant.Default);
 
         var overlapping = await store2.TryBeginAsync(["second-only", "shared-key"], "webhook", CancellationToken.None);
 
@@ -70,12 +70,12 @@ public sealed class EfIdempotencyStoreTests
 
         await using (var db1 = harness.NewContext())
         {
-            var store1 = new EfIdempotencyStore(db1, new FixedClock(Now));
+            var store1 = new EfIdempotencyStore(db1, new FixedClock(Now), FixedTenant.Default);
             Assert.True(await store1.TryBeginAsync(["evt-A"], "webhook", CancellationToken.None));
         }
 
         await using var db2 = harness.NewContext();
-        var store2 = new EfIdempotencyStore(db2, new FixedClock(Now));
+        var store2 = new EfIdempotencyStore(db2, new FixedClock(Now), FixedTenant.Default);
 
         var second = await store2.TryBeginAsync(["evt-B"], "webhook", CancellationToken.None);
 
@@ -87,7 +87,7 @@ public sealed class EfIdempotencyStoreTests
     {
         using var harness = ProducerDbContextTestHarness.Create();
         await using var db = harness.NewContext();
-        var store = new EfIdempotencyStore(db, new FixedClock(Now));
+        var store = new EfIdempotencyStore(db, new FixedClock(Now), FixedTenant.Default);
 
         var result = await store.TryBeginAsync([], "webhook", CancellationToken.None);
 

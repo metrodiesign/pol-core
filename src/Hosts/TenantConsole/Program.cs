@@ -117,12 +117,22 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapPost("/webhooks/{pspConnectionId:guid}", async (
     Guid pspConnectionId,
     HttpRequest request,
+    IWebhookTenantResolver tenantResolver,
+    ITenantScope tenantScope,
     IMediator mediator,
     CancellationToken ct) =>
 {
     using var reader = new StreamReader(request.Body);
     var rawPayload = await reader.ReadToEndAsync(ct);
     var signature = request.Headers["X-Signature"].ToString();
+
+    // Resolve the tenant from the trusted connection id BEFORE any tenant-scoped work, then bind it so
+    // every query in the handler runs under the right RLS SESSION_CONTEXT. Unknown id -> 404 (no leak).
+    var tenantId = await tenantResolver.ResolveTenantAsync(pspConnectionId, ct);
+    if (tenantId is null)
+        return Results.NotFound();
+
+    using var tenantBinding = tenantScope.Begin(tenantId.Value);
 
     var result = await mediator.Send(new HandlePspWebhookCommand(pspConnectionId, rawPayload, signature), ct);
     return result.Outcome == WebhookOutcome.Rejected

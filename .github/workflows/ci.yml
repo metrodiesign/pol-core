@@ -90,3 +90,64 @@ jobs:
         run: dotnet build pol-core.slnx --no-restore -warnaserror
       - name: Test (unit + in-memory; integration excluded)
         run: dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
+
+  dotnet-integration:
+    # The RLS security floor (PLAN #3) can only be proven against a real SQL Server: spins up SQL
+    # Server 2025, bootstraps the DB principals, applies the EF migrations (schema + RLS policy), then
+    # runs the [Trait Category=Integration] suite. Needs a repo secret MSSQL_SA_PASSWORD; the runtime
+    # principal passwords are GENERATED per run (never stored). Add this to branch protection once the
+    # secret is configured.
+    name: dotnet integration (live SQL 2025)
+    runs-on: ubuntu-latest
+    services:
+      sql:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+          MSSQL_PID: Developer
+        ports:
+          - 11433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${{ secrets.MSSQL_SA_PASSWORD }}\" -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 15
+    env:
+      POL_SQL_SERVER: localhost,11433
+      POL_DB: PaymentOrchestration
+      POL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install sqlcmd
+        run: |
+          curl -sSL -O https://github.com/microsoft/go-sqlcmd/releases/download/v1.8.0/sqlcmd-linux-amd64.tar.bz2
+          tar xjf sqlcmd-linux-amd64.tar.bz2
+          sudo install sqlcmd /usr/local/bin/
+      - name: Generate ephemeral principal passwords
+        # hex (no login-name substring) + a mixed-case/digit suffix -> meets SQL password policy.
+        run: |
+          echo "POL_APP_PASSWORD=Ci$(openssl rand -hex 8)Aa1" >> "$GITHUB_ENV"
+          echo "POL_ADMIN_PASSWORD=Ci$(openssl rand -hex 8)Bb2" >> "$GITHUB_ENV"
+          echo "POL_WORKER_PASSWORD=Ci$(openssl rand -hex 8)Cc3" >> "$GITHUB_ENV"
+      - name: Bootstrap DB principals
+        run: |
+          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C \
+            -v DbName="PaymentOrchestration" \
+               POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+               POL_ADMIN_PASSWORD="${POL_ADMIN_PASSWORD}" \
+               POL_WORKER_PASSWORD="${POL_WORKER_PASSWORD}" \
+            -i docker/bootstrap/01-principals.sql
+      - name: Apply migrations (schema + RLS policy)
+        env:
+          POL_DESIGN_SQL: "Server=localhost,11433;Database=PaymentOrchestration;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.0.8
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef database update --context ProducerDbContext \
+            --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
+            --startup-project src/Hosts/TenantConsole
+      - name: Integration tests (live SQL)
+        run: dotnet test pol-core.slnx --filter "Category=Integration"
