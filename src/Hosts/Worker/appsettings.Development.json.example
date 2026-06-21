@@ -1,0 +1,14 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ConnectionStrings": {
+    "Worker": "Server=localhost,11433;Database=PaymentOrchestration;User Id=pol_worker;Password=REPLACE_WITH_LOCAL_WORKER_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+  },
+  "Vault": {
+    "MasterKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  }
+}

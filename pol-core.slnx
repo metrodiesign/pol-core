@@ -10,6 +10,7 @@
   <Folder Name="/src/Hosts/">
     <Project Path="src/Hosts/AdminConsole/AdminConsole.csproj" />
     <Project Path="src/Hosts/TenantConsole/TenantConsole.csproj" />
+    <Project Path="src/Hosts/Worker/Worker.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Cart/">
@@ -41,6 +42,7 @@
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.Tests/BuildingBlocks.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
+    <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />
     <Project Path="tests/Payments.Tests/Payments.Tests.csproj" />
     <Project Path="tests/SharedKernel.Tests/SharedKernel.Tests.csproj" />

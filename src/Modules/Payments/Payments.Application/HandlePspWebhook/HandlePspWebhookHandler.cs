@@ -66,10 +66,12 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
                 var evt = adapter.ParseWebhook(command.RawPayload);
                 var pspCode = connection.Psp.ToCode();
 
+                // Keys are scoped by the PSP connection id so a webhook event id that is unique only
+                // per-merchant (not globally) cannot collide across tenants/connections.
                 var keys = new[]
                 {
-                    $"{pspCode}:event:{evt.EventId}",
-                    $"{pspCode}:charge:{evt.ExternalChargeId}:{evt.Status}",
+                    $"{pspCode}:{command.PspConnectionId}:event:{evt.EventId}",
+                    $"{pspCode}:{command.PspConnectionId}:charge:{evt.ExternalChargeId}:{evt.Status}",
                 };
 
                 if (!await _idempotency.TryBeginAsync(keys, IdempotencyContext, ct).ConfigureAwait(false))

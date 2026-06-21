@@ -64,37 +64,60 @@ public sealed class OutboxDispatcher : BackgroundService
 
     private async Task DispatchBatchAsync(CancellationToken cancellationToken)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<ProducerDbContext>();
-        var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
-        var clock = scope.ServiceProvider.GetRequiredService<IClock>();
-
-        var leaseUntil = clock.UtcNow.Add(LeaseDuration);
-        const string leaseSql = """
-            UPDATE TOP ({0}) o
-            SET o.LeaseOwner = {1}, o.LeaseExpiresAtUtc = {2}, o.Attempts = o.Attempts + 1
-            OUTPUT inserted.Id AS [Value]
-            FROM producer.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
-            WHERE o.ProcessedAtUtc IS NULL
-              AND (o.LeaseExpiresAtUtc IS NULL OR o.LeaseExpiresAtUtc < {3})
-              AND o.Attempts < {4};
-            """;
-
-        var leasedIds = await db.Database
-            .SqlQueryRaw<Guid>(leaseSql, BatchSize, Owner, leaseUntil, clock.UtcNow, MaxAttempts)
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (leasedIds.Count == 0)
-            return;
-
-        var messages = await db.OutboxMessages
-            .Where(m => leasedIds.Contains(m.Id))
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        foreach (var message in messages)
+        // Lease in a no-tenant scope: the OutboxMessages table carries only a BLOCK-after-insert RLS
+        // predicate (no FILTER), so the worker principal sees and leases rows across every tenant.
+        List<(Guid Id, Guid TenantId)> leased;
+        using (var leaseScope = _scopeFactory.CreateScope())
         {
+            var db = leaseScope.ServiceProvider.GetRequiredService<ProducerDbContext>();
+            var clock = leaseScope.ServiceProvider.GetRequiredService<IClock>();
+
+            var leaseUntil = clock.UtcNow.Add(LeaseDuration);
+            const string leaseSql = """
+                UPDATE TOP ({0}) o
+                SET o.LeaseOwner = {1}, o.LeaseExpiresAtUtc = {2}, o.Attempts = o.Attempts + 1
+                OUTPUT inserted.Id AS [Value]
+                FROM producer.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
+                WHERE o.ProcessedAtUtc IS NULL
+                  AND (o.LeaseExpiresAtUtc IS NULL OR o.LeaseExpiresAtUtc < {3})
+                  AND o.Attempts < {4};
+                """;
+
+            var leasedIds = await db.Database
+                .SqlQueryRaw<Guid>(leaseSql, BatchSize, Owner, leaseUntil, clock.UtcNow, MaxAttempts)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (leasedIds.Count == 0)
+                return;
+
+            var rows = await db.OutboxMessages
+                .Where(m => leasedIds.Contains(m.Id))
+                .Select(m => new { m.Id, m.TenantId })
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+            leased = rows.Select(r => (r.Id, r.TenantId)).ToList();
+        }
+
+        // Process each message in its OWN scope/DbContext/connection, bound to the message's tenant so
+        // in-process consumers (e.g. OrderPaidConsumer writing producer.Orders) run RLS-scoped. The
+        // TenantId is trustworthy: the BLOCK-after-insert predicate guaranteed it matched the writer's
+        // SESSION_CONTEXT. Disposing the scope before the next message resets the pooled context.
+        foreach (var (id, tenantId) in leased)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            using var tenantBinding = scope.ServiceProvider.GetRequiredService<ITenantScope>().Begin(tenantId);
+
+            var db = scope.ServiceProvider.GetRequiredService<ProducerDbContext>();
+            var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
+            var clock = scope.ServiceProvider.GetRequiredService<IClock>();
+
+            var message = await db.OutboxMessages
+                .FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
+                .ConfigureAwait(false);
+            if (message is null)
+                continue;
+
             try
             {
                 await PublishAsync(publisher, message, cancellationToken).ConfigureAwait(false);
@@ -105,9 +128,9 @@ public sealed class OutboxDispatcher : BackgroundService
                 message.MarkFailed(ex.Message);
                 _logger.LogError(ex, "Failed to publish outbox message {OutboxId} ({Type}).", message.Id, message.Type);
             }
-        }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     // ponytail: PaymentPaid is the only integration event today. Replace this switch with a

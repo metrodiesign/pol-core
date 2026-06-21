@@ -1,0 +1,48 @@
+# Local dev stack: SQL Server 2025 + one-shot principal bootstrap.
+# Passwords come from .env (copy .env.example). EF migrations run separately:
+#   POL_DESIGN_SQL=... dotnet ef database update --context ProducerDbContext \
+#     --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/TenantConsole
+services:
+  pol-db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: pol-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "11433:1433"
+    volumes:
+      - pol-db-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Creates logins / users / the pol_rls_bypass role (idempotent). Exits 0 when done.
+  pol-db-init:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    depends_on:
+      pol-db:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      POL_APP_PASSWORD: ${POL_APP_PASSWORD}
+      POL_ADMIN_PASSWORD: ${POL_ADMIN_PASSWORD}
+      POL_WORKER_PASSWORD: ${POL_WORKER_PASSWORD}
+    volumes:
+      - ./docker/bootstrap:/bootstrap:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >
+        /opt/mssql-tools18/bin/sqlcmd -S pol-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C
+        -v DbName="PaymentOrchestration"
+        POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
+        POL_ADMIN_PASSWORD="$${POL_ADMIN_PASSWORD}"
+        POL_WORKER_PASSWORD="$${POL_WORKER_PASSWORD}"
+        -i /bootstrap/01-principals.sql
+
+volumes:
+  pol-db-data:
