@@ -4,6 +4,7 @@ using BuildingBlocks.Infrastructure.Outbox;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace BuildingBlocks.Infrastructure;
 
@@ -26,7 +27,16 @@ public static class BuildingBlocksInfrastructureRegistration
         services.AddScoped<IWebhookTenantResolver, WebhookTenantResolver>();
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
+
+        // The keyring is immutable + host-lifetime: built and validated ONCE. The request-serving consoles
+        // resolve it right after Build() so a bad master key crash-loops the host at boot (fail-fast); other
+        // hosts (and that first resolve) build it lazily. Either way a bad key never reaches a successful
+        // request — RevealAsync fails CLOSED and /health/ready reports not-ready. NB: ValidateOnBuild does
+        // NOT execute a factory-registered singleton, so the explicit host resolve is what fails fast at boot.
+        services.AddSingleton(sp => VaultKeyringFactory.Build(sp.GetRequiredService<IOptions<VaultOptions>>().Value));
         services.AddScoped<IVaultSecretStore, LocalEnvelopeVaultStore>();
+        services.AddScoped<IVaultMaintenance, VaultMaintenance>();
+
         services.AddScoped<IOutbox, EfOutbox>();
         return services;
     }

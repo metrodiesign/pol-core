@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Options;
 
 namespace BuildingBlocks.Web;
 
@@ -36,24 +35,32 @@ internal sealed class ProducerDbReadinessCheck : IHealthCheck
     }
 }
 
-/// <summary>Readiness probe: is the vault master key present and a well-formed 32-byte AES key?</summary>
+/// <summary>Readiness probe: does the vault keyring build with a well-formed 32-byte active key? Resolves
+/// the keyring (a mounted secret file is read once when it is first built) and reports not-ready rather than
+/// throwing if it is misconfigured — so a bad key custody never 500s the probe, it just gates traffic.</summary>
 internal sealed class VaultReadinessCheck : IHealthCheck
 {
-    private readonly VaultOptions _options;
+    private readonly IServiceProvider _services;
 
-    public VaultReadinessCheck(IOptions<VaultOptions> options) => _options = options.Value;
+    public VaultReadinessCheck(IServiceProvider services) => _services = services;
 
     public Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_options.MasterKeyBase64))
-            return Task.FromResult(HealthCheckResult.Unhealthy("vault master key is not configured"));
-
-        Span<byte> buffer = stackalloc byte[32];
-        var decoded = Convert.TryFromBase64String(_options.MasterKeyBase64, buffer, out var written) && written == 32;
-        return Task.FromResult(decoded
-            ? HealthCheckResult.Healthy()
-            : HealthCheckResult.Unhealthy("vault master key is malformed"));
+        try
+        {
+            var keyring = _services.GetRequiredService<VaultKeyring>();
+            var (_, key) = keyring.Active;
+            return Task.FromResult(key.Length == 32
+                ? HealthCheckResult.Healthy()
+                : HealthCheckResult.Unhealthy("vault active key is malformed"));
+        }
+        catch (Exception ex)
+        {
+            // The factory's (secret-free) error is captured for server-side logging only; the minimal
+            // response writer never echoes it.
+            return Task.FromResult(HealthCheckResult.Unhealthy("vault keyring is not configured", ex));
+        }
     }
 }
 

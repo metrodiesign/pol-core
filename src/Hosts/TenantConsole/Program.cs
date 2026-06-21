@@ -77,6 +77,11 @@ builder.Services.AddWebhookRateLimiter();
 
 var app = builder.Build();
 
+// Fail-fast: build the vault keyring now so a missing/short/invalid master key crash-loops the host at
+// boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
+// singletons, so this explicit resolve is what delivers the boot-time custody guarantee.
+_ = app.Services.GetRequiredService<VaultKeyring>();
+
 // Order matters: correlation id OUTERMOST so the logging scope is still active when the exception handler
 // logs a failure (the scope is popped as the exception unwinds, so it must wrap UseExceptionHandler); the
 // exception handler then wraps auth + the endpoints; rate limiter before the mapped endpoints run.

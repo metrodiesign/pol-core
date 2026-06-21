@@ -143,4 +143,43 @@ key). Gaps to close in PR4:
 - Rotation runbook in docs/.
 - Confirm .gitignore covers the secret-file pattern; no key ever committed.
 
-- [ ] Implement per the above via design-workflow -> implement -> review-workflow -> PR (after PR3 lands).
+Design + adversarial vault-security critique run as a workflow (wljk2nek9). Critique = NEEDS_WORK: nearly all
+must-fix concentrate on the reveal-audit component. Keyring/custody/rotation decisions were judged SOUND.
+SCOPE SPLIT (lazy-senior + correctness + do-not-merge-unverifiable-RLS-floor-changes-unattended):
+
+## PR4 — keyring + master-key-file custody + key rotation + readiness (branch feat/prod-hardening-vault-custody)
+The load-bearing custody hardening. Fully unit-testable on the SQLite harness; ZERO RLS-floor change, ZERO
+migration, no hot-path semantic change. Locked design (from the SOUND decisions):
+- VaultKeyring (immutable: ActiveKeyId + id->32-byte-key map). RevealAsync resolves blob.KeyId and FAILS
+  CLOSED (no fallback to active) on an unknown id — the key custody behaviour that blocks downgrade/confused-
+  deputy. StoreAsync stamps the ACTIVE id into blob.KeyId. DeriveKek(tenantId, key) — HKDF salt/info/alg kept
+  BYTE-IDENTICAL so existing "local-envelope-v1" blobs decrypt unchanged (zero data migration).
+- Master-key custody: VaultKeyringFactory.Build resolves each key FILE > ENV > appsettings, fail-fast on
+  unset/!=32-byte/duplicate-id/active-not-in-map (id-only error messages, never key material). Legacy
+  MasterKeyBase64 is shimmed into a one-entry keyring {"local-envelope-v1"} so dev/back-compat is zero-config.
+  Config shape = Dictionary<string,VaultKeyEntry> keyed by id (so Vault__Keys__<Id>__KeyBase64/KeyFile bind
+  correctly — NOT a List, which binds by index). Keyring registered Singleton (built+validated once at boot;
+  restart required to pick up a remounted file — documented).
+- Rotation: VaultSecretBlob.Rewrap(encryptedDek, keyId, utcNow); IVaultMaintenance.RewrapTenantToActiveKeyAsync
+  re-wraps each blob's DEK (NEVER the secret plaintext) under the active key and stamps KeyId=active; asserts
+  rows changed; zeroes dek/keks. Off IVaultSecretStore (stable seam). Cross-tenant orchestration + the global
+  retire-gate (no blob may reference an id before it is removed, across ALL tenants under a bypass principal)
+  are RUNBOOK steps (docs/runbooks/vault-key-rotation.md).
+- VaultReadinessCheck must validate the built VaultKeyring (active key present + 32 bytes), NOT
+  VaultOptions.MasterKeyBase64 (which is empty in prod once the key comes from a file) — else /health/ready
+  is permanently Unhealthy. (must-fix high.)
+- .gitignore: add the secret-file pattern. appsettings/.env.example keep the dev MasterKeyBase64 shim + a
+  documented production Keys/KeyFile shape.
+
+## PR4b — tamper-evident reveal audit (DEFERRED to a reviewed follow-up; needs live-SQL CI + sign-off)
+Design is captured (per-tenant hash-chained VaultRevealAudit table, append-only, INSERT-only for pol_app,
+verify under a bypass principal). DEFERRED because: it turns RevealAsync into a WRITE on the payment hot path
+(commits inside callers' change-tracker — needs a separate scope bound to SESSION_CONTEXT); it ALTERs the PR1
+RLS SECURITY POLICY + adds a bypass proc (security-floor surgery); and its RLS/proc/BLOCK behaviour is
+UNVERIFIABLE in CI (SQLite skips migrations; the integration job is skipped until MSSQL_SA_PASSWORD is set).
+Merging an unverifiable RLS-floor change unattended is unsafe. Critique open questions to resolve before PR4b:
+(1) rotation RLS scope global-bypass vs per-tenant; (2) audit RLS shape INSERT-only-no-SELECT vs FILTER;
+(3) the bypass principal's audit-SELECT grant (the reused pol_webhook_resolver lacks it -> critical); (4) the
+audit-head concurrency serialization (sp_getapplock per tenant); (5) whole-chain-truncation high-water-mark;
+(6) audit-before-signature-verify DoS on the webhook path. Implement once MSSQL_SA_PASSWORD enables the
+live-SQL integration job so the RLS predicates + INSERT-only grant + bypass proc can be proven.

@@ -3,56 +3,46 @@ using System.Text;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace BuildingBlocks.Infrastructure.Vault;
 
 /// <summary>
-/// Local/dev envelope-encryption vault (PLAN decision #14). Per secret: a random DEK encrypts the
-/// plaintext (AES-256-GCM); a per-tenant KEK, derived from a configured master key, wraps the DEK.
-/// Only ciphertext + a last-4 hint are persisted; plaintext is revealed solely to server-side PSP
-/// calls and never logged.
-/// ponytail: KEK is derived from a local master key here. The production upgrade is to move KEK
-/// custody to KMS/HSM behind this same <see cref="IVaultSecretStore"/> seam — no caller changes.
+/// Self-hosted envelope-encryption vault (PLAN decision #14). Per secret: a random DEK encrypts the
+/// plaintext (AES-256-GCM); a per-tenant KEK, derived from a keyring master key, wraps the DEK. Only
+/// ciphertext + a last-4 hint are persisted; plaintext is revealed solely to server-side PSP calls and
+/// never logged. The master key is rotatable: <see cref="StoreAsync"/> stamps the keyring's ACTIVE id into
+/// the blob, and <see cref="RevealAsync"/> decrypts with the key the blob recorded — failing CLOSED if that
+/// key id is no longer in the keyring (no silent fallback to the active key).
 /// </summary>
 public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
 {
-    private const string KeyId = "local-envelope-v1";
-    private static readonly byte[] KekInfo = "pol-core/vault/kek/v1"u8.ToArray();
-
     private readonly ProducerDbContext _db;
     private readonly IClock _clock;
-    private readonly byte[] _masterKey;
+    private readonly VaultKeyring _keyring;
 
-    public LocalEnvelopeVaultStore(ProducerDbContext db, IClock clock, IOptions<VaultOptions> options)
+    public LocalEnvelopeVaultStore(ProducerDbContext db, IClock clock, VaultKeyring keyring)
     {
         _db = db;
         _clock = clock;
-
-        var master = options.Value.MasterKeyBase64;
-        if (string.IsNullOrWhiteSpace(master))
-            throw new InvalidOperationException("Vault:MasterKey is not configured.");
-
-        _masterKey = Convert.FromBase64String(master);
-        if (_masterKey.Length != 32)
-            throw new InvalidOperationException("Vault:MasterKey must decode to exactly 32 bytes.");
+        _keyring = keyring;
     }
 
     public async Task StoreAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken)
     {
-        var kek = DeriveKek(tenantId);
+        var (activeKeyId, masterKey) = _keyring.Active;
+        var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
         var dek = RandomNumberGenerator.GetBytes(32);
         try
         {
-            var encryptedSecret = EncryptGcm(dek, Encoding.UTF8.GetBytes(plaintextSecret));
-            var wrappedDek = EncryptGcm(kek, dek);
+            var encryptedSecret = VaultEnvelope.Encrypt(dek, Encoding.UTF8.GetBytes(plaintextSecret));
+            var wrappedDek = VaultEnvelope.Encrypt(kek, dek);
             var hint = LastFour(plaintextSecret);
 
             var existing = await _db.VaultSecrets.FindAsync([tenantId, name], cancellationToken).ConfigureAwait(false);
             if (existing is null)
-                _db.VaultSecrets.Add(new VaultSecretBlob(tenantId, name, KeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
+                _db.VaultSecrets.Add(new VaultSecretBlob(tenantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
             else
-                existing.Rotate(wrappedDek, encryptedSecret, hint, _clock.UtcNow);
+                existing.Rotate(wrappedDek, activeKeyId, encryptedSecret, hint, _clock.UtcNow);
 
             await _db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -68,12 +58,17 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
         var blob = await _db.VaultSecrets.FindAsync([tenantId, name], cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Vault secret '{name}' not found for the tenant.");
 
-        var kek = DeriveKek(tenantId);
+        // Fail CLOSED on an unknown/retired key id — never fall back to the active key (that would mask a
+        // custody mistake or let a forged KeyId downgrade to a different key). The id is a non-secret label.
+        var masterKey = _keyring.ResolveOrNull(blob.KeyId)
+            ?? throw new InvalidOperationException($"Vault key id '{blob.KeyId}' is not in the active keyring.");
+
+        var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
         byte[] dek = [];
         try
         {
-            dek = DecryptGcm(kek, blob.EncryptedDek);
-            var plaintext = DecryptGcm(dek, blob.EncryptedSecret);
+            dek = VaultEnvelope.Decrypt(kek, blob.EncryptedDek);
+            var plaintext = VaultEnvelope.Decrypt(dek, blob.EncryptedSecret);
             return Encoding.UTF8.GetString(plaintext);
         }
         finally
@@ -92,40 +87,6 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
     public Task<bool> ExistsAsync(Guid tenantId, string name, CancellationToken cancellationToken) =>
         _db.VaultSecrets.AnyAsync(x => x.TenantId == tenantId && x.Name == name, cancellationToken);
 
-    private byte[] DeriveKek(Guid tenantId) =>
-        HKDF.DeriveKey(HashAlgorithmName.SHA256, _masterKey, outputLength: 32, salt: tenantId.ToByteArray(), info: KekInfo);
-
     private static string LastFour(string secret) =>
         secret.Length <= 4 ? new string('*', secret.Length) : secret[^4..];
-
-    private static byte[] EncryptGcm(byte[] key, byte[] plaintext)
-    {
-        var nonce = RandomNumberGenerator.GetBytes(AesGcm.NonceByteSizes.MaxSize);
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[AesGcm.TagByteSizes.MaxSize];
-
-        using var aes = new AesGcm(key, tag.Length);
-        aes.Encrypt(nonce, plaintext, ciphertext, tag);
-
-        var packed = new byte[nonce.Length + ciphertext.Length + tag.Length];
-        Buffer.BlockCopy(nonce, 0, packed, 0, nonce.Length);
-        Buffer.BlockCopy(ciphertext, 0, packed, nonce.Length, ciphertext.Length);
-        Buffer.BlockCopy(tag, 0, packed, nonce.Length + ciphertext.Length, tag.Length);
-        return packed;
-    }
-
-    private static byte[] DecryptGcm(byte[] key, byte[] packed)
-    {
-        var nonceSize = AesGcm.NonceByteSizes.MaxSize;
-        var tagSize = AesGcm.TagByteSizes.MaxSize;
-
-        var nonce = packed.AsSpan(0, nonceSize);
-        var tag = packed.AsSpan(packed.Length - tagSize, tagSize);
-        var ciphertext = packed.AsSpan(nonceSize, packed.Length - nonceSize - tagSize);
-
-        var plaintext = new byte[ciphertext.Length];
-        using var aes = new AesGcm(key, tagSize);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext);
-        return plaintext;
-    }
 }

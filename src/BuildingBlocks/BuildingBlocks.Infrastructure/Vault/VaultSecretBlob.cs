@@ -37,11 +37,22 @@ public sealed class VaultSecretBlob
         UpdatedAtUtc = utcNow;
     }
 
-    public void Rotate(byte[] encryptedDek, byte[] encryptedSecret, string hint, DateTime utcNow)
+    /// <summary>Overwrites the secret with a new value, re-encrypted under the current active key.</summary>
+    public void Rotate(byte[] encryptedDek, string keyId, byte[] encryptedSecret, string hint, DateTime utcNow)
     {
         EncryptedDek = encryptedDek;
+        KeyId = keyId;
         EncryptedSecret = encryptedSecret;
         Hint = hint;
+        UpdatedAtUtc = utcNow;
+    }
+
+    /// <summary>Re-wraps the DEK under a new master key (master-key rotation): only the wrapped DEK and the
+    /// key id change. The secret ciphertext + hint are untouched — the plaintext is never re-encrypted.</summary>
+    public void Rewrap(byte[] encryptedDek, string keyId, DateTime utcNow)
+    {
+        EncryptedDek = encryptedDek;
+        KeyId = keyId;
         UpdatedAtUtc = utcNow;
     }
 }
