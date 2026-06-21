@@ -1,9 +1,20 @@
 # Personal, per-project overrides — never commit
 CLAUDE.local.md
 .claude/settings.local.json
+.workflows/
 
 # OS noise
 .DS_Store
+
+# .NET build output
+bin/
+obj/
+*.user
+[Bb]in/
+[Oo]bj/
+.vs/
+*.binlog
+TestResults/
 
 # Dependencies / build
 node_modules/

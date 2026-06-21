@@ -1,0 +1,44 @@
+<Project>
+
+  <!-- Solution-wide build knobs. Stack pins live in Directory.Packages.props. -->
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- Scriban 6.2.0 transitive-vuln suppression (spike 2026-06-21, CODING_STANDARDS.md).
+       Scriban enters ONLY via Mediator.SourceGenerator 3.0.1 — a build/design-time analyzer
+       with PrivateAssets=all that is NOT shipped to runtime output. Runtime exposure: none.
+       Policy: suppress per-advisory with reason; do NOT force-downgrade the source generator.
+       Re-review and prune this list whenever Mediator updates its Scriban pin. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-24c8-4792-22hx" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-5rpf-x9jg-8j5p" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-5wr9-m6jw-xx44" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-c875-h985-hvrc" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-grr9-747v-xvcp" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-m2p3-hwv5-xpqw" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-p6q4-fgr8-vx4p" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-v66j-x4hw-fv9g" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wgh7-7m3c-fx25" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-x6m9-38vm-2xhf" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-xcx6-vp38-8hr5" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-xw6w-9jjh-p9cr" />
+  </ItemGroup>
+
+  <!-- SQLitePCLRaw.lib.e_sqlite3 <= 2.1.11 transitive-vuln suppression
+       (GHSA-2m69-gcr7-jv3q, high severity, no patched release available as of 2026-06-21).
+       Enters ONLY via Microsoft.EntityFrameworkCore.Sqlite, which is referenced ONLY by the
+       BuildingBlocks.Tests in-memory Sqlite test harness (ProducerDbContextTestHarness) —
+       test-only, never in any Host runtime output, never network-exposed. Runtime exposure: none.
+       Policy: suppress per-advisory with reason. Re-review and remove once SQLitePCLRaw ships a
+       fixed release (SQLite >= 3.50.2) and EF Core's Sqlite provider picks it up. -->
+  <ItemGroup>
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
+  </ItemGroup>
+
+</Project>
