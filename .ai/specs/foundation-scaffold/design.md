@@ -163,6 +163,72 @@ route by PSP connection id / signed path (ยังไม่ trust tenant/PSP �
 - RLS SQL policy ติดผ่าน migration ของ producer context (security predicate FUNCTION + SECURITY POLICY)
   — เป็น raw SQL ใน migration `Up`/`Down` (ไม่ใช่ EF model) เพราะ RLS เป็น DDL.
 
+## Requirement Traceability
+
+ทุกเกณฑ์ใน requirements.md ถูก map กับ design element ที่ทำให้สำเร็จ (และ task ที่ implement
+ดู tasks.md `Satisfies:`). ตารางนี้คือ source ของ coverage แบบ deterministic:
+
+| Criterion | Design element |
+|---|---|
+| 1.1 | D1 project graph — layout `SharedKernel`/`Contracts`/`BuildingBlocks`/`Modules/<M>`/`Hosts` |
+| 1.2 | D1 — Domain ← Application ← Infrastructure ← Host; Domain ไม่อ้าง EF/ASP.NET |
+| 1.3 | D1 — `<M>.Application` ref เฉพาะ `<M>.Domain` + `Contracts` + `BuildingBlocks.Application` |
+| 1.4 | D1 — `<M>.Infrastructure` ref เฉพาะ `<M>.Application` + `BuildingBlocks.Infrastructure` |
+| 1.5 | D1 — cross-module `*.Domain`/`*.Infrastructure` reference → `Architecture.Tests` fail |
+| 1.6 | D1 — `dotnet build -warnaserror`, nullable-clean, 0 warning (TreatWarningsAsErrors) |
+| 2.1 | D2 — สื่อสารข้ามโมดูลผ่าน `Contracts` (`INotification`) เท่านั้น |
+| 2.2 | D2 — `Contracts` ถือ `PaymentPaid : INotification` (`SchemaVersion = "v1"`) |
+| 2.3 | D2 — `Mediator.SourceGenerator` ที่ Hosts (`PrivateAssets=all`), `AddMediator(...)` auto-register |
+| 2.4 | D2 — build diagnostic เมื่อ request ไม่มี handler (ไม่ปิด warning) |
+| 2.5 | D2 — `IMediator` Singleton; handler/pipeline ที่พึ่ง `DbContext` Scoped; `ValidateScopes=true` |
+| 3.1 | D3 — `Money` ใน SharedKernel เป็น source เดียวของจำนวนเงินที่ seam |
+| 3.2 | D3 — `Money.Of()` validate ISO4217 (THB/USD/JPY) + non-negative |
+| 3.3 | D3 — currency ไม่รองรับ / ติดลบ → throw, ไม่สร้าง instance |
+| 3.4 | D3 — `Add` บังคับ same-currency |
+| 3.5 | D3 — `MoneyJsonConverter` (JSON camelCase) |
+| 3.6 | D3 — EF mapping: สอง scalar `AmountMinorUnits`/`AmountCurrency(3)` + `Ignore(Amount)` |
+| 4.1 | D4 — `BuildingBlocks.Application` export interface ทั้งเจ็ด |
+| 4.2 | D4 — `ProducerDbContext` (schema producer) + `AdminDbContext` (schema admin) |
+| 4.3 | D4 — `AddBuildingBlocksInfrastructure()` register clock/RLS/UoW/idempotency/vault/outbox/dispatcher |
+| 4.4 | D4 — `ProducerDbContext` เป็นเจ้าของ Outbox/Idempotency/Vault + discover config จาก `ModuleAssemblies.Producer` |
+| 4.5 | D4 — `IUnitOfWork.ExecuteInTransactionAsync` ครอบ 1 tx, commit outbox พร้อม SaveChanges |
+| 5.1 | D5 — floor = SQL Server native RLS + `SESSION_CONTEXT('TenantId')`; EF filter = ชั้นเสริม |
+| 5.2 | D5 — set `SESSION_CONTEXT` per-connection ตอน connection-open ผ่าน `DbConnectionInterceptor` |
+| 5.3 | D5 — `ITenantScoped` ไม่มี tenant → pipeline guard ปฏิเสธ |
+| 5.4 | D5 — ban raw SQL/`IgnoreQueryFilters` ข้าม tenant; test คุ้ม |
+| 5.5 | D5 — admin cross-tenant = DB principal แยก + reason/correlation id → audit |
+| 5.6 | D5 — pooled connection ไม่ retain tenant เดิม; test พิสูจน์ leak ปิด |
+| 6.1 | D6 — `IIdempotencyStore.TryBeginAsync` first → `true`, replay → `false` |
+| 6.2 | D6 — multi-key atomic `(psp,eventId)` + `(psp,externalChargeId,normalizedStatus)` |
+| 6.3 | D6 — `IOutbox.Enqueue` track row, commit พร้อม SaveChanges (ไม่ publish นอก tx) |
+| 6.4 | D6 — OutboxDispatcher poll + lock/lease + poison/DLQ; consumer idempotent |
+| 6.5 | D6 — replay (`false`) → ไม่ transition, ไม่ enqueue ซ้ำ |
+| 7.1 | D7 — เข้าถึง secret ผ่าน `IVaultSecretStore` เท่านั้น (Store/Reveal/Masked/Exists) |
+| 7.2 | D7 — ห้าม hardcode/log secret/PII → gate `check-secrets` + review |
+| 7.3 | D7 — อ่านกลับเพื่อแสดง = mask (ไม่คืน plaintext ออก boundary) |
+| 7.4 | D7 — รองรับ envelope encryption (per-tenant KEK, DEK/secret, key id+version, rotation) |
+| 8.1 | D8 — `IPspAdapter` คืน hosted redirect URL เท่านั้น (ไม่มี card field/Omise.js/iframe/QR) |
+| 8.2 | D8 — `enum PspCode { TwoCTwoP, Omise }` code `"2c2p"`/`"omise"`; method `"card"`/`"promptpay"`/`"installment"` |
+| 8.3 | D8 — Omise PromptPay = Payment Links+ (hosted `transaction_url`), ห้าม source+charge |
+| 8.4 | D8 — Non-Goal guard: non-redirect/card/settlement/billing/onboarding/issuance → หยุดถามก่อน |
+| 9.1 | D9 — webhook = source of truth; browser return = UX |
+| 9.2 | D9 — route ด้วย PSP connection id / signed path ก่อน verify (ไม่ trust raw path) |
+| 9.3 | D9 — verify→claim→confirm→transition→`Enqueue(PaymentPaid)` ใน 1 tx |
+| 9.4 | D9 — signature ไม่ผ่าน → ปฏิเสธ ไม่ transition |
+| 9.5 | D9/D3 — Orders รับ `PaymentPaid` verify amount + currency ก่อน Paid |
+| 10.1 | D10 — `TenantConsole` + `AdminConsole` คนละ deployable บน backend/data ชุดเดียว |
+| 10.2 | D10 — admin endpoint เรียกผ่าน session Tenant Console ไม่ได้ |
+| 10.3 | D10 — `Mediator.SourceGenerator` ที่ host + wire `ModuleAssemblies(producer, admin)` เข้า DI |
+| 11.1 | D11 — test project ครบ 6 ชั้น (SharedKernel/BuildingBlocks/Payments/Orders/Architecture/Hosts) |
+| 11.2 | D11 — `Architecture.Tests` บังคับทิศ dependency |
+| 11.3 | D11 — naming convention (`Psp`, `Async` suffix, `I` prefix, `_camelCase`, `{Entity}Id`, `Utc`, camelCase) |
+| 11.4 | D11 — `dotnet test` เขียวทั้ง solution; ห้าม `[Fact(Skip=...)]`/`.only` |
+| 11.5 | D11 — critical path (webhook/idempotency/money) → property-based test |
+| 11.6 | D11 — stub ตั้งใจ → `// ponytail:` ระบุ upgrade path |
+| 12.1 | D7/D8 — real PSP HTTP integration = backlog (foundation = adapter stub) |
+| 12.2 | D7 — vault KMS/HSM provider = backlog (foundation = provider พื้นฐาน) |
+| 12.3 | D7/D8 + Open questions — backlog แต่ละชิ้นเปิด spec ของตัวเอง (ไม่ทำใน foundation spec) |
+
 ## Open questions / สิ่งที่ตั้งใจเลื่อน
 
 - real PSP HTTP integration (2C2P / Omise) — backlog, spec แยก (REQ-12.1).

@@ -40,6 +40,11 @@ file static class HostHarness
                 {
                     ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                     ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                    // Self-contained: the test must not depend on a (now uncommitted) appsettings.Development.json.
+                    // Fake 32-byte (all-zero) base64 key — never a real secret.
+                    ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                    ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
+                    ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",
                 });
             });
 

@@ -35,7 +35,8 @@
 - [x] A6. BuildingBlocks.Infrastructure spine — `ProducerDbContext`/`AdminDbContext`,
   `ModuleAssemblies`, `AddBuildingBlocksInfrastructure()` (clock, RLS interceptor, UoW, idempotency,
   vault, outbox, dispatcher), Outbox/Idempotency/Vault tables, model discovery จาก
-  `ModuleAssemblies.Producer` · Satisfies: REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5
+  `ModuleAssemblies.Producer`; vault provider ออกแบบรองรับ envelope encryption (per-tenant KEK, DEK/secret,
+  key id+version, rotation) · Satisfies: REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5, REQ-7.4
   - Evidence: `find src/BuildingBlocks/BuildingBlocks.Infrastructure` แสดงโฟลเดอร์ Outbox/Idempotency/
     Vault/Persistence; brief ยืนยัน spine compile เขียว; verify `dotnet build -warnaserror`.
     Viewports: n/a. Deviations: ไม่มี.
@@ -65,8 +66,10 @@
   + `Ignore(Amount)`), `IPspAdapter` (redirect-only), webhook handler (verify→claim→confirm→
   transition→emit ใน 1 tx) · Satisfies: REQ-3.6, REQ-8.1, REQ-8.2, REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4
 - [ ] D2. PSP adapters — 2C2P + Omise/Opn, 3 ช่องทาง (card/promptpay/installment) redirect-only;
-  Omise PromptPay = Payment Links+ hosted `transaction_url` (ห้าม source+charge). **HTTP จริง = stub
-  mark `// ponytail:`** · Satisfies: REQ-8.2, REQ-8.3 (real HTTP = backlog Z1)
+  Omise PromptPay = Payment Links+ hosted `transaction_url` (ห้าม source+charge); Non-Goal guard —
+  requirement ที่นำไปสู่ non-redirect/card field/settlement/billing/onboarding/issuance → หยุดถามก่อน.
+  **HTTP จริง = stub mark `// ponytail:`** ระบุ upgrade path · Satisfies: REQ-8.2, REQ-8.3, REQ-8.4,
+  REQ-11.6 (real HTTP = backlog Z1)
 - [ ] D3. Orders.Domain/Application/Infrastructure — order aggregate (`PendingPayment` → `Paid`),
   handler รับ `PaymentPaid` verify amount+currency (ไม่ใช่แค่ PaymentId) · Satisfies: REQ-9.5
 - [ ] D4. Products / Cart / Checkout — domain/application/infrastructure ขั้นต้นพอให้ flow แกนทำงาน
@@ -74,9 +77,10 @@
 
 ## กลุ่ม E — Hosts
 
-- [ ] E1. TenantConsole (public-facing) — `Mediator.SourceGenerator`, wire `ModuleAssemblies` +
-  `AddBuildingBlocksInfrastructure()`, webhook endpoint (route by connection id / signed path)
-  · Satisfies: REQ-9.2, REQ-10.1, REQ-10.3
+- [ ] E1. TenantConsole (public-facing) — `Mediator.SourceGenerator` (`PrivateAssets=all`) auto-register
+  handler ผ่าน `AddMediator(...)` + build diagnostic เมื่อ request ไม่มี handler (ไม่ปิด warning), wire
+  `ModuleAssemblies` + `AddBuildingBlocksInfrastructure()`, webhook endpoint (route by connection id /
+  signed path) · Satisfies: REQ-2.3, REQ-2.4, REQ-9.2, REQ-10.1, REQ-10.3
 - [ ] E2. AdminConsole (internal-only) — แยก authz scope; admin endpoint เรียกผ่าน session Tenant
   Console ไม่ได้; admin cross-tenant = DB principal แยก + reason/correlation id → audit
   · Satisfies: REQ-10.1, REQ-10.2, REQ-5.5
@@ -93,8 +97,9 @@
 - [ ] F4. `Orders.Tests` — รับ `PaymentPaid` verify amount+currency · Satisfies: REQ-9.5, REQ-11.1
 - [ ] F5. `Hosts.Tests` — tenant leak ปิด รวม pooled connection ไม่ retain tenant เดิม; admin scope
   separation · Satisfies: REQ-5.4, REQ-5.6, REQ-10.2, REQ-11.1
-- [ ] F6. CI gate — `dotnet build -warnaserror` + `dotnet test` + `dotnet format --verify-no-changes`
-  required; ไม่มี `[Fact(Skip=...)]`/`.only` ค้าง · Satisfies: REQ-11.4, REQ-1.6
+- [ ] F6. CI gate — `dotnet build -warnaserror` + `dotnet test` + `dotnet format --verify-no-changes` +
+  `check-secrets` (ห้าม hardcode/log secret/PII) required; ไม่มี `[Fact(Skip=...)]`/`.only` ค้าง
+  · Satisfies: REQ-11.4, REQ-1.6, REQ-7.2
 
 ## กลุ่ม G — Migrations + RLS SQL policy
 
@@ -107,8 +112,8 @@
 
 ## Backlog (กั้นออกจาก foundation — เปิด spec ของตัวเองเมื่อเริ่ม)
 
-- [ ] Z1. **Real PSP HTTP integration** — ยิง 2C2P / Omise/Opn จริง แทน adapter stub (`// ponytail:`)
-  · Satisfies: REQ-12.1
+- [ ] Z1. **Real PSP HTTP integration** — ยิง 2C2P / Omise/Opn จริง แทน adapter stub (`// ponytail:`);
+  เริ่มงานเมื่อเปิด spec ของตัวเอง (ไม่ทำใน foundation spec นี้) · Satisfies: REQ-12.1, REQ-12.3
 - [ ] Z2. **Vault KMS/HSM provider** — envelope encryption จริง (per-tenant KEK ใน KMS/HSM, DEK ต่อ
   secret, key id+version, rotation runbook) แทน provider พื้นฐาน · Satisfies: REQ-12.2
 

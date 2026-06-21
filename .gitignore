@@ -9,6 +9,9 @@ CLAUDE.local.md
 # .NET build output
 bin/
 obj/
+# env-specific app config holds dev/real values — commit only the *.json.example template
+# (the secret guard forbids committing appsettings.<Environment>.json)
+appsettings.*.json
 *.user
 [Bb]in/
 [Oo]bj/
