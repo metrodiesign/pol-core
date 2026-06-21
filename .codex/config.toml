@@ -1,0 +1,55 @@
+# Codex project config for spec-driven-development.
+# Wires native Codex subagents (.codex/agents/*.toml -> .ai/roles single source),
+# the pre/post-tool guard + task-gate hooks (single source: .ai/bin/check-*.sh, gate-task.sh),
+# and the browser-verify MCP server (single source: .claude/skills/spec-implement/references/browser-verify.md).
+
+[agents]
+max_threads = 6
+max_depth = 1
+
+# Hooks — Codex DISCOVERS hooks from this project `config.toml` `[hooks]` table (event ->
+# array of matcher groups, each with a `hooks` array). The legacy `.codex/hooks.json` was
+# REMOVED (issue #26): Codex 0.139 loads it TOO, so keeping it triggered a live "loading
+# hooks from both .codex/hooks.json and .codex/config.toml; prefer a single representation"
+# warning and double-registered guard.sh/task-gate.sh. config.toml is the single source.
+# IMPORTANT (issue #26): discovery != firing. Per the Codex docs these project-local hooks
+# load "only when the project `.codex/` layer is trusted", and each command hook must be
+# reviewed + trusted via the interactive `/hooks` command (recorded against its hash) or it
+# is skipped. Live-tested (Codex 0.135 + 0.139): headless `codex exec` does NOT run them even
+# with a project trust override + `--dangerously-bypass-hook-trust`. So this block enforces
+# in INTERACTIVE Codex AFTER a one-time `/hooks` trust (per-machine human setup, like
+# core.hooksPath); for `codex exec`/automation the Tier 1 floor (.githooks + CI) is the
+# guarantee. Each command delegates to the single-source check engine in `.ai/bin/` (same
+# logic Claude/OpenCode use). See .ai/agents/codex/AGENT.md "Hook firing requires trust".
+[hooks]
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = ".codex/hooks/guard.sh"
+
+# Advisory spec-edit guard (non-blocking, mirrors Claude's spec-edit-guard): WARNS on
+# stderr when an approved requirements.md is edited while its sibling tasks.md still has
+# open tasks. Single source: .ai/bin/check-spec-edit.sh. apply_patch is Codex's edit
+# mechanism; Edit is matched too for harnesses that surface a distinct Edit tool.
+[[hooks.PreToolUse]]
+matcher = "^(apply_patch|Edit)$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = ".codex/hooks/spec-edit-guard.sh"
+
+[[hooks.PostToolUse]]
+matcher = "^(apply_patch|Bash|Write|Edit)$"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = ".codex/hooks/task-gate.sh"
+timeout = 120
+
+# Browser-verify MCP (confirm package/version). Enables the browser-verify recipes for Codex.
+[mcp_servers.chrome-devtools]
+command = "npx"
+args = ["-y", "chrome-devtools-mcp@latest"]

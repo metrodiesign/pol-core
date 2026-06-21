@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# pre-push — Tier 1 enforcement floor (covers EVERY agent + human).
+# Enabled per-clone with: git config core.hooksPath .githooks  (see .ai/README.md SETUP)
+#
+# Ref-based, NOT regex (stronger: matches git's own model, not the spelling of a command).
+# git feeds one line per ref being pushed on stdin:
+#     <local ref> <local sha> <remote ref> <remote sha>
+# We block on two policies:
+#   1. Pushing to a protected branch (refs/heads/main or refs/heads/develop) — must go via PR.
+#   2. Non-fast-forward / force push — when the remote sha is NOT an ancestor of the local
+#      sha, the push would rewrite remote history. Detected with merge-base --is-ancestor.
+# Any non-zero exit blocks the entire push.
+set -euo pipefail
+
+PROTECTED='refs/heads/main refs/heads/develop'
+ZERO='0000000000000000000000000000000000000000'
+
+block() {
+  echo "Blocked push: $1" >&2
+  exit 1
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Empty / branch deletion line — nothing to inspect.
+  [ -z "${remote_ref:-}" ] && continue
+
+  # 1. Protected branch.
+  for p in $PROTECTED; do
+    if [ "$remote_ref" = "$p" ]; then
+      block "$remote_ref is protected — open a PR instead of pushing directly (Workflow rules)."
+    fi
+  done
+
+  # Deleting a remote ref (local_sha all-zero): treat as a destructive op, block.
+  if [ "$local_sha" = "$ZERO" ]; then
+    block "deleting remote ref $remote_ref — confirm with a human first."
+  fi
+
+  # 2. Non-fast-forward (force) push: skip when creating a brand-new remote ref.
+  if [ "$remote_sha" != "$ZERO" ]; then
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      block "non-fast-forward (force) push to $remote_ref would rewrite remote history (Workflow rules: ห้าม force push)."
+    fi
+  fi
+done
+
+exit 0

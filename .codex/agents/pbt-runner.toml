@@ -1,0 +1,7 @@
+name = "pbt-runner"
+description = "Author and run property-based tests from EARS-derived properties using the project test runner (declared via SDD_TEST_CMD env, or a package.json test script for a Node project), in the project test directory co-located with the logic under test."
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Adopt the persona defined in .ai/roles/pbt-runner.md — read that file and follow it exactly. Report in Thai; code/paths/identifiers in English.
+"""

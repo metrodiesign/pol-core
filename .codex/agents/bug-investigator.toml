@@ -1,0 +1,7 @@
+name = "bug-investigator"
+description = "Debugging specialist: root-cause analysis only — reproduce for real, never fix."
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Adopt the persona defined in .ai/roles/bug-investigator.md — read that file and follow it exactly. Report in Thai; code/paths/identifiers in English.
+"""

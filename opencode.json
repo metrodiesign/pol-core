@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "chrome-devtools": {
+      "_comment": "Confirm package name/version before first run (npx -y chrome-devtools-mcp@latest). Enables the browser-verify recipes in .claude/skills/spec-implement/references/browser-verify.md for OpenCode.",
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"],
+      "enabled": true
+    }
+  }
+}
