@@ -16,8 +16,13 @@
 | C# | **14** | เปิด nullable + type checking เข้มสุด |
 | EF Core | **10** (align กับ .NET 10) | ORM |
 | SQL Server | **2025 Standard** | เก็บ UTC (`...Utc`) · 2 schema แยก: `admin`, `producer` |
-| martinothamar/Mediator | **3.x** | in-process command/query/handler + pipeline behaviors |
+| martinothamar/Mediator | **3.0.1** | in-process command/query/handler + pipeline behaviors (3.0.0 ไม่ publish) |
 | Omise API | `apiVersion` **2019-05-29** | external PSP API (ต่อ tenant, จาก config) |
+
+> **Compat verified** (spike 2026-06-21, [docs/spikes/2026-06-21-stack-compatibility.md](../../docs/spikes/2026-06-21-stack-compatibility.md)):
+> ทั้ง chain ทำงาน end-to-end บน SQL Server 2025 RTM-CU5. **Dependency-audit caveat:** `Mediator.SourceGenerator`
+> ดึง `Scriban` 6.2.0 (critical/high) + `System.Security.Cryptography.Xml` 9.0.0 (high) แบบ transitive build-time
+> (`PrivateAssets=all`, ไม่ ship runtime) — CI audit จะ flag, ต้อง suppress รายตัวพร้อมเหตุผล ห้าม force-downgrade core dep.
 
 > exact version (รวม patch) pin ที่ `Directory.Packages.props` / `.csproj` + commit lock — ห้าม floating (`*`/`latest`).
 > ขึ้น major ใหม่ = ต้องมีเหตุผลบันทึก + ขออนุมัติก่อน (ดู Dependency rules).

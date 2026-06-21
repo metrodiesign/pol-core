@@ -54,6 +54,7 @@ tests/
 - migration: `dotnet ef migrations add <PascalCaseName> --context <Ctx> --project src/Modules/<M>/<M>.Infrastructure`
 - datetime เก็บ UTC, column ลงท้าย `Utc`
 - **multi-tenant isolation floor = SQL Server native RLS + `SESSION_CONTEXT('TenantId')`** ต่อ request (ไม่พึ่ง app code).
+  **`SESSION_CONTEXT` เป็น per-connection** → set ตอน connection-open ผ่าน **`DbConnectionInterceptor`** (ไม่ใช่ต่อ query — pooled connection คนละตัวจะไม่เห็นค่า; spike 2026-06-21 ยืนยัน).
   EF global query filter = ชั้นสะดวกเสริม **ไม่ใช่** floor. ban raw SQL / `IgnoreQueryFilters` ข้าม tenant + test พิสูจน์ leak ปิด (รวม pooled connection ไม่ retain tenant เดิม). admin cross-tenant = DB principal แยก
 - `Money` value object ใน SharedKernel: `{ MinorUnits: long, Currency: ISO4217 }` — ไม่ map decimal/float ที่ cross-module seam
 - **provisioning = saga ข้าม store** (DB + vault คนละที่ ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. idempotent ด้วย tenant key

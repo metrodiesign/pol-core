@@ -82,7 +82,7 @@ multi-tenant security). canon นี้ยังไม่มี code — เป�
 
 เหลือเป็น **pre-implementation task ที่ owned-by-human** (ตัดสินแล้วว่าจะทำ แต่รอ input ภายนอก) — ไม่ใช่ flaw ของ plan:
 
-- **[GATE] Compatibility spike — task #1 ก่อน scaffold:** พิสูจน์ EF Core 10 + SQL Server 2025 GA + provider + CI image + hosting. **acceptance ชัด: pass compatibility matrix _หรือ_ record fallback decision (.NET 8 LTS / SQL 2022) → update canon ให้ตรง → ค่อยเริ่ม task #2.** tasks.md ต้อง stop หลัง spike ก่อน scaffold. **"approve plan" ≠ "freeze stack"**. risk owned by human.
+- **[GATE] Compatibility spike — task #1 ก่อน scaffold:** ~~พิสูจน์ EF Core 10 + SQL Server 2025 GA + provider~~ → **PASSED 2026-06-21** ([docs/spikes/2026-06-21-stack-compatibility.md](docs/spikes/2026-06-21-stack-compatibility.md)). chain ทำงาน end-to-end บน SQL Server 2025 RTM-CU5 + EF Core 10.0.0 + Mediator 3.0.1 + net10/C#14. fallback ไม่ต้องใช้. canon updated (Mediator pin 3.0.1, Scriban transitive vuln → CI suppress, SESSION_CONTEXT via connection-open interceptor). **stack frozen → scaffold (task #2) ปลดล็อก.**
 - **Vault provider selection:** Azure Key Vault / AWS KMS / SQL Always Encrypted — รอ hosting decision (model envelope/per-tenant KEK fix แล้ว, decision #14).
 - **Native RLS เชิง runtime:** `SESSION_CONTEXT` reset ตอน connection-pool reuse + benchmark — **acceptance: test พิสูจน์ reused pooled connection retain prior tenant context ไม่ได้** (verify ตอน infra task).
 - **Notification queue tech** (Orders spec แยก) — แต่ min-contract fix now: at-least-once, idempotent notify key, DLQ alert, link token rotation/TTL.
