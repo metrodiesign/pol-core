@@ -35,4 +35,6 @@ public sealed class CartItem : Entity<Guid>
     }
 
     internal void IncreaseQuantity(int by) => Quantity = checked(Quantity + by);
+
+    internal void SetQuantity(int quantity) => Quantity = quantity;
 }

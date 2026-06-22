@@ -7,6 +7,7 @@ using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
+using Cart.Application;
 using Cart.Infrastructure;
 using Checkout.Infrastructure;
 using Mediator;
@@ -170,6 +171,50 @@ app.MapPost("/products", async (
     return TypedResults.Ok(new CreateProductResponse(id));
 }).RequireAuthorization("tenant"); // tenant-SPA audience only (admin-SPA tokens get a different role)
 
+// Cart — open, add/merge lines, review, adjust, clear. Tenant comes from the principal; the commands are
+// ITenantScoped so RLS + the tenant guard confine every cart to the bound tenant.
+app.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var id = await mediator.Send(new CreateCartCommand(tenant.TenantId), ct);
+    return TypedResults.Ok(new CreateCartResponse(id));
+}).RequireAuthorization("tenant");
+
+app.MapPost("/carts/{cartId:guid}/items", async (
+    Guid cartId, AddItemToCartRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new AddItemToCartCommand(
+        cartId, tenant.TenantId, body.ProductId, body.Quantity, body.UnitPriceMinorUnits, body.Currency), ct);
+    return TypedResults.Ok(result);
+}).RequireAuthorization("tenant");
+
+app.MapGet("/carts/{cartId:guid}", async (
+    Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetCartQuery(cartId, tenant.TenantId), ct);
+    return view is null ? Results.NotFound() : Results.Ok(view);
+}).RequireAuthorization("tenant");
+
+app.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
+    Guid cartId, Guid productId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, tenant.TenantId, productId), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
+app.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
+    Guid cartId, Guid productId, SetCartItemQuantityRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, tenant.TenantId, productId, body.Quantity), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
+app.MapPost("/carts/{cartId:guid}/clear", async (
+    Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new ClearCartCommand(cartId, tenant.TenantId), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
 app.MapPost("/payment-sessions", async (
     CreatePaymentSessionRequest body,
     ITenantContext tenant,
@@ -198,6 +243,9 @@ app.Run();
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
+internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity, long UnitPriceMinorUnits, string Currency);
+internal sealed record SetCartItemQuantityRequest(int Quantity);
+internal sealed record CreateCartResponse(Guid CartId);
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);

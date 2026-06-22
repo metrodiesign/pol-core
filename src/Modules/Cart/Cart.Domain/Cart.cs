@@ -64,6 +64,20 @@ public sealed class Cart : AggregateRoot<Guid>
         _items.RemoveAll(i => i.ProductId == productId);
     }
 
+    /// <summary>Sets an existing line's quantity to a positive value. Rejects a non-open cart, a
+    /// non-positive quantity, or a product that is not in the cart.</summary>
+    public void SetItemQuantity(Guid productId, int quantity)
+    {
+        if (Status != CartStatus.Open)
+            throw new InvalidOperationException("Cannot modify a cart that is not open.");
+        if (quantity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity must be positive.");
+
+        var line = _items.FirstOrDefault(i => i.ProductId == productId)
+            ?? throw new ArgumentException($"Product {productId} is not in the cart.", nameof(productId));
+        line.SetQuantity(quantity);
+    }
+
     /// <summary>Empties the cart of all lines.</summary>
     public void Clear()
     {
