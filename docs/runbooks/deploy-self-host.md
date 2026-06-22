@@ -55,7 +55,7 @@ chmod 600 secrets/*
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-ลำดับ: `sql` (healthy) -> `migrate` (bootstrap principals + apply migrations แล้ว exit 0) -> 3 host start.
+ลำดับ: `sql` (healthy) -> `migrate` (bootstrap principals + apply migrations แล้ว exit 0) -> 2 host start (API + Worker).
 ดู migrate log:
 
 ```bash
@@ -108,5 +108,5 @@ backward-compatible (expand/contract) เพื่อให้ app เก่า+
 
 ## 6. SA password rotation (post-bootstrap)
 
-`sa` ใช้แค่ตอน bootstrap/migrate — app ต่อด้วย pol_app/pol_admin/pol_worker เท่านั้น. หลัง deploy แรก
+`sa` ใช้แค่ตอน bootstrap/migrate — app ต่อด้วย pol_app/pol_worker เท่านั้น (pol_admin = dormant, ใช้โดย integration test ต่อ DB ตรง). หลัง deploy แรก
 หมุน SA ได้: `ALTER LOGIN sa WITH PASSWORD='...'` แล้วอัปเดต `MSSQL_SA_PASSWORD` ใน `.env` (ใช้รอบ migrate ถัดไป).

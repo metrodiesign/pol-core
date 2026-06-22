@@ -9,7 +9,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hosts.Tests;
 
-// The two console hosts are the composition roots. PLAN #7 says the container must be free of
+// The Api and Worker hosts are the composition roots. PLAN #7 says the container must be free of
 // captive-dependency / scope mistakes: a Scoped service (ITenantContext, the TenantGuardBehavior,
 // the DbContext-backed idempotency/outbox/vault stores) must never be captured by a Singleton. Both
 // Program.cs files switch on ValidateScopes + ValidateOnBuild in the Development environment, so the

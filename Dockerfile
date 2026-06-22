@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Self-host image for the pol-core hosts (Api / AdminConsole / Worker) + a migrate target that
+# Self-host image for the pol-core hosts (Api / Worker) + a migrate target that
 # bootstraps DB principals and applies EF migrations. One Dockerfile, parameterized by HOST_PROJECT/HOST_DLL.
 ARG DOTNET_VERSION=10.0
 
