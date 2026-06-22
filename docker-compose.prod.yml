@@ -59,6 +59,10 @@ services:
       DB_NAME: ${DB_NAME:-PaymentOrchestration}
       DB_PRINCIPAL: pol_app
       DB_PASSWORD_FILE: /run/secrets/pol_app_password
+      # Cross-tenant provisioning runs under pol_admin (RLS bypass) on ConnectionStrings:Admin — the
+      # entrypoint builds it from this file. Required: the API fail-fasts at boot without it.
+      DB_ADMIN_PRINCIPAL: pol_admin
+      ADMIN_DB_PASSWORD_FILE: /run/secrets/pol_admin_password
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
@@ -68,7 +72,7 @@ services:
       Google__Audiences__admin: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
       Cors__AllowedOrigins__0: ${TENANT_FRONTEND_ORIGIN:?set TENANT_FRONTEND_ORIGIN in .env}
       Cors__AllowedOrigins__1: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
-    secrets: [pol_app_password, vault_master_key]
+    secrets: [pol_app_password, pol_admin_password, vault_master_key]
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
       # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.

@@ -20,4 +20,14 @@ export ConnectionStrings__Producer="$CONN"
 export ConnectionStrings__Worker="$CONN"
 unset DB_PW
 
+# The API also provisions tenants CROSS-TENANT under pol_admin (RLS bypass) on a SEPARATE connection — the
+# pol_app principal above is RLS-blocked from writing another tenant's rows. When an admin password file is
+# mounted, build that connection too (the API fail-fasts at boot without it); the Worker mounts none and
+# skips this. A distinct principal, so it cannot be the same $CONN as Producer.
+if [ -n "${ADMIN_DB_PASSWORD_FILE:-}" ]; then
+    ADMIN_PW="$(cat "$ADMIN_DB_PASSWORD_FILE")"
+    export ConnectionStrings__Admin="Server=${DB_SERVER};Database=${DB_NAME};User Id=${DB_ADMIN_PRINCIPAL:-pol_admin};Password=${ADMIN_PW};Encrypt=True;TrustServerCertificate=True"
+    unset ADMIN_PW
+fi
+
 exec dotnet "$HOST_DLL"

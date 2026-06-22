@@ -239,3 +239,21 @@ pure-logic-first (LESSONS.md). ทุก test map REQ.
 - **S4** (migration ordering + Down DROP syntax): APPLIED — `AddTenantTable` timestamp ใหม่กว่า `AddVaultRevealAudit`; Down DROP 1 FILTER + 2 BLOCK แยก operation.
 - **S6** (`ConflictException` base/arm order): APPLIED — `: Exception`, วางก่อน `InvalidOperationException` arm.
 - **N1** atomicity note: APPLIED (B1). **N2** Metadata size: NOTED — admin endpoint trusted; ไม่ cap body ใน slice นี้ (low risk). **N3** admin conn fail-fast: APPLIED. **N4** correlationId not-null+fallback: APPLIED. **N5** secretRefName safe: NOTED. **N6** EnabledChannels ว่างได้: NOTED (ต่างจาก pspConnections[] ที่ห้ามว่าง).
+
+## Operational Prerequisites (REQ-7.5)
+
+ก่อนใช้งานจริง (และก่อน admin endpoint จะทำงาน) ต้องจัดเตรียม 4 อย่าง — ทั้งหมด fail ชัด (boot fail-fast
+หรือ 401/403) ไม่ fail เงียบ:
+
+1. **pol_admin login + grants** — สร้างโดย `docker/bootstrap/01-principals.sql` (รับ `POL_ADMIN_PASSWORD`)
+   แล้ว migration `AddTenantTable` GRANT สิทธิ์ provisioning (Tenants RW, PspConnections/VaultSecrets INSERT,
+   ProvisioningAudits SELECT/INSERT). prod: รัน service `migrate` ก่อน hosts.
+2. **`ConnectionStrings:Admin` (pol_admin)** — dev: `appsettings.Development.json`; prod: `docker/entrypoint.sh`
+   ประกอบจาก `ADMIN_DB_PASSWORD_FILE` (= secret `pol_admin_password`) ใน `docker-compose.prod.yml` api service.
+   ถ้าไม่ตั้ง -> API throw ตอน boot (ทั้งระบบ provisioning พึ่งมัน).
+3. **Admin OAuth client / `Google:Audiences:admin`** — client id ของ admin SPA = audience ที่ map เป็น role
+   `admin`; non-Development จะ throw ถ้า unset/placeholder. dev/prod ตั้งผ่าน `.env.example` /
+   `.env.prod.example` (`ADMIN_GOOGLE_CLIENT_ID`). **invariant (S2): admin OAuth client ต้องไม่ออก `tenant_id`
+   claim** — admin path เป็น cross-tenant ใต้ pol_admin (ไม่มี single tenant binding).
+4. **AddTenantTable migration applied** — Tenants/ProvisioningAudits tables + RLS predicate (FILTER+BLOCK บน
+   `fn_tenant_predicate(Id)`) + grants. ไม่มี = endpoint 500 (table หาย) หรือ RLS หลุด.
