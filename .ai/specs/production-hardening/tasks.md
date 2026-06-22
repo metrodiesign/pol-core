@@ -200,3 +200,25 @@ covered by Integration.Tests/VaultRevealAuditIntegrationTests (INSERT-only, no S
 block, bypass-proc head), which run ONLY once MSSQL_SA_PASSWORD enables the live-SQL CI job. The hand-edited
 migration raw SQL is NOT yet applied to a live DB (no local SA/principal passwords) -> HOLD merge until the
 integration job is green. whole-chain-truncation high-water-mark remains a future hardening.
+
+## PR5 — CORS for the separate browser SPA frontend (IMPLEMENTED on feat/api-cors)
+New requirement surfaced after PR4: TenantConsole/AdminConsole are backend JSON APIs only; the tenant + admin
+UIs are a separate Next.js browser SPA (different origin). Auth (Bearer Google ID token via JWKS) and the
+minimal-API JSON endpoints already fit that role unchanged; the one gap was CORS.
+
+Delivered:
+- BuildingBlocks.Web/CorsExtensions: AddPolCors (named policy "pol-spa") + UsePolCors (app.UseCors(name) — the
+  global form that applies to minimal-API endpoints, which carry no per-endpoint CORS metadata). Allowlists
+  Cors:AllowedOrigins (NEVER AllowAnyOrigin — the API is authenticated); AllowAnyHeader/AllowAnyMethod; NO
+  AllowCredentials (auth is a Bearer header, not a cookie). Empty origins => no cross-origin allowed (prod
+  fails closed if origins are unset). Origins are read lazily inside the policy builder so late-layered config
+  (env / test overrides) is honoured.
+- Wired into both web hosts: AddPolCors at registration + UsePolCors after UseExceptionHandler and BEFORE auth
+  (so a preflight OPTIONS is answered without an auth challenge). Worker has no HTTP API surface -> no CORS.
+- Config: committed appsettings.json carries an empty Cors:AllowedOrigins + a _Cors_note (set per env via
+  Cors__AllowedOrigins__0=https://app.example.com). Dev origin (localhost:3000) lives in the gitignored
+  appsettings.Development.json / user-secrets, same as Google:ClientId and the dev vault key.
+
+Verify: build 31/0/0 -warnaserror; unit suite green incl CorsTests (preflight from an allowlisted origin is
+echoed back on both hosts; an unknown origin gets NO Access-Control-Allow-Origin). The deploy scaffold (PR #9)
+should pass the frontend origin through to the host containers via Cors__AllowedOrigins__0 once merged.

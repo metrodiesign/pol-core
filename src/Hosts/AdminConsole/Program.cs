@@ -61,6 +61,9 @@ builder.Services.AddScoped<ITenantContext, AdminTenantContext>();
 // shared with TenantConsole. See BuildingBlocks.Web.GoogleAuthenticationExtensions.
 builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
 
+// CORS for the separate browser SPA admin frontend (allowlisted origins from Cors:AllowedOrigins).
+builder.Services.AddPolCors(builder.Configuration);
+
 // Cross-cutting HTTP hardening: RFC7807 errors + split liveness/readiness probes.
 builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks();
@@ -75,6 +78,9 @@ _ = app.Services.GetRequiredService<VaultKeyring>();
 // Correlation id outermost so the logging scope is still active when the exception handler logs a failure.
 app.UseCorrelationId();
 app.UseExceptionHandler();
+
+// CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge.
+app.UsePolCors();
 
 app.UseAuthentication();
 app.UseAuthorization();
