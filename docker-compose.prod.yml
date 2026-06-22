@@ -70,7 +70,9 @@ services:
       Cors__AllowedOrigins__1: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
     secrets: [pol_app_password, vault_master_key]
     ports:
-      - "${API_PORT:-8080}:8080"
+      # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
+      # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
+      - "${API_PORT:-5100}:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully

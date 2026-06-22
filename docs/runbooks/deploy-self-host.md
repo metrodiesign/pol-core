@@ -19,7 +19,7 @@ HA / SQL replica / backup อัตโนมัติ; secret manager จริ�
 
 - Docker + Docker Compose v2 บน host
 - clone repo บน host (compose build จาก source; migrate รัน EF จาก source ด้วย)
-- host เปิด port ตาม `.env` (default API 8080) หรือวางหลัง reverse proxy
+- host เปิด port ตาม `.env` (default API 5100; container ฟัง http 8080 ข้างใน) หรือวางหลัง reverse proxy
 
 ## 1. Config + secrets
 
@@ -65,7 +65,7 @@ docker compose -f docker-compose.prod.yml logs migrate     # ต้องจบ�
 ## 3. Verify
 
 ```bash
-curl -fsS http://localhost:8080/health/ready    # API -> {"status":"healthy"}
+curl -fsS http://localhost:5100/health/ready    # API -> {"status":"healthy"}
 docker compose -f docker-compose.prod.yml ps     # ทุก service healthy / migrate = exited (0)
 ```
 
