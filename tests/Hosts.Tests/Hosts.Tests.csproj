@@ -21,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hosts\TenantConsole\TenantConsole.csproj" Aliases="TenantHost" />
-    <ProjectReference Include="..\..\src\Hosts\AdminConsole\AdminConsole.csproj" Aliases="AdminHost" />
   </ItemGroup>
 
 </Project>

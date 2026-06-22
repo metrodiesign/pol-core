@@ -13,7 +13,8 @@
 | test 1 project | `dotnet test tests/<Project>.Tests` |
 | test 1 case | `dotnet test --filter "FullyQualifiedName~<Namespace>.<Class>.<Method>"` |
 | format | `dotnet format` (CI ใช้ `dotnet format --verify-no-changes`) |
-| run console | `dotnet run --project src/Hosts/<TenantConsole\|AdminConsole>` |
+| run API | `dotnet run --project src/Hosts/TenantConsole` (Backend API เดียว, dev http :5100) |
+| run worker | `dotnet run --project src/Hosts/Worker` |
 
 **Task gate** (`.ai/bin/gate-task.sh` อ่านจาก env) — ตั้งให้ flip task เป็น `[x]` พิสูจน์เขียวจริง:
 
@@ -41,8 +42,8 @@ src/
       Payments.Infrastructure/ # EF Core config, PSP adapter (IPspAdapter), vault, migrations
     Orders/  Checkout/  Cart/  Products/    # โครงเดียวกัน
   Hosts/
-    TenantConsole/         # ASP.NET Core app#1 (public-facing)
-    AdminConsole/          # ASP.NET Core app#2 (internal-only)
+    TenantConsole/         # ASP.NET Core Backend API (เดียว, เสิร์ฟ 2 SPA: pol-tenant + pol-admin)
+    Worker/                # background host (outbox dispatcher)
 tests/
   <Module>.Tests/          # co-locate ตามโมดูล
 ```

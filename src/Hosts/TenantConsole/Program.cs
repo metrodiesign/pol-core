@@ -67,10 +67,11 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
 
 // Real Google ID-token validation (issuer/audience/lifetime/email_verified/hosted-domain + RS256 against
-// Google's JWKS via Authority), shared with AdminConsole. See BuildingBlocks.Web.GoogleAuthenticationExtensions.
+// Google's JWKS via Authority). The API accepts every configured Google:ClientIds entry as a valid audience,
+// so both SPAs (each with its own OAuth client) authenticate here. See GoogleAuthenticationExtensions.
 builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
 
-// CORS for the separate browser SPA frontend (allowlisted origins from Cors:AllowedOrigins).
+// CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
 builder.Services.AddPolCors(builder.Configuration);
 
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.

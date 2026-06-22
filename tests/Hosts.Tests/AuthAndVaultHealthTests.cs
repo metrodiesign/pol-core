@@ -1,5 +1,6 @@
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -8,6 +9,59 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace Hosts.Tests;
+
+/// <summary>
+/// The single API serves more than one browser SPA, each with its own Google OAuth client, so a token's
+/// audience may be ANY configured client id. These pin that <c>Google:ClientIds</c> binds EVERY id as a valid
+/// audience (not just the first), and that the non-Development fail-fast still fires when every id is a
+/// placeholder.
+/// </summary>
+public sealed class GoogleMultiAudienceTests
+{
+    [Fact]
+    public void Every_configured_client_id_is_a_valid_audience()
+    {
+        string[] ids = ["111-tenant.apps.googleusercontent.com", "222-admin.apps.googleusercontent.com"];
+
+        var provider = new ServiceCollection()
+            .AddGoogleIdTokenAuthentication(ConfigIds(ids), Env(Environments.Production))
+            .BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+            .Get(JwtBearerDefaults.AuthenticationScheme);
+
+        Assert.Equal(ids, options.TokenValidationParameters.ValidAudiences);
+    }
+
+    [Fact]
+    public void Non_development_host_refuses_when_every_client_id_is_a_placeholder()
+    {
+        string[] placeholders =
+            ["REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+             "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com"];
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new ServiceCollection().AddGoogleIdTokenAuthentication(ConfigIds(placeholders), Env(Environments.Production)));
+    }
+
+    private static IConfiguration ConfigIds(string[] clientIds)
+    {
+        var values = new Dictionary<string, string?>();
+        for (var i = 0; i < clientIds.Length; i++)
+            values[$"Google:ClientIds:{i}"] = clientIds[i];
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    private static IHostEnvironment Env(string environmentName) =>
+        new StubEnvironment { EnvironmentName = environmentName };
+
+    private sealed class StubEnvironment : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = Environments.Production;
+        public string ApplicationName { get; set; } = "Hosts.Tests";
+        public string ContentRootPath { get; set; } = string.Empty;
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+}
 
 /// <summary>
 /// The security-critical branch of the Google auth wiring is the one that THROWS: a non-Development host

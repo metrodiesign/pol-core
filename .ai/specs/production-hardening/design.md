@@ -27,7 +27,7 @@ admin อ่าน producer cross-tenant ใน DB เดียว.
 |-----------|--------|--------|
 | `pol_migrator` (dev=`sa`) | migrations | DDL, owns objects. ไม่ใช้ runtime |
 | `pol_app` | TenantConsole | CRUD tenant tables (RLS กรอง); **INSERT-only** Outbox; CRUD IdempotencyRecords (RLS, มี TenantId); EXECUTE `producer.usp_resolve_webhook_tenant`. **ไม่อยู่ bypass role** |
-| `pol_admin` | AdminConsole | member `pol_rls_bypass` (อ่าน producer cross-tenant); CRUD admin schema |
+| `pol_admin` | **(dormant)** — AdminConsole host ถูกถอด; เหลือไว้ใน bootstrap + ใช้โดย `RlsIsolationTests` (ต่อ DB ตรงพิสูจน์ bypass) | member `pol_rls_bypass`; SELECT producer cross-tenant |
 | `pol_worker` | OutboxDispatcher | SELECT/UPDATE Outbox; CRUD เฉพาะ tenant table ที่ consumer แตะ (`Orders`) **แบบ RLS-scoped** (set context ต่อ message); **ไม่อยู่ bypass role** |
 | `pol_webhook_resolver` (no login) | EXECUTE AS context ของ resolve proc เท่านั้น | member `pol_rls_bypass`; SELECT `PspConnections` |
 
@@ -35,9 +35,12 @@ admin อ่าน producer cross-tenant ใน DB เดียว.
 pol_app **ไม่มี SELECT บน OutboxMessages** -> อ่าน payload (มี amount) ข้าม tenant ไม่ได้.
 
 ### D2a. Login-per-host + startup guard (ปิด Codex C3 escalation)
-ทุก connection ใน TenantConsole = pol_app; ทุก connection ใน AdminConsole = pol_admin. Startup guard:
-query `SELECT SUSER_SNAME(), IS_ROLEMEMBER('pol_rls_bypass')` ตอน boot -> assert TenantConsole pol_app/bypass=0,
-AdminConsole pol_admin/bypass=1; ไม่ตรง fail fast. Arch test ban raw `SqlConnection` นอก Persistence —
+> ปรับ: AdminConsole host ถูกถอด (consolidation เป็น API เดียว). public API = TenantConsole เท่านั้น ต่อด้วย
+> pol_app (ไม่ bypass) -> ไม่มี public host ไหนถือ bypass connection อีก (security floor ดีขึ้น).
+
+ทุก connection ใน TenantConsole (API เดียว) = pol_app; Worker = pol_worker. Startup guard:
+query `SELECT SUSER_SNAME(), IS_ROLEMEMBER('pol_rls_bypass')` ตอน boot -> assert pol_app/bypass=0
+(Worker pol_worker/bypass=0); ไม่ตรง fail fast. Arch test ban raw `SqlConnection` นอก Persistence —
 ครอบ **ทุก runtime principal รวม pol_worker** (ปิด Codex#4, r3#3); residual: cred รั่ว = inherent
 SESSION_CONTEXT model (mitigate ด้วย cred ใน host เท่านั้น).
 
@@ -115,7 +118,8 @@ VaultSecrets: pol_app SELECT ได้แต่ ciphertext (KEK แยก) + RLS
 4. **RLS authority**: sa ไม่มี context + ไม่ bypass -> เห็น **0** (predicate = authority; ground truth #1).
 5. CartItems predicate isolation.
 6. pol_app SELECT OutboxMessages -> permission denied; pol_app insert outbox row TenantId≠context -> BLOCKED.
-7. host identity: TenantConsole=pol_app/bypass=0; AdminConsole=pol_admin/bypass=1.
+7. principal identity: pol_app/bypass=0 (API), pol_worker/bypass=0; pol_admin/bypass=1 (dormant principal —
+   ใช้พิสูจน์ RLS bypass #3 ผ่าน connection ตรง, ไม่มี host แล้ว).
 8. **webhook resolve proc**: pol_app (no context) เรียก proc -> ได้ TenantId; แล้ว set context อ่าน PspConnection สำเร็จ.
    grant-surface (Codex r3#4): `pol_webhook_resolver` login ไม่ได้ (WITHOUT LOGIN), proc คืนแค่ TenantId column,
    pol_app direct SELECT PspConnections ข้าม tenant = 0.

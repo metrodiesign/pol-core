@@ -1,5 +1,4 @@
 extern alias TenantHost;
-extern alias AdminHost;
 
 using System.Net;
 using BuildingBlocks.Infrastructure.Outbox;
@@ -56,17 +55,6 @@ public sealed class HealthEndpointTests
     public async Task Liveness_returns_200_without_touching_a_database()
     {
         using var factory = new HardeningFactory<TenantHost::Program>();
-        using var client = factory.CreateClient();
-
-        var response = await client.GetAsync("/health/live");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Admin_liveness_returns_200()
-    {
-        using var factory = new HardeningFactory<AdminHost::Program>();
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health/live");

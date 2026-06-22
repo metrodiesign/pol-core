@@ -7,29 +7,34 @@ using Microsoft.IdentityModel.Tokens;
 namespace BuildingBlocks.Web;
 
 /// <summary>
-/// Single source of truth for Google ID-token validation, shared by every HTTP host (each supplies its
-/// own <c>Google:ClientId</c> so the per-console audience separation is preserved). Setting
-/// <c>Authority</c> makes the JwtBearer handler fetch Google's OIDC metadata + JWKS and validate the RS256
-/// signature against Google's rotating keys at runtime — no client secret, no embedded keys. Issuer,
-/// audience, lifetime, a verified email, and (when configured) the hosted domain are all enforced.
+/// Single source of truth for Google ID-token validation for the API. The API serves more than one browser
+/// SPA, each with its own Google OAuth client, so a valid token's audience may be ANY of the configured
+/// client ids — <c>Google:ClientIds</c> (array) is the source of truth, with single <c>Google:ClientId</c>
+/// honoured for back-compat. Setting <c>Authority</c> makes the JwtBearer handler fetch Google's OIDC
+/// metadata + JWKS and validate the RS256 signature against Google's rotating keys at runtime — no client
+/// secret, no embedded keys. Issuer, audience, lifetime, a verified email, and (when configured) the hosted
+/// domain are all enforced.
 /// </summary>
 public static class GoogleAuthenticationExtensions
 {
     public static IServiceCollection AddGoogleIdTokenAuthentication(
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
-        var clientId = configuration["Google:ClientId"];
+        var clientIds = configuration.GetSection("Google:ClientIds").Get<string[]>() ?? [];
+        if (clientIds.Length == 0 && configuration["Google:ClientId"] is { } single && !string.IsNullOrWhiteSpace(single))
+            clientIds = [single]; // back-compat: a single Google:ClientId still works
+
         var hostedDomain = configuration["Google:HostedDomain"];
 
         // Fail fast OUTSIDE Development: never boot a real host that would "validate" tokens against an
         // empty/placeholder audience. Development may boot on the committed placeholder (no real tokens);
-        // a developer sets Google__ClientId via user-secrets only when exercising the live SSO flow.
-        var isUnset = string.IsNullOrWhiteSpace(clientId) ||
-            clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal);
+        // a developer sets Google__ClientIds via user-secrets only when exercising the live SSO flow.
+        var isUnset = clientIds.Length == 0 ||
+            clientIds.All(id => string.IsNullOrWhiteSpace(id) || id.StartsWith("REPLACE_WITH_", StringComparison.Ordinal));
         if (isUnset && !environment.IsDevelopment())
         {
             throw new InvalidOperationException(
-                "Google:ClientId is not configured. Set it via the Google__ClientId environment variable or user-secrets.");
+                "Google:ClientIds is not configured. Set it via the Google__ClientIds__0/__1 environment variables or user-secrets.");
         }
 
         services
@@ -44,7 +49,7 @@ public static class GoogleAuthenticationExtensions
                     ValidateIssuer = true,
                     ValidIssuers = ["https://accounts.google.com", "accounts.google.com"],
                     ValidateAudience = true,
-                    ValidAudience = clientId,
+                    ValidAudiences = clientIds,
                     ValidateLifetime = true,
                     RequireExpirationTime = true,
                 };

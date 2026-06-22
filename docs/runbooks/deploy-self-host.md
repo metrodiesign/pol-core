@@ -1,24 +1,25 @@
 # Runbook: deploy self-host (Docker / on-prem)
 
-ยกระบบ pol-core (TenantConsole + AdminConsole + Worker + SQL Server 2025) ด้วย `docker-compose.prod.yml`
-บน host เดียว. secret ฉีดตอน deploy ผ่าน file mount (ไม่ commit). ใช้สำหรับ staging/prod ขนาดเล็ก-กลาง.
+ยกระบบ pol-core (Backend API เดียว + Worker + SQL Server 2025) ด้วย `docker-compose.prod.yml`
+บน host เดียว. API เดียวเสิร์ฟทั้ง 2 browser SPA (pol-tenant, pol-admin). secret ฉีดตอน deploy ผ่าน file
+mount (ไม่ commit). ใช้สำหรับ staging/prod ขนาดเล็ก-กลาง.
 
 ข้อกำหนด rule: prod deploy ต้องผ่าน staging ก่อน; ทุก release ต้องมี rollback plan + tag + changelog;
 DB migration ต้องมี backup ก่อนรันบน prod; ห้าม deploy ศุกร์เย็น/ก่อนวันหยุดยาว (ยกเว้น hotfix).
 
 ## สิ่งที่ scaffold นี้ครอบ vs ไม่ครอบ
 
-ครอบ: build image 3 host (non-root, /health/ready), SQL container, migrate one-shot (bootstrap principals +
-EF migrations), file-secret injection (DB principal passwords + vault master key), healthcheck + restart.
+ครอบ: build image 2 host (API + Worker, non-root, /health/ready), SQL container, migrate one-shot (bootstrap
+principals + EF migrations), file-secret injection (DB principal passwords + vault master key), healthcheck + restart.
 
-ไม่ครอบ (ceiling — ต้องเสริมเอง): TLS termination / reverse proxy (nginx/caddy + cert) หน้า console;
+ไม่ครอบ (ceiling — ต้องเสริมเอง): TLS termination / reverse proxy (nginx/caddy + cert) หน้า API;
 HA / SQL replica / backup อัตโนมัติ; secret manager จริง (Vault/SOPS) แทน file ใน ./secrets/; log shipping.
 
 ## 0. Prerequisites
 
 - Docker + Docker Compose v2 บน host
 - clone repo บน host (compose build จาก source; migrate รัน EF จาก source ด้วย)
-- host เปิด port ตาม `.env` (default 8081 tenant, 8082 admin) หรือวางหลัง reverse proxy
+- host เปิด port ตาม `.env` (default API 8080) หรือวางหลัง reverse proxy
 
 ## 1. Config + secrets
 
@@ -26,6 +27,10 @@ HA / SQL replica / backup อัตโนมัติ; secret manager จริ�
 cp .env.prod.example .env          # แก้ค่า non-secret + ตั้ง MSSQL_SA_PASSWORD (bootstrap-only)
 mkdir -p secrets                   # ./secrets/ ถูก gitignore แล้ว
 ```
+
+`.env` ต้องตั้ง (required — API ไม่ start ถ้าไม่มี): `TENANT_FRONTEND_ORIGIN` + `ADMIN_FRONTEND_ORIGIN` = origin
+ของ 2 SPA (CORS allowlist, scheme+host+port ไม่มี trailing slash); `TENANT_GOOGLE_CLIENT_ID` +
+`ADMIN_GOOGLE_CLIENT_ID` = Google OAuth client ของแต่ละ SPA (API รับทั้งคู่เป็น audience).
 
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 
@@ -60,8 +65,7 @@ docker compose -f docker-compose.prod.yml logs migrate     # ต้องจบ�
 ## 3. Verify
 
 ```bash
-curl -fsS http://localhost:8081/health/ready    # tenant-console -> {"status":"healthy"}
-curl -fsS http://localhost:8082/health/ready    # admin-console
+curl -fsS http://localhost:8080/health/ready    # API -> {"status":"healthy"}
 docker compose -f docker-compose.prod.yml ps     # ทุก service healthy / migrate = exited (0)
 ```
 

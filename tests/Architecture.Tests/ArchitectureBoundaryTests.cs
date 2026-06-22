@@ -29,7 +29,6 @@ public class ArchitectureBoundaryTests
     private static readonly string[] Hosts =
     [
         "TenantConsole",
-        "AdminConsole",
     ];
 
     // One anchor type per module per layer. Loading the assembly via a real type is robust:

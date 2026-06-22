@@ -1,5 +1,4 @@
 extern alias TenantHost;
-extern alias AdminHost;
 
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Hosting;
@@ -85,30 +84,6 @@ public sealed class TenantConsoleContainerTests
         // The Mediator pipeline is registered Scoped so handlers can depend on the Scoped DbContext.
         // With ValidateScopes on, resolving it from a scope must succeed (resolving from the root
         // would throw) — proving the request-scoped pipeline is wired correctly.
-        using var scope = factory.Services.CreateScope();
-        var mediator = scope.ServiceProvider.GetService<Mediator.IMediator>();
-
-        Assert.NotNull(mediator);
-    }
-}
-
-public sealed class AdminConsoleContainerTests
-{
-    [Fact]
-    public void AdminConsole_container_builds_and_validates_without_a_live_database()
-    {
-        using var factory = new HostHarness.ValidatingFactory<AdminHost::Program>();
-
-        var provider = factory.Services;
-
-        Assert.NotNull(provider);
-    }
-
-    [Fact]
-    public void AdminConsole_resolves_the_scoped_mediator_inside_a_scope()
-    {
-        using var factory = new HostHarness.ValidatingFactory<AdminHost::Program>();
-
         using var scope = factory.Services.CreateScope();
         var mediator = scope.ServiceProvider.GetService<Mediator.IMediator>();
 
