@@ -28,6 +28,10 @@ public static class BuildingBlocksInfrastructureRegistration
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
         services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 
+        // Customer notification delivery. Default logs (no PII); a real email/SMS provider replaces it via
+        // DI. Registered for every host so the outbox consumer resolves it (and Api's ValidateOnBuild passes).
+        services.AddSingleton<INotificationSender, Notifications.LoggingNotificationSender>();
+
         // The keyring is immutable + host-lifetime: built and validated ONCE. The request-serving consoles
         // resolve it right after Build() so a bad master key crash-loops the host at boot (fail-fast); other
         // hosts (and that first resolve) build it lazily. Either way a bad key never reaches a successful

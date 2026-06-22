@@ -1,8 +1,29 @@
 using BuildingBlocks.Application;
+using Mediator;
 using Orders.Application;
 using Orders.Domain;
 
 namespace Orders.Tests;
+
+internal sealed class FakeOutbox : IOutbox
+{
+    public readonly List<INotification> Enqueued = [];
+    public void Enqueue(INotification notification) => Enqueued.Add(notification);
+}
+
+internal sealed class FakeNotificationSender : INotificationSender
+{
+    public readonly List<NotificationMessage> Sent = [];
+    public bool ShouldThrow { get; init; }
+
+    public Task SendAsync(NotificationMessage message, CancellationToken cancellationToken)
+    {
+        if (ShouldThrow)
+            throw new InvalidOperationException("delivery failed");
+        Sent.Add(message);
+        return Task.CompletedTask;
+    }
+}
 
 internal sealed class FakeOrderRepository : IOrderRepository
 {
