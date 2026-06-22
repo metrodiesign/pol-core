@@ -31,7 +31,6 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Producer"] = UnusedConn,
-                ["ConnectionStrings:Admin"] = UnusedConn,
                 ["ConnectionStrings:Worker"] = UnusedConn,
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
@@ -231,7 +230,6 @@ file static class FactoryExtensions
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Producer"] = HardeningFactory<TEntry>.FastFailConn,
-                    ["ConnectionStrings:Admin"] = HardeningFactory<TEntry>.FastFailConn,
                     ["ConnectionStrings:Worker"] = HardeningFactory<TEntry>.FastFailConn,
                 })));
 }

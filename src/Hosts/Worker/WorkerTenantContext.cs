@@ -17,6 +17,5 @@ public sealed class WorkerTenantContext : ITenantContext
     public WorkerTenantContext(AmbientTenant ambient) => _ambient = ambient;
 
     public Guid TenantId => _ambient.TenantId;
-    public bool IsAdmin => false;
     public bool HasTenant => _ambient.IsBound;
 }

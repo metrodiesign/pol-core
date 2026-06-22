@@ -40,7 +40,6 @@ public sealed class HttpTenantContext : ITenantContext
         _ambient.IsBound ? _ambient.TenantId
         : _claimTenantId ?? throw new InvalidOperationException("No tenant is bound to the current request.");
 
-    public bool IsAdmin => false;
 
     public bool HasTenant => _ambient.IsBound || _claimTenantId.HasValue;
 }

@@ -39,18 +39,14 @@ builder.Services.AddScoped(typeof(IPipelineBehavior<,>), typeof(TenantGuardBehav
 
 builder.Services.AddBuildingBlocksInfrastructure();
 
-// Shared DbContexts. The RLS session-context interceptor sets SESSION_CONTEXT('TenantId') at open.
+// The producer DbContext. The RLS session-context interceptor sets SESSION_CONTEXT('TenantId') at open.
 var producerConnString = builder.Configuration.GetConnectionString("Producer");
-var adminConnString = builder.Configuration.GetConnectionString("Admin");
 builder.Services.AddDbContext<ProducerDbContext>((sp, opt) =>
     opt.UseSqlServer(producerConnString)
        .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
-builder.Services.AddDbContext<AdminDbContext>((sp, opt) =>
-    opt.UseSqlServer(adminConnString)
-       .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
 
 // Module entity configurations are discovered from these assemblies at model-build time.
-builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All, HostModuleAssemblies.Admin));
+builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All));
 
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 // Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).

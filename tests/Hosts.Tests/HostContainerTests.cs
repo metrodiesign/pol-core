@@ -38,7 +38,6 @@ file static class HostHarness
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                    ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                     // Self-contained: the test must not depend on a (now uncommitted) appsettings.Development.json.
                     // Fake 32-byte (all-zero) base64 key — never a real secret.
                     ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

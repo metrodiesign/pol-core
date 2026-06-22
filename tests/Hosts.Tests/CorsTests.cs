@@ -26,7 +26,6 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Worker"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",

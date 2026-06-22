@@ -6,8 +6,7 @@
     }
   },
   "ConnectionStrings": {
-    "Producer": "Server=localhost,11433;Database=PaymentOrchestration;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True",
-    "Admin": "Server=localhost,11433;Database=PaymentOrchestration;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+    "Producer": "Server=localhost,11433;Database=PaymentOrchestration;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
   },
   "Tenant": {
     "DevTenantId": "00000000-0000-0000-0000-000000000001"
