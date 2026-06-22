@@ -1,6 +1,8 @@
 using System.Text.Json;
 using BuildingBlocks.Application;
 using Mediator;
+using Microsoft.Extensions.DependencyInjection;
+using Payments.Application.Ports;
 using Payments.Domain;
 using Tenant.Domain;
 
@@ -14,9 +16,11 @@ namespace Tenant.Application.GetTenant;
 public sealed class GetTenantHandler : IQueryHandler<GetTenantQuery, TenantView>
 {
     private readonly ITenantRepository _tenants;
-    private readonly IAdminPspConnectionRepository _pspConnections;
+    private readonly IPspConnectionRepository _pspConnections;
 
-    public GetTenantHandler(ITenantRepository tenants, IAdminPspConnectionRepository pspConnections)
+    public GetTenantHandler(
+        ITenantRepository tenants,
+        [FromKeyedServices("admin")] IPspConnectionRepository pspConnections)
     {
         _tenants = tenants;
         _pspConnections = pspConnections;

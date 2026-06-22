@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BuildingBlocks.Application;
 using Mediator;
+using Microsoft.Extensions.DependencyInjection;
 using Payments.Application.Ports;
 using Payments.Domain;
 using Tenant.Domain;
@@ -22,20 +23,24 @@ public sealed class ProvisionTenantHandler : ICommandHandler<ProvisionTenantComm
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     private readonly ITenantRepository _tenants;
-    private readonly IAdminPspConnectionRepository _pspConnections;
-    private readonly IAdminVaultSecretStore _vault;
+    private readonly IPspConnectionRepository _pspConnections;
+    private readonly IVaultSecretStore _vault;
     private readonly IProvisioningAuditWriter _audit;
     private readonly IPspSecretEnvelopeFactory _envelopeFactory;
-    private readonly IAdminUnitOfWork _unitOfWork;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
+    // The provisioning seams that ALSO have a pol_app consumer (UoW, vault, PSP connections) are resolved
+    // from the keyed "admin" registrations -> the pol_admin (RLS-bypass) connection, so every write shares
+    // ONE transaction (REQ-4.4). ITenantRepository / IProvisioningAuditWriter have no pol_app consumer, so
+    // their single registration is already admin-bound (no key needed).
     public ProvisionTenantHandler(
         ITenantRepository tenants,
-        IAdminPspConnectionRepository pspConnections,
-        IAdminVaultSecretStore vault,
+        [FromKeyedServices("admin")] IPspConnectionRepository pspConnections,
+        [FromKeyedServices("admin")] IVaultSecretStore vault,
         IProvisioningAuditWriter audit,
         IPspSecretEnvelopeFactory envelopeFactory,
-        IAdminUnitOfWork unitOfWork,
+        [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
         _tenants = tenants;

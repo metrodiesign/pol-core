@@ -20,6 +20,9 @@ using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 using Products.Application;
 using Products.Infrastructure;
+using Tenant.Application.GetTenant;
+using Tenant.Application.ProvisionTenant;
+using Tenant.Infrastructure;
 using Api;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -61,6 +64,15 @@ builder.Services.AddCartModule();
 builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
+builder.Services.AddTenantModule();
+
+// Tenant provisioning runs cross-tenant under pol_admin (RLS bypass) via a SEPARATE keyed connection —
+// the pol_app connection is RLS-blocked from writing another tenant's rows. Fail fast at boot if it is
+// not configured: the whole admin provisioning surface depends on it.
+var adminConnString = builder.Configuration.GetConnectionString("Admin")
+    ?? throw new InvalidOperationException(
+        "ConnectionStrings:Admin (pol_admin) is required for tenant provisioning. Set ConnectionStrings__Admin.");
+builder.Services.AddTenantAdminScope(adminConnString);
 
 // Tenant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
@@ -193,11 +205,51 @@ app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 }).RequireAuthorization("tenant"); // tenant-SPA audience only (admin-SPA tokens get a different role)
 
+// Admin provisioning (reference 2.4). Cross-tenant, so NOT ITenantScoped — runs under pol_admin via the
+// keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
+// never from the body. Duplicate code -> ConflictException -> 409; bad input -> ArgumentException -> 400.
+app.MapPost("/admin/tenants", async (
+    ProvisionTenantRequest body,
+    HttpContext http,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var command = new ProvisionTenantCommand(
+        new TenantSpec(body.Code, body.DisplayName, body.LegalEntityId, body.Country, body.Currency,
+            body.EnabledChannels ?? [], body.Metadata),
+        [.. (body.PspConnections ?? []).Select(p => new PspConnectionSpec(
+            p.Psp, p.EnabledMethods ?? [], p.MerchantId, p.Secrets ?? new Dictionary<string, string>(), p.Config))],
+        http.User.FindFirst("sub")?.Value ?? "unknown",
+        http.TraceIdentifier);
+
+    var result = await mediator.Send(command, ct);
+    return Results.Created($"/admin/tenants/{body.Code}", result);
+}).RequireAuthorization("admin"); // admin-SPA audience only (tenant-SPA tokens get 403)
+
+app.MapGet("/admin/tenants/{code}", async (
+    string code,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetTenantQuery(code), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("admin");
+
 app.Run();
 
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
+
+// Admin provisioning request body (reference 2.4). Secrets are write-only; Metadata/Config are stored
+// verbatim. AdminSubject + correlation id are NOT in the body — the host sets them from the request.
+internal sealed record ProvisionTenantRequest(
+    string Code, string DisplayName, string LegalEntityId, string Country, string Currency,
+    IReadOnlyList<string>? EnabledChannels, JsonElement? Metadata,
+    IReadOnlyList<ProvisionPspConnectionRequest>? PspConnections);
+internal sealed record ProvisionPspConnectionRequest(
+    string Psp, IReadOnlyList<string>? EnabledMethods, string? MerchantId,
+    IReadOnlyDictionary<string, string>? Secrets, JsonElement? Config);
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);

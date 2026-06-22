@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Payments.Application.Ports;
 using Payments.Domain;
 using Tenant.Application;
 using Tenant.Domain;
@@ -17,7 +18,7 @@ internal sealed class FakeTenantRepository : ITenantRepository
     public Task<bool> ExistsByCodeAsync(string normalizedCode, CancellationToken ct) => Task.FromResult(Exists);
 }
 
-internal sealed class FakePspConnectionRepository : IAdminPspConnectionRepository
+internal sealed class FakePspConnectionRepository : IPspConnectionRepository
 {
     public readonly List<PspConnection> Added = [];
 
@@ -28,7 +29,7 @@ internal sealed class FakePspConnectionRepository : IAdminPspConnectionRepositor
         Task.FromResult<IReadOnlyList<PspConnection>>(Added.Where(x => x.TenantId == tenantId).ToList());
 }
 
-internal sealed class FakeVault : IAdminVaultSecretStore
+internal sealed class FakeVault : IVaultSecretStore
 {
     public readonly List<(Guid TenantId, string Name, string Secret)> Stored = [];
 
@@ -51,7 +52,7 @@ internal sealed class FakeAuditWriter : IProvisioningAuditWriter
 
 /// <summary>Runs the transaction delegate (RetriesToSimulate + 1) times to exercise the retrying
 /// execution strategy — the handler must stay idempotent (result built fresh each attempt).</summary>
-internal sealed class FakeUnitOfWork : IAdminUnitOfWork
+internal sealed class FakeUnitOfWork : IUnitOfWork
 {
     public int Runs;
     public int RetriesToSimulate;
