@@ -170,6 +170,6 @@ jobs:
           export PATH="$PATH:$HOME/.dotnet/tools"
           dotnet ef database update --context ProducerDbContext \
             --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-            --startup-project src/Hosts/TenantConsole
+            --startup-project src/Hosts/Api
       - name: Integration tests (live SQL)
         run: dotnet test pol-core.slnx --filter "Category=Integration"

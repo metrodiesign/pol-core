@@ -1,6 +1,6 @@
 #!/bin/sh
 # Host entrypoint: build the DB connection string(s) from the mounted password secret + this host's principal,
-# then launch the app. Each host reads only the keys it needs (TenantConsole/AdminConsole: Producer + Admin;
+# then launch the app. Each host reads only the keys it needs (Api/AdminConsole: Producer + Admin;
 # Worker: Worker) — setting all three to the same principal connection is harmless. The password is read from
 # a file secret and never enters the image, the compose file, or `docker inspect`.
 # The vault master key is NOT handled here: PR4's keyring reads it directly from Vault__Keys__<id>__KeyFile.

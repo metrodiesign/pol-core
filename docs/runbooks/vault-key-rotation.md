@@ -17,7 +17,7 @@ ciphertext ของ secret ไม่ถูกแตะ.
   (รันด้วย principal ที่ bypass RLS เช่น `pol_admin`) ก่อนถอด key เก่า. ยืนยัน tenant เดียวแล้วถอด = strand
   blob ของ tenant อื่น.
 - keyring build ครั้งเดียวตอน boot (Singleton). เปลี่ยน key/ไฟล์ secret = **ต้อง restart process** (ไม่มี hot reload).
-- ถ้าไฟล์ secret หาย/ว่าง/ผิดตอน boot: console host (TenantConsole/AdminConsole) resolve keyring ตอน start
+- ถ้าไฟล์ secret หาย/ว่าง/ผิดตอน boot: console host (Api/AdminConsole) resolve keyring ตอน start
   -> factory throw -> host crash-loop (fail-fast). host อื่น build keyring แบบ lazy -> ความผิดโผล่ที่
   `/health/ready` = not_ready (และ reveal throw). gate การ deploy ที่ `/health/ready` = healthy เสมอ
   ไม่ใช่แค่ "process ขึ้น". mount secret ให้พร้อมก่อน start.

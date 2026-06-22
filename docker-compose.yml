@@ -1,7 +1,7 @@
 # Local dev stack: SQL Server 2025 + one-shot principal bootstrap.
 # Passwords come from .env (copy .env.example). EF migrations run separately:
 #   POL_DESIGN_SQL=... dotnet ef database update --context ProducerDbContext \
-#     --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/TenantConsole
+#     --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
 services:
   pol-db:
     image: mcr.microsoft.com/mssql/server:2025-latest

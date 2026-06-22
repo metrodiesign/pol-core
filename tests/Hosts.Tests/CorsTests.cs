@@ -1,4 +1,4 @@
-extern alias TenantHost;
+extern alias ApiHost;
 
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Hosting;
@@ -13,7 +13,7 @@ namespace Hosts.Tests;
 // The one API serves BOTH SPAs (tenant + admin), so a preflight (OPTIONS) from EITHER allowlisted origin is
 // echoed back; an unknown origin is not. No live database is touched — preflight short-circuits the endpoint.
 
-file sealed class CorsFactory : WebApplicationFactory<TenantHost::Program>
+file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
 {
     public const string TenantSpaOrigin = "https://app.example.com";
     public const string AdminSpaOrigin = "https://admin.example.com";

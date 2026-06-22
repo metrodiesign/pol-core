@@ -46,14 +46,14 @@ services:
         condition: service_healthy
     restart: "no"
 
-  tenant-console:
+  api:
     build:
       context: .
       target: final
       args:
         DOTNET_VERSION: *dotnet
-        HOST_PROJECT: src/Hosts/TenantConsole/TenantConsole.csproj
-        HOST_DLL: TenantConsole.dll
+        HOST_PROJECT: src/Hosts/Api/Api.csproj
+        HOST_DLL: Api.dll
     environment:
       DB_SERVER: sql
       DB_NAME: ${DB_NAME:-PaymentOrchestration}

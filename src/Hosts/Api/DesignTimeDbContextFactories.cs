@@ -3,7 +3,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace TenantConsole;
+namespace Api;
 
 /// <summary>
 /// Module Infrastructure assemblies whose <c>IEntityTypeConfiguration</c> classes the shared

@@ -1,4 +1,4 @@
-extern alias TenantHost;
+extern alias ApiHost;
 
 using System.Net;
 using BuildingBlocks.Infrastructure.Outbox;
@@ -54,7 +54,7 @@ public sealed class HealthEndpointTests
     [Fact]
     public async Task Liveness_returns_200_without_touching_a_database()
     {
-        using var factory = new HardeningFactory<TenantHost::Program>();
+        using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health/live");
@@ -65,7 +65,7 @@ public sealed class HealthEndpointTests
     [Fact]
     public async Task Readiness_returns_503_with_a_minimal_body_when_the_database_is_unreachable()
     {
-        using var factory = new HardeningFactory<TenantHost::Program>()
+        using var factory = new HardeningFactory<ApiHost::Program>()
             .WithFastFailDatabase();
         using var client = factory.CreateClient();
 
@@ -85,7 +85,7 @@ public sealed class HealthEndpointTests
     {
         // The discriminating test: with a CONFIRMED-dead database, liveness must still be 200 (it runs no
         // checks) while readiness is 503 — proving the split is real, not incidental to a reachable DB.
-        using var factory = new HardeningFactory<TenantHost::Program>().WithFastFailDatabase();
+        using var factory = new HardeningFactory<ApiHost::Program>().WithFastFailDatabase();
         using var client = factory.CreateClient();
 
         var live = await client.GetAsync("/health/live");
@@ -101,7 +101,7 @@ public sealed class CorrelationIdTests
     [Fact]
     public async Task A_correlation_id_is_generated_when_the_client_sends_none()
     {
-        using var factory = new HardeningFactory<TenantHost::Program>();
+        using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health/live");
@@ -115,7 +115,7 @@ public sealed class CorrelationIdTests
     [Fact]
     public async Task A_well_formed_client_correlation_id_is_echoed()
     {
-        using var factory = new HardeningFactory<TenantHost::Program>();
+        using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
 
         using var request = new HttpRequestMessage(HttpMethod.Get, "/health/live");
@@ -128,7 +128,7 @@ public sealed class CorrelationIdTests
     [Fact]
     public async Task A_malformed_client_correlation_id_is_rejected_and_replaced()
     {
-        using var factory = new HardeningFactory<TenantHost::Program>();
+        using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
 
         // Over-length + disallowed characters: the IsWellFormed guard must reject this (which also blocks
@@ -154,7 +154,7 @@ public sealed class ExceptionHandlerPipelineTests
         // on the fast-fail connection. That exception must surface through UseExceptionHandler ->
         // ProblemDetailsExceptionHandler as an OPAQUE 500 (application/problem+json, no internal detail),
         // proving the handler is wired into the real pipeline and never leaks SQL/connection text.
-        using var factory = new HardeningFactory<TenantHost::Program>().WithFastFailDatabase();
+        using var factory = new HardeningFactory<ApiHost::Program>().WithFastFailDatabase();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsync($"/webhooks/{Guid.NewGuid()}", new StringContent("{}"));
@@ -174,7 +174,7 @@ public sealed class RedirectEndpointAuthTests
     [Fact]
     public async Task Redirect_endpoint_requires_authentication()
     {
-        using var factory = new HardeningFactory<TenantHost::Program>();
+        using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsync(
@@ -191,7 +191,7 @@ public sealed class WebhookRateLimitTests
     {
         // Fast-failing DB so the admitted requests (which reach the tenant resolver) return immediately;
         // the 429 path never touches the DB. We only assert the rate-limit decision, which is DB-independent.
-        using var factory = new HardeningFactory<TenantHost::Program>()
+        using var factory = new HardeningFactory<ApiHost::Program>()
             .WithFastFailDatabase();
         using var client = factory.CreateClient();
 

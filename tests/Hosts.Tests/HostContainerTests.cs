@@ -1,4 +1,4 @@
-extern alias TenantHost;
+extern alias ApiHost;
 
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Hosting;
@@ -62,12 +62,12 @@ file static class HostHarness
     }
 }
 
-public sealed class TenantConsoleContainerTests
+public sealed class ApiContainerTests
 {
     [Fact]
-    public void TenantConsole_container_builds_and_validates_without_a_live_database()
+    public void Api_container_builds_and_validates_without_a_live_database()
     {
-        using var factory = new HostHarness.ValidatingFactory<TenantHost::Program>();
+        using var factory = new HostHarness.ValidatingFactory<ApiHost::Program>();
 
         // Accessing Services boots the host: this is where ValidateOnBuild + ValidateScopes run.
         // A captive-dependency or scope violation (PLAN #7) would throw here.
@@ -77,9 +77,9 @@ public sealed class TenantConsoleContainerTests
     }
 
     [Fact]
-    public void TenantConsole_resolves_the_scoped_mediator_inside_a_scope()
+    public void Api_resolves_the_scoped_mediator_inside_a_scope()
     {
-        using var factory = new HostHarness.ValidatingFactory<TenantHost::Program>();
+        using var factory = new HostHarness.ValidatingFactory<ApiHost::Program>();
 
         // The Mediator pipeline is registered Scoped so handlers can depend on the Scoped DbContext.
         // With ValidateScopes on, resolving it from a scope must succeed (resolving from the root

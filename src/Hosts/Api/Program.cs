@@ -16,7 +16,7 @@ using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 using Products.Application;
 using Products.Infrastructure;
-using TenantConsole;
+using Api;
 
 var builder = WebApplication.CreateBuilder(args);
 

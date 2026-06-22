@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Hosts\TenantConsole\TenantConsole.csproj" Aliases="TenantHost" />
+    <ProjectReference Include="..\..\src\Hosts\Api\Api.csproj" Aliases="ApiHost" />
   </ItemGroup>
 
 </Project>

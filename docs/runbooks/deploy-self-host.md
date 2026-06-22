@@ -70,7 +70,7 @@ docker compose -f docker-compose.prod.yml ps     # ทุก service healthy / m
 ```
 
 healthy = keyring build ได้ (master key 32 byte) + DB ต่อได้. ถ้า not_ready: ดู log ของ host นั้น
-(`docker compose ... logs tenant-console`) — มักเป็น vault key file ผิด หรือ DB password ไม่ตรง.
+(`docker compose ... logs api`) — มักเป็น vault key file ผิด หรือ DB password ไม่ตรง.
 
 ## 4. Upgrade deploy (มี migration ใหม่)
 
@@ -101,7 +101,7 @@ DB migration rollback (ถ้า migration ใหม่เข้ากันก�
 docker compose -f docker-compose.prod.yml run --rm --entrypoint sh migrate -c '
   export POL_DESIGN_SQL="Server=sql;Database=PaymentOrchestration;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True";
   dotnet ef database update <PreviousMigrationName> \
-    --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/TenantConsole'
+    --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api'
 ```
 ถ้า migration rollback เสี่ยง (data loss) -> restore จาก backup (ข้อ 4.1) แทน. ออกแบบ migration ให้
 backward-compatible (expand/contract) เพื่อให้ app เก่า+ใหม่ทำงานกับ schema เดียวกันได้ระหว่าง roll.

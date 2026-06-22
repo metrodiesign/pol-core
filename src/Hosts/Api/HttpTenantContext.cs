@@ -2,7 +2,7 @@ using System.Security.Claims;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 
-namespace TenantConsole;
+namespace Api;
 
 /// <summary>
 /// Resolves the ambient tenant. Order of precedence:
