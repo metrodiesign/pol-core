@@ -5,8 +5,9 @@
 > in one pass (it may touch many files). Sub-step sequencing handled at execution time.
 > โหมด AFK autonomous: implement ต่อเนื่องบน branch feat/tenant-provisioning, TDD, commit ต่อ task, PR ไม่ merge เอง.
 
-- [ ] 1. Tenant domain + ADR — `Tenant` aggregate (`AggregateRoot<Guid>`, `Create()` validate invariant + Status=Active), `TenantStatus { Active }`, `TenantCode` (allowlist vcentral/vcommerce/vsouvenir + `Normalize()` lowercase + `IsAllowed()`); ADR `docs/adr/0001-tenant-provisioning-single-transaction.md` (single-tx valid เฉพาะ vault DB-backed; vault->KMS = trigger saga). Done = pure-domain unit tests เขียว.
+- [x] 1. Tenant domain + ADR — `Tenant` aggregate (`AggregateRoot<Guid>`, `Create()` validate invariant + Status=Active), `TenantStatus { Active }`, `TenantCode` (allowlist vcentral/vcommerce/vsouvenir + `Normalize()` lowercase + `IsAllowed()`); ADR `docs/adr/0001-tenant-provisioning-single-transaction.md` (single-tx valid เฉพาะ vault DB-backed; vault->KMS = trigger saga). Done = pure-domain unit tests เขียว.
      Satisfies: REQ-1.1, 1.2, 1.3, 1.5, 1.6, 1.7. Verify: `dotnet test tests/Tenant.Tests` (domain).
+     Evidence: `dotnet test tests/Tenant.Tests` -> Passed 20, Failed 0. Tenant.Domain (Tenant/TenantStatus/TenantCode) + ADR 0001 + 4 csproj + slnx wired. build เขียว.
 
 - [ ] 2. Payments secret-envelope port + cross-module write seam — `IPspSecretEnvelopeFactory` (Payments.Application/Ports: validate `secretKey` required ต่อ psp -> ArgumentException, serialize provided secrets เป็น envelope JSON, คืน hint last-4 ต่อ field) + impl ใน Payments.Infrastructure/Psp; ขยาย `OmiseSecret` ถือ optional `PublicKey`/`WebhookSecret` (store-as-provided); `IPspConnectionRepository.Add(PspConnection)` + impl; `PspConnectionConfiguration.Metadata` -> `nvarchar(max)`. Done = envelope factory unit tests (required/optional/hint) เขียว + Payments build.
      Satisfies: REQ-3.7. Depends on: none (parallel กับ 1). Verify: `dotnet test tests/Payments.Tests`.
