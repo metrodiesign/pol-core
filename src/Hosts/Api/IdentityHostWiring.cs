@@ -56,12 +56,13 @@ internal static class TenantRoleAuthorization
                     title: "Your role is not permitted for this action."));
     }
 
-    /// <summary>Allowed when the platform resolved a role in the set. A null claim means no TenantUser was
-    /// resolved (the Development tenant_id shim, or an applicant): defer to the route's own auth — in
-    /// production such a caller has no tenant bound and is denied downstream regardless. Any other
-    /// (non-null) role not in the set is denied.</summary>
+    /// <summary>Fail CLOSED: allowed ONLY when the platform resolved a role that is in the set. A null claim
+    /// (no active TenantUser was resolved — an applicant, a suspended user, or the Development tenant_id shim)
+    /// is denied here rather than leaning on a downstream no-tenant guard. To exercise a role-gated endpoint
+    /// locally, seed an active TenantUser (register + approve); the dev shim only supplies tenant CONTEXT,
+    /// not a role.</summary>
     internal static bool IsRoleAllowed(string? roleClaim, string[] allowedRoleNames) =>
-        roleClaim is null || allowedRoleNames.Contains(roleClaim, StringComparer.Ordinal);
+        roleClaim is not null && allowedRoleNames.Contains(roleClaim, StringComparer.Ordinal);
 }
 
 /// <summary>
