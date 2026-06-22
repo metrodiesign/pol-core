@@ -31,11 +31,16 @@ internal sealed class FakeOrderRepository : IOrderRepository
 
     public FakeOrderRepository(params Order[] seed) => _orders.AddRange(seed);
 
+    public IReadOnlyList<Order> All => _orders;
+
     public Task<Order?> GetByPaymentSessionIdAsync(Guid paymentSessionId, CancellationToken ct) =>
         Task.FromResult(_orders.FirstOrDefault(o => o.PaymentSessionId == paymentSessionId));
 
     public Task<Order?> GetAsync(Guid orderId, CancellationToken ct) =>
         Task.FromResult(_orders.FirstOrDefault(o => o.Id == orderId));
+
+    public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken ct) =>
+        Task.FromResult(_orders.FirstOrDefault(o => o.CheckoutSessionId == checkoutSessionId));
 
     public IReadOnlyList<OrderStatusTotal> Reconciliation { get; init; } = [];
 

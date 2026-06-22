@@ -9,6 +9,7 @@ using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Cart.Application;
 using Cart.Infrastructure;
+using Checkout.Application;
 using Checkout.Infrastructure;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
@@ -222,6 +223,29 @@ app.MapPost("/carts/{cartId:guid}/clear", async (
     return TypedResults.Ok(view);
 }).RequireAuthorization("tenant");
 
+// Checkout. Start prices the checkout from the CART's subtotal (never a client-supplied amount), captures
+// an optional notification recipient, then Confirm emits CheckoutConfirmed -> Orders opens the order.
+app.MapPost("/checkout", async (
+    StartCheckoutRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var cart = await mediator.Send(new GetCartQuery(body.CartId, tenant.TenantId), ct);
+    if (cart is null)
+        return Results.NotFound();
+    if (cart.SubtotalMinorUnits is not { } minorUnits || cart.SubtotalCurrency is not { } currency)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Cannot check out an empty cart.");
+
+    var result = await mediator.Send(
+        new StartCheckoutCommand(tenant.TenantId, body.CartId, minorUnits, currency, body.Recipient), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
+app.MapPost("/checkout/{checkoutSessionId:guid}/confirm", async (
+    Guid checkoutSessionId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, tenant.TenantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
 app.MapPost("/payment-sessions", async (
     CreatePaymentSessionRequest body,
     ITenantContext tenant,
@@ -283,6 +307,7 @@ internal sealed record CreatePaymentSessionRequest(
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
+internal sealed record StartCheckoutRequest(Guid CartId, string? Recipient);
 internal sealed record OrderSummaryResponse(
     Guid OrderId, long AmountMinorUnits, string Currency, string Status, Guid? PaymentSessionId);
 

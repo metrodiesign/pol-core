@@ -42,6 +42,15 @@ Product decisions (locked autonomously, AFK): notification ขี่ outbox + Ou
 - 4.2 THE SYSTEM SHALL scope the report to the bound tenant only (RLS).
 - 4.3 THE SYSTEM SHALL compute totals per currency (never sum across currencies).
 
+## REQ-5: Checkout confirms into an order (the keystone wire)
+**User Story:** As a producer, I want confirming a checkout to create the order (and notify the customer), so that the cart -> checkout -> order -> pay flow runs end to end.
+**Acceptance Criteria (EARS):**
+- 5.1 WHEN a checkout is confirmed THE SYSTEM SHALL emit a `CheckoutConfirmed` integration event in the SAME unit of work as the confirmation (transactional outbox), carrying the agreed amount + the notification recipient.
+- 5.2 WHEN the worker consumes `CheckoutConfirmed` THE SYSTEM SHALL create an order awaiting payment for that tenant with the agreed amount.
+- 5.3 IF an order already exists for the checkout session THEN THE SYSTEM SHALL NOT create a second one (idempotent under at-least-once delivery).
+- 5.4 WHEN the order is created from a confirmed checkout that carried a recipient THE SYSTEM SHALL enqueue the customer notification (REQ-3).
+- 5.5 THE SYSTEM SHALL capture an optional notification recipient at checkout start.
+
 ## Edge Cases & Open Questions
 - Real email/SMS provider for `INotificationSender` is a deferred infra choice; this slice ships a logging default impl (swappable via DI). The port + outbox flow are complete and testable now.
 - Reconciliation is a read-model over Orders; a cross-module reconciliation against Payments rows (PSP settlement files) is out of scope (reference: settlement is outside the platform).

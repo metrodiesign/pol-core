@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 using Checkout.Domain;
+using Contracts;
 using Mediator;
 
 namespace Checkout.Application;
@@ -12,19 +13,23 @@ public sealed record ConfirmCheckoutCommand(Guid CheckoutSessionId, Guid TenantI
 public sealed record ConfirmCheckoutResult(Guid CheckoutSessionId, CheckoutStatus Status);
 
 /// <summary>
-/// Transitions the session to <see cref="CheckoutStatus.Confirmed"/>.
+/// Transitions the session to <see cref="CheckoutStatus.Confirmed"/> and emits <see cref="CheckoutConfirmed"/>
+/// in the SAME unit of work (transactional outbox), so the Orders module opens the order out-of-band. Keeps
+/// the modules decoupled — Checkout raises an event, it does not call Orders directly.
 /// </summary>
-// ponytail: Confirm just transitions state; wiring to Orders.CreateOrder / Payments (raising the
-// cross-module command/notification) is a later task. Kept self-contained on purpose.
 public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutCommand, ConfirmCheckoutResult>
 {
     private readonly ICheckoutRepository _repository;
+    private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IClock _clock;
 
-    public ConfirmCheckoutHandler(ICheckoutRepository repository, IUnitOfWork unitOfWork)
+    public ConfirmCheckoutHandler(ICheckoutRepository repository, IOutbox outbox, IUnitOfWork unitOfWork, IClock clock)
     {
         _repository = repository;
+        _outbox = outbox;
         _unitOfWork = unitOfWork;
+        _clock = clock;
     }
 
     public async ValueTask<ConfirmCheckoutResult> Handle(ConfirmCheckoutCommand command, CancellationToken cancellationToken)
@@ -33,6 +38,10 @@ public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutComm
             ?? throw new InvalidOperationException($"Checkout session {command.CheckoutSessionId} was not found.");
 
         session.Confirm();
+        _outbox.Enqueue(new CheckoutConfirmed(
+            session.TenantId, session.Id, session.AmountMinorUnits, session.AmountCurrency,
+            session.NotificationRecipient, _clock.UtcNow));
+
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return new ConfirmCheckoutResult(session.Id, session.Status);

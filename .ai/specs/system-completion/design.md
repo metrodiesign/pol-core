@@ -31,6 +31,16 @@ Domain พร้อม (`Cart.RemoveItem`, `Clear`, `Subtotal`; ต้องเ�
 - `ReconciliationView` { Lines: [{ Status, Currency, Count, TotalMinorUnits }] }.
 - Host: `GET /reports/reconciliation` (RequireAuthorization("tenant")).
 
+## Slice 5 — Checkout confirms into an order (keystone)
+Wires the deferred Checkout->Order seam via an integration event (mirrors PaymentPaid), keeping the modules decoupled:
+- `CheckoutSession` + `NotificationRecipient` (nullable); `StartCheckout` captures it. `Order` + `CheckoutSessionId` (nullable) + filtered UNIQUE index — the idempotency key.
+- `Contracts.CheckoutConfirmed` (INotification): { TenantId, CheckoutSessionId, AmountMinorUnits, Currency, Recipient?, OccurredAtUtc }.
+- `ConfirmCheckoutHandler`: on `Confirm()`, `IOutbox.Enqueue(CheckoutConfirmed)` in the same UoW.
+- Orders `CheckoutConfirmedConsumer` (INotificationHandler): if `GetByCheckoutSessionIdAsync` finds an order, SKIP (REQ-5.3 idempotent); else `IMediator.Send(CreateOrderCommand{ CheckoutSessionId, Recipient })` — reusing CreateOrderHandler, which enqueues the notification (REQ-5.4).
+- `OutboxDispatcher` switch gains a `CheckoutConfirmed` case.
+- Host: `POST /checkout` (start, with recipient) + `POST /checkout/{id}/confirm` (tenant).
+- Migration `AddOrderCheckoutSession`: Order.CheckoutSessionId + filtered unique index; CheckoutSession.NotificationRecipient.
+
 ## Error Handling Strategy
 Reuse `ProblemDetailsExceptionHandler`: ArgumentException->400, Conflict/InvalidOperationException->409, NotFoundException->404, new GoneException->410. No new 5xx paths.
 
@@ -47,3 +57,4 @@ Reuse `ProblemDetailsExceptionHandler`: ArgumentException->400, Conflict/Invalid
 | Slice 2 Order summary token + TTL + GoneException | REQ-2.1–2.5 |
 | Slice 3 outbox enqueue + INotificationSender + Worker consumer | REQ-3.1–3.5 |
 | Slice 4 reconciliation query | REQ-4.1–4.3 |
+| Slice 5 CheckoutConfirmed event + idempotent consumer -> CreateOrder | REQ-5.1–5.5 |

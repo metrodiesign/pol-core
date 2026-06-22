@@ -22,16 +22,21 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
 
     public DateTime CreatedAtUtc { get; private set; }
 
+    /// <summary>Where to notify the customer (email/phone), captured at checkout. Optional; flows to the
+    /// order on confirm so the customer is sent the summary link.</summary>
+    public string? NotificationRecipient { get; private set; }
+
     /// <summary>The agreed total, reconstructed from the two scalar columns.</summary>
     public Money Amount => Money.Of(AmountMinorUnits, AmountCurrency);
 
-    private CheckoutSession(Guid id, Guid tenantId, Guid cartId, Money amount, DateTime createdAtUtc)
+    private CheckoutSession(Guid id, Guid tenantId, Guid cartId, Money amount, string? notificationRecipient, DateTime createdAtUtc)
         : base(id)
     {
         TenantId = tenantId;
         CartId = cartId;
         AmountMinorUnits = amount.MinorUnits;
         AmountCurrency = amount.Currency;
+        NotificationRecipient = notificationRecipient;
         Status = CheckoutStatus.Started;
         CreatedAtUtc = createdAtUtc;
     }
@@ -40,14 +45,14 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
     private CheckoutSession() { }
 
     /// <summary>Opens a new checkout in the <see cref="CheckoutStatus.Started"/> state.</summary>
-    public static CheckoutSession Start(Guid tenantId, Guid cartId, Money amount, DateTime nowUtc)
+    public static CheckoutSession Start(Guid tenantId, Guid cartId, Money amount, DateTime nowUtc, string? notificationRecipient = null)
     {
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
         if (cartId == Guid.Empty)
             throw new ArgumentException("CartId is required.", nameof(cartId));
 
-        return new CheckoutSession(Guid.NewGuid(), tenantId, cartId, amount, nowUtc);
+        return new CheckoutSession(Guid.NewGuid(), tenantId, cartId, amount, notificationRecipient, nowUtc);
     }
 
     /// <summary>Transitions a started checkout to <see cref="CheckoutStatus.Confirmed"/>.</summary>

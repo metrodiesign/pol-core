@@ -13,7 +13,8 @@ namespace Orders.Application;
 /// <paramref name="Recipient"/> (the customer's email/phone, set at checkout) drives the summary-link
 /// notification; absent means no notification is enqueued.
 /// </summary>
-public sealed record CreateOrderCommand(Guid TenantId, long AmountMinorUnits, string Currency, string? Recipient = null)
+public sealed record CreateOrderCommand(
+    Guid TenantId, long AmountMinorUnits, string Currency, string? Recipient = null, Guid? CheckoutSessionId = null)
     : ICommand<CreateOrderResult>, ITenantScoped;
 
 /// <summary>The identity of the newly created order.</summary>
@@ -39,7 +40,7 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
     public async ValueTask<CreateOrderResult> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
         var amount = Money.Of(command.AmountMinorUnits, command.Currency);
-        var order = Order.Create(command.TenantId, amount, _clock.UtcNow);
+        var order = Order.Create(command.TenantId, amount, _clock.UtcNow, checkoutSessionId: command.CheckoutSessionId);
 
         _orders.Add(order);
 

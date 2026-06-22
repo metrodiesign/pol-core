@@ -18,6 +18,10 @@ public sealed class Order : AggregateRoot<Guid>
     /// hands the order to Payments. Null until a session is opened.</summary>
     public Guid? PaymentSessionId { get; private set; }
 
+    /// <summary>The checkout session this order was created from, when it came through the checkout flow.
+    /// Unique (filtered) so a replayed CheckoutConfirmed event cannot create a second order.</summary>
+    public Guid? CheckoutSessionId { get; private set; }
+
     public long AmountMinorUnits { get; private set; }
 
     public string AmountCurrency { get; private set; } = default!;
@@ -44,11 +48,12 @@ public sealed class Order : AggregateRoot<Guid>
 
     private Order() { }
 
-    private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Money amount, DateTime createdAtUtc)
+    private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount, DateTime createdAtUtc)
         : base(id)
     {
         TenantId = tenantId;
         PaymentSessionId = paymentSessionId;
+        CheckoutSessionId = checkoutSessionId;
         AmountMinorUnits = amount.MinorUnits;
         AmountCurrency = amount.Currency;
         Status = OrderStatus.AwaitingPayment;
@@ -72,8 +77,9 @@ public sealed class Order : AggregateRoot<Guid>
     }
 
     /// <summary>Opens a new order awaiting payment.</summary>
-    public static Order Create(Guid tenantId, Money amount, DateTime createdAtUtc, Guid? paymentSessionId = null) =>
-        new(Guid.NewGuid(), tenantId, paymentSessionId, amount, createdAtUtc);
+    public static Order Create(Guid tenantId, Money amount, DateTime createdAtUtc,
+        Guid? paymentSessionId = null, Guid? checkoutSessionId = null) =>
+        new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, createdAtUtc);
 
     /// <summary>
     /// Binds the payment session this order awaits. The session is the join key the

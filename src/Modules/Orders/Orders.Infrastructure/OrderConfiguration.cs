@@ -20,6 +20,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(x => x.TenantId).IsRequired();
         builder.Property(x => x.PaymentSessionId);
+        builder.Property(x => x.CheckoutSessionId);
 
         builder.Ignore(x => x.Amount);
         builder.Property(x => x.AmountMinorUnits).IsRequired();
@@ -41,6 +42,12 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         // The public summary read looks the order up by its opaque token; unique index supports it.
         builder.HasIndex(x => x.SummaryToken).IsUnique();
+
+        // One order per checkout session — the idempotency key against a replayed CheckoutConfirmed event
+        // (filtered, since it is null for orders not created via checkout).
+        builder.HasIndex(x => x.CheckoutSessionId)
+            .IsUnique()
+            .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
         // RLS predicate uses TenantId; index supports the tenant-scoped reads.
         builder.HasIndex(x => x.TenantId);
