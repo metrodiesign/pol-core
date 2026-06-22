@@ -268,6 +268,13 @@ app.MapPost("/orders/{orderId:guid}/summary/resend", async (
     return Results.Ok(result);
 }).RequireAuthorization("tenant");
 
+// Reconciliation report: the bound tenant's orders grouped by status + currency (count + total).
+app.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetReconciliationSummaryQuery(tenant.TenantId), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
 app.Run();
 
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);

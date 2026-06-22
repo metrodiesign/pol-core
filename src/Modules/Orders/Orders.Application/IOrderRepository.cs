@@ -16,6 +16,9 @@ public interface IOrderRepository
     /// <summary>Loads one order by id (RLS scopes it to the bound tenant), or null if absent.</summary>
     Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken);
 
+    /// <summary>Reconciliation read: the bound tenant's orders grouped by status + currency (count + total).</summary>
+    Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid tenantId, CancellationToken cancellationToken);
+
     /// <summary>Tracks a new order for insertion on the next unit-of-work save.</summary>
     void Add(Order order);
 }

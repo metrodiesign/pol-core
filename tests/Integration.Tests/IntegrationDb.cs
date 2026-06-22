@@ -72,6 +72,16 @@ internal static class IntegrationDb
             """,
             ("@id", id), ("@t", tenantId));
 
+    /// <summary>Inserts an order. SummaryToken/SummaryTokenExpiresAtUtc are omitted so the migration's
+    /// per-row defaults apply. Status is the <c>OrderStatus</c> int (1 = Paid).</summary>
+    public static Task InsertOrderAsync(SqlConnection c, Guid id, Guid tenantId, int status, long minorUnits, string currency) =>
+        ExecAsync(c,
+            """
+            INSERT producer.Orders (Id, TenantId, AmountMinorUnits, AmountCurrency, Status, CreatedAtUtc)
+            VALUES (@id, @t, @amt, @cur, @st, SYSUTCDATETIME());
+            """,
+            ("@id", id), ("@t", tenantId), ("@amt", minorUnits), ("@cur", currency), ("@st", status));
+
     private static string? Get(string key) => Environment.GetEnvironmentVariable(key);
 
     private static string Require(string key) =>
