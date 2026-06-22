@@ -63,6 +63,8 @@ services:
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
       Google__ClientId: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
+      # Browser SPA frontend origin (CORS allowlist). Without it the SPA's cross-origin calls are blocked.
+      Cors__AllowedOrigins__0: ${TENANT_FRONTEND_ORIGIN:?set TENANT_FRONTEND_ORIGIN in .env}
     secrets: [pol_app_password, vault_master_key]
     ports:
       - "${TENANT_CONSOLE_PORT:-8081}:8080"
@@ -94,6 +96,8 @@ services:
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
       Google__ClientId: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
+      # Browser SPA admin frontend origin (CORS allowlist).
+      Cors__AllowedOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
     secrets: [pol_admin_password, vault_master_key]
     ports:
       - "${ADMIN_CONSOLE_PORT:-8082}:8080"

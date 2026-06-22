@@ -27,6 +27,10 @@ cp .env.prod.example .env          # แก้ค่า non-secret + ตั้�
 mkdir -p secrets                   # ./secrets/ ถูก gitignore แล้ว
 ```
 
+`.env` ต้องตั้ง `TENANT_FRONTEND_ORIGIN` + `ADMIN_FRONTEND_ORIGIN` = origin ของ SPA frontend (scheme+host+port,
+ไม่มี trailing slash) — เป็น CORS allowlist; ถ้าไม่ตั้ง host จะไม่ start (required var). ไม่ตั้งค่า = browser
+เรียก API ข้าม origin ไม่ได้.
+
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 
 ```bash
