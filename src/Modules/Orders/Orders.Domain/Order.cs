@@ -31,6 +31,17 @@ public sealed class Order : AggregateRoot<Guid>
 
     public DateTime? PaidAtUtc { get; private set; }
 
+    /// <summary>Opaque, unguessable token for the customer's summary link (capability, not a secret —
+    /// just hard to guess). Rotated by <see cref="ReissueSummary"/>.</summary>
+    public string SummaryToken { get; private set; } = default!;
+
+    /// <summary>When the current <see cref="SummaryToken"/> stops working — opening the link after this
+    /// is a 410 Gone. A resend rotates the token and extends this.</summary>
+    public DateTime SummaryTokenExpiresAtUtc { get; private set; }
+
+    /// <summary>Default lifetime of a summary link (reference: links have a TTL; expired = error).</summary>
+    public static readonly TimeSpan SummaryTokenTtl = TimeSpan.FromHours(72);
+
     private Order() { }
 
     private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Money amount, DateTime createdAtUtc)
@@ -42,6 +53,22 @@ public sealed class Order : AggregateRoot<Guid>
         AmountCurrency = amount.Currency;
         Status = OrderStatus.AwaitingPayment;
         CreatedAtUtc = createdAtUtc;
+        SummaryToken = Guid.NewGuid().ToString("N");
+        SummaryTokenExpiresAtUtc = createdAtUtc + SummaryTokenTtl;
+    }
+
+    /// <summary>True once the summary link's TTL has passed.</summary>
+    public bool IsSummaryExpired(DateTime now) => now >= SummaryTokenExpiresAtUtc;
+
+    /// <summary>Rotates the summary token and extends its TTL (a resend). Only an order still awaiting
+    /// payment has a link to reissue; a paid/cancelled order is rejected.</summary>
+    public void ReissueSummary(DateTime now)
+    {
+        if (Status != OrderStatus.AwaitingPayment)
+            throw new InvalidOperationException($"Cannot reissue the summary link of an order in status {Status}.");
+
+        SummaryToken = Guid.NewGuid().ToString("N");
+        SummaryTokenExpiresAtUtc = now + SummaryTokenTtl;
     }
 
     /// <summary>Opens a new order awaiting payment.</summary>

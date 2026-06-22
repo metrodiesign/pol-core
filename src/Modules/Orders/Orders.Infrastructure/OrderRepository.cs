@@ -21,5 +21,8 @@ public sealed class OrderRepository : IOrderRepository
         _db.Set<Order>()
             .SingleOrDefaultAsync(o => o.PaymentSessionId == paymentSessionId, cancellationToken);
 
+    public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
+        _db.Set<Order>().FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+
     public void Add(Order order) => _db.Set<Order>().Add(order);
 }

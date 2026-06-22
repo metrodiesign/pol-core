@@ -12,6 +12,7 @@ using Cart.Infrastructure;
 using Checkout.Infrastructure;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
+using Orders.Application;
 using Orders.Infrastructure;
 using Payments.Application.CreatePaymentSession;
 using Payments.Application.HandlePspWebhook;
@@ -244,6 +245,29 @@ app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 }).RequireAuthorization("tenant"); // tenant-SPA audience only (admin-SPA tokens get a different role)
 
+// Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
+// a bypass proc (no tenant binding). Unknown token -> 404; expired -> 410. A producer can resend (rotates
+// the token + extends the TTL), which is tenant-scoped.
+app.MapGet("/orders/{token}/summary", async (
+    string token, IOrderSummaryReader reader, IClock clock, CancellationToken ct) =>
+{
+    var summary = await reader.GetByTokenAsync(token, ct);
+    if (summary is null)
+        return Results.NotFound();
+    if (clock.UtcNow >= summary.ExpiresAtUtc)
+        return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
+
+    return Results.Ok(new OrderSummaryResponse(
+        summary.OrderId, summary.AmountMinorUnits, summary.Currency, summary.Status, summary.PaymentSessionId));
+}).AllowAnonymous();
+
+app.MapPost("/orders/{orderId:guid}/summary/resend", async (
+    Guid orderId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, tenant.TenantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
 app.Run();
 
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
@@ -252,6 +276,8 @@ internal sealed record CreatePaymentSessionRequest(
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
+internal sealed record OrderSummaryResponse(
+    Guid OrderId, long AmountMinorUnits, string Currency, string Status, Guid? PaymentSessionId);
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);

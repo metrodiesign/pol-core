@@ -29,12 +29,18 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.CreatedAtUtc).IsRequired();
         builder.Property(x => x.PaidAtUtc);
 
+        builder.Property(x => x.SummaryToken).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.SummaryTokenExpiresAtUtc).IsRequired();
+
         // Domain events are an in-memory concern; never persisted.
         builder.Ignore(x => x.DomainEvents);
 
         // The consumer loads by payment session; index it (filtered — it is nullable until checkout binds one).
         builder.HasIndex(x => x.PaymentSessionId)
             .HasFilter("[PaymentSessionId] IS NOT NULL");
+
+        // The public summary read looks the order up by its opaque token; unique index supports it.
+        builder.HasIndex(x => x.SummaryToken).IsUnique();
 
         // RLS predicate uses TenantId; index supports the tenant-scoped reads.
         builder.HasIndex(x => x.TenantId);
