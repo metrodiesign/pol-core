@@ -1,0 +1,19 @@
+# Keep the build context lean and NEVER ship build output, local config, or secrets into an image.
+**/bin/
+**/obj/
+**/.vs/
+**/TestResults/
+.git/
+.github/
+secrets/
+.env
+.env.*
+!.env.example
+!.env.prod.example
+*.key
+**/appsettings.Development.json
+**/appsettings.*.Local.json
+docs/
+.ai/
+.claude/
+.workflows/
