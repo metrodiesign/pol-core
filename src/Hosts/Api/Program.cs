@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using Microsoft.OpenApi;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
@@ -73,7 +75,17 @@ builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.E
 builder.Services.AddPolCors(builder.Configuration);
 
 // OpenAPI document so the SPA teams have a machine-readable contract (served in Development only).
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddSchemaTransformer((schema, context, _) =>
+{
+    // PspCode has a custom JsonConverter the schema generator can't introspect, so it would emit an
+    // empty schema. Describe the real wire shape: the stable string codes from the PspCodes mapping.
+    if (context.JsonTypeInfo.Type == typeof(PspCode))
+    {
+        schema.Type = JsonSchemaType.String;
+        schema.Enum = Enum.GetValues<PspCode>().Select(p => (JsonNode)JsonValue.Create(p.ToCode())).ToList();
+    }
+    return Task.CompletedTask;
+}));
 
 // PspCode crosses the wire as its stable code ("2c2p"/"omise") via the domain's PspCodes mapping —
 // not as an int or the C# member name. An unknown code fails body binding -> 400.

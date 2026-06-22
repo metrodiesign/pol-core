@@ -1,6 +1,7 @@
 extern alias ApiHost;
 
 using System.Net;
+using System.Text.Json;
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -188,15 +189,23 @@ public sealed class RedirectEndpointAuthTests
 public sealed class OpenApiDocumentTests
 {
     [Fact]
-    public async Task OpenApi_document_is_served_in_development()
+    public async Task OpenApi_document_is_served_in_development_and_describes_psp_codes()
     {
         // The SPA teams' machine-readable contract. Development env (HardeningFactory) maps it.
         using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync("/openapi/v1.json");
-
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // The PspCode schema must document the real wire shape (string codes), not the int the custom
+        // converter would otherwise leave unschematized — or a generated client would send the wrong type.
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var psp = doc.RootElement.GetProperty("components").GetProperty("schemas").GetProperty("PspCode");
+        Assert.Equal("string", psp.GetProperty("type").GetString());
+        var codes = psp.GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
+        Assert.Contains("2c2p", codes);
+        Assert.Contains("omise", codes);
     }
 }
 
