@@ -18,7 +18,8 @@ Clean Architecture, so that ทุกโมดูลแยกความรั�
 - 1.1 THE SYSTEM SHALL จัดวาง source เป็น `src/SharedKernel`, `src/Contracts`,
   `src/BuildingBlocks/{BuildingBlocks.Application,BuildingBlocks.Infrastructure}`,
   `src/Modules/<M>/{<M>.Domain,<M>.Application,<M>.Infrastructure}` สำหรับ M ใน
-  Products, Cart, Checkout, Orders, Payments, และ `src/Hosts/{TenantConsole,AdminConsole}`.
+  Products, Cart, Checkout, Orders, Payments, และ `src/Hosts/{TenantConsole,Worker}`
+  (TenantConsole = Backend API เดียว; AdminConsole host ถูกถอด — ดู REQ-10).
 - 1.2 THE SYSTEM SHALL บังคับทิศ dependency Domain ← Application ← Infrastructure ← Host;
   Domain ห้ามอ้าง EF Core / ASP.NET.
 - 1.3 THE SYSTEM SHALL อนุญาตให้ `<M>.Application` reference เฉพาะ `<M>.Domain` + `Contracts` +
@@ -162,18 +163,25 @@ browser return ปลอมไม่ทำให้ Order กลายเป็�
 - 9.5 WHEN Orders รับ `PaymentPaid` THE SYSTEM SHALL verify amount + currency (ไม่ใช่แค่ PaymentId)
   ก่อนเปลี่ยนสถานะเป็น Paid.
 
-## REQ-10: Hosts — สอง console แยก authz scope
+## REQ-10: Host — Backend API เดียว, แยก authz ที่ระดับ endpoint/role
 
-**User Story:** As a security owner, I want Tenant Console กับ Admin Console เป็นคนละแอป, so that
-ลด blast radius และ admin action ข้ามผ่าน session ฝั่ง tenant ไม่ได้.
+> เดิม REQ-10 แยกเป็น 2 console host (Tenant public / Admin internal). ปรับ architecture: pol-core เป็น
+> **Backend API ตัวเดียว** เสิร์ฟ 2 browser SPA แยก (pol-tenant, pol-admin) ที่ทำนอก repo. การแยก
+> admin/tenant authz ย้ายจาก host-isolation มาที่ endpoint/role (เจตนา 10.2 คงเดิม). AdminConsole host
+> ถูกถอด (เคยเป็น stub เดียว). cross-tenant super-admin (ถ้าต้องการในอนาคต) = internal tool แยก ไม่ใช่
+> public API นี้.
+
+**User Story:** As a security owner, I want backend เป็น API เดียวที่ RLS-enforced, so that ทุก request ของ
+SPA ถูกจำกัด tenant ที่ระดับ DB และไม่มี public host ไหนถือ connection ที่ bypass RLS ได้.
 
 **Acceptance Criteria (EARS):**
-- 10.1 THE SYSTEM SHALL ให้ `TenantConsole` (public-facing) และ `AdminConsole` (internal-only) เป็น
-  คนละ deployable บน backend/data ชุดเดียว.
-- 10.2 IF endpoint admin (cross-tenant / approve / config) ถูกเรียกผ่าน session ของ Tenant Console
-  THEN THE SYSTEM SHALL ปฏิเสธ.
+- 10.1 THE SYSTEM SHALL ให้ pol-core เป็น Backend API host เดียว (principal `pol_app`, ไม่ใช่สมาชิก
+  `pol_rls_bypass`) เสิร์ฟทั้ง pol-tenant และ pol-admin SPA และรับ Google ID token ที่ audience เป็น OAuth
+  client ของ SPA ใดก็ได้ใน `Google:ClientIds`; Worker เป็น background host แยก (`pol_worker`).
+- 10.2 IF endpoint admin (cross-tenant / approve / config) ถูกเรียกโดย principal/role ที่ไม่มีสิทธิ์ admin
+  THEN THE SYSTEM SHALL ปฏิเสธ (authorization ระดับ endpoint/role — บังคับเมื่อ admin endpoint จริงถูกสร้าง).
 - 10.3 THE SYSTEM SHALL วาง `Mediator.SourceGenerator` ที่ host (project ปลายสุด) และ wire
-  `ModuleAssemblies` (producer + admin) เข้า DI.
+  `ModuleAssemblies` เข้า DI.
 
 ## REQ-11: Test foundation + naming/standards gate
 

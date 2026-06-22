@@ -4,11 +4,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace TenantConsole;
+namespace Api;
 
 /// <summary>
 /// Flood protection for the unauthenticated webhook surface, using the built-in rate limiter (no package).
-/// Lives in this host because TenantConsole is the only host with a webhook. A sliding window smooths a
+/// Lives in this host because Api is the only host with a webhook. A sliding window smooths a
 /// PSP's bursty/retry delivery (a fixed window would 429 a burst straddling a window edge). The partition
 /// is the CALLER (source IP), not the route's <c>pspConnectionId</c>: that id is a client-supplied,
 /// GUID-format-only value, so partitioning on it would hand an attacker a fresh budget per random GUID —

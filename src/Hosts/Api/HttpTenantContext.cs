@@ -2,7 +2,7 @@ using System.Security.Claims;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 
-namespace TenantConsole;
+namespace Api;
 
 /// <summary>
 /// Resolves the ambient tenant. Order of precedence:
@@ -40,7 +40,6 @@ public sealed class HttpTenantContext : ITenantContext
         _ambient.IsBound ? _ambient.TenantId
         : _claimTenantId ?? throw new InvalidOperationException("No tenant is bound to the current request.");
 
-    public bool IsAdmin => false;
 
     public bool HasTenant => _ambient.IsBound || _claimTenantId.HasValue;
 }

@@ -11,9 +11,6 @@ public interface ITenantContext
     /// <summary>The active tenant. Throws if <see cref="HasTenant"/> is false.</summary>
     Guid TenantId { get; }
 
-    /// <summary>True when running under the Admin console's cross-tenant DB principal.</summary>
-    bool IsAdmin { get; }
-
     /// <summary>True when a concrete tenant is bound to this request.</summary>
     bool HasTenant { get; }
 }

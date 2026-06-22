@@ -1,0 +1,28 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ConnectionStrings": {
+    "Producer": "Server=localhost,11433;Database=PaymentOrchestration;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+  },
+  "Tenant": {
+    "DevTenantId": "00000000-0000-0000-0000-000000000001"
+  },
+  "Google": {
+    "Audiences": {
+      "tenant": "REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+      "admin": "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+    },
+    "HostedDomain": ""
+  },
+  "Cors": {
+    "_note": "Both browser SPA dev origins (pol-tenant :5120, pol-admin :5130) — the single API serves both.",
+    "AllowedOrigins": ["http://localhost:5120", "http://localhost:5130"]
+  },
+  "Vault": {
+    "MasterKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  }
+}

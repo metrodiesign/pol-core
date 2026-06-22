@@ -27,6 +27,6 @@ echo "[migrate] applying EF migrations (schema + RLS policy + reveal-audit)..."
 export POL_DESIGN_SQL="Server=${DB_SERVER};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True"
 dotnet ef database update --context ProducerDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
-  --startup-project src/Hosts/TenantConsole
+  --startup-project src/Hosts/Api
 
 echo "[migrate] done."

@@ -9,8 +9,7 @@
     <Project Path="src/BuildingBlocks/BuildingBlocks.Web/BuildingBlocks.Web.csproj" />
   </Folder>
   <Folder Name="/src/Hosts/">
-    <Project Path="src/Hosts/AdminConsole/AdminConsole.csproj" />
-    <Project Path="src/Hosts/TenantConsole/TenantConsole.csproj" />
+    <Project Path="src/Hosts/Api/Api.csproj" />
     <Project Path="src/Hosts/Worker/Worker.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />

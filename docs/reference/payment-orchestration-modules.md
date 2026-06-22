@@ -486,7 +486,7 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 | Navigation property | PascalCase | `Tenant.PspConnections`, `PspConnection.Tenant` |
 | Primary key | `{Entity}Id` | `TenantId`, `ConnectionId` |
 | Foreign key | `{Navigation}Id` | `TenantId` (บน `PspConnection`) |
-| DbContext | `{Name}DbContext` | `AdminDbContext`, `ProducerDbContext` |
+| DbContext | `{Name}DbContext` | `ProducerDbContext` |
 | Entity configuration | `{Entity}Configuration` | `TenantConfiguration : IEntityTypeConfiguration<Tenant>` |
 | Migration | PascalCase สื่อความหมาย | `AddPspConnection`, `AddTenantUserStatus` |
 | Schema | lowercase ตาม domain | `admin`, `producer` → `ToTable("PspConnection", "producer")` |

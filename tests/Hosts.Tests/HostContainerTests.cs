@@ -1,5 +1,4 @@
-extern alias TenantHost;
-extern alias AdminHost;
+extern alias ApiHost;
 
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Hosting;
@@ -10,7 +9,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hosts.Tests;
 
-// The two console hosts are the composition roots. PLAN #7 says the container must be free of
+// The Api and Worker hosts are the composition roots. PLAN #7 says the container must be free of
 // captive-dependency / scope mistakes: a Scoped service (ITenantContext, the TenantGuardBehavior,
 // the DbContext-backed idempotency/outbox/vault stores) must never be captured by a Singleton. Both
 // Program.cs files switch on ValidateScopes + ValidateOnBuild in the Development environment, so the
@@ -31,6 +30,9 @@ file static class HostHarness
         {
             // Development is what flips on ValidateScopes + ValidateOnBuild in both Program.cs files.
             builder.UseEnvironment(Environments.Development);
+            // Google:Audiences is read at registration (to register the per-role policies), so it must be host
+            // config (UseSetting), not an in-memory source that lands after registration.
+            builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
 
             // Deterministic, never-opened connection strings so DbContext registration does not depend
             // on the machine's environment. A query would fail, but container validation never runs one.
@@ -39,12 +41,10 @@ file static class HostHarness
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                    ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                     // Self-contained: the test must not depend on a (now uncommitted) appsettings.Development.json.
                     // Fake 32-byte (all-zero) base64 key — never a real secret.
                     ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                     ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
-                    ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",
                 });
             });
 
@@ -63,12 +63,12 @@ file static class HostHarness
     }
 }
 
-public sealed class TenantConsoleContainerTests
+public sealed class ApiContainerTests
 {
     [Fact]
-    public void TenantConsole_container_builds_and_validates_without_a_live_database()
+    public void Api_container_builds_and_validates_without_a_live_database()
     {
-        using var factory = new HostHarness.ValidatingFactory<TenantHost::Program>();
+        using var factory = new HostHarness.ValidatingFactory<ApiHost::Program>();
 
         // Accessing Services boots the host: this is where ValidateOnBuild + ValidateScopes run.
         // A captive-dependency or scope violation (PLAN #7) would throw here.
@@ -78,37 +78,13 @@ public sealed class TenantConsoleContainerTests
     }
 
     [Fact]
-    public void TenantConsole_resolves_the_scoped_mediator_inside_a_scope()
+    public void Api_resolves_the_scoped_mediator_inside_a_scope()
     {
-        using var factory = new HostHarness.ValidatingFactory<TenantHost::Program>();
+        using var factory = new HostHarness.ValidatingFactory<ApiHost::Program>();
 
         // The Mediator pipeline is registered Scoped so handlers can depend on the Scoped DbContext.
         // With ValidateScopes on, resolving it from a scope must succeed (resolving from the root
         // would throw) — proving the request-scoped pipeline is wired correctly.
-        using var scope = factory.Services.CreateScope();
-        var mediator = scope.ServiceProvider.GetService<Mediator.IMediator>();
-
-        Assert.NotNull(mediator);
-    }
-}
-
-public sealed class AdminConsoleContainerTests
-{
-    [Fact]
-    public void AdminConsole_container_builds_and_validates_without_a_live_database()
-    {
-        using var factory = new HostHarness.ValidatingFactory<AdminHost::Program>();
-
-        var provider = factory.Services;
-
-        Assert.NotNull(provider);
-    }
-
-    [Fact]
-    public void AdminConsole_resolves_the_scoped_mediator_inside_a_scope()
-    {
-        using var factory = new HostHarness.ValidatingFactory<AdminHost::Program>();
-
         using var scope = factory.Services.CreateScope();
         var mediator = scope.ServiceProvider.GetService<Mediator.IMediator>();
 

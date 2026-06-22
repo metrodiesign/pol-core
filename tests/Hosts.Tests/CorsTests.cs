@@ -1,5 +1,4 @@
-extern alias TenantHost;
-extern alias AdminHost;
+extern alias ApiHost;
 
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Hosting;
@@ -10,29 +9,30 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hosts.Tests;
 
-// CORS for the separate browser SPA frontend, asserted against the real hosts via WebApplicationFactory.
-// A preflight (OPTIONS) from an allowlisted origin gets Access-Control-Allow-Origin; an unknown origin does
-// not (the browser then blocks it). No live database is touched — preflight short-circuits before the endpoint.
+// CORS for the separate browser SPA frontends, asserted against the single API via WebApplicationFactory.
+// The one API serves BOTH SPAs (tenant + admin), so a preflight (OPTIONS) from EITHER allowlisted origin is
+// echoed back; an unknown origin is not. No live database is touched — preflight short-circuits the endpoint.
 
-file sealed class CorsFactory<TEntry> : WebApplicationFactory<TEntry>
-    where TEntry : class
+file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
 {
-    public const string AllowedOrigin = "https://app.example.com";
+    public const string TenantSpaOrigin = "https://app.example.com";
+    public const string AdminSpaOrigin = "https://admin.example.com";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
+        // Google:Audiences is read at registration (per-role policies); supply it as host config.
+        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Worker"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",
-                // Override the committed-empty origins so the policy has something to allow.
-                ["Cors:AllowedOrigins:0"] = AllowedOrigin,
+                // The single API allowlists BOTH SPA origins.
+                ["Cors:AllowedOrigins:0"] = TenantSpaOrigin,
+                ["Cors:AllowedOrigins:1"] = AdminSpaOrigin,
             });
         });
         builder.ConfigureServices(services =>
@@ -54,40 +54,27 @@ public sealed class CorsTests
             Headers = { { "Origin", origin }, { "Access-Control-Request-Method", "POST" } },
         };
 
-    [Fact]
-    public async Task Preflight_from_an_allowed_origin_is_echoed_back()
+    [Theory]
+    [InlineData(CorsFactory.TenantSpaOrigin)]
+    [InlineData(CorsFactory.AdminSpaOrigin)]
+    public async Task Preflight_from_either_allowed_spa_origin_is_echoed_back(string origin)
     {
-        using var factory = new CorsFactory<TenantHost::Program>();
+        using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight(CorsFactory<TenantHost::Program>.AllowedOrigin));
+        var response = await client.SendAsync(Preflight(origin));
 
-        Assert.Equal(
-            CorsFactory<TenantHost::Program>.AllowedOrigin,
-            Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal(origin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
     }
 
     [Fact]
     public async Task Preflight_from_a_disallowed_origin_gets_no_cors_header()
     {
-        using var factory = new CorsFactory<TenantHost::Program>();
+        using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Preflight("https://evil.example.com"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
-    }
-
-    [Fact]
-    public async Task Admin_preflight_from_an_allowed_origin_is_echoed_back()
-    {
-        using var factory = new CorsFactory<AdminHost::Program>();
-        using var client = factory.CreateClient();
-
-        var response = await client.SendAsync(Preflight(CorsFactory<AdminHost::Program>.AllowedOrigin));
-
-        Assert.Equal(
-            CorsFactory<AdminHost::Program>.AllowedOrigin,
-            Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
     }
 }

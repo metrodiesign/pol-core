@@ -40,7 +40,7 @@ builder.Services.AddDbContext<ProducerDbContext>((sp, opt) =>
 
 builder.Services.AddReadinessHealthChecks();
 
-builder.Services.AddSingleton(new ModuleAssemblies(WorkerModuleAssemblies.All, []));
+builder.Services.AddSingleton(new ModuleAssemblies(WorkerModuleAssemblies.All));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 
 // Tenant is bound per outbox message by the dispatcher (no HTTP, no claim).

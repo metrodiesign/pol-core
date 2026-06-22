@@ -43,7 +43,7 @@ internal sealed class ProducerDbContextTestHarness : IDisposable
             .Options;
 
         // ModuleAssemblies with empty lists: BuildingBlocks owns its tables and discovers no modules.
-        var modules = new ModuleAssemblies([], []);
+        var modules = new ModuleAssemblies([]);
         return new ProducerDbContext(options, modules);
     }
 
@@ -62,6 +62,5 @@ internal sealed class FixedTenant(Guid tenantId) : ITenantContext
     public static readonly FixedTenant Default = new(Guid.Parse("11111111-1111-1111-1111-111111111111"));
 
     public Guid TenantId { get; } = tenantId;
-    public bool IsAdmin => false;
     public bool HasTenant => true;
 }

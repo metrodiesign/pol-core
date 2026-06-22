@@ -63,7 +63,7 @@ dependency ชี้เข้า domain, command/query แยกผ่าน Med
 
 ```
 ช่องทางบริษัทในเครือ
-   → control plane: Tenant Console (app#1) · Admin Console (app#2)   ← คนละ deploy, backend/data ชุดเดียว
+   → control plane: pol-tenant SPA (app#1) · pol-admin SPA (app#2)   ← 2 browser SPA คนละ deploy, เรียก Backend API ตัวเดียว
    → platform core: Session layer (Create / Return / Webhook) · Engine (Method router, Credential vault,
                     Retry & dunning, Reconciliation, Idempotency store)
    → PSP adapter: IPspAdapter (2C2P · Omise/Opn) — normalize เป็นสัญญาเดียว

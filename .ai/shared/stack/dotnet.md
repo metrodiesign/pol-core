@@ -13,7 +13,8 @@
 | test 1 project | `dotnet test tests/<Project>.Tests` |
 | test 1 case | `dotnet test --filter "FullyQualifiedName~<Namespace>.<Class>.<Method>"` |
 | format | `dotnet format` (CI ใช้ `dotnet format --verify-no-changes`) |
-| run console | `dotnet run --project src/Hosts/<TenantConsole\|AdminConsole>` |
+| run API | `dotnet run --project src/Hosts/Api` (Backend API เดียว, dev http :5100) |
+| run worker | `dotnet run --project src/Hosts/Worker` |
 
 **Task gate** (`.ai/bin/gate-task.sh` อ่านจาก env) — ตั้งให้ flip task เป็น `[x]` พิสูจน์เขียวจริง:
 
@@ -33,7 +34,7 @@ src/
   Contracts/               # cross-module messages (INotification เช่น PaymentPaid) — ตัวเดียวที่โมดูลอื่น reference ได้
   BuildingBlocks/
     BuildingBlocks.Application/     # cross-cutting ports: ITenantContext, IClock, IUnitOfWork, IOutbox, IIdempotencyStore, IVaultSecretStore, ITenantScoped, pipeline behaviors
-    BuildingBlocks.Infrastructure/  # cross-cutting impl: ProducerDbContext/AdminDbContext, SessionContextConnectionInterceptor (RLS floor), outbox+dispatcher, idempotency store, envelope vault, EfUnitOfWork
+    BuildingBlocks.Infrastructure/  # cross-cutting impl: ProducerDbContext, SessionContextConnectionInterceptor (RLS floor), outbox+dispatcher, idempotency store, envelope vault, EfUnitOfWork
   Modules/
     Payments/
       Payments.Domain/         # entity, value object, domain rule (ไม่พึ่ง EF/ASP.NET)
@@ -41,8 +42,8 @@ src/
       Payments.Infrastructure/ # EF Core config, PSP adapter (IPspAdapter), vault, migrations
     Orders/  Checkout/  Cart/  Products/    # โครงเดียวกัน
   Hosts/
-    TenantConsole/         # ASP.NET Core app#1 (public-facing)
-    AdminConsole/          # ASP.NET Core app#2 (internal-only)
+    Api/                   # ASP.NET Core Backend API (เดียว, เสิร์ฟ 2 SPA: pol-tenant + pol-admin)
+    Worker/                # background host (outbox dispatcher)
 tests/
   <Module>.Tests/          # co-locate ตามโมดูล
 ```
@@ -52,7 +53,7 @@ tests/
 
 ## EF Core
 
-- 2 `DbContext` แยก: `AdminDbContext` (schema `admin`) · `ProducerDbContext` (schema `producer`)
+- 1 `DbContext`: `ProducerDbContext` (schema `producer`, RLS-enforced via pol_app)
 - `IEntityTypeConfiguration<T>` ต่อ entity (`{Entity}Configuration`) — ไม่ config inline ใน `OnModelCreating`
 - migration: `dotnet ef migrations add <PascalCaseName> --context <Ctx> --project src/Modules/<M>/<M>.Infrastructure`
 - datetime เก็บ UTC, column ลงท้าย `Utc`

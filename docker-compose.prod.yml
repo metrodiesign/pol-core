@@ -46,14 +46,14 @@ services:
         condition: service_healthy
     restart: "no"
 
-  tenant-console:
+  api:
     build:
       context: .
       target: final
       args:
         DOTNET_VERSION: *dotnet
-        HOST_PROJECT: src/Hosts/TenantConsole/TenantConsole.csproj
-        HOST_DLL: TenantConsole.dll
+        HOST_PROJECT: src/Hosts/Api/Api.csproj
+        HOST_DLL: Api.dll
     environment:
       DB_SERVER: sql
       DB_NAME: ${DB_NAME:-PaymentOrchestration}
@@ -62,41 +62,17 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
-      Google__ClientId: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
+      # One API, two browser SPAs: map each SPA's Google OAuth client id to its role (accepted audience +
+      # role claim — tenant routes admit the tenant role only); allowlist BOTH SPA origins for CORS.
+      Google__Audiences__tenant: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
+      Google__Audiences__admin: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
+      Cors__AllowedOrigins__0: ${TENANT_FRONTEND_ORIGIN:?set TENANT_FRONTEND_ORIGIN in .env}
+      Cors__AllowedOrigins__1: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
     secrets: [pol_app_password, vault_master_key]
     ports:
-      - "${TENANT_CONSOLE_PORT:-8081}:8080"
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
-
-  admin-console:
-    build:
-      context: .
-      target: final
-      args:
-        DOTNET_VERSION: *dotnet
-        HOST_PROJECT: src/Hosts/AdminConsole/AdminConsole.csproj
-        HOST_DLL: AdminConsole.dll
-    environment:
-      DB_SERVER: sql
-      DB_NAME: ${DB_NAME:-PaymentOrchestration}
-      DB_PRINCIPAL: pol_admin
-      DB_PASSWORD_FILE: /run/secrets/pol_admin_password
-      ASPNETCORE_ENVIRONMENT: Production
-      Vault__ActiveKeyId: v1
-      Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
-      Google__ClientId: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
-    secrets: [pol_admin_password, vault_master_key]
-    ports:
-      - "${ADMIN_CONSOLE_PORT:-8082}:8080"
+      # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
+      # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
+      - "${API_PORT:-5100}:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully
