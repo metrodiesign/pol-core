@@ -70,6 +70,9 @@ builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
 // Google's JWKS via Authority), shared with AdminConsole. See BuildingBlocks.Web.GoogleAuthenticationExtensions.
 builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
 
+// CORS for the separate browser SPA frontend (allowlisted origins from Cors:AllowedOrigins).
+builder.Services.AddPolCors(builder.Configuration);
+
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
 builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks();
@@ -87,6 +90,9 @@ _ = app.Services.GetRequiredService<VaultKeyring>();
 // exception handler then wraps auth + the endpoints; rate limiter before the mapped endpoints run.
 app.UseCorrelationId();
 app.UseExceptionHandler();
+
+// CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge.
+app.UsePolCors();
 
 app.UseRateLimiter();
 app.UseAuthentication();
