@@ -39,6 +39,9 @@
     <ProjectReference Include="..\..\src\Modules\Payments\Payments.Domain\Payments.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\Payments.Application\Payments.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\Payments.Infrastructure\Payments.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Tenant\Tenant.Domain\Tenant.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Tenant\Tenant.Application\Tenant.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Tenant\Tenant.Infrastructure\Tenant.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
