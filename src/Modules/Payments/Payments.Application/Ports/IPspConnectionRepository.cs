@@ -19,4 +19,7 @@ public interface IPspConnectionRepository
     /// unit-of-work save; the caller owns the transaction.
     /// </summary>
     void Add(PspConnection connection);
+
+    /// <summary>Lists all connections owned by a tenant (admin read-back).</summary>
+    Task<IReadOnlyList<PspConnection>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken);
 }

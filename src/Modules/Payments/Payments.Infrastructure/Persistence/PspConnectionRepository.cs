@@ -21,4 +21,9 @@ public sealed class PspConnectionRepository : IPspConnectionRepository
             .FirstOrDefaultAsync(x => x.Id == pspConnectionId, cancellationToken);
 
     public void Add(PspConnection connection) => _db.Set<PspConnection>().Add(connection);
+
+    public async Task<IReadOnlyList<PspConnection>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        await _db.Set<PspConnection>()
+            .Where(x => x.TenantId == tenantId)
+            .ToListAsync(cancellationToken);
 }
