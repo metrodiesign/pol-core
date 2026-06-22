@@ -158,6 +158,10 @@ jobs:
                POL_ADMIN_PASSWORD="${POL_ADMIN_PASSWORD}" \
                POL_WORKER_PASSWORD="${POL_WORKER_PASSWORD}" \
             -i docker/bootstrap/01-principals.sql
+      - name: Restore
+        # `dotnet ef database update` builds the startup project, which needs a restored assets file
+        # (the integration job has no prior restore/build step); `dotnet test` below restores itself.
+        run: dotnet restore pol-core.slnx
       - name: Apply migrations (schema + RLS policy)
         env:
           POL_DESIGN_SQL: "Server=localhost,11433;Database=PaymentOrchestration;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
