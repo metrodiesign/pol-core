@@ -1,0 +1,108 @@
+# Runbook: deploy self-host (Docker / on-prem)
+
+ยกระบบ pol-core (TenantConsole + AdminConsole + Worker + SQL Server 2025) ด้วย `docker-compose.prod.yml`
+บน host เดียว. secret ฉีดตอน deploy ผ่าน file mount (ไม่ commit). ใช้สำหรับ staging/prod ขนาดเล็ก-กลาง.
+
+ข้อกำหนด rule: prod deploy ต้องผ่าน staging ก่อน; ทุก release ต้องมี rollback plan + tag + changelog;
+DB migration ต้องมี backup ก่อนรันบน prod; ห้าม deploy ศุกร์เย็น/ก่อนวันหยุดยาว (ยกเว้น hotfix).
+
+## สิ่งที่ scaffold นี้ครอบ vs ไม่ครอบ
+
+ครอบ: build image 3 host (non-root, /health/ready), SQL container, migrate one-shot (bootstrap principals +
+EF migrations), file-secret injection (DB principal passwords + vault master key), healthcheck + restart.
+
+ไม่ครอบ (ceiling — ต้องเสริมเอง): TLS termination / reverse proxy (nginx/caddy + cert) หน้า console;
+HA / SQL replica / backup อัตโนมัติ; secret manager จริง (Vault/SOPS) แทน file ใน ./secrets/; log shipping.
+
+## 0. Prerequisites
+
+- Docker + Docker Compose v2 บน host
+- clone repo บน host (compose build จาก source; migrate รัน EF จาก source ด้วย)
+- host เปิด port ตาม `.env` (default 8081 tenant, 8082 admin) หรือวางหลัง reverse proxy
+
+## 1. Config + secrets
+
+```bash
+cp .env.prod.example .env          # แก้ค่า non-secret + ตั้ง MSSQL_SA_PASSWORD (bootstrap-only)
+mkdir -p secrets                   # ./secrets/ ถูก gitignore แล้ว
+```
+
+สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
+
+```bash
+# DB principal passwords — ต้องผ่าน SQL complexity (CHECK_POLICY=ON): >=8 ตัว, upper+lower+digit
+printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/pol_app_password
+printf '%s' "Ci$(openssl rand -hex 10)Bb2" > secrets/pol_admin_password
+printf '%s' "Ci$(openssl rand -hex 10)Cc3" > secrets/pol_worker_password
+
+# Vault master key — 32-byte AES key, base64 (PR4 keyring อ่านจาก KeyFile; active id = v1)
+head -c 32 /dev/urandom | base64 > secrets/vault_master_key
+
+chmod 600 secrets/*
+```
+
+เก็บ secret เหล่านี้ใน secret manager จริง (backup แยก) — ถ้า `vault_master_key` หาย = ถอด secret ใน vault
+ไม่ได้ทั้งหมด (ดู [[vault-key-rotation]] สำหรับการหมุน). อย่า commit ./secrets/.
+
+## 2. First deploy
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+ลำดับ: `sql` (healthy) -> `migrate` (bootstrap principals + apply migrations แล้ว exit 0) -> 3 host start.
+ดู migrate log:
+
+```bash
+docker compose -f docker-compose.prod.yml logs migrate     # ต้องจบด้วย "[migrate] done."
+```
+
+## 3. Verify
+
+```bash
+curl -fsS http://localhost:8081/health/ready    # tenant-console -> {"status":"healthy"}
+curl -fsS http://localhost:8082/health/ready    # admin-console
+docker compose -f docker-compose.prod.yml ps     # ทุก service healthy / migrate = exited (0)
+```
+
+healthy = keyring build ได้ (master key 32 byte) + DB ต่อได้. ถ้า not_ready: ดู log ของ host นั้น
+(`docker compose ... logs tenant-console`) — มักเป็น vault key file ผิด หรือ DB password ไม่ตรง.
+
+## 4. Upgrade deploy (มี migration ใหม่)
+
+```bash
+# 4.1 BACKUP ก่อน (rule: migration บน prod ต้อง backup ก่อน)
+docker compose -f docker-compose.prod.yml exec sql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
+  -Q "BACKUP DATABASE [PaymentOrchestration] TO DISK='/var/opt/mssql/backup/pre-deploy.bak' WITH INIT, COMPRESSION"
+
+# 4.2 ดึงโค้ดใหม่ + rebuild + rerun migrate + restart hosts
+git fetch && git checkout <release-tag>
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+migrate รันใหม่ทุกครั้ง (idempotent — bootstrap idempotent, EF apply เฉพาะ migration ที่ยังไม่ลง).
+
+## 5. Rollback
+
+App rollback (โค้ด):
+```bash
+git checkout <previous-tag>
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+DB migration rollback (ถ้า migration ใหม่เข้ากันกับโค้ดเก่าไม่ได้): apply migration ก่อนหน้า แล้วค่อย rollback app.
+รันใน migrate image (มี dotnet-ef + source):
+```bash
+docker compose -f docker-compose.prod.yml run --rm --entrypoint sh migrate -c '
+  export POL_DESIGN_SQL="Server=sql;Database=PaymentOrchestration;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True";
+  dotnet ef database update <PreviousMigrationName> \
+    --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/TenantConsole'
+```
+ถ้า migration rollback เสี่ยง (data loss) -> restore จาก backup (ข้อ 4.1) แทน. ออกแบบ migration ให้
+backward-compatible (expand/contract) เพื่อให้ app เก่า+ใหม่ทำงานกับ schema เดียวกันได้ระหว่าง roll.
+
+## 6. SA password rotation (post-bootstrap)
+
+`sa` ใช้แค่ตอน bootstrap/migrate — app ต่อด้วย pol_app/pol_admin/pol_worker เท่านั้น. หลัง deploy แรก
+หมุน SA ได้: `ALTER LOGIN sa WITH PASSWORD='...'` แล้วอัปเดต `MSSQL_SA_PASSWORD` ใน `.env` (ใช้รอบ migrate ถัดไป).

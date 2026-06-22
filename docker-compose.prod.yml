@@ -1,0 +1,152 @@
+# Self-host production profile (PLAN deploy = Docker/on-prem, no cloud KMS).
+#   1. copy .env.prod.example -> .env and fill the non-secret values
+#   2. create ./secrets/* files (see docs/runbooks/deploy-self-host.md) — they are gitignored
+#   3. docker compose -f docker-compose.prod.yml up -d --build
+# `migrate` bootstraps principals + applies migrations and must finish before the hosts start.
+# Ceilings (NOT in this scaffold — front it yourself): TLS termination / reverse proxy (nginx/caddy + certs),
+# HA / multiple SQL replicas, a real secret manager. See the runbook.
+name: pol-core
+
+x-dotnet: &dotnet "10.0"
+
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env}
+      MSSQL_PID: ${MSSQL_PID:-Developer}
+    volumes:
+      - sql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+  # One-shot: create principals (idempotent) + apply EF migrations, then exit 0. Hosts wait for it.
+  migrate:
+    build:
+      context: .
+      target: migrate
+      args:
+        DOTNET_VERSION: *dotnet
+    environment:
+      DB_SERVER: sql
+      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?}
+      POL_APP_PASSWORD_FILE: /run/secrets/pol_app_password
+      POL_ADMIN_PASSWORD_FILE: /run/secrets/pol_admin_password
+      POL_WORKER_PASSWORD_FILE: /run/secrets/pol_worker_password
+    secrets: [pol_app_password, pol_admin_password, pol_worker_password]
+    depends_on:
+      sql:
+        condition: service_healthy
+    restart: "no"
+
+  tenant-console:
+    build:
+      context: .
+      target: final
+      args:
+        DOTNET_VERSION: *dotnet
+        HOST_PROJECT: src/Hosts/TenantConsole/TenantConsole.csproj
+        HOST_DLL: TenantConsole.dll
+    environment:
+      DB_SERVER: sql
+      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      DB_PRINCIPAL: pol_app
+      DB_PASSWORD_FILE: /run/secrets/pol_app_password
+      ASPNETCORE_ENVIRONMENT: Production
+      Vault__ActiveKeyId: v1
+      Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
+      Google__ClientId: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
+    secrets: [pol_app_password, vault_master_key]
+    ports:
+      - "${TENANT_CONSOLE_PORT:-8081}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  admin-console:
+    build:
+      context: .
+      target: final
+      args:
+        DOTNET_VERSION: *dotnet
+        HOST_PROJECT: src/Hosts/AdminConsole/AdminConsole.csproj
+        HOST_DLL: AdminConsole.dll
+    environment:
+      DB_SERVER: sql
+      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      DB_PRINCIPAL: pol_admin
+      DB_PASSWORD_FILE: /run/secrets/pol_admin_password
+      ASPNETCORE_ENVIRONMENT: Production
+      Vault__ActiveKeyId: v1
+      Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
+      Google__ClientId: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
+    secrets: [pol_admin_password, vault_master_key]
+    ports:
+      - "${ADMIN_CONSOLE_PORT:-8082}:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: final
+      args:
+        DOTNET_VERSION: *dotnet
+        HOST_PROJECT: src/Hosts/Worker/Worker.csproj
+        HOST_DLL: Worker.dll
+    environment:
+      DB_SERVER: sql
+      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      DB_PRINCIPAL: pol_worker
+      DB_PASSWORD_FILE: /run/secrets/pol_worker_password
+      ASPNETCORE_ENVIRONMENT: Production
+      Vault__ActiveKeyId: v1
+      Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
+    secrets: [pol_worker_password, vault_master_key]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  sql-data:
+
+# File-based secrets — the files live under ./secrets/ (gitignored). The vault master key is the long-lived
+# crypto root; the principal passwords gate DB access. The SA password is bootstrap-only and stays in .env.
+secrets:
+  pol_app_password:
+    file: ./secrets/pol_app_password
+  pol_admin_password:
+    file: ./secrets/pol_admin_password
+  pol_worker_password:
+    file: ./secrets/pol_worker_password
+  vault_master_key:
+    file: ./secrets/vault_master_key

@@ -33,6 +33,7 @@ tsconfig.tsbuildinfo
 .env
 .env.*
 !.env.example
+!.env.prod.example
 
 # Vault master-key secret files — injected as mounted secrets at deploy, NEVER committed
 # (see docs/runbooks/vault-key-rotation.md). The keyring reads these via Vault:Keys:<id>:KeyFile.
