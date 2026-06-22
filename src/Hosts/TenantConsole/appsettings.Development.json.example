@@ -16,6 +16,10 @@
     "ClientId": "REPLACE_WITH_TENANT_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
     "HostedDomain": ""
   },
+  "Cors": {
+    "_note": "Origin of the tenant browser SPA (Next.js dev server) that calls this API on :5100.",
+    "AllowedOrigins": ["http://localhost:5120"]
+  },
   "Vault": {
     "MasterKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
   }

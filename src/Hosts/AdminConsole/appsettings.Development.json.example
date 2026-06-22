@@ -13,6 +13,10 @@
     "ClientId": "REPLACE_WITH_ADMIN_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
     "HostedDomain": ""
   },
+  "Cors": {
+    "_note": "Origin of the admin browser SPA (Next.js dev server) that calls this API on :5101.",
+    "AllowedOrigins": ["http://localhost:5130"]
+  },
   "Vault": {
     "MasterKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
   }
