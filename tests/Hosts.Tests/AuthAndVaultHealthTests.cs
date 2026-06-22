@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -11,43 +13,71 @@ using Microsoft.Extensions.Options;
 namespace Hosts.Tests;
 
 /// <summary>
-/// The single API serves more than one browser SPA, each with its own Google OAuth client, so a token's
-/// audience may be ANY configured client id. These pin that <c>Google:ClientIds</c> binds EVERY id as a valid
-/// audience (not just the first), and that the non-Development fail-fast still fires when every id is a
-/// placeholder.
+/// The single API serves more than one browser SPA, each with its own Google OAuth client AND role.
+/// <c>Google:Audiences</c> maps role -> client id. These pin that every mapped id is a valid token audience,
+/// that the validated audience resolves to the right role, that a per-role authorization policy is registered,
+/// and that a tenant-role principal is admitted by the "tenant" policy while an admin-role one is rejected —
+/// the boundary that stops an admin-SPA token from reaching a tenant route.
 /// </summary>
 public sealed class GoogleMultiAudienceTests
 {
-    [Fact]
-    public void Every_configured_client_id_is_a_valid_audience()
-    {
-        string[] ids = ["111-tenant.apps.googleusercontent.com", "222-admin.apps.googleusercontent.com"];
+    private const string TenantAud = "111-tenant.apps.googleusercontent.com";
+    private const string AdminAud = "222-admin.apps.googleusercontent.com";
 
-        var provider = new ServiceCollection()
-            .AddGoogleIdTokenAuthentication(ConfigIds(ids), Env(Environments.Production))
-            .BuildServiceProvider();
-        var options = provider.GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
+    [Fact]
+    public void Every_mapped_audience_is_a_valid_audience()
+    {
+        var options = BuildAuth().GetRequiredService<IOptionsMonitor<JwtBearerOptions>>()
             .Get(JwtBearerDefaults.AuthenticationScheme);
 
-        Assert.Equal(ids, options.TokenValidationParameters.ValidAudiences);
+        var valid = options.TokenValidationParameters.ValidAudiences.ToArray();
+        Assert.Contains(TenantAud, valid);
+        Assert.Contains(AdminAud, valid);
+        Assert.Equal(2, valid.Length);
+    }
+
+    [Theory]
+    [InlineData(TenantAud, "tenant")]
+    [InlineData(AdminAud, "admin")]
+    [InlineData("999-unknown.apps.googleusercontent.com", null)]
+    [InlineData(null, null)]
+    public void The_validated_audience_resolves_to_its_role(string? audience, string? expectedRole) =>
+        Assert.Equal(expectedRole, GoogleAuthenticationExtensions.RoleForAudience(Audiences(), audience));
+
+    [Fact]
+    public async Task A_tenant_role_principal_passes_the_tenant_policy_but_an_admin_role_principal_does_not()
+    {
+        var authz = BuildAuth().GetRequiredService<IAuthorizationService>();
+
+        Assert.True((await authz.AuthorizeAsync(Principal("tenant"), "tenant")).Succeeded);
+        Assert.False((await authz.AuthorizeAsync(Principal("admin"), "tenant")).Succeeded);
+        Assert.True((await authz.AuthorizeAsync(Principal("admin"), "admin")).Succeeded);
     }
 
     [Fact]
-    public void Non_development_host_refuses_when_every_client_id_is_a_placeholder()
-    {
-        string[] placeholders =
-            ["REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-             "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com"];
+    public void Non_development_host_refuses_when_every_audience_is_a_placeholder() =>
+        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddGoogleIdTokenAuthentication(
+            ConfigAudiences(new()
+            {
+                ["tenant"] = "REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+                ["admin"] = "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+            }), Env(Environments.Production)));
 
-        Assert.Throws<InvalidOperationException>(() =>
-            new ServiceCollection().AddGoogleIdTokenAuthentication(ConfigIds(placeholders), Env(Environments.Production)));
-    }
+    private static Dictionary<string, string> Audiences() => new() { ["tenant"] = TenantAud, ["admin"] = AdminAud };
 
-    private static IConfiguration ConfigIds(string[] clientIds)
+    private static ServiceProvider BuildAuth() => new ServiceCollection()
+        .AddLogging() // DefaultAuthorizationService needs ILogger
+        .AddGoogleIdTokenAuthentication(ConfigAudiences(Audiences()), Env(Environments.Production))
+        .BuildServiceProvider();
+
+    private static ClaimsPrincipal Principal(string role) =>
+        new(new ClaimsIdentity([new Claim(GoogleAuthenticationExtensions.RoleClaimType, role)], "test"));
+
+    private static IConfiguration ConfigAudiences(Dictionary<string, string> audiences)
     {
         var values = new Dictionary<string, string?>();
-        for (var i = 0; i < clientIds.Length; i++)
-            values[$"Google:ClientIds:{i}"] = clientIds[i];
+        foreach (var (role, id) in audiences)
+            values[$"Google:Audiences:{role}"] = id;
         return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
     }
 
@@ -65,7 +95,7 @@ public sealed class GoogleMultiAudienceTests
 
 /// <summary>
 /// The security-critical branch of the Google auth wiring is the one that THROWS: a non-Development host
-/// must refuse to boot when Google:ClientId is unset or still the committed placeholder (otherwise it would
+/// must refuse to boot when Google:Audiences is unset or still the committed placeholder (otherwise it would
 /// "validate" tokens against a meaningless audience). Development keeps the escape hatch. These pin all
 /// three regression vectors (removing the throw, dropping the !IsDevelopment guard, breaking the placeholder
 /// check) — none of which the Development-only WebApplicationFactory tests would catch.
@@ -75,15 +105,15 @@ public sealed class GoogleAuthGuardTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("REPLACE_WITH_TENANT_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com")]
-    public void Non_development_host_refuses_to_start_with_an_unset_or_placeholder_client_id(string? clientId)
+    [InlineData("REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com")]
+    public void Non_development_host_refuses_to_start_with_an_unset_or_placeholder_audience(string? clientId)
     {
         Assert.Throws<InvalidOperationException>(() =>
             new ServiceCollection().AddGoogleIdTokenAuthentication(Config(clientId), Env(Environments.Production)));
     }
 
     [Fact]
-    public void Non_development_host_starts_with_a_real_client_id()
+    public void Non_development_host_starts_with_a_real_audience()
     {
         var exception = Record.Exception(() =>
             new ServiceCollection().AddGoogleIdTokenAuthentication(
@@ -93,7 +123,7 @@ public sealed class GoogleAuthGuardTests
     }
 
     [Fact]
-    public void Development_host_may_start_with_an_unset_client_id()
+    public void Development_host_may_start_with_an_unset_audience()
     {
         var exception = Record.Exception(() =>
             new ServiceCollection().AddGoogleIdTokenAuthentication(Config(null), Env(Environments.Development)));
@@ -103,7 +133,7 @@ public sealed class GoogleAuthGuardTests
 
     private static IConfiguration Config(string? clientId) =>
         new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Google:ClientId"] = clientId })
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Google:Audiences:tenant"] = clientId })
             .Build();
 
     private static IHostEnvironment Env(string environmentName) =>

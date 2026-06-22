@@ -27,6 +27,10 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
+        // Google:Audiences is read EAGERLY at service registration (to register the per-role policies), so it
+        // must be host config (UseSetting) — an in-memory source added via ConfigureAppConfiguration lands too
+        // late and the "tenant" policy never registers. Production supplies it via env at process start.
+        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -35,7 +39,6 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
                 ["ConnectionStrings:Worker"] = UnusedConn,
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
-                ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",
             });
         });
         builder.ConfigureServices(services =>

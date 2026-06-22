@@ -12,10 +12,10 @@
     "DevTenantId": "00000000-0000-0000-0000-000000000001"
   },
   "Google": {
-    "ClientIds": [
-      "REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-      "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
-    ],
+    "Audiences": {
+      "tenant": "REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+      "admin": "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+    },
     "HostedDomain": ""
   },
   "Cors": {

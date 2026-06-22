@@ -62,10 +62,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
-      # One API, two browser SPAs: accept BOTH SPAs' Google OAuth client ids as valid audiences,
-      # and allowlist BOTH SPA origins for CORS.
-      Google__ClientIds__0: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
-      Google__ClientIds__1: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
+      # One API, two browser SPAs: map each SPA's Google OAuth client id to its role (accepted audience +
+      # role claim — tenant routes admit the tenant role only); allowlist BOTH SPA origins for CORS.
+      Google__Audiences__tenant: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
+      Google__Audiences__admin: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
       Cors__AllowedOrigins__0: ${TENANT_FRONTEND_ORIGIN:?set TENANT_FRONTEND_ORIGIN in .env}
       Cors__AllowedOrigins__1: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
     secrets: [pol_app_password, vault_master_key]

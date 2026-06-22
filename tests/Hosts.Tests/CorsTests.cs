@@ -21,6 +21,8 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
+        // Google:Audiences is read at registration (per-role policies); supply it as host config.
+        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -28,7 +30,6 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
                 ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Worker"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",
                 // The single API allowlists BOTH SPA origins.
                 ["Cors:AllowedOrigins:0"] = TenantSpaOrigin,
                 ["Cors:AllowedOrigins:1"] = AdminSpaOrigin,

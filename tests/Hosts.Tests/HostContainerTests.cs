@@ -30,6 +30,9 @@ file static class HostHarness
         {
             // Development is what flips on ValidateScopes + ValidateOnBuild in both Program.cs files.
             builder.UseEnvironment(Environments.Development);
+            // Google:Audiences is read at registration (to register the per-role policies), so it must be host
+            // config (UseSetting), not an in-memory source that lands after registration.
+            builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
 
             // Deterministic, never-opened connection strings so DbContext registration does not depend
             // on the machine's environment. A query would fail, but container validation never runs one.
@@ -42,7 +45,6 @@ file static class HostHarness
                     // Fake 32-byte (all-zero) base64 key — never a real secret.
                     ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                     ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
-                    ["Google:ClientId"] = "test-client-id.apps.googleusercontent.com",
                 });
             });
 

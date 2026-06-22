@@ -67,8 +67,9 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
 
 // Real Google ID-token validation (issuer/audience/lifetime/email_verified/hosted-domain + RS256 against
-// Google's JWKS via Authority). The API accepts every configured Google:ClientIds entry as a valid audience,
-// so both SPAs (each with its own OAuth client) authenticate here. See GoogleAuthenticationExtensions.
+// Google's JWKS via Authority). Google:Audiences maps each SPA's client id to its role: both SPAs
+// authenticate here, and the validated audience becomes a role claim that the per-role authorization
+// policies ("tenant"/"admin") gate on. See GoogleAuthenticationExtensions.
 builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
 
 // CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
@@ -167,7 +168,7 @@ app.MapPost("/products", async (
     var id = await mediator.Send(
         new CreateProductCommand(tenant.TenantId, body.Name, body.PriceMinorUnits, body.Currency), ct);
     return TypedResults.Ok(new CreateProductResponse(id));
-}).RequireAuthorization();
+}).RequireAuthorization("tenant"); // tenant-SPA audience only (admin-SPA tokens get a different role)
 
 app.MapPost("/payment-sessions", async (
     CreatePaymentSessionRequest body,
@@ -178,7 +179,7 @@ app.MapPost("/payment-sessions", async (
     var result = await mediator.Send(new CreatePaymentSessionCommand(
         body.OrderId, tenant.TenantId, body.AmountMinorUnits, body.Currency, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
-}).RequireAuthorization();
+}).RequireAuthorization("tenant"); // tenant-SPA audience only (admin-SPA tokens get a different role)
 
 // Claims-then-charges redirect (PLAN #11). Tenant scoping is automatic: the command is ITenantScoped, so
 // TenantGuardBehavior + RLS resolve the session for the authenticated tenant only. Errors flow through the
@@ -190,7 +191,7 @@ app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
 {
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
-}).RequireAuthorization();
+}).RequireAuthorization("tenant"); // tenant-SPA audience only (admin-SPA tokens get a different role)
 
 app.Run();
 
