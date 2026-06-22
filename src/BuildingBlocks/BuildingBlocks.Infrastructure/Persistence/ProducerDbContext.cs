@@ -24,6 +24,7 @@ public sealed class ProducerDbContext : DbContext
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<VaultSecretBlob> VaultSecrets => Set<VaultSecretBlob>();
+    public DbSet<VaultRevealAudit> VaultRevealAudits => Set<VaultRevealAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -31,6 +32,7 @@ public sealed class ProducerDbContext : DbContext
         modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration());
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration());
         modelBuilder.ApplyConfiguration(new VaultSecretBlobConfiguration());
+        modelBuilder.ApplyConfiguration(new VaultRevealAuditConfiguration());
 
         foreach (var assembly in _modules.Producer)
             modelBuilder.ApplyConfigurationsFromAssembly(assembly);

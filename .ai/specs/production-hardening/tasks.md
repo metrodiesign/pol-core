@@ -171,15 +171,32 @@ migration, no hot-path semantic change. Locked design (from the SOUND decisions)
 - .gitignore: add the secret-file pattern. appsettings/.env.example keep the dev MasterKeyBase64 shim + a
   documented production Keys/KeyFile shape.
 
-## PR4b — tamper-evident reveal audit (DEFERRED to a reviewed follow-up; needs live-SQL CI + sign-off)
-Design is captured (per-tenant hash-chained VaultRevealAudit table, append-only, INSERT-only for pol_app,
-verify under a bypass principal). DEFERRED because: it turns RevealAsync into a WRITE on the payment hot path
-(commits inside callers' change-tracker — needs a separate scope bound to SESSION_CONTEXT); it ALTERs the PR1
-RLS SECURITY POLICY + adds a bypass proc (security-floor surgery); and its RLS/proc/BLOCK behaviour is
-UNVERIFIABLE in CI (SQLite skips migrations; the integration job is skipped until MSSQL_SA_PASSWORD is set).
-Merging an unverifiable RLS-floor change unattended is unsafe. Critique open questions to resolve before PR4b:
-(1) rotation RLS scope global-bypass vs per-tenant; (2) audit RLS shape INSERT-only-no-SELECT vs FILTER;
-(3) the bypass principal's audit-SELECT grant (the reused pol_webhook_resolver lacks it -> critical); (4) the
-audit-head concurrency serialization (sp_getapplock per tenant); (5) whole-chain-truncation high-water-mark;
-(6) audit-before-signature-verify DoS on the webhook path. Implement once MSSQL_SA_PASSWORD enables the
-live-SQL integration job so the RLS predicates + INSERT-only grant + bypass proc can be proven.
+## PR4b — tamper-evident reveal audit (IMPLEMENTED on feat/prod-hardening-vault-audit; HOLD merge for live-SQL verify)
+Open questions resolved (user sign-off): (1) rotation = per-tenant op shipped in PR4 + global retire-gate in the
+runbook; (2) audit RLS shape = INSERT-only, NO SELECT, BLOCK-after-insert; (3) dedicated bypass principal
+`pol_vault_auditor` (in pol_rls_bypass) with SELECT on the audit table — NOT the reused pol_webhook_resolver;
+(4) concurrency = sp_getapplock per tenant inside the head proc (transaction-owned) + unique(TenantId,Seq)
+backstop; (5) whole-chain-truncation high-water-mark = DEFERRED (per-row + per-tenant Seq contiguity suffices
+for the self-host threat model); (6) webhook DoS = keep the existing rate limiter, audit rows include rejected/
+attacker attempts (documented).
+
+Delivered:
+- VaultRevealAudit (append-only entity; Genesis-anchored per-tenant hash chain; canonical ComputeHash =
+  SHA256(prevHash || tenantId || int32(nameLen) || name || int64(ticks) || int64(seq)); no mutators, hash
+  computed in the factory). VaultRevealAuditConfiguration (varbinary(32) hashes, unique (TenantId,Seq), index
+  (TenantId,Id)). DbSet + ApplyConfiguration on ProducerDbContext.
+- Additive migration AddVaultRevealAudit: CreateTable + ALTER SECURITY POLICY ADD BLOCK PREDICATE (reuses
+  fn_tenant_predicate, NO filter) + GRANT INSERT pol_app / SELECT pol_vault_auditor + pol_admin + EXECUTE proc
+  pol_app + CREATE PROC usp_vault_audit_head (EXECUTE AS pol_vault_auditor, sp_getapplock, returns head).
+  Down reverses additively (never DROP+CREATE the policy). pol_vault_auditor added to docker/bootstrap.
+- VaultRevealAuditWriter: fresh tenant-bound DI scope (AmbientTenant.Begin -> SESSION_CONTEXT set on the new
+  connection), SqlServer path = transaction + head proc + insert; SQLite path = direct head read. Wired into
+  LocalEnvelopeVaultStore.RevealAsync (after decrypt, fail-closed on audit error); seam unchanged.
+- VaultRevealAuditVerifier (admin/bypass): walks Seq order, detects gap + hash mismatch, reports FirstBrokenSeq.
+
+Verify: build 31/0/0; unit 194 green (VaultRevealAuditTests: ComputeHash determinism, genesis link, verifier
+pass/gap/edit, secret-absence; store wiring test). The RLS/grant/proc/applock surface is SQL-Server-only ->
+covered by Integration.Tests/VaultRevealAuditIntegrationTests (INSERT-only, no SELECT/UPDATE/DELETE, foreign-id
+block, bypass-proc head), which run ONLY once MSSQL_SA_PASSWORD enables the live-SQL CI job. The hand-edited
+migration raw SQL is NOT yet applied to a live DB (no local SA/principal passwords) -> HOLD merge until the
+integration job is green. whole-chain-truncation high-water-mark remains a future hardening.
