@@ -33,6 +33,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_worker')
 -- in as it.
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_webhook_resolver')
     CREATE USER pol_webhook_resolver WITHOUT LOGIN;
+
+-- Login-less user that the vault reveal-audit head-read proc runs as (WITH EXECUTE AS). Its bypass-role
+-- membership lets that proc read a tenant's audit chain head while pol_app (INSERT-only on the audit table)
+-- cannot SELECT it. Least privilege: this user is granted SELECT on producer.VaultRevealAudits ONLY.
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_vault_auditor')
+    CREATE USER pol_vault_auditor WITHOUT LOGIN;
 GO
 
 -- The RLS bypass role. Membership = the only cross-tenant escape hatch (proven on live SQL 2025:
@@ -44,4 +50,6 @@ IF IS_ROLEMEMBER(N'pol_rls_bypass', N'pol_admin') = 0
     ALTER ROLE pol_rls_bypass ADD MEMBER pol_admin;
 IF IS_ROLEMEMBER(N'pol_rls_bypass', N'pol_webhook_resolver') = 0
     ALTER ROLE pol_rls_bypass ADD MEMBER pol_webhook_resolver;
+IF IS_ROLEMEMBER(N'pol_rls_bypass', N'pol_vault_auditor') = 0
+    ALTER ROLE pol_rls_bypass ADD MEMBER pol_vault_auditor;
 GO

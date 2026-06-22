@@ -19,12 +19,14 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
     private readonly ProducerDbContext _db;
     private readonly IClock _clock;
     private readonly VaultKeyring _keyring;
+    private readonly IVaultRevealAuditWriter _auditWriter;
 
-    public LocalEnvelopeVaultStore(ProducerDbContext db, IClock clock, VaultKeyring keyring)
+    public LocalEnvelopeVaultStore(ProducerDbContext db, IClock clock, VaultKeyring keyring, IVaultRevealAuditWriter auditWriter)
     {
         _db = db;
         _clock = clock;
         _keyring = keyring;
+        _auditWriter = auditWriter;
     }
 
     public async Task StoreAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken)
@@ -65,17 +67,22 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
 
         var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
         byte[] dek = [];
+        string plaintext;
         try
         {
             dek = VaultEnvelope.Decrypt(kek, blob.EncryptedDek);
-            var plaintext = VaultEnvelope.Decrypt(dek, blob.EncryptedSecret);
-            return Encoding.UTF8.GetString(plaintext);
+            plaintext = Encoding.UTF8.GetString(VaultEnvelope.Decrypt(dek, blob.EncryptedSecret));
         }
         finally
         {
             CryptographicOperations.ZeroMemory(dek);
             CryptographicOperations.ZeroMemory(kek);
         }
+
+        // Record the reveal tamper-evidently before returning. Fail CLOSED on an audit-write error — a
+        // secret that reached process memory must never escape unaudited.
+        await _auditWriter.AppendAsync(tenantId, name, cancellationToken).ConfigureAwait(false);
+        return plaintext;
     }
 
     public async Task<string?> MaskedAsync(Guid tenantId, string name, CancellationToken cancellationToken)

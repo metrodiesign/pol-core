@@ -36,6 +36,8 @@ public static class BuildingBlocksInfrastructureRegistration
         services.AddSingleton(sp => VaultKeyringFactory.Build(sp.GetRequiredService<IOptions<VaultOptions>>().Value));
         services.AddScoped<IVaultSecretStore, LocalEnvelopeVaultStore>();
         services.AddScoped<IVaultMaintenance, VaultMaintenance>();
+        services.AddScoped<IVaultRevealAuditWriter, VaultRevealAuditWriter>();
+        services.AddScoped<IVaultRevealAuditVerifier, VaultRevealAuditVerifier>();
 
         services.AddScoped<IOutbox, EfOutbox>();
         return services;
