@@ -182,9 +182,15 @@ app.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, Cancella
 app.MapPost("/carts/{cartId:guid}/items", async (
     Guid cartId, AddItemToCartRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
+    // The unit price is the catalog's, NEVER the client's: look the product up first and price the line
+    // from it (the cart is "selected plans + quote", reference 2.4). Unknown/inactive product -> 400.
+    var product = await mediator.Send(new GetProductByIdQuery(tenant.TenantId, body.ProductId), ct);
+    if (product is null || !product.IsActive)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown or inactive product.");
+
     var result = await mediator.Send(new AddItemToCartCommand(
-        cartId, tenant.TenantId, body.ProductId, body.Quantity, body.UnitPriceMinorUnits, body.Currency), ct);
-    return TypedResults.Ok(result);
+        cartId, tenant.TenantId, body.ProductId, body.Quantity, product.Price.MinorUnits, product.Price.Currency), ct);
+    return Results.Ok(result);
 }).RequireAuthorization("tenant");
 
 app.MapGet("/carts/{cartId:guid}", async (
@@ -243,7 +249,7 @@ app.Run();
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
-internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity, long UnitPriceMinorUnits, string Currency);
+internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
 

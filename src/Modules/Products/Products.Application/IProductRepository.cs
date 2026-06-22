@@ -14,4 +14,7 @@ public interface IProductRepository
 
     /// <summary>Lists a tenant's products, newest first.</summary>
     Task<IReadOnlyList<Product>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken);
+
+    /// <summary>Loads one product by id (RLS scopes it to the bound tenant), or null if absent.</summary>
+    Task<Product?> GetAsync(Guid productId, CancellationToken cancellationToken);
 }
