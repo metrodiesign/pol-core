@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
@@ -70,6 +72,14 @@ builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.E
 // CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
 builder.Services.AddPolCors(builder.Configuration);
 
+// OpenAPI document so the SPA teams have a machine-readable contract (served in Development only).
+builder.Services.AddOpenApi();
+
+// PspCode crosses the wire as its stable code ("2c2p"/"omise") via the domain's PspCodes mapping —
+// not as an int or the C# member name. An unknown code fails body binding -> 400.
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.Converters.Add(new PspCodeJsonConverter()));
+
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
 builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks();
@@ -87,6 +97,9 @@ _ = app.Services.GetRequiredService<VaultKeyring>();
 // exception handler then wraps auth + the endpoints; rate limiter before the mapped endpoints run.
 app.UseCorrelationId();
 app.UseExceptionHandler();
+// Render framework-generated bare status codes (401/403, unmatched-route 404) as RFC7807 ProblemDetails
+// too, so every error shares one body shape. AddProblemDetails() above supplies the writer.
+app.UseStatusCodePages();
 
 // CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge.
 app.UsePolCors();
@@ -97,6 +110,10 @@ app.UseAuthorization();
 
 // Liveness (process only) + readiness (DB + vault), anonymous, minimal body — no topology leak.
 app.MapPolHealthChecks();
+
+// The API contract for the SPA teams. Development only — the prod contract is not published publicly.
+if (app.Environment.IsDevelopment())
+    app.MapOpenApi();
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT tenant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
@@ -118,14 +135,14 @@ app.MapPost("/webhooks/{pspConnectionId:guid}", async (
     // every query in the handler runs under the right RLS SESSION_CONTEXT. Unknown id -> 404 (no leak).
     var tenantId = await tenantResolver.ResolveTenantAsync(pspConnectionId, ct);
     if (tenantId is null)
-        return Results.NotFound();
+        return Results.Problem(statusCode: StatusCodes.Status404NotFound);
 
     using var tenantBinding = tenantScope.Begin(tenantId.Value);
 
     var result = await mediator.Send(new HandlePspWebhookCommand(pspConnectionId, rawPayload, signature), ct);
     return result.Outcome == WebhookOutcome.Rejected
-        ? Results.Unauthorized()
-        : Results.Ok(new { outcome = result.Outcome.ToString() });
+        ? Results.Problem(statusCode: StatusCodes.Status401Unauthorized)
+        : Results.Ok(new WebhookResponse(result.Outcome.ToString()));
 }).RequireRateLimiting(WebhookRateLimiting.PolicyName);
 
 // Tenant-facing convenience endpoints (tenant comes from the authenticated principal via ITenantContext).
@@ -137,7 +154,7 @@ app.MapPost("/products", async (
 {
     var id = await mediator.Send(
         new CreateProductCommand(tenant.TenantId, body.Name, body.PriceMinorUnits, body.Currency), ct);
-    return Results.Ok(new { productId = id });
+    return TypedResults.Ok(new CreateProductResponse(id));
 }).RequireAuthorization();
 
 app.MapPost("/payment-sessions", async (
@@ -148,7 +165,7 @@ app.MapPost("/payment-sessions", async (
 {
     var result = await mediator.Send(new CreatePaymentSessionCommand(
         body.OrderId, tenant.TenantId, body.AmountMinorUnits, body.Currency, body.Method, body.Psp), ct);
-    return Results.Ok(new { paymentSessionId = result.PaymentSessionId });
+    return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 }).RequireAuthorization();
 
 // Claims-then-charges redirect (PLAN #11). Tenant scoping is automatic: the command is ITenantScoped, so
@@ -160,15 +177,34 @@ app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
     CancellationToken ct) =>
 {
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
-    return Results.Ok(new { redirectUrl = result.RedirectUrl });
+    return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 }).RequireAuthorization();
 
 app.Run();
 
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
-
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
+
+internal sealed record CreateProductResponse(Guid ProductId);
+internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
+internal sealed record StartRedirectResponse(string RedirectUrl);
+internal sealed record WebhookResponse(string Outcome);
+
+// Bridges PspCode <-> its stable wire code via the domain's single-source-of-truth PspCodes mapping,
+// so the host owns the serialization concern and the domain enum stays attribute-free.
+internal sealed class PspCodeJsonConverter : JsonConverter<PspCode>
+{
+    public override PspCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var code = reader.GetString() ?? throw new JsonException("psp must be a string code.");
+        try { return PspCodes.FromCode(code); }
+        catch (ArgumentException ex) { throw new JsonException(ex.Message); } // unknown code -> 400, not 500
+    }
+
+    public override void Write(Utf8JsonWriter writer, PspCode value, JsonSerializerOptions options) =>
+        writer.WriteStringValue(value.ToCode());
+}
 
 /// <summary>Exposed so <c>WebApplicationFactory&lt;Program&gt;</c> can boot the host in tests.</summary>
 public partial class Program;

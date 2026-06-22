@@ -171,7 +171,7 @@ public sealed class ExceptionHandlerPipelineTests
 public sealed class RedirectEndpointAuthTests
 {
     [Fact]
-    public async Task Redirect_endpoint_requires_authentication()
+    public async Task Redirect_endpoint_requires_authentication_and_returns_problem_details()
     {
         using var factory = new HardeningFactory<ApiHost::Program>();
         using var client = factory.CreateClient();
@@ -180,6 +180,23 @@ public sealed class RedirectEndpointAuthTests
             $"/payment-sessions/{Guid.NewGuid()}/redirect", new StringContent(string.Empty));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        // UseStatusCodePages + AddProblemDetails render the framework 401 as RFC7807, not an empty body.
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+    }
+}
+
+public sealed class OpenApiDocumentTests
+{
+    [Fact]
+    public async Task OpenApi_document_is_served_in_development()
+    {
+        // The SPA teams' machine-readable contract. Development env (HardeningFactory) maps it.
+        using var factory = new HardeningFactory<ApiHost::Program>();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }
 
