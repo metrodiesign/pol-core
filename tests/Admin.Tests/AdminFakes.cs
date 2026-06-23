@@ -42,6 +42,8 @@ internal sealed class FakeAdminTenantDirectory : IAdminTenantDirectory
     public Task<IReadOnlyDictionary<Guid, string>> GetCodesByIdsAsync(IReadOnlySet<Guid> tenantIds, CancellationToken ct) =>
         Task.FromResult<IReadOnlyDictionary<Guid, string>>(
             Codes.Where(kv => tenantIds.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value));
+    public Task<Guid?> GetIdByCodeAsync(string code, CancellationToken ct) =>
+        Task.FromResult(Codes.FirstOrDefault(kv => kv.Value == code) is { Key: var id } && id != Guid.Empty ? id : (Guid?)null);
 }
 
 internal sealed class FakeUnitOfWork : IUnitOfWork

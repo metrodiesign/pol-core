@@ -33,10 +33,12 @@ public interface IAdminAccountAuditWriter
 /// connection so Admin.Application stays free of a Tenant-module dependency (mirrors Identity's
 /// <c>ITenantDirectory</c>). <see cref="IsActiveTenantAsync"/> validates a tenant at assignment time (REQ-4.3);
 /// <see cref="GetCodesByIdsAsync"/> maps a Scoped admin's assigned ids to SPA-friendly codes for <c>GET
-/// /admin/me</c> (REQ-13.3).
+/// /admin/me</c> (REQ-13.3); <see cref="GetIdByCodeAsync"/> is the cheap code-&gt;id lookup the cross-tenant
+/// read seam uses to apply the accessible-tenant floor BEFORE loading a full tenant projection (REQ-7.1).
 /// </summary>
 public interface IAdminTenantDirectory
 {
     Task<bool> IsActiveTenantAsync(Guid tenantId, CancellationToken cancellationToken);
     Task<IReadOnlyDictionary<Guid, string>> GetCodesByIdsAsync(IReadOnlySet<Guid> tenantIds, CancellationToken cancellationToken);
+    Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken);
 }

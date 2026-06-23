@@ -35,6 +35,14 @@ internal sealed class AdminTenantDirectory : IAdminTenantDirectory
             .Where(t => tenantIds.Contains(t.Id))
             .ToDictionaryAsync(t => t.Id, t => t.Code, cancellationToken);
     }
+
+    // Bare id lookup (no projection, no PSP metadata) so the read seam can apply the accessible-tenant floor
+    // before loading a full tenant view. Unknown code -> null (the seam treats null as inaccessible).
+    public Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken) =>
+        _admin.Set<Tenant.Domain.Tenant>()
+            .Where(t => t.Code == code)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 }
 
 /// <summary>Per-request holder of the resolved admin (REQ-6.3). The <see cref="AdminResolutionMiddleware"/>
@@ -63,28 +71,37 @@ internal sealed class AdminQuery : IAdminQuery
 {
     private readonly IMediator _mediator;
     private readonly IAdminScope _scope;
+    private readonly IAdminTenantDirectory _tenants;
 
-    public AdminQuery(IMediator mediator, IAdminScope scope)
+    public AdminQuery(IMediator mediator, IAdminScope scope, IAdminTenantDirectory tenants)
     {
         _mediator = mediator;
         _scope = scope;
+        _tenants = tenants;
     }
 
     public async Task<TenantView?> GetTenantByCodeAsync(string code, CancellationToken cancellationToken)
     {
-        TenantView view;
+        // Apply the accessible-tenant floor BEFORE loading the projection (REQ-7.1): for a Scoped admin, resolve
+        // the code to an id with a bare lookup and gate on the accessible set first. An unknown code OR a tenant
+        // outside the set returns null without the full bypass projection (incl. PSP-metadata parsing) ever
+        // running — fail-closed, no existence leak, and no handler-side error can surface for an inaccessible
+        // tenant. A Super admin is unrestricted, so it skips the gate and loads directly (REQ-7.3 / 8.5).
+        if (!_scope.Accessible.IsUnrestricted)
+        {
+            var id = await _tenants.GetIdByCodeAsync(code, cancellationToken);
+            if (id is null || !_scope.Accessible.Allows(id.Value))
+                return null;
+        }
+
         try
         {
-            view = await _mediator.Send(new GetTenantQuery(code), cancellationToken);
+            return await _mediator.Send(new GetTenantQuery(code), cancellationToken);
         }
         catch (NotFoundException)
         {
             return null; // unknown code -> 404
         }
-
-        // Fail-closed: a Scoped admin asking for a tenant outside its set gets nothing — indistinguishable from
-        // a missing tenant (no existence leak). Super is unrestricted (REQ-7.3 / 8.5).
-        return _scope.Accessible.Allows(view.Id) ? view : null;
     }
 }
 
