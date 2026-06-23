@@ -10,6 +10,7 @@ using BuildingBlocks.Web;
 using Cart.Infrastructure;
 using Checkout.Infrastructure;
 using Mediator;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Infrastructure;
 using Payments.Application.CreatePaymentSession;
@@ -72,6 +73,11 @@ builder.Services.AddTenantModule();
 var adminConnString = builder.Configuration.GetConnectionString("Admin")
     ?? throw new InvalidOperationException(
         "ConnectionStrings:Admin (pol_admin) is required for tenant provisioning. Set ConnectionStrings__Admin.");
+// The committed appsettings.json ships an Admin string with a BLANK password (the real secret is injected
+// at runtime). Outside Development, fail fast if that injection did not happen — otherwise the host boots
+// and only the first /admin request discovers the missing credential. Development may use integrated auth.
+if (!builder.Environment.IsDevelopment())
+    ProvisioningGuards.RequireInjectedCredential(adminConnString, "Admin");
 builder.Services.AddTenantAdminScope(adminConnString);
 
 // Tenant identity from the authenticated principal (never from the URL — PLAN #4).
@@ -221,9 +227,15 @@ app.MapPost("/admin/tenants", async (
     var command = new ProvisionTenantCommand(
         new TenantSpec(t.Code, t.DisplayName, t.LegalEntityId, t.Country, t.Currency,
             t.EnabledChannels ?? [], ToElement(t.Metadata)),
-        [.. (body.PspConnections ?? []).Select(p => new PspConnectionSpec(
-            p.Psp, p.EnabledMethods ?? [], p.MerchantId,
-            p.Secrets ?? new Dictionary<string, string>(), ToElement(p.Config)))],
+        [.. (body.PspConnections ?? []).Select(p =>
+        {
+            // A secret-looking field captured as readable config (a typo putting it beside, not inside,
+            // "secrets") would persist + echo plaintext outside the vault -> reject it (400).
+            ProvisioningGuards.RejectSecretsInConfig(p.Config);
+            return new PspConnectionSpec(
+                p.Psp, p.EnabledMethods ?? [], p.MerchantId,
+                p.Secrets ?? new Dictionary<string, string>(), ToElement(p.Config));
+        })],
         http.User.FindFirst("sub")?.Value ?? "unknown",
         http.TraceIdentifier);
 
@@ -278,6 +290,38 @@ internal sealed class ProvisionPspConnectionRequest
     public string? MerchantId { get; init; }
     public Dictionary<string, string>? Secrets { get; init; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Config { get; init; }
+}
+
+/// <summary>Boot/request guards for admin provisioning, factored out so they can be unit-tested.</summary>
+internal static class ProvisioningGuards
+{
+    // The field names the "secrets" envelope owns (see PspSecretEnvelopeFactory). They are write-only and
+    // must NEVER appear as readable connection config; matched case-insensitively to catch casing typos.
+    private static readonly HashSet<string> SecretFieldNames =
+        new(StringComparer.OrdinalIgnoreCase) { "secretKey", "publicKey", "webhookSecret" };
+
+    /// <summary>Rejects a connection whose non-secret config bag contains a secret-owned field (a payload
+    /// that put a credential beside, not inside, "secrets") so it can never persist/echo as readable config.</summary>
+    public static void RejectSecretsInConfig(IReadOnlyDictionary<string, JsonElement>? config)
+    {
+        if (config is null)
+            return;
+
+        foreach (var key in config.Keys)
+            if (SecretFieldNames.Contains(key))
+                throw new ArgumentException(
+                    $"'{key}' is a secret field and must be inside 'secrets', not at the connection top level.");
+    }
+
+    /// <summary>Fails fast when a connection string has no usable credential — a blank SQL-auth password
+    /// means the runtime secret was never injected. Integrated security needs no password.</summary>
+    public static void RequireInjectedCredential(string connectionString, string name)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString);
+        if (!builder.IntegratedSecurity && string.IsNullOrEmpty(builder.Password))
+            throw new InvalidOperationException(
+                $"ConnectionStrings:{name} has no password — the runtime secret was not injected. Set ConnectionStrings__{name}.");
+    }
 }
 
 internal sealed record CreateProductResponse(Guid ProductId);

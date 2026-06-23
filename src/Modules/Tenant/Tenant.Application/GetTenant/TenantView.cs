@@ -17,11 +17,13 @@ public sealed record TenantView(
     DateTime CreatedAtUtc,
     IReadOnlyList<TenantConnectionView> Connections);
 
-/// <summary><see cref="Config"/> + <see cref="MerchantId"/> are the verbatim non-secret PSP config stored at
-/// provisioning (REQ-9.1 read-back); <see cref="MaskedSecrets"/> never carries plaintext.</summary>
+/// <summary><see cref="EnabledMethods"/> + <see cref="Config"/> + <see cref="MerchantId"/> are the verbatim
+/// non-secret PSP config stored at provisioning (REQ-9.1 read-back); <see cref="MaskedSecrets"/> never
+/// carries plaintext.</summary>
 public sealed record TenantConnectionView(
     Guid PspConnectionId,
     string Psp,
     string? MerchantId,
+    IReadOnlyList<string> EnabledMethods,
     JsonElement? Config,
     IReadOnlyDictionary<string, string> MaskedSecrets);

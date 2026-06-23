@@ -53,10 +53,11 @@ public sealed class GetTenantHandlerTests
         Assert.True(view.Metadata!.Value.TryGetProperty("branding", out _));
         Assert.True(view.Metadata!.Value.TryGetProperty("routing", out _));
 
-        // Connection config + merchant id are returned; the secret stays masked, plaintext never appears.
+        // Connection config + merchant id + enabled methods are returned; secret stays masked, no plaintext.
         var c = Assert.Single(view.Connections);
         Assert.Equal("2c2p", c.Psp);
         Assert.Equal("merch_42", c.MerchantId);
+        Assert.Equal(["card", "installment"], c.EnabledMethods);
         Assert.Equal("production", c.Config!.Value.GetProperty("environment").GetString());
         Assert.Equal("764", c.Config!.Value.GetProperty("currencyCode").GetString());
         Assert.Equal("****3a9f", c.MaskedSecrets["secretKey"]);

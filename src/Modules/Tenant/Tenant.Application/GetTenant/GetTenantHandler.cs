@@ -37,7 +37,8 @@ public sealed class GetTenantHandler : IQueryHandler<GetTenantQuery, TenantView>
             .Select(c =>
             {
                 var (merchantId, config, masked) = ReadConnectionMetadata(c.Metadata);
-                return new TenantConnectionView(c.Id, c.Psp.ToCode(), merchantId, config, masked);
+                var methods = c.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                return new TenantConnectionView(c.Id, c.Psp.ToCode(), merchantId, methods, config, masked);
             })
             .ToList();
 
