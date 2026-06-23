@@ -32,6 +32,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(x => x.SummaryToken).HasMaxLength(64).IsRequired();
         builder.Property(x => x.SummaryTokenExpiresAtUtc).IsRequired();
+        builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
         // Domain events are an in-memory concern; never persisted.
         builder.Ignore(x => x.DomainEvents);

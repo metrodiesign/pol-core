@@ -25,6 +25,7 @@ Product decisions (locked autonomously, AFK): notification ขี่ outbox + Ou
 - 2.3 IF the token is unknown THEN THE SYSTEM SHALL respond 404.
 - 2.4 IF the token has expired THEN THE SYSTEM SHALL respond 410 Gone and SHALL NOT return the summary.
 - 2.5 WHEN a producer requests a resend THE SYSTEM SHALL issue a NEW token, extend the expiry, and invalidate the old token.
+- 2.6 WHEN a producer requests a resend AND a notification recipient was captured for the order THE SYSTEM SHALL enqueue a customer notification carrying the NEW token, in the SAME unit of work as the rotation; the order retains the recipient captured at creation/checkout for this purpose (REQ-3).
 
 ## REQ-3: Customer notification (background, via outbox)
 **User Story:** As the platform, I want the customer notified with their summary link in the background, so that order creation is not blocked on delivery.

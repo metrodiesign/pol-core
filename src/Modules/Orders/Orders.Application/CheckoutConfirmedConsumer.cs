@@ -37,7 +37,7 @@ public sealed class CheckoutConfirmedConsumer : INotificationHandler<CheckoutCon
 
         var order = Order.Create(
             notification.TenantId, Money.Of(notification.AmountMinorUnits, notification.Currency), _clock.UtcNow,
-            checkoutSessionId: notification.CheckoutSessionId);
+            checkoutSessionId: notification.CheckoutSessionId, notificationRecipient: notification.Recipient);
         _orders.Add(order);
 
         if (!string.IsNullOrWhiteSpace(notification.Recipient))

@@ -40,7 +40,8 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
     public async ValueTask<CreateOrderResult> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
         var amount = Money.Of(command.AmountMinorUnits, command.Currency);
-        var order = Order.Create(command.TenantId, amount, _clock.UtcNow, checkoutSessionId: command.CheckoutSessionId);
+        var order = Order.Create(command.TenantId, amount, _clock.UtcNow,
+            checkoutSessionId: command.CheckoutSessionId, notificationRecipient: command.Recipient);
 
         _orders.Add(order);
 

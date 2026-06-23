@@ -43,12 +43,17 @@ public sealed class Order : AggregateRoot<Guid>
     /// is a 410 Gone. A resend rotates the token and extends this.</summary>
     public DateTime SummaryTokenExpiresAtUtc { get; private set; }
 
+    /// <summary>The customer contact (email/phone) captured upstream to notify with the summary link.
+    /// Persisted so a producer-triggered resend can re-notify the customer (REQ-2.5); null = no recipient.</summary>
+    public string? NotificationRecipient { get; private set; }
+
     /// <summary>Default lifetime of a summary link (reference: links have a TTL; expired = error).</summary>
     public static readonly TimeSpan SummaryTokenTtl = TimeSpan.FromHours(72);
 
     private Order() { }
 
-    private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount, DateTime createdAtUtc)
+    private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount,
+        string? notificationRecipient, DateTime createdAtUtc)
         : base(id)
     {
         TenantId = tenantId;
@@ -56,6 +61,7 @@ public sealed class Order : AggregateRoot<Guid>
         CheckoutSessionId = checkoutSessionId;
         AmountMinorUnits = amount.MinorUnits;
         AmountCurrency = amount.Currency;
+        NotificationRecipient = notificationRecipient;
         Status = OrderStatus.AwaitingPayment;
         CreatedAtUtc = createdAtUtc;
         SummaryToken = Guid.NewGuid().ToString("N");
@@ -78,8 +84,8 @@ public sealed class Order : AggregateRoot<Guid>
 
     /// <summary>Opens a new order awaiting payment.</summary>
     public static Order Create(Guid tenantId, Money amount, DateTime createdAtUtc,
-        Guid? paymentSessionId = null, Guid? checkoutSessionId = null) =>
-        new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, createdAtUtc);
+        Guid? paymentSessionId = null, Guid? checkoutSessionId = null, string? notificationRecipient = null) =>
+        new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAtUtc);
 
     /// <summary>
     /// Binds the payment session this order awaits. The session is the join key the

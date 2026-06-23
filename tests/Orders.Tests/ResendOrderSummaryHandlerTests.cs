@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Contracts;
 using Orders.Application;
 using Orders.Domain;
 using SharedKernel;
@@ -17,19 +18,38 @@ public sealed class ResendOrderSummaryHandlerTests
         var oldToken = order.SummaryToken;
         var clock = new FixedClock { UtcNow = Created.AddHours(5) };
         var uow = new FakeUnitOfWork();
-        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), uow, clock);
+        var outbox = new FakeOutbox();
+        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), outbox, uow, clock);
 
         var result = await handler.Handle(new ResendOrderSummaryCommand(order.Id, TenantId), default);
 
         Assert.NotEqual(oldToken, result.SummaryToken);
         Assert.Equal(clock.UtcNow + Order.SummaryTokenTtl, result.ExpiresAtUtc);
         Assert.Equal(1, uow.SaveCount);
+        Assert.Empty(outbox.Enqueued); // no recipient captured -> nothing to notify
+    }
+
+    [Fact]
+    public async Task Resend_enqueues_a_notification_with_the_rotated_token_when_a_recipient_was_captured()
+    {
+        var order = Order.Create(TenantId, Money.Of(15000, "THB"), Created, notificationRecipient: "buyer@example.com");
+        var clock = new FixedClock { UtcNow = Created.AddHours(5) };
+        var outbox = new FakeOutbox();
+        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), outbox, new FakeUnitOfWork(), clock);
+
+        var result = await handler.Handle(new ResendOrderSummaryCommand(order.Id, TenantId), default);
+
+        var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
+        Assert.Equal("buyer@example.com", note.Recipient);
+        Assert.Equal(result.SummaryToken, note.SummaryToken); // carries the NEW link, not the invalidated one
+        Assert.Equal(order.Id, note.OrderId);
+        Assert.Equal(TenantId, note.TenantId);
     }
 
     [Fact]
     public async Task Resend_rejects_an_unknown_order()
     {
-        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(), new FakeUnitOfWork(), new FixedClock());
+        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(), new FakeOutbox(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await handler.Handle(new ResendOrderSummaryCommand(Guid.NewGuid(), TenantId), default));
@@ -40,7 +60,7 @@ public sealed class ResendOrderSummaryHandlerTests
     {
         var order = Order.Create(TenantId, Money.Of(15000, "THB"), Created);
         order.Cancel();
-        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), new FakeUnitOfWork(), new FixedClock());
+        var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), new FakeOutbox(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await handler.Handle(new ResendOrderSummaryCommand(order.Id, TenantId), default));
