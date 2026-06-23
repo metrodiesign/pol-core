@@ -20,6 +20,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(x => x.TenantId).IsRequired();
         builder.Property(x => x.PaymentSessionId);
+        builder.Property(x => x.CheckoutSessionId);
 
         builder.Ignore(x => x.Amount);
         builder.Property(x => x.AmountMinorUnits).IsRequired();
@@ -29,12 +30,25 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.CreatedAtUtc).IsRequired();
         builder.Property(x => x.PaidAtUtc);
 
+        builder.Property(x => x.SummaryToken).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.SummaryTokenExpiresAtUtc).IsRequired();
+        builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
+
         // Domain events are an in-memory concern; never persisted.
         builder.Ignore(x => x.DomainEvents);
 
         // The consumer loads by payment session; index it (filtered — it is nullable until checkout binds one).
         builder.HasIndex(x => x.PaymentSessionId)
             .HasFilter("[PaymentSessionId] IS NOT NULL");
+
+        // The public summary read looks the order up by its opaque token; unique index supports it.
+        builder.HasIndex(x => x.SummaryToken).IsUnique();
+
+        // One order per checkout session — the idempotency key against a replayed CheckoutConfirmed event
+        // (filtered, since it is null for orders not created via checkout).
+        builder.HasIndex(x => x.CheckoutSessionId)
+            .IsUnique()
+            .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
         // RLS predicate uses TenantId; index supports the tenant-scoped reads.
         builder.HasIndex(x => x.TenantId);

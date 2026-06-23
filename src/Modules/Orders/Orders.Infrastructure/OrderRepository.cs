@@ -21,5 +21,18 @@ public sealed class OrderRepository : IOrderRepository
         _db.Set<Order>()
             .SingleOrDefaultAsync(o => o.PaymentSessionId == paymentSessionId, cancellationToken);
 
+    public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
+        _db.Set<Order>().FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+
+    public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
+        _db.Set<Order>().FirstOrDefaultAsync(o => o.CheckoutSessionId == checkoutSessionId, cancellationToken);
+
+    public async Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid tenantId, CancellationToken cancellationToken) =>
+        await _db.Set<Order>()
+            .Where(o => o.TenantId == tenantId)
+            .GroupBy(o => new { o.Status, o.AmountCurrency })
+            .Select(g => new OrderStatusTotal(g.Key.Status, g.Key.AmountCurrency, g.Count(), g.Sum(o => o.AmountMinorUnits)))
+            .ToListAsync(cancellationToken);
+
     public void Add(Order order) => _db.Set<Order>().Add(order);
 }

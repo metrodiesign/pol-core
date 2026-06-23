@@ -7,7 +7,9 @@ using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
+using Cart.Application;
 using Cart.Infrastructure;
+using Checkout.Application;
 using Checkout.Infrastructure;
 using Identity.Application.ApproveTenantUser;
 using Identity.Application.CompleteRegistration;
@@ -17,6 +19,7 @@ using Identity.Infrastructure;
 using Mediator;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Orders.Application;
 using Orders.Infrastructure;
 using Payments.Application.CreatePaymentSession;
 using Payments.Application.HandlePspWebhook;
@@ -208,6 +211,79 @@ app.MapPost("/products", async (
 }).RequireAuthorization("tenant") // tenant-SPA audience only (admin-SPA tokens get a different role)
   .RequireTenantRole(TenantUserRole.Finance, TenantUserRole.TenantAdmin); // write/financial: Viewer denied (REQ-7.3)
 
+// Cart — open, add/merge lines, review, adjust, clear. Tenant comes from the principal; the commands are
+// ITenantScoped so RLS + the tenant guard confine every cart to the bound tenant.
+app.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var id = await mediator.Send(new CreateCartCommand(tenant.TenantId), ct);
+    return TypedResults.Ok(new CreateCartResponse(id));
+}).RequireAuthorization("tenant");
+
+app.MapPost("/carts/{cartId:guid}/items", async (
+    Guid cartId, AddItemToCartRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    // The unit price is the catalog's, NEVER the client's: look the product up first and price the line
+    // from it (the cart is "selected plans + quote", reference 2.4). Unknown/inactive product -> 400.
+    var product = await mediator.Send(new GetProductByIdQuery(tenant.TenantId, body.ProductId), ct);
+    if (product is null || !product.IsActive)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown or inactive product.");
+
+    var result = await mediator.Send(new AddItemToCartCommand(
+        cartId, tenant.TenantId, body.ProductId, body.Quantity, product.Price.MinorUnits, product.Price.Currency), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
+app.MapGet("/carts/{cartId:guid}", async (
+    Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetCartQuery(cartId, tenant.TenantId), ct);
+    return view is null ? Results.NotFound() : Results.Ok(view);
+}).RequireAuthorization("tenant");
+
+app.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
+    Guid cartId, Guid productId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, tenant.TenantId, productId), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
+app.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
+    Guid cartId, Guid productId, SetCartItemQuantityRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, tenant.TenantId, productId, body.Quantity), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
+app.MapPost("/carts/{cartId:guid}/clear", async (
+    Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new ClearCartCommand(cartId, tenant.TenantId), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
+
+// Checkout. Start prices the checkout from the CART's subtotal (never a client-supplied amount), captures
+// an optional notification recipient, then Confirm emits CheckoutConfirmed -> Orders opens the order.
+app.MapPost("/checkout", async (
+    StartCheckoutRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var cart = await mediator.Send(new GetCartQuery(body.CartId, tenant.TenantId), ct);
+    if (cart is null)
+        return Results.NotFound();
+    if (cart.SubtotalMinorUnits is not { } minorUnits || cart.SubtotalCurrency is not { } currency)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Cannot check out an empty cart.");
+
+    var result = await mediator.Send(
+        new StartCheckoutCommand(tenant.TenantId, body.CartId, minorUnits, currency, body.Recipient), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
+app.MapPost("/checkout/{checkoutSessionId:guid}/confirm", async (
+    Guid checkoutSessionId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, tenant.TenantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
 app.MapPost("/payment-sessions", async (
     CreatePaymentSessionRequest body,
     ITenantContext tenant,
@@ -232,6 +308,36 @@ app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 }).RequireAuthorization("tenant") // tenant-SPA audience only (admin-SPA tokens get a different role)
   .RequireTenantRole(TenantUserRole.Finance, TenantUserRole.TenantAdmin); // write/financial: Viewer denied (REQ-7.3)
+
+// Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
+// a bypass proc (no tenant binding). Unknown token -> 404; expired -> 410. A producer can resend (rotates
+// the token + extends the TTL), which is tenant-scoped.
+app.MapGet("/orders/{token}/summary", async (
+    string token, IOrderSummaryReader reader, IClock clock, CancellationToken ct) =>
+{
+    var summary = await reader.GetByTokenAsync(token, ct);
+    if (summary is null)
+        return Results.NotFound();
+    if (clock.UtcNow >= summary.ExpiresAtUtc)
+        return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
+
+    return Results.Ok(new OrderSummaryResponse(
+        summary.OrderId, summary.AmountMinorUnits, summary.Currency, summary.Status, summary.PaymentSessionId));
+}).AllowAnonymous();
+
+app.MapPost("/orders/{orderId:guid}/summary/resend", async (
+    Guid orderId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, tenant.TenantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("tenant");
+
+// Reconciliation report: the bound tenant's orders grouped by status + currency (count + total).
+app.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetReconciliationSummaryQuery(tenant.TenantId), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("tenant");
 
 // Admin provisioning (reference 2.4). Cross-tenant, so NOT ITenantScoped — runs under pol_admin via the
 // keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
@@ -323,6 +429,12 @@ app.Run();
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
+internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
+internal sealed record SetCartItemQuantityRequest(int Quantity);
+internal sealed record CreateCartResponse(Guid CartId);
+internal sealed record StartCheckoutRequest(Guid CartId, string? Recipient);
+internal sealed record OrderSummaryResponse(
+    Guid OrderId, long AmountMinorUnits, string Currency, string Status, Guid? PaymentSessionId);
 
 // Admin provisioning request body (reference 2.4): { "tenant": { ... }, "pspConnections": [ ... ] }.
 // AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.

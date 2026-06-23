@@ -145,6 +145,18 @@ public sealed class OutboxDispatcher : BackgroundService
                 await publisher.Publish(paymentPaid, cancellationToken).ConfigureAwait(false);
                 break;
 
+            case nameof(CustomerOrderNotification):
+                var notification = JsonSerializer.Deserialize<CustomerOrderNotification>(message.Payload, OutboxSerializer.Options)
+                    ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
+                await publisher.Publish(notification, cancellationToken).ConfigureAwait(false);
+                break;
+
+            case nameof(CheckoutConfirmed):
+                var checkoutConfirmed = JsonSerializer.Deserialize<CheckoutConfirmed>(message.Payload, OutboxSerializer.Options)
+                    ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
+                await publisher.Publish(checkoutConfirmed, cancellationToken).ConfigureAwait(false);
+                break;
+
             default:
                 throw new InvalidOperationException($"No outbox publisher registered for type '{message.Type}'.");
         }

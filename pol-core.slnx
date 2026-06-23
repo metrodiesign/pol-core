@@ -51,6 +51,8 @@
   <Folder Name="/tests/">
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.Tests/BuildingBlocks.Tests.csproj" />
+    <Project Path="tests/Cart.Tests/Cart.Tests.csproj" />
+    <Project Path="tests/Checkout.Tests/Checkout.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
     <Project Path="tests/Identity.Tests/Identity.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />

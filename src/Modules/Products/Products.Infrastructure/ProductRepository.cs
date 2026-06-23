@@ -22,4 +22,7 @@ public sealed class ProductRepository : IProductRepository
             .Where(p => p.TenantId == tenantId)
             .OrderByDescending(p => p.CreatedAtUtc)
             .ToListAsync(cancellationToken);
+
+    public Task<Product?> GetAsync(Guid productId, CancellationToken cancellationToken) =>
+        _db.Set<Product>().FirstOrDefaultAsync(p => p.Id == productId, cancellationToken);
 }

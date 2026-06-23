@@ -15,6 +15,7 @@ public static class OrdersModuleRegistration
     public static IServiceCollection AddOrdersModule(this IServiceCollection services)
     {
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IOrderSummaryReader, OrderSummaryReader>();
         return services;
     }
 }

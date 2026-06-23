@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Contracts;
 using Mediator;
 using Orders.Domain;
 using SharedKernel;
@@ -8,25 +9,30 @@ namespace Orders.Application;
 /// <summary>
 /// Opens a new order awaiting payment for the active tenant. Tenant-scoped: rejected by the tenant
 /// guard if no tenant is bound to the request (PLAN decision #4). The amount is the money seam —
-/// minor units + ISO 4217 code — validated by <see cref="Money.Of"/>.
+/// minor units + ISO 4217 code — validated by <see cref="Money.Of"/>. An optional notification
+/// <paramref name="Recipient"/> (the customer's email/phone, set at checkout) drives the summary-link
+/// notification; absent means no notification is enqueued.
 /// </summary>
-public sealed record CreateOrderCommand(Guid TenantId, long AmountMinorUnits, string Currency)
+public sealed record CreateOrderCommand(
+    Guid TenantId, long AmountMinorUnits, string Currency, string? Recipient = null, Guid? CheckoutSessionId = null)
     : ICommand<CreateOrderResult>, ITenantScoped;
 
 /// <summary>The identity of the newly created order.</summary>
 public sealed record CreateOrderResult(Guid OrderId);
 
-/// <summary>Handles <see cref="CreateOrderCommand"/>: builds the aggregate and commits it through
-/// the unit of work. Scoped — depends on the Scoped repository/unit-of-work.</summary>
+/// <summary>Handles <see cref="CreateOrderCommand"/>: builds the aggregate, enqueues the customer
+/// notification in the SAME unit of work (transactional outbox), and commits. Scoped.</summary>
 public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, CreateOrderResult>
 {
     private readonly IOrderRepository _orders;
+    private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
-    public CreateOrderHandler(IOrderRepository orders, IUnitOfWork unitOfWork, IClock clock)
+    public CreateOrderHandler(IOrderRepository orders, IOutbox outbox, IUnitOfWork unitOfWork, IClock clock)
     {
         _orders = orders;
+        _outbox = outbox;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
@@ -34,9 +40,17 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
     public async ValueTask<CreateOrderResult> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
         var amount = Money.Of(command.AmountMinorUnits, command.Currency);
-        var order = Order.Create(command.TenantId, amount, _clock.UtcNow);
+        var order = Order.Create(command.TenantId, amount, _clock.UtcNow,
+            checkoutSessionId: command.CheckoutSessionId, notificationRecipient: command.Recipient);
 
         _orders.Add(order);
+
+        // Enqueue the customer notification atomically with the order (REQ-3.1) — the background worker
+        // delivers it, so creation never blocks on or fails for delivery (REQ-3.2).
+        if (!string.IsNullOrWhiteSpace(command.Recipient))
+            _outbox.Enqueue(new CustomerOrderNotification(
+                order.TenantId, order.Id, command.Recipient, order.SummaryToken, _clock.UtcNow));
+
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return new CreateOrderResult(order.Id);

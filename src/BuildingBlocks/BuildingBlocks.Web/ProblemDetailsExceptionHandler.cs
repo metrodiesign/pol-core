@@ -55,6 +55,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
     {
         NotFoundException =>
             (StatusCodes.Status404NotFound, "Resource not found", null),
+        GoneException =>
+            (StatusCodes.Status410Gone, "Gone", "This link has expired."),
         ConcurrencyConflictException =>
             (StatusCodes.Status409Conflict, "Conflict", "The resource was modified concurrently; please retry."),
         ConflictException =>

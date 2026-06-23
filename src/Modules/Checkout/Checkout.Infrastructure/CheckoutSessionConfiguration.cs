@@ -22,6 +22,7 @@ public sealed class CheckoutSessionConfiguration : IEntityTypeConfiguration<Chec
         builder.Property(x => x.AmountCurrency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.CreatedAtUtc).IsRequired();
+        builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
         builder.Ignore(x => x.Amount);
         builder.Ignore(x => x.DomainEvents);
