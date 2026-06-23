@@ -55,6 +55,32 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
         }
     }
 
+    /// <summary>Insert-only write for the provisioning path: NO read-before-write, so a principal granted
+    /// only INSERT on producer.VaultSecrets can store a secret without ever holding SELECT (the migration
+    /// keeps pol_admin from reading plaintext back). Tracks the row but does NOT save — the caller's unit of
+    /// work commits it in the provisioning transaction, where a (tenantId, name) collision becomes a
+    /// translated 409 rather than a 500.</summary>
+    public Task InsertAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken)
+    {
+        var (activeKeyId, masterKey) = _keyring.Active;
+        var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
+        var dek = RandomNumberGenerator.GetBytes(32);
+        try
+        {
+            var encryptedSecret = VaultEnvelope.Encrypt(dek, Encoding.UTF8.GetBytes(plaintextSecret));
+            var wrappedDek = VaultEnvelope.Encrypt(kek, dek);
+            var hint = LastFour(plaintextSecret);
+
+            _db.VaultSecrets.Add(new VaultSecretBlob(tenantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
+            return Task.CompletedTask;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(dek);
+            CryptographicOperations.ZeroMemory(kek);
+        }
+    }
+
     public async Task<string> RevealAsync(Guid tenantId, string name, CancellationToken cancellationToken)
     {
         var blob = await _db.VaultSecrets.FindAsync([tenantId, name], cancellationToken).ConfigureAwait(false)

@@ -19,7 +19,9 @@ public sealed class PspConnectionConfiguration : IEntityTypeConfiguration<PspCon
         builder.Property(x => x.Psp).IsRequired();
         builder.Property(x => x.EnabledMethods).HasMaxLength(256).IsRequired();
         builder.Property(x => x.SecretRefName).HasMaxLength(128).IsRequired();
-        builder.Property(x => x.Metadata).HasMaxLength(4000);
+        // Non-secret PSP config (merchantId/accountId/card/installment/enabledSources/returnUrls/...) is
+        // stored here as JSON; the full Omise payload can exceed 4000 chars, so use nvarchar(max).
+        builder.Property(x => x.Metadata).HasColumnType("nvarchar(max)");
         builder.Property(x => x.IsEnabled).IsRequired();
         builder.Property(x => x.CreatedAtUtc).IsRequired();
 

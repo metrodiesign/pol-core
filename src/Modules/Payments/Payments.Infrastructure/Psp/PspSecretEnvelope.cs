@@ -16,7 +16,10 @@ internal sealed record TwoCTwoPSecret(
     [property: JsonPropertyName("secretKey")] string SecretKey);
 
 /// <summary>The Omise credential bundle stored as the vault plaintext. The secret key's prefix
-/// (skey_test_ / skey_live_) selects test vs live. (Payment Links+ ids will be added here when the
-/// deferred PromptPay path is implemented.)</summary>
+/// (skey_test_ / skey_live_) selects test vs live. <c>PublicKey</c> / <c>WebhookSecret</c> are stored
+/// as provided at provisioning (reference 2.4) and are optional — the redirect-card path uses only
+/// the secret key today; the webhook secret backs deferred HMAC verification.</summary>
 internal sealed record OmiseSecret(
-    [property: JsonPropertyName("secretKey")] string SecretKey);
+    [property: JsonPropertyName("secretKey")] string SecretKey,
+    [property: JsonPropertyName("publicKey")] string? PublicKey = null,
+    [property: JsonPropertyName("webhookSecret")] string? WebhookSecret = null);

@@ -12,6 +12,7 @@ using Cart.Infrastructure;
 using Checkout.Application;
 using Checkout.Infrastructure;
 using Mediator;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
 using Orders.Infrastructure;
@@ -23,6 +24,9 @@ using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 using Products.Application;
 using Products.Infrastructure;
+using Tenant.Application.GetTenant;
+using Tenant.Application.ProvisionTenant;
+using Tenant.Infrastructure;
 using Api;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -64,6 +68,26 @@ builder.Services.AddCartModule();
 builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
+builder.Services.AddTenantModule();
+
+// Tenant provisioning runs cross-tenant under pol_admin (RLS bypass) via a SEPARATE keyed connection —
+// the pol_app connection is RLS-blocked from writing another tenant's rows. Fail fast at boot if it is
+// not configured: the whole admin provisioning surface depends on it.
+var adminConnString = builder.Configuration.GetConnectionString("Admin")
+    ?? throw new InvalidOperationException(
+        "ConnectionStrings:Admin (pol_admin) is required for tenant provisioning. Set ConnectionStrings__Admin.");
+// The committed appsettings.json ships an Admin string with a BLANK password (the real secret is injected
+// at runtime). Outside Development, fail fast if that injection did not happen — otherwise the host boots
+// and only the first /admin request discovers the missing credential. Development may use integrated auth.
+// Same fail-fast for the admin SPA audience: the /admin routes gate on the "admin" authorization policy,
+// which GoogleAuthenticationExtensions registers ONLY when Google:Audiences:admin is mapped — without it an
+// admin request hits a missing policy (500) instead of 401/403.
+if (!builder.Environment.IsDevelopment())
+{
+    ProvisioningGuards.RequireInjectedCredential(adminConnString, "Admin");
+    ProvisioningGuards.RequireAdminAudience(builder.Configuration["Google:Audiences:admin"]);
+}
+builder.Services.AddTenantAdminScope(adminConnString);
 
 // Tenant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
@@ -299,6 +323,51 @@ app.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator me
     return TypedResults.Ok(view);
 }).RequireAuthorization("tenant");
 
+// Admin provisioning (reference 2.4). Cross-tenant, so NOT ITenantScoped — runs under pol_admin via the
+// keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
+// never from the body. Duplicate code -> ConflictException -> 409; bad input -> ArgumentException -> 400.
+app.MapPost("/admin/tenants", async (
+    ProvisionTenantRequest body,
+    HttpContext http,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    // The documented 2.4 body wraps tenant fields under "tenant"; non-secret PSP config rides alongside
+    // "psp"/"secrets" and is captured verbatim via JsonExtensionData (reference 2.4 — config stored as-is).
+    var t = body.Tenant ?? throw new ArgumentException("The 'tenant' object is required.");
+
+    var command = new ProvisionTenantCommand(
+        new TenantSpec(t.Code, t.DisplayName, t.LegalEntityId, t.Country, t.Currency,
+            t.EnabledChannels ?? [], ToElement(t.Metadata)),
+        [.. (body.PspConnections ?? []).Select(p =>
+        {
+            // A secret-looking field captured as readable config (a typo putting it beside, not inside,
+            // "secrets") would persist + echo plaintext outside the vault -> reject it (400).
+            ProvisioningGuards.RejectSecretsInConfig(p.Config);
+            return new PspConnectionSpec(
+                p.Psp, p.EnabledMethods ?? [], p.MerchantId,
+                p.Secrets ?? new Dictionary<string, string>(), ToElement(p.Config));
+        })],
+        http.User.FindFirst("sub")?.Value ?? "unknown",
+        http.TraceIdentifier);
+
+    var result = await mediator.Send(command, ct);
+    return Results.Created($"/admin/tenants/{t.Code}", result);
+
+    // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
+    static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
+        extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
+}).RequireAuthorization("admin"); // admin-SPA audience only (tenant-SPA tokens get 403)
+
+app.MapGet("/admin/tenants/{code}", async (
+    string code,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetTenantQuery(code), ct);
+    return TypedResults.Ok(view);
+}).RequireAuthorization("admin");
+
 app.Run();
 
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
@@ -310,6 +379,79 @@ internal sealed record CreateCartResponse(Guid CartId);
 internal sealed record StartCheckoutRequest(Guid CartId, string? Recipient);
 internal sealed record OrderSummaryResponse(
     Guid OrderId, long AmountMinorUnits, string Currency, string Status, Guid? PaymentSessionId);
+
+// Admin provisioning request body (reference 2.4): { "tenant": { ... }, "pspConnections": [ ... ] }.
+// AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.
+internal sealed record ProvisionTenantRequest(
+    ProvisionTenantBody? Tenant,
+    IReadOnlyList<ProvisionPspConnectionRequest>? PspConnections);
+
+// Tenant scalars are first-class columns; every other key under "tenant" (branding/routing/session/
+// timezone/locale/...) is captured by JsonExtensionData and stored verbatim in the tenant Metadata.
+internal sealed class ProvisionTenantBody
+{
+    public string Code { get; init; } = default!;
+    public string DisplayName { get; init; } = default!;
+    public string LegalEntityId { get; init; } = default!;
+    public string Country { get; init; } = default!;
+    public string Currency { get; init; } = default!;
+    public IReadOnlyList<string>? EnabledChannels { get; init; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Metadata { get; init; }
+}
+
+// "secrets" is write-only; the non-secret PSP config (environment/currencyCode/card/installment/return
+// URLs/...) sits at the top level of each connection and is captured verbatim via JsonExtensionData.
+internal sealed class ProvisionPspConnectionRequest
+{
+    public string Psp { get; init; } = default!;
+    public IReadOnlyList<string>? EnabledMethods { get; init; }
+    public string? MerchantId { get; init; }
+    public Dictionary<string, string>? Secrets { get; init; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Config { get; init; }
+}
+
+/// <summary>Boot/request guards for admin provisioning, factored out so they can be unit-tested.</summary>
+internal static class ProvisioningGuards
+{
+    // The field names the "secrets" envelope owns (see PspSecretEnvelopeFactory). They are write-only and
+    // must NEVER appear as readable connection config; matched case-insensitively to catch casing typos.
+    private static readonly HashSet<string> SecretFieldNames =
+        new(StringComparer.OrdinalIgnoreCase) { "secretKey", "publicKey", "webhookSecret" };
+
+    /// <summary>Rejects a connection whose non-secret config bag contains a secret-owned field (a payload
+    /// that put a credential beside, not inside, "secrets") so it can never persist/echo as readable config.</summary>
+    public static void RejectSecretsInConfig(IReadOnlyDictionary<string, JsonElement>? config)
+    {
+        if (config is null)
+            return;
+
+        foreach (var key in config.Keys)
+            if (SecretFieldNames.Contains(key))
+                throw new ArgumentException(
+                    $"'{key}' is a secret field and must be inside 'secrets', not at the connection top level.");
+    }
+
+    /// <summary>Fails fast when a connection string has no usable credential — a blank SQL-auth password
+    /// means the runtime secret was never injected. Integrated security needs no password.</summary>
+    public static void RequireInjectedCredential(string connectionString, string name)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString);
+        if (!builder.IntegratedSecurity && string.IsNullOrEmpty(builder.Password))
+            throw new InvalidOperationException(
+                $"ConnectionStrings:{name} has no password — the runtime secret was not injected. Set ConnectionStrings__{name}.");
+    }
+
+    /// <summary>Fails fast when the admin SPA audience is unmapped. The /admin routes gate on the "admin"
+    /// authorization policy, which is registered only for a mapped audience — without it those routes would
+    /// 500 on a missing policy instead of returning 401/403.</summary>
+    public static void RequireAdminAudience(string? adminAudienceClientId)
+    {
+        if (string.IsNullOrWhiteSpace(adminAudienceClientId))
+            throw new InvalidOperationException(
+                "Google:Audiences:admin is required — the /admin routes gate on the \"admin\" policy. " +
+                "Map it via Google__Audiences__admin.");
+    }
+}
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);

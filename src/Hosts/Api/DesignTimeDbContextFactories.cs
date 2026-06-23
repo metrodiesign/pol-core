@@ -19,6 +19,7 @@ internal static class HostModuleAssemblies
         typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
+        typeof(Tenant.Infrastructure.TenantModuleRegistration).Assembly,
     ];
 
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;

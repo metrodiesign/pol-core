@@ -59,6 +59,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
             (StatusCodes.Status410Gone, "Gone", "This link has expired."),
         ConcurrencyConflictException =>
             (StatusCodes.Status409Conflict, "Conflict", "The resource was modified concurrently; please retry."),
+        ConflictException =>
+            (StatusCodes.Status409Conflict, "Conflict", "A resource with the same identifier already exists."),
         TenantBindingException =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
         ArgumentException =>

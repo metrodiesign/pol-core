@@ -13,4 +13,13 @@ public interface IPspConnectionRepository
     /// parsed from the raw URL before signature verification — PLAN #4 / security rules).
     /// </summary>
     Task<PspConnection?> GetByIdAsync(Guid pspConnectionId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stages a new connection for insertion (tenant provisioning). Persisted on the next
+    /// unit-of-work save; the caller owns the transaction.
+    /// </summary>
+    void Add(PspConnection connection);
+
+    /// <summary>Lists all connections owned by a tenant (admin read-back).</summary>
+    Task<IReadOnlyList<PspConnection>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken);
 }

@@ -23,6 +23,7 @@ public class RawConnectionTests
         typeof(global::Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
+        typeof(global::Tenant.Infrastructure.TenantModuleRegistration).Assembly,
     ];
 
     [Fact]
