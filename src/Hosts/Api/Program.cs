@@ -76,8 +76,14 @@ var adminConnString = builder.Configuration.GetConnectionString("Admin")
 // The committed appsettings.json ships an Admin string with a BLANK password (the real secret is injected
 // at runtime). Outside Development, fail fast if that injection did not happen — otherwise the host boots
 // and only the first /admin request discovers the missing credential. Development may use integrated auth.
+// Same fail-fast for the admin SPA audience: the /admin routes gate on the "admin" authorization policy,
+// which GoogleAuthenticationExtensions registers ONLY when Google:Audiences:admin is mapped — without it an
+// admin request hits a missing policy (500) instead of 401/403.
 if (!builder.Environment.IsDevelopment())
+{
     ProvisioningGuards.RequireInjectedCredential(adminConnString, "Admin");
+    ProvisioningGuards.RequireAdminAudience(builder.Configuration["Google:Audiences:admin"]);
+}
 builder.Services.AddTenantAdminScope(adminConnString);
 
 // Tenant identity from the authenticated principal (never from the URL — PLAN #4).
@@ -321,6 +327,17 @@ internal static class ProvisioningGuards
         if (!builder.IntegratedSecurity && string.IsNullOrEmpty(builder.Password))
             throw new InvalidOperationException(
                 $"ConnectionStrings:{name} has no password — the runtime secret was not injected. Set ConnectionStrings__{name}.");
+    }
+
+    /// <summary>Fails fast when the admin SPA audience is unmapped. The /admin routes gate on the "admin"
+    /// authorization policy, which is registered only for a mapped audience — without it those routes would
+    /// 500 on a missing policy instead of returning 401/403.</summary>
+    public static void RequireAdminAudience(string? adminAudienceClientId)
+    {
+        if (string.IsNullOrWhiteSpace(adminAudienceClientId))
+            throw new InvalidOperationException(
+                "Google:Audiences:admin is required — the /admin routes gate on the \"admin\" policy. " +
+                "Map it via Google__Audiences__admin.");
     }
 }
 

@@ -46,4 +46,20 @@ public sealed class ProvisioningGuardsTests
     {
         ApiHost::ProvisioningGuards.RequireInjectedCredential(connectionString, "Admin"); // does not throw
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Missing_admin_audience_fails_fast(string? clientId)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireAdminAudience(clientId));
+    }
+
+    [Fact]
+    public void Mapped_admin_audience_passes()
+    {
+        ApiHost::ProvisioningGuards.RequireAdminAudience("222-admin.apps.googleusercontent.com"); // does not throw
+    }
 }
