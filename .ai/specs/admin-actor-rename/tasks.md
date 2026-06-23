@@ -97,4 +97,25 @@ rename deferred) · REQ-13 -> GET /admin/me
 
 ## Deferred (out of this PR — see scope banner)
 
-REQ-1, REQ-2 (producer `TenantUser*`->`ProducerAccount*` rename) + the rename half of REQ-11/REQ-12. Design retained.
+REQ-2 (producer `TenantUser*`->`ProducerAccount*` *rename in place*) is superseded by the removal below.
+The rename half of REQ-11/REQ-12 design is retained as the basis for the Producer rebuild.
+
+## Addendum 2026-06-23 — Identity module removed (folded into this PR, user-directed)
+
+Per user direction, the **Identity module (producer-side actor) was deleted** to clear the way for a fresh
+`Producer` module rebuild (control plane / data plane stay separate — Admin already its own module).
+
+- Deleted: `src/Modules/Identity/{Domain,Application,Infrastructure}`, `tests/Identity.Tests`,
+  `src/Hosts/Api/IdentityHostWiring.cs`, `tests/Architecture.Tests/IdentityArchitectureTests.cs`,
+  `tests/Hosts.Tests/TenantRoleAuthorizationTests.cs`, `tests/Integration.Tests/IdentityIsolationIntegrationTests.cs`.
+- Host: removed `AddIdentityModule`/`AddIdentityAdminScope`, `TenantUserResolutionMiddleware`, registration +
+  approve endpoints, `IntegrationDb.InsertTenantUserAsync`. Stripped `.RequireTenantRole(...)` from the 3
+  tenant write endpoints (kept `.RequireAuthorization("tenant")`) — each marked `TODO(producer)`.
+- **Consequence (accepted):** until the Producer module returns, tenant-SPA callers get no prod tenant binding
+  (Dev `tenant_id` shim only) and no role gate on `/products`, `/payment-sessions`, redirect.
+- Migration `DropIdentityTables`: drops the 5 Identity tables, detaching the TenantUsers RLS predicates +
+  REVOKE-ing grants first (mirror of `AddIdentityTables`), reversible Down. Applied on live SQL 2025; no drift.
+- Verified: build -warnaserror clean (40 projects); unit pass (Architecture 43, Hosts 60, Admin 29, Tenant 31,
+  …); integration 30/31 (admin isolation 6/6; the 1 fail = the pre-existing OrdersReconciliation accumulation
+  artifact on a persistent local DB, Orders untouched — green on fresh/CI). Canon (ARCHITECTURE/CODING_STANDARDS) updated.
+- Tenant + Admin modules confirmed independent of Identity (survive the removal).

@@ -28,11 +28,6 @@
     <Project Path="src/Modules/Checkout/Checkout.Domain/Checkout.Domain.csproj" />
     <Project Path="src/Modules/Checkout/Checkout.Infrastructure/Checkout.Infrastructure.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Identity/">
-    <Project Path="src/Modules/Identity/Identity.Application/Identity.Application.csproj" />
-    <Project Path="src/Modules/Identity/Identity.Domain/Identity.Domain.csproj" />
-    <Project Path="src/Modules/Identity/Identity.Infrastructure/Identity.Infrastructure.csproj" />
-  </Folder>
   <Folder Name="/src/Modules/Orders/">
     <Project Path="src/Modules/Orders/Orders.Application/Orders.Application.csproj" />
     <Project Path="src/Modules/Orders/Orders.Domain/Orders.Domain.csproj" />
@@ -60,7 +55,6 @@
     <Project Path="tests/Cart.Tests/Cart.Tests.csproj" />
     <Project Path="tests/Checkout.Tests/Checkout.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
-    <Project Path="tests/Identity.Tests/Identity.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />
     <Project Path="tests/Payments.Tests/Payments.Tests.csproj" />

@@ -24,7 +24,6 @@ public class RawConnectionTests
         typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         typeof(global::Tenant.Infrastructure.TenantModuleRegistration).Assembly,
-        typeof(global::Identity.Infrastructure.IdentityModuleRegistration).Assembly,
     ];
 
     [Fact]

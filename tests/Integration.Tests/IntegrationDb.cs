@@ -92,20 +92,6 @@ internal static class IntegrationDb
             """,
             ("@id", id), ("@code", code));
 
-    /// <summary>Inserts a TenantUser. A null <paramref name="tenantId"/> (a pending applicant) leaves TenantId
-    /// + Role NULL so the RLS FILTER hides it from every tenant; an assigned tenantId with Active(1) status
-    /// makes it visible to that tenant only. Role defaults to Finance(1) when a tenant is assigned.</summary>
-    public static Task InsertTenantUserAsync(SqlConnection c, Guid id, string subject, Guid? tenantId, int status) =>
-        ExecAsync(c,
-            """
-            INSERT producer.TenantUsers (Id, Subject, Email, TenantId, Role, Status, CreatedAtUtc)
-            VALUES (@id, @sub, @email, @tid, @role, @status, SYSUTCDATETIME());
-            """,
-            ("@id", id), ("@sub", subject), ("@email", subject + "@example.com"),
-            ("@tid", (object?)tenantId ?? DBNull.Value),
-            ("@role", tenantId is null ? DBNull.Value : (object)1),
-            ("@status", status));
-
     /// <summary>Inserts an admin account (control-plane). A null <paramref name="subject"/> models an invited
     /// Scoped account before its first login binds it (the filtered unique index exempts NULL subjects).
     /// Tier: Scoped=0, Super=1. Status: Active=0, Suspended=1.</summary>

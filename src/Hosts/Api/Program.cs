@@ -18,11 +18,6 @@ using Cart.Application;
 using Cart.Infrastructure;
 using Checkout.Application;
 using Checkout.Infrastructure;
-using Identity.Application.ApproveTenantUser;
-using Identity.Application.CompleteRegistration;
-using Identity.Application.IssueRegistrationTicket;
-using Identity.Domain;
-using Identity.Infrastructure;
 using Mediator;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -81,7 +76,6 @@ builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
 builder.Services.AddTenantModule();
-builder.Services.AddIdentityModule();
 
 // Tenant provisioning runs cross-tenant under pol_admin (RLS bypass) via a SEPARATE keyed connection —
 // the pol_app connection is RLS-blocked from writing another tenant's rows. Fail fast at boot if it is
@@ -101,13 +95,10 @@ if (!builder.Environment.IsDevelopment())
     ProvisioningGuards.RequireAdminAudience(builder.Configuration["Google:Audiences:admin"]);
 }
 builder.Services.AddTenantAdminScope(adminConnString);
-// Identity (registration/approval/runtime resolve) shares that pol_admin keyed scope — all of it runs
-// before a tenant is bound, so it needs the RLS-bypass connection.
-builder.Services.AddIdentityAdminScope();
 
-// Admin identity (control plane: AdminAccounts/assignments/audit) — a separate module from Identity (the
-// producer-side actor). Its EF configs live in the producer schema but are control-plane (pol_admin only);
-// resolution/provisioning run cross-tenant, so the seams bind to the same pol_admin keyed scope.
+// Admin identity (control plane: AdminAccounts/assignments/audit). Its EF configs live in the producer
+// schema but are control-plane (pol_admin only); resolution/provisioning run cross-tenant, so the seams
+// bind to the same pol_admin keyed scope.
 builder.Services.AddAdminModule();
 builder.Services.AddAdminIdentity();
 
@@ -181,9 +172,9 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Bind the ambient tenant from the caller's platform TenantUser (reference 2.5), not from the token.
-// Runs after authorization so the principal exists; binds nothing for non-tenant callers / applicants.
-app.UseMiddleware<TenantUserResolutionMiddleware>();
+// TODO(producer): the platform tenant-user resolver (was TenantUserResolutionMiddleware in the Identity
+// module) is removed pending the Producer module. Until it returns, tenant-SPA callers get no ambient tenant
+// binding in production (the Development tenant_id shim still works) and no tenant_role claim.
 
 // Resolve the platform admin for an admin-SPA caller (REQ-5/6): bootstrap/bind on first login, materialize
 // the accessible-tenant set + admin_tier claim into IAdminScope, deny (403) an unresolvable or suspended
@@ -237,8 +228,7 @@ app.MapPost("/products", async (
     var id = await mediator.Send(
         new CreateProductCommand(tenant.TenantId, body.Name, body.PriceMinorUnits, body.Currency), ct);
     return TypedResults.Ok(new CreateProductResponse(id));
-}).RequireAuthorization("tenant") // tenant-SPA audience only (admin-SPA tokens get a different role)
-  .RequireTenantRole(TenantUserRole.Finance, TenantUserRole.TenantAdmin); // write/financial: Viewer denied (REQ-7.3)
+}).RequireAuthorization("tenant"); // TODO(producer): re-add .RequireTenantRole(Finance, TenantAdmin) once the Producer role model returns (REQ-7.3)
 
 // Cart — open, add/merge lines, review, adjust, clear. Tenant comes from the principal; the commands are
 // ITenantScoped so RLS + the tenant guard confine every cart to the bound tenant.
@@ -322,8 +312,7 @@ app.MapPost("/payment-sessions", async (
     var result = await mediator.Send(new CreatePaymentSessionCommand(
         body.OrderId, tenant.TenantId, body.AmountMinorUnits, body.Currency, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
-}).RequireAuthorization("tenant") // tenant-SPA audience only (admin-SPA tokens get a different role)
-  .RequireTenantRole(TenantUserRole.Finance, TenantUserRole.TenantAdmin); // write/financial: Viewer denied (REQ-7.3)
+}).RequireAuthorization("tenant"); // TODO(producer): re-add .RequireTenantRole(Finance, TenantAdmin) once the Producer role model returns (REQ-7.3)
 
 // Claims-then-charges redirect (PLAN #11). Tenant scoping is automatic: the command is ITenantScoped, so
 // TenantGuardBehavior + RLS resolve the session for the authenticated tenant only. Errors flow through the
@@ -335,8 +324,7 @@ app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
 {
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
-}).RequireAuthorization("tenant") // tenant-SPA audience only (admin-SPA tokens get a different role)
-  .RequireTenantRole(TenantUserRole.Finance, TenantUserRole.TenantAdmin); // write/financial: Viewer denied (REQ-7.3)
+}).RequireAuthorization("tenant"); // TODO(producer): re-add .RequireTenantRole(Finance, TenantAdmin) once the Producer role model returns (REQ-7.3)
 
 // Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
 // a bypass proc (no tenant binding). Unknown token -> 404; expired -> 410. A producer can resend (rotates
@@ -417,50 +405,9 @@ app.MapGet("/admin/tenants/{code}", async (
         : Results.Ok(view);
 }).RequireAuthorization("admin");
 
-// --- Identity: self-service registration + admin approval (reference 2.5) ---
-
-// An authenticated Google identity with no TenantUser yet requests a registration ticket. Subject/email/hd
-// come from the verified token, never the body. Already registered -> ConflictException -> 409.
-app.MapGet("/me/registration", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
-{
-    var subject = http.User.FindFirst("sub")?.Value;
-    var email = http.User.FindFirst("email")?.Value;
-    if (string.IsNullOrEmpty(subject) || string.IsNullOrEmpty(email))
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Missing subject or email claim.");
-
-    var result = await mediator.Send(
-        new IssueRegistrationTicketCommand(subject, email, http.User.FindFirst("hd")?.Value), ct);
-    return Results.Ok(result);
-}).RequireAuthorization();
-
-// Consume the ticket + complete the profile -> a pending TenantUser awaiting admin approval.
-app.MapPost("/registrations/complete", async (
-    CompleteRegistrationRequest body, IMediator mediator, CancellationToken ct) =>
-{
-    var result = await mediator.Send(new CompleteRegistrationCommand(body.TicketId, body.DisplayName), ct);
-    return Results.Ok(result);
-}).RequireAuthorization();
-
-// Admin approves a pending user onto a tenant the admin selects, with a role. AdminSubject + correlation id
-// are taken server-side. TenantId/Role come ONLY from the admin's request — never from the applicant.
-app.MapPost("/admin/tenant-users/{subject}/approve", async (
-    string subject, ApproveTenantUserRequest body, HttpContext http, IAdminScope adminScope, IMediator mediator, CancellationToken ct) =>
-{
-    // Enum.TryParse accepts ANY numeric string (e.g. "999" -> an undefined enum); IsDefined rejects values
-    // outside Viewer/Finance/TenantAdmin so approval can never persist an unknown tenant_role (REQ-1.3/7.1).
-    if (!Enum.TryParse<TenantUserRole>(body.Role, ignoreCase: true, out var role) || !Enum.IsDefined(role))
-        throw new ArgumentException($"Unknown role '{body.Role}'.");
-
-    // A Scoped admin may approve only onto a tenant in its accessible set; a Super is unrestricted (REQ-8.5).
-    if (!adminScope.Accessible.Allows(body.TenantId))
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden,
-            title: "That tenant is not in your accessible set.");
-
-    var command = new ApproveTenantUserCommand(
-        subject, body.TenantId, role, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier);
-    var result = await mediator.Send(command, ct);
-    return Results.Ok(result);
-}).RequireAuthorization("admin");
+// TODO(producer): self-service registration (/me/registration, /registrations/complete) + admin approval
+// (/admin/tenant-users/{subject}/approve) lived in the Identity module and are removed pending the Producer
+// module rebuild. The admin approve endpoint's scoped-accessible check (REQ-8.5) returns with it.
 
 // --- Admin identity foundation management (REQ-3..10) + SPA bootstrap (REQ-13) ---
 
@@ -617,10 +564,6 @@ internal static class ProvisioningGuards
                 "Map it via Google__Audiences__admin.");
     }
 }
-
-// Identity request bodies (reference 2.5). Subject is taken from the route/token, never these.
-internal sealed record CompleteRegistrationRequest(Guid TicketId, string DisplayName);
-internal sealed record ApproveTenantUserRequest(Guid TenantId, string Role);
 
 // Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
 // the host sets them from the resolved IAdminScope + the authenticated request.

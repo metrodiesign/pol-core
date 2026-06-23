@@ -20,7 +20,6 @@ internal static class HostModuleAssemblies
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         typeof(Tenant.Infrastructure.TenantModuleRegistration).Assembly,
-        typeof(Identity.Infrastructure.IdentityModuleRegistration).Assembly,
         typeof(Admin.Infrastructure.AdminModuleRegistration).Assembly,
     ];
 
