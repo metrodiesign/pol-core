@@ -87,11 +87,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                 -- pol_admin (provisioning, bypass role): cross-tenant write of the master record + read-back,
                 -- plus INSERT into the per-PSP connection + vault rows it creates in the same transaction.
-                -- SELECT on PspConnections powers GET /admin/tenants/{code} (masked hints live on its Metadata).
-                -- INSERT-only on VaultSecrets -> admin can write a secret but can NEVER SELECT plaintext back
-                -- (the masked read-back uses the hint stored on PspConnection.Metadata, not the vault).
+                -- SELECT on PspConnections is already granted by AddRlsSecurityPolicy (the read-back relies on
+                -- it); this migration adds only INSERT. INSERT-only on VaultSecrets -> admin can write a secret
+                -- but can NEVER SELECT plaintext back (masked read-back uses PspConnection.Metadata, not the vault).
                 GRANT SELECT, INSERT, UPDATE ON producer.Tenants           TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.PspConnections     TO pol_admin;
+                GRANT INSERT                 ON producer.PspConnections     TO pol_admin;
                 GRANT INSERT                 ON producer.VaultSecrets       TO pol_admin;
                 GRANT SELECT, INSERT         ON producer.ProvisioningAudits TO pol_admin;
                 """);
@@ -111,7 +111,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql("""
                 REVOKE SELECT                ON producer.Tenants            FROM pol_app;
                 REVOKE SELECT, INSERT, UPDATE ON producer.Tenants           FROM pol_admin;
-                REVOKE SELECT, INSERT        ON producer.PspConnections     FROM pol_admin;
+                REVOKE INSERT                ON producer.PspConnections     FROM pol_admin;
                 REVOKE INSERT                ON producer.VaultSecrets       FROM pol_admin;
                 REVOKE SELECT, INSERT        ON producer.ProvisioningAudits FROM pol_admin;
                 """);

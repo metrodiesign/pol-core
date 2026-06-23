@@ -35,4 +35,30 @@ public sealed class GetTenantHandlerTests
         Assert.Equal("omise", c.Psp);
         Assert.Equal("****5678", c.MaskedSecrets["secretKey"]);
     }
+
+    [Fact]
+    public async Task Read_back_surfaces_stored_config_and_merchant_id() // Codex re-review P2 (REQ-9.1)
+    {
+        var tenant = DomainTenant.Create("vcommerce", "vCommerce", "0105560000000", "TH", "THB", ["card", "installment"],
+            """{"branding":{"logo":"x"},"routing":{"installment":["2c2p","omise"]}}""", Now);
+        var connection = PspConnection.Create(tenant.Id, PspCode.TwoCTwoP, "card,installment", "psp/2c2p", Now,
+            """{"config":{"environment":"production","currencyCode":"764"},"merchantId":"merch_42","secretHints":{"secretKey":"3a9f"}}""");
+        var psp = new FakePspConnectionRepository();
+        psp.Add(connection);
+        var handler = new GetTenantHandler(new FakeTenantRepository { ByCode = tenant }, psp);
+
+        var view = await handler.Handle(new GetTenantQuery("vcommerce"), default);
+
+        // Tenant non-secret config (branding/routing) is returned for verification.
+        Assert.True(view.Metadata!.Value.TryGetProperty("branding", out _));
+        Assert.True(view.Metadata!.Value.TryGetProperty("routing", out _));
+
+        // Connection config + merchant id are returned; the secret stays masked, plaintext never appears.
+        var c = Assert.Single(view.Connections);
+        Assert.Equal("2c2p", c.Psp);
+        Assert.Equal("merch_42", c.MerchantId);
+        Assert.Equal("production", c.Config!.Value.GetProperty("environment").GetString());
+        Assert.Equal("764", c.Config!.Value.GetProperty("currencyCode").GetString());
+        Assert.Equal("****3a9f", c.MaskedSecrets["secretKey"]);
+    }
 }

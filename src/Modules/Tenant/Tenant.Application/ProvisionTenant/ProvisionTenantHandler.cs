@@ -75,7 +75,9 @@ public sealed class ProvisionTenantHandler : ICommandHandler<ProvisionTenantComm
                 throw new ArgumentException($"Connection '{spec.Psp}' must enable at least one method.");
 
             var envelope = _envelopeFactory.Build(new PspSecretInput(psp, spec.Secrets ?? EmptySecrets, spec.MerchantId)); // REQ-3.7
-            var metadata = JsonSerializer.Serialize(new ConnectionMetadata(spec.Config, envelope.Hints), JsonOptions);
+            // merchantId is non-secret config (2C2P co-locates it in the envelope for its adapter); also keep it
+            // on the readable connection metadata so the masked read-back can surface it (REQ-9.1).
+            var metadata = JsonSerializer.Serialize(new ConnectionMetadata(spec.Config, spec.MerchantId, envelope.Hints), JsonOptions);
             prepared.Add(new PreparedConnection(psp, methods, envelope, metadata));
         }
 
@@ -116,8 +118,9 @@ public sealed class ProvisionTenantHandler : ICommandHandler<ProvisionTenantComm
     private static IReadOnlyDictionary<string, string> Mask(IReadOnlyDictionary<string, string> hints) =>
         hints.ToDictionary(h => h.Key, h => "****" + h.Value, StringComparer.Ordinal);
 
-    /// <summary>Persisted on PspConnection.Metadata: non-secret config + masked hints for read-back.</summary>
-    private sealed record ConnectionMetadata(JsonElement? Config, IReadOnlyDictionary<string, string> SecretHints);
+    /// <summary>Persisted on PspConnection.Metadata: non-secret config + merchant id + masked hints for read-back.</summary>
+    private sealed record ConnectionMetadata(
+        JsonElement? Config, string? MerchantId, IReadOnlyDictionary<string, string> SecretHints);
 
     private sealed record PreparedConnection(
         PspCode Psp, string EnabledMethods, PspSecretEnvelopeResult Envelope, string Metadata);

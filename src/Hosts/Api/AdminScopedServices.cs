@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Payments.Application.Ports;
 using Payments.Infrastructure.Persistence;
@@ -12,9 +13,10 @@ namespace Api;
 /// <summary>
 /// Unit of work over the pol_admin (RLS-bypass) connection used by tenant provisioning. Unlike the
 /// pol_app <c>EfUnitOfWork</c> it clears the change tracker at the START of every transaction attempt:
-/// provisioning stages new entities (each with a fresh Guid and a UNIQUE tenant code) and the vault
-/// store flushes mid-loop, so a retried attempt that did not clear would re-insert the previous
-/// attempt's rows and hit a duplicate-key violation. Clearing makes each attempt independent (REQ-4.1).
+/// provisioning stages new entities (each with a fresh Guid and a UNIQUE tenant code), so a retried attempt
+/// that did not clear would re-insert the previous attempt's rows and hit a duplicate-key violation.
+/// Clearing makes each attempt independent (REQ-4.1). Translates the same persistence faults as EfUnitOfWork
+/// so the provisioning path returns 409 (not 500) when a duplicate tenant code races past the pre-check.
 /// </summary>
 internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
 {
@@ -32,6 +34,13 @@ internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
         {
             throw new ConcurrencyConflictException(
                 "A concurrent change to the same record was detected; the save was rejected.", ex);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 2627 or 2601 })
+        {
+            // SQL Server 2627/2601 = unique-violation. A duplicate tenant code that races past the
+            // ExistsByCodeAsync pre-check lands here -> surface a domain conflict (409), not an opaque 500.
+            throw new ConflictException(
+                "A record with the same unique key already exists; the insert was rejected.", ex);
         }
     }
 

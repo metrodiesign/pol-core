@@ -50,6 +50,10 @@ public sealed class ProvisionTenantHandlerTests
 
         var twoC2P = result.Connections.Single(c => c.Psp == "2c2p");
         Assert.Equal("****1234", twoC2P.MaskedSecrets["secretKey"]);
+
+        // merchantId (non-secret) is persisted on the readable connection metadata, not only in the vault
+        // envelope, so the masked read-back can surface it (Codex re-review P2 / REQ-9.1).
+        Assert.Contains(psp.Added, c => c.Metadata is not null && c.Metadata.Contains("merchant-1"));
     }
 
     [Fact]
