@@ -20,5 +20,5 @@ public sealed record PaymentSessionView(
     PaymentStatus Status,
     string? PspExternalChargeId,
     string? RedirectUrl,
-    DateTime CreatedAtUtc,
-    DateTime UpdatedAtUtc);
+    DateTime CreatedAt,
+    DateTime UpdatedAt);

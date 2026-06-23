@@ -20,7 +20,7 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
 
     public CheckoutStatus Status { get; private set; }
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     /// <summary>Where to notify the customer (email/phone), captured at checkout. Optional; flows to the
     /// order on confirm so the customer is sent the summary link.</summary>
@@ -29,7 +29,7 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
     /// <summary>The agreed total, reconstructed from the two scalar columns.</summary>
     public Money Amount => Money.Of(AmountMinorUnits, AmountCurrency);
 
-    private CheckoutSession(Guid id, Guid tenantId, Guid cartId, Money amount, string? notificationRecipient, DateTime createdAtUtc)
+    private CheckoutSession(Guid id, Guid tenantId, Guid cartId, Money amount, string? notificationRecipient, DateTime createdAt)
         : base(id)
     {
         TenantId = tenantId;
@@ -38,7 +38,7 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
         AmountCurrency = amount.Currency;
         NotificationRecipient = notificationRecipient;
         Status = CheckoutStatus.Started;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>

@@ -18,7 +18,7 @@ public sealed class GetProductsHandler : IQueryHandler<GetProductsQuery, IReadOn
         var products = await _repository.ListByTenantAsync(query.TenantId, cancellationToken);
 
         return products
-            .Select(p => new ProductView(p.Id, p.TenantId, p.Name, p.Price, p.IsActive, p.CreatedAtUtc))
+            .Select(p => new ProductView(p.Id, p.TenantId, p.Name, p.Price, p.IsActive, p.CreatedAt))
             .ToList();
     }
 }

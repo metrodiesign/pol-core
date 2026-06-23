@@ -20,7 +20,7 @@ public sealed class Product : AggregateRoot<Guid>
 
     public bool IsActive { get; private set; }
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     /// <summary>The validated money seam, reconstituted from the two scalar columns.</summary>
     public Money Price => Money.Of(PriceMinorUnits, PriceCurrency);
@@ -28,7 +28,7 @@ public sealed class Product : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Product() { }
 
-    private Product(Guid id, Guid tenantId, string name, Money price, DateTime createdAtUtc)
+    private Product(Guid id, Guid tenantId, string name, Money price, DateTime createdAt)
         : base(id)
     {
         TenantId = tenantId;
@@ -36,17 +36,17 @@ public sealed class Product : AggregateRoot<Guid>
         PriceMinorUnits = price.MinorUnits;
         PriceCurrency = price.Currency;
         IsActive = true;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 
     /// <summary>Creates a new active product for a tenant.</summary>
-    public static Product Create(Guid tenantId, string name, Money price, DateTime createdAtUtc)
+    public static Product Create(Guid tenantId, string name, Money price, DateTime createdAt)
     {
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-        return new Product(Guid.NewGuid(), tenantId, name.Trim(), price, createdAtUtc);
+        return new Product(Guid.NewGuid(), tenantId, name.Trim(), price, createdAt);
     }
 
     /// <summary>Renames the product.</summary>

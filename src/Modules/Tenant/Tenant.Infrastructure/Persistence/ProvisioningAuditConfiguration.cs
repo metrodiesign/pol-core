@@ -19,6 +19,6 @@ public sealed class ProvisioningAuditConfiguration : IEntityTypeConfiguration<Pr
         builder.Property(x => x.TenantCode).HasMaxLength(64).IsRequired();
         builder.Property(x => x.AdminSubject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
-        builder.Property(x => x.OccurredAtUtc).IsRequired();
+        builder.Property(x => x.OccurredAt).IsRequired();
     }
 }

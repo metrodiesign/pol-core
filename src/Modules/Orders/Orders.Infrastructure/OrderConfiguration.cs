@@ -27,11 +27,11 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.AmountCurrency).HasMaxLength(3).IsRequired();
 
         builder.Property(x => x.Status).IsRequired();
-        builder.Property(x => x.CreatedAtUtc).IsRequired();
-        builder.Property(x => x.PaidAtUtc);
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.PaidAt);
 
         builder.Property(x => x.SummaryToken).HasMaxLength(64).IsRequired();
-        builder.Property(x => x.SummaryTokenExpiresAtUtc).IsRequired();
+        builder.Property(x => x.SummaryTokenExpiresAt).IsRequired();
         builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
         // Domain events are an in-memory concern; never persisted.

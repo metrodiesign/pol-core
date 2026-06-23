@@ -21,7 +21,7 @@ public sealed class OutboxSerializerTests
         PspCode: "2c2p",
         ExternalChargeId: "chg_abc123",
         EventId: "evt_xyz789",
-        OccurredAtUtc: new DateTime(2026, 6, 21, 12, 0, 0, DateTimeKind.Utc));
+        OccurredAt: new DateTime(2026, 6, 21, 12, 0, 0, DateTimeKind.Utc));
 
     [Fact]
     public void PaymentPaid_round_trips_through_outbox_options()
@@ -54,7 +54,7 @@ public sealed class OutboxSerializerTests
 
         // Web defaults => camelCase property names in the persisted payload.
         Assert.Contains("\"paymentSessionId\"", json);
-        Assert.Contains("\"occurredAtUtc\"", json);
+        Assert.Contains("\"occurredAt\"", json);
         Assert.DoesNotContain("\"PaymentSessionId\"", json);
     }
 }

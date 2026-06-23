@@ -16,7 +16,7 @@ public sealed class VaultRevealAuditIntegrationTests
     private static Task InsertAuditAsync(SqlConnection c, Guid tenantId, long seq, SqlTransaction? tx = null)
     {
         const string sql = """
-            INSERT producer.VaultRevealAudits (TenantId, SecretName, Seq, PrevHash, Hash, RevealedAtUtc)
+            INSERT producer.VaultRevealAudits (TenantId, SecretName, Seq, PrevHash, Hash, RevealedAt)
             VALUES (@t, N'probe', @seq, @prev, @hash, SYSUTCDATETIME());
             """;
         return Exec(c, sql, tx, ("@t", tenantId), ("@seq", seq), ("@prev", Zero32), ("@hash", Zero32));

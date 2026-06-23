@@ -26,7 +26,7 @@ public sealed class PspConnection : Entity<Guid>
 
     public bool IsEnabled { get; private set; }
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private PspConnection() { }
@@ -38,7 +38,7 @@ public sealed class PspConnection : Entity<Guid>
         string enabledMethods,
         string secretRefName,
         string? metadata,
-        DateTime createdAtUtc)
+        DateTime createdAt)
         : base(id)
     {
         TenantId = tenantId;
@@ -47,7 +47,7 @@ public sealed class PspConnection : Entity<Guid>
         SecretRefName = secretRefName;
         Metadata = metadata;
         IsEnabled = true;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 
     /// <summary>Creates an enabled PSP connection for a tenant.</summary>
@@ -56,7 +56,7 @@ public sealed class PspConnection : Entity<Guid>
         PspCode psp,
         string enabledMethods,
         string secretRefName,
-        DateTime createdAtUtc,
+        DateTime createdAt,
         string? metadata = null)
     {
         if (tenantId == Guid.Empty)
@@ -65,7 +65,7 @@ public sealed class PspConnection : Entity<Guid>
         ArgumentException.ThrowIfNullOrWhiteSpace(secretRefName);
 
         return new PspConnection(
-            Guid.NewGuid(), tenantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAtUtc);
+            Guid.NewGuid(), tenantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAt);
     }
 
     /// <summary>True when <paramref name="method"/> appears in this connection's enabled method list.</summary>

@@ -22,7 +22,7 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.PriceMinorUnits).IsRequired();
         builder.Property(x => x.PriceCurrency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.IsActive).IsRequired();
-        builder.Property(x => x.CreatedAtUtc).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
 
         // Tenant-scoped active-catalog lookups (RLS still gates the rows).
         builder.HasIndex(x => new { x.TenantId, x.IsActive });

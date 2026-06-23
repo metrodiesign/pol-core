@@ -88,8 +88,12 @@ Orders → Paid. จบ ไม่มี issuance.
   EF global query filter = ชั้นสะดวกเสริมไม่ใช่ floor. ban raw SQL / `IgnoreQueryFilters` ข้าม tenant + test leak. backend ร่วมกัน
 - แยก backend authz scope ให้ขาด — endpoint admin (cross-tenant/approve/config) เรียกผ่าน session ของ Tenant Console ไม่ได้;
   admin cross-tenant bypass RLS ผ่าน **DB principal แยก** เท่านั้น + reason/correlation id → audit
+- **Scoped-admin isolation = app-layer exception จาก RLS floor (admin-actor-rename REQ-7.4):** `pol_admin` อยู่ใน
+  `pol_rls_bypass` จึงไม่ถูก RLS scope → scoped-admin cross-tenant business read ถูกบังคับผ่าน seam เดียว `IAdminQuery`
+  (ฝัง `WHERE TenantId ∈ accessible`; Super = unrestricted) + Architecture.Tests ห้าม handler อื่นส่ง cross-tenant
+  query ตรง + leak/bypass test = compensating control แทน RLS floor
 - Credential vault — **envelope encryption (per-tenant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
-- Identity — Google SSO; verify sig/`iss`/`aud`/exp/`email_verified`; แยก console ด้วย `aud` (OAuth client ต่อ console) + `hd` guard (เพราะ `iss` ร่วมกัน) + ตาราง identity คนละ schema (`AdminUser` / `TenantUser`)
+- Identity — Google SSO ยังทำที่ชั้น auth (verify sig/`iss`/`aud`/exp/`email_verified`; แยก console ด้วย `aud` (OAuth client ต่อ console) + `hd` guard เพราะ `iss` ร่วมกัน). **Identity module (producer-side actor) ถูกลบ 2026-06-23** + ตาราง `TenantUsers`/`ExternalLogins`/`RegistrationTickets`/`RegistrationAudits`/`TenantUserProfiles` drop แล้ว (migration `DropIdentityTables`) → จะ rebuild เป็น **Producer module** ภายหลัง. คงเหลือ `AdminAccount`* = control-plane (ไม่มี RLS predicate, pol_admin only) ใน **Admin module** ใน schema เดียว `producer` — control plane แยกขาดจาก data plane
 - Maker-checker (approve tenant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
 - Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย tenant key
 - Money — `Money { MinorUnits: long, Currency: ISO4217 }` ใน SharedKernel (minor-unit ตาม registry); ไม่มี decimal/float ที่ cross-module seam; Orders verify amount+currency ตอนรับ `PaymentPaid`

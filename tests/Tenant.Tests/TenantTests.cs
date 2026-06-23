@@ -22,7 +22,7 @@ public sealed class TenantTests
         Assert.Equal("TH", t.Country);
         Assert.Equal(TenantStatus.Active, t.Status);
         Assert.Equal("card,promptpay", t.EnabledChannels);
-        Assert.Equal(Now, t.CreatedAtUtc);
+        Assert.Equal(Now, t.CreatedAt);
     }
 
     [Fact]

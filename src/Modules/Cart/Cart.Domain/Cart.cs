@@ -14,7 +14,7 @@ public sealed class Cart : AggregateRoot<Guid>
 
     public Guid TenantId { get; private set; }
     public CartStatus Status { get; private set; }
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     /// <summary>The cart's lines, in insertion order. Mutated only through the aggregate's methods.</summary>
     public IReadOnlyCollection<CartItem> Items => _items.AsReadOnly();
@@ -22,12 +22,12 @@ public sealed class Cart : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Cart() { }
 
-    public Cart(Guid id, Guid tenantId, DateTime createdAtUtc)
+    public Cart(Guid id, Guid tenantId, DateTime createdAt)
         : base(id)
     {
         TenantId = tenantId;
         Status = CartStatus.Open;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 
     /// <summary>

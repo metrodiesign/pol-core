@@ -28,8 +28,8 @@ public sealed class PaymentSessionConfiguration : IEntityTypeConfiguration<Payme
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.PspExternalChargeId).HasMaxLength(256);
         builder.Property(x => x.RedirectUrl).HasMaxLength(2048);
-        builder.Property(x => x.CreatedAtUtc).IsRequired();
-        builder.Property(x => x.UpdatedAtUtc).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.UpdatedAt).IsRequired();
 
         // Optimistic concurrency: serialises the redirect claim (PLAN #11).
         builder.Property(x => x.RowVersion).IsRowVersion();

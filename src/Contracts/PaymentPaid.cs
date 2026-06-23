@@ -17,7 +17,7 @@ public sealed record PaymentPaid(
     string PspCode,
     string ExternalChargeId,
     string EventId,
-    DateTime OccurredAtUtc) : INotification
+    DateTime OccurredAt) : INotification
 {
     public const string SchemaVersion = "v1";
 }

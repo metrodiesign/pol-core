@@ -31,9 +31,9 @@ public sealed class Order : AggregateRoot<Guid>
 
     public OrderStatus Status { get; private set; }
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
-    public DateTime? PaidAtUtc { get; private set; }
+    public DateTime? PaidAt { get; private set; }
 
     /// <summary>Opaque, unguessable token for the customer's summary link (capability, not a secret —
     /// just hard to guess). Rotated by <see cref="ReissueSummary"/>.</summary>
@@ -41,7 +41,7 @@ public sealed class Order : AggregateRoot<Guid>
 
     /// <summary>When the current <see cref="SummaryToken"/> stops working — opening the link after this
     /// is a 410 Gone. A resend rotates the token and extends this.</summary>
-    public DateTime SummaryTokenExpiresAtUtc { get; private set; }
+    public DateTime SummaryTokenExpiresAt { get; private set; }
 
     /// <summary>The customer contact (email/phone) captured upstream to notify with the summary link.
     /// Persisted so a producer-triggered resend can re-notify the customer (REQ-2.5); null = no recipient.</summary>
@@ -53,7 +53,7 @@ public sealed class Order : AggregateRoot<Guid>
     private Order() { }
 
     private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount,
-        string? notificationRecipient, DateTime createdAtUtc)
+        string? notificationRecipient, DateTime createdAt)
         : base(id)
     {
         TenantId = tenantId;
@@ -63,13 +63,13 @@ public sealed class Order : AggregateRoot<Guid>
         AmountCurrency = amount.Currency;
         NotificationRecipient = notificationRecipient;
         Status = OrderStatus.AwaitingPayment;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
         SummaryToken = Guid.NewGuid().ToString("N");
-        SummaryTokenExpiresAtUtc = createdAtUtc + SummaryTokenTtl;
+        SummaryTokenExpiresAt = createdAt + SummaryTokenTtl;
     }
 
     /// <summary>True once the summary link's TTL has passed.</summary>
-    public bool IsSummaryExpired(DateTime now) => now >= SummaryTokenExpiresAtUtc;
+    public bool IsSummaryExpired(DateTime now) => now >= SummaryTokenExpiresAt;
 
     /// <summary>Rotates the summary token and extends its TTL (a resend). Only an order still awaiting
     /// payment has a link to reissue; a paid/cancelled order is rejected.</summary>
@@ -79,13 +79,13 @@ public sealed class Order : AggregateRoot<Guid>
             throw new InvalidOperationException($"Cannot reissue the summary link of an order in status {Status}.");
 
         SummaryToken = Guid.NewGuid().ToString("N");
-        SummaryTokenExpiresAtUtc = now + SummaryTokenTtl;
+        SummaryTokenExpiresAt = now + SummaryTokenTtl;
     }
 
     /// <summary>Opens a new order awaiting payment.</summary>
-    public static Order Create(Guid tenantId, Money amount, DateTime createdAtUtc,
+    public static Order Create(Guid tenantId, Money amount, DateTime createdAt,
         Guid? paymentSessionId = null, Guid? checkoutSessionId = null, string? notificationRecipient = null) =>
-        new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAtUtc);
+        new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAt);
 
     /// <summary>
     /// Binds the payment session this order awaits. The session is the join key the
@@ -106,7 +106,7 @@ public sealed class Order : AggregateRoot<Guid>
     /// second call once already <see cref="OrderStatus.Paid"/> is a no-op, so a replayed event is
     /// safe (PLAN decision #10). Returns true only on the first transition (an event was raised).
     /// </summary>
-    public bool MarkPaid(Money paidAmount, DateTime occurredAtUtc)
+    public bool MarkPaid(Money paidAmount, DateTime occurredAt)
     {
         if (Status == OrderStatus.Paid)
             return false;
@@ -119,8 +119,8 @@ public sealed class Order : AggregateRoot<Guid>
                 $"Paid amount {paidAmount} does not match order amount {Amount}.");
 
         Status = OrderStatus.Paid;
-        PaidAtUtc = occurredAtUtc;
-        Raise(new OrderPaid(Id, occurredAtUtc));
+        PaidAt = occurredAt;
+        Raise(new OrderPaid(Id, occurredAt));
         return true;
     }
 

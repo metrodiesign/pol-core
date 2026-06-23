@@ -20,7 +20,7 @@ public sealed class ProductRepository : IProductRepository
     public async Task<IReadOnlyList<Product>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
         await _db.Set<Product>()
             .Where(p => p.TenantId == tenantId)
-            .OrderByDescending(p => p.CreatedAtUtc)
+            .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(cancellationToken);
 
     public Task<Product?> GetAsync(Guid productId, CancellationToken cancellationToken) =>

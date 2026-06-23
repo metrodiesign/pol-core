@@ -9,4 +9,4 @@ public sealed record ProductView(
     string Name,
     Money Price,
     bool IsActive,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAt);

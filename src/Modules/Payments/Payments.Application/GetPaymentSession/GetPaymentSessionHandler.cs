@@ -28,7 +28,7 @@ public sealed class GetPaymentSessionHandler : IQueryHandler<GetPaymentSessionQu
             session.Status,
             session.PspExternalChargeId,
             session.RedirectUrl,
-            session.CreatedAtUtc,
-            session.UpdatedAtUtc);
+            session.CreatedAt,
+            session.UpdatedAt);
     }
 }
