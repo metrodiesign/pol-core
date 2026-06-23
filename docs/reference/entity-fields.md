@@ -1,8 +1,9 @@
 # Entity Field Reference (persisted model)
 
 > Generated 2026-06-23 from `ProducerDbContextModelSnapshot.cs` (the authoritative EF model) + the domain
-> enums. นี่คือรูปจริงของตารางใน schema `producer` ของ `ProducerDbContext` ตัวเดียว (modular monolith —
-> ทุกโมดูล map เข้า DbContext เดียวกัน). แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย.
+> enums + the RLS/proc/grant migrations. นี่คือรูปจริงของตารางใน schema `producer` ของ `ProducerDbContext`
+> ตัวเดียว (modular monolith — ทุกโมดูล map เข้า DbContext เดียวกัน). สะท้อนสถานะปัจจุบัน: Identity module ถูกลบ
+> + date field ไม่มี suffix `Utc` แล้ว. แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย.
 >
 > ขอบเขต: เฉพาะ entity ที่ persist ลง DB. Value object ที่ไม่มีตารางของตัวเอง (เช่น `Money` = `MinorUnits:long`
 > + `Currency`) ถูก map เป็นคอลัมน์ของ entity เจ้าของ (เช่น `AmountMinorUnits`/`AmountCurrency`).
@@ -122,7 +123,8 @@ audit ของการ provision tenant (cross-tenant ใต้ pol_admin).
 | Status | nvarchar(16) | N | | `CartStatus` เก็บเป็น **ชื่อ string** (Open/CheckedOut) |
 | CreatedAt | datetime2 | N | | |
 
-### CartItem -> `producer.CartItems`  (plane: data, scoped via parent Cart)
+### CartItem -> `producer.CartItems`  (plane: data — RLS via `fn_cartitem_predicate(CartId)`)
+ไม่มีคอลัมน์ `TenantId` ของตัวเอง — RLS scope ผ่าน parent `Carts.TenantId` (predicate แยกตัว, ดู [Schema objects](#schema-objects-beyond-tables-rls-stored-procedures-principals)).
 FK -> Carts (cascade delete). ราคา snapshot จาก catalog ตอนเพิ่ม (ไม่ใช่ราคา client).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -267,6 +269,51 @@ idempotency key store (PK = Key string). กัน replay/duplicate.
 | Context | nvarchar(256) | N | | scope/handler ของ key |
 | TenantId | uniqueidentifier | N | | |
 | CreatedAt | datetime2 | N | | |
+
+---
+
+## Schema objects beyond tables (RLS, stored procedures, principals)
+
+ส่วนนี้คือ schema object ที่ไม่ใช่ตาราง แต่เป็นส่วนของ RLS floor + bypass path (compiler มองไม่เห็น — rename
+column ต้องไล่มาที่ proc body เองด้วย).
+
+### RLS predicate functions
+
+- `fn_tenant_predicate(@TenantId)` — allow เมื่อ `SESSION_CONTEXT('TenantId') = @TenantId` **หรือ** caller เป็นสมาชิก role `pol_rls_bypass`.
+- `fn_cartitem_predicate(@CartId)` — CartItems ไม่มี `TenantId` → allow เมื่อ bypass **หรือ** parent `Carts.TenantId` = `SESSION_CONTEXT('TenantId')`.
+
+### Security policy `producer.TenantIsolationPolicy` (STATE = ON)
+
+| ตาราง | predicate | mode |
+|---|---|---|
+| PaymentSessions · PspConnections · Products · CheckoutSessions · Carts · Orders · VaultSecrets · IdempotencyRecords · Tenants | `fn_tenant_predicate(TenantId)` (Tenants ใช้ `Id`) | FILTER + BLOCK (INSERT/UPDATE) |
+| CartItems | `fn_cartitem_predicate(CartId)` | FILTER + BLOCK (INSERT/UPDATE) |
+| OutboxMessages | `fn_tenant_predicate(TenantId)` | BLOCK (INSERT) only — ไม่ filter (dispatcher drain ทุก tenant) |
+| VaultRevealAudits | `fn_tenant_predicate(TenantId)` | BLOCK (INSERT) only — append-only; อ่าน head ผ่าน proc |
+| AdminAccounts · AdminTenantAssignments · AdminAccountAudits · ProvisioningAudits | — | none (control-plane, pol_admin only) |
+
+### Stored procedures (bypass reads — `WITH EXECUTE AS`)
+
+| proc | EXECUTE AS | อ่าน | ใช้โดย |
+|---|---|---|---|
+| `usp_resolve_webhook_tenant(@PspConnectionId)` | pol_webhook_resolver | PspConnections -> TenantId | webhook (resolve tenant ก่อน bind, ก่อน verify signature) |
+| `usp_resolve_order_summary(@Token)` | pol_webhook_resolver | Orders by SummaryToken (รวม SummaryTokenExpiresAt) | `GET /orders/{token}/summary` (anonymous) |
+| `usp_vault_audit_head` | pol_vault_auditor | VaultRevealAudits chain head | vault reveal-audit head read |
+
+> proc body อ้าง column ด้วยชื่อตรงๆ → rename column ต้องตามด้วย `ALTER PROCEDURE` (เช่น `RenameDateColumnsDropUtc` แก้ `usp_resolve_order_summary` ให้ใช้ `SummaryTokenExpiresAt`).
+
+### DB principals (bootstrap: `docker/bootstrap/01-principals.sql`)
+
+| principal | login | บทบาท |
+|---|---|---|
+| `pol_app` | yes | TenantConsole — own-tenant CRUD (RLS-scoped); outbox INSERT-only; idempotency claim |
+| `pol_admin` | yes | AdminConsole — สมาชิก `pol_rls_bypass` → cross-tenant SELECT; เขียน control-plane tables (Admin*/ProvisioningAudit) |
+| `pol_worker` | yes | dispatcher — drain OutboxMessages + update Orders (RLS-scoped) |
+| `pol_webhook_resolver` | no (login-less) | bypass — รัน `usp_resolve_webhook_tenant` + `usp_resolve_order_summary` |
+| `pol_vault_auditor` | no (login-less) | bypass — รัน `usp_vault_audit_head` (อ่าน audit head เท่านั้น) |
+| role `pol_rls_bypass` | — | สมาชิก = pol_admin · pol_webhook_resolver · pol_vault_auditor = ทางเดียวที่ข้าม RLS |
+
+> grant รายตารางที่ authoritative อยู่ใน migration (`AddRlsSecurityPolicy`, `AddTenantTable`, `AddVaultRevealAudit`, `AddAdminIdentityTables`). pol_app ไม่เคยได้ grant บน control-plane (admin) tables; vault plaintext อ่านกลับไม่ได้ (envelope encryption).
 
 ---
 
