@@ -72,6 +72,16 @@ internal static class IntegrationDb
             """,
             ("@id", id), ("@t", tenantId));
 
+    /// <summary>Inserts an active Tenant master row. The PK <paramref name="id"/> IS the tenant identity the
+    /// RLS predicate scopes on; <paramref name="code"/> is the unique idempotency key.</summary>
+    public static Task InsertTenantAsync(SqlConnection c, Guid id, string code) =>
+        ExecAsync(c,
+            """
+            INSERT producer.Tenants (Id, Code, DisplayName, LegalEntityId, Status, Country, Currency, EnabledChannels, CreatedAtUtc, Metadata)
+            VALUES (@id, @code, N'probe', N'0105560000000', 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), N'{}');
+            """,
+            ("@id", id), ("@code", code));
+
     private static string? Get(string key) => Environment.GetEnvironmentVariable(key);
 
     private static string Require(string key) =>

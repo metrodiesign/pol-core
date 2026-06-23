@@ -35,6 +35,9 @@ public static class PaymentsModuleRegistration
         services.AddSingleton<IPspAdapter, OmiseAdapter>();
         services.AddSingleton<IPspAdapterFactory, PspAdapterFactory>();
 
+        // Owns the per-PSP secret envelope shape; stateless, consumed by tenant provisioning.
+        services.AddSingleton<IPspSecretEnvelopeFactory, PspSecretEnvelopeFactory>();
+
         return services;
     }
 }

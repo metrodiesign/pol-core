@@ -57,6 +57,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
             (StatusCodes.Status404NotFound, "Resource not found", null),
         ConcurrencyConflictException =>
             (StatusCodes.Status409Conflict, "Conflict", "The resource was modified concurrently; please retry."),
+        ConflictException =>
+            (StatusCodes.Status409Conflict, "Conflict", "A resource with the same identifier already exists."),
         TenantBindingException =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
         ArgumentException =>

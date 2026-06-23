@@ -15,6 +15,12 @@ public interface IVaultSecretStore
 {
     Task StoreAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken);
 
+    /// <summary>Write a brand-new secret WITHOUT reading first (no rotation, no existence probe). The
+    /// provisioning path runs under a principal granted INSERT-only on the vault — it must never SELECT —
+    /// so this is the only write it can make there. The caller guarantees (tenantId, name) is new (a fresh
+    /// tenant); a collision surfaces as the unit of work's unique-violation conflict, not a silent rotate.</summary>
+    Task InsertAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken);
+
     /// <summary>Reveal plaintext. Server-side PSP calls only — never return to a client, never log.</summary>
     Task<string> RevealAsync(Guid tenantId, string name, CancellationToken cancellationToken);
 
