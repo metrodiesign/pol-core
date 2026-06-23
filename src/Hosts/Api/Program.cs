@@ -214,16 +214,25 @@ app.MapPost("/admin/tenants", async (
     IMediator mediator,
     CancellationToken ct) =>
 {
+    // The documented 2.4 body wraps tenant fields under "tenant"; non-secret PSP config rides alongside
+    // "psp"/"secrets" and is captured verbatim via JsonExtensionData (reference 2.4 — config stored as-is).
+    var t = body.Tenant ?? throw new ArgumentException("The 'tenant' object is required.");
+
     var command = new ProvisionTenantCommand(
-        new TenantSpec(body.Code, body.DisplayName, body.LegalEntityId, body.Country, body.Currency,
-            body.EnabledChannels ?? [], body.Metadata),
+        new TenantSpec(t.Code, t.DisplayName, t.LegalEntityId, t.Country, t.Currency,
+            t.EnabledChannels ?? [], ToElement(t.Metadata)),
         [.. (body.PspConnections ?? []).Select(p => new PspConnectionSpec(
-            p.Psp, p.EnabledMethods ?? [], p.MerchantId, p.Secrets ?? new Dictionary<string, string>(), p.Config))],
+            p.Psp, p.EnabledMethods ?? [], p.MerchantId,
+            p.Secrets ?? new Dictionary<string, string>(), ToElement(p.Config)))],
         http.User.FindFirst("sub")?.Value ?? "unknown",
         http.TraceIdentifier);
 
     var result = await mediator.Send(command, ct);
-    return Results.Created($"/admin/tenants/{body.Code}", result);
+    return Results.Created($"/admin/tenants/{t.Code}", result);
+
+    // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
+    static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
+        extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 }).RequireAuthorization("admin"); // admin-SPA audience only (tenant-SPA tokens get 403)
 
 app.MapGet("/admin/tenants/{code}", async (
@@ -241,15 +250,35 @@ internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, s
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
 
-// Admin provisioning request body (reference 2.4). Secrets are write-only; Metadata/Config are stored
-// verbatim. AdminSubject + correlation id are NOT in the body — the host sets them from the request.
+// Admin provisioning request body (reference 2.4): { "tenant": { ... }, "pspConnections": [ ... ] }.
+// AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.
 internal sealed record ProvisionTenantRequest(
-    string Code, string DisplayName, string LegalEntityId, string Country, string Currency,
-    IReadOnlyList<string>? EnabledChannels, JsonElement? Metadata,
+    ProvisionTenantBody? Tenant,
     IReadOnlyList<ProvisionPspConnectionRequest>? PspConnections);
-internal sealed record ProvisionPspConnectionRequest(
-    string Psp, IReadOnlyList<string>? EnabledMethods, string? MerchantId,
-    IReadOnlyDictionary<string, string>? Secrets, JsonElement? Config);
+
+// Tenant scalars are first-class columns; every other key under "tenant" (branding/routing/session/
+// timezone/locale/...) is captured by JsonExtensionData and stored verbatim in the tenant Metadata.
+internal sealed class ProvisionTenantBody
+{
+    public string Code { get; init; } = default!;
+    public string DisplayName { get; init; } = default!;
+    public string LegalEntityId { get; init; } = default!;
+    public string Country { get; init; } = default!;
+    public string Currency { get; init; } = default!;
+    public IReadOnlyList<string>? EnabledChannels { get; init; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Metadata { get; init; }
+}
+
+// "secrets" is write-only; the non-secret PSP config (environment/currencyCode/card/installment/return
+// URLs/...) sits at the top level of each connection and is captured verbatim via JsonExtensionData.
+internal sealed class ProvisionPspConnectionRequest
+{
+    public string Psp { get; init; } = default!;
+    public IReadOnlyList<string>? EnabledMethods { get; init; }
+    public string? MerchantId { get; init; }
+    public Dictionary<string, string>? Secrets { get; init; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Config { get; init; }
+}
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);

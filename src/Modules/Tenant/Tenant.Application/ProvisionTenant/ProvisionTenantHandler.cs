@@ -99,7 +99,7 @@ public sealed class ProvisionTenantHandler : ICommandHandler<ProvisionTenantComm
                 var secretRefName = "psp/" + p.Psp.ToCode();
                 var connection = PspConnection.Create(tenant.Id, p.Psp, p.EnabledMethods, secretRefName, _clock.UtcNow, p.Metadata);
                 _pspConnections.Add(connection);
-                await _vault.StoreAsync(tenant.Id, secretRefName, p.Envelope.EnvelopeJson, ct);
+                await _vault.InsertAsync(tenant.Id, secretRefName, p.Envelope.EnvelopeJson, ct);
                 built.Add(new ProvisionedConnection(connection.Id, p.Psp.ToCode(), Mask(p.Envelope.Hints)));
             }
 

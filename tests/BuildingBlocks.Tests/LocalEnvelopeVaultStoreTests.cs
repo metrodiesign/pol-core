@@ -81,6 +81,29 @@ public sealed class LocalEnvelopeVaultStoreTests
     }
 
     [Fact]
+    public async Task Insert_stores_a_new_secret_without_reading_first()
+    {
+        // The provisioning path: InsertAsync skips the read-before-write (so an INSERT-only principal works)
+        // and tracks the row WITHOUT saving — the caller's unit of work commits it. Prove it round-trips.
+        using var harness = ProducerDbContextTestHarness.Create();
+        var keyring = SingleKeyring(RandomKey());
+        const string secret = "sk_live_insert99";
+
+        await using (var db1 = harness.NewContext())
+        {
+            await NewStore(db1, new FixedClock(Now), keyring)
+                .InsertAsync(Tenant, "psp-secret", secret, CancellationToken.None);
+            await db1.SaveChangesAsync(); // InsertAsync does not save; stand in for the caller's UoW commit
+        }
+
+        await using var db2 = harness.NewContext();
+        var revealed = await NewStore(db2, new FixedClock(Now), keyring)
+            .RevealAsync(Tenant, "psp-secret", CancellationToken.None);
+
+        Assert.Equal(secret, revealed);
+    }
+
+    [Fact]
     public async Task Masked_returns_stars_plus_last4_and_hides_the_secret()
     {
         using var harness = ProducerDbContextTestHarness.Create();

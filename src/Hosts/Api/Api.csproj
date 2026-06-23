@@ -37,4 +37,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hosts.Tests" />
+  </ItemGroup>
+
 </Project>

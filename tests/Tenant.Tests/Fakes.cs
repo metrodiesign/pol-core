@@ -39,6 +39,12 @@ internal sealed class FakeVault : IVaultSecretStore
         return Task.CompletedTask;
     }
 
+    public Task InsertAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken ct)
+    {
+        Stored.Add((tenantId, name, plaintextSecret));
+        return Task.CompletedTask;
+    }
+
     public Task<string> RevealAsync(Guid tenantId, string name, CancellationToken ct) => throw new NotSupportedException();
     public Task<string?> MaskedAsync(Guid tenantId, string name, CancellationToken ct) => Task.FromResult<string?>(null);
     public Task<bool> ExistsAsync(Guid tenantId, string name, CancellationToken ct) => Task.FromResult(false);
