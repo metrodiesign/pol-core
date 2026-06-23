@@ -24,7 +24,7 @@ public sealed class ResendOrderSummaryHandlerTests
         var result = await handler.Handle(new ResendOrderSummaryCommand(order.Id, TenantId), default);
 
         Assert.NotEqual(oldToken, result.SummaryToken);
-        Assert.Equal(clock.UtcNow + Order.SummaryTokenTtl, result.ExpiresAtUtc);
+        Assert.Equal(clock.UtcNow + Order.SummaryTokenTtl, result.ExpiresAt);
         Assert.Equal(1, uow.SaveCount);
         Assert.Empty(outbox.Enqueued); // no recipient captured -> nothing to notify
     }

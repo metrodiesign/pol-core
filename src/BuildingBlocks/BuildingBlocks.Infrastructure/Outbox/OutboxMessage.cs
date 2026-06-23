@@ -19,37 +19,37 @@ public sealed class OutboxMessage
     public Guid TenantId { get; private set; }
     public string Type { get; private set; } = default!;
     public string Payload { get; private set; } = default!;
-    public DateTime OccurredAtUtc { get; private set; }
-    public DateTime? ProcessedAtUtc { get; private set; }
+    public DateTime OccurredAt { get; private set; }
+    public DateTime? ProcessedAt { get; private set; }
     public int Attempts { get; private set; }
     public string? Error { get; private set; }
-    public DateTime? LeaseExpiresAtUtc { get; private set; }
+    public DateTime? LeaseExpiresAt { get; private set; }
     public string? LeaseOwner { get; private set; }
 
     private OutboxMessage() { }
 
-    public static OutboxMessage Create(Guid id, Guid tenantId, string type, string payload, DateTime occurredAtUtc) =>
+    public static OutboxMessage Create(Guid id, Guid tenantId, string type, string payload, DateTime occurredAt) =>
         new()
         {
             Id = id,
             TenantId = tenantId,
             Type = type,
             Payload = payload,
-            OccurredAtUtc = occurredAtUtc,
+            OccurredAt = occurredAt,
         };
 
     public void MarkProcessed(DateTime utcNow)
     {
-        ProcessedAtUtc = utcNow;
+        ProcessedAt = utcNow;
         Error = null;
         LeaseOwner = null;
-        LeaseExpiresAtUtc = null;
+        LeaseExpiresAt = null;
     }
 
     public void MarkFailed(string error)
     {
         Error = error;
         LeaseOwner = null;
-        LeaseExpiresAtUtc = null;
+        LeaseExpiresAt = null;
     }
 }

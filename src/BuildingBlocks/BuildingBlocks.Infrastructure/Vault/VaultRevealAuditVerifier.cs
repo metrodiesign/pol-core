@@ -35,7 +35,7 @@ public sealed class VaultRevealAuditVerifier : IVaultRevealAuditVerifier
                 return new VaultAuditVerifyResult(tenantId, false, row.Seq,
                     "PrevHash does not match the prior row's hash (chain broken).");
 
-            var recomputed = VaultRevealAudit.ComputeHash(row.PrevHash, tenantId, row.SecretName, row.Seq, row.RevealedAtUtc);
+            var recomputed = VaultRevealAudit.ComputeHash(row.PrevHash, tenantId, row.SecretName, row.Seq, row.RevealedAt);
             if (!row.Hash.AsSpan().SequenceEqual(recomputed))
                 return new VaultAuditVerifyResult(tenantId, false, row.Seq,
                     "Row hash does not match its contents (row edited).");

@@ -14,7 +14,7 @@ public sealed record CheckoutConfirmed(
     long AmountMinorUnits,
     string Currency,
     string? Recipient,
-    DateTime OccurredAtUtc) : INotification
+    DateTime OccurredAt) : INotification
 {
     public const string SchemaVersion = "v1";
 }

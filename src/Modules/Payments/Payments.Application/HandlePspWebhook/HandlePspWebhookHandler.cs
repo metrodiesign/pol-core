@@ -86,8 +86,8 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
                     ?? throw new InvalidOperationException(
                         $"No PaymentSession for {pspCode} charge {evt.ExternalChargeId}.");
 
-                var occurredAtUtc = _clock.UtcNow;
-                session.MarkPaid(evt.ExternalChargeId, occurredAtUtc);
+                var occurredAt = _clock.UtcNow;
+                session.MarkPaid(evt.ExternalChargeId, occurredAt);
 
                 _outbox.Enqueue(new PaymentPaid(
                     session.Id,
@@ -97,7 +97,7 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
                     pspCode,
                     evt.ExternalChargeId,
                     evt.EventId,
-                    occurredAtUtc));
+                    occurredAt));
 
                 await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
                 return WebhookOutcome.Processed;

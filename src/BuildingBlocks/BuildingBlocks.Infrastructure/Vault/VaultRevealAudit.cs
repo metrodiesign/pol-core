@@ -19,7 +19,7 @@ public sealed class VaultRevealAudit
     public long Seq { get; private set; }
     public byte[] PrevHash { get; private set; } = default!;
     public byte[] Hash { get; private set; } = default!;
-    public DateTime RevealedAtUtc { get; private set; }
+    public DateTime RevealedAt { get; private set; }
 
     private VaultRevealAudit() { }
 
@@ -33,7 +33,7 @@ public sealed class VaultRevealAudit
             SecretName = secretName,
             Seq = seq,
             PrevHash = prevHash,
-            RevealedAtUtc = utcNow,
+            RevealedAt = utcNow,
             Hash = ComputeHash(prevHash, tenantId, secretName, seq, utcNow),
         };
 

@@ -34,9 +34,9 @@ public sealed class PaymentSession : AggregateRoot<Guid>
     /// <summary>The hosted redirect URL the browser is sent to. Set once at attach time.</summary>
     public string? RedirectUrl { get; private set; }
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
-    public DateTime UpdatedAtUtc { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
 
     /// <summary>Optimistic-concurrency token (mapped as a SQL Server rowversion). It serialises the
     /// redirect claim so two concurrent <c>StartRedirect</c> requests cannot both create a PSP charge
@@ -56,7 +56,7 @@ public sealed class PaymentSession : AggregateRoot<Guid>
         Money amount,
         string method,
         PspCode psp,
-        DateTime createdAtUtc)
+        DateTime createdAt)
         : base(id)
     {
         TenantId = tenantId;
@@ -66,8 +66,8 @@ public sealed class PaymentSession : AggregateRoot<Guid>
         Method = method;
         Psp = psp;
         Status = PaymentStatus.Created;
-        CreatedAtUtc = createdAtUtc;
-        UpdatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
+        UpdatedAt = createdAt;
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ public sealed class PaymentSession : AggregateRoot<Guid>
         Money amount,
         string method,
         PspCode psp,
-        DateTime createdAtUtc)
+        DateTime createdAt)
     {
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
@@ -88,7 +88,7 @@ public sealed class PaymentSession : AggregateRoot<Guid>
             throw new ArgumentException("OrderId is required.", nameof(orderId));
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
-        return new PaymentSession(Guid.NewGuid(), tenantId, orderId, amount, method.Trim(), psp, createdAtUtc);
+        return new PaymentSession(Guid.NewGuid(), tenantId, orderId, amount, method.Trim(), psp, createdAt);
     }
 
     /// <summary>
@@ -97,14 +97,14 @@ public sealed class PaymentSession : AggregateRoot<Guid>
     /// concurrency token) BEFORE the PSP charge is created, so only one concurrent request proceeds to
     /// call the PSP — the loser's save fails the concurrency check and never creates a charge (PLAN #11).
     /// </summary>
-    public void BeginRedirect(DateTime occurredAtUtc)
+    public void BeginRedirect(DateTime occurredAt)
     {
         if (Status != PaymentStatus.Created)
             throw new InvalidOperationException(
                 $"PaymentSession {Id} cannot begin a redirect from status {Status}.");
 
         Status = PaymentStatus.Redirected;
-        UpdatedAtUtc = occurredAtUtc;
+        UpdatedAt = occurredAt;
     }
 
     /// <summary>
@@ -112,7 +112,7 @@ public sealed class PaymentSession : AggregateRoot<Guid>
     /// (PLAN #11 — no double-charge). Requires <see cref="PaymentStatus.Redirected"/> and throws if a
     /// charge is already attached.
     /// </summary>
-    public void SetPspCharge(string externalChargeId, string redirectUrl, DateTime occurredAtUtc)
+    public void SetPspCharge(string externalChargeId, string redirectUrl, DateTime occurredAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(externalChargeId);
         ArgumentException.ThrowIfNullOrWhiteSpace(redirectUrl);
@@ -126,7 +126,7 @@ public sealed class PaymentSession : AggregateRoot<Guid>
 
         PspExternalChargeId = externalChargeId;
         RedirectUrl = redirectUrl;
-        UpdatedAtUtc = occurredAtUtc;
+        UpdatedAt = occurredAt;
     }
 
     /// <summary>
@@ -134,7 +134,7 @@ public sealed class PaymentSession : AggregateRoot<Guid>
     /// to <see cref="PaymentStatus.Paid"/>. Idempotent: a repeat call with the same external charge id
     /// when already <see cref="PaymentStatus.Paid"/> is a no-op (the webhook path can re-confirm).
     /// </summary>
-    public void MarkPaid(string externalChargeId, DateTime occurredAtUtc)
+    public void MarkPaid(string externalChargeId, DateTime occurredAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(externalChargeId);
 
@@ -157,11 +157,11 @@ public sealed class PaymentSession : AggregateRoot<Guid>
                 $"PaymentSession {Id} charge mismatch: attached {PspExternalChargeId}, confirmed {externalChargeId}.");
 
         Status = PaymentStatus.Paid;
-        UpdatedAtUtc = occurredAtUtc;
+        UpdatedAt = occurredAt;
     }
 
     /// <summary>Guarded transition to <see cref="PaymentStatus.Failed"/> from a non-terminal state.</summary>
-    public void MarkFailed(string reason, DateTime occurredAtUtc)
+    public void MarkFailed(string reason, DateTime occurredAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
 
@@ -170,17 +170,17 @@ public sealed class PaymentSession : AggregateRoot<Guid>
                 $"PaymentSession {Id} cannot be marked Failed from terminal status {Status}.");
 
         Status = PaymentStatus.Failed;
-        UpdatedAtUtc = occurredAtUtc;
+        UpdatedAt = occurredAt;
     }
 
     /// <summary>Guarded transition to <see cref="PaymentStatus.Expired"/> from a non-terminal state.</summary>
-    public void MarkExpired(DateTime occurredAtUtc)
+    public void MarkExpired(DateTime occurredAt)
     {
         if (Status is PaymentStatus.Paid or PaymentStatus.Failed or PaymentStatus.Expired)
             throw new InvalidOperationException(
                 $"PaymentSession {Id} cannot be marked Expired from terminal status {Status}.");
 
         Status = PaymentStatus.Expired;
-        UpdatedAtUtc = occurredAtUtc;
+        UpdatedAt = occurredAt;
     }
 }

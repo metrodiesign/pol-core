@@ -18,23 +18,23 @@ public sealed class ProvisioningAudit : Entity<Guid>
 
     public string CorrelationId { get; private set; } = default!;
 
-    public DateTime OccurredAtUtc { get; private set; }
+    public DateTime OccurredAt { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private ProvisioningAudit() { }
 
     private ProvisioningAudit(Guid id, Guid tenantId, string tenantCode, string adminSubject,
-        string correlationId, DateTime occurredAtUtc) : base(id)
+        string correlationId, DateTime occurredAt) : base(id)
     {
         TenantId = tenantId;
         TenantCode = tenantCode;
         AdminSubject = adminSubject;
         CorrelationId = correlationId;
-        OccurredAtUtc = occurredAtUtc;
+        OccurredAt = occurredAt;
     }
 
     public static ProvisioningAudit Create(Guid tenantId, string tenantCode, string adminSubject,
-        string correlationId, DateTime occurredAtUtc)
+        string correlationId, DateTime occurredAt)
     {
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
@@ -42,6 +42,6 @@ public sealed class ProvisioningAudit : Entity<Guid>
         ArgumentException.ThrowIfNullOrWhiteSpace(adminSubject);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
 
-        return new ProvisioningAudit(Guid.NewGuid(), tenantId, tenantCode, adminSubject, correlationId, occurredAtUtc);
+        return new ProvisioningAudit(Guid.NewGuid(), tenantId, tenantCode, adminSubject, correlationId, occurredAt);
     }
 }

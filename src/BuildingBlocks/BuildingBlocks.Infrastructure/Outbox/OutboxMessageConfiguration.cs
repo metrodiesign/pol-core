@@ -16,6 +16,6 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.Property(x => x.Error).HasMaxLength(2048);
 
         // Dispatcher hot path: unprocessed rows ordered by arrival.
-        builder.HasIndex(x => new { x.ProcessedAtUtc, x.LeaseExpiresAtUtc });
+        builder.HasIndex(x => new { x.ProcessedAt, x.LeaseExpiresAt });
     }
 }

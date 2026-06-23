@@ -19,9 +19,9 @@ public sealed class OrderSummaryTests
         var order = NewOrder();
 
         Assert.False(string.IsNullOrWhiteSpace(order.SummaryToken));
-        Assert.Equal(At + Order.SummaryTokenTtl, order.SummaryTokenExpiresAtUtc);
+        Assert.Equal(At + Order.SummaryTokenTtl, order.SummaryTokenExpiresAt);
         Assert.False(order.IsSummaryExpired(At));
-        Assert.True(order.IsSummaryExpired(order.SummaryTokenExpiresAtUtc));
+        Assert.True(order.IsSummaryExpired(order.SummaryTokenExpiresAt));
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class OrderSummaryTests
         order.ReissueSummary(later);
 
         Assert.NotEqual(oldToken, order.SummaryToken);
-        Assert.Equal(later + Order.SummaryTokenTtl, order.SummaryTokenExpiresAtUtc);
+        Assert.Equal(later + Order.SummaryTokenTtl, order.SummaryTokenExpiresAt);
     }
 
     [Fact]

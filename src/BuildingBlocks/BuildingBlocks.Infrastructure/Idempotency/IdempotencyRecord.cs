@@ -11,15 +11,15 @@ public sealed class IdempotencyRecord
     /// tenant principal can neither read nor poison another tenant's idempotency keys.</summary>
     public Guid TenantId { get; private set; }
     public string Context { get; private set; } = default!;
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     private IdempotencyRecord() { }
 
-    public IdempotencyRecord(string key, Guid tenantId, string context, DateTime createdAtUtc)
+    public IdempotencyRecord(string key, Guid tenantId, string context, DateTime createdAt)
     {
         Key = key;
         TenantId = tenantId;
         Context = context;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 }

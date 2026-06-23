@@ -14,7 +14,7 @@ public sealed record TenantView(
     string Currency,
     string EnabledChannels,
     JsonElement? Metadata,
-    DateTime CreatedAtUtc,
+    DateTime CreatedAt,
     IReadOnlyList<TenantConnectionView> Connections);
 
 /// <summary><see cref="EnabledMethods"/> + <see cref="Config"/> + <see cref="MerchantId"/> are the verbatim

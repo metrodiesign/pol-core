@@ -33,7 +33,7 @@ public sealed class OrderSummaryReader : IOrderSummaryReader
 
         var r = rows[0];
         return new OrderSummary(
-            r.Id, r.AmountMinorUnits, r.AmountCurrency, ((OrderStatus)r.Status).ToString(), r.PaymentSessionId, r.SummaryTokenExpiresAtUtc);
+            r.Id, r.AmountMinorUnits, r.AmountCurrency, ((OrderStatus)r.Status).ToString(), r.PaymentSessionId, r.SummaryTokenExpiresAt);
     }
 }
 
@@ -46,5 +46,5 @@ public sealed class OrderSummaryRow
     public string AmountCurrency { get; set; } = default!;
     public int Status { get; set; }
     public Guid? PaymentSessionId { get; set; }
-    public DateTime SummaryTokenExpiresAtUtc { get; set; }
+    public DateTime SummaryTokenExpiresAt { get; set; }
 }

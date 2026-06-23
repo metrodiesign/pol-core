@@ -26,7 +26,7 @@ public sealed class OrderMarkPaidTests
 
         Assert.True(transitioned);
         Assert.Equal(OrderStatus.Paid, order.Status);
-        Assert.Equal(At.AddMinutes(1), order.PaidAtUtc);
+        Assert.Equal(At.AddMinutes(1), order.PaidAt);
         Assert.Single(order.DomainEvents);
         Assert.IsType<OrderPaid>(Assert.Single(order.DomainEvents));
     }

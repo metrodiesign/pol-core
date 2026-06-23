@@ -10,7 +10,7 @@ namespace Orders.Application;
 public sealed record ResendOrderSummaryCommand(Guid OrderId, Guid TenantId)
     : ICommand<ResendOrderSummaryResult>, ITenantScoped;
 
-public sealed record ResendOrderSummaryResult(string SummaryToken, DateTime ExpiresAtUtc);
+public sealed record ResendOrderSummaryResult(string SummaryToken, DateTime ExpiresAt);
 
 public sealed class ResendOrderSummaryHandler : ICommandHandler<ResendOrderSummaryCommand, ResendOrderSummaryResult>
 {
@@ -42,6 +42,6 @@ public sealed class ResendOrderSummaryHandler : ICommandHandler<ResendOrderSumma
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return new ResendOrderSummaryResult(order.SummaryToken, order.SummaryTokenExpiresAtUtc);
+        return new ResendOrderSummaryResult(order.SummaryToken, order.SummaryTokenExpiresAt);
     }
 }

@@ -42,7 +42,7 @@ public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
 
         // Re-verifies amount + currency; returns false (no transition) if the order is already Paid,
         // so a replayed event is an idempotent no-op skip.
-        var transitioned = order.MarkPaid(notification.Amount, notification.OccurredAtUtc);
+        var transitioned = order.MarkPaid(notification.Amount, notification.OccurredAt);
 
         // ponytail: replay (already Paid) is a deliberate skip — see logging note above.
         if (!transitioned)

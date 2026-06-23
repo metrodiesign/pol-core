@@ -29,7 +29,7 @@ public sealed class Tenant : AggregateRoot<Guid>
     /// <summary>Comma-separated channel codes, stored verbatim (no semantic validation in this scope).</summary>
     public string EnabledChannels { get; private set; } = default!;
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     /// <summary>Flexible non-secret config (branding/routing/session/timezone/locale/...) as JSON.</summary>
     public string Metadata { get; private set; } = default!;
@@ -38,7 +38,7 @@ public sealed class Tenant : AggregateRoot<Guid>
     private Tenant() { }
 
     private Tenant(Guid id, string code, string displayName, string legalEntityId, string country,
-        string currency, string enabledChannels, string metadata, DateTime createdAtUtc) : base(id)
+        string currency, string enabledChannels, string metadata, DateTime createdAt) : base(id)
     {
         Code = code;
         DisplayName = displayName;
@@ -48,7 +48,7 @@ public sealed class Tenant : AggregateRoot<Guid>
         EnabledChannels = enabledChannels;
         Metadata = metadata;
         Status = TenantStatus.Active;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 
     /// <summary>
@@ -56,7 +56,7 @@ public sealed class Tenant : AggregateRoot<Guid>
     /// and metadata are stored verbatim (no semantic validation — that is the Method router's job).
     /// </summary>
     public static Tenant Create(string code, string displayName, string legalEntityId, string country,
-        string currency, IReadOnlyList<string>? enabledChannels, string? metadataJson, DateTime createdAtUtc)
+        string currency, IReadOnlyList<string>? enabledChannels, string? metadataJson, DateTime createdAt)
     {
         var normalizedCode = TenantCode.Normalize(code);
         if (!TenantCode.IsAllowed(normalizedCode))
@@ -80,6 +80,6 @@ public sealed class Tenant : AggregateRoot<Guid>
             : string.Join(',', enabledChannels.Select(c => c.Trim()).Where(c => c.Length > 0));
 
         return new Tenant(Guid.NewGuid(), normalizedCode, displayName.Trim(), legalEntityId.Trim(),
-            normalizedCountry, normalizedCurrency, channels, metadataJson ?? "{}", createdAtUtc);
+            normalizedCountry, normalizedCurrency, channels, metadataJson ?? "{}", createdAt);
     }
 }

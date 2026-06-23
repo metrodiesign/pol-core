@@ -22,34 +22,34 @@ public sealed class AdminAccount : AggregateRoot<Guid>
 
     public AdminStatus Status { get; private set; }
 
-    public DateTime CreatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
 
     private AdminAccount() { }
 
-    private AdminAccount(Guid id, string? subject, string email, AdminTier tier, DateTime createdAtUtc) : base(id)
+    private AdminAccount(Guid id, string? subject, string email, AdminTier tier, DateTime createdAt) : base(id)
     {
         Subject = subject;
         Email = email;
         Tier = tier;
         Status = AdminStatus.Active;
-        CreatedAtUtc = createdAtUtc;
+        CreatedAt = createdAt;
     }
 
     /// <summary>The first Super Admin bootstrapping from the config allowlist on first login (REQ-5.1). The
     /// subject is bound immediately (the caller has authenticated).</summary>
-    public static AdminAccount SelfProvision(string subject, string email, DateTime createdAtUtc)
+    public static AdminAccount SelfProvision(string subject, string email, DateTime createdAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new AdminAccount(Guid.NewGuid(), subject.Trim(), email.Trim(), AdminTier.Super, createdAtUtc);
+        return new AdminAccount(Guid.NewGuid(), subject.Trim(), email.Trim(), AdminTier.Super, createdAt);
     }
 
     /// <summary>A Scoped admin invited by a Super (REQ-3.4): keyed by verified email, with an unbound
     /// <see cref="Subject"/> until the invitee's first login.</summary>
-    public static AdminAccount CreateScoped(string email, DateTime createdAtUtc)
+    public static AdminAccount CreateScoped(string email, DateTime createdAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new AdminAccount(Guid.NewGuid(), subject: null, email.Trim(), AdminTier.Scoped, createdAtUtc);
+        return new AdminAccount(Guid.NewGuid(), subject: null, email.Trim(), AdminTier.Scoped, createdAt);
     }
 
     /// <summary>Binds the Google subject to an invited account on its first login (REQ-3.5). Idempotent

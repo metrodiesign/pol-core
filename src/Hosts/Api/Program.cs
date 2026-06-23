@@ -335,7 +335,7 @@ app.MapGet("/orders/{token}/summary", async (
     var summary = await reader.GetByTokenAsync(token, ct);
     if (summary is null)
         return Results.NotFound();
-    if (clock.UtcNow >= summary.ExpiresAtUtc)
+    if (clock.UtcNow >= summary.ExpiresAt)
         return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
 
     return Results.Ok(new OrderSummaryResponse(

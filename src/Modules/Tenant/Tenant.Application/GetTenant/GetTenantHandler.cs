@@ -44,7 +44,7 @@ public sealed class GetTenantHandler : IQueryHandler<GetTenantQuery, TenantView>
 
         return new TenantView(tenant.Id, tenant.Code, tenant.DisplayName, tenant.LegalEntityId,
             tenant.Status.ToString(), tenant.Country, tenant.Currency, tenant.EnabledChannels,
-            ParseJson(tenant.Metadata), tenant.CreatedAtUtc, connectionViews);
+            ParseJson(tenant.Metadata), tenant.CreatedAt, connectionViews);
     }
 
     /// <summary>Projects the connection's stored metadata for read-back (REQ-9.1): the non-secret config +

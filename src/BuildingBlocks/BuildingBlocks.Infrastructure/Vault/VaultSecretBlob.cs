@@ -13,8 +13,8 @@ public sealed class VaultSecretBlob
     public byte[] EncryptedDek { get; private set; } = default!;
     public byte[] EncryptedSecret { get; private set; } = default!;
     public string Hint { get; private set; } = default!;
-    public DateTime CreatedAtUtc { get; private set; }
-    public DateTime UpdatedAtUtc { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
 
     private VaultSecretBlob() { }
 
@@ -33,8 +33,8 @@ public sealed class VaultSecretBlob
         EncryptedDek = encryptedDek;
         EncryptedSecret = encryptedSecret;
         Hint = hint;
-        CreatedAtUtc = utcNow;
-        UpdatedAtUtc = utcNow;
+        CreatedAt = utcNow;
+        UpdatedAt = utcNow;
     }
 
     /// <summary>Overwrites the secret with a new value, re-encrypted under the current active key.</summary>
@@ -44,7 +44,7 @@ public sealed class VaultSecretBlob
         KeyId = keyId;
         EncryptedSecret = encryptedSecret;
         Hint = hint;
-        UpdatedAtUtc = utcNow;
+        UpdatedAt = utcNow;
     }
 
     /// <summary>Re-wraps the DEK under a new master key (master-key rotation): only the wrapped DEK and the
@@ -53,6 +53,6 @@ public sealed class VaultSecretBlob
     {
         EncryptedDek = encryptedDek;
         KeyId = keyId;
-        UpdatedAtUtc = utcNow;
+        UpdatedAt = utcNow;
     }
 }

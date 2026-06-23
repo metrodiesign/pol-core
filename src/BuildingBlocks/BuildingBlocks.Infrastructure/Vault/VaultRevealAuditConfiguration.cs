@@ -14,7 +14,7 @@ public sealed class VaultRevealAuditConfiguration : IEntityTypeConfiguration<Vau
         builder.Property(x => x.Seq).IsRequired();
         builder.Property(x => x.PrevHash).HasColumnType("varbinary(32)").IsRequired();
         builder.Property(x => x.Hash).HasColumnType("varbinary(32)").IsRequired();
-        builder.Property(x => x.RevealedAtUtc).IsRequired();
+        builder.Property(x => x.RevealedAt).IsRequired();
 
         // Per-tenant monotonic sequence: a unique (TenantId, Seq) makes a concurrent fork fail loudly and
         // a deletion leave a detectable gap. (TenantId, Id) walks the chain in append order for verify.

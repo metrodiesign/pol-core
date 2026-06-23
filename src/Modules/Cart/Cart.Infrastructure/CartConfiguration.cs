@@ -18,7 +18,7 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<CartAggregate>
 
         builder.Property(x => x.TenantId).IsRequired();
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
-        builder.Property(x => x.CreatedAtUtc).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
 
         builder.Ignore(x => x.Subtotal);
         builder.Ignore(x => x.DomainEvents);

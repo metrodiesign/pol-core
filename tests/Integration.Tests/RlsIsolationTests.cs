@@ -96,7 +96,7 @@ public sealed class RlsIsolationTests
         await using var a = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
 
         const string insert =
-            "INSERT producer.OutboxMessages (Id,TenantId,Type,Payload,OccurredAtUtc,Attempts) " +
+            "INSERT producer.OutboxMessages (Id,TenantId,Type,Payload,OccurredAt,Attempts) " +
             "VALUES (@id,@t,N'T',N'{}',SYSUTCDATETIME(),0)";
 
         // Own tenant: allowed.

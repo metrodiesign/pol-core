@@ -35,12 +35,12 @@ public sealed class AdminAccountAudit : Entity<Guid>
 
     public string CorrelationId { get; private set; } = default!;
 
-    public DateTime OccurredAtUtc { get; private set; }
+    public DateTime OccurredAt { get; private set; }
 
     private AdminAccountAudit() { }
 
     private AdminAccountAudit(Guid id, string action, Guid actorId, Guid? targetAdminId, Guid? tenantId,
-        string correlationId, DateTime occurredAtUtc) : base(id)
+        string correlationId, DateTime occurredAt) : base(id)
     {
         Action = action;
         ActorType = "admin";
@@ -48,18 +48,18 @@ public sealed class AdminAccountAudit : Entity<Guid>
         TargetAdminId = targetAdminId;
         TenantId = tenantId;
         CorrelationId = correlationId;
-        OccurredAtUtc = occurredAtUtc;
+        OccurredAt = occurredAt;
     }
 
     /// <summary>Builds an audit row for one of <see cref="AdminAuditAction"/>. <paramref name="actorId"/> is the
     /// acting admin (for self-provision, the admin's own id); the optional target/tenant locate the subject.</summary>
-    public static AdminAccountAudit For(string action, Guid actorId, string correlationId, DateTime occurredAtUtc,
+    public static AdminAccountAudit For(string action, Guid actorId, string correlationId, DateTime occurredAt,
         Guid? targetAdminId = null, Guid? tenantId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
         if (actorId == Guid.Empty)
             throw new ArgumentException("ActorId is required.", nameof(actorId));
-        return new AdminAccountAudit(Guid.NewGuid(), action, actorId, targetAdminId, tenantId, correlationId, occurredAtUtc);
+        return new AdminAccountAudit(Guid.NewGuid(), action, actorId, targetAdminId, tenantId, correlationId, occurredAt);
     }
 }

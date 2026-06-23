@@ -24,7 +24,7 @@ public sealed class TenantConfiguration : IEntityTypeConfiguration<DomainTenant>
         builder.Property(x => x.Currency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.EnabledChannels).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Metadata).HasColumnType("nvarchar(max)").IsRequired();
-        builder.Property(x => x.CreatedAtUtc).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
 
         builder.HasIndex(x => x.Code).IsUnique();
     }

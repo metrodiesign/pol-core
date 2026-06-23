@@ -13,7 +13,7 @@ public sealed record CustomerOrderNotification(
     Guid OrderId,
     string Recipient,
     string SummaryToken,
-    DateTime OccurredAtUtc) : INotification
+    DateTime OccurredAt) : INotification
 {
     public const string SchemaVersion = "v1";
 }

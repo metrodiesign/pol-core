@@ -15,7 +15,7 @@
 | .NET / ASP.NET Core | **10** (LTS) | runtime + web |
 | C# | **14** | เปิด nullable + type checking เข้มสุด |
 | EF Core | **10** (align กับ .NET 10) | ORM |
-| SQL Server | **2025 Standard** | เก็บ UTC (`...Utc`) · schema เดียว `producer`; admin = control-plane tables ในนั้น (ไม่มี RLS predicate, pol_admin only), producer = data-plane (RLS) |
+| SQL Server | **2025 Standard** | เก็บ UTC เสมอ (datetime2; field/column **ไม่ใส่** suffix `Utc` — ตั้งชื่อ `CreatedAt`/`UpdatedAt`/`OccurredAt`/...) · schema เดียว `producer`; admin = control-plane tables ในนั้น (ไม่มี RLS predicate, pol_admin only), producer = data-plane (RLS) |
 | martinothamar/Mediator | **3.0.1** | in-process command/query/handler + pipeline behaviors (3.0.0 ไม่ publish) |
 | Omise API | `apiVersion` **2019-05-29** | external PSP API (ต่อ tenant, จาก config) |
 

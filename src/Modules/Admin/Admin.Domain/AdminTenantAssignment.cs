@@ -11,25 +11,25 @@ public sealed class AdminTenantAssignment : Entity<Guid>
     public Guid AdminAccountId { get; private set; }
     public Guid TenantId { get; private set; }
     public Guid AssignedByAdminId { get; private set; }
-    public DateTime AssignedAtUtc { get; private set; }
+    public DateTime AssignedAt { get; private set; }
 
     private AdminTenantAssignment() { }
 
-    private AdminTenantAssignment(Guid id, Guid adminAccountId, Guid tenantId, Guid assignedByAdminId, DateTime assignedAtUtc)
+    private AdminTenantAssignment(Guid id, Guid adminAccountId, Guid tenantId, Guid assignedByAdminId, DateTime assignedAt)
         : base(id)
     {
         AdminAccountId = adminAccountId;
         TenantId = tenantId;
         AssignedByAdminId = assignedByAdminId;
-        AssignedAtUtc = assignedAtUtc;
+        AssignedAt = assignedAt;
     }
 
-    public static AdminTenantAssignment Create(Guid adminAccountId, Guid tenantId, Guid assignedByAdminId, DateTime assignedAtUtc)
+    public static AdminTenantAssignment Create(Guid adminAccountId, Guid tenantId, Guid assignedByAdminId, DateTime assignedAt)
     {
         if (adminAccountId == Guid.Empty)
             throw new ArgumentException("AdminAccountId is required.", nameof(adminAccountId));
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
-        return new AdminTenantAssignment(Guid.NewGuid(), adminAccountId, tenantId, assignedByAdminId, assignedAtUtc);
+        return new AdminTenantAssignment(Guid.NewGuid(), adminAccountId, tenantId, assignedByAdminId, assignedAt);
     }
 }

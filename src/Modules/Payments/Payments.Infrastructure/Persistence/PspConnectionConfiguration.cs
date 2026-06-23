@@ -23,7 +23,7 @@ public sealed class PspConnectionConfiguration : IEntityTypeConfiguration<PspCon
         // stored here as JSON; the full Omise payload can exceed 4000 chars, so use nvarchar(max).
         builder.Property(x => x.Metadata).HasColumnType("nvarchar(max)");
         builder.Property(x => x.IsEnabled).IsRequired();
-        builder.Property(x => x.CreatedAtUtc).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
 
         builder.HasIndex(x => new { x.TenantId, x.Psp }).IsUnique();
     }

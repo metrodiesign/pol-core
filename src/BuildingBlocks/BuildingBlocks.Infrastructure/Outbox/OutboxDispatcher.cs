@@ -75,11 +75,11 @@ public sealed class OutboxDispatcher : BackgroundService
             var leaseUntil = clock.UtcNow.Add(LeaseDuration);
             const string leaseSql = """
                 UPDATE TOP ({0}) o
-                SET o.LeaseOwner = {1}, o.LeaseExpiresAtUtc = {2}, o.Attempts = o.Attempts + 1
+                SET o.LeaseOwner = {1}, o.LeaseExpiresAt = {2}, o.Attempts = o.Attempts + 1
                 OUTPUT inserted.Id AS [Value]
                 FROM producer.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
-                WHERE o.ProcessedAtUtc IS NULL
-                  AND (o.LeaseExpiresAtUtc IS NULL OR o.LeaseExpiresAtUtc < {3})
+                WHERE o.ProcessedAt IS NULL
+                  AND (o.LeaseExpiresAt IS NULL OR o.LeaseExpiresAt < {3})
                   AND o.Attempts < {4};
                 """;
 
