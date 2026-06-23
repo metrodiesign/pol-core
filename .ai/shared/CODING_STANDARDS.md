@@ -15,7 +15,7 @@
 | .NET / ASP.NET Core | **10** (LTS) | runtime + web |
 | C# | **14** | เปิด nullable + type checking เข้มสุด |
 | EF Core | **10** (align กับ .NET 10) | ORM |
-| SQL Server | **2025 Standard** | เก็บ UTC (`...Utc`) · 2 schema แยก: `admin`, `producer` |
+| SQL Server | **2025 Standard** | เก็บ UTC (`...Utc`) · schema เดียว `producer`; admin = control-plane tables ในนั้น (ไม่มี RLS predicate, pol_admin only), producer = data-plane (RLS) |
 | martinothamar/Mediator | **3.0.1** | in-process command/query/handler + pipeline behaviors (3.0.0 ไม่ publish) |
 | Omise API | `apiVersion` **2019-05-29** | external PSP API (ต่อ tenant, จาก config) |
 
@@ -50,7 +50,7 @@ gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet t
 - **Wire format คนละ convention:** JSON property = **camelCase** (`JsonNamingPolicy.CamelCase` ตั้งครั้งเดียว) · JWT/OIDC claim = ตามสเปก (`iss`/`aud`/`sub`/`hd`/`email_verified`)
 - **ค่า code string เสถียร** (แยกจากชื่อ enum): `"2c2p"`/`"omise"` · `"card"`/`"promptpay"`/`"installment"`
 - **ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ:** Omise source types (`installment_kbank`...), `authorize_uri`, `return_uri`, event `charge.complete` — ห้ามเปลี่ยน
-- canonical entities: `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `TenantUser` · `AdminUser` · `ExternalLogin` · `RegistrationTicket` · `Profile`
+- canonical entities: `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `TenantUser` (producer actor; rename -> `ProducerAccount` deferred) · `AdminAccount` · `AdminTenantAssignment` · `AdminAccountAudit` · `ExternalLogin` · `RegistrationTicket` · `Profile`
 - ถ้าจะใช้ snake_case ใน DB → ตั้ง global convention ครั้งเดียว (`UseSnakeCaseNamingConvention()`) อย่าสลับมือทีละตาราง
 
 ---

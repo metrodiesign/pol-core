@@ -13,6 +13,11 @@
     <Project Path="src/Hosts/Worker/Worker.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Admin/">
+    <Project Path="src/Modules/Admin/Admin.Application/Admin.Application.csproj" />
+    <Project Path="src/Modules/Admin/Admin.Domain/Admin.Domain.csproj" />
+    <Project Path="src/Modules/Admin/Admin.Infrastructure/Admin.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Cart/">
     <Project Path="src/Modules/Cart/Cart.Application/Cart.Application.csproj" />
     <Project Path="src/Modules/Cart/Cart.Domain/Cart.Domain.csproj" />
@@ -49,6 +54,7 @@
     <Project Path="src/Modules/Tenant/Tenant.Infrastructure/Tenant.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Admin.Tests/Admin.Tests.csproj" />
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.Tests/BuildingBlocks.Tests.csproj" />
     <Project Path="tests/Cart.Tests/Cart.Tests.csproj" />

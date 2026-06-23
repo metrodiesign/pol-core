@@ -45,6 +45,9 @@
     <ProjectReference Include="..\..\src\Modules\Identity\Identity.Domain\Identity.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\Identity.Application\Identity.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Admin\Admin.Domain\Admin.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Admin\Admin.Application\Admin.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Admin\Admin.Infrastructure\Admin.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

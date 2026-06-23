@@ -19,6 +19,8 @@
     <ProjectReference Include="..\..\Modules\Tenant\Tenant.Infrastructure\Tenant.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Identity\Identity.Application\Identity.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Identity\Identity.Infrastructure\Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Admin\Admin.Application\Admin.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Admin\Admin.Infrastructure\Admin.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

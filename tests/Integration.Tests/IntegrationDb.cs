@@ -106,6 +106,17 @@ internal static class IntegrationDb
             ("@role", tenantId is null ? DBNull.Value : (object)1),
             ("@status", status));
 
+    /// <summary>Inserts an admin account (control-plane). A null <paramref name="subject"/> models an invited
+    /// Scoped account before its first login binds it (the filtered unique index exempts NULL subjects).
+    /// Tier: Scoped=0, Super=1. Status: Active=0, Suspended=1.</summary>
+    public static Task InsertAdminAccountAsync(SqlConnection c, Guid id, string? subject, string email, int tier, int status) =>
+        ExecAsync(c,
+            """
+            INSERT producer.AdminAccounts (Id, Subject, Email, Tier, Status, CreatedAtUtc)
+            VALUES (@id, @sub, @email, @tier, @status, SYSUTCDATETIME());
+            """,
+            ("@id", id), ("@sub", (object?)subject ?? DBNull.Value), ("@email", email), ("@tier", tier), ("@status", status));
+
     private static string? Get(string key) => Environment.GetEnvironmentVariable(key);
 
     private static string Require(string key) =>

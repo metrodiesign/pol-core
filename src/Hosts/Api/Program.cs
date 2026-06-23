@@ -7,6 +7,13 @@ using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
+using Admin.Application;
+using Admin.Application.AssignTenant;
+using Admin.Application.CreateScopedAdmin;
+using Admin.Application.SuspendAdmin;
+using Admin.Application.UnassignTenant;
+using Admin.Domain;
+using Admin.Infrastructure;
 using Cart.Application;
 using Cart.Infrastructure;
 using Checkout.Application;
@@ -98,6 +105,12 @@ builder.Services.AddTenantAdminScope(adminConnString);
 // before a tenant is bound, so it needs the RLS-bypass connection.
 builder.Services.AddIdentityAdminScope();
 
+// Admin identity (control plane: AdminAccounts/assignments/audit) — a separate module from Identity (the
+// producer-side actor). Its EF configs live in the producer schema but are control-plane (pol_admin only);
+// resolution/provisioning run cross-tenant, so the seams bind to the same pol_admin keyed scope.
+builder.Services.AddAdminModule();
+builder.Services.AddAdminIdentity();
+
 // Tenant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
@@ -141,6 +154,17 @@ var app = builder.Build();
 // singletons, so this explicit resolve is what delivers the boot-time custody guarantee.
 _ = app.Services.GetRequiredService<VaultKeyring>();
 
+// REQ-5.4 fail-closed signal: outside Development, an empty admin allowlist means Super-admin bootstrap is
+// disabled — the first-admin self-provision will be denied. Existing admins are unaffected (the allowlist is
+// a bootstrap-only gate, REQ-5.7), so this warns rather than crash-loops a healthy host.
+if (!app.Environment.IsDevelopment()
+    && (app.Configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? []).Length == 0)
+{
+    app.Logger.LogWarning(
+        "AdminAllowlist:Subjects is empty — Super-admin bootstrap is disabled (first-admin self-provision will " +
+        "be denied, fail-closed). Set AdminAllowlist__Subjects__0 to bootstrap the first Super admin.");
+}
+
 // Order matters: correlation id OUTERMOST so the logging scope is still active when the exception handler
 // logs a failure (the scope is popped as the exception unwinds, so it must wrap UseExceptionHandler); the
 // exception handler then wraps auth + the endpoints; rate limiter before the mapped endpoints run.
@@ -160,6 +184,11 @@ app.UseAuthorization();
 // Bind the ambient tenant from the caller's platform TenantUser (reference 2.5), not from the token.
 // Runs after authorization so the principal exists; binds nothing for non-tenant callers / applicants.
 app.UseMiddleware<TenantUserResolutionMiddleware>();
+
+// Resolve the platform admin for an admin-SPA caller (REQ-5/6): bootstrap/bind on first login, materialize
+// the accessible-tenant set + admin_tier claim into IAdminScope, deny (403) an unresolvable or suspended
+// admin. Runs alongside the tenant resolver (the two are exclusive by the "admin"/"tenant" role claim).
+app.UseMiddleware<AdminResolutionMiddleware>();
 
 // Liveness (process only) + readiness (DB + vault), anonymous, minimal body — no topology leak.
 app.MapPolHealthChecks();
@@ -373,15 +402,19 @@ app.MapPost("/admin/tenants", async (
     // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
-}).RequireAuthorization("admin"); // admin-SPA audience only (tenant-SPA tokens get 403)
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super); // provisioning is Super-only (REQ-8.4)
 
+// Cross-tenant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned tenants, a
+// Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak).
 app.MapGet("/admin/tenants/{code}", async (
     string code,
-    IMediator mediator,
+    IAdminQuery adminQuery,
     CancellationToken ct) =>
 {
-    var view = await mediator.Send(new GetTenantQuery(code), ct);
-    return TypedResults.Ok(view);
+    var view = await adminQuery.GetTenantByCodeAsync(code, ct);
+    return view is null
+        ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
+        : Results.Ok(view);
 }).RequireAuthorization("admin");
 
 // --- Identity: self-service registration + admin approval (reference 2.5) ---
@@ -411,18 +444,94 @@ app.MapPost("/registrations/complete", async (
 // Admin approves a pending user onto a tenant the admin selects, with a role. AdminSubject + correlation id
 // are taken server-side. TenantId/Role come ONLY from the admin's request — never from the applicant.
 app.MapPost("/admin/tenant-users/{subject}/approve", async (
-    string subject, ApproveTenantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
+    string subject, ApproveTenantUserRequest body, HttpContext http, IAdminScope adminScope, IMediator mediator, CancellationToken ct) =>
 {
     // Enum.TryParse accepts ANY numeric string (e.g. "999" -> an undefined enum); IsDefined rejects values
     // outside Viewer/Finance/TenantAdmin so approval can never persist an unknown tenant_role (REQ-1.3/7.1).
     if (!Enum.TryParse<TenantUserRole>(body.Role, ignoreCase: true, out var role) || !Enum.IsDefined(role))
         throw new ArgumentException($"Unknown role '{body.Role}'.");
 
+    // A Scoped admin may approve only onto a tenant in its accessible set; a Super is unrestricted (REQ-8.5).
+    if (!adminScope.Accessible.Allows(body.TenantId))
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden,
+            title: "That tenant is not in your accessible set.");
+
     var command = new ApproveTenantUserCommand(
         subject, body.TenantId, role, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier);
     var result = await mediator.Send(command, ct);
     return Results.Ok(result);
 }).RequireAuthorization("admin");
+
+// --- Admin identity foundation management (REQ-3..10) + SPA bootstrap (REQ-13) ---
+
+// The Admin SPA reads its own resolved identity to render the right scope/navigation (REQ-13). adminId/tier/
+// accessible come from the per-request IAdminScope the middleware materialized; a Super returns an
+// unrestricted flag (never the full tenant list), a Scoped admin gets its assigned {id, code} pairs.
+app.MapGet("/admin/me", async (IAdminScope scope, IAdminTenantDirectory tenants, CancellationToken ct) =>
+{
+    if (!scope.IsBound)
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your admin account is not active.");
+
+    var me = scope.Current;
+    object accessible;
+    if (me.Accessible.IsUnrestricted)
+    {
+        accessible = new { isUnrestricted = true };
+    }
+    else
+    {
+        var codes = await tenants.GetCodesByIdsAsync(me.Accessible.Tenants, ct);
+        accessible = new
+        {
+            isUnrestricted = false,
+            tenants = me.Accessible.Tenants.Select(id => new { id, code = codes.GetValueOrDefault(id) }).ToArray(),
+        };
+    }
+
+    return Results.Ok(new
+    {
+        adminId = me.AdminId,
+        email = me.Email,
+        tier = me.Tier.ToString(),
+        accessibleTenants = accessible,
+    });
+}).RequireAuthorization("admin");
+
+// Super invites a Scoped admin by verified email; the subject binds on the invitee's first login (REQ-3.4).
+app.MapPost("/admin/admins", async (
+    CreateAdminRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(body.Email))
+        throw new ArgumentException("Email is required.");
+    var result = await mediator.Send(new CreateScopedAdminCommand(body.Email, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.Created($"/admin/admins/{result.AdminId}", result);
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
+
+// Super assigns a tenant to a Scoped admin (REQ-4.1). Inactive/unknown tenant or duplicate -> 409.
+app.MapPost("/admin/admins/{id:guid}/tenants", async (
+    Guid id, AssignTenantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new AssignTenantCommand(id, body.TenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
+
+// Super unassigns a tenant — a hard delete of the assignment row (REQ-4.2). Unknown assignment -> 404.
+app.MapDelete("/admin/admins/{id:guid}/tenants/{tenantId:guid}", async (
+    Guid id, Guid tenantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    await mediator.Send(new UnassignTenantCommand(id, tenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
+
+// Super suspends another admin; suspending your OWN account is rejected so oversight is never locked out (REQ-8.2).
+app.MapPost("/admin/admins/{id:guid}/suspend", async (
+    Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    if (id == scope.Current.AdminId)
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot suspend their own account.");
+    await mediator.Send(new SuspendAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
 
 app.Run();
 
@@ -512,6 +621,11 @@ internal static class ProvisioningGuards
 // Identity request bodies (reference 2.5). Subject is taken from the route/token, never these.
 internal sealed record CompleteRegistrationRequest(Guid TicketId, string DisplayName);
 internal sealed record ApproveTenantUserRequest(Guid TenantId, string Role);
+
+// Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
+// the host sets them from the resolved IAdminScope + the authenticated request.
+internal sealed record CreateAdminRequest(string Email);
+internal sealed record AssignTenantRequest(Guid TenantId);
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
