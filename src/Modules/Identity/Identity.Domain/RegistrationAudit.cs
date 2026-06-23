@@ -17,6 +17,9 @@ public sealed class RegistrationAudit : Entity<Guid>
     /// <summary>The tenant user the action targeted.</summary>
     public string TargetSubject { get; private set; } = default!;
 
+    /// <summary>The role granted by the approval — audited so the trail records which role was assigned (REQ-5.6).</summary>
+    public string Role { get; private set; } = default!;
+
     public Guid? TenantId { get; private set; }
 
     public string CorrelationId { get; private set; } = default!;
@@ -26,26 +29,28 @@ public sealed class RegistrationAudit : Entity<Guid>
     private RegistrationAudit() { }
 
     private RegistrationAudit(Guid id, string action, string adminSubject, string targetSubject,
-        Guid? tenantId, string correlationId, DateTime occurredAtUtc) : base(id)
+        string role, Guid? tenantId, string correlationId, DateTime occurredAtUtc) : base(id)
     {
         Action = action;
         AdminSubject = adminSubject;
         TargetSubject = targetSubject;
+        Role = role;
         TenantId = tenantId;
         CorrelationId = correlationId;
         OccurredAtUtc = occurredAtUtc;
     }
 
     public static RegistrationAudit ForApproval(string adminSubject, string targetSubject, Guid tenantId,
-        string correlationId, DateTime occurredAtUtc)
+        string role, string correlationId, DateTime occurredAtUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(adminSubject);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetSubject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(role);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
         if (tenantId == Guid.Empty)
             throw new ArgumentException("TenantId is required.", nameof(tenantId));
 
         return new RegistrationAudit(Guid.NewGuid(), "tenant-user.approve", adminSubject, targetSubject,
-            tenantId, correlationId, occurredAtUtc);
+            role, tenantId, correlationId, occurredAtUtc);
     }
 }

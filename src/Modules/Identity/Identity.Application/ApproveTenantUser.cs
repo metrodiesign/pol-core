@@ -51,7 +51,8 @@ public sealed class ApproveTenantUserHandler
 
             user.Approve(command.TenantId, command.Role, _clock.UtcNow); // guards non-pending (REQ-5.5)
             _audit.Append(RegistrationAudit.ForApproval(
-                command.AdminSubject, command.Subject, command.TenantId, command.CorrelationId, _clock.UtcNow));
+                command.AdminSubject, command.Subject, command.TenantId, command.Role.ToString(),
+                command.CorrelationId, _clock.UtcNow));
 
             await _unitOfWork.SaveChangesAsync(ct);
             return user.Id;

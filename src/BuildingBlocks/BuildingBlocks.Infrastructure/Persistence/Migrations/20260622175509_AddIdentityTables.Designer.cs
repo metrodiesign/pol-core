@@ -305,6 +305,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("OccurredAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.Property<string>("TargetSubject")
                         .IsRequired()
                         .HasMaxLength(256)

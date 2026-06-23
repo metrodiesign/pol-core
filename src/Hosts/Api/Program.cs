@@ -280,7 +280,9 @@ app.MapPost("/registrations/complete", async (
 app.MapPost("/admin/tenant-users/{subject}/approve", async (
     string subject, ApproveTenantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    if (!Enum.TryParse<TenantUserRole>(body.Role, ignoreCase: true, out var role))
+    // Enum.TryParse accepts ANY numeric string (e.g. "999" -> an undefined enum); IsDefined rejects values
+    // outside Viewer/Finance/TenantAdmin so approval can never persist an unknown tenant_role (REQ-1.3/7.1).
+    if (!Enum.TryParse<TenantUserRole>(body.Role, ignoreCase: true, out var role) || !Enum.IsDefined(role))
         throw new ArgumentException($"Unknown role '{body.Role}'.");
 
     var command = new ApproveTenantUserCommand(

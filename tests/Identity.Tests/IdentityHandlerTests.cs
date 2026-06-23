@@ -105,6 +105,7 @@ public sealed class IdentityHandlerTests
         var row = Assert.Single(audit.Appended);
         Assert.Equal("admin-7", row.AdminSubject);
         Assert.Equal("sub-1", row.TargetSubject);
+        Assert.Equal("Finance", row.Role); // the approved role is on the audit trail (REQ-5.6)
     }
 
     [Fact]

@@ -52,6 +52,8 @@ public sealed class TenantUser : AggregateRoot<Guid>
             throw new InvalidOperationException("Only a pending tenant user can be approved.");
         if (tenantId == Guid.Empty)
             throw new ArgumentException("A valid tenant id is required.", nameof(tenantId));
+        if (!Enum.IsDefined(role)) // reject a numeric cast outside Viewer/Finance/TenantAdmin (REQ-1.6/1.3)
+            throw new ArgumentException("Role must be one of the defined tenant user roles.", nameof(role));
 
         TenantId = tenantId;
         Role = role;

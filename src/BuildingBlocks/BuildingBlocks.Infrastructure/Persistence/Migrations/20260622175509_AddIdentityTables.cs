@@ -35,6 +35,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     Action = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
                     AdminSubject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
                     TargetSubject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
+                    Role = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
                     OccurredAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false)

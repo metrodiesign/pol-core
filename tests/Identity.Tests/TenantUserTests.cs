@@ -48,6 +48,15 @@ public sealed class TenantUserTests
     }
 
     [Fact]
+    public void Approve_rejects_an_undefined_role()
+    {
+        var user = TenantUser.Register("google-sub-1", "a@example.com", Now);
+
+        // A numeric cast outside Viewer/Finance/TenantAdmin must not bind (REQ-1.6/1.3).
+        Assert.Throws<ArgumentException>(() => user.Approve(Guid.NewGuid(), (TenantUserRole)999, Now));
+    }
+
+    [Fact]
     public void Approve_rejects_empty_tenant()
     {
         var user = TenantUser.Register("google-sub-1", "a@example.com", Now);
