@@ -54,7 +54,7 @@ Reuse `ProblemDetailsExceptionHandler`: ArgumentException->400, Conflict/Invalid
 | Design element | REQ |
 |---|---|
 | Slice 1 Cart handlers + endpoints | REQ-1.1–1.7 |
-| Slice 2 Order summary token + TTL + GoneException | REQ-2.1–2.5 |
+| Slice 2 Order summary token + TTL + GoneException | REQ-2.1–2.6 |
 | Slice 3 outbox enqueue + INotificationSender + Worker consumer | REQ-3.1–3.5 |
 | Slice 4 reconciliation query | REQ-4.1–4.3 |
 | Slice 5 CheckoutConfirmed event + idempotent consumer -> CreateOrder | REQ-5.1–5.5 |
