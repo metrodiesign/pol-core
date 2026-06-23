@@ -24,6 +24,18 @@ internal static class AdminOidcAuthentication
         var oidc = configuration.GetSection(AdminOidcOptions.SectionName).Get<AdminOidcOptions>() ?? new AdminOidcOptions();
         var hostedDomain = configuration["Google:HostedDomain"];
 
+        services.AddScoped<IAdminCallbackResolver, AdminCallbackResolver>();
+        services.AddScoped<AdminLoginService>();
+
+        // The OIDC scheme is a per-request handler: AuthenticationMiddleware initializes — and VALIDATES — it on
+        // EVERY request to detect the callback, and OpenIdConnectOptions.Validate() requires a non-empty ClientId.
+        // A blank ClientId would therefore throw on every request and take the WHOLE API down (health, webhooks,
+        // tenant routes), not just admin login. Outside Development the boot guard already requires the ClientId;
+        // when it is blank (tests, an unconfigured dev box) skip the scheme so the rest of the API stays up — an
+        // admin login attempt then fails loudly at the challenge rather than silently breaking every request.
+        if (string.IsNullOrWhiteSpace(oidc.ClientId))
+            return services;
+
         // Parameterless AddAuthentication() does NOT set a default scheme, so the JwtBearer default that
         // AddGoogleIdTokenAuthentication established (tenant routes) is preserved.
         services.AddAuthentication()
@@ -97,8 +109,6 @@ internal static class AdminOidcAuthentication
                 };
             });
 
-        services.AddScoped<IAdminCallbackResolver, AdminCallbackResolver>();
-        services.AddScoped<AdminLoginService>();
         return services;
     }
 
