@@ -9,9 +9,11 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hosts.Tests;
 
-// CORS for the separate browser SPA frontends, asserted against the single API via WebApplicationFactory.
-// The one API serves BOTH SPAs (tenant + admin), so a preflight (OPTIONS) from EITHER allowlisted origin is
-// echoed back; an unknown origin is not. No live database is touched — preflight short-circuits the endpoint.
+// Split CORS (REQ-10.5), asserted against the single API via WebApplicationFactory. The tenant SPA gets the
+// DEFAULT policy (Bearer, no credentials) on non-admin routes; the admin SPA gets a credentialed policy bound
+// ONLY to the /admin route group. So an admin origin is echoed WITH credentials on /admin/* but NOT on a tenant
+// route, the tenant origin is echoed (no credentials) on tenant routes, and an unknown origin is never echoed.
+// No live database is touched — the preflight (OPTIONS) short-circuits before auth and the endpoint.
 
 file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
 {
@@ -30,9 +32,8 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
                 ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Worker"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                // The single API allowlists BOTH SPA origins.
-                ["Cors:AllowedOrigins:0"] = TenantSpaOrigin,
-                ["Cors:AllowedOrigins:1"] = AdminSpaOrigin,
+                ["Cors:AllowedOrigins:0"] = TenantSpaOrigin, // tenant (default policy, no credentials)
+                ["Cors:AdminOrigins:0"] = AdminSpaOrigin,    // admin (credentialed, /admin group only)
             });
         });
         builder.ConfigureServices(services =>
@@ -48,23 +49,46 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
 
 public sealed class CorsTests
 {
-    private static HttpRequestMessage Preflight(string origin) =>
-        new(HttpMethod.Options, "/health/live")
+    private static HttpRequestMessage Preflight(string origin, string path) =>
+        new(HttpMethod.Options, path)
         {
             Headers = { { "Origin", origin }, { "Access-Control-Request-Method", "POST" } },
         };
 
-    [Theory]
-    [InlineData(CorsFactory.TenantSpaOrigin)]
-    [InlineData(CorsFactory.AdminSpaOrigin)]
-    public async Task Preflight_from_either_allowed_spa_origin_is_echoed_back(string origin)
+    [Fact]
+    public async Task Tenant_origin_is_allowed_without_credentials_on_a_non_admin_route()
     {
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight(origin));
+        var response = await client.SendAsync(Preflight(CorsFactory.TenantSpaOrigin, "/health/live"));
 
-        Assert.Equal(origin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal(CorsFactory.TenantSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.False(response.Headers.Contains("Access-Control-Allow-Credentials")); // tenant: no cookies (REQ-10.5)
+    }
+
+    [Fact]
+    public async Task Admin_origin_is_allowed_with_credentials_on_an_admin_route()
+    {
+        using var factory = new CorsFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/admin/me"));
+
+        Assert.Equal(CorsFactory.AdminSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials"))); // cookie XHR (REQ-4.5)
+    }
+
+    [Fact]
+    public async Task Admin_origin_is_not_allowed_on_a_non_admin_route()
+    {
+        using var factory = new CorsFactory();
+        using var client = factory.CreateClient();
+
+        // The credentialed admin policy is bound only to /admin — the split keeps it off the tenant surface.
+        var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/health/live"));
+
+        Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
     }
 
     [Fact]
@@ -73,7 +97,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight("https://evil.example.com"));
+        var response = await client.SendAsync(Preflight("https://evil.example.com", "/admin/me"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
     }

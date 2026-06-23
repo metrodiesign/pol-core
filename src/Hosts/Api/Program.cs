@@ -35,6 +35,8 @@ using Tenant.Application.GetTenant;
 using Tenant.Application.ProvisionTenant;
 using Tenant.Infrastructure;
 using Api;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -86,13 +88,14 @@ var adminConnString = builder.Configuration.GetConnectionString("Admin")
 // The committed appsettings.json ships an Admin string with a BLANK password (the real secret is injected
 // at runtime). Outside Development, fail fast if that injection did not happen — otherwise the host boots
 // and only the first /admin request discovers the missing credential. Development may use integrated auth.
-// Same fail-fast for the admin SPA audience: the /admin routes gate on the "admin" authorization policy,
-// which GoogleAuthenticationExtensions registers ONLY when Google:Audiences:admin is mapped — without it an
-// admin request hits a missing policy (500) instead of 401/403.
 if (!builder.Environment.IsDevelopment())
 {
     ProvisioningGuards.RequireInjectedCredential(adminConnString, "Admin");
-    ProvisioningGuards.RequireAdminAudience(builder.Configuration["Google:Audiences:admin"]);
+    // The admin BFF login is a confidential OIDC client: the client id + secret must be injected outside
+    // Development (the committed config ships blanks/placeholders). A blank/placeholder secret means the
+    // runtime secret was never injected — fail fast at boot rather than on the first login (REQ-8.1/8.2).
+    ProvisioningGuards.RequireConfidentialClientId(builder.Configuration["Google:Oidc:ClientId"]);
+    ProvisioningGuards.RequireConfidentialClientSecret(builder.Configuration["Google:Oidc:ClientSecret"]);
 }
 builder.Services.AddTenantAdminScope(adminConnString);
 
@@ -101,6 +104,13 @@ builder.Services.AddTenantAdminScope(adminConnString);
 // bind to the same pol_admin keyed scope.
 builder.Services.AddAdminModule();
 builder.Services.AddAdminIdentity();
+
+// Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
+// control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
+builder.Services.AddAdminDataProtection();
+
+// Admin BFF session lifetime + cookie posture (REQ-3/5/7).
+builder.Services.Configure<AdminSessionOptions>(builder.Configuration.GetSection(AdminSessionOptions.SectionName));
 
 // Tenant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
@@ -111,6 +121,18 @@ builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
 // authenticate here, and the validated audience becomes a role claim that the per-role authorization
 // policies ("tenant"/"admin") gate on. See GoogleAuthenticationExtensions.
 builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
+
+// Admin BFF: confidential Google OIDC client (Authorization Code + PKCE) for the server-side admin login.
+// Adds the "Google" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default (JwtBearer stays for tenant).
+builder.Services.Configure<AdminOidcOptions>(builder.Configuration.GetSection(AdminOidcOptions.SectionName));
+builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
+
+// Admin BFF session scheme: authenticate every /admin/* request via the __Host-adm_session cookie and
+// REDEFINE the "admin" authorization policy to pin it — retiring the Bearer "admin" audience (REQ-4/5/9/10).
+builder.Services.AddAdminSessionScheme();
+
+// Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
+builder.Services.AddHostedService<AdminSessionPruneService>();
 
 // CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
 builder.Services.AddPolCors(builder.Configuration);
@@ -137,6 +159,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks();
 builder.Services.AddWebhookRateLimiter();
+builder.Services.AddAdminAuthRateLimiter();
 
 var app = builder.Build();
 
@@ -144,6 +167,11 @@ var app = builder.Build();
 // boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
 // singletons, so this explicit resolve is what delivers the boot-time custody guarantee.
 _ = app.Services.GetRequiredService<VaultKeyring>();
+
+// Outside Development, the OIDC correlation cookies must ride a persisted, shared key ring — never the
+// framework's default ephemeral one (REQ-8.2). Assert it now so a misconfigured key store crash-loops at boot.
+if (!app.Environment.IsDevelopment())
+    AdminDataProtection.RequirePersistentDataProtection(app.Services);
 
 // REQ-5.4 fail-closed signal: outside Development, an empty admin allowlist means Super-admin bootstrap is
 // disabled — the first-admin self-provision will be denied. Existing admins are unaffected (the allowlist is
@@ -165,7 +193,8 @@ app.UseExceptionHandler();
 // too, so every error shares one body shape. AddProblemDetails() above supplies the writer.
 app.UseStatusCodePages();
 
-// CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge.
+// CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge. The per-request
+// policy (admin-credentialed on /admin/*, tenant default elsewhere) is chosen by PolCorsPolicyProvider.
 app.UsePolCors();
 
 app.UseRateLimiter();
@@ -176,10 +205,10 @@ app.UseAuthorization();
 // module) is removed pending the Producer module. Until it returns, tenant-SPA callers get no ambient tenant
 // binding in production (the Development tenant_id shim still works) and no tenant_role claim.
 
-// Resolve the platform admin for an admin-SPA caller (REQ-5/6): bootstrap/bind on first login, materialize
-// the accessible-tenant set + admin_tier claim into IAdminScope, deny (403) an unresolvable or suspended
-// admin. Runs alongside the tenant resolver (the two are exclusive by the "admin"/"tenant" role claim).
-app.UseMiddleware<AdminResolutionMiddleware>();
+// Admin resolution is no longer a middleware: AdminSessionAuthenticationHandler authenticates the
+// __Host-adm_session cookie during authorization (the "admin" policy pins that scheme), re-resolves the admin
+// READ-ONLY by id, and binds IAdminScope per request (REQ-9). First-login bootstrap/bind happens at the OIDC
+// callback (AdminCallbackResolver), not per request.
 
 // Liveness (process only) + readiness (DB + vault), anonymous, minimal body — no topology leak.
 app.MapPolHealthChecks();
@@ -356,10 +385,67 @@ app.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator me
     return TypedResults.Ok(view);
 }).RequireAuthorization("tenant");
 
+// --- Admin BFF (/admin route group, REQ-1/7/10) ---
+// One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
+// policy is applied to /admin/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login is
+// anonymous; every other route gates on the AdminSession "admin" policy. The CSRF filter exempts safe methods,
+// so the login/callback GETs pass untouched.
+var admin = app.MapGroup("/admin").AddEndpointFilter<AdminCsrfFilter>();
+
+// Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
+// allowlist, then hand off to the OIDC handler, which builds the Authorization Code + PKCE + state + nonce
+// redirect to Google. The callback (Google:Oidc:CallbackPath) is handled by the OIDC middleware itself, which
+// establishes the session via OnTicketReceived — there is no mapped callback endpoint.
+admin.MapGet("/auth/login", (HttpContext http, IOptions<AdminSessionOptions> session) =>
+{
+    var returnTo = ReturnUrlPolicy.Resolve(
+        http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
+    return Results.Challenge(
+        new AuthenticationProperties { RedirectUri = returnTo },
+        [AdminOidcAuthentication.Scheme]);
+})
+.AllowAnonymous()
+.RequireRateLimiting(AdminAuthRateLimiting.PolicyName);
+
+// Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-6.1). The
+// presented cookie identifies the family. CSRF protection for these POSTs is added with the other /admin
+// mutations in Task 5's double-submit filter (REQ-7).
+admin.MapPost("/auth/logout", async (
+    HttpContext http, IAdminSessionStore sessions, AdminSessionCookies cookies,
+    IAdminAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+{
+    var token = cookies.ReadSessionToken(http);
+    if (token is not null)
+    {
+        var session = await sessions.FindByTokenHashAsync(AdminSessionTokens.Hash(token), ct);
+        if (session is not null)
+        {
+            await sessions.RevokeFamilyAsync(session.FamilyId, ct);
+            audit.Append(AdminAuthAudit.For(AdminAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.AdminAccountId));
+            await audit.SaveChangesAsync(ct);
+        }
+    }
+    cookies.Clear(http);
+    return Results.NoContent();
+}).RequireAuthorization("admin");
+
+// Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
+admin.MapPost("/auth/logout-all", async (
+    HttpContext http, IAdminScope scope, IAdminSessionStore sessions, AdminSessionCookies cookies,
+    IAdminAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+{
+    var adminId = scope.Current.AdminId;
+    await sessions.RevokeAllForAdminAsync(adminId, ct);
+    audit.Append(AdminAuthAudit.For(AdminAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
+    await audit.SaveChangesAsync(ct);
+    cookies.Clear(http);
+    return Results.NoContent();
+}).RequireAuthorization("admin");
+
 // Admin provisioning (reference 2.4). Cross-tenant, so NOT ITenantScoped — runs under pol_admin via the
 // keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
 // never from the body. Duplicate code -> ConflictException -> 409; bad input -> ArgumentException -> 400.
-app.MapPost("/admin/tenants", async (
+admin.MapPost("/tenants", async (
     ProvisionTenantRequest body,
     HttpContext http,
     IMediator mediator,
@@ -394,7 +480,7 @@ app.MapPost("/admin/tenants", async (
 
 // Cross-tenant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned tenants, a
 // Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak).
-app.MapGet("/admin/tenants/{code}", async (
+admin.MapGet("/tenants/{code}", async (
     string code,
     IAdminQuery adminQuery,
     CancellationToken ct) =>
@@ -414,7 +500,7 @@ app.MapGet("/admin/tenants/{code}", async (
 // The Admin SPA reads its own resolved identity to render the right scope/navigation (REQ-13). adminId/tier/
 // accessible come from the per-request IAdminScope the middleware materialized; a Super returns an
 // unrestricted flag (never the full tenant list), a Scoped admin gets its assigned {id, code} pairs.
-app.MapGet("/admin/me", async (IAdminScope scope, IAdminTenantDirectory tenants, CancellationToken ct) =>
+admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, CancellationToken ct) =>
 {
     if (!scope.IsBound)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your admin account is not active.");
@@ -445,7 +531,7 @@ app.MapGet("/admin/me", async (IAdminScope scope, IAdminTenantDirectory tenants,
 }).RequireAuthorization("admin");
 
 // Super invites a Scoped admin by verified email; the subject binds on the invitee's first login (REQ-3.4).
-app.MapPost("/admin/admins", async (
+admin.MapPost("/admins", async (
     CreateAdminRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(body.Email))
@@ -455,7 +541,7 @@ app.MapPost("/admin/admins", async (
 }).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
 
 // Super assigns a tenant to a Scoped admin (REQ-4.1). Inactive/unknown tenant or duplicate -> 409.
-app.MapPost("/admin/admins/{id:guid}/tenants", async (
+admin.MapPost("/admins/{id:guid}/tenants", async (
     Guid id, AssignTenantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new AssignTenantCommand(id, body.TenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
@@ -463,7 +549,7 @@ app.MapPost("/admin/admins/{id:guid}/tenants", async (
 }).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
 
 // Super unassigns a tenant — a hard delete of the assignment row (REQ-4.2). Unknown assignment -> 404.
-app.MapDelete("/admin/admins/{id:guid}/tenants/{tenantId:guid}", async (
+admin.MapDelete("/admins/{id:guid}/tenants/{tenantId:guid}", async (
     Guid id, Guid tenantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     await mediator.Send(new UnassignTenantCommand(id, tenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
@@ -471,7 +557,7 @@ app.MapDelete("/admin/admins/{id:guid}/tenants/{tenantId:guid}", async (
 }).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
 
 // Super suspends another admin; suspending your OWN account is rejected so oversight is never locked out (REQ-8.2).
-app.MapPost("/admin/admins/{id:guid}/suspend", async (
+admin.MapPost("/admins/{id:guid}/suspend", async (
     Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     if (id == scope.Current.AdminId)
@@ -553,15 +639,23 @@ internal static class ProvisioningGuards
                 $"ConnectionStrings:{name} has no password — the runtime secret was not injected. Set ConnectionStrings__{name}.");
     }
 
-    /// <summary>Fails fast when the admin SPA audience is unmapped. The /admin routes gate on the "admin"
-    /// authorization policy, which is registered only for a mapped audience — without it those routes would
-    /// 500 on a missing policy instead of returning 401/403.</summary>
-    public static void RequireAdminAudience(string? adminAudienceClientId)
+    /// <summary>Fails fast when the admin OIDC confidential client id is unmapped. The admin BFF login cannot
+    /// build an authorization request without it.</summary>
+    public static void RequireConfidentialClientId(string? clientId)
     {
-        if (string.IsNullOrWhiteSpace(adminAudienceClientId))
+        if (string.IsNullOrWhiteSpace(clientId) || clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "Google:Audiences:admin is required — the /admin routes gate on the \"admin\" policy. " +
-                "Map it via Google__Audiences__admin.");
+                "Google:Oidc:ClientId is required for the admin BFF login. Map it via Google__Oidc__ClientId.");
+    }
+
+    /// <summary>Fails fast when the admin OIDC client secret was not injected (blank or a committed placeholder).
+    /// The error never echoes the value (REQ-8.3).</summary>
+    public static void RequireConfidentialClientSecret(string? clientSecret)
+    {
+        if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Google:Oidc:ClientSecret is required for the admin BFF login — the runtime secret was not " +
+                "injected. Set Google__Oidc__ClientSecret (environment / user-secrets / Vault).");
     }
 }
 

@@ -30,4 +30,11 @@ if [ -n "${ADMIN_DB_PASSWORD_FILE:-}" ]; then
     unset ADMIN_PW
 fi
 
+# The admin BFF login is a confidential Google OIDC client: export its client secret from the mounted file
+# secret so it never enters the image, the compose file, or `docker inspect` (REQ-8.1). The API fail-fasts at
+# boot (outside Development) when it is unset.
+if [ -n "${ADMIN_OIDC_CLIENT_SECRET_FILE:-}" ]; then
+    export Google__Oidc__ClientSecret="$(cat "$ADMIN_OIDC_CLIENT_SECRET_FILE")"
+fi
+
 exec dotnet "$HOST_DLL"

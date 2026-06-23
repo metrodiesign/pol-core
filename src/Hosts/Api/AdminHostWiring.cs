@@ -1,13 +1,9 @@
-using System.Security.Claims;
 using Admin.Application;
-using Admin.Application.BindInvitedAdmin;
 using Admin.Application.ResolveAdmin;
-using Admin.Application.SelfProvisionSuperAdmin;
 using Admin.Domain;
 using Admin.Infrastructure.Persistence;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
-using BuildingBlocks.Web;
 using Mediator;
 using Microsoft.EntityFrameworkCore;
 using Tenant.Application.GetTenant;
@@ -45,8 +41,9 @@ internal sealed class AdminTenantDirectory : IAdminTenantDirectory
             .FirstOrDefaultAsync(cancellationToken);
 }
 
-/// <summary>Per-request holder of the resolved admin (REQ-6.3). The <see cref="AdminResolutionMiddleware"/>
-/// calls <see cref="Set"/> once; readers consume <see cref="IAdminScope"/>.</summary>
+/// <summary>Per-request holder of the resolved admin (REQ-6.3). The admin authentication handler
+/// (<see cref="AdminSessionAuthenticationHandler"/>) calls <see cref="Set"/> once per request; readers consume
+/// <see cref="IAdminScope"/>.</summary>
 internal sealed class AdminScope : IAdminScope
 {
     private AdminResolution? _current;
@@ -135,83 +132,15 @@ internal static class AdminHostWiring
         services.AddScoped<IAdminAccountAuditWriter>(sp => new AdminAccountAuditWriter(Admin(sp)));
         services.AddScoped<IAdminTenantDirectory>(sp => new AdminTenantDirectory(Admin(sp)));
 
+        // Admin BFF session substrate (REQ-3/5/6/11/12): store + append-only auth audit on the keyed pol_admin
+        // context; the cookie service is stateless (singleton).
+        services.AddScoped<IAdminSessionStore>(sp => new AdminSessionStore(Admin(sp)));
+        services.AddScoped<IAdminAuthAuditWriter>(sp => new AdminAuthAuditWriter(Admin(sp)));
+        services.AddSingleton<AdminSessionCookies>();
+
         services.AddScoped<AdminScope>();
         services.AddScoped<IAdminScope>(sp => sp.GetRequiredService<AdminScope>());
         services.AddScoped<IAdminQuery, AdminQuery>();
         return services;
-    }
-}
-
-/// <summary>
-/// Resolves the platform admin for an authenticated admin-SPA caller (REQ-5/6). For a caller with the
-/// <c>admin</c> role it resolves the <see cref="AdminAccount"/> by Google subject and materializes the
-/// accessible-tenant set into <see cref="IAdminScope"/> + an <c>admin_tier</c> claim. First login binds an
-/// invited Scoped account by email, else self-provisions a Super from the config allowlist (idempotent). A
-/// caller with no resolvable admin (not allowlisted, no invite) or a suspended admin is denied 403
-/// (fail-closed). Unlike the read-only tenant middleware, this one has a write path (self-provision/bind).
-/// </summary>
-public sealed class AdminResolutionMiddleware
-{
-    private readonly RequestDelegate _next;
-
-    public AdminResolutionMiddleware(RequestDelegate next) => _next = next;
-
-    public async Task InvokeAsync(
-        HttpContext context, IMediator mediator, IAdminScope scope, IConfiguration configuration,
-        ILogger<AdminResolutionMiddleware> logger)
-    {
-        var user = context.User;
-        if (user.FindFirst(GoogleAuthenticationExtensions.RoleClaimType)?.Value != "admin"
-            || user.FindFirstValue("sub") is not { Length: > 0 } subject)
-        {
-            await _next(context);
-            return;
-        }
-
-        // MFA best-effort (REQ-9): assert an amr/acr claim if present; log its absence; never hard-gate
-        // (Google ID tokens routinely omit it — Workspace org policy is the enforcing control).
-        if (user.FindFirst("amr") is null && user.FindFirst("acr") is null)
-            logger.LogInformation("Admin token for subject {Subject} carries no amr/acr MFA claim; relying on Workspace policy.", subject);
-
-        var email = user.FindFirstValue("email") ?? string.Empty;
-        var ct = context.RequestAborted;
-
-        var result = await mediator.Send(new ResolveAdminQuery(subject), ct);
-        if (result.Outcome == AdminResolveOutcome.NotFound)
-            result = await ResolveFirstLoginAsync(mediator, configuration, subject, email, context.TraceIdentifier, ct);
-
-        if (result.Outcome == AdminResolveOutcome.Resolved)
-        {
-            var resolution = result.Resolution!;
-            ((ClaimsIdentity)user.Identity!).AddClaim(new Claim("admin_tier", resolution.Tier.ToString()));
-            ((AdminScope)scope).Set(resolution); // the only registered IAdminScope impl is the host's AdminScope holder
-            await _next(context);
-            return;
-        }
-
-        // Suspended (REQ-5.6) or NotFound-and-not-bootstrappable (REQ-5.3): deny, bind nothing.
-        await Results.Problem(
-            statusCode: StatusCodes.Status403Forbidden,
-            title: "Your admin account is not active.").ExecuteAsync(context);
-    }
-
-    /// <summary>First login: bind an invited Scoped account by email, else self-provision a Super from the
-    /// allowlist. Invite-bind is tried FIRST so an invited email never collides with the unique Email index
-    /// via self-provision (REQ-3.5 before REQ-5.1).</summary>
-    private static async Task<AdminResolveResult> ResolveFirstLoginAsync(
-        IMediator mediator, IConfiguration configuration, string subject, string email, string correlationId, CancellationToken ct)
-    {
-        if (!string.IsNullOrEmpty(email))
-        {
-            var bound = await mediator.Send(new BindInvitedAdminCommand(subject, email, correlationId), ct);
-            if (bound.Outcome != AdminResolveOutcome.NotFound)
-                return bound;
-        }
-
-        var allowlist = configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? [];
-        if (allowlist.Contains(subject, StringComparer.Ordinal)) // REQ-5.1
-            return AdminResolveResult.Of(await mediator.Send(new SelfProvisionSuperAdminCommand(subject, email, correlationId), ct));
-
-        return AdminResolveResult.NotFound; // REQ-5.3 -> 403
     }
 }

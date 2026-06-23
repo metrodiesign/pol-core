@@ -66,13 +66,16 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
-      # One API, two browser SPAs: map each SPA's Google OAuth client id to its role (accepted audience +
-      # role claim — tenant routes admit the tenant role only); allowlist BOTH SPA origins for CORS.
+      # One API, two browser SPAs with DIFFERENT auth models. tenant SPA = Google id-token Bearer: map its
+      # OAuth client id to the tenant audience/role. admin SPA = server-side OIDC BFF: a CONFIDENTIAL client
+      # (id + secret, the secret via a mounted file secret) — NOT an id-token audience (the admin audience is
+      # retired). CORS is split: tenant origin (no credentials) + admin origin (credentialed cookie XHR).
       Google__Audiences__tenant: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
-      Google__Audiences__admin: ${ADMIN_GOOGLE_CLIENT_ID:?set ADMIN_GOOGLE_CLIENT_ID in .env}
+      Google__Oidc__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
+      ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
       Cors__AllowedOrigins__0: ${TENANT_FRONTEND_ORIGIN:?set TENANT_FRONTEND_ORIGIN in .env}
-      Cors__AllowedOrigins__1: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
-    secrets: [pol_app_password, pol_admin_password, vault_master_key]
+      Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
+    secrets: [pol_app_password, pol_admin_password, vault_master_key, admin_oidc_client_secret]
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
       # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
@@ -130,3 +133,5 @@ secrets:
     file: ./secrets/pol_worker_password
   vault_master_key:
     file: ./secrets/vault_master_key
+  admin_oidc_client_secret:
+    file: ./secrets/admin_oidc_client_secret

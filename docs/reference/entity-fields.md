@@ -62,6 +62,41 @@ audit ของทุก admin action (self-provision/create-scoped/assign/unass
 | CorrelationId | nvarchar(128) | N | | |
 | OccurredAt | datetime2 | N | | |
 
+### AdminSession -> `producer.AdminSessions`  (plane: control)
+server-side session ของ admin BFF. cookie value (opaque 256-bit) **ไม่เคยเก็บ** — เก็บแค่ SHA-256 hash. session
+รวมเป็น rotation family (`FamilyId`): rotate = ออก successor ใน family เดิม + mark ตัวเก่า `Superseded` พร้อม link
+ไป successor (กัน replay = reuse detection). prune ลบ row ที่เลย absolute expiry.
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| FamilyId | uniqueidentifier | N | IX | rotation family; family-wide revoke |
+| TokenHash | varbinary(32) | N | UQ | SHA-256 ของ cookie token (lookup O(1)) |
+| AdminAccountId | uniqueidentifier | N | IX | -> AdminAccounts.Id; logout-all |
+| Status | int | N | | `AdminSessionStatus` (Active=0, Superseded=1, Revoked=2) |
+| IssuedAt | datetime2 | N | | |
+| IdleExpiresAt | datetime2 | N | | idle sliding (~30m), slide lazy |
+| AbsoluteExpiresAt | datetime2 | N | IX | hard cap (~8h); prune sweep key |
+| SupersededAt | datetime2 | Y | | เวลาที่ถูก rotate |
+| SupersededBySessionId | uniqueidentifier | Y | | successor (immediate-predecessor / reuse check) |
+| CreatedIp | nvarchar(45) | Y | | |
+| UserAgent | nvarchar(256) | Y | | |
+
+### AdminAuthAudit -> `producer.AdminAuthAudits`  (plane: control, append-only)
+audit ของ auth lifecycle (login-success/logout/logout-all/rotated/family-revoked-reuse/auth-denied). แยกจาก
+`AdminAccountAudit` เพราะ auth event อาจไม่มี admin id ที่ resolve ได้ (denial ก่อน resolve). ไม่เก็บ secret/
+token/raw session id.
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| EventType | nvarchar(32) | N | | login-success/logout/logout-all/rotated/family-revoked-reuse/auth-denied |
+| AdminAccountId | uniqueidentifier | Y | IX | null เมื่อยังไม่ resolve admin |
+| Subject | nvarchar(256) | Y | | Google `sub` |
+| Reason | nvarchar(128) | Y | | label สั้น ไม่ sensitive (เหตุผล deny) |
+| CorrelationId | nvarchar(128) | N | | |
+| OccurredAt | datetime2 | N | | |
+
 ---
 
 ## Tenant module
@@ -270,6 +305,17 @@ idempotency key store (PK = Key string). กัน replay/duplicate.
 | TenantId | uniqueidentifier | N | | |
 | CreatedAt | datetime2 | N | | |
 
+### DataProtectionKey -> `producer.DataProtectionKeys`  (plane: control)
+ASP.NET Core Data Protection key ring (plumbing, ไม่ใช่ domain entity) — เก็บไว้เป็น control-plane table ให้ OIDC
+correlation/state/nonce cookies รอด restart + shared ข้าม instance. อ่าน/เขียนผ่าน keyed pol_admin context
+(`EfCoreXmlRepository`) เท่านั้น. pol_admin มีแค่ SELECT/INSERT (key ring เป็น append-only).
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | int (identity) | N | PK | |
+| FriendlyName | nvarchar(256) | Y | | |
+| Xml | nvarchar(max) | N | | key-ring element ที่ framework เข้ารหัสมาแล้ว (opaque) |
+
 ---
 
 ## Schema objects beyond tables (RLS, stored procedures, principals)
@@ -290,7 +336,7 @@ column ต้องไล่มาที่ proc body เองด้วย).
 | CartItems | `fn_cartitem_predicate(CartId)` | FILTER + BLOCK (INSERT/UPDATE) |
 | OutboxMessages | `fn_tenant_predicate(TenantId)` | BLOCK (INSERT) only — ไม่ filter (dispatcher drain ทุก tenant) |
 | VaultRevealAudits | `fn_tenant_predicate(TenantId)` | BLOCK (INSERT) only — append-only; อ่าน head ผ่าน proc |
-| AdminAccounts · AdminTenantAssignments · AdminAccountAudits · ProvisioningAudits | — | none (control-plane, pol_admin only) |
+| AdminAccounts · AdminTenantAssignments · AdminAccountAudits · AdminSessions · AdminAuthAudits · DataProtectionKeys · ProvisioningAudits | — | none (control-plane, pol_admin only) |
 
 ### Stored procedures (bypass reads — `WITH EXECUTE AS`)
 
@@ -325,6 +371,7 @@ column ต้องไล่มาที่ proc body เองด้วย).
 |---|---|---|
 | `AdminTier` | AdminAccounts.Tier | Scoped=0, Super=1 |
 | `AdminStatus` | AdminAccounts.Status | Active=0, Suspended=1 |
+| `AdminSessionStatus` | AdminSessions.Status | Active=0, Superseded=1, Revoked=2 |
 | `TenantStatus` | Tenants.Status | Active=0 (suspend/pending เพิ่มภายหลัง — YAGNI) |
 | `CartStatus` | Carts.Status (string) | Open, CheckedOut (เก็บเป็นชื่อ ไม่ใช่ int) |
 | `CheckoutStatus` | CheckoutSessions.Status | Started=0, Confirmed=1, Abandoned=2 |

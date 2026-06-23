@@ -26,6 +26,11 @@ public static class GoogleAuthenticationExtensions
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         var audiences = configuration.GetSection("Google:Audiences").Get<Dictionary<string, string>>() ?? [];
+        // RETIRED (REQ-4.4/10.2): the admin SPA no longer authenticates with a Google id_token audience — it
+        // uses the server-side OIDC BFF (the AdminSession cookie scheme). Strip any stale "admin" entry so a
+        // Google id_token can never be a valid Bearer audience here, and no Bearer-backed "admin" policy is
+        // created. Defensive: holds even if a deployment still injects Google__Audiences__admin.
+        audiences.Remove("admin");
         var clientIds = audiences.Values.Where(id => !string.IsNullOrWhiteSpace(id)).ToArray();
         var hostedDomain = configuration["Google:HostedDomain"];
 
@@ -38,7 +43,7 @@ public static class GoogleAuthenticationExtensions
         {
             throw new InvalidOperationException(
                 "Google:Audiences is not configured. Map each SPA role to its client id via " +
-                "Google__Audiences__tenant / Google__Audiences__admin (environment variables or user-secrets).");
+                "Google__Audiences__tenant (environment variables or user-secrets).");
         }
 
         services
@@ -90,7 +95,10 @@ public static class GoogleAuthenticationExtensions
         // wrong role -> 403).
         var authz = services.AddAuthorizationBuilder();
         foreach (var role in audiences.Keys)
-            authz.AddPolicy(role, policy => policy.RequireAuthenticatedUser().RequireClaim(RoleClaimType, role));
+            authz.AddPolicy(role, policy => policy
+                .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme) // pin Bearer; never fall through to the admin cookie scheme (REQ-10.4)
+                .RequireAuthenticatedUser()
+                .RequireClaim(RoleClaimType, role));
 
         return services;
     }

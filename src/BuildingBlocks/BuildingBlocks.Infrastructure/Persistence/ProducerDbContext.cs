@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.DataProtection;
 using BuildingBlocks.Infrastructure.Idempotency;
 using BuildingBlocks.Infrastructure.Outbox;
 using BuildingBlocks.Infrastructure.Vault;
@@ -33,6 +34,7 @@ public sealed class ProducerDbContext : DbContext
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration());
         modelBuilder.ApplyConfiguration(new VaultSecretBlobConfiguration());
         modelBuilder.ApplyConfiguration(new VaultRevealAuditConfiguration());
+        modelBuilder.ApplyConfiguration(new DataProtectionKeyConfiguration());
 
         foreach (var assembly in _modules.Producer)
             modelBuilder.ApplyConfigurationsFromAssembly(assembly);

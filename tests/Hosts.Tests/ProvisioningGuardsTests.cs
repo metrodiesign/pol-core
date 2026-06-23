@@ -47,19 +47,34 @@ public sealed class ProvisioningGuardsTests
         ApiHost::ProvisioningGuards.RequireInjectedCredential(connectionString, "Admin"); // does not throw
     }
 
+    // --- Admin OIDC confidential-client boot guards (REQ-8.2) ---
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public void Missing_admin_audience_fails_fast(string? clientId)
+    [InlineData("REPLACE_WITH_ADMIN_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com")] // committed placeholder
+    public void Missing_or_placeholder_oidc_client_id_fails_fast(string? clientId)
     {
         Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireAdminAudience(clientId));
+            ApiHost::ProvisioningGuards.RequireConfidentialClientId(clientId));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("REPLACE_WITH_ADMIN_OIDC_CLIENT_SECRET")] // committed placeholder — secret was not injected
+    public void Missing_or_placeholder_oidc_client_secret_fails_fast(string? clientSecret)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireConfidentialClientSecret(clientSecret));
     }
 
     [Fact]
-    public void Mapped_admin_audience_passes()
+    public void Injected_confidential_client_passes()
     {
-        ApiHost::ProvisioningGuards.RequireAdminAudience("222-admin.apps.googleusercontent.com"); // does not throw
+        ApiHost::ProvisioningGuards.RequireConfidentialClientId("333-admin.apps.googleusercontent.com");
+        ApiHost::ProvisioningGuards.RequireConfidentialClientSecret("GOCSPX-an-injected-secret"); // does not throw
     }
 }
