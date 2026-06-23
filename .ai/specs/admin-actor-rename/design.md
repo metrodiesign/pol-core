@@ -414,6 +414,7 @@ scoped-admin. floor ย้ายมา app, บังคับด้วย **3 c
 | §Data Models — AdminAccountAudits; §Audit bridge | REQ-10 |
 | §Migration mechanics | REQ-11 |
 | §Non-Functional; plan canon reconciliation | REQ-12 |
+| §GET /admin/me (SPA identity bootstrap) | REQ-13 |
 
 ## Non-Functional Considerations
 

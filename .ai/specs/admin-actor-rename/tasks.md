@@ -9,7 +9,7 @@
 - [x] 1. Admin.Domain — admin aggregates
      `AdminTier`/`AdminStatus` enums; `AdminAccount` (SelfProvision/CreateScoped/BindSubject/Suspend, block
      self-suspend); `AdminTenantAssignment`; `AdminAccountAudit` (append-only, actor tuple) + `AdminAuditAction` consts.
-     Satisfies: REQ-3 (model), 8.2 (self-suspend), 10 (audit shape)
+     Satisfies: REQ-3 (model), 8.2 (self-suspend), REQ-10 (audit shape)
      Verify: `dotnet test tests/Admin.Tests`
      Evidence:
        - test: `dotnet test tests/Admin.Tests` -> Passed 29, Failed 0 (domain + handlers)
@@ -20,7 +20,7 @@
      `ResolveAdminQuery` (Resolved/Suspended/NotFound; folds accessible resolution); commands
      SelfProvisionSuperAdmin/BindInvitedAdmin/CreateScopedAdmin/AssignTenant/UnassignTenant/SuspendAdmin
      (audit each; assign validates active tenant + uniqueness + Scoped-target).
-     Satisfies: REQ-4, 5(logic), 6.1/6.2, 8.1/8.4/8.5(logic), 10.1
+     Satisfies: REQ-4, REQ-5 (logic), 6.1, 6.2, 8.1, 8.4, 8.5, 10.1
      Depends on: 1
      Verify: `dotnet test tests/Admin.Tests`
      Evidence:
@@ -65,7 +65,7 @@
      `POST /admin/admins/{id}/tenants`, `DELETE .../{tenantId}`, `POST /admin/admins/{id}/suspend`; MODIFY
      `POST /admin/tenants` (+Super), `GET /admin/tenants/{code}` (via IAdminQuery), approve (accessible check).
      appsettings: AdminAllowlist + admin-console dev CORS origin.
-     Satisfies: REQ-4, 5, 6.3, 7.1/7.3, 8, 9, 13
+     Satisfies: REQ-4, REQ-5, 6.3, 7.1, 7.3, REQ-8, REQ-9, REQ-13
      Depends on: 3
      Verify: `dotnet test tests/Hosts.Tests`
      Evidence:
@@ -78,7 +78,7 @@
      Host); `AdminSeamArchitectureTests` (REQ-7.2: only `AdminQuery` may send `GetTenantQuery`). Canon:
      CODING_STANDARDS.md (1 schema `producer`; AdminUser->AdminAccount + new admin entities; keep TenantUser),
      ARCHITECTURE.md (admin control-plane no-RLS / scoped app-layer-floor exception, 7.4/12.2).
-     Satisfies: REQ-7.2, 7.4, 12 (partial)
+     Satisfies: 7.2, 7.4, 12.1, 12.2
      Depends on: 5
      Verify: `dotnet test tests/Architecture.Tests` + `dotnet test tests/Hosts.Tests`
      Evidence:
@@ -99,6 +99,11 @@ rename deferred) · REQ-13 -> GET /admin/me
 
 REQ-2 (producer `TenantUser*`->`ProducerAccount*` *rename in place*) is superseded by the removal below.
 The rename half of REQ-11/REQ-12 design is retained as the basis for the Producer rebuild.
+
+- [ ] D. (DEFERRED to the Producer rename PR — design retained, NOT implemented in this PR)
+     Producer-side `TenantUser*` -> `ProducerAccount*` rename across the stack + the external HTTP contract
+     surface. Tracked here so the criteria stay traceable; superseded in part by the Identity removal above.
+     Satisfies: REQ-1, REQ-2
 
 ## Addendum 2026-06-23 — Identity module removed (folded into this PR, user-directed)
 
