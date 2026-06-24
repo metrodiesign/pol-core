@@ -19,6 +19,7 @@ using Cart.Infrastructure;
 using Checkout.Application;
 using Checkout.Infrastructure;
 using Mediator;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
@@ -183,6 +184,28 @@ if (!app.Environment.IsDevelopment()
         "AdminAllowlist:Subjects is empty — Super-admin bootstrap is disabled (first-admin self-provision will " +
         "be denied, fail-closed). Set AdminAllowlist__Subjects__0 to bootstrap the first Super admin.");
 }
+
+// Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
+// browser-facing host/scheme, not this process's. The admin SPA dev server proxies /admin/* here, so the OIDC
+// redirect_uri must be the SPA origin (e.g. localhost:5200) to match the registered Google redirect URI; the
+// same applies to a TLS-terminating reverse proxy in prod (scheme must read https). Default trust = loopback
+// only, which covers the localhost dev proxy. A containerized prod proxy connects from the (non-loopback)
+// docker/private network, and .NET only honours forwarded headers from a TRUSTED peer — otherwise it silently
+// ignores X-Forwarded-* and the redirect_uri keeps this process's internal host (Google then rejects login with
+// redirect_uri_mismatch). Trust the real proxy ADDITIVELY from config so the localhost dev proxy keeps working:
+// ForwardedHeaders:KnownNetworks = CIDRs (e.g. the docker subnet "172.18.0.0/16"), KnownProxies = single IPs.
+// Both empty (the default) = loopback only.
+var forwardedHeaders = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto,
+};
+foreach (var cidr in app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
+    if (!string.IsNullOrWhiteSpace(cidr)) // an unset `${VAR:-}` env expands to a blank entry — skip, don't Parse("")
+        forwardedHeaders.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr.Trim()));
+foreach (var proxy in app.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+    if (!string.IsNullOrWhiteSpace(proxy))
+        forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.Parse(proxy.Trim()));
+app.UseForwardedHeaders(forwardedHeaders);
 
 // Order matters: correlation id OUTERMOST so the logging scope is still active when the exception handler
 // logs a failure (the scope is popped as the exception unwinds, so it must wrap UseExceptionHandler); the
