@@ -49,6 +49,7 @@ public sealed class AdminAccountAuditConfiguration : IEntityTypeConfiguration<Ad
         builder.Property(x => x.ActorId).IsRequired();
         builder.Property(x => x.TargetAdminId);
         builder.Property(x => x.TenantId);
+        builder.Property(x => x.TargetRoleId); // role-CRUD audit target (admin-role-rbac REQ-10.2)
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
     }

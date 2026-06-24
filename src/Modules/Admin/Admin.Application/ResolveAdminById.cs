@@ -20,8 +20,13 @@ public sealed record AdminByIdResult(AdminResolveOutcome Outcome, AdminResolutio
 public sealed class ResolveAdminByIdHandler : IQueryHandler<ResolveAdminByIdQuery, AdminByIdResult>
 {
     private readonly IAdminAccountRepository _admins;
+    private readonly IAdminRoleRepository _roles;
 
-    public ResolveAdminByIdHandler(IAdminAccountRepository admins) => _admins = admins;
+    public ResolveAdminByIdHandler(IAdminAccountRepository admins, IAdminRoleRepository roles)
+    {
+        _admins = admins;
+        _roles = roles;
+    }
 
     public async ValueTask<AdminByIdResult> Handle(ResolveAdminByIdQuery query, CancellationToken cancellationToken)
     {
@@ -32,6 +37,9 @@ public sealed class ResolveAdminByIdHandler : IQueryHandler<ResolveAdminByIdQuer
             return AdminByIdResult.Suspended;
 
         var accessible = await ResolveAdminHandler.ResolveAccessibleAsync(account, _admins, cancellationToken);
-        return AdminByIdResult.Of(new AdminResolution(account.Id, account.Email, account.Tier, accessible), account.Subject);
+        var permissions = await _roles.ListEffectivePermissionsAsync(account.Id, cancellationToken);
+        return AdminByIdResult.Of(
+            new AdminResolution(account.Id, account.Email, account.Tier, accessible) { Permissions = permissions },
+            account.Subject);
     }
 }

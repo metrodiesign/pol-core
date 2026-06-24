@@ -9,9 +9,14 @@ using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Admin.Application;
 using Admin.Application.AssignTenant;
+using Admin.Application.CreateRole;
 using Admin.Application.CreateScopedAdmin;
+using Admin.Application.DeleteRole;
+using Admin.Application.RoleQueries;
+using Admin.Application.SetAdminRoles;
 using Admin.Application.SuspendAdmin;
 using Admin.Application.UnassignTenant;
+using Admin.Application.UpdateRole;
 using Admin.Domain;
 using Admin.Infrastructure;
 using Cart.Application;
@@ -550,6 +555,7 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, Can
         email = me.Email,
         tier = me.Tier.ToString(),
         accessibleTenants = accessible,
+        permissions = me.Permissions, // effective action permissions (admin-role-rbac REQ-9.1)
     });
 }).RequireAuthorization("admin");
 
@@ -589,7 +595,90 @@ admin.MapPost("/admins/{id:guid}/suspend", async (
     return Results.NoContent();
 }).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super);
 
+// --- Admin Role RBAC (admin-role-rbac) ---
+// Orthogonal to AdminTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
+// gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
+// "active"/"inactive" via explicit projection — there is no global string-enum converter (B2).
+static object RoleToWire(AdminRoleListItem r) => new
+{
+    code = r.Code,
+    name = r.Name,
+    description = r.Description,
+    color = r.Color,
+    status = r.Status == AdminRoleStatus.Active ? "active" : "inactive",
+    permissions = r.PermissionKeys,
+    userCount = r.UserCount,
+};
+static AdminRoleStatus ParseRoleStatus(string? status) =>
+    string.Equals(status, "inactive", StringComparison.OrdinalIgnoreCase) ? AdminRoleStatus.Inactive : AdminRoleStatus.Active;
+
+// Permission catalog for the matrix (REQ-1.5): resource = the permission's group key.
+admin.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
+{
+    var catalog = await mediator.Send(new ListPermissionsQuery(), ct);
+    return Results.Ok(new
+    {
+        groups = catalog.Groups.Select(g => new { key = g.Key, label = g.LabelTh }),
+        permissions = catalog.Permissions.Select(p => new { key = p.Key, label = p.LabelTh, resource = p.Resource }),
+    });
+}).RequireAuthorization("admin");
+
+admin.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
+    Results.Ok((await mediator.Send(new ListRolesQuery(), ct)).Select(RoleToWire)))
+    .RequireAuthorization("admin");
+
+admin.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
+{
+    var role = await mediator.Send(new GetRoleQuery(code), ct);
+    return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(RoleToWire(role));
+}).RequireAuthorization("admin");
+
+// Create: duplicate code -> 409; permission key outside catalog -> 400 (REQ-2.3/3.3).
+admin.MapPost("/roles", async (
+    CreateRoleRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new CreateRoleCommand(
+        body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
+        body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.Created($"/admin/roles/{result.Code}", RoleToWire(result));
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles);
+
+// Update: code is immutable (taken from the route, never the body); deactivating super_admin -> 409 (REQ-2.4/8.3).
+admin.MapPut("/roles/{code}", async (
+    string code, UpdateRoleRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new UpdateRoleCommand(
+        code, body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
+        body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.Ok(RoleToWire(result));
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles);
+
+// Delete: a role with bound users is undeletable (409, REQ-4.4).
+admin.MapDelete("/roles/{code}", async (
+    string code, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    await mediator.Send(new DeleteRoleCommand(code, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles);
+
+// Set an admin's roles to exactly the given set (REQ-4.2). Unknown role code -> 400; unknown admin -> 404.
+admin.MapPut("/admins/{id:guid}/roles", async (
+    Guid id, SetAdminRolesRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    await mediator.Send(new SetAdminRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles);
+
+// admin-role-rbac REQ-11: fail fast at boot if any RequirePermission gate references a key absent from the catalog.
+AdminPermissionParity.Assert(app.Services);
+
 app.Run();
+
+internal sealed record CreateRoleRequest(
+    string? Code, string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
+internal sealed record UpdateRoleRequest(
+    string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
+internal sealed record SetAdminRolesRequest(IReadOnlyList<string>? RoleCodes);
 
 internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
 internal sealed record CreatePaymentSessionRequest(

@@ -15,7 +15,15 @@ public sealed record ResolveAdminQuery(string Subject) : IQuery<AdminResolveResu
 public enum AdminResolveOutcome { Resolved, Suspended, NotFound }
 
 /// <summary>An active admin's identity + reach, materialized once per request into <c>IAdminScope</c>.</summary>
-public sealed record AdminResolution(Guid AdminId, string Email, AdminTier Tier, AccessibleTenants Accessible);
+public sealed record AdminResolution(Guid AdminId, string Email, AdminTier Tier, AccessibleTenants Accessible)
+{
+    private static readonly IReadOnlySet<string> NoPermissions = new HashSet<string>();
+
+    /// <summary>Effective action permissions — the union over the admin's ACTIVE roles (admin-role-rbac REQ-5).
+    /// A non-positional init member with an empty default so the callback/bootstrap resolutions that do not carry
+    /// permissions keep compiling against the four-argument positional ctor (B1).</summary>
+    public IReadOnlySet<string> Permissions { get; init; } = NoPermissions;
+}
 
 public sealed record AdminResolveResult(AdminResolveOutcome Outcome, AdminResolution? Resolution)
 {
@@ -27,8 +35,13 @@ public sealed record AdminResolveResult(AdminResolveOutcome Outcome, AdminResolu
 public sealed class ResolveAdminHandler : IQueryHandler<ResolveAdminQuery, AdminResolveResult>
 {
     private readonly IAdminAccountRepository _admins;
+    private readonly IAdminRoleRepository _roles;
 
-    public ResolveAdminHandler(IAdminAccountRepository admins) => _admins = admins;
+    public ResolveAdminHandler(IAdminAccountRepository admins, IAdminRoleRepository roles)
+    {
+        _admins = admins;
+        _roles = roles;
+    }
 
     public async ValueTask<AdminResolveResult> Handle(ResolveAdminQuery query, CancellationToken cancellationToken)
     {
@@ -39,7 +52,9 @@ public sealed class ResolveAdminHandler : IQueryHandler<ResolveAdminQuery, Admin
             return AdminResolveResult.Suspended;
 
         var accessible = await ResolveAccessibleAsync(account, _admins, cancellationToken);
-        return AdminResolveResult.Of(new AdminResolution(account.Id, account.Email, account.Tier, accessible));
+        var permissions = await _roles.ListEffectivePermissionsAsync(account.Id, cancellationToken);
+        return AdminResolveResult.Of(
+            new AdminResolution(account.Id, account.Email, account.Tier, accessible) { Permissions = permissions });
     }
 
     /// <summary>Super = unrestricted; Scoped = exactly the assigned set (REQ-6.1/6.2). The design's
