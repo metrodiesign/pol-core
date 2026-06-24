@@ -16,6 +16,8 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
     <!-- ASP.NET Core auth (Google SSO via OIDC/JWT) -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
+    <!-- Admin BFF: server-side OIDC Authorization Code flow (confidential client) -->
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.8" />
     <!-- OpenAPI document generation (SPA-facing API contract) -->
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
     <!-- Platform HttpClientFactory for the real PSP adapters (named clients + pooled handlers) -->

@@ -29,8 +29,11 @@ mkdir -p secrets                   # ./secrets/ ถูก gitignore แล้ว
 ```
 
 `.env` ต้องตั้ง (required — API ไม่ start ถ้าไม่มี): `TENANT_FRONTEND_ORIGIN` + `ADMIN_FRONTEND_ORIGIN` = origin
-ของ 2 SPA (CORS allowlist, scheme+host+port ไม่มี trailing slash); `TENANT_GOOGLE_CLIENT_ID` +
-`ADMIN_GOOGLE_CLIENT_ID` = Google OAuth client ของแต่ละ SPA (API รับทั้งคู่เป็น audience).
+ของ 2 SPA (CORS allowlist, scheme+host+port ไม่มี trailing slash); `TENANT_GOOGLE_CLIENT_ID` = Google OAuth
+client ของ tenant SPA (API รับเป็น `tenant` audience ของ id-token bearer); `ADMIN_OIDC_CLIENT_ID` = Google OAuth
+client (type **Web application** = confidential) ของ admin console สำหรับ OIDC BFF login — client **secret** ของ
+มันใส่เป็น secret file (`admin_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. ตั้ง Authorized redirect URI ที่ Google
+client นั้น = `https://<api-host>/admin/auth/callback`.
 
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 
@@ -42,6 +45,10 @@ printf '%s' "Ci$(openssl rand -hex 10)Cc3" > secrets/pol_worker_password
 
 # Vault master key — 32-byte AES key, base64 (PR4 keyring อ่านจาก KeyFile; active id = v1)
 head -c 32 /dev/urandom | base64 > secrets/vault_master_key
+
+# Admin OIDC client secret — confidential client secret ของ admin console (คู่กับ ADMIN_OIDC_CLIENT_ID).
+# ไม่ใช่ random: paste ค่าจริงจาก Google Cloud Console (OAuth 2.0 Client ของ admin = Web application -> Client secret).
+printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/admin_oidc_client_secret
 
 chmod 600 secrets/*
 ```

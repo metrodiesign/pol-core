@@ -50,7 +50,7 @@ gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet t
 - **Wire format คนละ convention:** JSON property = **camelCase** (`JsonNamingPolicy.CamelCase` ตั้งครั้งเดียว) · JWT/OIDC claim = ตามสเปก (`iss`/`aud`/`sub`/`hd`/`email_verified`)
 - **ค่า code string เสถียร** (แยกจากชื่อ enum): `"2c2p"`/`"omise"` · `"card"`/`"promptpay"`/`"installment"`
 - **ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ:** Omise source types (`installment_kbank`...), `authorize_uri`, `return_uri`, event `charge.complete` — ห้ามเปลี่ยน
-- canonical entities: `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `AdminAccount` · `AdminTenantAssignment` · `AdminAccountAudit` (producer actor `TenantUser` + `ExternalLogin`/`RegistrationTicket`/`Profile` ถูกลบ 2026-06-23 พร้อม Identity module — จะ rebuild เป็น `ProducerAccount` ใน Producer module ภายหลัง)
+- canonical entities: `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `AdminAccount` · `AdminTenantAssignment` · `AdminAccountAudit` · `AdminSession` · `AdminAuthAudit` (admin BFF session + auth-event audit, control-plane) (producer actor `TenantUser` + `ExternalLogin`/`RegistrationTicket`/`Profile` ถูกลบ 2026-06-23 พร้อม Identity module — จะ rebuild เป็น `ProducerAccount` ใน Producer module ภายหลัง)
 - ถ้าจะใช้ snake_case ใน DB → ตั้ง global convention ครั้งเดียว (`UseSnakeCaseNamingConvention()`) อย่าสลับมือทีละตาราง
 
 ---

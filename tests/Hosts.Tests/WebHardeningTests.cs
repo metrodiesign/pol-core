@@ -39,6 +39,13 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
                 ["ConnectionStrings:Worker"] = UnusedConn,
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
+                // Pin the admin OIDC client UNCONFIGURED (blank id): this hardening surface must stay up even
+                // when the admin BFF login is not configured. The OIDC scheme is a per-request handler whose
+                // options are validated on every request, so a blank ClientId used to 400 the WHOLE API
+                // (AddAdminOidcAuthentication now skips the scheme when blank). Forced blank — not left to
+                // appsettings.Development.json's non-blank placeholder — so this regression is caught on every
+                // platform, not just where that file is absent at test time.
+                ["Google:Oidc:ClientId"] = "",
             });
         });
         builder.ConfigureServices(services =>

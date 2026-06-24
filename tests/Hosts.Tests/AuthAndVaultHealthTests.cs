@@ -32,8 +32,8 @@ public sealed class GoogleMultiAudienceTests
 
         var valid = options.TokenValidationParameters.ValidAudiences.ToArray();
         Assert.Contains(TenantAud, valid);
-        Assert.Contains(AdminAud, valid);
-        Assert.Equal(2, valid.Length);
+        Assert.DoesNotContain(AdminAud, valid); // retired: admin uses the OIDC BFF, not a Bearer id_token (REQ-10.2)
+        Assert.Single(valid);
     }
 
     [Theory]
@@ -51,7 +51,8 @@ public sealed class GoogleMultiAudienceTests
 
         Assert.True((await authz.AuthorizeAsync(Principal("tenant"), "tenant")).Succeeded);
         Assert.False((await authz.AuthorizeAsync(Principal("admin"), "tenant")).Succeeded);
-        Assert.True((await authz.AuthorizeAsync(Principal("admin"), "admin")).Succeeded);
+        // The "admin" policy is no longer part of the Bearer wiring — it is the AdminSession cookie scheme
+        // (asserted in AdminProvisioningAuthorizationTests).
     }
 
     [Fact]
