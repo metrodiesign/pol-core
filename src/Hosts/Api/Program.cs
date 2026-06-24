@@ -19,6 +19,7 @@ using Cart.Infrastructure;
 using Checkout.Application;
 using Checkout.Infrastructure;
 using Mediator;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
@@ -183,6 +184,18 @@ if (!app.Environment.IsDevelopment()
         "AdminAllowlist:Subjects is empty — Super-admin bootstrap is disabled (first-admin self-provision will " +
         "be denied, fail-closed). Set AdminAllowlist__Subjects__0 to bootstrap the first Super admin.");
 }
+
+// Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
+// browser-facing host/scheme, not this process's. The admin SPA dev server proxies /admin/* here, so the OIDC
+// redirect_uri must be the SPA origin (e.g. localhost:5200) to match the registered Google redirect URI; the
+// same applies to a TLS-terminating reverse proxy in prod (scheme must read https). Default trust = loopback
+// only, which covers the localhost dev proxy.
+// ponytail: a prod proxy that is NOT loopback must add its address to KnownProxies/KnownNetworks, otherwise
+// these headers are (safely) ignored rather than trusted.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto,
+});
 
 // Order matters: correlation id OUTERMOST so the logging scope is still active when the exception handler
 // logs a failure (the scope is popped as the exception unwinds, so it must wrap UseExceptionHandler); the
