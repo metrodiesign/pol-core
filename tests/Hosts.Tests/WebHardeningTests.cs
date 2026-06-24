@@ -31,21 +31,24 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
         // must be host config (UseSetting) — an in-memory source added via ConfigureAppConfiguration lands too
         // late and the "tenant" policy never registers. Production supplies it via env at process start.
         builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
+        // Anything a developer's local appsettings.Development.json or user-secrets could override must be host
+        // config (UseSetting), not an in-memory source added via ConfigureAppConfiguration — those layers sit
+        // ABOVE that in-memory source, so a real local connection string or admin OIDC client id would otherwise
+        // leak in (reachable DB, configured OIDC) and defeat these hermetic assertions.
+        builder.UseSetting("ConnectionStrings:Producer", UnusedConn);
+        builder.UseSetting("ConnectionStrings:Worker", UnusedConn);
+        // Pin the admin OIDC client UNCONFIGURED (blank id): this hardening surface must stay up even when the
+        // admin BFF login is not configured. The OIDC scheme is a per-request handler whose options are validated
+        // on every request, so a blank ClientId used to 400 the WHOLE API (AddAdminOidcAuthentication now skips
+        // the scheme when blank). Forced blank — overriding any local non-blank value — so this regression is
+        // caught on every platform.
+        builder.UseSetting("Google:Oidc:ClientId", "");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Producer"] = UnusedConn,
-                ["ConnectionStrings:Worker"] = UnusedConn,
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
-                // Pin the admin OIDC client UNCONFIGURED (blank id): this hardening surface must stay up even
-                // when the admin BFF login is not configured. The OIDC scheme is a per-request handler whose
-                // options are validated on every request, so a blank ClientId used to 400 the WHOLE API
-                // (AddAdminOidcAuthentication now skips the scheme when blank). Forced blank — not left to
-                // appsettings.Development.json's non-blank placeholder — so this regression is caught on every
-                // platform, not just where that file is absent at test time.
-                ["Google:Oidc:ClientId"] = "",
             });
         });
         builder.ConfigureServices(services =>
@@ -262,10 +265,11 @@ file static class FactoryExtensions
     public static WebApplicationFactory<TEntry> WithFastFailDatabase<TEntry>(
         this WebApplicationFactory<TEntry> factory) where TEntry : class =>
         factory.WithWebHostBuilder(builder =>
-            builder.ConfigureAppConfiguration((_, config) =>
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["ConnectionStrings:Producer"] = HardeningFactory<TEntry>.FastFailConn,
-                    ["ConnectionStrings:Worker"] = HardeningFactory<TEntry>.FastFailConn,
-                })));
+        {
+            // UseSetting (host config), not ConfigureAppConfiguration: a local appsettings.Development.json or
+            // user-secrets connection string would otherwise win and make the DB reachable, defeating the
+            // unreachable-DB assertions.
+            builder.UseSetting("ConnectionStrings:Producer", HardeningFactory<TEntry>.FastFailConn);
+            builder.UseSetting("ConnectionStrings:Worker", HardeningFactory<TEntry>.FastFailConn);
+        });
 }
