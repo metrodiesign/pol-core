@@ -260,6 +260,27 @@ public sealed class WebhookRateLimitTests
     }
 }
 
+public sealed class ForwardedHeadersConfigTests
+{
+    [Fact]
+    public async Task Configured_known_networks_parse_and_blank_entries_are_skipped_without_failing_boot()
+    {
+        // A valid CIDR must parse into KnownIPNetworks, and a blank entry (what an unset `${VAR:-}` env
+        // expands to) must be skipped — not crash boot with IPNetwork.Parse(""). Building the host runs the
+        // UseForwardedHeaders config block, so a 200 from liveness proves the parse succeeded.
+        using var factory = new HardeningFactory<ApiHost::Program>().WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("ForwardedHeaders:KnownNetworks:0", "172.18.0.0/16");
+            builder.UseSetting("ForwardedHeaders:KnownNetworks:1", "");
+        });
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/health/live");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+
 file static class FactoryExtensions
 {
     public static WebApplicationFactory<TEntry> WithFastFailDatabase<TEntry>(

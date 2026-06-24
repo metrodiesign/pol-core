@@ -75,8 +75,15 @@ POST /admin/auth/logout-all   // ทุก device
 
 ## returnTo allowlist
 
-รับเฉพาะ: `/` · `/dashboard` · `/tenants` (กัน open-redirect). ใช้ route อื่นเป็นปลายทาง login บอก backend
-เพิ่มใน `AdminSession:ReturnUrlAllowlist`.
+หลัง login backend redirect ไปได้เฉพาะ path ที่อยู่ใน `AdminSession:ReturnUrlAllowlist` (กัน open-redirect);
+path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
+
+**committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
+- dev (`appsettings.Development.json`): `/`, `/main`, `/dashboard`, `/tenants`
+- staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
+
+**สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
+ไม่งั้นถูกเด้งกลับ `/` (`DefaultReturnPath`). ขอ ops เพิ่ม route ที่ FE ใช้จริง.
 
 ## ห้าม
 

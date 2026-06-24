@@ -56,6 +56,27 @@ chmod 600 secrets/*
 เก็บ secret เหล่านี้ใน secret manager จริง (backup แยก) — ถ้า `vault_master_key` หาย = ถอด secret ใน vault
 ไม่ได้ทั้งหมด (ดู [[vault-key-rotation]] สำหรับการหมุน). อย่า commit ./secrets/.
 
+## 1.1 หลัง reverse proxy + admin returnTo
+
+วาง API หลัง TLS-terminating reverse proxy (nginx/caddy): proxy เชื่อมจาก IP ใน docker/private network (ไม่ใช่
+loopback) → ต้อง trust proxy นั้น ไม่งั้น API เมิน `X-Forwarded-Host`/`-Proto` แล้ว OIDC `redirect_uri` กลายเป็น
+internal host (`http://...:8080`) → Google ตอบ `redirect_uri_mismatch`. ตั้งใน `.env` (ค่าว่าง = loopback only,
+พอสำหรับ proxy บน localhost host เดียวกัน):
+
+```bash
+# CIDR ของ network ที่ proxy เชื่อมมา (docker bridge subnet — ดู `docker network inspect <project>_default`)
+ForwardedHeaders__KnownNetworks__0=172.18.0.0/16
+# หรือ IP เดี่ยวของ proxy: ForwardedHeaders__KnownProxies__0=10.0.0.5
+```
+
+admin returnTo: หลัง login backend redirect ไปได้เฉพาะ path ใน `AdminSession:ReturnUrlAllowlist` (committed
+default = `/` เท่านั้น). เพิ่ม route ปลายทาง login ที่ admin SPA ใช้จริง:
+
+```bash
+AdminSession__ReturnUrlAllowlist__0=/
+AdminSession__ReturnUrlAllowlist__1=/dashboard
+```
+
 ## 2. First deploy
 
 ```bash
