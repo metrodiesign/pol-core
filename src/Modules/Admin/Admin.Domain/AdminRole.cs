@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using SharedKernel;
 
 namespace Admin.Domain;
@@ -13,6 +14,10 @@ public sealed class AdminRole : AggregateRoot<Guid>
 {
     /// <summary>The seed role granted to the bootstrap Super; the recovery anchor that may not be deactivated.</summary>
     public const string SuperAdminCode = "super_admin";
+
+    // Code lands in route paths (GET /admin/roles/{code}); constrain to a URL-safe slug so it can never carry
+    // '/', '?', '#', '%' etc. All seeded codes are lowercase snake_case.
+    private static readonly Regex CodePattern = new("^[a-z0-9_]+$");
 
     private readonly List<AdminRolePermission> _permissions = [];
 
@@ -100,6 +105,8 @@ public sealed class AdminRole : AggregateRoot<Guid>
         var trimmed = code.Trim();
         if (trimmed.Length > 64)
             throw new ArgumentException("Role code must be 64 characters or fewer.", nameof(code));
+        if (!CodePattern.IsMatch(trimmed))
+            throw new ArgumentException("Role code may only contain lowercase letters, digits, and underscores.", nameof(code));
         return trimmed;
     }
 

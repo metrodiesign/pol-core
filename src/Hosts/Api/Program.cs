@@ -609,8 +609,13 @@ static object RoleToWire(AdminRoleListItem r) => new
     permissions = r.PermissionKeys,
     userCount = r.UserCount,
 };
-static AdminRoleStatus ParseRoleStatus(string? status) =>
-    string.Equals(status, "inactive", StringComparison.OrdinalIgnoreCase) ? AdminRoleStatus.Inactive : AdminRoleStatus.Active;
+// Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active (B2).
+static AdminRoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
+{
+    "active" => AdminRoleStatus.Active,
+    "inactive" => AdminRoleStatus.Inactive,
+    _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
+};
 
 // Permission catalog for the matrix (REQ-1.5): resource = the permission's group key.
 admin.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>

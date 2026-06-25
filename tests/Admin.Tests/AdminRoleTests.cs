@@ -36,6 +36,14 @@ public sealed class AdminRoleTests
     }
 
     [Fact]
+    public void Create_rejects_a_code_with_non_slug_characters()
+    {
+        Assert.Throws<ArgumentException>(() => AdminRole.Create("ops admin", "R", null, null, AdminRoleStatus.Active, [], Catalog));
+        Assert.Throws<ArgumentException>(() => AdminRole.Create("Ops_Admin", "R", null, null, AdminRoleStatus.Active, [], Catalog));
+        Assert.Throws<ArgumentException>(() => AdminRole.Create("ops/admin", "R", null, null, AdminRoleStatus.Active, [], Catalog));
+    }
+
+    [Fact]
     public void SetPermissions_replaces_the_set_and_rejects_unknown_keys()
     {
         var role = AdminRole.Create("r", "R", null, null, AdminRoleStatus.Active, ["txn.view"], Catalog);

@@ -38,6 +38,10 @@ public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, Delet
             var role = await _roles.GetByCodeAsync(command.Code, ct)
                 ?? throw new NotFoundException($"Role '{command.Code}' was not found.");
 
+            // Recovery-anchor guard (REQ-8.3): deleting the seed would create the same Super-tier lockout that
+            // the deactivation guard prevents. A role with bound users is also undeletable (REQ-4.4).
+            if (role.IsSuperAdminSeed)
+                throw new ConflictException("The super_admin role cannot be deleted.");
             if (await _roles.CountAssignmentsForRoleAsync(role.Id, ct) > 0)
                 throw new ConflictException("A role with bound users cannot be deleted.");
 
@@ -46,7 +50,7 @@ public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, Delet
                 AdminAuditAction.RoleDeleted, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetRoleId: role.Id));
             await _unitOfWork.SaveChangesAsync(ct);
-            return role.Id;
+            return true; // transaction payload is unused — the result is built from command.Code below
         }, cancellationToken);
 
         return new DeleteRoleResult(command.Code);
