@@ -778,35 +778,28 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, Can
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your admin account is not active.");
 
     var me = scope.Current;
-    object accessible;
+    AdminAccessibleResponse accessible;
     if (me.Accessible.IsUnrestricted)
     {
-        accessible = new { isUnrestricted = true };
+        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Tenants: null);
     }
     else
     {
         var codes = await tenants.GetCodesByIdsAsync(me.Accessible.Tenants, ct);
-        accessible = new
-        {
-            isUnrestricted = false,
-            tenants = me.Accessible.Tenants.Select(id => new { id, code = codes.GetValueOrDefault(id) }).ToArray(),
-        };
+        accessible = new AdminAccessibleResponse(
+            IsUnrestricted: false,
+            Tenants: me.Accessible.Tenants
+                .Select(id => new AdminAccessibleTenantResponse(id, codes.GetValueOrDefault(id))).ToArray());
     }
 
-    return Results.Ok(new
-    {
-        adminId = me.AdminId,
-        email = me.Email,
-        tier = me.Tier.ToString(),
-        accessibleTenants = accessible,
-        permissions = me.Permissions, // effective action permissions (admin-role-rbac REQ-9.1)
-    });
+    // permissions = effective action permissions (admin-role-rbac REQ-9.1)
+    return Results.Ok(new AdminMeResponse(me.AdminId, me.Email, me.Tier.ToString(), accessible, me.Permissions));
 }).RequireAuthorization("admin")
     .WithTags("Admin Auth")
     .WithName("GetAdminMe")
     .WithSummary("Resolve the current admin")
     .WithDescription("The SPA reads its own identity: tier, accessible tenants (or unrestricted), and effective permissions. Inactive account -> 403.")
-    .Produces(StatusCodes.Status200OK)
+    .Produces<AdminMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -881,16 +874,10 @@ admin.MapPost("/admins/{id:guid}/suspend", async (
 // Orthogonal to AdminTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
 // gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
 // "active"/"inactive" via explicit projection — there is no global string-enum converter (B2).
-static object RoleToWire(AdminRoleListItem r) => new
-{
-    code = r.Code,
-    name = r.Name,
-    description = r.Description,
-    color = r.Color,
-    status = r.Status == AdminRoleStatus.Active ? "active" : "inactive",
-    permissions = r.PermissionKeys,
-    userCount = r.UserCount,
-};
+static RoleResponse RoleToWire(AdminRoleListItem r) => new(
+    r.Code, r.Name, r.Description, r.Color,
+    r.Status == AdminRoleStatus.Active ? "active" : "inactive",
+    r.PermissionKeys, r.UserCount);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active (B2).
 static AdminRoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
@@ -903,17 +890,15 @@ static AdminRoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvaria
 admin.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
 {
     var catalog = await mediator.Send(new ListPermissionsQuery(), ct);
-    return Results.Ok(new
-    {
-        groups = catalog.Groups.Select(g => new { key = g.Key, label = g.LabelTh }),
-        permissions = catalog.Permissions.Select(p => new { key = p.Key, label = p.LabelTh, resource = p.Resource }),
-    });
+    return Results.Ok(new PermissionCatalogResponse(
+        catalog.Groups.Select(g => new PermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
+        catalog.Permissions.Select(p => new PermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
 }).RequireAuthorization("admin")
     .WithTags("Admin Roles")
     .WithName("ListPermissions")
     .WithSummary("Permission catalog")
     .WithDescription("The permission/group catalog backing the role matrix (resource = the permission's group key).")
-    .Produces(StatusCodes.Status200OK)
+    .Produces<PermissionCatalogResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 admin.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
@@ -923,7 +908,7 @@ admin.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
     .WithName("ListRoles")
     .WithSummary("List roles")
     .WithDescription("All admin roles with their permissions and bound-user counts.")
-    .Produces(StatusCodes.Status200OK)
+    .Produces<IEnumerable<RoleResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 admin.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
@@ -935,7 +920,7 @@ admin.MapGet("/roles/{code}", async (string code, IMediator mediator, Cancellati
     .WithName("GetRole")
     .WithSummary("Read a role by code")
     .WithDescription("Return a single role with its permissions. Unknown code -> 404.")
-    .Produces(StatusCodes.Status200OK)
+    .Produces<RoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -952,7 +937,7 @@ admin.MapPost("/roles", async (
     .WithName("CreateRole")
     .WithSummary("Create a role")
     .WithDescription("Requires the user.roles permission. Duplicate code -> 409; permission key outside the catalog -> 400.")
-    .Produces(StatusCodes.Status201Created)
+    .Produces<RoleResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -971,7 +956,7 @@ admin.MapPut("/roles/{code}", async (
     .WithName("UpdateRole")
     .WithSummary("Update a role")
     .WithDescription("Requires the user.roles permission. Code is immutable (from the route); deactivating super_admin -> 409.")
-    .Produces(StatusCodes.Status200OK)
+    .Produces<RoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1121,6 +1106,25 @@ internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
 internal sealed record StartRedirectResponse(string RedirectUrl);
 internal sealed record WebhookResponse(string Outcome);
+
+// Admin read responses — named records (not anonymous objects) so the OpenAPI doc carries a response schema
+// Scalar can render. Wire shape matches the previous anonymous objects (camelCase via the web JSON defaults).
+internal sealed record AdminMeResponse(
+    Guid AdminId, string Email, string Tier, AdminAccessibleResponse AccessibleTenants,
+    IReadOnlySet<string> Permissions);
+internal sealed record AdminAccessibleResponse(
+    bool IsUnrestricted,
+    // Omitted entirely (not null) for a Super, matching the prior shape.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyCollection<AdminAccessibleTenantResponse>? Tenants);
+internal sealed record AdminAccessibleTenantResponse(Guid Id, string? Code);
+internal sealed record PermissionCatalogResponse(
+    IReadOnlyCollection<PermissionGroupResponse> Groups, IReadOnlyCollection<PermissionItemResponse> Permissions);
+internal sealed record PermissionGroupResponse(string Key, string Label);
+internal sealed record PermissionItemResponse(string Key, string Label, string Resource);
+internal sealed record RoleResponse(
+    string Code, string Name, string? Description, string? Color, string Status,
+    IReadOnlyList<string> Permissions, int UserCount);
 
 // Bridges PspCode <-> its stable wire code via the domain's single-source-of-truth PspCodes mapping,
 // so the host owns the serialization concern and the domain enum stays attribute-free.
