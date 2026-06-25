@@ -133,32 +133,26 @@ public sealed class OutboxDispatcher : BackgroundService
         }
     }
 
-    // ponytail: PaymentPaid is the only integration event today. Replace this switch with a
-    // type-name -> CLR-type map when a second event ships, rather than reflecting all assemblies.
+    // Maps the stored OutboxMessage.Type (the integration event's CLR simple name, written by
+    // EfOutbox) to its CLR type. A new event ships by adding one entry here — no reflection over
+    // assemblies, no growing switch. Ordinal keys: Type is a CLR identifier, never culture-sensitive.
+    private static readonly IReadOnlyDictionary<string, Type> EventTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
+    {
+        [nameof(PaymentPaid)] = typeof(PaymentPaid),
+        [nameof(CustomerOrderNotification)] = typeof(CustomerOrderNotification),
+        [nameof(CheckoutConfirmed)] = typeof(CheckoutConfirmed),
+    };
+
     private static async Task PublishAsync(IPublisher publisher, OutboxMessage message, CancellationToken cancellationToken)
     {
-        switch (message.Type)
-        {
-            case nameof(PaymentPaid):
-                var paymentPaid = JsonSerializer.Deserialize<PaymentPaid>(message.Payload, OutboxSerializer.Options)
-                    ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
-                await publisher.Publish(paymentPaid, cancellationToken).ConfigureAwait(false);
-                break;
+        if (!EventTypes.TryGetValue(message.Type, out var eventType))
+            throw new InvalidOperationException($"No outbox publisher registered for type '{message.Type}'.");
 
-            case nameof(CustomerOrderNotification):
-                var notification = JsonSerializer.Deserialize<CustomerOrderNotification>(message.Payload, OutboxSerializer.Options)
-                    ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
-                await publisher.Publish(notification, cancellationToken).ConfigureAwait(false);
-                break;
+        var notification = JsonSerializer.Deserialize(message.Payload, eventType, OutboxSerializer.Options)
+            ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
 
-            case nameof(CheckoutConfirmed):
-                var checkoutConfirmed = JsonSerializer.Deserialize<CheckoutConfirmed>(message.Payload, OutboxSerializer.Options)
-                    ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
-                await publisher.Publish(checkoutConfirmed, cancellationToken).ConfigureAwait(false);
-                break;
-
-            default:
-                throw new InvalidOperationException($"No outbox publisher registered for type '{message.Type}'.");
-        }
+        // Non-generic Publish dispatches on the runtime type, so the source-generated handler for the
+        // concrete event (PaymentPaid, CheckoutConfirmed, ...) is invoked — not a handler for object.
+        await publisher.Publish(notification, cancellationToken).ConfigureAwait(false);
     }
 }
