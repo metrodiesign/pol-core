@@ -188,9 +188,12 @@ builder.Services.AddOpenApi(options =>
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
-            Name = AdminSessionCookies.SessionCookieName,
+            // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
+            // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
+            // see the cookie they actually have.
+            Name = AdminSessionCookies.SessionCookieNameDevHttp,
             Description = "Admin BFF session cookie issued by the OIDC login flow (GET /admin/auth/login). "
-                + "Set automatically in the browser; under dev HTTP the cookie is `adm_session`.",
+                + "Set automatically in the browser. Production (HTTPS) uses the `__Host-adm_session` name.",
         };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
@@ -207,7 +210,7 @@ builder.Services.AddOpenApi(options =>
             {
                 // RelativePath keeps route constraints ("{cartId:guid}"); the OpenAPI path strips them
                 // ("{cartId}"). Normalise so the two keys match.
-                var path = Regex.Replace("/" + d.RelativePath.TrimStart('/'), @"\{([^:}]+):[^}]+\}", "{$1}");
+                var path = RouteConstraintRegex().Replace("/" + d.RelativePath.TrimStart('/'), "{$1}");
                 schemeByRoute[(path, d.HttpMethod.ToUpperInvariant())] = schemeId;
             }
         }
@@ -231,6 +234,9 @@ builder.Services.AddOpenApi(options =>
 
 // tenant routes gate on the "tenant" policy (Google Bearer); admin routes on "admin" (session cookie).
 // AllowAnonymous endpoints and the unauthenticated webhook get no security requirement in the doc.
+// Assumption: the only IAuthorizeData on an endpoint is the named policy from .RequireAuthorization(...).
+// RequireAdminTier/RequirePermission use endpoint filters + WithMetadata (AdminHostWiring.cs), NOT
+// IAuthorizeData, so exactly one non-empty policy is present and LastOrDefault is unambiguous.
 static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
 {
     if (metadata.OfType<IAllowAnonymous>().Any())
@@ -337,9 +343,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     // Scalar reference UI over /openapi/v1.json — anonymous like the health checks. Other teams browse the
     // grouped endpoints and try them with the right auth straight from /scalar. Dev-only, same as MapOpenApi.
-    app.MapScalarApiReference(options => options
-        .WithTitle("pol-core API")
-        .AddPreferredSecuritySchemes("Bearer"));
+    // No preferred scheme: Scalar auto-selects each operation's own security (Bearer for tenant routes,
+    // AdminSession for admin routes) instead of defaulting every endpoint to one.
+    app.MapScalarApiReference(options => options.WithTitle("pol-core API"));
 }
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT tenant/PSP parsed from the
@@ -1132,4 +1138,10 @@ internal sealed class PspCodeJsonConverter : JsonConverter<PspCode>
 }
 
 /// <summary>Exposed so <c>WebApplicationFactory&lt;Program&gt;</c> can boot the host in tests.</summary>
-public partial class Program;
+public partial class Program
+{
+    // Strip a route constraint from a path segment ("{cartId:guid}" -> "{cartId}") so an ApiDescription's
+    // RelativePath matches the OpenAPI document's path key. Source-generated so the pattern compiles once.
+    [GeneratedRegex(@"\{([^:}]+):[^}]+\}")]
+    private static partial Regex RouteConstraintRegex();
+}
