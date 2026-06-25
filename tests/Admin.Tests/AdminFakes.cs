@@ -34,6 +34,55 @@ internal sealed class FakeAdminAccountAuditWriter : IAdminAccountAuditWriter
     public void Append(AdminAccountAudit entry) => Appended.Add(entry);
 }
 
+internal sealed class FakeAdminRoleRepository : IAdminRoleRepository
+{
+    public readonly List<AdminRole> Roles = [];
+    public readonly List<AdminRoleAssignment> Assignments = [];
+    public IReadOnlySet<string> Catalog = AdminPermissions.AllKeys;
+
+    public void Add(AdminRole role) => Roles.Add(role);
+    public void Remove(AdminRole role) => Roles.RemoveAll(r => r.Id == role.Id);
+    public void AddAssignment(AdminRoleAssignment a) => Assignments.Add(a);
+    public void RemoveAssignment(AdminRoleAssignment a) => Assignments.RemoveAll(x => x.Id == a.Id);
+
+    public Task<AdminRole?> GetByCodeAsync(string code, CancellationToken ct) =>
+        Task.FromResult(Roles.FirstOrDefault(r => r.Code == code));
+    public Task<bool> CodeExistsAsync(string code, CancellationToken ct) =>
+        Task.FromResult(Roles.Any(r => r.Code == code));
+    public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) =>
+        Task.FromResult(Assignments.Count(a => a.RoleId == roleId));
+
+    public Task<IReadOnlyList<AdminRoleListItem>> ListAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<AdminRoleListItem>>([.. Roles.Select(ToItem)]);
+    public Task<AdminRoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) =>
+        Task.FromResult(Roles.Where(r => r.Code == code).Select(ToItem).FirstOrDefault());
+
+    public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyDictionary<string, Guid>>(Roles.Where(r => codes.Contains(r.Code)).ToDictionary(r => r.Code, r => r.Id));
+    public Task<IReadOnlySet<Guid>> ListRoleIdsForAdminAsync(Guid adminId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.AdminAccountId == adminId).Select(a => a.RoleId).ToHashSet());
+    public Task<AdminRoleAssignment?> GetAssignmentAsync(Guid adminId, Guid roleId, CancellationToken ct) =>
+        Task.FromResult(Assignments.FirstOrDefault(a => a.AdminAccountId == adminId && a.RoleId == roleId));
+    public Task<bool> AssignmentExistsAsync(Guid adminId, Guid roleId, CancellationToken ct) =>
+        Task.FromResult(Assignments.Any(a => a.AdminAccountId == adminId && a.RoleId == roleId));
+
+    public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) => Task.FromResult(Catalog);
+    public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) =>
+        Task.FromResult(new PermissionCatalogResult([], []));
+
+    public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid adminId, CancellationToken ct)
+    {
+        var activeRoleIds = Assignments.Where(a => a.AdminAccountId == adminId).Select(a => a.RoleId).ToHashSet();
+        var keys = Roles.Where(r => activeRoleIds.Contains(r.Id) && r.Status == AdminRoleStatus.Active)
+            .SelectMany(r => r.PermissionKeys)
+            .ToHashSet(StringComparer.Ordinal);
+        return Task.FromResult<IReadOnlySet<string>>(keys);
+    }
+
+    private AdminRoleListItem ToItem(AdminRole r) =>
+        new(r.Code, r.Name, r.Description, r.Color, r.Status, [.. r.PermissionKeys], Assignments.Count(a => a.RoleId == r.Id));
+}
+
 internal sealed class FakeAdminTenantDirectory : IAdminTenantDirectory
 {
     public bool ActiveResult = true;

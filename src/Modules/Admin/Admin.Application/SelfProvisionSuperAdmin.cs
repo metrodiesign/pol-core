@@ -19,17 +19,20 @@ public sealed record SelfProvisionSuperAdminCommand(string Subject, string Email
 public sealed class SelfProvisionSuperAdminHandler : ICommandHandler<SelfProvisionSuperAdminCommand, AdminResolution>
 {
     private readonly IAdminAccountRepository _admins;
+    private readonly IAdminRoleRepository _roles;
     private readonly IAdminAccountAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public SelfProvisionSuperAdminHandler(
         IAdminAccountRepository admins,
+        IAdminRoleRepository roles,
         IAdminAccountAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
         _admins = admins;
+        _roles = roles;
         _audit = audit;
         _unitOfWork = unitOfWork;
         _clock = clock;
@@ -45,6 +48,9 @@ public sealed class SelfProvisionSuperAdminHandler : ICommandHandler<SelfProvisi
                 _admins.Add(account);
                 _audit.Append(AdminAccountAudit.For(
                     AdminAuditAction.SelfProvision, account.Id, command.CorrelationId, _clock.UtcNow, targetAdminId: account.Id));
+                // Bootstrap is usable immediately only if it also holds the super_admin role (orthogonal model has
+                // no Super-bypass — REQ-8.1). Assigned in the same transaction so the account never exists roleless.
+                await AssignSuperAdminRoleAsync(account.Id, command.CorrelationId, ct);
                 await _unitOfWork.SaveChangesAsync(ct);
                 return new AdminResolution(account.Id, account.Email, AdminTier.Super, AccessibleTenants.All);
             }, cancellationToken);
@@ -56,7 +62,21 @@ public sealed class SelfProvisionSuperAdminHandler : ICommandHandler<SelfProvisi
             var existing = await _admins.GetBySubjectAsync(command.Subject, cancellationToken)
                 ?? throw new ConflictException("Self-provision raced but no admin account was found on re-read.");
             var accessible = await ResolveAdminHandler.ResolveAccessibleAsync(existing, _admins, cancellationToken);
-            return new AdminResolution(existing.Id, existing.Email, existing.Tier, accessible);
+            var permissions = await _roles.ListEffectivePermissionsAsync(existing.Id, cancellationToken);
+            return new AdminResolution(existing.Id, existing.Email, existing.Tier, accessible) { Permissions = permissions };
         }
+    }
+
+    /// <summary>Idempotently binds the seed super_admin role to the bootstrap account (REQ-8.1). No-op if the seed
+    /// role is absent (pre-migration) or already assigned (race/retry safe — S1).</summary>
+    private async Task AssignSuperAdminRoleAsync(Guid adminId, string correlationId, CancellationToken ct)
+    {
+        var role = await _roles.GetByCodeAsync(AdminRole.SuperAdminCode, ct);
+        if (role is null || await _roles.AssignmentExistsAsync(adminId, role.Id, ct))
+            return;
+        _roles.AddAssignment(AdminRoleAssignment.Create(adminId, role.Id, adminId, _clock.UtcNow));
+        _audit.Append(AdminAccountAudit.For(
+            AdminAuditAction.RoleAssigned, adminId, correlationId, _clock.UtcNow,
+            targetAdminId: adminId, targetRoleId: role.Id));
     }
 }

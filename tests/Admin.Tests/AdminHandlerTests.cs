@@ -21,7 +21,7 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakeAdminAccountRepository();
         admins.Add(AdminAccount.SelfProvision("super-1", "ops@org.com", Now));
-        var handler = new ResolveAdminHandler(admins);
+        var handler = new ResolveAdminHandler(admins, new FakeAdminRoleRepository());
 
         var result = await handler.Handle(new ResolveAdminQuery("super-1"), default);
 
@@ -39,7 +39,7 @@ public sealed class AdminHandlerTests
         admins.Add(scoped);
         var tenantX = Guid.NewGuid();
         admins.AddAssignment(AdminTenantAssignment.Create(scoped.Id, tenantX, Guid.NewGuid(), Now));
-        var handler = new ResolveAdminHandler(admins);
+        var handler = new ResolveAdminHandler(admins, new FakeAdminRoleRepository());
 
         var result = await handler.Handle(new ResolveAdminQuery("scoped-1"), default);
 
@@ -56,7 +56,7 @@ public sealed class AdminHandlerTests
         var suspended = AdminAccount.SelfProvision("suspended-1", "s@org.com", Now);
         suspended.Suspend(Guid.NewGuid());
         admins.Add(suspended);
-        var handler = new ResolveAdminHandler(admins);
+        var handler = new ResolveAdminHandler(admins, new FakeAdminRoleRepository());
 
         Assert.Equal(AdminResolveOutcome.Suspended, (await handler.Handle(new ResolveAdminQuery("suspended-1"), default)).Outcome);
         Assert.Equal(AdminResolveOutcome.NotFound, (await handler.Handle(new ResolveAdminQuery("ghost"), default)).Outcome);
@@ -69,7 +69,7 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakeAdminAccountRepository();
         var audit = new FakeAdminAccountAuditWriter();
-        var handler = new SelfProvisionSuperAdminHandler(admins, audit, new FakeUnitOfWork(), new FixedClock());
+        var handler = new SelfProvisionSuperAdminHandler(admins, new FakeAdminRoleRepository(), audit, new FakeUnitOfWork(), new FixedClock());
 
         var resolution = await handler.Handle(new SelfProvisionSuperAdminCommand("super-1", "ops@org.com", "corr"), default);
 
@@ -90,13 +90,32 @@ public sealed class AdminHandlerTests
         var admins = new FakeAdminAccountRepository();
         var existing = AdminAccount.SelfProvision("super-1", "ops@org.com", Now);
         admins.Add(existing);
-        var handler = new SelfProvisionSuperAdminHandler(admins, new FakeAdminAccountAuditWriter(), new ConflictingUnitOfWork(), new FixedClock());
+        var handler = new SelfProvisionSuperAdminHandler(admins, new FakeAdminRoleRepository(), new FakeAdminAccountAuditWriter(), new ConflictingUnitOfWork(), new FixedClock());
 
         var resolution = await handler.Handle(new SelfProvisionSuperAdminCommand("super-1", "ops@org.com", "corr"), default);
 
         Assert.Equal(existing.Id, resolution.AdminId);
         Assert.True(resolution.Accessible.IsUnrestricted);
         Assert.Single(admins.Accounts); // no duplicate row
+    }
+
+    [Fact]
+    public async Task SelfProvision_binds_the_seed_super_admin_role_and_audits_it()
+    {
+        var admins = new FakeAdminAccountRepository();
+        var roles = new FakeAdminRoleRepository();
+        var seed = AdminRole.Create(AdminRole.SuperAdminCode, "Super", null, "red", AdminRoleStatus.Active,
+            ["user.roles"], AdminPermissions.AllKeys);
+        roles.Add(seed);
+        var audit = new FakeAdminAccountAuditWriter();
+        var handler = new SelfProvisionSuperAdminHandler(admins, roles, audit, new FakeUnitOfWork(), new FixedClock());
+
+        var resolution = await handler.Handle(new SelfProvisionSuperAdminCommand("super-1", "ops@org.com", "corr"), default);
+
+        var assignment = Assert.Single(roles.Assignments);
+        Assert.Equal(resolution.AdminId, assignment.AdminAccountId);
+        Assert.Equal(seed.Id, assignment.RoleId);
+        Assert.Contains(audit.Appended, a => a.Action == AdminAuditAction.RoleAssigned && a.TargetRoleId == seed.Id);
     }
 
     // ---- BindInvitedAdmin ----

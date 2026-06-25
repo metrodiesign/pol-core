@@ -10,6 +10,14 @@ public static class AdminAuditAction
     public const string AssignTenant = "assign-tenant";
     public const string UnassignTenant = "unassign-tenant";
     public const string Suspend = "suspend";
+
+    // Role RBAC events (admin-role-rbac REQ-10.1). Role CRUD targets a role (TargetRoleId); assign/unassign
+    // targets an admin (TargetAdminId).
+    public const string RoleCreated = "role-created";
+    public const string RoleUpdated = "role-updated";
+    public const string RoleDeleted = "role-deleted";
+    public const string RoleAssigned = "role-assigned";
+    public const string RoleUnassigned = "role-unassigned";
 }
 
 /// <summary>
@@ -33,6 +41,9 @@ public sealed class AdminAccountAudit : Entity<Guid>
 
     public Guid? TenantId { get; private set; }
 
+    /// <summary>The role a role-CRUD event acted on (REQ-10.2). NULL for non-role events.</summary>
+    public Guid? TargetRoleId { get; private set; }
+
     public string CorrelationId { get; private set; } = default!;
 
     public DateTime OccurredAt { get; private set; }
@@ -40,26 +51,27 @@ public sealed class AdminAccountAudit : Entity<Guid>
     private AdminAccountAudit() { }
 
     private AdminAccountAudit(Guid id, string action, Guid actorId, Guid? targetAdminId, Guid? tenantId,
-        string correlationId, DateTime occurredAt) : base(id)
+        Guid? targetRoleId, string correlationId, DateTime occurredAt) : base(id)
     {
         Action = action;
         ActorType = "admin";
         ActorId = actorId;
         TargetAdminId = targetAdminId;
         TenantId = tenantId;
+        TargetRoleId = targetRoleId;
         CorrelationId = correlationId;
         OccurredAt = occurredAt;
     }
 
     /// <summary>Builds an audit row for one of <see cref="AdminAuditAction"/>. <paramref name="actorId"/> is the
-    /// acting admin (for self-provision, the admin's own id); the optional target/tenant locate the subject.</summary>
+    /// acting admin (for self-provision, the admin's own id); the optional target/tenant/role locate the subject.</summary>
     public static AdminAccountAudit For(string action, Guid actorId, string correlationId, DateTime occurredAt,
-        Guid? targetAdminId = null, Guid? tenantId = null)
+        Guid? targetAdminId = null, Guid? tenantId = null, Guid? targetRoleId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
         if (actorId == Guid.Empty)
             throw new ArgumentException("ActorId is required.", nameof(actorId));
-        return new AdminAccountAudit(Guid.NewGuid(), action, actorId, targetAdminId, tenantId, correlationId, occurredAt);
+        return new AdminAccountAudit(Guid.NewGuid(), action, actorId, targetAdminId, tenantId, targetRoleId, correlationId, occurredAt);
     }
 }
