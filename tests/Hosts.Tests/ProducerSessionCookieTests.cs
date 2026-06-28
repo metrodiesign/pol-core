@@ -34,15 +34,15 @@ public sealed class ProducerSessionCookieTests
     [Fact]
     public void Opaque_token_is_random_and_only_its_hash_is_stored()
     {
-        var a = ProducerSessionTokens.NewOpaqueToken();
-        var b = ProducerSessionTokens.NewOpaqueToken();
+        var a = ProducerTokens.NewOpaqueToken();
+        var b = ProducerTokens.NewOpaqueToken();
 
         Assert.NotEqual(a, b);
         Assert.True(a.Length >= 43);
-        var hash = ProducerSessionTokens.Hash(a);
+        var hash = ProducerTokens.Hash(a);
         Assert.Equal(32, hash.Length);
-        Assert.Equal(hash, ProducerSessionTokens.Hash(a));
-        Assert.NotEqual(hash, ProducerSessionTokens.Hash(b));
+        Assert.Equal(hash, ProducerTokens.Hash(a));
+        Assert.NotEqual(hash, ProducerTokens.Hash(b));
     }
 
     [Fact]

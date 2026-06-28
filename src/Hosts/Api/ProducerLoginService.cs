@@ -136,9 +136,9 @@ internal sealed class ProducerLoginService
     {
         try
         {
-            var sessionToken = ProducerSessionTokens.NewOpaqueToken();
-            var csrfToken = ProducerSessionTokens.NewOpaqueToken();
-            var session = ProducerSession.Start(resolution.TenantUserId, ProducerSessionTokens.Hash(sessionToken),
+            var sessionToken = ProducerTokens.NewOpaqueToken();
+            var csrfToken = ProducerTokens.NewOpaqueToken();
+            var session = ProducerSession.Start(resolution.TenantUserId, ProducerTokens.Hash(sessionToken),
                 _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));

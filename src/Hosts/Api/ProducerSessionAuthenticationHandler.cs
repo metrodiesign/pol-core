@@ -69,7 +69,7 @@ internal sealed class ProducerSessionAuthenticationHandler : AuthenticationHandl
             return AuthenticateResult.NoResult(); // no cookie -> let the dual-scheme policy try Bearer (REQ-17.3)
 
         var ct = Context.RequestAborted;
-        var session = await _sessions.FindByTokenHashAsync(ProducerSessionTokens.Hash(token), ct);
+        var session = await _sessions.FindByTokenHashAsync(ProducerTokens.Hash(token), ct);
         if (session is null)
             return AuthenticateResult.Fail("Unknown session.");
 
@@ -131,9 +131,9 @@ internal sealed class ProducerSessionAuthenticationHandler : AuthenticationHandl
 
     private async Task TryRotateAsync(ProducerSession session, DateTime now, ProducerSessionPolicy policy, CancellationToken ct)
     {
-        var newToken = ProducerSessionTokens.NewOpaqueToken();
-        var csrfToken = ProducerSessionTokens.NewOpaqueToken();
-        var successor = session.Rotate(ProducerSessionTokens.Hash(newToken), now, policy);
+        var newToken = ProducerTokens.NewOpaqueToken();
+        var csrfToken = ProducerTokens.NewOpaqueToken();
+        var successor = session.Rotate(ProducerTokens.Hash(newToken), now, policy);
 
         // Atomic single-winner supersede (REQ-11.5): a concurrent request that already rotated wins; we serve under
         // grace with the existing cookie (no Set-Cookie) — exactly one successor is created.

@@ -46,7 +46,7 @@ public sealed class ProducerSessionAuthHandlerTests
     {
         var (handler, store, _, _, http) = await Make(T0, Resolved);
         store.Seeded = null;
-        SetCookie(http, ProducerSessionTokens.NewOpaqueToken());
+        SetCookie(http, ProducerTokens.NewOpaqueToken());
 
         var result = await handler.AuthenticateAsync();
 
@@ -56,8 +56,8 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task Live_active_session_authenticates_with_tenant_id_and_sub_claims_and_binds_scope()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var session = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var session = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
         var (handler, store, _, scope, _) = await Make(T0.AddSeconds(30), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -75,8 +75,8 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task Active_session_past_the_rotation_age_rotates_sets_a_new_cookie_and_audits()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var session = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var session = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
         var (handler, store, audit, _, http) = await Make(T0.AddMinutes(16), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -92,8 +92,8 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task Active_session_slides_idle_lazily_when_past_the_throttle_without_rotating()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var session = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var session = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
         var (handler, store, _, _, _) = await Make(T0.AddMinutes(2), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -108,8 +108,8 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task Expired_active_session_is_rejected()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var session = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var session = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
         var (handler, _, _, scope, _) = await Make(T0.AddMinutes(31), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -121,9 +121,9 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task Immediate_predecessor_within_grace_is_served_without_rotating()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var predecessor = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
-        var successor = predecessor.Rotate(ProducerSessionTokens.Hash(ProducerSessionTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var predecessor = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
+        var successor = predecessor.Rotate(ProducerTokens.Hash(ProducerTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
         var (handler, store, _, scope, _) = await Make(T0.AddMinutes(15).AddSeconds(30), Resolved, token, predecessor);
         store.FamilyActiveId = successor.Id;
 
@@ -138,9 +138,9 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task Superseded_token_past_grace_is_treated_as_reuse_and_revokes_the_family()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var predecessor = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
-        var successor = predecessor.Rotate(ProducerSessionTokens.Hash(ProducerSessionTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var predecessor = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
+        var successor = predecessor.Rotate(ProducerTokens.Hash(ProducerTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
         var (handler, store, audit, scope, _) = await Make(T0.AddMinutes(17), Resolved, token, predecessor);
         store.FamilyActiveId = successor.Id;
 
@@ -155,8 +155,8 @@ public sealed class ProducerSessionAuthHandlerTests
     [Fact]
     public async Task A_suspended_producer_is_rejected_even_with_a_live_session()
     {
-        var token = ProducerSessionTokens.NewOpaqueToken();
-        var session = ProducerSession.Start(UserId, ProducerSessionTokens.Hash(token), T0, Policy);
+        var token = ProducerTokens.NewOpaqueToken();
+        var session = ProducerSession.Start(UserId, ProducerTokens.Hash(token), T0, Policy);
         var (handler, _, _, scope, _) = await Make(T0.AddSeconds(30), ProducerByIdResult.NotActive, token, session);
 
         var result = await handler.AuthenticateAsync();

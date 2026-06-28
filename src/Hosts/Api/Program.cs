@@ -967,7 +967,7 @@ producer.MapPost("/auth/logout", async (
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(ProducerSessionTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(ProducerTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
