@@ -49,7 +49,7 @@
        - re-verified (2026-06-28): build 44 proj 0 err; Producer.Tests 31; Architecture.Tests 48;
          ProducerIdentityRls integration 6 (live SQL :11434).
 
-- [ ] 2. **RBAC catalog + roles** — `ProducerPermissions` (vocab + `AllKeys` frozen), `ProducerRole` (immutable
+- [x] 2. **RBAC catalog + roles** — `ProducerPermissions` (vocab + `AllKeys` frozen), `ProducerRole` (immutable
      `Code` `^[a-z0-9_]+$`, `SetPermissions` catalog-subset), `ProducerRolePermission`, `ProducerRoleAssignment`
      (+`TenantId`); migration `AddProducerRoleRbacTables` seeding the catalog + **two** roles `tenant_owner` (all
      keys, undeletable anchor) and `tenant_member` (`product.*`+`payment.*` only — default approve choice, S7);
@@ -57,6 +57,32 @@
      seeded, roles enforce subset + anchor rules.
      Satisfies: REQ-15, REQ-16. Depends on: 1. Verify: `dotnet test` (catalog/DB parity == `ProducerPermissions.All`;
      unknown-key grant rejected; `tenant_owner` undeletable; effective-permission union over active roles).
+     Evidence:
+       - state: domain (`ProducerPermissions`/`ProducerRole`/etc.) + ports + EF config were pre-scaffolded; this
+         pass added the repo impl, the seed migration, and the tests.
+       - code: `ProducerRoleRepository` (DUP of `AdminRoleRepository` + tenant-scoped effective-permission union,
+         REQ-16.4); migration `20260628123342_AddProducerRoleRbacTables` (data-only — RBAC tables were created by
+         AddProducerIdentityTables' model diff) = grants (catalog SELECT-only / role+grant+assignment CRUD for
+         pol_admin / pol_app NOTHING, S5) + seed (3 groups, 7 perms, `tenant_owner` all-7, `tenant_member` 4).
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings.
+       - test: `dotnet test tests/Producer.Tests` -> 41 passed (10 new ProducerRoleTests: subset/unknown-key
+         reject, slug-pattern reject, SetPermissions dedup, tenant_owner undeletable+undeactivatable, ordinary
+         role deletable, catalog vocabulary parity).
+       - test: `dotnet test tests/Architecture.Tests` -> 48 passed.
+       - test: `source .env.integration && dotnet test tests/Integration.Tests --filter ProducerRoleRbac`
+         -> 6 passed (seed 3/7/2 + 7/4 grants; code<->DB catalog parity vs `ProducerPermissions.AllKeys`;
+         pol_admin role CRUD + catalog SELECT-only refuses INSERT; grant FK rejects bogus key; pol_app refused on
+         all RBAC tables; effective-permission union = ACTIVE roles only, scoped to the approved tenant).
+       - migration: reproducible from zero — full chain incl. AddProducerRoleRbacTables applied on a fresh scratch
+         DB seeds 3 groups / 7 perms / 2 roles / 7+4 grants identically.
+       - viewports: n/a — logic-only (backend slice).
+       - deviations: (1) :11434 had drifted (the original migration created identity tables only; the RBAC tables
+         were modeled later but never reached it, and the history row carried the pre-regeneration id). Reconciled:
+         renamed the history id to the current file, created the 5 RBAC tables from the migration's own generated
+         DDL, then applied the seed via `ef database update`. The VCS migrations are the source of truth and are
+         reproducible from zero (proven). (2) A throwaway `PaymentOrchestration_repro` DB remains on the :11434
+         container from the reproducibility test (DROP is blocked by the destructive guard; it dies with the
+         throwaway container).
 
 - [ ] 3. **BFF session core** `[DUP→Admin session]` — `ProducerSession` aggregate (owner `TenantUserId`),
      `ProducerSessionDecision` (pure decision table — the heart), `ProducerSessionTokens` (opaque + SHA-256,
