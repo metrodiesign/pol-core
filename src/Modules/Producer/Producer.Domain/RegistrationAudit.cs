@@ -30,6 +30,9 @@ public sealed class RegistrationAudit : Entity<Guid>
     /// <summary>The role assigned at approval; NULL for non-approval events.</summary>
     public string? Role { get; private set; }
 
+    /// <summary>The admin's free-text rejection rationale (REQ-5.1); NULL for non-rejection events.</summary>
+    public string? Reason { get; private set; }
+
     public Guid? TenantId { get; private set; }
 
     public string CorrelationId { get; private set; } = default!;
@@ -39,12 +42,13 @@ public sealed class RegistrationAudit : Entity<Guid>
     private RegistrationAudit() { }
 
     private RegistrationAudit(Guid id, string action, string? actorSubject, string targetSubject, string? role,
-        Guid? tenantId, string correlationId, DateTime occurredAt) : base(id)
+        string? reason, Guid? tenantId, string correlationId, DateTime occurredAt) : base(id)
     {
         Action = action;
         ActorSubject = actorSubject;
         TargetSubject = targetSubject;
         Role = role;
+        Reason = reason;
         TenantId = tenantId;
         CorrelationId = correlationId;
         OccurredAt = occurredAt;
@@ -52,12 +56,12 @@ public sealed class RegistrationAudit : Entity<Guid>
 
     /// <summary>Builds an audit row for one of <see cref="RegistrationAuditAction"/>.</summary>
     public static RegistrationAudit For(string action, string targetSubject, string correlationId, DateTime occurredAt,
-        string? actorSubject = null, string? role = null, Guid? tenantId = null)
+        string? actorSubject = null, string? role = null, Guid? tenantId = null, string? reason = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetSubject);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
-        return new RegistrationAudit(Guid.NewGuid(), action, actorSubject, targetSubject, role, tenantId,
+        return new RegistrationAudit(Guid.NewGuid(), action, actorSubject, targetSubject, role, reason, tenantId,
             correlationId, occurredAt);
     }
 }

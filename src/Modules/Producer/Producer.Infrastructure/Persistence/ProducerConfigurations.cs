@@ -86,6 +86,7 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.ActorSubject).HasMaxLength(256);
         builder.Property(x => x.TargetSubject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Role).HasMaxLength(64);
+        builder.Property(x => x.Reason).HasMaxLength(1024);
         builder.Property(x => x.TenantId);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();

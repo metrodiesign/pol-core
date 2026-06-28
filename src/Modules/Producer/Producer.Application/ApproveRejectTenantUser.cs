@@ -127,9 +127,18 @@ public sealed class RejectTenantUserHandler : ICommandHandler<RejectTenantUserCo
             await _sessions.RevokeAllForUserAsync(user.Id, ct); // kill any live sessions (REQ-12.3)
 
             _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, user.Subject, command.CorrelationId, now,
-                actorSubject: command.ActingAdminSubject));
+                actorSubject: command.ActingAdminSubject, reason: NormalizeReason(command.Reason))); // record the rationale (REQ-5.1)
 
             await _unitOfWork.SaveChangesAsync(ct);
             return new RejectTenantUserResult(user.Id, TenantUserStatus.Rejected);
         }, cancellationToken));
+
+    // Blank -> NULL (no rationale given); trim + cap to the audit column width (REQ-5.1).
+    private static string? NormalizeReason(string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            return null;
+        var trimmed = reason.Trim();
+        return trimmed.Length <= 1024 ? trimmed : trimmed[..1024];
+    }
 }

@@ -30,6 +30,22 @@ internal static class ProducerPermissionAuthorization
         scope.IsBound && scope.Current.Permissions.Contains(permission);
 }
 
+/// <summary>
+/// Fail-closed gate for the WHOLE authenticated producer BFF surface (REQ-17.2/F10): every route in the
+/// <c>/producer</c> group is for a BOUND producer. A tenant-Bearer caller admitted by the dual-scheme <c>producer</c>
+/// policy binds no producer scope, so it is denied 403 here — the same posture <c>/producer/me</c> enforces inline,
+/// applied groupwide so a tenant-Bearer token cannot read the producer role/permission catalog or hit logout-all
+/// (which dereferences <c>scope.Current</c>). The shared product/payment writes that legitimately accept tenant-Bearer
+/// are mapped OUTSIDE this group, so they are untouched.
+/// </summary>
+internal sealed class ProducerBoundProducerFilter : IEndpointFilter
+{
+    public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
+        context.HttpContext.RequestServices.GetRequiredService<IProducerScope>().IsBound
+            ? await next(context)
+            : Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your producer account is not active.");
+}
+
 /// <summary>Boot-time parity guard (REQ-15.5): every permission key a <c>RequireProducerPermission</c> gate references
 /// MUST exist in the code-canonical catalog vocabulary (<see cref="ProducerPermissions.AllKeys"/>, which the migration
 /// seeds the DB from). Pure in-memory — no DB. Call right before <c>app.Run()</c>, after all endpoints are mapped.</summary>

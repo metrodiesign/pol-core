@@ -103,11 +103,23 @@ public sealed class ProducerApproveRejectHandlerTests
         var sessions = new FakeSessions();
         var audit = new FakeAudit();
 
-        await Reject(users, sessions, u.Subject, audit);
+        await Reject(users, sessions, u.Subject, audit, reason: "Incomplete tax documents");
 
         Assert.Equal(TenantUserStatus.Rejected, u.Status);
         Assert.Equal(u.Id, sessions.RevokedUser);
-        Assert.Contains(audit.Rows, a => a.Action == RegistrationAuditAction.Rejected && a.TargetSubject == u.Subject);
+        var row = Assert.Single(audit.Rows, a => a.Action == RegistrationAuditAction.Rejected && a.TargetSubject == u.Subject);
+        Assert.Equal("Incomplete tax documents", row.Reason); // REQ-5.1: the rationale is recorded
+    }
+
+    [Fact]
+    public async Task Reject_with_a_blank_reason_records_null_not_empty()
+    {
+        var users = new FakeUsers(); var u = Pending(); users.Seed(u);
+        var audit = new FakeAudit();
+
+        await Reject(users, new FakeSessions(), u.Subject, audit, reason: "   ");
+
+        Assert.Null(Assert.Single(audit.Rows).Reason);
     }
 
     // --- harness ---
@@ -123,9 +135,10 @@ public sealed class ProducerApproveRejectHandlerTests
         new ApproveTenantUserHandler(users, roles ?? new FakeRoles(), audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
             .Handle(new ApproveTenantUserCommand(subject, Tenant, roleCodes, "admin-sub", AdminId, "corr"), default).AsTask();
 
-    private static Task<RejectTenantUserResult> Reject(FakeUsers users, FakeSessions sessions, string subject = "google-sub", FakeAudit? audit = null) =>
+    private static Task<RejectTenantUserResult> Reject(
+        FakeUsers users, FakeSessions sessions, string subject = "google-sub", FakeAudit? audit = null, string? reason = "reason") =>
         new RejectTenantUserHandler(users, sessions, audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
-            .Handle(new RejectTenantUserCommand(subject, "reason", "admin-sub", "corr"), default).AsTask();
+            .Handle(new RejectTenantUserCommand(subject, reason, "admin-sub", "corr"), default).AsTask();
 
     private sealed class FakeUow : IProducerUnitOfWork
     {

@@ -956,7 +956,11 @@ app.MapPost("/producer/register", async (
 // producer CORS policy is applied to /producer/* by PolCorsPolicyProvider). Every route gates on the dual-scheme
 // "producer" policy (ProducerSession OR tenant Bearer); the CSRF filter exempts safe methods, and the anonymous
 // pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
-var producer = app.MapGroup("/producer").AddEndpointFilter<ProducerCsrfFilter>();
+// ProducerBoundProducerFilter then fail-closes the whole group on a BOUND producer (REQ-17.2/F10): a tenant-Bearer
+// caller passes the dual-scheme policy but binds no scope, so it cannot read the role/permission catalog here.
+var producer = app.MapGroup("/producer")
+    .AddEndpointFilter<ProducerCsrfFilter>()
+    .AddEndpointFilter<ProducerBoundProducerFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
 // presented cookie identifies the family.
