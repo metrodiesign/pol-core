@@ -84,7 +84,7 @@
          container from the reproducibility test (DROP is blocked by the destructive guard; it dies with the
          throwaway container).
 
-- [ ] 3. **BFF session core** `[DUP→Admin session]` — `ProducerSession` aggregate (owner `TenantUserId`),
+- [x] 3. **BFF session core** `[DUP→Admin session]` — `ProducerSession` aggregate (owner `TenantUserId`),
      `ProducerSessionDecision` (pure decision table — the heart), `ProducerSessionTokens` (opaque + SHA-256,
      duplicated, Admin untouched), `ProducerSessionStore` (atomic `ExecuteUpdateAsync`, `TrySuperseded`,
      `RevokeFamily`, `RevokeAllForUserAsync`, prune) + `ProducerSessionPorts`; migration `AddProducerSessionTables`
@@ -92,6 +92,26 @@
      invariants proven.
      Satisfies: REQ-10, REQ-11. Depends on: 1. Verify: `dotnet test` (decision table incl. grace/reuse; rotation
      single-winner `TrySuperseded`; family revoke; prune — unit + integration).
+     Evidence:
+       - code: DUP of the Admin session stack (owner `AdminAccountId`->`TenantUserId`, `RevokeAllForAdmin`->
+         `RevokeAllForUserAsync`; each file carries a `ponytail: DUPLICATE` note, Admin untouched) — domain
+         `ProducerSession`/`ProducerSessionDecisionPolicy`/`ProducerAuthAudit`, app `IProducerSessionStore`/
+         `IProducerAuthAuditWriter`, infra `ProducerSessionStore`/`ProducerAuthAuditWriter` + EF configs, host
+         `ProducerSessionTokens` (opaque 256-bit + SHA-256). Migration `20260628124815_AddProducerSessionTables`
+         creates `ProducerSessions` (+TokenHash unique idx) + `ProducerAuthAudits` with control-plane grants
+         (Sessions SIUD, AuthAudits append-only SI; pol_app NOTHING).
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings.
+       - test: `dotnet test tests/Producer.Tests` -> 53 passed (12 new: Start/Rotate/IsLiveAt/grace, AuthAudit
+         optional-user; full decision table ServeActive/Reject/ServeUnderGrace/ReuseRevokeFamily incl. not-immediate).
+       - test: `dotnet test tests/Architecture.Tests` -> 48 passed.
+       - test: `source .env.integration && dotnet test tests/Integration.Tests --filter ProducerSession`
+         -> 5 passed (single-winner supersede; family revoke; revoke-all-for-user; prune-by-absolute; pol_app
+         refused on both tables).
+       - migration: applied to :11434 via `ef database update` (history now consistent) AND reproducible — applied
+         on the fresh scratch DB with the correct grants (Sessions SIUD / AuthAudits SI).
+       - viewports: n/a — logic-only (backend slice).
+       - deviations: `ProducerSessionTokens` placed in the host (`src/Hosts/Api`) mirroring `AdminSessionTokens`;
+         `ProducerSessionCookies` (cookie attrs) is deferred to Task 6 per the task split.
 
 - [ ] 4. **Registration endpoint + photo + outbox event** — `OpaqueTicket` signer (DataProtection, distinct
      purpose); `POST /producer/register` (anonymous, ticket-gated, multipart; **size bound before buffering** N3);
