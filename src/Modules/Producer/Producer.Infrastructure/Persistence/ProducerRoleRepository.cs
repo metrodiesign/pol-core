@@ -110,6 +110,15 @@ public sealed class ProducerRoleRepository : IProducerRoleRepository
         return keys.ToHashSet(StringComparer.Ordinal);
     }
 
+    public async Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(
+        Guid tenantUserId, Guid tenantId, CancellationToken cancellationToken) =>
+        await _db.Set<ProducerRoleAssignment>()
+            .Where(a => a.TenantUserId == tenantUserId && a.TenantId == tenantId)
+            .Join(_db.Set<ProducerRole>().Where(r => r.Status == ProducerRoleStatus.Active),
+                  a => a.RoleId, r => r.Id, (a, r) => r.Code)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
     private static ProducerRoleListItem ToListItem(ProducerRole role, int userCount) =>
         new(role.Code, role.Name, role.Description, role.Color, role.Status, [.. role.PermissionKeys], userCount);
 }

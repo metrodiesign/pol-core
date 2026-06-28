@@ -28,8 +28,24 @@ internal static class ProducerHostWiring
         services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Admin(sp)));
         services.AddScoped<IProducerOutboxWriter>(sp => new ProducerOutboxWriter(Admin(sp), sp.GetRequiredService<IClock>()));
         services.AddScoped<IProducerRegistrationUnitOfWork>(sp => new ProducerRegistrationUnitOfWork(Admin(sp)));
+        services.AddScoped<IProducerUnitOfWork>(sp => new ProducerRegistrationUnitOfWork(Admin(sp)));
         // (The notice writer + a default photo store are registered by AddProducerModule on the default context —
         // the Admin-side consumer never runs in the API. Here we only override the WRITE seams onto pol_admin.)
+
+        // Producer BFF session substrate (REQ-10/11/12) + the control-plane RBAC catalog, all on the keyed pol_admin
+        // context: the login lookup reads PendingApproval/NULL-tenant rows (RLS bypass, REQ-19.2) and the effective
+        // permission set; the session store + auth audit persist control-plane rows pol_app has no grant on. The
+        // role repo is OVERRIDDEN here onto pol_admin (AddProducerModule binds the default context for worker DI).
+        // The cookie service is stateless (singleton).
+        services.AddScoped<IProducerRoleRepository>(sp => new ProducerRoleRepository(Admin(sp)));
+        services.AddScoped<IProducerSessionStore>(sp => new ProducerSessionStore(Admin(sp)));
+        services.AddScoped<IProducerAuthAuditWriter>(sp => new ProducerAuthAuditWriter(Admin(sp)));
+        services.AddSingleton<ProducerSessionCookies>();
+
+        // Per-request producer scope (REQ-17.1): the session handler binds the concrete ProducerScope; endpoints read
+        // IProducerScope — the SAME scoped instance. RequireProducerPermission + /producer/me consume it.
+        services.AddScoped<ProducerScope>();
+        services.AddScoped<IProducerScope>(sp => sp.GetRequiredService<ProducerScope>());
 
         // Photo store + ticket protector (host-only concerns).
         services.AddSingleton<IPhotoStore>(sp =>

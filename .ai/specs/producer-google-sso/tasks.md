@@ -7,11 +7,16 @@
 > unit tests green BEFORE wiring. Each `[DUP]` file copied from Admin carries a `// ponytail: DUPLICATE of Admin.<X>`
 > comment. This feature is COUPLED (every task shares the Producer module) → default to ONE all-in-one session.
 
-> ## RESUME STATE (2026-06-28) — next session starts at Task 5
-> Done + committed: **Task 1** (35cabd0 + fix 3463ca3), **Task 2** (0003f4a), **Task 3** (8bbd887).
-> **Task 4** IMPLEMENTED (not yet committed) — registration endpoint + photo + outbox event. All green
-> (build 44/0; Producer.Tests 75; Hosts.Tests 121; Architecture.Tests 48; Integration Producer* 19; worker boots clean).
-> NEXT = `/spec-implement 5-9`. Coarse order 5 → (6,7) → 8 → 9.
+> ## RESUME STATE (2026-06-28) — ALL TASKS 1-9 DONE (feature implementation complete)
+> Done + committed: **Task 1** (35cabd0 + fix 3463ca3), **Task 2** (0003f4a), **Task 3** (8bbd887), **Task 4** (e90783c).
+> **Tasks 5-9** IMPLEMENTED (NOT YET COMMITTED — one working tree, ready for review/commit + PR): OIDC login/callback,
+> session scheme + RBAC enforcement, admin approve/reject + Admin catalog migration, write-endpoint flag, docs canon.
+> All green: build 44/0/0; Producer.Tests 96; Hosts.Tests 162; Architecture.Tests 48; Admin.Tests 56; Integration
+> AdminRoleRbacGrants 4 (live :11434); migration 20260628144534 applied to :11434; worker boots clean;
+> `spec-trace.sh producer-google-sso` = OK 110/110 + EARS clean. See each task's Evidence block.
+> NEXT = review the uncommitted diff, commit Tasks 5-9, open the PR to `develop`. Integration follow-ups (deferred,
+> consistent with Tasks 4/6): DB-backed E2E HTTP tests for the producer session/role/me + approve/reject endpoints +
+> a producer-CORS preflight test (run against :11434, like the existing Producer integration tests).
 >
 > **Task 4 carryover for Task 5 (read before the callback):**
 > - The shared `ProducerRegistrationTickets` signer (host, `src/Hosts/Api/ProducerRegistration.cs`) is BUILT
@@ -203,7 +208,7 @@
          task. Ticket ISSUANCE (server RegistrationTickets row) is Task 5 (callback); Task 4 builds the consume side +
          the shared signer.
 
-- [ ] 5. **OIDC login + callback (state machine)** — `ProducerOidcAuthentication` using the framework
+- [x] 5. **OIDC login + callback (state machine)** — `ProducerOidcAuthentication` using the framework
      `AddOpenIdConnect` (scheme `ProducerGoogle` + `producer-oidc-noop` sign-in scheme, separate DP app-name +
      callback `/producer/auth/callback`, S2) with `OnTokenValidated` (email_verified/hd), `OnTicketReceived`
      (4-way branch), `OnRemoteFailure`/`OnAccessDenied` (deny→error page); `ProducerLoginService` (none→Registration
@@ -214,8 +219,46 @@
      Satisfies: REQ-8, REQ-9, REQ-14. Depends on: 1, 3, 4. Verify: `dotnet test tests/Hosts.Tests`
      (`/producer/auth/login` → Google authorize w/ code+PKCE+state+nonce; callback new→ticket / Active→cookie+returnTo
      / Pending→403 / Rejected→correction; OAuth error→deny+audit).
+     Evidence:
+       - code: NEW app `ResolveLogin.cs` (`ResolveLoginQuery` → 4-way `ProducerLoginResult`, RLS-bypass lookup, no
+         self-provision) + `ProducerScope.cs` (`ProducerResolution`/`IProducerScope`); NEW host
+         `ProducerOidcAuthentication` (scheme `ProducerGoogle` + `producer-oidc-noop` sign-in, blank-ClientId skip),
+         `ProducerLoginService` + `ProducerCallbackResolver` (4-way branch + ticket mint), `ProducerOidcOptions`/
+         `ProducerSessionOptions`, `ProducerSessionCookies` (`__Host-prd_session`/`prd_csrf`); `IRegistrationTicketRepository.Add`
+         seam; `GET /producer/auth/login` + `Producer:Oidc`/`Producer:Session` config + boot guards
+         (`RequireProducerClientId`/`Secret`). Session/role/audit/cookie seams wired onto keyed pol_admin
+         (`AddProducerIdentity`); role repo also on the default context (`AddProducerModule`) for worker DI.
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings (TreatWarningsAsErrors).
+       - test: `dotnet test tests/Producer.Tests` -> 80 passed / 0 failed (+5 ResolveLoginHandlerTests: unknown→NotFound
+         no self-provision REQ-9.6; Pending/Rejected/Suspended branch mapping; Active resolves tenant + effective
+         permissions scoped to the user's OWN tenant REQ-16.4/17.1).
+       - test: `dotnet test tests/Hosts.Tests` -> 129 passed / 0 failed (+6 ProducerLoginServiceTests: Active→session+
+         login audit+prd_session cookie+returnTo redirect REQ-9.4/10.1; NotFound→Registration ticket+redirect /register,
+         no session REQ-9.4/9.6; Rejected→Correction ticket+redirect REQ-5.2; Pending→403 awaiting-approval no session
+         REQ-22.5; Suspended→denied audit+error redirect; missing-identity→denied; +2 ProducerAuthLoginRedirectTests:
+         `/producer/auth/login` → Google authorize code+PKCE(S256)+state+nonce+`openid email` REQ-8.1/8.4 + DP correlation
+         cookie REQ-8.2).
+       - test: `dotnet test tests/Architecture.Tests` -> 48 passed / 0 failed (Producer.* ⇏ Admin.* boundary intact).
+       - worker boot: `dotnet run --project src/Hosts/Worker` (Development, ValidateOnBuild+ValidateScopes) ->
+         "Application started" / "Now listening" with NO DI/validation exception — the new ResolveLoginHandler graph
+         resolves on the default context (the only log errors are the outbox poller hitting an absent local DB).
+       - viewports: n/a — logic-only (backend slice; no UI).
+       - deviations:
+         (1) REQ-14.4 "separate DP application name": a host has ONE global Data Protection provider, so a second
+         app-name is not constructible. The producer OIDC handler's correlation/nonce cookies are isolated from the
+         Admin client by the DISTINCT SCHEME NAME ("ProducerGoogle" vs "Google"), which the framework folds into the
+         DP purpose chain AND the correlation cookie name — true cross-isolation (proven: the login-redirect test sets
+         a `*ProducerGoogle*`-scoped correlation cookie). No second global app-name is created; the shared key ring
+         (AddAdminDataProtection) is reused. The wire-ticket purpose is already distinct (`Producer.RegistrationTicket.v1`).
+         (2) Ticket MINTING (server `RegistrationTickets` row + `.Protect(...)` wire token) lives in the host
+         `ProducerLoginService`, not `ProducerCallbackResolver`, because the TTL + the DP protector are host concerns
+         (the resolver stays a pure mediator lookup). NO self-provision either way (REQ-9.6).
+         (3) Defensive `Suspended` login outcome added (not in the design's NotFound|Active|Pending|Rejected list): a
+         suspended account authenticating fresh gets no session — fail-closed 403 + denied audit (REQ-10.1).
+         (4) `RegisterUrl`/`HostedDomain` bound under `Producer:Oidc:*` (one login options object) rather than the
+         design's flat `Producer:RegisterUrl`/`Producer:HostedDomain` — cleaner binding, same values.
 
-- [ ] 6. **Session scheme + handler + ambient tenant + permission enforcement** — `ProducerSessionAuthenticationHandler`
+- [x] 6. **Session scheme + handler + ambient tenant + permission enforcement** — `ProducerSessionAuthenticationHandler`
      (scheme `ProducerSession`; per-request decision+rotate+READ-ONLY re-resolve; bind `IProducerScope` + claims
      `tenant_id`/`tenant_role`/permissions, **`tenant_id` claim = `HttpTenantContext` path**, no `ITenantScope.Begin`
      S4; session only-when-Active); `ProducerSessionCookies` (`__Host-prd_session`/`prd_session`/`prd_csrf`);
@@ -229,8 +272,53 @@
      Satisfies: REQ-12, REQ-13, REQ-14, REQ-15, REQ-17, REQ-21. Depends on: 1, 2, 3. Verify: `dotnet test tests/Hosts.Tests`
      (cookie auth + rotation/grace/reuse; suspend→next request 401; CSRF 403; `/producer/me`; permission gate 403;
      parity boot guard).
+     Evidence:
+       - code: host — `ProducerSessionAuthenticationHandler` (+`IProducerSessionResolver`+`ProducerScope`+
+         `AddProducerSessionScheme`/dual-scheme `producer` policy = ProducerSession OR JwtBearer, no RequireClaim),
+         `ProducerCsrfFilter`, `ProducerSessionPruneService`, `ProducerPermissionAuthorization` (`RequireProducerPermission`
+         + `ProducerPermissionParity`); endpoints `/producer/auth/logout|logout-all`, `/producer/me`,
+         `/producer/permissions`, `/producer/roles` CRUD (roles.manage), `/producer/tenant-users/{id}/roles` (user.roles).
+         app — `ResolveProducerById`, `ProducerRoleQueries`, `ProducerRoleCommands` (Create/Update/Delete),
+         `SetProducerUserRoles`; ports `ITenantUserRepository.FindByIdAsync` + neutral `IProducerUnitOfWork` +
+         `IProducerRoleRepository.ListActiveRoleCodesForUserAsync`. Shared — additive producer credentialed CORS policy
+         in `BuildingBlocks.Web/CorsExtensions` (Cors:ProducerOrigins, /producer/* routing; tenant/admin untouched).
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings (TreatWarningsAsErrors).
+       - test: `dotnet test tests/Producer.Tests` -> 87 passed (+7 ProducerRoleHandlerTests: create duplicate→409 +
+         catalog-key→400; update/delete tenant_owner anchor→409; delete role-with-assignments→409; SetUserRoles hides
+         out-of-tenant target→404, unknown role→400, sets exactly the requested set stamped with acting tenant+actor).
+       - test: `dotnet test tests/Hosts.Tests` -> 160 passed (+31: ProducerSessionAuthHandlerTests 9 = decision table/
+         grace/reuse-revoke-family/rotation+Set-Cookie+audit/idle-slide/expired-reject/suspend→401/no-cookie→NoResult +
+         tenant_id+sub claims/no role claim/scope bind; ProducerPermissionAuthorizationTests 3 fail-closed; ProducerPermissionParityTests 2;
+         ProducerCsrfFilterTests 10; ProducerSessionCookieTests 7 __Host-prd_session/dev-http/SameSite).
+       - test: `dotnet test tests/Architecture.Tests` -> 48 passed; `dotnet test tests/Admin.Tests` -> 56 passed
+         (the shared CORS change did NOT disturb Admin/tenant policies).
+       - host boot: the WebApplicationFactory boot in ProducerAuthLoginRedirectTests exercises the FULL Api host with
+         ValidateOnBuild on (Development) AND runs `ProducerPermissionParity.Assert` before app.Run() — green proves the
+         producer session scheme + scope + role endpoints all resolve AND every RequireProducerPermission key is in the catalog.
+       - worker boot: `dotnet run --project src/Hosts/Worker` -> "Now listening", 0 DI/ValidateOnBuild failures — the
+         new Mediator-discovered role-CRUD + ResolveProducerById handlers resolve on the default context (IProducerUnitOfWork
+         + role repo registered there; never invoked by the worker).
+       - viewports: n/a — logic-only (backend slice; no UI).
+       - deviations:
+         (1) NO `tenant_role` claim: the rebuilt model is full RBAC (multiple role assignments → a permission union), so
+         there is no single tenant_role. The principal carries `tenant_id` (the HttpTenantContext path, S4) + `sub`/`email`/
+         NameIdentifier; permissions live in the bound IProducerScope (read by RequireProducerPermission), NOT claims —
+         and deliberately NO `role` claim so a producer never resolves as a tenant-Bearer principal (S3). `GET /producer/me`
+         returns `roles` (the active role CODES, plural) for REQ-17.5's `role`.
+         (2) Neutral `IProducerUnitOfWork` (same `ProducerRegistrationUnitOfWork` class) added as the control-plane commit
+         seam for role/assignment handlers — the Admin keyed-"admin" IUnitOfWork is NOT registered in the worker (it doesn't
+         reference Admin.Application), so reusing it would break worker ValidateOnBuild; this neutral seam is registered on
+         both contexts. Producer role CRUD has NO audit writer (role management is not in REQ-21, unlike Admin's).
+         (3) "separate DP app-name" (REQ-14.4): see Task 5 deviation (1) — isolation is by the distinct scheme name, not a
+         second global DP app-name.
+         (4) Integration follow-up (NOT run here — needs the :11434 SQL container): the `/producer/me` + role-management
+         ENDPOINTS' E2E HTTP behavior (cookie → resolve → 200, permission 403, role CRUD round-trip) and a producer-CORS
+         preflight test. Their LOGIC is unit-covered (handler/decision/scope/parity tests) and their WIRING is
+         host-boot-validated; the DB-backed HTTP round-trip lands with the other Producer integration tests, mirroring the
+         deferred photo-serving endpoint in Task 4. `ResolveProducerByIdHandler` (a simpler twin of the tested
+         ResolveLoginHandler) is exercised via the session-handler FakeResolver, not its own unit test.
 
-- [ ] 7. **Admin approve/reject (cross-plane) + Admin catalog extension** — `ApproveTenantUserCommand(subject,
+- [x] 7. **Admin approve/reject (cross-plane) + Admin catalog extension** — `ApproveTenantUserCommand(subject,
      validatedTenantId, roleCodes)` / `RejectTenantUserCommand` in `Producer.Application`; host endpoints
      `POST /admin/tenant-users/{subject}/approve|reject` doing `RequirePermission(producer.approve|producer.reject)`
      on `IAdminScope` + accessible-tenant floor via `IAdminQuery` **at the host**, then dispatch (B3); approve
@@ -242,8 +330,46 @@
      Satisfies: REQ-6, REQ-18, REQ-21. Depends on: 1, 2, 3. Verify: `dotnet test`
      (approve idempotent + scoped-accessible + role-validate; reject kills live sessions; Admin parity green;
      Admin role tests updated and green).
+     Evidence:
+       - code: `ApproveRejectTenantUser.cs` (Approve/RejectTenantUserCommand + handlers, Producer.Application, NO Admin
+         import — B3); host endpoints `POST /admin/tenant-users/{subject}/approve|reject` on the admin group
+         (`RequirePermission(producer.approve|reject)` + `IAdminQuery` accessible-tenant floor + active-tenant check,
+         then dispatch); `AdminPermissions.cs` += `producer` group + `producer.approve`/`producer.reject` (consts/All/
+         GroupKeys → 16/6); data-only migration `20260628144534_AddProducerApprovePermissionToAdminCatalog`
+         (idempotent group + 2 keys + super_admin grants). `IProducerSessionStore` also registered on the default
+         context (worker DI for the reject handler's RevokeAllForUser).
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings (TreatWarningsAsErrors).
+       - test: `dotnet test tests/Producer.Tests` -> 96 passed (+9 ProducerApproveRejectHandlerTests: approve unknown→404,
+         non-Pending→409, already-Active→idempotent no-op no re-assign REQ-6.4, no-roles→400, unknown/inactive role→409,
+         happy path activates+assigns role stamped with tenant+admin+audits; reject unknown→404, non-Pending→409, happy
+         path Rejected+RevokeAllForUser+audit).
+       - test: `dotnet test tests/Admin.Tests` -> 56 passed (AdminRoleTests catalog shape updated 14→16 / 5→6, S1).
+       - test: `dotnet test tests/Hosts.Tests` -> 160 passed; `dotnet test tests/Architecture.Tests` -> 48 passed.
+       - migration: applied to :11434 via `ef database update` — "Applying migration ... Done" (clean). The SQL lives
+         fully in the migration Up (idempotent NOT-EXISTS INSERTs), so a from-zero run reproduces it identically (it
+         only adds rows onto the proven AddAdminRoleRbacTables catalog).
+       - test: `source .env.integration && dotnet test tests/Integration.Tests --filter AdminRoleRbacGrants` -> 4 passed
+         against live SQL :11434 — confirms the seeded Admin catalog is now 6 groups / 16 perms and super_admin holds the
+         full 16 (code↔DB parity REQ-18.1).
+       - parity: the WAF host boot in Hosts.Tests runs BOTH AdminPermissionParity + ProducerPermissionParity before
+         app.Run() — green proves the new producer.approve/reject RequirePermission gate keys ARE in the Admin catalog
+         (REQ-18.3, the single cross-catalog coupling satisfies both guards).
+       - worker boot: `dotnet run --project src/Hosts/Worker` -> "Now listening", 0 DI failures (the new Approve/Reject
+         handlers resolve on the default context).
+       - viewports: n/a — logic-only (backend slice; no UI).
+       - deviations:
+         (1) `RejectTenantUserCommand` accepts a `Reason` but does NOT persist it — `RegistrationAudit` has no reason
+         column (REQ-21.1's row shape is action/actor/target/role/tenant/correlation, no reason). REQ-5.1's "record the
+         reason" has no column in this slice; the reason is accepted at the API for forward-compat and dropped. Adding a
+         column is a thin follow-up.
+         (2) Approve audits ONE row with `role` = the comma-joined assigned role codes (REQ-6.6 says one row with `role`;
+         the model assigns one-or-more roles).
+         (3) Integration follow-up (NOT run here): the approve/reject ENDPOINTS' E2E HTTP behavior (admin cookie →
+         IAdminQuery floor → 200/404/403/409). Their LOGIC is unit-covered (handler tests) + the IAdminQuery floor is
+         already covered by AdminQueryScopeFloorTests; the DB-backed HTTP round-trip lands with the other Producer
+         integration tests, consistent with Tasks 4/6.
 
-- [ ] 8. **Enforce the 3 write endpoints + close the seams** — apply the dual-scheme `producer` policy; flip
+- [x] 8. **Enforce the 3 write endpoints + close the seams** — apply the dual-scheme `producer` policy; flip
      `Program.cs` `POST /products` (418) / `POST /payment-sessions` (562) / `POST /payment-sessions/{id}/redirect`
      (583) to `.RequireAuthorization("producer").RequireProducerPermission(product.create|payment.create|payment.redirect)`
      behind `Producer:EnforcePermissionsOnWrites`; remove the three `TODO(producer)` markers + the 346-348 resolver
@@ -251,11 +377,47 @@
      Satisfies: REQ-17, REQ-22, REQ-23. Depends on: 6. Verify: `dotnet test tests/Hosts.Tests`
      (producer+perm pass; producer no-perm 403; **existing tenant-Bearer tests green flag-off**; flag-on Bearer
      fail-closed 403; `ITenantContext.TenantId == producer.tenant`).
+     Evidence:
+       - code: `Program.cs` — `enforceProducerWrites` flag read + `GateProducerWrite` helper; `POST /products`,
+         `POST /payment-sessions`, `POST /payment-sessions/{id}/redirect` flipped to gate behind the flag
+         (ON → producer policy + RequireProducerPermission(product.create|payment.create|payment.redirect); OFF →
+         the pre-existing `tenant` policy). All 4 `TODO(producer)` markers removed (the 3 write-gate TODOs + the
+         resolver TODO, which is now a non-TODO note pointing at ProducerSessionAuthenticationHandler — REQ-17.6).
+         `Producer:EnforcePermissionsOnWrites` added to appsettings.json (ships OFF; code default ON when absent — REQ-17.4).
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings (TreatWarningsAsErrors).
+       - test: `dotnet test tests/Hosts.Tests` -> 162 passed (+2 ProducerWriteGateTests: flag OFF -> all 3 endpoints keep
+         the `tenant` policy + NO RequiredProducerPermission metadata = existing tenant-Bearer behavior intact; flag ON ->
+         all 3 carry the `producer` policy + the matching RequiredProducerPermission key — inspected on the booted
+         EndpointDataSource, no DB).
+       - test: `dotnet test tests/Architecture.Tests` -> 48 passed. The committed flag defaults OFF, so every existing
+         tenant-write test (and the WAF host boots) run unchanged — flag-off behavior is the green baseline.
+       - trace: `scripts/spec-trace.sh producer-google-sso` -> "OK: เกณฑ์ 110 ข้อ ถูกอ้างครบใน design.md และ tasks.md,
+         EARS lint ผ่านทุกข้อ" — zero uncovered REQ.
+       - viewports: n/a — logic-only (backend slice; no UI).
+       - deviations:
+         (1) The committed `appsettings.json` ships `EnforcePermissionsOnWrites=false` (no producer FE yet, so ON would
+         fail-close existing tenant-Bearer writers); the CODE default is ON (absent key = new env, REQ-17.4). Flip per-env
+         when the producer FE can establish a session. This resolves the spec's deferred CONFIRM in the safe direction.
+         (2) Flag-ON E2E (a real producer cookie passing + a tenant Bearer fail-closing 403 against a live DB) is the
+         integration follow-up; the gate WIRING (which policy + permission each endpoint carries per flag) is proven here
+         directly via endpoint metadata, and the fail-closed decision is unit-covered by ProducerPermissionAuthorizationTests.
 
-- [ ] 9. **Canon reconciliation** [optional] — update `CODING_STANDARDS.md:53` (`ProducerAccount`→`TenantUser`) and
+- [x] 9. **Canon reconciliation** [optional] — update `CODING_STANDARDS.md:53` (`ProducerAccount`→`TenantUser`) and
      the `ARCHITECTURE.md` Identity-rebuild note to match the shipped naming; add the new producer auth surface to
      `docs/reference/entity-fields.md` if present (mirrors `admin-oidc-session` REQ-13 canon reconciliation).
      Satisfies: REQ-23 (canon-accuracy). Batch: B-docs. Verify: docs match the shipped entity/module names.
+     Evidence:
+       - docs: `CODING_STANDARDS.md:53` canonical-entities line updated — the producer actor is the shipped
+         **`TenantUser`** (+ the full Producer entity list), with an explicit "not the forward-guess `ProducerAccount`"
+         note. `ARCHITECTURE.md` Identity-rebuild bullet rewritten: Identity removed 2026-06-23 → **Producer module
+         rebuilt 2026-06-28** (OIDC BFF mirroring admin, `__Host-prd_session`, RBAC, register→admin-approve). Added a
+         **Producer module** section to `docs/reference/entity-fields.md` documenting all 13 producer tables (TenantUser
+         RLS-keyed + identity children + ProducerSession/ProducerAuthAudit DUPs + the RBAC catalog/role tables) with
+         field types pulled from the EF configs; header note updated.
+       - verify: `grep -rn ProducerAccount .ai/shared/ docs/reference/` -> the ONLY hit is the intentional
+         reconciliation NOTE; all 3 canon files now name `TenantUser`. Docs match the shipped entity/module names.
+       - deviations: noted in entity-fields.md that the Admin RBAC tables (admin-role-rbac 2026-06-25) remain absent
+         from that reference (pre-existing staleness, out of this feature's scope — flagged for a full regen).
 
 ## Suggested execution batches
 

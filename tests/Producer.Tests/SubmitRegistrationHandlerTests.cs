@@ -161,6 +161,8 @@ public sealed class SubmitRegistrationHandlerTests
         public void Seed(TenantUser u) => _bySubject[u.Subject] = u;
         public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
+        public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken ct) =>
+            Task.FromResult(_bySubject.Values.FirstOrDefault(u => u.Id == id));
         public void Add(TenantUser user) { Added.Add(user); _bySubject[user.Subject] = user; }
     }
 
@@ -172,7 +174,9 @@ public sealed class SubmitRegistrationHandlerTests
 
     private sealed class FakeTickets : IRegistrationTicketRepository
     {
+        public List<RegistrationTicket> Added { get; } = [];
         public bool ConsumeResult { get; set; } = true;
+        public void Add(RegistrationTicket ticket) => Added.Add(ticket);
         public Task<bool> TryConsumeAsync(Guid ticketId, TicketPurpose purpose, DateTime now, CancellationToken ct) =>
             Task.FromResult(ConsumeResult);
     }

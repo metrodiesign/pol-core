@@ -13,6 +13,9 @@ namespace Producer.Application;
 public interface ITenantUserRepository
 {
     Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    /// <summary>Tracked lookup by id — the per-request session re-resolution (REQ-12.4/17.1) and the admin
+    /// approve/reject target load (REQ-6) both find the user by the id the session/command carries.</summary>
+    Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
     void Add(TenantUser user);
 }
 
@@ -23,6 +26,11 @@ public interface IExternalLoginRepository
 
 public interface IRegistrationTicketRepository
 {
+    /// <summary>Stages a new server-side <c>RegistrationTickets</c> row — the single-use replay authority a signed
+    /// wire ticket is backed by (REQ-3.4). Minted at the callback for the NotFound (Registration) / Rejected
+    /// (Correction) branches; persisted on the keyed pol_admin context.</summary>
+    void Add(RegistrationTicket ticket);
+
     /// <summary>Single-use consume guard (REQ-3.3/4.1): a conditional UPDATE that stamps <c>UsedAt</c> only while the
     /// ticket is unused and unexpired. Returns true ONLY for the one caller whose UPDATE affected the row, so two
     /// concurrent submissions of the same ticket (2-tab) yield exactly one winner — the loser gets false (no row
@@ -60,6 +68,20 @@ public interface IProducerOutboxWriter
 /// never a 500 (S9). Bound to the keyed pol_admin context.
 /// </summary>
 public interface IProducerRegistrationUnitOfWork
+{
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken);
+    Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Generic control-plane commit seam over the keyed pol_admin <c>ProducerDbContext</c> for the role/assignment
+/// (REQ-16) and approve/reject (REQ-6) writes — a neutral name so those handlers do not read as "registration",
+/// though the same implementing class backs both. Bound keyed pol_admin in the API (role/catalog/identity tables are
+/// control-plane, RLS-bypass); bound to the DEFAULT context in the worker ONLY so the Mediator-discovered handlers'
+/// dependency graphs RESOLVE under ValidateOnBuild (the worker never sends those commands). Translates a
+/// unique-violation to a 409 (duplicate role code race) — never a 500.
+/// </summary>
+public interface IProducerUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
     Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken);

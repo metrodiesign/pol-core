@@ -32,8 +32,19 @@ public static class ProducerModuleRegistration
         services.AddScoped<IRegistrationTicketRepository>(sp => new RegistrationTicketRepository(Db(sp)));
         services.AddScoped<ITenantUserProfileRepository>(sp => new TenantUserProfileRepository(Db(sp)));
         services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Db(sp)));
+        // The role repo backs ResolveLoginHandler (effective-permission resolution). The worker never SENDS that
+        // query, but Mediator discovers the handler in this assembly, so its dependency graph must RESOLVE under
+        // ValidateOnBuild — hence a default-context binding here. The API overrides it onto keyed pol_admin
+        // (AddProducerIdentity) so the login lookup reads the control-plane catalog under RLS-bypass.
+        services.AddScoped<IProducerRoleRepository>(sp => new ProducerRoleRepository(Db(sp)));
         services.AddScoped<IProducerOutboxWriter>(sp => new ProducerOutboxWriter(Db(sp), sp.GetRequiredService<IClock>()));
         services.AddScoped<IProducerRegistrationUnitOfWork>(sp => new ProducerRegistrationUnitOfWork(Db(sp)));
+        // Neutral control-plane commit seam (role/assignment + approve/reject handlers). Default context here so the
+        // worker's Mediator-discovered handlers resolve under ValidateOnBuild; the API overrides it onto keyed pol_admin.
+        services.AddScoped<IProducerUnitOfWork>(sp => new ProducerRegistrationUnitOfWork(Db(sp)));
+        // RejectTenantUserHandler revokes the user's live sessions — default context here for worker ValidateOnBuild
+        // (the worker never sends that command); the API overrides it onto keyed pol_admin (AddProducerIdentity).
+        services.AddScoped<IProducerSessionStore>(sp => new ProducerSessionStore(Db(sp)));
         services.AddScoped<IProducerRegistrationNoticeWriter>(sp => new ProducerRegistrationNoticeWriter(Db(sp)));
 
         // Default photo store (worker/local). The API overrides with a config-rooted one in AddProducerIdentity.

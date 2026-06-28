@@ -29,6 +29,9 @@ public sealed class TenantUserRepository : ITenantUserRepository
     public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
         _db.Set<TenantUser>().FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
 
+    public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
+        _db.Set<TenantUser>().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+
     public void Add(TenantUser user) => _db.Set<TenantUser>().Add(user);
 }
 
@@ -47,6 +50,8 @@ public sealed class RegistrationTicketRepository : IRegistrationTicketRepository
 {
     private readonly ProducerDbContext _db;
     public RegistrationTicketRepository(ProducerDbContext db) => _db = db;
+
+    public void Add(RegistrationTicket ticket) => _db.Set<RegistrationTicket>().Add(ticket);
 
     public async Task<bool> TryConsumeAsync(Guid ticketId, TicketPurpose purpose, DateTime now, CancellationToken cancellationToken)
     {
@@ -111,7 +116,7 @@ public sealed class ProducerOutboxWriter : IProducerOutboxWriter
 /// into a <c>ConflictException</c> (409) — a duplicate subject racing past the create is a conflict, not a 500 (S9).
 /// Mirrors the Admin provisioning UoW.
 /// </summary>
-public sealed class ProducerRegistrationUnitOfWork : IProducerRegistrationUnitOfWork
+public sealed class ProducerRegistrationUnitOfWork : IProducerRegistrationUnitOfWork, IProducerUnitOfWork
 {
     private readonly ProducerDbContext _db;
     public ProducerRegistrationUnitOfWork(ProducerDbContext db) => _db = db;

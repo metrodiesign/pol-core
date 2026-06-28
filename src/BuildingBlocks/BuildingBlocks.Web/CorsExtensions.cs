@@ -26,6 +26,7 @@ namespace BuildingBlocks.Web;
 public static class CorsExtensions
 {
     public const string AdminPolicyName = "pol-admin-spa";
+    public const string ProducerPolicyName = "pol-producer-spa";
 
     public static IServiceCollection AddPolCors(this IServiceCollection services, IConfiguration configuration)
     {
@@ -48,6 +49,17 @@ public static class CorsExtensions
                     return; // no admin origin configured -> no cross-origin admin XHR
                 policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // admin: cookie XHR
             });
+
+            // The producer SPA — also cookie (credentialed) XHR (producer-google-sso REQ-14.5), so its own
+            // AllowCredentials policy pinned to Cors:ProducerOrigins. Applied ONLY to /producer/*. Adding it leaves
+            // the tenant (credential-less) and admin policies untouched.
+            options.AddPolicy(ProducerPolicyName, policy =>
+            {
+                var origins = configuration.GetSection("Cors:ProducerOrigins").Get<string[]>() ?? [];
+                if (origins.Length == 0)
+                    return; // no producer origin configured -> no cross-origin producer XHR
+                policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+            });
         });
 
         // Select the policy by path: /admin/* -> credentialed admin policy, everything else -> tenant default.
@@ -63,7 +75,7 @@ public static class CorsExtensions
 }
 
 /// <summary>Chooses the CORS policy by request path: the credentialed admin policy for <c>/admin/*</c>, the
-/// tenant default everywhere else (REQ-10.5).</summary>
+/// credentialed producer policy for <c>/producer/*</c> (REQ-14.5), the tenant default everywhere else (REQ-10.5).</summary>
 public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 {
     private readonly CorsOptions _options;
@@ -72,8 +84,8 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 
     public Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        var name = context.Request.Path.StartsWithSegments("/admin")
-            ? CorsExtensions.AdminPolicyName
+        var name = context.Request.Path.StartsWithSegments("/admin") ? CorsExtensions.AdminPolicyName
+            : context.Request.Path.StartsWithSegments("/producer") ? CorsExtensions.ProducerPolicyName
             : _options.DefaultPolicyName;
         return Task.FromResult(_options.GetPolicy(name));
     }

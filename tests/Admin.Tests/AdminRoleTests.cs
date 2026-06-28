@@ -86,8 +86,9 @@ public sealed class AdminRoleTests
     [Fact]
     public void The_code_catalog_matches_the_advertised_shape()
     {
-        Assert.Equal(14, AdminPermissions.AllKeys.Count);
-        Assert.Equal(5, AdminPermissions.GroupKeys.Count);
+        // 16/6: producer-google-sso REQ-18.1 added the cross-catalog `producer` group + producer.approve/reject (S1).
+        Assert.Equal(16, AdminPermissions.AllKeys.Count);
+        Assert.Equal(6, AdminPermissions.GroupKeys.Count);
         Assert.All(AdminPermissions.All, p => Assert.Contains(p.GroupKey, AdminPermissions.GroupKeys));
     }
 }

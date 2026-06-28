@@ -39,6 +39,10 @@ public interface IProducerRoleRepository
     /// <summary>Union of permission keys over the producer's ACTIVE assigned roles, scoped to the tenant the user was
     /// approved into (REQ-16.4). An Inactive role contributes nothing; zero active roles = zero permissions.</summary>
     Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid tenantUserId, Guid tenantId, CancellationToken cancellationToken);
+
+    /// <summary>The codes of the producer's ACTIVE assigned roles in the given tenant — backs the <c>role</c> field of
+    /// <c>GET /producer/me</c> (REQ-17.5). Empty when none.</summary>
+    Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid tenantUserId, Guid tenantId, CancellationToken cancellationToken);
 }
 
 /// <summary>A role as the management endpoints render it (REQ-16). <see cref="Status"/> is the enum; the host
