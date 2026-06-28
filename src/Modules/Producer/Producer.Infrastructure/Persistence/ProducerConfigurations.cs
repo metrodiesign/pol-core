@@ -91,3 +91,24 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.OccurredAt).IsRequired();
     }
 }
+
+// Maps onto producer.ProducerRegistrationNotices, which AddProducerIdentityTables created in raw SQL (the consumer
+// landed in Task 4). Column shapes mirror that DDL exactly; control-plane (no tenant predicate), pol_admin + pol_worker.
+public sealed class ProducerRegistrationNoticeConfiguration : IEntityTypeConfiguration<ProducerRegistrationNotice>
+{
+    public void Configure(EntityTypeBuilder<ProducerRegistrationNotice> builder)
+    {
+        // The table + its unique index + grants are managed by AddProducerIdentityTables' raw SQL; exclude it from
+        // migration diffing so EF maps it for runtime reads/writes without trying to CREATE it a second time.
+        builder.ToTable("ProducerRegistrationNotices", t => t.ExcludeFromMigrations());
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.TenantUserId).IsRequired();
+        builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.HostedDomain).HasMaxLength(256);
+        builder.Property(x => x.OccurredAt).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.HasIndex(x => x.TenantUserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
+    }
+}

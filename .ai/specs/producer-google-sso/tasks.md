@@ -7,10 +7,22 @@
 > unit tests green BEFORE wiring. Each `[DUP]` file copied from Admin carries a `// ponytail: DUPLICATE of Admin.<X>`
 > comment. This feature is COUPLED (every task shares the Producer module) → default to ONE all-in-one session.
 
-> ## RESUME STATE (2026-06-28) — next session starts at Task 4
-> Done + committed: **Task 1** (35cabd0 + fix 3463ca3), **Task 2** (0003f4a), **Task 3** (8bbd887). Tree clean,
-> all green (build 44/0; Producer.Tests 53; Architecture.Tests 48; Integration Producer* 17).
-> NEXT = `/spec-implement 4-9` (or 4 then onward). Coarse order 4 → 5 → (6,7) → 8 → 9.
+> ## RESUME STATE (2026-06-28) — next session starts at Task 5
+> Done + committed: **Task 1** (35cabd0 + fix 3463ca3), **Task 2** (0003f4a), **Task 3** (8bbd887).
+> **Task 4** IMPLEMENTED (not yet committed) — registration endpoint + photo + outbox event. All green
+> (build 44/0; Producer.Tests 75; Hosts.Tests 121; Architecture.Tests 48; Integration Producer* 19; worker boots clean).
+> NEXT = `/spec-implement 5-9`. Coarse order 5 → (6,7) → 8 → 9.
+>
+> **Task 4 carryover for Task 5 (read before the callback):**
+> - The shared `ProducerRegistrationTickets` signer (host, `src/Hosts/Api/ProducerRegistration.cs`) is BUILT
+>   (Protect + TryUnprotect, DataProtection time-limited, purpose `Producer.RegistrationTicket.v1`). Task 5's callback
+>   ISSUES the wire ticket via `.Protect(...)` AND inserts the server `RegistrationTickets` row (the single-use
+>   authority) — Task 4 only built the CONSUME side + the signer. `ProducerRegistrationOptions.TicketTtlMinutes` (10).
+> - New migration `AddProducerOutboxAdminGrant` (20260628133442) applied to :11434; chain reproducible.
+> - `AddProducerModule` registers default-context registration seams; the API's `AddProducerIdentity` overrides the
+>   write seams onto keyed pol_admin. Task 5 host wiring (OIDC scheme) adds a SEPARATE Producer DP app-name for the
+>   OIDC client (REQ-14.4) — the ticket purpose-isolation is already distinct.
+> - Sentinel tenant = `Producer.Infrastructure.Persistence.ProducerOutbox.SentinelTenantId`.
 >
 > **Migration / integration-DB gotchas (learned the hard way — read before touching migrations):**
 > - Migrations live in `src/BuildingBlocks/.../Persistence/Migrations` under context `ProducerDbContext`. Apply
@@ -137,7 +149,7 @@
        - deviations: `ProducerSessionTokens` placed in the host (`src/Hosts/Api`) mirroring `AdminSessionTokens`;
          `ProducerSessionCookies` (cookie attrs) is deferred to Task 6 per the task split.
 
-- [ ] 4. **Registration endpoint + photo + outbox event** — `OpaqueTicket` signer (DataProtection, distinct
+- [x] 4. **Registration endpoint + photo + outbox event** — `OpaqueTicket` signer (DataProtection, distinct
      purpose); `POST /producer/register` (anonymous, ticket-gated, multipart; **size bound before buffering** N3);
      `SubmitRegistrationCommand` consuming ticket (conditional UPDATE rowcount=1) + creating
      `TenantUser(Pending)`+`ExternalLogin`+`Profile(+photo)` + enqueueing the event in **ONE pol_admin tx**, with
@@ -149,6 +161,47 @@
      Satisfies: REQ-3, REQ-4, REQ-5, REQ-7, REQ-20, REQ-21. Depends on: 1. Verify: `dotnet test tests/Hosts.Tests`
      (ticket replay/expiry/2-tab → one 201 + one 409, no 500; photo type/magic-byte/size; event enqueued same tx;
      consumer not poison on sentinel tenant).
+     Evidence:
+       - build: `dotnet build pol-core.slnx` -> 44 projects, 0 errors, 0 warnings (TreatWarningsAsErrors).
+       - test: `dotnet test tests/Producer.Tests` -> 75 passed / 0 failed (+22 new: PhotoValidation type/magic-byte/
+         size/lie/SVG-excluded REQ-7.3/7.4; SubmitRegistrationHandler register+correction+ticket-fail+photo REQ-3/4/5/7/20/21;
+         TenantUserRegistrationConsumer idempotent + concurrent-conflict-swallow REQ-20.4).
+       - test: `dotnet test tests/Hosts.Tests` -> 121 passed / 0 failed (+6 ProducerRegistrationTickets: roundtrip,
+         garbage/tamper reject, foreign-DP-purpose reject REQ-3.1/14.4; ApiContainer DI still validates with the new
+         registration wiring + Mediator-discovered SubmitRegistrationHandler/consumer).
+       - test: `dotnet test tests/Architecture.Tests` -> 48 passed (Producer.* ⇏ Admin.* boundary intact — new files
+         add no Admin dependency).
+       - test: `source .env.integration && dotnet test tests/Integration.Tests --filter "Category=Integration&FullyQualifiedName~Producer"`
+         -> 19 passed (17 prior RLS/session/RBAC + 2 new ProducerRegistrationOutbox: pol_admin CAN insert the
+         sentinel-tenant outbox row, pol_worker CANNOT insert — proves the new grant + least privilege).
+       - migration: `AddProducerOutboxAdminGrant` (20260628133442) authored + applied to :11434 via `ef database
+         update` (reproducible — grant-only raw SQL, Up GRANT / Down REVOKE).
+       - worker boot: `dotnet run --project src/Hosts/Worker` (Development, ValidateOnBuild+ValidateScopes on) ->
+         "Now listening" with NO DI/validation exception — the worker resolves the Mediator-discovered
+         TenantUserRegistrationConsumer (+ SubmitRegistrationHandler graph) via AddProducerModule's default-context seams.
+       - viewports: n/a — logic-only (backend slice; no UI).
+       - deviations:
+         (1) DESIGN GAP CLOSED (critique B1): pol_admin had NO grant on producer.OutboxMessages (only pol_app INSERT
+         + pol_worker SELECT/UPDATE). RLS-bypass bypasses PREDICATES, not table GRANTs — so ProducerOutboxWriter on
+         the keyed pol_admin context would have been denied INSERT. Added migration `AddProducerOutboxAdminGrant`
+         (GRANT INSERT ON producer.OutboxMessages TO pol_admin). Not in the design's 4-migration list — a real,
+         required addition; proven by the integration test.
+         (2) `AddProducerModule` now registers the registration seams on the DEFAULT context (was a no-op). Reason:
+         the worker's Mediator auto-discovers the consumer AND SubmitRegistrationHandler (same Producer.Application
+         assembly), so the handler's whole dep graph must resolve there; the worker genuinely has no keyed pol_admin
+         context. The API overrides the WRITE seams onto keyed pol_admin via `AddProducerIdentity` (last registration
+         wins) — the registration write needs the RLS-bypass connection (REQ-19.2). Worker boot proves the graph resolves.
+         (3) `ProducerRegistrationNotice` entity is mapped with `ExcludeFromMigrations` — the table + grants were
+         created by AddProducerIdentityTables' raw SQL in Task 1; mapping it now is runtime-only (no re-CREATE).
+         (4) AMBIENT (not introduced by this task): a newly-published advisory GHSA-q6rr-fm2g-g5x8 for Scriban 6.2.0
+         began failing ALL builds (Worker, via the Mediator.SourceGenerator build-time analyzer — NOT shipped at
+         runtime). HEAD failed identically with my changes stashed. Added the GHSA to the existing per-advisory
+         `NuGetAuditSuppress` list in Directory.Build.props, exactly as the documented 2026-06-21 Scriban policy
+         (lines 16-20) prescribes. FLAG: re-review/prune when Mediator updates its Scriban pin.
+         (5) Photo SERVING endpoint (GET + nosniff, REQ-7.5 serve clause) is NOT in this task's scope (no GET route in
+         the design's API table); IPhotoStore.GetAsync is implemented + path-traversal-guarded for a later admin-review
+         task. Ticket ISSUANCE (server RegistrationTickets row) is Task 5 (callback); Task 4 builds the consume side +
+         the shared signer.
 
 - [ ] 5. **OIDC login + callback (state machine)** — `ProducerOidcAuthentication` using the framework
      `AddOpenIdConnect` (scheme `ProducerGoogle` + `producer-oidc-noop` sign-in scheme, separate DP app-name +

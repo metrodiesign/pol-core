@@ -25,6 +25,7 @@ using Cart.Infrastructure;
 using Checkout.Application;
 using Checkout.Infrastructure;
 using Mediator;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Data.SqlClient;
@@ -37,6 +38,7 @@ using Payments.Application.StartRedirect;
 using Payments.Domain;
 using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
+using Producer.Application;
 using Producer.Infrastructure;
 using Products.Application;
 using Products.Infrastructure;
@@ -117,9 +119,13 @@ builder.Services.AddAdminModule();
 builder.Services.AddAdminIdentity();
 
 // Producer identity (data plane: TenantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
-// Profiles/RegistrationAudits). This call just loads the assembly so ProducerDbContext discovers its EF
-// configs; the producer auth/session/OIDC host wiring lands in later tasks of this feature.
+// Profiles/RegistrationAudits). AddProducerModule loads the assembly so ProducerDbContext discovers its EF
+// configs; AddProducerIdentity binds the registration seams (keyed pol_admin write + photo + ticket protector).
+// The producer auth/session/OIDC host wiring lands in later tasks of this feature.
 builder.Services.AddProducerModule();
+builder.Services.Configure<ProducerRegistrationOptions>(
+    builder.Configuration.GetSection(ProducerRegistrationOptions.SectionName));
+builder.Services.AddProducerIdentity();
 
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
@@ -268,6 +274,7 @@ builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks();
 builder.Services.AddWebhookRateLimiter();
 builder.Services.AddAdminAuthRateLimiter();
+builder.Services.AddProducerAuthRateLimiter();
 
 var app = builder.Build();
 
@@ -787,9 +794,92 @@ admin.MapGet("/tenants/{code}", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// TODO(producer): self-service registration (/me/registration, /registrations/complete) + admin approval
-// (/admin/tenant-users/{subject}/approve) lived in the Identity module and are removed pending the Producer
-// module rebuild. The admin approve endpoint's scoped-accessible check (REQ-8.5) returns with it.
+// --- Producer self-service registration (producer-google-sso REQ-3/4/5/7/13/20) ---
+// Anonymous + ticket-gated: the single-use signed ticket IS the capability barrier, so no session CSRF on this
+// pre-session route (REQ-13.4); rate-limited per IP instead. Multipart (form + optional photo): the request body
+// is bounded BEFORE buffering (REQ-7.4/N3), the photo is validated by content-type + magic bytes (REQ-7.3), then
+// the write runs in ONE pol_admin transaction that also enqueues the registration event (REQ-4.1/20). Identity is
+// taken only from the verified ticket, never the form (REQ-4.2). Replays/duplicates -> 409 (no 500); a Correction
+// ticket resubmits a Rejected user (REQ-5).
+app.MapPost("/producer/register", async (
+    HttpRequest request,
+    ProducerRegistrationTickets tickets,
+    IOptions<ProducerRegistrationOptions> registrationOptions,
+    IMediator mediator,
+    HttpContext http,
+    CancellationToken ct) =>
+{
+    var opts = registrationOptions.Value;
+
+    // Bound the body BEFORE reading the multipart so an oversized upload is aborted mid-read, never buffered whole
+    // then measured (DoS guard, N3). Photo cap + headroom for the text fields.
+    var sizeFeature = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (sizeFeature is { IsReadOnly: false })
+        sizeFeature.MaxRequestBodySize = opts.PhotoMaxBytes + 64 * 1024;
+
+    if (!request.HasFormContentType)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "multipart/form-data is required.");
+
+    IFormCollection form;
+    try
+    {
+        form = await request.ReadFormAsync(ct);
+    }
+    catch (BadHttpRequestException)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "The upload exceeds the size limit.");
+    }
+
+    if (!tickets.TryUnprotect(form["ticket"].ToString(), out var ticket))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest,
+            title: "The registration ticket is missing, invalid, or expired.");
+
+    // Optional photo: validate type + magic bytes + size BEFORE it is stored (REQ-7.3/7.4); store nothing on reject.
+    byte[]? photoBytes = null;
+    string? photoContentType = null;
+    var file = form.Files["photo"];
+    if (file is { Length: > 0 })
+    {
+        if (file.Length > opts.PhotoMaxBytes)
+            return Results.Problem(statusCode: StatusCodes.Status413PayloadTooLarge, title: "The photo exceeds the size limit.");
+        var buffer = new byte[file.Length];
+        await using (var stream = file.OpenReadStream())
+            await stream.ReadExactlyAsync(buffer, ct);
+        var validation = PhotoValidation.Validate(
+            file.ContentType, buffer.AsSpan(0, Math.Min(16, buffer.Length)), buffer.Length, opts.PhotoMaxBytes);
+        if (!validation.IsValid)
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: validation.Error);
+        photoBytes = buffer;
+        photoContentType = validation.ContentType;
+    }
+
+    var formModel = ProducerRegistrationForm.From(form);
+    if (string.IsNullOrWhiteSpace(formModel.DisplayName))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "displayName is required.");
+
+    var result = await mediator.Send(new SubmitRegistrationCommand(
+        ticket.Id, ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
+        formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
+
+    return Results.Created($"/producer/tenant-users/{result.TenantUserId}",
+        new ProducerRegisterResponse(result.TenantUserId, result.Status.ToString()));
+})
+    .AllowAnonymous()
+    .DisableAntiforgery()
+    .RequireRateLimiting(ProducerAuthRateLimiting.PolicyName)
+    .WithTags("Producer Auth")
+    .WithName("ProducerRegister")
+    .WithSummary("Submit a producer registration")
+    .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval TenantUser and enqueues a registration event. Invalid/expired/used ticket -> 400; duplicate/replay -> 409; oversize -> 413.")
+    .Accepts<IFormFile>("multipart/form-data")
+    .Produces<ProducerRegisterResponse>(StatusCodes.Status201Created)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+    .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+// TODO(producer): admin approve/reject (/admin/tenant-users/{subject}/approve|reject) with the scoped-accessible
+// check (REQ-6/18) lands in Task 7 of the Producer feature.
 
 // --- Admin identity foundation management (REQ-3..10) + SPA bootstrap (REQ-13) ---
 

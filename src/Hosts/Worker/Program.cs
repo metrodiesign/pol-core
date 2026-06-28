@@ -9,6 +9,7 @@ using Mediator;
 using Microsoft.EntityFrameworkCore;
 using Orders.Infrastructure;
 using Payments.Infrastructure;
+using Producer.Infrastructure;
 using Products.Infrastructure;
 using Worker;
 
@@ -51,6 +52,9 @@ builder.Services.AddCartModule();
 builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
+// Producer registration seams on the default (pol_worker) context so the dispatcher's
+// TenantUserRegistrationConsumer (+ the Mediator-discovered SubmitRegistrationHandler graph) resolve here.
+builder.Services.AddProducerModule();
 
 var app = builder.Build();
 

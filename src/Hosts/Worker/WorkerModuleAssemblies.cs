@@ -16,5 +16,8 @@ internal static class WorkerModuleAssemblies
         typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
+        // The dispatcher consumes TenantUserRegistrationSubmitted -> records a control-plane notice (REQ-20.4);
+        // the producer EF configs (incl. ProducerRegistrationNotices) must be in the worker's model to write it.
+        typeof(Producer.Infrastructure.ProducerModuleRegistration).Assembly,
     ];
 }
