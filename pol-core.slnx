@@ -38,6 +38,11 @@
     <Project Path="src/Modules/Payments/Payments.Domain/Payments.Domain.csproj" />
     <Project Path="src/Modules/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Producer/">
+    <Project Path="src/Modules/Producer/Producer.Application/Producer.Application.csproj" />
+    <Project Path="src/Modules/Producer/Producer.Domain/Producer.Domain.csproj" />
+    <Project Path="src/Modules/Producer/Producer.Infrastructure/Producer.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Products/">
     <Project Path="src/Modules/Products/Products.Application/Products.Application.csproj" />
     <Project Path="src/Modules/Products/Products.Domain/Products.Domain.csproj" />
@@ -58,6 +63,7 @@
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />
     <Project Path="tests/Payments.Tests/Payments.Tests.csproj" />
+    <Project Path="tests/Producer.Tests/Producer.Tests.csproj" />
     <Project Path="tests/SharedKernel.Tests/SharedKernel.Tests.csproj" />
     <Project Path="tests/Tenant.Tests/Tenant.Tests.csproj" />
   </Folder>

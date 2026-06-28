@@ -37,6 +37,7 @@ using Payments.Application.StartRedirect;
 using Payments.Domain;
 using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
+using Producer.Infrastructure;
 using Products.Application;
 using Products.Infrastructure;
 using Tenant.Application.GetTenant;
@@ -114,6 +115,11 @@ builder.Services.AddTenantAdminScope(adminConnString);
 // bind to the same pol_admin keyed scope.
 builder.Services.AddAdminModule();
 builder.Services.AddAdminIdentity();
+
+// Producer identity (data plane: TenantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
+// Profiles/RegistrationAudits). This call just loads the assembly so ProducerDbContext discovers its EF
+// configs; the producer auth/session/OIDC host wiring lands in later tasks of this feature.
+builder.Services.AddProducerModule();
 
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
@@ -264,6 +270,24 @@ builder.Services.AddWebhookRateLimiter();
 builder.Services.AddAdminAuthRateLimiter();
 
 var app = builder.Build();
+
+// Dev convenience: auto-apply pending EF migrations at boot so a freshly merged migration can't leave the
+// local DB desynced from the code (the symptom is a runtime "Invalid object name" -> resolve-failed login).
+// The runtime pol_app/pol_admin logins have no DDL rights, so this runs on the privileged Migrator
+// connection from the gitignored appsettings.Development.json. Absent -> skip with a warning, never crash a
+// healthy boot. Prod migrates out-of-band as sa via docker/migrate-entrypoint.sh, NOT here.
+if (app.Environment.IsDevelopment()
+    && app.Configuration.GetConnectionString("Migrator") is { Length: > 0 } migratorConn)
+{
+    var options = new DbContextOptionsBuilder<ProducerDbContext>().UseSqlServer(migratorConn).Options;
+    using var migrateDb = new ProducerDbContext(options, app.Services.GetRequiredService<ModuleAssemblies>());
+    await migrateDb.Database.MigrateAsync();
+    app.Logger.LogInformation("Applied pending EF migrations (Development, Migrator connection).");
+}
+else if (app.Environment.IsDevelopment())
+{
+    app.Logger.LogWarning("ConnectionStrings:Migrator not set — skipping Development auto-migrate.");
+}
 
 // Fail-fast: build the vault keyring now so a missing/short/invalid master key crash-loops the host at
 // boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
