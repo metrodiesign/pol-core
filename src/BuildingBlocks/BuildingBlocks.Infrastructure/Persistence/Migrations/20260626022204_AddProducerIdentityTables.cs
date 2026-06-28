@@ -274,11 +274,81 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 table: "TenantUsers",
                 column: "Subject",
                 unique: true);
+
+            // --- RLS floor + control-plane (raw SQL; not part of the EF model diff) ---
+            // TenantUsers joins the existing RLS floor additively, scoped on its (nullable) TenantId. A
+            // PendingApproval row has TenantId NULL -> NULL = SESSION_CONTEXT is UNKNOWN -> hidden from
+            // pol_app (a pending user is correctly invisible to tenants; only pol_admin bypass sees it for
+            // approval). FILTER = own-tenant read once approved; BLOCK = a tenant cannot forge a foreign id.
+            migrationBuilder.Sql(
+                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
+                "    ADD FILTER PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers,\n" +
+                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers AFTER INSERT,\n" +
+                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers AFTER UPDATE;");
+
+            // Control-plane notice table for the Admin-side registration consumer (Task 4). Raw SQL with NO
+            // EF entity this slice (its consumer lands in Task 4); pol_admin + pol_worker only, NEVER pol_app
+            // (S5). Unique TenantUserId = idempotent one-notice-per-registration.
+            migrationBuilder.Sql("""
+                CREATE TABLE producer.ProducerRegistrationNotices (
+                    Id            uniqueidentifier NOT NULL CONSTRAINT PK_ProducerRegistrationNotices PRIMARY KEY,
+                    TenantUserId  uniqueidentifier NOT NULL,
+                    Subject       nvarchar(256)    NOT NULL,
+                    Email         nvarchar(320)    NOT NULL,
+                    DisplayName   nvarchar(200)    NOT NULL,
+                    HostedDomain  nvarchar(256)    NULL,
+                    OccurredAt    datetime2        NOT NULL,
+                    CreatedAt     datetime2        NOT NULL
+                );
+                CREATE UNIQUE INDEX IX_ProducerRegistrationNotices_TenantUserId
+                    ON producer.ProducerRegistrationNotices (TenantUserId);
+                """);
+
+            // Least-privilege grants for the identity realm. The child identity tables are admin-only
+            // control-plane (pol_app gets NO grant -> no per-tenant predicate needed; a tenant principal
+            // cannot touch them at all). RBAC tables are granted separately in AddProducerRoleRbacTables.
+            migrationBuilder.Sql("""
+                -- pol_app (TenantConsole): read its OWN tenant's users (RLS-filtered). No write; no child tables.
+                GRANT SELECT ON producer.TenantUsers TO pol_app;
+
+                -- pol_admin (registration/approval/resolve, bypass role): cross-tenant on the identity tables.
+                GRANT SELECT, INSERT, UPDATE ON producer.TenantUsers         TO pol_admin;
+                GRANT SELECT, INSERT         ON producer.ExternalLogins       TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON producer.TenantUserProfiles   TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON producer.RegistrationTickets  TO pol_admin;
+                GRANT SELECT, INSERT         ON producer.RegistrationAudits    TO pol_admin;
+
+                -- ProducerRegistrationNotices (control-plane, S5): pol_admin + pol_worker (outbox dispatcher)
+                -- write/read; pol_app NEVER granted.
+                GRANT SELECT, INSERT ON producer.ProducerRegistrationNotices TO pol_admin;
+                GRANT SELECT, INSERT ON producer.ProducerRegistrationNotices TO pol_worker;
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Detach the TenantUsers predicates BEFORE dropping the table (a table under a security policy
+            // cannot be dropped); never drop the shared TenantIsolationPolicy itself.
+            migrationBuilder.Sql(
+                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
+                "    DROP FILTER PREDICATE ON producer.TenantUsers,\n" +
+                "    DROP BLOCK PREDICATE ON producer.TenantUsers AFTER INSERT,\n" +
+                "    DROP BLOCK PREDICATE ON producer.TenantUsers AFTER UPDATE;");
+
+            migrationBuilder.Sql("""
+                REVOKE SELECT ON producer.TenantUsers FROM pol_app;
+                REVOKE SELECT, INSERT, UPDATE ON producer.TenantUsers         FROM pol_admin;
+                REVOKE SELECT, INSERT         ON producer.ExternalLogins       FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE ON producer.TenantUserProfiles   FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE ON producer.RegistrationTickets  FROM pol_admin;
+                REVOKE SELECT, INSERT         ON producer.RegistrationAudits    FROM pol_admin;
+                REVOKE SELECT, INSERT ON producer.ProducerRegistrationNotices FROM pol_admin;
+                REVOKE SELECT, INSERT ON producer.ProducerRegistrationNotices FROM pol_worker;
+                """);
+
+            migrationBuilder.Sql("DROP TABLE producer.ProducerRegistrationNotices;");
+
             migrationBuilder.DropTable(
                 name: "ExternalLogins",
                 schema: "producer");

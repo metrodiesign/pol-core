@@ -38,6 +38,16 @@
          this task (the worker pre-applied it; `ef database update` reports "already up to date"). (3) The
          3 csproj + 8 domain entities + EF configs + slnx/Api wiring were authored by a fresh-context worker;
          the migration/RLS/tests were reviewed file-by-file and verified green here before marking done.
+       - reconciliation (2026-06-28): the COMMITTED migration file (`20260626022204_AddProducerIdentityTables`)
+         was found to contain ONLY `CreateTable`/`CreateIndex` — the RLS predicates on `TenantUsers`, the
+         control-plane `ProducerRegistrationNotices` table, and ALL least-privilege grants existed ONLY in the
+         hand-applied :11434 DB, NOT in VCS (so a fresh `ef database update` would have produced tables with no
+         tenant isolation + no app-principal grants — a deploy defect). FIXED: the missing RLS/notices/grants SQL
+         (and its `Down`) were baked into the migration's `Up`/`Down`, mirroring the proven `AddIdentityTables`
+         template + the exact live-DB definitions. Reproducibility PROVEN: the full migration chain run from zero
+         on a fresh scratch DB reproduced all 3 predicates + notices table + the 8 grants identically.
+       - re-verified (2026-06-28): build 44 proj 0 err; Producer.Tests 31; Architecture.Tests 48;
+         ProducerIdentityRls integration 6 (live SQL :11434).
 
 - [ ] 2. **RBAC catalog + roles** — `ProducerPermissions` (vocab + `AllKeys` frozen), `ProducerRole` (immutable
      `Code` `^[a-z0-9_]+$`, `SetPermissions` catalog-subset), `ProducerRolePermission`, `ProducerRoleAssignment`
