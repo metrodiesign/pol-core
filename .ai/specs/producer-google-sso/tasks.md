@@ -7,6 +7,30 @@
 > unit tests green BEFORE wiring. Each `[DUP]` file copied from Admin carries a `// ponytail: DUPLICATE of Admin.<X>`
 > comment. This feature is COUPLED (every task shares the Producer module) → default to ONE all-in-one session.
 
+> ## RESUME STATE (2026-06-28) — next session starts at Task 4
+> Done + committed: **Task 1** (35cabd0 + fix 3463ca3), **Task 2** (0003f4a), **Task 3** (8bbd887). Tree clean,
+> all green (build 44/0; Producer.Tests 53; Architecture.Tests 48; Integration Producer* 17).
+> NEXT = `/spec-implement 4-9` (or 4 then onward). Coarse order 4 → 5 → (6,7) → 8 → 9.
+>
+> **Migration / integration-DB gotchas (learned the hard way — read before touching migrations):**
+> - Migrations live in `src/BuildingBlocks/.../Persistence/Migrations` under context `ProducerDbContext`. Apply
+>   with `POL_DESIGN_SQL='Server=localhost,11434;Database=PaymentOrchestration;User Id=sa;Password=$POL_SA_PASSWORD;Encrypt=True;TrustServerCertificate=True'`
+>   + `dotnet ef database update --context ProducerDbContext --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api`.
+> - RLS predicates + GRANTs + raw control-plane tables are NOT EF-model state → they live in `migrationBuilder.Sql`
+>   in the migration's Up/Down. A worker once hand-applied them to :11434 WITHOUT putting them in the migration —
+>   ALWAYS verify a new migration is reproducible from zero on a fresh scratch DB (bootstrap `docker/bootstrap/01-principals.sql`
+>   with `-v DbName=...` then `ef database update` against it) before marking a migration task done.
+> - The :11434 integration DB + its `dbo.__EFMigrationsHistory` are now consistent (history matches the migration
+>   files through `20260628124815_AddProducerSessionTables`). Just `ef database update` for new migrations.
+> - Integration tests need `source .env.integration` (sets POL_SQL_SERVER/POL_DB + the 4 principal passwords) and
+>   the `pol-sql` docker container started (`docker start pol-sql`). A throwaway `PaymentOrchestration_repro` DB
+>   from a repro test may still exist on the container (DROP is blocked by the destructive guard; harmless).
+> - **Task 4 outbox subtlety:** registration runs on the pol_admin control plane with NO tenant (Pending user has
+>   TenantId NULL). The default `EfOutbox` REQUIRES a bound tenant + uses the default context → you need a
+>   `ProducerOutboxWriter` on the KEYED pol_admin `ProducerDbContext` writing with a SENTINEL TenantId, and the
+>   Admin consumer must be idempotent + not poison on that sentinel (Task 4 verify line). Register the event in
+>   `OutboxDispatcher.EventTypes`. Surface map from the Explore pass is in the prior session's transcript.
+
 - [x] 1. **Producer module + identity domain + tables + RLS + boundary tests** — scaffold
      `src/Modules/Producer/{Producer.Domain,Producer.Application,Producer.Infrastructure}` + register in
      `ModuleAssemblies`; domain aggregates `TenantUser` (state machine Pending/Active/Rejected/Suspended, idempotent
