@@ -19,12 +19,13 @@ public sealed class AdminRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.AdminPermissionGroups")));
-        Assert.Equal(14, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.AdminPermissions")));
+        // 6 groups / 16 perms: producer-google-sso REQ-18.1 added the `producer` group + producer.approve/reject (S1).
+        Assert.Equal(6, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.AdminPermissionGroups")));
+        Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.AdminPermissions")));
         Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.AdminRoles")));
 
-        // super_admin holds the full 14; auditor ships Inactive (Status = 1).
-        Assert.Equal(14, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
+        // super_admin holds the full 16 (the +2 producer keys are seed-granted to it, REQ-18.1); auditor ships Inactive (Status = 1).
+        Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
             "SELECT COUNT(*) FROM producer.AdminRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(SuperAdminRoleId)))));
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
             "SELECT Status FROM producer.AdminRoles WHERE Code=N'auditor'")));

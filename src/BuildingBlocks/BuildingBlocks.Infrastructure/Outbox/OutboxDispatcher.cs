@@ -141,6 +141,7 @@ public sealed class OutboxDispatcher : BackgroundService
         [nameof(PaymentPaid)] = typeof(PaymentPaid),
         [nameof(CustomerOrderNotification)] = typeof(CustomerOrderNotification),
         [nameof(CheckoutConfirmed)] = typeof(CheckoutConfirmed),
+        [nameof(TenantUserRegistrationSubmitted)] = typeof(TenantUserRegistrationSubmitted),
     };
 
     private static async Task PublishAsync(IPublisher publisher, OutboxMessage message, CancellationToken cancellationToken)

@@ -3,7 +3,9 @@
 > Generated 2026-06-23 from `ProducerDbContextModelSnapshot.cs` (the authoritative EF model) + the domain
 > enums + the RLS/proc/grant migrations. นี่คือรูปจริงของตารางใน schema `producer` ของ `ProducerDbContext`
 > ตัวเดียว (modular monolith — ทุกโมดูล map เข้า DbContext เดียวกัน). สะท้อนสถานะปัจจุบัน: Identity module ถูกลบ
-> + date field ไม่มี suffix `Utc` แล้ว. แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย.
+> แล้ว **rebuild เป็น Producer module 2026-06-28** (feature `producer-google-sso` — ดู section ด้านล่าง); date field
+> ไม่มี suffix `Utc` แล้ว. แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย. (NOTE: Admin RBAC tables ของ
+> admin-role-rbac 2026-06-25 ยังไม่ถูกเพิ่มในไฟล์นี้ — pending a full regen.)
 >
 > ขอบเขต: เฉพาะ entity ที่ persist ลง DB. Value object ที่ไม่มีตารางของตัวเอง (เช่น `Money` = `MinorUnits:long`
 > + `Currency`) ถูก map เป็นคอลัมน์ของ entity เจ้าของ (เช่น `AmountMinorUnits`/`AmountCurrency`).
@@ -96,6 +98,129 @@ token/raw session id.
 | Reason | nvarchar(128) | Y | | label สั้น ไม่ sensitive (เหตุผล deny) |
 | CorrelationId | nvarchar(128) | N | | |
 | OccurredAt | datetime2 | N | | |
+
+---
+
+## Producer module (rebuilt 2026-06-28, feature `producer-google-sso`)
+
+> Producer-side actor (the rebuilt Identity module): server-side OIDC BFF mirroring Admin (scheme `ProducerGoogle`,
+> cookies `__Host-prd_session`/`prd_csrf`) + full role→permission RBAC. `TenantUsers` is the ONLY RLS-keyed producer
+> table (FILTER+BLOCK on `TenantId`); every other producer table is control-plane (no predicate, pol_admin only —
+> the catalog tables also grant SELECT/INSERT to `pol_worker` for the registration-notice consumer). The session/auth
+> tables DUP `AdminSessions`/`AdminAuthAudits`; the RBAC tables DUP the Admin RBAC catalog (orthogonal, no Super-bypass).
+
+### TenantUser -> `producer.TenantUsers`  (plane: data — the only RLS-keyed producer table)
+ผู้ใช้ฝั่ง tenant (producer actor). `TenantId` เป็น NULL จน approval bind (Pending/Rejected = NULL → มองเห็นผ่าน pol_admin bypass เท่านั้น). ไม่มีคอลัมน์ role (อยู่ใน `ProducerRoleAssignments`, F1).
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| Subject | nvarchar(256) | N | UQ | Google `sub`; unique (REQ-1.4) |
+| Email | nvarchar(320) | N | | จาก id_token (informational) |
+| TenantId | uniqueidentifier | Y | | NULL จน approve (REQ-1.3); RLS key |
+| Status | int | N | | `TenantUserStatus` (PendingApproval=0, Active=1, Rejected=2, Suspended=3) |
+| CreatedAt | datetime2 | N | | |
+
+### ExternalLogin -> `producer.ExternalLogins`  (plane: control)
+map Google identity → TenantUser. unique `(Provider, Subject)`.
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| Provider | nvarchar(32) | N | UQ | unique กับ Subject; `"google"` |
+| Subject | nvarchar(256) | N | UQ | unique กับ Provider |
+| TenantUserId | uniqueidentifier | N | | -> TenantUsers.Id |
+
+### RegistrationTicket -> `producer.RegistrationTickets`  (plane: control)
+single-use replay authority หลัง signed+encrypted wire ticket (REQ-3.4). `UsedAt` = guard.
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | id ที่ wire ticket อ้าง |
+| Subject | nvarchar(256) | N | | จาก id_token เท่านั้น |
+| Email | nvarchar(320) | N | | |
+| HostedDomain | nvarchar(256) | Y | | Google `hd` |
+| Purpose | int | N | | `TicketPurpose` (Registration=0, Correction=1) |
+| CreatedAt | datetime2 | N | | |
+| ExpiresAt | datetime2 | N | | TTL (~10m) |
+| UsedAt | datetime2 | Y | | single-use replay guard |
+
+### TenantUserProfile -> `producer.TenantUserProfiles`  (plane: control)
+รายละเอียด producer + รูป (bytes อยู่นอก DB; เก็บแค่ object key + content-type, REQ-7.2). one-to-one กับ user.
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| TenantUserId | uniqueidentifier | N | UQ | one-to-one |
+| DisplayName | nvarchar(200) | N | | |
+| FirstName / LastName | nvarchar(200) | Y | | |
+| PersonType | int | Y | | `PersonType` |
+| IdNumber / ProducerCode / LicenseNumber | nvarchar(64) | Y | | |
+| Phone | nvarchar(32) | Y | | |
+| PhotoObjectKey | nvarchar(256) | Y | | opaque key (server-gen, REQ-7.5) |
+| PhotoContentType | nvarchar(128) | Y | | stored content-type |
+
+### RegistrationAudit -> `producer.RegistrationAudits`  (plane: control, append-only)
+audit ของ register/resubmit/approve/reject/suspend (REQ-21).
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| Action | nvarchar(64) | N | | registered/resubmitted/approved/rejected/suspended |
+| ActorSubject | nvarchar(256) | Y | | admin ที่ทำ (NULL = self-service) |
+| TargetSubject | nvarchar(256) | N | | producer เป้าหมาย |
+| Role | nvarchar(64) | Y | | role codes ตอน approve (joined) |
+| TenantId | uniqueidentifier | Y | | tenant ตอน approve |
+| CorrelationId | nvarchar(128) | N | | |
+| OccurredAt | datetime2 | N | | |
+
+### ProducerRegistrationNotice -> `producer.ProducerRegistrationNotices`  (plane: control; pol_admin + pol_worker)
+notice "awaiting approval" ที่ Admin-side consumer (pol_worker) เขียน idempotent ต่อ outbox event (REQ-20.4). สร้างใน raw SQL โดย `AddProducerIdentityTables` (EF `ExcludeFromMigrations`).
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| TenantUserId | uniqueidentifier | N | UQ | one notice per registration (idempotent) |
+| Subject | nvarchar(256) | N | | |
+| Email | nvarchar(320) | N | | |
+| DisplayName | nvarchar(200) | N | | |
+| HostedDomain | nvarchar(256) | Y | | |
+| OccurredAt | datetime2 | N | | event time |
+| CreatedAt | datetime2 | N | | notice time |
+
+### ProducerSession -> `producer.ProducerSessions`  (plane: control)  `[DUP→AdminSession]`
+server-side session ของ producer BFF — โครงเหมือน `AdminSession` (owner `TenantUserId` แทน `AdminAccountId`): opaque token เก็บแค่ SHA-256, rotation family + reuse detection, prune by absolute expiry.
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| FamilyId | uniqueidentifier | N | IX | rotation family |
+| TokenHash | varbinary(32) | N | UQ | SHA-256 ของ cookie token |
+| TenantUserId | uniqueidentifier | N | IX | -> TenantUsers.Id; logout-all/suspend revoke |
+| Status | int | N | | `ProducerSessionStatus` (Active=0, Superseded=1, Revoked=2) |
+| IssuedAt | datetime2 | N | | |
+| IdleExpiresAt | datetime2 | N | | idle sliding (~30m) |
+| AbsoluteExpiresAt | datetime2 | N | IX | hard cap (~8h); prune key |
+| SupersededAt | datetime2 | Y | | |
+| SupersededBySessionId | uniqueidentifier | Y | | reuse check |
+| CreatedIp | nvarchar(45) | Y | | |
+| UserAgent | nvarchar(256) | Y | | |
+
+### ProducerAuthAudit -> `producer.ProducerAuthAudits`  (plane: control, append-only)  `[DUP→AdminAuthAudit]`
+auth lifecycle (login-success/logout/logout-all/rotated/family-revoked-reuse/auth-denied). `TenantUserId` optional (deny ก่อน resolve).
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| EventType | nvarchar(32) | N | | |
+| TenantUserId | uniqueidentifier | Y | IX | null เมื่อยังไม่ resolve |
+| Subject | nvarchar(256) | Y | | Google `sub` |
+| Reason | nvarchar(128) | Y | | label สั้น ไม่ sensitive |
+| CorrelationId | nvarchar(128) | N | | |
+| OccurredAt | datetime2 | N | | |
+
+### Producer RBAC catalog/role tables  (plane: control)  `[DUP→Admin RBAC]`
+catalog (`ProducerPermissionGroups` Key/LabelTh/SortOrder; `ProducerPermissions` Key PK/GroupKey FK/LabelTh/SortOrder) เป็น SELECT-only สำหรับ pol_admin (seed โดย migration). `ProducerRoles` (Id PK, Code nvarchar(64) UQ, Name nvarchar(128), Description nvarchar(256) Y, Color nvarchar(16) Y, Status int) — seed `tenant_owner` (anchor, all keys) + `tenant_member`. `ProducerRolePermissions` (Id PK, RoleId FK cascade, PermissionKey FK→catalog) unique `(RoleId, PermissionKey)`. `ProducerRoleAssignments` (Id PK, TenantUserId, RoleId FK restrict, **TenantId** = tenant ที่ approve, AssignedByAdminId, AssignedAt) unique `(TenantUserId, RoleId)`. effective permission = union ของ key ทุก role ที่ Active ของ user ใน tenant นั้น (REQ-16.4).
 
 ---
 

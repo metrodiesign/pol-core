@@ -16,6 +16,9 @@ public static class AdminPermissions
     public const string GroupFinance = "finance";
     public const string GroupUser = "user";
     public const string GroupSystem = "system";
+    // The cross-catalog producer-approval group (producer-google-sso REQ-18.1) — the single intentional coupling
+    // between the Admin and Producer RBAC systems: the Admin who approves a producer is gated by a real Admin permission.
+    public const string GroupProducer = "producer";
 
     // Permission keys — stable strings, never renamed once shipped (CODING_STANDARDS).
     public const string TxnView = "txn.view";
@@ -32,6 +35,9 @@ public static class AdminPermissions
     public const string AuditView = "audit.view";
     public const string SettingsManage = "settings.manage";
     public const string ApiKeyManage = "apikey.manage";
+    // Producer-approval keys (producer-google-sso REQ-18.1): an Admin holding these may approve/reject a producer.
+    public const string ProducerApprove = "producer.approve";
+    public const string ProducerReject = "producer.reject";
 
     /// <summary>Every (key, group) pair in display order. The migration seed mirrors this exactly.</summary>
     public static readonly IReadOnlyList<(string Key, string GroupKey)> All =
@@ -41,12 +47,13 @@ public static class AdminPermissions
         (InvoiceView, GroupFinance), (InvoiceManage, GroupFinance), (SettlementRun, GroupFinance),
         (UserView, GroupUser), (UserManage, GroupUser), (UserRoles, GroupUser),
         (AuditView, GroupSystem), (SettingsManage, GroupSystem), (ApiKeyManage, GroupSystem),
+        (ProducerApprove, GroupProducer), (ProducerReject, GroupProducer),
     ];
 
     /// <summary>All valid permission keys — the parity reference (REQ-11) and the role-grant catalog (REQ-3.3).</summary>
     public static readonly IReadOnlySet<string> AllKeys = All.Select(x => x.Key).ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>The five resource group keys in display order.</summary>
+    /// <summary>The six resource group keys in display order.</summary>
     public static readonly IReadOnlyList<string> GroupKeys =
-        [GroupTxn, GroupMerchant, GroupFinance, GroupUser, GroupSystem];
+        [GroupTxn, GroupMerchant, GroupFinance, GroupUser, GroupSystem, GroupProducer];
 }
