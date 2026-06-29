@@ -157,7 +157,7 @@ sequenceDiagram
     Note over API: rate-limit per IP (ProducerAuthRateLimiting)
     API->>API: ReturnUrlPolicy.Resolve(returnTo, allowlist)
     API->>OIDC: Challenge(ProducerGoogle){ RedirectUri = safeReturn }
-    Note over OIDC: build Authorization Code + PKCE(S256)<br/>+ state + nonce; scope = openid email
+    Note over OIDC: build Authorization Code + PKCE(S256) + state + nonce; scope = openid email
     OIDC-->>B: 302 -> accounts.google.com/o/oauth2/v2/auth
     B->>G: follow redirect (consent)
 ```
@@ -330,7 +330,7 @@ sequenceDiagram
             API->>API: validate content-type + magic bytes + size (REQ-7.3)
         end
         API->>SR: SubmitRegistrationCommand(ticket.Id, ticket.Subject, ticket.Email, form, photo)
-        SR->>DB: create TenantUser(PendingApproval, NULL tenant)<br/>+ ExternalLogin + Profile + consume ticket<br/>+ enqueue registration outbox event  (1 tx)
+        SR->>DB: create TenantUser(PendingApproval, NULL tenant) + ExternalLogin + Profile + consume ticket + enqueue registration outbox event  (1 tx)
         alt replay / duplicate
             SR-->>API: 409 (no 500)
         else ok
