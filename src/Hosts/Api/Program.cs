@@ -210,7 +210,7 @@ builder.Services.AddOpenApi(options =>
         document.Info.Title = "pol-core API";
         document.Info.Version = "v1";
         document.Info.Description =
-            "Captive payment orchestration (redirect-only, PCI SAQ A). Tenant storefront surface + Admin BFF.";
+            "Captive payment orchestration (redirect-only, PCI SAQ A). Tenant storefront surface + Admin BFF + Producer BFF.";
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
