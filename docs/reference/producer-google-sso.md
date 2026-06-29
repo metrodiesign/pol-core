@@ -157,7 +157,7 @@ sequenceDiagram
     Note over API: rate-limit per IP (ProducerAuthRateLimiting)
     API->>API: ReturnUrlPolicy.Resolve(returnTo, allowlist)
     API->>OIDC: Challenge(ProducerGoogle){ RedirectUri = safeReturn }
-    Note over OIDC: build Authorization Code + PKCE(S256) + state + nonce; scope = openid email
+    Note over OIDC: build Authorization Code + PKCE(S256) + state + nonce, scope = openid email
     OIDC-->>B: 302 -> accounts.google.com/o/oauth2/v2/auth
     B->>G: follow redirect (consent)
 ```
