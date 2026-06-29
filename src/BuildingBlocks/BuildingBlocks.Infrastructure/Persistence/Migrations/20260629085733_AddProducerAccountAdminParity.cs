@@ -19,6 +19,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // 0) Close the read FIRST. pol_app's SELECT grant + the RLS predicates together scope a tenant principal to
+            //    its own rows; dropping the predicates (step 1) while the grant still stands would, in the window before
+            //    the later REVOKE, let pol_app read EVERY producer account unfiltered. ALTER SECURITY POLICY is
+            //    non-transactional, so an apply interrupted after step 1 but before that REVOKE would LEAVE the DB in
+            //    exactly that leaky state. Revoking up front means the predicate drop can never widen access. REVOKE of
+            //    an absent grant is a harmless no-op, so a retried apply is safe.
+            migrationBuilder.Sql("REVOKE SELECT ON producer.TenantUsers FROM pol_app;");
+
             // 1) Detach the RLS predicates from the account table — a table under a security policy cannot be renamed
             //    or have its predicated column dropped. Never drop the shared TenantIsolationPolicy itself. Guarded by
             //    IF EXISTS: ALTER SECURITY POLICY is not reliably rolled back with the surrounding migration
@@ -35,7 +43,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 """);
 
             // 2) Rename the account table + its PK/unique index in place (data preserved). Object permissions follow
-            //    the object id across a rename, so pol_app still holds its old SELECT here — revoked in step 7.
+            //    the object id across a rename; pol_app's SELECT was already revoked up front (step 0).
             migrationBuilder.Sql("""
                 EXEC sp_rename 'producer.TenantUsers', 'ProducerAccounts';
                 EXEC sp_rename 'producer.PK_TenantUsers', 'PK_ProducerAccounts';
@@ -110,10 +118,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // 6) Drop the migrated TenantId column off the account (now lives only on the edge).
             migrationBuilder.DropColumn(name: "TenantId", schema: "producer", table: "ProducerAccounts");
 
-            // 7) Grants: the account table is control-plane now — pol_app loses its read; pol_admin keeps CRUD (the
-            //    pre-rename grant carried over) and gains the edge table.
+            // 7) Grants: the account table is control-plane now — pol_app's read was already revoked up front (step 0);
+            //    pol_admin keeps CRUD (the pre-rename grant carried over) and gains the edge table.
             migrationBuilder.Sql("""
-                REVOKE SELECT ON producer.ProducerAccounts FROM pol_app;
                 GRANT SELECT, INSERT, UPDATE ON producer.ProducerAccounts TO pol_admin;
                 GRANT SELECT, INSERT ON producer.ProducerTenantAssignments TO pol_admin;
                 """);
