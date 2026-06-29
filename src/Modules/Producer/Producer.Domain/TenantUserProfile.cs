@@ -3,14 +3,14 @@ using SharedKernel;
 namespace Producer.Domain;
 
 /// <summary>
-/// The producer registrant's submitted details, one-to-one with a <see cref="TenantUser"/> (REQ-7.1). Photo BYTES
+/// The producer registrant's submitted details, one-to-one with a <see cref="ProducerAccount"/> (REQ-7.1). Photo BYTES
 /// are stored OUTSIDE the database; only the opaque server-generated <see cref="PhotoObjectKey"/> and the stored
 /// <see cref="PhotoContentType"/> live here (REQ-7.2). The detail fields are nullable — the exact required/optional
 /// set is enforced at the registration form/handler, not the schema. Control-plane child row (no tenant predicate).
 /// </summary>
 public sealed class TenantUserProfile : Entity<Guid>
 {
-    public Guid TenantUserId { get; private set; }
+    public Guid ProducerAccountId { get; private set; }
 
     public string DisplayName { get; private set; } = default!;
 
@@ -31,20 +31,20 @@ public sealed class TenantUserProfile : Entity<Guid>
 
     private TenantUserProfile() { }
 
-    private TenantUserProfile(Guid id, Guid tenantUserId, string displayName) : base(id)
+    private TenantUserProfile(Guid id, Guid producerAccountId, string displayName) : base(id)
     {
-        TenantUserId = tenantUserId;
+        ProducerAccountId = producerAccountId;
         DisplayName = displayName;
     }
 
-    /// <summary>Creates a profile for <paramref name="tenantUserId"/>. Detail fields and photo are set via
+    /// <summary>Creates a profile for <paramref name="producerAccountId"/>. Detail fields and photo are set via
     /// <see cref="SetDetails"/> / <see cref="SetPhoto"/> so the registration handler controls them.</summary>
-    public static TenantUserProfile Create(Guid tenantUserId, string displayName)
+    public static TenantUserProfile Create(Guid producerAccountId, string displayName)
     {
-        if (tenantUserId == Guid.Empty)
-            throw new ArgumentException("TenantUserId is required.", nameof(tenantUserId));
+        if (producerAccountId == Guid.Empty)
+            throw new ArgumentException("ProducerAccountId is required.", nameof(producerAccountId));
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
-        return new TenantUserProfile(Guid.NewGuid(), tenantUserId, displayName.Trim());
+        return new TenantUserProfile(Guid.NewGuid(), producerAccountId, displayName.Trim());
     }
 
     /// <summary>Sets/overwrites the producer detail fields from the (corrected) registration form (REQ-5.3/7.1).</summary>

@@ -86,7 +86,7 @@ public sealed class ProducerSessionAuthHandlerTests
         Assert.Equal(session.FamilyId, successor.FamilyId);
         Assert.Equal((session.Id, successor.Id), store.Superseded);
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
-        Assert.Contains(audit.Appended, a => a.EventType == ProducerAuthEventType.Rotated && a.TenantUserId == UserId);
+        Assert.Contains(audit.Appended, a => a.EventType == ProducerAuthEventType.Rotated && a.ProducerAccountId == UserId);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class ProducerSessionAuthHandlerTests
 
         Assert.NotNull(result.Failure);
         Assert.Equal(predecessor.FamilyId, store.RevokedFamily);
-        Assert.Contains(audit.Appended, a => a.EventType == ProducerAuthEventType.FamilyRevokedReuse && a.TenantUserId == UserId);
+        Assert.Contains(audit.Appended, a => a.EventType == ProducerAuthEventType.FamilyRevokedReuse && a.ProducerAccountId == UserId);
         Assert.False(scope.IsBound);
     }
 

@@ -9,9 +9,10 @@ namespace Producer.Infrastructure;
 
 /// <summary>
 /// Producer module wiring. Loading this assembly lets <c>ProducerDbContext</c> discover its EF configurations
-/// (TenantUsers, ExternalLogins, RegistrationTickets, TenantUserProfiles, RegistrationAudits, ProducerRegistrationNotices,
-/// + session/RBAC) at model-build time via <c>ModuleAssemblies.Producer</c>. <c>TenantUsers</c> is the one RLS-keyed
-/// producer table; every other producer table is control-plane (no tenant predicate; pol_admin only).
+/// (ProducerAccounts, ProducerTenantAssignments, ExternalLogins, RegistrationTickets, TenantUserProfiles,
+/// RegistrationAudits, ProducerRegistrationNotices, + session/RBAC) at model-build time via <c>ModuleAssemblies.Producer</c>.
+/// Every producer table is control-plane (no tenant predicate; pol_admin only) — like Admin; the producer account is its
+/// own identity and the tenant is an external assignment edge.
 /// <para>
 /// It also registers the registration seams on the DEFAULT context. That is what the WORKER needs: the outbox
 /// dispatcher there discovers <c>TenantUserRegistrationConsumer</c> (which writes the control-plane notice as
@@ -27,7 +28,8 @@ public static class ProducerModuleRegistration
     {
         static ProducerDbContext Db(IServiceProvider sp) => sp.GetRequiredService<ProducerDbContext>();
 
-        services.AddScoped<ITenantUserRepository>(sp => new TenantUserRepository(Db(sp)));
+        services.AddScoped<IProducerAccountRepository>(sp => new ProducerAccountRepository(Db(sp)));
+        services.AddScoped<IProducerTenantAssignmentRepository>(sp => new ProducerTenantAssignmentRepository(Db(sp)));
         services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Db(sp)));
         services.AddScoped<IRegistrationTicketRepository>(sp => new RegistrationTicketRepository(Db(sp)));
         services.AddScoped<ITenantUserProfileRepository>(sp => new TenantUserProfileRepository(Db(sp)));

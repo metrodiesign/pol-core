@@ -34,17 +34,32 @@ public sealed class ProducerApproveRejectHandlerTests
     }
 
     [Fact]
-    public async Task Approve_an_already_active_target_is_an_idempotent_no_op()
+    public async Task Approve_an_already_active_target_on_the_same_tenant_is_an_idempotent_no_op()
     {
         var users = new FakeUsers();
-        var u = Pending(); u.Approve(Tenant, Now); // already Active
+        var u = Pending(); u.Approve(Now); // already Active
         users.Seed(u);
+        var assignments = new FakeAssignments();
+        assignments.Seed(ProducerTenantAssignment.Create(u.Id, Tenant, AdminId, Now)); // bound to the SAME tenant
         var roles = new FakeRoles(); roles.SeedActive("tenant_member");
 
-        var result = await Approve(users, "tenant_member", roles, u.Subject);
+        var result = await Approve(users, "tenant_member", roles, u.Subject, assignments: assignments);
 
         Assert.True(result.AlreadyActive);
-        Assert.Empty(roles.Assignments); // no re-assignment (REQ-6.4)
+        Assert.Empty(roles.Assignments);      // no re-assignment (REQ-6.4)
+        Assert.Empty(assignments.Added);      // no duplicate tenant edge
+    }
+
+    [Fact]
+    public async Task Approve_an_already_active_target_on_a_different_tenant_is_409()
+    {
+        var users = new FakeUsers();
+        var u = Pending(); u.Approve(Now); users.Seed(u);
+        var assignments = new FakeAssignments();
+        assignments.Seed(ProducerTenantAssignment.Create(u.Id, Guid.NewGuid(), AdminId, Now)); // a DIFFERENT tenant
+        var roles = new FakeRoles(); roles.SeedActive("tenant_member");
+
+        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "tenant_member", roles, u.Subject, assignments: assignments));
     }
 
     [Fact]
@@ -71,11 +86,14 @@ public sealed class ProducerApproveRejectHandlerTests
         var roles = new FakeRoles(); var member = roles.SeedActive("tenant_member");
         var audit = new FakeAudit();
 
-        var result = await Approve(users, "tenant_member", roles, u.Subject, audit);
+        var assignments = new FakeAssignments();
+        var result = await Approve(users, "tenant_member", roles, u.Subject, audit, assignments: assignments);
 
         Assert.False(result.AlreadyActive);
-        Assert.Equal(TenantUserStatus.Active, u.Status);
-        Assert.Equal(Tenant, u.TenantId);
+        Assert.Equal(ProducerAccountStatus.Active, u.Status);
+        var tenantEdge = Assert.Single(assignments.Added);
+        Assert.Equal(Tenant, tenantEdge.TenantId);
+        Assert.Equal(AdminId, tenantEdge.AssignedByAdminId);
         var assignment = Assert.Single(roles.Assignments);
         Assert.Equal(member.Id, assignment.RoleId);
         Assert.Equal(Tenant, assignment.TenantId);
@@ -92,7 +110,7 @@ public sealed class ProducerApproveRejectHandlerTests
     [Fact]
     public async Task Reject_a_non_pending_target_is_409()
     {
-        var users = new FakeUsers(); var u = Pending(); u.Approve(Tenant, Now); users.Seed(u);
+        var users = new FakeUsers(); var u = Pending(); u.Approve(Now); users.Seed(u);
         await Assert.ThrowsAsync<ConflictException>(() => Reject(users, new FakeSessions(), u.Subject));
     }
 
@@ -105,7 +123,7 @@ public sealed class ProducerApproveRejectHandlerTests
 
         await Reject(users, sessions, u.Subject, audit, reason: "Incomplete tax documents");
 
-        Assert.Equal(TenantUserStatus.Rejected, u.Status);
+        Assert.Equal(ProducerAccountStatus.Rejected, u.Status);
         Assert.Equal(u.Id, sessions.RevokedUser);
         var row = Assert.Single(audit.Rows, a => a.Action == RegistrationAuditAction.Rejected && a.TargetSubject == u.Subject);
         Assert.Equal("Incomplete tax documents", row.Reason); // REQ-5.1: the rationale is recorded
@@ -124,15 +142,18 @@ public sealed class ProducerApproveRejectHandlerTests
 
     // --- harness ---
 
-    private static TenantUser Pending() => TenantUser.Register("google-sub-" + Guid.NewGuid().ToString("N")[..6], "p@org.com", Now);
+    private static ProducerAccount Pending() => ProducerAccount.Register("google-sub-" + Guid.NewGuid().ToString("N")[..6], "p@org.com", Now);
 
     private static Task<ApproveTenantUserResult> Approve(
-        FakeUsers users, string roleCode, FakeRoles? roles = null, string subject = "google-sub", FakeAudit? audit = null) =>
-        Approve(users, [roleCode], subject, audit, roles);
+        FakeUsers users, string roleCode, FakeRoles? roles = null, string subject = "google-sub", FakeAudit? audit = null,
+        FakeAssignments? assignments = null) =>
+        Approve(users, [roleCode], subject, audit, roles, assignments);
 
     private static Task<ApproveTenantUserResult> Approve(
-        FakeUsers users, IReadOnlyList<string> roleCodes, string subject, FakeAudit? audit = null, FakeRoles? roles = null) =>
-        new ApproveTenantUserHandler(users, roles ?? new FakeRoles(), audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
+        FakeUsers users, IReadOnlyList<string> roleCodes, string subject, FakeAudit? audit = null, FakeRoles? roles = null,
+        FakeAssignments? assignments = null) =>
+        new ApproveTenantUserHandler(users, assignments ?? new FakeAssignments(), roles ?? new FakeRoles(),
+                audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
             .Handle(new ApproveTenantUserCommand(subject, Tenant, roleCodes, "admin-sub", AdminId, "corr"), default).AsTask();
 
     private static Task<RejectTenantUserResult> Reject(
@@ -148,13 +169,23 @@ public sealed class ProducerApproveRejectHandlerTests
 
     private sealed class FakeClock : IClock { public DateTime UtcNow => Now; }
 
-    private sealed class FakeUsers : ITenantUserRepository
+    private sealed class FakeUsers : IProducerAccountRepository
     {
-        private readonly Dictionary<string, TenantUser> _bySubject = [];
-        public void Seed(TenantUser u) => _bySubject[u.Subject] = u;
-        public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(_bySubject.GetValueOrDefault(subject));
-        public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(TenantUser user) => throw new NotSupportedException();
+        private readonly Dictionary<string, ProducerAccount> _bySubject = [];
+        public void Seed(ProducerAccount u) => _bySubject[u.Subject] = u;
+        public Task<ProducerAccount?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(_bySubject.GetValueOrDefault(subject));
+        public Task<ProducerAccount?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(ProducerAccount account) => throw new NotSupportedException();
+    }
+
+    private sealed class FakeAssignments : IProducerTenantAssignmentRepository
+    {
+        private readonly Dictionary<Guid, ProducerTenantAssignment> _byAccount = [];
+        public readonly List<ProducerTenantAssignment> Added = [];
+        public void Seed(ProducerTenantAssignment a) => _byAccount[a.ProducerAccountId] = a;
+        public Task<ProducerTenantAssignment?> FindByAccountIdAsync(Guid producerAccountId, CancellationToken ct) =>
+            Task.FromResult(_byAccount.GetValueOrDefault(producerAccountId));
+        public void Add(ProducerTenantAssignment a) { Added.Add(a); _byAccount[a.ProducerAccountId] = a; }
     }
 
     private sealed class FakeAudit : IRegistrationAuditWriter

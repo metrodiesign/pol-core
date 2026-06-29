@@ -21,7 +21,8 @@ internal static class ProducerHostWiring
         static ProducerDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<ProducerDbContext>("admin");
 
         // Registration realm on the keyed pol_admin context (REQ-19.2) — one shared Scoped instance = one tx.
-        services.AddScoped<ITenantUserRepository>(sp => new TenantUserRepository(Admin(sp)));
+        services.AddScoped<IProducerAccountRepository>(sp => new ProducerAccountRepository(Admin(sp)));
+        services.AddScoped<IProducerTenantAssignmentRepository>(sp => new ProducerTenantAssignmentRepository(Admin(sp)));
         services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Admin(sp)));
         services.AddScoped<IRegistrationTicketRepository>(sp => new RegistrationTicketRepository(Admin(sp)));
         services.AddScoped<ITenantUserProfileRepository>(sp => new TenantUserProfileRepository(Admin(sp)));

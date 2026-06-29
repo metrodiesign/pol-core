@@ -36,18 +36,18 @@ public sealed record SubmitRegistrationCommand(
     string? PhotoContentType,
     string CorrelationId) : ICommand<SubmitRegistrationResult>;
 
-public sealed record SubmitRegistrationResult(Guid TenantUserId, TenantUserStatus Status);
+public sealed record SubmitRegistrationResult(Guid TenantUserId, ProducerAccountStatus Status);
 
 /// <summary>
 /// Handles registration + correction in ONE pol_admin transaction (REQ-4.1/5.3): consume the ticket (conditional
-/// UPDATE, exactly one winner — REQ-3.3), then for a first-time Registration create TenantUser(Pending)+ExternalLogin
-/// +Profile, or for a Correction load the existing user (must be Rejected), update its Profile and Resubmit it
+/// UPDATE, exactly one winner — REQ-3.3), then for a first-time Registration create ProducerAccount(Pending)+ExternalLogin
+/// +Profile, or for a Correction load the existing account (must be Rejected), update its Profile and Resubmit it
 /// (Rejected→Pending). An audit row and a <see cref="TenantUserRegistrationSubmitted"/> outbox event are enqueued in
 /// the same transaction (REQ-20/21). A duplicate subject surfaces as a 409 via the unit of work (S9).
 /// </summary>
 public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrationCommand, SubmitRegistrationResult>
 {
-    private readonly ITenantUserRepository _users;
+    private readonly IProducerAccountRepository _accounts;
     private readonly IExternalLoginRepository _logins;
     private readonly IRegistrationTicketRepository _tickets;
     private readonly ITenantUserProfileRepository _profiles;
@@ -58,7 +58,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
     private readonly IClock _clock;
 
     public SubmitRegistrationHandler(
-        ITenantUserRepository users,
+        IProducerAccountRepository accounts,
         IExternalLoginRepository logins,
         IRegistrationTicketRepository tickets,
         ITenantUserProfileRepository profiles,
@@ -68,7 +68,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
         IPhotoStore photos,
         IClock clock)
     {
-        _users = users;
+        _accounts = accounts;
         _logins = logins;
         _tickets = tickets;
         _profiles = profiles;
@@ -100,34 +100,34 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 // 2a) First-time applicant: create user + external login + profile (REQ-4.1). A duplicate subject
                 // (incl. a concurrent second tab) violates the unique (Subject)/(Provider,Subject) index and the
                 // unit of work turns it into a 409 (REQ-4.6/S9).
-                var user = TenantUser.Register(command.Subject, command.Email, now);
-                _users.Add(user);
-                _logins.Add(ExternalLogin.Create(command.Subject, user.Id));
+                var account = ProducerAccount.Register(command.Subject, command.Email, now);
+                _accounts.Add(account);
+                _logins.Add(ExternalLogin.Create(command.Subject, account.Id));
 
-                var profile = TenantUserProfile.Create(user.Id, command.Form.DisplayName);
+                var profile = TenantUserProfile.Create(account.Id, command.Form.DisplayName);
                 ApplyForm(profile, command.Form);
                 await ApplyPhotoAsync(profile, command, ct);
                 _profiles.Add(profile);
 
-                tenantUserId = user.Id;
+                tenantUserId = account.Id;
                 action = RegistrationAuditAction.Registered;
             }
             else
             {
                 // 2b) Correction resubmission (REQ-5.3/5.4/5.5): edit the EXISTING record bound to the subject —
                 // never a second user/login. Resubmit() enforces the source state is Rejected (else throws → 409).
-                var user = await _users.FindBySubjectAsync(command.Subject, ct)
+                var account = await _accounts.FindBySubjectAsync(command.Subject, ct)
                     ?? throw new InvalidOperationException("No registration exists for this subject to correct.");
-                user.Resubmit(now);
+                account.Resubmit(now);
 
-                var profile = await _profiles.FindByTenantUserIdAsync(user.Id, ct)
+                var profile = await _profiles.FindByProducerAccountIdAsync(account.Id, ct)
                     ?? throw new InvalidOperationException("The registration has no profile to correct.");
                 profile.SetDetails(command.Form.DisplayName, command.Form.FirstName, command.Form.LastName,
                     command.Form.PersonType, command.Form.IdNumber, command.Form.ProducerCode,
                     command.Form.LicenseNumber, command.Form.Phone);
                 await ApplyPhotoAsync(profile, command, ct);
 
-                tenantUserId = user.Id;
+                tenantUserId = account.Id;
                 action = RegistrationAuditAction.Resubmitted;
             }
 
@@ -138,7 +138,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 tenantUserId, command.Subject, command.Email, command.HostedDomain, command.Form.DisplayName, now));
 
             await _unitOfWork.SaveChangesAsync(ct);
-            return new SubmitRegistrationResult(tenantUserId, TenantUserStatus.PendingApproval);
+            return new SubmitRegistrationResult(tenantUserId, ProducerAccountStatus.PendingApproval);
         }, cancellationToken);
     }
 

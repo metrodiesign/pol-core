@@ -88,7 +88,7 @@ internal sealed class ProducerSessionAuthenticationHandler : AuthenticationHandl
             case ProducerSessionDecision.ReuseRevokeFamily:
                 await _sessions.RevokeFamilyAsync(session.FamilyId, ct);
                 _audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
-                    session.TenantUserId, reason: "reuse-detected"));
+                    session.ProducerAccountId, reason: "reuse-detected"));
                 await _audit.SaveChangesAsync(ct);
                 return AuthenticateResult.Fail("Session reuse detected."); // 401, family killed (REQ-11.3)
 
@@ -99,7 +99,7 @@ internal sealed class ProducerSessionAuthenticationHandler : AuthenticationHandl
         }
 
         // Per-request READ-ONLY resolution (REQ-12.4/17.1): a suspend/reject/role-change takes effect within one request.
-        var resolved = await _resolver.ResolveByIdAsync(session.TenantUserId, ct);
+        var resolved = await _resolver.ResolveByIdAsync(session.ProducerAccountId, ct);
         if (resolved.Outcome != ProducerByIdOutcome.Resolved || resolved.Resolution is null)
             return AuthenticateResult.Fail("Producer is not active or no longer exists."); // suspend -> next request 401
 
@@ -141,7 +141,7 @@ internal sealed class ProducerSessionAuthenticationHandler : AuthenticationHandl
             return;
 
         _sessions.Add(successor);
-        _audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.Rotated, Context.TraceIdentifier, now, session.TenantUserId));
+        _audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.Rotated, Context.TraceIdentifier, now, session.ProducerAccountId));
         await _sessions.SaveChangesAsync(ct);
         _cookies.Write(Context, newToken, csrfToken); // safe: UseAuthentication runs before the response body
     }

@@ -5,23 +5,40 @@ using Producer.Domain;
 namespace Producer.Infrastructure.Persistence;
 
 // EF mappings for the producer identity realm onto the producer schema (discovered via ModuleAssemblies.Producer).
-// TenantUsers is the only RLS-keyed table (FILTER+BLOCK on TenantId, see AddProducerIdentityTables); the child
-// tables are control-plane (NO tenant predicate, pol_admin only). PascalCase identifiers map straight to columns.
+// ProducerAccounts is control-plane (NO tenant predicate, pol_admin only — like Admin.AdminAccounts); the tenant edge
+// is a separate ProducerTenantAssignments row. The other child tables are control-plane too. PascalCase identifiers
+// map straight to columns.
 // ponytail: shape mirrors Admin.Infrastructure.Persistence.AdminConfigurations (control-plane EF style) — deliberate.
 
-public sealed class TenantUserConfiguration : IEntityTypeConfiguration<TenantUser>
+public sealed class ProducerAccountConfiguration : IEntityTypeConfiguration<ProducerAccount>
 {
-    public void Configure(EntityTypeBuilder<TenantUser> builder)
+    public void Configure(EntityTypeBuilder<ProducerAccount> builder)
     {
-        builder.ToTable("TenantUsers");
+        builder.ToTable("ProducerAccounts");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
-        builder.Property(x => x.TenantId); // NULL until an approval binds it (REQ-1.3)
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
-        builder.HasIndex(x => x.Subject).IsUnique(); // a subject maps to at most one user (REQ-1.4)
+        builder.HasIndex(x => x.Subject).IsUnique(); // a subject maps to at most one account (REQ-1.4)
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
+    }
+}
+
+// The tenant edge of a ProducerAccount (REQ-6) — mirrors Admin.AdminTenantAssignment, control-plane. A producer acts
+// for exactly one tenant: UNIQUE on ProducerAccountId (not the (account, tenant) pair Admin uses), so a second tenant
+// for the same account raises a unique-violation.
+public sealed class ProducerTenantAssignmentConfiguration : IEntityTypeConfiguration<ProducerTenantAssignment>
+{
+    public void Configure(EntityTypeBuilder<ProducerTenantAssignment> builder)
+    {
+        builder.ToTable("ProducerTenantAssignments");
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.ProducerAccountId).IsRequired();
+        builder.Property(x => x.TenantId).IsRequired();
+        builder.Property(x => x.AssignedByAdminId).IsRequired();
+        builder.Property(x => x.AssignedAt).IsRequired();
+        builder.HasIndex(x => x.ProducerAccountId).IsUnique(); // exactly one tenant per producer account (REQ-6)
     }
 }
 
@@ -33,7 +50,7 @@ public sealed class ExternalLoginConfiguration : IEntityTypeConfiguration<Extern
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired();
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
-        builder.Property(x => x.TenantUserId).IsRequired();
+        builder.Property(x => x.ProducerAccountId).IsRequired();
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // REQ-2.1
     }
 }
@@ -61,7 +78,7 @@ public sealed class TenantUserProfileConfiguration : IEntityTypeConfiguration<Te
     {
         builder.ToTable("TenantUserProfiles");
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.TenantUserId).IsRequired();
+        builder.Property(x => x.ProducerAccountId).IsRequired();
         builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.FirstName).HasMaxLength(200);
         builder.Property(x => x.LastName).HasMaxLength(200);
@@ -72,7 +89,7 @@ public sealed class TenantUserProfileConfiguration : IEntityTypeConfiguration<Te
         builder.Property(x => x.Phone).HasMaxLength(32);
         builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
         builder.Property(x => x.PhotoContentType).HasMaxLength(128);
-        builder.HasIndex(x => x.TenantUserId).IsUnique(); // one-to-one with the user (REQ-7.1)
+        builder.HasIndex(x => x.ProducerAccountId).IsUnique(); // one-to-one with the account (REQ-7.1)
     }
 }
 

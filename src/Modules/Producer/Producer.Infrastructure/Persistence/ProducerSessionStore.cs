@@ -60,7 +60,7 @@ public sealed class ProducerSessionStore : IProducerSessionStore
 
     public Task RevokeAllForUserAsync(Guid tenantUserId, CancellationToken cancellationToken) =>
         _db.Set<ProducerSession>()
-            .Where(s => s.TenantUserId == tenantUserId && s.Status != ProducerSessionStatus.Revoked)
+            .Where(s => s.ProducerAccountId == tenantUserId && s.Status != ProducerSessionStatus.Revoked)
             .ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, ProducerSessionStatus.Revoked), cancellationToken);
 
     // Every session carries an absolute expiry <= 8h out, so deleting past-absolute rows bounds the table for

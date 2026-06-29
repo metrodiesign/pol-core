@@ -18,15 +18,18 @@ public sealed record SetProducerUserRolesResult(Guid TenantUserId, IReadOnlyList
 
 public sealed class SetProducerUserRolesHandler : ICommandHandler<SetProducerUserRolesCommand, SetProducerUserRolesResult>
 {
-    private readonly ITenantUserRepository _users;
+    private readonly IProducerAccountRepository _accounts;
+    private readonly IProducerTenantAssignmentRepository _assignments;
     private readonly IProducerRoleRepository _roles;
     private readonly IProducerUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public SetProducerUserRolesHandler(
-        ITenantUserRepository users, IProducerRoleRepository roles, IProducerUnitOfWork unitOfWork, IClock clock)
+        IProducerAccountRepository accounts, IProducerTenantAssignmentRepository assignments,
+        IProducerRoleRepository roles, IProducerUnitOfWork unitOfWork, IClock clock)
     {
-        _users = users;
+        _accounts = accounts;
+        _assignments = assignments;
         _roles = roles;
         _unitOfWork = unitOfWork;
         _clock = clock;
@@ -42,9 +45,12 @@ public sealed class SetProducerUserRolesHandler : ICommandHandler<SetProducerUse
 
         await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            var target = await _users.FindByIdAsync(command.TargetTenantUserId, ct);
+            var target = await _accounts.FindByIdAsync(command.TargetTenantUserId, ct);
             // Same-tenant Active target only; anything else is invisible to the acting producer (REQ-16.3 / no leak).
-            if (target is null || target.Status != TenantUserStatus.Active || target.TenantId != command.ActingTenantId)
+            if (target is null || target.Status != ProducerAccountStatus.Active)
+                throw new NotFoundException("The producer was not found in your tenant.");
+            var targetAssignment = await _assignments.FindByAccountIdAsync(target.Id, ct);
+            if (targetAssignment is null || targetAssignment.TenantId != command.ActingTenantId)
                 throw new NotFoundException("The producer was not found in your tenant.");
 
             var resolved = await _roles.GetRoleIdsByCodesAsync(requestedCodes, ct);

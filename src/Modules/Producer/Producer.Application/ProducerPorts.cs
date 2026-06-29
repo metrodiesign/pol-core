@@ -10,13 +10,22 @@ namespace Producer.Application;
 /// predicate would reject under a tenant principal (REQ-19.2). They share ONE keyed-Scoped context instance per
 /// request, so a handler that stages across several of them commits in ONE transaction.
 /// </summary>
-public interface ITenantUserRepository
+public interface IProducerAccountRepository
 {
-    Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<ProducerAccount?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
     /// <summary>Tracked lookup by id — the per-request session re-resolution (REQ-12.4/17.1) and the admin
-    /// approve/reject target load (REQ-6) both find the user by the id the session/command carries.</summary>
-    Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
-    void Add(TenantUser user);
+    /// approve/reject target load (REQ-6) both find the account by the id the session/command carries.</summary>
+    Task<ProducerAccount?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+    void Add(ProducerAccount account);
+}
+
+/// <summary>The tenant edge of a <see cref="ProducerAccount"/> (REQ-6), control-plane on the keyed pol_admin context.
+/// A producer acts for exactly one tenant — uniqueness on ProducerAccountId is enforced by the DB index, so a second
+/// assignment for the same account raises a unique-violation (surfaced as 409).</summary>
+public interface IProducerTenantAssignmentRepository
+{
+    Task<ProducerTenantAssignment?> FindByAccountIdAsync(Guid producerAccountId, CancellationToken cancellationToken);
+    void Add(ProducerTenantAssignment assignment);
 }
 
 public interface IExternalLoginRepository
@@ -40,7 +49,7 @@ public interface IRegistrationTicketRepository
 
 public interface ITenantUserProfileRepository
 {
-    Task<TenantUserProfile?> FindByTenantUserIdAsync(Guid tenantUserId, CancellationToken cancellationToken);
+    Task<TenantUserProfile?> FindByProducerAccountIdAsync(Guid producerAccountId, CancellationToken cancellationToken);
     void Add(TenantUserProfile profile);
 }
 

@@ -147,7 +147,7 @@ public sealed class ProducerRoleRbacGrantsTests
     private static Task InsertAssignment(SqlConnection c, Guid id, Guid user, Guid role, Guid tenant) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT producer.ProducerRoleAssignments (Id, TenantUserId, RoleId, TenantId, AssignedByAdminId, AssignedAt)
+            INSERT producer.ProducerRoleAssignments (Id, ProducerAccountId, RoleId, TenantId, AssignedByAdminId, AssignedAt)
             VALUES (@id, @u, @r, @t, @by, SYSUTCDATETIME());
             """,
             ("@id", id), ("@u", user), ("@r", role), ("@t", tenant), ("@by", Guid.NewGuid()));
@@ -161,7 +161,7 @@ public sealed class ProducerRoleRbacGrantsTests
             FROM producer.ProducerRoleAssignments a
             JOIN producer.ProducerRoles r           ON a.RoleId = r.Id AND r.Status = 0
             JOIN producer.ProducerRolePermissions rp ON rp.RoleId = r.Id
-            WHERE a.TenantUserId = @u AND a.TenantId = @t;
+            WHERE a.ProducerAccountId = @u AND a.TenantId = @t;
             """;
         cmd.Parameters.AddWithValue("@u", user);
         cmd.Parameters.AddWithValue("@t", tenant);

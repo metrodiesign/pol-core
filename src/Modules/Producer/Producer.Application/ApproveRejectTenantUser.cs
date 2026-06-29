@@ -20,21 +20,24 @@ public sealed record ApproveTenantUserCommand(
     Guid ActingAdminId,
     string CorrelationId) : ICommand<ApproveTenantUserResult>;
 
-public sealed record ApproveTenantUserResult(Guid TenantUserId, TenantUserStatus Status, bool AlreadyActive);
+public sealed record ApproveTenantUserResult(Guid TenantUserId, ProducerAccountStatus Status, bool AlreadyActive);
 
 public sealed class ApproveTenantUserHandler : ICommandHandler<ApproveTenantUserCommand, ApproveTenantUserResult>
 {
-    private readonly ITenantUserRepository _users;
+    private readonly IProducerAccountRepository _accounts;
+    private readonly IProducerTenantAssignmentRepository _assignments;
     private readonly IProducerRoleRepository _roles;
     private readonly IRegistrationAuditWriter _audit;
     private readonly IProducerUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public ApproveTenantUserHandler(
-        ITenantUserRepository users, IProducerRoleRepository roles, IRegistrationAuditWriter audit,
+        IProducerAccountRepository accounts, IProducerTenantAssignmentRepository assignments,
+        IProducerRoleRepository roles, IRegistrationAuditWriter audit,
         IProducerUnitOfWork unitOfWork, IClock clock)
     {
-        _users = users;
+        _accounts = accounts;
+        _assignments = assignments;
         _roles = roles;
         _audit = audit;
         _unitOfWork = unitOfWork;
@@ -45,16 +48,22 @@ public sealed class ApproveTenantUserHandler : ICommandHandler<ApproveTenantUser
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var now = _clock.UtcNow;
-            var user = await _users.FindBySubjectAsync(command.Subject, ct)
+            var account = await _accounts.FindBySubjectAsync(command.Subject, ct)
                 ?? throw new NotFoundException("The producer registration was not found."); // 404 (REQ-22.2)
 
-            // Idempotent no-op for an already-Active target: no re-assignment, no duplicate audit (REQ-6.4).
-            if (user.Status == TenantUserStatus.Active)
-                return new ApproveTenantUserResult(user.Id, user.Status, AlreadyActive: true);
+            // Idempotent no-op for an already-Active target ONLY when bound to the same tenant (REQ-6.4); re-approving
+            // onto a different tenant is rejected (a producer acts for exactly one tenant).
+            if (account.Status == ProducerAccountStatus.Active)
+            {
+                var existing = await _assignments.FindByAccountIdAsync(account.Id, ct);
+                if (existing is not null && existing.TenantId == command.ValidatedTenantId)
+                    return new ApproveTenantUserResult(account.Id, account.Status, AlreadyActive: true);
+                throw new ConflictException("An active producer is already bound to a different tenant."); // 409
+            }
 
-            if (user.Status != TenantUserStatus.PendingApproval)
+            if (account.Status != ProducerAccountStatus.PendingApproval)
                 throw new ConflictException(
-                    $"Cannot approve a producer in status {user.Status}; it must be PendingApproval (a rejected user must resubmit first)."); // 409 (REQ-6.5)
+                    $"Cannot approve a producer in status {account.Status}; it must be PendingApproval (a rejected user must resubmit first)."); // 409 (REQ-6.5)
 
             var roleCodes = command.RoleCodes
                 .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
@@ -71,16 +80,17 @@ public sealed class ApproveTenantUserHandler : ICommandHandler<ApproveTenantUser
                 roleIds.Add(role.Id);
             }
 
-            user.Approve(command.ValidatedTenantId, now); // PendingApproval -> Active (REQ-6.2)
+            account.Approve(now); // PendingApproval -> Active (REQ-6.2)
+            _assignments.Add(ProducerTenantAssignment.Create(account.Id, command.ValidatedTenantId, command.ActingAdminId, now)); // bind tenant (REQ-6.2)
             foreach (var roleId in roleIds)
                 _roles.AddAssignment(ProducerRoleAssignment.Create(
-                    user.Id, roleId, command.ValidatedTenantId, command.ActingAdminId, now));
+                    account.Id, roleId, command.ValidatedTenantId, command.ActingAdminId, now));
 
-            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Approved, user.Subject, command.CorrelationId, now,
+            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Approved, account.Subject, command.CorrelationId, now,
                 actorSubject: command.ActingAdminSubject, role: string.Join(", ", roleCodes), tenantId: command.ValidatedTenantId));
 
             await _unitOfWork.SaveChangesAsync(ct);
-            return new ApproveTenantUserResult(user.Id, TenantUserStatus.Active, AlreadyActive: false);
+            return new ApproveTenantUserResult(account.Id, ProducerAccountStatus.Active, AlreadyActive: false);
         }, cancellationToken));
 }
 
@@ -92,21 +102,21 @@ public sealed class ApproveTenantUserHandler : ICommandHandler<ApproveTenantUser
 public sealed record RejectTenantUserCommand(
     string Subject, string? Reason, string ActingAdminSubject, string CorrelationId) : ICommand<RejectTenantUserResult>;
 
-public sealed record RejectTenantUserResult(Guid TenantUserId, TenantUserStatus Status);
+public sealed record RejectTenantUserResult(Guid TenantUserId, ProducerAccountStatus Status);
 
 public sealed class RejectTenantUserHandler : ICommandHandler<RejectTenantUserCommand, RejectTenantUserResult>
 {
-    private readonly ITenantUserRepository _users;
+    private readonly IProducerAccountRepository _accounts;
     private readonly IProducerSessionStore _sessions;
     private readonly IRegistrationAuditWriter _audit;
     private readonly IProducerUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public RejectTenantUserHandler(
-        ITenantUserRepository users, IProducerSessionStore sessions, IRegistrationAuditWriter audit,
+        IProducerAccountRepository accounts, IProducerSessionStore sessions, IRegistrationAuditWriter audit,
         IProducerUnitOfWork unitOfWork, IClock clock)
     {
-        _users = users;
+        _accounts = accounts;
         _sessions = sessions;
         _audit = audit;
         _unitOfWork = unitOfWork;
@@ -117,20 +127,20 @@ public sealed class RejectTenantUserHandler : ICommandHandler<RejectTenantUserCo
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var now = _clock.UtcNow;
-            var user = await _users.FindBySubjectAsync(command.Subject, ct)
+            var account = await _accounts.FindBySubjectAsync(command.Subject, ct)
                 ?? throw new NotFoundException("The producer registration was not found."); // 404 (REQ-22.2)
 
-            if (user.Status != TenantUserStatus.PendingApproval)
-                throw new ConflictException($"Cannot reject a producer in status {user.Status}; it must be PendingApproval."); // 409
+            if (account.Status != ProducerAccountStatus.PendingApproval)
+                throw new ConflictException($"Cannot reject a producer in status {account.Status}; it must be PendingApproval."); // 409
 
-            user.Reject(now); // PendingApproval -> Rejected (REQ-5.1)
-            await _sessions.RevokeAllForUserAsync(user.Id, ct); // kill any live sessions (REQ-12.3)
+            account.Reject(now); // PendingApproval -> Rejected (REQ-5.1)
+            await _sessions.RevokeAllForUserAsync(account.Id, ct); // kill any live sessions (REQ-12.3)
 
-            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, user.Subject, command.CorrelationId, now,
+            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, account.Subject, command.CorrelationId, now,
                 actorSubject: command.ActingAdminSubject, reason: NormalizeReason(command.Reason))); // record the rationale (REQ-5.1)
 
             await _unitOfWork.SaveChangesAsync(ct);
-            return new RejectTenantUserResult(user.Id, TenantUserStatus.Rejected);
+            return new RejectTenantUserResult(account.Id, ProducerAccountStatus.Rejected);
         }, cancellationToken));
 
     // Blank -> NULL (no rationale given); trim + cap to the audit column width (REQ-5.1).

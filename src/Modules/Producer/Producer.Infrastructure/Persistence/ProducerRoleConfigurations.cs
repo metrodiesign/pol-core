@@ -79,15 +79,15 @@ public sealed class ProducerRoleAssignmentConfiguration : IEntityTypeConfigurati
     {
         builder.ToTable("ProducerRoleAssignments");
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.TenantUserId).IsRequired();
+        builder.Property(x => x.ProducerAccountId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
         builder.Property(x => x.TenantId).IsRequired();
         builder.Property(x => x.AssignedByAdminId).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.TenantUserId, x.RoleId }).IsUnique(); // REQ-16.3
-        builder.HasIndex(x => new { x.TenantUserId, x.TenantId });          // per-request resolution lookup (REQ-16.4/17.1)
-        // Restrict: a role with bound users cannot be deleted at the DB either (REQ-16.5 is also checked in the
-        // handler for a clean 409). TenantUserId is a soft reference (mirrors AdminRoleAssignment.AdminAccountId).
+        builder.HasIndex(x => new { x.ProducerAccountId, x.RoleId }).IsUnique(); // REQ-16.3
+        builder.HasIndex(x => new { x.ProducerAccountId, x.TenantId });          // per-request resolution lookup (REQ-16.4/17.1)
+        // Restrict: a role with bound accounts cannot be deleted at the DB either (REQ-16.5 is also checked in the
+        // handler for a clean 409). ProducerAccountId is a soft reference (mirrors AdminRoleAssignment.AdminAccountId).
         builder.HasOne<ProducerRole>().WithMany().HasForeignKey(x => x.RoleId)
             .OnDelete(DeleteBehavior.Restrict);
     }
