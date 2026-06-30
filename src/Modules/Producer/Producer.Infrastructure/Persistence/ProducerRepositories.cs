@@ -66,6 +66,11 @@ public sealed class RegistrationTicketRepository : IRegistrationTicketRepository
 
     public void Add(RegistrationTicket ticket) => _db.Set<RegistrationTicket>().Add(ticket);
 
+    public Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken cancellationToken) =>
+        _db.Set<RegistrationTicket>().AsNoTracking()
+            .AnyAsync(t => t.UsedAt == null && t.ExpiresAt > now
+                        && (t.Subject == subject || t.Email == email), cancellationToken);
+
     public async Task<bool> TryConsumeAsync(Guid ticketId, TicketPurpose purpose, DateTime now, CancellationToken cancellationToken)
     {
         var affected = await _db.Set<RegistrationTicket>()

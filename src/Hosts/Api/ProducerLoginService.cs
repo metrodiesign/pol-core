@@ -165,6 +165,14 @@ internal sealed class ProducerLoginService
     private async Task IssueTicketAndRedirectAsync(
         HttpContext http, string subject, string email, string? hostedDomain, TicketPurpose purpose, CancellationToken ct)
     {
+        // Dedup guard: a repeated callback from the same user (same subject OR email) must not mint a second pending
+        // ticket. Expired-but-unconsumed tickets are not pending, so a fresh ticket can still be issued after expiry.
+        if (await _tickets.HasPendingAsync(subject, email, _clock.UtcNow, ct))
+        {
+            await RespondRegistrationPendingAsync(http, ct);
+            return;
+        }
+
         string wireTicket;
         try
         {
@@ -194,6 +202,19 @@ internal sealed class ProducerLoginService
         http.Response.StatusCode = StatusCodes.Status403Forbidden;
         http.Response.ContentType = "text/plain; charset=utf-8";
         await http.Response.WriteAsync("Your registration is awaiting approval.", ct);
+    }
+
+    /// <summary>A pending ticket already exists for this identity (same subject OR email) → 409, no new ticket, no
+    /// session. A legitimate user who re-entered the callback before finishing/expiring their last registration —
+    /// not a security failure, so no denied audit (F1/F2).</summary>
+    private static async Task RespondRegistrationPendingAsync(HttpContext http, CancellationToken ct)
+    {
+        if (http.Response.HasStarted)
+            return;
+        http.Response.StatusCode = StatusCodes.Status409Conflict;
+        http.Response.ContentType = "text/plain; charset=utf-8";
+        await http.Response.WriteAsync(
+            "A registration is already in progress for this identity. Complete it or wait for it to expire.", ct);
     }
 
     /// <summary>Records a denied/failed auth attempt (REQ-9.5/21.2) on a FRESH scope (clean context — a half-built

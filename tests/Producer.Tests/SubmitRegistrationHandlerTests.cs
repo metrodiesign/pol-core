@@ -176,6 +176,7 @@ public sealed class SubmitRegistrationHandlerTests
         public List<RegistrationTicket> Added { get; } = [];
         public bool ConsumeResult { get; set; } = true;
         public void Add(RegistrationTicket ticket) => Added.Add(ticket);
+        public Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken ct) => Task.FromResult(false);
         public Task<bool> TryConsumeAsync(Guid ticketId, TicketPurpose purpose, DateTime now, CancellationToken ct) =>
             Task.FromResult(ConsumeResult);
     }

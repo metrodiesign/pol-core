@@ -77,6 +77,49 @@ public sealed class ProducerLoginServiceTests
     }
 
     [Fact]
+    public async Task A_repeated_callback_for_the_same_subject_is_blocked_409_and_mints_no_second_ticket()
+    {
+        var (service, ctx) = Build(ProducerLoginResult.NotFound);
+
+        // 1st callback issues the ticket; 2nd (same subject, before expiry) must be blocked.
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
+        ctx.Http.Response.Clear();
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
+
+        Assert.Single(ctx.Tickets.Added); // still exactly one row, not two
+        Assert.Equal(StatusCodes.Status409Conflict, ctx.Http.Response.StatusCode);
+        Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_callback_with_a_new_subject_but_a_pending_email_is_blocked_409()
+    {
+        var (service, ctx) = Build(ProducerLoginResult.NotFound);
+
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-a", "shared@org.com", null, "/", default);
+        ctx.Http.Response.Clear();
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-b", "shared@org.com", null, "/", default);
+
+        Assert.Single(ctx.Tickets.Added); // email match alone blocks the duplicate
+        Assert.Equal(StatusCodes.Status409Conflict, ctx.Http.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_expired_pending_ticket_does_not_block_a_fresh_ticket()
+    {
+        var (service, ctx) = Build(ProducerLoginResult.NotFound);
+        // Seed a ticket that expired before Now (issued 2h ago, 10-min TTL) — not pending, must not block re-issue.
+        ctx.Tickets.Seeded.Add(RegistrationTicket.Issue(
+            "google-sub-exp", "exp@org.com", null, TicketPurpose.Registration, Now.AddHours(-2), TimeSpan.FromMinutes(10)));
+
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-exp", "exp@org.com", null, "/", default);
+
+        var ticket = Assert.Single(ctx.Tickets.Added);
+        Assert.Equal(TicketPurpose.Registration, ticket.Purpose);
+        Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
+    }
+
+    [Fact]
     public async Task A_pending_user_gets_403_awaiting_approval_with_no_session_and_no_ticket()
     {
         var (service, ctx) = Build(ProducerLoginResult.Pending);
@@ -173,7 +216,11 @@ public sealed class ProducerLoginServiceTests
     private sealed class FakeTickets : IRegistrationTicketRepository
     {
         public readonly List<RegistrationTicket> Added = [];
+        public readonly List<RegistrationTicket> Seeded = []; // already-persisted rows the guard queries against
         public void Add(RegistrationTicket ticket) => Added.Add(ticket);
+        public Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken ct) =>
+            Task.FromResult(Added.Concat(Seeded).Any(t =>
+                t.UsedAt == null && t.ExpiresAt > now && (t.Subject == subject || t.Email == email)));
         public Task<bool> TryConsumeAsync(Guid id, TicketPurpose purpose, DateTime now, CancellationToken ct) => Task.FromResult(false);
     }
 
