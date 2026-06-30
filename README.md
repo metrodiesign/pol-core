@@ -8,8 +8,9 @@
 
 ## สถานะ
 
-ยังไม่มี source code — repo อยู่ในเฟส spec-driven (specs come before code, ALWAYS).
-ผลิตภัณฑ์ถูก spec ไว้แล้ว, รอ implement ผ่าน workflow gates.
+อยู่ระหว่าง implement บน branch `develop` (spec-driven — specs come before code, ALWAYS).
+โมดูลที่ลงแล้ว: Products / Cart / Checkout / Orders / Payments (E2E), Tenant provisioning,
+Admin (Google SSO + RBAC), Producer (Google SSO + registration). งานใหม่ผ่าน workflow gates เสมอ.
 
 ## Stack
 
@@ -29,12 +30,81 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 | `.githooks/` · `.github/` | enforcement floor: pre-commit/pre-push + CI |
 | `docs/reference/` | สเปกอ้างอิงเต็มของ Payments module |
 
-## เริ่มต้น (สำหรับ contributor / agent)
+## การรัน (Local Dev)
 
-1. อ่าน read order: `.ai/shared/PROJECT_CONTEXT.md` → `ARCHITECTURE.md` → `CODING_STANDARDS.md` → `TASK_PROTOCOL.md`
+คู่มือฉบับเต็ม (Google SSO setup, troubleshooting, DB cheatsheet): `docs/runbooks/local-dev-run.md`.
+ด้านล่างคือทางลัดให้รันได้เร็ว.
+
+### Prerequisites
+
+| tool | version |
+|---|---|
+| .NET SDK | 10.x (`dotnet --version`) |
+| Docker + Compose | ล่าสุด (รัน SQL Server 2025) |
+| `dotnet-ef` | `dotnet tool install --global dotnet-ef` |
+
+### First-time setup (ครั้งเดียว)
+
+```bash
+# 1) env — copy template, ใส่ค่า LOCAL (ห้าม secret จริง). .env เป็น gitignored.
+cp .env.example .env
+#    แก้: MSSQL_SA_PASSWORD, POL_{APP,ADMIN,WORKER}_PASSWORD (ห้ามมีชื่อ login อยู่ในรหัส),
+#    ConnectionStrings__*, POL_DESIGN_SQL (sa), Vault__MasterKeyBase64 (head -c 32 /dev/urandom | base64)
+
+# 2) git hooks (enforcement floor)
+git config core.hooksPath .githooks
+
+# 3) ยก DB + สร้าง principals (idempotent): สร้าง DB PaymentOrchestration +
+#    logins pol_app / pol_admin / pol_worker + role pol_rls_bypass
+docker compose up -d
+```
+
+migrations: API auto-migrate ตอน boot ใน Dev (ถ้าตั้ง `ConnectionStrings:Migrator`). หรือรันเอง:
+
+```bash
+POL_DESIGN_SQL="<sa conn string>" \
+dotnet ef database update --context ProducerDbContext \
+  --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
+```
+
+### Topology
+
+| host | port | principal | ใช้ทำอะไร |
+|---|---|---|---|
+| SQL Server (dev) | `11433` | — | DB หลัก `PaymentOrchestration` |
+| SQL Server (integration test) | `11434` | — | DB แยกของ Integration suite (`.env.integration`) |
+| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (default) + `pol_admin` (keyed, control-plane) | REST + BFF auth |
+| Worker (`src/Hosts/Worker`) | console | `pol_worker` | outbox dispatcher |
+| FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/producer/*` -> `:5100` |
+
+connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
+`Producer`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
+
+### รันประจำวัน
+
+```bash
+docker compose up -d                                      # DB (ถ้ายังไม่ขึ้น)
+dotnet watch --project src/Hosts/Api/Api.csproj run       # API :5100 (hot reload)
+dotnet run   --project src/Hosts/Worker/Worker.csproj     # Worker (เมื่อทดสอบ outbox)
+```
+
+> config change (`appsettings.*.json`) / DI ต้อง **restart เต็ม** (hot reload ไม่จับ).
+> รัน API ค้างใน terminal ของคุณเอง — อย่ารันผ่าน agent background (ถูก kill).
+> Google SSO (Admin + Producer OIDC, Google Console redirect URI) ดู runbook §5.
+
+### เทส
+
+```bash
+dotnet test pol-core.slnx --filter "Category!=Integration"   # unit (ไม่ต้องใช้ DB)
+source .env.integration                                      # gitignored — สร้างเอง (runbook §6)
+dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL :11434)
+```
+
+### สำหรับ contributor / agent
+
+1. read order: `.ai/shared/PROJECT_CONTEXT.md` -> `ARCHITECTURE.md` -> `CODING_STANDARDS.md` -> `TASK_PROTOCOL.md`
    (AI agent: เริ่มที่ `AGENTS.md` หรือ `CLAUDE.md`)
-2. เปิด git hooks: `git config core.hooksPath .githooks`
-3. งานใหม่ผ่าน spec workflow เสมอ — ไม่ code ก่อน requirements → design → tasks
+2. งานใหม่ผ่าน spec workflow เสมอ — ไม่ code ก่อน requirements -> design -> tasks
 
 ## กฎที่ขาดไม่ได้
 
