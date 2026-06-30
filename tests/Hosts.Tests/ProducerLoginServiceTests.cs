@@ -122,7 +122,7 @@ public sealed class ProducerLoginServiceTests
     }
 
     [Fact]
-    public async Task A_pending_user_gets_403_awaiting_approval_with_no_session_and_no_ticket()
+    public async Task A_pending_user_is_redirected_with_awaiting_approval_reason_no_session_no_ticket()
     {
         var (service, ctx) = Build(ProducerLoginResult.Pending);
 
@@ -130,7 +130,8 @@ public sealed class ProducerLoginServiceTests
 
         Assert.Empty(ctx.Sessions.Added);
         Assert.Empty(ctx.Tickets.Added);
-        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Http.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
+        Assert.Equal("/login-error?reason=awaiting-approval", ctx.Http.Response.Headers.Location);
         Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
     }
 

@@ -34,7 +34,9 @@ Repro:
 - B3  WHEN ticket เดิมของ subject/email หมดอายุแล้ว (`ExpiresAt <= now`, ยังไม่ถูก consume)
       THE SYSTEM SHALL CONTINUE TO ถือว่าไม่ใช่ pending และยอมออก ticket ใหม่ได้
 - B4  WHEN outcome เป็น `PendingApproval`
-      THE SYSTEM SHALL CONTINUE TO ตอบ 403 awaiting-approval โดยไม่ออก ticket
+      THE SYSTEM SHALL redirect (302) ไป `ErrorPath?reason=awaiting-approval` โดยไม่ออก ticket
+      ไม่เปิด session (เปลี่ยนจาก 403 plain text เดิม เพื่อให้ callback ทุก outcome ใช้
+      redirect+reason contract เดียวกัน — user-directed consistency)
 - B5  WHEN submit ฟอร์มด้วย subject ที่มี `ProducerAccount` อยู่แล้ว
       THE SYSTEM SHALL CONTINUE TO แปลง unique-violation เป็น 409 ผ่าน unit of work
 - B6  WHEN ticket ถูก consume ไปแล้ว (`UsedAt` ถูก set)

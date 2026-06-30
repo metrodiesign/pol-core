@@ -119,7 +119,7 @@ internal sealed class ProducerLoginService
                 await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, TicketPurpose.Correction, ct);
                 break;
             case ProducerLoginOutcome.PendingApproval:
-                await RespondAwaitingApprovalAsync(http, ct);
+                RespondAwaitingApproval(http);
                 break;
             case ProducerLoginOutcome.Suspended:
             default:
@@ -193,15 +193,14 @@ internal sealed class ProducerLoginService
             http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.RegisterUrl, "ticket", wireTicket));
     }
 
-    /// <summary>PendingApproval → 403 "awaiting approval", no session (REQ-9.4/22.5). A known applicant in a normal
-    /// lifecycle state, not a security failure — so no denied audit.</summary>
-    private static async Task RespondAwaitingApprovalAsync(HttpContext http, CancellationToken ct)
+    /// <summary>PendingApproval → redirect to the SPA error page with <c>reason=awaiting-approval</c>, no session
+    /// (REQ-9.4/22.5). A known applicant in a normal lifecycle state, not a security failure — so no denied audit.
+    /// Uses the same redirect+reason contract as every other callback outcome (the browser navigation cannot consume
+    /// a JSON/plain-text body); the FE renders awaiting-approval as info, not error, off the reason code.</summary>
+    private void RespondAwaitingApproval(HttpContext http)
     {
-        if (http.Response.HasStarted)
-            return;
-        http.Response.StatusCode = StatusCodes.Status403Forbidden;
-        http.Response.ContentType = "text/plain; charset=utf-8";
-        await http.Response.WriteAsync("Your registration is awaiting approval.", ct);
+        if (!http.Response.HasStarted)
+            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", "awaiting-approval"));
     }
 
     /// <summary>A pending ticket already exists for this identity (same subject OR email) → redirect to the SPA error
