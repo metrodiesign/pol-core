@@ -77,7 +77,7 @@ public sealed class ProducerLoginServiceTests
     }
 
     [Fact]
-    public async Task A_repeated_callback_for_the_same_subject_is_blocked_409_and_mints_no_second_ticket()
+    public async Task A_repeated_callback_for_the_same_subject_is_blocked_and_mints_no_second_ticket()
     {
         var (service, ctx) = Build(ProducerLoginResult.NotFound);
 
@@ -87,12 +87,13 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
 
         Assert.Single(ctx.Tickets.Added); // still exactly one row, not two
-        Assert.Equal(StatusCodes.Status409Conflict, ctx.Http.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
+        Assert.Equal("/login-error?reason=registration-pending", ctx.Http.Response.Headers.Location);
         Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task A_callback_with_a_new_subject_but_a_pending_email_is_blocked_409()
+    public async Task A_callback_with_a_new_subject_but_a_pending_email_is_blocked()
     {
         var (service, ctx) = Build(ProducerLoginResult.NotFound);
 
@@ -101,7 +102,8 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-b", "shared@org.com", null, "/", default);
 
         Assert.Single(ctx.Tickets.Added); // email match alone blocks the duplicate
-        Assert.Equal(StatusCodes.Status409Conflict, ctx.Http.Response.StatusCode);
+        Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
+        Assert.Equal("/login-error?reason=registration-pending", ctx.Http.Response.Headers.Location);
     }
 
     [Fact]

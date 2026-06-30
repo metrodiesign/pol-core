@@ -19,11 +19,11 @@ Repro:
 ## Expected Behavior
 
 - F1  WHEN callback จะออก ticket และมี pending ticket (`UsedAt IS NULL` AND `ExpiresAt > now`)
-      ที่ `Subject` ตรง OR `Email` ตรงอยู่แล้ว THE SYSTEM SHALL ปฏิเสธด้วย 409 Conflict
-      และไม่ insert ticket row ใหม่ ไม่เปิด session
-- F2  WHEN block ตาม F1 THE SYSTEM SHALL ตอบ plain-text reason ที่ไม่ sensitive
-      ("A registration is already in progress for this identity. Complete it or wait
-      for it to expire.")
+      ที่ `Subject` ตรง OR `Email` ตรงอยู่แล้ว THE SYSTEM SHALL ไม่ insert ticket row ใหม่
+      และไม่เปิด session
+- F2  WHEN block ตาม F1 THE SYSTEM SHALL redirect (302) ไป SPA error page พร้อม
+      `reason=registration-pending` (query string) เพื่อให้ FE อ่าน reason แล้ว render
+      ข้อความได้ — รูปแบบเดียวกับ `DenyAsync` (`ErrorPath?reason=...`)
 
 ## Unchanged Behavior
 

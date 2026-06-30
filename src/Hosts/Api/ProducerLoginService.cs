@@ -169,7 +169,7 @@ internal sealed class ProducerLoginService
         // ticket. Expired-but-unconsumed tickets are not pending, so a fresh ticket can still be issued after expiry.
         if (await _tickets.HasPendingAsync(subject, email, _clock.UtcNow, ct))
         {
-            await RespondRegistrationPendingAsync(http, ct);
+            RespondRegistrationPending(http);
             return;
         }
 
@@ -204,17 +204,15 @@ internal sealed class ProducerLoginService
         await http.Response.WriteAsync("Your registration is awaiting approval.", ct);
     }
 
-    /// <summary>A pending ticket already exists for this identity (same subject OR email) → 409, no new ticket, no
-    /// session. A legitimate user who re-entered the callback before finishing/expiring their last registration —
-    /// not a security failure, so no denied audit (F1/F2).</summary>
-    private static async Task RespondRegistrationPendingAsync(HttpContext http, CancellationToken ct)
+    /// <summary>A pending ticket already exists for this identity (same subject OR email) → redirect to the SPA error
+    /// page with a non-sensitive <c>reason=registration-pending</c>, no new ticket, no session. The callback is a
+    /// browser navigation, so the FE consumes the reason from the query string (same shape as <see cref="DenyAsync"/>).
+    /// A legitimate user who re-entered the callback before finishing/expiring their last registration — not a
+    /// security failure, so no denied audit (F1/F2).</summary>
+    private void RespondRegistrationPending(HttpContext http)
     {
-        if (http.Response.HasStarted)
-            return;
-        http.Response.StatusCode = StatusCodes.Status409Conflict;
-        http.Response.ContentType = "text/plain; charset=utf-8";
-        await http.Response.WriteAsync(
-            "A registration is already in progress for this identity. Complete it or wait for it to expire.", ct);
+        if (!http.Response.HasStarted)
+            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", "registration-pending"));
     }
 
     /// <summary>Records a denied/failed auth attempt (REQ-9.5/21.2) on a FRESH scope (clean context — a half-built
