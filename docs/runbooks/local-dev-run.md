@@ -162,14 +162,22 @@ OIDC ที่ config ไม่ครบทำ API ล่มทั้งระ�
 
 ### 5.2 Google Cloud Console
 
-ที่ OAuth 2.0 Client ID ของ producer -> **Authorized redirect URIs** ต้องมีเป๊ะ:
+ที่ OAuth 2.0 Client ID ของ producer -> **Authorized redirect URIs** ลงทะเบียน **ทั้งสอง**:
 
 ```
 http://localhost:5100/producer/auth/callback
+http://localhost:5200/producer/auth/callback
 ```
 
-(scheme/host/port/path ต้องตรงทุกตัว, ไม่มี trailing slash). ไม่งั้น Google ตอบ
-`Error 400: redirect_uri_mismatch`.
+ทำไมต้องสองตัว: redirect_uri ที่ handler ส่งให้ Google สร้างจาก `Request.Host` ของ request.
+- ยิง backend ตรง (`:5100`) -> redirect_uri = `:5100/...`
+- ผ่าน FE proxy (`:5200/producer/auth/login`) — API ตั้ง `UseForwardedHeaders`
+  (`X-Forwarded-Host`, ดู `Program.cs`) -> **ถ้า** proxy IP อยู่ใน `ForwardedHeaders:KnownNetworks`/
+  `KnownProxies` -> `Request.Host` = `:5200` -> redirect_uri = `:5200/...`
+
+dev default ไม่ตั้ง KnownProxies -> forwarded host ถูก ignore -> ได้ `:5100`. แต่ลงทะเบียนทั้งคู่
+ครอบทั้ง 2 เส้นทาง กัน `Error 400: redirect_uri_mismatch`. (scheme/host/port/path ต้องตรงเป๊ะ,
+ไม่มี trailing slash.)
 
 ### 5.3 ตรวจว่าพร้อม
 
@@ -199,9 +207,23 @@ solution file = `pol-core.slnx`.
 # Unit (เร็ว, ไม่ต้องใช้ DB):
 dotnet test pol-core.slnx --filter "Category!=Integration"
 
-# Integration (ต้องมี SQL :11434 + source .env.integration):
+# Integration (ต้องมี SQL :11434 + env vars ด้านล่าง):
 source .env.integration
 dotnet test pol-core.slnx --filter "Category=Integration"
+```
+
+> `.env.integration` เป็น gitignored (มี secret) — **ไม่มีใน fresh clone ต้องสร้างเอง**. ถ้าไม่ตั้ง
+> env เหล่านี้ helper จะ default `POL_SQL_SERVER` เป็น `localhost,11433` (ชน dev DB). สร้าง
+> `.env.integration` ด้วย exports ตามนี้:
+
+```
+export POL_SA_PASSWORD='<sa-pwd-:11434>'
+export POL_SQL_SERVER='localhost,11434'      # ต้องเป็น 11434 ไม่ใช่ 11433
+export POL_DB='PaymentOrchestration'
+export POL_APP_PASSWORD='<pol_app-pwd>'
+export POL_ADMIN_PASSWORD='<pol_admin-pwd>'
+export POL_WORKER_PASSWORD='<pol_worker-pwd>'
+export POL_DESIGN_SQL="Server=localhost,11434;Database=PaymentOrchestration;User Id=sa;Password=<sa-pwd-:11434>;Encrypt=True;TrustServerCertificate=True"
 ```
 
 > Integration suite ใช้ DB คนละตัว (`localhost:11434`) จาก dev (`:11433`) เพื่อไม่ปนกัน.
@@ -239,9 +261,14 @@ CI gate: unit + integration ต้องเขียวก่อน merge (requi
 SqlException 229: The INSERT permission was denied on the object 'RegistrationTickets'
 ```
 
-ตรวจ grant ปัจจุบัน (ดู §8). ตารางที่ producer registration ต้องการ (`pol_admin`):
-`RegistrationTickets`, `RegistrationAudits`, `ExternalLogins`, `TenantUserProfiles`,
-`ProducerAccounts`, `ProducerTenantAssignments`, `ProducerSessions`, `ProducerAuthAudits`.
+ตรวจ grant ปัจจุบัน (ดู §8). ตารางที่ producer identity/registration ต้องการ (`pol_admin`)
+ตามชื่อบน `develop`:
+`TenantUsers`, `TenantUserProfiles`, `ExternalLogins`, `RegistrationTickets`,
+`RegistrationAudits`, `ProducerSessions`, `ProducerAuthAudits`,
+`ProducerRoles` / `ProducerRoleAssignments` / `ProducerRolePermissions`.
+
+> หมายเหตุ: PR #30 (account control-plane parity) rename `TenantUsers` -> `ProducerAccounts` และ
+> เพิ่ม `ProducerTenantAssignments`. หลัง #30 merge ใช้ชื่อใหม่นั้นแทน.
 
 grant อยู่ใน EF migration อยู่แล้ว -> **fresh DB / CI / prod ถูกต้องเสมอ**. ถ้าขาดบน dev DB =
 drift (เช่นตารางถูก drop/recreate ข้าม migration หลายรอบ). re-apply ตรงด้วย migration หรือ
@@ -280,10 +307,11 @@ GROUP BY o.name ORDER BY o.name;"
         SELECT HAS_PERMS_BY_NAME('producer.RegistrationTickets','OBJECT','INSERT');
         REVERT;"
 
-# unique index (เงื่อนไข dedup):
+# unique index (เงื่อนไข dedup) — บน develop ตาราง account ชื่อ TenantUsers
+# (หลัง PR #30 = ProducerAccounts):
 ... -Q "SELECT i.name, i.is_unique FROM sys.indexes i
         JOIN sys.tables t ON i.object_id=t.object_id
-        WHERE SCHEMA_NAME(t.schema_id)='producer' AND t.name='ProducerAccounts';"
+        WHERE SCHEMA_NAME(t.schema_id)='producer' AND t.name='TenantUsers';"
 ```
 
 > dev DB ใช้ port `11433`, integration `11434`. ระวังอย่าสลับ.
