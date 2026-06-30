@@ -165,17 +165,18 @@ internal sealed class ProducerLoginService
     private async Task IssueTicketAndRedirectAsync(
         HttpContext http, string subject, string email, string? hostedDomain, TicketPurpose purpose, CancellationToken ct)
     {
-        // Dedup guard: a repeated callback from the same user (same subject OR email) must not mint a second pending
-        // ticket. Expired-but-unconsumed tickets are not pending, so a fresh ticket can still be issued after expiry.
-        if (await _tickets.HasPendingAsync(subject, email, _clock.UtcNow, ct))
-        {
-            RespondRegistrationPending(http);
-            return;
-        }
-
         string wireTicket;
         try
         {
+            // Dedup guard: a repeated callback from the same user (same subject OR email) must not mint a second
+            // pending ticket. Expired-but-unconsumed tickets are not pending, so a fresh ticket can still be issued
+            // after expiry. Inside the try so a transient lookup failure routes to DenyAsync, not an opaque 500.
+            if (await _tickets.HasPendingAsync(subject, email, _clock.UtcNow, ct))
+            {
+                RespondRegistrationPending(http);
+                return;
+            }
+
             var ttl = TimeSpan.FromMinutes(_registration.TicketTtlMinutes);
             var row = RegistrationTicket.Issue(subject, email, hostedDomain, purpose, _clock.UtcNow, ttl);
             _tickets.Add(row);

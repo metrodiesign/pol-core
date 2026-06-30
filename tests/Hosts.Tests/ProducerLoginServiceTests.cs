@@ -107,6 +107,20 @@ public sealed class ProducerLoginServiceTests
     }
 
     [Fact]
+    public async Task A_failing_pending_lookup_routes_to_the_callback_error_redirect_not_an_opaque_500()
+    {
+        var (service, ctx) = Build(ProducerLoginResult.NotFound);
+        ctx.Tickets.ThrowOnHasPending = true;
+
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-x", "x@org.com", null, "/", default);
+
+        Assert.Empty(ctx.Tickets.Added); // no ticket minted
+        Assert.Contains(ctx.Audit.Appended, a => a.EventType == ProducerAuthEventType.AuthDenied && a.Reason == "ticket-issue-failed");
+        Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
+        Assert.Equal("/login-error?reason=ticket-issue-failed", ctx.Http.Response.Headers.Location);
+    }
+
+    [Fact]
     public async Task An_expired_pending_ticket_does_not_block_a_fresh_ticket()
     {
         var (service, ctx) = Build(ProducerLoginResult.NotFound);
@@ -220,10 +234,13 @@ public sealed class ProducerLoginServiceTests
     {
         public readonly List<RegistrationTicket> Added = [];
         public readonly List<RegistrationTicket> Seeded = []; // already-persisted rows the guard queries against
+        public bool ThrowOnHasPending { get; set; }
         public void Add(RegistrationTicket ticket) => Added.Add(ticket);
         public Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken ct) =>
-            Task.FromResult(Added.Concat(Seeded).Any(t =>
-                t.UsedAt == null && t.ExpiresAt > now && (t.Subject == subject || t.Email == email)));
+            ThrowOnHasPending
+                ? Task.FromException<bool>(new InvalidOperationException("transient lookup failure"))
+                : Task.FromResult(Added.Concat(Seeded).Any(t =>
+                    t.UsedAt == null && t.ExpiresAt > now && (t.Subject == subject || t.Email == email)));
         public Task<bool> TryConsumeAsync(Guid id, TicketPurpose purpose, DateTime now, CancellationToken ct) => Task.FromResult(false);
     }
 
