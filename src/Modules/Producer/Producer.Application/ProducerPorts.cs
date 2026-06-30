@@ -40,6 +40,12 @@ public interface IRegistrationTicketRepository
     /// (Correction) branches; persisted on the keyed pol_admin context.</summary>
     void Add(RegistrationTicket ticket);
 
+    /// <summary>True when a pending ticket (<c>UsedAt IS NULL</c> AND not yet expired) already exists for this
+    /// <paramref name="subject"/> OR <paramref name="email"/> — the guard that stops a repeated callback from the
+    /// same user minting a duplicate ticket row. Expired-but-unconsumed tickets are NOT pending (a fresh ticket may
+    /// be issued).</summary>
+    Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken cancellationToken);
+
     /// <summary>Single-use consume guard (REQ-3.3/4.1): a conditional UPDATE that stamps <c>UsedAt</c> only while the
     /// ticket is unused and unexpired. Returns true ONLY for the one caller whose UPDATE affected the row, so two
     /// concurrent submissions of the same ticket (2-tab) yield exactly one winner — the loser gets false (no row

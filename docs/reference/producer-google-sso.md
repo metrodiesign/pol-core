@@ -61,7 +61,7 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
    |        v  4-way branch                             |
    |  Active -> ProducerSession + cookies + redirect    |
    |  NotFound/Rejected -> ticket -> redirect /register |
-   |  Pending -> 403   Suspended -> error redirect      |
+   |  Pending/Suspended -> error redirect (?reason=)    |
    |                                                    |
    |  [ProducerSession cookie scheme] (every request)   |
    |        re-resolve READ-ONLY -> IProducerScope       |
@@ -206,13 +206,23 @@ sequenceDiagram
             LS->>LS: cookies.Write(session, csrf)
             LS-->>G: 302 -> SafeReturn(returnTo)
         else NotFound
-            LS->>DB: Issue Registration ticket (row + wire token)
-            LS-->>G: 302 -> RegisterUrl?ticket=...
+            LS->>DB: HasPending(subject OR email)?  (UsedAt IS NULL AND not expired)
+            alt มี pending ticket อยู่แล้ว
+                LS-->>G: 302 -> ErrorPath?reason=registration-pending  (no new ticket)
+            else ไม่มี
+                LS->>DB: Issue Registration ticket (row + wire token)
+                LS-->>G: 302 -> RegisterUrl?ticket=...
+            end
         else Rejected
-            LS->>DB: Issue Correction ticket
-            LS-->>G: 302 -> RegisterUrl?ticket=...
+            LS->>DB: HasPending(subject OR email)?
+            alt มี pending ticket อยู่แล้ว
+                LS-->>G: 302 -> ErrorPath?reason=registration-pending
+            else ไม่มี
+                LS->>DB: Issue Correction ticket
+                LS-->>G: 302 -> RegisterUrl?ticket=...
+            end
         else PendingApproval
-            LS-->>G: 403 "awaiting approval" (no session)
+            LS-->>G: 302 -> ErrorPath?reason=awaiting-approval (no session)
         else Suspended
             LS->>DB: AuthDenied audit (fresh scope)
             LS-->>G: 302 -> ErrorPath?reason=suspended
@@ -230,11 +240,27 @@ request context ไม่ถูก commit (REQ-9.5). ไม่ log secret/token/
 | ProducerAccount.Status | Outcome | ผล |
 |---|---|---|
 | (subject ไม่พบ) | `NotFound` | registration ticket |
-| `PendingApproval` | `PendingApproval` | 403 awaiting approval |
+| `PendingApproval` | `PendingApproval` | 302 -> ErrorPath?reason=awaiting-approval |
 | `Rejected` | `Rejected` | correction ticket |
 | `Active` + มี assignment | `Active` | เปิด session + resolve effective permissions (scoped to assignment.TenantId) |
 | `Active` + ไม่มี assignment | `Suspended` | deny (invariant violation) |
 | `Suspended` / อื่น | `Suspended` | deny |
+
+### Dedup guard (กัน registration ticket ซ้ำ)
+
+ก่อนออก ticket (NotFound/Rejected) callback เช็ค `HasPendingAsync(subject, email, now)` — ถ้ามี
+pending ticket (`UsedAt IS NULL` AND ยังไม่ expire) ที่ **Subject ตรง OR Email ตรง** -> ไม่ออก row ใหม่
+redirect `ErrorPath?reason=registration-pending`. ticket ที่ expire แล้ว (ยังไม่ consume) ไม่นับ pending
+-> ออกใหม่ได้. Subject = identity หลัก (Google `sub`), Email = secondary.
+
+**`reason` codes ที่ FE ต้อง handle ที่ `ErrorPath` (`/login-error?reason=...`):**
+
+| reason | ความหมาย | FE ควรแสดง |
+|---|---|---|
+| `registration-pending` | มี registration ที่ค้างอยู่ (ของ subject/email เดิม) ยังไม่หมดอายุ | "คุณมีการสมัครที่กำลังดำเนินการอยู่ กรุณาทำให้เสร็จ หรือรอจนหมดอายุแล้วลองใหม่" |
+| `awaiting-approval` | สมัครแล้ว รอ admin อนุมัติ (ไม่ใช่ error — info state) | "การสมัครของคุณรอการอนุมัติ" (render เป็น info ไม่ใช่ error) |
+| `suspended` | account ถูกระงับ | "บัญชีถูกระงับ ติดต่อผู้ดูแล" |
+| `resolve-failed` / `session-write-failed` / `ticket-issue-failed` / `missing-identity` | error ฝั่ง server ระหว่าง callback | ข้อความ error ทั่วไป + ปุ่มลองใหม่ |
 
 ---
 
