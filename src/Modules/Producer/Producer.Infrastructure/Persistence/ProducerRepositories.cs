@@ -19,20 +19,33 @@ public static class ProducerOutbox
     public static readonly Guid SentinelTenantId = new("f0f0f0f0-0000-4000-8000-00000000ad17");
 }
 
-/// <summary>TenantUser reads/writes on the keyed pol_admin context (REQ-19.2). Tracked so a correction can mutate
-/// the loaded aggregate before commit.</summary>
-public sealed class TenantUserRepository : ITenantUserRepository
+/// <summary>ProducerAccount reads/writes on the keyed pol_admin context (REQ-19.2) — control-plane, like Admin.
+/// Tracked so a correction can mutate the loaded aggregate before commit.</summary>
+public sealed class ProducerAccountRepository : IProducerAccountRepository
 {
     private readonly ProducerDbContext _db;
-    public TenantUserRepository(ProducerDbContext db) => _db = db;
+    public ProducerAccountRepository(ProducerDbContext db) => _db = db;
 
-    public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        _db.Set<TenantUser>().FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
+    public Task<ProducerAccount?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
+        _db.Set<ProducerAccount>().FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
 
-    public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
-        _db.Set<TenantUser>().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+    public Task<ProducerAccount?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
+        _db.Set<ProducerAccount>().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
 
-    public void Add(TenantUser user) => _db.Set<TenantUser>().Add(user);
+    public void Add(ProducerAccount account) => _db.Set<ProducerAccount>().Add(account);
+}
+
+/// <summary>The tenant edge of a ProducerAccount (REQ-6) on the keyed pol_admin context. The DB unique index on
+/// ProducerAccountId enforces one tenant per account; a second Add raises a unique-violation surfaced as 409 by the UoW.</summary>
+public sealed class ProducerTenantAssignmentRepository : IProducerTenantAssignmentRepository
+{
+    private readonly ProducerDbContext _db;
+    public ProducerTenantAssignmentRepository(ProducerDbContext db) => _db = db;
+
+    public Task<ProducerTenantAssignment?> FindByAccountIdAsync(Guid producerAccountId, CancellationToken cancellationToken) =>
+        _db.Set<ProducerTenantAssignment>().FirstOrDefaultAsync(a => a.ProducerAccountId == producerAccountId, cancellationToken);
+
+    public void Add(ProducerTenantAssignment assignment) => _db.Set<ProducerTenantAssignment>().Add(assignment);
 }
 
 public sealed class ExternalLoginRepository : IExternalLoginRepository
@@ -67,8 +80,8 @@ public sealed class TenantUserProfileRepository : ITenantUserProfileRepository
     private readonly ProducerDbContext _db;
     public TenantUserProfileRepository(ProducerDbContext db) => _db = db;
 
-    public Task<TenantUserProfile?> FindByTenantUserIdAsync(Guid tenantUserId, CancellationToken cancellationToken) =>
-        _db.Set<TenantUserProfile>().FirstOrDefaultAsync(p => p.TenantUserId == tenantUserId, cancellationToken);
+    public Task<TenantUserProfile?> FindByProducerAccountIdAsync(Guid producerAccountId, CancellationToken cancellationToken) =>
+        _db.Set<TenantUserProfile>().FirstOrDefaultAsync(p => p.ProducerAccountId == producerAccountId, cancellationToken);
 
     public void Add(TenantUserProfile profile) => _db.Set<TenantUserProfile>().Add(profile);
 }

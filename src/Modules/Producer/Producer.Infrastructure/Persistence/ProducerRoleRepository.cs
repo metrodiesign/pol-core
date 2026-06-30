@@ -63,7 +63,7 @@ public sealed class ProducerRoleRepository : IProducerRoleRepository
     public async Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid tenantUserId, CancellationToken cancellationToken)
     {
         var ids = await _db.Set<ProducerRoleAssignment>()
-            .Where(a => a.TenantUserId == tenantUserId)
+            .Where(a => a.ProducerAccountId == tenantUserId)
             .Select(a => a.RoleId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();
@@ -71,10 +71,10 @@ public sealed class ProducerRoleRepository : IProducerRoleRepository
 
     public Task<ProducerRoleAssignment?> GetAssignmentAsync(Guid tenantUserId, Guid roleId, CancellationToken cancellationToken) =>
         _db.Set<ProducerRoleAssignment>()
-            .FirstOrDefaultAsync(a => a.TenantUserId == tenantUserId && a.RoleId == roleId, cancellationToken);
+            .FirstOrDefaultAsync(a => a.ProducerAccountId == tenantUserId && a.RoleId == roleId, cancellationToken);
 
     public Task<bool> AssignmentExistsAsync(Guid tenantUserId, Guid roleId, CancellationToken cancellationToken) =>
-        _db.Set<ProducerRoleAssignment>().AnyAsync(a => a.TenantUserId == tenantUserId && a.RoleId == roleId, cancellationToken);
+        _db.Set<ProducerRoleAssignment>().AnyAsync(a => a.ProducerAccountId == tenantUserId && a.RoleId == roleId, cancellationToken);
 
     public async Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken cancellationToken)
     {
@@ -101,7 +101,7 @@ public sealed class ProducerRoleRepository : IProducerRoleRepository
         // Union of keys over the user's assigned roles that are (a) scoped to the tenant they were approved into and
         // (b) Active. An Inactive role contributes nothing; zero active roles -> empty set (REQ-16.4).
         var keys = await _db.Set<ProducerRoleAssignment>()
-            .Where(a => a.TenantUserId == tenantUserId && a.TenantId == tenantId)
+            .Where(a => a.ProducerAccountId == tenantUserId && a.TenantId == tenantId)
             .Join(_db.Set<ProducerRole>().Where(r => r.Status == ProducerRoleStatus.Active),
                   a => a.RoleId, r => r.Id, (a, r) => r.Id)
             .Join(_db.Set<ProducerRolePermission>(), roleId => roleId, p => p.RoleId, (roleId, p) => p.PermissionKey)
@@ -113,7 +113,7 @@ public sealed class ProducerRoleRepository : IProducerRoleRepository
     public async Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(
         Guid tenantUserId, Guid tenantId, CancellationToken cancellationToken) =>
         await _db.Set<ProducerRoleAssignment>()
-            .Where(a => a.TenantUserId == tenantUserId && a.TenantId == tenantId)
+            .Where(a => a.ProducerAccountId == tenantUserId && a.TenantId == tenantId)
             .Join(_db.Set<ProducerRole>().Where(r => r.Status == ProducerRoleStatus.Active),
                   a => a.RoleId, r => r.Id, (a, r) => r.Code)
             .Distinct()

@@ -67,11 +67,11 @@ public sealed class ProducerRoleHandlerTests
     public async Task SetUserRoles_hides_a_target_outside_the_acting_tenant()
     {
         var users = new FakeUsers();
-        var target = Approved(TenantB); // different tenant
-        users.Seed(target);
+        var assignments = new FakeAssignments();
+        var target = Approved(TenantB, users, assignments); // different tenant
         var roles = new FakeRoles();
         roles.SeedRole("tenant_member", ProducerRoleStatus.Active);
-        var handler = new SetProducerUserRolesHandler(users, roles, new FakeUow(), new FakeClock());
+        var handler = new SetProducerUserRolesHandler(users, assignments, roles, new FakeUow(), new FakeClock());
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
             new SetProducerUserRolesCommand(target.Id, ["tenant_member"], TenantA, Actor), default).AsTask());
@@ -81,9 +81,9 @@ public sealed class ProducerRoleHandlerTests
     public async Task SetUserRoles_rejects_an_unknown_role_code()
     {
         var users = new FakeUsers();
-        var target = Approved(TenantA);
-        users.Seed(target);
-        var handler = new SetProducerUserRolesHandler(users, new FakeRoles(), new FakeUow(), new FakeClock());
+        var assignments = new FakeAssignments();
+        var target = Approved(TenantA, users, assignments);
+        var handler = new SetProducerUserRolesHandler(users, assignments, new FakeRoles(), new FakeUow(), new FakeClock());
 
         await Assert.ThrowsAsync<ArgumentException>(() => handler.Handle(
             new SetProducerUserRolesCommand(target.Id, ["ghost_role"], TenantA, Actor), default).AsTask());
@@ -93,28 +93,30 @@ public sealed class ProducerRoleHandlerTests
     public async Task SetUserRoles_sets_an_in_tenant_target_to_exactly_the_requested_roles()
     {
         var users = new FakeUsers();
-        var target = Approved(TenantA);
-        users.Seed(target);
+        var assignments = new FakeAssignments();
+        var target = Approved(TenantA, users, assignments);
         var roles = new FakeRoles();
         var member = roles.SeedRole("tenant_member", ProducerRoleStatus.Active);
         var finance = roles.SeedRole("finance", ProducerRoleStatus.Active);
         // pre-existing assignment to `member`; request only `finance` -> add finance, remove member.
         roles.Assignments.Add(ProducerRoleAssignment.Create(target.Id, member.Id, TenantA, Actor, Now));
-        var handler = new SetProducerUserRolesHandler(users, roles, new FakeUow(), new FakeClock());
+        var handler = new SetProducerUserRolesHandler(users, assignments, roles, new FakeUow(), new FakeClock());
 
         await handler.Handle(new SetProducerUserRolesCommand(target.Id, ["finance"], TenantA, Actor), default);
 
-        var roleIds = roles.Assignments.Where(a => a.TenantUserId == target.Id).Select(a => a.RoleId).ToHashSet();
+        var roleIds = roles.Assignments.Where(a => a.ProducerAccountId == target.Id).Select(a => a.RoleId).ToHashSet();
         Assert.Equal(new HashSet<Guid> { finance.Id }, roleIds);
-        Assert.All(roles.Assignments.Where(a => a.TenantUserId == target.Id), a => Assert.Equal(TenantA, a.TenantId));
-        Assert.All(roles.Assignments.Where(a => a.TenantUserId == target.Id), a => Assert.Equal(Actor, a.AssignedByAdminId));
+        Assert.All(roles.Assignments.Where(a => a.ProducerAccountId == target.Id), a => Assert.Equal(TenantA, a.TenantId));
+        Assert.All(roles.Assignments.Where(a => a.ProducerAccountId == target.Id), a => Assert.Equal(Actor, a.AssignedByAdminId));
     }
 
-    private static TenantUser Approved(Guid tenantId)
+    private static ProducerAccount Approved(Guid tenantId, FakeUsers users, FakeAssignments assignments)
     {
-        var u = TenantUser.Register(Guid.NewGuid().ToString(), "p@org.com", Now);
-        u.Approve(tenantId, Now);
-        return u;
+        var a = ProducerAccount.Register(Guid.NewGuid().ToString(), "p@org.com", Now);
+        a.Approve(Now);
+        users.Seed(a);
+        assignments.Seed(ProducerTenantAssignment.Create(a.Id, tenantId, Actor, Now));
+        return a;
     }
 
     private sealed class FakeUow : IProducerUnitOfWork
@@ -125,13 +127,22 @@ public sealed class ProducerRoleHandlerTests
 
     private sealed class FakeClock : IClock { public DateTime UtcNow => Now; }
 
-    private sealed class FakeUsers : ITenantUserRepository
+    private sealed class FakeUsers : IProducerAccountRepository
     {
-        private readonly Dictionary<Guid, TenantUser> _byId = [];
-        public void Seed(TenantUser u) => _byId[u.Id] = u;
-        public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult(_byId.GetValueOrDefault(id));
-        public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(TenantUser user) => throw new NotSupportedException();
+        private readonly Dictionary<Guid, ProducerAccount> _byId = [];
+        public void Seed(ProducerAccount u) => _byId[u.Id] = u;
+        public Task<ProducerAccount?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult(_byId.GetValueOrDefault(id));
+        public Task<ProducerAccount?> FindBySubjectAsync(string subject, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(ProducerAccount account) => throw new NotSupportedException();
+    }
+
+    private sealed class FakeAssignments : IProducerTenantAssignmentRepository
+    {
+        private readonly Dictionary<Guid, ProducerTenantAssignment> _byAccount = [];
+        public void Seed(ProducerTenantAssignment a) => _byAccount[a.ProducerAccountId] = a;
+        public Task<ProducerTenantAssignment?> FindByAccountIdAsync(Guid producerAccountId, CancellationToken ct) =>
+            Task.FromResult(_byAccount.GetValueOrDefault(producerAccountId));
+        public void Add(ProducerTenantAssignment a) => _byAccount[a.ProducerAccountId] = a;
     }
 
     private sealed class FakeRoles : IProducerRoleRepository
@@ -161,9 +172,9 @@ public sealed class ProducerRoleHandlerTests
             Task.FromResult<IReadOnlyDictionary<string, Guid>>(
                 _byCode.Where(kv => codes.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value.Id));
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid tenantUserId, CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.TenantUserId == tenantUserId).Select(a => a.RoleId).ToHashSet());
+            Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.ProducerAccountId == tenantUserId).Select(a => a.RoleId).ToHashSet());
         public Task<ProducerRoleAssignment?> GetAssignmentAsync(Guid tenantUserId, Guid roleId, CancellationToken ct) =>
-            Task.FromResult(Assignments.FirstOrDefault(a => a.TenantUserId == tenantUserId && a.RoleId == roleId));
+            Task.FromResult(Assignments.FirstOrDefault(a => a.ProducerAccountId == tenantUserId && a.RoleId == roleId));
 
         // Unused by the handlers under test.
         public Task<IReadOnlyList<ProducerRoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();

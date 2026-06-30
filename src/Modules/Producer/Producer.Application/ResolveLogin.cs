@@ -5,9 +5,9 @@ namespace Producer.Application;
 
 /// <summary>
 /// Runtime resolution of an authenticated Google subject to its producer lifecycle state, driving the callback
-/// state branch (REQ-9.4). Runs under the keyed pol_admin (RLS-bypass) connection because a PendingApproval/Rejected
-/// <see cref="TenantUser"/> has a NULL <c>TenantId</c> the RLS predicate would hide under a tenant principal
-/// (REQ-19.2/19.3). The callback NEVER self-provisions (REQ-9.6): an unknown subject is <see cref="ProducerLoginOutcome.NotFound"/>,
+/// state branch (REQ-9.4). Runs under the keyed pol_admin (control-plane) connection — the
+/// <see cref="ProducerAccount"/> table is control-plane (no tenant predicate, like Admin), reachable only via
+/// pol_admin. The callback NEVER self-provisions (REQ-9.6): an unknown subject is <see cref="ProducerLoginOutcome.NotFound"/>,
 /// eligible only for a registration ticket, never an account or a session.
 /// </summary>
 public sealed record ResolveLoginQuery(string Subject) : IQuery<ProducerLoginResult>;
@@ -28,32 +28,39 @@ public sealed record ProducerLoginResult(ProducerLoginOutcome Outcome, ProducerR
 
 public sealed class ResolveLoginHandler : IQueryHandler<ResolveLoginQuery, ProducerLoginResult>
 {
-    private readonly ITenantUserRepository _users;
+    private readonly IProducerAccountRepository _accounts;
+    private readonly IProducerTenantAssignmentRepository _assignments;
     private readonly IProducerRoleRepository _roles;
 
-    public ResolveLoginHandler(ITenantUserRepository users, IProducerRoleRepository roles)
+    public ResolveLoginHandler(IProducerAccountRepository accounts, IProducerTenantAssignmentRepository assignments,
+        IProducerRoleRepository roles)
     {
-        _users = users;
+        _accounts = accounts;
+        _assignments = assignments;
         _roles = roles;
     }
 
     public async ValueTask<ProducerLoginResult> Handle(ResolveLoginQuery query, CancellationToken cancellationToken)
     {
-        var user = await _users.FindBySubjectAsync(query.Subject, cancellationToken);
-        if (user is null)
+        var account = await _accounts.FindBySubjectAsync(query.Subject, cancellationToken);
+        if (account is null)
             return ProducerLoginResult.NotFound; // unknown subject → registration ticket only, no self-provision (REQ-9.6)
 
-        return user.Status switch
-        {
-            TenantUserStatus.PendingApproval => ProducerLoginResult.Pending,
-            TenantUserStatus.Rejected => ProducerLoginResult.Rejected,
-            // Active ALWAYS carries a bound tenant (approval sets it — REQ-6.2); resolve the effective permission set
-            // scoped to that tenant (REQ-16.4/17.1). A NULL tenant on an Active row is an invariant violation → deny.
-            TenantUserStatus.Active when user.TenantId is { } tenantId =>
-                ProducerLoginResult.Active(new ProducerResolution(
-                    user.Id, user.Email, tenantId,
-                    await _roles.ListEffectivePermissionsAsync(user.Id, tenantId, cancellationToken))),
-            _ => ProducerLoginResult.Suspended, // Suspended (or the invariant-violating Active-with-NULL-tenant) → 403
-        };
+        if (account.Status is ProducerAccountStatus.PendingApproval)
+            return ProducerLoginResult.Pending;
+        if (account.Status is ProducerAccountStatus.Rejected)
+            return ProducerLoginResult.Rejected;
+        if (account.Status is not ProducerAccountStatus.Active)
+            return ProducerLoginResult.Suspended; // Suspended → 403
+
+        // Active ALWAYS has a tenant assignment (approval creates it — REQ-6.2); resolve the effective permission set
+        // scoped to that tenant (REQ-16.4/17.1). A missing assignment on an Active account is an invariant violation → deny.
+        var assignment = await _assignments.FindByAccountIdAsync(account.Id, cancellationToken);
+        if (assignment is null)
+            return ProducerLoginResult.Suspended;
+
+        return ProducerLoginResult.Active(new ProducerResolution(
+            account.Id, account.Email, assignment.TenantId,
+            await _roles.ListEffectivePermissionsAsync(account.Id, assignment.TenantId, cancellationToken)));
     }
 }

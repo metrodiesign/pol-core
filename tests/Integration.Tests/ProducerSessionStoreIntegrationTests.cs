@@ -17,7 +17,7 @@ public sealed class ProducerSessionStoreIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid userId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT producer.ProducerSessions (Id, FamilyId, TokenHash, TenantUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT producer.ProducerSessions (Id, FamilyId, TokenHash, ProducerAccountId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @user, @st, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, @abs, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),
@@ -66,7 +66,7 @@ public sealed class ProducerSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), user, Active, 8);      // device 2
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE producer.ProducerSessions SET Status=2 WHERE TenantUserId=@u AND Status<>2", ("@u", user));
+            "UPDATE producer.ProducerSessions SET Status=2 WHERE ProducerAccountId=@u AND Status<>2", ("@u", user));
 
         Assert.Equal(2, revoked);
     }

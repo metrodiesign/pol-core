@@ -20,12 +20,12 @@ public sealed record ProducerSessionPolicy(TimeSpan Idle, TimeSpan Absolute, Tim
 /// its successor, so replay of a non-immediate predecessor is detectable as theft (REQ-11). Racing transitions
 /// (rotate/revoke) are applied in the store via atomic set-based updates, not by mutating a tracked entity.
 /// </summary>
-// ponytail: DUPLICATE of Admin.Domain.AdminSession (owner AdminAccountId -> TenantUserId) — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admin.Domain.AdminSession (owner AdminAccountId -> ProducerAccountId) — deliberate debt, do not refactor into a shared base.
 public sealed class ProducerSession : AggregateRoot<Guid>
 {
     public Guid FamilyId { get; private set; }
     public byte[] TokenHash { get; private set; } = default!;
-    public Guid TenantUserId { get; private set; }
+    public Guid ProducerAccountId { get; private set; }
     public ProducerSessionStatus Status { get; private set; }
     public DateTime IssuedAt { get; private set; }
     public DateTime IdleExpiresAt { get; private set; }
@@ -37,12 +37,12 @@ public sealed class ProducerSession : AggregateRoot<Guid>
 
     private ProducerSession() { } // EF materialisation
 
-    private ProducerSession(Guid id, Guid familyId, byte[] tokenHash, Guid tenantUserId, DateTime issuedAt,
+    private ProducerSession(Guid id, Guid familyId, byte[] tokenHash, Guid producerAccountId, DateTime issuedAt,
         DateTime idleExpiresAt, DateTime absoluteExpiresAt, string? createdIp, string? userAgent) : base(id)
     {
         FamilyId = familyId;
         TokenHash = tokenHash;
-        TenantUserId = tenantUserId;
+        ProducerAccountId = producerAccountId;
         Status = ProducerSessionStatus.Active;
         IssuedAt = issuedAt;
         IdleExpiresAt = idleExpiresAt;
@@ -52,13 +52,13 @@ public sealed class ProducerSession : AggregateRoot<Guid>
     }
 
     /// <summary>Opens a NEW session family at login (REQ-10.1). Idle + absolute expiry are measured from now.</summary>
-    public static ProducerSession Start(Guid tenantUserId, byte[] tokenHash, DateTime now, ProducerSessionPolicy policy,
+    public static ProducerSession Start(Guid producerAccountId, byte[] tokenHash, DateTime now, ProducerSessionPolicy policy,
         string? createdIp = null, string? userAgent = null)
     {
-        if (tenantUserId == Guid.Empty)
-            throw new ArgumentException("TenantUserId is required.", nameof(tenantUserId));
+        if (producerAccountId == Guid.Empty)
+            throw new ArgumentException("ProducerAccountId is required.", nameof(producerAccountId));
         RequireHash(tokenHash);
-        return new ProducerSession(Guid.NewGuid(), Guid.NewGuid(), tokenHash, tenantUserId, now,
+        return new ProducerSession(Guid.NewGuid(), Guid.NewGuid(), tokenHash, producerAccountId, now,
             now + policy.Idle, now + policy.Absolute, createdIp, userAgent);
     }
 
@@ -69,7 +69,7 @@ public sealed class ProducerSession : AggregateRoot<Guid>
     public ProducerSession Rotate(byte[] newHash, DateTime now, ProducerSessionPolicy policy)
     {
         RequireHash(newHash);
-        var successor = new ProducerSession(Guid.NewGuid(), FamilyId, newHash, TenantUserId, now,
+        var successor = new ProducerSession(Guid.NewGuid(), FamilyId, newHash, ProducerAccountId, now,
             now + policy.Idle, AbsoluteExpiresAt, CreatedIp, UserAgent);
         Status = ProducerSessionStatus.Superseded;
         SupersededAt = now;

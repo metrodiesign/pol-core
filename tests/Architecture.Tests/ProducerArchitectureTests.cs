@@ -17,7 +17,7 @@ public class ProducerArchitectureTests
     // Anchor each assembly through a real type so it is guaranteed loaded. Producer.Application has no public types
     // in this slice (it lands in later tasks), so the boundary is asserted over the Domain + Infrastructure
     // assemblies that carry code; NetArchTest matches the "Producer."/"Admin." namespace prefixes either way.
-    private static readonly Assembly ProducerDomain = typeof(global::Producer.Domain.TenantUser).Assembly;
+    private static readonly Assembly ProducerDomain = typeof(global::Producer.Domain.ProducerAccount).Assembly;
     private static readonly Assembly ProducerInfrastructure = typeof(global::Producer.Infrastructure.ProducerModuleRegistration).Assembly;
 
     private static readonly Assembly AdminDomain = typeof(global::Admin.Domain.AdminAccount).Assembly;

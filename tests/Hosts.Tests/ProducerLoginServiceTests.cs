@@ -37,10 +37,10 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "/dashboard", default);
 
         var session = Assert.Single(ctx.Sessions.Added);
-        Assert.Equal(UserId, session.TenantUserId);
+        Assert.Equal(UserId, session.ProducerAccountId);
         Assert.Equal(ProducerSessionStatus.Active, session.Status);
         Assert.Equal(1, ctx.Sessions.SaveCount);
-        Assert.Contains(ctx.Audit.Appended, a => a.EventType == ProducerAuthEventType.LoginSuccess && a.TenantUserId == UserId);
+        Assert.Contains(ctx.Audit.Appended, a => a.EventType == ProducerAuthEventType.LoginSuccess && a.ProducerAccountId == UserId);
         Assert.Empty(ctx.Tickets.Added);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.Equal("/dashboard", ctx.Http.Response.Headers.Location);

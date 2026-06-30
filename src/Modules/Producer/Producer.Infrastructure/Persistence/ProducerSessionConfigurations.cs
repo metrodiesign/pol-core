@@ -17,7 +17,7 @@ public sealed class ProducerSessionConfiguration : IEntityTypeConfiguration<Prod
         builder.HasKey(x => x.Id);
         builder.Property(x => x.FamilyId).IsRequired();
         builder.Property(x => x.TokenHash).IsRequired().HasMaxLength(32); // varbinary(32) — SHA-256 digest
-        builder.Property(x => x.TenantUserId).IsRequired();
+        builder.Property(x => x.ProducerAccountId).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.IssuedAt).IsRequired();
         builder.Property(x => x.IdleExpiresAt).IsRequired();
@@ -28,7 +28,7 @@ public sealed class ProducerSessionConfiguration : IEntityTypeConfiguration<Prod
         builder.Property(x => x.UserAgent).HasMaxLength(256);
         builder.HasIndex(x => x.TokenHash).IsUnique();       // O(1) lookup by hashed id (REQ-11.4)
         builder.HasIndex(x => x.FamilyId);                   // family-wide revoke (REQ-11.3)
-        builder.HasIndex(x => x.TenantUserId);               // logout-all + suspend propagation (REQ-12.2/12.3)
+        builder.HasIndex(x => x.ProducerAccountId);          // logout-all + suspend propagation (REQ-12.2/12.3)
         builder.HasIndex(x => x.AbsoluteExpiresAt);          // prune sweep (REQ-10.4)
     }
 }
@@ -40,11 +40,11 @@ public sealed class ProducerAuthAuditConfiguration : IEntityTypeConfiguration<Pr
         builder.ToTable("ProducerAuthAudits");
         builder.HasKey(x => x.Id);
         builder.Property(x => x.EventType).HasMaxLength(32).IsRequired();
-        builder.Property(x => x.TenantUserId);               // null when no user was resolved (REQ-12.4)
+        builder.Property(x => x.ProducerAccountId);          // null when no account was resolved (REQ-12.4)
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Reason).HasMaxLength(128);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
-        builder.HasIndex(x => x.TenantUserId);
+        builder.HasIndex(x => x.ProducerAccountId);
     }
 }

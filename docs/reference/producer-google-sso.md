@@ -1,11 +1,18 @@
 # Producer Google SSO (BFF) — คู่มือโมดูล + Sequence Diagrams
 
 คู่มือฉบับสมบูรณ์ของโมดูล `producer-google-sso` (rebuild ของ Identity module เดิม). โมดูลนี้ให้
-ผู้ขาย (producer / TenantUser) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant
+ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant
 context เดิมร่วมกับ tenant-Bearer API พร้อม role -> permission RBAC.
 
 โครงทั้งหมดเป็น DUPLICATE ของ Admin OIDC/RBAC stack ที่ ship แล้ว (PR #19/#23) โดยตั้งใจ — ทุกไฟล์มี
 `// ponytail: DUPLICATE of Api.Admin...`. คู่มือนี้บอก "ทำงานยังไง" + "ต่างจาก Admin ตรงไหน".
+
+> อัพเดท 2026-06-29 (account → Admin parity): producer actor คือ `ProducerAccount` (เดิม `TenantUser`)
+> เก็บแบบ **control-plane** เหมือน `AdminAccount` — ตาราง `producer.ProducerAccounts` ไม่มี RLS predicate,
+> `pol_app` ไม่มี grant, `pol_admin` only. tenant ที่ producer สังกัดเป็น edge แยก
+> `producer.ProducerTenantAssignment` (UNIQUE บน `ProducerAccountId` = 1 tenant/account) — ไม่ใช่ column บน
+> account อีกต่อไป. FK column `TenantUserId` → `ProducerAccountId` ทุกตารางลูก. (Contracts event +
+> response DTO ยังคง field `TenantUserId` ไว้โดยตั้งใจ — เป็น id ของ account.)
 
 - Feature spec: `.ai/specs/producer-google-sso/{requirements,design,tasks}.md`
 - เทียบ Admin: `docs/reference/admin-google-sso.md`
@@ -64,7 +71,7 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
    |  RequireProducerPermission (fail-closed F10)       |
    +----------------------------------------------------+
                          |
-            keyed pol_admin ProducerDbContext (RLS-bypass)
+            keyed pol_admin ProducerDbContext (control-plane account/identity)
                          |
                   schema: producer.*
 ```
@@ -191,7 +198,7 @@ sequenceDiagram
     else ok
         OIDC->>LS: OnTicketReceived: HandleCallbackAsync(sub,email,hd,returnTo)
         LS->>RL: ResolveLoginQuery(subject)
-        RL->>DB: FindBySubject(subject)  (RLS-bypass: Pending=NULL tenant)
+        RL->>DB: FindBySubject(subject)  (control-plane account; tenant via assignment if Active)
         RL-->>LS: Outcome { NotFound | Pending | Rejected | Suspended | Active }
 
         alt Active
@@ -218,15 +225,15 @@ sequenceDiagram
 ทุก deny เขียน audit บน **fresh scope** (`IServiceScopeFactory.CreateScope`) -> half-built session บน
 request context ไม่ถูก commit (REQ-9.5). ไม่ log secret/token/code/raw session id/ticket (REQ-14.3).
 
-`ResolveLoginHandler` mapping:
+`ResolveLoginHandler` mapping (tenant มาจาก `ProducerTenantAssignment`, ไม่ใช่ column บน account):
 
-| TenantUser.Status | Outcome | ผล |
+| ProducerAccount.Status | Outcome | ผล |
 |---|---|---|
 | (subject ไม่พบ) | `NotFound` | registration ticket |
 | `PendingApproval` | `PendingApproval` | 403 awaiting approval |
 | `Rejected` | `Rejected` | correction ticket |
-| `Active` + TenantId != null | `Active` | เปิด session + resolve effective permissions |
-| `Active` + TenantId == null | `Suspended` | deny (invariant violation) |
+| `Active` + มี assignment | `Active` | เปิด session + resolve effective permissions (scoped to assignment.TenantId) |
+| `Active` + ไม่มี assignment | `Suspended` | deny (invariant violation) |
 | `Suspended` / อื่น | `Suspended` | deny |
 
 ---
@@ -266,7 +273,7 @@ sequenceDiagram
                 H->>S: append FamilyRevokedReuse audit + Save
                 H-->>R: Fail("Session reuse detected.")  (401, family killed)
             else ServeActive / ServeUnderGrace
-                H->>RV: ResolveByIdAsync(session.TenantUserId)  (READ-ONLY)
+                H->>RV: ResolveByIdAsync(session.ProducerAccountId)  (READ-ONLY)
                 alt not Active / not found
                     H-->>R: Fail("not active")  (suspend -> next request 401)
                 else Resolved
@@ -330,7 +337,7 @@ sequenceDiagram
             API->>API: validate content-type + magic bytes + size (REQ-7.3)
         end
         API->>SR: SubmitRegistrationCommand(ticket.Id, ticket.Subject, ticket.Email, form, photo)
-        SR->>DB: create TenantUser(PendingApproval, NULL tenant) + ExternalLogin + Profile + consume ticket + enqueue registration outbox event  (1 tx)
+        SR->>DB: create ProducerAccount(PendingApproval, no tenant) + ExternalLogin + Profile + consume ticket + enqueue registration outbox event  (1 tx)
         alt replay / duplicate
             SR-->>API: 409 (no 500)
         else ok
@@ -371,13 +378,15 @@ sequenceDiagram
     else found Active
         EP->>AC: ApproveTenantUserCommand(subject, validatedTenantId, roleCodes, actingAdmin)
         AC->>DB: FindBySubject(subject)
-        alt already Active
+        alt already Active + assignment ตรง tenant
             AC-->>EP: 200 { alreadyActive=true }  (idempotent, REQ-6.4)
+        else already Active + ต่าง tenant
+            AC-->>EP: 409 "bound to a different tenant"  (1 tenant/account)
         else not PendingApproval
             AC-->>EP: 409 "must be PendingApproval"  (REQ-6.5)
         else PendingApproval
             AC->>DB: validate roles exist + Active
-            AC->>DB: user.Approve(tenant) + AddAssignment[] + Approved audit  (1 tx)
+            AC->>DB: account.Approve() + Add ProducerTenantAssignment(validatedTenant) + role AddAssignment[] + Approved audit  (1 tx)
             AC-->>EP: 200 { Status=Active }
         end
     end
@@ -537,8 +546,9 @@ AddPolicy("producer", p => p
   เป็น tenant user
 - no-cookie -> `NoResult()` (ไม่ใช่ Fail) เพื่อ fall-through ไป Bearer (REQ-17.3)
 
-principal ที่ออกจาก session handler: `tenant_id` (S4 — `HttpTenantContext` path), `sub`, `email`,
-`NameIdentifier` = TenantUserId. ไม่เรียก `ITenantScope.Begin` (double-bind throw).
+principal ที่ออกจาก session handler: `tenant_id` (S4 — `HttpTenantContext` path; มาจาก assignment), `sub`,
+`email`, `NameIdentifier` = ProducerAccount id (`ProducerResolution.TenantUserId` — field ยังชื่อเดิม).
+ไม่เรียก `ITenantScope.Begin` (double-bind throw).
 
 ---
 
@@ -555,13 +565,14 @@ UoW -> worker startup พังตอน validate.
 | API (`ProducerHostWiring.AddProducerIdentity`) | keyed `"admin"` (pol_admin, RLS-bypass) |
 | Worker (`ProducerModuleRegistration`) | default context (pol_app) |
 
-seam อื่นบน keyed pol_admin ใน API: `ITenantUserRepository`, `IExternalLoginRepository`,
-`IRegistrationTicketRepository`, `ITenantUserProfileRepository`, `IRegistrationAuditWriter`,
-`IProducerOutboxWriter`, `IProducerRoleRepository`, `IProducerSessionStore`, `IProducerAuthAuditWriter`.
+seam อื่นบน keyed pol_admin ใน API: `IProducerAccountRepository`, `IProducerTenantAssignmentRepository`,
+`IExternalLoginRepository`, `IRegistrationTicketRepository`, `ITenantUserProfileRepository`,
+`IRegistrationAuditWriter`, `IProducerOutboxWriter`, `IProducerRoleRepository`, `IProducerSessionStore`,
+`IProducerAuthAuditWriter`.
 
-ทำไม pol_admin: login lookup + per-request resolve อ่าน `PendingApproval`/NULL-tenant row ที่ RLS BLOCK
-predicate จะซ่อนภายใต้ tenant principal (REQ-19.2); session/auth-audit เป็น control-plane row ที่ pol_app
-ไม่มี grant.
+ทำไม pol_admin: ตาราง account/assignment + identity ทั้งหมดเป็น control-plane (ไม่มี RLS predicate,
+`pol_app` ไม่มี grant — เหมือน Admin); login lookup + per-request resolve อ่าน account/assignment cross-tenant
+ได้ภายใต้ pol_admin เท่านั้น (REQ-19.2); session/auth-audit ก็ control-plane เช่นกัน.
 
 scope: session handler bind concrete `ProducerScope`; endpoint อ่าน `IProducerScope` (scoped instance
 เดียวกัน). cookies service เป็น singleton (stateless).
@@ -574,20 +585,25 @@ schema = `producer` ทั้งหมด. รายละเอียดฟิ�
 
 | ตาราง | plane | หมายเหตุ |
 |---|---|---|
-| `producer.TenantUsers` | data (RLS-keyed) | producer account; Pending = NULL tenant |
-| `producer.ExternalLogins` | control | Google subject -> TenantUser |
+| `producer.ProducerAccounts` | control (`[DUP->AdminAccounts]`) | producer account; **ไม่มี RLS, ไม่มี TenantId column** |
+| `producer.ProducerTenantAssignments` | control (`[DUP->AdminTenantAssignments]`) | tenant edge; UNIQUE บน `ProducerAccountId` = 1 tenant/account |
+| `producer.ExternalLogins` | control | Google subject -> ProducerAccount (FK `ProducerAccountId`) |
 | `producer.RegistrationTickets` | control | single-use replay authority |
-| `producer.TenantUserProfiles` | control | display name, photo ref |
+| `producer.TenantUserProfiles` | control | display name, photo ref (FK `ProducerAccountId`) |
 | `producer.RegistrationAudits` | control, append-only | submit/approve/reject trail |
-| `producer.ProducerRegistrationNotices` | control (pol_admin + pol_worker) | outbox notice |
-| `producer.ProducerSessions` | control | `[DUP->AdminSession]` rotation family |
-| `producer.ProducerAuthAudits` | control, append-only | `[DUP->AdminAuthAudit]` login/rotate/reuse/logout |
-| Producer RBAC catalog/role tables | control | `[DUP->Admin RBAC]` perms/groups/roles/assignments |
+| `producer.ProducerRegistrationNotices` | control (pol_admin + pol_worker) | outbox notice (คง column `TenantUserId` — id จาก event) |
+| `producer.ProducerSessions` | control | `[DUP->AdminSession]` rotation family (FK `ProducerAccountId`) |
+| `producer.ProducerAuthAudits` | control, append-only | `[DUP->AdminAuthAudit]` login/rotate/reuse/logout (`ProducerAccountId` nullable) |
+| Producer RBAC catalog/role tables | control | `[DUP->Admin RBAC]` perms/groups/roles/assignments (`ProducerRoleAssignments.ProducerAccountId`) |
 
 migration chain (idempotent, reproduce จากศูนย์ได้): `InitialProducerSchema` ->
 `AddProducerIdentityTables` -> `AddProducerRoleRbacTables` -> `AddProducerSessionTables` ->
-`AddProducerOutboxAdminGrant` -> `AddProducerApprovePermissionToAdminCatalog`. RLS/grant/raw control-plane
-table ทั้งหมดอยู่ใน `migrationBuilder.Sql` (ไม่ใช่ EF model).
+`AddProducerOutboxAdminGrant` -> `AddProducerApprovePermissionToAdminCatalog` ->
+`AddRegistrationAuditReason` -> `AddProducerAccountAdminParity`. RLS/grant/raw control-plane
+table ทั้งหมดอยู่ใน `migrationBuilder.Sql` (ไม่ใช่ EF model). `AddProducerAccountAdminParity` ย้าย
+`TenantUsers` (RLS-keyed) → `ProducerAccounts` (control-plane) ด้วย sp_rename in-place (เก็บ data) +
+backfill assignment จาก TenantId เดิม + drop RLS predicate; predicate DROP/ADD ใช้ `IF (NOT) EXISTS` guard
+(ALTER SECURITY POLICY ไม่ rollback กับ migration tx -> retry/race ต้องเป็น no-op).
 
 ---
 
@@ -595,6 +611,7 @@ table ทั้งหมดอยู่ใน `migrationBuilder.Sql` (ไม่�
 
 | มิติ | Admin | Producer |
 |---|---|---|
+| account storage | `AdminAccounts` control-plane + `AdminTenantAssignments` (many) | `ProducerAccounts` control-plane + `ProducerTenantAssignments` (UNIQUE = 1 tenant) — **parity ตั้งแต่ 2026-06-29** |
 | callback | self-provision (deny-dance bootstrap super คนแรก) | 4-way (Active/NotFound/Rejected/Pending), ไม่ self-provision |
 | not-found/rejected | — | mint registration/correction ticket -> /register |
 | principal claim | `admin_tier` | `tenant_id` (เข้า HttpTenantContext เดิม) |

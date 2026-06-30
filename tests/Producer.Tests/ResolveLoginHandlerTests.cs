@@ -17,7 +17,7 @@ public sealed class ResolveLoginHandlerTests
     [Fact]
     public async Task Unknown_subject_is_NotFound_never_self_provisioned()
     {
-        var result = await Handle(user: null);
+        var result = await Handle(account: null);
         Assert.Equal(ProducerLoginOutcome.NotFound, result.Outcome);
         Assert.Null(result.Resolution);
     }
@@ -42,10 +42,10 @@ public sealed class ResolveLoginHandlerTests
     [Fact]
     public async Task Suspended_user_maps_to_Suspended_deny()
     {
-        var user = Pending();
-        user.Approve(TenantId, Now);
-        user.Suspend(Now);
-        var result = await Handle(user);
+        var account = Pending();
+        account.Approve(Now);
+        account.Suspend(Now);
+        var result = await Handle(account);
         Assert.Equal(ProducerLoginOutcome.Suspended, result.Outcome);
         Assert.Null(result.Resolution);
     }
@@ -53,33 +53,45 @@ public sealed class ResolveLoginHandlerTests
     [Fact]
     public async Task Active_user_yields_a_resolution_with_tenant_and_effective_permissions_scoped_to_that_tenant()
     {
-        var user = Pending();
-        user.Approve(TenantId, Now);
+        var account = Pending();
+        account.Approve(Now);
         var roles = new FakeRoles("product.create", "payment.create");
 
-        var result = await Handle(user, roles);
+        var result = await Handle(account, roles, assignedTenant: TenantId);
 
         Assert.Equal(ProducerLoginOutcome.Active, result.Outcome);
         var resolution = Assert.IsType<ProducerResolution>(result.Resolution);
-        Assert.Equal(user.Id, resolution.TenantUserId);
+        Assert.Equal(account.Id, resolution.TenantUserId);
         Assert.Equal(TenantId, resolution.TenantId);
-        Assert.Equal(user.Email, resolution.Email);
+        Assert.Equal(account.Email, resolution.Email);
         Assert.Equal(new HashSet<string> { "product.create", "payment.create" }, resolution.Permissions);
-        // the union was asked scoped to the user's OWN tenant id (REQ-16.4)
-        Assert.Equal((user.Id, TenantId), roles.LastQuery);
+        // the union was asked scoped to the account's assigned tenant id (REQ-16.4)
+        Assert.Equal((account.Id, TenantId), roles.LastQuery);
     }
 
-    private static TenantUser Pending() => TenantUser.Register("google-sub", "p@org.com", Now);
+    private static ProducerAccount Pending() => ProducerAccount.Register("google-sub", "p@org.com", Now);
 
-    private static Task<ProducerLoginResult> Handle(TenantUser? user, FakeRoles? roles = null) =>
-        new ResolveLoginHandler(new FakeUsers(user), roles ?? new FakeRoles())
-            .Handle(new ResolveLoginQuery("google-sub"), default).AsTask();
-
-    private sealed class FakeUsers(TenantUser? user) : ITenantUserRepository
+    private static Task<ProducerLoginResult> Handle(ProducerAccount? account, FakeRoles? roles = null, Guid? assignedTenant = null)
     {
-        public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(user);
-        public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(TenantUser u) => throw new NotSupportedException();
+        var assignment = assignedTenant is { } t && account is not null
+            ? ProducerTenantAssignment.Create(account.Id, t, Guid.NewGuid(), Now)
+            : null;
+        return new ResolveLoginHandler(new FakeAccounts(account), new FakeAssignments(assignment), roles ?? new FakeRoles())
+            .Handle(new ResolveLoginQuery("google-sub"), default).AsTask();
+    }
+
+    private sealed class FakeAccounts(ProducerAccount? account) : IProducerAccountRepository
+    {
+        public Task<ProducerAccount?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(account);
+        public Task<ProducerAccount?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(ProducerAccount a) => throw new NotSupportedException();
+    }
+
+    private sealed class FakeAssignments(ProducerTenantAssignment? assignment) : IProducerTenantAssignmentRepository
+    {
+        public Task<ProducerTenantAssignment?> FindByAccountIdAsync(Guid producerAccountId, CancellationToken ct) =>
+            Task.FromResult(assignment);
+        public void Add(ProducerTenantAssignment a) => throw new NotSupportedException();
     }
 
     private sealed class FakeRoles(params string[] permissions) : IProducerRoleRepository

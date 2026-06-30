@@ -975,7 +975,7 @@ producer.MapPost("/auth/logout", async (
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
-            audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.TenantUserId));
+            audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.ProducerAccountId));
             await audit.SaveChangesAsync(ct);
         }
     }

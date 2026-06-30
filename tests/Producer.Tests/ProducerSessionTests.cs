@@ -29,7 +29,7 @@ public sealed class ProducerSessionTests
         Assert.Equal(ProducerSessionStatus.Active, s.Status);
         Assert.NotEqual(Guid.Empty, s.Id);
         Assert.NotEqual(Guid.Empty, s.FamilyId);
-        Assert.Equal(UserId, s.TenantUserId);
+        Assert.Equal(UserId, s.ProducerAccountId);
         Assert.Equal(Now, s.IssuedAt);
         Assert.Equal(Now.AddMinutes(30), s.IdleExpiresAt);
         Assert.Equal(Now.AddHours(8), s.AbsoluteExpiresAt);
@@ -99,7 +99,7 @@ public sealed class ProducerSessionTests
     public void AuthAudit_allows_a_missing_user_but_requires_event_type_and_correlation()
     {
         var denied = ProducerAuthAudit.For(ProducerAuthEventType.AuthDenied, "corr-1", Now, reason: "state-mismatch");
-        Assert.Null(denied.TenantUserId);
+        Assert.Null(denied.ProducerAccountId);
         Assert.Equal("state-mismatch", denied.Reason);
 
         Assert.Throws<ArgumentException>(() => ProducerAuthAudit.For("", "corr-1", Now));

@@ -28,9 +28,8 @@ public sealed class SubmitRegistrationHandlerTests
         var user = Assert.Single(ctx.Users.Added);
         Assert.Equal("g-sub-1", user.Subject);          // from the ticket
         Assert.Equal("p@org.com", user.Email);
-        Assert.Equal(TenantUserStatus.PendingApproval, user.Status);
-        Assert.Null(user.TenantId);                      // unbound until approval
-        Assert.Equal(TenantUserStatus.PendingApproval, result.Status);
+        Assert.Equal(ProducerAccountStatus.PendingApproval, user.Status); // no tenant until approval (now a separate edge)
+        Assert.Equal(ProducerAccountStatus.PendingApproval, result.Status);
         Assert.Equal(user.Id, result.TenantUserId);
 
         var login = Assert.Single(ctx.Logins.Added);
@@ -39,7 +38,7 @@ public sealed class SubmitRegistrationHandlerTests
 
         var profile = Assert.Single(ctx.Profiles.Added);
         Assert.Equal("Acme Co", profile.DisplayName);
-        Assert.Equal(user.Id, profile.TenantUserId);
+        Assert.Equal(user.Id, profile.ProducerAccountId);
 
         var audit = Assert.Single(ctx.Audits.Appended);
         Assert.Equal(RegistrationAuditAction.Registered, audit.Action);
@@ -87,7 +86,7 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_ticket_resubmits_the_existing_rejected_user_without_a_second_login()
     {
         var ctx = new Ctx();
-        var existing = TenantUser.Register("g-sub-1", "p@org.com", Now);
+        var existing = ProducerAccount.Register("g-sub-1", "p@org.com", Now);
         existing.Reject(Now);                            // PendingApproval -> Rejected
         ctx.Users.Seed(existing);
         ctx.Profiles.Seed(TenantUserProfile.Create(existing.Id, "Old Name"));
@@ -97,7 +96,7 @@ public sealed class SubmitRegistrationHandlerTests
 
         Assert.Empty(ctx.Users.Added);                   // edits the existing record, never a second user
         Assert.Empty(ctx.Logins.Added);                  // no second external login (REQ-5.4)
-        Assert.Equal(TenantUserStatus.PendingApproval, existing.Status); // Rejected -> Pending
+        Assert.Equal(ProducerAccountStatus.PendingApproval, existing.Status); // Rejected -> Pending
         Assert.Equal(existing.Id, result.TenantUserId);
 
         var profile = Assert.Single(ctx.Profiles.Seeded);
@@ -112,8 +111,8 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_ticket_for_a_non_rejected_user_is_refused_and_emits_no_event()
     {
         var ctx = new Ctx();
-        var active = TenantUser.Register("g-sub-1", "p@org.com", Now);
-        active.Approve(Guid.Parse("a0000000-0000-0000-0000-0000000000a1"), Now); // -> Active
+        var active = ProducerAccount.Register("g-sub-1", "p@org.com", Now);
+        active.Approve(Now); // -> Active
         ctx.Users.Seed(active);
         ctx.Profiles.Seed(TenantUserProfile.Create(active.Id, "Name"));
 
@@ -154,16 +153,16 @@ public sealed class SubmitRegistrationHandlerTests
 
     private sealed class FakeClock(DateTime now) : IClock { public DateTime UtcNow => now; }
 
-    private sealed class FakeTenantUsers : ITenantUserRepository
+    private sealed class FakeTenantUsers : IProducerAccountRepository
     {
-        public List<TenantUser> Added { get; } = [];
-        private readonly Dictionary<string, TenantUser> _bySubject = [];
-        public void Seed(TenantUser u) => _bySubject[u.Subject] = u;
-        public Task<TenantUser?> FindBySubjectAsync(string subject, CancellationToken ct) =>
+        public List<ProducerAccount> Added { get; } = [];
+        private readonly Dictionary<string, ProducerAccount> _bySubject = [];
+        public void Seed(ProducerAccount u) => _bySubject[u.Subject] = u;
+        public Task<ProducerAccount?> FindBySubjectAsync(string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
-        public Task<TenantUser?> FindByIdAsync(Guid id, CancellationToken ct) =>
+        public Task<ProducerAccount?> FindByIdAsync(Guid id, CancellationToken ct) =>
             Task.FromResult(_bySubject.Values.FirstOrDefault(u => u.Id == id));
-        public void Add(TenantUser user) { Added.Add(user); _bySubject[user.Subject] = user; }
+        public void Add(ProducerAccount account) { Added.Add(account); _bySubject[account.Subject] = account; }
     }
 
     private sealed class FakeExternalLogins : IExternalLoginRepository
@@ -186,10 +185,10 @@ public sealed class SubmitRegistrationHandlerTests
         public List<TenantUserProfile> Added { get; } = [];
         public List<TenantUserProfile> Seeded { get; } = [];
         private readonly Dictionary<Guid, TenantUserProfile> _byUser = [];
-        public void Seed(TenantUserProfile p) { Seeded.Add(p); _byUser[p.TenantUserId] = p; }
-        public Task<TenantUserProfile?> FindByTenantUserIdAsync(Guid tenantUserId, CancellationToken ct) =>
-            Task.FromResult(_byUser.GetValueOrDefault(tenantUserId));
-        public void Add(TenantUserProfile profile) { Added.Add(profile); _byUser[profile.TenantUserId] = profile; }
+        public void Seed(TenantUserProfile p) { Seeded.Add(p); _byUser[p.ProducerAccountId] = p; }
+        public Task<TenantUserProfile?> FindByProducerAccountIdAsync(Guid producerAccountId, CancellationToken ct) =>
+            Task.FromResult(_byUser.GetValueOrDefault(producerAccountId));
+        public void Add(TenantUserProfile profile) { Added.Add(profile); _byUser[profile.ProducerAccountId] = profile; }
     }
 
     private sealed class FakeAudits : IRegistrationAuditWriter
