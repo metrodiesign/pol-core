@@ -3,6 +3,7 @@ using ApiHost::Api;
 using BuildingBlocks.Application;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -16,10 +17,11 @@ namespace Hosts.Tests;
 /// <summary>
 /// Callback-time 4-way state branch for the producer BFF (REQ-9.4). Exercises the host's <c>ProducerLoginService</c>
 /// directly with fakes: an Active producer yields a session + login-success audit + cookies + redirect to the
-/// allowlisted returnTo; an unknown subject yields a Registration ticket + redirect to /register (no session, no
-/// self-provision — REQ-9.6); a Rejected user yields a Correction ticket; a PendingApproval user yields a 403 with
-/// no session; a Suspended user / any failure yields no session + a denied audit + an error redirect. The OIDC
-/// protocol layer (PKCE/state/nonce/code-exchange) is the framework's and is not re-tested here.
+/// allowlisted returnTo; an unknown subject yields a stateless Registration ticket + redirect to /register (no
+/// session, no self-provision — REQ-9.6); a Rejected user yields a Correction ticket; a PendingApproval user yields a
+/// 403 with no session; a Suspended user / any failure yields no session + a denied audit + an error redirect. The
+/// wire ticket is a signed+time-limited token (no server row); the tests decode it to check identity/purpose. The
+/// OIDC protocol layer (PKCE/state/nonce/code-exchange) is the framework's and is not re-tested here.
 /// </summary>
 public sealed class ProducerLoginServiceTests
 {
@@ -41,7 +43,6 @@ public sealed class ProducerLoginServiceTests
         Assert.Equal(ProducerSessionStatus.Active, session.Status);
         Assert.Equal(1, ctx.Sessions.SaveCount);
         Assert.Contains(ctx.Audit.Appended, a => a.EventType == ProducerAuthEventType.LoginSuccess && a.ProducerAccountId == UserId);
-        Assert.Empty(ctx.Tickets.Added);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.Equal("/dashboard", ctx.Http.Response.Headers.Location);
         Assert.Contains(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
@@ -55,11 +56,12 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-new", "new@org.com", "org.com", "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
-        var ticket = Assert.Single(ctx.Tickets.Added);
-        Assert.Equal(TicketPurpose.Registration, ticket.Purpose);
-        Assert.Equal("new@org.com", ticket.Email);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
+        var payload = ctx.DecodeMintedTicket();
+        Assert.Equal(TicketPurpose.Registration, payload.Purpose);
+        Assert.Equal("new@org.com", payload.Email);
+        Assert.Equal("google-sub-new", payload.Subject);
         Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
     }
 
@@ -71,68 +73,25 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-rej", "rej@org.com", null, "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
-        var ticket = Assert.Single(ctx.Tickets.Added);
-        Assert.Equal(TicketPurpose.Correction, ticket.Purpose);
         Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
+        Assert.Equal(TicketPurpose.Correction, ctx.DecodeMintedTicket().Purpose);
     }
 
     [Fact]
-    public async Task A_repeated_callback_for_the_same_subject_is_blocked_and_mints_no_second_ticket()
+    public async Task A_repeated_callback_for_the_same_subject_just_mints_a_fresh_ticket_no_state()
     {
         var (service, ctx) = Build(ProducerLoginResult.NotFound);
 
-        // 1st callback issues the ticket; 2nd (same subject, before expiry) must be blocked.
+        // With no server-side ticket row, a repeated callback for the same subject is harmless: it simply mints
+        // another fresh, self-expiring token and redirects to /register — no error, no "pending" state.
         await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
         ctx.Http.Response.Clear();
         await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
 
-        Assert.Single(ctx.Tickets.Added); // still exactly one row, not two
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
-        Assert.Equal("/login-error?reason=registration-pending", ctx.Http.Response.Headers.Location);
+        Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
+        Assert.Equal(TicketPurpose.Registration, ctx.DecodeMintedTicket().Purpose);
         Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task A_callback_with_a_new_subject_but_a_pending_email_is_blocked()
-    {
-        var (service, ctx) = Build(ProducerLoginResult.NotFound);
-
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-a", "shared@org.com", null, "/", default);
-        ctx.Http.Response.Clear();
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-b", "shared@org.com", null, "/", default);
-
-        Assert.Single(ctx.Tickets.Added); // email match alone blocks the duplicate
-        Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
-        Assert.Equal("/login-error?reason=registration-pending", ctx.Http.Response.Headers.Location);
-    }
-
-    [Fact]
-    public async Task A_failing_pending_lookup_routes_to_the_callback_error_redirect_not_an_opaque_500()
-    {
-        var (service, ctx) = Build(ProducerLoginResult.NotFound);
-        ctx.Tickets.ThrowOnHasPending = true;
-
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-x", "x@org.com", null, "/", default);
-
-        Assert.Empty(ctx.Tickets.Added); // no ticket minted
-        Assert.Contains(ctx.Audit.Appended, a => a.EventType == ProducerAuthEventType.AuthDenied && a.Reason == "ticket-issue-failed");
-        Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
-        Assert.Equal("/login-error?reason=ticket-issue-failed", ctx.Http.Response.Headers.Location);
-    }
-
-    [Fact]
-    public async Task An_expired_pending_ticket_does_not_block_a_fresh_ticket()
-    {
-        var (service, ctx) = Build(ProducerLoginResult.NotFound);
-        // Seed a ticket that expired before Now (issued 2h ago, 10-min TTL) — not pending, must not block re-issue.
-        ctx.Tickets.Seeded.Add(RegistrationTicket.Issue(
-            "google-sub-exp", "exp@org.com", null, TicketPurpose.Registration, Now.AddHours(-2), TimeSpan.FromMinutes(10)));
-
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-exp", "exp@org.com", null, "/", default);
-
-        var ticket = Assert.Single(ctx.Tickets.Added);
-        Assert.Equal(TicketPurpose.Registration, ticket.Purpose);
-        Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
     }
 
     [Fact]
@@ -143,7 +102,6 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-pend", "pend@org.com", null, "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
-        Assert.Empty(ctx.Tickets.Added);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.Equal("/login-error?reason=awaiting-approval", ctx.Http.Response.Headers.Location);
         Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("prd_session", StringComparison.Ordinal));
@@ -170,19 +128,28 @@ public sealed class ProducerLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, subject: null, email: "x@org.com", hostedDomain: null, returnTo: "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
-        Assert.Empty(ctx.Tickets.Added);
         Assert.Contains(ctx.Audit.Appended, a => a.EventType == ProducerAuthEventType.AuthDenied && a.Reason == "missing-identity");
     }
 
     // --- harness ---
 
-    private sealed record Ctx(DefaultHttpContext Http, FakeSessionStore Sessions, FakeAuthAudit Audit, FakeTickets Tickets);
+    private sealed record Ctx(DefaultHttpContext Http, FakeSessionStore Sessions, FakeAuthAudit Audit,
+        ProducerRegistrationTickets Protector)
+    {
+        /// <summary>Decodes the signed ticket carried in the redirect Location's <c>ticket</c> query param.</summary>
+        public ProducerTicketPayload DecodeMintedTicket()
+        {
+            var location = Http.Response.Headers.Location.ToString();
+            var query = QueryHelpers.ParseQuery(location[location.IndexOf('?')..]);
+            Assert.True(Protector.TryUnprotect(query["ticket"].ToString(), out var payload));
+            return payload;
+        }
+    }
 
     private static (ProducerLoginService, Ctx) Build(ProducerLoginResult resolve)
     {
         var sessions = new FakeSessionStore();
         var audit = new FakeAuthAudit();
-        var tickets = new FakeTickets();
         var env = new Env();
         var registrationOptions = Options.Create(new ProducerRegistrationOptions());
         var ticketProtector = new ProducerRegistrationTickets(new EphemeralDataProtectionProvider(), registrationOptions);
@@ -194,13 +161,13 @@ public sealed class ProducerLoginServiceTests
             .BuildServiceProvider();
 
         var service = new ProducerLoginService(
-            new FakeResolver(resolve), sessions, audit, tickets, new FakeTicketUnitOfWork(), ticketProtector, cookies,
+            new FakeResolver(resolve), sessions, audit, ticketProtector, cookies,
             new TestClock(Now), provider.GetRequiredService<IServiceScopeFactory>(),
-            sessionOptions, oidcOptions, registrationOptions, NullLogger<ProducerLoginService>.Instance);
+            sessionOptions, oidcOptions, NullLogger<ProducerLoginService>.Instance);
 
         var http = new DefaultHttpContext();
         http.Request.IsHttps = true;
-        return (service, new Ctx(http, sessions, audit, tickets));
+        return (service, new Ctx(http, sessions, audit, ticketProtector));
     }
 
     private sealed class FakeResolver(ProducerLoginResult result) : IProducerCallbackResolver
@@ -228,27 +195,6 @@ public sealed class ProducerLoginServiceTests
         public readonly List<ProducerAuthAudit> Appended = [];
         public void Append(ProducerAuthAudit entry) => Appended.Add(entry);
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
-    }
-
-    private sealed class FakeTickets : IRegistrationTicketRepository
-    {
-        public readonly List<RegistrationTicket> Added = [];
-        public readonly List<RegistrationTicket> Seeded = []; // already-persisted rows the guard queries against
-        public bool ThrowOnHasPending { get; set; }
-        public void Add(RegistrationTicket ticket) => Added.Add(ticket);
-        public Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken ct) =>
-            ThrowOnHasPending
-                ? Task.FromException<bool>(new InvalidOperationException("transient lookup failure"))
-                : Task.FromResult(Added.Concat(Seeded).Any(t =>
-                    t.UsedAt == null && t.ExpiresAt > now && (t.Subject == subject || t.Email == email)));
-        public Task<bool> TryConsumeAsync(Guid id, TicketPurpose purpose, DateTime now, CancellationToken ct) => Task.FromResult(false);
-    }
-
-    private sealed class FakeTicketUnitOfWork : IProducerRegistrationUnitOfWork
-    {
-        public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
-        public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct) =>
-            operation(ct);
     }
 
     private sealed class TestClock(DateTime now) : IClock

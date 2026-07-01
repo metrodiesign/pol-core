@@ -258,12 +258,12 @@ CI gate: unit + integration ต้องเขียวก่อน merge (requi
 **สาเหตุ:** INSERT ถูกปฏิเสธบนตาราง producer identity — `pol_admin` ไม่มี grant.
 
 ```
-SqlException 229: The INSERT permission was denied on the object 'RegistrationTickets'
+SqlException 229: The INSERT permission was denied on the object 'ProducerAccounts'
 ```
 
 ตรวจ grant ปัจจุบัน (ดู §8). ตารางที่ producer identity/registration ต้องการ (`pol_admin`)
 ตามชื่อบน `develop`:
-`TenantUsers`, `TenantUserProfiles`, `ExternalLogins`, `RegistrationTickets`,
+`ProducerAccounts` (incl. person details), `ProducerTenantAssignments`, `ExternalLogins`,
 `RegistrationAudits`, `ProducerSessions`, `ProducerAuthAudits`,
 `ProducerRoles` / `ProducerRoleAssignments` / `ProducerRolePermissions`.
 
@@ -304,14 +304,14 @@ GROUP BY o.name ORDER BY o.name;"
 
 # เช็ค principal มีสิทธิ์ INSERT บนตารางหนึ่งไหม:
 ... -Q "EXECUTE AS USER='pol_admin';
-        SELECT HAS_PERMS_BY_NAME('producer.RegistrationTickets','OBJECT','INSERT');
+        SELECT HAS_PERMS_BY_NAME('producer.ProducerAccounts','OBJECT','INSERT');
         REVERT;"
 
-# unique index (เงื่อนไข dedup) — บน develop ตาราง account ชื่อ TenantUsers
-# (หลัง PR #30 = ProducerAccounts):
+# unique index (เงื่อนไข dedup registration) = UNIQUE บน ProducerAccounts.Subject
+# (person details + name/photo อยู่บนตารางนี้ด้วยแล้ว หลัง AddProducerAccountDetailsDropProfile):
 ... -Q "SELECT i.name, i.is_unique FROM sys.indexes i
         JOIN sys.tables t ON i.object_id=t.object_id
-        WHERE SCHEMA_NAME(t.schema_id)='producer' AND t.name='TenantUsers';"
+        WHERE SCHEMA_NAME(t.schema_id)='producer' AND t.name='ProducerAccounts';"
 ```
 
 > dev DB ใช้ port `11433`, integration `11434`. ระวังอย่าสลับ.

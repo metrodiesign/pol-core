@@ -89,6 +89,22 @@ public sealed class ProducerAccountControlPlaneTests
     }
 
     [Fact]
+    public async Task A_second_account_for_the_same_subject_is_rejected_by_the_unique_index()
+    {
+        // One record per subject (REQ-1.4/4.6): the UNIQUE index on ProducerAccounts.Subject is what makes a replayed
+        // still-valid registration token (or a concurrent second submit) a 409 instead of a duplicate row — the
+        // duplicate-registration guarantee the stateless-ticket redesign leans on. Person details now live on the
+        // account itself, so this is the single guard.
+        var subject = "cp-onesubject-" + Guid.NewGuid().ToString("N")[..8];
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+
+        await IntegrationDb.ExecAsync(admin, InsertAccount, AccountArgs(Guid.NewGuid(), subject, PendingApproval));
+
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin, InsertAccount,
+            AccountArgs(Guid.NewGuid(), subject, PendingApproval)));
+    }
+
+    [Fact]
     public async Task App_cannot_touch_the_control_plane_tables()
     {
         // The account, the tenant edge, and the identity child tables are all control-plane: pol_app has no grant at
@@ -98,8 +114,6 @@ public sealed class ProducerAccountControlPlaneTests
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerAccounts"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerTenantAssignments"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ExternalLogins"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.RegistrationTickets"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.TenantUserProfiles"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.RegistrationAudits"));
     }
 

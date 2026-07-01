@@ -1,5 +1,18 @@
 # Design: Producer Google SSO + Role RBAC
 
+> **Amended 2026-07-01:** the `RegistrationTickets` table + `IRegistrationTicketRepository`
+> (`HasPendingAsync`/`TryConsumeAsync`) are removed. The registration/correction wire ticket is now a
+> stateless signed+time-limited Data Protection token (no server row); the callback persists nothing and
+> the account is still created only at submit (REQ-9.6 unchanged). Duplicate/replay safety = the UNIQUE
+> indexes on `ProducerAccount.Subject` + `TenantUserProfile.ProducerAccountId` + `ProducerAccount.Resubmit()`'s
+> Rejected-only guard. `DisplayName` is server-computed from the now-required `FirstName`+`LastName`. See the
+> requirements.md 2026-07-01 amendment; any ticket-row/`HasPending`/`registration-pending` prose below is superseded.
+
+> **Amended 2026-07-01 (person details moved onto the account):** the `TenantUserProfile` entity/table/repo/config
+> are DELETED (migration `AddProducerAccountDetailsDropProfile`); its fields + `SetDetails`/`SetPhoto` move onto
+> `ProducerAccount` — a "tenant" is the company/app, not the person. Any `TenantUserProfile`/`ITenantUserProfileRepository`
+> prose below is superseded; the duplicate-registration guard is now the single UNIQUE `Subject` index on the account.
+
 > Status: approved 2026-06-25 (AFK-delegated per /goal directive; spec-architect critique B1–B3/S1–S10/N1–N3 applied)
 
 Master inputs: approved `requirements.md` (23 REQs, findings F1–F10) + the approved plan

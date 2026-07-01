@@ -24,12 +24,12 @@ internal sealed class ProducerCallbackResolver(IMediator mediator) : IProducerCa
 /// <summary>
 /// Callback-time state branch for the producer BFF (REQ-9.4). On a verified Google identity it resolves the
 /// TenantUser and branches FOUR ways: <b>Active</b> → start a server session (session + login-success audit in ONE
-/// keyed pol_admin tx) + cookies + redirect to the allowlisted returnTo; <b>NotFound</b> → mint a Registration
-/// ticket (server row + signed wire token) + redirect to the SPA register page; <b>Rejected</b> → mint a Correction
-/// ticket + redirect to register (REQ-5.2); <b>PendingApproval</b> → 403 "awaiting approval" with no session
-/// (REQ-22.5). A Suspended account (or any failure) gets no session and an error redirect. Every denial writes a
-/// denied-auth audit on a FRESH scope so a half-built session can never be committed by the audit save (REQ-9.5/21.2).
-/// No secret, token, code, raw session id, or ticket is ever logged (REQ-14.3).
+/// keyed pol_admin tx) + cookies + redirect to the allowlisted returnTo; <b>NotFound</b> → mint a stateless
+/// Registration ticket (signed+time-limited wire token, no server row) + redirect to the SPA register page;
+/// <b>Rejected</b> → mint a Correction ticket + redirect to register (REQ-5.2); <b>PendingApproval</b> → 403
+/// "awaiting approval" with no session (REQ-22.5). A Suspended account (or any failure) gets no session and an error
+/// redirect. Every denial writes a denied-auth audit on a FRESH scope so a half-built session can never be committed
+/// by the audit save (REQ-9.5/21.2). No secret, token, code, raw session id, or ticket is ever logged (REQ-14.3).
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminLoginService (4-way producer branch + ticket mint, NO self-provision) — deliberate.
 internal sealed class ProducerLoginService
@@ -37,44 +37,35 @@ internal sealed class ProducerLoginService
     private readonly IProducerCallbackResolver _resolver;
     private readonly IProducerSessionStore _sessions;
     private readonly IProducerAuthAuditWriter _audit;
-    private readonly IRegistrationTicketRepository _tickets;
-    private readonly IProducerRegistrationUnitOfWork _ticketUnitOfWork;
     private readonly ProducerRegistrationTickets _ticketProtector;
     private readonly ProducerSessionCookies _cookies;
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ProducerSessionOptions _session;
     private readonly ProducerOidcOptions _oidc;
-    private readonly ProducerRegistrationOptions _registration;
     private readonly ILogger<ProducerLoginService> _logger;
 
     public ProducerLoginService(
         IProducerCallbackResolver resolver,
         IProducerSessionStore sessions,
         IProducerAuthAuditWriter audit,
-        IRegistrationTicketRepository tickets,
-        IProducerRegistrationUnitOfWork ticketUnitOfWork,
         ProducerRegistrationTickets ticketProtector,
         ProducerSessionCookies cookies,
         IClock clock,
         IServiceScopeFactory scopeFactory,
         IOptions<ProducerSessionOptions> session,
         IOptions<ProducerOidcOptions> oidc,
-        IOptions<ProducerRegistrationOptions> registration,
         ILogger<ProducerLoginService> logger)
     {
         _resolver = resolver;
         _sessions = sessions;
         _audit = audit;
-        _tickets = tickets;
-        _ticketUnitOfWork = ticketUnitOfWork;
         _ticketProtector = ticketProtector;
         _cookies = cookies;
         _clock = clock;
         _scopeFactory = scopeFactory;
         _session = session.Value;
         _oidc = oidc.Value;
-        _registration = registration.Value;
         _logger = logger;
     }
 
@@ -159,29 +150,17 @@ internal sealed class ProducerLoginService
         }
     }
 
-    /// <summary>NotFound/Rejected → mints a single-use ticket (server <c>RegistrationTickets</c> row = the replay
-    /// authority, REQ-3.4) and redirects to the SPA register page carrying the signed wire token (REQ-9.4/5.2). The
-    /// wire token's TTL matches the row's expiry (both from <c>Producer:Registration:TicketTtlMinutes</c>).</summary>
+    /// <summary>NotFound/Rejected → mints a stateless single-use ticket (signed+time-limited wire token, no server
+    /// row) and redirects to the SPA register page (REQ-9.4/5.2). The token is self-contained; replay/duplicate
+    /// safety is the account's unique (Subject) index at submit time (REQ-4.6). Nothing is persisted here, so a
+    /// repeated callback simply mints a fresh, harmless token.</summary>
     private async Task IssueTicketAndRedirectAsync(
         HttpContext http, string subject, string email, string? hostedDomain, TicketPurpose purpose, CancellationToken ct)
     {
         string wireTicket;
         try
         {
-            // Dedup guard: a repeated callback from the same user (same subject OR email) must not mint a second
-            // pending ticket. Expired-but-unconsumed tickets are not pending, so a fresh ticket can still be issued
-            // after expiry. Inside the try so a transient lookup failure routes to DenyAsync, not an opaque 500.
-            if (await _tickets.HasPendingAsync(subject, email, _clock.UtcNow, ct))
-            {
-                RespondRegistrationPending(http);
-                return;
-            }
-
-            var ttl = TimeSpan.FromMinutes(_registration.TicketTtlMinutes);
-            var row = RegistrationTicket.Issue(subject, email, hostedDomain, purpose, _clock.UtcNow, ttl);
-            _tickets.Add(row);
-            await _ticketUnitOfWork.SaveChangesAsync(ct);
-            wireTicket = _ticketProtector.Protect(new ProducerTicketPayload(row.Id, subject, email, hostedDomain, purpose));
+            wireTicket = _ticketProtector.Protect(new ProducerTicketPayload(subject, email, hostedDomain, purpose));
         }
         catch (Exception ex)
         {
@@ -202,17 +181,6 @@ internal sealed class ProducerLoginService
     {
         if (!http.Response.HasStarted)
             http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", "awaiting-approval"));
-    }
-
-    /// <summary>A pending ticket already exists for this identity (same subject OR email) → redirect to the SPA error
-    /// page with a non-sensitive <c>reason=registration-pending</c>, no new ticket, no session. The callback is a
-    /// browser navigation, so the FE consumes the reason from the query string (same shape as <see cref="DenyAsync"/>).
-    /// A legitimate user who re-entered the callback before finishing/expiring their last registration — not a
-    /// security failure, so no denied audit (F1/F2).</summary>
-    private void RespondRegistrationPending(HttpContext http)
-    {
-        if (!http.Response.HasStarted)
-            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", "registration-pending"));
     }
 
     /// <summary>Records a denied/failed auth attempt (REQ-9.5/21.2) on a FRESH scope (clean context — a half-built

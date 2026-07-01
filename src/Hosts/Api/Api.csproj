@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <!-- Direct ref forces the patched Microsoft.OpenApi 2.9.0 over the vulnerable 2.0.0 transitive (NU1903). -->
+    <PackageReference Include="Microsoft.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <PackageReference Include="Mediator.SourceGenerator">

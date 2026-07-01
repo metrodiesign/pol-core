@@ -104,61 +104,59 @@ token/raw session id.
 ## Producer module (rebuilt 2026-06-28, feature `producer-google-sso`)
 
 > Producer-side actor (the rebuilt Identity module): server-side OIDC BFF mirroring Admin (scheme `ProducerGoogle`,
-> cookies `__Host-prd_session`/`prd_csrf`) + full role→permission RBAC. `TenantUsers` is the ONLY RLS-keyed producer
-> table (FILTER+BLOCK on `TenantId`); every other producer table is control-plane (no predicate, pol_admin only —
-> the catalog tables also grant SELECT/INSERT to `pol_worker` for the registration-notice consumer). The session/auth
-> tables DUP `AdminSessions`/`AdminAuthAudits`; the RBAC tables DUP the Admin RBAC catalog (orthogonal, no Super-bypass).
+> cookies `__Host-prd_session`/`prd_csrf`) + full role→permission RBAC. หลัง Admin-parity (2026-06-29) **ทุกตาราง
+> producer เป็น control-plane** (no RLS predicate, pol_admin only — ตาราง notice/catalog grant SELECT/INSERT ให้
+> `pol_worker` ด้วย): `ProducerAccount` เป็น identity ของตัวเอง, tenant ที่ทำงานแทนเป็น edge แยก
+> (`ProducerTenantAssignments`, 1 tenant/account) ไม่ใช่ column. person details (name/id/license/phone/photo)
+> อยู่บน `ProducerAccount` เอง (2026-07-01, migration `AddProducerAccountDetailsDropProfile` — "tenant" = บริษัท/แอป
+> ไม่ใช่บุคคล). session/auth tables DUP `AdminSessions`/`AdminAuthAudits`; RBAC tables DUP Admin RBAC catalog (orthogonal, no Super-bypass).
 
-### TenantUser -> `producer.TenantUsers`  (plane: data — the only RLS-keyed producer table)
-ผู้ใช้ฝั่ง tenant (producer actor). `TenantId` เป็น NULL จน approval bind (Pending/Rejected = NULL → มองเห็นผ่าน pol_admin bypass เท่านั้น). ไม่มีคอลัมน์ role (อยู่ใน `ProducerRoleAssignments`, F1).
+### ProducerAccount -> `producer.ProducerAccounts`  (plane: control)
+Producer actor identity + person details. control-plane (ไม่มี RLS, ไม่มี `TenantId` column); tenant ที่ approve ให้ทำงานแทนอยู่บน `ProducerTenantAssignments`. ไม่มี column role (อยู่ใน `ProducerRoleAssignments`, F1).
 
 | Field | Type | Null | Key | หมายเหตุ |
 |---|---|---|---|---|
 | Id | uniqueidentifier | N | PK | |
-| Subject | nvarchar(256) | N | UQ | Google `sub`; unique (REQ-1.4) |
+| Subject | nvarchar(256) | N | UQ | Google `sub`; unique = 1 record/subject (REQ-1.4, replay/dedup guard ตอน submit) |
 | Email | nvarchar(320) | N | | จาก id_token (informational) |
-| TenantId | uniqueidentifier | Y | | NULL จน approve (REQ-1.3); RLS key |
-| Status | int | N | | `TenantUserStatus` (PendingApproval=0, Active=1, Rejected=2, Suspended=3) |
+| Status | int | N | | `ProducerAccountStatus` (PendingApproval=0, Active=1, Rejected=2, Suspended=3) |
 | CreatedAt | datetime2 | N | | |
+| DisplayName | nvarchar(200) | N | | server-compute จาก FirstName+LastName (REQ-4.7/7.1) |
+| FirstName / LastName | nvarchar(200) | N | | required (compose DisplayName) |
+| PersonType | int | Y | | `PersonType` |
+| IdNumber / ProducerCode / LicenseNumber | nvarchar(64) | Y | | |
+| Phone | nvarchar(32) | Y | | |
+| PhotoObjectKey | nvarchar(256) | Y | | opaque key (server-gen, REQ-7.5); bytes อยู่นอก DB |
+| PhotoContentType | nvarchar(128) | Y | | stored content-type |
+
+### ProducerTenantAssignment -> `producer.ProducerTenantAssignments`  (plane: control)
+tenant edge ของ ProducerAccount — สร้างตอน admin approve. UNIQUE บน `ProducerAccountId` = 1 tenant/account (REQ-6).
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| Id | uniqueidentifier | N | PK | |
+| ProducerAccountId | uniqueidentifier | N | UQ | -> ProducerAccounts.Id; 1 tenant/account |
+| TenantId | uniqueidentifier | N | | tenant ที่ทำงานแทน (bind ตอน approve) |
+| AssignedByAdminId | uniqueidentifier | N | | admin ที่ approve |
+| AssignedAt | datetime2 | N | | |
 
 ### ExternalLogin -> `producer.ExternalLogins`  (plane: control)
-map Google identity → TenantUser. unique `(Provider, Subject)`.
+map Google identity → ProducerAccount. unique `(Provider, Subject)`.
 
 | Field | Type | Null | Key | หมายเหตุ |
 |---|---|---|---|---|
 | Id | uniqueidentifier | N | PK | |
 | Provider | nvarchar(32) | N | UQ | unique กับ Subject; `"google"` |
 | Subject | nvarchar(256) | N | UQ | unique กับ Provider |
-| TenantUserId | uniqueidentifier | N | | -> TenantUsers.Id |
+| ProducerAccountId | uniqueidentifier | N | | -> ProducerAccounts.Id |
 
-### RegistrationTicket -> `producer.RegistrationTickets`  (plane: control)
-single-use replay authority หลัง signed+encrypted wire ticket (REQ-3.4). `UsedAt` = guard.
+> `producer.RegistrationTickets` ถูกลบ 2026-07-01 (migration `DropRegistrationTicketsTable`) — wire ticket
+> เป็น stateless signed+time-limited token, ไม่มี server row; replay/dedup ใช้ UNIQUE (Subject) index บน
+> `ProducerAccount` ตอน submit แทน.
 
-| Field | Type | Null | Key | หมายเหตุ |
-|---|---|---|---|---|
-| Id | uniqueidentifier | N | PK | id ที่ wire ticket อ้าง |
-| Subject | nvarchar(256) | N | | จาก id_token เท่านั้น |
-| Email | nvarchar(320) | N | | |
-| HostedDomain | nvarchar(256) | Y | | Google `hd` |
-| Purpose | int | N | | `TicketPurpose` (Registration=0, Correction=1) |
-| CreatedAt | datetime2 | N | | |
-| ExpiresAt | datetime2 | N | | TTL (~10m) |
-| UsedAt | datetime2 | Y | | single-use replay guard |
-
-### TenantUserProfile -> `producer.TenantUserProfiles`  (plane: control)
-รายละเอียด producer + รูป (bytes อยู่นอก DB; เก็บแค่ object key + content-type, REQ-7.2). one-to-one กับ user.
-
-| Field | Type | Null | Key | หมายเหตุ |
-|---|---|---|---|---|
-| Id | uniqueidentifier | N | PK | |
-| TenantUserId | uniqueidentifier | N | UQ | one-to-one |
-| DisplayName | nvarchar(200) | N | | |
-| FirstName / LastName | nvarchar(200) | Y | | |
-| PersonType | int | Y | | `PersonType` |
-| IdNumber / ProducerCode / LicenseNumber | nvarchar(64) | Y | | |
-| Phone | nvarchar(32) | Y | | |
-| PhotoObjectKey | nvarchar(256) | Y | | opaque key (server-gen, REQ-7.5) |
-| PhotoContentType | nvarchar(128) | Y | | stored content-type |
+> `producer.TenantUserProfiles` ถูกลบ 2026-07-01 (migration `AddProducerAccountDetailsDropProfile`) — field
+> ทั้งหมด (DisplayName/FirstName/LastName/PersonType/IdNumber/ProducerCode/LicenseNumber/Phone/Photo*) ย้ายไป
+> อยู่บน account เอง (ดูตาราง account ด้านบน). "tenant" = ข้อมูลบริษัท/แอป ไม่ใช่บุคคล.
 
 ### RegistrationAudit -> `producer.RegistrationAudits`  (plane: control, append-only)
 audit ของ register/resubmit/approve/reject/suspend (REQ-21).

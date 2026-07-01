@@ -1,4 +1,8 @@
 # Bugfix: Producer registration ออก RegistrationTicket ซ้ำสำหรับ subject/email เดิม
+> Status: superseded 2026-07-01 — the whole `RegistrationTickets` mechanism (incl. the `HasPendingAsync` dedup
+> guard this bugfix added) is DELETED. The wire ticket is now stateless and the duplicate-registration guarantee
+> is the UNIQUE (Subject) index on `ProducerAccount` at submit time. See `producer-google-sso` requirements.md /
+> design.md 2026-07-01 amendments + migration `DropRegistrationTicketsTable`. This spec is retained for history only.
 > Status: approved 2026-06-30
 
 ## Current Behavior (Defect)

@@ -26,6 +26,7 @@ using Checkout.Application;
 using Checkout.Infrastructure;
 using Mediator;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Data.SqlClient;
@@ -312,6 +313,17 @@ builder.Services.AddWebhookRateLimiter();
 builder.Services.AddAdminAuthRateLimiter();
 builder.Services.AddProducerAuthRateLimiter();
 
+// Dev-only HTTP req/res logging incl. response headers (esp. Location on a 302 — see where the OIDC callback /
+// register redirect actually sends the browser). Logs headers + bodies would leak PII/photo bytes, so this stays
+// Development-only and headers-only (no body). Location is not in the default response-header allowlist, so add it.
+if (builder.Environment.IsDevelopment())
+    builder.Services.AddHttpLogging(o =>
+    {
+        o.LoggingFields = HttpLoggingFields.RequestPropertiesAndHeaders | HttpLoggingFields.ResponsePropertiesAndHeaders;
+        o.ResponseHeaders.Add("Location");
+        o.CombineLogs = true; // one merged log entry per request instead of separate start/finish lines
+    });
+
 var app = builder.Build();
 
 // Dev convenience: auto-apply pending EF migrations at boot so a freshly merged migration can't leave the
@@ -374,6 +386,11 @@ foreach (var proxy in app.Configuration.GetSection("ForwardedHeaders:KnownProxie
     if (!string.IsNullOrWhiteSpace(proxy))
         forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.Parse(proxy.Trim()));
 app.UseForwardedHeaders(forwardedHeaders);
+
+// Dev-only: log each request + its response headers (Location on 302, etc.). After UseForwardedHeaders so the
+// logged Host is the browser-facing one; early so it wraps the endpoints and captures the final response.
+if (app.Environment.IsDevelopment())
+    app.UseHttpLogging();
 
 // Order matters: correlation id OUTERMOST so the logging scope is still active when the exception handler
 // logs a failure (the scope is popped as the exception unwinds, so it must wrap UseExceptionHandler); the
@@ -868,7 +885,7 @@ app.MapGet("/producer/auth/login", (HttpContext http, IOptions<ProducerSessionOp
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // --- Producer self-service registration (producer-google-sso REQ-3/4/5/7/13/20) ---
-// Anonymous + ticket-gated: the single-use signed ticket IS the capability barrier, so no session CSRF on this
+// Anonymous + ticket-gated: the signed, time-limited (stateless) ticket IS the capability barrier, so no session CSRF on this
 // pre-session route (REQ-13.4); rate-limited per IP instead. Multipart (form + optional photo): the request body
 // is bounded BEFORE buffering (REQ-7.4/N3), the photo is validated by content-type + magic bytes (REQ-7.3), then
 // the write runs in ONE pol_admin transaction that also enqueues the registration event (REQ-4.1/20). Identity is
@@ -927,11 +944,11 @@ app.MapPost("/producer/register", async (
     }
 
     var formModel = ProducerRegistrationForm.From(form);
-    if (string.IsNullOrWhiteSpace(formModel.DisplayName))
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "displayName is required.");
+    if (string.IsNullOrWhiteSpace(formModel.FirstName) || string.IsNullOrWhiteSpace(formModel.LastName))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "firstName and lastName are required.");
 
     var result = await mediator.Send(new SubmitRegistrationCommand(
-        ticket.Id, ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
+        ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
         formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
 
     return Results.Created($"/producer/tenant-users/{result.TenantUserId}",
@@ -943,7 +960,7 @@ app.MapPost("/producer/register", async (
     .WithTags("Producer Auth")
     .WithName("ProducerRegister")
     .WithSummary("Submit a producer registration")
-    .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval TenantUser and enqueues a registration event. Invalid/expired/used ticket -> 400; duplicate/replay -> 409; oversize -> 413.")
+    .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval TenantUser and enqueues a registration event. Invalid/expired ticket -> 400; duplicate/replay (unique Subject index) -> 409; oversize -> 413.")
     .Accepts<IFormFile>("multipart/form-data")
     .Produces<ProducerRegisterResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
