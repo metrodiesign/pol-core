@@ -52,8 +52,12 @@ internal sealed class FakeAdminRoleRepository : IAdminRoleRepository
     public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) =>
         Task.FromResult(Assignments.Count(a => a.RoleId == roleId));
 
-    public Task<IReadOnlyList<AdminRoleListItem>> ListAsync(CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<AdminRoleListItem>>([.. Roles.Select(ToItem)]);
+    public Task<PagedResult<AdminRoleListItem>> ListAsync(PagedQuery query, CancellationToken ct)
+    {
+        var all = Roles.Select(ToItem).ToList();
+        var items = all.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList();
+        return Task.FromResult(new PagedResult<AdminRoleListItem>(items, query.Page, query.Limit, all.Count));
+    }
     public Task<AdminRoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) =>
         Task.FromResult(Roles.Where(r => r.Code == code).Select(ToItem).FirstOrDefault());
 

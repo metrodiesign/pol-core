@@ -204,6 +204,15 @@ builder.Services.AddOpenApi(options =>
         return Task.CompletedTask;
     });
 
+    // Operation-level: SFS endpoints read page/limit/filters/sort/search from the raw query string, so ASP.NET
+    // emits no parameters for them. Declare them wherever the SfsQueryParamsMarker is present (REQ-13).
+    options.AddOperationTransformer((operation, context, _) =>
+    {
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<SfsQueryParamsMarker>().Any())
+            SfsOpenApi.AddQueryParameters(operation);
+        return Task.CompletedTask;
+    });
+
     // Document-level: title/description + the security schemes other teams pick from Scalar's auth dropdown,
     // plus the per-operation security requirement each route's authorization policy implies.
     options.AddDocumentTransformer((document, context, _) =>
@@ -503,6 +512,30 @@ GateProducerWrite(createProduct, enforceProducerWrites, ProducerPermissions.Prod
     .Produces<CreateProductResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// GET /products — the tenant-scoped SFS exemplar. Tenant comes from the principal (ITenantContext), NEVER the
+// client; the query is ITenantScoped so the tenant guard + RLS floor confine every row to the bound tenant, and
+// SFS can only narrow within it (no whitelist exposes tenantId). productFilters is the optional typed surface.
+app.MapGet("/products", async (HttpContext http, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+{
+    var p = SfsQueryParser.Parse(http.Request.Query);
+    var result = await mediator.Send(new ListProductsQuery
+    {
+        TenantId = tenant.TenantId,
+        Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
+        ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
+    }, ct);
+    return Results.Ok(result);
+})
+    .RequireAuthorization("tenant")
+    .WithMetadata(new SfsQueryParamsMarker())
+    .WithTags("Products")
+    .WithName("ListProducts")
+    .WithSummary("List products")
+    .WithDescription("Paged catalog for the authenticated tenant. Supports SFS (page, limit, filters, sort, search) plus a typed productFilters object.")
+    .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // Cart — open, add/merge lines, review, adjust, clear. Tenant comes from the principal; the commands are
 // ITenantScoped so RLS + the tenant guard confine every cart to the bound tenant.
@@ -1348,14 +1381,25 @@ admin.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
     .Produces<PermissionCatalogResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-admin.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
-    Results.Ok((await mediator.Send(new ListRolesQuery(), ct)).Select(RoleToWire)))
+admin.MapGet("/roles", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var p = SfsQueryParser.Parse(http.Request.Query);
+    var result = await mediator.Send(new ListRolesQuery
+    {
+        Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
+    }, ct);
+    // Map items to the wire DTO by constructing a NEW PagedResult — a record with-expression cannot change T (REQ-12.2).
+    return Results.Ok(new PagedResult<RoleResponse>(
+        [.. result.Items.Select(RoleToWire)], result.Page, result.Limit, result.Total));
+})
     .RequireAuthorization("admin")
+    .WithMetadata(new SfsQueryParamsMarker())
     .WithTags("Admin Roles")
     .WithName("ListRoles")
     .WithSummary("List roles")
-    .WithDescription("All admin roles with their permissions and bound-user counts.")
-    .Produces<IEnumerable<RoleResponse>>(StatusCodes.Status200OK)
+    .WithDescription("Paged admin roles with permissions and bound-user counts. Supports SFS: page, limit, filters, sort, search.")
+    .Produces<PagedResult<RoleResponse>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 admin.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>

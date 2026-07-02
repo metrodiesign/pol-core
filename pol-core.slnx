@@ -64,6 +64,7 @@
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />
     <Project Path="tests/Payments.Tests/Payments.Tests.csproj" />
     <Project Path="tests/Producer.Tests/Producer.Tests.csproj" />
+    <Project Path="tests/Products.Tests/Products.Tests.csproj" />
     <Project Path="tests/SharedKernel.Tests/SharedKernel.Tests.csproj" />
     <Project Path="tests/Tenant.Tests/Tenant.Tests.csproj" />
   </Folder>
