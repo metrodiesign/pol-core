@@ -1,4 +1,5 @@
 using Admin.Domain;
+using BuildingBlocks.Application;
 
 namespace Admin.Application;
 
@@ -19,7 +20,10 @@ public interface IAdminRoleRepository
     Task<bool> CodeExistsAsync(string code, CancellationToken cancellationToken);
     Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken cancellationToken);
 
-    Task<IReadOnlyList<AdminRoleListItem>> ListAsync(CancellationToken cancellationToken);
+    /// <summary>The SFS-paged role list (REQ-2.4): filter/search/sort applied over the control-plane
+    /// <c>AdminRole</c> set, <c>Total</c> counted after filter/search but before paging, <c>UserCount</c>
+    /// preserved (REQ-12.1).</summary>
+    Task<PagedResult<AdminRoleListItem>> ListAsync(PagedQuery query, CancellationToken cancellationToken);
     Task<AdminRoleListItem?> GetListItemByCodeAsync(string code, CancellationToken cancellationToken);
 
     Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(

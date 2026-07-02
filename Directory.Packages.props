@@ -20,6 +20,9 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.8" />
     <!-- OpenAPI document generation (SPA-facing API contract) -->
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <!-- Direct pin to override the transitive Microsoft.OpenApi 2.0.0 (NU1903 / GHSA-v5pm-xwqc-g5wc, high sev);
+         2.9.0 is the same major as the 2.0.0 AspNetCore.OpenApi 10.0.8 asks for, so binary-compatible. -->
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.9.0" />
     <!-- Scalar API reference UI over the OpenAPI doc (Development-only). MIT, scalar/scalar. -->
     <PackageVersion Include="Scalar.AspNetCore" Version="2.16.5" />
     <!-- Platform HttpClientFactory for the real PSP adapters (named clients + pooled handlers) -->

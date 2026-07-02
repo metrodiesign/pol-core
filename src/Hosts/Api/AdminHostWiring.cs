@@ -179,7 +179,8 @@ internal static class AdminHostWiring
         services.AddScoped<IAdminAccountRepository>(sp => new AdminAccountRepository(Admin(sp)));
         services.AddScoped<IAdminAccountAuditWriter>(sp => new AdminAccountAuditWriter(Admin(sp)));
         services.AddScoped<IAdminTenantDirectory>(sp => new AdminTenantDirectory(Admin(sp)));
-        services.AddScoped<IAdminRoleRepository>(sp => new AdminRoleRepository(Admin(sp))); // admin-role-rbac
+        services.AddScoped<IAdminRoleRepository>(sp =>
+            new AdminRoleRepository(Admin(sp), sp.GetRequiredService<ILogger<AdminRoleRepository>>())); // admin-role-rbac
 
         // Admin BFF session substrate (REQ-3/5/6/11/12): store + append-only auth audit on the keyed pol_admin
         // context; the cookie service is stateless (singleton).
