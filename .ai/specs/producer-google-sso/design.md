@@ -370,7 +370,7 @@ Logic-first: pure unit tests before wiring; integration with the SQL container; 
 | `TenantUser` aggregate + `TenantUserStatus` + transition guard | 1.1–1.6 |
 | `ExternalLogin` `(Provider,Subject)` unique + resolve | 2.1–2.4 |
 | `RegistrationTicket` (signed token + server row, Purpose, `Consume`) | 3.1–3.6 |
-| `SubmitRegistrationCommand` (ticket-gated, one pol_admin tx, identity-from-ticket) | 4.1–4.6 |
+| `SubmitRegistrationCommand` (ticket-gated, one pol_admin tx, identity-from-ticket; form FirstName/LastName -> DisplayName) | 4.1–4.7 |
 | Reject→Correction ticket→Resubmit (`Resubmit`, Flow A Rejected branch) | 5.1–5.5 |
 | `ApproveTenantUserCommand` (tenant+role+accessible+idempotent+audit) | 6.1–6.6 |
 | `TenantUserProfile` + `IPhotoStore`/`LocalPhotoStore` + validation | 7.1–7.5 |
