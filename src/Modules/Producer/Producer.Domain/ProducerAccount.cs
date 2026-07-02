@@ -9,7 +9,9 @@ namespace Producer.Domain;
 /// column here. Role and tenant are decided server-side at approval, NEVER by the token (product canon 2.5).
 /// <see cref="Subject"/> (Google <c>sub</c>) is the stable identity, unique across users (REQ-1.4). The user's
 /// role(s) are NOT a column here — they live in <c>ProducerRoleAssignments</c> (F1). The transition guard exposes
-/// ONLY the lifecycle of <see cref="ProducerAccountStatus"/> (REQ-1.5/1.6).
+/// ONLY the lifecycle of <see cref="ProducerAccountStatus"/> (REQ-1.5/1.6). The registrant's own person details
+/// (name, id, license, phone, photo — REQ-7.1) live directly on this record: a "tenant" is the company/app, not
+/// the person, so person data belongs to the person's account, never a tenant-scoped profile.
 /// </summary>
 public sealed class ProducerAccount : AggregateRoot<Guid>
 {
@@ -23,6 +25,28 @@ public sealed class ProducerAccount : AggregateRoot<Guid>
 
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>Server-computed as <c>"{FirstName} {LastName}"</c> — never supplied by the form (REQ-7.1).</summary>
+    public string DisplayName { get; private set; } = default!;
+
+    // Producer detail fields (REQ-7.1). FirstName/LastName are required (they compose DisplayName); the rest optional.
+    public string FirstName { get; private set; } = default!;
+    public string LastName { get; private set; } = default!;
+    public PersonType? PersonType { get; private set; }
+    public string? IdNumber { get; private set; }
+    public string? ProducerCode { get; private set; }
+    public string? LicenseNumber { get; private set; }
+    public string? Phone { get; private set; }
+
+    /// <summary>Opaque server-generated key into the <c>IPhotoStore</c>; never the client filename (REQ-7.2/7.5).</summary>
+    public string? PhotoObjectKey { get; private set; }
+
+    /// <summary>The validated, stored content-type served back with <c>nosniff</c> (REQ-7.5).</summary>
+    public string? PhotoContentType { get; private set; }
+
+    /// <summary>The persisted <c>DisplayName</c> column is 200 chars (see EF config); two 200-char names concatenated
+    /// would overflow it, so the computed value is clamped defensively.</summary>
+    private const int DisplayNameMaxLength = 200;
+
     private ProducerAccount() { }
 
     private ProducerAccount(Guid id, string subject, string email, DateTime createdAt) : base(id)
@@ -31,16 +55,54 @@ public sealed class ProducerAccount : AggregateRoot<Guid>
         Email = email;
         Status = ProducerAccountStatus.PendingApproval;
         CreatedAt = createdAt;
+        // SetDetails runs immediately after Register in the handler and fills these; the blank-name guard there
+        // throws before any blank ever persists. "" keeps the NOT NULL columns valid in the transient window.
+        FirstName = string.Empty;
+        LastName = string.Empty;
+        DisplayName = string.Empty;
     }
 
     /// <summary>A new applicant registering after Google sign-in (REQ-4.1). Starts <see cref="ProducerAccountStatus.PendingApproval"/>;
-    /// an admin binds the tenant (a <see cref="ProducerTenantAssignment"/>) at approval (REQ-6).</summary>
+    /// an admin binds the tenant (a <see cref="ProducerTenantAssignment"/>) at approval (REQ-6). The person details are
+    /// applied next via <see cref="SetDetails"/> / <see cref="SetPhoto"/> so the registration handler controls them.</summary>
     public static ProducerAccount Register(string subject, string email, DateTime now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
         return new ProducerAccount(Guid.NewGuid(), subject.Trim(), email.Trim(), now);
     }
+
+    /// <summary>Sets/overwrites the producer detail fields from the (corrected) registration form (REQ-5.3/7.1).
+    /// DisplayName is recomputed from the required first/last name.</summary>
+    public void SetDetails(string firstName, string lastName, PersonType? personType,
+        string? idNumber, string? producerCode, string? licenseNumber, string? phone)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
+        FirstName = firstName.Trim();
+        LastName = lastName.Trim();
+        DisplayName = ComposeDisplayName(FirstName, LastName);
+        PersonType = personType;
+        IdNumber = Trim(idNumber);
+        ProducerCode = Trim(producerCode);
+        LicenseNumber = Trim(licenseNumber);
+        Phone = Trim(phone);
+    }
+
+    private static string ComposeDisplayName(string firstName, string lastName)
+    {
+        var composed = $"{firstName.Trim()} {lastName.Trim()}";
+        return composed.Length <= DisplayNameMaxLength ? composed : composed[..DisplayNameMaxLength];
+    }
+
+    /// <summary>Records the opaque object key and stored content-type for an uploaded photo (REQ-7.2).</summary>
+    public void SetPhoto(string? objectKey, string? contentType)
+    {
+        PhotoObjectKey = Trim(objectKey);
+        PhotoContentType = Trim(contentType);
+    }
+
+    private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     /// <summary>Approves the applicant (PendingApproval→Active, REQ-1.5/6.2). The tenant edge is created separately as a
     /// <see cref="ProducerTenantAssignment"/> by the approval handler. Idempotent: re-approving an already-Active account

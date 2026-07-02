@@ -337,7 +337,7 @@ sequenceDiagram
 
 #### ตาราง identity (แยก schema)
 - `AdminUser` (schema admin): `Email`/`Sub` PK · `Role` · `Status`
-- `TenantUser` (schema producer): `Sub` PK · `TenantId` FK · `Role` · `Status` — คู่กับ `ExternalLogin` · `Profile` · `RegistrationTicket`
+- `ProducerAccount` (schema producer, control-plane): `Subject` UQ · `Status` · person details (name/id/license/phone/photo) — tenant เป็น edge แยก `ProducerTenantAssignment` (1 tenant/account), คู่กับ `ExternalLogin`; wire ticket เป็น stateless token (ไม่มีตาราง)
 - แยก 2 schema → อีเมลในตารางหนึ่งไม่ได้สิทธิอีกฝั่งโดยอัตโนมัติ (คนละ RBAC realm)
 
 #### Enforcement (ทุก request)
@@ -525,8 +525,8 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 
 ### ชื่อ canonical เฉพาะโปรเจกต์
 
-- **Entities:** `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `TenantUser` · `AdminUser` · `ExternalLogin` · `RegistrationTicket` · `Profile`
-- **Enums:** `PspProvider { TwoCTwoP, Omise }` · `PaymentMethod { Card, PromptPay, Installment }` · `PaymentStatus { Pending, Paid, Failed, Expired }` · `TenantUserStatus { PendingApproval, Active, Rejected, Disabled }`
+- **Entities:** `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `ProducerAccount` (+ person details) · `ProducerTenantAssignment` · `AdminAccount` · `ExternalLogin`
+- **Enums:** `PspProvider { TwoCTwoP, Omise }` · `PaymentMethod { Card, PromptPay, Installment }` · `PaymentStatus { Pending, Paid, Failed, Expired }` · `ProducerAccountStatus { PendingApproval, Active, Rejected, Suspended }`
 - **Interfaces:** `IPspAdapter` · `ICredentialVault` · `IWebhookVerifier`
 - **Services:** `PspRouter` · `ProvisioningService` · `ReconciliationReporter`
 

@@ -24,8 +24,6 @@ internal static class ProducerHostWiring
         services.AddScoped<IProducerAccountRepository>(sp => new ProducerAccountRepository(Admin(sp)));
         services.AddScoped<IProducerTenantAssignmentRepository>(sp => new ProducerTenantAssignmentRepository(Admin(sp)));
         services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Admin(sp)));
-        services.AddScoped<IRegistrationTicketRepository>(sp => new RegistrationTicketRepository(Admin(sp)));
-        services.AddScoped<ITenantUserProfileRepository>(sp => new TenantUserProfileRepository(Admin(sp)));
         services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Admin(sp)));
         services.AddScoped<IProducerOutboxWriter>(sp => new ProducerOutboxWriter(Admin(sp), sp.GetRequiredService<IClock>()));
         services.AddScoped<IProducerRegistrationUnitOfWork>(sp => new ProducerRegistrationUnitOfWork(Admin(sp)));

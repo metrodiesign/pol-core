@@ -10,7 +10,8 @@ namespace Hosts.Tests;
 /// The producer registration wire-ticket protector (REQ-3.1/14.4): a ticket roundtrips through Protect/Unprotect
 /// carrying the verified identity, a tampered or garbage token fails to unprotect, and a token sealed under a
 /// different Data Protection purpose cannot be unprotected here (purpose isolation from the OIDC state protector).
-/// The single-use authority is the server row (tested in the integration suite); this is the wire-level guard.
+/// The token is stateless (no server row); replay safety is the account's unique (Subject) index at submit time.
+/// This is the wire-level guard.
 /// </summary>
 public sealed class ProducerRegistrationTicketsTests
 {
@@ -18,7 +19,7 @@ public sealed class ProducerRegistrationTicketsTests
         new(provider, Options.Create(new ProducerRegistrationOptions { TicketTtlMinutes = 10 }));
 
     private static readonly ProducerTicketPayload Payload = new(
-        Guid.Parse("11111111-1111-1111-1111-111111111111"), "g-sub-1", "p@org.com", "org.com", TicketPurpose.Registration);
+        "g-sub-1", "p@org.com", "org.com", TicketPurpose.Registration);
 
     [Fact]
     public void A_ticket_roundtrips_carrying_the_verified_identity()
@@ -29,7 +30,6 @@ public sealed class ProducerRegistrationTicketsTests
         var ok = tickets.TryUnprotect(token, out var decoded);
 
         Assert.True(ok);
-        Assert.Equal(Payload.Id, decoded.Id);
         Assert.Equal("g-sub-1", decoded.Subject);
         Assert.Equal("p@org.com", decoded.Email);
         Assert.Equal("org.com", decoded.HostedDomain);

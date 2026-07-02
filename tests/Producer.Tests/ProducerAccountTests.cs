@@ -183,4 +183,69 @@ public sealed class ProducerAccountTests
 
         Assert.Equal(ProducerAccountStatus.Active, account.Status);
     }
+
+    // --- Person details (REQ-7.1): live on the account (a "tenant" is the company/app, not the person) ---
+
+    [Fact]
+    public void SetDetails_computes_display_name_and_stores_the_optional_fields()
+    {
+        var account = NewPending();
+
+        account.SetDetails(" Acme ", " Co ", PersonType.Juristic, "1234567890123", "PC-1", "LIC-9", "0812345678");
+
+        Assert.Equal("Acme", account.FirstName);          // trimmed
+        Assert.Equal("Co", account.LastName);
+        Assert.Equal("Acme Co", account.DisplayName);     // computed from first + last
+        Assert.Equal(PersonType.Juristic, account.PersonType);
+        Assert.Equal("1234567890123", account.IdNumber);
+        Assert.Equal("PC-1", account.ProducerCode);
+        Assert.Equal("LIC-9", account.LicenseNumber);
+        Assert.Equal("0812345678", account.Phone);
+    }
+
+    [Theory]
+    [InlineData(null, "Co")]
+    [InlineData("", "Co")]
+    [InlineData("   ", "Co")]
+    [InlineData("Acme", null)]
+    [InlineData("Acme", " ")]
+    public void SetDetails_rejects_a_blank_first_or_last_name(string? first, string? last) =>
+        Assert.ThrowsAny<ArgumentException>(() =>
+            NewPending().SetDetails(first!, last!, null, null, null, null, null));
+
+    [Fact]
+    public void SetDetails_clamps_the_computed_display_name_to_200_chars()
+    {
+        var account = NewPending();
+        var first = new string('a', 200);
+        var last = new string('b', 200);
+
+        account.SetDetails(first, last, null, null, null, null, null); // 401 chars composed, must not throw
+
+        Assert.Equal(200, account.DisplayName.Length);
+    }
+
+    [Fact]
+    public void SetDetails_blanks_optional_fields_to_null()
+    {
+        var account = NewPending();
+
+        account.SetDetails("Acme", "Co", null, "  ", "", "   ", null);
+
+        Assert.Null(account.IdNumber);
+        Assert.Null(account.ProducerCode);
+        Assert.Null(account.LicenseNumber);
+        Assert.Null(account.Phone);
+    }
+
+    [Fact]
+    public void SetPhoto_records_the_opaque_key_and_content_type()
+    {
+        var account = NewPending();
+
+        account.SetPhoto(" key-1 ", " image/jpeg ");
+
+        Assert.Equal("key-1", account.PhotoObjectKey);
+        Assert.Equal("image/jpeg", account.PhotoContentType);
+    }
 }
