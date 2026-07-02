@@ -1,4 +1,5 @@
 # Tasks: bugfix-producer-ticket-dedup
+> Status: superseded 2026-07-01 — RegistrationTickets mechanism deleted (stateless wire ticket); see bugfix.md.
 > Status: approved 2026-06-30
 
 - [x] T1 — เพิ่ม `HasPendingAsync(subject, email, now, ct)` ใน port + impl

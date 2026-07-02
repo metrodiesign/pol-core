@@ -2,6 +2,24 @@
 
 > Status: approved 2026-06-25 (AFK-delegated per /goal directive — autonomous completion, /spec-analyze F1–F10 applied; amended 2026-06-25 to sync design-critique B1/B2/S1/S5/S6/S7 into REQ-16.5/20.2/20.4/23.2/23.3; review at PR gate)
 
+> **Amended 2026-07-01 (registration ticket made stateless):** the server-side `RegistrationTickets` row + its
+> single-use conditional-UPDATE consume are REMOVED. The registration/correction wire ticket is now a stateless
+> signed+time-limited Data Protection token (no DB row). Duplicate-registration / replay safety is the pre-existing
+> UNIQUE index on `ProducerAccount.Subject` (REQ-1.4) + `ProducerAccount.Resubmit()`'s Rejected-only guard, both
+> enforced at submit time — REQ-9.6 ("no self-provision at the callback") is UNCHANGED (the account is still created
+> only at submission). REQ-3.2–3.6 and REQ-4.6 below are rewritten accordingly; the `registration-pending` reason
+> code and the `HasPendingAsync` dedup guard are gone. Also: `DisplayName` is no longer a form field — it is
+> server-computed from the now-required `FirstName`+`LastName`.
+
+> **Amended 2026-07-01 (person details moved onto the account, `TenantUserProfile` deleted):** the registration
+> form's person fields (`FirstName`, `LastName`, `DisplayName`, `PersonType`, `IdNumber`, `ProducerCode`,
+> `LicenseNumber`, `Phone`, photo `PhotoObjectKey`/`PhotoContentType`) now persist DIRECTLY on `ProducerAccount`
+> (REQ-7.1). The one-to-one `TenantUserProfile` entity/table is DELETED (migration
+> `AddProducerAccountDetailsDropProfile`): a "tenant" is the company/app on a company machine, not a person, so
+> person data belongs to the person's own account, never a tenant-scoped profile. `ProducerAccount.SetDetails(...)` /
+> `SetPhoto(...)` (lifted from the old profile) apply the form; the duplicate-registration guarantee is now the
+> single UNIQUE `Subject` index on `ProducerAccount`.
+
 > **Decisions locked** (from the approved plan `/Users/king_developer/.claude/plans/producer-google-sso-parsed-frost.md`
 > + 4 clarifying answers): (D1) Producer login = **OIDC BFF server-side session** mirroring `admin-oidc-session`
 > (cookie + rotation + reuse-detection + revoke + CSRF) — NOT the tenant id-token-bearer model. (D2) **Full
@@ -56,12 +74,12 @@ Google API access / offline refresh token; Google RP-initiated logout; step-up M
 **User Story:** As an applicant, I want a short-lived handle after Google sign-in, so that I can submit (or correct) my registration form without yet holding a session.
 **Reuses:** `identity-rbac` REQ-3 (extended with the `Correction` purpose).
 **Acceptance Criteria (EARS):**
-- 3.1 THE SYSTEM SHALL issue a ticket as a signed+encrypted self-contained token that the client carries and returns at submission, carrying the verified identity (subject, email, hosted-domain) captured ONLY from the validated Google id_token, plus a Purpose of `Registration` or `Correction` and a unique id. (F7)
-- 3.2 THE SYSTEM SHALL make a ticket single-use and short-lived, expiring within a bounded, configurable TTL (default 10 minutes).
-- 3.3 WHEN a ticket is consumed THE SYSTEM SHALL mark it used atomically (one consumer wins) so it cannot be replayed.
-- 3.4 THE SYSTEM SHALL back the signed ticket with a server-side `RegistrationTickets` row keyed by the ticket's unique id whose `UsedAt` is the single-use replay guard (a valid signature alone is replayable until expiry, so the server row is authoritative). (F7)
+- 3.1 THE SYSTEM SHALL issue a ticket as a signed+encrypted self-contained token that the client carries and returns at submission, carrying the verified identity (subject, email, hosted-domain) captured ONLY from the validated Google id_token, plus a Purpose of `Registration` or `Correction`. (F7) *(amended 2026-07-01: no unique id / server row — stateless token.)*
+- 3.2 THE SYSTEM SHALL make a ticket short-lived, expiring within a bounded, configurable TTL (default 10 minutes) enforced by the Data Protection time limit. *(amended 2026-07-01)*
+- 3.3 THE SYSTEM SHALL be stateless at the callback — it persists no ticket row; replay/duplicate protection is enforced at submit time by the account's UNIQUE (Subject) index and the profile's one-to-one UNIQUE (ProducerAccountId) index. *(amended 2026-07-01, replaces the ticket-consume mark-used guard)*
+- 3.4 THE SYSTEM SHALL treat a repeated callback for the same identity as harmless — it simply mints a fresh self-expiring token (no "pending" state, no stuck registration). *(amended 2026-07-01, replaces the server-row replay authority)*
 - 3.5 THE SYSTEM SHALL NOT treat a ticket as an authenticated session — it grants only the ability to complete (or correct) a registration.
-- 3.6 IF a ticket is expired, already used, of the wrong Purpose, or unknown THEN THE SYSTEM SHALL reject the submission with an error and create/modify no TenantUser.
+- 3.6 IF a ticket is tampered, expired, or unknown THEN THE SYSTEM SHALL reject the submission with a 400 and create/modify no TenantUser; a valid token for a subject that already has an account is rejected at submit by the UNIQUE (Subject) index (409). *(amended 2026-07-01)*
 
 ## REQ-4: Registration submission
 **User Story:** As a new user, I want to register after signing in with Google, so that an admin can approve me onto a tenant.
@@ -72,7 +90,8 @@ Google API access / offline refresh token; Google RP-initiated logout; step-up M
 - 4.3 THE SYSTEM SHALL NOT set TenantId or role from the registration form (both are decided at approval — REQ-6).
 - 4.4 WHEN the registration is persisted THE SYSTEM SHALL enqueue a `TenantUserRegistrationSubmitted` event in the SAME transaction (REQ-20).
 - 4.5 THE SYSTEM SHALL treat the registration submission endpoint as anonymous and ticket-gated (no session required, REQ-13.4).
-- 4.6 IF a TenantUser/ExternalLogin already exists for the subject THEN THE SYSTEM SHALL reject a second registration (REQ-1.4) with 409; concurrent duplicate submissions for the same subject SHALL be resolved by the unique (subject)/(provider,subject) constraints — exactly one commits, the other returns 409. (F9)
+- 4.6 IF a TenantUser/ExternalLogin already exists for the subject THEN THE SYSTEM SHALL reject a second registration (REQ-1.4) with 409; concurrent duplicate submissions, AND replays of a still-valid stateless ticket, for the same subject SHALL be resolved by the UNIQUE (Subject)/(Provider,Subject)/(ProducerAccountId profile) constraints — exactly one commits, the others return 409. This is the sole duplicate-registration guard now that the ticket is stateless. (F9) *(amended 2026-07-01)*
+- 4.7 THE SYSTEM SHALL require FirstName and LastName on the form and compute the Profile's DisplayName from them (`"{FirstName} {LastName}"`); DisplayName is NEVER supplied by the client. *(added 2026-07-01)*
 
 ## REQ-5: Rejection & correction resubmission
 **User Story:** As a rejected applicant, I want to fix and resubmit my registration, so that a correctable mistake does not require starting over.

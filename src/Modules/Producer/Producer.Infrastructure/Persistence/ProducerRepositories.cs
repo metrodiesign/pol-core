@@ -56,41 +56,6 @@ public sealed class ExternalLoginRepository : IExternalLoginRepository
     public void Add(ExternalLogin login) => _db.Set<ExternalLogin>().Add(login);
 }
 
-/// <summary>Single-use ticket consume via a conditional set-based UPDATE (REQ-3.3/4.1): exactly one caller's UPDATE
-/// affects the row, so a replay or a 2-tab race resolves to one winner. Enlists in the handler's ambient pol_admin
-/// transaction (same shared context).</summary>
-public sealed class RegistrationTicketRepository : IRegistrationTicketRepository
-{
-    private readonly ProducerDbContext _db;
-    public RegistrationTicketRepository(ProducerDbContext db) => _db = db;
-
-    public void Add(RegistrationTicket ticket) => _db.Set<RegistrationTicket>().Add(ticket);
-
-    public Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken cancellationToken) =>
-        _db.Set<RegistrationTicket>().AsNoTracking()
-            .AnyAsync(t => t.UsedAt == null && t.ExpiresAt > now
-                        && (t.Subject == subject || t.Email == email), cancellationToken);
-
-    public async Task<bool> TryConsumeAsync(Guid ticketId, TicketPurpose purpose, DateTime now, CancellationToken cancellationToken)
-    {
-        var affected = await _db.Set<RegistrationTicket>()
-            .Where(t => t.Id == ticketId && t.Purpose == purpose && t.UsedAt == null && t.ExpiresAt > now)
-            .ExecuteUpdateAsync(set => set.SetProperty(t => t.UsedAt, now), cancellationToken);
-        return affected == 1;
-    }
-}
-
-public sealed class TenantUserProfileRepository : ITenantUserProfileRepository
-{
-    private readonly ProducerDbContext _db;
-    public TenantUserProfileRepository(ProducerDbContext db) => _db = db;
-
-    public Task<TenantUserProfile?> FindByProducerAccountIdAsync(Guid producerAccountId, CancellationToken cancellationToken) =>
-        _db.Set<TenantUserProfile>().FirstOrDefaultAsync(p => p.ProducerAccountId == producerAccountId, cancellationToken);
-
-    public void Add(TenantUserProfile profile) => _db.Set<TenantUserProfile>().Add(profile);
-}
-
 public sealed class RegistrationAuditWriter : IRegistrationAuditWriter
 {
     private readonly ProducerDbContext _db;

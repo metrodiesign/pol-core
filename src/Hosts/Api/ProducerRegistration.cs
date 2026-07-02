@@ -12,14 +12,14 @@ namespace Api;
 public sealed record ProducerRegisterResponse(Guid TenantUserId, string Status);
 
 /// <summary>Maps the posted multipart fields onto a <see cref="RegistrationForm"/> (REQ-7.1). Identity fields are
-/// NOT read here — they come only from the verified ticket (REQ-4.2). Blank fields normalise to null; an unknown
-/// personType normalises to null (no hard failure on an optional field).</summary>
+/// NOT read here — they come only from the verified ticket (REQ-4.2). Blank fields normalise to null (empty string
+/// for the required first/last name, caught by the host's required-field check); an unknown personType normalises to
+/// null (no hard failure on an optional field). DisplayName is not a form field — the domain computes it.</summary>
 internal static class ProducerRegistrationForm
 {
     public static RegistrationForm From(IFormCollection form) => new(
-        DisplayName: Value(form, "displayName") ?? string.Empty,
-        FirstName: Value(form, "firstName"),
-        LastName: Value(form, "lastName"),
+        FirstName: Value(form, "firstName") ?? string.Empty,
+        LastName: Value(form, "lastName") ?? string.Empty,
         PersonType: ParsePersonType(Value(form, "personType")),
         IdNumber: Value(form, "idNumber"),
         ProducerCode: Value(form, "producerCode"),
@@ -41,7 +41,7 @@ public sealed class ProducerRegistrationOptions
 {
     public const string SectionName = "Producer:Registration";
 
-    /// <summary>Wire-ticket lifetime; the server row's <c>ExpiresAt</c> remains the authority (REQ-3.2/3.4).</summary>
+    /// <summary>Wire-ticket lifetime; enforced by the Data Protection time limit (the token is stateless — REQ-3.2).</summary>
     public int TicketTtlMinutes { get; set; } = 10;
 
     /// <summary>Max accepted photo size in bytes (REQ-7.4).</summary>
@@ -52,15 +52,16 @@ public sealed class ProducerRegistrationOptions
 }
 
 /// <summary>The verified identity a registration ticket carries (REQ-3.1), captured ONLY from the Google id_token at
-/// the callback and returned by the client at submission. The form body can never override these.</summary>
-public sealed record ProducerTicketPayload(Guid Id, string Subject, string Email, string? HostedDomain, TicketPurpose Purpose);
+/// the callback and returned by the client at submission. The form body can never override these. Stateless — the
+/// signed+time-limited token is self-contained (no server-side row); replay/duplicate safety is the account's unique
+/// (Subject) index at submit time.</summary>
+public sealed record ProducerTicketPayload(string Subject, string Email, string? HostedDomain, TicketPurpose Purpose);
 
 /// <summary>
 /// Signs+encrypts the registration/correction wire ticket with ASP.NET Core Data Protection under a purpose string
 /// DISTINCT from the OIDC state protector (REQ-3.1/14.4) and a built-in time limit (REQ-3.2). A tampered or expired
-/// token fails to unprotect (returns false) — but the single-use authority is the server <c>RegistrationTickets</c>
-/// row, consumed by a conditional UPDATE (REQ-3.4). The issuer (callback) lands in Task 5; this class is built here
-/// because Task 4 consumes the ticket.
+/// token fails to unprotect (returns false). The token is stateless — there is no server-side ticket row; a replayed
+/// still-valid token is stopped at submit time by the account's unique (Subject) index (REQ-4.6).
 /// </summary>
 internal sealed class ProducerRegistrationTickets
 {
@@ -77,8 +78,8 @@ internal sealed class ProducerRegistrationTickets
     public string Protect(ProducerTicketPayload payload) =>
         _protector.Protect(JsonSerializer.Serialize(payload), _ttl);
 
-    /// <summary>Verifies + decodes a wire ticket. Returns false on tamper or expiry (the wire-level guard); the
-    /// server row remains the single-use replay authority (REQ-3.4).</summary>
+    /// <summary>Verifies + decodes a wire ticket. Returns false on tamper or expiry (the wire-level guard); replay
+    /// safety is the account's unique (Subject) index at submit time (REQ-4.6).</summary>
     public bool TryUnprotect(string token, out ProducerTicketPayload payload)
     {
         payload = null!;
@@ -88,7 +89,7 @@ internal sealed class ProducerRegistrationTickets
         {
             var json = _protector.Unprotect(token);
             var decoded = JsonSerializer.Deserialize<ProducerTicketPayload>(json);
-            if (decoded is null || decoded.Id == Guid.Empty ||
+            if (decoded is null ||
                 string.IsNullOrWhiteSpace(decoded.Subject) || string.IsNullOrWhiteSpace(decoded.Email))
                 return false;
             payload = decoded;

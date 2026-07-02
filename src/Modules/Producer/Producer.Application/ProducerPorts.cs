@@ -33,32 +33,6 @@ public interface IExternalLoginRepository
     void Add(ExternalLogin login);
 }
 
-public interface IRegistrationTicketRepository
-{
-    /// <summary>Stages a new server-side <c>RegistrationTickets</c> row — the single-use replay authority a signed
-    /// wire ticket is backed by (REQ-3.4). Minted at the callback for the NotFound (Registration) / Rejected
-    /// (Correction) branches; persisted on the keyed pol_admin context.</summary>
-    void Add(RegistrationTicket ticket);
-
-    /// <summary>True when a pending ticket (<c>UsedAt IS NULL</c> AND not yet expired) already exists for this
-    /// <paramref name="subject"/> OR <paramref name="email"/> — the guard that stops a repeated callback from the
-    /// same user minting a duplicate ticket row. Expired-but-unconsumed tickets are NOT pending (a fresh ticket may
-    /// be issued).</summary>
-    Task<bool> HasPendingAsync(string subject, string email, DateTime now, CancellationToken cancellationToken);
-
-    /// <summary>Single-use consume guard (REQ-3.3/4.1): a conditional UPDATE that stamps <c>UsedAt</c> only while the
-    /// ticket is unused and unexpired. Returns true ONLY for the one caller whose UPDATE affected the row, so two
-    /// concurrent submissions of the same ticket (2-tab) yield exactly one winner — the loser gets false (no row
-    /// touched), never a replay (S9).</summary>
-    Task<bool> TryConsumeAsync(Guid ticketId, TicketPurpose purpose, DateTime now, CancellationToken cancellationToken);
-}
-
-public interface ITenantUserProfileRepository
-{
-    Task<TenantUserProfile?> FindByProducerAccountIdAsync(Guid producerAccountId, CancellationToken cancellationToken);
-    void Add(TenantUserProfile profile);
-}
-
 /// <summary>Append-only writer for <c>RegistrationAudits</c> (REQ-21) on the keyed pol_admin context.</summary>
 public interface IRegistrationAuditWriter
 {

@@ -9,7 +9,7 @@ namespace Producer.Infrastructure;
 
 /// <summary>
 /// Producer module wiring. Loading this assembly lets <c>ProducerDbContext</c> discover its EF configurations
-/// (ProducerAccounts, ProducerTenantAssignments, ExternalLogins, RegistrationTickets, TenantUserProfiles,
+/// (ProducerAccounts, ProducerTenantAssignments, ExternalLogins,
 /// RegistrationAudits, ProducerRegistrationNotices, + session/RBAC) at model-build time via <c>ModuleAssemblies.Producer</c>.
 /// Every producer table is control-plane (no tenant predicate; pol_admin only) — like Admin; the producer account is its
 /// own identity and the tenant is an external assignment edge.
@@ -31,8 +31,6 @@ public static class ProducerModuleRegistration
         services.AddScoped<IProducerAccountRepository>(sp => new ProducerAccountRepository(Db(sp)));
         services.AddScoped<IProducerTenantAssignmentRepository>(sp => new ProducerTenantAssignmentRepository(Db(sp)));
         services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Db(sp)));
-        services.AddScoped<IRegistrationTicketRepository>(sp => new RegistrationTicketRepository(Db(sp)));
-        services.AddScoped<ITenantUserProfileRepository>(sp => new TenantUserProfileRepository(Db(sp)));
         services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Db(sp)));
         // The role repo backs ResolveLoginHandler (effective-permission resolution). The worker never SENDS that
         // query, but Mediator discovers the handler in this assembly, so its dependency graph must RESOLVE under

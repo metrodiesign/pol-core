@@ -1,5 +1,10 @@
 # Implementation Tasks: Producer Google SSO + Role RBAC
 
+> **Amended 2026-07-01:** ticket-row tasks superseded — `RegistrationTickets` table/repo/consume deleted, wire
+> ticket now stateless (see requirements.md + design.md 2026-07-01 amendments; migration `DropRegistrationTicketsTable`).
+> Also 2026-07-01: `TenantUserProfile` entity/table deleted — person/form fields moved onto `ProducerAccount`
+> (migration `AddProducerAccountDetailsDropProfile`); any `TenantUserProfile` task prose below is superseded.
+
 > Status: approved 2026-06-25 (AFK-delegated per /goal directive; spec-trace 110/110 criteria covered, EARS lint clean)
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task in one pass (it may touch many

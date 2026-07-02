@@ -20,6 +20,18 @@ public sealed class ProducerAccountConfiguration : IEntityTypeConfiguration<Prod
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
+        // The registrant's own person details (REQ-7.1) live on the account — a "tenant" is the company/app, not
+        // the person, so this data belongs to the person's record, not a tenant-scoped profile.
+        builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired(); // server-computed from first/last name
+        builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.PersonType).HasConversion<int>();
+        builder.Property(x => x.IdNumber).HasMaxLength(64);
+        builder.Property(x => x.ProducerCode).HasMaxLength(64);
+        builder.Property(x => x.LicenseNumber).HasMaxLength(64);
+        builder.Property(x => x.Phone).HasMaxLength(32);
+        builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
+        builder.Property(x => x.PhotoContentType).HasMaxLength(128);
         builder.HasIndex(x => x.Subject).IsUnique(); // a subject maps to at most one account (REQ-1.4)
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
     }
@@ -52,44 +64,6 @@ public sealed class ExternalLoginConfiguration : IEntityTypeConfiguration<Extern
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.ProducerAccountId).IsRequired();
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // REQ-2.1
-    }
-}
-
-public sealed class RegistrationTicketConfiguration : IEntityTypeConfiguration<RegistrationTicket>
-{
-    public void Configure(EntityTypeBuilder<RegistrationTicket> builder)
-    {
-        builder.ToTable("RegistrationTickets");
-        builder.HasKey(x => x.Id);
-        builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
-        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
-        builder.Property(x => x.HostedDomain).HasMaxLength(256);
-        builder.Property(x => x.Purpose).HasConversion<int>().IsRequired();
-        builder.Property(x => x.CreatedAt).IsRequired();
-        builder.Property(x => x.ExpiresAt).IsRequired();
-        builder.Property(x => x.UsedAt); // the single-use replay guard (REQ-3.4)
-        builder.Ignore(x => x.DomainEvents);
-    }
-}
-
-public sealed class TenantUserProfileConfiguration : IEntityTypeConfiguration<TenantUserProfile>
-{
-    public void Configure(EntityTypeBuilder<TenantUserProfile> builder)
-    {
-        builder.ToTable("TenantUserProfiles");
-        builder.HasKey(x => x.Id);
-        builder.Property(x => x.ProducerAccountId).IsRequired();
-        builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.FirstName).HasMaxLength(200);
-        builder.Property(x => x.LastName).HasMaxLength(200);
-        builder.Property(x => x.PersonType).HasConversion<int>();
-        builder.Property(x => x.IdNumber).HasMaxLength(64);
-        builder.Property(x => x.ProducerCode).HasMaxLength(64);
-        builder.Property(x => x.LicenseNumber).HasMaxLength(64);
-        builder.Property(x => x.Phone).HasMaxLength(32);
-        builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
-        builder.Property(x => x.PhotoContentType).HasMaxLength(128);
-        builder.HasIndex(x => x.ProducerAccountId).IsUnique(); // one-to-one with the account (REQ-7.1)
     }
 }
 

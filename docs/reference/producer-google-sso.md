@@ -198,7 +198,7 @@ sequenceDiagram
     else ok
         OIDC->>LS: OnTicketReceived: HandleCallbackAsync(sub,email,hd,returnTo)
         LS->>RL: ResolveLoginQuery(subject)
-        RL->>DB: FindBySubject(subject)  (control-plane account; tenant via assignment if Active)
+        RL->>DB: FindBySubject(subject)  (control-plane account, tenant via assignment if Active)
         RL-->>LS: Outcome { NotFound | Pending | Rejected | Suspended | Active }
 
         alt Active
@@ -206,21 +206,11 @@ sequenceDiagram
             LS->>LS: cookies.Write(session, csrf)
             LS-->>G: 302 -> SafeReturn(returnTo)
         else NotFound
-            LS->>DB: HasPending(subject OR email)?  (UsedAt IS NULL AND not expired)
-            alt มี pending ticket อยู่แล้ว
-                LS-->>G: 302 -> ErrorPath?reason=registration-pending  (no new ticket)
-            else ไม่มี
-                LS->>DB: Issue Registration ticket (row + wire token)
-                LS-->>G: 302 -> RegisterUrl?ticket=...
-            end
+            LS->>LS: mint stateless Registration wire token (no DB row)
+            LS-->>G: 302 -> RegisterUrl?ticket=...
         else Rejected
-            LS->>DB: HasPending(subject OR email)?
-            alt มี pending ticket อยู่แล้ว
-                LS-->>G: 302 -> ErrorPath?reason=registration-pending
-            else ไม่มี
-                LS->>DB: Issue Correction ticket
-                LS-->>G: 302 -> RegisterUrl?ticket=...
-            end
+            LS->>LS: mint stateless Correction wire token (no DB row)
+            LS-->>G: 302 -> RegisterUrl?ticket=...
         else PendingApproval
             LS-->>G: 302 -> ErrorPath?reason=awaiting-approval (no session)
         else Suspended
@@ -246,18 +236,19 @@ request context ไม่ถูก commit (REQ-9.5). ไม่ log secret/token/
 | `Active` + ไม่มี assignment | `Suspended` | deny (invariant violation) |
 | `Suspended` / อื่น | `Suspended` | deny |
 
-### Dedup guard (กัน registration ticket ซ้ำ)
+### Dedup / replay safety (ทำไมมีได้แค่ record เดียว)
 
-ก่อนออก ticket (NotFound/Rejected) callback เช็ค `HasPendingAsync(subject, email, now)` — ถ้ามี
-pending ticket (`UsedAt IS NULL` AND ยังไม่ expire) ที่ **Subject ตรง OR Email ตรง** -> ไม่ออก row ใหม่
-redirect `ErrorPath?reason=registration-pending`. ticket ที่ expire แล้ว (ยังไม่ consume) ไม่นับ pending
--> ออกใหม่ได้. Subject = identity หลัก (Google `sub`), Email = secondary.
+callback **ไม่ persist อะไรเลย** (NotFound/Rejected) — แค่ mint stateless wire token (signed + time-limited
+ผ่าน Data Protection) แล้ว redirect. ไม่มี `RegistrationTickets` row อีกต่อไป. account ถูกสร้างตอน submit
+form เท่านั้น (REQ-9.6 ยังคงจริง). การกัน record ซ้ำมาจาก **unique index บน `ProducerAccount.Subject`**
+(REQ-1.4): submit ซ้ำ (replay token เดิม หรือ 2-tab) ชน unique index -> 409 ผ่าน unit of work, ไม่เกิด
+row ที่สอง. ฝั่ง Correction กันด้วย `ProducerAccount.Resubmit()` ที่ throw ถ้า status ไม่ใช่ `Rejected`.
+callback ซ้ำก่อน submit = mint token ใหม่เฉยๆ (harmless, self-expiring) — ไม่มี stuck state.
 
 **`reason` codes ที่ FE ต้อง handle ที่ `ErrorPath` (`/login-error?reason=...`):**
 
 | reason | ความหมาย | FE ควรแสดง |
 |---|---|---|
-| `registration-pending` | มี registration ที่ค้างอยู่ (ของ subject/email เดิม) ยังไม่หมดอายุ | "คุณมีการสมัครที่กำลังดำเนินการอยู่ กรุณาทำให้เสร็จ หรือรอจนหมดอายุแล้วลองใหม่" |
 | `awaiting-approval` | สมัครแล้ว รอ admin อนุมัติ (ไม่ใช่ error — info state) | "การสมัครของคุณรอการอนุมัติ" (render เป็น info ไม่ใช่ error) |
 | `suspended` | account ถูกระงับ | "บัญชีถูกระงับ ติดต่อผู้ดูแล" |
 | `resolve-failed` / `session-write-failed` / `ticket-issue-failed` / `missing-identity` | error ฝั่ง server ระหว่าง callback | ข้อความ error ทั่วไป + ปุ่มลองใหม่ |
@@ -353,18 +344,18 @@ sequenceDiagram
     participant DB as keyed pol_admin
 
     Note over B: มาถึงพร้อม ?ticket= จาก callback (NotFound/Rejected)
-    B->>API: POST multipart { ticket, displayName, ..., photo? }
+    B->>API: POST multipart { ticket, firstName, lastName, ..., photo? }
     API->>API: cap body BEFORE buffering (PhotoMaxBytes + 64KB, N3)
-    API->>T: TryUnprotect(ticket)
+    API->>T: TryUnprotect(ticket)  (stateless: signature + TTL only)
     alt invalid/expired
         API-->>B: 400 "ticket missing/invalid/expired"
     else valid
         opt photo present
             API->>API: validate content-type + magic bytes + size (REQ-7.3)
         end
-        API->>SR: SubmitRegistrationCommand(ticket.Id, ticket.Subject, ticket.Email, form, photo)
-        SR->>DB: create ProducerAccount(PendingApproval, no tenant) + ExternalLogin + Profile + consume ticket + enqueue registration outbox event  (1 tx)
-        alt replay / duplicate
+        API->>SR: SubmitRegistrationCommand(ticket.Subject, ticket.Email, form, photo)
+        SR->>DB: create ProducerAccount(PendingApproval, no tenant, + person details) + ExternalLogin + enqueue registration outbox event  (1 tx)
+        alt replay / duplicate (unique Subject index)
             SR-->>API: 409 (no 500)
         else ok
             SR-->>API: { TenantUserId, Status=PendingApproval }
@@ -373,8 +364,10 @@ sequenceDiagram
     end
 ```
 
-ticket เป็น single-use: row `producer.RegistrationTickets` คือ replay authority; wire token signed ด้วย
-DataProtection (purpose แยกจาก admin). TTL ของ wire token = TTL ของ row (`Producer:Registration:TicketTtlMinutes`).
+ticket เป็น stateless: ไม่มี server row — wire token signed + time-limited ด้วย DataProtection (purpose แยก
+จาก admin, TTL = `Producer:Registration:TicketTtlMinutes`). replay/duplicate safety = unique index บน
+`ProducerAccount.Subject` ตอน submit (REQ-4.6); `DisplayName` server-compute จาก `firstName`+`lastName`
+(ไม่ใช่ field ที่ client ส่ง).
 
 ---
 
@@ -592,9 +585,8 @@ UoW -> worker startup พังตอน validate.
 | Worker (`ProducerModuleRegistration`) | default context (pol_app) |
 
 seam อื่นบน keyed pol_admin ใน API: `IProducerAccountRepository`, `IProducerTenantAssignmentRepository`,
-`IExternalLoginRepository`, `IRegistrationTicketRepository`, `ITenantUserProfileRepository`,
-`IRegistrationAuditWriter`, `IProducerOutboxWriter`, `IProducerRoleRepository`, `IProducerSessionStore`,
-`IProducerAuthAuditWriter`.
+`IExternalLoginRepository`, `IRegistrationAuditWriter`, `IProducerOutboxWriter`, `IProducerRoleRepository`,
+`IProducerSessionStore`, `IProducerAuthAuditWriter`.
 
 ทำไม pol_admin: ตาราง account/assignment + identity ทั้งหมดเป็น control-plane (ไม่มี RLS predicate,
 `pol_app` ไม่มี grant — เหมือน Admin); login lookup + per-request resolve อ่าน account/assignment cross-tenant
@@ -611,11 +603,9 @@ schema = `producer` ทั้งหมด. รายละเอียดฟิ�
 
 | ตาราง | plane | หมายเหตุ |
 |---|---|---|
-| `producer.ProducerAccounts` | control (`[DUP->AdminAccounts]`) | producer account; **ไม่มี RLS, ไม่มี TenantId column** |
+| `producer.ProducerAccounts` | control (`[DUP->AdminAccounts]`) | producer account **+ person details** (DisplayName server-computed, first/last required, PersonType/IdNumber/ProducerCode/LicenseNumber/Phone, photo ref); **ไม่มี RLS, ไม่มี TenantId column**; UNIQUE บน `Subject` = 1 record/subject (replay/dedup guard) |
 | `producer.ProducerTenantAssignments` | control (`[DUP->AdminTenantAssignments]`) | tenant edge; UNIQUE บน `ProducerAccountId` = 1 tenant/account |
 | `producer.ExternalLogins` | control | Google subject -> ProducerAccount (FK `ProducerAccountId`) |
-| `producer.RegistrationTickets` | control | single-use replay authority |
-| `producer.TenantUserProfiles` | control | display name, photo ref (FK `ProducerAccountId`) |
 | `producer.RegistrationAudits` | control, append-only | submit/approve/reject trail |
 | `producer.ProducerRegistrationNotices` | control (pol_admin + pol_worker) | outbox notice (คง column `TenantUserId` — id จาก event) |
 | `producer.ProducerSessions` | control | `[DUP->AdminSession]` rotation family (FK `ProducerAccountId`) |
@@ -625,7 +615,10 @@ schema = `producer` ทั้งหมด. รายละเอียดฟิ�
 migration chain (idempotent, reproduce จากศูนย์ได้): `InitialProducerSchema` ->
 `AddProducerIdentityTables` -> `AddProducerRoleRbacTables` -> `AddProducerSessionTables` ->
 `AddProducerOutboxAdminGrant` -> `AddProducerApprovePermissionToAdminCatalog` ->
-`AddRegistrationAuditReason` -> `AddProducerAccountAdminParity`. RLS/grant/raw control-plane
+`AddRegistrationAuditReason` -> `AddProducerAccountAdminParity` ->
+`DropRegistrationTicketsTable` (drop stateless-ticket table + first/last name → NOT NULL) ->
+`AddProducerAccountDetailsDropProfile` (person fields ย้ายจาก `TenantUserProfiles` มาบน `ProducerAccounts`,
+drop profile table; "tenant" = บริษัท/แอป ไม่ใช่บุคคล). RLS/grant/raw control-plane
 table ทั้งหมดอยู่ใน `migrationBuilder.Sql` (ไม่ใช่ EF model). `AddProducerAccountAdminParity` ย้าย
 `TenantUsers` (RLS-keyed) → `ProducerAccounts` (control-plane) ด้วย sp_rename in-place (เก็บ data) +
 backfill assignment จาก TenantId เดิม + drop RLS predicate; predicate DROP/ADD ใช้ `IF (NOT) EXISTS` guard
