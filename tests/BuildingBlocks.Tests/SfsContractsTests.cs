@@ -54,6 +54,20 @@ public sealed class SfsContractsTests
     }
 
     [Fact]
+    public void FilterOperator_rejects_a_numeric_token()
+    {
+        // allowIntegerValues:false -> {"operator":0} is NOT accepted as the ordinal; the token must be the
+        // lowercase/snake string (REQ-1.3). A numeric value is malformed -> JsonException (-> 400 at the parser).
+        Assert.ThrowsAny<JsonException>(() => JsonSerializer.Deserialize<FilterOperator>("0", Web));
+    }
+
+    [Fact]
+    public void SortDirection_rejects_a_numeric_token()
+    {
+        Assert.ThrowsAny<JsonException>(() => JsonSerializer.Deserialize<SortDirection>("0", Web));
+    }
+
+    [Fact]
     public void FilterOption_binds_operator_token_and_keeps_values()
     {
         var f = JsonSerializer.Deserialize<FilterOption>(

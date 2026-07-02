@@ -119,6 +119,20 @@ public sealed class ProductSfsTests
     }
 
     [Fact]
+    public void Default_sort_breaks_created_at_ties_by_id()
+    {
+        // All three share CreatedAt (dayOffset 0), so the fallback must fall through to the unique Id
+        // tie-breaker for deterministic paging (REQ-4.5) — without it the order would be arbitrary.
+        var a = P("a", 1);
+        var b = P("b", 1);
+        var c = P("c", 1);
+
+        var ordered = Q(a, b, c).ApplySort([]).Select(p => p.Id).ToList();
+
+        Assert.Equal(new[] { a.Id, b.Id, c.Id }.OrderByDescending(id => id).ToList(), ordered);
+    }
+
+    [Fact]
     public void Sort_by_price_ascending()
     {
         var r = Q(P("a", 300), P("b", 100), P("c", 200))

@@ -8,7 +8,7 @@ namespace BuildingBlocks.Application;
 /// because the host registers no global string-enum converter; without it the Web defaults would
 /// (de)serialize these as integers and reject the wire tokens. (REQ-1.3, REQ-9.2)
 /// </summary>
-[JsonConverter(typeof(JsonStringEnumConverter<FilterOperator>))]
+[JsonConverter(typeof(FilterOperatorJsonConverter))]
 public enum FilterOperator
 {
     [JsonStringEnumMemberName("eq")] Equals,
@@ -26,3 +26,12 @@ public enum FilterOperator
     [JsonStringEnumMemberName("between")] Between,
     [JsonStringEnumMemberName("contains")] Contains,
 }
+
+/// <summary>
+/// String-token converter for <see cref="FilterOperator"/> with <c>allowIntegerValues: false</c>: a numeric
+/// operator token (e.g. <c>{"operator":0}</c>) is rejected as a <see cref="System.Text.Json.JsonException"/>
+/// (surfaced by the parser as a 400) instead of being silently accepted as the enum ordinal. The default
+/// <see cref="JsonStringEnumConverter{TEnum}"/> still permits integers, which would bypass REQ-1.3.
+/// </summary>
+internal sealed class FilterOperatorJsonConverter()
+    : JsonStringEnumConverter<FilterOperator>(namingPolicy: null, allowIntegerValues: false);

@@ -137,6 +137,17 @@ public sealed class SfsQueryParserTests
         Assert.Equal(StatusCodes.Status400BadRequest, await MapStatus(ex));
     }
 
+    [Fact]
+    public async Task A_numeric_operator_token_maps_to_400()
+    {
+        // Integer enum values are rejected (allowIntegerValues:false), so a numeric operator is malformed -> 400,
+        // never silently accepted as the ordinal (REQ-1.3).
+        var ex = Assert.Throws<ArgumentException>(() =>
+            Parse(("filters", """[{"field":"status","operator":0,"value":"active"}]""")));
+
+        Assert.Equal(StatusCodes.Status400BadRequest, await MapStatus(ex));
+    }
+
     private static async Task<int> MapStatus(Exception exception)
     {
         var services = new ServiceCollection();

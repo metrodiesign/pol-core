@@ -105,7 +105,10 @@ public static class ProductSfs
                 _ => o,
             };
         }
-        return o ?? query.OrderByDescending(p => p.CreatedAt);   // Product HAS CreatedAt -> default fallback (REQ-4.5)
+        // Default fallback (REQ-4.5). CreatedAt is not unique (bulk/seed ties), so append the unique Id as a
+        // tie-breaker — without it, tied timestamps let SQL Server order rows arbitrarily and paging can
+        // duplicate/skip items across pages.
+        return o ?? query.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id);
     }
 
     public static IQueryable<Product> ApplySearch(this IQueryable<Product> query, SearchOption? search)
