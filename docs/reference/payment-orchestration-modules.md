@@ -62,9 +62,9 @@ Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Paymen
 - **PCI** — SAQ A รายนิติบุคคล (redirect-only ไม่แตะข้อมูลบัตร)
 
 **รอยต่อข้ามโมดูล (Payments ↔ Orders) ที่ต้องระวัง:**
-- ชนิดเงินที่ seam `PaymentPaid` — Contracts ปัจจุบัน `Amount` เป็น `long` สตางค์ แต่ Orders ใช้ `decimal` บาท → ควรย้าย `Money` ไป Contracts/SharedKernel ให้ทุกโมดูลใช้ร่วม
-- **verify amount/currency** ตอน Orders รับ `PaymentPaid` ไม่ใช่แค่ `PaymentId` (กันจ่ายไม่ครบ/สกุลผิด)
-- **correlation:** Orders ถือ `PaymentId` ตั้งแต่ตอนเรียก Payments → จับคู่ `PaymentPaid` ได้ทันที (ไม่มี attach-race) · จะใส่ `OrderId` ใน `PaymentPaid` เพิ่มก็ได้เพื่อความชัด
+- ชนิดเงินที่ seam `PaymentPaid` — `Amount` เป็น `Money` (SharedKernel) ใช้ร่วมทุกโมดูลแล้ว — ห้ามถอยกลับไป scalar/decimal ที่ seam
+- **verify amount/currency** ตอน Orders รับ `PaymentPaid` ไม่ใช่แค่ id (กันจ่ายไม่ครบ/สกุลผิด) — ทำแล้วใน `Order.MarkPaid`
+- **correlation:** Orders จับคู่ order ด้วย **`PaymentPaid.OrderId`** (field ชั้นหนึ่งของ contract; PR #44, spec `bugfix-order-paid-link`) — `Order.PaymentSessionId` เป็น legacy ไม่มี production writer ห้ามใช้เป็น join key
 
 ---
 
