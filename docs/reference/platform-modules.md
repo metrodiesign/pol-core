@@ -247,7 +247,7 @@ Audit (14) บันทึกการกระทำสำคัญตลอด
 
 **ความสัมพันธ์** — สร้างโดย `CheckoutConfirmedConsumer` (idempotent ด้วย unique `CheckoutSessionId`); enqueue `CustomerOrderNotification` (§13); รับ `PaymentPaid` จาก Payments เพื่อ flip เป็น `Paid`
 
-**สถานะ: มีแล้ว** — แต่มี gap ระดับ flow: **การ link `Order.PaymentSessionId` ยังไม่ถูกเรียกใช้จริง ทำให้เส้นทาง `PaymentPaid` → `Order.Paid` ไม่ปิด** (ดู [ช่องว่าง](#ช่องว่างเทียบเป้าหมาย-as-built-gaps) ข้อ 2); ยังไม่มี order lines (รายการสินค้าต่อใบ)
+**สถานะ: มีแล้ว** — เส้นทาง `PaymentPaid` → `Order.Paid` ปิดแล้ว (PR #44: consumer resolve ด้วย `PaymentPaid.OrderId` — ดู [ช่องว่าง](#ช่องว่างเทียบเป้าหมาย-as-built-gaps) ข้อ 2); ยังไม่มี order lines (รายการสินค้าต่อใบ)
 
 ---
 
@@ -383,7 +383,7 @@ Audit (14) บันทึกการกระทำสำคัญตลอด
 > รวมจุดที่โมเดลเป้าหมายกับโค้ดจริงยังไม่ตรงกัน — บันทึกเพื่อการรับรู้; การแก้แต่ละข้อต้องเปิด spec ของตัวเอง
 
 1. **Channel enablement ยังไม่ enforce** — `Tenant.EnabledChannels` และ `PspConnection.EnabledMethods` ถูกเก็บ verbatim (จงใจ defer ตอน provisioning spec) แต่ตอนสร้าง payment session ไม่มีการ validate `Method` กับค่าใดเลย (`PspConnection.Supports()` ไม่มีผู้เรียก) — เปิดช่องสร้าง session ด้วยช่องทางที่ไม่ได้เปิดใช้; ระดับ producer (อันดับ 3) ยังไม่มีแนวคิดในโค้ด
-2. **Order ↔ PaymentSession ไม่ถูก link (bug ระดับ flow)** — `Order.PaymentSessionId` ไม่เคยถูก populate (`Order.AttachPaymentSession` ไม่มีผู้เรียก) แต่ `OrderPaidConsumer` ค้นหา order ด้วย `PaymentSessionId` → ไม่เจอ → จบเงียบ: **PaymentSession เป็น `Paid` แล้ว แต่ Order ค้าง `AwaitingPayment`** (event `PaymentPaid` มี `OrderId` แต่ consumer ไม่ได้ใช้) — กำลังแก้ใน PR #44 (spec `bugfix-order-paid-link`: consumer เปลี่ยนไป resolve ด้วย `OrderId`)
+2. **[แก้แล้ว 2026-07-04, PR #44]** Order ↔ PaymentSession ไม่ถูก link (bug ระดับ flow) — เดิม `OrderPaidConsumer` ค้นหา order ด้วย `Order.PaymentSessionId` ที่ไม่เคยถูก populate → จ่ายสำเร็จแต่ Order ค้าง `AwaitingPayment` เงียบๆ; แก้โดย resolve ด้วย `PaymentPaid.OrderId` (spec `bugfix-order-paid-link`; mismatch/cancelled ตอนนี้ล้มดังเข้า DLQ). คงเหลือ housekeeping: ลบ `AttachPaymentSession` + column `PaymentSessionId` ที่เป็น legacy ไม่มี writer
 3. **Checkout ขาด field ตามเป้าหมาย** — ผู้ทำรายการ (producer), ข้อมูลลูกค้า, ผู้รับแจ้งเตือนหลายรายการ (ลูกค้า + กำหนดเอง, อีเมล/SMS), การล็อกช่องทางจ่ายตั้งแต่ checkout, หมายเหตุ
 4. **Notifications ยังเป็น stub** — ไม่มี email/SMS provider จริง (defer โดย spec), ไม่มีตารางประวัติการส่ง, ผู้รับ 1 ค่าต่อ order
 5. **Transaction view ยังไม่มี** — ถ้าต้องการหน้า "รายการชำระเงิน" ให้ทำเป็น read model เหนือ `PaymentSession` (ห้ามสร้าง money ledger — non-goal)

@@ -80,9 +80,9 @@ redirect → ลูกค้าจ่าย → **webhook = source of truth** (v
 Orders → Paid. จบ ไม่มี issuance.
 
 **Seam ที่ต้องระวัง (Payments ↔ Orders):**
-- `PaymentPaid.Amount` ปัจจุบันเป็น `long` สตางค์ แต่ Orders ใช้ `decimal` บาท → ควรย้าย `Money` ไป Contracts/SharedKernel ให้ใช้ร่วม
-- Orders รับ `PaymentPaid` ต้อง **verify amount/currency** ไม่ใช่แค่ `PaymentId` (กันจ่ายไม่ครบ/สกุลผิด)
-- Orders ถือ `PaymentId` ตั้งแต่เรียก Payments → จับคู่ได้ทันที ไม่มี attach-race
+- `PaymentPaid.Amount` เป็น `Money` (SharedKernel) ใช้ร่วมทั้งสองโมดูลแล้ว — ห้ามถอยกลับไป scalar/decimal ที่ seam
+- Orders รับ `PaymentPaid` ต้อง **verify amount/currency** ไม่ใช่แค่ id (กันจ่ายไม่ครบ/สกุลผิด) — ทำแล้วใน `Order.MarkPaid`
+- Orders จับคู่ order ด้วย **`PaymentPaid.OrderId`** (PR #44, spec `bugfix-order-paid-link`) — `Order.PaymentSessionId` เป็น legacy ไม่มี production writer ห้ามใช้เป็น join key
 
 **Cross-cutting (บังคับทั้งระบบ — security detail: [SECURITY_RULES.md](SECURITY_RULES.md) Product security):**
 - Multi-tenant isolation — **floor = SQL Server native RLS + `SESSION_CONTEXT('TenantId')`** ต่อ request (ไม่พึ่ง app code);
