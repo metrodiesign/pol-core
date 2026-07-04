@@ -34,7 +34,6 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public IReadOnlyList<Order> All => _orders;
 
     public Task<Order?> GetAsync(Guid orderId, CancellationToken ct) =>
-
         Task.FromResult(_orders.FirstOrDefault(o => o.Id == orderId));
 
     public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken ct) =>
