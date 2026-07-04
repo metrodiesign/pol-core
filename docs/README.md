@@ -20,6 +20,8 @@ cost tracking และ retrospective. อ่านตามลำดับส�
 
 ## เอกสารอ้างอิง (reference) — คู่มือโมดูล / สถาปัตยกรรม / convention
 
+- [platform modules (บริบท+บทบาท)](reference/platform-modules.md) — module map ระดับแพลตฟอร์ม:
+  บริบท/บทบาทของทั้ง 14 โมดูล + สถานะ as-built + ช่องว่างเทียบเป้าหมาย (จุดเริ่มอ่านภาพรวม)
 - [src structure](reference/src-structure.md) — โครงสร้าง `src/`, layer, การวาง handler/repository
 - [entity fields](reference/entity-fields.md) — schema + field ของทุก entity/ตาราง
 - [Admin Google SSO](reference/admin-google-sso.md) — โมดูล admin SSO (BFF) + sequence

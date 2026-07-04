@@ -16,8 +16,8 @@
 
 ## Target Users
 
-- **ผู้ผลิต (Tenant Console)** — พนักงานบริษัทในเครือ: เลือกแผน/กรมธรรม์ → ตะกร้า → checkout → สร้าง Order
-  เห็นเฉพาะข้อมูล tenant ตน (scope ด้วย `TenantId`)
+- **Producer (Tenant Console)** — ตัวแทนประกันภัย / นายหน้าประกันภัย ในสังกัดบริษัทในเครือ:
+  เลือกแผน/กรมธรรม์ → ตะกร้า → checkout → สร้าง Order เห็นเฉพาะข้อมูล tenant ตน (scope ด้วย `TenantId`)
 - **ลูกค้า** — เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น) ผ่าน redirect ไปหน้า PSP
 - **ทีมกลาง (Admin Console)** — internal-only: provision tenant, เก็บ PSP credential/config, ตั้ง routing, monitor, audit
 
