@@ -88,8 +88,9 @@ public sealed class Order : AggregateRoot<Guid>
         new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAt);
 
     /// <summary>
-    /// Binds the payment session this order awaits. The session is the join key the
-    /// PaymentPaid consumer loads the order by.
+    /// Binds the payment session this order awaits. Legacy link with no production writer — the
+    /// PaymentPaid consumer resolves orders by the event's <c>OrderId</c>, not by this value
+    /// (bugfix-order-paid-link F2).
     /// </summary>
     public void AttachPaymentSession(Guid paymentSessionId)
     {
