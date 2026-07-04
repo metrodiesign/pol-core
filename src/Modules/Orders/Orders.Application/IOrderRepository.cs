@@ -10,9 +10,6 @@ namespace Orders.Application;
 /// </summary>
 public interface IOrderRepository
 {
-    /// <summary>Loads the order awaiting the given payment session, or null if none exists.</summary>
-    Task<Order?> GetByPaymentSessionIdAsync(Guid paymentSessionId, CancellationToken cancellationToken);
-
     /// <summary>Loads one order by id (RLS scopes it to the bound tenant), or null if absent.</summary>
     Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken);
 

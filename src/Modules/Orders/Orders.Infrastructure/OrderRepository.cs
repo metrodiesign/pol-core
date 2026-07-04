@@ -17,10 +17,6 @@ public sealed class OrderRepository : IOrderRepository
 
     public OrderRepository(ProducerDbContext db) => _db = db;
 
-    public Task<Order?> GetByPaymentSessionIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
-        _db.Set<Order>()
-            .SingleOrDefaultAsync(o => o.PaymentSessionId == paymentSessionId, cancellationToken);
-
     public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
         _db.Set<Order>().FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
 
