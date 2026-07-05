@@ -1,4 +1,4 @@
-# Producer Google SSO (BFF) — คู่มือโมดูล + Sequence Diagrams
+# Producer Module — Google SSO (BFF) + Sequence Diagrams
 
 คู่มือฉบับสมบูรณ์ของโมดูล `producer-google-sso` (rebuild ของ Identity module เดิม). โมดูลนี้ให้
 ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant

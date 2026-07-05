@@ -26,7 +26,7 @@ cost tracking และ retrospective. อ่านตามลำดับส�
 - [src structure](reference/src-structure.md) — โครงสร้าง `src/`, layer, การวาง handler/repository
 - [entity fields](reference/entity-fields.md) — schema + field ของทุก entity/ตาราง
 - [Admin module (SSO BFF + FE integration)](reference/admin-module.md) — โมดูล admin SSO (BFF) + sequence + การต่อ FE กับ admin API
-- [Producer Google SSO](reference/producer-google-sso.md) — โมดูล producer SSO (BFF) + sequence
+- [Producer module (SSO BFF)](reference/producer-module.md) — โมดูล producer SSO (BFF) + sequence
 - [payment orchestration modules](reference/payment-orchestration-modules.md) — โมดูลฝั่ง payment
   + ภาค 8 = Canonical Payment API **target design (normative)**: Payment/PaymentAttempt/Webhook inbox/Routing
 - [Search / Filter / Sort](reference/search-filter-sort.md) — convention SFS + pagination บน list endpoint (JSON-DSL, EF Core, SQL Server, RLS)
