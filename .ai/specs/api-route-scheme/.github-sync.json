@@ -10,8 +10,8 @@
     "4": { "issue": 54, "nodeId": "4813383907", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
     "5": { "issue": 55, "nodeId": "4813384388", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
     "6": { "issue": 56, "nodeId": "4813384777", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
-    "7": { "issue": 57, "nodeId": "4813385019", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "open" }
+    "7": { "issue": 57, "nodeId": "4813385019", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" }
   },
-  "lastSync": "2026-07-05T15:27:25Z",
+  "lastSync": "2026-07-05T15:52:56Z",
   "labelsEnsured": ["spec:api-route-scheme", "spec-epic", "spec-task", "req-spine"]
 }
