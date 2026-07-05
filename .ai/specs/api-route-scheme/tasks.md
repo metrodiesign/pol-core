@@ -67,8 +67,13 @@
        - viewports: n/a — documentation
        - deviations: the per-module "API surface" **target-design** examples (aspirational endpoints broader than the 47 as-built — api-clients, change-requests, product-quotes, etc.) kept their surface-first notation under a redirect note (surface->area is ambiguous there: an admin/customer view of a data-plane area could be `/api/v1/admins/orders` OR `/api/v1/orders`). Re-notating future design endpoints exceeds api-route-scheme's as-built sync — flagged in-doc, not silently left. Base-path CONVENTION statements were all updated.
 
-- [ ] 7. [optional] Cutover coordination (Definition of Done) — out-of-repo checklist: update the admin SPA + producer SPA route calls to the new paths; re-register the PSP dev webhook callback URL (2C2P/Omise) to `/api/v1/webhooks/{pspConnectionId}`; re-register the Google OAuth dev `redirect_uri` for the admin + producer callbacks.
+- [x] 7. [optional] Cutover coordination (Definition of Done) — out-of-repo checklist: update the admin SPA + producer SPA route calls to the new paths; re-register the PSP dev webhook callback URL (2C2P/Omise) to `/api/v1/webhooks/{pspConnectionId}`; re-register the Google OAuth dev `redirect_uri` for the admin + producer callbacks.
      Satisfies: REQ-8.1, 8.2, 8.3. Depends on: 1, 2. Verify: manual checklist (no automated backend test); dev admin/producer login + a sandbox webhook succeed end-to-end.
+     Evidence:
+       - cutover (manual, out-of-repo — user-confirmed 2026-07-05): admin SPA + producer SPA route calls → `/api/v1/...`; PSP dev webhook callback URL → `/api/v1/webhooks/{pspConnectionId}`; Google OAuth dev `redirect_uri` → `/api/v1/admins/auth/callback` + `/api/v1/producers/auth/callback` — all re-registered (REQ-8.1/8.2/8.3)
+       - test: n/a — manual out-of-repo (no automated backend test, per Verify line)
+       - viewports: n/a — infra/config cutover
+       - deviations: end-to-end verify PENDING — the re-registration is complete, but the Verify smoke (dev admin/producer login + a sandbox webhook succeed end-to-end) has NOT yet been run; run it before relying on the dev flow.
 
 ## Suggested execution batches
 
