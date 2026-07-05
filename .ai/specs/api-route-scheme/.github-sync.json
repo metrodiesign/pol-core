@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "feature": "api-route-scheme",
+  "repo": "metrodiesign/pol-core",
+  "epic": { "issue": 50, "nodeId": "4813374826", "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+  "tasks": {
+    "1": { "issue": 51, "nodeId": "4813380394", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
+    "2": { "issue": 52, "nodeId": "4813381801", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
+    "3": { "issue": 53, "nodeId": "4813382094", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
+    "4": { "issue": 54, "nodeId": "4813383907", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
+    "5": { "issue": 55, "nodeId": "4813384388", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
+    "6": { "issue": 56, "nodeId": "4813384777", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "closed" },
+    "7": { "issue": 57, "nodeId": "4813385019", "subIssueLinked": true, "bodyHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000", "state": "open" }
+  },
+  "lastSync": "2026-07-05T15:27:25Z",
+  "labelsEnsured": ["spec:api-route-scheme", "spec-epic", "spec-task", "req-spine"]
+}
