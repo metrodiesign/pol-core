@@ -357,7 +357,7 @@ redirect URL ลง span attribute
 | Error contract 2 surface | JSON = ProblemDetails · OAuth callback = 302 redirect + `?reason=` ทุก outcome | มีแล้ว |
 | Rate limiting เฉพาะจุดเสี่ยง | 3 policy: admin auth · producer auth · webhook | มีแล้ว |
 | Maker-checker | action อ่อนไหว (approve tenant, เปลี่ยน routing, แก้ allowlist) ต้องมีผู้อนุมัติคนที่สอง — target formalize เป็น `ChangeRequest` aggregate (maker/checker คนละ principal, TTL, request hash — ดู §3.2); ปัจจุบันทุก action เป็น single-actor + permission gate | ยังไม่มี (ข้อ 14) |
-| Health check endpoint | liveness/readiness — target: `GET /health/live`, `GET /health/ready` (แยก authorization จาก business API); ไม่พบ `AddHealthChecks`/`MapHealthChecks` ใน Hosts | ยังไม่มี (ข้อ 15) |
+| Health check endpoint | `GET /health/live` (process-only) + `GET /health/ready` (ตรวจ producer-db + vault) — impl ใน `BuildingBlocks.Web/HealthChecks.cs` (`AddReadinessHealthChecks()` + `MapPolHealthChecks()`) wire ทั้ง Api และ Worker | มีแล้ว |
 | Observability/ops | target: metrics taxonomy + alert (DLQ โต, webhook `Rejected` ผิดปกติ, outbox ค้าง) + Operations API (`GET /api/operations/v1/outbox`, `POST .../outbox/{messageId}/requeue`, `GET .../dlq` — ทุก requeue ต้อง audit) | ยังไม่มี (ข้อ 15) |
 | Canonical API conventions ขาเข้า | inbound `Idempotency-Key` + idempotency record, `ETag`/`If-Match`, RFC 9457 `code` catalog, correlation/causation ids — ดู [เป้าหมายเชิง API](#เป้าหมายเชิง-api-ระดับแพลตฟอร์ม-normative-target) | ยังไม่มี (ข้อ 18) |
 | API surface 6 ระนาบ + version | base path `/api/{surface}/v1` (ตัดสินแล้ว 2026-07-05) — route ปัจจุบันไม่มี /api ไม่มี version | ยังไม่มี (ข้อ 18) |
@@ -372,7 +372,8 @@ redirect URL ลง span attribute
 - **Invariants**: domain module ห้าม reference infrastructure ของโมดูลอื่นตรง · integration event ต้อง
   immutable + versioned · outbox record เขียนใน transaction เดียวกับ state change · worker ทำงาน
   at-least-once · log ห้ามมี secret/capability token/PAN/PII ที่ไม่จำเป็น
-- **API/operations**: `GET /health/live` · `GET /health/ready` · `GET /api/operations/v1/outbox` ·
+- **API/operations**: `GET /health/live` · `GET /health/ready` (สองตัวนี้**มีแล้ว** —
+  `BuildingBlocks.Web/HealthChecks.cs`) · `GET /api/operations/v1/outbox` ·
   `POST /api/operations/v1/outbox/{messageId}/requeue` · `GET /api/operations/v1/dlq` —
   แยก authorization จาก business API, ทุก requeue ต้อง audit
 - **Design decisions**: ใช้ modular monolith ต่อไปจนมีเหตุผลด้าน scale/ownership ชัดเจน — ห้ามแตก
@@ -1133,9 +1134,13 @@ redirect URL ลง span attribute
     ยังไม่มีที่เก็บ/ผู้ใช้ routing config
 14. **Maker-checker ยังไม่มี** — canon กำหนดสำหรับ action อ่อนไหว (approve tenant, เปลี่ยน routing,
     แก้ allowlist) แต่ทุก action ปัจจุบันเป็น single-actor + permission gate (เช่น approve producer ใช้คนเดียว)
-15. **ไม่มี health check endpoint** — ไม่พบ `AddHealthChecks`/`MapHealthChecks` ใน Hosts ทั้งสอง —
-    จำเป็นต่อ liveness/readiness ตอน deploy จริง; target ขยายเป็น observability เต็ม: metrics
-    taxonomy + alerts + Operations API (outbox/DLQ inspect + requeue) — ดู
+15. **Observability/Operations API ยังไม่มี** (แก้บันทึก 2026-07-05: health check endpoint
+    **มีแล้ว** — `/health/live` + `/health/ready` (ตรวจ producer-db + vault) ใน
+    `BuildingBlocks.Web/HealthChecks.cs` wire ทั้ง Api และ Worker; บันทึกเดิม 2026-07-04 ผิด
+    เพราะ grep หา `AddHealthChecks`/`MapHealthChecks` ตรงตัวใน Hosts แต่โปรเจกต์ห่อเป็น
+    `AddReadinessHealthChecks()`/`MapPolHealthChecks()`) — gap ที่เหลือจริงคือ observability:
+    metrics taxonomy + alerts (DLQ โต, webhook `Rejected` ผิดปกติ, outbox ค้าง) + Operations API
+    (outbox/DLQ inspect + requeue) — ดู
     [เป้าหมายเชิง API](#เป้าหมายเชิง-api-ระดับแพลตฟอร์ม-normative-target)
 16. **Payment/PaymentAttempt split ยังไม่มี** — `PaymentSession` ปัจจุบันหลอมรวม payment intent กับ
     PSP attempt ไว้ในตัวเดียว (1 session = 1 attempt, ไม่มี retry/fallback model); target แยกเป็น
@@ -1231,8 +1236,8 @@ redirect URL ลง span attribute
 5. **OrderLine + checkout snapshot** — ข้อ 21 + 3
 6. **Lifecycle/expiry jobs** (payment/checkout/cart/order terminal states) — ข้อ 12
 7. ตามด้วย: tenant API client + Integration API (ข้อ 6) · notification delivery history (ข้อ 4) ·
-   maker-checker (ข้อ 14) · health + observability + Operations API (ข้อ 15) · Money migration (ข้อ 22 —
-   จะทำพร้อมข้อ 2 ก็ได้ถ้า ADR 16 ตัดสินทัน)
+   maker-checker (ข้อ 14) · observability + Operations API (ข้อ 15 — health endpoints มีแล้ว) ·
+   Money migration (ข้อ 22 — จะทำพร้อมข้อ 2 ก็ได้ถ้า ADR 16 ตัดสินทัน)
 
 ทุก phase ของ migration ต้องมี dual-read/compatibility strategy — ห้าม migration แบบหยุดรับ webhook นาน
 
