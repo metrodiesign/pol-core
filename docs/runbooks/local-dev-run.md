@@ -320,8 +320,8 @@ GROUP BY o.name ORDER BY o.name;"
 
 ## 9. อ้างอิง
 
-- `docs/reference/producer-google-sso.md` — สเปก producer SSO module เต็ม
-- `docs/reference/admin-google-sso.md` — admin SSO
+- `docs/reference/producer-module.md` — สเปก producer SSO module เต็ม
+- `docs/reference/admin-module.md` — admin SSO + FE integration
 - `.ai/shared/ARCHITECTURE.md` — folder layout, principal model
 - `.ai/shared/CODING_STANDARDS.md` — version pin, hard constraints
 - `docker-compose.yml` / `docker/bootstrap/01-principals.sql` — dev DB + principals

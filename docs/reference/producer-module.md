@@ -1,4 +1,4 @@
-# Producer Google SSO (BFF) — คู่มือโมดูล + Sequence Diagrams
+# Producer Module — Google SSO (BFF) + Sequence Diagrams
 
 คู่มือฉบับสมบูรณ์ของโมดูล `producer-google-sso` (rebuild ของ Identity module เดิม). โมดูลนี้ให้
 ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant
@@ -15,7 +15,7 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
 > response DTO ยังคง field `TenantUserId` ไว้โดยตั้งใจ — เป็น id ของ account.)
 
 - Feature spec: `.ai/specs/producer-google-sso/{requirements,design,tasks}.md`
-- เทียบ Admin: `docs/reference/admin-google-sso.md`
+- เทียบ Admin: `docs/reference/admin-module.md`
 - ตาราง DB: `docs/reference/entity-fields.md` (section "Producer module")
 
 ---
