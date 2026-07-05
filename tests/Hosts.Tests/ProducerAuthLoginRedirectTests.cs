@@ -13,7 +13,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
 
-// GET /producer/auth/login hands off to the "ProducerGoogle" OIDC handler, which redirects to Google's authorize
+// GET /api/v1/producers/auth/login hands off to the "ProducerGoogle" OIDC handler, which redirects to Google's authorize
 // endpoint with the Authorization Code + PKCE + state + nonce parameters and only the openid+email scope (REQ-8.1/8.4).
 // A static OIDC Configuration is injected so the challenge builds the redirect WITHOUT a network metadata fetch.
 
@@ -70,7 +70,7 @@ public sealed class ProducerAuthLoginRedirectTests
         using var factory = new ProducerLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/producer/auth/login?returnTo=/dashboard");
+        var response = await client.GetAsync("/api/v1/producers/auth/login?returnTo=/dashboard");
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         var location = response.Headers.Location!;
@@ -84,6 +84,7 @@ public sealed class ProducerAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.False(string.IsNullOrEmpty(query["code_challenge"]));
+        Assert.EndsWith("/api/v1/producers/auth/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // REQ-6.2: challenge targets the NEW callback
     }
 
     [Fact]
@@ -92,7 +93,7 @@ public sealed class ProducerAuthLoginRedirectTests
         using var factory = new ProducerLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/producer/auth/login");
+        var response = await client.GetAsync("/api/v1/producers/auth/login");
 
         // The OIDC handler persists state/nonce in a correlation + nonce cookie under the ProducerGoogle scheme's
         // own DP purpose (REQ-8.2/14.4).

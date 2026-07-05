@@ -12,7 +12,7 @@ namespace Hosts.Tests;
 // SFS endpoints read page/limit/filters/sort/search from the raw query string, so ASP.NET emits no OpenAPI
 // parameters for them; an operation transformer adds them wherever the SfsQueryParamsMarker is present. This
 // boots the real OpenAPI document (Development, where MapOpenApi serves /openapi/v1.json) and asserts the SFS
-// parameters are declared on GET /admin/roles (REQ-13).
+// parameters are declared on GET /api/v1/admins/roles (REQ-13).
 file sealed class SfsOpenApiFactory : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -46,7 +46,7 @@ public sealed class SfsOpenApiTests
         response.EnsureSuccessStatusCode();
         var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
 
-        var op = root.GetProperty("paths").GetProperty("/admin/roles").GetProperty("get");
+        var op = root.GetProperty("paths").GetProperty("/api/v1/admins/roles").GetProperty("get");
         var names = op.GetProperty("parameters").EnumerateArray()
             .Select(p => p.GetProperty("name").GetString())
             .ToHashSet();

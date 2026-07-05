@@ -15,10 +15,10 @@ using Microsoft.Extensions.Hosting;
 namespace Hosts.Tests;
 
 /// <summary>
-/// The /admin/* surface gates on <c>RequireAuthorization("admin")</c>. After the BFF cutover (REQ-10) that
+/// The /api/v1/admins/* surface gates on <c>RequireAuthorization("admin")</c>. After the BFF cutover (REQ-10) that
 /// policy is the AdminSession COOKIE scheme — not the retired Bearer "admin" audience: it is pinned to that
 /// scheme, refuses anonymous (REQ-7.2), and is NOT registered by the Google Bearer wiring (REQ-10.2). A live
-/// /admin request with no session cookie returns 401 — not 500 (missing policy) and not a login redirect.
+/// /api/v1/admins request with no session cookie returns 401 — not 500 (missing policy) and not a login redirect.
 /// </summary>
 public sealed class AdminProvisioningAuthorizationTests
 {
@@ -54,7 +54,7 @@ public sealed class AdminProvisioningAuthorizationTests
         using var factory = new GateFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/admin/me");
+        var response = await client.GetAsync("/api/v1/admins/me");
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

@@ -41,9 +41,9 @@ public sealed class ProducerWriteGateTests
 {
     private static readonly (string Route, string Permission)[] Endpoints =
     [
-        ("/products", "product.create"),
-        ("/payment-sessions", "payment.create"),
-        ("/payment-sessions/{paymentSessionId:guid}/redirect", "payment.redirect"),
+        ("/api/v1/products", "product.create"),
+        ("/api/v1/payments/sessions", "payment.create"),
+        ("/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "payment.redirect"),
     ];
 
     [Fact]

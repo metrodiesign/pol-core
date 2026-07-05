@@ -147,7 +147,7 @@ Audit (14) บันทึกการกระทำสำคัญตลอด
 
 ### API surfaces และ trust boundary
 
-Base path `/api/{surface}/v1` เป็น **convention ที่ตัดสินแล้ว (2026-07-05)** — ทุก API ต้องมี version บน path
+Base path `/api/v1/{area}` เป็น **convention ที่ตัดสินแล้ว + migrate as-built ครบ (2026-07-05, spec `api-route-scheme`)** — version-first global (`v1` เดียวทั้ง API), segment ที่สอง = **domain area** (plural noun) ไม่ใช่ audience; audience บังคับ per-endpoint ผ่าน `RequireAuthorization`. หมายเหตุ: ตัวอย่าง "API surface" ต่อโมดูลด้านล่างบางบรรทัดยังเขียนด้วย notation เก่าแบบ surface-first (audience นำหน้า version — เช่น `/api/admin/v1/...`, target design เดิมที่กว้างกว่า as-built) — อ่านเป็น area scheme: audience ย้ายไปบังคับต่อ endpoint, resource domain = area (เช่น `/api/admin/v1/tenants` → `/api/v1/admins/tenants`, `/api/producer/v1/products` → `/api/v1/products`)
 
 | Surface | Base path | ผู้เรียก | Auth | ขอบเขต |
 |---|---|---|---|---|
@@ -360,7 +360,7 @@ redirect URL ลง span attribute
 | Health check endpoint | `GET /health/live` (process-only) + `GET /health/ready` (ตรวจ producer-db + vault) — impl ใน `BuildingBlocks.Web/HealthChecks.cs` (`AddReadinessHealthChecks()` + `MapPolHealthChecks()`) wire ทั้ง Api และ Worker | มีแล้ว |
 | Observability/ops | target: metrics taxonomy + alert (DLQ โต, webhook `Rejected` ผิดปกติ, outbox ค้าง) + Operations API (`GET /api/operations/v1/outbox`, `POST .../outbox/{messageId}/requeue`, `GET .../dlq` — ทุก requeue ต้อง audit) | ยังไม่มี (ข้อ 15) |
 | Canonical API conventions ขาเข้า | inbound `Idempotency-Key` + idempotency record, `ETag`/`If-Match`, RFC 9457 `code` catalog, correlation/causation ids — ดู [เป้าหมายเชิง API](#เป้าหมายเชิง-api-ระดับแพลตฟอร์ม-normative-target) | ยังไม่มี (ข้อ 18) |
-| API surface 6 ระนาบ + version | base path `/api/{surface}/v1` (ตัดสินแล้ว 2026-07-05) — route ปัจจุบันไม่มี /api ไม่มี version | ยังไม่มี (ข้อ 18) |
+| API surface + version | base path `/api/v1/{area}` (version-first global, area = domain; ตัดสิน + migrate as-built ครบ 2026-07-05 ผ่าน `api-route-scheme`) | **มีแล้ว** (spec api-route-scheme) |
 
 **โมเดลเป้าหมายเชิง API** (Platform Core)
 
@@ -1155,9 +1155,9 @@ redirect URL ลง span attribute
     `endpointKey` (`POST /api/webhooks/v1/{endpointKey}`) แทน `pspConnectionId` ตรงบน URL
 18. **Canonical API conventions ขาเข้า + route version ยังไม่มี** — target: inbound `Idempotency-Key`
     + idempotency record (claim/replay/`409 key_reused`), `ETag`/`If-Match` (`412 version_mismatch`),
-    RFC 9457 `code` catalog เสถียร, correlation/causation ids; base path `/api/{surface}/v1`
-    **ตัดสินแล้ว 2026-07-05** — route ปัจจุบันทั้งหมดไม่มี /api ไม่มี version = legacy ต้องมีแผน
-    migrate/compat (ADR ข้อ 14 ใน[ทะเบียน](#ทะเบียนตัดสินใจค้าง-adr-pending-และลำดับเปิด-spec));
+    RFC 9457 `code` catalog เสถียร, correlation/causation ids; base path `/api/v1/{area}`
+    (version-first global, area = domain, audience per-endpoint) **migrate as-built ครบ 2026-07-05**
+    ผ่าน spec `api-route-scheme` (big-bang — route flat เดิมถูกลบ ไม่ alias; idempotency/ETag/RFC9457 ยังเปิดอยู่);
     cursor pagination ยังขัด SFS (offset) — ยังไม่ตัดสิน (ADR ข้อ 13)
 19. **Canonical status 7 ค่า + failure taxonomy ยังไม่มี** — target statuses:
     `pending`/`action_required`/`processing`/`succeeded`/`failed`/`expired`/`cancelled` — ปัจจุบัน
@@ -1205,7 +1205,7 @@ redirect URL ลง span attribute
 | 11 | refund/void อยู่ใน scope อนาคตหรือถูกห้ามต่อเนื่อง | Payment, Order | - (product decision) |
 | 12 | legal/compliance retention ต่อชนิดข้อมูล | ทุกโมดูล | Retention policy |
 | 13 | cursor pagination vs SFS offset (`Page`/`Limit`) — SFS approve แล้ว team กำลัง implement; SFS doc เปิดช่อง keyset สำหรับ deep pages; ตัดสินก่อน endpoint แรกที่ใช้ `nextCursor` | ทุก list endpoint | Transaction read API |
-| 14 | route migration ไป `/api/{surface}/v1` — **shape ตัดสินแล้ว 2026-07-05**; ADR เหลือเฉพาะแผนย้าย/compat (dual-route ช่วงเปลี่ยนผ่าน, ผลกระทบ FE proxy `/admin/*` + `/producer/*`, sunset ของ route เก่า) | ทุก surface | API versioning rollout |
+| 14 | route migration → **DONE 2026-07-05 (spec `api-route-scheme`)**: as-built migrate เป็น `/api/v1/{area}` (area = domain, version-first) — big-bang, ลบ route flat เดิม (ไม่ alias/ไม่ dual-route); FE proxy `/admin/*`+`/producer/*` → `/api/v1/admins\|producers/*` (cutover manual, DoD) | ทุก area | RESOLVED |
 | 15 | canonical status rename (`Paid` → `succeeded`, เพิ่ม `action_required`/`processing`/`cancelled`) + event naming `.v1` — ชื่อ wire ปัจจุบัน (`tenant-users`, `TenantUserRegistrationSubmitted`, `PaymentPaid`) ถูก freeze ตาม CODING_STANDARDS ต้องมี compat strategy | Payment, Contracts | Payment/Attempt split |
 | 16 | Money migration เป็น `DECIMAL(19,4)` — **มาตรฐานตัดสินแล้ว 2026-07-05**; ADR เหลือ: wire carrier (string vs number), rounding rules, แผน migrate คอลัมน์ + backward compat | SharedKernel, ทุกโมดูลที่ถือเงิน | Money migration |
 
