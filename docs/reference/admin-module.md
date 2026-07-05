@@ -1,4 +1,4 @@
-# Admin Google SSO (BFF) — Frontend Integration Contract
+# Admin Module — Google SSO (BFF) + FE Integration
 
 > Generated 2026-06-24 from `AdminOidcAuthentication.cs`, `AdminLoginService.cs`,
 > `AdminSessionAuthenticationHandler.cs`, `AdminSessionCookies.cs`, `AdminCsrfFilter.cs`, `Program.cs` (routes) +
@@ -7,6 +7,10 @@
 >
 > ขอบเขต: เฉพาะ flow ของ admin console. tenant SPA ยังใช้ Google id-token เป็น Bearer (audience `tenant`) —
 > คนละ contract, ไม่เปลี่ยน.
+
+**Ports (dev):** API `http://localhost:5100` · Admin SPA `http://localhost:5200` · Tenant SPA `http://localhost:5120`
+
+**โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) §3.1 โมดูล Admin (บทบาท/สถานะ as-built/target API).
 
 ## หลักการ (อ่านก่อนเขียนโค้ด)
 
@@ -41,6 +45,35 @@ Flow login:
   request ถัดไป 401 ทันที (ไม่ต้องรอ token หมดอายุ)
 - session เป็น `SameSite=Lax` (same-site deploy) หรือ `None; Secure` (cross-site) — ตั้งฝั่ง server
 
+## Proxy — same-origin (บังคับ)
+
+backend redirect หลัง login = path บน origin เดียว และ cookie ผูกกับ origin → SPA กับ API ต้องเป็น origin
+เดียวกัน. ตั้ง Next.js proxy:
+
+```js
+// next.config.js
+module.exports = {
+  async rewrites() {
+    return [{ source: '/admin/:path*', destination: 'http://localhost:5100/admin/:path*' }]
+  },
+}
+```
+
+Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — backend honor แล้ว (`UseForwardedHeaders`) ไม่ต้องทำเพิ่ม.
+
+## Setup ฝั่ง FE
+
+- **ไม่** ต้องขอ Google OAuth client เอง, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
+  (confidential client, ฉีดผ่าน `Google__Oidc__ClientId` / `Google__Oidc__ClientSecret`)
+- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `/admin/auth/login?returnTo=${encodeURIComponent(path)}`
+  (top-level navigation — อย่าใช้ fetch; flow เด้งออกไป Google แล้วกลับมาที่ `returnTo`)
+- ทุก API call ตั้ง `credentials: 'include'` (ตรงข้ามกับโมเดลเดิม — ตอนนี้ auth = cookie)
+- admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server (เปิด `AllowCredentials` ให้เฉพาะ origin นี้)
+
+```js
+window.location.href = '/admin/auth/login?returnTo=' + encodeURIComponent('/dashboard')
+```
+
 ## CSRF (double-submit) — บังคับบน POST/PUT/PATCH/DELETE
 
 ทุก request ที่เปลี่ยน state ไปยัง `/admin/*` ต้องแนบ header `X-CSRF-Token` ที่ **ค่าตรงกับ cookie `adm_csrf`**
@@ -50,7 +83,7 @@ Flow login:
 const readCsrf = () =>
   document.cookie.split('; ').find(c => c.startsWith('adm_csrf='))?.split('=')[1] ?? '';
 
-const api = (path, opts = {}) => fetch(`${API_BASE}${path}`, {
+const api = (path, opts = {}) => fetch(path, {
   ...opts,
   credentials: 'include',                         // ส่ง session cookie (BFF) — จำเป็น
   headers: {
@@ -61,27 +94,13 @@ const api = (path, opts = {}) => fetch(`${API_BASE}${path}`, {
 });
 ```
 
-## Setup ฝั่ง FE
-
-- **ไม่** ต้องขอ Google OAuth client เอง, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
-  (confidential client, ฉีดผ่าน `Google__Oidc__ClientId` / `Google__Oidc__ClientSecret`)
-- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `${API_BASE}/admin/auth/login?returnTo=${encodeURIComponent(path)}`
-  (top-level navigation — อย่าใช้ fetch)
-- ทุก API call ตั้ง `credentials: 'include'` (ตรงข้ามกับโมเดลเดิม — ตอนนี้ auth = cookie)
-- admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server (เปิด `AllowCredentials` ให้เฉพาะ origin นี้)
-
-```js
-// login
-function login(returnTo = '/') {
-  window.location.assign(`${API_BASE}/admin/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
-}
-```
+(helper รวมที่พร้อมใช้จริง — auto CSRF เฉพาะ method ที่เปลี่ยน state + re-login on 401 — ดู [helper รวม](#helper-รวม-adminapijs) ด้านล่าง)
 
 ## ขั้นแรกหลัง login: `GET /admin/me`
 
-หลัง callback set cookie + redirect กลับ `returnTo` แล้ว, FE ยิง `/admin/me` (พร้อม `credentials: 'include'`)
-เพื่ออ่าน identity/scope. First-login binding (bind invited Scoped by email / self-provision Super จาก allowlist)
-server จัดการตอน callback แล้ว — FE ไม่ต้องส่งอะไรพิเศษ.
+session cookie = httpOnly → JS อ่านไม่ได้ (ตั้งใจ กัน XSS). หลัง callback set cookie + redirect กลับ `returnTo`
+แล้ว, FE ยิง `/admin/me` (พร้อม `credentials: 'include'`) เพื่ออ่าน identity/scope. First-login binding (bind
+invited Scoped by email / self-provision Super จาก allowlist) server จัดการตอน callback แล้ว — FE ไม่ต้องส่งอะไรพิเศษ.
 
 ```js
 async function bootstrap() {
@@ -136,6 +155,18 @@ async function logout(all = false) {
 }
 ```
 
+## returnTo allowlist
+
+หลัง login backend redirect ไปได้เฉพาะ path ที่อยู่ใน `AdminSession:ReturnUrlAllowlist` (กัน open-redirect);
+path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
+
+**committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
+- dev (`appsettings.Development.json`): `/`, `/main`, `/dashboard`, `/tenants`
+- staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
+
+**สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
+ไม่งั้นถูกเด้งกลับ `/` (`DefaultReturnPath`). ขอ ops เพิ่ม route ที่ FE ใช้จริง.
+
 ## Error model
 
 ทุก error เป็น RFC7807 ProblemDetails — `Content-Type: application/problem+json`, มี `title` + `status`.
@@ -152,10 +183,39 @@ async function logout(all = false) {
 > suspended) server redirect ไป `Google:Oidc:ErrorPath` พร้อม `?reason=<label>` (ไม่ใช่ JSON) — FE หน้า error
 > อ่าน `reason` ได้.
 
+## helper รวม (adminApi.js)
+
+```js
+// lib/adminApi.js
+const cookie = (n) =>
+  decodeURIComponent(document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)'))?.[1] ?? '')
+
+export function login(returnTo = '/dashboard') {
+  window.location.href = '/admin/auth/login?returnTo=' + encodeURIComponent(returnTo)
+}
+
+export async function adminFetch(path, opts = {}) {
+  const method = (opts.method ?? 'GET').toUpperCase()
+  const headers = { ...opts.headers }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers['X-CSRF-Token'] = cookie('adm_csrf')
+  const res = await fetch(path, { ...opts, headers, credentials: 'include' })
+  if (res.status === 401) login(location.pathname) // session หมด -> re-login
+  return res
+}
+
+export const logout = () => adminFetch('/admin/auth/logout', { method: 'POST' })
+```
+
+## ห้าม
+
+- เลิกใช้ GIS SDK / id-token / `Authorization: Bearer` (ของเก่า)
+- อย่าอ่าน/เก็บ session cookie เอง (httpOnly)
+- อย่าเรียก API ข้าม origin ตรง — ต้องผ่าน proxy (ดู [Proxy](#proxy--same-origin-บังคับ))
+
 ## Dev / CORS
 
 - API เดียว serve ทั้ง 2 SPA, **CORS แยก policy**: admin = credentialed (cookie XHR), tenant = no credentials.
-  dev origin: admin = `http://localhost:5130` (`Cors__AdminOrigins`), tenant = `http://localhost:5120`
+  dev origin: admin = `http://localhost:5200` (`Cors__AdminOrigins`), tenant = `http://localhost:5120`
   (`Cors__AllowedOrigins`). prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
 - admin XHR **ต้อง** `credentials: 'include'` ถึงจะส่ง cookie; tenant ห้าม (ยัง Bearer เหมือนเดิม)
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
@@ -164,6 +224,16 @@ async function logout(all = false) {
   (user-secrets) ถึงจะ login จริงได้; placeholder boot ได้แต่ login ไม่ผ่าน
 - bootstrap Super admin คนแรก: backend ใส่ Google `sub` ที่ `AdminAllowlist__Subjects__0`
 - OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish
+
+**backend ทำให้แล้ว (FE ไม่ต้องแตะ):**
+- CORS allow `http://localhost:5200`
+- honor `X-Forwarded-Host` → `redirect_uri` ออกมาเป็น origin ของ FE
+- Google redirect URI registration (ฝั่ง ops/backend)
+
+## prod
+
+topology เดียวกัน (reverse proxy → same-origin), cookie เป็น `Secure` + `__Host-` อัตโนมัติบน https.
+FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'include'` + อ่าน `adm_csrf` เหมือนเดิม).
 
 ## Source of truth
 

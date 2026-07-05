@@ -15,7 +15,7 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
 > response DTO ยังคง field `TenantUserId` ไว้โดยตั้งใจ — เป็น id ของ account.)
 
 - Feature spec: `.ai/specs/producer-google-sso/{requirements,design,tasks}.md`
-- เทียบ Admin: `docs/reference/admin-google-sso.md`
+- เทียบ Admin: `docs/reference/admin-module.md`
 - ตาราง DB: `docs/reference/entity-fields.md` (section "Producer module")
 
 ---

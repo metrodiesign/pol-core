@@ -12,7 +12,7 @@
 > เอกสารลึกรายเรื่อง: [payment-orchestration-modules.md](payment-orchestration-modules.md)
 > (Payments/PSP/flow + ภาค 8 Canonical Payment API target design),
 > [entity-fields.md](entity-fields.md) (ทุก entity/field/enum), [src-structure.md](src-structure.md) (โครงโค้ด),
-> [admin-google-sso.md](admin-google-sso.md) + [producer-google-sso.md](producer-google-sso.md) (auth),
+> [admin-module.md](admin-module.md) + [producer-google-sso.md](producer-google-sso.md) (auth),
 > [search-filter-sort.md](search-filter-sort.md) (query convention)
 
 ---
@@ -484,7 +484,7 @@ redirect URL ลง span attribute
 
 **ความสัมพันธ์** — ตารางทั้งหมดเป็น control plane (ไม่อยู่ใต้ RLS); การกระทำลง `AdminAccountAudit`/`AdminAuthAudit` (§14); เป็นผู้อนุมัติ producer (§4)
 
-**สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [admin-google-sso.md](admin-google-sso.md), [admin-fe-integration.md](admin-fe-integration.md)
+**สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [admin-module.md](admin-module.md)
 
 ### 3.2 โมดูล Admin RBAC
 
@@ -1082,7 +1082,7 @@ redirect URL ลง span attribute
 |---|---|---|---|---|
 | 1 | Platform | orchestrate การรับชำระแบบ captive/redirect-only โดยไม่ถือเงิน | มีแล้ว (โครง) | [payment-orchestration-modules.md](payment-orchestration-modules.md) |
 | 2 | Tenant | config บริษัทในเครือ + แกน `TenantId` ของ RLS (config อันดับ 2) | บางส่วน | [entity-fields.md](entity-fields.md) |
-| 3.1 | Admin | บัญชีพนักงานภายใน + OIDC BFF session | มีแล้ว | [admin-google-sso.md](admin-google-sso.md) |
+| 3.1 | Admin | บัญชีพนักงานภายใน + OIDC BFF session | มีแล้ว | [admin-module.md](admin-module.md) |
 | 3.2 | Admin RBAC | role → permission (fail-closed) orthogonal กับ Tier | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 4.1 | Producer | บัญชีตัวแทน/นายหน้า + สมัคร ticket-gated + OIDC BFF | มีแล้ว | [producer-google-sso.md](producer-google-sso.md) |
 | 4.2 | Producer RBAC | role → permission ฝั่ง producer (แคตตาล็อกแยก) | มีแล้ว | [producer-google-sso.md](producer-google-sso.md) |
