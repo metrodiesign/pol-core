@@ -16,7 +16,7 @@ namespace BuildingBlocks.Web;
 /// <c>AllowAnyHeader</c> covers it and credentials/cookies are deliberately NOT enabled.</item>
 /// <item><see cref="AdminPolicyName"/> is the admin SPA — cookie (credentialed) XHR, so it sets
 /// <c>AllowCredentials</c>, which the spec forbids pairing with a wildcard origin: the origins are pinned
-/// explicitly. Applied ONLY to <c>/admin/*</c>.</item>
+/// explicitly. Applied ONLY to <c>/api/v1/admins/*</c>.</item>
 /// </list>
 /// Origins come from config (<c>Cors:AllowedOrigins</c> tenant, <c>Cors:AdminOrigins</c> admin); never
 /// <c>AllowAnyOrigin</c>. When a list is empty the policy allows no cross-origin request (safe default — prod
@@ -51,7 +51,7 @@ public static class CorsExtensions
             });
 
             // The producer SPA — also cookie (credentialed) XHR (producer-google-sso REQ-14.5), so its own
-            // AllowCredentials policy pinned to Cors:ProducerOrigins. Applied ONLY to /producer/*. Adding it leaves
+            // AllowCredentials policy pinned to Cors:ProducerOrigins. Applied ONLY to /api/v1/producers/*. Adding it leaves
             // the tenant (credential-less) and admin policies untouched.
             options.AddPolicy(ProducerPolicyName, policy =>
             {
@@ -62,7 +62,7 @@ public static class CorsExtensions
             });
         });
 
-        // Select the policy by path: /admin/* -> credentialed admin policy, everything else -> tenant default.
+        // Select the policy by path: /api/v1/admins/* -> credentialed admin policy, everything else -> tenant default.
         // A provider (not per-endpoint RequireCors) so policy selection does not depend on endpoint metadata
         // being resolved before the CORS middleware runs.
         services.Replace(ServiceDescriptor.Transient<ICorsPolicyProvider, PolCorsPolicyProvider>());
@@ -74,8 +74,8 @@ public static class CorsExtensions
     public static IApplicationBuilder UsePolCors(this IApplicationBuilder app) => app.UseCors();
 }
 
-/// <summary>Chooses the CORS policy by request path: the credentialed admin policy for <c>/admin/*</c>, the
-/// credentialed producer policy for <c>/producer/*</c> (REQ-14.5), the tenant default everywhere else (REQ-10.5).</summary>
+/// <summary>Chooses the CORS policy by request path: the credentialed admin policy for <c>/api/v1/admins/*</c>, the
+/// credentialed producer policy for <c>/api/v1/producers/*</c> (REQ-14.5), the tenant default everywhere else (REQ-10.5).</summary>
 public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 {
     private readonly CorsOptions _options;
@@ -84,8 +84,8 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 
     public Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        var name = context.Request.Path.StartsWithSegments("/admin") ? CorsExtensions.AdminPolicyName
-            : context.Request.Path.StartsWithSegments("/producer") ? CorsExtensions.ProducerPolicyName
+        var name = context.Request.Path.StartsWithSegments("/api/v1/admins") ? CorsExtensions.AdminPolicyName
+            : context.Request.Path.StartsWithSegments("/api/v1/producers") ? CorsExtensions.ProducerPolicyName
             : _options.DefaultPolicyName;
         return Task.FromResult(_options.GetPolicy(name));
     }

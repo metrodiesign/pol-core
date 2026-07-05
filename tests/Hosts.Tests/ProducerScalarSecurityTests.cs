@@ -66,16 +66,16 @@ public sealed class ProducerScalarSecurityTests
     }
 
     [Theory]
-    [InlineData("/producer/me", "get")]
-    [InlineData("/producer/roles", "get")]
-    [InlineData("/producer/permissions", "get")]
+    [InlineData("/api/v1/producers/me", "get")]
+    [InlineData("/api/v1/producers/roles", "get")]
+    [InlineData("/api/v1/producers/permissions", "get")]
     public async Task Producer_surface_operations_require_the_ProducerSession_scheme(string path, string method) =>
         Assert.True(OperationRequires(await Document(), path, method, "ProducerSession"));
 
     [Fact]
     public async Task Anonymous_producer_login_carries_no_security_requirement()
     {
-        var op = (await Document()).GetProperty("paths").GetProperty("/producer/auth/login").GetProperty("get");
+        var op = (await Document()).GetProperty("paths").GetProperty("/api/v1/producers/auth/login").GetProperty("get");
         Assert.False(op.TryGetProperty("security", out _)); // AllowAnonymous -> no requirement
     }
 

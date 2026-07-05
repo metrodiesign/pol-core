@@ -170,7 +170,7 @@ public sealed class ExceptionHandlerPipelineTests
         using var factory = new HardeningFactory<ApiHost::Program>().WithFastFailDatabase();
         using var client = factory.CreateClient();
 
-        var response = await client.PostAsync($"/webhooks/{Guid.NewGuid()}", new StringContent("{}"));
+        var response = await client.PostAsync($"/api/v1/webhooks/{Guid.NewGuid()}", new StringContent("{}"));
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
@@ -191,7 +191,7 @@ public sealed class RedirectEndpointAuthTests
         using var client = factory.CreateClient();
 
         var response = await client.PostAsync(
-            $"/payment-sessions/{Guid.NewGuid()}/redirect", new StringContent(string.Empty));
+            $"/api/v1/payments/sessions/{Guid.NewGuid()}/redirect", new StringContent(string.Empty));
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         // UseStatusCodePages + AddProblemDetails render the framework 401 as RFC7807, not an empty body.
@@ -239,7 +239,7 @@ public sealed class WebhookRateLimitTests
         // request's downstream DB latency — the 429 decision happens in middleware, before the DB call, and
         // all requests share one partition (the loopback source IP).
         var responses = await Task.WhenAll(Enumerable.Range(0, 70).Select(_ =>
-            client.PostAsync($"/webhooks/{connectionId}", new StringContent("{}"))));
+            client.PostAsync($"/api/v1/webhooks/{connectionId}", new StringContent("{}"))));
 
         try
         {

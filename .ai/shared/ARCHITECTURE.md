@@ -61,6 +61,12 @@ retrospectives/       # บันทึก retro รายเดือน
 > (ส่วน "เป้าหมายเชิง API ระดับแพลตฟอร์ม" + "โมเดลเป้าหมายเชิง API" ต่อโมดูล) และ
 > payment-orchestration-modules.md ภาค 8 (Payment/PaymentAttempt/WebhookDelivery/Routing) —
 > โค้ดปัจจุบันยังไม่ตาม target หลายจุด: ช่องว่างดู platform-modules.md "ช่องว่างเทียบเป้าหมาย" ข้อ 16-22
+>
+> **API path scheme (as-built, spec `api-route-scheme` 2026-07-05):** `/api/v1/{area}` — version-first global
+> (`v1` เดียวทั้ง API), segment ที่สอง = domain area (9 area plural: `products`/`carts`/`checkouts`/`orders`/
+> `payments`/`webhooks`/`reports`/`admins`/`producers`), audience บังคับ per-endpoint ผ่าน `RequireAuthorization`
+> (ไม่อยู่ใน path). infra (`/health/live`,`/health/ready`,`/openapi/*`,`/scalar`) อยู่นอก `/api/v1`. big-bang —
+> route flat เดิมถูกลบ (ไม่ alias); supersede มาตรฐานเดิมแบบ surface-first (audience นำหน้า version).
 
 **รูปทรง:** Modular Monolith ตามแนว **Clean Architecture + CQRS** — 1 deployable backend, แยกเป็นโมดูล,
 dependency ชี้เข้า domain, command/query แยกผ่าน Mediator (`ICommand`/`IQuery`).

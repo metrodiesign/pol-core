@@ -176,7 +176,7 @@ builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.E
 builder.Services.Configure<AdminOidcOptions>(builder.Configuration.GetSection(AdminOidcOptions.SectionName));
 builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
 
-// Admin BFF session scheme: authenticate every /admin/* request via the __Host-adm_session cookie and
+// Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
 // REDEFINE the "admin" authorization policy to pin it — retiring the Bearer "admin" audience (REQ-4/5/9/10).
 builder.Services.AddAdminSessionScheme();
 
@@ -240,7 +240,7 @@ builder.Services.AddOpenApi(options =>
             // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
             // see the cookie they actually have.
             Name = AdminSessionCookies.SessionCookieNameDevHttp,
-            Description = "Admin BFF session cookie issued by the OIDC login flow (GET /admin/auth/login). "
+            Description = "Admin BFF session cookie issued by the OIDC login flow (GET /api/v1/admins/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-adm_session` name.",
         };
         document.Components.SecuritySchemes["ProducerSession"] = new OpenApiSecurityScheme
@@ -248,7 +248,7 @@ builder.Services.AddOpenApi(options =>
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
             Name = ProducerSessionCookies.SessionCookieNameDevHttp,
-            Description = "Producer BFF session cookie issued by the OIDC login flow (GET /producer/auth/login). "
+            Description = "Producer BFF session cookie issued by the OIDC login flow (GET /api/v1/producers/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-prd_session` name. The "
                 + "`producer` policy also accepts a tenant Bearer token (REQ-17.3).",
         };
@@ -375,7 +375,7 @@ if (!app.Environment.IsDevelopment()
 }
 
 // Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
-// browser-facing host/scheme, not this process's. The admin SPA dev server proxies /admin/* here, so the OIDC
+// browser-facing host/scheme, not this process's. The admin SPA dev server proxies /api/v1/admins/* here, so the OIDC
 // redirect_uri must be the SPA origin (e.g. localhost:5200) to match the registered Google redirect URI; the
 // same applies to a TLS-terminating reverse proxy in prod (scheme must read https). Default trust = loopback
 // only, which covers the localhost dev proxy. A containerized prod proxy connects from the (non-loopback)
@@ -411,7 +411,7 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 // CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge. The per-request
-// policy (admin-credentialed on /admin/*, tenant default elsewhere) is chosen by PolCorsPolicyProvider.
+// policy (admin-credentialed on /api/v1/admins/*, tenant default elsewhere) is chosen by PolCorsPolicyProvider.
 app.UsePolCors();
 
 app.UseRateLimiter();
@@ -443,11 +443,23 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference(options => options.WithTitle("pol-core API"));
 }
 
+// --- /api/v1 route scheme (api-route-scheme REQ-1/2) ---
+// One versioned root group. Every endpoint's path is /api/v1/{area}/... — the version segment is FIRST and the
+// second segment is the domain AREA (plural noun), never the audience (audience stays enforced per endpoint via
+// RequireAuthorization, REQ-3.2). Handlers/policies/contracts are unchanged from the pre-migration flat routes;
+// only the base path moves. Data-plane endpoints map their area path DIRECTLY on this group (an explicit
+// "/products", "/carts/..." pattern) rather than via a nested MapGroup with an empty-string root pattern — the
+// latter renders a trailing-slash canonical path ("/api/v1/products/"), which the clean-path intent forbids
+// (REQ-1.4). admins/producers DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
+// surface; the single admins-root create carries the area path + its filter per-endpoint. Infra (health, openapi,
+// scalar) is mapped ABOVE this and stays OUTSIDE /api/v1 (REQ-4).
+var api = app.MapGroup("/api/v1");
+
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT tenant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
 // to the handler, which verifies -> claims idempotency -> fetches-to-confirm -> transitions -> enqueues
 // PaymentPaid, all inside one transaction.
-app.MapPost("/webhooks/{pspConnectionId:guid}", async (
+api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     Guid pspConnectionId,
     HttpRequest request,
     IWebhookTenantResolver tenantResolver,
@@ -494,7 +506,7 @@ static RouteHandlerBuilder GateProducerWrite(RouteHandlerBuilder builder, bool e
         : builder.RequireAuthorization("tenant");
 
 // Tenant-facing convenience endpoints (tenant comes from the authenticated principal via ITenantContext).
-var createProduct = app.MapPost("/products", async (
+var createProduct = api.MapPost("/products", async (
     CreateProductRequest body,
     ITenantContext tenant,
     IMediator mediator,
@@ -516,7 +528,7 @@ GateProducerWrite(createProduct, enforceProducerWrites, ProducerPermissions.Prod
 // GET /products — the tenant-scoped SFS exemplar. Tenant comes from the principal (ITenantContext), NEVER the
 // client; the query is ITenantScoped so the tenant guard + RLS floor confine every row to the bound tenant, and
 // SFS can only narrow within it (no whitelist exposes tenantId). productFilters is the optional typed surface.
-app.MapGet("/products", async (HttpContext http, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+api.MapGet("/products", async (HttpContext http, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var p = SfsQueryParser.Parse(http.Request.Query);
     var result = await mediator.Send(new ListProductsQuery
@@ -539,7 +551,7 @@ app.MapGet("/products", async (HttpContext http, ITenantContext tenant, IMediato
 
 // Cart — open, add/merge lines, review, adjust, clear. Tenant comes from the principal; the commands are
 // ITenantScoped so RLS + the tenant guard confine every cart to the bound tenant.
-app.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+api.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var id = await mediator.Send(new CreateCartCommand(tenant.TenantId), ct);
     return TypedResults.Ok(new CreateCartResponse(id));
@@ -551,7 +563,7 @@ app.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, Cancella
     .Produces<CreateCartResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-app.MapPost("/carts/{cartId:guid}/items", async (
+api.MapPost("/carts/{cartId:guid}/items", async (
     Guid cartId, AddItemToCartRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     // The unit price is the catalog's, NEVER the client's: look the product up first and price the line
@@ -572,7 +584,7 @@ app.MapPost("/carts/{cartId:guid}/items", async (
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-app.MapGet("/carts/{cartId:guid}", async (
+api.MapGet("/carts/{cartId:guid}", async (
     Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var view = await mediator.Send(new GetCartQuery(cartId, tenant.TenantId), ct);
@@ -586,7 +598,7 @@ app.MapGet("/carts/{cartId:guid}", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-app.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
+api.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
     Guid cartId, Guid productId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, tenant.TenantId, productId), ct);
@@ -599,7 +611,7 @@ app.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-app.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
+api.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
     Guid cartId, Guid productId, SetCartItemQuantityRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, tenant.TenantId, productId, body.Quantity), ct);
@@ -612,7 +624,7 @@ app.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-app.MapPost("/carts/{cartId:guid}/clear", async (
+api.MapPost("/carts/{cartId:guid}/clear", async (
     Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var view = await mediator.Send(new ClearCartCommand(cartId, tenant.TenantId), ct);
@@ -627,7 +639,7 @@ app.MapPost("/carts/{cartId:guid}/clear", async (
 
 // Checkout. Start prices the checkout from the CART's subtotal (never a client-supplied amount), captures
 // an optional notification recipient, then Confirm emits CheckoutConfirmed -> Orders opens the order.
-app.MapPost("/checkout", async (
+api.MapPost("/checkouts", async (
     StartCheckoutRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var cart = await mediator.Send(new GetCartQuery(body.CartId, tenant.TenantId), ct);
@@ -649,7 +661,7 @@ app.MapPost("/checkout", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-app.MapPost("/checkout/{checkoutSessionId:guid}/confirm", async (
+api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
     Guid checkoutSessionId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, tenant.TenantId), ct);
@@ -662,7 +674,7 @@ app.MapPost("/checkout/{checkoutSessionId:guid}/confirm", async (
     .Produces<ConfirmCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-var createPaymentSession = app.MapPost("/payment-sessions", async (
+var createPaymentSession = api.MapPost("/payments/sessions", async (
     CreatePaymentSessionRequest body,
     ITenantContext tenant,
     IMediator mediator,
@@ -685,7 +697,7 @@ GateProducerWrite(createPaymentSession, enforceProducerWrites, ProducerPermissio
 // Claims-then-charges redirect (PLAN #11). Tenant scoping is automatic: the command is ITenantScoped, so
 // TenantGuardBehavior + RLS resolve the session for the authenticated tenant only. Errors flow through the
 // shared ProblemDetails handler (not found -> 404, illegal state / concurrent claim -> 409).
-var startRedirect = app.MapPost("/payment-sessions/{paymentSessionId:guid}/redirect", async (
+var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redirect", async (
     Guid paymentSessionId,
     IMediator mediator,
     CancellationToken ct) =>
@@ -707,7 +719,7 @@ GateProducerWrite(startRedirect, enforceProducerWrites, ProducerPermissions.Paym
 // Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
 // a bypass proc (no tenant binding). Unknown token -> 404; expired -> 410. A producer can resend (rotates
 // the token + extends the TTL), which is tenant-scoped.
-app.MapGet("/orders/{token}/summary", async (
+api.MapGet("/orders/{token}/summary", async (
     string token, IOrderSummaryReader reader, IClock clock, CancellationToken ct) =>
 {
     var summary = await reader.GetByTokenAsync(token, ct);
@@ -727,7 +739,7 @@ app.MapGet("/orders/{token}/summary", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status410Gone);
 
-app.MapPost("/orders/{orderId:guid}/summary/resend", async (
+api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     Guid orderId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, tenant.TenantId), ct);
@@ -741,7 +753,7 @@ app.MapPost("/orders/{orderId:guid}/summary/resend", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // Reconciliation report: the bound tenant's orders grouped by status + currency (count + total).
-app.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+api.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
 {
     var view = await mediator.Send(new GetReconciliationSummaryQuery(tenant.TenantId), ct);
     return TypedResults.Ok(view);
@@ -753,12 +765,12 @@ app.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator me
     .Produces<ReconciliationView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// --- Admin BFF (/admin route group, REQ-1/7/10) ---
+// --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
 // One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
-// policy is applied to /admin/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login is
-// anonymous; every other route gates on the AdminSession "admin" policy. The CSRF filter exempts safe methods,
+// policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
+// is anonymous; every other route gates on the AdminSession "admin" policy. The CSRF filter exempts safe methods,
 // so the login/callback GETs pass untouched.
-var admin = app.MapGroup("/admin").AddEndpointFilter<AdminCsrfFilter>();
+var admin = api.MapGroup("/admins").AddEndpointFilter<AdminCsrfFilter>();
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
 // allowlist, then hand off to the OIDC handler, which builds the Authorization Code + PKCE + state + nonce
@@ -857,7 +869,7 @@ admin.MapPost("/tenants", async (
         http.TraceIdentifier);
 
     var result = await mediator.Send(command, ct);
-    return Results.Created($"/admin/tenants/{t.Code}", result);
+    return Results.Created($"/api/v1/admins/tenants/{t.Code}", result);
 
     // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
@@ -894,13 +906,19 @@ admin.MapGet("/tenants/{code}", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// --- Producer BFF login (producer-google-sso REQ-8/9/14) ---
+// --- Producer BFF login + registration (producer-google-sso REQ-8/9/14) ---
+// The producers area has TWO group refs at the same /api/v1/producers prefix (REQ-3.7): this UNFILTERED ref carries
+// the anonymous pre-session entry (login + register), exactly as they were mapped top-level before the migration;
+// the filtered console group below (CSRF + bound-producer) carries the authenticated surface. The area-prefix move
+// must NOT move any endpoint between tiers.
+var producersAnon = api.MapGroup("/producers");
+
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the producer
 // allowlist, then hand off to the "ProducerGoogle" OIDC handler, which builds the Authorization Code + PKCE + state
 // + nonce redirect to Google. The callback (Producer:Oidc:CallbackPath) is handled by the OIDC middleware itself,
 // which runs the 4-way state branch via OnTicketReceived -> ProducerLoginService (session cookie for an Active
 // producer, a signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback.
-app.MapGet("/producer/auth/login", (HttpContext http, IOptions<ProducerSessionOptions> session) =>
+producersAnon.MapGet("/auth/login", (HttpContext http, IOptions<ProducerSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
@@ -924,7 +942,7 @@ app.MapGet("/producer/auth/login", (HttpContext http, IOptions<ProducerSessionOp
 // the write runs in ONE pol_admin transaction that also enqueues the registration event (REQ-4.1/20). Identity is
 // taken only from the verified ticket, never the form (REQ-4.2). Replays/duplicates -> 409 (no 500); a Correction
 // ticket resubmits a Rejected user (REQ-5).
-app.MapPost("/producer/register", async (
+producersAnon.MapPost("/register", async (
     HttpRequest request,
     ProducerRegistrationTickets tickets,
     IOptions<ProducerRegistrationOptions> registrationOptions,
@@ -984,7 +1002,7 @@ app.MapPost("/producer/register", async (
         ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
         formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
 
-    return Results.Created($"/producer/tenant-users/{result.TenantUserId}",
+    return Results.Created($"/api/v1/producers/tenant-users/{result.TenantUserId}",
         new ProducerRegisterResponse(result.TenantUserId, result.Status.ToString()));
 })
     .AllowAnonymous()
@@ -1003,12 +1021,12 @@ app.MapPost("/producer/register", async (
 
 // --- Producer BFF authenticated surface (producer-google-sso REQ-12/13/15/16/17) ---
 // One group binds the CSRF double-submit filter ONCE for the whole authenticated producer surface (the credentialed
-// producer CORS policy is applied to /producer/* by PolCorsPolicyProvider). Every route gates on the dual-scheme
-// "producer" policy (ProducerSession OR tenant Bearer); the CSRF filter exempts safe methods, and the anonymous
-// pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
+// producer CORS policy is applied to /api/v1/producers/* by PolCorsPolicyProvider). Every route gates on the
+// dual-scheme "producer" policy (ProducerSession OR tenant Bearer); the CSRF filter exempts safe methods, and the
+// anonymous pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
 // ProducerBoundProducerFilter then fail-closes the whole group on a BOUND producer (REQ-17.2/F10): a tenant-Bearer
 // caller passes the dual-scheme policy but binds no scope, so it cannot read the role/permission catalog here.
-var producer = app.MapGroup("/producer")
+var producer = api.MapGroup("/producers")
     .AddEndpointFilter<ProducerCsrfFilter>()
     .AddEndpointFilter<ProducerBoundProducerFilter>();
 
@@ -1133,7 +1151,7 @@ producer.MapPost("/roles", async (CreateProducerRoleRequest body, IMediator medi
     var result = await mediator.Send(new CreateProducerRoleCommand(
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseProducerRoleStatus(body.Status),
         body.Permissions ?? []), ct);
-    return Results.Created($"/producer/roles/{result.Code}", ProducerRoleToWire(result));
+    return Results.Created($"/api/v1/producers/roles/{result.Code}", ProducerRoleToWire(result));
 }).RequireAuthorization("producer").RequireProducerPermission(ProducerPermissions.RolesManage)
     .WithTags("Producer Roles")
     .WithName("CreateProducerRole")
@@ -1283,15 +1301,17 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, Can
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// Super invites a Scoped admin by verified email; the subject binds on the invitee's first login (REQ-3.4).
-admin.MapPost("/admins", async (
+// Super invites a Scoped admin by verified email; the subject binds on the invitee's first login (REQ-3.4). This is
+// the admins-area ROOT (POST /api/v1/admins): mapped on `api` with AdminCsrfFilter applied per-endpoint — a group's
+// empty-string root pattern would render the trailing-slash "/api/v1/admins/" (REQ-1.4). Same CSRF + auth as the group.
+api.MapPost("/admins", async (
     CreateAdminRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(body.Email))
         throw new ArgumentException("Email is required.");
     var result = await mediator.Send(new CreateScopedAdminCommand(body.Email, scope.Current.AdminId, http.TraceIdentifier), ct);
-    return Results.Created($"/admin/admins/{result.AdminId}", result);
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+    return Results.Created($"/api/v1/admins/{result.AdminId}", result);
+}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
     .WithTags("Admin Admins")
     .WithName("CreateScopedAdmin")
     .WithSummary("Invite a scoped admin")
@@ -1302,7 +1322,7 @@ admin.MapPost("/admins", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Super assigns a tenant to a Scoped admin (REQ-4.1). Inactive/unknown tenant or duplicate -> 409.
-admin.MapPost("/admins/{id:guid}/tenants", async (
+admin.MapPost("/{id:guid}/tenants", async (
     Guid id, AssignTenantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new AssignTenantCommand(id, body.TenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
@@ -1318,7 +1338,7 @@ admin.MapPost("/admins/{id:guid}/tenants", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Super unassigns a tenant — a hard delete of the assignment row (REQ-4.2). Unknown assignment -> 404.
-admin.MapDelete("/admins/{id:guid}/tenants/{tenantId:guid}", async (
+admin.MapDelete("/{id:guid}/tenants/{tenantId:guid}", async (
     Guid id, Guid tenantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     await mediator.Send(new UnassignTenantCommand(id, tenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
@@ -1334,7 +1354,7 @@ admin.MapDelete("/admins/{id:guid}/tenants/{tenantId:guid}", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Super suspends another admin; suspending your OWN account is rejected so oversight is never locked out (REQ-8.2).
-admin.MapPost("/admins/{id:guid}/suspend", async (
+admin.MapPost("/{id:guid}/suspend", async (
     Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     if (id == scope.Current.AdminId)
@@ -1422,7 +1442,7 @@ admin.MapPost("/roles", async (
     var result = await mediator.Send(new CreateRoleCommand(
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
         body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
-    return Results.Created($"/admin/roles/{result.Code}", RoleToWire(result));
+    return Results.Created($"/api/v1/admins/roles/{result.Code}", RoleToWire(result));
 }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
     .WithTags("Admin Roles")
     .WithName("CreateRole")
@@ -1470,7 +1490,7 @@ admin.MapDelete("/roles/{code}", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Set an admin's roles to exactly the given set (REQ-4.2). Unknown role code -> 400; unknown admin -> 404.
-admin.MapPut("/admins/{id:guid}/roles", async (
+admin.MapPut("/{id:guid}/roles", async (
     Guid id, SetAdminRolesRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     await mediator.Send(new SetAdminRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);

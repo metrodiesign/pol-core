@@ -13,7 +13,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
 
-// GET /admin/auth/login hands off to the OIDC handler, which redirects to Google's authorize endpoint with the
+// GET /api/v1/admins/auth/login hands off to the OIDC handler, which redirects to Google's authorize endpoint with the
 // Authorization Code + PKCE + state + nonce parameters and only the openid+email scope (REQ-1.1/1.5). A static
 // OIDC Configuration is injected so the challenge builds the redirect WITHOUT a network metadata fetch.
 
@@ -70,7 +70,7 @@ public sealed class AdminAuthLoginRedirectTests
         using var factory = new LoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/admin/auth/login?returnTo=/dashboard");
+        var response = await client.GetAsync("/api/v1/admins/auth/login?returnTo=/dashboard");
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         var location = response.Headers.Location!;
@@ -84,6 +84,7 @@ public sealed class AdminAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.False(string.IsNullOrEmpty(query["code_challenge"]));
+        Assert.EndsWith("/api/v1/admins/auth/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // REQ-6.2: challenge targets the NEW callback
     }
 
     [Fact]
@@ -92,7 +93,7 @@ public sealed class AdminAuthLoginRedirectTests
         using var factory = new LoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/admin/auth/login");
+        var response = await client.GetAsync("/api/v1/admins/auth/login");
 
         // The OIDC handler persists state/nonce in a correlation + nonce cookie (REQ-1.2).
         Assert.Contains(response.Headers.GetValues("Set-Cookie"),

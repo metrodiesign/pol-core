@@ -484,7 +484,7 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 >
 > การปรับตอนรับเข้า: (1) Money ทุกตัวอย่างถูกแปลงเป็นมาตรฐาน `DECIMAL(19,4)` ตามการตัดสินใจ
 > 2026-07-05 (ต้นฉบับใช้ integer minor units — มี HTML comment กำกับทุกจุด), (2) base path
-> `/api/{surface}/v1` = ตัดสินแล้ว (route ปัจจุบันเป็น legacy — gap ข้อ 18), (3) canonical status
+> `/api/v1/{area}` = ตัดสิน + migrate as-built ครบ (spec `api-route-scheme`, big-bang 2026-07-05), (3) canonical status
 > 7 ค่า ยังไม่ตรง enum จริง (gap ข้อ 19, ADR 15)
 
 ### 8.1 Design goals
@@ -1422,7 +1422,7 @@ notification delivery history · maker-checker สำหรับ routing/connec
 11. refund/void อยู่ใน scope อนาคตหรือถูกห้ามต่อเนื่อง
 12. legal/compliance retention ต่อชนิดข้อมูล
 
-(+ ข้อ 13-16 ระดับ repo: cursor vs SFS · route migration `/api/{surface}/v1` · status/event rename ·
+(+ ข้อ 13-16 ระดับ repo: cursor vs SFS · route migration `/api/v1/{area}` (DONE — api-route-scheme) · status/event rename ·
 Money DECIMAL(19,4) migration — ทะเบียนรวม: [platform-modules.md](platform-modules.md))
 
 ### 8.28 Definition of Done สำหรับ Payment API

@@ -13,7 +13,7 @@ internal sealed class AdminOidcOptions
     public string Authority { get; init; } = "https://accounts.google.com";
     public string ClientId { get; init; } = "";
     public string ClientSecret { get; init; } = "";
-    public string CallbackPath { get; init; } = "/admin/auth/callback";
+    public string CallbackPath { get; init; } = "/api/v1/admins/auth/callback";
     /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
     public string ErrorPath { get; init; } = "/login-error";
 }
