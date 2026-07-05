@@ -37,7 +37,7 @@ gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet t
 - **lifetime:** `IMediator` Singleton ได้ แต่ handler/pipeline ที่พึ่ง `DbContext` ต้อง **Scoped** (หรือ `IDbContextFactory`) — กัน captive dependency; `ValidateScopes=true` + DI validation test
 - ได้ error ตอน **build** ถ้าไม่มี handler ของ request
 
-**Money (cross-module seam):** `Money { MinorUnits: long, Currency: ISO4217 }` ใน SharedKernel — ไม่มี decimal/float ที่ seam; Orders verify amount+currency ตอนรับ `PaymentPaid` (ดู [ARCHITECTURE.md](ARCHITECTURE.md))
+**Money:** มาตรฐาน (ตัดสิน 2026-07-05) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** — domain, persistence (SQL Server `DECIMAL(19,4)`), wire (แนะนำ JSON string กัน IEEE754 double — carrier สุดท้ายรอ ADR) · **ห้าม float/double เด็ดขาด** · as-built ปัจจุบันยังเป็น `Money { MinorUnits: long }` (bigint) = legacy จนกว่า migration (gap ข้อ 22 + ADR 16 ใน `docs/reference/platform-modules.md`); Orders verify amount+currency ตอนรับ `PaymentPaid` (ดู [ARCHITECTURE.md](ARCHITECTURE.md))
 
 **Secret:** PSP key เก็บใน vault (envelope encryption, per-tenant KEK ใน KMS/HSM, key id+version+rotation), write-only, อ่านกลับ mask เสมอ — ไม่ hardcode (ดู [SECURITY_RULES.md](SECURITY_RULES.md))
 
@@ -52,6 +52,8 @@ gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet t
 - **ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ:** Omise source types (`installment_kbank`...), `authorize_uri`, `return_uri`, event `charge.complete` — ห้ามเปลี่ยน
 - canonical entities: `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `AdminAccount` · `AdminTenantAssignment` · `AdminAccountAudit` · `AdminSession` · `AdminAuthAudit` (admin BFF session + auth-event audit, control-plane) · **Producer module** (rebuilt 2026-06-28 from the removed Identity module; reshaped to Admin parity 2026-06-29): producer actor = **`ProducerAccount`** (control-plane; person/license data lives on the account) + `ProducerTenantAssignment` (1 tenant per account) + `ExternalLogin`/`RegistrationAudit` + BFF session `ProducerSession`/`ProducerAuthAudit` + RBAC `ProducerRole`/`ProducerRolePermission`/`ProducerRoleAssignment`/`ProducerPermission`(s) (control-plane). Registration ticket = stateless signed Data Protection token (`RegistrationTickets` table dropped 2026-07-01). NOTE: the entity was renamed from the earlier `TenantUser`, but wire routes/contracts still say `tenant-user(s)` (e.g. `/admin/tenant-users/{subject}/approve`, `TenantUserRegistrationSubmitted`) — do not rename those.
 - ถ้าจะใช้ snake_case ใน DB → ตั้ง global convention ครั้งเดียว (`UseSnakeCaseNamingConvention()`) อย่าสลับมือทีละตาราง
+- **target entities (normative target — ยังไม่ใช่ as-built):** `Payment` · `PaymentAttempt` · `WebhookDelivery` (+ read model `Transaction`) และ canonical payment status 7 ค่า — นิยามใน `docs/reference/payment-orchestration-modules.md` ภาค 8 + `docs/reference/platform-modules.md`; `PaymentSession` + `PaymentStatus` 4 ค่า ยังเป็นชื่อจริงในโค้ดจนกว่า migration (rename ผ่าน ADR)
+- **API conventions (target):** base path `/api/{surface}/v1` (ตัดสินแล้ว 2026-07-05 — route ปัจจุบันไม่มี version = legacy) · inbound `Idempotency-Key` · `ETag`/`If-Match` · RFC 9457 + stable `code` · correlation ids — สเปกเต็ม: `docs/reference/platform-modules.md` ส่วน "เป้าหมายเชิง API ระดับแพลตฟอร์ม"; **SFS (`docs/reference/search-filter-sort.md`) ยังเป็น convention บังคับของ list endpoint จนกว่ามี ADR เรื่อง cursor**
 
 ---
 

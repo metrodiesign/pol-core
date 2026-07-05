@@ -3,7 +3,10 @@
 
 # Product Overview
 
-> Source: `docs/reference/payment-orchestration-modules.md` (รายละเอียดเต็มของ Payments อยู่ที่นั่น)
+> Source: `docs/reference/payment-orchestration-modules.md` (รายละเอียดเต็มของ Payments + ภาค 8 =
+> Canonical Payment API **target design normative**, รับเข้า 2026-07-05) ·
+> `docs/reference/platform-modules.md` (module map + สถานะ as-built ต่อฟีเจอร์ + target เชิง API
+> ทุกโมดูล + ทะเบียน ADR ค้างตัดสิน)
 
 ## Purpose
 

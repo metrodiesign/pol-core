@@ -56,6 +56,11 @@ retrospectives/       # บันทึก retro รายเดือน
 > สถาปัตยกรรมของผลิตภัณฑ์ — source code อยู่ที่ `src/` แล้ว; ส่วนนี้คือ target shape ที่โค้ดต้องตาม.
 > รายละเอียดเต็ม: `docs/reference/payment-orchestration-modules.md` · module map + สถานะ as-built:
 > `docs/reference/platform-modules.md` · product canon: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+>
+> **Target API design (normative, รับเข้า 2026-07-05)** อยู่ในสองไฟล์นั้น: platform-modules.md
+> (ส่วน "เป้าหมายเชิง API ระดับแพลตฟอร์ม" + "โมเดลเป้าหมายเชิง API" ต่อโมดูล) และ
+> payment-orchestration-modules.md ภาค 8 (Payment/PaymentAttempt/WebhookDelivery/Routing) —
+> โค้ดปัจจุบันยังไม่ตาม target หลายจุด: ช่องว่างดู platform-modules.md "ช่องว่างเทียบเป้าหมาย" ข้อ 16-22
 
 **รูปทรง:** Modular Monolith ตามแนว **Clean Architecture + CQRS** — 1 deployable backend, แยกเป็นโมดูล,
 dependency ชี้เข้า domain, command/query แยกผ่าน Mediator (`ICommand`/`IQuery`).
@@ -97,7 +102,7 @@ Orders → Paid. จบ ไม่มี issuance.
 - Identity — Google SSO ทำที่ชั้น auth แต่ **คนละโมเดลต่อ console**: **tenant SPA** ใช้ Google id-token เป็น Bearer (verify sig/`iss`/`aud`/exp/`email_verified` + `hd` guard; audience `tenant`); **admin console = server-side OIDC BFF** (Authorization Code + PKCE, confidential client) — opaque session cookie `__Host-adm_session` (control-plane เก็บแค่ SHA-256 hash), rotation + reuse-detection + instant revoke, CSRF double-submit, RBAC resolve สดต่อ request. **retire admin id-token-as-bearer audience 2026-06-24** (admin policy ผูก session-cookie scheme, ไม่รับ Google bearer). **Identity module (producer-side actor) ถูกลบ 2026-06-23** แล้ว **rebuild เป็น Producer module 2026-06-28** (feature `producer-google-sso`): producer login = **server-side OIDC BFF** มิเรอร์ admin (scheme `ProducerGoogle` แยกขาด, opaque session cookie `__Host-prd_session` + `prd_csrf`, rotation/reuse-detection/instant-revoke, RBAC resolve สดต่อ request, dual-scheme `producer` policy = ProducerSession OR tenant Bearer). actor = **`ProducerAccount`** (control-plane หลัง reshape 2026-06-29 — ข้อมูลบุคคล/ใบอนุญาตอยู่บนตัว account; ตาราง `ProducerAccounts`) + `ProducerTenantAssignments` (1 tenant/account) + `ExternalLogins`/`RegistrationAudits` + session `ProducerSessions`/`ProducerAuthAudits` + RBAC `ProducerRoles`/`ProducerRolePermissions`/`ProducerRoleAssignments`/`ProducerPermission(Groups)` (control-plane). register = anonymous ticket-gated (ticket = stateless signed Data Protection token — ตาราง `RegistrationTickets` ถูก drop 2026-07-01) → admin approve/reject (gated Admin perm `producer.approve`/`producer.reject` ใน catalog เดียวกัน). คงเหลือ `AdminAccount`* + BFF session tables (`AdminSessions`/`AdminAuthAudits`) + `DataProtectionKeys` = control-plane (ไม่มี RLS predicate, pol_admin only) ใน **Admin module**; ทั้ง Admin + Producer อยู่ schema เดียว `producer` — control plane แยกขาดจาก data plane
 - Maker-checker (approve tenant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
 - Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย tenant key
-- Money — `Money { MinorUnits: long, Currency: ISO4217 }` ใน SharedKernel (minor-unit ตาม registry); ไม่มี decimal/float ที่ cross-module seam; Orders verify amount+currency ตอนรับ `PaymentPaid`
+- Money — มาตรฐาน (ตัดสิน 2026-07-05) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** (domain/DB/wire) **ห้าม float/double**; as-built ปัจจุบันยังเป็น `Money { MinorUnits: long }` (bigint) = legacy จนกว่า migration (gap ข้อ 22 + ADR 16 ใน `docs/reference/platform-modules.md` — รายละเอียดกฎเต็มดู [CODING_STANDARDS.md](CODING_STANDARDS.md)); Orders verify amount+currency ตอนรับ `PaymentPaid`
 
 ## Naming Conventions
 

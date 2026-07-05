@@ -21,13 +21,15 @@ cost tracking และ retrospective. อ่านตามลำดับส�
 ## เอกสารอ้างอิง (reference) — คู่มือโมดูล / สถาปัตยกรรม / convention
 
 - [platform modules (บริบท+บทบาท)](reference/platform-modules.md) — module map ระดับแพลตฟอร์ม:
-  บริบท/บทบาทของทั้ง 14 โมดูล + สถานะ as-built + ช่องว่างเทียบเป้าหมาย (จุดเริ่มอ่านภาพรวม)
+  บริบท/บทบาทของทั้ง 14 โมดูล + สถานะ as-built + **target เชิง API ทุกโมดูล (normative, 2026-07-05)**
+  + ช่องว่างเทียบเป้าหมาย + ทะเบียน ADR ค้างตัดสิน (จุดเริ่มอ่านภาพรวม)
 - [src structure](reference/src-structure.md) — โครงสร้าง `src/`, layer, การวาง handler/repository
 - [entity fields](reference/entity-fields.md) — schema + field ของทุก entity/ตาราง
 - [Admin Google SSO](reference/admin-google-sso.md) — โมดูล admin SSO (BFF) + sequence
 - [Producer Google SSO](reference/producer-google-sso.md) — โมดูล producer SSO (BFF) + sequence
 - [Admin FE integration](reference/admin-fe-integration.md) — การต่อ FE กับ admin API
 - [payment orchestration modules](reference/payment-orchestration-modules.md) — โมดูลฝั่ง payment
+  + ภาค 8 = Canonical Payment API **target design (normative)**: Payment/PaymentAttempt/Webhook inbox/Routing
 - [Search / Filter / Sort](reference/search-filter-sort.md) — convention SFS + pagination บน list endpoint (JSON-DSL, EF Core, SQL Server, RLS)
 
 ## แหล่งความจริง (source of truth) — ห้ามขัดกับไฟล์เหล่านี้
