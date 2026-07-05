@@ -56,6 +56,11 @@ retrospectives/       # บันทึก retro รายเดือน
 > สถาปัตยกรรมของผลิตภัณฑ์ — source code อยู่ที่ `src/` แล้ว; ส่วนนี้คือ target shape ที่โค้ดต้องตาม.
 > รายละเอียดเต็ม: `docs/reference/payment-orchestration-modules.md` · module map + สถานะ as-built:
 > `docs/reference/platform-modules.md` · product canon: [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md)
+>
+> **Target API design (normative, รับเข้า 2026-07-05)** อยู่ในสองไฟล์นั้น: platform-modules.md
+> (ส่วน "เป้าหมายเชิง API ระดับแพลตฟอร์ม" + "โมเดลเป้าหมายเชิง API" ต่อโมดูล) และ
+> payment-orchestration-modules.md ภาค 8 (Payment/PaymentAttempt/WebhookDelivery/Routing) —
+> โค้ดปัจจุบันยังไม่ตาม target หลายจุด: ช่องว่างดู platform-modules.md "ช่องว่างเทียบเป้าหมาย" ข้อ 16-22
 
 **รูปทรง:** Modular Monolith ตามแนว **Clean Architecture + CQRS** — 1 deployable backend, แยกเป็นโมดูล,
 dependency ชี้เข้า domain, command/query แยกผ่าน Mediator (`ICommand`/`IQuery`).
