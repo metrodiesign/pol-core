@@ -5,8 +5,8 @@
 (NestJS / TypeORM / PostgreSQL) แต่ปรับ server-side ทั้งหมดให้ตรง stack จริงของเรา:
 C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-generated CQRS) + RLS floor.
 
-> สถานะ: **pol-core ยังไม่ได้ implement SFS วันนี้** — list endpoint ปัจจุบัน (เช่น `GET /admin/roles`,
-> `GET /producer/roles`) คืน full set, ไม่มี `OrderBy`, ไม่มี paging, ไม่รับ query-string sort/filter เลย.
+> สถานะ: **pol-core ยังไม่ได้ implement SFS วันนี้** — list endpoint ปัจจุบัน (เช่น `GET /api/v1/admins/roles`,
+> `GET /api/v1/producers/roles`) คืน full set, ไม่มี `OrderBy`, ไม่มี paging, ไม่รับ query-string sort/filter เลย.
 > (`GetProductsQuery` + `IProductRepository.ListByTenantAsync` มีอยู่จริงและ implement ครบ แต่ **ยังไม่ถูก
 > wire เข้า HTTP endpoint ใด** — endpoint ของ product วันนี้มีแค่ `POST /products`.) เอกสารนี้คือ
 > **target convention**: เมื่อทีมเริ่มเพิ่ม SFS ให้ endpoint ใด ให้ทำตามรูปแบบนี้ทั้งโปรเจกต์ เพื่อให้ทุกโมดูล
@@ -64,8 +64,8 @@ Repository: whitelist -> EF .Where / .OrderBy / .Skip / .Take  (+ LongCountAsync
 SQL Server 2025  ->  PagedResult<T>
 ```
 
-**สถานะ pol-core:** ทั้ง 4 list endpoint ที่ ship แล้ว (`GET /admin/roles`, `/admin/permissions`,
-`/producer/roles`, `/producer/permissions`) คืน full set; roles คืนแบบ **ไม่มี `OrderBy`** (unordered),
+**สถานะ pol-core:** ทั้ง 4 list endpoint ที่ ship แล้ว (`GET /api/v1/admins/roles`, `/api/v1/admins/permissions`,
+`/api/v1/producers/roles`, `/api/v1/producers/permissions`) คืน full set; roles คืนแบบ **ไม่มี `OrderBy`** (unordered),
 permission catalog เรียงตาม `SortOrder`. **ไม่มี endpoint ใดใช้ `Skip`/`Take` หรือรับ sort/filter จาก
 query string.** เอกสารนี้จึงเป็นการ **แนะนำพฤติกรรมใหม่** ไม่ใช่บันทึกพฤติกรรมเดิม.
 
@@ -213,16 +213,16 @@ public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int Limit,
 
 ```http
 # sort field เดียว
-GET /admin/roles?sort=[{"field":"name","order":"DESC"}]
+GET /api/v1/admins/roles?sort=[{"field":"name","order":"DESC"}]
 
 # sort หลาย field (ตามลำดับ)
-GET /admin/roles?sort=[{"field":"name","order":"ASC"},{"field":"code","order":"DESC"}]
+GET /api/v1/admins/roles?sort=[{"field":"name","order":"ASC"},{"field":"code","order":"DESC"}]
 
 # filter เดียว  (status บน wire เป็น lowercase เสมอ — ดู section 4)
-GET /admin/roles?filters=[{"field":"status","operator":"eq","value":"active"}]
+GET /api/v1/admins/roles?filters=[{"field":"status","operator":"eq","value":"active"}]
 
 # filter IN
-GET /admin/roles?filters=[{"field":"code","operator":"in","values":["super_admin","support"]}]
+GET /api/v1/admins/roles?filters=[{"field":"code","operator":"in","values":["super_admin","support"]}]
 
 # filter ช่วงวัน (ใช้ gte + lte — สอง filter, ตรงกับ pattern ต้นฉบับ)
 GET /products?filters=[{"field":"createdAt","operator":"gte","value":"2026-01-01"},{"field":"createdAt","operator":"lte","value":"2026-12-31"}]
@@ -231,7 +231,7 @@ GET /products?filters=[{"field":"createdAt","operator":"gte","value":"2026-01-01
 GET /products?filters=[{"field":"priceMinorUnits","operator":"between","values":[1000,5000]}]
 
 # search
-GET /admin/roles?search={"query":"admin","fields":["name","description"]}
+GET /api/v1/admins/roles?search={"query":"admin","fields":["name","description"]}
 
 # รวม SFS + pagination
 GET /products?page=1&limit=25&sort=[{"field":"createdAt","order":"DESC"}]&filters=[{"field":"isActive","operator":"eq","value":true}]&search={"query":"iphone","fields":["name"]}
@@ -1024,7 +1024,7 @@ public async Task Search_filter_does_not_widen_tenant_scope()
 
 ### 12.1 Admin roles — control-plane (ไม่ `ITenantScoped`)
 
-`GET /admin/roles` วันนี้ **มีอยู่จริงแต่ non-paginated** (คืน full set, ไม่มี `OrderBy`). admin role เป็น
+`GET /api/v1/admins/roles` วันนี้ **มีอยู่จริงแต่ non-paginated** (คืน full set, ไม่มี `OrderBy`). admin role เป็น
 **control-plane** (ไม่มี `TenantId`) จึง **ไม่** mark `ITenantScoped`.
 
 **ก่อน (วันนี้)** — `Admin.Application/RoleQueries.cs`:

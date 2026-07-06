@@ -413,7 +413,6 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 - **ผ่อน / e-wallet (internet-banking-style):** source + charge (มี `returnUri`, สถานะ pending) → `authorizeUri` (redirect ไปหน้า bank/wallet)
 - ผลจริงทุกช่องทางทาง webhook `charge.complete`; ยืนยันด้วย `GET /charges/{id}`
 - ทุกช่องทาง redirect แท้ → SAQ A
-- <!-- correction 2026-06-21: PromptPay เดิมระบุ source+charge→authorizeUri (ผิด — PromptPay เป็น offline-QR). แก้เป็น Payment Links+ hosted. ยืนยันกับ docs.omise.co/promptpay + payment-links-apis -->
 
 
 
@@ -482,10 +481,8 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 > **ไม่ใช่คำอธิบายโค้ดปัจจุบัน** และไม่ใช่ใบสั่ง implement ทันที (ทุก gap เปิด spec ผ่าน `/spec-new`;
 > สถานะ as-built ต่อฟีเจอร์ + ทะเบียน ADR ค้างตัดสิน: [platform-modules.md](platform-modules.md))
 >
-> การปรับตอนรับเข้า: (1) Money ทุกตัวอย่างถูกแปลงเป็นมาตรฐาน `DECIMAL(19,4)` ตามการตัดสินใจ
-> 2026-07-05 (ต้นฉบับใช้ integer minor units — มี HTML comment กำกับทุกจุด), (2) base path
-> `/api/v1/{area}` = ตัดสิน + migrate as-built ครบ (spec `api-route-scheme`, big-bang 2026-07-05), (3) canonical status
-> 7 ค่า ยังไม่ตรง enum จริง (gap ข้อ 19, ADR 15)
+> Money ทุกตัวอย่างในภาคนี้ใช้มาตรฐาน `DECIMAL(19,4)`; base path ใช้ `/api/v1/{area}` ตาม as-built ปัจจุบัน.
+> canonical status 7 ค่า ยังไม่ตรง enum จริง (gap ข้อ 19, ADR 15)
 
 ### 8.1 Design goals
 
@@ -641,7 +638,6 @@ stateDiagram-v2
 
 **GET `/api/customer/v1/order-summaries/{token}`** — คืน commercial summary ที่จำเป็น:
 
-<!-- intake correction 2026-07-05: ตัวอย่างต้นฉบับใช้ minorUnits (1830000) — แปลงเป็น DECIMAL(19,4) string ตามมาตรฐานทีม -->
 ```json
 {
   "order": {
@@ -707,7 +703,6 @@ Producer อ่านสถานะของ tenant ตนและทำ busin
 
 ตัวอย่าง Payment response:
 
-<!-- intake correction 2026-07-05: ต้นฉบับใช้ minorUnits — แปลงเป็น DECIMAL(19,4) string -->
 ```json
 {
   "paymentId": "pay_...",
@@ -799,7 +794,6 @@ UNIQUE (PaymentId) WHERE Status IN
 
 Routing policy ต่อ tenant + method:
 
-<!-- intake correction 2026-07-05: conditions ต้นฉบับใช้ minMinorUnits: 1 / maxMinorUnits: 50000000 — แปลงเป็น DECIMAL(19,4) string -->
 ```json
 {
   "paymentMethod": "card",
@@ -1295,7 +1289,6 @@ sequenceDiagram
 GET /api/admin/v1/transactions?tenantId=ten_123&status=processing&method=card&from=2026-07-01T00:00:00Z&limit=50
 ```
 
-<!-- intake correction 2026-07-05: ต้นฉบับใช้ minorUnits — แปลงเป็น DECIMAL(19,4) string -->
 ```json
 {
   "items": [
@@ -1355,7 +1348,7 @@ API อ่านกลับ**ห้ามคืน secret field** — แม้
 - filtered unique active attempt ต่อ Payment
 - unique webhook primary dedupe key
 - unique processed integration event key ต่อ consumer
-- check `Amount > 0` (`DECIMAL(19,4)`) <!-- intake correction 2026-07-05: ต้นฉบับ "check Money minor units > 0" -->
+- check `Amount > 0` (`DECIMAL(19,4)`)
 - check currency format
 - check status transitions ผ่าน domain code; DB constraint เสริมเฉพาะค่าที่เป็นไปได้
 - all data-plane tables มี TenantId + RLS policy
@@ -1483,7 +1476,6 @@ reconciliation query ที่ไม่เคลื่อนเงิน · migr
 | Table | PascalCase เอกพจน์ (ตรงกับ entity) | `Tenant`, `PspConnection` |
 | Column | PascalCase | `TenantId`, `MerchantId` |
 | datetime (เก็บ UTC) | ลงท้าย `At` — **ไม่ใส่** suffix `Utc` | `CreatedAt`, `RotatedAt` |
-<!-- intake correction 2026-07-05: เดิมระบุลงท้าย Utc (CreatedAtUtc) — ขัด CODING_STANDARDS จริง; suffix Utc ถูกถอดทั้งโค้ด+DB ตั้งแต่ PR #18 -->
 | Boolean | `bit` ชื่อ `Is...` | `IsActive` |
 | PK constraint | `PK_{Table}` | `PK_Tenant` |
 | FK constraint | `FK_{Child}_{Parent}` | `FK_PspConnection_Tenant` |
