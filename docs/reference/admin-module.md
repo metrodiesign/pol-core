@@ -144,6 +144,20 @@ Scoped ยิงโดน 403.
 | DELETE | `/admin/admins/{id}/tenants/{tenantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
 | POST | `/admin/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
 
+### Account management (spec `admin-account-management`, scheme `/api/v1/admins`)
+
+reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle/session ops gate ด้วย `AdminTier.Super`.
+กติกา: role ที่ให้ `user.roles` ควร grant `user.view` ด้วย ให้ operator เห็น directory ก่อน assign role.
+
+| Method | Path | Gate | CSRF | Success | Note |
+|---|---|---|---|---|---|
+| GET | `/api/v1/admins` | `user.view` | — | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
+| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, accessible tenants (unrestricted ถ้า Super), role codes (รวม Inactive); unknown -> 404 |
+| GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | — | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/reactivate` | **Super** | ต้อง | 204 | คืน Active + revoke session ทั้งหมดของ target (fresh-login); idempotent; unknown -> 404 |
+| GET | `/api/v1/admins/{id}/sessions` | **Super** | — | 200 | sessions (ไม่มี token material) + `isLive`; unknown -> 404 |
+| DELETE | `/api/v1/admins/{id}/sessions/{sessionId}` | **Super** | ต้อง | 204 | revoke ทั้ง rotation family; unknown/ไม่ใช่เจ้าของ -> 404; idempotent |
+
 `adminId` / `id` / `tenantId` เป็น Guid. JSON body/field เป็น camelCase.
 
 ## Logout

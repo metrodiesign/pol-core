@@ -57,4 +57,28 @@ public sealed class SfsOpenApiTests
         Assert.Contains("sort", names);
         Assert.Contains("search", names);
     }
+
+    // admin-account-management REQ-7.6/F2: the admin directory list carries the SfsQueryParamsMarker, so its SFS
+    // query parameters must appear in the OpenAPI document just like the roles list.
+    [Fact]
+    public async Task Admin_directory_get_declares_the_sfs_query_parameters()
+    {
+        using var factory = new SfsOpenApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        var op = root.GetProperty("paths").GetProperty("/api/v1/admins").GetProperty("get");
+        var names = op.GetProperty("parameters").EnumerateArray()
+            .Select(p => p.GetProperty("name").GetString())
+            .ToHashSet();
+
+        Assert.Contains("page", names);
+        Assert.Contains("limit", names);
+        Assert.Contains("filters", names);
+        Assert.Contains("sort", names);
+        Assert.Contains("search", names);
+    }
 }

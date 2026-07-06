@@ -36,6 +36,14 @@ public interface IAdminSessionStore
     /// <summary>Deletes sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5);
     /// returns the number removed.</summary>
     Task<int> PruneAsync(DateTime now, CancellationToken cancellationToken);
+
+    /// <summary>All of an admin's stored sessions, newest first with a session-id tiebreak (unpaged — the prune
+    /// job bounds the set), for the session-management view (admin-account-management REQ-4). Read-only.</summary>
+    Task<IReadOnlyList<AdminSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken cancellationToken);
+
+    /// <summary>Looks up a single session by id (admin-account-management REQ-5) — used to check ownership and read
+    /// its <see cref="AdminSession.FamilyId"/> before a family revoke. Read-only.</summary>
+    Task<AdminSession?> FindByIdAsync(Guid sessionId, CancellationToken cancellationToken);
 }
 
 /// <summary>Append-only auth event audit (REQ-12). Separate writer from <see cref="IAdminAccountAuditWriter"/>

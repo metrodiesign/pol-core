@@ -1,107 +1,170 @@
-# Plan: pol-core product canon — foundational decisions (PR #2)
+# Plan: Admin Account Management — six additive management endpoints
 
-_Round 3 — APPROVED by Codex (3 rounds). Final Medium nits folded in._
+_Locked via grill — by Claude + KinG (2026-07-05)_
+
+Full EARS spec: `.ai/specs/admin-account-management/requirements.md` (7 REQ / 37
+criteria, analyze-audited with 11 logged findings). This plan is the reviewable
+condensation; the spec file is the durable source of truth.
 
 ## Goal
 
-ยืนยันว่าชุดการตัดสินใจ foundational ที่เพิ่งเทลง `.ai/shared/*` (product canon ของ
-Internal Payment Orchestration Platform — captive, redirect-only, ไม่ถือเงิน, multi-tenant)
-หนักแน่นพอให้ทั้งทีม build บนมันได้ โดยไม่มีรูที่จะแพงตอน implement (payments / schema /
-multi-tenant security). canon นี้ยังไม่มี code — เป็น target shape + hard constraints ที่ทุก spec/PR
-ข้างหน้าต้องเคารพ. Source จริง: `docs/reference/payment-orchestration-modules.md`.
+Give the internal Admin Console a complete management surface over admin accounts
+via API — today invite/suspend/tenant-assign/set-roles exist, but operators cannot
+list or view admin accounts, cannot reactivate a suspended admin (manual DB edit),
+cannot inspect or revoke another admin's sessions, and cannot view another admin's
+effective permissions. Close exactly those gaps (already-recorded targets in
+`docs/reference/platform-modules.md` §3.1/§3.2) with six purely additive endpoints
+under `/api/v1/admins`, reusing the existing permission catalog, session store, and
+audit infrastructure. Zero schema migration.
 
 ## Approach
 
-1. **Product model** (PROJECT_CONTEXT.md): captive (allowlist 3 นิติบุคคล), redirect-only (PCI SAQ A),
-   ไม่ถือเงิน (เงิน settle PSP→merchant โดยตรง), 5 โมดูล (Products→Cart→Checkout→Orders→Payments)
-   คุยผ่าน Mediator, จบที่ emit `PaymentPaid` ไม่มี issuance. 7 Non-Goals = ฟังก์ชันห้าม implement.
-2. **Architecture** (ARCHITECTURE.md): Modular Monolith ตาม Clean Architecture + CQRS, 1 deployable backend,
-   แยก control plane (2 console: Tenant public / Admin internal คนละ deploy บน backend ชุดเดียว) จาก
-   data plane. โมดูลคุยกันผ่าน Contracts + Mediator (`INotification`) เท่านั้น.
-3. **Stack pin** (CODING_STANDARDS.md): .NET 10 / ASP.NET Core 10 / C# 14 (LTS), EF Core 10,
-   SQL Server 2025 Standard, martinothamar/Mediator 3.x (source-gen, compile-time). 2 schema: `admin`, `producer`.
-4. **Stack profile** (stack/dotnet.md): gate `dotnet build -warnaserror` / `dotnet test`; project layout
-   (SharedKernel, Contracts, Modules/<M>/{Domain,Application,Infrastructure}, Hosts/{TenantConsole,AdminConsole}).
-5. **Security guardrails** (SECURITY_RULES.md product section): PCI SAQ A redirect-only, vault (encrypt+แยก key
-   ต่อ tenant, write-only, mask), webhook=source of truth (verify+idempotent+fetch-to-confirm), multi-tenant RLS,
-   แยก authz Admin↔Tenant, maker-checker, idempotency, audit log. กำกับว่าเป็น design-level (ไม่มี script จับ).
+1. Spec workflow (constitution): requirements.md is written and analyze-audited;
+   next `design.md` (+ traceability), then `tasks.md` (~5-6 vertical slices), then
+   implement task-by-task with Evidence. Feature branch off `develop`, single PR.
+2. `GET /api/v1/admins` — SFS list (clone the `AdminRoleSfs` exemplar): new
+   `AdminAccountSfs` whitelist — filter `email` (eq/ne/in/not_in/like/ilike/contains),
+   `tier`,`status` (eq/in, lowercase wire values, strict-parse 400 on bad value),
+   sort `email`,`createdAt`, search `email`. `ApplySort` appends `ThenBy(a => a.Id)`
+   after EVERY surviving sort set (not just the default) so paging is stable even
+   when `email`/`createdAt` collide; default sort `createdAt` desc + id. Unknown
+   fields/operators silently dropped per the mandatory SFS convention. Item:
+   adminId, email, tier, status, createdAt, subject-bound flag. ROUTE: mapped on
+   `api.MapGet("/admins")` NOT the `admin` group — a group's empty-string root
+   pattern renders the forbidden trailing slash `/api/v1/admins/` (same reason the
+   existing `POST /admins` sits on `api`, Program.cs:1307); auth+permission metadata
+   applied per-endpoint.
+3. `GET /api/v1/admins/{id:guid}` — detail (on the `admin` group — non-empty pattern,
+   fine): list fields + accessible tenants mirroring `GET /me` shape
+   (`isUnrestricted` for Super, else `{tenantId, code}` pairs) + role codes of ALL
+   assigned roles (including Inactive ones). Every admin-id route carries the
+   `:guid` constraint so it never shadows the literal `/me`,`/roles`,`/permissions`
+   siblings.
+4. `POST /api/v1/admins/{id:guid}/reactivate` — new `AdminAccount.Reactivate()`
+   domain method + new `ReactivateAdminCommand`/handler (NOT host-composed). On the
+   Suspended→Active transition the handler, inside ONE
+   `IUnitOfWork.ExecuteInTransactionAsync`: calls
+   `IAdminSessionStore.RevokeAllForAdminAsync` (fresh-login guarantee), flips status
+   via the domain method, stages the audit, and `SaveChangesAsync` — all on the
+   shared keyed `"admin"` context so the `ExecuteUpdateAsync` revoke + audit insert
+   + status update commit or roll back together. Idempotent 204 when already Active
+   (no revocation); audit every accepted call (mirrors suspend). 404 unknown id.
+5. `GET /api/v1/admins/{id:guid}/sessions` — unpaged, `issuedAt` desc + `sessionId`
+   tiebreak; per session: sessionId, familyId, status (active/superseded/revoked),
+   issuedAt, idleExpiresAt, absoluteExpiresAt, createdIp, userAgent, read-time
+   `isLive`. Token hashes NEVER on the wire. New read method
+   `ListByAdminAsync(adminId)` on the session store. Handler checks account
+   existence first → 404 for an unknown admin (empty list only for a real admin
+   with no sessions).
+6. `DELETE /api/v1/admins/{id:guid}/sessions/{sessionId:guid}` — new
+   `RevokeAdminSessionCommand`/handler. Resolves the route admin first (404 if the
+   admin id is unknown — `AdminSessions` has no FK to `AdminAccounts`, so a session
+   could carry an orphan `AdminAccountId`; never accept a revoke/audit against a
+   nonexistent admin). Then loads the session by id, 404 if absent OR its
+   `AdminAccountId` ≠ the route admin (no existence leak); revokes the ENTIRE
+   rotation family (a single-row revoke leaves the live successor usable), emits a
+   structured security-log line carrying `sessionId`/`familyId`/`targetAdminId`/
+   `correlationId`, stages the audit — all inside one `ExecuteInTransactionAsync`.
+   New store method (find-by-id → revoke that `FamilyId`, composed from the existing
+   `RevokeFamilyAsync` UPDATE). Idempotent 204 on an already-revoked family.
+7. `GET /api/v1/admins/{id:guid}/effective-permissions` — new query handler that
+   FIRST resolves the account (`IAdminAccountRepository.GetByIdAsync`) → 404 if
+   unknown (the repo's `ListEffectivePermissionsAsync` returns an empty set for a
+   nonexistent id, so existence must be checked explicitly), THEN returns the union
+   of keys from that admin's ACTIVE roles (identical rule to `/me`); flat array,
+   ordinal-sorted; works for suspended targets.
+8. Host wiring: the LIST on `api`, the five id-routes on the `admin` group (CSRF
+   filter inherited, exempts the GETs, guards the unsafe reactivate/DELETE); reads
+   gated `RequirePermission(user.view)` (key exists in the catalog — no migration),
+   lifecycle/session ops gated `RequireAdminTier(Super)` mirroring suspend; full
+   OpenAPI metadata per repo convention; every mutation is a Mediator command using
+   `[FromKeyedServices("admin")] IUnitOfWork` + `ExecuteInTransactionAsync` — the
+   host composes nothing; wire DTOs host-local with explicit enum→lowercase
+   projection.
+9. Tests, three existing layers: Admin.Tests (domain Reactivate guard, handlers
+   with fakes, AdminAccountSfs whitelist + stable-sort), Hosts.Tests (401/403
+   gates, list root maps with NO trailing slash, route-scheme conventions cover the
+   six routes). Integration.Tests ARE added (not optional) — the load-bearing bugs
+   live in EF `ExecuteUpdateAsync` + transaction + route binding, which the fakes
+   cannot catch: (a) reactivate commits revoke+status+audit atomically and rolls
+   ALL back on a forced failure, (b) revoke-family ownership 404 (incl. unknown
+   route admin) + cross-family isolation + idempotency, (c) list root has no
+   trailing slash, (d) the revoke security-log line carries
+   sessionId/familyId/targetAdminId/correlationId. Update
+   `docs/reference/platform-modules.md` §3.1/§3.2 rows + `docs/reference/admin-module.md`
+   as the final task, including the role-composition note (below).
 
-## Key decisions & tradeoffs (the contestable choices) — revised
+## Key decisions & tradeoffs
 
-1. **Modular Monolith (ไม่ใช่ microservices).** 1 deployable, backend ร่วมสำหรับ 2 console.
-   Trade: blast radius กันด้วย authz scope + RLS ใน-process ไม่ใช่ network boundary. **module isolation บังคับด้วย
-   architecture test** (เช่น NetArchTest: โมดูลห้าม reference `*.Domain`/`*.Infrastructure` ของโมดูลอื่น — fail build).
-2. **`Money` ใน SharedKernel + wire contract ตายตัว.** seam ปัจจุบัน `PaymentPaid.Amount`=`long` สตางค์ vs Orders `decimal` บาท.
-   ตัดสิน: `Money { MinorUnits: long, Currency: ISO4217 }` — **minor-unit ตาม ISO4217 registry** (THB=2), currency
-   **allowlist ต่อ tenant/PSP**, overflow bounds (long, ปฏิเสธค่าติดลบ/เกิน). ไม่มี float/decimal ที่ seam. version `PaymentPaid`
-   schema (`v1`). ทุกโมดูลใช้ร่วมจาก SharedKernel. Orders verify **amount + currency** ตอนรับ `PaymentPaid` ไม่ใช่แค่ `PaymentId`.
-3. **RLS defense-in-depth (data-layer floor).** ชั้นจริง = **SQL Server native RLS + `SESSION_CONTEXT('TenantId')`**
-   set ต่อ request (canon: "ไม่พึ่ง app code"). EF global query filter = ชั้นสะดวกเสริม **ไม่ใช่** floor. ban raw SQL /
-   `IgnoreQueryFilters` ที่ข้าม tenant scope + มี test พิสูจน์ leak ปิด.
-   **Admin cross-tenant bypass = path แยกชัด:** ใช้ **DB principal คนละตัว** (admin connection string) ที่ RLS predicate
-   ยอมให้ข้าม — **tenant console principal ทำไม่ได้เด็ดขาด** (RLS policy ผูกกับ principal/role). ทุก bypass ต้องมี reason + correlation id → audit.
-4. **Webhook = source of truth, return handler = UX เท่านั้น.** ไม่ตัดสินสถานะจาก browser redirect.
-   **ห้าม trust tenant/PSP จาก URL path ก่อน verify signature** — route by connection id หรือ signed path → verify webhook secret → fetch-to-confirm.
-5. **Identity: Google SSO.** verify **sig + `iss` + `aud` + `exp` + `email_verified`** เสมอ (iss ตรวจ — ไม่ skip).
-   ใช้ `aud` (OAuth client ต่อ console) + `hd` guard เพื่อ **แยก console** (เพราะ `iss` ร่วมกัน = `accounts.google.com`)
-   ไม่ใช่แทน iss. role ตัดสินที่ platform: lookup ตาราง identity ของ console (`AdminUser`/`TenantUser`) = allowlist จริง,
-   `hd` = coarse guard เสริม. ไม่พบ/disabled → 403.
-6. **Stack pin LTS.** .NET 10 + ASP.NET Core 10 + C# 14 + EF Core 10 + SQL Server 2025 Standard + Mediator 3.x.
-   exact patch pin ที่ `Directory.Packages.props` ตอน implement. **เงื่อนไข: compatibility spike ก่อน canon freeze**
-   (EF Core 10 provider + SQL Server 2025 GA + CI image + hosting) + fallback policy (เช่น .NET 8 LTS / SQL 2022) ถ้า spike ล้ม.
-7. **Mediator lifetime.** `IMediator` Singleton (perf) ได้ แต่ **handler/pipeline ที่พึ่ง `DbContext` ต้อง Scoped**
-   (หรือ inject `IDbContextFactory`) — กัน captive dependency. มี DI validation test (`ValidateScopes=true`).
-8. **Provisioning = saga (ไม่ใช่ single distributed tx).** DB กับ vault คนละ store → atomic transaction เดียวเป็นไปไม่ได้.
-   ลำดับ: `PendingProvisioning` → write DB → write vault (idempotency key) → verify secrets → **activate ขั้นสุดท้าย** →
-   compensation/retry ถ้าล้มกลางทาง. idempotent ด้วย tenant key.
-9. **Idempotency (payment/webhook).** unique key DB หลายชั้น: `(psp, eventId)` **และ** `(psp, externalChargeId, normalizedStatus)`
-   (กัน PSP ที่ replay ด้วย event id ต่างกันสำหรับ charge เดียว / event ที่ไม่มี stable id) + guard ที่ **fetch-confirmed
-   payment transition** `(paymentId, transition)`. atomic upsert ใน tx. `idempotencyTtlHours` = cleanup หลัง replay window
-   **ไม่ใช่** guard หลัก. แยก **session expiry** (redirect) ออกจาก **event-ledger retention** (ยาวพอ PSP retry/dispute/audit).
-10. **Outbox dispatcher.** publish `PaymentPaid` ผ่าน **table outbox** (เขียนในธุรกรรมเดียวกับ state transition) +
-    background dispatcher แบบ **polling ด้วย lock/lease** (กัน 2 dispatcher ชนกัน), retry + **poison/DLQ** หลัง N ครั้ง,
-    **idempotent consumer** (Orders dedup ด้วย event id). exactly-once *effect* ไม่ใช่ exactly-once delivery.
-11. **Routing fallback (primary→fallback PSP).** fallback อนุญาต **เฉพาะก่อน PSP session ถูกสร้าง** เท่านั้น —
-    หลังสร้าง charge แล้วห้าม retry ข้าม PSP (กัน duplicate charge). persist PSP external id, block second create.
-12. **Config typing.** routing/session/secrets-ref = **typed table/owned types** (validation/migration/audit diff ได้) —
-    `Metadata` JSON เฉพาะ low-risk display (branding/logo). secret → `VaultSecret` แยก, write-only, mask.
-13. **Audit log** append-only + **tamper-evident** (immutable table policy / hash-chain / WORM export) + actor correlation id.
-14. **Vault custody model (provider TBD).** envelope encryption: per-tenant **KEK** ใน **KMS/HSM** (provider เลือกตอนรู้ hosting —
-    Azure Key Vault / AWS KMS / SQL Always Encrypted), DEK ต่อ secret. เก็บ **key id + version**, มี **rotation + re-encrypt runbook**,
-    masked read, no log, ทุกการเข้าถึง audit. provider selection = pre-implementation task; model นี้ fix.
-    **SQL Always Encrypted เข้าเกณฑ์เฉพาะเมื่อ CMK อยู่ใน external Key Vault/HSM** (แยกจาก config DB) — ลำพังไม่นับ KMS/HSM.
-15. **PaymentSessionId correlation (no attach-race).** สร้าง internal `PaymentSessionId` ตอน **Orders เรียก Payments / ออก summary link**
-    (ก่อนแตะ PSP) → bind `OrderId` + amount + currency + method + tenant ตั้งแต่ตอนนั้น. PSP external id ผูกทีหลังตอน confirm.
-    → `PaymentPaid` จับคู่ได้ทันที ไม่มี attach-race.
-16. **Security product rules** design-level + **spec-lint gate ที่ concrete (CI-enforced)**: regex/checklist fail บน —
-    card input field / `Omise.js` / hosted-fields / iframe จ่าย / display-QR (non-redirect) · response ที่มี secret field ไม่ mask ·
-    query/handler ที่ไม่มี tenant scope · term ของ 7 Non-Goals (settlement/payout/ledger/wallet/billing). hook เข้า `.ai/bin` + spec-trace.
-    **allowlist docs/fixtures** (กัน false-pos เช่น `ledger` ใน warning prose, `iframe` ใน banned-example) + **human security checklist ควบ machine lint** (ไม่พึ่ง regex ล้วน).
+- **Authorization split**: the three READS are gated on the `user.view` permission,
+  while reactivate + session ops are gated on `AdminTier.Super` (mirrors the
+  existing suspend/invite/tenant-assign gates). `RequirePermission` is a
+  single-key filter; a `user.roles` holder does NOT implicitly get `user.view`, so
+  an operator who must both see the directory AND assign roles needs a role
+  granting BOTH keys. That is a role-composition guideline (documented in the docs
+  task), NOT an OR-gate — adding a two-key OR filter is new authz infra rejected as
+  over-engineering. Alternative (all reads Super-only) also rejected: breaks the
+  role-assignment UX and the RBAC direction.
+- **Cross-tenant directory visibility**: any `user.view` holder — even Scoped tier —
+  sees ALL admin accounts (emails included). Deliberate: admin accounts are
+  control-plane data; the `IAdminQuery` seam only governs tenant BUSINESS reads.
+- **Revoke = whole rotation family**, addressed by any session id in it. A
+  single-session revoke is security theater (the rotated successor stays live).
+  404 (not 403) when the session belongs to another admin — no existence leak.
+- **Audit granularity — no migration**: `AdminAccountAudit` has no free-form/session
+  column (fields: action, actorType, actorId, targetAdminId, tenantId, targetRoleId,
+  correlationId, occurredAt). A session-revoke audit row records WHO revoked sessions
+  for WHOM and WHEN (action=`session-revoke`, actorId, targetAdminId, correlationId).
+  WHICH session/family is answered by the structured security log line emitted with
+  the same correlationId — deliberately NOT via a schema migration (zero-migration
+  scope). New `AdminAuditAction` constants (`reactivate`, `session-revoke`) are
+  code-only.
+- **Reactivate revokes all target sessions first** (fresh-login guarantee): blocks
+  stolen-cookie resumption after a suspend/reactivate cycle. Suspend itself stays
+  untouched (additive-only constraint).
+- **SFS convention compliance**: unknown filter/sort fields are silently dropped
+  (logged debug) per the mandatory convention; only malformed JSON and invalid
+  VALUES (wrong JSON type, out-of-domain enum string) 400. Initially drafted as
+  400-for-unknown-field; corrected against `AdminRoleSfs`/convention doc.
+- **Zero migration**: reuse `user.view` permission key, existing tables. No new
+  permission (e.g. `user.sessions`) — Super-tier gate covers session ops;
+  revisit only if a finer grant is ever needed.
+- **No hard DELETE / email edit / tier change**: platform target design keeps
+  lifecycle = suspend/reactivate; audits are append-only FK'd to accounts.
+- **Sessions list unpaged**: bounded by the existing prune job; SFS there is
+  overkill.
+- **Detail shows ALL assigned roles (incl. Inactive)** while effective-permissions
+  computes from ACTIVE roles only — assignment truth vs enforcement effect, same
+  split the resolve pipeline already uses.
 
-## Risks / open questions (เหลือหลัง revise)
+## Risks / open questions
 
-เหลือเป็น **pre-implementation task ที่ owned-by-human** (ตัดสินแล้วว่าจะทำ แต่รอ input ภายนอก) — ไม่ใช่ flaw ของ plan:
-
-- **[GATE] Compatibility spike — task #1 ก่อน scaffold:** ~~พิสูจน์ EF Core 10 + SQL Server 2025 GA + provider~~ → **PASSED 2026-06-21** ([docs/spikes/2026-06-21-stack-compatibility.md](docs/spikes/2026-06-21-stack-compatibility.md)). chain ทำงาน end-to-end บน SQL Server 2025 RTM-CU5 + EF Core 10.0.0 + Mediator 3.0.1 + net10/C#14. fallback ไม่ต้องใช้. canon updated (Mediator pin 3.0.1, Scriban transitive vuln → CI suppress, SESSION_CONTEXT via connection-open interceptor). **stack frozen → scaffold (task #2) ปลดล็อก.**
-- **[DONE] Scaffold + foundation (task #2) — 2026-06-21:** Modular Monolith ลงจริง 28 projects (SharedKernel/Contracts/BuildingBlocks/5 Modules×3 layers/2 Hosts/6 test projects), `dotnet build -warnaserror` 0/0, `dotnet test` 108 passing. spine ของ 16 decisions = code จริง+test (Money seam #2, RLS interceptor #3, webhook source-of-truth #4, Google SSO claim-validation #5, Mediator Scoped #7, idempotency multi-key #9, outbox+dispatcher #10, bind-once charge #11, envelope vault #14, PaymentSession correlation #15, arch test #1). Stub ที่ mark `ponytail:` ไว้ชัด = PSP HTTP จริง, KMS vault provider, Google JWKS, RLS SQL policy apply, Cart/Checkout/Products หนา. spec: `.ai/specs/foundation-scaffold/`.
-- **Vault provider selection:** Azure Key Vault / AWS KMS / SQL Always Encrypted — รอ hosting decision (model envelope/per-tenant KEK fix แล้ว, decision #14).
-- **Native RLS เชิง runtime:** `SESSION_CONTEXT` reset ตอน connection-pool reuse + benchmark — **acceptance: test พิสูจน์ reused pooled connection retain prior tenant context ไม่ได้** (verify ตอน infra task).
-- **Notification queue tech** (Orders spec แยก) — แต่ min-contract fix now: at-least-once, idempotent notify key, DLQ alert, link token rotation/TTL.
-
-## Canon changes required on approval (deliverable — apply หลัง human gate)
-
-PLAN นี้ revise ตัวตัดสินใจ → ตอน approve ต้อง sync canon docs ให้ source เดียว (ตอนนี้ยังเขียนของเดิม = inconsistency ที่ track ไว้):
-
-- `ARCHITECTURE.md` + `docs/reference/...:311` + `stack/dotnet.md`: "provisioning transaction เดียว" → **saga state machine** (decision #8)
-- `SECURITY_RULES.md` + `stack/dotnet.md`: RLS = EF global filter → **native RLS + `SESSION_CONTEXT` เป็น floor**, EF filter = convenience (decision #3) + admin bypass principal (#3) + webhook ห้าม trust path ก่อน verify (#4)
-- `CODING_STANDARDS.md` / `stack/dotnet.md`: Mediator lifetime — handler ที่พึ่ง DbContext = Scoped + DI validation test (#7); `Money` wire contract + ISO4217 registry ใน SharedKernel (#2)
-- เพิ่ม **spec-lint gate** เข้า `.ai/bin` + CI (decision #16); audit tamper-evident (#13); idempotency multi-key + outbox (#9, #10)
-
-> หมายเหตุ: ไม่แก้ canon ระหว่าง review loop (โดยตั้งใจ — file edit หลัง human gate). รายการนี้คือ scope ของการ apply.
+- **Transaction composition — RESOLVED, now a design constraint (not a question)**:
+  the session store, account repo, and audit writer are ALL bound to the one keyed
+  `"admin"` `ProducerDbContext` (`AdminHostWiring.cs:177-188`) whose keyed
+  `IUnitOfWork` is `AdminProvisioningUnitOfWork` (`AdminScopedServices.cs:77`).
+  `RevokeAllForAdminAsync`/`RevokeFamilyAsync` are `ExecuteUpdateAsync` statements
+  that execute IMMEDIATELY on that context's connection — so they enroll in the
+  ambient transaction opened by `ExecuteInTransactionAsync` and commit/roll back
+  atomically with the change-tracked audit insert. Design ENFORCES: every session
+  mutation runs inside the command handler's transaction lambda; the host composes
+  nothing. Atomicity is INHERITED from `ExecuteInTransactionAsync` — the same
+  primitive every existing admin mutation (Suspend/AssignTenant/role CRUD) uses
+  identically — and was verified against the code by the spec-architect review; the
+  integration suite covers the new store SQL (list scoping/order, family-revoke
+  isolation), NOT a bespoke handler-level rollback test (the raw-SQL harness does
+  not boot the EF/DI transaction stack). A forced-rollback end-to-end test remains a
+  known coverage gap, accepted as low-risk given the reused primitive.
+- **Revoke racing an in-flight rotation** can leak a successor in a narrow window —
+  inherited `RevokeFamilyAsync` semantic (same as logout/reuse-detection), accepted
+  and documented in REQ-5.3; store hardening explicitly out of scope.
+- `RouteSchemeConventionTests` enumerates routes — the six new entries must satisfy
+  it (all under `/api/v1/admins`, per-endpoint `RequireAuthorization`).
 
 ## Out of scope
 
-- เขียน code / scaffold solution จริง (repo เป็น spec-first, ยังไม่มี src/)
-- 7 Non-Goals (settlement/billing/public-onboarding/card-data/PSP-functions/non-redirect/money-moving recon) — ห้ามแตะ
-- spec ราย-feature (requirements/design/tasks) ของแต่ละโมดูล — ทำผ่าน /spec-* ทีหลัง
-- เลือก message queue / notification worker tech (อยู่ใน Orders spec แยก)
+- Frontend admin SPA work (backend API only).
+- Changing suspend behavior (session revocation on suspend), maker-checker
+  ChangeRequest flow, moving `AdminAllowlist` config → DB, hard DELETE, email/tier
+  mutation, session-store race hardening, SFS/paging on the sessions list, new
+  permission keys, any schema migration.

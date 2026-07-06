@@ -10,6 +10,9 @@ public static class AdminAuditAction
     public const string AssignTenant = "assign-tenant";
     public const string UnassignTenant = "unassign-tenant";
     public const string Suspend = "suspend";
+    // admin-account-management: lifecycle + session management (REQ-3.2, REQ-5.2).
+    public const string Reactivate = "reactivate";
+    public const string SessionRevoke = "session-revoke";
 
     // Role RBAC events (admin-role-rbac REQ-10.1). Role CRUD targets a role (TargetRoleId); assign/unassign
     // targets an admin (TargetAdminId).

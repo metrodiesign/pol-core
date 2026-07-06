@@ -70,4 +70,10 @@ public sealed class AdminAccount : AggregateRoot<Guid>
             throw new InvalidOperationException("An admin cannot suspend their own account.");
         Status = AdminStatus.Suspended;
     }
+
+    /// <summary>Restores access (admin-account-management REQ-3). Idempotent: an already-Active account stays
+    /// Active. No self-guard is needed (a suspended admin cannot authenticate, so self-reactivation cannot
+    /// arise). Revoking the target's sessions on the Suspended->Active transition is the caller's
+    /// responsibility — the handler owns the transaction and the session store (REQ-3.5).</summary>
+    public void Reactivate() => Status = AdminStatus.Active;
 }
