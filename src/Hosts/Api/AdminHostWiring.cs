@@ -182,6 +182,8 @@ internal static class AdminHostWiring
         services.AddScoped<IAdminTenantDirectory>(sp => new AdminTenantDirectory(Admin(sp)));
         services.AddScoped<IAdminRoleRepository>(sp =>
             new AdminRoleRepository(Admin(sp), sp.GetRequiredService<ILogger<AdminRoleRepository>>())); // admin-role-rbac
+        services.AddScoped<IMasterDataStore>(sp =>
+            new MasterDataStore(Admin(sp), sp.GetRequiredKeyedService<IUnitOfWork>("admin"))); // profile master lists
 
         // Admin BFF session substrate (REQ-3/5/6/11/12): store + append-only auth audit on the keyed pol_admin
         // context; the cookie service is stateless (singleton).

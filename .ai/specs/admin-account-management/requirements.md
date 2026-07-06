@@ -246,6 +246,91 @@ Full audit (/spec-analyze), 9 findings, all decided 2026-07-05:
    handler MUST resolve the account first and 404 on unknown, never infer "no
    permissions" from an empty set. REQ-6.3 already mandates the 404; captured as a
    design/handler constraint. Same pattern applies to the sessions list (REQ-4.4).
+
+---
+
+## Increment 2 — Org profile fields & master data (2026-07-06)
+
+> Additive slice on top of the shipped six endpoints. Unlike Increment 1, this
+> increment DOES add tables + a migration (see REQ-10.1 — it supersedes the
+> Increment-1 "no new tables/migration" scope, REQ-7.4). Motivation: an admin
+> account must record its ตำแหน่ง / สถานที่ปฏิบัติงาน / ระดับ / ฝ่าย-ภาค, and each is a
+> RELATION to a managed master list, not free text — so the values stay controlled,
+> renameable, and referable.
+
+## REQ-8: Org-profile fields on an admin account (FK to master lists)
+
+**User Story:** As a platform operator, I want each admin account to carry its
+position, office, level, and division as references to managed lists, so the org
+directory is consistent and the values are controlled.
+
+**Acceptance Criteria (EARS):**
+
+- 8.1 THE SYSTEM SHALL let each `AdminAccount` carry four OPTIONAL org-profile
+  references — `position` (ตำแหน่ง), `office` (สถานที่ปฏิบัติงาน), `level` (ระดับ),
+  `division` (ฝ่าย/ภาค) — each a nullable FK to its own master table
+  (`Positions`/`Offices`/`Levels`/`Divisions`). NULL means "not set" (an invited
+  account has no known profile yet).
+- 8.2 WHEN `POST /api/v1/admins` is called THE SYSTEM SHALL accept optional
+  `positionId`/`officeId`/`levelId`/`divisionId`; each supplied id MUST reference an
+  existing, ACTIVE master, else 400 ProblemDetails.
+- 8.3 WHEN `PUT /api/v1/admins/{id}/profile` is called for an existing account THE
+  SYSTEM SHALL replace ALL four references (a null field clears that dimension) and
+  respond 204; IF the id is unknown THEN 404; IF a supplied master id does not
+  reference an existing ACTIVE master THEN 400.
+- 8.4 WHEN a `PUT .../profile` call is accepted THE SYSTEM SHALL append an
+  append-only `AdminAccountAudit` entry (`update-profile` action, acting admin id,
+  correlation id, target admin id) in the same keyed `"admin"` transaction as the
+  update.
+- 8.5 WHEN `GET /api/v1/admins/{id}` is called THE SYSTEM SHALL include, per
+  dimension, either `null` (unset) or a resolved `{id, code, name}` reference.
+- 8.6 THE SYSTEM SHALL gate `PUT .../profile` on the existing `user.manage`
+  permission (fail-closed → 403); `POST /admins` keeps its existing `Super` gate, so
+  supplying profile ids at invite is Super-only.
+
+## REQ-9: Master data CRUD (Position / Office / Level / Division)
+
+**User Story:** As a platform operator holding `user.manage`, I want to manage the
+four profile master lists at runtime, so new positions/offices/levels/divisions do
+not require a code change or migration.
+
+**Acceptance Criteria (EARS):**
+
+- 9.1 THE SYSTEM SHALL expose, per dimension, `GET` (list) / `POST` (create) /
+  `PUT /{id:guid}` (update) under
+  `/api/v1/admins/master-data/{positions|offices|levels|divisions}`.
+- 9.2 WHEN the list endpoint is called THE SYSTEM SHALL return a paged result
+  (`page`/`limit`), an optional escaped substring `search` over code + name, ordered
+  by name, each row `{id, code, name, isActive}`.
+- 9.3 WHEN create is called THE SYSTEM SHALL require `code` (immutable identity,
+  `^[a-z0-9_]+$`) + `name`; a duplicate code within that dimension → 409; a
+  malformed code → 400.
+- 9.4 WHEN `PUT /{id}` is called THE SYSTEM SHALL rename `name` and toggle
+  `isActive` (the code is immutable, taken from the route); unknown id → 404.
+- 9.5 THE SYSTEM SHALL soft-deactivate via `isActive` and SHALL NOT hard-delete a
+  master (the `AdminAccount` FK is `Restrict`); an inactive master cannot be newly
+  assigned (REQ-8.2/8.3) but existing references remain valid.
+- 9.6 THE SYSTEM SHALL gate every master-data endpoint on `user.manage`
+  (fail-closed → 403) with the admin session policy + CSRF on unsafe methods.
+
+## REQ-10: Increment-2 authorization, wire, and persistence guarantees
+
+**Acceptance Criteria (EARS):**
+
+- 10.1 THE SYSTEM SHALL add four control-plane tables
+  (`Positions`/`Offices`/`Levels`/`Divisions`, schema `producer`,
+  table-per-concrete-type — no base table, no discriminator) plus ONE migration, and
+  SHALL grant `pol_admin` `SELECT, INSERT, UPDATE` on each (no DELETE —
+  soft-deactivate only); this supersedes the Increment-1 zero-migration scope
+  (REQ-7.4).
+- 10.2 THE SYSTEM SHALL wire the existing `user.manage` catalog key (previously
+  unused by any endpoint) as the write gate — no new permission key.
+- 10.3 THE SYSTEM SHALL leave every Increment-1 endpoint's route and behavior
+  unchanged; `POST /admins` is extended ONLY additively (optional nullable fields).
+- 10.4 THE SYSTEM SHALL serve master-data CRUD through a generic store that bypasses
+  Mediator (simple reference data) but STILL commits through the keyed `"admin"`
+  `IUnitOfWork`; master mutations are NOT audited (lower-stakes reference data),
+  while the admin profile edit IS audited (REQ-8.4).
 13. **[Atomicity, REQ-3.2/5.2] session revoke uses `ExecuteUpdateAsync` (immediate,
    change-tracker-bypassing)** — atomic with the audit insert ONLY if both run
    inside one `ExecuteInTransactionAsync` on the shared keyed `"admin"` context

@@ -9,7 +9,9 @@ namespace Admin.Application.CreateScopedAdmin;
 /// (Tier=Scoped, unbound subject) is created and a <c>create-scoped</c> audit written. The subject is bound on
 /// the invitee's first login. A duplicate email is rejected (unique index -> <see cref="ConflictException"/>
 /// 409). Super-only authorization is enforced at the host (RequireAdminTier).</summary>
-public sealed record CreateScopedAdminCommand(string Email, Guid ActingAdminId, string CorrelationId)
+public sealed record CreateScopedAdminCommand(
+    string Email, Guid ActingAdminId, string CorrelationId,
+    Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null)
     : ICommand<CreateScopedAdminResult>;
 
 public sealed record CreateScopedAdminResult(Guid AdminId, string Email);
@@ -18,17 +20,20 @@ public sealed class CreateScopedAdminHandler : ICommandHandler<CreateScopedAdmin
 {
     private readonly IAdminAccountRepository _admins;
     private readonly IAdminAccountAuditWriter _audit;
+    private readonly IMasterDataStore _masters;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public CreateScopedAdminHandler(
         IAdminAccountRepository admins,
         IAdminAccountAuditWriter audit,
+        IMasterDataStore masters,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
         _admins = admins;
         _audit = audit;
+        _masters = masters;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
@@ -41,7 +46,13 @@ public sealed class CreateScopedAdminHandler : ICommandHandler<CreateScopedAdmin
             if (await _admins.GetByEmailAsync(command.Email.Trim(), ct) is not null)
                 throw new ConflictException($"An admin with email '{command.Email}' already exists.");
 
-            var account = AdminAccount.CreateScoped(command.Email, _clock.UtcNow);
+            // Any supplied org-profile FK must reference an existing, active master (-> 400 otherwise).
+            await _masters.ValidateProfileFksAsync(
+                command.PositionId, command.OfficeId, command.LevelId, command.DivisionId, ct);
+
+            var account = AdminAccount.CreateScoped(
+                command.Email, _clock.UtcNow,
+                command.PositionId, command.OfficeId, command.LevelId, command.DivisionId);
             _admins.Add(account);
             _audit.Append(AdminAccountAudit.For(
                 AdminAuditAction.CreateScoped, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,

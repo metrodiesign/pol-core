@@ -131,6 +131,47 @@ internal sealed class FakeAdminRoleRepository : IAdminRoleRepository
         new(r.Code, r.Name, r.Description, r.Color, r.Status, [.. r.PermissionKeys], Assignments.Count(a => a.RoleId == r.Id));
 }
 
+/// <summary>In-memory master-data store for handler tests. One flat list holds all four master types; the
+/// generic methods filter by concrete type via <c>OfType&lt;T&gt;</c> (mirrors the real per-table Set&lt;T&gt;()).</summary>
+internal sealed class FakeMasterDataStore : IMasterDataStore
+{
+    public readonly List<MasterData> Items = [];
+
+    public Task<PagedResult<MasterItem>> ListAsync<T>(int page, int limit, string? search, CancellationToken ct) where T : MasterData
+    {
+        var all = Items.OfType<T>()
+            .Where(m => string.IsNullOrWhiteSpace(search) || m.Name.Contains(search!) || m.Code.Contains(search!))
+            .OrderBy(m => m.Name)
+            .Select(m => new MasterItem(m.Id, m.Code, m.Name, m.IsActive)).ToList();
+        var items = all.Skip((page - 1) * limit).Take(limit).ToList();
+        return Task.FromResult(new PagedResult<MasterItem>(items, page, limit, all.Count));
+    }
+
+    public Task<MasterItem> CreateAsync<T>(T entity, CancellationToken ct) where T : MasterData
+    {
+        if (Items.OfType<T>().Any(m => m.Code == entity.Code))
+            throw new ConflictException($"A record with code '{entity.Code}' already exists.");
+        Items.Add(entity);
+        return Task.FromResult(new MasterItem(entity.Id, entity.Code, entity.Name, entity.IsActive));
+    }
+
+    public Task<MasterItem> UpdateAsync<T>(Guid id, string name, bool isActive, CancellationToken ct) where T : MasterData
+    {
+        var e = Items.OfType<T>().FirstOrDefault(m => m.Id == id)
+            ?? throw new NotFoundException("The record was not found.");
+        e.Rename(name);
+        if (isActive) e.Activate(); else e.Deactivate();
+        return Task.FromResult(new MasterItem(e.Id, e.Code, e.Name, e.IsActive));
+    }
+
+    public Task<bool> ExistsActiveAsync<T>(Guid id, CancellationToken ct) where T : MasterData =>
+        Task.FromResult(Items.OfType<T>().Any(m => m.Id == id && m.IsActive));
+
+    public Task<MasterRef?> GetRefAsync<T>(Guid id, CancellationToken ct) where T : MasterData =>
+        Task.FromResult(Items.OfType<T>().Where(m => m.Id == id)
+            .Select(m => new MasterRef(m.Id, m.Code, m.Name)).FirstOrDefault());
+}
+
 internal sealed class FakeAdminTenantDirectory : IAdminTenantDirectory
 {
     public bool ActiveResult = true;

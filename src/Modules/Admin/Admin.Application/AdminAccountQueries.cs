@@ -23,9 +23,10 @@ public sealed record GetAdminByIdQuery(Guid AdminId) : IQuery<AdminAccountDetail
 
 public sealed record AdminAccountDetail(
     Guid AdminId, string Email, AdminTier Tier, AdminStatus Status, DateTime CreatedAt,
-    bool SubjectBound, AccessibleTenants Accessible, IReadOnlyList<string> RoleCodes);
+    bool SubjectBound, AccessibleTenants Accessible, IReadOnlyList<string> RoleCodes,
+    MasterRef? Position, MasterRef? Office, MasterRef? Level, MasterRef? Division);
 
-public sealed class GetAdminByIdHandler(IAdminAccountRepository admins, IAdminRoleRepository roles)
+public sealed class GetAdminByIdHandler(IAdminAccountRepository admins, IAdminRoleRepository roles, IMasterDataStore masters)
     : IQueryHandler<GetAdminByIdQuery, AdminAccountDetail?>
 {
     public async ValueTask<AdminAccountDetail?> Handle(GetAdminByIdQuery query, CancellationToken ct)
@@ -37,9 +38,17 @@ public sealed class GetAdminByIdHandler(IAdminAccountRepository admins, IAdminRo
         // Reuse the canonical accessible-set rule the sign-in pipeline uses (REQ-2.1); host maps ids -> codes.
         var accessible = await ResolveAdminHandler.ResolveAccessibleAsync(account, admins, ct);
         var roleCodes = await roles.ListRoleCodesForAdminAsync(account.Id, ct);
+
+        // Resolve each set org-profile FK to its display reference (null when unset).
+        var position = account.PositionId is { } pid ? await masters.GetRefAsync<Position>(pid, ct) : null;
+        var office = account.OfficeId is { } oid ? await masters.GetRefAsync<Office>(oid, ct) : null;
+        var level = account.LevelId is { } lid ? await masters.GetRefAsync<Level>(lid, ct) : null;
+        var division = account.DivisionId is { } did ? await masters.GetRefAsync<Division>(did, ct) : null;
+
         return new AdminAccountDetail(
             account.Id, account.Email, account.Tier, account.Status, account.CreatedAt,
-            account.Subject is not null, accessible, roleCodes);
+            account.Subject is not null, accessible, roleCodes,
+            position, office, level, division);
     }
 }
 

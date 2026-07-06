@@ -13,6 +13,8 @@ public static class AdminAuditAction
     // admin-account-management: lifecycle + session management (REQ-3.2, REQ-5.2).
     public const string Reactivate = "reactivate";
     public const string SessionRevoke = "session-revoke";
+    // admin-account-management: org-profile edit (Position/Office/Level/Division FKs), targets an admin.
+    public const string UpdateProfile = "update-profile";
 
     // Role RBAC events (admin-role-rbac REQ-10.1). Role CRUD targets a role (TargetRoleId); assign/unassign
     // targets an admin (TargetAdminId).

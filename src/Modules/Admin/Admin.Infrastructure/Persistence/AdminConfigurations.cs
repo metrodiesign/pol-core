@@ -21,6 +21,13 @@ public sealed class AdminAccountConfiguration : IEntityTypeConfiguration<AdminAc
         // Filtered unique: one account per bound subject; invited (NULL-subject) rows are exempt (REQ-3.1).
         builder.HasIndex(x => x.Subject).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique(); // the invite key before a subject is bound
+
+        // Org-profile FKs to the master lists. Nullable (unknown at invite); Restrict so a referenced master
+        // can't be hard-deleted (soft-deactivate via IsActive instead). No back-navigation on the master side.
+        builder.HasOne<Position>().WithMany().HasForeignKey(x => x.PositionId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Office>().WithMany().HasForeignKey(x => x.OfficeId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Level>().WithMany().HasForeignKey(x => x.LevelId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<Division>().WithMany().HasForeignKey(x => x.DivisionId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
     }
 }
 
