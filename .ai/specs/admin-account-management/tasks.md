@@ -111,6 +111,56 @@
        - viewports: n/a — logic-only
        - deviations: reactivate atomic-rollback is NOT a bespoke EF-integration test — atomicity is inherited from the already-proven `AdminProvisioningUnitOfWork.ExecuteInTransactionAsync` primitive (BeginTransactionAsync + shared keyed context) that every admin mutation uses identically; spec-architect verified the ExecuteUpdate-enrolls-in-ambient-transaction claim against the code. The integration harness is raw-SQL SQL-behavior tests (no handler/EF-transaction booting), so new SQL (list scoping/order, family-revoke isolation) is covered in that style. 403 gate LOGIC is covered by existing AdminPermissionAuthorization/AdminTier filter tests; endpoints applying the right gate is verified by read + the 401 theory.
 
+- [x] 6. **Increment 2** — Org profile fields as FK to four master lists, end-to-end.
+     New `Admin.Domain/MasterData.cs` (abstract `MasterData` base + `Position`/`Office`/
+     `Level`/`Division`, TPC via `UseTpcMappingStrategy` → 4 tables, no discriminator);
+     `AdminAccount` +4 nullable FK + `UpdateProfile()` + `CreateScoped` overload;
+     `AdminAuditAction.UpdateProfile`. Generic `IMasterDataStore` + `MasterDataStore`
+     (bypasses Mediator, commits via keyed `"admin"` UoW) for List/Create/Update +
+     `ExistsActiveAsync`/`GetRefAsync`; `MasterProfileValidation` shared FK guard.
+     `UpdateAdminProfileCommand`/handler (Mediator, mirrors `ReactivateAdmin`).
+     `AdminAccountDetail` +4 `MasterRef?`; `CreateScopedAdminCommand` +4 optional
+     `Guid?` + FK validation. Host: `PUT /admins/{id}/profile` (`user.manage`),
+     `MapMasterCrud<T>` ×4 under `/admins/master-data`, wire records, `MasterRefToWire`.
+     Migration `20260706114944_AddAdminMasterDataAndProfileFks` (4 CreateTable TPC + 4
+     FK Restrict + `GRANT SELECT,INSERT,UPDATE … TO pol_admin`). `FakeMasterDataStore`
+     in `AdminFakes.cs`. Done = create/edit sets validated FKs, detail returns
+     `{id,code,name}`, masters CRUD works, migration applies on real SQL with the FK
+     enforced.
+     Satisfies: REQ-8, REQ-9, REQ-10. Depends on: 1, 2. Verify: `dotnet test` +
+     `dotnet ef database update` on :11434 + FK smoke.
+     Evidence:
+       - build: `dotnet build` (whole solution) -> 45 projects, 0 errors, 0 warnings
+       - test: `dotnet test tests/Admin.Tests` -> 129 passed / 0 failed (+14 in MasterDataAndProfileTests: MasterData create/trim, code-regex reject theory, rename+toggle; AdminAccount FK store + UpdateProfile full-replace; CreateScoped unknown/inactive/active FK; UpdateAdminProfile 404 / inactive-FK 400 / happy-path+update-profile audit; detail resolved refs)
+       - test: `dotnet test tests/Hosts.Tests` -> 207 passed / 0 failed; `dotnet test tests/Architecture.Tests` -> 48 passed / 0 failed
+       - migration: `dotnet ef migrations add AddAdminMasterDataAndProfileFks` -> inspected Up() = 4 CreateTable (Positions/Offices/Levels/Divisions, no Discriminator col) + 4 AddColumn/AddForeignKey (Restrict) + Sql GRANT; `dotnet ef database update` on :11434 -> applied clean
+       - real-SQL smoke (:11434, sa): 4 tables + 4 FK cols + grants SELECT/INSERT/UPDATE present; insert Position + AdminAccount(PositionId) -> `LINKED=1`; insert AdminAccount with bogus PositionId -> `FK_ENFORCED=YES` (rejected); cleanup clean
+       - integration: `dotnet test tests/Integration.Tests --filter ~Admin` (post-migration schema) -> 29 passed / 0 failed (existing admin inserts unaffected — new cols nullable)
+       - files: Admin.Domain/MasterData.cs (new), AdminAccount.cs (+FKs/UpdateProfile/CreateScoped overload), AdminAccountAudit.cs (+update-profile), Admin.Application/MasterData.cs (new: IMasterDataStore/MasterItem/MasterRef/MasterProfileValidation), UpdateAdminProfile.cs (new), AdminAccountQueries.cs (detail +refs), CreateScopedAdmin.cs (+FKs+validation), Admin.Infrastructure/Persistence/MasterConfigurations.cs (new, TPC) + MasterDataStore.cs (new) + AdminConfigurations.cs (+FKs), AdminHostWiring.cs (register store), Program.cs (PUT profile + MapMasterCrud + wire records), Migrations/20260706114944_* , tests/Admin.Tests/MasterDataAndProfileTests.cs (new) + AdminFakes.cs (FakeMasterDataStore)
+       - viewports: n/a — logic-only (backend API)
+       - deviations: (1) master-data CRUD bypasses Mediator (generic `IMasterDataStore` — source-gen Mediator has no open-generic handlers; 4×3 concrete handlers would be pure boilerplate) but still commits via keyed `"admin"` UoW (S2 honored); user-approved code-shape. (2) Masters are NOT audited (lower-stakes reference data; `AdminAccountAudit` has no master target column) — the profile edit IS audited. (3) Scope trimmed to List/Create/Update (no Get-by-id, no hard-delete — soft-deactivate via IsActive, FK Restrict). (4) This increment supersedes the Increment-1 zero-migration scope (REQ-7.4 → REQ-10.1). SFS filter/sort of admins by master and `/me` profile surfacing deferred (YAGNI).
+
+- [x] 7. **Increment 2 (seed)** — Baseline HR org master data.
+     Data-only migration `20260706123457_AddAdminMasterDataSeed` seeds the four master
+     lists with a standard Thai corporate HR structure so the Admin console has values
+     on day one (runtime CRUD manages them thereafter). Fixed, table-namespaced GUIDs
+     (`a1…` Positions, `b2…` Offices, `c3…` Levels, `d4…` Divisions) — deterministic,
+     never `NEWID`, so every environment shares the same Ids and AdminAccount FKs stay
+     stable. `Up` = 4 `INSERT` (N-prefixed Thai literals, `IsActive=1`); `Down` = 4
+     `DELETE … WHERE Id LIKE '<prefix>-%'` (removes only seeded rows; fails by design
+     if an AdminAccount still references one — FK Restrict).
+     Rows: Positions 12 (ceo…staff), Offices 8 (hq + 6 regions + remote), Levels 10
+     (level_1…level_10), Divisions 10 (executive/finance/technology/…/customer_service).
+     Done = migration applies + rolls back cleanly on real SQL with correct row counts.
+     Satisfies: REQ-9 (populates the master lists REQ-9 manages). Depends on: 6.
+     Verify: `dotnet ef database update` on :11434 + count + rollback round-trip.
+     Evidence:
+       - migration generated empty (no model diff — data-only), Up/Down hand-filled
+       - apply on :11434 -> counts `Positions 12 / Offices 8 / Levels 10 / Divisions 10`; Thai NVARCHAR intact (`ประธานเจ้าหน้าที่บริหาร`, `ฝ่ายบริการลูกค้า`), `IsActive=1`
+       - rollback round-trip: `database update AddAdminMasterDataAndProfileFks` -> all four -> 0; re-apply -> 12/8/10/10 (confirms `LIKE`-on-`uniqueidentifier` Down matches)
+       - files: Migrations/20260706123457_AddAdminMasterDataSeed.cs (new; Designer + snapshot regenerated with no schema delta)
+       - deviations: values are a generated standard HR structure (user-authorized: "สร้างจากข้อมูลองค์กรตามระบบ HR ได้เลย"), NOT the 3 subsidiaries — those are tenants, not an admin org dimension. Masters start populated but editable via `/admins/master-data/*`.
+
 ## Suggested execution batches
 
 > COUPLED feature — every task shares the Admin module, the keyed `"admin"` context,

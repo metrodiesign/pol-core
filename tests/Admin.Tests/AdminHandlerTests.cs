@@ -170,7 +170,7 @@ public sealed class AdminHandlerTests
         var admins = new FakeAdminAccountRepository();
         var audit = new FakeAdminAccountAuditWriter();
         var actingSuper = Guid.NewGuid();
-        var handler = new CreateScopedAdminHandler(admins, audit, new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateScopedAdminHandler(admins, audit, new FakeMasterDataStore(), new FakeUnitOfWork(), new FixedClock());
 
         var result = await handler.Handle(new CreateScopedAdminCommand("scoped@org.com", actingSuper, "corr"), default);
 
@@ -189,7 +189,7 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakeAdminAccountRepository();
         admins.Add(AdminAccount.CreateScoped("scoped@org.com", Now));
-        var handler = new CreateScopedAdminHandler(admins, new FakeAdminAccountAuditWriter(), new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateScopedAdminHandler(admins, new FakeAdminAccountAuditWriter(), new FakeMasterDataStore(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ConflictException>(async () =>
             await handler.Handle(new CreateScopedAdminCommand("scoped@org.com", Guid.NewGuid(), "corr"), default));

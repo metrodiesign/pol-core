@@ -24,15 +24,33 @@ public sealed class AdminAccount : AggregateRoot<Guid>
 
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>ตำแหน่ง — FK to <see cref="Position"/>. NULL until set via invite or the profile edit.</summary>
+    public Guid? PositionId { get; private set; }
+
+    /// <summary>สถานที่ปฏิบัติงาน — FK to <see cref="Office"/>.</summary>
+    public Guid? OfficeId { get; private set; }
+
+    /// <summary>ระดับ — FK to <see cref="Level"/>.</summary>
+    public Guid? LevelId { get; private set; }
+
+    /// <summary>ฝ่าย/ภาค — FK to <see cref="Division"/>.</summary>
+    public Guid? DivisionId { get; private set; }
+
     private AdminAccount() { }
 
-    private AdminAccount(Guid id, string? subject, string email, AdminTier tier, DateTime createdAt) : base(id)
+    private AdminAccount(
+        Guid id, string? subject, string email, AdminTier tier, DateTime createdAt,
+        Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId) : base(id)
     {
         Subject = subject;
         Email = email;
         Tier = tier;
         Status = AdminStatus.Active;
         CreatedAt = createdAt;
+        PositionId = positionId;
+        OfficeId = officeId;
+        LevelId = levelId;
+        DivisionId = divisionId;
     }
 
     /// <summary>The first Super Admin bootstrapping from the config allowlist on first login (REQ-5.1). The
@@ -41,15 +59,20 @@ public sealed class AdminAccount : AggregateRoot<Guid>
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new AdminAccount(Guid.NewGuid(), subject.Trim(), email.Trim(), AdminTier.Super, createdAt);
+        return new AdminAccount(Guid.NewGuid(), subject.Trim(), email.Trim(), AdminTier.Super, createdAt,
+            positionId: null, officeId: null, levelId: null, divisionId: null);
     }
 
     /// <summary>A Scoped admin invited by a Super (REQ-3.4): keyed by verified email, with an unbound
-    /// <see cref="Subject"/> until the invitee's first login.</summary>
-    public static AdminAccount CreateScoped(string email, DateTime createdAt)
+    /// <see cref="Subject"/> until the invitee's first login. Profile FKs are optional at invite time (an
+    /// invited account may have no known position yet); the caller validates each FK exists and is active.</summary>
+    public static AdminAccount CreateScoped(
+        string email, DateTime createdAt,
+        Guid? positionId = null, Guid? officeId = null, Guid? levelId = null, Guid? divisionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new AdminAccount(Guid.NewGuid(), subject: null, email.Trim(), AdminTier.Scoped, createdAt);
+        return new AdminAccount(Guid.NewGuid(), subject: null, email.Trim(), AdminTier.Scoped, createdAt,
+            positionId, officeId, levelId, divisionId);
     }
 
     /// <summary>Binds the Google subject to an invited account on its first login (REQ-3.5). Idempotent
@@ -76,4 +99,14 @@ public sealed class AdminAccount : AggregateRoot<Guid>
     /// arise). Revoking the target's sessions on the Suspended->Active transition is the caller's
     /// responsibility — the handler owns the transaction and the session store (REQ-3.5).</summary>
     public void Reactivate() => Status = AdminStatus.Active;
+
+    /// <summary>Full replace of the org-profile FKs (a NULL clears that dimension). The caller validates that
+    /// each non-null FK references an existing, active master before calling — the aggregate only stores ids.</summary>
+    public void UpdateProfile(Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId)
+    {
+        PositionId = positionId;
+        OfficeId = officeId;
+        LevelId = levelId;
+        DivisionId = divisionId;
+    }
 }

@@ -369,3 +369,138 @@ revoke are both idempotent).
 | `RevokeAdminSessionCommand`/handler + `FindByIdAsync` + `RevokeFamilyAsync` + security log | REQ-5.1, 5.2, 5.3, 5.4, 5.5 |
 | `GetAdminEffectivePermissionsQuery` (existence-check → `ListEffectivePermissionsAsync`) | REQ-6.1, 6.2, 6.3, 6.4 |
 | Host gates (`RequireAuthorization`/`RequirePermission(user.view)`/`RequireAdminTier(Super)`/`AdminCsrfFilter`), route placement, OpenAPI metadata, zero-migration reuse | REQ-7.1, 7.2, 7.3, 7.4, 7.5, 7.6 |
+| (Inc 2) `MasterData` TPC + 4 concrete + `MasterConfigurations` + migration + `pol_admin` grants | REQ-9.5, REQ-10.1 |
+| (Inc 2) `AdminAccount` FKs + `CreateScoped` overload + `ValidateProfileFksAsync` | REQ-8.1, REQ-8.2 |
+| (Inc 2) `UpdateAdminProfileCommand`/handler + `update-profile` audit + `IMasterDataStore` (Mediator-bypass) | REQ-8.3, REQ-8.4, REQ-10.4 |
+| (Inc 2) `AdminAccountDetail` refs + `GetRefAsync` + host `MasterRefResponse` | REQ-8.5 |
+| (Inc 2) `MapMasterCrud<T>` List/Create/Update endpoints + soft-deactivate (`IsActive`, FK Restrict) | REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4 |
+| (Inc 2) `user.manage` gate (profile edit + master CRUD), additive `POST /admins`, existing key wired | REQ-8.6, REQ-9.6, REQ-10.2, REQ-10.3 |
+
+---
+
+## Increment 2 — Org profile fields & master data (2026-07-06)
+
+Adds four managed reference lists and wires each `AdminAccount` to them by nullable
+FK. As-built (shipped to develop pending PR). Satisfies REQ-8/9/10.
+
+### Master entity model — TPC (one table per concrete type)
+
+A shared abstract base holds the behavior; four `sealed` subclasses each map to their
+own table via `UseTpcMappingStrategy()` — NO base table, NO discriminator, so the
+`AdminAccount` FKs stay type-safe. `Code` is an immutable `^[a-z0-9_]+$` slug (mirrors
+`AdminRole.CodePattern`), unique per table; `Name` is the display label; `IsActive`
+soft-deactivates.
+
+```csharp
+// Admin.Domain/MasterData.cs
+public abstract class MasterData : AggregateRoot<Guid>   // Code, Name, IsActive
+{
+    protected MasterData(Guid id, string code, string name);   // validates + trims, IsActive = true
+    public void Rename(string name);
+    public void Activate();  public void Deactivate();
+}
+public sealed class Position : MasterData { public static Position Create(string code, string name); }
+public sealed class Office   : MasterData { /* … */ }
+public sealed class Level    : MasterData { /* … */ }
+public sealed class Division : MasterData { /* … */ }
+```
+
+`AdminAccount` gains four nullable FKs + a full-replace mutator; `AdminAccountAudit`
+gains one action constant.
+
+```csharp
+// AdminAccount.cs
+public Guid? PositionId/OfficeId/LevelId/DivisionId { get; private set; }
+public static AdminAccount CreateScoped(string email, DateTime createdAt,
+    Guid? positionId = null, Guid? officeId = null, Guid? levelId = null, Guid? divisionId = null);
+public void UpdateProfile(Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId); // null clears
+// AdminAccountAudit.cs
+public const string UpdateProfile = "update-profile";
+```
+
+### Application — generic store (deliberately bypasses Mediator, F-inc2)
+
+Master-data CRUD is simple control-plane reference data, so it is served by ONE
+generic store rather than a Mediator command per verb per dimension (the source-gen
+Mediator does not support open-generic handlers, and 4×3 concrete handlers would be
+pure boilerplate). Writes STILL commit through the keyed `"admin"` `IUnitOfWork`
+(honours S2); `IMasterDataStore` also backs FK validation and the detail refs.
+
+```csharp
+// Admin.Application/MasterData.cs
+public sealed record MasterItem(Guid Id, string Code, string Name, bool IsActive);
+public sealed record MasterRef(Guid Id, string Code, string Name);
+public interface IMasterDataStore
+{
+    Task<PagedResult<MasterItem>> ListAsync<T>(int page, int limit, string? search, CancellationToken ct) where T : MasterData;
+    Task<MasterItem> CreateAsync<T>(T entity, CancellationToken ct) where T : MasterData;   // dup code → ConflictException 409
+    Task<MasterItem> UpdateAsync<T>(Guid id, string name, bool isActive, CancellationToken ct) where T : MasterData; // unknown → NotFoundException 404
+    Task<bool> ExistsActiveAsync<T>(Guid id, CancellationToken ct) where T : MasterData;
+    Task<MasterRef?> GetRefAsync<T>(Guid id, CancellationToken ct) where T : MasterData;
+}
+// MasterProfileValidation.ValidateProfileFksAsync — each non-null FK must be existing+active, else ArgumentException 400.
+```
+
+The one Mediator write in this increment is the profile edit (it mutates an
+`AdminAccount` aggregate + audits, so it stays a command mirroring `ReactivateAdmin`):
+
+```csharp
+// Admin.Application/UpdateAdminProfile.cs
+public sealed record UpdateAdminProfileCommand(
+    Guid TargetAdminId, Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId,
+    Guid ActingAdminId, string CorrelationId) : ICommand<Unit>;
+// handler: keyed "admin" txn → load-or-NotFound → ValidateProfileFksAsync → UpdateProfile → audit(update-profile) → save
+```
+
+`AdminAccountDetail` gains four `MasterRef?`; `GetAdminByIdHandler` resolves each set
+FK via `IMasterDataStore.GetRefAsync<T>` (unset → null). `CreateScopedAdminCommand` +
+handler gain the four optional `Guid?` and call `ValidateProfileFksAsync` before
+`CreateScoped(...)`.
+
+### Infrastructure
+
+- `MasterConfigurations.cs` — `MasterDataConfiguration : IEntityTypeConfiguration<MasterData>`
+  sets `UseTpcMappingStrategy()` + key/columns/unique-`Code` index (shared); four
+  one-line concrete configs set only `ToTable("Positions"|"Offices"|"Levels"|"Divisions")`.
+  `AdminAccountConfiguration` gains four `HasOne<T>().WithMany().HasForeignKey(...).IsRequired(false).OnDelete(Restrict)`.
+- `MasterDataStore.cs` — `IMasterDataStore` over the keyed pol_admin `ProducerDbContext`
+  + keyed `"admin"` `IUnitOfWork`; `Set<T>()` per concrete type; search = escaped
+  `EF.Functions.Like` over Name/Code. Registered in `AdminHostWiring.AddAdminIdentity`.
+
+### Host (`Program.cs`)
+
+- `PUT /admins/{id:guid}/profile` on the `admin` group (inherits CSRF), gated
+  `user.manage` → `UpdateAdminProfileCommand`, 204.
+- `MapMasterCrud<T>(group, segment, factory)` — a generic local helper mapping
+  List/Create/Update under `admin.MapGroup("/master-data")/{segment}`, gated
+  `user.manage`, full OpenAPI metadata; registered 4× (`Position.Create`, …).
+- `CreateAdminRequest` + 4 optional `Guid?`; `AdminDetailResponse` + 4
+  `MasterRefResponse?` (mapped via `MasterRefToWire`); new `MasterResponse` /
+  `MasterWriteRequest` / `MasterUpdateRequest` / `UpdateAdminProfileRequest` records.
+
+### Migration `20260706114944_AddAdminMasterDataAndProfileFks`
+
+Four `CreateTable` (TPC, no discriminator) + unique `Code` index each; four nullable
+FK columns + FK constraints (`Restrict`) on `producer.AdminAccounts`; a
+`migrationBuilder.Sql` `GRANT SELECT, INSERT, UPDATE ON producer.{table} TO pol_admin`
+(control-plane, no RLS; no DELETE — soft-deactivate). Applied + smoke-tested on real
+SQL Server (:11434): FK join resolves, a bogus FK is rejected by the constraint.
+
+### Error mapping (increment 2, same `ProblemDetailsExceptionHandler` seam)
+
+| Condition | Mechanism | Status |
+|---|---|---|
+| Missing `user.manage` / CSRF fail | `RequirePermission` / `AdminCsrfFilter` | 403 |
+| Unknown/inactive master FK on create or profile edit | `ValidateProfileFksAsync` → `ArgumentException` | 400 |
+| Bad master `code` (`^[a-z0-9_]+$`) | `MasterData` ctor → `ArgumentException` | 400 |
+| Duplicate master code | `MasterDataStore.CreateAsync` → `ConflictException` | 409 |
+| Unknown master id (update) / unknown admin (profile edit) | store/handler → `NotFoundException` | 404 |
+
+### Testing (as-built)
+
+- `tests/Admin.Tests/MasterDataAndProfileTests.cs` (14 cases): `MasterData`
+  factory/regex/rename/toggle; `AdminAccount` FK set + `UpdateProfile` full-replace;
+  create rejects unknown/inactive FK + accepts active; `UpdateAdminProfile` 404 /
+  inactive-FK 400 / happy-path + `update-profile` audit; detail exposes resolved refs.
+  Plus `FakeMasterDataStore` in `AdminFakes.cs`.
+- Real SQL (:11434): migration applied; schema + grants verified; FK enforced.

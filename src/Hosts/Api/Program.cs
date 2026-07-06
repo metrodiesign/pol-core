@@ -20,6 +20,7 @@ using Admin.Application.RoleQueries;
 using Admin.Application.SetAdminRoles;
 using Admin.Application.SuspendAdmin;
 using Admin.Application.UnassignTenant;
+using Admin.Application.UpdateAdminProfile;
 using Admin.Application.UpdateRole;
 using Admin.Domain;
 using Admin.Infrastructure;
@@ -1312,7 +1313,9 @@ api.MapPost("/admins", async (
 {
     if (string.IsNullOrWhiteSpace(body.Email))
         throw new ArgumentException("Email is required.");
-    var result = await mediator.Send(new CreateScopedAdminCommand(body.Email, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new CreateScopedAdminCommand(
+        body.Email, scope.Current.AdminId, http.TraceIdentifier,
+        body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
 }).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
     .WithTags("Admin Admins")
@@ -1337,6 +1340,7 @@ static string SessionStatusToWire(AdminSessionStatus s) => s switch
 };
 static AdminListItemResponse AdminToWire(AdminAccountListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
+static MasterRefResponse? MasterRefToWire(MasterRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
 static AdminSessionResponse SessionToWire(AdminSessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
         v.CreatedIp, v.UserAgent, v.IsLive);
@@ -1391,7 +1395,9 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminTenantDirectory tenants, IMedia
 
     return Results.Ok(new AdminDetailResponse(
         detail.AdminId, detail.Email, TierToWire(detail.Tier), AccountStatusToWire(detail.Status),
-        detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes));
+        detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes,
+        MasterRefToWire(detail.Position), MasterRefToWire(detail.Office),
+        MasterRefToWire(detail.Level), MasterRefToWire(detail.Division)));
 }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
     .WithTags("Admin Admins")
     .WithName("GetAdmin")
@@ -1482,6 +1488,89 @@ admin.MapPost("/{id:guid}/reactivate", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// Edit an admin's org-profile FKs (Position/Office/Level/Division). Full replace (a null field clears it);
+// each non-null FK must reference an existing, active master -> 400 otherwise. Unknown admin -> 404. Gated
+// user.manage — the write counterpart to the user.view read gate.
+admin.MapPut("/{id:guid}/profile", async (
+    Guid id, UpdateAdminProfileRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    await mediator.Send(new UpdateAdminProfileCommand(
+        id, body.PositionId, body.OfficeId, body.LevelId, body.DivisionId,
+        scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    .WithTags("Admin Admins")
+    .WithName("UpdateAdminProfile")
+    .WithSummary("Edit an admin's org profile")
+    .WithDescription("Requires the user.manage permission. Sets Position/Office/Level/Division by master id (null clears). Unknown admin -> 404; unknown or inactive master -> 400.")
+    .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// --- Profile master data (Position/Office/Level/Division) ---
+// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Nested under /admins so the
+// group's auth + AdminCsrfFilter apply; all writes gated user.manage. List/Create/Update only — masters are
+// soft-deactivated via IsActive, never hard-deleted (the FK is Restrict). One generic registration per list.
+var masterData = admin.MapGroup("/master-data");
+MapMasterCrud<Position>(masterData, "positions", Position.Create);
+MapMasterCrud<Office>(masterData, "offices", Office.Create);
+MapMasterCrud<Level>(masterData, "levels", Level.Create);
+MapMasterCrud<Division>(masterData, "divisions", Division.Create);
+
+static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<string, string, T> create)
+    where T : MasterData
+{
+    // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
+    // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
+    parent.MapGet($"/{segment}", async (HttpContext http, IMasterDataStore store, CancellationToken ct) =>
+    {
+        var p = SfsQueryParser.Parse(http.Request.Query);
+        var result = await store.ListAsync<T>(p.Page, p.Limit, p.Search?.Query, ct);
+        return Results.Ok(new PagedResult<MasterResponse>(
+            [.. result.Items.Select(m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive))],
+            result.Page, result.Limit, result.Total));
+    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+        .WithTags("Admin Master Data")
+        .WithName($"List{segment}")
+        .WithSummary($"List {segment}")
+        .Produces<PagedResult<MasterResponse>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden);
+
+    parent.MapPost($"/{segment}", async (MasterWriteRequest body, IMasterDataStore store, CancellationToken ct) =>
+    {
+        var item = await store.CreateAsync(create(body.Code ?? "", body.Name ?? ""), ct);
+        return Results.Created($"/api/v1/admins/master-data/{segment}/{item.Id}",
+            new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
+    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+        .WithTags("Admin Master Data")
+        .WithName($"Create{segment}")
+        .WithSummary($"Create a {segment} entry")
+        .WithDescription("Requires the user.manage permission. Duplicate code -> 409; code must match ^[a-z0-9_]+$ -> 400.")
+        .Produces<MasterResponse>(StatusCodes.Status201Created)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden);
+
+    parent.MapPut($"/{segment}/{{id:guid}}", async (Guid id, MasterUpdateRequest body, IMasterDataStore store, CancellationToken ct) =>
+    {
+        var item = await store.UpdateAsync<T>(id, body.Name ?? "", body.IsActive, ct);
+        return Results.Ok(new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
+    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+        .WithTags("Admin Master Data")
+        .WithName($"Update{segment}")
+        .WithSummary($"Rename or (de)activate a {segment} entry")
+        .WithDescription("Requires the user.manage permission. Code is immutable. Unknown id -> 404.")
+        .Produces<MasterResponse>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden);
+}
 
 // List an admin's sessions (REQ-4). Super-gated. Unknown admin -> 404; a real admin with none -> 200 + []. Token
 // hashes never leave the store. isLive is evaluated at read time.
@@ -1810,8 +1899,16 @@ internal static class ProvisioningGuards
 
 // Admin identity foundation request bodies (REQ-3/4). ActingAdminId + correlation id are NOT in the body —
 // the host sets them from the resolved IAdminScope + the authenticated request.
-internal sealed record CreateAdminRequest(string Email);
+internal sealed record CreateAdminRequest(
+    string Email, Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
 internal sealed record AssignTenantRequest(Guid TenantId);
+// Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
+// immutable thereafter; update only renames / toggles active.
+internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);
+internal sealed record MasterWriteRequest(string? Code, string? Name);
+internal sealed record MasterUpdateRequest(string? Name, bool IsActive);
+internal sealed record MasterResponse(Guid Id, string Code, string Name, bool IsActive);
+internal sealed record MasterRefResponse(Guid Id, string Code, string Name);
 
 internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
@@ -1836,7 +1933,8 @@ internal sealed record AdminListItemResponse(
 // GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
 internal sealed record AdminDetailResponse(
     Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
-    AdminAccessibleResponse AccessibleTenants, IReadOnlyList<string> RoleCodes);
+    AdminAccessibleResponse AccessibleTenants, IReadOnlyList<string> RoleCodes,
+    MasterRefResponse? Position, MasterRefResponse? Office, MasterRefResponse? Level, MasterRefResponse? Division);
 // admin-account-management REQ-4.2: one session row; status is a lowercase wire string; NO token material.
 internal sealed record AdminSessionResponse(
     Guid SessionId, Guid FamilyId, string Status, DateTime IssuedAt, DateTime IdleExpiresAt,

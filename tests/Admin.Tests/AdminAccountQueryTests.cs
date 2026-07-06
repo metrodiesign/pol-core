@@ -19,7 +19,7 @@ public sealed class AdminAccountQueryTests
     [Fact]
     public async Task GetAdminById_returns_null_for_unknown_id()
     {
-        var handler = new GetAdminByIdHandler(new FakeAdminAccountRepository(), new FakeAdminRoleRepository());
+        var handler = new GetAdminByIdHandler(new FakeAdminAccountRepository(), new FakeAdminRoleRepository(), new FakeMasterDataStore());
         Assert.Null(await handler.Handle(new GetAdminByIdQuery(Guid.NewGuid()), default));
     }
 
@@ -37,7 +37,7 @@ public sealed class AdminAccountQueryTests
         roles.AddAssignment(AdminRoleAssignment.Create(super.Id, active.Id, Actor, T0));
         roles.AddAssignment(AdminRoleAssignment.Create(super.Id, inactive.Id, Actor, T0));
 
-        var detail = await new GetAdminByIdHandler(accounts, roles).Handle(new GetAdminByIdQuery(super.Id), default);
+        var detail = await new GetAdminByIdHandler(accounts, roles, new FakeMasterDataStore()).Handle(new GetAdminByIdQuery(super.Id), default);
 
         Assert.NotNull(detail);
         Assert.True(detail!.SubjectBound);                 // Super's subject is bound
@@ -55,7 +55,7 @@ public sealed class AdminAccountQueryTests
         var tenant = Guid.NewGuid();
         accounts.AddAssignment(AdminTenantAssignment.Create(scoped.Id, tenant, Actor, T0));
 
-        var detail = await new GetAdminByIdHandler(accounts, new FakeAdminRoleRepository())
+        var detail = await new GetAdminByIdHandler(accounts, new FakeAdminRoleRepository(), new FakeMasterDataStore())
             .Handle(new GetAdminByIdQuery(scoped.Id), default);
 
         Assert.NotNull(detail);
