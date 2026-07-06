@@ -19,6 +19,7 @@ internal sealed class FakeAdminAccountRepository : IAdminAccountRepository
         Task.FromResult(Accounts.FirstOrDefault(a => a.Email == email));
     public Task<AdminAccount?> GetByIdAsync(Guid id, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Id == id));
+    public Task<bool> ExistsAsync(Guid id, CancellationToken ct) => Task.FromResult(Accounts.Any(a => a.Id == id));
 
     public Task<IReadOnlySet<Guid>> ListAssignedTenantIdsAsync(Guid adminAccountId, CancellationToken ct) =>
         Task.FromResult<IReadOnlySet<Guid>>(
@@ -26,12 +27,48 @@ internal sealed class FakeAdminAccountRepository : IAdminAccountRepository
 
     public Task<AdminTenantAssignment?> GetAssignmentAsync(Guid adminAccountId, Guid tenantId, CancellationToken ct) =>
         Task.FromResult(Assignments.FirstOrDefault(a => a.AdminAccountId == adminAccountId && a.TenantId == tenantId));
+
+    // In-memory SFS stand-in: newest-first + id tiebreak, page-sliced (mirrors the real ordering contract, REQ-1.3).
+    public Task<PagedResult<AdminAccountListItem>> ListAsync(PagedQuery query, CancellationToken ct)
+    {
+        var all = Accounts
+            .OrderByDescending(a => a.CreatedAt).ThenBy(a => a.Id)
+            .Select(a => new AdminAccountListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject is not null))
+            .ToList();
+        var items = all.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList();
+        return Task.FromResult(new PagedResult<AdminAccountListItem>(items, query.Page, query.Limit, all.Count));
+    }
 }
 
 internal sealed class FakeAdminAccountAuditWriter : IAdminAccountAuditWriter
 {
     public readonly List<AdminAccountAudit> Appended = [];
     public void Append(AdminAccountAudit entry) => Appended.Add(entry);
+}
+
+/// <summary>In-memory admin session store for command-handler tests. Records revoke calls; a small seed list backs
+/// the sessions-list / find-by-id reads (admin-account-management REQ-4/5).</summary>
+internal sealed class FakeAdminSessionStore : IAdminSessionStore
+{
+    public readonly List<AdminSession> Sessions = [];
+    public readonly List<Guid> RevokedAdmins = [];
+    public readonly List<Guid> RevokedFamilies = [];
+
+    public Task<AdminSession?> FindByTokenHashAsync(byte[] tokenHash, CancellationToken ct) =>
+        Task.FromResult<AdminSession?>(null);
+    public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
+    public void Add(AdminSession session) => Sessions.Add(session);
+    public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(0);
+    public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => Task.FromResult(true);
+    public Task SlideIdleAsync(Guid id, DateTime idle, CancellationToken ct) => Task.CompletedTask;
+    public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) { RevokedFamilies.Add(familyId); return Task.CompletedTask; }
+    public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) { RevokedAdmins.Add(adminId); return Task.CompletedTask; }
+    public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
+    public Task<IReadOnlyList<AdminSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<AdminSession>>(
+            Sessions.Where(s => s.AdminAccountId == adminAccountId).OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id).ToList());
+    public Task<AdminSession?> FindByIdAsync(Guid sessionId, CancellationToken ct) =>
+        Task.FromResult(Sessions.FirstOrDefault(s => s.Id == sessionId));
 }
 
 internal sealed class FakeAdminRoleRepository : IAdminRoleRepository
@@ -81,6 +118,13 @@ internal sealed class FakeAdminRoleRepository : IAdminRoleRepository
             .SelectMany(r => r.PermissionKeys)
             .ToHashSet(StringComparer.Ordinal);
         return Task.FromResult<IReadOnlySet<string>>(keys);
+    }
+
+    public Task<IReadOnlyList<string>> ListRoleCodesForAdminAsync(Guid adminId, CancellationToken ct)
+    {
+        var roleIds = Assignments.Where(a => a.AdminAccountId == adminId).Select(a => a.RoleId).ToHashSet();
+        var codes = Roles.Where(r => roleIds.Contains(r.Id)).Select(r => r.Code).OrderBy(c => c).ToList();
+        return Task.FromResult<IReadOnlyList<string>>(codes);
     }
 
     private AdminRoleListItem ToItem(AdminRole r) =>

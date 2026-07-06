@@ -66,6 +66,18 @@ public sealed class AdminSessionStore : IAdminSessionStore
     // expired AND revoked sessions alike (a revoked session is gone within its remaining absolute lifetime).
     public Task<int> PruneAsync(DateTime now, CancellationToken cancellationToken) =>
         _db.Set<AdminSession>().Where(s => s.AbsoluteExpiresAt < now).ExecuteDeleteAsync(cancellationToken);
+
+    // admin-account-management REQ-4.1: newest first + id tiebreak, unpaged (prune bounds the set). AsNoTracking —
+    // a read for the console.
+    public async Task<IReadOnlyList<AdminSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken cancellationToken) =>
+        await _db.Set<AdminSession>().AsNoTracking()
+            .Where(s => s.AdminAccountId == adminAccountId)
+            .OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id)
+            .ToListAsync(cancellationToken);
+
+    // admin-account-management REQ-5: read one session (ownership check + FamilyId) before a family revoke.
+    public Task<AdminSession?> FindByIdAsync(Guid sessionId, CancellationToken cancellationToken) =>
+        _db.Set<AdminSession>().AsNoTracking().FirstOrDefaultAsync(s => s.Id == sessionId, cancellationToken);
 }
 
 /// <summary>Append-only writer for <c>AdminAuthAudits</c> (REQ-12.2) on the keyed pol_admin context.</summary>

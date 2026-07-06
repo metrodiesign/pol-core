@@ -40,6 +40,10 @@ public interface IAdminRoleRepository
 
     /// <summary>Union of permission keys over the admin's ACTIVE assigned roles (REQ-5.1).</summary>
     Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid adminId, CancellationToken cancellationToken);
+
+    /// <summary>Every role CODE assigned to the admin, including roles whose status is Inactive — the detail
+    /// view shows assignment truth, not enforcement effect (admin-account-management REQ-2.1). Ordered by code.</summary>
+    Task<IReadOnlyList<string>> ListRoleCodesForAdminAsync(Guid adminId, CancellationToken cancellationToken);
 }
 
 /// <summary>A role as the management endpoints render it (REQ-2). <see cref="Status"/> is the enum; the host

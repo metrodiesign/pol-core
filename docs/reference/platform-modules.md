@@ -461,8 +461,8 @@ redirect URL ลง span attribute
 | Auth rate limiting | policy เฉพาะเส้นทาง auth ฝั่ง admin | มีแล้ว |
 | Bootstrap Super คนแรก | allowlist self-provision (config `AdminAllowlist:Subjects`) | มีแล้ว |
 | เชิญ/พักบัญชี | `POST /admin/admins` (invite ด้วย email), `POST /admin/admins/{id}/suspend` | มีแล้ว |
-| Reactivate บัญชีที่ถูกพัก | target: `POST /api/admin/v1/admins/{adminId}/reactivate` | ยังไม่มี |
-| List/ดูบัญชี admin | target: `GET /api/admin/v1/admins` + จัดการ session (`GET .../admins/{adminId}/sessions`, `DELETE .../sessions/{sessionId}`) | ยังไม่มี |
+| Reactivate บัญชีที่ถูกพัก | `POST /api/v1/admins/{id}/reactivate` (Super-only) — คืนสถานะ Active + revoke session ทั้งหมดของ target (fresh-login), idempotent; audit ทุกครั้ง (spec `admin-account-management`) | มีแล้ว |
+| List/ดูบัญชี admin | `GET /api/v1/admins` (SFS, gate `user.view`) + `GET /api/v1/admins/{id}` (detail) + จัดการ session (`GET /api/v1/admins/{id}/sessions`, `DELETE .../sessions/{sessionId}` — Super-only, revoke ทั้ง rotation family) (spec `admin-account-management`) | มีแล้ว |
 | Tenant assignment | `POST/DELETE /admin/admins/{id}/tenants[/{tenantId}]` — `Scoped` เห็นเฉพาะ tenant ที่ assign | มีแล้ว |
 | Cross-tenant read seam | `IAdminQuery` seam เดียว (ฝัง `WHERE TenantId IN accessible`; `Super` unrestricted) | มีแล้ว |
 | ตัวตนปัจจุบัน | `GET /admin/me` | มีแล้ว |
@@ -506,7 +506,7 @@ redirect URL ลง span attribute
 | Fail-closed + boot parity guard | `RequirePermission(...)` = 403 เสมอเมื่อ bind ไม่ถูก; startup fail ถ้า gate ใช้ key นอกแคตตาล็อก | มีแล้ว |
 | Recovery anchor | `super_admin` ลบ/ปิดไม่ได้; bootstrap auto-assign + migration back-fill | มีแล้ว |
 | Audit การเปลี่ยน role | ทุกการเปลี่ยนบัญชี/role ลง `AdminAccountAudit` มี actor เสมอ | มีแล้ว |
-| Effective-permission view | target: `GET /api/admin/v1/admins/{adminId}/effective-permissions` | ยังไม่มี |
+| Effective-permission view | `GET /api/v1/admins/{id}/effective-permissions` (gate `user.view`) — union ของ role Active, sorted ascending; ใช้ได้กับ target ที่ suspended (spec `admin-account-management`) | มีแล้ว |
 | Change request แบบ maker-checker | target: `POST/GET /api/admin/v1/change-requests`, `POST .../change-requests/{requestId}/approve\|reject` — maker กับ checker คนละ principal, checker ต้องมี permission ของ action เดียวกันหรือ permission approval เฉพาะ, approval มี TTL + ผูก request hash (payload เปลี่ยนต้องขอใหม่) | ยังไม่มี (ข้อ 14) |
 
 **โมเดลเป้าหมายเชิง API**
@@ -522,7 +522,10 @@ redirect URL ลง span attribute
   `POST/GET /api/admin/v1/change-requests` + `POST .../{requestId}/approve|reject`
 - **Events**: `AdminRoleChangedV1` · `AdminPermissionsChangedV1` · `SensitiveChangeApprovedV1` · `SensitiveChangeRejectedV1`
 
-**สถานะ: มีแล้ว** — ยกเว้น effective-permission view และ maker-checker (ข้อ 14)
+**สถานะ: มีแล้ว** — ยกเว้น maker-checker (ข้อ 14). NOTE (spec `admin-account-management`): reads ของ admin
+directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate ด้วย permission `user.view` เดี่ยว
+(single-key filter ไม่ใช่ OR) — role ที่ให้ `user.roles` ควร grant `user.view` ด้วย เพื่อให้ operator เห็นรายชื่อ
+ก่อน assign role ได้; lifecycle/session ops (reactivate, sessions list/revoke) gate ด้วย `AdminTier.Super` mirror suspend
 
 ---
 

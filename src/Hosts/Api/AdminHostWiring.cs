@@ -176,7 +176,8 @@ internal static class AdminHostWiring
     {
         static ProducerDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<ProducerDbContext>("admin");
 
-        services.AddScoped<IAdminAccountRepository>(sp => new AdminAccountRepository(Admin(sp)));
+        services.AddScoped<IAdminAccountRepository>(sp =>
+            new AdminAccountRepository(Admin(sp), sp.GetRequiredService<ILogger<AdminAccountRepository>>()));
         services.AddScoped<IAdminAccountAuditWriter>(sp => new AdminAccountAuditWriter(Admin(sp)));
         services.AddScoped<IAdminTenantDirectory>(sp => new AdminTenantDirectory(Admin(sp)));
         services.AddScoped<IAdminRoleRepository>(sp =>

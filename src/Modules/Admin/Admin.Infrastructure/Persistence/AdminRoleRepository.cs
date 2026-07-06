@@ -136,6 +136,16 @@ public sealed class AdminRoleRepository : IAdminRoleRepository
         return keys.ToHashSet(StringComparer.Ordinal);
     }
 
+    public async Task<IReadOnlyList<string>> ListRoleCodesForAdminAsync(Guid adminId, CancellationToken cancellationToken)
+    {
+        // ALL assigned roles incl. Inactive (assignment truth, REQ-2.1) — no Active filter, unlike effective perms.
+        return await _db.Set<AdminRoleAssignment>()
+            .Where(a => a.AdminAccountId == adminId)
+            .Join(_db.Set<AdminRole>(), a => a.RoleId, r => r.Id, (a, r) => r.Code)
+            .OrderBy(c => c)
+            .ToListAsync(cancellationToken);
+    }
+
     private static AdminRoleListItem ToListItem(AdminRole role, int userCount) =>
         new(role.Code, role.Name, role.Description, role.Color, role.Status, [.. role.PermissionKeys], userCount);
 }

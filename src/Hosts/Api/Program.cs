@@ -9,10 +9,13 @@ using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Admin.Application;
+using Admin.Application.AdminAccountQueries;
 using Admin.Application.AssignTenant;
 using Admin.Application.CreateRole;
 using Admin.Application.CreateScopedAdmin;
 using Admin.Application.DeleteRole;
+using Admin.Application.ReactivateAdmin;
+using Admin.Application.RevokeAdminSession;
 using Admin.Application.RoleQueries;
 using Admin.Application.SetAdminRoles;
 using Admin.Application.SuspendAdmin;
@@ -1321,6 +1324,99 @@ api.MapPost("/admins", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
+// --- Admin account management (admin-account-management) ---
+// tier/status cross the wire as stable lowercase strings via explicit projection — there is no global
+// string-enum converter (B2), mirroring RoleToWire.
+static string TierToWire(AdminTier t) => t == AdminTier.Super ? "super" : "scoped";
+static string AccountStatusToWire(AdminStatus s) => s == AdminStatus.Active ? "active" : "suspended";
+static string SessionStatusToWire(AdminSessionStatus s) => s switch
+{
+    AdminSessionStatus.Active => "active",
+    AdminSessionStatus.Superseded => "superseded",
+    _ => "revoked",
+};
+static AdminListItemResponse AdminToWire(AdminAccountListItem a) =>
+    new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
+static AdminSessionResponse SessionToWire(AdminSessionView v) =>
+    new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
+        v.CreatedIp, v.UserAgent, v.IsLive);
+
+// The admin directory (REQ-1). Mapped on `api` (not the admins group): a group empty-string root pattern would
+// render the forbidden trailing slash "/api/v1/admins/", same as POST /admins. Gated user.view — reads use the
+// permission axis (a user.roles holder needs the directory to assign roles; see the role-composition note).
+api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var p = SfsQueryParser.Parse(http.Request.Query);
+    var result = await mediator.Send(new ListAdminsQuery
+    {
+        Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
+    }, ct);
+    // Re-wrap into a new PagedResult — a record with-expression cannot change T (mirrors ListRoles).
+    return Results.Ok(new PagedResult<AdminListItemResponse>(
+        [.. result.Items.Select(AdminToWire)], result.Page, result.Limit, result.Total));
+})
+    .RequireAuthorization("admin")
+    .RequirePermission(AdminPermissions.UserView)
+    .WithMetadata(new SfsQueryParamsMarker())
+    .WithTags("Admin Admins")
+    .WithName("ListAdmins")
+    .WithSummary("List admin accounts")
+    .WithDescription("Requires the user.view permission. Paged admin directory. Supports SFS: page, limit, filters (email/tier/status), sort (email/createdAt), search (email). tier/status filter values are the lowercase wire forms; an out-of-domain value -> 400.")
+    .Produces<PagedResult<AdminListItemResponse>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// One admin's full detail (REQ-2). Accessible tenants are mapped id->code in the host, byte-for-byte the /me
+// pattern, so the query handler stays free of the tenant directory. Unknown id -> 404.
+admin.MapGet("/{id:guid}", async (Guid id, IAdminTenantDirectory tenants, IMediator mediator, CancellationToken ct) =>
+{
+    var detail = await mediator.Send(new GetAdminByIdQuery(id), ct);
+    if (detail is null)
+        return Results.Problem(statusCode: StatusCodes.Status404NotFound);
+
+    AdminAccessibleResponse accessible;
+    if (detail.Accessible.IsUnrestricted)
+    {
+        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Tenants: null);
+    }
+    else
+    {
+        var codes = await tenants.GetCodesByIdsAsync(detail.Accessible.Tenants, ct);
+        accessible = new AdminAccessibleResponse(
+            IsUnrestricted: false,
+            Tenants: detail.Accessible.Tenants
+                .Select(tid => new AdminAccessibleTenantResponse(tid, codes.GetValueOrDefault(tid))).ToArray());
+    }
+
+    return Results.Ok(new AdminDetailResponse(
+        detail.AdminId, detail.Email, TierToWire(detail.Tier), AccountStatusToWire(detail.Status),
+        detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes));
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
+    .WithTags("Admin Admins")
+    .WithName("GetAdmin")
+    .WithSummary("Read an admin account")
+    .WithDescription("Requires the user.view permission. Returns the account's tier, status, accessible tenants (unrestricted for a Super), and all assigned role codes. Unknown id -> 404.")
+    .Produces<AdminDetailResponse>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
+admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>
+{
+    var permissions = await mediator.Send(new GetAdminEffectivePermissionsQuery(id), ct);
+    return permissions is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(permissions);
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
+    .WithTags("Admin Admins")
+    .WithName("GetAdminEffectivePermissions")
+    .WithSummary("Read an admin's effective permissions")
+    .WithDescription("Requires the user.view permission. The distinct, ordinal-sorted union of permission keys from the admin's ACTIVE roles (same rule as /me). Works for a suspended admin. Unknown id -> 404.")
+    .Produces<IReadOnlyList<string>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
 // Super assigns a tenant to a Scoped admin (REQ-4.1). Inactive/unknown tenant or duplicate -> 409.
 admin.MapPost("/{id:guid}/tenants", async (
     Guid id, AssignTenantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
@@ -1369,6 +1465,64 @@ admin.MapPost("/{id:guid}/suspend", async (
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Super reactivates a suspended admin (REQ-3). Idempotent 204; unknown id -> 404. On the Suspended->Active
+// transition the target's sessions are revoked (a fresh login is required); the already-Active case revokes nothing.
+admin.MapPost("/{id:guid}/reactivate", async (
+    Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    await mediator.Send(new ReactivateAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+    .WithTags("Admin Admins")
+    .WithName("ReactivateAdmin")
+    .WithSummary("Reactivate a suspended admin")
+    .WithDescription("Super-only. Restore a suspended admin to Active and revoke its existing sessions (a fresh login is required). Idempotent when already Active. Unknown id -> 404.")
+    .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// List an admin's sessions (REQ-4). Super-gated. Unknown admin -> 404; a real admin with none -> 200 + []. Token
+// hashes never leave the store. isLive is evaluated at read time.
+admin.MapGet("/{id:guid}/sessions", async (Guid id, IMediator mediator, CancellationToken ct) =>
+{
+    var sessions = await mediator.Send(new ListAdminSessionsQuery(id), ct);
+    return sessions is null
+        ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
+        : Results.Ok(sessions.Select(SessionToWire).ToArray());
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+    .WithTags("Admin Admins")
+    .WithName("ListAdminSessions")
+    .WithSummary("List an admin's sessions")
+    .WithDescription("Super-only. The admin's sessions, newest first, with a read-time isLive flag. Token material is never returned. Unknown admin -> 404.")
+    .Produces<IReadOnlyList<AdminSessionResponse>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// Revoke a session (REQ-5). Super-gated. Revokes the WHOLE rotation family (a single-row revoke would leave the
+// rotated successor live). Unknown session or one owned by a different admin -> 404. Idempotent 204.
+admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
+    Guid id, Guid sessionId, IAdminScope scope, HttpContext http, IMediator mediator,
+    ILoggerFactory loggerFactory, CancellationToken ct) =>
+{
+    var result = await mediator.Send(
+        new RevokeAdminSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    // Security-log the specifics the append-only audit table has no column for (REQ-5.2), keyed by correlation id.
+    loggerFactory.CreateLogger("Admin.SessionManagement").LogInformation(
+        "Admin session family revoked: sessionId={SessionId} familyId={FamilyId} targetAdminId={TargetAdminId} correlationId={CorrelationId}",
+        result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
+    return Results.NoContent();
+}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+    .WithTags("Admin Admins")
+    .WithName("RevokeAdminSession")
+    .WithSummary("Revoke an admin's session")
+    .WithDescription("Super-only. Revoke the session's entire rotation family. Unknown session, or a session owned by a different admin -> 404. Idempotent (already-revoked -> 204).")
+    .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Admin Role RBAC (admin-role-rbac) ---
 // Orthogonal to AdminTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
@@ -1675,6 +1829,18 @@ internal sealed record AdminAccessibleResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     IReadOnlyCollection<AdminAccessibleTenantResponse>? Tenants);
 internal sealed record AdminAccessibleTenantResponse(Guid Id, string? Code);
+// admin-account-management REQ-1.2/1.6: one admin directory row; tier/status are lowercase wire strings.
+internal sealed record AdminListItemResponse(
+    Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound);
+// admin-account-management REQ-2.1: full detail. The accessible-tenants field is named AccessibleTenants to match
+// GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
+internal sealed record AdminDetailResponse(
+    Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
+    AdminAccessibleResponse AccessibleTenants, IReadOnlyList<string> RoleCodes);
+// admin-account-management REQ-4.2: one session row; status is a lowercase wire string; NO token material.
+internal sealed record AdminSessionResponse(
+    Guid SessionId, Guid FamilyId, string Status, DateTime IssuedAt, DateTime IdleExpiresAt,
+    DateTime AbsoluteExpiresAt, string? CreatedIp, string? UserAgent, bool IsLive);
 internal sealed record PermissionCatalogResponse(
     IReadOnlyCollection<PermissionGroupResponse> Groups, IReadOnlyCollection<PermissionItemResponse> Permissions);
 internal sealed record PermissionGroupResponse(string Key, string Label);

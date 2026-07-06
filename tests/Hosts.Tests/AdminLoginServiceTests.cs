@@ -136,6 +136,9 @@ public sealed class AdminLoginServiceTests
         public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) => Task.CompletedTask;
         public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) => Task.CompletedTask;
         public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
+        public Task<IReadOnlyList<AdminSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<AdminSession>>([]);
+        public Task<AdminSession?> FindByIdAsync(Guid sessionId, CancellationToken ct) => Task.FromResult<AdminSession?>(null);
     }
 
     private sealed class FakeAuthAudit : IAdminAuthAuditWriter

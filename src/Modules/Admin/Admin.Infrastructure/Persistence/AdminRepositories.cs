@@ -1,7 +1,9 @@
 using Admin.Application;
 using Admin.Domain;
+using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Admin.Infrastructure.Persistence;
 
@@ -11,8 +13,13 @@ namespace Admin.Infrastructure.Persistence;
 public sealed class AdminAccountRepository : IAdminAccountRepository
 {
     private readonly ProducerDbContext _db;
+    private readonly ILogger<AdminAccountRepository> _logger;
 
-    public AdminAccountRepository(ProducerDbContext db) => _db = db;
+    public AdminAccountRepository(ProducerDbContext db, ILogger<AdminAccountRepository> logger)
+    {
+        _db = db;
+        _logger = logger;
+    }
 
     public void Add(AdminAccount account) => _db.Set<AdminAccount>().Add(account);
     public void AddAssignment(AdminTenantAssignment assignment) => _db.Set<AdminTenantAssignment>().Add(assignment);
@@ -27,6 +34,9 @@ public sealed class AdminAccountRepository : IAdminAccountRepository
     public Task<AdminAccount?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _db.Set<AdminAccount>().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken) =>
+        _db.Set<AdminAccount>().AnyAsync(x => x.Id == id, cancellationToken);
+
     public async Task<IReadOnlySet<Guid>> ListAssignedTenantIdsAsync(Guid adminAccountId, CancellationToken cancellationToken)
     {
         var ids = await _db.Set<AdminTenantAssignment>()
@@ -39,6 +49,29 @@ public sealed class AdminAccountRepository : IAdminAccountRepository
     public Task<AdminTenantAssignment?> GetAssignmentAsync(Guid adminAccountId, Guid tenantId, CancellationToken cancellationToken) =>
         _db.Set<AdminTenantAssignment>()
             .FirstOrDefaultAsync(x => x.AdminAccountId == adminAccountId && x.TenantId == tenantId, cancellationToken);
+
+    public async Task<PagedResult<AdminAccountListItem>> ListAsync(PagedQuery query, CancellationToken cancellationToken)
+    {
+        IQueryable<AdminAccount> src = _db.Set<AdminAccount>().AsNoTracking()
+            .ApplySearch(query.Search)
+            .ApplyFilters(query.Filters, _logger);
+
+        long total = await src.LongCountAsync(cancellationToken);   // count after filter/search, before paging
+
+        // Offset in long so a huge page can never overflow int into a negative SQL OFFSET; the Hosts parser
+        // already clamps page to the offset ceiling.
+        int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);
+
+        // AdminAccount has no computed member, so project server-side directly. SubjectBound => Subject IS NOT NULL.
+        var items = await src
+            .ApplySort(query.Sort, _logger)
+            .Skip(skip)
+            .Take(query.Limit)
+            .Select(a => new AdminAccountListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject != null))
+            .ToListAsync(cancellationToken);
+
+        return new PagedResult<AdminAccountListItem>(items, query.Page, query.Limit, total);
+    }
 }
 
 public sealed class AdminAccountAuditWriter : IAdminAccountAuditWriter
