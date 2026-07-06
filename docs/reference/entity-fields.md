@@ -4,8 +4,7 @@
 > enums + the RLS/proc/grant migrations. นี่คือรูปจริงของตารางใน schema `producer` ของ `ProducerDbContext`
 > ตัวเดียว (modular monolith — ทุกโมดูล map เข้า DbContext เดียวกัน). สะท้อนสถานะปัจจุบัน: Identity module ถูกลบ
 > แล้ว **rebuild เป็น Producer module 2026-06-28** (feature `producer-google-sso` — ดู section ด้านล่าง); date field
-> ไม่มี suffix `Utc` แล้ว. แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย. (NOTE: Admin RBAC tables ของ
-> admin-role-rbac 2026-06-25 ยังไม่ถูกเพิ่มในไฟล์นี้ — pending a full regen.)
+> ไม่มี suffix `Utc` แล้ว. แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย.
 >
 > ขอบเขต: เฉพาะ entity ที่ persist ลง DB. Value object ที่ไม่มีตารางของตัวเอง (เช่น `Money` = `MinorUnits:long`
 > + `Currency`) ถูก map เป็นคอลัมน์ของ entity เจ้าของ (เช่น `AmountMinorUnits`/`AmountCurrency`).
@@ -51,18 +50,38 @@ M:N ระหว่าง Scoped admin กับ tenant ที่เข้าถ
 | AssignedAt | datetime2 | N | | |
 
 ### AdminAccountAudit -> `producer.AdminAccountAudits`  (plane: control, append-only)
-audit ของทุก admin action (self-provision/create-scoped/assign/unassign/suspend).
+audit ของทุก admin action (account lifecycle: self-provision/create-scoped/assign/unassign/suspend/reactivate/
+session-revoke; role lifecycle: role create/update/delete/assign/unassign — เพิ่มโดย `admin-role-rbac`).
 
 | Field | Type | Null | Key | หมายเหตุ |
 |---|---|---|---|---|
 | Id | uniqueidentifier | N | PK | |
-| Action | nvarchar(64) | N | | `AdminAuditAction` (SelfProvision/CreateScoped/AssignTenant/UnassignTenant/Suspend) |
+| Action | nvarchar(64) | N | | `AdminAuditAction` (SelfProvision/CreateScoped/AssignTenant/UnassignTenant/Suspend/Reactivate/SessionRevoke/RoleCreated/RoleUpdated/RoleDeleted/RoleAssigned/RoleUnassigned) |
 | ActorId | uniqueidentifier | N | | admin ที่ทำ |
 | ActorType | nvarchar(16) | N | | `"admin"` |
 | TargetAdminId | uniqueidentifier | Y | | admin เป้าหมาย (ถ้ามี) |
+| TargetRoleId | uniqueidentifier | Y | | role เป้าหมาย (role action เท่านั้น) |
 | TenantId | uniqueidentifier | Y | | tenant ที่เกี่ยว (assign/unassign) |
 | CorrelationId | nvarchar(128) | N | | |
 | OccurredAt | datetime2 | N | | |
+
+### Admin RBAC catalog/role tables  (plane: control)  `[mirrors→Producer RBAC]`
+granular role→permission axis **orthogonal** to `AdminTier` (no Super-bypass — a Super account still needs a
+role assignment to act, per REQ-8.1). Catalog (`AdminPermissionGroups` Key/LabelTh/SortOrder;
+`AdminPermissions` Key PK/GroupKey FK Restrict/LabelTh/SortOrder) เป็น SELECT-only สำหรับ pol_admin (seed โดย
+migration). `AdminRoles` (Id PK, Code nvarchar(64) UQ, Name nvarchar(128), Description nvarchar(256) Y, Color
+nvarchar(16) Y, Status int `AdminRoleStatus`) — mutable ผ่าน management endpoints (grant
+SELECT/INSERT/UPDATE/DELETE); seed มี 5 role ด้วย fixed id, anchor `super_admin` (`11111111-…-1111`, all keys,
+Active) **ห้าม deactivate/delete** (DB `FK Restrict` กัน delete ตอนยังมี assignment + app guard กัน
+deactivate) — ops_admin/finance/support (Active) + auditor (seed เป็น Inactive). `AdminRolePermissions` (Id PK,
+RoleId FK Cascade -> AdminRoles, PermissionKey FK Restrict -> AdminPermissions) unique `(RoleId,
+PermissionKey)`. `AdminRoleAssignments` (Id PK, AdminAccountId, RoleId FK Restrict -> AdminRoles IX,
+AssignedByAdminId, AssignedAt) unique `(AdminAccountId, RoleId)` — **ไม่มี** `TenantId` (global, ต่างจาก
+Producer ที่ assignment ผูก tenant). effective permission ของ admin = union ของ `PermissionKey` จากทุก role ที่
+`Status = Active` เท่านั้น. Bootstrap: migration back-fill ผูก `super_admin` ให้ทุก account ที่ `Tier = Super`
+อยู่แล้วก่อนฟีเจอร์นี้ (กันล็อกตัวเอง). NOTE: migration `AddProducerApprovePermissionToAdminCatalog`
+(2026-06-28) เพิ่ม group `producer` (label "ผู้ผลิต") + key `producer.approve`/`producer.reject` เข้า catalog
+เดียวกันนี้ (ให้ `super_admin`) — จุดเชื่อมเดียวที่ตั้งใจระหว่าง Admin RBAC กับ Producer RBAC.
 
 ### AdminSession -> `producer.AdminSessions`  (plane: control)
 server-side session ของ admin BFF. cookie value (opaque 256-bit) **ไม่เคยเก็บ** — เก็บแค่ SHA-256 hash. session
@@ -459,7 +478,7 @@ column ต้องไล่มาที่ proc body เองด้วย).
 | CartItems | `fn_cartitem_predicate(CartId)` | FILTER + BLOCK (INSERT/UPDATE) |
 | OutboxMessages | `fn_tenant_predicate(TenantId)` | BLOCK (INSERT) only — ไม่ filter (dispatcher drain ทุก tenant) |
 | VaultRevealAudits | `fn_tenant_predicate(TenantId)` | BLOCK (INSERT) only — append-only; อ่าน head ผ่าน proc |
-| AdminAccounts · AdminTenantAssignments · AdminAccountAudits · AdminSessions · AdminAuthAudits · DataProtectionKeys · ProvisioningAudits | — | none (control-plane, pol_admin only) |
+| AdminAccounts · AdminTenantAssignments · AdminAccountAudits · AdminSessions · AdminAuthAudits · AdminPermissionGroups · AdminPermissions · AdminRoles · AdminRoleAssignments · AdminRolePermissions · DataProtectionKeys · ProvisioningAudits | — | none (control-plane, pol_admin only) |
 
 ### Stored procedures (bypass reads — `WITH EXECUTE AS`)
 
@@ -495,6 +514,7 @@ column ต้องไล่มาที่ proc body เองด้วย).
 | `AdminTier` | AdminAccounts.Tier | Scoped=0, Super=1 |
 | `AdminStatus` | AdminAccounts.Status | Active=0, Suspended=1 |
 | `AdminSessionStatus` | AdminSessions.Status | Active=0, Superseded=1, Revoked=2 |
+| `AdminRoleStatus` | AdminRoles.Status | Active=0, Inactive=1 |
 | `TenantStatus` | Tenants.Status | Active=0 (suspend/pending เพิ่มภายหลัง — YAGNI) |
 | `CartStatus` | Carts.Status (string) | Open, CheckedOut (เก็บเป็นชื่อ ไม่ใช่ int) |
 | `CheckoutStatus` | CheckoutSessions.Status | Started=0, Confirmed=1, Abandoned=2 |
