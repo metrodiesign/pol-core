@@ -235,9 +235,14 @@ WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS uniqueidentifier)   -- ro
 | กลุ่ม | predicate | ตาราง |
 |---|---|---|
 | tenant data | **FILTER + BLOCK** (insert/update) | `PaymentSessions, PspConnections, Products, CheckoutSessions, Carts, Orders, VaultSecrets, IdempotencyRecords` + `CartItems` (ผ่าน parent) |
+| tenant master row | **FILTER + BLOCK** ผูกกับ `Id` แทน `TenantId` (join เข้า policy เดิมแบบ additive, `20260622170702_AddTenantTable.cs:76-80`) | `Tenants` — tenant เห็น/แก้ได้แค่ row ของตัวเอง; `pol_admin` (bypass) provision ข้าม tenant ได้ |
 | outbox | **BLOCK-on-insert** เท่านั้น (อ่านข้าม tenant ได้; ปลอม tenant id ตอนเขียนไม่ได้) | `OutboxMessages` (dispatcher ต้อง drain ทุก tenant) |
 | audit | **BLOCK-on-insert** (append-only) | `VaultRevealAudits` (เพิ่มโดย `20260622022145_AddVaultRevealAudit.cs`) |
-| control-plane | **ไม่อยู่ใน policy** — กั้นด้วย GRANT อย่างเดียว | `Tenants, AdminAccounts, ProducerAccounts, *Roles, *Sessions, *Assignments, *Audits, DataProtectionKeys` |
+| control-plane | **ไม่อยู่ใน policy** — กั้นด้วย GRANT อย่างเดียว | `ProvisioningAudits, AdminAccounts, ProducerAccounts, *Roles, *Sessions, *Assignments, *Audits, DataProtectionKeys` |
+
+`Tenants` เป็นข้อยกเว้นสำคัญ: แม้เป็นตาราง "master record" ที่ทีมกลาง provision ข้าม tenant ได้ (control-plane
+โดยหน้าที่) แต่ตัวตารางเอง **อยู่ใต้ RLS policy จริง** เพราะ tenant เองก็ต้องอ่าน row ตัวเอง (REQ-10) — ต่างจาก
+`ProvisioningAudits`/`AdminAccounts`/ฯลฯ ที่ไม่มี tenant-scoped read path เลยจึงไม่อยู่ใน policy.
 
 `20260629085733_AddProducerAccountAdminParity.cs:39-42` ถอด predicate ออกจาก `TenantUsers` ตอน graduate เป็น
 control-plane `ProducerAccounts`. RLS มีผลกับทุก principal แม้ sysadmin — ทางข้ามเดียว = membership ใน `pol_rls_bypass`.
@@ -297,10 +302,15 @@ RLS bypass ข้าม *predicate* ไม่ข้าม *GRANT* -> grant เ�
 - `pol_app`: CRUD 8 ตาราง tenant + `CartItems`; SELECT/INSERT `IdempotencyRecords`; **INSERT-only**
   `OutboxMessages` (อ่าน payload tenant อื่นไม่ได้); EXECUTE webhook resolve proc. (INSERT-only `VaultRevealAudits`
   เพิ่มที่ vault migration.)
-- `pol_worker`: SELECT/UPDATE `OutboxMessages`, `Orders` เท่านั้น.
-- `pol_admin`: cross-tenant **SELECT** ตาราง data ทั้งหมด (`:99-107`) — **ไม่มี** grant อ่าน vault plaintext.
-  ส่วน grant ตาราง control-plane (`AdminAccounts`, roles, sessions, `ProducerAccounts`, `DataProtectionKeys`, ...)
-  อยู่ใน identity migration (`AddAdminIdentityTables`, `AddProducerIdentityTables`, `AddDataProtectionKeys`, ...).
+- `pol_worker`: SELECT/UPDATE `OutboxMessages`, `Orders` (dispatcher หลัก) **+** SELECT/INSERT
+  `ProducerRegistrationNotices` (`20260626022204_AddProducerIdentityTables.cs:324` — worker เป็น consumer ของ
+  producer-registration outbox ด้วย ไม่ใช่แค่ outbox หลัก).
+- `pol_admin`: cross-tenant **SELECT** ตาราง data ทั้งหมด (`AddRlsSecurityPolicy.cs:99-107`) — **ไม่มี** grant
+  อ่าน vault plaintext. แต่ในตาราง provisioning `pol_admin` ได้ grant **เขียน** เพิ่มด้วย: SELECT/INSERT/UPDATE
+  `Tenants`, INSERT `PspConnections`/`VaultSecrets`, SELECT/INSERT `ProvisioningAudits`
+  (`20260622170702_AddTenantTable.cs:93-96` — ไม่ใช่ SELECT-only เฉพาะจุดนี้). grant ตาราง control-plane อื่น
+  (`AdminAccounts`, roles, sessions, `ProducerAccounts`, `DataProtectionKeys`, ...) อยู่ใน identity migration
+  (`AddAdminIdentityTables`, `AddProducerIdentityTables`, `AddDataProtectionKeys`, ...).
 - `pol_webhook_resolver`: SELECT `PspConnections` (+`Orders` สำหรับ summary proc). `pol_vault_auditor`: SELECT
   `VaultRevealAudits`.
 - ไม่มี `db_owner`/`db_datareader`/blanket role กับ runtime login เลย — grant ต่อตารางล้วน; runtime login ไม่มีสิทธิ DDL.
