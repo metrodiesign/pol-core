@@ -25,8 +25,8 @@ public sealed class MasterDataStore : IMasterDataStore
         IQueryable<T> src = _db.Set<T>().AsNoTracking();
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = $"%{search.Trim()}%";
-            src = src.Where(m => EF.Functions.Like(m.Name, term) || EF.Functions.Like(m.Code, term));
+            var term = $"%{SfsLike.Escape(search.Trim())}%";   // escape %/_ so they match literally (REQ-9.2)
+            src = src.Where(m => EF.Functions.Like(m.Name, term, "\\") || EF.Functions.Like(m.Code, term, "\\"));
         }
 
         long total = await src.LongCountAsync(cancellationToken);   // count after search, before paging

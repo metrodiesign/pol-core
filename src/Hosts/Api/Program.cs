@@ -1523,9 +1523,9 @@ MapMasterCrud<Division>(masterData, "divisions", Division.Create);
 static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<string, string, T> create)
     where T : MasterData
 {
-    var g = parent.MapGroup($"/{segment}");
-
-    g.MapGet("", async (HttpContext http, IMasterDataStore store, CancellationToken ct) =>
+    // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
+    // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
+    parent.MapGet($"/{segment}", async (HttpContext http, IMasterDataStore store, CancellationToken ct) =>
     {
         var p = SfsQueryParser.Parse(http.Request.Query);
         var result = await store.ListAsync<T>(p.Page, p.Limit, p.Search?.Query, ct);
@@ -1540,7 +1540,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    g.MapPost("", async (MasterWriteRequest body, IMasterDataStore store, CancellationToken ct) =>
+    parent.MapPost($"/{segment}", async (MasterWriteRequest body, IMasterDataStore store, CancellationToken ct) =>
     {
         var item = await store.CreateAsync(create(body.Code ?? "", body.Name ?? ""), ct);
         return Results.Created($"/api/v1/admins/master-data/{segment}/{item.Id}",
@@ -1556,7 +1556,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    g.MapPut("/{id:guid}", async (Guid id, MasterUpdateRequest body, IMasterDataStore store, CancellationToken ct) =>
+    parent.MapPut($"/{segment}/{{id:guid}}", async (Guid id, MasterUpdateRequest body, IMasterDataStore store, CancellationToken ct) =>
     {
         var item = await store.UpdateAsync<T>(id, body.Name ?? "", body.IsActive, ct);
         return Results.Ok(new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
