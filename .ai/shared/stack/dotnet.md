@@ -62,6 +62,8 @@ tests/
   EF global query filter = ชั้นสะดวกเสริม **ไม่ใช่** floor. ban raw SQL / `IgnoreQueryFilters` ข้าม tenant + test พิสูจน์ leak ปิด (รวม pooled connection ไม่ retain tenant เดิม). admin cross-tenant = DB principal แยก
 - `Money` value object ใน SharedKernel — as-built: `{ MinorUnits: long, Currency: ISO4217 }` (bigint); **มาตรฐานใหม่ (ตัดสิน 2026-07-05): `{ Amount: DECIMAL(19,4), Currency }` ทุกชั้น, ห้าม float/double** — migration รอ ADR (ดู CODING_STANDARDS + `docs/reference/platform-modules.md` ข้อ 22)
 - **provisioning = saga ข้าม store** (DB + vault คนละที่ ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. idempotent ด้วย tenant key
+- **seed GUID = deterministic AND RFC-4122 well-formed**: fixed (ห้าม `NEWID()` ใน migration) พอสำหรับ `uniqueidentifier` แต่ nil version/variant (`…-0000-0000-…`) = malformed UUID (reviewer/tool ตีเป็น placeholder). ตั้ง version nibble=`4` + variant=`8` → `a1000000-0000-4000-8000-0000000000NN` (namespace ต่อตาราง `a1/b2/c3/…` + row counter). `Down` = `DELETE … WHERE Id LIKE 'a1000000-%'` (implicit convert uniqueidentifier→string ทำงานได้บน CI collation). seed ผ่าน `migrationBuilder.Sql("INSERT … N'ไทย' …")` (data-only migration = empty model diff, snapshot ไม่เปลี่ยน).
+- **หลาย master/lookup table รูปเดียวกัน → TPC** (`builder.UseTpcMappingStrategy()` บน abstract base + `ToTable("X")` ต่อ concrete): ได้ FK type-safe N ตารางโดย **ไม่มี discriminator/base table** — ยืนยันจาก migration `Up()` = N CreateTable ไม่มี column `Discriminator`. abstract base ที่ไม่ตั้ง strategy = default TPH (discriminator, ตารางเดียว) — ตรงข้ามที่ต้องการ.
 
 ## Mediator (martinothamar/Mediator) — source-generated
 
@@ -69,6 +71,7 @@ tests/
 - CQRS: write = `ICommand<,>`, read = `IQuery<,>`, cross-module event = `INotification` · `Handle` คืน `ValueTask<T>`
 - `AddMediator(...)` (generator สร้างให้, handler ลงทะเบียนอัตโนมัติ) · pipeline behaviors เพิ่มเอง (เช่น `IdempotencyBehavior`, validation)
 - **lifetime:** `IMediator` Singleton (perf) ได้ แต่ **handler/pipeline ที่พึ่ง `DbContext` ต้อง Scoped** (หรือ inject `IDbContextFactory`) — กัน captive dependency. เปิด `ValidateScopes=true` + มี DI validation test
+- **ไม่มี open-generic handler**: source generator ไม่สร้าง `IRequestHandler<Cmd<T>>` แบบ open-generic → CRUD ที่ symmetric N ตาราง (master/lookup) อย่าเขียน N×concrete handler (boilerplate ล้วน). ใช้ generic service (เช่น `IMasterDataStore` เรียก `_db.Set<T>()`) bypass Mediator แต่ **คง commit ผ่าน keyed UoW เดิม** (S2, ห้าม `DbContext.SaveChanges` ตรง) — code-shape ตัดสินจากข้อจำกัด generator จริง ไม่ใช่รสนิยม.
 - `IdempotencyBehavior`: unique key `(psp,eventId)` + `(psp,externalChargeId,normalizedStatus)`, atomic upsert; publish `PaymentPaid` ผ่าน **outbox** (table + dispatcher poll lock/lease + poison/DLQ + idempotent consumer)
 - ได้ diagnostic ตอน **build** ถ้า request ไม่มี handler — อย่าปิด warning นี้
 
