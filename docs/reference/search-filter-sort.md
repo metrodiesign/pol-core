@@ -5,20 +5,21 @@
 (NestJS / TypeORM / PostgreSQL) แต่ปรับ server-side ทั้งหมดให้ตรง stack จริงของเรา:
 C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-generated CQRS) + RLS floor.
 
-> สถานะ: **pol-core ยังไม่ได้ implement SFS วันนี้** — list endpoint ปัจจุบัน (เช่น `GET /api/v1/admins/roles`,
-> `GET /api/v1/producers/roles`) คืน full set, ไม่มี `OrderBy`, ไม่มี paging, ไม่รับ query-string sort/filter เลย.
-> (`GetProductsQuery` + `IProductRepository.ListByTenantAsync` มีอยู่จริงและ implement ครบ แต่ **ยังไม่ถูก
-> wire เข้า HTTP endpoint ใด** — endpoint ของ product วันนี้มีแค่ `POST /products`.) เอกสารนี้คือ
-> **target convention**: เมื่อทีมเริ่มเพิ่ม SFS ให้ endpoint ใด ให้ทำตามรูปแบบนี้ทั้งโปรเจกต์ เพื่อให้ทุกโมดูล
-> มี contract เดียว. Query-string contract คงรูปแบบเดียวกับ `nong-kaewta-api` โดยตั้งใจ (contract เดียวข้ามโปรเจกต์).
+> สถานะ: **SFS shipped แล้วบางส่วน** (spec `.ai/specs/search-filter-sort/`, §13 as-built notes) —
+> `GET /api/v1/admins/roles` และ `GET /api/v1/products` รองรับ paging + sort + filter + search เต็มรูปแบบ
+> ตามคู่มือนี้. ที่ยังไม่ implement: `GET /api/v1/admins/permissions`, `GET /api/v1/producers/roles`,
+> `GET /api/v1/producers/permissions` — endpoint เหล่านี้ยังคืน full set, ไม่มี `OrderBy`, ไม่มี paging,
+> ไม่รับ query-string sort/filter. เอกสารนี้คือ **convention มาตรฐาน**: เมื่อเพิ่ม SFS ให้ endpoint ที่เหลือ
+> (หรือ endpoint ใหม่) ให้ทำตามรูปแบบนี้ทั้งโปรเจกต์ เพื่อให้ทุกโมดูลมี contract เดียว. Query-string contract
+> คงรูปแบบเดียวกับ `nong-kaewta-api` โดยตั้งใจ (contract เดียวข้ามโปรเจกต์).
 
-> ข้อควรรู้ก่อนเริ่ม (จาก research ของ pol-core stack): (1) SFS เป็น **greenfield** — ยังไม่มี
-> `PagedResult<T>` หรือ pagination type ใดใน repo; บ้านของ contract types คือ `BuildingBlocks.Application`.
-> (2) โปรเจกต์ **ไม่มี** FluentValidation และ **ไม่มี** dynamic-LINQ (`System.Linq.Dynamic.Core`) — SFS
-> ต้องสร้างบน `System.Text.Json` + strongly-typed EF Core LINQ เท่านั้น, ห้ามเพิ่ม dependency.
-> (3) host เป็น Minimal API **ไม่มี** global `JsonStringEnumConverter` — string enum บน wire **ไม่ทำงานเอง**
-> ต้อง annotate converter ที่ enum โดยตรง (ดู section 2.3). (4) `TreatWarningsAsErrors=true` + `Nullable enable`
-> ทั้ง solution — ทุก snippet ต้อง warning-clean และ null-annotated.
+> ข้อควรรู้ (จาก research ของ pol-core stack): (1) contract types (`PagedResult<T>` ฯลฯ) อยู่ที่
+> `BuildingBlocks.Application` — ดู §13. (2) โปรเจกต์ **ไม่มี** FluentValidation และ **ไม่มี** dynamic-LINQ
+> (`System.Linq.Dynamic.Core`) — SFS สร้างบน `System.Text.Json` + strongly-typed EF Core LINQ เท่านั้น,
+> ห้ามเพิ่ม dependency. (3) host เป็น Minimal API **ไม่มี** global `JsonStringEnumConverter` — string enum
+> บน wire **ไม่ทำงานเอง** ต้อง annotate converter ที่ enum โดยตรง (ดู section 2.3). (4)
+> `TreatWarningsAsErrors=true` + `Nullable enable` ทั้ง solution — ทุก snippet ต้อง warning-clean และ
+> null-annotated.
 
 - ต้นฉบับ (แนวคิด): `nong-kaewta-api/docs/developer-guide/SEARCH_FILTER_SORT_GUIDE.md`
 - โครงสร้าง handler/repository: `docs/reference/src-structure.md`
@@ -64,10 +65,10 @@ Repository: whitelist -> EF .Where / .OrderBy / .Skip / .Take  (+ LongCountAsync
 SQL Server 2025  ->  PagedResult<T>
 ```
 
-**สถานะ pol-core:** ทั้ง 4 list endpoint ที่ ship แล้ว (`GET /api/v1/admins/roles`, `/api/v1/admins/permissions`,
-`/api/v1/producers/roles`, `/api/v1/producers/permissions`) คืน full set; roles คืนแบบ **ไม่มี `OrderBy`** (unordered),
-permission catalog เรียงตาม `SortOrder`. **ไม่มี endpoint ใดใช้ `Skip`/`Take` หรือรับ sort/filter จาก
-query string.** เอกสารนี้จึงเป็นการ **แนะนำพฤติกรรมใหม่** ไม่ใช่บันทึกพฤติกรรมเดิม.
+**สถานะ pol-core:** `GET /api/v1/admins/roles` และ `GET /api/v1/products` รองรับ SFS เต็มรูปแบบ (paging,
+sort, filter, search — §13). ที่เหลืออีก 3 list endpoint (`GET /api/v1/admins/permissions`,
+`/api/v1/producers/roles`, `/api/v1/producers/permissions`) ยังคืน full set ไม่มี `Skip`/`Take` หรือรับ
+sort/filter จาก query string — permission catalog เรียงตาม `SortOrder` คงที่.
 
 **ขอบเขตเอกสารนี้:** เฉพาะ search / filter / sort / pagination + security + RLS interplay + ตัวอย่าง.
 ไม่รวมเรื่องอื่นจาก guide ต้นฉบับ (auth, transaction, job, file management ฯลฯ) — คนละแกน.
@@ -1024,10 +1025,11 @@ public async Task Search_filter_does_not_widen_tenant_scope()
 
 ### 12.1 Admin roles — control-plane (ไม่ `ITenantScoped`)
 
-`GET /api/v1/admins/roles` วันนี้ **มีอยู่จริงแต่ non-paginated** (คืน full set, ไม่มี `OrderBy`). admin role เป็น
-**control-plane** (ไม่มี `TenantId`) จึง **ไม่** mark `ITenantScoped`.
+`GET /api/v1/admins/roles` shipped SFS เต็มรูปแบบแล้ว (§13) — ตัวอย่างด้านล่างคือ worked example ตอน
+implement จริง: จากโค้ดเดิมที่ non-paginated (คืน full set, ไม่มี `OrderBy`) ไปสู่ target convention. admin role
+เป็น **control-plane** (ไม่มี `TenantId`) จึง **ไม่** mark `ITenantScoped`.
 
-**ก่อน (วันนี้)** — `Admin.Application/RoleQueries.cs`:
+**ก่อน (โค้ดเดิมก่อน implement SFS)** — `Admin.Application/RoleQueries.cs`:
 
 ```csharp
 public sealed record ListRolesQuery : IQuery<IReadOnlyList<AdminRoleListItem>>;
@@ -1158,8 +1160,8 @@ product เป็น **tenant data** (`Product : AggregateRoot<Guid>` มี `Te
 `PriceCurrency`, `IsActive`, `CreatedAt`). query ต้อง mark `ITenantScoped` และ repository เติม explicit
 `.Where(TenantId)` บน RLS floor.
 
-> วันนี้ `GetProductsQuery` + `ListByTenantAsync` มีอยู่จริงแต่ **ยังไม่ถูก wire เข้า HTTP endpoint** —
-> endpoint ของ product มีแค่ `POST /products`. ตัวอย่างนี้คือ target ของ `GET /products`.
+> `GET /api/v1/products` shipped SFS เต็มรูปแบบแล้ว (§13, `ProductSfs`) — ตัวอย่างนี้คือ worked example
+> ตอน implement จริง.
 > หมายเหตุ: มี read model `Products.Application.ProductView(ProductId, ..., Money Price, ...)` อยู่แล้ว
 > (ใช้โดย `GetProductsHandler`). ที่นี่ใช้ **`ProductListItem` ตัวใหม่** (scalar) แทน — เป็นการเพิ่ม/เปลี่ยนที่
 > ประกาศไว้ชัด ไม่ใช่ redefine `ProductView` เดิมเงียบ ๆ (จะพัง `GetProductsHandler`).
