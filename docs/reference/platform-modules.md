@@ -174,7 +174,6 @@ primary identifier ฝั่ง public API
 
 **Money** — มาตรฐานแพลตฟอร์ม (ตัดสิน 2026-07-05): `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }`
 ทุกชั้น — domain, persistence (SQL Server `DECIMAL(19,4)`), และ wire
-<!-- intake correction 2026-07-05: ต้นฉบับ design doc ระบุ integer minor units เท่านั้น (ห้าม decimal) — override ด้วยการตัดสินใจของทีม: DECIMAL(19,4) ทุกชั้น -->
 
 ```json
 {
@@ -195,7 +194,6 @@ primary identifier ฝั่ง public API
 **Time** — เก็บ UTC และส่ง RFC 3339 เช่น `2026-07-05T05:30:00Z`; ชื่อ field ลงท้าย `At`
 ทั้งบน JSON และใน persistence (`CreatedAt` / `UpdatedAt` / `OccurredAt` — **ไม่ใส่** suffix `Utc`
 ตาม convention ของทีม); timezone ใช้เฉพาะ presentation/policy calculation
-<!-- intake correction 2026-07-05: ต้นฉบับ design doc ระบุ "AtUtc ใน persistence" — ขัด CODING_STANDARDS จริงของทีม (suffix Utc ถูกถอดตั้งแต่ PR #18) -->
 
 **Idempotency** — command ประเภท create/confirm/resend/approve ต้องรองรับ `Idempotency-Key`:
 scope = tenant + principal/client + operation + key; เก็บ request hash และ canonical response;
@@ -400,8 +398,8 @@ redirect URL ลง span attribute
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | Tenant entity ครบ field | `Code` (allowlist, lowercase) · `DisplayName` · `LegalEntityId` · `Status` · `Country` · `Currency` · `EnabledChannels` · `Metadata` | มีแล้ว |
-| Provisioning แบบ atomic | `POST /admin/tenants` (Super-only): tenant + `PspConnection` + secret ลง vault ใน transaction เดียว + `ProvisioningAudit` + idempotent ด้วย tenant key | มีแล้ว |
-| อ่าน tenant รายตัว | `GET /admin/tenants/{code}` | มีแล้ว |
+| Provisioning แบบ atomic | `POST /api/v1/admins/tenants` (Super-only): tenant + `PspConnection` + secret ลง vault ใน transaction เดียว + `ProvisioningAudit` + idempotent ด้วย tenant key | มีแล้ว |
+| อ่าน tenant รายตัว | `GET /api/v1/admins/tenants/{code}` | มีแล้ว |
 | List tenant ฝั่ง admin | target: `GET /api/admin/v1/tenants` สำหรับหน้า console (เลือก/จัดการ) | ยังไม่มี |
 | แก้ config หลัง provision | target: `PATCH /api/admin/v1/tenants/{tenantId}` + `If-Match` (optimistic concurrency) — update `DisplayName`/`EnabledChannels`/`Metadata` | ยังไม่มี |
 | Tenant lifecycle | target: states `draft`/`active`/`suspended`/`deactivated` + `POST .../activate|suspend|reactivate`; suspend ต้อง revoke/disable M2M credentials + block create flows ทันที — `Status` มี field แล้วแต่ไม่มีเส้นทางใด | ยังไม่มี |
@@ -432,7 +430,7 @@ redirect URL ลง span attribute
 **ความสัมพันธ์** — ทุก entity ฝั่ง data plane (Product/Cart/CheckoutSession/Order/PaymentSession/PspConnection) อ้าง `TenantId`; `AdminTenantAssignment` (§3) และ `ProducerTenantAssignment` (§4) ชี้เข้าเพื่อกำหนดขอบเขตการเข้าถึง
 
 **สถานะ: บางส่วน**
-- มีแล้ว: entity + provisioning (`POST /admin/tenants` Super-only, `GET /admin/tenants/{code}`)
+- มีแล้ว: entity + provisioning (`POST /api/v1/admins/tenants` Super-only, `GET /api/v1/admins/tenants/{code}`)
 - gap: `EnabledChannels` เก็บ verbatim ยังไม่ถูกใช้ enforce ที่ใด (จงใจ defer ใน tenant spec REQ-3.4); **"ไคลเอนต์ API" ยังไม่มี entity** — auth ฝั่ง Tenant Console ปัจจุบันคือ Google id-token Bearer ผูก audience ของ SPA (permission `apikey.manage` จองชื่อไว้ในแคตตาล็อกแต่ยังไม่ implement); ยังไม่มีเส้นทางแก้ไข/จัดการ tenant หลัง provision
 
 ---
@@ -448,24 +446,24 @@ redirect URL ลง span attribute
 - login = **server-side OIDC BFF** (Authorization Code + PKCE, confidential client): opaque session cookie `__Host-adm_session` (DB เก็บเฉพาะ hash), rotation + reuse-detection + instant revoke, CSRF double-submit — ไม่รับ Google id-token เป็น Bearer ฝั่ง admin
 - bootstrap Super คนแรกผ่าน allowlist self-provision; เชิญ Scoped ด้วย email
 - `Scoped` เข้าถึงเฉพาะ tenant ตาม `AdminTenantAssignment`; cross-tenant read ทุกอย่างบังคับผ่าน seam เดียว `IAdminQuery` (`Super` = unrestricted)
-- endpoints: `GET /admin/auth/login`, `POST /admin/auth/logout[-all]`, `GET /admin/me`, จัดการบัญชี `POST /admin/admins`, `POST /admin/admins/{id}/suspend`, assign tenant `POST/DELETE /admin/admins/{id}/tenants[/{tenantId}]`
+- endpoints: `GET /api/v1/admins/auth/login`, `POST /api/v1/admins/auth/logout[-all]`, `GET /api/v1/admins/me`, จัดการบัญชี `POST /api/v1/admins`, `POST /api/v1/admins/{id}/suspend`, assign tenant `POST/DELETE /api/v1/admins/{id}/tenants[/{tenantId}]`
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
-| Google OIDC BFF login | Authorization Code + PKCE, confidential client — `GET /admin/auth/login` | มีแล้ว |
+| Google OIDC BFF login | Authorization Code + PKCE, confidential client — `GET /api/v1/admins/auth/login` | มีแล้ว |
 | Opaque session cookie | `__Host-adm_session`; DB เก็บเฉพาะ SHA-256 hash ของ token | มีแล้ว |
-| Session hygiene | rotation + reuse-detection + instant revoke; `POST /admin/auth/logout` และ `logout-all` | มีแล้ว |
+| Session hygiene | rotation + reuse-detection + instant revoke; `POST /api/v1/admins/auth/logout` และ `logout-all` | มีแล้ว |
 | CSRF | double-submit cookie | มีแล้ว |
 | Auth rate limiting | policy เฉพาะเส้นทาง auth ฝั่ง admin | มีแล้ว |
 | Bootstrap Super คนแรก | allowlist self-provision (config `AdminAllowlist:Subjects`) | มีแล้ว |
-| เชิญ/พักบัญชี | `POST /admin/admins` (invite ด้วย email), `POST /admin/admins/{id}/suspend` | มีแล้ว |
+| เชิญ/พักบัญชี | `POST /api/v1/admins` (invite ด้วย email), `POST /api/v1/admins/{id}/suspend` | มีแล้ว |
 | Reactivate บัญชีที่ถูกพัก | `POST /api/v1/admins/{id}/reactivate` (Super-only) — คืนสถานะ Active + revoke session ทั้งหมดของ target (fresh-login), idempotent; audit ทุกครั้ง (spec `admin-account-management`) | มีแล้ว |
 | List/ดูบัญชี admin | `GET /api/v1/admins` (SFS, gate `user.view`) + `GET /api/v1/admins/{id}` (detail) + จัดการ session (`GET /api/v1/admins/{id}/sessions`, `DELETE .../sessions/{sessionId}` — Super-only, revoke ทั้ง rotation family) (spec `admin-account-management`) | มีแล้ว |
-| Tenant assignment | `POST/DELETE /admin/admins/{id}/tenants[/{tenantId}]` — `Scoped` เห็นเฉพาะ tenant ที่ assign | มีแล้ว |
+| Tenant assignment | `POST/DELETE /api/v1/admins/{id}/tenants[/{tenantId}]` — `Scoped` เห็นเฉพาะ tenant ที่ assign | มีแล้ว |
 | Cross-tenant read seam | `IAdminQuery` seam เดียว (ฝัง `WHERE TenantId IN accessible`; `Super` unrestricted) | มีแล้ว |
-| ตัวตนปัจจุบัน | `GET /admin/me` | มีแล้ว |
+| ตัวตนปัจจุบัน | `GET /api/v1/admins/me` | มีแล้ว |
 
 **โมเดลเป้าหมายเชิง API**
 
@@ -493,14 +491,14 @@ redirect URL ลง span attribute
 - `AdminRole` → `AdminRolePermission` → `AdminRoleAssignment`; สิทธิ์รวม = **union ของ role ที่ Active**
 - แกน role/permission **orthogonal กับ `AdminTier`**: Tier คุม *ขอบเขต tenant*, role คุม *ความสามารถ* — ไม่มี Super bypass permission
 - `RequirePermission(...)` fail-closed (403 เมื่อ scope ไม่ถูก bind, ไม่มีทาง 500) + boot parity guard (startup fail ถ้า gate ใช้ key ที่ไม่อยู่ในแคตตาล็อก); `super_admin` เป็น recovery anchor ลบ/ปิดไม่ได้
-- endpoints: `GET /admin/permissions`, `GET/POST/PUT/DELETE /admin/roles[/{code}]`, `PUT /admin/admins/{id}/roles`
+- endpoints: `GET /api/v1/admins/permissions`, `GET/POST/PUT/DELETE /api/v1/admins/roles[/{code}]`, `PUT /api/v1/admins/{id}/roles`
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | Permission catalog ใน DB | 16 keys / 6 กลุ่ม seed ผ่าน migration; feature ใหม่เพิ่ม key ของตัวเอง | มีแล้ว |
-| Role CRUD + assignment | `GET/POST/PUT/DELETE /admin/roles[/{code}]`, `PUT /admin/admins/{id}/roles`; code slug `^[a-z0-9_]+$` | มีแล้ว |
+| Role CRUD + assignment | `GET/POST/PUT/DELETE /api/v1/admins/roles[/{code}]`, `PUT /api/v1/admins/{id}/roles`; code slug `^[a-z0-9_]+$` | มีแล้ว |
 | สิทธิ์รวม = union ของ role Active | resolve สดต่อ request | มีแล้ว |
 | Orthogonal Tier × role | Tier คุมขอบเขต tenant, role คุมความสามารถ — ไม่มี Super bypass | มีแล้ว |
 | Fail-closed + boot parity guard | `RequirePermission(...)` = 403 เสมอเมื่อ bind ไม่ถูก; startup fail ถ้า gate ใช้ key นอกแคตตาล็อก | มีแล้ว |
@@ -538,24 +536,24 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 **บทบาท**
 - `ProducerAccount`: `Subject` (unique), `Email`, `Status` (`PendingApproval` → `Active` / `Rejected`; `Suspended`), ข้อมูลบุคคล/ใบอนุญาต (`FirstName`, `LastName`, `PersonType`, `IdNumber`, `ProducerCode`, `LicenseNumber`, `Phone`) + รูปถ่าย
-- สมัครแบบ **ticket-gated**: ticket เป็น stateless signed token (Data Protection — ไม่มีตาราง ticket) → `POST /producer/register` (multipart + รูป) → admin อนุมัติ/ปฏิเสธ (`POST /admin/tenant-users/{subject}/approve|reject`, gate ด้วย permission `producer.approve`/`producer.reject` ฝั่ง Admin) — tenant + role ถูกกำหนดฝั่ง server ตอนอนุมัติ ไม่มาจาก token
+- สมัครแบบ **ticket-gated**: ticket เป็น stateless signed token (Data Protection — ไม่มีตาราง ticket) → `POST /api/v1/producers/register` (multipart + รูป) → admin อนุมัติ/ปฏิเสธ (`POST /api/v1/admins/tenant-users/{subject}/approve|reject`, gate ด้วย permission `producer.approve`/`producer.reject` ฝั่ง Admin) — tenant + role ถูกกำหนดฝั่ง server ตอนอนุมัติ ไม่มาจาก token
 - login = OIDC BFF มิเรอร์ฝั่ง Admin แต่แยกขาดกัน (OAuth client + scheme `ProducerGoogle` คนละตัว): cookie `__Host-prd_session` + CSRF `prd_csrf`, rotation/reuse-detection/revoke; callback แตก 4 ทางตามสถานะบัญชี (Active → session, ยังไม่มีบัญชี → ticket ไปหน้า register ฯลฯ)
 - นโยบาย auth `producer` เป็น dual-scheme: ProducerSession cookie **หรือ** tenant Bearer
-- endpoints: `GET /producer/auth/login`, `POST /producer/register`, `GET /producer/me`, `POST /producer/auth/logout[-all]`
+- endpoints: `GET /api/v1/producers/auth/login`, `POST /api/v1/producers/register`, `GET /api/v1/producers/me`, `POST /api/v1/producers/auth/logout[-all]`
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | สมัครแบบ ticket-gated | ticket = stateless signed token (Data Protection), short-lived + single-use — ไม่มีตาราง ticket | มีแล้ว |
-| ฟอร์มสมัคร + รูปถ่าย | `POST /producer/register` (multipart): ข้อมูลบุคคล/ใบอนุญาต (`PersonType`, `IdNumber`, `ProducerCode`, `LicenseNumber`, `Phone`) + รูป | มีแล้ว |
+| ฟอร์มสมัคร + รูปถ่าย | `POST /api/v1/producers/register` (multipart): ข้อมูลบุคคล/ใบอนุญาต (`PersonType`, `IdNumber`, `ProducerCode`, `LicenseNumber`, `Phone`) + รูป | มีแล้ว |
 | กันสมัครซ้ำ | guard `HasPendingAsync` (Subject OR Email) block การสมัครที่มีคำขอค้าง | มีแล้ว |
-| อนุมัติ/ปฏิเสธ + เหตุผล | `POST /admin/tenant-users/{subject}/approve\|reject` gate ด้วย `producer.approve`/`producer.reject`; tenant + role กำหนดฝั่ง server; เหตุผล persist ลง `RegistrationAudit` | มีแล้ว |
+| อนุมัติ/ปฏิเสธ + เหตุผล | `POST /api/v1/admins/tenant-users/{subject}/approve\|reject` gate ด้วย `producer.approve`/`producer.reject`; tenant + role กำหนดฝั่ง server; เหตุผล persist ลง `RegistrationAudit` | มีแล้ว |
 | Resubmit หลังถูกปฏิเสธ | correction ticket → แก้ข้อมูล → กลับเข้า `PendingApproval` | มีแล้ว |
 | OIDC BFF login แยกขาดจาก admin | scheme `ProducerGoogle` + OAuth client คนละตัว; cookie `__Host-prd_session` + `prd_csrf`; rotation/reuse-detection/instant revoke; logout/logout-all; auth rate limiting | มีแล้ว |
 | Callback แตกตามสถานะบัญชี | 4 ทาง: Active → session · ไม่มีบัญชี → ticket ไปหน้า register · Pending/Rejected/Suspended → 302 redirect + `?reason=` (ทุก outcome เป็น redirect เดียวกันหมด) | มีแล้ว |
 | Dual-scheme policy | นโยบาย `producer` = ProducerSession cookie หรือ tenant Bearer | มีแล้ว |
-| ตัวตนปัจจุบัน | `GET /producer/me` | มีแล้ว |
+| ตัวตนปัจจุบัน | `GET /api/v1/producers/me` | มีแล้ว |
 | พัก/เพิกถอนบัญชี producer | target: `POST /api/admin/v1/producers/{producerId}/suspend|reactivate|deactivate` — state machine เพิ่ม `Deactivated` เป็น terminal (กลับมาใช้ใหม่ = explicit re-onboarding); `Suspended` มีใน enum + callback รองรับแล้ว แต่ไม่มีเส้นทางสั่ง | ยังไม่มี |
 | List/ค้นหา producer ฝั่ง admin | target: `GET /api/admin/v1/producer-registrations[/{registrationId}]` (คิว `PendingApproval` + จัดการรายบัญชี) — ปัจจุบันมีแค่ notice ในระบบ + approve/reject ราย subject | ยังไม่มี |
 | แก้ไข profile หลัง Active | target: `PATCH /api/producer/v1/me/profile` — field ที่กระทบ compliance ต้องผ่าน approval workflow เมื่อแก้หลัง Active | ยังไม่มี |
@@ -584,14 +582,14 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 **บทบาท**
 - แคตตาล็อกแยกของฝั่ง producer (จงใจ duplicate โครงจาก Admin RBAC — คนละวงจรชีวิต ห้าม refactor รวม): 7 keys / 3 กลุ่ม — `product.create`, `product.update`, `payment.create`, `payment.redirect`, `producer.roles.view`, `producer.roles.manage`, `producer.user.roles`
 - `RequireProducerPermission(...)` fail-closed + boot parity guard เช่นเดียวกับฝั่ง Admin; การ enforce ฝั่ง write เปิดผ่าน flag `Producer:EnforcePermissionsOnWrites`
-- endpoints: `GET /producer/permissions`, `GET/POST/PUT/DELETE /producer/roles[/{code}]`, `PUT /producer/tenant-users/{tenantUserId}/roles`
+- endpoints: `GET /api/v1/producers/permissions`, `GET/POST/PUT/DELETE /api/v1/producers/roles[/{code}]`, `PUT /api/v1/producers/tenant-users/{tenantUserId}/roles`
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | แคตตาล็อกแยกฝั่ง producer | 7 keys / 3 กลุ่ม — จงใจ duplicate โครงจาก Admin (คนละวงจรชีวิต ห้าม refactor รวม) | มีแล้ว |
-| Role CRUD + assignment | `GET/POST/PUT/DELETE /producer/roles[/{code}]`, `PUT /producer/tenant-users/{tenantUserId}/roles`; role status lowercase บน wire | มีแล้ว |
+| Role CRUD + assignment | `GET/POST/PUT/DELETE /api/v1/producers/roles[/{code}]`, `PUT /api/v1/producers/tenant-users/{tenantUserId}/roles`; role status lowercase บน wire | มีแล้ว |
 | Fail-closed + boot parity guard | `RequireProducerPermission(...)` มิเรอร์ฝั่ง Admin | มีแล้ว |
 | Enforce flag ฝั่ง write | `Producer:EnforcePermissionsOnWrites` เปิด/ปิดการ enforce บน write endpoint — **target ห้ามใช้ feature flag ปิด authorization ใน production**: ต้อง enforce เสมอ | มีแล้ว (target เข้มกว่า) |
 | ช่องทางจ่ายต่อ producer | config อันดับ 3 — target: `PUT /api/producer/v1/producers/{producerId}/payment-method-entitlements` + สูตร `AllowedMethods = Tenant.EnabledMethods ∩ Producer.MethodEntitlements ∩ AvailableRoutingCapabilities` (ไม่มี entitlement = "ไม่จำกัดเพิ่ม" ไม่ใช่ "ห้ามหมด"; entitlement จำกัดเพิ่มจากชั้นบนเท่านั้น เปิดสิ่งที่ชั้นบนปิดไม่ได้); ปัจจุบัน RBAC คุมแค่สิทธิ์ *ทำรายการจ่าย* | ยังไม่มี |
@@ -1105,11 +1103,9 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 ## ช่องว่างเทียบเป้าหมาย (as-built gaps)
 
 > รวมจุดที่โมเดลเป้าหมายกับโค้ดจริงยังไม่ตรงกัน — บันทึกเพื่อการรับรู้; การแก้แต่ละข้อต้องเปิด spec ของตัวเอง
-> (ข้อ 10-15 เพิ่มจากการวิเคราะห์โค้ดจริง 2026-07-04 — ตรวจกับ `develop` ณ วันนั้น;
-> ข้อ 16-22 เพิ่มจากการรับ target api design 2026-07-05)
 
 1. **Channel enablement ยังไม่ enforce** — `Tenant.EnabledChannels` และ `PspConnection.EnabledMethods` ถูกเก็บ verbatim (จงใจ defer ตอน provisioning spec) แต่ตอนสร้าง payment session ไม่มีการ validate `Method` กับค่าใดเลย (`PspConnection.Supports()` ไม่มีผู้เรียก) — เปิดช่องสร้าง session ด้วยช่องทางที่ไม่ได้เปิดใช้; ระดับ producer (อันดับ 3) ยังไม่มีแนวคิดในโค้ด
-2. **[แก้แล้ว 2026-07-04, PR #44]** Order ↔ PaymentSession ไม่ถูก link (bug ระดับ flow) — เดิม `OrderPaidConsumer` ค้นหา order ด้วย `Order.PaymentSessionId` ที่ไม่เคยถูก populate → จ่ายสำเร็จแต่ Order ค้าง `AwaitingPayment` เงียบๆ; แก้โดย resolve ด้วย `PaymentPaid.OrderId` (spec `bugfix-order-paid-link`; mismatch/cancelled ตอนนี้ล้มดังเข้า DLQ). คงเหลือ housekeeping: ลบ `AttachPaymentSession` + column `PaymentSessionId` ที่เป็น legacy ไม่มี writer
+2. **Order ↔ PaymentSession link housekeeping ค้าง** — resolve ผ่าน `PaymentPaid.OrderId` แล้ว (spec `bugfix-order-paid-link`; mismatch/cancelled ล้มดังเข้า DLQ); เหลือ housekeeping: ลบ `AttachPaymentSession` + column `PaymentSessionId` ที่เป็น legacy ไม่มี writer
 3. **Checkout ขาด field ตามเป้าหมาย** — ผู้ทำรายการ (producer), ข้อมูลลูกค้า, ผู้รับแจ้งเตือนหลายรายการ (ลูกค้า + กำหนดเอง, อีเมล/SMS), การล็อกช่องทางจ่ายตั้งแต่ checkout, หมายเหตุ
 4. **Notifications ยังเป็น stub** — ไม่มี email/SMS provider จริง (defer โดย spec), ไม่มีตารางประวัติการส่ง, ผู้รับ 1 ค่าต่อ order
 5. **Transaction view ยังไม่มี** — ถ้าต้องการหน้า "รายการชำระเงิน" ให้ทำเป็น read model เหนือ `PaymentSession` (ห้ามสร้าง money ledger — non-goal)
@@ -1137,13 +1133,11 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
     ยังไม่มีที่เก็บ/ผู้ใช้ routing config
 14. **Maker-checker ยังไม่มี** — canon กำหนดสำหรับ action อ่อนไหว (approve tenant, เปลี่ยน routing,
     แก้ allowlist) แต่ทุก action ปัจจุบันเป็น single-actor + permission gate (เช่น approve producer ใช้คนเดียว)
-15. **Observability/Operations API ยังไม่มี** (แก้บันทึก 2026-07-05: health check endpoint
-    **มีแล้ว** — `/health/live` + `/health/ready` (ตรวจ producer-db + vault) ใน
-    `BuildingBlocks.Web/HealthChecks.cs` wire ทั้ง Api และ Worker; บันทึกเดิม 2026-07-04 ผิด
-    เพราะ grep หา `AddHealthChecks`/`MapHealthChecks` ตรงตัวใน Hosts แต่โปรเจกต์ห่อเป็น
-    `AddReadinessHealthChecks()`/`MapPolHealthChecks()`) — gap ที่เหลือจริงคือ observability:
-    metrics taxonomy + alerts (DLQ โต, webhook `Rejected` ผิดปกติ, outbox ค้าง) + Operations API
-    (outbox/DLQ inspect + requeue) — ดู
+15. **Observability/Operations API ยังไม่มี** — health check endpoint มีแล้ว (`/health/live` +
+    `/health/ready` ตรวจ producer-db + vault ใน `BuildingBlocks.Web/HealthChecks.cs`
+    (`AddReadinessHealthChecks()`/`MapPolHealthChecks()`) wire ทั้ง Api และ Worker); gap ที่เหลือจริงคือ
+    observability: metrics taxonomy + alerts (DLQ โต, webhook `Rejected` ผิดปกติ, outbox ค้าง) +
+    Operations API (outbox/DLQ inspect + requeue) — ดู
     [เป้าหมายเชิง API](#เป้าหมายเชิง-api-ระดับแพลตฟอร์ม-normative-target)
 16. **Payment/PaymentAttempt split ยังไม่มี** — `PaymentSession` ปัจจุบันหลอมรวม payment intent กับ
     PSP attempt ไว้ในตัวเดียว (1 session = 1 attempt, ไม่มี retry/fallback model); target แยกเป็น
@@ -1208,24 +1202,8 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 | 11 | refund/void อยู่ใน scope อนาคตหรือถูกห้ามต่อเนื่อง | Payment, Order | - (product decision) |
 | 12 | legal/compliance retention ต่อชนิดข้อมูล | ทุกโมดูล | Retention policy |
 | 13 | cursor pagination vs SFS offset (`Page`/`Limit`) — SFS approve แล้ว team กำลัง implement; SFS doc เปิดช่อง keyset สำหรับ deep pages; ตัดสินก่อน endpoint แรกที่ใช้ `nextCursor` | ทุก list endpoint | Transaction read API |
-| 14 | route migration → **DONE 2026-07-05 (spec `api-route-scheme`)**: as-built migrate เป็น `/api/v1/{area}` (area = domain, version-first) — big-bang, ลบ route flat เดิม (ไม่ alias/ไม่ dual-route); FE proxy `/admin/*`+`/producer/*` → `/api/v1/admins\|producers/*` (cutover manual, DoD) | ทุก area | RESOLVED |
 | 15 | canonical status rename (`Paid` → `succeeded`, เพิ่ม `action_required`/`processing`/`cancelled`) + event naming `.v1` — ชื่อ wire ปัจจุบัน (`tenant-users`, `TenantUserRegistrationSubmitted`, `PaymentPaid`) ถูก freeze ตาม CODING_STANDARDS ต้องมี compat strategy | Payment, Contracts | Payment/Attempt split |
-| 16 | Money migration เป็น `DECIMAL(19,4)` — **มาตรฐานตัดสินแล้ว 2026-07-05**; ADR เหลือ: wire carrier (string vs number), rounding rules, แผน migrate คอลัมน์ + backward compat | SharedKernel, ทุกโมดูลที่ถือเงิน | Money migration |
-
-### Current-to-target mapping (สรุปทางย้าย)
-
-| Current | Target | แนวทาง |
-|---|---|---|
-| `PaymentSession` รวมยอด/PSP/redirect/status | `Payment` + `PaymentAttempt` | แยก intent ออกจาก provider attempt (ข้อ 16) |
-| client ส่ง amount/currency/method/psp | server derive จาก Order + router | ตัด field ที่ไม่ควรเชื่อจาก public command (ข้อ 10, 20) |
-| Transaction เป็นแนวคิด read model | PaymentAttempt = write model; Transaction = read API | รองรับ retry/fallback และประวัติจริง (ข้อ 5, 16) |
-| webhook ประมวลผลใน request เดียว | durable inbox + async processor | ลด timeout เพิ่ม replayability (ข้อ 17) |
-| `EnabledChannels`/`EnabledMethods` เก็บแต่ไม่ enforce | effective method policy | enforce ก่อนสร้าง Payment (ข้อ 1) |
-| client เลือก PSP | routing policy เลือก | PSP เป็น internal decision (ข้อ 13) |
-| Order ยอดเดียว ไม่มี lines | immutable OrderLine snapshot | หน้าสรุป/audit ถูกต้องย้อนหลัง (ข้อ 21) |
-| Notification sender เป็น stub | Notification + DeliveryAttempt | รองรับ provider จริง + สถานะย้อนหลัง (ข้อ 4) |
-| Maker-checker เป็น requirement กระจาย | `ChangeRequest` aggregate | payload hash, checker แยกคน, TTL (ข้อ 14) |
-| `Money { MinorUnits: long }` bigint | `Money { Amount: DECIMAL(19,4) }` ทุกชั้น | migration + ADR wire carrier (ข้อ 22) |
+| 16 | Money migration เป็น `DECIMAL(19,4)` — ADR เหลือ: wire carrier (string vs number), rounding rules, แผน migrate คอลัมน์ + backward compat | SharedKernel, ทุกโมดูลที่ถือเงิน | Money migration |
 
 ### ลำดับเปิด spec แนะนำ (design priorities × gaps × migration phases)
 

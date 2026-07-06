@@ -20,9 +20,9 @@ id_token, **ไม่** แนบ Bearer header. แทนที่ด้วย 
 
 Flow login:
 
-1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /admin/auth/login?returnTo=<path>`
+1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/login?returnTo=<path>`
 2. Server redirect ไป Google (Authorization Code + PKCE + state + nonce, scope `openid email`)
-3. ผู้ใช้ยืนยันกับ Google -> Google redirect กลับมาที่ `/admin/auth/callback` (server-side, ไม่มีหน้าให้ FE)
+3. ผู้ใช้ยืนยันกับ Google -> Google redirect กลับมาที่ `/api/v1/admins/auth/callback` (server-side, ไม่มีหน้าให้ FE)
 4. Server แลก code เป็น token, ตรวจ `email_verified` + hosted domain, resolve/bind/self-provision admin, แล้ว
    **set cookie**: `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
 5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
@@ -54,7 +54,7 @@ backend redirect หลัง login = path บน origin เดียว แล�
 // next.config.js
 module.exports = {
   async rewrites() {
-    return [{ source: '/admin/:path*', destination: 'http://localhost:5100/admin/:path*' }]
+    return [{ source: '/api/v1/admins/:path*', destination: 'http://localhost:5100/api/v1/admins/:path*' }]
   },
 }
 ```
@@ -65,18 +65,18 @@ Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — ba
 
 - **ไม่** ต้องขอ Google OAuth client เอง, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
   (confidential client, ฉีดผ่าน `Google__Oidc__ClientId` / `Google__Oidc__ClientSecret`)
-- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `/admin/auth/login?returnTo=${encodeURIComponent(path)}`
+- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `/api/v1/admins/auth/login?returnTo=${encodeURIComponent(path)}`
   (top-level navigation — อย่าใช้ fetch; flow เด้งออกไป Google แล้วกลับมาที่ `returnTo`)
 - ทุก API call ตั้ง `credentials: 'include'` (ตรงข้ามกับโมเดลเดิม — ตอนนี้ auth = cookie)
 - admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server (เปิด `AllowCredentials` ให้เฉพาะ origin นี้)
 
 ```js
-window.location.href = '/admin/auth/login?returnTo=' + encodeURIComponent('/dashboard')
+window.location.href = '/api/v1/admins/auth/login?returnTo=' + encodeURIComponent('/dashboard')
 ```
 
 ## CSRF (double-submit) — บังคับบน POST/PUT/PATCH/DELETE
 
-ทุก request ที่เปลี่ยน state ไปยัง `/admin/*` ต้องแนบ header `X-CSRF-Token` ที่ **ค่าตรงกับ cookie `adm_csrf`**
+ทุก request ที่เปลี่ยน state ไปยัง `/api/v1/admins/*` ต้องแนบ header `X-CSRF-Token` ที่ **ค่าตรงกับ cookie `adm_csrf`**
 มิฉะนั้น **403**. GET/HEAD/OPTIONS ไม่ต้อง (login/callback ที่เป็น GET จึงผ่าน).
 
 ```js
@@ -96,15 +96,15 @@ const api = (path, opts = {}) => fetch(path, {
 
 (helper รวมที่พร้อมใช้จริง — auto CSRF เฉพาะ method ที่เปลี่ยน state + re-login on 401 — ดู [helper รวม](#helper-รวม-adminapijs) ด้านล่าง)
 
-## ขั้นแรกหลัง login: `GET /admin/me`
+## ขั้นแรกหลัง login: `GET /api/v1/admins/me`
 
 session cookie = httpOnly → JS อ่านไม่ได้ (ตั้งใจ กัน XSS). หลัง callback set cookie + redirect กลับ `returnTo`
-แล้ว, FE ยิง `/admin/me` (พร้อม `credentials: 'include'`) เพื่ออ่าน identity/scope. First-login binding (bind
+แล้ว, FE ยิง `/api/v1/admins/me` (พร้อม `credentials: 'include'`) เพื่ออ่าน identity/scope. First-login binding (bind
 invited Scoped by email / self-provision Super จาก allowlist) server จัดการตอน callback แล้ว — FE ไม่ต้องส่งอะไรพิเศษ.
 
 ```js
 async function bootstrap() {
-  const res = await api('/admin/me');
+  const res = await api('/api/v1/admins/me');
   if (res.status === 401) return login(location.pathname);  // ไม่มี session / หมด / ถูก revoke -> re-login
   if (res.status === 403) return showNotActive();           // resolved แต่ suspended / ไม่ active
   renderNav(await res.json());                              // ใช้ tier + accessibleTenants จัด UI
@@ -133,16 +133,16 @@ Scoped ยิงโดน 403.
 
 | Method | Path | Tier | CSRF | Body | Success | Note |
 |---|---|---|---|---|---|---|
-| GET | `/admin/auth/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>` |
-| POST | `/admin/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
-| POST | `/admin/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
-| GET | `/admin/me` | any | — | — | 200 | bootstrap identity/scope |
-| GET | `/admin/tenants/{code}` | any | — | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
-| POST | `/admin/tenants` | **Super** | ต้อง | provision body | 201 | provision tenant (ดู reference 2.4); dup code -> 409 |
-| POST | `/admin/admins` | **Super** | ต้อง | `{ "email": "…" }` | 201 | invite Scoped admin (bind ตอน login แรกของ invitee) |
-| POST | `/admin/admins/{id}/tenants` | **Super** | ต้อง | `{ "tenantId": "…" }` | 200 | assign tenant; inactive/unknown/dup -> 409 |
-| DELETE | `/admin/admins/{id}/tenants/{tenantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
-| POST | `/admin/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
+| GET | `/api/v1/admins/auth/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>` |
+| POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
+| POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
+| GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
+| GET | `/api/v1/admins/tenants/{code}` | any | — | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
+| POST | `/api/v1/admins/tenants` | **Super** | ต้อง | provision body | 201 | provision tenant (ดู reference 2.4); dup code -> 409 |
+| POST | `/api/v1/admins` | **Super** | ต้อง | `{ "email": "…" }` | 201 | invite Scoped admin (bind ตอน login แรกของ invitee) |
+| POST | `/api/v1/admins/{id}/tenants` | **Super** | ต้อง | `{ "tenantId": "…" }` | 200 | assign tenant; inactive/unknown/dup -> 409 |
+| DELETE | `/api/v1/admins/{id}/tenants/{tenantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
 
 ### Account management (spec `admin-account-management`, scheme `/api/v1/admins`)
 
@@ -164,7 +164,7 @@ reads gate ด้วย permission `user.view` (single-key ไม่ใช่ ti
 
 ```js
 async function logout(all = false) {
-  await api(`/admin/auth/logout${all ? '-all' : ''}`, { method: 'POST' }); // CSRF + cookie แนบให้โดย api()
+  await api(`/api/v1/admins/auth/logout${all ? '-all' : ''}`, { method: 'POST' }); // CSRF + cookie แนบให้โดย api()
   login();                                                                  // กลับไปหน้า sign-in
 }
 ```
@@ -187,7 +187,7 @@ path นอก list — และ absolute URL — ถูก fallback เป็�
 
 | Status | ความหมาย | FE ทำอะไร |
 |---|---|---|
-| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/admin/auth/login` |
+| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/login` |
 | 403 | session valid แต่: account suspended / ไม่ active / tier ไม่พอ / **CSRF token หาย/ไม่ตรง** | "ไม่มีสิทธิ์" หรือ refresh CSRF |
 | 404 | tenant นอก scope หรือไม่มีจริง (กัน existence leak) | not-found |
 | 409 | duplicate (code / assignment ซ้ำ) | conflict |
@@ -205,7 +205,7 @@ const cookie = (n) =>
   decodeURIComponent(document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)'))?.[1] ?? '')
 
 export function login(returnTo = '/dashboard') {
-  window.location.href = '/admin/auth/login?returnTo=' + encodeURIComponent(returnTo)
+  window.location.href = '/api/v1/admins/auth/login?returnTo=' + encodeURIComponent(returnTo)
 }
 
 export async function adminFetch(path, opts = {}) {
@@ -217,7 +217,7 @@ export async function adminFetch(path, opts = {}) {
   return res
 }
 
-export const logout = () => adminFetch('/admin/auth/logout', { method: 'POST' })
+export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: 'POST' })
 ```
 
 ## ห้าม
@@ -256,7 +256,7 @@ FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'inc
 - session auth + rotation/reuse/revocation: `src/Hosts/Api/AdminSessionAuthenticationHandler.cs`,
   `src/Modules/Admin/Admin.Infrastructure/Persistence/AdminSessionStore.cs`
 - cookies (session + CSRF): `src/Hosts/Api/AdminSessionCookies.cs`; CSRF filter: `src/Hosts/Api/AdminCsrfFilter.cs`
-- routes (`/admin` route group): `src/Hosts/Api/Program.cs`
+- routes (`/api/v1/admins` route group): `src/Hosts/Api/Program.cs`
 - tenant Bearer (unchanged): `src/BuildingBlocks/BuildingBlocks.Web/GoogleAuthenticationExtensions.cs`
 - CORS split: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
 - tier enum: `src/Modules/Admin/Admin.Domain/AdminTier.cs`

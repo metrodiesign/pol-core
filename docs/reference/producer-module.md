@@ -4,11 +4,11 @@
 ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant
 context เดิมร่วมกับ tenant-Bearer API พร้อม role -> permission RBAC.
 
-โครงทั้งหมดเป็น DUPLICATE ของ Admin OIDC/RBAC stack ที่ ship แล้ว (PR #19/#23) โดยตั้งใจ — ทุกไฟล์มี
+โครงทั้งหมดเป็น DUPLICATE ของ Admin OIDC/RBAC stack ที่ ship แล้ว โดยตั้งใจ — ทุกไฟล์มี
 `// ponytail: DUPLICATE of Api.Admin...`. คู่มือนี้บอก "ทำงานยังไง" + "ต่างจาก Admin ตรงไหน".
 
-> อัพเดท 2026-06-29 (account → Admin parity): producer actor คือ `ProducerAccount` (เดิม `TenantUser`)
-> เก็บแบบ **control-plane** เหมือน `AdminAccount` — ตาราง `producer.ProducerAccounts` ไม่มี RLS predicate,
+> producer actor คือ `ProducerAccount` (ไม่ใช่ `TenantUser`) เก็บแบบ **control-plane** เหมือน
+> `AdminAccount` — ตาราง `producer.ProducerAccounts` ไม่มี RLS predicate,
 > `pol_app` ไม่มี grant, `pol_admin` only. tenant ที่ producer สังกัดเป็น edge แยก
 > `producer.ProducerTenantAssignment` (UNIQUE บน `ProducerAccountId` = 1 tenant/account) — ไม่ใช่ column บน
 > account อีกต่อไป. FK column `TenantUserId` → `ProducerAccountId` ทุกตารางลูก. (Contracts event +
@@ -48,7 +48,7 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
 ```
                   Browser (Producer SPA)
                          |
-        GET /producer/auth/login  (top-level navigation)
+        GET /api/v1/producers/auth/login  (top-level navigation)
                          v
    +----------------------------------------------------+
    |  API host (Hosts/Api)                              |
@@ -122,7 +122,7 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
 | `Authority` | `https://accounts.google.com` | |
 | `ClientId` | `""` | blank = ปิด producer login (ข้าม scheme, REQ-14.2) |
 | `ClientSecret` | `""` | secret จริง, inject ผ่าน `Producer__Oidc__ClientSecret` เท่านั้น (ห้าม commit/log) |
-| `CallbackPath` | `/producer/auth/callback` | OIDC middleware จัดการเอง (ไม่มี mapped endpoint) |
+| `CallbackPath` | `/api/v1/producers/auth/callback` | OIDC middleware จัดการเอง (ไม่มี mapped endpoint) |
 | `ErrorPath` | `/login-error` | redirect เมื่อ deny/fail พร้อม `?reason=` |
 | `HostedDomain` | `""` | guard `hd` claim; blank = บัญชี Google ที่ verified ใดก็ได้ |
 | `RegisterUrl` | `http://localhost:5200/register` | redirect ของ applicant พร้อม `?ticket=` |
@@ -149,18 +149,18 @@ Boot guard: ถ้า `ClientId` ไม่ blank -> `RequireProducerClientId` + 
 
 ## 4. Sequence: login redirect (challenge)
 
-`GET /producer/auth/login?returnTo=...` — anonymous, rate-limited. validate returnTo กับ allowlist แล้ว
+`GET /api/v1/producers/auth/login?returnTo=...` — anonymous, rate-limited. validate returnTo กับ allowlist แล้ว
 challenge scheme `ProducerGoogle`; framework สร้าง redirect ไป Google.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant B as Browser (SPA)
-    participant API as /producer/auth/login
+    participant API as /api/v1/producers/auth/login
     participant OIDC as ProducerGoogle handler
     participant G as Google
 
-    B->>API: GET /producer/auth/login?returnTo=/dashboard
+    B->>API: GET /api/v1/producers/auth/login?returnTo=/dashboard
     Note over API: rate-limit per IP (ProducerAuthRateLimiting)
     API->>API: ReturnUrlPolicy.Resolve(returnTo, allowlist)
     API->>OIDC: Challenge(ProducerGoogle){ RedirectUri = safeReturn }
@@ -173,7 +173,7 @@ sequenceDiagram
 
 ## 5. Sequence: callback 4-way state machine
 
-Google เด้งกลับ `/producer/auth/callback`. OIDC middleware verify เอง (code exchange + JWKS sig +
+Google เด้งกลับ `/api/v1/producers/auth/callback`. OIDC middleware verify เอง (code exchange + JWKS sig +
 iss/aud/nonce/lifetime). `OnTokenValidated` เช็ค `email_verified` + `hd`. `OnTicketReceived` เรียก
 `ProducerLoginService.HandleCallbackAsync` แล้ว `HandleResponse()` short-circuit framework sign-in.
 
@@ -330,7 +330,7 @@ expiry เดิม (rotation ไม่ยืด hard cap). reuse ของ toke
 
 ## 7. Sequence: registration (ticket -> submit)
 
-`POST /producer/register` — anonymous, ticket-gated, rate-limited, multipart. signed ticket คือ
+`POST /api/v1/producers/register` — anonymous, ticket-gated, rate-limited, multipart. signed ticket คือ
 capability barrier (ไม่มี session CSRF บน pre-session route, REQ-13.4). identity มาจาก ticket ไม่ใช่
 form (REQ-4.2).
 
@@ -338,7 +338,7 @@ form (REQ-4.2).
 sequenceDiagram
     autonumber
     participant B as Browser (register page)
-    participant API as /producer/register
+    participant API as /api/v1/producers/register
     participant T as ProducerRegistrationTickets
     participant SR as SubmitRegistrationCommand
     participant DB as keyed pol_admin
@@ -359,7 +359,7 @@ sequenceDiagram
             SR-->>API: 409 (no 500)
         else ok
             SR-->>API: { TenantUserId, Status=PendingApproval }
-            API-->>B: 201 Created /producer/tenant-users/{id}
+            API-->>B: 201 Created /api/v1/producers/tenant-users/{id}
         end
     end
 ```
@@ -381,7 +381,7 @@ Producer module รับ tenant id ที่ validate แล้ว ไม่ม
 sequenceDiagram
     autonumber
     participant A as Admin SPA
-    participant EP as POST /admin/tenant-users/{subject}/approve
+    participant EP as POST /api/v1/admins/tenant-users/{subject}/approve
     participant AQ as IAdminQuery
     participant AC as ApproveTenantUserCommand
     participant DB as keyed pol_admin
@@ -411,7 +411,7 @@ sequenceDiagram
     end
 ```
 
-Reject (`POST /admin/tenant-users/{subject}/reject`, `producer.reject`): set `Rejected` +
+Reject (`POST /api/v1/admins/tenant-users/{subject}/reject`, `producer.reject`): set `Rejected` +
 `RevokeAllForUserAsync` (kill live sessions, REQ-12.3) + audit ใน tx เดียว. non-Pending -> 409;
 unknown -> 404.
 
@@ -431,7 +431,7 @@ sequenceDiagram
     participant H as endpoint handler
 
     Note over SPA: JS อ่าน prd_csrf cookie (ไม่ HttpOnly)
-    SPA->>F: POST /producer/...  Cookie: prd_csrf=X  Header: X-CSRF-Token=X
+    SPA->>F: POST /api/v1/producers/...  Cookie: prd_csrf=X  Header: X-CSRF-Token=X
     alt safe method (GET/HEAD/OPTIONS)
         F->>H: pass through
     else unsafe method
@@ -453,8 +453,8 @@ defense-in-depth: session cookie เป็น `SameSite=Lax` อยู่แล�
 sequenceDiagram
     autonumber
     participant SPA as Producer SPA
-    participant L as POST /producer/auth/logout
-    participant LA as POST /producer/auth/logout-all
+    participant L as POST /api/v1/producers/auth/logout
+    participant LA as POST /api/v1/producers/auth/logout-all
     participant S as IProducerSessionStore
 
     SPA->>L: logout (this device)
@@ -478,21 +478,21 @@ sequenceDiagram
 
 | Method | Path | Auth | Permission | หมายเหตุ |
 |---|---|---|---|---|
-| GET | `/producer/auth/login` | anonymous | — | rate-limited; validate returnTo |
-| GET | `/producer/auth/callback` | (OIDC middleware) | — | ไม่มี mapped endpoint; 4-way branch |
-| POST | `/producer/register` | anonymous + ticket | — | multipart; rate-limited; 201/400/409/413/429 |
-| POST | `/producer/auth/logout` | producer | — | revoke family (device นี้) |
-| POST | `/producer/auth/logout-all` | producer | — | revoke ทุก session |
-| GET | `/producer/me` | producer | — | identity + roles + permissions (not bound -> 403) |
-| GET | `/producer/permissions` | producer | — | permission/group catalog |
-| GET | `/producer/roles` | producer | — | list roles |
-| GET | `/producer/roles/{code}` | producer | — | read role (unknown -> 404) |
-| POST | `/producer/roles` | producer | `producer.roles.manage` | dup code -> 409 |
-| PUT | `/producer/roles/{code}` | producer | `producer.roles.manage` | code immutable; deactivate tenant_owner -> 409 |
-| DELETE | `/producer/roles/{code}` | producer | `producer.roles.manage` | tenant_owner/bound users -> 409 |
-| PUT | `/producer/tenant-users/{id}/roles` | producer | `producer.user.roles` | set roles ใน tenant ตัวเอง; ออก tenant -> 404 |
-| POST | `/admin/tenant-users/{subject}/approve` | admin | `producer.approve` | cross-plane; idempotent |
-| POST | `/admin/tenant-users/{subject}/reject` | admin | `producer.reject` | revoke sessions |
+| GET | `/api/v1/producers/auth/login` | anonymous | — | rate-limited; validate returnTo |
+| GET | `/api/v1/producers/auth/callback` | (OIDC middleware) | — | ไม่มี mapped endpoint; 4-way branch |
+| POST | `/api/v1/producers/register` | anonymous + ticket | — | multipart; rate-limited; 201/400/409/413/429 |
+| POST | `/api/v1/producers/auth/logout` | producer | — | revoke family (device นี้) |
+| POST | `/api/v1/producers/auth/logout-all` | producer | — | revoke ทุก session |
+| GET | `/api/v1/producers/me` | producer | — | identity + roles + permissions (not bound -> 403) |
+| GET | `/api/v1/producers/permissions` | producer | — | permission/group catalog |
+| GET | `/api/v1/producers/roles` | producer | — | list roles |
+| GET | `/api/v1/producers/roles/{code}` | producer | — | read role (unknown -> 404) |
+| POST | `/api/v1/producers/roles` | producer | `producer.roles.manage` | dup code -> 409 |
+| PUT | `/api/v1/producers/roles/{code}` | producer | `producer.roles.manage` | code immutable; deactivate tenant_owner -> 409 |
+| DELETE | `/api/v1/producers/roles/{code}` | producer | `producer.roles.manage` | tenant_owner/bound users -> 409 |
+| PUT | `/api/v1/producers/tenant-users/{id}/roles` | producer | `producer.user.roles` | set roles ใน tenant ตัวเอง; ออก tenant -> 404 |
+| POST | `/api/v1/admins/tenant-users/{subject}/approve` | admin | `producer.approve` | cross-plane; idempotent |
+| POST | `/api/v1/admins/tenant-users/{subject}/reject` | admin | `producer.reject` | revoke sessions |
 
 Write endpoints (gated หลัง `Producer:EnforcePermissionsOnWrites`):
 
@@ -630,7 +630,7 @@ backfill assignment จาก TenantId เดิม + drop RLS predicate; predic
 
 | มิติ | Admin | Producer |
 |---|---|---|
-| account storage | `AdminAccounts` control-plane + `AdminTenantAssignments` (many) | `ProducerAccounts` control-plane + `ProducerTenantAssignments` (UNIQUE = 1 tenant) — **parity ตั้งแต่ 2026-06-29** |
+| account storage | `AdminAccounts` control-plane + `AdminTenantAssignments` (many) | `ProducerAccounts` control-plane + `ProducerTenantAssignments` (UNIQUE = 1 tenant) — parity กับ Admin |
 | callback | self-provision (deny-dance bootstrap super คนแรก) | 4-way (Active/NotFound/Rejected/Pending), ไม่ self-provision |
 | not-found/rejected | — | mint registration/correction ticket -> /register |
 | principal claim | `admin_tier` | `tenant_id` (เข้า HttpTenantContext เดิม) |
@@ -650,7 +650,7 @@ context เดิม.
 
 ## 18. Setup / Dev
 
-1. สร้าง Google OIDC client ตัวที่ 2 (confidential) — redirect URI = `<origin>/producer/auth/callback`.
+1. สร้าง Google OIDC client ตัวที่ 2 (confidential) — redirect URI = `<origin>/api/v1/producers/auth/callback`.
 2. ตั้ง config:
    ```
    Producer__Oidc__ClientId=<producer-client-id>
@@ -660,11 +660,11 @@ context เดิม.
    Producer__EnforcePermissionsOnWrites=false      # จน producer FE พร้อม
    ```
    blank `ClientId` = ปิด producer login (API ตัวอื่นยัง up).
-3. รัน migration -> เปิด API. login: เปิด `GET /producer/auth/login` ใน browser.
-4. dev over http (localhost) -> cookie เป็น `prd_session` (drop Secure/prefix). FE proxy `/producer/*`
+3. รัน migration -> เปิด API. login: เปิด `GET /api/v1/producers/auth/login` ใน browser.
+4. dev over http (localhost) -> cookie เป็น `prd_session` (drop Secure/prefix). FE proxy `/api/v1/producers/*`
    + `UseForwardedHeaders` (เหมือน admin FE :5200).
-5. flow ตรวจ: login (subject ใหม่) -> 302 /register?ticket -> POST /producer/register -> Pending ->
-   admin approve -> login อีกครั้ง -> session cookie + GET /producer/me คืน roles/permissions.
+5. flow ตรวจ: login (subject ใหม่) -> 302 /register?ticket -> POST /api/v1/producers/register -> Pending ->
+   admin approve -> login อีกครั้ง -> session cookie + GET /api/v1/producers/me คืน roles/permissions.
 
 source of truth: spec `.ai/specs/producer-google-sso/` + โค้ดใน `src/Hosts/Api/Producer*.cs` +
 `src/Modules/Producer/`. คู่มือนี้สรุปจากโค้ด ณ branch `feature/producer-google-sso`.
