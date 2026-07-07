@@ -866,9 +866,9 @@ whitelist ถูกข้ามเงียบ ๆ query ที่เหลื�
 pol-core ไม่มี **EF Core global query filter** (`HasQueryFilter` = 0 hit ทั้ง src). tenant isolation เป็น
 **SQL-native floor 3 ชั้น** และ SFS ประกอบ **ทับบน** floor นั้นเสมอ:
 
-1. **SQL layer** — migration สร้าง `producer.fn_tenant_predicate(@TenantId)` (inline TVF, `SCHEMABINDING`)
+1. **SQL layer** — migration สร้าง `VCentralPay.fn_tenant_predicate(@TenantId)` (inline TVF, `SCHEMABINDING`)
    ที่คืน row เฉพาะเมื่อ `@TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS uniqueidentifier)` **หรือ**
-   `IS_ROLEMEMBER(N'pol_rls_bypass') = 1`, แล้ว `CREATE SECURITY POLICY producer.TenantIsolationPolicy`
+   `IS_ROLEMEMBER(N'pol_rls_bypass') = 1`, แล้ว `CREATE SECURITY POLICY VCentralPay.TenantIsolationPolicy`
    ADD FILTER + BLOCK PREDICATE บนทุก tenant table (Products, Carts, Orders, ...).
 2. **Connection layer** — `SessionContextConnectionInterceptor` ตั้ง `sp_set_session_context @key=N'TenantId'
    @read_only=1` ตอน physical connection open ทุกครั้ง (SESSION_CONTEXT เป็น per-pooled-connection).
@@ -1268,7 +1268,7 @@ file static class ProductQueryFields
 
 **RLS composition:** ถ้า request ไม่มี tenant context, `TenantGuardBehavior` เห็น `ListProductsQuery is
 ITenantScoped && !HasTenant` -> throw `TenantBindingException` -> opaque 500 (ไม่ยืนยันสถานะ tenant).
-ถ้ามี tenant context, SQL ที่ execute จะเป็น `SELECT ... FROM producer.Products WHERE [TenantId] = @tenant
+ถ้ามี tenant context, SQL ที่ execute จะเป็น `SELECT ... FROM VCentralPay.Products WHERE [TenantId] = @tenant
 AND <filters> AND <search> ORDER BY <sort> OFFSET/FETCH` — ประกอบทับ RLS FILTER PREDICATE ที่ SQL Server
 บังคับด้วย SESSION_CONTEXT อีกชั้น. SFS filter/search/sort ทั้งหมด **แคบผลลง** ไม่มีทางเห็น row ข้าม tenant.
 

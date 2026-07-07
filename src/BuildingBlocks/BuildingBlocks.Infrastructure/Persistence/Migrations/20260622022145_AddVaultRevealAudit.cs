@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "VaultRevealAudits",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
@@ -32,13 +32,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_VaultRevealAudits_TenantId_Id",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultRevealAudits",
                 columns: new[] { "TenantId", "Id" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_VaultRevealAudits_TenantId_Seq",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultRevealAudits",
                 columns: new[] { "TenantId", "Seq" },
                 unique: true);
@@ -49,19 +49,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // FILTER predicate: pol_app gets INSERT only (below), so it can append but can never SELECT,
             // UPDATE or DELETE — it cannot read, edit, or trim its own chain. Reuses fn_tenant_predicate.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.VaultRevealAudits AFTER INSERT;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.VaultRevealAudits AFTER INSERT;");
 
             migrationBuilder.Sql("""
                 -- pol_app (TenantConsole): INSERT ONLY. No SELECT/UPDATE/DELETE -> append-only at the grant
                 -- level, so a tenant principal can record a reveal but never read, rewrite, or delete the chain.
-                GRANT INSERT ON producer.VaultRevealAudits TO pol_app;
+                GRANT INSERT ON VCentralPay.VaultRevealAudits TO pol_app;
                 -- pol_vault_auditor (login-less, pol_rls_bypass member): the head-read proc runs AS this user
                 -- so it can read the chain head while pol_app stays unable to SELECT the table.
-                GRANT SELECT ON producer.VaultRevealAudits TO pol_vault_auditor;
+                GRANT SELECT ON VCentralPay.VaultRevealAudits TO pol_vault_auditor;
                 -- pol_admin (AdminConsole, bypass role): cross-tenant SELECT for the integrity verify routine.
                 -- The table holds NO secret/plaintext/DEK/KEK/hint, so cross-tenant read leaks nothing sensitive.
-                GRANT SELECT ON producer.VaultRevealAudits TO pol_admin;
+                GRANT SELECT ON VCentralPay.VaultRevealAudits TO pol_admin;
                 """);
 
             // Head-read: returns the tenant's last (Seq, Hash) so the writer can chain the next row. Runs AS
@@ -69,7 +69,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // serializes appends per tenant inside the writer's transaction, so two concurrent reveals cannot
             // fork the chain; the unique (TenantId, Seq) index is the backstop. Columns aliased for SqlQuery.
             migrationBuilder.Sql("""
-                CREATE PROCEDURE producer.usp_vault_audit_head @TenantId uniqueidentifier
+                CREATE PROCEDURE VCentralPay.usp_vault_audit_head @TenantId uniqueidentifier
                 WITH EXECUTE AS 'pol_vault_auditor' AS
                 BEGIN
                     SET NOCOUNT ON;
@@ -80,10 +80,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     IF @lock < 0
                         THROW 50000, N'Could not acquire the vault audit chain lock for the tenant.', 1;
                     SELECT TOP 1 Seq AS LastSeq, Hash AS LastHash
-                    FROM producer.VaultRevealAudits WHERE TenantId = @TenantId ORDER BY Seq DESC;
+                    FROM VCentralPay.VaultRevealAudits WHERE TenantId = @TenantId ORDER BY Seq DESC;
                 END
                 """);
-            migrationBuilder.Sql("GRANT EXECUTE ON producer.usp_vault_audit_head TO pol_app;");
+            migrationBuilder.Sql("GRANT EXECUTE ON VCentralPay.usp_vault_audit_head TO pol_app;");
         }
 
         /// <inheritdoc />
@@ -94,18 +94,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // DROP grammar terminates at the table name — the operation (AFTER INSERT) is part of ADD/ALTER
             // only, never DROP. A predicate is uniquely identified by (table, operation) and dropped by table.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    DROP BLOCK PREDICATE ON producer.VaultRevealAudits;");
-            migrationBuilder.Sql("DROP PROCEDURE IF EXISTS producer.usp_vault_audit_head;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.VaultRevealAudits;");
+            migrationBuilder.Sql("DROP PROCEDURE IF EXISTS VCentralPay.usp_vault_audit_head;");
             migrationBuilder.Sql("""
-                REVOKE INSERT ON producer.VaultRevealAudits FROM pol_app;
-                REVOKE SELECT ON producer.VaultRevealAudits FROM pol_vault_auditor;
-                REVOKE SELECT ON producer.VaultRevealAudits FROM pol_admin;
+                REVOKE INSERT ON VCentralPay.VaultRevealAudits FROM pol_app;
+                REVOKE SELECT ON VCentralPay.VaultRevealAudits FROM pol_vault_auditor;
+                REVOKE SELECT ON VCentralPay.VaultRevealAudits FROM pol_admin;
                 """);
 
             migrationBuilder.DropTable(
                 name: "VaultRevealAudits",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "AdminAccountAudits",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -32,7 +32,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminAccounts",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -49,7 +49,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminTenantAssignments",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -65,14 +65,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAccounts_Email",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "Email",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAccounts_Subject",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "Subject",
                 unique: true,
@@ -80,7 +80,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminTenantAssignments_AdminAccountId_TenantId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminTenantAssignments",
                 columns: new[] { "AdminAccountId", "TenantId" },
                 unique: true);
@@ -90,9 +90,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // (SELECT, INSERT — no UPDATE/DELETE); AdminTenantAssignments needs DELETE for unassign (REQ-4.2).
             // No fn_tenant_predicate is added: admin is cross-tenant by nature, and pol_app cannot touch these.
             migrationBuilder.Sql("""
-                GRANT SELECT, INSERT, UPDATE         ON producer.AdminAccounts          TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.AdminTenantAssignments TO pol_admin;
-                GRANT SELECT, INSERT                 ON producer.AdminAccountAudits      TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE         ON VCentralPay.AdminAccounts          TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminTenantAssignments TO pol_admin;
+                GRANT SELECT, INSERT                 ON VCentralPay.AdminAccountAudits      TO pol_admin;
                 """);
         }
 
@@ -100,22 +100,22 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                REVOKE SELECT, INSERT, UPDATE         ON producer.AdminAccounts          FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.AdminTenantAssignments FROM pol_admin;
-                REVOKE SELECT, INSERT                 ON producer.AdminAccountAudits      FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE         ON VCentralPay.AdminAccounts          FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminTenantAssignments FROM pol_admin;
+                REVOKE SELECT, INSERT                 ON VCentralPay.AdminAccountAudits      FROM pol_admin;
                 """);
 
             migrationBuilder.DropTable(
                 name: "AdminAccountAudits",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminAccounts",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminTenantAssignments",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

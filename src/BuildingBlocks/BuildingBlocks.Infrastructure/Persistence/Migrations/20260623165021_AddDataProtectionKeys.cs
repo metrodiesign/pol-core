@@ -12,7 +12,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "DataProtectionKeys",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "int", nullable: false)
@@ -28,17 +28,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Control-plane key ring: pol_admin only, NO tenant RLS predicate, pol_app gets NO grant
             // (mirrors the admin identity tables). The Data Protection framework only ever appends keys and
             // reads them back — never UPDATE/DELETE — so SELECT, INSERT suffices.
-            migrationBuilder.Sql("GRANT SELECT, INSERT ON producer.DataProtectionKeys TO pol_admin;");
+            migrationBuilder.Sql("GRANT SELECT, INSERT ON VCentralPay.DataProtectionKeys TO pol_admin;");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql("REVOKE SELECT, INSERT ON producer.DataProtectionKeys FROM pol_admin;");
+            migrationBuilder.Sql("REVOKE SELECT, INSERT ON VCentralPay.DataProtectionKeys FROM pol_admin;");
 
             migrationBuilder.DropTable(
                 name: "DataProtectionKeys",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

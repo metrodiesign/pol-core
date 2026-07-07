@@ -24,7 +24,7 @@ public sealed class TenantProvisioningIntegrationTests
         await IntegrationDb.InsertTenantAsync(admin, id, UniqueCode());
 
         var seen = AsInt(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.Tenants WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM VCentralPay.Tenants WHERE Id=@id", ("@id", id)));
 
         Assert.Equal(1, seen);
     }
@@ -40,11 +40,11 @@ public sealed class TenantProvisioningIntegrationTests
 
         await using var own = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, id);
         Assert.Equal(1, AsInt(await IntegrationDb.ScalarAsync(own,
-            "SELECT COUNT(*) FROM producer.Tenants WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM VCentralPay.Tenants WHERE Id=@id", ("@id", id))));
 
         await using var other = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, Guid.NewGuid());
         Assert.Equal(0, AsInt(await IntegrationDb.ScalarAsync(other,
-            "SELECT COUNT(*) FROM producer.Tenants WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM VCentralPay.Tenants WHERE Id=@id", ("@id", id))));
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public sealed class TenantProvisioningIntegrationTests
         // back (REQ-6.5). The masked read-back path reads PspConnection.Metadata hints, not the vault.
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.VaultSecrets"));
+            IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM VCentralPay.VaultSecrets"));
     }
 
     [Fact]
@@ -72,10 +72,10 @@ public sealed class TenantProvisioningIntegrationTests
         // pol_app has no grant on the control-plane audit log; pol_admin reads it (REQ-11).
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, Guid.NewGuid());
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProvisioningAudits"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProvisioningAudits"));
 
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
-        var count = await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.ProvisioningAudits");
+        var count = await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM VCentralPay.ProvisioningAudits");
         Assert.True(AsInt(count) >= 0); // readable (no throw) is the assertion
     }
 

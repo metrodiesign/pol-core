@@ -12,11 +12,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.EnsureSchema(
-                name: "producer");
+                name: "VCentralPay");
 
             migrationBuilder.CreateTable(
                 name: "Carts",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -31,7 +31,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "CheckoutSessions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -49,7 +49,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "IdempotencyRecords",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Key = table.Column<string>(type: "nvarchar(400)", maxLength: 400, nullable: false),
@@ -64,7 +64,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Orders",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -83,7 +83,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "OutboxMessages",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -104,7 +104,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "PaymentSessions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -128,7 +128,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Products",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -146,7 +146,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "PspConnections",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -165,7 +165,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "VaultSecrets",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     TenantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -184,7 +184,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "CartItems",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -200,7 +200,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_CartItems_Carts_CartId",
                         column: x => x.CartId,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "Carts",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -208,38 +208,38 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_CartItems_CartId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "CartItems",
                 column: "CartId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Orders_PaymentSessionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 column: "PaymentSessionId",
                 filter: "[PaymentSessionId] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Orders_TenantId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 column: "TenantId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_OutboxMessages_ProcessedAtUtc_LeaseExpiresAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 columns: new[] { "ProcessedAtUtc", "LeaseExpiresAtUtc" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentSessions_OrderId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PaymentSessions",
                 column: "OrderId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_PaymentSessions_Psp_PspExternalChargeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PaymentSessions",
                 columns: new[] { "Psp", "PspExternalChargeId" },
                 unique: true,
@@ -247,13 +247,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Products_TenantId_IsActive",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Products",
                 columns: new[] { "TenantId", "IsActive" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_PspConnections_TenantId_Psp",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PspConnections",
                 columns: new[] { "TenantId", "Psp" },
                 unique: true);
@@ -264,43 +264,43 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropTable(
                 name: "CartItems",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "CheckoutSessions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "IdempotencyRecords",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Orders",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "OutboxMessages",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "PaymentSessions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Products",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "PspConnections",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "VaultSecrets",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Carts",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

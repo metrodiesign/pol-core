@@ -16,7 +16,7 @@ public sealed class VaultRevealAuditIntegrationTests
     private static Task InsertAuditAsync(SqlConnection c, Guid tenantId, long seq, SqlTransaction? tx = null)
     {
         const string sql = """
-            INSERT producer.VaultRevealAudits (TenantId, SecretName, Seq, PrevHash, Hash, RevealedAt)
+            INSERT VCentralPay.VaultRevealAudits (TenantId, SecretName, Seq, PrevHash, Hash, RevealedAt)
             VALUES (@t, N'probe', @seq, @prev, @hash, SYSUTCDATETIME());
             """;
         return Exec(c, sql, tx, ("@t", tenantId), ("@seq", seq), ("@prev", Zero32), ("@hash", Zero32));
@@ -48,7 +48,7 @@ public sealed class VaultRevealAuditIntegrationTests
         // No SELECT grant -> permission error. This is the core tamper-resistance: a tenant can append but
         // can never read (hence never trim/rewrite) its own chain.
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(a, "SELECT COUNT(*) FROM producer.VaultRevealAudits"));
+            IntegrationDb.ScalarAsync(a, "SELECT COUNT(*) FROM VCentralPay.VaultRevealAudits"));
     }
 
     [Fact]
@@ -59,9 +59,9 @@ public sealed class VaultRevealAuditIntegrationTests
         await InsertAuditAsync(a, tenant, seq: 1);
 
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ExecAsync(a, "UPDATE producer.VaultRevealAudits SET SecretName=N'x' WHERE TenantId=@t", ("@t", tenant)));
+            IntegrationDb.ExecAsync(a, "UPDATE VCentralPay.VaultRevealAudits SET SecretName=N'x' WHERE TenantId=@t", ("@t", tenant)));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ExecAsync(a, "DELETE producer.VaultRevealAudits WHERE TenantId=@t", ("@t", tenant)));
+            IntegrationDb.ExecAsync(a, "DELETE VCentralPay.VaultRevealAudits WHERE TenantId=@t", ("@t", tenant)));
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class VaultRevealAuditIntegrationTests
         await using var tx = (SqlTransaction)await a.BeginTransactionAsync();
         await using var cmd = a.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "EXEC producer.usp_vault_audit_head @TenantId = @t";
+        cmd.CommandText = "EXEC VCentralPay.usp_vault_audit_head @TenantId = @t";
         cmd.Parameters.AddWithValue("@t", tenant);
 
         await using var reader = await cmd.ExecuteReaderAsync();

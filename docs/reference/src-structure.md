@@ -116,7 +116,7 @@ data-plane จริง: persistence, multi-tenant RLS, outbox, idempotency, vau
 | `SessionContextConnectionInterceptor.cs` | **หัวใจ RLS** — ตอน connection open ทุกครั้ง set `SESSION_CONTEXT('TenantId')` (read-only) ถ้ามี tenant bound | ทำที่ระดับ connection (ไม่ใช่ per-query) เพราะ SESSION_CONTEXT ผูก connection |
 | `AmbientTenant.cs` | holder (Scoped) ของ explicit tenant binding (`ITenantScope`) | 1 binding ต่อ UoW, ไม่ nest; ใช้โดย dispatcher + webhook resolver |
 | `EfUnitOfWork.cs` | impl `IUnitOfWork` | `SaveChangesAsync` แปลง `DbUpdateConcurrencyException` → `ConcurrencyConflictException`; `ExecuteInTransactionAsync` ใช้ execution strategy (retry transient) |
-| `WebhookTenantResolver.cs` | impl `IWebhookTenantResolver` — เรียก `producer.usp_resolve_webhook_tenant(pspConnectionId)` ใน DI scope ใหม่ | เลี่ยงเปิด connection แบบไม่มี tenant ก่อน bind |
+| `WebhookTenantResolver.cs` | impl `IWebhookTenantResolver` — เรียก `VCentralPay.usp_resolve_webhook_tenant(pspConnectionId)` ใน DI scope ใหม่ | เลี่ยงเปิด connection แบบไม่มี tenant ก่อน bind |
 | `ModuleAssemblies.cs` | singleton ถือ list assembly ของโมดูล (set ตอน composition) → ใช้ apply `IEntityTypeConfiguration` ของทุกโมดูล | |
 
 **Outbox/** — transactional outbox (at-least-once cross-module event)

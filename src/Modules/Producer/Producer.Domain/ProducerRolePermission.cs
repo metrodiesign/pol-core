@@ -3,7 +3,7 @@ using SharedKernel;
 namespace Producer.Domain;
 
 /// <summary>One permission key granted to a role — a standalone child row with a surrogate id, a unique
-/// (RoleId, PermissionKey), and a FK to producer.ProducerPermissions so a role can never grant a key outside the
+/// (RoleId, PermissionKey), and a FK to VCentralPay.ProducerPermissions so a role can never grant a key outside the
 /// catalog (REQ-16.2). Created and removed only through the <see cref="ProducerRole"/> aggregate.</summary>
 // ponytail: DUPLICATE of Admin.Domain.AdminRolePermission — deliberate debt, do not refactor into a shared base.
 public sealed class ProducerRolePermission : Entity<Guid>

@@ -21,15 +21,15 @@ public sealed class ProducerRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        Assert.Equal(3, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.ProducerPermissionGroups")));
-        Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.ProducerPermissions")));
-        Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.ProducerRoles")));
+        Assert.Equal(3, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM VCentralPay.ProducerPermissionGroups")));
+        Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM VCentralPay.ProducerPermissions")));
+        Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM VCentralPay.ProducerRoles")));
 
         // tenant_owner grants all 7 (the recovery anchor); tenant_member grants the 4 product/payment keys only.
         Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.ProducerRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(TenantOwnerRoleId)))));
+            "SELECT COUNT(*) FROM VCentralPay.ProducerRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(TenantOwnerRoleId)))));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.ProducerRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(TenantMemberRoleId)))));
+            "SELECT COUNT(*) FROM VCentralPay.ProducerRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(TenantMemberRoleId)))));
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public sealed class ProducerRoleRbacGrantsTests
         var dbKeys = new HashSet<string>(StringComparer.Ordinal);
         await using (var cmd = admin.CreateCommand())
         {
-            cmd.CommandText = "SELECT [Key] FROM producer.ProducerPermissions";
+            cmd.CommandText = "SELECT [Key] FROM VCentralPay.ProducerPermissions";
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
                 dbKeys.Add(reader.GetString(0));
@@ -59,20 +59,20 @@ public sealed class ProducerRoleRbacGrantsTests
         var code = "it_" + roleId.ToString("N")[..8];
 
         await IntegrationDb.ExecAsync(admin,
-            "INSERT producer.ProducerRoles (Id, Code, Name, Color, Status) VALUES (@id, @code, N'IT', 'gray', 0)",
+            "INSERT VCentralPay.ProducerRoles (Id, Code, Name, Color, Status) VALUES (@id, @code, N'IT', 'gray', 0)",
             ("@id", roleId), ("@code", code));
         await IntegrationDb.ExecAsync(admin,
-            "INSERT producer.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'product.create')",
+            "INSERT VCentralPay.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'product.create')",
             ("@g", Guid.NewGuid()), ("@id", roleId));
-        await IntegrationDb.ExecAsync(admin, "UPDATE producer.ProducerRoles SET Name=N'IT2' WHERE Id=@id", ("@id", roleId));
-        await IntegrationDb.ExecAsync(admin, "DELETE producer.ProducerRoles WHERE Id=@id", ("@id", roleId)); // cascade drops the grant
+        await IntegrationDb.ExecAsync(admin, "UPDATE VCentralPay.ProducerRoles SET Name=N'IT2' WHERE Id=@id", ("@id", roleId));
+        await IntegrationDb.ExecAsync(admin, "DELETE VCentralPay.ProducerRoles WHERE Id=@id", ("@id", roleId)); // cascade drops the grant
 
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.ProducerRoles WHERE Id=@id", ("@id", roleId))));
+            "SELECT COUNT(*) FROM VCentralPay.ProducerRoles WHERE Id=@id", ("@id", roleId))));
 
         // Catalog is SELECT-only for pol_admin — a runtime INSERT is refused.
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT producer.ProducerPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','catalog',N'x',99)"));
+            "INSERT VCentralPay.ProducerPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','catalog',N'x',99)"));
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class ProducerRoleRbacGrantsTests
 
         // FK ProducerRolePermissions.PermissionKey -> ProducerPermissions.Key (REQ-16.2).
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT producer.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
+            "INSERT VCentralPay.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
             ("@g", Guid.NewGuid()), ("@r", Guid.Parse(TenantOwnerRoleId))));
     }
 
@@ -91,9 +91,9 @@ public sealed class ProducerRoleRbacGrantsTests
     {
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerRoles"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerPermissions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerRoleAssignments"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerRoles"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerPermissions"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerRoleAssignments"));
     }
 
     [Fact]
@@ -113,16 +113,16 @@ public sealed class ProducerRoleRbacGrantsTests
             // One Active role (product.create) + one Inactive role (payment.create), both assigned to the same user
             // in TenantA. The Inactive role must contribute nothing (REQ-16.4).
             await IntegrationDb.ExecAsync(admin,
-                "INSERT producer.ProducerRoles (Id, Code, Name, Color, Status) VALUES (@id, @c, N'A', 'gray', 0)",
+                "INSERT VCentralPay.ProducerRoles (Id, Code, Name, Color, Status) VALUES (@id, @c, N'A', 'gray', 0)",
                 ("@id", activeRole), ("@c", "ut_a_" + activeRole.ToString("N")[..6]));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT producer.ProducerRoles (Id, Code, Name, Color, Status) VALUES (@id, @c, N'I', 'gray', 1)",
+                "INSERT VCentralPay.ProducerRoles (Id, Code, Name, Color, Status) VALUES (@id, @c, N'I', 'gray', 1)",
                 ("@id", inactiveRole), ("@c", "ut_i_" + inactiveRole.ToString("N")[..6]));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT producer.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'product.create')",
+                "INSERT VCentralPay.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'product.create')",
                 ("@g", Guid.NewGuid()), ("@r", activeRole));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT producer.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'payment.create')",
+                "INSERT VCentralPay.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'payment.create')",
                 ("@g", Guid.NewGuid()), ("@r", inactiveRole));
             await InsertAssignment(admin, assignActive, user, activeRole, tenant);
             await InsertAssignment(admin, assignInactive, user, inactiveRole, tenant);
@@ -137,9 +137,9 @@ public sealed class ProducerRoleRbacGrantsTests
         }
         finally
         {
-            await IntegrationDb.ExecAsync(admin, "DELETE producer.ProducerRoleAssignments WHERE Id IN (@a,@b)",
+            await IntegrationDb.ExecAsync(admin, "DELETE VCentralPay.ProducerRoleAssignments WHERE Id IN (@a,@b)",
                 ("@a", assignActive), ("@b", assignInactive));
-            await IntegrationDb.ExecAsync(admin, "DELETE producer.ProducerRoles WHERE Id IN (@a,@b)",
+            await IntegrationDb.ExecAsync(admin, "DELETE VCentralPay.ProducerRoles WHERE Id IN (@a,@b)",
                 ("@a", activeRole), ("@b", inactiveRole)); // cascade drops the grants
         }
     }
@@ -147,7 +147,7 @@ public sealed class ProducerRoleRbacGrantsTests
     private static Task InsertAssignment(SqlConnection c, Guid id, Guid user, Guid role, Guid tenant) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT producer.ProducerRoleAssignments (Id, ProducerAccountId, RoleId, TenantId, AssignedByAdminId, AssignedAt)
+            INSERT VCentralPay.ProducerRoleAssignments (Id, ProducerAccountId, RoleId, TenantId, AssignedByAdminId, AssignedAt)
             VALUES (@id, @u, @r, @t, @by, SYSUTCDATETIME());
             """,
             ("@id", id), ("@u", user), ("@r", role), ("@t", tenant), ("@by", Guid.NewGuid()));
@@ -158,9 +158,9 @@ public sealed class ProducerRoleRbacGrantsTests
         await using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT DISTINCT rp.PermissionKey
-            FROM producer.ProducerRoleAssignments a
-            JOIN producer.ProducerRoles r           ON a.RoleId = r.Id AND r.Status = 0
-            JOIN producer.ProducerRolePermissions rp ON rp.RoleId = r.Id
+            FROM VCentralPay.ProducerRoleAssignments a
+            JOIN VCentralPay.ProducerRoles r           ON a.RoleId = r.Id AND r.Status = 0
+            JOIN VCentralPay.ProducerRolePermissions rp ON rp.RoleId = r.Id
             WHERE a.ProducerAccountId = @u AND a.TenantId = @t;
             """;
         cmd.Parameters.AddWithValue("@u", user);

@@ -15,7 +15,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // would collide). New orders overwrite it with the domain-issued token.
             migrationBuilder.AddColumn<string>(
                 name: "SummaryToken",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 type: "nvarchar(64)",
                 maxLength: 64,
@@ -25,7 +25,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Pre-existing rows get an already-past expiry (their links are dead — correct, they predate links).
             migrationBuilder.AddColumn<DateTime>(
                 name: "SummaryTokenExpiresAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 type: "datetime2",
                 nullable: false,
@@ -33,7 +33,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Orders_SummaryToken",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 column: "SummaryToken",
                 unique: true);
@@ -42,41 +42,41 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // bypass resolver (mirrors usp_resolve_webhook_tenant) — reads ONLY the one order the token names.
             // Expiry is returned, not filtered, so the caller can tell "unknown" (404) from "expired" (410).
             migrationBuilder.Sql("""
-                CREATE PROCEDURE producer.usp_resolve_order_summary @Token nvarchar(64)
+                CREATE PROCEDURE VCentralPay.usp_resolve_order_summary @Token nvarchar(64)
                 WITH EXECUTE AS 'pol_webhook_resolver' AS
                 BEGIN
                     SET NOCOUNT ON;
                     SELECT TOP 1 Id, TenantId, AmountMinorUnits, AmountCurrency, Status, PaymentSessionId, SummaryTokenExpiresAtUtc
-                    FROM producer.Orders WHERE SummaryToken = @Token;
+                    FROM VCentralPay.Orders WHERE SummaryToken = @Token;
                 END
                 """);
 
             migrationBuilder.Sql("""
-                GRANT SELECT ON producer.Orders TO pol_webhook_resolver;
-                GRANT EXECUTE ON producer.usp_resolve_order_summary TO pol_app;
+                GRANT SELECT ON VCentralPay.Orders TO pol_webhook_resolver;
+                GRANT EXECUTE ON VCentralPay.usp_resolve_order_summary TO pol_app;
                 """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql("REVOKE EXECUTE ON producer.usp_resolve_order_summary FROM pol_app;");
-            migrationBuilder.Sql("DROP PROCEDURE IF EXISTS producer.usp_resolve_order_summary;");
-            migrationBuilder.Sql("REVOKE SELECT ON producer.Orders FROM pol_webhook_resolver;");
+            migrationBuilder.Sql("REVOKE EXECUTE ON VCentralPay.usp_resolve_order_summary FROM pol_app;");
+            migrationBuilder.Sql("DROP PROCEDURE IF EXISTS VCentralPay.usp_resolve_order_summary;");
+            migrationBuilder.Sql("REVOKE SELECT ON VCentralPay.Orders FROM pol_webhook_resolver;");
 
             migrationBuilder.DropIndex(
                 name: "IX_Orders_SummaryToken",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders");
 
             migrationBuilder.DropColumn(
                 name: "SummaryToken",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders");
 
             migrationBuilder.DropColumn(
                 name: "SummaryTokenExpiresAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders");
         }
     }

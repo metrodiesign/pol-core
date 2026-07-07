@@ -20,7 +20,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasDefaultSchema("producer")
+                .HasDefaultSchema("VCentralPay")
                 .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
@@ -59,7 +59,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[Subject] IS NOT NULL");
 
-                    b.ToTable("AdminAccounts", "producer");
+                    b.ToTable("AdminAccounts", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminAccountAudit", b =>
@@ -100,7 +100,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AdminAccountAudits", "producer");
+                    b.ToTable("AdminAccountAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminAuthAudit", b =>
@@ -137,7 +137,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AdminAccountId");
 
-                    b.ToTable("AdminAuthAudits", "producer");
+                    b.ToTable("AdminAuthAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminPermission", b =>
@@ -163,7 +163,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("GroupKey");
 
-                    b.ToTable("AdminPermissions", "producer");
+                    b.ToTable("AdminPermissions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminPermissionGroup", b =>
@@ -182,7 +182,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Key");
 
-                    b.ToTable("AdminPermissionGroups", "producer");
+                    b.ToTable("AdminPermissionGroups", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminRole", b =>
@@ -217,7 +217,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("AdminRoles", "producer");
+                    b.ToTable("AdminRoles", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminRoleAssignment", b =>
@@ -245,7 +245,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("AdminAccountId", "RoleId")
                         .IsUnique();
 
-                    b.ToTable("AdminRoleAssignments", "producer");
+                    b.ToTable("AdminRoleAssignments", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminRolePermission", b =>
@@ -269,7 +269,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId", "PermissionKey")
                         .IsUnique();
 
-                    b.ToTable("AdminRolePermissions", "producer");
+                    b.ToTable("AdminRolePermissions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminSession", b =>
@@ -326,7 +326,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("AdminSessions", "producer");
+                    b.ToTable("AdminSessions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminTenantAssignment", b =>
@@ -352,7 +352,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("AdminAccountId", "TenantId")
                         .IsUnique();
 
-                    b.ToTable("AdminTenantAssignments", "producer");
+                    b.ToTable("AdminTenantAssignments", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.DataProtection.DataProtectionKey", b =>
@@ -373,7 +373,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("DataProtectionKeys", "producer");
+                    b.ToTable("DataProtectionKeys", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Idempotency.IdempotencyRecord", b =>
@@ -395,7 +395,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Key");
 
-                    b.ToTable("IdempotencyRecords", "producer");
+                    b.ToTable("IdempotencyRecords", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Outbox.OutboxMessage", b =>
@@ -440,7 +440,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProcessedAt", "LeaseExpiresAt");
 
-                    b.ToTable("OutboxMessages", "producer");
+                    b.ToTable("OutboxMessages", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Vault.VaultRevealAudit", b =>
@@ -480,7 +480,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Seq")
                         .IsUnique();
 
-                    b.ToTable("VaultRevealAudits", "producer");
+                    b.ToTable("VaultRevealAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Vault.VaultSecretBlob", b =>
@@ -518,7 +518,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("TenantId", "Name");
 
-                    b.ToTable("VaultSecrets", "producer");
+                    b.ToTable("VaultSecrets", "VCentralPay");
                 });
 
             modelBuilder.Entity("Cart.Domain.Cart", b =>
@@ -540,7 +540,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Carts", "producer");
+                    b.ToTable("Carts", "VCentralPay");
                 });
 
             modelBuilder.Entity("Cart.Domain.CartItem", b =>
@@ -570,7 +570,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CartId");
 
-                    b.ToTable("CartItems", "producer");
+                    b.ToTable("CartItems", "VCentralPay");
                 });
 
             modelBuilder.Entity("Checkout.Domain.CheckoutSession", b =>
@@ -605,7 +605,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("CheckoutSessions", "producer");
+                    b.ToTable("CheckoutSessions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Orders.Domain.Order", b =>
@@ -665,7 +665,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.ToTable("Orders", "producer");
+                    b.ToTable("Orders", "VCentralPay");
                 });
 
             modelBuilder.Entity("Payments.Domain.PaymentSession", b =>
@@ -727,7 +727,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[PspExternalChargeId] IS NOT NULL");
 
-                    b.ToTable("PaymentSessions", "producer");
+                    b.ToTable("PaymentSessions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Payments.Domain.PspConnection", b =>
@@ -766,7 +766,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Psp")
                         .IsUnique();
 
-                    b.ToTable("PspConnections", "producer");
+                    b.ToTable("PspConnections", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ExternalLogin", b =>
@@ -793,7 +793,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Provider", "Subject")
                         .IsUnique();
 
-                    b.ToTable("ExternalLogins", "producer");
+                    b.ToTable("ExternalLogins", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerAccount", b =>
@@ -823,7 +823,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Subject")
                         .IsUnique();
 
-                    b.ToTable("ProducerAccounts", "producer");
+                    b.ToTable("ProducerAccounts", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerAuthAudit", b =>
@@ -860,7 +860,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProducerAccountId");
 
-                    b.ToTable("ProducerAuthAudits", "producer");
+                    b.ToTable("ProducerAuthAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerPermission", b =>
@@ -886,7 +886,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("GroupKey");
 
-                    b.ToTable("ProducerPermissions", "producer");
+                    b.ToTable("ProducerPermissions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerPermissionGroup", b =>
@@ -905,7 +905,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Key");
 
-                    b.ToTable("ProducerPermissionGroups", "producer");
+                    b.ToTable("ProducerPermissionGroups", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerRegistrationNotice", b =>
@@ -947,7 +947,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantUserId")
                         .IsUnique();
 
-                    b.ToTable("ProducerRegistrationNotices", "producer", t =>
+                    b.ToTable("ProducerRegistrationNotices", "VCentralPay", t =>
                         {
                             t.ExcludeFromMigrations();
                         });
@@ -985,7 +985,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("ProducerRoles", "producer");
+                    b.ToTable("ProducerRoles", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerRoleAssignment", b =>
@@ -1018,7 +1018,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProducerAccountId", "TenantId");
 
-                    b.ToTable("ProducerRoleAssignments", "producer");
+                    b.ToTable("ProducerRoleAssignments", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerRolePermission", b =>
@@ -1042,7 +1042,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId", "PermissionKey")
                         .IsUnique();
 
-                    b.ToTable("ProducerRolePermissions", "producer");
+                    b.ToTable("ProducerRolePermissions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerSession", b =>
@@ -1099,7 +1099,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("ProducerSessions", "producer");
+                    b.ToTable("ProducerSessions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.ProducerTenantAssignment", b =>
@@ -1125,7 +1125,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProducerAccountId")
                         .IsUnique();
 
-                    b.ToTable("ProducerTenantAssignments", "producer");
+                    b.ToTable("ProducerTenantAssignments", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.RegistrationAudit", b =>
@@ -1169,7 +1169,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("RegistrationAudits", "producer");
+                    b.ToTable("RegistrationAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Producer.Domain.TenantUserProfile", b =>
@@ -1228,7 +1228,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("ProducerAccountId")
                         .IsUnique();
 
-                    b.ToTable("TenantUserProfiles", "producer");
+                    b.ToTable("TenantUserProfiles", "VCentralPay");
                 });
 
             modelBuilder.Entity("Products.Domain.Product", b =>
@@ -1263,7 +1263,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "IsActive");
 
-                    b.ToTable("Products", "producer");
+                    b.ToTable("Products", "VCentralPay");
                 });
 
             modelBuilder.Entity("Tenant.Domain.ProvisioningAudit", b =>
@@ -1295,7 +1295,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ProvisioningAudits", "producer");
+                    b.ToTable("ProvisioningAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Tenant.Domain.Tenant", b =>
@@ -1349,7 +1349,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Tenants", "producer");
+                    b.ToTable("Tenants", "VCentralPay");
                 });
 
             modelBuilder.Entity("Admin.Domain.AdminPermission", b =>

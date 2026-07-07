@@ -65,7 +65,7 @@ curl -fsS http://<host>/health/ready    # ต้องได้ {"status":"healt
 ตรวจหลัง re-wrap (รันด้วย `pol_admin` / bypass):
 
 ```sql
-SELECT KeyId, COUNT(*) FROM producer.VaultSecrets GROUP BY KeyId;
+SELECT KeyId, COUNT(*) FROM VCentralPay.VaultSecrets GROUP BY KeyId;
 -- คาดหวัง: เหลือเฉพาะ v2; ไม่มีแถว local-envelope-v1
 ```
 
@@ -74,7 +74,7 @@ SELECT KeyId, COUNT(*) FROM producer.VaultSecrets GROUP BY KeyId;
 ยืนยัน GLOBAL ก่อน:
 
 ```sql
-SELECT COUNT(*) FROM producer.VaultSecrets WHERE KeyId = 'local-envelope-v1';  -- ต้อง = 0 ข้ามทุก tenant
+SELECT COUNT(*) FROM VCentralPay.VaultSecrets WHERE KeyId = 'local-envelope-v1';  -- ต้อง = 0 ข้ามทุก tenant
 ```
 
 ได้ 0 แล้วจึงถอด entry `local-envelope-v1` ออกจาก config -> restart. unmount/destroy ไฟล์ secret เก่า.

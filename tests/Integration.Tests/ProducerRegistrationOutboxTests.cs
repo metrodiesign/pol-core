@@ -6,7 +6,7 @@ namespace Integration.Tests;
 /// The producer registration outbox grant (producer-google-sso REQ-20.2 / critique B1) against live SQL Server.
 /// Registration writes its <c>TenantUserRegistrationSubmitted</c> event on the keyed pol_admin connection, in the
 /// same transaction as the tenant-less Pending row, stamped with a fixed sentinel TenantId. RLS bypass skips
-/// PREDICATES, not table GRANTs — so pol_admin needs an explicit INSERT grant on producer.OutboxMessages
+/// PREDICATES, not table GRANTs — so pol_admin needs an explicit INSERT grant on VCentralPay.OutboxMessages
 /// (AddProducerOutboxAdminGrant). These prove the grant exists, the sentinel row inserts (bypassing the
 /// BLOCK-after-insert predicate), and the existing pol_app insert path is unchanged.
 /// </summary>
@@ -18,7 +18,7 @@ public sealed class ProducerRegistrationOutboxTests
 
     // A non-registered Type so that even if a dispatcher ran against this DB it would not act on the probe row.
     private const string InsertOutbox =
-        "INSERT producer.OutboxMessages (Id, TenantId, Type, Payload, OccurredAt, Attempts) " +
+        "INSERT VCentralPay.OutboxMessages (Id, TenantId, Type, Payload, OccurredAt, Attempts) " +
         "VALUES (@id, @t, N'IntegrationProbe', N'{}', SYSUTCDATETIME(), 0)";
 
     [Fact]
@@ -37,7 +37,7 @@ public sealed class ProducerRegistrationOutboxTests
         // worker can see the row it must lease + publish.
         await using var worker = await IntegrationDb.OpenAsync(IntegrationDb.WorkerConn);
         var seen = (int)(await IntegrationDb.ScalarAsync(worker,
-            "SELECT COUNT(*) FROM producer.OutboxMessages WHERE Id=@id", ("@id", id)))!;
+            "SELECT COUNT(*) FROM VCentralPay.OutboxMessages WHERE Id=@id", ("@id", id)))!;
         Assert.Equal(1, seen);
     }
 

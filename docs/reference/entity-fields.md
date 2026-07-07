@@ -25,7 +25,7 @@
 
 ## Admin module (control plane)
 
-### AdminAccount -> `producer.AdminAccounts`  (plane: control)
+### AdminAccount -> `VCentralPay.AdminAccounts`  (plane: control)
 บัญชี admin ของ control plane. `Super` = unrestricted; `Scoped` = เห็นเฉพาะ tenant ที่ถูก assign.
 `Subject` เป็น null จนกว่า login ครั้งแรกจะ bind (invite-by-email).
 
@@ -38,7 +38,7 @@
 | Status | int | N | | `AdminStatus` (Active=0, Suspended=1) |
 | CreatedAt | datetime2 | N | | |
 
-### AdminTenantAssignment -> `producer.AdminTenantAssignments`  (plane: control)
+### AdminTenantAssignment -> `VCentralPay.AdminTenantAssignments`  (plane: control)
 M:N ระหว่าง Scoped admin กับ tenant ที่เข้าถึงได้. unassign = hard delete.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -49,7 +49,7 @@ M:N ระหว่าง Scoped admin กับ tenant ที่เข้าถ
 | AssignedByAdminId | uniqueidentifier | N | | admin ที่สั่ง assign (Super) |
 | AssignedAt | datetime2 | N | | |
 
-### AdminAccountAudit -> `producer.AdminAccountAudits`  (plane: control, append-only)
+### AdminAccountAudit -> `VCentralPay.AdminAccountAudits`  (plane: control, append-only)
 audit ของทุก admin action (account lifecycle: self-provision/create-scoped/assign/unassign/suspend/reactivate/
 session-revoke; role lifecycle: role create/update/delete/assign/unassign — เพิ่มโดย `admin-role-rbac`).
 
@@ -83,7 +83,7 @@ Producer ที่ assignment ผูก tenant). effective permission ของ 
 (2026-06-28) เพิ่ม group `producer` (label "ผู้ผลิต") + key `producer.approve`/`producer.reject` เข้า catalog
 เดียวกันนี้ (ให้ `super_admin`) — จุดเชื่อมเดียวที่ตั้งใจระหว่าง Admin RBAC กับ Producer RBAC.
 
-### AdminSession -> `producer.AdminSessions`  (plane: control)
+### AdminSession -> `VCentralPay.AdminSessions`  (plane: control)
 server-side session ของ admin BFF. cookie value (opaque 256-bit) **ไม่เคยเก็บ** — เก็บแค่ SHA-256 hash. session
 รวมเป็น rotation family (`FamilyId`): rotate = ออก successor ใน family เดิม + mark ตัวเก่า `Superseded` พร้อม link
 ไป successor (กัน replay = reuse detection). prune ลบ row ที่เลย absolute expiry.
@@ -103,7 +103,7 @@ server-side session ของ admin BFF. cookie value (opaque 256-bit) **ไม�
 | CreatedIp | nvarchar(45) | Y | | |
 | UserAgent | nvarchar(256) | Y | | |
 
-### AdminAuthAudit -> `producer.AdminAuthAudits`  (plane: control, append-only)
+### AdminAuthAudit -> `VCentralPay.AdminAuthAudits`  (plane: control, append-only)
 audit ของ auth lifecycle (login-success/logout/logout-all/rotated/family-revoked-reuse/auth-denied). แยกจาก
 `AdminAccountAudit` เพราะ auth event อาจไม่มี admin id ที่ resolve ได้ (denial ก่อน resolve). ไม่เก็บ secret/
 token/raw session id.
@@ -130,7 +130,7 @@ token/raw session id.
 > อยู่บน `ProducerAccount` เอง (2026-07-01, migration `AddProducerAccountDetailsDropProfile` — "tenant" = บริษัท/แอป
 > ไม่ใช่บุคคล). session/auth tables DUP `AdminSessions`/`AdminAuthAudits`; RBAC tables DUP Admin RBAC catalog (orthogonal, no Super-bypass).
 
-### ProducerAccount -> `producer.ProducerAccounts`  (plane: control)
+### ProducerAccount -> `VCentralPay.ProducerAccounts`  (plane: control)
 Producer actor identity + person details. control-plane (ไม่มี RLS, ไม่มี `TenantId` column); tenant ที่ approve ให้ทำงานแทนอยู่บน `ProducerTenantAssignments`. ไม่มี column role (อยู่ใน `ProducerRoleAssignments`, F1).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -148,7 +148,7 @@ Producer actor identity + person details. control-plane (ไม่มี RLS, �
 | PhotoObjectKey | nvarchar(256) | Y | | opaque key (server-gen, REQ-7.5); bytes อยู่นอก DB |
 | PhotoContentType | nvarchar(128) | Y | | stored content-type |
 
-### ProducerTenantAssignment -> `producer.ProducerTenantAssignments`  (plane: control)
+### ProducerTenantAssignment -> `VCentralPay.ProducerTenantAssignments`  (plane: control)
 tenant edge ของ ProducerAccount — สร้างตอน admin approve. UNIQUE บน `ProducerAccountId` = 1 tenant/account (REQ-6).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -159,7 +159,7 @@ tenant edge ของ ProducerAccount — สร้างตอน admin approve
 | AssignedByAdminId | uniqueidentifier | N | | admin ที่ approve |
 | AssignedAt | datetime2 | N | | |
 
-### ExternalLogin -> `producer.ExternalLogins`  (plane: control)
+### ExternalLogin -> `VCentralPay.ExternalLogins`  (plane: control)
 map Google identity → ProducerAccount. unique `(Provider, Subject)`.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -169,15 +169,15 @@ map Google identity → ProducerAccount. unique `(Provider, Subject)`.
 | Subject | nvarchar(256) | N | UQ | unique กับ Provider |
 | ProducerAccountId | uniqueidentifier | N | | -> ProducerAccounts.Id |
 
-> `producer.RegistrationTickets` ถูกลบ 2026-07-01 (migration `DropRegistrationTicketsTable`) — wire ticket
+> `VCentralPay.RegistrationTickets` ถูกลบ 2026-07-01 (migration `DropRegistrationTicketsTable`) — wire ticket
 > เป็น stateless signed+time-limited token, ไม่มี server row; replay/dedup ใช้ UNIQUE (Subject) index บน
 > `ProducerAccount` ตอน submit แทน.
 
-> `producer.TenantUserProfiles` ถูกลบ 2026-07-01 (migration `AddProducerAccountDetailsDropProfile`) — field
+> `VCentralPay.TenantUserProfiles` ถูกลบ 2026-07-01 (migration `AddProducerAccountDetailsDropProfile`) — field
 > ทั้งหมด (DisplayName/FirstName/LastName/PersonType/IdNumber/ProducerCode/LicenseNumber/Phone/Photo*) ย้ายไป
 > อยู่บน account เอง (ดูตาราง account ด้านบน). "tenant" = ข้อมูลบริษัท/แอป ไม่ใช่บุคคล.
 
-### RegistrationAudit -> `producer.RegistrationAudits`  (plane: control, append-only)
+### RegistrationAudit -> `VCentralPay.RegistrationAudits`  (plane: control, append-only)
 audit ของ register/resubmit/approve/reject/suspend (REQ-21).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -191,7 +191,7 @@ audit ของ register/resubmit/approve/reject/suspend (REQ-21).
 | CorrelationId | nvarchar(128) | N | | |
 | OccurredAt | datetime2 | N | | |
 
-### ProducerRegistrationNotice -> `producer.ProducerRegistrationNotices`  (plane: control; pol_admin + pol_worker)
+### ProducerRegistrationNotice -> `VCentralPay.ProducerRegistrationNotices`  (plane: control; pol_admin + pol_worker)
 notice "awaiting approval" ที่ Admin-side consumer (pol_worker) เขียน idempotent ต่อ outbox event (REQ-20.4). สร้างใน raw SQL โดย `AddProducerIdentityTables` (EF `ExcludeFromMigrations`).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -205,7 +205,7 @@ notice "awaiting approval" ที่ Admin-side consumer (pol_worker) เขี�
 | OccurredAt | datetime2 | N | | event time |
 | CreatedAt | datetime2 | N | | notice time |
 
-### ProducerSession -> `producer.ProducerSessions`  (plane: control)  `[DUP→AdminSession]`
+### ProducerSession -> `VCentralPay.ProducerSessions`  (plane: control)  `[DUP→AdminSession]`
 server-side session ของ producer BFF — โครงเหมือน `AdminSession` (owner `TenantUserId` แทน `AdminAccountId`): opaque token เก็บแค่ SHA-256, rotation family + reuse detection, prune by absolute expiry.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -223,7 +223,7 @@ server-side session ของ producer BFF — โครงเหมือน `A
 | CreatedIp | nvarchar(45) | Y | | |
 | UserAgent | nvarchar(256) | Y | | |
 
-### ProducerAuthAudit -> `producer.ProducerAuthAudits`  (plane: control, append-only)  `[DUP→AdminAuthAudit]`
+### ProducerAuthAudit -> `VCentralPay.ProducerAuthAudits`  (plane: control, append-only)  `[DUP→AdminAuthAudit]`
 auth lifecycle (login-success/logout/logout-all/rotated/family-revoked-reuse/auth-denied). `TenantUserId` optional (deny ก่อน resolve).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -243,7 +243,7 @@ catalog (`ProducerPermissionGroups` Key/LabelTh/SortOrder; `ProducerPermissions`
 
 ## Tenant module
 
-### Tenant -> `producer.Tenants`  (plane: data)
+### Tenant -> `VCentralPay.Tenants`  (plane: data)
 บริษัทในเครือ 1 ราย. scalar เป็นคอลัมน์; key อื่นใต้ "tenant" เก็บ verbatim ใน `Metadata` (JSON).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -259,7 +259,7 @@ catalog (`ProducerPermissionGroups` Key/LabelTh/SortOrder; `ProducerPermissions`
 | Status | int | N | | `TenantStatus` (Active=0) |
 | CreatedAt | datetime2 | N | | |
 
-### ProvisioningAudit -> `producer.ProvisioningAudits`  (plane: control, append-only)
+### ProvisioningAudit -> `VCentralPay.ProvisioningAudits`  (plane: control, append-only)
 audit ของการ provision tenant (cross-tenant ใต้ pol_admin).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -275,7 +275,7 @@ audit ของการ provision tenant (cross-tenant ใต้ pol_admin).
 
 ## Products module
 
-### Product -> `producer.Products`  (plane: data)
+### Product -> `VCentralPay.Products`  (plane: data)
 
 | Field | Type | Null | Key | หมายเหตุ |
 |---|---|---|---|---|
@@ -291,7 +291,7 @@ audit ของการ provision tenant (cross-tenant ใต้ pol_admin).
 
 ## Cart module
 
-### Cart -> `producer.Carts`  (plane: data)
+### Cart -> `VCentralPay.Carts`  (plane: data)
 
 | Field | Type | Null | Key | หมายเหตุ |
 |---|---|---|---|---|
@@ -300,7 +300,7 @@ audit ของการ provision tenant (cross-tenant ใต้ pol_admin).
 | Status | nvarchar(16) | N | | `CartStatus` เก็บเป็น **ชื่อ string** (Open/CheckedOut) |
 | CreatedAt | datetime2 | N | | |
 
-### CartItem -> `producer.CartItems`  (plane: data — RLS via `fn_cartitem_predicate(CartId)`)
+### CartItem -> `VCentralPay.CartItems`  (plane: data — RLS via `fn_cartitem_predicate(CartId)`)
 ไม่มีคอลัมน์ `TenantId` ของตัวเอง — RLS scope ผ่าน parent `Carts.TenantId` (predicate แยกตัว, ดู [Schema objects](#schema-objects-beyond-tables-rls-stored-procedures-principals)).
 FK -> Carts (cascade delete). ราคา snapshot จาก catalog ตอนเพิ่ม (ไม่ใช่ราคา client).
 
@@ -317,7 +317,7 @@ FK -> Carts (cascade delete). ราคา snapshot จาก catalog ตอน�
 
 ## Checkout module
 
-### CheckoutSession -> `producer.CheckoutSessions`  (plane: data)
+### CheckoutSession -> `VCentralPay.CheckoutSessions`  (plane: data)
 ล็อกยอดจาก subtotal ของ cart (ไม่ใช่ค่าจาก client). Confirm -> emit CheckoutConfirmed -> Orders เปิด order.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -335,7 +335,7 @@ FK -> Carts (cascade delete). ราคา snapshot จาก catalog ตอน�
 
 ## Orders module
 
-### Order -> `producer.Orders`  (plane: data)
+### Order -> `VCentralPay.Orders`  (plane: data)
 `Id` ไม่ใช่ value-generated (แอป assign). `SummaryToken` = capability opaque สำหรับลูกค้าเปิดหน้าสรุปแบบ anonymous.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -357,7 +357,7 @@ FK -> Carts (cascade delete). ราคา snapshot จาก catalog ตอน�
 
 ## Payments module
 
-### PaymentSession -> `producer.PaymentSessions`  (plane: data)
+### PaymentSession -> `VCentralPay.PaymentSessions`  (plane: data)
 แตะ PSP ครั้งแรกตอนสร้าง redirect. `RowVersion` กัน concurrent claim. `(Psp, PspExternalChargeId)` unique กัน webhook ซ้ำ.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -376,7 +376,7 @@ FK -> Carts (cascade delete). ราคา snapshot จาก catalog ตอน�
 | CreatedAt | datetime2 | N | | |
 | UpdatedAt | datetime2 | N | | |
 
-### PspConnection -> `producer.PspConnections`  (plane: data)
+### PspConnection -> `VCentralPay.PspConnections`  (plane: data)
 config การเชื่อม PSP ต่อ tenant. secret จริงอยู่ใน vault (`SecretRefName` ชี้ไป VaultSecrets.Name).
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -394,7 +394,7 @@ config การเชื่อม PSP ต่อ tenant. secret จริงอ�
 
 ## BuildingBlocks (cross-cutting infrastructure)
 
-### VaultSecretBlob -> `producer.VaultSecrets`  (plane: data)
+### VaultSecretBlob -> `VCentralPay.VaultSecrets`  (plane: data)
 envelope encryption ต่อ secret. PK = (TenantId, Name). secret write-only, อ่านกลับ mask.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -408,7 +408,7 @@ envelope encryption ต่อ secret. PK = (TenantId, Name). secret write-only, 
 | CreatedAt | datetime2 | N | | |
 | UpdatedAt | datetime2 | N | | |
 
-### VaultRevealAudit -> `producer.VaultRevealAudits`  (plane: data, append-only, tamper-evident)
+### VaultRevealAudit -> `VCentralPay.VaultRevealAudits`  (plane: data, append-only, tamper-evident)
 chain hash ต่อ tenant (`Seq` + `Hash`/`PrevHash`). pol_app insert-only; head อ่านผ่าน proc bypass.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -421,7 +421,7 @@ chain hash ต่อ tenant (`Seq` + `Hash`/`PrevHash`). pol_app insert-only; he
 | SecretName | nvarchar(128) | N | | |
 | RevealedAt | datetime2 | N | | |
 
-### OutboxMessage -> `producer.OutboxMessages`  (plane: data)
+### OutboxMessage -> `VCentralPay.OutboxMessages`  (plane: data)
 transactional outbox + lease สำหรับ worker. index (ProcessedAt, LeaseExpiresAt) สำหรับ poll.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -437,7 +437,7 @@ transactional outbox + lease สำหรับ worker. index (ProcessedAt, Leas
 | Attempts | int | N | | |
 | Error | nvarchar(2048) | Y | | error ล่าสุด |
 
-### IdempotencyRecord -> `producer.IdempotencyRecords`  (plane: data)
+### IdempotencyRecord -> `VCentralPay.IdempotencyRecords`  (plane: data)
 idempotency key store (PK = Key string). กัน replay/duplicate.
 
 | Field | Type | Null | Key | หมายเหตุ |
@@ -447,7 +447,7 @@ idempotency key store (PK = Key string). กัน replay/duplicate.
 | TenantId | uniqueidentifier | N | | |
 | CreatedAt | datetime2 | N | | |
 
-### DataProtectionKey -> `producer.DataProtectionKeys`  (plane: control)
+### DataProtectionKey -> `VCentralPay.DataProtectionKeys`  (plane: control)
 ASP.NET Core Data Protection key ring (plumbing, ไม่ใช่ domain entity) — เก็บไว้เป็น control-plane table ให้ OIDC
 correlation/state/nonce cookies รอด restart + shared ข้าม instance. อ่าน/เขียนผ่าน keyed pol_admin context
 (`EfCoreXmlRepository`) เท่านั้น. pol_admin มีแค่ SELECT/INSERT (key ring เป็น append-only).
@@ -470,7 +470,7 @@ column ต้องไล่มาที่ proc body เองด้วย).
 - `fn_tenant_predicate(@TenantId)` — allow เมื่อ `SESSION_CONTEXT('TenantId') = @TenantId` **หรือ** caller เป็นสมาชิก role `pol_rls_bypass`.
 - `fn_cartitem_predicate(@CartId)` — CartItems ไม่มี `TenantId` → allow เมื่อ bypass **หรือ** parent `Carts.TenantId` = `SESSION_CONTEXT('TenantId')`.
 
-### Security policy `producer.TenantIsolationPolicy` (STATE = ON)
+### Security policy `VCentralPay.TenantIsolationPolicy` (STATE = ON)
 
 | ตาราง | predicate | mode |
 |---|---|---|

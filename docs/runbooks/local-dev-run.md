@@ -299,19 +299,19 @@ SELECT o.name, STRING_AGG(dp.permission_name,',')
 FROM sys.database_permissions dp
 JOIN sys.objects o ON dp.major_id=o.object_id
 WHERE dp.grantee_principal_id=USER_ID('pol_admin')
-  AND SCHEMA_NAME(o.schema_id)='producer'
+  AND SCHEMA_NAME(o.schema_id)='VCentralPay'
 GROUP BY o.name ORDER BY o.name;"
 
 # เช็ค principal มีสิทธิ์ INSERT บนตารางหนึ่งไหม:
 ... -Q "EXECUTE AS USER='pol_admin';
-        SELECT HAS_PERMS_BY_NAME('producer.ProducerAccounts','OBJECT','INSERT');
+        SELECT HAS_PERMS_BY_NAME('VCentralPay.ProducerAccounts','OBJECT','INSERT');
         REVERT;"
 
 # unique index (เงื่อนไข dedup registration) = UNIQUE บน ProducerAccounts.Subject
 # (person details + name/photo อยู่บนตารางนี้ด้วยแล้ว หลัง AddProducerAccountDetailsDropProfile):
 ... -Q "SELECT i.name, i.is_unique FROM sys.indexes i
         JOIN sys.tables t ON i.object_id=t.object_id
-        WHERE SCHEMA_NAME(t.schema_id)='producer' AND t.name='ProducerAccounts';"
+        WHERE SCHEMA_NAME(t.schema_id)='VCentralPay' AND t.name='ProducerAccounts';"
 ```
 
 > dev DB ใช้ port `11433`, integration `11434`. ระวังอย่าสลับ.

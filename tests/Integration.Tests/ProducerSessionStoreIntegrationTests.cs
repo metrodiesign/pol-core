@@ -17,14 +17,14 @@ public sealed class ProducerSessionStoreIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid userId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT producer.ProducerSessions (Id, FamilyId, TokenHash, ProducerAccountId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT VCentralPay.ProducerSessions (Id, FamilyId, TokenHash, ProducerAccountId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @user, @st, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, @abs, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),
             ("@user", userId), ("@st", status), ("@abs", absHours));
 
     private const string Supersede =
-        "UPDATE producer.ProducerSessions SET Status=1, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=0";
+        "UPDATE VCentralPay.ProducerSessions SET Status=1, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=0";
 
     [Fact]
     public async Task Supersede_is_a_single_winner()
@@ -50,11 +50,11 @@ public sealed class ProducerSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), family, user, Superseded, 8);
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE producer.ProducerSessions SET Status=2 WHERE FamilyId=@f AND Status<>2", ("@f", family));
+            "UPDATE VCentralPay.ProducerSessions SET Status=2 WHERE FamilyId=@f AND Status<>2", ("@f", family));
 
         Assert.Equal(2, revoked);
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM producer.ProducerSessions WHERE FamilyId=@f AND Status<>2", ("@f", family))));
+            "SELECT COUNT(*) FROM VCentralPay.ProducerSessions WHERE FamilyId=@f AND Status<>2", ("@f", family))));
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public sealed class ProducerSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), user, Active, 8);      // device 2
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE producer.ProducerSessions SET Status=2 WHERE ProducerAccountId=@u AND Status<>2", ("@u", user));
+            "UPDATE VCentralPay.ProducerSessions SET Status=2 WHERE ProducerAccountId=@u AND Status<>2", ("@u", user));
 
         Assert.Equal(2, revoked);
     }
@@ -82,12 +82,12 @@ public sealed class ProducerSessionStoreIntegrationTests
         await InsertSessionAsync(conn, expired, Guid.NewGuid(), user, Revoked, -1);  // absolute 1h ago
 
         var pruned = await IntegrationDb.ExecAsync(conn,
-            "DELETE producer.ProducerSessions WHERE AbsoluteExpiresAt < SYSUTCDATETIME() AND Id IN (@a,@b)",
+            "DELETE VCentralPay.ProducerSessions WHERE AbsoluteExpiresAt < SYSUTCDATETIME() AND Id IN (@a,@b)",
             ("@a", live), ("@b", expired));
 
         Assert.Equal(1, pruned);
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM producer.ProducerSessions WHERE Id=@id", ("@id", live))));
+            "SELECT COUNT(*) FROM VCentralPay.ProducerSessions WHERE Id=@id", ("@id", live))));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class ProducerSessionStoreIntegrationTests
     {
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerSessions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerAuthAudits"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerSessions"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerAuthAudits"));
     }
 }

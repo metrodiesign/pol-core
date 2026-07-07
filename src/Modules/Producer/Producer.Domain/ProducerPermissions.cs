@@ -2,7 +2,7 @@ namespace Producer.Domain;
 
 /// <summary>
 /// The canonical Producer permission vocabulary (REQ-15, REQ-16). Code owns the KEY set + each key's group; the
-/// AddProducerRoleRbacTables migration seeds producer.ProducerPermissions / ProducerPermissionGroups (with Thai
+/// AddProducerRoleRbacTables migration seeds VCentralPay.ProducerPermissions / ProducerPermissionGroups (with Thai
 /// labels + sort order) FROM this same vocabulary, and an integration test asserts the seeded rows equal
 /// <see cref="AllKeys"/> so code and DB never drift. The boot parity guard checks every
 /// <c>RequireProducerPermission</c> gate key against <see cref="AllKeys"/> (REQ-15.5) WITHOUT touching the

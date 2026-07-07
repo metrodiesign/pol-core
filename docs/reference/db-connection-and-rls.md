@@ -219,7 +219,7 @@ handlers, tenant provisioning, producer identity wiring, admin OIDC data-protect
 **Predicate function** (`fn_tenant_predicate`, :27-33):
 
 ```sql
-CREATE FUNCTION producer.fn_tenant_predicate(@TenantId uniqueidentifier)
+CREATE FUNCTION VCentralPay.fn_tenant_predicate(@TenantId uniqueidentifier)
 RETURNS TABLE WITH SCHEMABINDING AS
 RETURN SELECT 1 AS allowed
 WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS uniqueidentifier)   -- row ตรง tenant ที่ผูกไว้
@@ -230,7 +230,7 @@ WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS uniqueidentifier)   -- ro
   เป็นสมาชิก bypass.
 - `CartItems` ไม่มี `TenantId` -> `fn_cartitem_predicate` (:36-44) scope ผ่าน parent `Carts.TenantId`.
 
-**Security policy `producer.TenantIsolationPolicy`** (:58-75) — coverage ต่อกลุ่มตาราง:
+**Security policy `VCentralPay.TenantIsolationPolicy`** (:58-75) — coverage ต่อกลุ่มตาราง:
 
 | กลุ่ม | predicate | ตาราง |
 |---|---|---|

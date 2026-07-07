@@ -13,35 +13,35 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AddColumn<Guid>(
                 name: "DivisionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 type: "uniqueidentifier",
                 nullable: true);
 
             migrationBuilder.AddColumn<Guid>(
                 name: "LevelId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 type: "uniqueidentifier",
                 nullable: true);
 
             migrationBuilder.AddColumn<Guid>(
                 name: "OfficeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 type: "uniqueidentifier",
                 nullable: true);
 
             migrationBuilder.AddColumn<Guid>(
                 name: "PositionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 type: "uniqueidentifier",
                 nullable: true);
 
             migrationBuilder.CreateTable(
                 name: "Divisions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -56,7 +56,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Levels",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -71,7 +71,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Offices",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -86,7 +86,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Positions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -101,92 +101,92 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAccounts_DivisionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "DivisionId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAccounts_LevelId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "LevelId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAccounts_OfficeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "OfficeId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAccounts_PositionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "PositionId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Divisions_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Divisions",
                 column: "Code",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Levels_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Levels",
                 column: "Code",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Offices_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Offices",
                 column: "Code",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Positions_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Positions",
                 column: "Code",
                 unique: true);
 
             migrationBuilder.AddForeignKey(
                 name: "FK_AdminAccounts_Divisions_DivisionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "DivisionId",
-                principalSchema: "producer",
+                principalSchema: "VCentralPay",
                 principalTable: "Divisions",
                 principalColumn: "Id",
                 onDelete: ReferentialAction.Restrict);
 
             migrationBuilder.AddForeignKey(
                 name: "FK_AdminAccounts_Levels_LevelId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "LevelId",
-                principalSchema: "producer",
+                principalSchema: "VCentralPay",
                 principalTable: "Levels",
                 principalColumn: "Id",
                 onDelete: ReferentialAction.Restrict);
 
             migrationBuilder.AddForeignKey(
                 name: "FK_AdminAccounts_Offices_OfficeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "OfficeId",
-                principalSchema: "producer",
+                principalSchema: "VCentralPay",
                 principalTable: "Offices",
                 principalColumn: "Id",
                 onDelete: ReferentialAction.Restrict);
 
             migrationBuilder.AddForeignKey(
                 name: "FK_AdminAccounts_Positions_PositionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 column: "PositionId",
-                principalSchema: "producer",
+                principalSchema: "VCentralPay",
                 principalTable: "Positions",
                 principalColumn: "Id",
                 onDelete: ReferentialAction.Restrict);
@@ -194,10 +194,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Control-plane: pol_admin only, NO tenant RLS predicate. Runtime CRUD manages these lists (no hard
             // delete — masters are soft-deactivated via IsActive, and the AdminAccount FK is Restrict).
             migrationBuilder.Sql("""
-                GRANT SELECT, INSERT, UPDATE ON producer.Positions TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE ON producer.Offices   TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE ON producer.Levels    TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE ON producer.Divisions TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.Positions TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.Offices   TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.Levels    TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.Divisions TO pol_admin;
                 """);
         }
 
@@ -206,78 +206,78 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropForeignKey(
                 name: "FK_AdminAccounts_Divisions_DivisionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropForeignKey(
                 name: "FK_AdminAccounts_Levels_LevelId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropForeignKey(
                 name: "FK_AdminAccounts_Offices_OfficeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropForeignKey(
                 name: "FK_AdminAccounts_Positions_PositionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropTable(
                 name: "Divisions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Levels",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Offices",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Positions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropIndex(
                 name: "IX_AdminAccounts_DivisionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropIndex(
                 name: "IX_AdminAccounts_LevelId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropIndex(
                 name: "IX_AdminAccounts_OfficeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropIndex(
                 name: "IX_AdminAccounts_PositionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropColumn(
                 name: "DivisionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropColumn(
                 name: "LevelId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropColumn(
                 name: "OfficeId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
 
             migrationBuilder.DropColumn(
                 name: "PositionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts");
         }
     }

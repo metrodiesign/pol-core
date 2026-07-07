@@ -15,7 +15,7 @@ public sealed class AdminSessionGrantsTests
     {
         await IntegrationDb.ExecAsync(c,
             """
-            INSERT producer.AdminSessions (Id, FamilyId, TokenHash, AdminAccountId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT VCentralPay.AdminSessions (Id, FamilyId, TokenHash, AdminAccountId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @admin, 0, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, 8, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", Guid.NewGuid()), ("@hash", RandomNumberGenerator.GetBytes(32)), ("@admin", Guid.NewGuid()));
@@ -29,13 +29,13 @@ public sealed class AdminSessionGrantsTests
 
         await InsertSessionAsync(admin, id);
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.AdminSessions WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM VCentralPay.AdminSessions WHERE Id=@id", ("@id", id))));
 
         // rotate/revoke == UPDATE, prune == DELETE — both granted.
-        await IntegrationDb.ExecAsync(admin, "UPDATE producer.AdminSessions SET Status=2 WHERE Id=@id", ("@id", id));
-        await IntegrationDb.ExecAsync(admin, "DELETE producer.AdminSessions WHERE Id=@id", ("@id", id));
+        await IntegrationDb.ExecAsync(admin, "UPDATE VCentralPay.AdminSessions SET Status=2 WHERE Id=@id", ("@id", id));
+        await IntegrationDb.ExecAsync(admin, "DELETE VCentralPay.AdminSessions WHERE Id=@id", ("@id", id));
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.AdminSessions WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM VCentralPay.AdminSessions WHERE Id=@id", ("@id", id))));
     }
 
     [Fact]
@@ -47,17 +47,17 @@ public sealed class AdminSessionGrantsTests
         // INSERT + SELECT are granted...
         await IntegrationDb.ExecAsync(admin,
             """
-            INSERT producer.AdminAuthAudits (Id, EventType, CorrelationId, OccurredAt)
+            INSERT VCentralPay.AdminAuthAudits (Id, EventType, CorrelationId, OccurredAt)
             VALUES (@id, N'login-success', N'corr-1', SYSUTCDATETIME());
             """, ("@id", id));
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.AdminAuthAudits WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM VCentralPay.AdminAuthAudits WHERE Id=@id", ("@id", id))));
 
         // ...but UPDATE and DELETE are NOT (append-only, REQ-12.2).
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ExecAsync(admin, "UPDATE producer.AdminAuthAudits SET Reason=N'x' WHERE Id=@id", ("@id", id)));
+            IntegrationDb.ExecAsync(admin, "UPDATE VCentralPay.AdminAuthAudits SET Reason=N'x' WHERE Id=@id", ("@id", id)));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ExecAsync(admin, "DELETE producer.AdminAuthAudits WHERE Id=@id", ("@id", id)));
+            IntegrationDb.ExecAsync(admin, "DELETE VCentralPay.AdminAuthAudits WHERE Id=@id", ("@id", id)));
     }
 
     [Fact]
@@ -66,8 +66,8 @@ public sealed class AdminSessionGrantsTests
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.AdminSessions"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.AdminSessions"));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.AdminAuthAudits"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.AdminAuthAudits"));
     }
 }

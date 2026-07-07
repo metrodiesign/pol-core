@@ -29,7 +29,7 @@ public sealed class AdminIsolationIntegrationTests
         await IntegrationDb.InsertAdminAccountAsync(admin, id, UniqueSubject(), UniqueEmail(), Super, Active);
 
         Assert.Equal(1, AsInt(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.AdminAccounts WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM VCentralPay.AdminAccounts WHERE Id=@id", ("@id", id))));
     }
 
     [Fact]
@@ -38,11 +38,11 @@ public sealed class AdminIsolationIntegrationTests
         // pol_app has NO grant on any admin table — a tenant principal cannot even SELECT them (REQ-3.2).
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.AdminAccounts"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.AdminAccounts"));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.AdminTenantAssignments"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.AdminTenantAssignments"));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.AdminAccountAudits"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.AdminAccountAudits"));
     }
 
     [Fact]

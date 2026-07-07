@@ -18,22 +18,22 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // control-plane GRANTs + the seed. Catalog tables are SELECT-only for pol_admin (dev-seeded by migration,
             // never written at runtime); role/grant/assignment tables are full CRUD; pol_app is granted NOTHING (S5).
             migrationBuilder.Sql("""
-                GRANT SELECT                         ON producer.ProducerPermissionGroups TO pol_admin;
-                GRANT SELECT                         ON producer.ProducerPermissions      TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.ProducerRoles            TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.ProducerRolePermissions  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.ProducerRoleAssignments  TO pol_admin;
+                GRANT SELECT                         ON VCentralPay.ProducerPermissionGroups TO pol_admin;
+                GRANT SELECT                         ON VCentralPay.ProducerPermissions      TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.ProducerRoles            TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.ProducerRolePermissions  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.ProducerRoleAssignments  TO pol_admin;
                 """);
 
             // Seed the initial catalog (REQ-15.2) — mirrors ProducerPermissions.All (an integration test asserts they
             // never drift). N'...' so the Thai labels persist as Unicode.
             migrationBuilder.Sql("""
-                INSERT INTO producer.ProducerPermissionGroups ([Key], LabelTh, SortOrder) VALUES
+                INSERT INTO VCentralPay.ProducerPermissionGroups ([Key], LabelTh, SortOrder) VALUES
                   ('catalog', N'สินค้า',       1),
                   ('payment', N'การชำระเงิน',  2),
                   ('roles',   N'บทบาทและสิทธิ์', 3);
 
-                INSERT INTO producer.ProducerPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
+                INSERT INTO VCentralPay.ProducerPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
                   ('product.create',        'catalog', N'สร้างสินค้า',            1),
                   ('product.update',        'catalog', N'แก้ไขสินค้า',            2),
                   ('payment.create',        'payment', N'สร้างรายการชำระเงิน',     3),
@@ -47,11 +47,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // recovery anchor); tenant_member is the ordinary default approval choice (product/payment only, no
             // roles.*/user.roles). Status 0 = Active.
             migrationBuilder.Sql($"""
-                INSERT INTO producer.ProducerRoles (Id, Code, Name, Description, Color, Status) VALUES
+                INSERT INTO VCentralPay.ProducerRoles (Id, Code, Name, Description, Color, Status) VALUES
                   ('{TenantOwnerRoleId}',  'tenant_owner',  N'เจ้าของร้าน',   N'เข้าถึงได้ทุกส่วนของร้าน รวมถึงการจัดการบทบาทและผู้ใช้', 'red',  0),
                   ('{TenantMemberRoleId}', 'tenant_member', N'ผู้ใช้งานร้าน', N'จัดการสินค้าและการชำระเงิน (ไม่รวมการจัดการบทบาท)',    'blue', 0);
 
-                INSERT INTO producer.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES
+                INSERT INTO VCentralPay.ProducerRolePermissions (Id, RoleId, PermissionKey) VALUES
                   (NEWID(), '{TenantOwnerRoleId}', 'product.create'),
                   (NEWID(), '{TenantOwnerRoleId}', 'product.update'),
                   (NEWID(), '{TenantOwnerRoleId}', 'payment.create'),
@@ -72,20 +72,20 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Remove the seed (children first for the catalog FK), then the grants. The tables themselves are dropped
             // by AddProducerIdentityTables' Down.
             migrationBuilder.Sql($"""
-                DELETE FROM producer.ProducerRolePermissions WHERE RoleId IN ('{TenantOwnerRoleId}', '{TenantMemberRoleId}');
-                DELETE FROM producer.ProducerRoles           WHERE Id     IN ('{TenantOwnerRoleId}', '{TenantMemberRoleId}');
-                DELETE FROM producer.ProducerPermissions WHERE [Key] IN
+                DELETE FROM VCentralPay.ProducerRolePermissions WHERE RoleId IN ('{TenantOwnerRoleId}', '{TenantMemberRoleId}');
+                DELETE FROM VCentralPay.ProducerRoles           WHERE Id     IN ('{TenantOwnerRoleId}', '{TenantMemberRoleId}');
+                DELETE FROM VCentralPay.ProducerPermissions WHERE [Key] IN
                   ('product.create','product.update','payment.create','payment.redirect',
                    'producer.roles.view','producer.roles.manage','producer.user.roles');
-                DELETE FROM producer.ProducerPermissionGroups WHERE [Key] IN ('catalog','payment','roles');
+                DELETE FROM VCentralPay.ProducerPermissionGroups WHERE [Key] IN ('catalog','payment','roles');
                 """);
 
             migrationBuilder.Sql("""
-                REVOKE SELECT                         ON producer.ProducerPermissionGroups FROM pol_admin;
-                REVOKE SELECT                         ON producer.ProducerPermissions      FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.ProducerRoles            FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.ProducerRolePermissions  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.ProducerRoleAssignments  FROM pol_admin;
+                REVOKE SELECT                         ON VCentralPay.ProducerPermissionGroups FROM pol_admin;
+                REVOKE SELECT                         ON VCentralPay.ProducerPermissions      FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.ProducerRoles            FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.ProducerRolePermissions  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.ProducerRoleAssignments  FROM pol_admin;
                 """);
         }
     }
