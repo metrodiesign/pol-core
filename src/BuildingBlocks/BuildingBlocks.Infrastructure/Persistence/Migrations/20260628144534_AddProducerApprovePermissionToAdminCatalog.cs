@@ -19,26 +19,26 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                INSERT INTO producer.AdminPermissionGroups ([Key], LabelTh, SortOrder)
+                INSERT INTO VCentralPay.AdminPermissionGroups ([Key], LabelTh, SortOrder)
                 SELECT 'producer', N'ผู้ผลิต', 6
-                WHERE NOT EXISTS (SELECT 1 FROM producer.AdminPermissionGroups WHERE [Key] = 'producer');
+                WHERE NOT EXISTS (SELECT 1 FROM VCentralPay.AdminPermissionGroups WHERE [Key] = 'producer');
 
-                INSERT INTO producer.AdminPermissions ([Key], GroupKey, LabelTh, SortOrder)
+                INSERT INTO VCentralPay.AdminPermissions ([Key], GroupKey, LabelTh, SortOrder)
                 SELECT v.[Key], 'producer', v.LabelTh, v.SortOrder
                 FROM (VALUES
                     ('producer.approve', N'อนุมัติผู้ผลิต', 15),
                     ('producer.reject',  N'ปฏิเสธผู้ผลิต',  16)
                 ) AS v([Key], LabelTh, SortOrder)
-                WHERE NOT EXISTS (SELECT 1 FROM producer.AdminPermissions p WHERE p.[Key] = v.[Key]);
+                WHERE NOT EXISTS (SELECT 1 FROM VCentralPay.AdminPermissions p WHERE p.[Key] = v.[Key]);
                 """);
 
             // Seed-grant both keys to super_admin (REQ-18.1) so the bootstrap Super can approve the first producer.
             migrationBuilder.Sql($"""
-                INSERT INTO producer.AdminRolePermissions (Id, RoleId, PermissionKey)
+                INSERT INTO VCentralPay.AdminRolePermissions (Id, RoleId, PermissionKey)
                 SELECT NEWID(), '{SuperAdminRoleId}', v.[Key]
                 FROM (VALUES ('producer.approve'), ('producer.reject')) AS v([Key])
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM producer.AdminRolePermissions x
+                    SELECT 1 FROM VCentralPay.AdminRolePermissions x
                     WHERE x.RoleId = '{SuperAdminRoleId}' AND x.PermissionKey = v.[Key]);
                 """);
         }
@@ -48,11 +48,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             // Reverse order: the grants (FK -> AdminPermissions) before the permission rows, then the group last.
             migrationBuilder.Sql($"""
-                DELETE FROM producer.AdminRolePermissions
+                DELETE FROM VCentralPay.AdminRolePermissions
                 WHERE RoleId = '{SuperAdminRoleId}' AND PermissionKey IN ('producer.approve', 'producer.reject');
 
-                DELETE FROM producer.AdminPermissions WHERE [Key] IN ('producer.approve', 'producer.reject');
-                DELETE FROM producer.AdminPermissionGroups WHERE [Key] = 'producer';
+                DELETE FROM VCentralPay.AdminPermissions WHERE [Key] IN ('producer.approve', 'producer.reject');
+                DELETE FROM VCentralPay.AdminPermissionGroups WHERE [Key] = 'producer';
                 """);
         }
     }

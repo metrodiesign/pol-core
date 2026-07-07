@@ -12,133 +12,133 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.RenameColumn(
                 name: "UpdatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultSecrets",
                 newName: "UpdatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultSecrets",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "RevealedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultRevealAudits",
                 newName: "RevealedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Tenants",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PspConnections",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "OccurredAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProvisioningAudits",
                 newName: "OccurredAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Products",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "UpdatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PaymentSessions",
                 newName: "UpdatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PaymentSessions",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "ProcessedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "ProcessedAt");
 
             migrationBuilder.RenameColumn(
                 name: "OccurredAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "OccurredAt");
 
             migrationBuilder.RenameColumn(
                 name: "LeaseExpiresAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "LeaseExpiresAt");
 
             migrationBuilder.RenameIndex(
                 name: "IX_OutboxMessages_ProcessedAtUtc_LeaseExpiresAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "IX_OutboxMessages_ProcessedAt_LeaseExpiresAt");
 
             migrationBuilder.RenameColumn(
                 name: "SummaryTokenExpiresAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 newName: "SummaryTokenExpiresAt");
 
             migrationBuilder.RenameColumn(
                 name: "PaidAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 newName: "PaidAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "IdempotencyRecords",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "CheckoutSessions",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Carts",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "AssignedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminTenantAssignments",
                 newName: "AssignedAt");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 newName: "CreatedAt");
 
             migrationBuilder.RenameColumn(
                 name: "OccurredAtUtc",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccountAudits",
                 newName: "OccurredAt");
 
@@ -146,12 +146,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // the column above does NOT update the proc body, so it must follow or it breaks at runtime
             // ("Invalid column name 'SummaryTokenExpiresAtUtc'").
             migrationBuilder.Sql("""
-                ALTER PROCEDURE producer.usp_resolve_order_summary @Token nvarchar(64)
+                ALTER PROCEDURE VCentralPay.usp_resolve_order_summary @Token nvarchar(64)
                 WITH EXECUTE AS 'pol_webhook_resolver' AS
                 BEGIN
                     SET NOCOUNT ON;
                     SELECT TOP 1 Id, TenantId, AmountMinorUnits, AmountCurrency, Status, PaymentSessionId, SummaryTokenExpiresAt
-                    FROM producer.Orders WHERE SummaryToken = @Token;
+                    FROM VCentralPay.Orders WHERE SummaryToken = @Token;
                 END
                 """);
 
@@ -159,7 +159,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // date field on the PaymentPaid / CheckoutConfirmed / CustomerOrderNotification events). Normalize
             // them to "occurredAt" so the renamed contract deserializes them instead of dropping the timestamp.
             migrationBuilder.Sql(
-                "UPDATE producer.OutboxMessages SET Payload = REPLACE(Payload, '\"occurredAtUtc\"', '\"occurredAt\"') " +
+                "UPDATE VCentralPay.OutboxMessages SET Payload = REPLACE(Payload, '\"occurredAtUtc\"', '\"occurredAt\"') " +
                 "WHERE Payload LIKE '%\"occurredAtUtc\"%';");
         }
 
@@ -168,149 +168,149 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.RenameColumn(
                 name: "UpdatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultSecrets",
                 newName: "UpdatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultSecrets",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "RevealedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "VaultRevealAudits",
                 newName: "RevealedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Tenants",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PspConnections",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "OccurredAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProvisioningAudits",
                 newName: "OccurredAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Products",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "UpdatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PaymentSessions",
                 newName: "UpdatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PaymentSessions",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "ProcessedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "ProcessedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "OccurredAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "OccurredAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "LeaseExpiresAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "LeaseExpiresAtUtc");
 
             migrationBuilder.RenameIndex(
                 name: "IX_OutboxMessages_ProcessedAt_LeaseExpiresAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "OutboxMessages",
                 newName: "IX_OutboxMessages_ProcessedAtUtc_LeaseExpiresAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "SummaryTokenExpiresAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 newName: "SummaryTokenExpiresAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "PaidAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 newName: "PaidAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "IdempotencyRecords",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "CheckoutSessions",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Carts",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "AssignedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminTenantAssignments",
                 newName: "AssignedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "CreatedAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccounts",
                 newName: "CreatedAtUtc");
 
             migrationBuilder.RenameColumn(
                 name: "OccurredAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccountAudits",
                 newName: "OccurredAtUtc");
 
             // Revert the proc to the restored column name (the column was renamed back to ...Utc above).
             migrationBuilder.Sql("""
-                ALTER PROCEDURE producer.usp_resolve_order_summary @Token nvarchar(64)
+                ALTER PROCEDURE VCentralPay.usp_resolve_order_summary @Token nvarchar(64)
                 WITH EXECUTE AS 'pol_webhook_resolver' AS
                 BEGIN
                     SET NOCOUNT ON;
                     SELECT TOP 1 Id, TenantId, AmountMinorUnits, AmountCurrency, Status, PaymentSessionId, SummaryTokenExpiresAtUtc
-                    FROM producer.Orders WHERE SummaryToken = @Token;
+                    FROM VCentralPay.Orders WHERE SummaryToken = @Token;
                 END
                 """);
 
             migrationBuilder.Sql(
-                "UPDATE producer.OutboxMessages SET Payload = REPLACE(Payload, '\"occurredAt\"', '\"occurredAtUtc\"') " +
+                "UPDATE VCentralPay.OutboxMessages SET Payload = REPLACE(Payload, '\"occurredAt\"', '\"occurredAtUtc\"') " +
                 "WHERE Payload LIKE '%\"occurredAt\"%';");
         }
     }

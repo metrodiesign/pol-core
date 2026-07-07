@@ -25,13 +25,13 @@ public sealed class OrdersReconciliationIntegrationTests
         // Bound to A, the SUM over the marker currency sees none of B's rows...
         await using var a = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
         Assert.Equal(0, AsLong(await IntegrationDb.ScalarAsync(a,
-            "SELECT ISNULL(SUM(AmountMinorUnits),0) FROM producer.Orders WHERE AmountCurrency=@c AND Status=@s",
+            "SELECT ISNULL(SUM(AmountMinorUnits),0) FROM VCentralPay.Orders WHERE AmountCurrency=@c AND Status=@s",
             ("@c", Marker), ("@s", Paid))));
 
         // ...while the owner B does.
         await using var owner = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantB);
         Assert.Equal(555, AsLong(await IntegrationDb.ScalarAsync(owner,
-            "SELECT ISNULL(SUM(AmountMinorUnits),0) FROM producer.Orders WHERE AmountCurrency=@c AND Status=@s",
+            "SELECT ISNULL(SUM(AmountMinorUnits),0) FROM VCentralPay.Orders WHERE AmountCurrency=@c AND Status=@s",
             ("@c", Marker), ("@s", Paid))));
     }
 

@@ -7,14 +7,14 @@ using Microsoft.EntityFrameworkCore;
 namespace BuildingBlocks.Infrastructure.Persistence;
 
 /// <summary>
-/// The producer-side data plane (schema <c>producer</c>) shared by tenant-facing modules. Owns the
+/// The producer-side data plane (schema <c>VCentralPay</c>) shared by tenant-facing modules. Owns the
 /// cross-cutting outbox, idempotency and vault tables; module entity mappings are discovered at
 /// model-build time from <see cref="ModuleAssemblies.Producer"/>, so this context keeps no
 /// compile-time dependency on any module.
 /// </summary>
 public sealed class ProducerDbContext : DbContext
 {
-    public const string Schema = "producer";
+    public const string Schema = "VCentralPay";
 
     private readonly ModuleAssemblies _modules;
 

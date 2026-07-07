@@ -8,9 +8,9 @@ context เดิมร่วมกับ tenant-Bearer API พร้อม role
 `// ponytail: DUPLICATE of Api.Admin...`. คู่มือนี้บอก "ทำงานยังไง" + "ต่างจาก Admin ตรงไหน".
 
 > producer actor คือ `ProducerAccount` (ไม่ใช่ `TenantUser`) เก็บแบบ **control-plane** เหมือน
-> `AdminAccount` — ตาราง `producer.ProducerAccounts` ไม่มี RLS predicate,
+> `AdminAccount` — ตาราง `VCentralPay.ProducerAccounts` ไม่มี RLS predicate,
 > `pol_app` ไม่มี grant, `pol_admin` only. tenant ที่ producer สังกัดเป็น edge แยก
-> `producer.ProducerTenantAssignment` (UNIQUE บน `ProducerAccountId` = 1 tenant/account) — ไม่ใช่ column บน
+> `VCentralPay.ProducerTenantAssignment` (UNIQUE บน `ProducerAccountId` = 1 tenant/account) — ไม่ใช่ column บน
 > account อีกต่อไป. FK column `TenantUserId` → `ProducerAccountId` ทุกตารางลูก. (Contracts event +
 > response DTO ยังคง field `TenantUserId` ไว้โดยตั้งใจ — เป็น id ของ account.)
 
@@ -527,8 +527,8 @@ OFF -> tenant-Bearer behavior เดิม (transitional จนกว่า prod
 
 ## 13. RBAC + permission enforcement
 
-permission axis orthogonal กับ tier (ไม่มี super-bypass). catalog เก็บใน `producer.AdminPermissions` +
-`producer.AdminRolePermissions`, seed ผ่าน migration แบบ idempotent.
+permission axis orthogonal กับ tier (ไม่มี super-bypass). catalog เก็บใน `VCentralPay.AdminPermissions` +
+`VCentralPay.AdminRolePermissions`, seed ผ่าน migration แบบ idempotent.
 
 ```
 RequireProducerPermission(key):
@@ -603,13 +603,13 @@ schema = `producer` ทั้งหมด. รายละเอียดฟิ�
 
 | ตาราง | plane | หมายเหตุ |
 |---|---|---|
-| `producer.ProducerAccounts` | control (`[DUP->AdminAccounts]`) | producer account **+ person details** (DisplayName server-computed, first/last required, PersonType/IdNumber/ProducerCode/LicenseNumber/Phone, photo ref); **ไม่มี RLS, ไม่มี TenantId column**; UNIQUE บน `Subject` = 1 record/subject (replay/dedup guard) |
-| `producer.ProducerTenantAssignments` | control (`[DUP->AdminTenantAssignments]`) | tenant edge; UNIQUE บน `ProducerAccountId` = 1 tenant/account |
-| `producer.ExternalLogins` | control | Google subject -> ProducerAccount (FK `ProducerAccountId`) |
-| `producer.RegistrationAudits` | control, append-only | submit/approve/reject trail |
-| `producer.ProducerRegistrationNotices` | control (pol_admin + pol_worker) | outbox notice (คง column `TenantUserId` — id จาก event) |
-| `producer.ProducerSessions` | control | `[DUP->AdminSession]` rotation family (FK `ProducerAccountId`) |
-| `producer.ProducerAuthAudits` | control, append-only | `[DUP->AdminAuthAudit]` login/rotate/reuse/logout (`ProducerAccountId` nullable) |
+| `VCentralPay.ProducerAccounts` | control (`[DUP->AdminAccounts]`) | producer account **+ person details** (DisplayName server-computed, first/last required, PersonType/IdNumber/ProducerCode/LicenseNumber/Phone, photo ref); **ไม่มี RLS, ไม่มี TenantId column**; UNIQUE บน `Subject` = 1 record/subject (replay/dedup guard) |
+| `VCentralPay.ProducerTenantAssignments` | control (`[DUP->AdminTenantAssignments]`) | tenant edge; UNIQUE บน `ProducerAccountId` = 1 tenant/account |
+| `VCentralPay.ExternalLogins` | control | Google subject -> ProducerAccount (FK `ProducerAccountId`) |
+| `VCentralPay.RegistrationAudits` | control, append-only | submit/approve/reject trail |
+| `VCentralPay.ProducerRegistrationNotices` | control (pol_admin + pol_worker) | outbox notice (คง column `TenantUserId` — id จาก event) |
+| `VCentralPay.ProducerSessions` | control | `[DUP->AdminSession]` rotation family (FK `ProducerAccountId`) |
+| `VCentralPay.ProducerAuthAudits` | control, append-only | `[DUP->AdminAuthAudit]` login/rotate/reuse/logout (`ProducerAccountId` nullable) |
 | Producer RBAC catalog/role tables | control | `[DUP->Admin RBAC]` perms/groups/roles/assignments (`ProducerRoleAssignments.ProducerAccountId`) |
 
 migration chain (idempotent, reproduce จากศูนย์ได้): `InitialProducerSchema` ->

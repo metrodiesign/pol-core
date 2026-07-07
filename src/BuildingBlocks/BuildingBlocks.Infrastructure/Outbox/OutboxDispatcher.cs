@@ -77,7 +77,7 @@ public sealed class OutboxDispatcher : BackgroundService
                 UPDATE TOP ({0}) o
                 SET o.LeaseOwner = {1}, o.LeaseExpiresAt = {2}, o.Attempts = o.Attempts + 1
                 OUTPUT inserted.Id AS [Value]
-                FROM producer.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
+                FROM VCentralPay.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
                 WHERE o.ProcessedAt IS NULL
                   AND (o.LeaseExpiresAt IS NULL OR o.LeaseExpiresAt < {3})
                   AND o.Attempts < {4};
@@ -100,7 +100,7 @@ public sealed class OutboxDispatcher : BackgroundService
         }
 
         // Process each message in its OWN scope/DbContext/connection, bound to the message's tenant so
-        // in-process consumers (e.g. OrderPaidConsumer writing producer.Orders) run RLS-scoped. The
+        // in-process consumers (e.g. OrderPaidConsumer writing VCentralPay.Orders) run RLS-scoped. The
         // TenantId is trustworthy: the BLOCK-after-insert predicate guaranteed it matched the writer's
         // SESSION_CONTEXT. Disposing the scope before the next message resets the pooled context.
         foreach (var (id, tenantId) in leased)

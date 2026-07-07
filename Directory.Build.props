@@ -22,6 +22,10 @@
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-24c8-4792-22hx" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-5rpf-x9jg-8j5p" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-5wr9-m6jw-xx44" />
+    <!-- GHSA-7jvp-hj45-2f2m: TypedObjectAccessor mass-assignment / access-modifier bypass (patched
+         Scriban 7.2.2). Runtime-facing ONLY when templates render live host objects at runtime — N/A
+         here: Scriban runs build-time inside the source generator, never in Host runtime output. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-7jvp-hj45-2f2m" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-c875-h985-hvrc" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-grr9-747v-xvcp" />
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-m2p3-hwv5-xpqw" />

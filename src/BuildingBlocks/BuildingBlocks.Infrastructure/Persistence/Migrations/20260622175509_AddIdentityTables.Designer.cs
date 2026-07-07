@@ -20,7 +20,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasDefaultSchema("producer")
+                .HasDefaultSchema("VCentralPay")
                 .HasAnnotation("ProductVersion", "10.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
@@ -45,7 +45,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Key");
 
-                    b.ToTable("IdempotencyRecords", "producer");
+                    b.ToTable("IdempotencyRecords", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Outbox.OutboxMessage", b =>
@@ -90,7 +90,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProcessedAtUtc", "LeaseExpiresAtUtc");
 
-                    b.ToTable("OutboxMessages", "producer");
+                    b.ToTable("OutboxMessages", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Vault.VaultRevealAudit", b =>
@@ -130,7 +130,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Seq")
                         .IsUnique();
 
-                    b.ToTable("VaultRevealAudits", "producer");
+                    b.ToTable("VaultRevealAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Vault.VaultSecretBlob", b =>
@@ -168,7 +168,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("TenantId", "Name");
 
-                    b.ToTable("VaultSecrets", "producer");
+                    b.ToTable("VaultSecrets", "VCentralPay");
                 });
 
             modelBuilder.Entity("Cart.Domain.Cart", b =>
@@ -190,7 +190,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Carts", "producer");
+                    b.ToTable("Carts", "VCentralPay");
                 });
 
             modelBuilder.Entity("Cart.Domain.CartItem", b =>
@@ -220,7 +220,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CartId");
 
-                    b.ToTable("CartItems", "producer");
+                    b.ToTable("CartItems", "VCentralPay");
                 });
 
             modelBuilder.Entity("Checkout.Domain.CheckoutSession", b =>
@@ -251,7 +251,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("CheckoutSessions", "producer");
+                    b.ToTable("CheckoutSessions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Identity.Domain.ExternalLogin", b =>
@@ -278,7 +278,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Provider", "Subject")
                         .IsUnique();
 
-                    b.ToTable("ExternalLogins", "producer");
+                    b.ToTable("ExternalLogins", "VCentralPay");
                 });
 
             modelBuilder.Entity("Identity.Domain.RegistrationAudit", b =>
@@ -320,7 +320,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("RegistrationAudits", "producer");
+                    b.ToTable("RegistrationAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Identity.Domain.RegistrationTicket", b =>
@@ -354,7 +354,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("RegistrationTickets", "producer");
+                    b.ToTable("RegistrationTickets", "VCentralPay");
                 });
 
             modelBuilder.Entity("Identity.Domain.TenantUser", b =>
@@ -390,7 +390,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Subject")
                         .IsUnique();
 
-                    b.ToTable("TenantUsers", "producer");
+                    b.ToTable("TenantUsers", "VCentralPay");
                 });
 
             modelBuilder.Entity("Identity.Domain.TenantUserProfile", b =>
@@ -412,7 +412,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantUserId")
                         .IsUnique();
 
-                    b.ToTable("TenantUserProfiles", "producer");
+                    b.ToTable("TenantUserProfiles", "VCentralPay");
                 });
 
             modelBuilder.Entity("Orders.Domain.Order", b =>
@@ -450,7 +450,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId");
 
-                    b.ToTable("Orders", "producer");
+                    b.ToTable("Orders", "VCentralPay");
                 });
 
             modelBuilder.Entity("Payments.Domain.PaymentSession", b =>
@@ -512,7 +512,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[PspExternalChargeId] IS NOT NULL");
 
-                    b.ToTable("PaymentSessions", "producer");
+                    b.ToTable("PaymentSessions", "VCentralPay");
                 });
 
             modelBuilder.Entity("Payments.Domain.PspConnection", b =>
@@ -551,7 +551,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "Psp")
                         .IsUnique();
 
-                    b.ToTable("PspConnections", "producer");
+                    b.ToTable("PspConnections", "VCentralPay");
                 });
 
             modelBuilder.Entity("Products.Domain.Product", b =>
@@ -586,7 +586,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("TenantId", "IsActive");
 
-                    b.ToTable("Products", "producer");
+                    b.ToTable("Products", "VCentralPay");
                 });
 
             modelBuilder.Entity("Tenant.Domain.ProvisioningAudit", b =>
@@ -618,7 +618,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ProvisioningAudits", "producer");
+                    b.ToTable("ProvisioningAudits", "VCentralPay");
                 });
 
             modelBuilder.Entity("Tenant.Domain.Tenant", b =>
@@ -672,7 +672,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Tenants", "producer");
+                    b.ToTable("Tenants", "VCentralPay");
                 });
 
             modelBuilder.Entity("Cart.Domain.CartItem", b =>

@@ -14,15 +14,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // The wire ticket is now stateless (signed+time-limited token, no server row); the account's unique
             // (Subject) index is the duplicate-registration guard. Revoke grants before dropping the table.
             migrationBuilder.Sql(
-                "REVOKE SELECT, INSERT, UPDATE ON producer.RegistrationTickets FROM pol_admin;");
+                "REVOKE SELECT, INSERT, UPDATE ON VCentralPay.RegistrationTickets FROM pol_admin;");
 
             migrationBuilder.DropTable(
                 name: "RegistrationTickets",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.AlterColumn<string>(
                 name: "LastName",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUserProfiles",
                 type: "nvarchar(200)",
                 maxLength: 200,
@@ -35,7 +35,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.AlterColumn<string>(
                 name: "FirstName",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUserProfiles",
                 type: "nvarchar(200)",
                 maxLength: 200,
@@ -52,7 +52,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AlterColumn<string>(
                 name: "LastName",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUserProfiles",
                 type: "nvarchar(200)",
                 maxLength: 200,
@@ -63,7 +63,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.AlterColumn<string>(
                 name: "FirstName",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUserProfiles",
                 type: "nvarchar(200)",
                 maxLength: 200,
@@ -74,7 +74,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "RegistrationTickets",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -92,7 +92,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.Sql(
-                "GRANT SELECT, INSERT, UPDATE ON producer.RegistrationTickets TO pol_admin;");
+                "GRANT SELECT, INSERT, UPDATE ON VCentralPay.RegistrationTickets TO pol_admin;");
         }
     }
 }

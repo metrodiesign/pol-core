@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AlterColumn<string>(
                 name: "Metadata",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PspConnections",
                 type: "nvarchar(max)",
                 nullable: true,
@@ -24,7 +24,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ProvisioningAudits",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -41,7 +41,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Tenants",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -62,7 +62,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Tenants_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Tenants",
                 column: "Code",
                 unique: true);
@@ -74,26 +74,26 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // pol_admin (pol_rls_bypass member) bypasses both to provision cross-tenant. Reuses
             // fn_tenant_predicate, here bound to Id instead of TenantId.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    ADD FILTER PREDICATE producer.fn_tenant_predicate(Id) ON producer.Tenants,\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(Id) ON producer.Tenants AFTER INSERT,\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(Id) ON producer.Tenants AFTER UPDATE;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    ADD FILTER PREDICATE VCentralPay.fn_tenant_predicate(Id) ON VCentralPay.Tenants,\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(Id) ON VCentralPay.Tenants AFTER INSERT,\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(Id) ON VCentralPay.Tenants AFTER UPDATE;");
 
             // ProvisioningAudits is control-plane only (no tenant-scoped read path) so it is deliberately
             // NOT under the tenant predicate; pol_app gets no grant at all and cannot touch it.
             migrationBuilder.Sql("""
                 -- pol_app (TenantConsole): read its OWN tenant master record (RLS-filtered to its row).
-                GRANT SELECT ON producer.Tenants TO pol_app;
+                GRANT SELECT ON VCentralPay.Tenants TO pol_app;
 
                 -- pol_admin (provisioning, bypass role): cross-tenant write of the master record + read-back,
                 -- plus INSERT into the per-PSP connection + vault rows it creates in the same transaction.
                 -- SELECT on PspConnections is already granted by AddRlsSecurityPolicy (the read-back relies on
                 -- it); this migration adds only INSERT. INSERT-only on VaultSecrets -> admin can write a secret
                 -- but can NEVER SELECT plaintext back (masked read-back uses PspConnection.Metadata, not the vault).
-                GRANT SELECT, INSERT, UPDATE ON producer.Tenants           TO pol_admin;
-                GRANT INSERT                 ON producer.PspConnections     TO pol_admin;
-                GRANT INSERT                 ON producer.VaultSecrets       TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.ProvisioningAudits TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.Tenants           TO pol_admin;
+                GRANT INSERT                 ON VCentralPay.PspConnections     TO pol_admin;
+                GRANT INSERT                 ON VCentralPay.VaultSecrets       TO pol_admin;
+                GRANT SELECT, INSERT         ON VCentralPay.ProvisioningAudits TO pol_admin;
                 """);
         }
 
@@ -103,30 +103,30 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Detach the Tenants predicates from the policy BEFORE dropping the table (a table under a
             // security policy cannot be dropped). Never drop the policy itself — other tables rely on it.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    DROP FILTER PREDICATE ON producer.Tenants,\n" +
-                "    DROP BLOCK PREDICATE ON producer.Tenants AFTER INSERT,\n" +
-                "    DROP BLOCK PREDICATE ON producer.Tenants AFTER UPDATE;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    DROP FILTER PREDICATE ON VCentralPay.Tenants,\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.Tenants AFTER INSERT,\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.Tenants AFTER UPDATE;");
 
             migrationBuilder.Sql("""
-                REVOKE SELECT                ON producer.Tenants            FROM pol_app;
-                REVOKE SELECT, INSERT, UPDATE ON producer.Tenants           FROM pol_admin;
-                REVOKE INSERT                ON producer.PspConnections     FROM pol_admin;
-                REVOKE INSERT                ON producer.VaultSecrets       FROM pol_admin;
-                REVOKE SELECT, INSERT        ON producer.ProvisioningAudits FROM pol_admin;
+                REVOKE SELECT                ON VCentralPay.Tenants            FROM pol_app;
+                REVOKE SELECT, INSERT, UPDATE ON VCentralPay.Tenants           FROM pol_admin;
+                REVOKE INSERT                ON VCentralPay.PspConnections     FROM pol_admin;
+                REVOKE INSERT                ON VCentralPay.VaultSecrets       FROM pol_admin;
+                REVOKE SELECT, INSERT        ON VCentralPay.ProvisioningAudits FROM pol_admin;
                 """);
 
             migrationBuilder.DropTable(
                 name: "ProvisioningAudits",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "Tenants",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.AlterColumn<string>(
                 name: "Metadata",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "PspConnections",
                 type: "nvarchar(4000)",
                 maxLength: 4000,

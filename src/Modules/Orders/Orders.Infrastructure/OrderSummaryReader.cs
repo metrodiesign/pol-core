@@ -7,7 +7,7 @@ using Orders.Domain;
 namespace Orders.Infrastructure;
 
 /// <summary>
-/// Reads an order summary by its link token via <c>producer.usp_resolve_order_summary</c> — a proc that
+/// Reads an order summary by its link token via <c>VCentralPay.usp_resolve_order_summary</c> — a proc that
 /// runs WITH EXECUTE AS the bypass resolver, so it reads the one order the token names while the calling
 /// principal stays RLS-blocked (mirrors <c>WebhookTenantResolver</c>). Runs in a FRESH DI scope so the
 /// anonymous request's own DbContext connection is not opened with an empty SESSION_CONTEXT and reused.
@@ -24,7 +24,7 @@ public sealed class OrderSummaryReader : IOrderSummaryReader
         var db = scope.ServiceProvider.GetRequiredService<ProducerDbContext>();
 
         var rows = await db.Database
-            .SqlQueryRaw<OrderSummaryRow>("EXEC producer.usp_resolve_order_summary @Token = {0}", token)
+            .SqlQueryRaw<OrderSummaryRow>("EXEC VCentralPay.usp_resolve_order_summary @Token = {0}", token)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

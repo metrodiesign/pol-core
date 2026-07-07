@@ -2,7 +2,7 @@ namespace Admin.Domain;
 
 /// <summary>
 /// The canonical Admin permission vocabulary (REQ-1, REQ-11). Code owns the KEY set + each key's group; the
-/// AddAdminRoleRbacTables migration seeds producer.AdminPermissions / AdminPermissionGroups (with Thai labels +
+/// AddAdminRoleRbacTables migration seeds VCentralPay.AdminPermissions / AdminPermissionGroups (with Thai labels +
 /// sort order) FROM this same vocabulary, and an integration test asserts the seeded rows equal <see cref="All"/>
 /// so code and DB never drift. The inline boot parity guard checks every <c>RequirePermission</c> gate key against
 /// <see cref="AllKeys"/> (REQ-11) WITHOUT touching the database. A new feature adds its permission here + a seed

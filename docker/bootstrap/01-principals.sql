@@ -36,7 +36,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_webhook_
 
 -- Login-less user that the vault reveal-audit head-read proc runs as (WITH EXECUTE AS). Its bypass-role
 -- membership lets that proc read a tenant's audit chain head while pol_app (INSERT-only on the audit table)
--- cannot SELECT it. Least privilege: this user is granted SELECT on producer.VaultRevealAudits ONLY.
+-- cannot SELECT it. Least privilege: this user is granted SELECT on VCentralPay.VaultRevealAudits ONLY.
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_vault_auditor')
     CREATE USER pol_vault_auditor WITHOUT LOGIN;
 GO

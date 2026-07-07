@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "AdminAuthAudits",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -31,7 +31,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminSessions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -54,31 +54,31 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminAuthAudits_AdminAccountId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAuthAudits",
                 column: "AdminAccountId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminSessions_AbsoluteExpiresAt",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminSessions",
                 column: "AbsoluteExpiresAt");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminSessions_AdminAccountId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminSessions",
                 column: "AdminAccountId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminSessions_FamilyId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminSessions",
                 column: "FamilyId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminSessions_TokenHash",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminSessions",
                 column: "TokenHash",
                 unique: true);
@@ -87,8 +87,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // identity tables). AdminSessions needs UPDATE (rotate/revoke/slide) + DELETE (prune sweep, REQ-11.5).
             // AdminAuthAudits is append-only (SELECT, INSERT — no UPDATE/DELETE, REQ-12.2).
             migrationBuilder.Sql("""
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.AdminSessions   TO pol_admin;
-                GRANT SELECT, INSERT                 ON producer.AdminAuthAudits  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminSessions   TO pol_admin;
+                GRANT SELECT, INSERT                 ON VCentralPay.AdminAuthAudits  TO pol_admin;
                 """);
         }
 
@@ -96,17 +96,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.AdminSessions   FROM pol_admin;
-                REVOKE SELECT, INSERT                 ON producer.AdminAuthAudits  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminSessions   FROM pol_admin;
+                REVOKE SELECT, INSERT                 ON VCentralPay.AdminAuthAudits  FROM pol_admin;
                 """);
 
             migrationBuilder.DropTable(
                 name: "AdminAuthAudits",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminSessions",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

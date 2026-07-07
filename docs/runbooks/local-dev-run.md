@@ -69,6 +69,19 @@ dotnet ef database update --context ProducerDbContext \
   --startup-project src/Hosts/Api
 ```
 
+> **Cutover สำคัญ (PR #68 — schema `producer` -> `VCentralPay`):** การ rename ทำโดย **เขียน migration
+> history เดิมทับ** (ไม่ใช่เพิ่ม transfer migration) — เป็น big-bang reset-only แบบเดียวกับ api-route-scheme.
+> DB ที่ **apply migration IDs พวกนี้ไปแล้วภายใต้ schema `producer`** (เช่น dev DB `:11433` ที่รันมาก่อน #68)
+> จะ **ไม่ re-run** body ที่แก้ เพราะ ID ถูกบันทึกใน `__EFMigrationsHistory` แล้ว -> โค้ดชี้ `VCentralPay.*`
+> แต่ของจริงยังอยู่ `producer.*` -> query/proc แรกพัง. ต้อง **recreate DB สด ครั้งเดียว** หลัง pull:
+>
+> ```
+> docker compose down -v && docker compose up -d   # ล้าง volume -> bootstrap DB ใหม่
+> # แล้ว migrate (§2.3 หรือ auto-migrate ตอน API boot) -> schema VCentralPay
+> ```
+>
+> Fresh clone / CI ไม่กระทบ (สร้างจากศูนย์อยู่แล้ว).
+
 ---
 
 ## 3. Topology (ports / principals / connection strings)
@@ -292,26 +305,26 @@ WebApplicationFactory boot API ใน Development -> auto-migrate ชน dev DB 
 query ตรงผ่าน container (sa). ค่า password อ่านจาก `.env` — แทน `<sa-pwd>`:
 
 ```
-# grants ของ pol_admin ทุกตาราง schema producer:
+# grants ของ pol_admin ทุกตาราง schema VCentralPay:
 docker exec pol-db /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P '<sa-pwd>' -C -d PaymentOrchestration -W -Q "
 SELECT o.name, STRING_AGG(dp.permission_name,',')
 FROM sys.database_permissions dp
 JOIN sys.objects o ON dp.major_id=o.object_id
 WHERE dp.grantee_principal_id=USER_ID('pol_admin')
-  AND SCHEMA_NAME(o.schema_id)='producer'
+  AND SCHEMA_NAME(o.schema_id)='VCentralPay'
 GROUP BY o.name ORDER BY o.name;"
 
 # เช็ค principal มีสิทธิ์ INSERT บนตารางหนึ่งไหม:
 ... -Q "EXECUTE AS USER='pol_admin';
-        SELECT HAS_PERMS_BY_NAME('producer.ProducerAccounts','OBJECT','INSERT');
+        SELECT HAS_PERMS_BY_NAME('VCentralPay.ProducerAccounts','OBJECT','INSERT');
         REVERT;"
 
 # unique index (เงื่อนไข dedup registration) = UNIQUE บน ProducerAccounts.Subject
 # (person details + name/photo อยู่บนตารางนี้ด้วยแล้ว หลัง AddProducerAccountDetailsDropProfile):
 ... -Q "SELECT i.name, i.is_unique FROM sys.indexes i
         JOIN sys.tables t ON i.object_id=t.object_id
-        WHERE SCHEMA_NAME(t.schema_id)='producer' AND t.name='ProducerAccounts';"
+        WHERE SCHEMA_NAME(t.schema_id)='VCentralPay' AND t.name='ProducerAccounts';"
 ```
 
 > dev DB ใช้ port `11433`, integration `11434`. ระวังอย่าสลับ.

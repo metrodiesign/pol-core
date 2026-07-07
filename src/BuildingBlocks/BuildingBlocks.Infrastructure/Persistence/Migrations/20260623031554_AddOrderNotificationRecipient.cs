@@ -12,7 +12,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AddColumn<string>(
                 name: "NotificationRecipient",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 type: "nvarchar(320)",
                 maxLength: 320,
@@ -24,7 +24,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "NotificationRecipient",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders");
         }
     }

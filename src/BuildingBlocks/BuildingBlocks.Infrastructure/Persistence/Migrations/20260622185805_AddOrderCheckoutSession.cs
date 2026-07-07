@@ -13,14 +13,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AddColumn<Guid>(
                 name: "CheckoutSessionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 type: "uniqueidentifier",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "NotificationRecipient",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "CheckoutSessions",
                 type: "nvarchar(320)",
                 maxLength: 320,
@@ -28,7 +28,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Orders_CheckoutSessionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders",
                 column: "CheckoutSessionId",
                 unique: true,
@@ -40,17 +40,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.DropIndex(
                 name: "IX_Orders_CheckoutSessionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders");
 
             migrationBuilder.DropColumn(
                 name: "CheckoutSessionId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "Orders");
 
             migrationBuilder.DropColumn(
                 name: "NotificationRecipient",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "CheckoutSessions");
         }
     }

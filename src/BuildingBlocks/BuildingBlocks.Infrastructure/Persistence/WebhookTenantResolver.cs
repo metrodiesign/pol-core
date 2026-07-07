@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace BuildingBlocks.Infrastructure.Persistence;
 
 /// <summary>
-/// Resolves a webhook's tenant via <c>producer.usp_resolve_webhook_tenant</c> (a proc that runs
+/// Resolves a webhook's tenant via <c>VCentralPay.usp_resolve_webhook_tenant</c> (a proc that runs
 /// WITH EXECUTE AS a bypass principal — proven on live SQL Server 2025 to read the mapping row while
 /// the calling principal's own direct access stays RLS-blocked). The call runs in a FRESH DI scope so
 /// the request's own <see cref="ProducerDbContext"/> connection is not opened before the tenant is
@@ -24,7 +24,7 @@ public sealed class WebhookTenantResolver : IWebhookTenantResolver
 
         var tenantIds = await db.Database
             .SqlQueryRaw<Guid>(
-                "EXEC producer.usp_resolve_webhook_tenant @PspConnectionId = {0}",
+                "EXEC VCentralPay.usp_resolve_webhook_tenant @PspConnectionId = {0}",
                 pspConnectionId)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

@@ -16,7 +16,7 @@ public sealed class TenantProvisioningGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM producer.VaultSecrets"));
+            IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM VCentralPay.VaultSecrets"));
     }
 
     // Sibling of P1 — GET /admin/tenants/{code} reads masked hints from PspConnection.Metadata under
@@ -26,7 +26,7 @@ public sealed class TenantProvisioningGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
         var count = Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.PspConnections"));
+            "SELECT COUNT(*) FROM VCentralPay.PspConnections"));
         Assert.True(count >= 0); // the point is that it does NOT throw a permission error
     }
 

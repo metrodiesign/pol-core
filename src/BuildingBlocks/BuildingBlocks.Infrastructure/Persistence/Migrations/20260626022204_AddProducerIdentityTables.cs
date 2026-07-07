@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "ExternalLogins",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -28,7 +28,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ProducerPermissionGroups",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Key = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
@@ -42,7 +42,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ProducerRoles",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -59,7 +59,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "RegistrationAudits",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -78,7 +78,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "RegistrationTickets",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -97,7 +97,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "TenantUserProfiles",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -120,7 +120,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "TenantUsers",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -137,7 +137,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ProducerPermissions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Key = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
@@ -151,7 +151,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_ProducerPermissions_ProducerPermissionGroups_GroupKey",
                         column: x => x.GroupKey,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "ProducerPermissionGroups",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
@@ -159,7 +159,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ProducerRoleAssignments",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -175,7 +175,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_ProducerRoleAssignments_ProducerRoles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "ProducerRoles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -183,7 +183,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "ProducerRolePermissions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -196,14 +196,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_ProducerRolePermissions_ProducerPermissions_PermissionKey",
                         column: x => x.PermissionKey,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "ProducerPermissions",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_ProducerRolePermissions_ProducerRoles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "ProducerRoles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -211,66 +211,66 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_ExternalLogins_Provider_Subject",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ExternalLogins",
                 columns: new[] { "Provider", "Subject" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerPermissions_GroupKey",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerPermissions",
                 column: "GroupKey");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerRoleAssignments_RoleId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerRoleAssignments",
                 column: "RoleId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerRoleAssignments_TenantUserId_RoleId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerRoleAssignments",
                 columns: new[] { "TenantUserId", "RoleId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerRoleAssignments_TenantUserId_TenantId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerRoleAssignments",
                 columns: new[] { "TenantUserId", "TenantId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerRolePermissions_PermissionKey",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerRolePermissions",
                 column: "PermissionKey");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerRolePermissions_RoleId_PermissionKey",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerRolePermissions",
                 columns: new[] { "RoleId", "PermissionKey" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProducerRoles_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ProducerRoles",
                 column: "Code",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_TenantUserProfiles_TenantUserId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUserProfiles",
                 column: "TenantUserId",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_TenantUsers_Subject",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUsers",
                 column: "Subject",
                 unique: true);
@@ -281,16 +281,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // pol_app (a pending user is correctly invisible to tenants; only pol_admin bypass sees it for
             // approval). FILTER = own-tenant read once approved; BLOCK = a tenant cannot forge a foreign id.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    ADD FILTER PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers,\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers AFTER INSERT,\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers AFTER UPDATE;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    ADD FILTER PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.TenantUsers,\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.TenantUsers AFTER INSERT,\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.TenantUsers AFTER UPDATE;");
 
             // Control-plane notice table for the Admin-side registration consumer (Task 4). Raw SQL with NO
             // EF entity this slice (its consumer lands in Task 4); pol_admin + pol_worker only, NEVER pol_app
             // (S5). Unique TenantUserId = idempotent one-notice-per-registration.
             migrationBuilder.Sql("""
-                CREATE TABLE producer.ProducerRegistrationNotices (
+                CREATE TABLE VCentralPay.ProducerRegistrationNotices (
                     Id            uniqueidentifier NOT NULL CONSTRAINT PK_ProducerRegistrationNotices PRIMARY KEY,
                     TenantUserId  uniqueidentifier NOT NULL,
                     Subject       nvarchar(256)    NOT NULL,
@@ -301,7 +301,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     CreatedAt     datetime2        NOT NULL
                 );
                 CREATE UNIQUE INDEX IX_ProducerRegistrationNotices_TenantUserId
-                    ON producer.ProducerRegistrationNotices (TenantUserId);
+                    ON VCentralPay.ProducerRegistrationNotices (TenantUserId);
                 """);
 
             // Least-privilege grants for the identity realm. The child identity tables are admin-only
@@ -309,19 +309,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // cannot touch them at all). RBAC tables are granted separately in AddProducerRoleRbacTables.
             migrationBuilder.Sql("""
                 -- pol_app (TenantConsole): read its OWN tenant's users (RLS-filtered). No write; no child tables.
-                GRANT SELECT ON producer.TenantUsers TO pol_app;
+                GRANT SELECT ON VCentralPay.TenantUsers TO pol_app;
 
                 -- pol_admin (registration/approval/resolve, bypass role): cross-tenant on the identity tables.
-                GRANT SELECT, INSERT, UPDATE ON producer.TenantUsers         TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.ExternalLogins       TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE ON producer.TenantUserProfiles   TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE ON producer.RegistrationTickets  TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.RegistrationAudits    TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.TenantUsers         TO pol_admin;
+                GRANT SELECT, INSERT         ON VCentralPay.ExternalLogins       TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.TenantUserProfiles   TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.RegistrationTickets  TO pol_admin;
+                GRANT SELECT, INSERT         ON VCentralPay.RegistrationAudits    TO pol_admin;
 
                 -- ProducerRegistrationNotices (control-plane, S5): pol_admin + pol_worker (outbox dispatcher)
                 -- write/read; pol_app NEVER granted.
-                GRANT SELECT, INSERT ON producer.ProducerRegistrationNotices TO pol_admin;
-                GRANT SELECT, INSERT ON producer.ProducerRegistrationNotices TO pol_worker;
+                GRANT SELECT, INSERT ON VCentralPay.ProducerRegistrationNotices TO pol_admin;
+                GRANT SELECT, INSERT ON VCentralPay.ProducerRegistrationNotices TO pol_worker;
                 """);
         }
 
@@ -331,63 +331,63 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Detach the TenantUsers predicates BEFORE dropping the table (a table under a security policy
             // cannot be dropped); never drop the shared TenantIsolationPolicy itself.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    DROP FILTER PREDICATE ON producer.TenantUsers,\n" +
-                "    DROP BLOCK PREDICATE ON producer.TenantUsers AFTER INSERT,\n" +
-                "    DROP BLOCK PREDICATE ON producer.TenantUsers AFTER UPDATE;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    DROP FILTER PREDICATE ON VCentralPay.TenantUsers,\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.TenantUsers AFTER INSERT,\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.TenantUsers AFTER UPDATE;");
 
             migrationBuilder.Sql("""
-                REVOKE SELECT ON producer.TenantUsers FROM pol_app;
-                REVOKE SELECT, INSERT, UPDATE ON producer.TenantUsers         FROM pol_admin;
-                REVOKE SELECT, INSERT         ON producer.ExternalLogins       FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE ON producer.TenantUserProfiles   FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE ON producer.RegistrationTickets  FROM pol_admin;
-                REVOKE SELECT, INSERT         ON producer.RegistrationAudits    FROM pol_admin;
-                REVOKE SELECT, INSERT ON producer.ProducerRegistrationNotices FROM pol_admin;
-                REVOKE SELECT, INSERT ON producer.ProducerRegistrationNotices FROM pol_worker;
+                REVOKE SELECT ON VCentralPay.TenantUsers FROM pol_app;
+                REVOKE SELECT, INSERT, UPDATE ON VCentralPay.TenantUsers         FROM pol_admin;
+                REVOKE SELECT, INSERT         ON VCentralPay.ExternalLogins       FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE ON VCentralPay.TenantUserProfiles   FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE ON VCentralPay.RegistrationTickets  FROM pol_admin;
+                REVOKE SELECT, INSERT         ON VCentralPay.RegistrationAudits    FROM pol_admin;
+                REVOKE SELECT, INSERT ON VCentralPay.ProducerRegistrationNotices FROM pol_admin;
+                REVOKE SELECT, INSERT ON VCentralPay.ProducerRegistrationNotices FROM pol_worker;
                 """);
 
-            migrationBuilder.Sql("DROP TABLE producer.ProducerRegistrationNotices;");
+            migrationBuilder.Sql("DROP TABLE VCentralPay.ProducerRegistrationNotices;");
 
             migrationBuilder.DropTable(
                 name: "ExternalLogins",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "ProducerRoleAssignments",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "ProducerRolePermissions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "RegistrationAudits",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "RegistrationTickets",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "TenantUserProfiles",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "TenantUsers",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "ProducerPermissions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "ProducerRoles",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "ProducerPermissionGroups",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

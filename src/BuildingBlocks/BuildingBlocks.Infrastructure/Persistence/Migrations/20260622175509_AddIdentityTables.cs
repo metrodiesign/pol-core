@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.CreateTable(
                 name: "ExternalLogins",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -28,7 +28,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "RegistrationAudits",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -47,7 +47,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "RegistrationTickets",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -65,7 +65,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "TenantUserProfiles",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -79,7 +79,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "TenantUsers",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -97,21 +97,21 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_ExternalLogins_Provider_Subject",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "ExternalLogins",
                 columns: new[] { "Provider", "Subject" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_TenantUserProfiles_TenantUserId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUserProfiles",
                 column: "TenantUserId",
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_TenantUsers_Subject",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "TenantUsers",
                 column: "Subject",
                 unique: true);
@@ -121,24 +121,24 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // pol_app (a pending user is correctly invisible to tenants; only pol_admin bypass sees it for
             // approval). FILTER = own-tenant read once approved; BLOCK = a tenant cannot forge a foreign id.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    ADD FILTER PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers,\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers AFTER INSERT,\n" +
-                "    ADD BLOCK PREDICATE producer.fn_tenant_predicate(TenantId) ON producer.TenantUsers AFTER UPDATE;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    ADD FILTER PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.TenantUsers,\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.TenantUsers AFTER INSERT,\n" +
+                "    ADD BLOCK PREDICATE VCentralPay.fn_tenant_predicate(TenantId) ON VCentralPay.TenantUsers AFTER UPDATE;");
 
             // The child identity tables (ExternalLogins/Profiles/RegistrationTickets/RegistrationAudits) are
             // admin-only control-plane: pol_app gets NO grant, so they need no per-tenant predicate (a tenant
             // principal cannot touch them at all). pol_admin (bypass) owns registration/approval/resolve.
             migrationBuilder.Sql("""
                 -- pol_app (TenantConsole): read its OWN tenant's users (RLS-filtered). No write; no child tables.
-                GRANT SELECT ON producer.TenantUsers TO pol_app;
+                GRANT SELECT ON VCentralPay.TenantUsers TO pol_app;
 
                 -- pol_admin (registration/approval/resolve, bypass role): cross-tenant on the identity tables.
-                GRANT SELECT, INSERT, UPDATE ON producer.TenantUsers         TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.ExternalLogins       TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.TenantUserProfiles   TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE ON producer.RegistrationTickets  TO pol_admin;
-                GRANT SELECT, INSERT         ON producer.RegistrationAudits    TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.TenantUsers         TO pol_admin;
+                GRANT SELECT, INSERT         ON VCentralPay.ExternalLogins       TO pol_admin;
+                GRANT SELECT, INSERT         ON VCentralPay.TenantUserProfiles   TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE ON VCentralPay.RegistrationTickets  TO pol_admin;
+                GRANT SELECT, INSERT         ON VCentralPay.RegistrationAudits    TO pol_admin;
                 """);
         }
 
@@ -148,39 +148,39 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Detach the TenantUsers predicates from the policy BEFORE dropping the table (a table under a
             // security policy cannot be dropped); never drop the policy itself.
             migrationBuilder.Sql(
-                "ALTER SECURITY POLICY producer.TenantIsolationPolicy\n" +
-                "    DROP FILTER PREDICATE ON producer.TenantUsers,\n" +
-                "    DROP BLOCK PREDICATE ON producer.TenantUsers AFTER INSERT,\n" +
-                "    DROP BLOCK PREDICATE ON producer.TenantUsers AFTER UPDATE;");
+                "ALTER SECURITY POLICY VCentralPay.TenantIsolationPolicy\n" +
+                "    DROP FILTER PREDICATE ON VCentralPay.TenantUsers,\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.TenantUsers AFTER INSERT,\n" +
+                "    DROP BLOCK PREDICATE ON VCentralPay.TenantUsers AFTER UPDATE;");
 
             migrationBuilder.Sql("""
-                REVOKE SELECT ON producer.TenantUsers FROM pol_app;
-                REVOKE SELECT, INSERT, UPDATE ON producer.TenantUsers         FROM pol_admin;
-                REVOKE SELECT, INSERT         ON producer.ExternalLogins       FROM pol_admin;
-                REVOKE SELECT, INSERT         ON producer.TenantUserProfiles   FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE ON producer.RegistrationTickets  FROM pol_admin;
-                REVOKE SELECT, INSERT         ON producer.RegistrationAudits    FROM pol_admin;
+                REVOKE SELECT ON VCentralPay.TenantUsers FROM pol_app;
+                REVOKE SELECT, INSERT, UPDATE ON VCentralPay.TenantUsers         FROM pol_admin;
+                REVOKE SELECT, INSERT         ON VCentralPay.ExternalLogins       FROM pol_admin;
+                REVOKE SELECT, INSERT         ON VCentralPay.TenantUserProfiles   FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE ON VCentralPay.RegistrationTickets  FROM pol_admin;
+                REVOKE SELECT, INSERT         ON VCentralPay.RegistrationAudits    FROM pol_admin;
                 """);
 
             migrationBuilder.DropTable(
                 name: "ExternalLogins",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "RegistrationAudits",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "RegistrationTickets",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "TenantUserProfiles",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "TenantUsers",
-                schema: "producer");
+                schema: "VCentralPay");
         }
     }
 }

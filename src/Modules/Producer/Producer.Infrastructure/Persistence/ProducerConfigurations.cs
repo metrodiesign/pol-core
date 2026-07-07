@@ -84,7 +84,7 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
     }
 }
 
-// Maps onto producer.ProducerRegistrationNotices, which AddProducerIdentityTables created in raw SQL (the consumer
+// Maps onto VCentralPay.ProducerRegistrationNotices, which AddProducerIdentityTables created in raw SQL (the consumer
 // landed in Task 4). Column shapes mirror that DDL exactly; control-plane (no tenant predicate), pol_admin + pol_worker.
 public sealed class ProducerRegistrationNoticeConfiguration : IEntityTypeConfiguration<ProducerRegistrationNotice>
 {

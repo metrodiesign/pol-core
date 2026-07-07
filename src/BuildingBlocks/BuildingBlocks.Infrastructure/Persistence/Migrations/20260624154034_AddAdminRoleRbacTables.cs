@@ -13,14 +13,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             migrationBuilder.AddColumn<Guid>(
                 name: "TargetRoleId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccountAudits",
                 type: "uniqueidentifier",
                 nullable: true);
 
             migrationBuilder.CreateTable(
                 name: "AdminPermissionGroups",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Key = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
@@ -34,7 +34,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminRoles",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -51,7 +51,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminPermissions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Key = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
@@ -65,7 +65,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_AdminPermissions_AdminPermissionGroups_GroupKey",
                         column: x => x.GroupKey,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "AdminPermissionGroups",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
@@ -73,7 +73,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminRoleAssignments",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -88,7 +88,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_AdminRoleAssignments_AdminRoles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "AdminRoles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -96,7 +96,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "AdminRolePermissions",
-                schema: "producer",
+                schema: "VCentralPay",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -109,14 +109,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_AdminRolePermissions_AdminPermissions_PermissionKey",
                         column: x => x.PermissionKey,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "AdminPermissions",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_AdminRolePermissions_AdminRoles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "producer",
+                        principalSchema: "VCentralPay",
                         principalTable: "AdminRoles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -124,39 +124,39 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminPermissions_GroupKey",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminPermissions",
                 column: "GroupKey");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminRoleAssignments_AdminAccountId_RoleId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminRoleAssignments",
                 columns: new[] { "AdminAccountId", "RoleId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminRoleAssignments_RoleId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminRoleAssignments",
                 column: "RoleId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminRolePermissions_PermissionKey",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminRolePermissions",
                 column: "PermissionKey");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminRolePermissions_RoleId_PermissionKey",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminRolePermissions",
                 columns: new[] { "RoleId", "PermissionKey" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_AdminRoles_Code",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminRoles",
                 column: "Code",
                 unique: true);
@@ -165,24 +165,24 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // future feature migrations) so pol_admin reads them at runtime but never writes (SELECT only). Role /
             // grant / assignment tables are mutated by the management endpoints (SELECT, INSERT, UPDATE, DELETE).
             migrationBuilder.Sql("""
-                GRANT SELECT                         ON producer.AdminPermissionGroups TO pol_admin;
-                GRANT SELECT                         ON producer.AdminPermissions      TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.AdminRoles            TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.AdminRolePermissions  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON producer.AdminRoleAssignments  TO pol_admin;
+                GRANT SELECT                         ON VCentralPay.AdminPermissionGroups TO pol_admin;
+                GRANT SELECT                         ON VCentralPay.AdminPermissions      TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminRoles            TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminRolePermissions  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminRoleAssignments  TO pol_admin;
                 """);
 
             // Seed the initial catalog (REQ-1.3) — mirrors AdminPermissions.All (a test asserts they never drift)
             // and the frontend's producer-role mock. N'...' so the Thai labels persist as Unicode.
             migrationBuilder.Sql("""
-                INSERT INTO producer.AdminPermissionGroups ([Key], LabelTh, SortOrder) VALUES
+                INSERT INTO VCentralPay.AdminPermissionGroups ([Key], LabelTh, SortOrder) VALUES
                   ('txn',      N'ธุรกรรม',   1),
                   ('merchant', N'ร้านค้า',   2),
                   ('finance',  N'การเงิน',   3),
                   ('user',     N'ผู้ใช้งาน', 4),
                   ('system',   N'ระบบ',      5);
 
-                INSERT INTO producer.AdminPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
+                INSERT INTO VCentralPay.AdminPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
                   ('txn.view',        'txn',      N'ดูรายการธุรกรรม',          1),
                   ('txn.refund',      'txn',      N'สั่งคืนเงิน',              2),
                   ('txn.export',      'txn',      N'ส่งออกข้อมูลธุรกรรม',       3),
@@ -201,14 +201,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             // Seed the 5 default roles (REQ-2.5) with stable ids; super_admin is the recovery anchor.
             migrationBuilder.Sql("""
-                INSERT INTO producer.AdminRoles (Id, Code, Name, Description, Color, Status) VALUES
+                INSERT INTO VCentralPay.AdminRoles (Id, Code, Name, Description, Color, Status) VALUES
                   ('11111111-1111-1111-1111-111111111111', 'super_admin', N'ผู้ดูแลระบบสูงสุด',    N'เข้าถึงได้ทุกส่วนของระบบ รวมถึงการตั้งค่าความปลอดภัย', 'red',   0),
                   ('22222222-2222-2222-2222-222222222222', 'ops_admin',   N'ผู้ดูแลฝ่ายปฏิบัติการ', N'ดูแลธุรกรรมและร้านค้าประจำวัน',                  'blue',  0),
                   ('33333333-3333-3333-3333-333333333333', 'finance',     N'ผู้ดูแลการเงิน',       N'จัดการใบแจ้งหนี้และรอบ Settlement',              'green', 0),
                   ('44444444-4444-4444-4444-444444444444', 'support',     N'เจ้าหน้าที่ซัพพอร์ต',   N'ตอบคำถามลูกค้า ดูข้อมูลได้อย่างเดียว',           'amber', 0),
                   ('55555555-5555-5555-5555-555555555555', 'auditor',     N'ผู้ตรวจสอบ',          N'เข้าถึงบันทึกกิจกรรมและรายงานแบบอ่านอย่างเดียว',  'gray',  1);
 
-                INSERT INTO producer.AdminRolePermissions (Id, RoleId, PermissionKey) VALUES
+                INSERT INTO VCentralPay.AdminRolePermissions (Id, RoleId, PermissionKey) VALUES
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'txn.view'),
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'txn.refund'),
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'txn.export'),
@@ -246,12 +246,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // before this feature is not locked out of the role endpoints (orthogonal model, no Super-bypass —
             // REQ-8.1). Idempotent via NOT EXISTS. Future Supers get the role at self-provision time.
             migrationBuilder.Sql("""
-                INSERT INTO producer.AdminRoleAssignments (Id, AdminAccountId, RoleId, AssignedByAdminId, AssignedAt)
+                INSERT INTO VCentralPay.AdminRoleAssignments (Id, AdminAccountId, RoleId, AssignedByAdminId, AssignedAt)
                 SELECT NEWID(), a.Id, '11111111-1111-1111-1111-111111111111', a.Id, SYSUTCDATETIME()
-                FROM producer.AdminAccounts a
+                FROM VCentralPay.AdminAccounts a
                 WHERE a.Tier = 1
                   AND NOT EXISTS (
-                      SELECT 1 FROM producer.AdminRoleAssignments x
+                      SELECT 1 FROM VCentralPay.AdminRoleAssignments x
                       WHERE x.AdminAccountId = a.Id AND x.RoleId = '11111111-1111-1111-1111-111111111111');
                 """);
         }
@@ -260,36 +260,36 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
-                REVOKE SELECT                         ON producer.AdminPermissionGroups FROM pol_admin;
-                REVOKE SELECT                         ON producer.AdminPermissions      FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.AdminRoles            FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.AdminRolePermissions  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON producer.AdminRoleAssignments  FROM pol_admin;
+                REVOKE SELECT                         ON VCentralPay.AdminPermissionGroups FROM pol_admin;
+                REVOKE SELECT                         ON VCentralPay.AdminPermissions      FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminRoles            FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminRolePermissions  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON VCentralPay.AdminRoleAssignments  FROM pol_admin;
                 """);
 
             migrationBuilder.DropTable(
                 name: "AdminRoleAssignments",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminRolePermissions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminPermissions",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminRoles",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropTable(
                 name: "AdminPermissionGroups",
-                schema: "producer");
+                schema: "VCentralPay");
 
             migrationBuilder.DropColumn(
                 name: "TargetRoleId",
-                schema: "producer",
+                schema: "VCentralPay",
                 table: "AdminAccountAudits");
         }
     }

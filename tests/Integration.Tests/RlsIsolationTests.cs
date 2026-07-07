@@ -22,7 +22,7 @@ public sealed class RlsIsolationTests
 
         await using var b = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantB);
         var seen = AsInt(await IntegrationDb.ScalarAsync(b,
-            "SELECT COUNT(*) FROM producer.Products WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM VCentralPay.Products WHERE Id=@id", ("@id", id)));
 
         Assert.Equal(0, seen);
     }
@@ -35,7 +35,7 @@ public sealed class RlsIsolationTests
         await IntegrationDb.InsertProductAsync(a, id, IntegrationDb.TenantA);
 
         var seen = AsInt(await IntegrationDb.ScalarAsync(a,
-            "SELECT COUNT(*) FROM producer.Products WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM VCentralPay.Products WHERE Id=@id", ("@id", id)));
 
         Assert.Equal(1, seen);
     }
@@ -60,7 +60,7 @@ public sealed class RlsIsolationTests
         // pol_admin is in pol_rls_bypass: no SESSION_CONTEXT needed, sees the row.
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
         var seen = AsInt(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.Products WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM VCentralPay.Products WHERE Id=@id", ("@id", id)));
 
         Assert.Equal(1, seen);
     }
@@ -75,7 +75,7 @@ public sealed class RlsIsolationTests
         // Proven on live SQL: RLS applies even to sysadmin/dbo. The predicate is the sole authority.
         await using var sa = await IntegrationDb.OpenAsync(IntegrationDb.SaConn);
         var seen = AsInt(await IntegrationDb.ScalarAsync(sa,
-            "SELECT COUNT(*) FROM producer.Products WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM VCentralPay.Products WHERE Id=@id", ("@id", id)));
 
         Assert.Equal(0, seen);
     }
@@ -87,7 +87,7 @@ public sealed class RlsIsolationTests
 
         // pol_app has INSERT but NO SELECT on the outbox -> it can never read another tenant's payload.
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(a, "SELECT COUNT(*) FROM producer.OutboxMessages"));
+            IntegrationDb.ScalarAsync(a, "SELECT COUNT(*) FROM VCentralPay.OutboxMessages"));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class RlsIsolationTests
         await using var a = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
 
         const string insert =
-            "INSERT producer.OutboxMessages (Id,TenantId,Type,Payload,OccurredAt,Attempts) " +
+            "INSERT VCentralPay.OutboxMessages (Id,TenantId,Type,Payload,OccurredAt,Attempts) " +
             "VALUES (@id,@t,N'T',N'{}',SYSUTCDATETIME(),0)";
 
         // Own tenant: allowed.
@@ -120,12 +120,12 @@ public sealed class RlsIsolationTests
         // pol_app with NO bound tenant: it cannot read the connection directly...
         await using var noCtx = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var direct = AsInt(await IntegrationDb.ScalarAsync(noCtx,
-            "SELECT COUNT(*) FROM producer.PspConnections WHERE Id=@id", ("@id", connId)));
+            "SELECT COUNT(*) FROM VCentralPay.PspConnections WHERE Id=@id", ("@id", connId)));
         Assert.Equal(0, direct);
 
         // ...but the EXECUTE-AS-bypass proc resolves its tenant id.
         var resolved = (Guid)(await IntegrationDb.ScalarAsync(noCtx,
-            "EXEC producer.usp_resolve_webhook_tenant @PspConnectionId=@id", ("@id", connId)))!;
+            "EXEC VCentralPay.usp_resolve_webhook_tenant @PspConnectionId=@id", ("@id", connId)))!;
         Assert.Equal(tenant, resolved);
     }
 

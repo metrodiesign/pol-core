@@ -45,7 +45,7 @@ public sealed class VaultRevealAuditWriter : IVaultRevealAuditWriter
         await using var tx = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
 
         var head = await db.Database
-            .SqlQueryRaw<VaultAuditHead>("EXEC producer.usp_vault_audit_head @TenantId = {0}", tenantId)
+            .SqlQueryRaw<VaultAuditHead>("EXEC VCentralPay.usp_vault_audit_head @TenantId = {0}", tenantId)
             .ToListAsync(ct).ConfigureAwait(false);
 
         Append(db, head.Count > 0 ? head[0].LastHash : VaultRevealAudit.Genesis,

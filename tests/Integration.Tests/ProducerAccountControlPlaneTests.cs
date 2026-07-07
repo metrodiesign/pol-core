@@ -4,9 +4,9 @@ namespace Integration.Tests;
 
 /// <summary>
 /// Control-plane posture for the producer ACCOUNT tables against live SQL Server 2025 with the real principals.
-/// After the Admin-parity move, producer.ProducerAccounts is NOT under the tenant RLS predicate (like Admin's
+/// After the Admin-parity move, VCentralPay.ProducerAccounts is NOT under the tenant RLS predicate (like Admin's
 /// AdminAccounts): pol_app has no grant at all, and the tenant a producer acts for lives on a separate
-/// producer.ProducerTenantAssignments edge (UNIQUE on ProducerAccountId — one tenant per producer). A producer
+/// VCentralPay.ProducerTenantAssignments edge (UNIQUE on ProducerAccountId — one tenant per producer). A producer
 /// account/assignment is therefore reachable only via the pol_admin connection.
 /// Tagged Integration: the default unit run (Category!=Integration) skips it; CI runs it against a SQL service.
 /// </summary>
@@ -20,11 +20,11 @@ public sealed class ProducerAccountControlPlaneTests
     private const int Active = 1;
 
     private const string InsertAccount =
-        "INSERT producer.ProducerAccounts (Id, Subject, Email, Status, CreatedAt) " +
+        "INSERT VCentralPay.ProducerAccounts (Id, Subject, Email, Status, CreatedAt) " +
         "VALUES (@id, @sub, @email, @status, SYSUTCDATETIME())";
 
     private const string InsertAssignment =
-        "INSERT producer.ProducerTenantAssignments (Id, ProducerAccountId, TenantId, AssignedByAdminId, AssignedAt) " +
+        "INSERT VCentralPay.ProducerTenantAssignments (Id, ProducerAccountId, TenantId, AssignedByAdminId, AssignedAt) " +
         "VALUES (@id, @acc, @tenant, @admin, SYSUTCDATETIME())";
 
     private static (string, object)[] AccountArgs(Guid id, string subject, int status) =>
@@ -38,11 +38,11 @@ public sealed class ProducerAccountControlPlaneTests
     [Fact]
     public async Task App_cannot_read_the_control_plane_account_table()
     {
-        // pol_app has NO grant on producer.ProducerAccounts (control-plane, like Admin) — even a SELECT is refused.
+        // pol_app has NO grant on VCentralPay.ProducerAccounts (control-plane, like Admin) — even a SELECT is refused.
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
 
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerAccounts"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerAccounts"));
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class ProducerAccountControlPlaneTests
         Assert.Equal(1, rows);
 
         var seen = AsInt(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM producer.ProducerAccounts WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM VCentralPay.ProducerAccounts WHERE Id=@id", ("@id", id)));
         Assert.Equal(1, seen);
     }
 
@@ -68,7 +68,7 @@ public sealed class ProducerAccountControlPlaneTests
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
 
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerTenantAssignments"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerTenantAssignments"));
     }
 
     [Fact]
@@ -111,10 +111,10 @@ public sealed class ProducerAccountControlPlaneTests
         // all, so even a SELECT is refused.
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
 
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerAccounts"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerTenantAssignments"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ExternalLogins"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.RegistrationAudits"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerAccounts"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerTenantAssignments"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ExternalLogins"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.RegistrationAudits"));
     }
 
     [Fact]
@@ -126,19 +126,19 @@ public sealed class ProducerAccountControlPlaneTests
         var id = Guid.NewGuid();
         var tenantUserId = Guid.NewGuid();
         const string insert =
-            "INSERT producer.ProducerRegistrationNotices (Id, TenantUserId, Subject, Email, DisplayName, OccurredAt, CreatedAt) " +
+            "INSERT VCentralPay.ProducerRegistrationNotices (Id, TenantUserId, Subject, Email, DisplayName, OccurredAt, CreatedAt) " +
             "VALUES (@id, @tu, N'sub', N's@org.com', N'Name', SYSUTCDATETIME(), SYSUTCDATETIME())";
 
         await using (var worker = await IntegrationDb.OpenAsync(IntegrationDb.WorkerConn))
         {
             await IntegrationDb.ExecAsync(worker, insert, ("@id", id), ("@tu", tenantUserId));
             var seen = AsInt(await IntegrationDb.ScalarAsync(worker,
-                "SELECT COUNT(*) FROM producer.ProducerRegistrationNotices WHERE Id=@id", ("@id", id)));
+                "SELECT COUNT(*) FROM VCentralPay.ProducerRegistrationNotices WHERE Id=@id", ("@id", id)));
             Assert.Equal(1, seen);
         }
 
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.TenantA);
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM producer.ProducerRegistrationNotices"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM VCentralPay.ProducerRegistrationNotices"));
     }
 }

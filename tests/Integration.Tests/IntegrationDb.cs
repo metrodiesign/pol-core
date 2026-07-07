@@ -59,7 +59,7 @@ internal static class IntegrationDb
     public static Task InsertProductAsync(SqlConnection c, Guid id, Guid tenantId) =>
         ExecAsync(c,
             """
-            INSERT producer.Products (Id, TenantId, Name, PriceMinorUnits, PriceCurrency, IsActive, CreatedAt)
+            INSERT VCentralPay.Products (Id, TenantId, Name, PriceMinorUnits, PriceCurrency, IsActive, CreatedAt)
             VALUES (@id, @t, N'probe', 100, N'THB', 1, SYSUTCDATETIME());
             """,
             ("@id", id), ("@t", tenantId));
@@ -67,7 +67,7 @@ internal static class IntegrationDb
     public static Task InsertPspConnectionAsync(SqlConnection c, Guid id, Guid tenantId) =>
         ExecAsync(c,
             """
-            INSERT producer.PspConnections (Id, TenantId, Psp, EnabledMethods, SecretRefName, IsEnabled, CreatedAt)
+            INSERT VCentralPay.PspConnections (Id, TenantId, Psp, EnabledMethods, SecretRefName, IsEnabled, CreatedAt)
             VALUES (@id, @t, 0, N'card', N'secret', 1, SYSUTCDATETIME());
             """,
             ("@id", id), ("@t", tenantId));
@@ -77,7 +77,7 @@ internal static class IntegrationDb
     public static Task InsertOrderAsync(SqlConnection c, Guid id, Guid tenantId, int status, long minorUnits, string currency) =>
         ExecAsync(c,
             """
-            INSERT producer.Orders (Id, TenantId, AmountMinorUnits, AmountCurrency, Status, CreatedAt)
+            INSERT VCentralPay.Orders (Id, TenantId, AmountMinorUnits, AmountCurrency, Status, CreatedAt)
             VALUES (@id, @t, @amt, @cur, @st, SYSUTCDATETIME());
             """,
             ("@id", id), ("@t", tenantId), ("@amt", minorUnits), ("@cur", currency), ("@st", status));
@@ -87,7 +87,7 @@ internal static class IntegrationDb
     public static Task InsertTenantAsync(SqlConnection c, Guid id, string code) =>
         ExecAsync(c,
             """
-            INSERT producer.Tenants (Id, Code, DisplayName, LegalEntityId, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
+            INSERT VCentralPay.Tenants (Id, Code, DisplayName, LegalEntityId, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
             VALUES (@id, @code, N'probe', N'0105560000000', 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), N'{}');
             """,
             ("@id", id), ("@code", code));
@@ -98,7 +98,7 @@ internal static class IntegrationDb
     public static Task InsertAdminAccountAsync(SqlConnection c, Guid id, string? subject, string email, int tier, int status) =>
         ExecAsync(c,
             """
-            INSERT producer.AdminAccounts (Id, Subject, Email, Tier, Status, CreatedAt)
+            INSERT VCentralPay.AdminAccounts (Id, Subject, Email, Tier, Status, CreatedAt)
             VALUES (@id, @sub, @email, @tier, @status, SYSUTCDATETIME());
             """,
             ("@id", id), ("@sub", (object?)subject ?? DBNull.Value), ("@email", email), ("@tier", tier), ("@status", status));
