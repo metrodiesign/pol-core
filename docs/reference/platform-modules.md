@@ -333,7 +333,7 @@ redirect URL ลง span attribute
 
 ## 1. Payment Orchestration Platform
 
-**บริบท** — ตัวกลางจัดการและกระจายธุรกรรมการชำระเงินของบริษัทในเครือ (vCentral / vCommerce / vSouvenir) แบบ **captive/internal**: ให้ทุกบริษัทรับชำระออนไลน์ผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว โดยแพลตฟอร์ม **"ใช้" PSP ไม่ใช่ "เป็น" PSP** — เงิน settle จาก PSP เข้าบัญชี merchant ของแต่ละบริษัทโดยตรง จึงอยู่นอก funds flow (ไม่เข้าข่ายใบอนุญาตประเภทที่ 3) และคง PCI **SAQ A** ด้วยโมเดล redirect-only
+**บริบท** — ตัวกลางจัดการและกระจายธุรกรรมการชำระเงินของบริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) แบบ **captive/internal**: ให้ทุกบริษัทรับชำระออนไลน์ผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว โดยแพลตฟอร์ม **"ใช้" PSP ไม่ใช่ "เป็น" PSP** — เงิน settle จาก PSP เข้าบัญชี merchant ของแต่ละบริษัทโดยตรง จึงอยู่นอก funds flow (ไม่เข้าข่ายใบอนุญาตประเภทที่ 3) และคง PCI **SAQ A** ด้วยโมเดล redirect-only
 
 **บทบาท**
 - orchestrate ทั้งสาย: catalog → cart → checkout → order → payment → webhook → แจ้งเตือน — จบที่รับชำระสำเร็จ (ไม่มีขั้นออกกรมธรรม์/จัดส่ง)
@@ -599,7 +599,7 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 - **Owns**: producer permission catalog · tenant-scoped roles + assignment · method entitlement
   ต่อ producer (optional) — **Invariants**: role/assignment ทุก record มี TenantId · role ของ
-  tenant A ใช้กับ producer tenant B ไม่ได้ · evaluation fail-closed · enforce เสมอใน production
+  tenant vCommerce ใช้กับ producer tenant vSouvenir ไม่ได้ · evaluation fail-closed · enforce เสมอใน production
 - **API surface**: `GET /api/producer/v1/permissions` · `GET/POST/PUT/DELETE /api/producer/v1/roles[/{roleCode}]` ·
   `PUT /api/producer/v1/producers/{producerId}/roles` · `PUT .../payment-method-entitlements` ·
   `GET .../effective-permissions`

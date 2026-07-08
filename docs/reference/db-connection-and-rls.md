@@ -41,18 +41,18 @@ Row-Level Security (RLS) และ flow การทำงานจริงแ�
 ส่วนนี้อธิบายแนวคิดด้วยการเปรียบเทียบ สำหรับคนที่ไม่ใช่สาย technical. เดินเรื่องด้วยภาพเดียว: **ตึกออฟฟิศให้เช่า
 ที่มีหลายบริษัทมาเช่าห้อง**.
 
-> "บริษัท A / B / C" ในตัวอย่าง = **tenant จริงของแพลตฟอร์ม 3 เจ้า: vCentral / vCommerce / vSouvenir** (บริษัทในเครือ,
+> "บริษัท A / B / C" ในตัวอย่าง = **tenant จริงของแพลตฟอร์ม 3 เจ้า: vPrivilege / vCommerce / vSouvenir** (บริษัทในเครือ,
 > allowlist). ทั้ง 3 ใช้ Tenant Console + backend + database **ชุดเดียวกัน** แต่ข้อมูลแยกเด็ดขาดด้วย RLS — ดู
-> [ตัวอย่างสถานการณ์จริง](#ตัวอย่างสถานการณ์จริง-vcentral--vcommerce--vsouvenir) ท้ายหัวข้อนี้.
+> [ตัวอย่างสถานการณ์จริง](#ตัวอย่างสถานการณ์จริง-vprivilege--vcommerce--vsouvenir) ท้ายหัวข้อนี้.
 
 | ในเรื่องเปรียบเทียบ | ของจริงในระบบ | คืออะไร |
 |---|---|---|
 | ตัวตึก | Database | ที่เก็บข้อมูลของทุกคนรวมกัน |
-| บริษัทที่เช่าห้อง (A, B, C) | Tenant | ลูกค้าแต่ละเจ้าที่ใช้ระบบเรา |
-| ของในห้องบริษัท A | ข้อมูล (row) ของ tenant A | order, product, การจ่ายเงิน ของ A |
+| บริษัทที่เช่าห้อง (vPrivilege, vCommerce, vSouvenir) | Tenant | ลูกค้าแต่ละเจ้าที่ใช้ระบบเรา |
+| ของในห้องบริษัท vPrivilege | ข้อมูล (row) ของ tenant vPrivilege | order, product, การจ่ายเงิน ของ vPrivilege |
 | คีย์การ์ดเข้าตึก | Connection string / DB account | บัตรที่ "โปรแกรม" ใช้เข้าไปในฐานข้อมูล |
-| ล็อกอัจฉริยะหน้าห้อง | RLS (Row-Level Security) | ระบบที่กันไม่ให้ A เห็นของ B โดยอัตโนมัติ |
-| ป้ายชื่อที่แตะตอนเข้า | `SESSION_CONTEXT('TenantId')` | บอกล็อกว่า "ฉันคือบริษัท A" |
+| ล็อกอัจฉริยะหน้าห้อง | RLS (Row-Level Security) | ระบบที่กันไม่ให้ vPrivilege เห็นของ vCommerce โดยอัตโนมัติ |
+| ป้ายชื่อที่แตะตอนเข้า | `SESSION_CONTEXT('TenantId')` | บอกล็อกว่า "ฉันคือบริษัท vPrivilege" |
 | คู่มือพนักงาน (ใครทำอะไรได้) | RBAC | กฎว่า role ไหนกดปุ่มอะไรได้ |
 
 ### Connection string / "DB account" คืออะไร
@@ -97,15 +97,15 @@ Database เหมือน **ตึกที่เก็บของทุก�
 **RBAC แทน RLS ไม่ได้**: คู่มือพนักงานไม่ได้ล็อกประตูห้อง. ต่อให้คู่มือเขียนว่า "พนักงานคนนี้ดูออเดอร์ได้" มันไม่ได้บอกว่า
 **ออเดอร์ของบริษัทไหน** — ตัวที่บอกว่าเห็นของบริษัทไหนคือล็อก RLS เท่านั้น.
 
-### ตัวอย่างสถานการณ์จริง (vCentral / vCommerce / vSouvenir)
+### ตัวอย่างสถานการณ์จริง (vPrivilege / vCommerce / vSouvenir)
 
-3 บริษัทในเครือ = 3 tenant จริง (allowlist; `code` normalize เป็น lowercase: `vcentral`, `vcommerce`, `vsouvenir`).
+3 บริษัทในเครือ = 3 tenant จริง (allowlist; `code` normalize เป็น lowercase: `vprivilege`, `vcommerce`, `vsouvenir`).
 อยู่ในตึกเดียวกัน (database + backend ชุดเดียว) แต่คนละห้อง. 4 สถานการณ์ผูกกับ flow ในหัวข้อ 10:
 
 **S1 — ตัวแทนของ vCommerce เปิดดูออเดอร์ตัวเอง** (= Flow A)
 - ตัวแทนล็อกอิน Google SSO -> token มี claim tenant = `vcommerce`
 - `pol_app` แตะป้าย `SESSION_CONTEXT('TenantId') = <vcommerce id>`
-- `GET /api/v1/orders` -> RLS โชว์เฉพาะออเดอร์ของ vcommerce; ของ `vcentral`/`vsouvenir` **ไม่โผล่** แม้อยู่ในตาราง `Orders` เดียวกัน
+- `GET /api/v1/orders` -> RLS โชว์เฉพาะออเดอร์ของ vcommerce; ของ `vprivilege`/`vsouvenir` **ไม่โผล่** แม้อยู่ในตาราง `Orders` เดียวกัน
 - ต่อให้ query เขียนพลาดขอทั้งตาราง ก็ยังเห็นแค่ vcommerce — ล็อกกันที่ DB ไม่ใช่ที่โปรแกรม
 
 **S2 — ทีมกลางเปิด tenant ใหม่ให้ vSouvenir** (= Flow B)
@@ -118,9 +118,9 @@ Database เหมือน **ตึกที่เก็บของทุก�
 - `usp_resolve_webhook_tenant` (EXECUTE AS bypass) map connection id -> `vcommerce`
 - bind `SESSION_CONTEXT = vcommerce` -> ยืนยัน/อัปเดตออเดอร์ของ vcommerce เท่านั้น
 
-**S4 — งานเบื้องหลังส่งลิงก์สรุปออเดอร์ของ vCentral** (= Flow C)
+**S4 — งานเบื้องหลังส่งลิงก์สรุปออเดอร์ของ vPrivilege** (= Flow C)
 - worker ดึง message จาก outbox (เห็นทุก tenant — ตารางนี้ไม่มีล็อกกรอง)
-- ต่อ message: bind `SESSION_CONTEXT = vcentral` -> อ่าน/เขียนออเดอร์ของ vcentral แบบ scoped
+- ต่อ message: bind `SESSION_CONTEXT = vprivilege` -> อ่าน/เขียนออเดอร์ของ vprivilege แบบ scoped
 
 **บทสรุปที่เห็นจาก 4 สถานการณ์**: การแยก tenant (vcommerce เห็นแค่ vcommerce) เกิดจาก **RLS ที่ DB floor** —
 ไม่ใช่ RBAC. RBAC ตัดสินแค่ "ใครกดปุ่ม provision/ดูออเดอร์ได้"; ตัวที่กันไม่ให้ vcommerce เห็นออเดอร์ vsouvenir คือ RLS.
