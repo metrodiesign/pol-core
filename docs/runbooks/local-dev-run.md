@@ -53,7 +53,7 @@ docker compose up -d
 
 ทำ 2 อย่าง:
 - `pol-db` — SQL Server 2025 ที่ `localhost:11433`
-- `pol-db-init` — รัน `docker/bootstrap/01-principals.sql` (idempotent): สร้าง DB `PaymentOrchestration`,
+- `pol-db-init` — รัน `docker/bootstrap/01-principals.sql` (idempotent): สร้าง DB `VCentralPay`,
   logins `pol_app` / `pol_admin` / `pol_worker`, role `pol_rls_bypass`. exit 0 เมื่อเสร็จ
 
 > object-level GRANT/DENY ไม่ได้อยู่ในไฟล์นี้ — มันอยู่ใน EF migration (หลังตารางถูกสร้าง).
@@ -82,13 +82,29 @@ dotnet ef database update --context ProducerDbContext \
 >
 > Fresh clone / CI ไม่กระทบ (สร้างจากศูนย์อยู่แล้ว).
 
+> **Cutover สำคัญ (rename DB catalog `PaymentOrchestration` -> `VCentralPay`):** ชื่อ database เปลี่ยน
+> (ไม่ใช่ schema) — bootstrap (`01-principals.sql`) สร้าง DB ตามค่า `DbName`/`DB_NAME`/`POL_DB` ใหม่
+> `VCentralPay`. volume `pol-db-data` เดิมยังมี DB เก่า `PaymentOrchestration` ค้าง ทำให้ปนกัน. reset-only
+> ครั้งเดียวหลัง pull:
+>
+> ```
+> # 1. อัปเดตไฟล์ local (gitignored): .env + .env.integration + appsettings.Development.json -> VCentralPay
+> # 2. ล้าง volume + bootstrap DB VCentralPay ใหม่
+> docker compose down -v && docker compose up -d
+> # 3. migrate (§2.3 หรือ auto-migrate ตอน API boot) -> schema VCentralPay ใน DB VCentralPay
+> ```
+>
+> Integration DB `:11434` ก็อัปเดต `.env.integration` แล้ว recreate เป็น `VCentralPay` เช่นกัน. Fresh clone /
+> CI ไม่กระทบ (สร้างจากศูนย์ด้วยชื่อใหม่). **มีข้อมูล prod จริง** (อนาคต): ใช้ `ALTER DATABASE [PaymentOrchestration]
+> MODIFY NAME = [VCentralPay]` + backup ก่อน แทน down -v (bootstrap จะสร้าง VCentralPay ว่าง ทิ้งข้อมูลเดิม).
+
 ---
 
 ## 3. Topology (ports / principals / connection strings)
 
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
-| SQL Server (dev) | `11433` | — | DB หลัก `PaymentOrchestration` |
+| SQL Server (dev) | `11433` | — | DB หลัก `VCentralPay` |
 | SQL Server (integration test) | `11434` | — | DB แยกสำหรับ Integration suite (ดู `.env.integration`) |
 | API (`src/Hosts/Api`) | `5100` (http) / `5101` (https) | `pol_app` (default), `pol_admin` (keyed) | REST + BFF auth |
 | Worker (`src/Hosts/Worker`) | console (ไม่มี port) | `pol_worker` | outbox dispatcher |
@@ -232,11 +248,11 @@ dotnet test pol-core.slnx --filter "Category=Integration"
 ```
 export POL_SA_PASSWORD='<sa-pwd-:11434>'
 export POL_SQL_SERVER='localhost,11434'      # ต้องเป็น 11434 ไม่ใช่ 11433
-export POL_DB='PaymentOrchestration'
+export POL_DB='VCentralPay'
 export POL_APP_PASSWORD='<pol_app-pwd>'
 export POL_ADMIN_PASSWORD='<pol_admin-pwd>'
 export POL_WORKER_PASSWORD='<pol_worker-pwd>'
-export POL_DESIGN_SQL="Server=localhost,11434;Database=PaymentOrchestration;User Id=sa;Password=<sa-pwd-:11434>;Encrypt=True;TrustServerCertificate=True"
+export POL_DESIGN_SQL="Server=localhost,11434;Database=VCentralPay;User Id=sa;Password=<sa-pwd-:11434>;Encrypt=True;TrustServerCertificate=True"
 ```
 
 > Integration suite ใช้ DB คนละตัว (`localhost:11434`) จาก dev (`:11433`) เพื่อไม่ปนกัน.
@@ -307,7 +323,7 @@ query ตรงผ่าน container (sa). ค่า password อ่านจ�
 ```
 # grants ของ pol_admin ทุกตาราง schema VCentralPay:
 docker exec pol-db /opt/mssql-tools18/bin/sqlcmd \
-  -S localhost -U sa -P '<sa-pwd>' -C -d PaymentOrchestration -W -Q "
+  -S localhost -U sa -P '<sa-pwd>' -C -d VCentralPay -W -Q "
 SELECT o.name, STRING_AGG(dp.permission_name,',')
 FROM sys.database_permissions dp
 JOIN sys.objects o ON dp.major_id=o.object_id

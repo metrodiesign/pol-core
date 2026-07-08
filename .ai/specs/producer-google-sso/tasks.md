@@ -36,7 +36,7 @@
 >
 > **Migration / integration-DB gotchas (learned the hard way — read before touching migrations):**
 > - Migrations live in `src/BuildingBlocks/.../Persistence/Migrations` under context `ProducerDbContext`. Apply
->   with `POL_DESIGN_SQL='Server=localhost,11434;Database=PaymentOrchestration;User Id=sa;Password=$POL_SA_PASSWORD;Encrypt=True;TrustServerCertificate=True'`
+>   with `POL_DESIGN_SQL='Server=localhost,11434;Database=VCentralPay;User Id=sa;Password=$POL_SA_PASSWORD;Encrypt=True;TrustServerCertificate=True'`
 >   + `dotnet ef database update --context ProducerDbContext --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api`.
 > - RLS predicates + GRANTs + raw control-plane tables are NOT EF-model state → they live in `migrationBuilder.Sql`
 >   in the migration's Up/Down. A worker once hand-applied them to :11434 WITHOUT putting them in the migration —
@@ -45,7 +45,7 @@
 > - The :11434 integration DB + its `dbo.__EFMigrationsHistory` are now consistent (history matches the migration
 >   files through `20260628124815_AddProducerSessionTables`). Just `ef database update` for new migrations.
 > - Integration tests need `source .env.integration` (sets POL_SQL_SERVER/POL_DB + the 4 principal passwords) and
->   the `pol-sql` docker container started (`docker start pol-sql`). A throwaway `PaymentOrchestration_repro` DB
+>   the `pol-sql` docker container started (`docker start pol-sql`). A throwaway `VCentralPay_repro` DB
 >   from a repro test may still exist on the container (DROP is blocked by the destructive guard; harmless).
 > - **Task 4 outbox subtlety:** registration runs on the pol_admin control plane with NO tenant (Pending user has
 >   TenantId NULL). The default `EfOutbox` REQUIRES a bound tenant + uses the default context → you need a
@@ -126,7 +126,7 @@
          were modeled later but never reached it, and the history row carried the pre-regeneration id). Reconciled:
          renamed the history id to the current file, created the 5 RBAC tables from the migration's own generated
          DDL, then applied the seed via `ef database update`. The VCS migrations are the source of truth and are
-         reproducible from zero (proven). (2) A throwaway `PaymentOrchestration_repro` DB remains on the :11434
+         reproducible from zero (proven). (2) A throwaway `VCentralPay_repro` DB remains on the :11434
          container from the reproducibility test (DROP is blocked by the destructive guard; it dies with the
          throwaway container).
 

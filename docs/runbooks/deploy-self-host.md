@@ -106,7 +106,7 @@ healthy = keyring build ได้ (master key 32 byte) + DB ต่อได้. 
 # 4.1 BACKUP ก่อน (rule: migration บน prod ต้อง backup ก่อน)
 docker compose -f docker-compose.prod.yml exec sql /opt/mssql-tools18/bin/sqlcmd \
   -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C \
-  -Q "BACKUP DATABASE [PaymentOrchestration] TO DISK='/var/opt/mssql/backup/pre-deploy.bak' WITH INIT, COMPRESSION"
+  -Q "BACKUP DATABASE [VCentralPay] TO DISK='/var/opt/mssql/backup/pre-deploy.bak' WITH INIT, COMPRESSION"
 
 # 4.2 ดึงโค้ดใหม่ + rebuild + rerun migrate + restart hosts
 git fetch && git checkout <release-tag>
@@ -127,7 +127,7 @@ DB migration rollback (ถ้า migration ใหม่เข้ากันก�
 รันใน migrate image (มี dotnet-ef + source):
 ```bash
 docker compose -f docker-compose.prod.yml run --rm --entrypoint sh migrate -c '
-  export POL_DESIGN_SQL="Server=sql;Database=PaymentOrchestration;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True";
+  export POL_DESIGN_SQL="Server=sql;Database=VCentralPay;User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True";
   dotnet ef database update <PreviousMigrationName> \
     --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api'
 ```

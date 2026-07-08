@@ -18,7 +18,7 @@ Satisfies REQ (foundation-scaffold): G1, G2, F2, REQ-3.6, REQ-4.4, REQ-5.1, REQ-
 
 ## การตัดสินใจหลัก
 
-### D1. DB topology = หนึ่ง database `PaymentOrchestration`, schema `producer`/`admin` (canon PLAN #3)
+### D1. DB topology = หนึ่ง database `VCentralPay`, schema `producer`/`admin` (canon PLAN #3)
 ทิ้ง 2-database (`pol_core_producer/admin` = scaffold artifact): RLS + SESSION_CONTEXT per-database;
 admin อ่าน producer cross-tenant ใน DB เดียว.
 
@@ -104,7 +104,7 @@ pol_app/admin/worker ไม่มี DDL -> deploy ใช้ pol_migrator identi
 
 ### D8. Connection string + secret
 `Trusted_Connection=True` -> SQL auth:
-`Server=localhost,11433;Database=PaymentOrchestration;User Id=pol_app;Password=${POL_APP_PASSWORD};Encrypt=True;TrustServerCertificate=True`.
+`Server=localhost,11433;Database=VCentralPay;User Id=pol_app;Password=${POL_APP_PASSWORD};Encrypt=True;TrustServerCertificate=True`.
 Password ไม่ commit (`${ENV}`/user-secrets/.env). `.env.example` placeholder. residual trust (SESSION_CONTEXT):
 mitigate ด้วย arch test ban raw SqlConnection + cred ใน host เท่านั้น; **future** (captive 3 tenant):
 per-tenant login + `ORIGINAL_LOGIN()` predicate = DB-enforce เต็ม (นอก scope PR1, canon เลือก SESSION_CONTEXT).

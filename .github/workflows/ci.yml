@@ -131,7 +131,7 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 15
     env:
       POL_SQL_SERVER: localhost,11433
-      POL_DB: PaymentOrchestration
+      POL_DB: VCentralPay
       POL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
@@ -153,7 +153,7 @@ jobs:
       - name: Bootstrap DB principals
         run: |
           sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C \
-            -v DbName="PaymentOrchestration" \
+            -v DbName="VCentralPay" \
                POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
                POL_ADMIN_PASSWORD="${POL_ADMIN_PASSWORD}" \
                POL_WORKER_PASSWORD="${POL_WORKER_PASSWORD}" \
@@ -164,7 +164,7 @@ jobs:
         run: dotnet restore pol-core.slnx
       - name: Apply migrations (schema + RLS policy)
         env:
-          POL_DESIGN_SQL: "Server=localhost,11433;Database=PaymentOrchestration;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
+          POL_DESIGN_SQL: "Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
         run: |
           dotnet tool install --global dotnet-ef --version 10.0.8
           export PATH="$PATH:$HOME/.dotnet/tools"

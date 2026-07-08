@@ -14,7 +14,7 @@ internal static class IntegrationDb
     public static readonly Guid TenantB = Guid.Parse("b0000000-0000-0000-0000-0000000000b1");
 
     private static string Server => Get("POL_SQL_SERVER") ?? "localhost,11433";
-    private static string Db => Get("POL_DB") ?? "PaymentOrchestration";
+    private static string Db => Get("POL_DB") ?? "VCentralPay";
 
     public static string AppConn => For("pol_app", "POL_APP_PASSWORD");
     public static string AdminConn => For("pol_admin", "POL_ADMIN_PASSWORD");

@@ -19,7 +19,7 @@ Delivered:
   (no login) + role pol_rls_bypass. Applied to live pol-db.
 - EF migration G1 (producer schema + tables + FK/index) and G2 (predicate functions + resolve proc +
   SECURITY POLICY + object grants), both applied to live DB.
-- Connection strings -> SQL auth, single DB `PaymentOrchestration`, one login per host; password via env.
+- Connection strings -> SQL auth, single DB `VCentralPay`, one login per host; password via env.
 - `Directory.Build.props`: `InvariantGlobalization=false` (SqlClient rejects invariant mode).
 - Arch test: ban raw `SqlConnection` in production infrastructure.
 - Integration tests (`tests/Integration.Tests`, `[Trait Category=Integration]`).
