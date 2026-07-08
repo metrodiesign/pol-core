@@ -35,7 +35,7 @@ services:
         DOTNET_VERSION: *dotnet
     environment:
       DB_SERVER: sql
-      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      DB_NAME: ${DB_NAME:-VCentralPay}
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?}
       POL_APP_PASSWORD_FILE: /run/secrets/pol_app_password
       POL_ADMIN_PASSWORD_FILE: /run/secrets/pol_admin_password
@@ -56,7 +56,7 @@ services:
         HOST_DLL: Api.dll
     environment:
       DB_SERVER: sql
-      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      DB_NAME: ${DB_NAME:-VCentralPay}
       DB_PRINCIPAL: pol_app
       DB_PASSWORD_FILE: /run/secrets/pol_app_password
       # Cross-tenant provisioning runs under pol_admin (RLS bypass) on ConnectionStrings:Admin — the
@@ -101,7 +101,7 @@ services:
         HOST_DLL: Worker.dll
     environment:
       DB_SERVER: sql
-      DB_NAME: ${DB_NAME:-PaymentOrchestration}
+      DB_NAME: ${DB_NAME:-VCentralPay}
       DB_PRINCIPAL: pol_worker
       DB_PASSWORD_FILE: /run/secrets/pol_worker_password
       ASPNETCORE_ENVIRONMENT: Production

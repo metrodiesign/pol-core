@@ -54,7 +54,7 @@ cp .env.example .env
 # 2) git hooks (enforcement floor)
 git config core.hooksPath .githooks
 
-# 3) ยก DB + สร้าง principals (idempotent): สร้าง DB PaymentOrchestration +
+# 3) ยก DB + สร้าง principals (idempotent): สร้าง DB VCentralPay +
 #    logins pol_app / pol_admin / pol_worker + role pol_rls_bypass
 docker compose up -d
 ```
@@ -71,7 +71,7 @@ dotnet ef database update --context ProducerDbContext \
 
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
-| SQL Server (dev) | `11433` | — | DB หลัก `PaymentOrchestration` |
+| SQL Server (dev) | `11433` | — | DB หลัก `VCentralPay` |
 | SQL Server (integration test) | `11434` | — | DB แยกของ Integration suite (`.env.integration`) |
 | API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (default) + `pol_admin` (keyed, control-plane) | REST + BFF auth |
 | Worker (`src/Hosts/Worker`) | console | `pol_worker` | outbox dispatcher |

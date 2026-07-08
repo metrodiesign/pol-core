@@ -161,7 +161,7 @@ Database เหมือน **ตึกที่เก็บของทุก�
 | `POL_DESIGN_SQL` (env) | `sa` | — | `dotnet ef database update` (design-time DDL) | `.env:18`, `docker/migrate-entrypoint.sh` |
 
 - Password ใน committed config = **ว่าง**; ฉีดตอน runtime ผ่าน env `ConnectionStrings__Producer/__Admin/__Worker`
-  (ASP.NET map `__` -> `:`). ทุกเส้นมี `Database=PaymentOrchestration;Encrypt=True`.
+  (ASP.NET map `__` -> `:`). ทุกเส้นมี `Database=VCentralPay;Encrypt=True`.
 - นอก Development ถ้า password ว่าง -> fail-fast (`ProvisioningGuards.RequireInjectedCredential`,
   `src/Hosts/Api/Program.cs:1763-1769`).
 - Prod: `docker/entrypoint.sh` สร้าง connection string ตอน container start จาก `DB_PRINCIPAL` + password
