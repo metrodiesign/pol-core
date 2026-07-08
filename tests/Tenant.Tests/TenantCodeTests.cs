@@ -19,7 +19,7 @@ public sealed class TenantCodeTests
         Assert.ThrowsAny<ArgumentException>(() => TenantCode.Normalize(raw!)); // null -> ArgumentNullException (subclass)
 
     [Theory]
-    [InlineData("vcentral")]
+    [InlineData("vprivilege")]
     [InlineData("vcommerce")]
     [InlineData("vsouvenir")]
     public void IsAllowed_true_for_captive_codes(string code) =>

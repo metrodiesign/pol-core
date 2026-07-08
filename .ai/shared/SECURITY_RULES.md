@@ -183,7 +183,7 @@ fork or weaken these checks per harness.
   Identity: verify Google id_token (sig/`iss`/`aud`/exp/`email_verified`) → `hd` guard → lookup ตาราง identity ของ console นั้น → scope `TenantId`.
   **Admin cross-tenant bypass RLS** ผ่าน **DB principal แยก** (admin connection) เท่านั้น — tenant console principal ทำไม่ได้ + ทุก bypass มี reason + correlation id → audit.
 - **Maker-checker** สำหรับ action อ่อนไหว: approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist.
-- **Captive allowlist.** เปิดเฉพาะ vCentral / vCommerce / vSouvenir. ห้าม public/self-serve onboarding สำหรับคนนอก.
+- **Captive allowlist.** เปิดเฉพาะ vPrivilege / vCommerce / vSouvenir. ห้าม public/self-serve onboarding สำหรับคนนอก.
 - **Idempotency.** webhook/payment ประมวลผลซ้ำไม่ได้ — unique key DB `(psp, eventId)` **และ** `(psp, externalChargeId, normalizedStatus)`
   (กัน PSP replay ด้วย event id ต่าง / ไม่มี stable id) + guard ที่ fetch-confirmed transition `(paymentId, transition)`, atomic upsert ใน tx.
   publish `PaymentPaid` ผ่าน **outbox** (เขียนใน tx เดียวกับ transition) + dispatcher poll ด้วย lock/lease + poison/DLQ + idempotent consumer. TTL = cleanup ไม่ใช่ guard หลัก.

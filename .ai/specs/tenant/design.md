@@ -14,7 +14,7 @@ src/Modules/Tenant/
   Tenant.Domain/            -> SharedKernel เท่านั้น
     Tenant.cs               aggregate (AggregateRoot<Guid>); Create() validate+Status=Active; (no FK)
     TenantStatus.cs         enum { Active = 0 }  (REQ-1.5/F1)
-    TenantCode.cs           allowlist { vcentral, vcommerce, vsouvenir } + Normalize() + IsAllowed()
+    TenantCode.cs           allowlist { vprivilege, vcommerce, vsouvenir } + Normalize() + IsAllowed()
   Tenant.Application/       -> Tenant.Domain + Contracts + BuildingBlocks.Application + Payments.Application + Mediator.Abstractions
     ITenantRepository.cs            Add / GetByCodeAsync / ExistsByCodeAsync
     IProvisioningAuditWriter.cs     Append(entry)  (REQ-11)

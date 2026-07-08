@@ -5,7 +5,7 @@
 > in one pass (it may touch many files). Sub-step sequencing handled at execution time.
 > โหมด AFK autonomous: implement ต่อเนื่องบน branch feat/tenant-provisioning, TDD, commit ต่อ task, PR ไม่ merge เอง.
 
-- [x] 1. Tenant domain + ADR — `Tenant` aggregate (`AggregateRoot<Guid>`, `Create()` validate invariant + Status=Active), `TenantStatus { Active }`, `TenantCode` (allowlist vcentral/vcommerce/vsouvenir + `Normalize()` lowercase + `IsAllowed()`); ADR `docs/adr/0001-tenant-provisioning-single-transaction.md` (single-tx valid เฉพาะ vault DB-backed; vault->KMS = trigger saga). Done = pure-domain unit tests เขียว.
+- [x] 1. Tenant domain + ADR — `Tenant` aggregate (`AggregateRoot<Guid>`, `Create()` validate invariant + Status=Active), `TenantStatus { Active }`, `TenantCode` (allowlist vprivilege/vcommerce/vsouvenir + `Normalize()` lowercase + `IsAllowed()`); ADR `docs/adr/0001-tenant-provisioning-single-transaction.md` (single-tx valid เฉพาะ vault DB-backed; vault->KMS = trigger saga). Done = pure-domain unit tests เขียว.
      Satisfies: REQ-1.1, 1.2, 1.3, 1.5, 1.6, 1.7. Verify: `dotnet test tests/Tenant.Tests` (domain).
      Evidence: `dotnet test tests/Tenant.Tests` -> Passed 20, Failed 0. Tenant.Domain (Tenant/TenantStatus/TenantCode) + ADR 0001 + 4 csproj + slnx wired. build เขียว.
 

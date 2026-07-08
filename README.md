@@ -1,7 +1,7 @@
 # pol-core
 
 **Internal Payment Orchestration Platform (captive)** — SaaS อีคอมเมิร์ซประกันภัย multi-tenant
-ที่ให้บริษัทในเครือ (vCentral / vCommerce / vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
+ที่ให้บริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
 (2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** — เรา "ใช้" PSP ไม่ใช่ "เป็น" PSP
 
 โมเดล: **captive · ไม่ถือเงิน · ใช้ฟรีภายในเครือ · PCI SAQ A**
