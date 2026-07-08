@@ -11,7 +11,7 @@
 ## Purpose
 
 **Internal Payment Orchestration Platform (captive)** — SaaS อีคอมเมิร์ซประกันภัย multi-tenant
-ที่ให้บริษัทในเครือ (vCentral / vCommerce / vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
+ที่ให้บริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
 (2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** — เรา "ใช้" PSP ไม่ใช่ "เป็น" PSP
 
 ระบบคือ scope เดียวกัน มี 5 โมดูล (Products · Cart · Checkout · Orders · Payments) คุยกันผ่าน
@@ -56,7 +56,7 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 
 1. **ห้าม settlement / payout engine** — ไม่มี money ledger / wallet / float / escrow / disbursement (อยู่นอก funds flow เสมอ)
 2. **ห้าม billing / เก็บค่าบริการ** — ใช้ฟรี ไม่มี subscription / invoice / usage metering / fee deduction
-3. **ห้าม public/self-serve onboarding** — allowlist เฉพาะ vCentral / vCommerce / vSouvenir ไม่ต่อ KYB/AML provider ภายนอก
+3. **ห้าม public/self-serve onboarding** — allowlist เฉพาะ vPrivilege / vCommerce / vSouvenir ไม่ต่อ KYB/AML provider ภายนอก
 4. **ห้ามแตะข้อมูลบัตร** — ไม่ collect/store/transmit/tokenize PAN, ไม่มี card field/hosted-fields/iframe/Omise.js บนโดเมนเรา
 5. **ห้ามสร้างฟังก์ชันของ PSP/acquirer เอง** — ไม่มี acquiring, card scheme, 3DS/ACS, payment processing (เราใช้ PSP ไม่ใช่เป็น)
 6. **ห้าม flow แบบ non-redirect** — ไม่ display-QR/iframe/hosted-fields บนหน้าเรา ใช้ full redirect ไปหน้า PSP เท่านั้น (คง SAQ A)

@@ -1,14 +1,14 @@
 namespace Tenant.Domain;
 
 /// <summary>
-/// The captive tenant allowlist (vCentral / vCommerce / vSouvenir) and code normalization. Single
+/// The captive tenant allowlist (vPrivilege / vCommerce / vSouvenir) and code normalization. Single
 /// source of truth for which organization codes may be provisioned. Codes are normalized to
 /// lowercase so the unique index, allowlist check and lookups are all case-insensitive.
 /// </summary>
 public static class TenantCode
 {
     private static readonly IReadOnlySet<string> Allowed =
-        new HashSet<string>(StringComparer.Ordinal) { "vcentral", "vcommerce", "vsouvenir" };
+        new HashSet<string>(StringComparer.Ordinal) { "vprivilege", "vcommerce", "vsouvenir" };
 
     /// <summary>Normalizes a raw code to its canonical form (trimmed + lowercase). Throws on empty.</summary>
     public static string Normalize(string code)

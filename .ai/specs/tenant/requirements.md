@@ -3,7 +3,7 @@
 
 ## Overview
 
-แพลตฟอร์มเป็น payment orchestration แบบ captive multi-tenant (vCentral / vCommerce / vSouvenir)
+แพลตฟอร์มเป็น payment orchestration แบบ captive multi-tenant (vPrivilege / vCommerce / vSouvenir)
 ที่มีชั้น tenant isolation (RLS) ครบแล้ว แต่ `TenantId` เป็นแค่ Guid ลอยๆ ไม่มี master record.
 ฟีเจอร์นี้เพิ่มเอนทิตี `Tenant` (control-plane) + flow provisioning ที่ทีมกลาง (admin) ใช้ลงทะเบียน
 บริษัทใหม่ ตาม `docs/reference/payment-orchestration-modules.md` section 2.4: submit config JSON ->
@@ -26,7 +26,7 @@ identity-rbac (ภายหลัง). ขอบเขตนี้ครอบ�
 - 1.4 THE SYSTEM SHALL บังคับ `Code` ไม่ซ้ำ (unique index)
 - 1.5 THE SYSTEM SHALL จำกัด `Status` อยู่ในเซ็ต `{ Active }` ใน scope นี้ (provisioning เซ็ต `Active`
   ตรง; เพิ่ม state เมื่อมี suspend/saga — finding F1)
-- 1.6 IF `Code` (หลัง normalize ตาม 1.7) ไม่อยู่ใน allowlist `{ vcentral, vcommerce, vsouvenir }` THEN
+- 1.6 IF `Code` (หลัง normalize ตาม 1.7) ไม่อยู่ใน allowlist `{ vprivilege, vcommerce, vsouvenir }` THEN
   THE SYSTEM SHALL ปฏิเสธการสร้าง `Tenant` (HTTP 400)
 - 1.7 THE SYSTEM SHALL normalize `Code` เป็น lowercase ตอนรับ input ก่อน validate / เทียบ allowlist /
   เขียน DB; unique index และ lookup ใช้ค่า normalized (finding F2)

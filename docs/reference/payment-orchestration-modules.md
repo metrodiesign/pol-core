@@ -1,7 +1,7 @@
 # สรุปโมดูลและบทบาท — Internal Payment Orchestration Platform (captive)
 
 > โมเดล **captive / internal** · redirect-only · multi-tenant · ไม่ถือเงิน · ใช้ฟรีภายในเครือ
-> Tenant: **vCentral · vCommerce · vSouvenir** · PSP ปลายทาง: 2C2P + Omise/Opn
+> Tenant: **vPrivilege · vCommerce · vSouvenir** · PSP ปลายทาง: 2C2P + Omise/Opn
 > เวอร์ชันอัปเดต: สะท้อนการตัดสินใจล่าสุด (2 SaaS console, no payout, no fee, captive)
 >
 > **[intake 2026-07-05]** ไฟล์นี้รวมสองส่วน: ภาค 1-7 + Naming = canon เดิม (design แรก + as-built
@@ -16,7 +16,7 @@
 
 **ทั้งระบบคือ scope เดียวกัน — SaaS อีคอมเมิร์ซประกันภัย** ที่มี 5 โมดูลอยู่ใน scope เดียว (**Products · Cart · Checkout · Orders · Payments**) คุยกันผ่าน **Mediator (martinothamar/Mediator)** แบบ modular ไม่อ้างถึงกันตรง · เอกสารนี้ลงรายละเอียด **โมดูล Payments** เป็นหลัก (โมดูลที่ build out มากสุด)
 
-โมดูล Payments นี้คือ **แพลตฟอร์ม orchestration การชำระเงินภายในเครือ** ที่ให้บริษัทในเครือ (vCentral/vCommerce/vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว — คุณ **"ใช้" PSP ไม่ใช่ "เป็น" PSP** และ **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม**
+โมดูล Payments นี้คือ **แพลตฟอร์ม orchestration การชำระเงินภายในเครือ** ที่ให้บริษัทในเครือ (vPrivilege/vCommerce/vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว — คุณ **"ใช้" PSP ไม่ใช่ "เป็น" PSP** และ **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม**
 
 แบ่งเป็น 2 ระนาบที่แยกขาดกัน:
 - **Control plane** — การตั้งค่า/กำกับดูแล (console → backend) ไม่แตะเส้นทางเงิน
@@ -164,7 +164,7 @@ sequenceDiagram
 
 1. **ห้ามสร้าง settlement / payout engine** — ระบบต้องไม่รับ ถือ หรือจ่ายเงินต่อ ไม่มี money ledger / wallet / float / escrow / disbursement เงิน settle จาก PSP เข้าบัญชี merchant ของแต่ละบริษัทโดยตรง (เราอยู่นอก funds flow เสมอ)
 2. **ห้ามทำ billing / เก็บค่าบริการ** — ใช้ฟรี ไม่มี subscription / invoice / usage metering เพื่อเรียกเก็บเงิน / fee deduction
-3. **ห้ามทำ public หรือ self-serve onboarding สำหรับคนนอก** — onboarding เป็น allowlist เฉพาะ vCentral / vCommerce / vSouvenir ไม่ต้องต่อ KYB/AML provider ของ merchant ภายนอก ไม่ต้องมีหน้าสมัครแบบเปิด
+3. **ห้ามทำ public หรือ self-serve onboarding สำหรับคนนอก** — onboarding เป็น allowlist เฉพาะ vPrivilege / vCommerce / vSouvenir ไม่ต้องต่อ KYB/AML provider ของ merchant ภายนอก ไม่ต้องมีหน้าสมัครแบบเปิด
 4. **ห้ามแตะข้อมูลบัตร** — ห้าม collect / store / transmit / tokenize PAN ห้ามมี card input field / hosted-fields / iframe ที่รับข้อมูลบัตรบนโดเมนเรา (ตัด client-side tokenization เช่น Omise.js card ออกทั้งหมด)
 5. **ห้ามสร้างฟังก์ชันของ PSP / acquirer เอง** — ไม่มี acquiring, card scheme connectivity, 3DS/ACS, payment processing เราเป็น merchant/orchestrator ที่ "ใช้" 2C2P/Omise ไม่ใช่ "เป็น" PSP
 6. **ห้าม flow แบบ non-redirect** — ห้ามทำ display-QR-บนหน้าเรา, iframe, hosted-fields หรือ flow ใดที่ render UI การจ่ายบนโดเมนเรา ใช้ **full redirect ไปหน้า PSP เท่านั้น** (เพื่อคง SAQ A)
@@ -210,7 +210,7 @@ sequenceDiagram
 ### 2.4 Provisioning (admin-driven)
 - **ลำดับ:** Admin สร้าง tenant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ tenant → provision Tenant Console + พื้นที่ข้อมูลแยก → tenant พร้อมใช้
 - **บทบาท:** ทีมกลาง provision ทั้งหมดผ่าน Admin Console (ไม่ใช่ self-serve ของ tenant) เหมาะกับ captive เพราะ 3 บริษัทอยู่ในเครือ ทีมกลางถือ credential ได้
-- **ขอบเขต:** เฉพาะ vCentral / vCommerce / vSouvenir (allowlist) · ไม่มี billing
+- **ขอบเขต:** เฉพาะ vPrivilege / vCommerce / vSouvenir (allowlist) · ไม่มี billing
 - **ข้อมูลที่ provision (data model):** `Tenant` (Name/Status/EnabledChannels/Currency) → `PspConnection` ต่อ PSP (Psp, MerchantId, EnabledMethods, WebhookPath) → `VaultSecret` ต่อ connection (SecretKey/PublicKey/WebhookSecret — เก็บเป็น ciphertext เข้ารหัส) · runtime: `PaymentSession` อ้าง TenantId + ConnectionId
 - **การอ่านตอน runtime:** adapter อ่าน `PspConnection` แล้ว decrypt `VaultSecret` ที่เกี่ยว ไปเรียก 2C2P/Omise แล้วเขียน `PaymentSession`
 
@@ -309,7 +309,7 @@ sequenceDiagram
 #### Provisioning sequence
 
 1. Admin → Backend: submit config (JSON)
-2. Backend: validate (allowlist = vCentral/vCommerce/vSouvenir เท่านั้น + schema)
+2. Backend: validate (allowlist = vPrivilege/vCommerce/vSouvenir เท่านั้น + schema)
 3. Backend → DB: INSERT `Tenant`
 4. Backend → DB: INSERT `PspConnection` (config ไม่ลับ)
 5. Backend → Vault: encrypt → `VaultSecret` (เก็บคนละที่กับ DB)
@@ -343,7 +343,7 @@ sequenceDiagram
 - **Approval:** admin **เลือก tenant จาก `Tenant` ที่มีอยู่** (ทางเดียวทุกเคส รวม gmail) + กำหนด role → Active · `TenantId` resolve จากที่ admin เลือกเท่านั้น (ไม่เชื่อค่าจากฟอร์ม) + validate ว่า tenant exists/active
 - **State machine:** New → PendingApproval → Active / Rejected · Rejected → correction ticket → resubmit (→Pending) · Pending → 403 "รออนุมัติ"
 - **Roles:** Tenant Admin · Finance · Viewer (scope = tenant ตน, RLS ด้วย `TenantId`)
-- **โดเมน:** บริษัท (@vcentral/@vcommerce/@vsouvenir) ใช้ `hd` เป็น guard เสริมได้ · @gmail = personal account ไม่มี `hd`, offboarding ต้องลบแถวเอง → allowlist รายคนคือด่านเดียว
+- **โดเมน:** บริษัท (@vprivilege/@vcommerce/@vsouvenir) ใช้ `hd` เป็น guard เสริมได้ · @gmail = personal account ไม่มี `hd`, offboarding ต้องลบแถวเอง → allowlist รายคนคือด่านเดียว
 
 #### ตาราง identity (แยก schema)
 - `AdminUser` (schema admin): `Email`/`Sub` PK · `Role` · `Status`
@@ -1370,7 +1370,7 @@ signature · payload too large · unknown connection key · unknown provider ref
 attempt persistence visible · out-of-order failed after succeeded · amount/currency mismatch ·
 worker crash before/after commit
 
-**Tenant isolation:** producer tenant A อ่าน IDs ของ B ไม่ได้ · admin scoped assignment enforced
+**Tenant isolation:** producer tenant vCommerce อ่าน IDs ของ vSouvenir ไม่ได้ · admin scoped assignment enforced
 ทั้ง query และ command · RLS context missing fails closed · webhook resolve tenant ผ่าน connection เท่านั้น
 
 **Routing:** deterministic primary selection · disabled connection skipped · unsupported method
