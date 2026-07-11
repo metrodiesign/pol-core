@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace BuildingBlocks.Infrastructure.Outbox;
 
 /// <summary>
-/// Polls the producer outbox and publishes pending integration events at-least-once (PLAN
+/// Polls the txn outbox and publishes pending integration events at-least-once (PLAN
 /// decision #10). Rows are claimed with a SQL Server lease (READPAST + UPDLOCK + per-row owner and
 /// expiry) so multiple dispatcher instances never publish the same row; a row that fails
 /// <see cref="MaxAttempts"/> times stops being leased and is left for the poison/DLQ review.
@@ -106,7 +106,7 @@ public sealed class OutboxDispatcher : BackgroundService
         foreach (var (id, merchantId) in leased)
         {
             using var scope = _scopeFactory.CreateScope();
-            using var tenantBinding = scope.ServiceProvider.GetRequiredService<IActorScope>().Begin(merchantId);
+            using var actorBinding = scope.ServiceProvider.GetRequiredService<IActorScope>().Begin(merchantId);
 
             var db = scope.ServiceProvider.GetRequiredService<PolDbContext>();
             var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();

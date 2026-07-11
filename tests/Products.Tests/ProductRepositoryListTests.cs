@@ -22,8 +22,8 @@ namespace Products.Tests;
 /// </summary>
 public sealed class ProductRepositoryListTests : IDisposable
 {
-    private static readonly Guid TenantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
-    private static readonly Guid TenantB = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
+    private static readonly Guid MerchantB = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
     private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private readonly SqliteConnection _connection;
@@ -62,27 +62,27 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task Lists_only_the_bound_tenants_products_even_with_a_filter()
     {
-        Seed(Prod(TenantA, "a1", 100), Prod(TenantA, "a2", 200), Prod(TenantB, "b1", 150));
+        Seed(Prod(MerchantA, "a1", 100), Prod(MerchantA, "a2", 200), Prod(MerchantB, "b1", 150));
 
         var page = await Repo().ListAsync(new ListProductsQuery
         {
-            MerchantId = TenantA,
+            MerchantId = MerchantA,
             Filters = [new FilterOption("priceAmount", FilterOperator.GreaterThanOrEqual, J("0"))],
         }, CancellationToken.None);
 
         Assert.Equal(2, page.Total);                              // merchant B's row is never counted
-        Assert.All(page.Items, i => Assert.Equal(TenantA, i.MerchantId));
+        Assert.All(page.Items, i => Assert.Equal(MerchantA, i.MerchantId));
     }
 
     [Fact]
     public async Task Returns_a_paged_slice_with_total()
     {
         Seed(
-            Prod(TenantA, "p1", 100), Prod(TenantA, "p2", 100), Prod(TenantA, "p3", 100),
-            Prod(TenantA, "p4", 100), Prod(TenantA, "p5", 100));
+            Prod(MerchantA, "p1", 100), Prod(MerchantA, "p2", 100), Prod(MerchantA, "p3", 100),
+            Prod(MerchantA, "p4", 100), Prod(MerchantA, "p5", 100));
 
         var page = await Repo().ListAsync(
-            new ListProductsQuery { MerchantId = TenantA, Page = 1, Limit = 2, Sort = [new SortOption("name")] },
+            new ListProductsQuery { MerchantId = MerchantA, Page = 1, Limit = 2, Sort = [new SortOption("name")] },
             CancellationToken.None);
 
         Assert.Equal(5, page.Total);
@@ -94,13 +94,13 @@ public sealed class ProductRepositoryListTests : IDisposable
     public async Task Typed_product_filters_narrow_by_min_price_and_active()
     {
         Seed(
-            Prod(TenantA, "cheap", 100),
-            Prod(TenantA, "mid", 200),
-            Prod(TenantA, "pricey", 300, active: false));
+            Prod(MerchantA, "cheap", 100),
+            Prod(MerchantA, "mid", 200),
+            Prod(MerchantA, "pricey", 300, active: false));
 
         var page = await Repo().ListAsync(new ListProductsQuery
         {
-            MerchantId = TenantA,
+            MerchantId = MerchantA,
             ProductFilters = new ProductFilterDto { MinPriceAmount = 150m, ActiveOnly = true },
             Sort = [new SortOption("name")],
         }, CancellationToken.None);
@@ -111,10 +111,10 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task Search_escapes_wildcards_and_projects_scalar_price()
     {
-        Seed(Prod(TenantA, "50% off", 500), Prod(TenantA, "500 baht", 100));
+        Seed(Prod(MerchantA, "50% off", 500), Prod(MerchantA, "500 baht", 100));
 
         var page = await Repo().ListAsync(
-            new ListProductsQuery { MerchantId = TenantA, Search = new SearchOption("50%", ["name"]) },
+            new ListProductsQuery { MerchantId = MerchantA, Search = new SearchOption("50%", ["name"]) },
             CancellationToken.None);
 
         var item = Assert.Single(page.Items);        // "%" is literal, so "500 baht" does not match

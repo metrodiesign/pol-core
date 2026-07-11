@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Admin.Infrastructure.Persistence;
 
-// EF mappings for the four admin-profile master lists onto the producer schema (control-plane, no RLS,
+// EF mappings for the four admin-profile master lists onto the admin schema (control-plane, no RLS,
 // granted to pol_admin only — see the AddAdminMasterDataAndProfileFks migration). The shared MasterData base
 // uses TPC (table-per-concrete) so each concrete master gets its OWN table with the full column set and NO
 // base table / discriminator — the PlatformUser FKs stay type-safe. Shared columns/key/index live on the base.

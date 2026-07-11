@@ -6,7 +6,7 @@ using CartAggregate = Cart.Domain.Cart;
 namespace Cart.Infrastructure;
 
 /// <summary>
-/// Cart persistence over the shared producer data plane. Queries go through
+/// Cart persistence over the shared shop data plane. Queries go through
 /// <c>PolDbContext.Set&lt;Cart&gt;()</c>; the RLS interceptor and the shared unit of work apply
 /// merchant scoping and commit, so this adapter only tracks and loads.
 /// </summary>

@@ -31,9 +31,9 @@ builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetim
 builder.Services.AddBuildingBlocksInfrastructure();
 builder.Services.AddOutboxDispatcher();
 
-// The worker connects as pol_worker: it can read/lease the outbox across tenants (the table has no
+// The worker connects as pol_worker: it can read/lease the outbox across merchants (the table has no
 // FILTER predicate) but is NOT in the bypass role, so per-message it writes consumer tables (Orders)
-// only for the tenant the dispatcher binds via SESSION_CONTEXT.
+// only for the merchant the dispatcher binds via SESSION_CONTEXT.
 var workerConnString = builder.Configuration.GetConnectionString("Worker");
 builder.Services.AddDbContext<PolDbContext>((sp, opt) =>
     opt.UseSqlServer(workerConnString)

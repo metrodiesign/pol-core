@@ -8,7 +8,7 @@ using Products.Domain;
 namespace Products.Infrastructure;
 
 /// <summary>
-/// Binds <see cref="IProductRepository"/> to the shared <c>producer</c> data plane via
+/// Binds <see cref="IProductRepository"/> to the shared <c>shop</c> data plane via
 /// <c>PolDbContext.Set&lt;Product&gt;()</c>. Scoped (depends on the Scoped DbContext).
 /// </summary>
 public sealed class ProductRepository : IProductRepository

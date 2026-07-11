@@ -4,7 +4,7 @@ namespace Payments.Application.Ports;
 
 /// <summary>
 /// Persistence port for <see cref="PaymentSession"/> aggregates. Implementations live in
-/// Payments.Infrastructure over the shared producer data plane; the unit of work commits separately.
+/// Payments.Infrastructure over the shared txn data plane; the unit of work commits separately.
 /// </summary>
 public interface IPaymentSessionRepository
 {

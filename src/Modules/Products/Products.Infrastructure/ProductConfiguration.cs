@@ -9,7 +9,7 @@ namespace Products.Infrastructure;
 /// EF mapping for <see cref="Product"/>. Per the Money mapping rule, <see cref="Product.Price"/> is
 /// mapped as a complex type onto two scalar columns (PriceAmount decimal(19,4), PriceCurrency
 /// char(3)). Discovered at model-build time by <c>PolDbContext</c> via
-/// <c>ModuleAssemblies.Producer</c>.
+/// <c>HostModuleAssemblies.All</c>.
 /// </summary>
 public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
 {

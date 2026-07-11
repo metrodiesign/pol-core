@@ -49,8 +49,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         });
     }
 
-    // Detail is a FIXED string per bucket — NEVER exception.Message — so tenant ids, PSP charge ids, SQL
-    // text, or tenant-binding state cannot leak. MerchantBindingException is an opaque 500 by design.
+    // Detail is a FIXED string per bucket — NEVER exception.Message — so merchant ids, PSP charge ids, SQL
+    // text, or merchant-binding state cannot leak. MerchantBindingException is an opaque 500 by design.
     private static (int Status, string Title, string? Detail) Map(Exception exception) => exception switch
     {
         NotFoundException =>

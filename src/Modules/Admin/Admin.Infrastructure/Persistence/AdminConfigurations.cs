@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Admin.Infrastructure.Persistence;
 
-// EF mappings for the admin realm onto the producer schema (discovered via ModuleAssemblies.Producer). These
+// EF mappings for the admin realm onto the admin schema (discovered via HostModuleAssemblies.All). These
 // are control-plane tables: NO merchant RLS predicate, granted to pol_admin only (see AddAdminIdentityTables).
 
 public sealed class PlatformUserConfiguration : IEntityTypeConfiguration<PlatformUser>

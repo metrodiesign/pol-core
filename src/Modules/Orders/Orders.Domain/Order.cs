@@ -38,7 +38,7 @@ public sealed class Order : AggregateRoot<Guid>
     public DateTime SummaryTokenExpiresAt { get; private set; }
 
     /// <summary>The customer contact (email/phone) captured upstream to notify with the summary link.
-    /// Persisted so a producer-triggered resend can re-notify the customer (REQ-2.5); null = no recipient.</summary>
+    /// Persisted so a merchant-user-triggered resend can re-notify the customer (REQ-2.5); null = no recipient.</summary>
     public string? NotificationRecipient { get; private set; }
 
     /// <summary>Default lifetime of a summary link (reference: links have a TTL; expired = error).</summary>

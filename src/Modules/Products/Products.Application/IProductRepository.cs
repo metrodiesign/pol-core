@@ -5,7 +5,7 @@ namespace Products.Application;
 
 /// <summary>
 /// Persistence port for the <see cref="Product"/> aggregate. The infrastructure adapter binds this
-/// to the shared <c>producer</c> data plane; merchant isolation is enforced by the RLS floor, so
+/// to the shared <c>shop</c> data plane; merchant isolation is enforced by the RLS floor, so
 /// callers pass the merchant explicitly and never cross-merchant query.
 /// </summary>
 public interface IProductRepository

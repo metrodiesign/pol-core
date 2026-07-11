@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Admin.Infrastructure.Persistence;
 
-// EF mappings for the admin BFF session tables onto the producer schema (discovered via ModuleAssemblies.Producer).
+// EF mappings for the admin BFF session tables onto the admin schema (discovered via HostModuleAssemblies.All).
 // Control-plane: NO merchant RLS predicate, granted to pol_admin only (see AddPlatformUserSessionTables). The raw session
 // token is NEVER stored — only its SHA-256 hash (REQ-11.2).
 

@@ -24,7 +24,7 @@ internal sealed class PolDbContextTestHarness : IDisposable
 
         var harness = new PolDbContextTestHarness(connection);
 
-        // Create the producer schema once; subsequent contexts share the same in-memory database
+        // Create the schema once; subsequent contexts share the same in-memory database
         // for as long as the connection stays open.
         using var ctx = harness.NewContext();
         ctx.Database.EnsureCreated();

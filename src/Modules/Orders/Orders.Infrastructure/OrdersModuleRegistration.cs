@@ -7,7 +7,7 @@ namespace Orders.Infrastructure;
 /// Composition root for the Orders module. Registers the module's infrastructure adapters; Mediator
 /// handlers (the <see cref="CreateOrderHandler"/> and the PaymentPaid consumer) are auto-discovered
 /// by the source generator in the host, so they are not registered here. The host also adds this
-/// assembly to <c>ModuleAssemblies.Producer</c> so <c>PolDbContext</c> picks up
+/// assembly to <c>HostModuleAssemblies.All</c> so <c>PolDbContext</c> picks up
 /// <see cref="OrderConfiguration"/> at model-build time.
 /// </summary>
 public static class OrdersModuleRegistration

@@ -6,8 +6,8 @@ using Orders.Domain;
 namespace Orders.Infrastructure;
 
 /// <summary>
-/// EF mapping for the Order aggregate. Discovered at model-build time from the Orders producer
-/// assembly by <c>PolDbContext</c> (schema <c>producer</c>). <see cref="Order.Amount"/> is
+/// EF mapping for the Order aggregate. Discovered at model-build time from the Orders Infrastructure
+/// assembly by <c>PolDbContext</c> (schema <c>shop</c>). <see cref="Order.Amount"/> is
 /// mapped as an EF complex type (AmountAmount decimal(19,4), AmountCurrency char(3)) per the
 /// Money mapping rule (PLAN decision #2).
 /// </summary>

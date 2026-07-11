@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Admin.Infrastructure.Persistence;
 
-/// <summary>Admin Role RBAC persistence over the shared producer data plane, bound by the host to the pol_admin
+/// <summary>Admin Role RBAC persistence over the shared admin data plane, bound by the host to the pol_admin
 /// (RLS-bypass) connection — role/catalog tables are control-plane. Effective-permission resolution is a LINQ
 /// union over the admin's ACTIVE roles (REQ-5.1, N1).</summary>
 public sealed class AdminRoleRepository : IAdminRoleRepository

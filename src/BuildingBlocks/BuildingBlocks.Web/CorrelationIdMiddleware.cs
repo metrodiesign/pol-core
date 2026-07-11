@@ -57,7 +57,7 @@ public static class ObservabilityExtensions
 {
     /// <summary>
     /// Replaces the default console providers with the framework JSON console formatter and turns on scope
-    /// rendering, so the correlation id / tenant id pushed by <see cref="CorrelationIdMiddleware"/> appear
+    /// rendering, so the correlation id / merchant id pushed by <see cref="CorrelationIdMiddleware"/> appear
     /// on every line. Levels still come from the existing "Logging" configuration section.
     /// </summary>
     public static IHostApplicationBuilder AddJsonConsoleLogging(this IHostApplicationBuilder builder)

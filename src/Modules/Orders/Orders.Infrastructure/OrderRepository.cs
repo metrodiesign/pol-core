@@ -6,9 +6,9 @@ using Orders.Domain;
 namespace Orders.Infrastructure;
 
 /// <summary>
-/// EF Core implementation of <see cref="IOrderRepository"/> over the shared producer data plane.
+/// EF Core implementation of <see cref="IOrderRepository"/> over the shared shop data plane.
 /// Reads/writes go through <c>PolDbContext.Set&lt;Order&gt;()</c>; merchant isolation is enforced
-/// by the RLS interceptor + session context, so this never filters tenants in raw SQL. Saving is the
+/// by the RLS interceptor + session context, so this never filters merchants in raw SQL. Saving is the
 /// caller's responsibility via <c>IUnitOfWork</c>. Scoped — depends on the Scoped DbContext.
 /// </summary>
 public sealed class OrderRepository : IOrderRepository

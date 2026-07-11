@@ -6,7 +6,7 @@ using Payments.Domain;
 namespace Payments.Infrastructure.Persistence;
 
 /// <summary>
-/// Maps <see cref="PspConnection"/> onto the producer schema. Only the vault lookup name is stored,
+/// Maps <see cref="PspConnection"/> onto the txn schema. Only the vault lookup name is stored,
 /// never the secret. One connection per (merchant, PSP) is enforced by a unique index.
 /// </summary>
 public sealed class PspConnectionConfiguration : IEntityTypeConfiguration<PspConnection>

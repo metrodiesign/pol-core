@@ -7,7 +7,7 @@ using SharedKernel;
 
 namespace Checkout.Tests;
 
-/// <summary>Checkout -> Order keystone, producer side (REQ-5.1/5.5): start captures the recipient; confirm
+/// <summary>Checkout -> Order keystone, merchant-user side (REQ-5.1/5.5): start captures the recipient; confirm
 /// transitions the session AND emits CheckoutConfirmed (carrying amount + recipient) in the same unit of
 /// work, so Orders opens the order out-of-band.</summary>
 public sealed class ConfirmCheckoutTests

@@ -3,7 +3,7 @@ using Checkout.Domain;
 namespace Checkout.Application;
 
 /// <summary>Persistence port for the <see cref="CheckoutSession"/> aggregate. The Infrastructure
-/// adapter resolves it against the shared producer data plane; all access is merchant-scoped by the
+/// adapter resolves it against the shared shop data plane; all access is merchant-scoped by the
 /// data-layer RLS floor.</summary>
 public interface ICheckoutRepository
 {

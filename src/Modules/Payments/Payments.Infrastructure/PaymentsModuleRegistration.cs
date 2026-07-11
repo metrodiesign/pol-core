@@ -8,10 +8,10 @@ namespace Payments.Infrastructure;
 
 /// <summary>
 /// Wires the Payments module's infrastructure into the host container: repositories over the shared
-/// producer data plane, the PSP adapters, and the adapter factory. Handlers are NOT registered here —
+/// txn data plane, the PSP adapters, and the adapter factory. Handlers are NOT registered here —
 /// the source-generated Mediator in the host discovers them from this module's Application assembly.
-/// The host registers <c>ModuleAssemblies.Producer</c> so the EF configurations in this assembly are
-/// applied at model-build time.
+/// The host registers this assembly in <c>HostModuleAssemblies.All</c> so the EF configurations in this
+/// assembly are applied at model-build time.
 /// </summary>
 public static class PaymentsModuleRegistration
 {

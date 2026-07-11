@@ -6,7 +6,7 @@ using Mediator;
 namespace BuildingBlocks.Infrastructure.Outbox;
 
 /// <summary>
-/// Writes outbox rows into the producer DbContext (tracked, not saved) so they commit atomically
+/// Writes outbox rows into the shared DbContext (tracked, not saved) so they commit atomically
 /// with the handler's unit of work. Ids are UUIDv7 for arrival-ordered, index-friendly storage.
 /// </summary>
 public sealed class EfOutbox : IOutbox

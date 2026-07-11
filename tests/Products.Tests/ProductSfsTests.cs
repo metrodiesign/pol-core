@@ -41,7 +41,7 @@ public sealed class ProductSfsTests
     }
 
     [Fact]
-    public void Tenant_id_is_never_filterable()
+    public void Merchant_id_is_never_filterable()
     {
         // merchantId is in no whitelist, so a filter naming it is dropped — SFS cannot widen merchant scope (REQ-7.3).
         var r = Q(P("a", 100)).ApplyFilters([new FilterOption("merchantId", FilterOperator.Equals, J("\"x\""))]);

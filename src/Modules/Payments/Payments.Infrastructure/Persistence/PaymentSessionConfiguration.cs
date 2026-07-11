@@ -6,7 +6,7 @@ using Payments.Domain;
 namespace Payments.Infrastructure.Persistence;
 
 /// <summary>
-/// Maps <see cref="PaymentSession"/> onto the producer schema. Per the EF mapping rule for
+/// Maps <see cref="PaymentSession"/> onto the txn schema. Per the EF mapping rule for
 /// <c>Money</c>, <see cref="PaymentSession.Amount"/> is mapped as a complex type (AmountAmount
 /// decimal(19,4), AmountCurrency char(3)). A unique filtered index on (Psp, PspExternalChargeId)
 /// enforces that one external charge maps to at most one session (no double-attach across sessions).

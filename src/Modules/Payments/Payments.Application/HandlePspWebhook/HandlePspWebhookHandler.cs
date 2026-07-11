@@ -67,7 +67,7 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
                 var pspCode = connection.Psp.ToCode();
 
                 // Keys are scoped by the PSP connection id so a webhook event id that is unique only
-                // per-merchant (not globally) cannot collide across tenants/connections.
+                // per-merchant (not globally) cannot collide across merchants/connections.
                 var keys = new[]
                 {
                     $"{pspCode}:{command.PspConnectionId}:event:{evt.EventId}",

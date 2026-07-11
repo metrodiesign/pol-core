@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Cart.Infrastructure;
 
 /// <summary>
-/// Maps a cart line into the <c>producer</c> schema. <c>UnitPrice</c> is mapped as a complex type
+/// Maps a cart line into the <c>shop</c> schema. <c>UnitPrice</c> is mapped as a complex type
 /// (UnitPriceAmount decimal(19,4), UnitPriceCurrency char(3)) per the EF money mapping rule; the
 /// computed <c>LineTotal</c> projection is not persisted.
 /// </summary>

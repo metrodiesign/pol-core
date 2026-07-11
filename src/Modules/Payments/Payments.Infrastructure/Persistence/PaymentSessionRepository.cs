@@ -5,7 +5,7 @@ using Payments.Domain;
 
 namespace Payments.Infrastructure.Persistence;
 
-/// <summary>EF Core repository for <see cref="PaymentSession"/> over the shared producer data plane.</summary>
+/// <summary>EF Core repository for <see cref="PaymentSession"/> over the shared txn data plane.</summary>
 public sealed class PaymentSessionRepository : IPaymentSessionRepository
 {
     private readonly PolDbContext _db;

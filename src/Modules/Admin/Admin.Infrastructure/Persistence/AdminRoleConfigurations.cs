@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Admin.Infrastructure.Persistence;
 
-// EF mappings for the Admin Role RBAC realm onto the producer schema (discovered via ModuleAssemblies.Producer).
+// EF mappings for the Admin Role RBAC realm onto the admin schema (discovered via HostModuleAssemblies.All).
 // Control-plane tables: NO merchant RLS predicate, granted to pol_admin only (see AddAdminRoleRbacTables). The
 // permission/group tables are reference data seeded by the migration; AdminPermissions.Key is the FK target of
 // role grants so a role can never reference a key outside the catalog (REQ-3.2).

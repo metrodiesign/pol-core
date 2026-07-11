@@ -5,7 +5,7 @@ using Payments.Domain;
 
 namespace Payments.Infrastructure.Persistence;
 
-/// <summary>EF Core repository for <see cref="PspConnection"/> over the shared producer data plane.</summary>
+/// <summary>EF Core repository for <see cref="PspConnection"/> over the shared txn data plane.</summary>
 public sealed class PspConnectionRepository : IPspConnectionRepository
 {
     private readonly PolDbContext _db;

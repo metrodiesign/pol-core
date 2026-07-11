@@ -6,9 +6,9 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Checkout.Infrastructure;
 
 /// <summary>
-/// Maps <see cref="CheckoutSession"/> onto the producer schema. <see cref="CheckoutSession.Amount"/>
+/// Maps <see cref="CheckoutSession"/> onto the shop schema. <see cref="CheckoutSession.Amount"/>
 /// is mapped as a complex type (AmountAmount decimal(19,4), AmountCurrency char(3)) per the Money
-/// mapping rule. Discovered at model-build time from the module's producer assembly.
+/// mapping rule. Discovered at model-build time from the module's Infrastructure assembly.
 /// </summary>
 public sealed class CheckoutSessionConfiguration : IEntityTypeConfiguration<CheckoutSession>
 {

@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Admin.Infrastructure.Persistence;
 
-/// <summary>Admin realm persistence over the shared producer data plane. The host binds these to the
+/// <summary>Admin realm persistence over the shared admin data plane. The host binds these to the
 /// pol_admin (RLS-bypass) connection — admin tables are control-plane (no per-merchant predicate) and
 /// resolution/provisioning run cross-merchant.</summary>
 public sealed class PlatformUserRepository : IPlatformUserRepository

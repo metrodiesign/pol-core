@@ -28,7 +28,7 @@ public sealed class EfUnitOfWork : IUnitOfWork
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
             // A unique-index violation that races past an application-level pre-check (e.g. two admins
-            // provisioning the same tenant code at once) is a 409, not a 500. Same layering rationale as
+            // provisioning the same merchant code at once) is a 409, not a 500. Same layering rationale as
             // above — the application sees a domain conflict, never an EF/SQL type.
             throw new ConflictException(
                 "A record with the same unique key already exists; the insert was rejected.", ex);

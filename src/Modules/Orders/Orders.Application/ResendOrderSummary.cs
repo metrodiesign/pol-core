@@ -4,7 +4,7 @@ using Mediator;
 
 namespace Orders.Application;
 
-/// <summary>Producer-triggered resend of a customer's summary link: rotates the order's token and extends
+/// <summary>Merchant-user-triggered resend of a customer's summary link: rotates the order's token and extends
 /// its TTL, invalidating the old link, and re-notifies the customer when a recipient was captured (REQ-2.5).
 /// Merchant-scoped; RLS confines the lookup to the bound merchant.</summary>
 public sealed record ResendOrderSummaryCommand(Guid OrderId, Guid MerchantId)
