@@ -16,18 +16,18 @@ namespace Admin.Tests;
 /// the chain WITHOUT killing an earlier key (REQ-1.3/F3). SQLite cases prove the LIKE-wildcard escaping that
 /// needs a real relational provider (REQ-1.4).
 /// </summary>
-public sealed class AdminAccountSfsTests
+public sealed class PlatformUserSfsTests
 {
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
-    private static AdminAccount Super(string email, DateTime createdAt) =>
-        AdminAccount.SelfProvision(Guid.NewGuid().ToString("N"), email, createdAt);
-    private static AdminAccount Scoped(string email, DateTime createdAt) =>
-        AdminAccount.CreateScoped(email, createdAt);
+    private static PlatformUser Super(string email, DateTime createdAt) =>
+        PlatformUser.SelfProvision(Guid.NewGuid().ToString("N"), email, createdAt);
+    private static PlatformUser Scoped(string email, DateTime createdAt) =>
+        PlatformUser.CreateScoped(email, createdAt);
 
     private static readonly DateTime T0 = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static IQueryable<AdminAccount> Accounts(params AdminAccount[] accounts) => accounts.AsQueryable();
+    private static IQueryable<PlatformUser> Accounts(params PlatformUser[] accounts) => accounts.AsQueryable();
 
     // ===== filter whitelist gating =====
     [Fact]
@@ -76,9 +76,9 @@ public sealed class AdminAccountSfsTests
     }
 
     [Theory]
-    [InlineData("super", AdminTier.Super)]
-    [InlineData("scoped", AdminTier.Scoped)]
-    public void Tier_filter_parses_lowercase_wire_value(string wire, AdminTier expected)
+    [InlineData("super", PlatformUserTier.Super)]
+    [InlineData("scoped", PlatformUserTier.Scoped)]
+    public void Tier_filter_parses_lowercase_wire_value(string wire, PlatformUserTier expected)
     {
         var kept = Accounts(Super("s@x", T0), Scoped("c@x", T0))
             .ApplyFilters([new FilterOption("tier", FilterOperator.Equals, J($"\"{wire}\""))]).ToList();
@@ -174,8 +174,8 @@ public sealed class AdminAccountSfsTests
         Assert.Equal(new[] { "a_b@x" }, hits);
     }
 
-    // ---- SQLite standalone context (maps only AdminAccount) ----
-    private static AccountDb NewDb(params AdminAccount[] seed)
+    // ---- SQLite standalone context (maps only PlatformUser) ----
+    private static AccountDb NewDb(params PlatformUser[] seed)
     {
         var connection = new SqliteConnection("DataSource=:memory:");
         connection.Open();
@@ -189,14 +189,14 @@ public sealed class AdminAccountSfsTests
 
     private sealed class AccountDb(SqliteConnection connection) : DbContext
     {
-        public DbSet<AdminAccount> Accounts => Set<AdminAccount>();
+        public DbSet<PlatformUser> Accounts => Set<PlatformUser>();
 
         protected override void OnConfiguring(DbContextOptionsBuilder options) => options.UseSqlite(connection);
 
         protected override void OnModelCreating(ModelBuilder model)
         {
-            var e = model.Entity<AdminAccount>();
-            e.ToTable("AdminAccounts");
+            var e = model.Entity<PlatformUser>();
+            e.ToTable("PlatformUsers");
             e.HasKey(x => x.Id);
             e.Property(x => x.Subject).HasMaxLength(256);
             e.Property(x => x.Email).HasMaxLength(256).IsRequired();

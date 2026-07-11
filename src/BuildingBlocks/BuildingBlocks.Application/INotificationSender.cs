@@ -2,7 +2,7 @@ namespace BuildingBlocks.Application;
 
 /// <summary>What the customer notification carries to the delivery channel. The summary token is the link
 /// capability; the concrete sender builds the full URL. No secret/PII beyond the recipient handle.</summary>
-public sealed record NotificationMessage(Guid TenantId, Guid OrderId, string Recipient, string SummaryToken);
+public sealed record NotificationMessage(Guid MerchantId, Guid OrderId, string Recipient, string SummaryToken);
 
 /// <summary>
 /// Sends a customer notification (the order summary link) over the chosen channel (email/SMS). A port so

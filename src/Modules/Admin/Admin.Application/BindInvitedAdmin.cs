@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Admin.Application.BindInvitedAdmin;
 
 /// <summary>
-/// First-login binding for an invited Scoped admin (REQ-3.5). If an <see cref="AdminAccount"/> with an unbound
+/// First-login binding for an invited Scoped admin (REQ-3.5). If an <see cref="PlatformUser"/> with an unbound
 /// subject exists for the caller's verified email, bind the Google subject and resolve it. Returns
 /// <see cref="AdminResolveOutcome.NotFound"/> when there is no matching invite (the host then falls through to
 /// the allowlist bootstrap), and <see cref="AdminResolveOutcome.Suspended"/> when the invite was suspended
@@ -20,11 +20,11 @@ public sealed record BindInvitedAdminCommand(string Subject, string Email, strin
 
 public sealed class BindInvitedAdminHandler : ICommandHandler<BindInvitedAdminCommand, AdminResolveResult>
 {
-    private readonly IAdminAccountRepository _admins;
+    private readonly IPlatformUserRepository _admins;
     private readonly IUnitOfWork _unitOfWork;
 
     public BindInvitedAdminHandler(
-        IAdminAccountRepository admins,
+        IPlatformUserRepository admins,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork)
     {
         _admins = admins;

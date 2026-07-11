@@ -49,18 +49,20 @@ public abstract class PspAdapterBase : IPspAdapter
 
     // ---- amount ----
 
-    /// <summary>Renders <see cref="Money"/> as a major-unit decimal string (e.g. THB 25009 satang ->
-    /// "250.09", JPY 5000 -> "5000") using the platform ISO 4217 minor-unit scale. Invariant culture so
-    /// the decimal separator is always '.'.</summary>
-    protected static string FormatMajorUnitAmount(Money amount)
+    /// <summary>Renders <see cref="Money"/> as a major-unit decimal string (e.g. THB 250.09 -> "250.09",
+    /// JPY 5000 -> "5000") at the currency's ISO 4217 minor-unit scale. Invariant culture so the decimal
+    /// separator is always '.'.</summary>
+    protected static string FormatMajorUnitAmount(Money amount) =>
+        amount.Amount.ToString("F" + Iso4217.MinorUnitDigits(amount.Currency), CultureInfo.InvariantCulture);
+
+    /// <summary>Renders <see cref="Money"/> as a minor-unit integer string (e.g. THB 250.09 -> "25009",
+    /// JPY 5000 -> "5000") for PSPs (Omise) whose API takes the smallest currency unit.</summary>
+    protected static string FormatMinorUnitAmount(Money amount)
     {
         var digits = Iso4217.MinorUnitDigits(amount.Currency);
-        if (digits == 0)
-            return amount.MinorUnits.ToString(CultureInfo.InvariantCulture);
-
         var scale = (decimal)Math.Pow(10, digits);
-        var major = amount.MinorUnits / scale;
-        return major.ToString("F" + digits, CultureInfo.InvariantCulture);
+        var minorUnits = decimal.Round(amount.Amount * scale, 0, MidpointRounding.AwayFromZero);
+        return minorUnits.ToString("F0", CultureInfo.InvariantCulture);
     }
 
     // ---- HS256 JWT (2C2P): alg-pinned, symmetric ----

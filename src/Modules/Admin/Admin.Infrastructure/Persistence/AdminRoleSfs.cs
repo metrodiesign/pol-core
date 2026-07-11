@@ -19,7 +19,7 @@ namespace Admin.Infrastructure.Persistence;
 ///
 /// AdminRole is all string/enum columns, so this exemplar exercises the 9 operators meaningful to those
 /// columns (eq, ne, in, not_in, like, ilike, contains, is_null, is_not_null). The 5 range/numeric operators
-/// (gt, gte, lt, lte, between) are demonstrated on Products in the tenant-scoped exemplar, where numeric/date
+/// (gt, gte, lt, lte, between) are demonstrated on Products in the merchant-scoped exemplar, where numeric/date
 /// columns exist; the full 14-operator reference is doc section 4.1. (REQ-3, REQ-4, REQ-5, REQ-6, REQ-8.5, REQ-8.6)
 /// </summary>
 public static class AdminRoleSfs

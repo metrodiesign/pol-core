@@ -3,20 +3,18 @@ using SharedKernel;
 namespace Checkout.Domain;
 
 /// <summary>
-/// A tenant's in-flight checkout for a single cart. Its own aggregate (Checkout owns no Cart/Orders
+/// A merchant's in-flight checkout for a single cart. Its own aggregate (Checkout owns no Cart/Orders
 /// type — it references them only by id), holding the agreed <see cref="Amount"/> and the lifecycle
-/// <see cref="Status"/>. Money is stored as two scalar columns to avoid EF friction with the
-/// validating <see cref="Money"/> ctor; <see cref="Amount"/> reconstructs it.
+/// <see cref="Status"/>. <see cref="Amount"/> is mapped as an EF complex type (rf1 — decimal(19,4) +
+/// char(3) columns).
 /// </summary>
 public sealed class CheckoutSession : AggregateRoot<Guid>
 {
-    public Guid TenantId { get; private set; }
+    public Guid MerchantId { get; private set; }
 
     public Guid CartId { get; private set; }
 
-    public long AmountMinorUnits { get; private set; }
-
-    public string AmountCurrency { get; private set; } = default!;
+    public Money Amount { get; private set; }
 
     public CheckoutStatus Status { get; private set; }
 
@@ -26,16 +24,12 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
     /// order on confirm so the customer is sent the summary link.</summary>
     public string? NotificationRecipient { get; private set; }
 
-    /// <summary>The agreed total, reconstructed from the two scalar columns.</summary>
-    public Money Amount => Money.Of(AmountMinorUnits, AmountCurrency);
-
-    private CheckoutSession(Guid id, Guid tenantId, Guid cartId, Money amount, string? notificationRecipient, DateTime createdAt)
+    private CheckoutSession(Guid id, Guid merchantId, Guid cartId, Money amount, string? notificationRecipient, DateTime createdAt)
         : base(id)
     {
-        TenantId = tenantId;
+        MerchantId = merchantId;
         CartId = cartId;
-        AmountMinorUnits = amount.MinorUnits;
-        AmountCurrency = amount.Currency;
+        Amount = amount;
         NotificationRecipient = notificationRecipient;
         Status = CheckoutStatus.Started;
         CreatedAt = createdAt;
@@ -45,14 +39,14 @@ public sealed class CheckoutSession : AggregateRoot<Guid>
     private CheckoutSession() { }
 
     /// <summary>Opens a new checkout in the <see cref="CheckoutStatus.Started"/> state.</summary>
-    public static CheckoutSession Start(Guid tenantId, Guid cartId, Money amount, DateTime nowUtc, string? notificationRecipient = null)
+    public static CheckoutSession Start(Guid merchantId, Guid cartId, Money amount, DateTime nowUtc, string? notificationRecipient = null)
     {
-        if (tenantId == Guid.Empty)
-            throw new ArgumentException("TenantId is required.", nameof(tenantId));
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
         if (cartId == Guid.Empty)
             throw new ArgumentException("CartId is required.", nameof(cartId));
 
-        return new CheckoutSession(Guid.NewGuid(), tenantId, cartId, amount, notificationRecipient, nowUtc);
+        return new CheckoutSession(Guid.NewGuid(), merchantId, cartId, amount, notificationRecipient, nowUtc);
     }
 
     /// <summary>Transitions a started checkout to <see cref="CheckoutStatus.Confirmed"/>.</summary>

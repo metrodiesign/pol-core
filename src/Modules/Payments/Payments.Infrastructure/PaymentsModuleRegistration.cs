@@ -17,7 +17,7 @@ public static class PaymentsModuleRegistration
 {
     public static IServiceCollection AddPaymentsModule(this IServiceCollection services)
     {
-        // Repositories depend on the Scoped ProducerDbContext, so they are Scoped too.
+        // Repositories depend on the Scoped PolDbContext, so they are Scoped too.
         services.AddScoped<IPaymentSessionRepository, PaymentSessionRepository>();
         services.AddScoped<IPspConnectionRepository, PspConnectionRepository>();
 
@@ -35,7 +35,7 @@ public static class PaymentsModuleRegistration
         services.AddSingleton<IPspAdapter, OmiseAdapter>();
         services.AddSingleton<IPspAdapterFactory, PspAdapterFactory>();
 
-        // Owns the per-PSP secret envelope shape; stateless, consumed by tenant provisioning.
+        // Owns the per-PSP secret envelope shape; stateless, consumed by merchant provisioning.
         services.AddSingleton<IPspSecretEnvelopeFactory, PspSecretEnvelopeFactory>();
 
         return services;

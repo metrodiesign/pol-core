@@ -17,15 +17,15 @@ public sealed record SetAdminRolesResult(Guid AdminId, IReadOnlyList<string> Rol
 public sealed class SetAdminRolesHandler : ICommandHandler<SetAdminRolesCommand, SetAdminRolesResult>
 {
     private readonly IAdminRoleRepository _roles;
-    private readonly IAdminAccountRepository _admins;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserRepository _admins;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public SetAdminRolesHandler(
         IAdminRoleRepository roles,
-        IAdminAccountRepository admins,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserRepository admins,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -60,7 +60,7 @@ public sealed class SetAdminRolesHandler : ICommandHandler<SetAdminRolesCommand,
             foreach (var roleId in desired.Where(id => !current.Contains(id)))
             {
                 _roles.AddAssignment(AdminRoleAssignment.Create(command.AdminId, roleId, command.ActingAdminId, _clock.UtcNow));
-                _audit.Append(AdminAccountAudit.For(
+                _audit.Append(PlatformUserAudit.For(
                     AdminAuditAction.RoleAssigned, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                     targetAdminId: command.AdminId, targetRoleId: roleId));
             }
@@ -71,7 +71,7 @@ public sealed class SetAdminRolesHandler : ICommandHandler<SetAdminRolesCommand,
                 if (assignment is null)
                     continue;
                 _roles.RemoveAssignment(assignment);
-                _audit.Append(AdminAccountAudit.For(
+                _audit.Append(PlatformUserAudit.For(
                     AdminAuditAction.RoleUnassigned, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                     targetAdminId: command.AdminId, targetRoleId: roleId));
             }

@@ -5,7 +5,7 @@ namespace Admin.Domain;
 
 /// <summary>
 /// A named, admin-managed permission set in the Admin Console (REQ-2). Control-plane and ORTHOGONAL to
-/// <see cref="AdminTier"/>: a role grants ACTIONS (permission keys), independent of an admin's tenant-reach.
+/// <see cref="PlatformUserTier"/>: a role grants ACTIONS (permission keys), independent of an admin's merchant-reach.
 /// <see cref="Code"/> is the stable, immutable identity (REQ-2.4); granted permissions are always a subset of the
 /// catalog (REQ-3.3). An Inactive role contributes nothing to an admin's effective permissions (REQ-5.2). The seed
 /// <see cref="SuperAdminCode"/> role is the lockout-recovery anchor and cannot be deactivated (REQ-8.3).

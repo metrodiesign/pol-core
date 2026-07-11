@@ -14,8 +14,8 @@ namespace Hosts.Tests;
 /// </summary>
 public sealed class AdminSessionCookieTests
 {
-    private static AdminSessionCookies Cookies(string environment, string sameSite = "Lax") =>
-        new(Options.Create(new AdminSessionOptions { SameSite = sameSite }), new Env { EnvironmentName = environment });
+    private static PlatformUserSessionCookies Cookies(string environment, string sameSite = "Lax") =>
+        new(Options.Create(new PlatformUserSessionOptions { SameSite = sameSite }), new Env { EnvironmentName = environment });
 
     private static HttpContext Context(bool https)
     {
@@ -33,15 +33,15 @@ public sealed class AdminSessionCookieTests
     [Fact]
     public void Opaque_token_is_random_and_only_its_hash_is_stored()
     {
-        var a = AdminSessionTokens.NewOpaqueToken();
-        var b = AdminSessionTokens.NewOpaqueToken();
+        var a = PlatformUserSessionTokens.NewOpaqueToken();
+        var b = PlatformUserSessionTokens.NewOpaqueToken();
 
         Assert.NotEqual(a, b);                                  // 256-bit random — practically never collides
         Assert.True(a.Length >= 43);                            // base64url of 32 bytes
-        var hash = AdminSessionTokens.Hash(a);
+        var hash = PlatformUserSessionTokens.Hash(a);
         Assert.Equal(32, hash.Length);                          // SHA-256
-        Assert.Equal(hash, AdminSessionTokens.Hash(a));         // deterministic
-        Assert.NotEqual(hash, AdminSessionTokens.Hash(b));      // different token -> different hash
+        Assert.Equal(hash, PlatformUserSessionTokens.Hash(a));         // deterministic
+        Assert.NotEqual(hash, PlatformUserSessionTokens.Hash(b));      // different token -> different hash
     }
 
     [Fact]

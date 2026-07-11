@@ -1,13 +1,13 @@
 namespace BuildingBlocks.Infrastructure.Vault;
 
 /// <summary>
-/// Envelope-encrypted secret at rest: the data key (DEK) encrypts the secret, the per-tenant key
+/// Envelope-encrypted secret at rest: the data key (DEK) encrypts the secret, the per-merchant key
 /// (KEK) encrypts the DEK. Only ciphertext and a non-sensitive <see cref="Hint"/> (last few chars)
 /// are stored; the plaintext is never persisted and the hint is the only thing display/audit reads.
 /// </summary>
 public sealed class VaultSecretBlob
 {
-    public Guid TenantId { get; private set; }
+    public Guid MerchantId { get; private set; }
     public string Name { get; private set; } = default!;
     public string KeyId { get; private set; } = default!;
     public byte[] EncryptedDek { get; private set; } = default!;
@@ -19,7 +19,7 @@ public sealed class VaultSecretBlob
     private VaultSecretBlob() { }
 
     public VaultSecretBlob(
-        Guid tenantId,
+        Guid merchantId,
         string name,
         string keyId,
         byte[] encryptedDek,
@@ -27,7 +27,7 @@ public sealed class VaultSecretBlob
         string hint,
         DateTime utcNow)
     {
-        TenantId = tenantId;
+        MerchantId = merchantId;
         Name = name;
         KeyId = keyId;
         EncryptedDek = encryptedDek;

@@ -8,7 +8,7 @@ namespace BuildingBlocks.Infrastructure.Vault;
 
 /// <summary>
 /// Self-hosted envelope-encryption vault (PLAN decision #14). Per secret: a random DEK encrypts the
-/// plaintext (AES-256-GCM); a per-tenant KEK, derived from a keyring master key, wraps the DEK. Only
+/// plaintext (AES-256-GCM); a per-merchant KEK, derived from a keyring master key, wraps the DEK. Only
 /// ciphertext + a last-4 hint are persisted; plaintext is revealed solely to server-side PSP calls and
 /// never logged. The master key is rotatable: <see cref="StoreAsync"/> stamps the keyring's ACTIVE id into
 /// the blob, and <see cref="RevealAsync"/> decrypts with the key the blob recorded — failing CLOSED if that
@@ -16,12 +16,12 @@ namespace BuildingBlocks.Infrastructure.Vault;
 /// </summary>
 public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
     private readonly IClock _clock;
     private readonly VaultKeyring _keyring;
     private readonly IVaultRevealAuditWriter _auditWriter;
 
-    public LocalEnvelopeVaultStore(ProducerDbContext db, IClock clock, VaultKeyring keyring, IVaultRevealAuditWriter auditWriter)
+    public LocalEnvelopeVaultStore(PolDbContext db, IClock clock, VaultKeyring keyring, IVaultRevealAuditWriter auditWriter)
     {
         _db = db;
         _clock = clock;
@@ -29,10 +29,10 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
         _auditWriter = auditWriter;
     }
 
-    public async Task StoreAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken)
+    public async Task StoreAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken)
     {
         var (activeKeyId, masterKey) = _keyring.Active;
-        var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
+        var kek = VaultEnvelope.DeriveKek(masterKey, merchantId);
         var dek = RandomNumberGenerator.GetBytes(32);
         try
         {
@@ -40,9 +40,9 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             var wrappedDek = VaultEnvelope.Encrypt(kek, dek);
             var hint = LastFour(plaintextSecret);
 
-            var existing = await _db.VaultSecrets.FindAsync([tenantId, name], cancellationToken).ConfigureAwait(false);
+            var existing = await _db.VaultSecrets.FindAsync([merchantId, name], cancellationToken).ConfigureAwait(false);
             if (existing is null)
-                _db.VaultSecrets.Add(new VaultSecretBlob(tenantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
+                _db.VaultSecrets.Add(new VaultSecretBlob(merchantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
             else
                 existing.Rotate(wrappedDek, activeKeyId, encryptedSecret, hint, _clock.UtcNow);
 
@@ -56,14 +56,14 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
     }
 
     /// <summary>Insert-only write for the provisioning path: NO read-before-write, so a principal granted
-    /// only INSERT on VCentralPay.VaultSecrets can store a secret without ever holding SELECT (the migration
+    /// only INSERT on merch.VaultSecrets can store a secret without ever holding SELECT (the migration
     /// keeps pol_admin from reading plaintext back). Tracks the row but does NOT save — the caller's unit of
-    /// work commits it in the provisioning transaction, where a (tenantId, name) collision becomes a
+    /// work commits it in the provisioning transaction, where a (merchantId, name) collision becomes a
     /// translated 409 rather than a 500.</summary>
-    public Task InsertAsync(Guid tenantId, string name, string plaintextSecret, CancellationToken cancellationToken)
+    public Task InsertAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken)
     {
         var (activeKeyId, masterKey) = _keyring.Active;
-        var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
+        var kek = VaultEnvelope.DeriveKek(masterKey, merchantId);
         var dek = RandomNumberGenerator.GetBytes(32);
         try
         {
@@ -71,7 +71,7 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             var wrappedDek = VaultEnvelope.Encrypt(kek, dek);
             var hint = LastFour(plaintextSecret);
 
-            _db.VaultSecrets.Add(new VaultSecretBlob(tenantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
+            _db.VaultSecrets.Add(new VaultSecretBlob(merchantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
             return Task.CompletedTask;
         }
         finally
@@ -81,17 +81,17 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
         }
     }
 
-    public async Task<string> RevealAsync(Guid tenantId, string name, CancellationToken cancellationToken)
+    public async Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
-        var blob = await _db.VaultSecrets.FindAsync([tenantId, name], cancellationToken).ConfigureAwait(false)
-            ?? throw new KeyNotFoundException($"Vault secret '{name}' not found for the tenant.");
+        var blob = await _db.VaultSecrets.FindAsync([merchantId, name], cancellationToken).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException($"Vault secret '{name}' not found for the merchant.");
 
         // Fail CLOSED on an unknown/retired key id — never fall back to the active key (that would mask a
         // custody mistake or let a forged KeyId downgrade to a different key). The id is a non-secret label.
         var masterKey = _keyring.ResolveOrNull(blob.KeyId)
             ?? throw new InvalidOperationException($"Vault key id '{blob.KeyId}' is not in the active keyring.");
 
-        var kek = VaultEnvelope.DeriveKek(masterKey, tenantId);
+        var kek = VaultEnvelope.DeriveKek(masterKey, merchantId);
         byte[] dek = [];
         string plaintext;
         try
@@ -107,18 +107,18 @@ public sealed class LocalEnvelopeVaultStore : IVaultSecretStore
 
         // Record the reveal tamper-evidently before returning. Fail CLOSED on an audit-write error — a
         // secret that reached process memory must never escape unaudited.
-        await _auditWriter.AppendAsync(tenantId, name, cancellationToken).ConfigureAwait(false);
+        await _auditWriter.AppendAsync(merchantId, name, cancellationToken).ConfigureAwait(false);
         return plaintext;
     }
 
-    public async Task<string?> MaskedAsync(Guid tenantId, string name, CancellationToken cancellationToken)
+    public async Task<string?> MaskedAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
-        var blob = await _db.VaultSecrets.FindAsync([tenantId, name], cancellationToken).ConfigureAwait(false);
+        var blob = await _db.VaultSecrets.FindAsync([merchantId, name], cancellationToken).ConfigureAwait(false);
         return blob is null ? null : $"****{blob.Hint}";
     }
 
-    public Task<bool> ExistsAsync(Guid tenantId, string name, CancellationToken cancellationToken) =>
-        _db.VaultSecrets.AnyAsync(x => x.TenantId == tenantId && x.Name == name, cancellationToken);
+    public Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
+        _db.VaultSecrets.AnyAsync(x => x.MerchantId == merchantId && x.Name == name, cancellationToken);
 
     private static string LastFour(string secret) =>
         secret.Length <= 4 ? new string('*', secret.Length) : secret[^4..];

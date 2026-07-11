@@ -3,24 +3,24 @@ namespace SharedKernel.Tests;
 public class MoneyTests
 {
     [Fact]
-    public void Of_StoresMinorUnitsAndUpperInvariantCurrency()
+    public void Of_StoresAmountAndUpperInvariantCurrency()
     {
-        var money = Money.Of(150, "thb");
+        var money = Money.Of(150m, "thb");
 
-        Assert.Equal(150, money.MinorUnits);
+        Assert.Equal(150m, money.Amount);
         Assert.Equal("THB", money.Currency);
     }
 
     [Fact]
-    public void Of_RejectsNegativeMinorUnits()
+    public void Of_RejectsNegativeAmount()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => Money.Of(-1, "THB"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Money.Of(-1m, "THB"));
     }
 
     [Fact]
     public void Of_RejectsUnknownCurrency()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => Money.Of(100, "EUR"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Money.Of(100m, "EUR"));
     }
 
     [Theory]
@@ -28,30 +28,46 @@ public class MoneyTests
     [InlineData("   ")]
     public void Of_RejectsBlankCurrency(string currency)
     {
-        Assert.Throws<ArgumentException>(() => Money.Of(100, currency));
+        Assert.Throws<ArgumentException>(() => Money.Of(100m, currency));
     }
 
     [Fact]
     public void Of_RejectsNullCurrency()
     {
-        Assert.Throws<ArgumentNullException>(() => Money.Of(100, null!));
+        Assert.Throws<ArgumentNullException>(() => Money.Of(100m, null!));
     }
 
     [Fact]
-    public void Of_AllowsZeroMinorUnits()
+    public void Of_AllowsZeroAmount()
     {
-        var money = Money.Of(0, "JPY");
+        var money = Money.Of(0m, "JPY");
 
-        Assert.Equal(0, money.MinorUnits);
+        Assert.Equal(0m, money.Amount);
         Assert.Equal("JPY", money.Currency);
     }
 
     [Fact]
-    public void Zero_HasZeroMinorUnitsInGivenCurrency()
+    public void Of_AllowsScaleUpToFour()
+    {
+        var money = Money.Of(1.2345m, "THB");
+
+        Assert.Equal(1.2345m, money.Amount);
+    }
+
+    [Theory]
+    [InlineData(1.23455)]
+    [InlineData(0.00001)]
+    public void Of_RejectsScaleGreaterThanFour(double amount)
+    {
+        Assert.Throws<ArgumentException>(() => Money.Of((decimal)amount, "THB"));
+    }
+
+    [Fact]
+    public void Zero_HasZeroAmountInGivenCurrency()
     {
         var zero = Money.Zero("USD");
 
-        Assert.Equal(0, zero.MinorUnits);
+        Assert.Equal(0m, zero.Amount);
         Assert.Equal("USD", zero.Currency);
     }
 
@@ -62,18 +78,18 @@ public class MoneyTests
     }
 
     [Fact]
-    public void Add_SameCurrency_SumsMinorUnits()
+    public void Add_SameCurrency_SumsAmount()
     {
-        var sum = Money.Of(100, "THB").Add(Money.Of(250, "THB"));
+        var sum = Money.Of(100m, "THB").Add(Money.Of(250m, "THB"));
 
-        Assert.Equal(350, sum.MinorUnits);
+        Assert.Equal(350m, sum.Amount);
         Assert.Equal("THB", sum.Currency);
     }
 
     [Fact]
     public void Add_ToZero_ReturnsOriginalAmount()
     {
-        var amount = Money.Of(500, "USD");
+        var amount = Money.Of(500m, "USD");
 
         var sum = Money.Zero("USD").Add(amount);
 
@@ -83,17 +99,17 @@ public class MoneyTests
     [Fact]
     public void Add_DifferentCurrencies_Throws()
     {
-        var thb = Money.Of(100, "THB");
-        var usd = Money.Of(100, "USD");
+        var thb = Money.Of(100m, "THB");
+        var usd = Money.Of(100m, "USD");
 
         Assert.Throws<InvalidOperationException>(() => thb.Add(usd));
     }
 
     [Fact]
-    public void Add_Overflow_ThrowsChecked()
+    public void Add_Overflow_Throws()
     {
-        var big = Money.Of(long.MaxValue, "JPY");
-        var one = Money.Of(1, "JPY");
+        var big = Money.Of(decimal.MaxValue, "JPY");
+        var one = Money.Of(1m, "JPY");
 
         Assert.Throws<OverflowException>(() => big.Add(one));
     }
@@ -103,13 +119,13 @@ public class MoneyTests
     {
         Money uninitialised = default;
 
-        Assert.Throws<InvalidOperationException>(() => uninitialised.Add(Money.Of(1, "THB")));
+        Assert.Throws<InvalidOperationException>(() => uninitialised.Add(Money.Of(1m, "THB")));
     }
 
     [Fact]
     public void Add_WithDefaultMoneyArgument_Throws()
     {
-        var valid = Money.Of(1, "THB");
+        var valid = Money.Of(1m, "THB");
         Money uninitialised = default;
 
         Assert.Throws<InvalidOperationException>(() => valid.Add(uninitialised));
@@ -118,24 +134,24 @@ public class MoneyTests
     [Fact]
     public void SameCurrencyAs_TrueForMatchingCurrency()
     {
-        Assert.True(Money.Of(1, "THB").SameCurrencyAs(Money.Of(999, "THB")));
+        Assert.True(Money.Of(1m, "THB").SameCurrencyAs(Money.Of(999m, "THB")));
     }
 
     [Fact]
     public void SameCurrencyAs_FalseForDifferentCurrency()
     {
-        Assert.False(Money.Of(1, "THB").SameCurrencyAs(Money.Of(1, "USD")));
+        Assert.False(Money.Of(1m, "THB").SameCurrencyAs(Money.Of(1m, "USD")));
     }
 
     [Fact]
-    public void Equality_SameMinorUnitsAndCurrency_AreEqual()
+    public void Equality_SameAmountAndCurrency_AreEqual()
     {
-        Assert.Equal(Money.Of(100, "THB"), Money.Of(100, "thb"));
+        Assert.Equal(Money.Of(100m, "THB"), Money.Of(100m, "thb"));
     }
 
     [Fact]
-    public void Equality_DifferentMinorUnits_AreNotEqual()
+    public void Equality_DifferentAmount_AreNotEqual()
     {
-        Assert.NotEqual(Money.Of(100, "THB"), Money.Of(101, "THB"));
+        Assert.NotEqual(Money.Of(100m, "THB"), Money.Of(101m, "THB"));
     }
 }

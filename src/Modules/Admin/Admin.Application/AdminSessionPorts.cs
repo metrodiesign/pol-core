@@ -7,16 +7,16 @@ namespace Admin.Application;
 /// expressed as atomic set-based updates so concurrent requests cannot lost-update a session's status — the
 /// affected-row count of <see cref="TrySupersedeAsync"/> is the single-winner flag for rotation (REQ-5.5).
 /// </summary>
-public interface IAdminSessionStore
+public interface IPlatformUserSessionStore
 {
     /// <summary>Looks up a session by the SHA-256 hash of the presented cookie token. O(1) (unique index).</summary>
-    Task<AdminSession?> FindByTokenHashAsync(byte[] tokenHash, CancellationToken cancellationToken);
+    Task<PlatformUserSession?> FindByTokenHashAsync(byte[] tokenHash, CancellationToken cancellationToken);
 
     /// <summary>The id of the family's single Active session, or null when there is not exactly one — used for
     /// immediate-predecessor (reuse) detection (REQ-5.2/5.3).</summary>
     Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken cancellationToken);
 
-    void Add(AdminSession session);
+    void Add(PlatformUserSession session);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     /// <summary>Atomically marks an Active session Superseded (linking its successor) via a single conditional
@@ -39,17 +39,17 @@ public interface IAdminSessionStore
 
     /// <summary>All of an admin's stored sessions, newest first with a session-id tiebreak (unpaged — the prune
     /// job bounds the set), for the session-management view (admin-account-management REQ-4). Read-only.</summary>
-    Task<IReadOnlyList<AdminSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken cancellationToken);
+    Task<IReadOnlyList<PlatformUserSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken cancellationToken);
 
     /// <summary>Looks up a single session by id (admin-account-management REQ-5) — used to check ownership and read
-    /// its <see cref="AdminSession.FamilyId"/> before a family revoke. Read-only.</summary>
-    Task<AdminSession?> FindByIdAsync(Guid sessionId, CancellationToken cancellationToken);
+    /// its <see cref="PlatformUserSession.FamilyId"/> before a family revoke. Read-only.</summary>
+    Task<PlatformUserSession?> FindByIdAsync(Guid sessionId, CancellationToken cancellationToken);
 }
 
-/// <summary>Append-only auth event audit (REQ-12). Separate writer from <see cref="IAdminAccountAuditWriter"/>
+/// <summary>Append-only auth event audit (REQ-12). Separate writer from <see cref="IPlatformUserAuditWriter"/>
 /// because an auth event may carry no resolved admin id, which the account audit forbids.</summary>
-public interface IAdminAuthAuditWriter
+public interface IPlatformAuthAuditWriter
 {
-    void Append(AdminAuthAudit entry);
+    void Append(PlatformAuthAudit entry);
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

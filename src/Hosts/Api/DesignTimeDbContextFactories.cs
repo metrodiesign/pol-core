@@ -19,9 +19,8 @@ internal static class HostModuleAssemblies
         typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
-        typeof(Tenant.Infrastructure.TenantModuleRegistration).Assembly,
+        typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(Admin.Infrastructure.AdminModuleRegistration).Assembly,
-        typeof(Producer.Infrastructure.ProducerModuleRegistration).Assembly,
     ];
 
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;
@@ -31,14 +30,14 @@ internal static class HostModuleAssemblies
         ?? "Server=localhost;Database=pol_core_design;Trusted_Connection=True;TrustServerCertificate=True";
 }
 
-/// <summary>Lets <c>dotnet ef migrations</c> construct the producer model without booting the host.</summary>
-public sealed class ProducerDbContextFactory : IDesignTimeDbContextFactory<ProducerDbContext>
+/// <summary>Lets <c>dotnet ef migrations</c> construct the merchant-user model without booting the host.</summary>
+public sealed class PolDbContextFactory : IDesignTimeDbContextFactory<PolDbContext>
 {
-    public ProducerDbContext CreateDbContext(string[] args)
+    public PolDbContext CreateDbContext(string[] args)
     {
-        var options = new DbContextOptionsBuilder<ProducerDbContext>()
+        var options = new DbContextOptionsBuilder<PolDbContext>()
             .UseSqlServer(HostModuleAssemblies.DesignConnectionString)
             .Options;
-        return new ProducerDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All));
+        return new PolDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All));
     }
 }

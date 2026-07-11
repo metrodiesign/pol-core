@@ -9,22 +9,22 @@ using SearchOption = BuildingBlocks.Application.SearchOption;
 namespace Products.Tests;
 
 /// <summary>
-/// The tenant-scoped Product SFS pipeline (in-memory <c>List.AsQueryable</c> cases). Proves the range/numeric
+/// The merchant-scoped Product SFS pipeline (in-memory <c>List.AsQueryable</c> cases). Proves the range/numeric
 /// operators (gt/gte/lt/lte/between on price + createdAt) and eq on the bool, the whitelist gating (including
-/// that <c>tenantId</c> is never filterable — REQ-7.3), the coercion guard (wrong-typed value ->
+/// that <c>merchantId</c> is never filterable — REQ-7.3), the coercion guard (wrong-typed value ->
 /// ArgumentException -> 400), the mandatory default sort, and the typed <see cref="ProductFilterDto"/> parse
-/// (REQ-10, REQ-8.3). LIKE-escape + tenant narrowing over a real provider live in ProductRepositoryListTests.
+/// (REQ-10, REQ-8.3). LIKE-escape + merchant narrowing over a real provider live in ProductRepositoryListTests.
 /// </summary>
 public sealed class ProductSfsTests
 {
-    private static readonly Guid Tenant = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid Merchant = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
-    private static Product P(string name, long price, bool active = true, int dayOffset = 0)
+    private static Product P(string name, decimal price, bool active = true, int dayOffset = 0)
     {
-        var p = Product.Create(Tenant, name, Money.Of(price, "THB"), T0.AddDays(dayOffset));
+        var p = Product.Create(Merchant, name, Money.Of(price, "THB"), T0.AddDays(dayOffset));
         if (!active) p.Deactivate();
         return p;
     }
@@ -43,8 +43,8 @@ public sealed class ProductSfsTests
     [Fact]
     public void Tenant_id_is_never_filterable()
     {
-        // tenantId is in no whitelist, so a filter naming it is dropped — SFS cannot widen tenant scope (REQ-7.3).
-        var r = Q(P("a", 100)).ApplyFilters([new FilterOption("tenantId", FilterOperator.Equals, J("\"x\""))]);
+        // merchantId is in no whitelist, so a filter naming it is dropped — SFS cannot widen merchant scope (REQ-7.3).
+        var r = Q(P("a", 100)).ApplyFilters([new FilterOption("merchantId", FilterOperator.Equals, J("\"x\""))]);
         Assert.Single(r);
     }
 
@@ -65,7 +65,7 @@ public sealed class ProductSfsTests
     public void Price_comparison_operators(FilterOperator op, int expected)
     {
         var r = Q(P("a", 100), P("b", 200), P("c", 300))
-            .ApplyFilters([new FilterOption("priceMinorUnits", op, J("200"))]);
+            .ApplyFilters([new FilterOption("priceAmount", op, J("200"))]);
         Assert.Equal(expected, r.Count());
     }
 
@@ -73,7 +73,7 @@ public sealed class ProductSfsTests
     public void Price_between_filter()
     {
         var r = Q(P("a", 100), P("b", 200), P("c", 300))
-            .ApplyFilters([new FilterOption("priceMinorUnits", FilterOperator.Between, Values: [J("150"), J("250")])]);
+            .ApplyFilters([new FilterOption("priceAmount", FilterOperator.Between, Values: [J("150"), J("250")])]);
         Assert.Equal("b", Assert.Single(r).Name);
     }
 
@@ -81,7 +81,7 @@ public sealed class ProductSfsTests
     public void Empty_between_values_is_dropped()
     {
         var r = Q(P("a", 100), P("b", 200))
-            .ApplyFilters([new FilterOption("priceMinorUnits", FilterOperator.Between, Values: [J("150")])]);
+            .ApplyFilters([new FilterOption("priceAmount", FilterOperator.Between, Values: [J("150")])]);
         Assert.Equal(2, r.Count());   // fewer than 2 values -> silent-drop (REQ-3.6)
     }
 
@@ -97,7 +97,7 @@ public sealed class ProductSfsTests
     [Fact]
     public void Wrong_typed_price_throws_ArgumentException() =>
         Assert.Throws<ArgumentException>(() =>
-            Q(P("a", 100)).ApplyFilters([new FilterOption("priceMinorUnits", FilterOperator.GreaterThanOrEqual, J("\"abc\""))]));
+            Q(P("a", 100)).ApplyFilters([new FilterOption("priceAmount", FilterOperator.GreaterThanOrEqual, J("\"abc\""))]));
 
     [Fact]
     public void Wrong_typed_isActive_throws_ArgumentException() =>
@@ -136,7 +136,7 @@ public sealed class ProductSfsTests
     public void Sort_by_price_ascending()
     {
         var r = Q(P("a", 300), P("b", 100), P("c", 200))
-            .ApplySort([new SortOption("priceMinorUnits")]).Select(p => p.Name).ToList();
+            .ApplySort([new SortOption("priceAmount")]).Select(p => p.Name).ToList();
         Assert.Equal(new[] { "b", "c", "a" }, r);
     }
 
@@ -144,8 +144,8 @@ public sealed class ProductSfsTests
     [Fact]
     public void ParseProductFilters_valid()
     {
-        var dto = ProductFilterDto.Parse("""{"minPriceMinorUnits":100,"activeOnly":true}""");
-        Assert.Equal(100, dto!.MinPriceMinorUnits);
+        var dto = ProductFilterDto.Parse("""{"minPriceAmount":100,"activeOnly":true}""");
+        Assert.Equal(100m, dto!.MinPriceAmount);
         Assert.True(dto.ActiveOnly);
     }
 
@@ -154,14 +154,14 @@ public sealed class ProductSfsTests
 
     [Fact]
     public void ParseProductFilters_negative_is_rejected() =>
-        Assert.Throws<ArgumentException>(() => ProductFilterDto.Parse("""{"minPriceMinorUnits":-1}"""));
+        Assert.Throws<ArgumentException>(() => ProductFilterDto.Parse("""{"minPriceAmount":-1}"""));
 
     [Fact]
     public void ParseProductFilters_malformed_is_rejected() =>
         Assert.Throws<ArgumentException>(() => ProductFilterDto.Parse("not json"));
 
-    // ---- tenant guard marker (REQ-7.2) ----
+    // ---- merchant guard marker (REQ-7.2) ----
     [Fact]
     public void ListProductsQuery_is_tenant_scoped() =>
-        Assert.True(typeof(ListProductsQuery).IsAssignableTo(typeof(ITenantScoped)));
+        Assert.True(typeof(ListProductsQuery).IsAssignableTo(typeof(IMerchantScoped)));
 }

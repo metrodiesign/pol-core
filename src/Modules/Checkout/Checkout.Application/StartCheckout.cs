@@ -8,13 +8,13 @@ namespace Checkout.Application;
 /// <summary>Opens a new checkout session for a cart with an agreed amount + an optional notification
 /// recipient (the customer's email/phone, carried to the order on confirm).</summary>
 public sealed record StartCheckoutCommand(
-    Guid TenantId, Guid CartId, long AmountMinorUnits, string Currency, string? Recipient = null)
-    : ICommand<StartCheckoutResult>, ITenantScoped;
+    Guid MerchantId, Guid CartId, Money Amount, string? Recipient = null)
+    : ICommand<StartCheckoutResult>, IMerchantScoped;
 
 /// <summary>Identity of the freshly started checkout session.</summary>
 public sealed record StartCheckoutResult(Guid CheckoutSessionId);
 
-/// <summary>Validates the amount, opens a <see cref="CheckoutSession"/> and persists it.</summary>
+/// <summary>Opens a <see cref="CheckoutSession"/> and persists it.</summary>
 public sealed class StartCheckoutHandler : ICommandHandler<StartCheckoutCommand, StartCheckoutResult>
 {
     private readonly ICheckoutRepository _repository;
@@ -30,8 +30,7 @@ public sealed class StartCheckoutHandler : ICommandHandler<StartCheckoutCommand,
 
     public async ValueTask<StartCheckoutResult> Handle(StartCheckoutCommand command, CancellationToken cancellationToken)
     {
-        var amount = Money.Of(command.AmountMinorUnits, command.Currency);
-        var session = CheckoutSession.Start(command.TenantId, command.CartId, amount, _clock.UtcNow, command.Recipient);
+        var session = CheckoutSession.Start(command.MerchantId, command.CartId, command.Amount, _clock.UtcNow, command.Recipient);
 
         _repository.Add(session);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

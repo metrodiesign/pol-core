@@ -13,15 +13,15 @@ namespace BuildingBlocks.Infrastructure.Idempotency;
 /// </summary>
 public sealed class EfIdempotencyStore : IIdempotencyStore
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
     private readonly IClock _clock;
-    private readonly ITenantContext _tenant;
+    private readonly IActorContext _actor;
 
-    public EfIdempotencyStore(ProducerDbContext db, IClock clock, ITenantContext tenant)
+    public EfIdempotencyStore(PolDbContext db, IClock clock, IActorContext actor)
     {
         _db = db;
         _clock = clock;
-        _tenant = tenant;
+        _actor = actor;
     }
 
     public async Task<bool> TryBeginAsync(IReadOnlyCollection<string> keys, string context, CancellationToken cancellationToken)
@@ -30,10 +30,10 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
         if (distinct.Count == 0)
             return true;
 
-        // Claims are RLS-scoped: the row's TenantId must equal SESSION_CONTEXT. The webhook resolves
-        // the tenant before claiming, so a missing tenant here is a programming error.
-        if (!_tenant.HasTenant)
-            throw new InvalidOperationException("Cannot claim an idempotency key without a bound tenant.");
+        // Claims are RLS-scoped: the row's MerchantId must equal SESSION_CONTEXT. The webhook resolves
+        // the merchant before claiming, so a missing actor here is a programming error.
+        if (!_actor.HasActor)
+            throw new InvalidOperationException("Cannot claim an idempotency key without a bound actor.");
 
         // Fast path (provider-agnostic): if any key is already claimed, this is a replay.
         var alreadyClaimed = await _db.IdempotencyRecords
@@ -44,7 +44,7 @@ public sealed class EfIdempotencyStore : IIdempotencyStore
             return false;
 
         foreach (var key in distinct)
-            _db.IdempotencyRecords.Add(new IdempotencyRecord(key, _tenant.TenantId, context, _clock.UtcNow));
+            _db.IdempotencyRecords.Add(new IdempotencyRecord(key, _actor.MerchantId, context, _clock.UtcNow));
 
         try
         {

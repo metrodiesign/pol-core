@@ -4,8 +4,8 @@ using Mediator;
 namespace Admin.Application.ResolveAdmin;
 
 /// <summary>
-/// Runtime resolution of an authenticated admin Google subject -> its ACTIVE <see cref="AdminAccount"/> with
-/// the accessible-tenant set materialized (REQ-6). The outcome distinguishes <see cref="AdminResolveOutcome.NotFound"/>
+/// Runtime resolution of an authenticated admin Google subject -> its ACTIVE <see cref="PlatformUser"/> with
+/// the accessible-merchant set materialized (REQ-6). The outcome distinguishes <see cref="AdminResolveOutcome.NotFound"/>
 /// (no account — the host may bootstrap from the allowlist or bind an invite) from
 /// <see cref="AdminResolveOutcome.Suspended"/> (deny, never re-provision — REQ-5.6/5.7). Runs under the
 /// pol_admin (RLS-bypass) connection because admin tables are control-plane.
@@ -15,7 +15,7 @@ public sealed record ResolveAdminQuery(string Subject) : IQuery<AdminResolveResu
 public enum AdminResolveOutcome { Resolved, Suspended, NotFound }
 
 /// <summary>An active admin's identity + reach, materialized once per request into <c>IAdminScope</c>.</summary>
-public sealed record AdminResolution(Guid AdminId, string Email, AdminTier Tier, AccessibleTenants Accessible)
+public sealed record AdminResolution(Guid AdminId, string Email, PlatformUserTier Tier, AccessibleMerchants Accessible)
 {
     private static readonly IReadOnlySet<string> NoPermissions = new HashSet<string>();
 
@@ -34,10 +34,10 @@ public sealed record AdminResolveResult(AdminResolveOutcome Outcome, AdminResolu
 
 public sealed class ResolveAdminHandler : IQueryHandler<ResolveAdminQuery, AdminResolveResult>
 {
-    private readonly IAdminAccountRepository _admins;
+    private readonly IPlatformUserRepository _admins;
     private readonly IAdminRoleRepository _roles;
 
-    public ResolveAdminHandler(IAdminAccountRepository admins, IAdminRoleRepository roles)
+    public ResolveAdminHandler(IPlatformUserRepository admins, IAdminRoleRepository roles)
     {
         _admins = admins;
         _roles = roles;
@@ -59,9 +59,9 @@ public sealed class ResolveAdminHandler : IQueryHandler<ResolveAdminQuery, Admin
 
     /// <summary>Super = unrestricted; Scoped = exactly the assigned set (REQ-6.1/6.2). The design's
     /// <c>IAdminDirectory</c> is folded into this single caller rather than introducing a separate port.</summary>
-    internal static async Task<AccessibleTenants> ResolveAccessibleAsync(
-        AdminAccount account, IAdminAccountRepository admins, CancellationToken cancellationToken) =>
-        account.Tier == AdminTier.Super
-            ? AccessibleTenants.All
-            : AccessibleTenants.Of(await admins.ListAssignedTenantIdsAsync(account.Id, cancellationToken));
+    internal static async Task<AccessibleMerchants> ResolveAccessibleAsync(
+        PlatformUser account, IPlatformUserRepository admins, CancellationToken cancellationToken) =>
+        account.Tier == PlatformUserTier.Super
+            ? AccessibleMerchants.All
+            : AccessibleMerchants.Of(await admins.ListAssignedMerchantIdsAsync(account.Id, cancellationToken));
 }

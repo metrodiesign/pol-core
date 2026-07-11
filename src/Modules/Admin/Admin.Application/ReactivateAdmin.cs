@@ -17,16 +17,16 @@ public sealed record ReactivateAdminResult(Guid AdminId, string Status);
 
 public sealed class ReactivateAdminHandler : ICommandHandler<ReactivateAdminCommand, ReactivateAdminResult>
 {
-    private readonly IAdminAccountRepository _admins;
-    private readonly IAdminSessionStore _sessions;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserRepository _admins;
+    private readonly IPlatformUserSessionStore _sessions;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public ReactivateAdminHandler(
-        IAdminAccountRepository admins,
-        IAdminSessionStore sessions,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserRepository admins,
+        IPlatformUserSessionStore sessions,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -52,7 +52,7 @@ public sealed class ReactivateAdminHandler : ICommandHandler<ReactivateAdminComm
                 await _sessions.RevokeAllForAdminAsync(command.TargetAdminId, ct);
 
             // Audit every accepted call, including the idempotent already-Active case (REQ-3.2/3.3).
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.Reactivate, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.TargetAdminId));
             await _unitOfWork.SaveChangesAsync(ct);

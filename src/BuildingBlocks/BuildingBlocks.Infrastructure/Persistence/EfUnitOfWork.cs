@@ -4,13 +4,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BuildingBlocks.Infrastructure.Persistence;
 
-/// <summary>Unit of work over the Scoped <see cref="ProducerDbContext"/>. Uses the provider's
+/// <summary>Unit of work over the Scoped <see cref="PolDbContext"/>. Uses the provider's
 /// execution strategy so the transaction is retry-safe under transient SQL Server faults.</summary>
 public sealed class EfUnitOfWork : IUnitOfWork
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public EfUnitOfWork(ProducerDbContext db) => _db = db;
+    public EfUnitOfWork(PolDbContext db) => _db = db;
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
     {

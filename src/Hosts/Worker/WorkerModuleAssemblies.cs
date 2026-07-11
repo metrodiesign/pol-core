@@ -3,9 +3,9 @@ using System.Reflection;
 namespace Worker;
 
 /// <summary>
-/// Module Infrastructure assemblies whose entity configurations the worker's ProducerDbContext applies
+/// Module Infrastructure assemblies whose entity configurations the worker's PolDbContext applies
 /// at model-build time — the same set the consoles use, so the worker builds the identical model the
-/// migrations created (it reads/writes producer tables, never the admin schema).
+/// migrations created (it reads/writes merchant-user tables, never the admin schema).
 /// </summary>
 internal static class WorkerModuleAssemblies
 {
@@ -16,8 +16,8 @@ internal static class WorkerModuleAssemblies
         typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
-        // The dispatcher consumes TenantUserRegistrationSubmitted -> records a control-plane notice (REQ-20.4);
-        // the producer EF configs (incl. ProducerRegistrationNotices) must be in the worker's model to write it.
-        typeof(Producer.Infrastructure.ProducerModuleRegistration).Assembly,
+        // The dispatcher consumes MerchantUserRegistrationSubmitted -> records a control-plane notice (REQ-20.4);
+        // the merchant-user EF configs (incl. MerchantUserRegistrationNotices) must be in the worker's model to write it.
+        typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
     ];
 }

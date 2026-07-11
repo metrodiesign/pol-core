@@ -27,8 +27,8 @@ public sealed class TwoCTwoPAdapterTests
         return (new TwoCTwoPAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
-    private static PaymentSession Session(long minor = 25009, string currency = "THB") =>
-        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(minor, currency), "card", PspCode.TwoCTwoP, DateTime.UtcNow);
+    private static PaymentSession Session(decimal amount = 250.09m, string currency = "THB") =>
+        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), "card", PspCode.TwoCTwoP, DateTime.UtcNow);
 
     private static HttpResponseMessage PaymentTokenOk(string webPaymentUrl) =>
         StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
@@ -50,11 +50,11 @@ public sealed class TwoCTwoPAdapterTests
     }
 
     [Theory]
-    [InlineData(25009, "THB", "250.09")]
+    [InlineData(250.09, "THB", "250.09")]
     [InlineData(5000, "JPY", "5000")]
-    public async Task CreateRedirectCharge_formats_major_unit_amount_and_alpha_currency(long minor, string currency, string expectedAmount)
+    public async Task CreateRedirectCharge_formats_major_unit_amount_and_alpha_currency(double amount, string currency, string expectedAmount)
     {
-        var session = Session(minor, currency);
+        var session = Session((decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None);

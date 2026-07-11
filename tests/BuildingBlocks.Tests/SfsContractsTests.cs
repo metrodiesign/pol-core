@@ -84,7 +84,7 @@ public sealed class SfsContractsTests
     public void FilterOption_keeps_value_as_JsonElement_for_apply_time()
     {
         var f = JsonSerializer.Deserialize<FilterOption>(
-            """{"field":"priceMinorUnits","operator":"gte","value":1000}""", Web);
+            """{"field":"priceAmount","operator":"gte","value":1000}""", Web);
 
         Assert.Equal(FilterOperator.GreaterThanOrEqual, f!.Operator);
         Assert.NotNull(f.Value);

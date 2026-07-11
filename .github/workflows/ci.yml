@@ -168,7 +168,7 @@ jobs:
         run: |
           dotnet tool install --global dotnet-ef --version 10.0.8
           export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet ef database update --context ProducerDbContext \
+          dotnet ef database update --context PolDbContext \
             --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
             --startup-project src/Hosts/Api
       - name: Integration tests (live SQL)

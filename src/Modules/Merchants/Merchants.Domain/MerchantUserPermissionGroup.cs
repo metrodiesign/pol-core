@@ -1,0 +1,20 @@
+namespace Merchants.Domain;
+
+/// <summary>A resource bucket that groups permissions in the merchant-user console UI. Reference/catalog data
+/// seeded by migration; <see cref="Key"/> is the natural primary key.</summary>
+// ponytail: DUPLICATE of Admin.Domain.AdminPermissionGroup — deliberate debt, do not refactor into a shared base.
+public sealed class MerchantUserPermissionGroup
+{
+    public string Key { get; private set; } = default!;
+    public string LabelTh { get; private set; } = default!;
+    public int SortOrder { get; private set; }
+
+    private MerchantUserPermissionGroup() { }
+
+    public MerchantUserPermissionGroup(string key, string labelTh, int sortOrder)
+    {
+        Key = key;
+        LabelTh = labelTh;
+        SortOrder = sortOrder;
+    }
+}

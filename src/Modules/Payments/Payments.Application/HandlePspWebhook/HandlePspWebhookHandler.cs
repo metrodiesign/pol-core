@@ -55,7 +55,7 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
             ?? throw new InvalidOperationException($"PSP connection {command.PspConnectionId} not found.");
 
         var adapter = _adapters.For(connection.Psp);
-        var secret = await _vault.RevealAsync(connection.TenantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+        var secret = await _vault.RevealAsync(connection.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
 
         if (!adapter.VerifyWebhook(command.RawPayload, command.Signature, secret))
             return new WebhookHandled(WebhookOutcome.Rejected);
@@ -92,7 +92,7 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
                 _outbox.Enqueue(new PaymentPaid(
                     session.Id,
                     session.OrderId,
-                    session.TenantId,
+                    session.MerchantId,
                     session.Amount,
                     pspCode,
                     evt.ExternalChargeId,

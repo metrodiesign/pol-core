@@ -12,10 +12,10 @@ namespace Admin.Infrastructure.Persistence;
 /// union over the admin's ACTIVE roles (REQ-5.1, N1).</summary>
 public sealed class AdminRoleRepository : IAdminRoleRepository
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
     private readonly ILogger<AdminRoleRepository> _logger;
 
-    public AdminRoleRepository(ProducerDbContext db, ILogger<AdminRoleRepository> logger)
+    public AdminRoleRepository(PolDbContext db, ILogger<AdminRoleRepository> logger)
     {
         _db = db;
         _logger = logger;
@@ -92,7 +92,7 @@ public sealed class AdminRoleRepository : IAdminRoleRepository
     public async Task<IReadOnlySet<Guid>> ListRoleIdsForAdminAsync(Guid adminId, CancellationToken cancellationToken)
     {
         var ids = await _db.Set<AdminRoleAssignment>()
-            .Where(a => a.AdminAccountId == adminId)
+            .Where(a => a.PlatformUserId == adminId)
             .Select(a => a.RoleId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();
@@ -100,10 +100,10 @@ public sealed class AdminRoleRepository : IAdminRoleRepository
 
     public Task<AdminRoleAssignment?> GetAssignmentAsync(Guid adminId, Guid roleId, CancellationToken cancellationToken) =>
         _db.Set<AdminRoleAssignment>()
-            .FirstOrDefaultAsync(a => a.AdminAccountId == adminId && a.RoleId == roleId, cancellationToken);
+            .FirstOrDefaultAsync(a => a.PlatformUserId == adminId && a.RoleId == roleId, cancellationToken);
 
     public Task<bool> AssignmentExistsAsync(Guid adminId, Guid roleId, CancellationToken cancellationToken) =>
-        _db.Set<AdminRoleAssignment>().AnyAsync(a => a.AdminAccountId == adminId && a.RoleId == roleId, cancellationToken);
+        _db.Set<AdminRoleAssignment>().AnyAsync(a => a.PlatformUserId == adminId && a.RoleId == roleId, cancellationToken);
 
     public async Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken cancellationToken)
     {
@@ -127,7 +127,7 @@ public sealed class AdminRoleRepository : IAdminRoleRepository
     public async Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid adminId, CancellationToken cancellationToken)
     {
         var keys = await _db.Set<AdminRoleAssignment>()
-            .Where(a => a.AdminAccountId == adminId)
+            .Where(a => a.PlatformUserId == adminId)
             .Join(_db.Set<AdminRole>().Where(r => r.Status == AdminRoleStatus.Active),
                   a => a.RoleId, r => r.Id, (a, r) => r.Id)
             .Join(_db.Set<AdminRolePermission>(), roleId => roleId, p => p.RoleId, (roleId, p) => p.PermissionKey)
@@ -140,7 +140,7 @@ public sealed class AdminRoleRepository : IAdminRoleRepository
     {
         // ALL assigned roles incl. Inactive (assignment truth, REQ-2.1) — no Active filter, unlike effective perms.
         return await _db.Set<AdminRoleAssignment>()
-            .Where(a => a.AdminAccountId == adminId)
+            .Where(a => a.PlatformUserId == adminId)
             .Join(_db.Set<AdminRole>(), a => a.RoleId, r => r.Id, (a, r) => r.Code)
             .OrderBy(c => c)
             .ToListAsync(cancellationToken);

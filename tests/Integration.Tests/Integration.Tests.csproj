@@ -22,8 +22,8 @@
        the tests drive raw connections so they can control SESSION_CONTEXT and impersonation directly. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
-    <!-- Producer.Domain: the ProducerPermissions catalog vocabulary, for the seed code<->DB parity drift guard. -->
-    <ProjectReference Include="..\..\src\Modules\Producer\Producer.Domain\Producer.Domain.csproj" />
+    <!-- Merchants.Domain: the MerchantUserPermissions catalog vocabulary, for the seed code<->DB parity drift guard. -->
+    <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
   </ItemGroup>
 
 </Project>

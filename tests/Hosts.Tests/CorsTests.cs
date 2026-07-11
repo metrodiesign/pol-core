@@ -9,33 +9,34 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hosts.Tests;
 
-// Split CORS (REQ-10.5), asserted against the single API via WebApplicationFactory. The tenant SPA gets the
-// DEFAULT policy (Bearer, no credentials) on non-admin routes; the admin SPA gets a credentialed policy bound
-// ONLY to the /api/v1/admins route group. So an admin origin is echoed WITH credentials on /api/v1/admins/* but NOT on a tenant
-// route, the tenant origin is echoed (no credentials) on tenant routes, and an unknown origin is never echoed.
+// Split CORS (REQ-10.5), asserted against the single API via WebApplicationFactory. T5 collapsed the old
+// uncredentialed Bearer "tenant" policy into the merchant-user session cookie, so the WHOLE merchant-user funnel
+// (products/carts/checkouts/orders/payments/reports AND /api/v1/merchant-users/*) now shares ONE credentialed
+// DEFAULT policy; the admin SPA gets its own credentialed policy bound ONLY to the /api/v1/admins route group. So
+// an admin origin is echoed WITH credentials on /api/v1/admins/* but NOT on a merchant-user route, the
+// merchant-user origin is echoed WITH credentials everywhere else, and an unknown origin is never echoed.
 // No live database is touched — the preflight (OPTIONS) short-circuits before auth and the endpoint.
 
 file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
 {
-    public const string TenantSpaOrigin = "https://app.example.com";
+    public const string MerchantUserSpaOrigin = "https://app.example.com";
     public const string AdminSpaOrigin = "https://admin.example.com";
-    public const string ProducerSpaOrigin = "https://producer.example.com";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
-        // Google:Audiences is read at registration (per-role policies); supply it as host config.
-        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
+        // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
+        // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
+        builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                ["ConnectionStrings:Worker"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["Cors:AllowedOrigins:0"] = TenantSpaOrigin,    // tenant (default policy, no credentials)
-                ["Cors:AdminOrigins:0"] = AdminSpaOrigin,       // admin (credentialed, /api/v1/admins group only)
-                ["Cors:ProducerOrigins:0"] = ProducerSpaOrigin, // producer (credentialed, /api/v1/producers group only)
+                ["Cors:AllowedOrigins:0"] = MerchantUserSpaOrigin, // merchant-user (default policy, credentialed)
+                ["Cors:AdminOrigins:0"] = AdminSpaOrigin,          // admin (credentialed, /api/v1/admins group only)
             });
         });
         builder.ConfigureServices(services =>
@@ -58,15 +59,15 @@ public sealed class CorsTests
         };
 
     [Fact]
-    public async Task Tenant_origin_is_allowed_without_credentials_on_a_non_admin_route()
+    public async Task MerchantUser_origin_is_allowed_with_credentials_on_a_non_admin_route()
     {
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Preflight(CorsFactory.TenantSpaOrigin, "/health/live"));
+        var response = await client.SendAsync(Preflight(CorsFactory.MerchantUserSpaOrigin, "/health/live"));
 
-        Assert.Equal(CorsFactory.TenantSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
-        Assert.False(response.Headers.Contains("Access-Control-Allow-Credentials")); // tenant: no cookies (REQ-10.5)
+        Assert.Equal(CorsFactory.MerchantUserSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials"))); // T5: cookie XHR (REQ-10.5)
     }
 
     [Fact]
@@ -82,16 +83,17 @@ public sealed class CorsTests
     }
 
     [Fact]
-    public async Task Producer_origin_is_allowed_with_credentials_on_a_producer_route()
+    public async Task MerchantUser_origin_is_allowed_with_credentials_on_the_merchant_user_bff_route()
     {
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        // The credentialed producer policy is bound only to /api/v1/producers by PolCorsPolicyProvider (REQ-9.1/9.3).
-        var response = await client.SendAsync(Preflight(CorsFactory.ProducerSpaOrigin, "/api/v1/producers/me"));
+        // /api/v1/merchant-users/* is NOT under /api/v1/admins, so PolCorsPolicyProvider routes it to the same
+        // credentialed default policy as every other merchant-user-funnel route (REQ-10.5).
+        var response = await client.SendAsync(Preflight(CorsFactory.MerchantUserSpaOrigin, "/api/v1/merchant-users/me"));
 
-        Assert.Equal(CorsFactory.ProducerSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
-        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials"))); // cookie XHR
+        Assert.Equal(CorsFactory.MerchantUserSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
     }
 
     [Fact]
@@ -100,7 +102,7 @@ public sealed class CorsTests
         using var factory = new CorsFactory();
         using var client = factory.CreateClient();
 
-        // The credentialed admin policy is bound only to /admin — the split keeps it off the tenant surface.
+        // The credentialed admin policy is bound only to /api/v1/admins — the split keeps it off the merchant-user surface.
         var response = await client.SendAsync(Preflight(CorsFactory.AdminSpaOrigin, "/health/live"));
 
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));

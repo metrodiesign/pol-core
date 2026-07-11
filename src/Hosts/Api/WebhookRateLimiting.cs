@@ -14,7 +14,7 @@ namespace Api;
 /// GUID-format-only value, so partitioning on it would hand an attacker a fresh budget per random GUID —
 /// the limit would never trip and the partition table would grow unbounded. Source IP is the flood
 /// dimension, so a rotating-GUID flood from one host shares ONE bounded budget and is rejected in
-/// middleware BEFORE the tenant-resolve DB lookup. <c>QueueLimit = 0</c> rejects an over-limit request with
+/// middleware BEFORE the merchant-resolve DB lookup. <c>QueueLimit = 0</c> rejects an over-limit request with
 /// 429 immediately rather than holding the connection open — a held connection makes PSPs retry harder.
 /// Behind a reverse proxy, configure ForwardedHeaders so this is the real client IP; otherwise all webhook
 /// traffic shares the proxy's single bounded budget — still safe, just a global cap instead of per-source.

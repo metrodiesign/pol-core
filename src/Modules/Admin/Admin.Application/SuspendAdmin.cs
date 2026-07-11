@@ -15,14 +15,14 @@ public sealed record SuspendAdminResult(Guid AdminId, string Status);
 
 public sealed class SuspendAdminHandler : ICommandHandler<SuspendAdminCommand, SuspendAdminResult>
 {
-    private readonly IAdminAccountRepository _admins;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserRepository _admins;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public SuspendAdminHandler(
-        IAdminAccountRepository admins,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserRepository admins,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -40,7 +40,7 @@ public sealed class SuspendAdminHandler : ICommandHandler<SuspendAdminCommand, S
                 ?? throw new NotFoundException("The admin account was not found.");
 
             admin.Suspend(command.ActingAdminId); // throws on self-suspend (REQ-8.2)
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.Suspend, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.TargetAdminId));
             await _unitOfWork.SaveChangesAsync(ct);

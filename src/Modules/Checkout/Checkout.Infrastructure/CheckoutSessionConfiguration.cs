@@ -1,30 +1,35 @@
 using Checkout.Domain;
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Checkout.Infrastructure;
 
 /// <summary>
-/// Maps <see cref="CheckoutSession"/> onto the producer schema. The <see cref="CheckoutSession.Amount"/>
-/// projection is ignored; the underlying scalar columns are mapped instead (per the Money mapping rule).
-/// Discovered at model-build time from the module's producer assembly.
+/// Maps <see cref="CheckoutSession"/> onto the producer schema. <see cref="CheckoutSession.Amount"/>
+/// is mapped as a complex type (AmountAmount decimal(19,4), AmountCurrency char(3)) per the Money
+/// mapping rule. Discovered at model-build time from the module's producer assembly.
 /// </summary>
 public sealed class CheckoutSessionConfiguration : IEntityTypeConfiguration<CheckoutSession>
 {
     public void Configure(EntityTypeBuilder<CheckoutSession> builder)
     {
-        builder.ToTable("CheckoutSessions");
+        builder.ToTable("CheckoutSessions", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
-        builder.Property(x => x.TenantId).IsRequired();
+        builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.CartId).IsRequired();
-        builder.Property(x => x.AmountMinorUnits).IsRequired();
-        builder.Property(x => x.AmountCurrency).HasMaxLength(3).IsRequired();
+
+        builder.ComplexProperty(x => x.Amount, p =>
+        {
+            p.Property(m => m.Amount).HasColumnName("AmountAmount").HasPrecision(19, 4);
+            p.Property(m => m.Currency).HasColumnName("AmountCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        });
+
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
-        builder.Ignore(x => x.Amount);
         builder.Ignore(x => x.DomainEvents);
     }
 }

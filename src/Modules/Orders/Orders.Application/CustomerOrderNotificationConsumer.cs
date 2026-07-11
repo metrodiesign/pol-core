@@ -18,6 +18,6 @@ public sealed class CustomerOrderNotificationConsumer : INotificationHandler<Cus
 
     public ValueTask Handle(CustomerOrderNotification notification, CancellationToken cancellationToken) =>
         new(_sender.SendAsync(
-            new NotificationMessage(notification.TenantId, notification.OrderId, notification.Recipient, notification.SummaryToken),
+            new NotificationMessage(notification.MerchantId, notification.OrderId, notification.Recipient, notification.SummaryToken),
             cancellationToken));
 }

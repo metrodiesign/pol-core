@@ -12,7 +12,7 @@ public sealed class AdminPermissionAuthorizationTests
     private static ApiHost::Api.AdminScope BoundScope(params string[] permissions)
     {
         var scope = new ApiHost::Api.AdminScope();
-        scope.Set(new AdminResolution(Guid.NewGuid(), "a@org.com", AdminTier.Scoped, AccessibleTenants.All)
+        scope.Set(new AdminResolution(Guid.NewGuid(), "a@org.com", PlatformUserTier.Scoped, AccessibleMerchants.All)
         {
             Permissions = permissions.ToHashSet(),
         });

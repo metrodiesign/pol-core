@@ -27,7 +27,7 @@ public sealed class AdminLoginServiceTests
 
     [Theory]
     [InlineData("/dashboard", "/dashboard")]     // allowlisted -> honored
-    [InlineData("/tenants", "/tenants")]
+    [InlineData("/merchants", "/merchants")]
     [InlineData("/evil", "/")]                    // not allowlisted -> default
     [InlineData("//evil.com", "/")]              // protocol-relative -> default
     [InlineData("https://evil.com", "/")]        // absolute -> default
@@ -35,7 +35,7 @@ public sealed class AdminLoginServiceTests
     [InlineData(null, "/")]
     public void ReturnUrl_is_only_honored_when_same_origin_and_allowlisted(string? requested, string expected)
     {
-        string[] allowlist = ["/", "/dashboard", "/tenants"];
+        string[] allowlist = ["/", "/dashboard", "/merchants"];
         Assert.Equal(expected, ApiHost::Api.ReturnUrlPolicy.Resolve(requested, allowlist, "/"));
     }
 
@@ -44,15 +44,15 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(
             new AdminResolveResult(AdminResolveOutcome.Resolved,
-                new AdminResolution(AdminId, "ops@org.com", AdminTier.Super, AccessibleTenants.All)));
+                new AdminResolution(AdminId, "ops@org.com", PlatformUserTier.Super, AccessibleMerchants.All)));
 
         await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", "/dashboard", default);
 
         var session = Assert.Single(store.Added);
-        Assert.Equal(AdminId, session.AdminAccountId);
-        Assert.Equal(AdminSessionStatus.Active, session.Status);
+        Assert.Equal(AdminId, session.PlatformUserId);
+        Assert.Equal(PlatformUserSessionStatus.Active, session.Status);
         Assert.Equal(1, store.SaveCount);
-        Assert.Contains(audit.Appended, a => a.EventType == AdminAuthEventType.LoginSuccess && a.AdminAccountId == AdminId);
+        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.LoginSuccess && a.PlatformUserId == AdminId);
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);
         Assert.Equal("/dashboard", http.Response.Headers.Location);
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));
@@ -66,7 +66,7 @@ public sealed class AdminLoginServiceTests
         await service.EstablishSessionAsync(http, "google-sub-2", "ops@org.com", "/dashboard", default);
 
         Assert.Empty(store.Added);
-        Assert.Contains(audit.Appended, a => a.EventType == AdminAuthEventType.AuthDenied && a.Reason == "suspended");
+        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.AuthDenied && a.Reason == "suspended");
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);
         Assert.Equal("/login-error?reason=suspended", http.Response.Headers.Location);
         Assert.DoesNotContain(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));
@@ -81,7 +81,7 @@ public sealed class AdminLoginServiceTests
         await service.EstablishSessionAsync(http, "google-sub-3", "stranger@org.com", "/", default);
 
         Assert.Empty(store.Added);
-        Assert.Contains(audit.Appended, a => a.EventType == AdminAuthEventType.AuthDenied && a.Reason == "not-provisioned");
+        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.AuthDenied && a.Reason == "not-provisioned");
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class AdminLoginServiceTests
         await service.EstablishSessionAsync(http, subject: null, email: "x@org.com", returnTo: "/", default);
 
         Assert.Empty(store.Added);
-        Assert.Contains(audit.Appended, a => a.EventType == AdminAuthEventType.AuthDenied && a.Reason == "missing-subject");
+        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.AuthDenied && a.Reason == "missing-subject");
     }
 
     // --- harness ---
@@ -101,11 +101,11 @@ public sealed class AdminLoginServiceTests
     {
         var store = new FakeSessionStore();
         var audit = new FakeAuthAudit();
-        var cookies = new AdminSessionCookies(Options.Create(new AdminSessionOptions()), new Env());
-        var sessionOptions = Options.Create(new AdminSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/tenants"] });
+        var cookies = new PlatformUserSessionCookies(Options.Create(new PlatformUserSessionOptions()), new Env());
+        var sessionOptions = Options.Create(new PlatformUserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"] });
         var oidcOptions = Options.Create(new AdminOidcOptions { ErrorPath = "/login-error" });
         var provider = new ServiceCollection()
-            .AddScoped<IAdminAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
+            .AddScoped<IPlatformAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();
 
         var service = new AdminLoginService(new FakeResolver(resolve), store, audit, cookies, new TestClock(Now),
@@ -123,28 +123,28 @@ public sealed class AdminLoginServiceTests
             Task.FromResult(result);
     }
 
-    private sealed class FakeSessionStore : IAdminSessionStore
+    private sealed class FakeSessionStore : IPlatformUserSessionStore
     {
-        public readonly List<AdminSession> Added = [];
+        public readonly List<PlatformUserSession> Added = [];
         public int SaveCount;
-        public void Add(AdminSession session) => Added.Add(session);
+        public void Add(PlatformUserSession session) => Added.Add(session);
         public Task<int> SaveChangesAsync(CancellationToken ct) { SaveCount++; return Task.FromResult(1); }
-        public Task<AdminSession?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<AdminSession?>(null);
+        public Task<PlatformUserSession?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<PlatformUserSession?>(null);
         public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
         public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => Task.FromResult(false);
         public Task SlideIdleAsync(Guid id, DateTime idle, CancellationToken ct) => Task.CompletedTask;
         public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) => Task.CompletedTask;
         public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) => Task.CompletedTask;
         public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
-        public Task<IReadOnlyList<AdminSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<AdminSession>>([]);
-        public Task<AdminSession?> FindByIdAsync(Guid sessionId, CancellationToken ct) => Task.FromResult<AdminSession?>(null);
+        public Task<IReadOnlyList<PlatformUserSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<PlatformUserSession>>([]);
+        public Task<PlatformUserSession?> FindByIdAsync(Guid sessionId, CancellationToken ct) => Task.FromResult<PlatformUserSession?>(null);
     }
 
-    private sealed class FakeAuthAudit : IAdminAuthAuditWriter
+    private sealed class FakeAuthAudit : IPlatformAuthAuditWriter
     {
-        public readonly List<AdminAuthAudit> Appended = [];
-        public void Append(AdminAuthAudit entry) => Appended.Add(entry);
+        public readonly List<PlatformAuthAudit> Appended = [];
+        public void Append(PlatformAuthAudit entry) => Appended.Add(entry);
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
     }
 

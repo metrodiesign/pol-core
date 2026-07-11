@@ -12,7 +12,7 @@ using SearchOption = BuildingBlocks.Application.SearchOption;
 namespace Admin.Tests;
 
 /// <summary>
-/// The SFS-paged <c>AdminRoleRepository.ListAsync</c> over a real <see cref="ProducerDbContext"/> backed by
+/// The SFS-paged <c>AdminRoleRepository.ListAsync</c> over a real <see cref="PolDbContext"/> backed by
 /// in-memory SQLite (the Admin module's EF configs are applied via <see cref="ModuleAssemblies"/>). Proves the
 /// wiring behaviours task 4 adds: a paged slice with a total counted after filter/search but before paging
 /// (REQ-2.4, REQ-2.5), and <c>UserCount</c> preserved through the materialize-then-map path (REQ-12.1).
@@ -21,7 +21,7 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
 {
     private static readonly IReadOnlySet<string> NoCatalog = new HashSet<string>();
     private readonly SqliteConnection _connection;
-    private readonly ProducerDbContext _seed;
+    private readonly PolDbContext _seed;
 
     public AdminRoleRepositoryListTests()
     {
@@ -31,8 +31,8 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
         _seed.Database.EnsureCreated();
     }
 
-    private ProducerDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<ProducerDbContext>().UseSqlite(_connection).Options,
+    private PolDbContext NewContext() =>
+        new(new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection).Options,
             new ModuleAssemblies([typeof(AdminRoleSfs).Assembly]));
 
     private AdminRoleRepository Repo() => new(NewContext(), NullLogger<AdminRoleRepository>.Instance);

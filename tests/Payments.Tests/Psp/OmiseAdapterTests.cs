@@ -9,9 +9,10 @@ namespace Payments.Tests.Psp;
 
 /// <summary>
 /// Unit tests for the real Omise adapter against a stub HTTP transport (no network, no real keys).
-/// Covers: card hosted-3DS redirect (authorize_uri) with a deterministic Idempotency-Key + satang
-/// pass-through, PromptPay via Payment Links+ (hosted transaction_url, never source+charge), the
-/// test/live key-environment guard, status mapping (pending never Failed), and webhook well-formedness.
+/// Covers: card hosted-3DS redirect (authorize_uri) with a deterministic Idempotency-Key + conversion
+/// to Omise's minor-unit wire amount, PromptPay via Payment Links+ (hosted transaction_url, never
+/// source+charge), the test/live key-environment guard, status mapping (pending never Failed), and
+/// webhook well-formedness.
 /// </summary>
 public sealed class OmiseAdapterTests
 {
@@ -25,11 +26,11 @@ public sealed class OmiseAdapterTests
         return (new OmiseAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
-    private static PaymentSession Session(string method, long minor = 2000, string currency = "THB") =>
-        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(minor, currency), method, PspCode.Omise, DateTime.UtcNow);
+    private static PaymentSession Session(string method, decimal amount = 20.00m, string currency = "THB") =>
+        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, PspCode.Omise, DateTime.UtcNow);
 
     [Fact]
-    public async Task Card_charge_returns_hosted_authorize_uri_with_idempotency_key_and_satang_passthrough()
+    public async Task Card_charge_returns_hosted_authorize_uri_with_idempotency_key_and_minor_unit_amount()
     {
         var session = Session("card");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
@@ -43,16 +44,16 @@ public sealed class OmiseAdapterTests
         Assert.EndsWith("/charges", handler.Calls[0].Uri!.AbsolutePath);
         Assert.Equal(session.Id.ToString("N"), handler.Calls[0].IdempotencyKey); // retry returns same charge
         Assert.StartsWith("Basic ", handler.Calls[0].Authorization);
-        Assert.Contains("amount=2000", handler.Calls[0].Body); // satang pass-through, no *100 / /100
+        Assert.Contains("amount=2000", handler.Calls[0].Body); // 20.00 THB -> 2000 satang
         Assert.Contains("currency=THB", handler.Calls[0].Body);
     }
 
     [Theory]
-    [InlineData(25009, "THB", "amount=25009")] // satang pass-through, no major-unit conversion
-    [InlineData(5000, "JPY", "amount=5000")]   // 0-decimal currency stays verbatim too
-    public async Task Card_charge_sends_minor_units_verbatim(long minor, string currency, string expected)
+    [InlineData(250.09, "THB", "amount=25009")] // 250.09 THB -> 25009 satang
+    [InlineData(5000, "JPY", "amount=5000")]    // 0-decimal currency: major == minor
+    public async Task Card_charge_converts_amount_to_minor_units(double amount, string currency, string expected)
     {
-        var session = Session("card", minor, currency);
+        var session = Session("card", (decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 

@@ -3,7 +3,7 @@ using SharedKernel;
 namespace Cart.Domain;
 
 /// <summary>
-/// A tenant's shopping cart aggregate: an ordered bag of <see cref="CartItem"/> lines that all share
+/// A merchant's shopping cart aggregate: an ordered bag of <see cref="CartItem"/> lines that all share
 /// one currency. The cart is the transactional boundary — items are added, removed and cleared only
 /// through it, and it is frozen (<see cref="CartStatus.CheckedOut"/>) once checkout begins. It holds
 /// no money itself; the <see cref="Subtotal"/> is computed from its lines.
@@ -12,7 +12,7 @@ public sealed class Cart : AggregateRoot<Guid>
 {
     private readonly List<CartItem> _items = [];
 
-    public Guid TenantId { get; private set; }
+    public Guid MerchantId { get; private set; }
     public CartStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
@@ -22,10 +22,10 @@ public sealed class Cart : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Cart() { }
 
-    public Cart(Guid id, Guid tenantId, DateTime createdAt)
+    public Cart(Guid id, Guid merchantId, DateTime createdAt)
         : base(id)
     {
-        TenantId = tenantId;
+        MerchantId = merchantId;
         Status = CartStatus.Open;
         CreatedAt = createdAt;
     }
@@ -45,7 +45,7 @@ public sealed class Cart : AggregateRoot<Guid>
         EnsureCurrencyMatches(unitPrice);
 
         var existing = _items.FirstOrDefault(
-            i => i.ProductId == productId && i.UnitPriceMinorUnits == unitPrice.MinorUnits);
+            i => i.ProductId == productId && i.UnitPrice.Amount == unitPrice.Amount);
         if (existing is not null)
         {
             existing.IncreaseQuantity(quantity);
@@ -101,7 +101,7 @@ public sealed class Cart : AggregateRoot<Guid>
             if (_items.Count == 0)
                 return null;
 
-            var total = Money.Zero(_items[0].UnitPriceCurrency);
+            var total = Money.Zero(_items[0].UnitPrice.Currency);
             foreach (var item in _items)
                 total = total.Add(item.LineTotal);
 
@@ -114,8 +114,8 @@ public sealed class Cart : AggregateRoot<Guid>
         if (_items.Count == 0)
             return;
 
-        if (!string.Equals(_items[0].UnitPriceCurrency, unitPrice.Currency, StringComparison.Ordinal))
+        if (!string.Equals(_items[0].UnitPrice.Currency, unitPrice.Currency, StringComparison.Ordinal))
             throw new InvalidOperationException(
-                $"Currency mismatch: cart is {_items[0].UnitPriceCurrency}, item is {unitPrice.Currency}.");
+                $"Currency mismatch: cart is {_items[0].UnitPrice.Currency}, item is {unitPrice.Currency}.");
     }
 }

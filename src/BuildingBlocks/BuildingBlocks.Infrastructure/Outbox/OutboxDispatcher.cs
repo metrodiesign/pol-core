@@ -64,12 +64,12 @@ public sealed class OutboxDispatcher : BackgroundService
 
     private async Task DispatchBatchAsync(CancellationToken cancellationToken)
     {
-        // Lease in a no-tenant scope: the OutboxMessages table carries only a BLOCK-after-insert RLS
-        // predicate (no FILTER), so the worker principal sees and leases rows across every tenant.
-        List<(Guid Id, Guid TenantId)> leased;
+        // Lease in a no-actor scope: the OutboxMessages table carries only a BLOCK-after-insert RLS
+        // predicate (no FILTER), so the worker principal sees and leases rows across every merchant.
+        List<(Guid Id, Guid MerchantId)> leased;
         using (var leaseScope = _scopeFactory.CreateScope())
         {
-            var db = leaseScope.ServiceProvider.GetRequiredService<ProducerDbContext>();
+            var db = leaseScope.ServiceProvider.GetRequiredService<PolDbContext>();
             var clock = leaseScope.ServiceProvider.GetRequiredService<IClock>();
 
             var leaseUntil = clock.UtcNow.Add(LeaseDuration);
@@ -77,7 +77,7 @@ public sealed class OutboxDispatcher : BackgroundService
                 UPDATE TOP ({0}) o
                 SET o.LeaseOwner = {1}, o.LeaseExpiresAt = {2}, o.Attempts = o.Attempts + 1
                 OUTPUT inserted.Id AS [Value]
-                FROM VCentralPay.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
+                FROM txn.OutboxMessages AS o WITH (READPAST, UPDLOCK, ROWLOCK)
                 WHERE o.ProcessedAt IS NULL
                   AND (o.LeaseExpiresAt IS NULL OR o.LeaseExpiresAt < {3})
                   AND o.Attempts < {4};
@@ -93,22 +93,22 @@ public sealed class OutboxDispatcher : BackgroundService
 
             var rows = await db.OutboxMessages
                 .Where(m => leasedIds.Contains(m.Id))
-                .Select(m => new { m.Id, m.TenantId })
+                .Select(m => new { m.Id, m.MerchantId })
                 .ToListAsync(cancellationToken)
                 .ConfigureAwait(false);
-            leased = rows.Select(r => (r.Id, r.TenantId)).ToList();
+            leased = rows.Select(r => (r.Id, r.MerchantId)).ToList();
         }
 
-        // Process each message in its OWN scope/DbContext/connection, bound to the message's tenant so
-        // in-process consumers (e.g. OrderPaidConsumer writing VCentralPay.Orders) run RLS-scoped. The
-        // TenantId is trustworthy: the BLOCK-after-insert predicate guaranteed it matched the writer's
+        // Process each message in its OWN scope/DbContext/connection, bound to the message's merchant so
+        // in-process consumers (e.g. OrderPaidConsumer writing shop.Orders) run RLS-scoped. The
+        // MerchantId is trustworthy: the BLOCK-after-insert predicate guaranteed it matched the writer's
         // SESSION_CONTEXT. Disposing the scope before the next message resets the pooled context.
-        foreach (var (id, tenantId) in leased)
+        foreach (var (id, merchantId) in leased)
         {
             using var scope = _scopeFactory.CreateScope();
-            using var tenantBinding = scope.ServiceProvider.GetRequiredService<ITenantScope>().Begin(tenantId);
+            using var tenantBinding = scope.ServiceProvider.GetRequiredService<IActorScope>().Begin(merchantId);
 
-            var db = scope.ServiceProvider.GetRequiredService<ProducerDbContext>();
+            var db = scope.ServiceProvider.GetRequiredService<PolDbContext>();
             var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
             var clock = scope.ServiceProvider.GetRequiredService<IClock>();
 
@@ -141,7 +141,7 @@ public sealed class OutboxDispatcher : BackgroundService
         [nameof(PaymentPaid)] = typeof(PaymentPaid),
         [nameof(CustomerOrderNotification)] = typeof(CustomerOrderNotification),
         [nameof(CheckoutConfirmed)] = typeof(CheckoutConfirmed),
-        [nameof(TenantUserRegistrationSubmitted)] = typeof(TenantUserRegistrationSubmitted),
+        [nameof(MerchantUserRegistrationSubmitted)] = typeof(MerchantUserRegistrationSubmitted),
     };
 
     private static async Task PublishAsync(IPublisher publisher, OutboxMessage message, CancellationToken cancellationToken)

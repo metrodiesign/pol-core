@@ -9,11 +9,11 @@ using SearchOption = BuildingBlocks.Application.SearchOption;   // disambiguate 
 namespace Products.Infrastructure;
 
 /// <summary>
-/// The SFS apply pipeline for the tenant-scoped Product list. This exemplar exercises the range/numeric
-/// operators (gt, gte, lt, lte, between on <c>priceMinorUnits</c>/<c>createdAt</c>) plus eq on the bool
+/// The SFS apply pipeline for the merchant-scoped Product list. This exemplar exercises the range/numeric
+/// operators (gt, gte, lt, lte, between on <c>priceAmount</c>/<c>createdAt</c>) plus eq on the bool
 /// <c>isActive</c> — the operators the control-plane AdminRole exemplar could not (it is all string/enum
-/// columns). No whitelist exposes <c>tenantId</c> or any cross-aggregate key, so SFS can only narrow within the
-/// tenant floor, never widen it (REQ-7.3). Filter values are coerced from <see cref="JsonElement"/> eagerly and
+/// columns). No whitelist exposes <c>merchantId</c> or any cross-aggregate key, so SFS can only narrow within the
+/// merchant floor, never widen it (REQ-7.3). Filter values are coerced from <see cref="JsonElement"/> eagerly and
 /// guarded, so a type mismatch is a 400 (<see cref="ArgumentException"/>), never a 409/500. (REQ-3..6, REQ-8.5, REQ-8.6)
 /// </summary>
 public static class ProductSfs
@@ -22,15 +22,15 @@ public static class ProductSfs
         new Dictionary<string, FilterOperator[]>(StringComparer.Ordinal)
         {
             ["isActive"] = [FilterOperator.Equals],
-            ["priceMinorUnits"] = [FilterOperator.Equals, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
-                                   FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
+            ["priceAmount"] = [FilterOperator.Equals, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+                               FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
             ["createdAt"] = [FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
                              FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
         }.ToFrozenDictionary(StringComparer.Ordinal);
-    // NB: no "tenantId" (or any cross-aggregate FK) in any whitelist — SFS must never widen tenant scope (REQ-7.3).
+    // NB: no "merchantId" (or any cross-aggregate FK) in any whitelist — SFS must never widen merchant scope (REQ-7.3).
 
     private static readonly FrozenSet<string> SortFields =
-        new[] { "name", "priceMinorUnits", "createdAt" }.ToFrozenSet(StringComparer.Ordinal);
+        new[] { "name", "priceAmount", "createdAt" }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> SearchFields =
         new[] { "name" }.ToFrozenSet(StringComparer.Ordinal);
@@ -61,13 +61,13 @@ public static class ProductSfs
         {
             case ("isActive", FilterOperator.Equals): { var b = Bool(f.Value); return q.Where(p => p.IsActive == b); }
 
-            case ("priceMinorUnits", FilterOperator.Equals): { var v = Int64(f.Value); return q.Where(p => p.PriceMinorUnits == v); }
-            case ("priceMinorUnits", FilterOperator.GreaterThan): { var v = Int64(f.Value); return q.Where(p => p.PriceMinorUnits > v); }
-            case ("priceMinorUnits", FilterOperator.GreaterThanOrEqual): { var v = Int64(f.Value); return q.Where(p => p.PriceMinorUnits >= v); }
-            case ("priceMinorUnits", FilterOperator.LessThan): { var v = Int64(f.Value); return q.Where(p => p.PriceMinorUnits < v); }
-            case ("priceMinorUnits", FilterOperator.LessThanOrEqual): { var v = Int64(f.Value); return q.Where(p => p.PriceMinorUnits <= v); }
-            case ("priceMinorUnits", FilterOperator.Between) when f.Values is { Length: >= 2 }:
-            { var lo = Int64(f.Values[0]); var hi = Int64(f.Values[1]); return q.Where(p => p.PriceMinorUnits >= lo && p.PriceMinorUnits <= hi); }
+            case ("priceAmount", FilterOperator.Equals): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount == v); }
+            case ("priceAmount", FilterOperator.GreaterThan): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount > v); }
+            case ("priceAmount", FilterOperator.GreaterThanOrEqual): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount >= v); }
+            case ("priceAmount", FilterOperator.LessThan): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount < v); }
+            case ("priceAmount", FilterOperator.LessThanOrEqual): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount <= v); }
+            case ("priceAmount", FilterOperator.Between) when f.Values is { Length: >= 2 }:
+            { var lo = Decimal(f.Values[0]); var hi = Decimal(f.Values[1]); return q.Where(p => p.Price.Amount >= lo && p.Price.Amount <= hi); }
 
             case ("createdAt", FilterOperator.GreaterThan): { var v = Date(f.Value); return q.Where(p => p.CreatedAt > v); }
             case ("createdAt", FilterOperator.GreaterThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.CreatedAt >= v); }
@@ -98,8 +98,8 @@ public static class ProductSfs
                 // All three sort columns are non-nullable -> plain ordering (no NULLS-last step needed).
                 ("name", true) => asc ? query.OrderBy(p => p.Name) : query.OrderByDescending(p => p.Name),
                 ("name", false) => asc ? o!.ThenBy(p => p.Name) : o!.ThenByDescending(p => p.Name),
-                ("priceMinorUnits", true) => asc ? query.OrderBy(p => p.PriceMinorUnits) : query.OrderByDescending(p => p.PriceMinorUnits),
-                ("priceMinorUnits", false) => asc ? o!.ThenBy(p => p.PriceMinorUnits) : o!.ThenByDescending(p => p.PriceMinorUnits),
+                ("priceAmount", true) => asc ? query.OrderBy(p => p.Price.Amount) : query.OrderByDescending(p => p.Price.Amount),
+                ("priceAmount", false) => asc ? o!.ThenBy(p => p.Price.Amount) : o!.ThenByDescending(p => p.Price.Amount),
                 ("createdAt", true) => asc ? query.OrderBy(p => p.CreatedAt) : query.OrderByDescending(p => p.CreatedAt),
                 ("createdAt", false) => asc ? o!.ThenBy(p => p.CreatedAt) : o!.ThenByDescending(p => p.CreatedAt),
                 _ => o,
@@ -123,10 +123,10 @@ public static class ProductSfs
         return query.Where(p => EF.Functions.Like(p.Name, pattern, "\\"));
     }
 
-    private static long Int64(JsonElement? value)
+    private static decimal Decimal(JsonElement? value)
     {
-        if (value is { ValueKind: JsonValueKind.Number } element && element.TryGetInt64(out var n)) return n;
-        throw new ArgumentException("Filter value must be an integer.");
+        if (value is { ValueKind: JsonValueKind.Number } element && element.TryGetDecimal(out var n)) return n;
+        throw new ArgumentException("Filter value must be a number.");
     }
 
     private static DateTime Date(JsonElement? value)

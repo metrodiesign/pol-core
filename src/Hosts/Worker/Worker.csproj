@@ -15,8 +15,8 @@
     <ProjectReference Include="..\..\Modules\Orders\Orders.Infrastructure\Orders.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Payments.Application\Payments.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Payments.Infrastructure\Payments.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Producer\Producer.Application\Producer.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Producer\Producer.Infrastructure\Producer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Merchants\Merchants.Application\Merchants.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Merchants\Merchants.Infrastructure\Merchants.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

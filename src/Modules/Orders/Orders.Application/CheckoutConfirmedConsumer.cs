@@ -2,7 +2,6 @@ using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Orders.Domain;
-using SharedKernel;
 
 namespace Orders.Application;
 
@@ -36,13 +35,13 @@ public sealed class CheckoutConfirmedConsumer : INotificationHandler<CheckoutCon
             return; // idempotent skip
 
         var order = Order.Create(
-            notification.TenantId, Money.Of(notification.AmountMinorUnits, notification.Currency), _clock.UtcNow,
+            notification.MerchantId, notification.Amount, _clock.UtcNow,
             checkoutSessionId: notification.CheckoutSessionId, notificationRecipient: notification.Recipient);
         _orders.Add(order);
 
         if (!string.IsNullOrWhiteSpace(notification.Recipient))
             _outbox.Enqueue(new CustomerOrderNotification(
-                order.TenantId, order.Id, notification.Recipient, order.SummaryToken, _clock.UtcNow));
+                order.MerchantId, order.Id, notification.Recipient, order.SummaryToken, _clock.UtcNow));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

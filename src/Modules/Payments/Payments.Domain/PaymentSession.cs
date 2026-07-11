@@ -4,22 +4,18 @@ namespace Payments.Domain;
 
 /// <summary>
 /// The aggregate that tracks a single redirect-only payment attempt for an order. It is bound to its
-/// order, amount, currency, method and tenant up-front at <see cref="Create"/> time (PLAN #15 — no
+/// order, amount, currency, method and merchant up-front at <see cref="Create"/> time (PLAN #15 — no
 /// attach-race), then transitions through its <see cref="PaymentStatus"/> lifecycle as the hosted PSP
-/// charge is attached and confirmed. The amount is held as two scalar columns
-/// (<see cref="AmountMinorUnits"/> + <see cref="AmountCurrency"/>) and exposed via the validated
-/// <see cref="Amount"/> seam, per the EF mapping rule for <c>Money</c>.
+/// charge is attached and confirmed. <see cref="Amount"/> is mapped as an EF complex type (rf1 —
+/// decimal(19,4) + char(3) columns).
 /// </summary>
 public sealed class PaymentSession : AggregateRoot<Guid>
 {
-    public Guid TenantId { get; private set; }
+    public Guid MerchantId { get; private set; }
 
     public Guid OrderId { get; private set; }
 
-    public long AmountMinorUnits { get; private set; }
-
-    /// <summary>ISO 4217 alpha-3 code backing <see cref="Amount"/>.</summary>
-    public string AmountCurrency { get; private set; } = default!;
+    public Money Amount { get; private set; }
 
     /// <summary>Payment method code, kept verbatim ("card"/"promptpay"/"installment").</summary>
     public string Method { get; private set; } = default!;
@@ -43,15 +39,12 @@ public sealed class PaymentSession : AggregateRoot<Guid>
     /// (PLAN #11).</summary>
     public byte[] RowVersion { get; private set; } = [];
 
-    /// <summary>The validated money seam, reconstituted from the two scalar columns.</summary>
-    public Money Amount => Money.Of(AmountMinorUnits, AmountCurrency);
-
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private PaymentSession() { }
 
     private PaymentSession(
         Guid id,
-        Guid tenantId,
+        Guid merchantId,
         Guid orderId,
         Money amount,
         string method,
@@ -59,10 +52,9 @@ public sealed class PaymentSession : AggregateRoot<Guid>
         DateTime createdAt)
         : base(id)
     {
-        TenantId = tenantId;
+        MerchantId = merchantId;
         OrderId = orderId;
-        AmountMinorUnits = amount.MinorUnits;
-        AmountCurrency = amount.Currency;
+        Amount = amount;
         Method = method;
         Psp = psp;
         Status = PaymentStatus.Created;
@@ -72,23 +64,23 @@ public sealed class PaymentSession : AggregateRoot<Guid>
 
     /// <summary>
     /// Creates a new <see cref="PaymentStatus.Created"/> session, binding order, amount, method, PSP
-    /// and tenant up-front so there is no attach-race when the charge is later created (PLAN #15).
+    /// and merchant up-front so there is no attach-race when the charge is later created (PLAN #15).
     /// </summary>
     public static PaymentSession Create(
-        Guid tenantId,
+        Guid merchantId,
         Guid orderId,
         Money amount,
         string method,
         PspCode psp,
         DateTime createdAt)
     {
-        if (tenantId == Guid.Empty)
-            throw new ArgumentException("TenantId is required.", nameof(tenantId));
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
         if (orderId == Guid.Empty)
             throw new ArgumentException("OrderId is required.", nameof(orderId));
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
-        return new PaymentSession(Guid.NewGuid(), tenantId, orderId, amount, method.Trim(), psp, createdAt);
+        return new PaymentSession(Guid.NewGuid(), merchantId, orderId, amount, method.Trim(), psp, createdAt);
     }
 
     /// <summary>

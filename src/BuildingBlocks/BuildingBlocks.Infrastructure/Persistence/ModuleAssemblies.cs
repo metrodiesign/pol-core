@@ -10,7 +10,7 @@ namespace BuildingBlocks.Infrastructure.Persistence;
 /// </summary>
 public sealed class ModuleAssemblies
 {
-    public ModuleAssemblies(IReadOnlyList<Assembly> producer) => Producer = producer;
+    public ModuleAssemblies(IReadOnlyList<Assembly> modules) => Modules = modules;
 
-    public IReadOnlyList<Assembly> Producer { get; }
+    public IReadOnlyList<Assembly> Modules { get; }
 }

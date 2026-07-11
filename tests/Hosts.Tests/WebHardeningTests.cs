@@ -27,28 +27,29 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
-        // Google:Audiences is read EAGERLY at service registration (to register the per-role policies), so it
-        // must be host config (UseSetting) — an in-memory source added via ConfigureAppConfiguration lands too
-        // late and the "tenant" policy never registers. Production supplies it via env at process start.
-        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
         // Anything a developer's local appsettings.Development.json or user-secrets could override must be host
         // config (UseSetting), not an in-memory source added via ConfigureAppConfiguration — those layers sit
-        // ABOVE that in-memory source, so a real local connection string or admin OIDC client id would otherwise
+        // ABOVE that in-memory source, so a real local connection string or OIDC client id would otherwise
         // leak in (reachable DB, configured OIDC) and defeat these hermetic assertions.
-        builder.UseSetting("ConnectionStrings:Producer", UnusedConn);
+        builder.UseSetting("ConnectionStrings:App", UnusedConn);
+        builder.UseSetting("ConnectionStrings:Admin", UnusedConn);
         builder.UseSetting("ConnectionStrings:Worker", UnusedConn);
-        // Pin the admin OIDC client UNCONFIGURED (blank id): this hardening surface must stay up even when the
-        // admin BFF login is not configured. The OIDC scheme is a per-request handler whose options are validated
-        // on every request, so a blank ClientId used to 400 the WHOLE API (AddAdminOidcAuthentication now skips
-        // the scheme when blank). Forced blank — overriding any local non-blank value — so this regression is
-        // caught on every platform.
+        // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
+        // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
+        builder.UseSetting("ConnectionStrings:Migrator", "");
+        // Pin BOTH confidential OIDC clients UNCONFIGURED (blank id): this hardening surface must stay up even
+        // when a BFF login is not configured. Each OIDC scheme is a per-request handler whose options are
+        // validated on every request, so a blank ClientId used to 400 the WHOLE API (AddAdminOidcAuthentication /
+        // AddMerchantUserOidcAuthentication now skip the scheme when blank). Forced blank — overriding any local
+        // non-blank value — so this regression is caught on every platform.
         builder.UseSetting("Google:Oidc:ClientId", "");
+        builder.UseSetting("MerchantUser:Oidc:ClientId", "");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
+                ["Merchant:DevMerchantId"] = "00000000-0000-0000-0000-000000000001",
             });
         });
         builder.ConfigureServices(services =>
@@ -88,7 +89,7 @@ public sealed class HealthEndpointTests
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Contains("not_ready", body);
         // No topology, connection string, DbContext name, or exception text may leak in the probe body.
-        Assert.DoesNotContain("producer", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("merchant", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Server=", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Exception", body, StringComparison.OrdinalIgnoreCase);
     }
@@ -163,7 +164,7 @@ public sealed class ExceptionHandlerPipelineTests
     [Fact]
     public async Task An_unhandled_error_is_returned_as_problem_json_without_leaking_internals()
     {
-        // A single webhook POST (well under the rate limit) reaches the tenant resolver, whose DB call fails
+        // A single webhook POST (well under the rate limit) reaches the merchant resolver, whose DB call fails
         // on the fast-fail connection. That exception must surface through UseExceptionHandler ->
         // ProblemDetailsExceptionHandler as an OPAQUE 500 (application/problem+json, no internal detail),
         // proving the handler is wired into the real pipeline and never leaks SQL/connection text.
@@ -227,7 +228,7 @@ public sealed class WebhookRateLimitTests
     [Fact]
     public async Task A_flood_to_one_connection_is_rejected_with_429_and_Retry_After()
     {
-        // Fast-failing DB so the admitted requests (which reach the tenant resolver) return immediately;
+        // Fast-failing DB so the admitted requests (which reach the merchant resolver) return immediately;
         // the 429 path never touches the DB. We only assert the rate-limit decision, which is DB-independent.
         using var factory = new HardeningFactory<ApiHost::Program>()
             .WithFastFailDatabase();
@@ -290,7 +291,8 @@ file static class FactoryExtensions
             // UseSetting (host config), not ConfigureAppConfiguration: a local appsettings.Development.json or
             // user-secrets connection string would otherwise win and make the DB reachable, defeating the
             // unreachable-DB assertions.
-            builder.UseSetting("ConnectionStrings:Producer", HardeningFactory<TEntry>.FastFailConn);
+            builder.UseSetting("ConnectionStrings:App", HardeningFactory<TEntry>.FastFailConn);
+            builder.UseSetting("ConnectionStrings:Admin", HardeningFactory<TEntry>.FastFailConn);
             builder.UseSetting("ConnectionStrings:Worker", HardeningFactory<TEntry>.FastFailConn);
         });
 }

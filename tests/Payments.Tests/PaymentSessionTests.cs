@@ -10,12 +10,12 @@ namespace Payments.Tests;
 /// </summary>
 public sealed class PaymentSessionTests
 {
-    private static readonly Guid TenantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+    private static readonly Guid MerchantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
 
     private static PaymentSession NewSession() =>
-        PaymentSession.Create(TenantId, OrderId, Money.Of(15000, "THB"), "card", PspCode.Omise, At);
+        PaymentSession.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", PspCode.Omise, At);
 
     /// <summary>A session that has claimed its redirect and bound a hosted charge (Created -> Redirected).</summary>
     private static PaymentSession Redirected(string chargeId = "chrg_abc", string url = "https://hosted.example/r")
@@ -31,7 +31,7 @@ public sealed class PaymentSessionTests
     {
         var session = NewSession();
 
-        Assert.Equal(TenantId, session.TenantId);
+        Assert.Equal(MerchantId, session.MerchantId);
         Assert.Equal(OrderId, session.OrderId);
         Assert.Equal(Money.Of(15000, "THB"), session.Amount);
         Assert.Equal("card", session.Method);
@@ -52,7 +52,7 @@ public sealed class PaymentSessionTests
     public void Create_rejects_empty_order()
     {
         Assert.Throws<ArgumentException>(() =>
-            PaymentSession.Create(TenantId, Guid.Empty, Money.Of(1, "THB"), "card", PspCode.Omise, At));
+            PaymentSession.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", PspCode.Omise, At));
     }
 
     [Fact]

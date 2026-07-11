@@ -9,7 +9,7 @@ namespace Contracts;
 /// the opaque summary token (the link capability), never a secret.
 /// </summary>
 public sealed record CustomerOrderNotification(
-    Guid TenantId,
+    Guid MerchantId,
     Guid OrderId,
     string Recipient,
     string SummaryToken,

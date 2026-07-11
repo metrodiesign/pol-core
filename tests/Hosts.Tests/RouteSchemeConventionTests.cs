@@ -22,10 +22,14 @@ file sealed class RouteSchemeFactory : WebApplicationFactory<ApiHost::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development); // MapOpenApi + MapScalarApiReference are Dev-only (infra allowlist)
+        // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
+        // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
+        builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.ConfigureAppConfiguration((_, config) =>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             }));
         builder.ConfigureServices(services =>
@@ -42,7 +46,7 @@ public sealed class RouteSchemeConventionTests
 {
     // REQ-1.5: LITERAL /api/v1 (fail-closed) — NOT v\d+. The nine areas are the REQ-2.1 taxonomy.
     private static readonly Regex ApiScheme = new(
-        @"^/api/v1/(products|carts|checkouts|orders|payments|admins|producers|webhooks|reports)(/.*)?$",
+        @"^/api/v1/(products|carts|checkouts|orders|payments|admins|merchant-users|webhooks|reports)(/.*)?$",
         RegexOptions.Compiled);
 
     // REQ-4.3: health/readiness + the OpenAPI document + the Scalar UI are excluded from the area taxonomy.

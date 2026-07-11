@@ -1,27 +1,32 @@
 using Cart.Domain;
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Cart.Infrastructure;
 
 /// <summary>
-/// Maps a cart line into the <c>producer</c> schema. The unit price is two scalar columns per the EF
-/// money mapping rule; the computed <c>UnitPrice</c> and <c>LineTotal</c> projections are not persisted.
+/// Maps a cart line into the <c>producer</c> schema. <c>UnitPrice</c> is mapped as a complex type
+/// (UnitPriceAmount decimal(19,4), UnitPriceCurrency char(3)) per the EF money mapping rule; the
+/// computed <c>LineTotal</c> projection is not persisted.
 /// </summary>
 public sealed class CartItemConfiguration : IEntityTypeConfiguration<CartItem>
 {
     public void Configure(EntityTypeBuilder<CartItem> builder)
     {
-        builder.ToTable("CartItems");
+        builder.ToTable("CartItems", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.CartId).IsRequired();
         builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
-        builder.Property(x => x.UnitPriceMinorUnits).IsRequired();
-        builder.Property(x => x.UnitPriceCurrency).HasMaxLength(3).IsRequired();
 
-        builder.Ignore(x => x.UnitPrice);
+        builder.ComplexProperty(x => x.UnitPrice, p =>
+        {
+            p.Property(m => m.Amount).HasColumnName("UnitPriceAmount").HasPrecision(19, 4);
+            p.Property(m => m.Currency).HasColumnName("UnitPriceCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        });
+
         builder.Ignore(x => x.LineTotal);
     }
 }

@@ -6,13 +6,13 @@ namespace Cart.Tests;
 public sealed class CartTests
 {
     private static readonly DateTime Now = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
-    private static readonly Guid Tenant = Guid.NewGuid();
+    private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid Product = Guid.NewGuid();
 
     private static CartAggregate CartWithLine(int quantity = 2)
     {
-        var cart = new CartAggregate(Guid.NewGuid(), Tenant, Now);
-        cart.AddItem(Product, quantity, Money.Of(100, "THB"));
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
+        cart.AddItem(Product, quantity, Money.Of(100m, "THB"));
         return cart;
     }
 
@@ -20,11 +20,11 @@ public sealed class CartTests
     public void AddItem_merges_same_product_and_subtotal_sums()
     {
         var cart = CartWithLine(2);
-        cart.AddItem(Product, 3, Money.Of(100, "THB")); // merges
+        cart.AddItem(Product, 3, Money.Of(100m, "THB")); // merges
 
         Assert.Single(cart.Items);
         Assert.Equal(5, cart.Items.First().Quantity);
-        Assert.Equal(500, cart.Subtotal!.Value.MinorUnits);
+        Assert.Equal(500m, cart.Subtotal!.Value.Amount);
     }
 
     [Fact]

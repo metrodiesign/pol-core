@@ -3,7 +3,7 @@ using System.Security.Cryptography;
 namespace BuildingBlocks.Infrastructure.Vault;
 
 /// <summary>
-/// The envelope-encryption primitives shared by the vault store and the rotation maintenance op: a per-tenant
+/// The envelope-encryption primitives shared by the vault store and the rotation maintenance op: a per-merchant
 /// KEK derived from a master key (HKDF-SHA256) and AES-256-GCM seal/open over a packed nonce|ciphertext|tag.
 /// The HKDF salt/info/algorithm are FROZEN — changing any of them would make every existing blob undecryptable.
 /// </summary>
@@ -11,9 +11,9 @@ internal static class VaultEnvelope
 {
     private static readonly byte[] KekInfo = "pol-core/vault/kek/v1"u8.ToArray();
 
-    /// <summary>Derives the per-tenant KEK from a master key. Salt=tenantId, info fixed — must never change.</summary>
-    public static byte[] DeriveKek(byte[] masterKey, Guid tenantId) =>
-        HKDF.DeriveKey(HashAlgorithmName.SHA256, masterKey, outputLength: 32, salt: tenantId.ToByteArray(), info: KekInfo);
+    /// <summary>Derives the per-merchant KEK from a master key. Salt=merchantId, info fixed — must never change.</summary>
+    public static byte[] DeriveKek(byte[] masterKey, Guid merchantId) =>
+        HKDF.DeriveKey(HashAlgorithmName.SHA256, masterKey, outputLength: 32, salt: merchantId.ToByteArray(), info: KekInfo);
 
     public static byte[] Encrypt(byte[] key, byte[] plaintext)
     {

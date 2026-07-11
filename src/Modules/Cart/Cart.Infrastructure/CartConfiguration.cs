@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using CartAggregate = Cart.Domain.Cart;
@@ -13,10 +14,10 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<CartAggregate>
 {
     public void Configure(EntityTypeBuilder<CartAggregate> builder)
     {
-        builder.ToTable("Carts");
+        builder.ToTable("Carts", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
-        builder.Property(x => x.TenantId).IsRequired();
+        builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
 

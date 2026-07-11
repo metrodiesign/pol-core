@@ -5,8 +5,8 @@ using SharedKernel;
 namespace Cart.Application;
 
 /// <summary>
-/// Loads the open cart, adds (or merges) the product line after re-validating the unit price into a
-/// <see cref="Money"/>, and commits. Rejects an unknown cart or one owned by another tenant.
+/// Loads the open cart, adds (or merges) the product line, and commits. Rejects an unknown cart or
+/// one owned by another merchant.
 /// </summary>
 public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand, AddItemResult>
 {
@@ -24,15 +24,14 @@ public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand,
         var cart = await _carts.GetAsync(command.CartId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Cart {command.CartId} was not found.");
 
-        if (cart.TenantId != command.TenantId)
-            throw new InvalidOperationException($"Cart {command.CartId} does not belong to the requesting tenant.");
+        if (cart.MerchantId != command.MerchantId)
+            throw new InvalidOperationException($"Cart {command.CartId} does not belong to the requesting merchant.");
 
-        var unitPrice = Money.Of(command.UnitPriceMinorUnits, command.Currency);
-        cart.AddItem(command.ProductId, command.Quantity, unitPrice);
+        cart.AddItem(command.ProductId, command.Quantity, command.UnitPrice);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        var subtotal = cart.Subtotal ?? Money.Zero(command.Currency);
-        return new AddItemResult(cart.Id, cart.Items.Count, subtotal.MinorUnits, subtotal.Currency);
+        var subtotal = cart.Subtotal ?? Money.Zero(command.UnitPrice.Currency);
+        return new AddItemResult(cart.Id, cart.Items.Count, subtotal);
     }
 }

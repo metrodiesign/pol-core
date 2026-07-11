@@ -28,6 +28,11 @@
     <Project Path="src/Modules/Checkout/Checkout.Domain/Checkout.Domain.csproj" />
     <Project Path="src/Modules/Checkout/Checkout.Infrastructure/Checkout.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Merchants/">
+    <Project Path="src/Modules/Merchants/Merchants.Application/Merchants.Application.csproj" />
+    <Project Path="src/Modules/Merchants/Merchants.Domain/Merchants.Domain.csproj" />
+    <Project Path="src/Modules/Merchants/Merchants.Infrastructure/Merchants.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Orders/">
     <Project Path="src/Modules/Orders/Orders.Application/Orders.Application.csproj" />
     <Project Path="src/Modules/Orders/Orders.Domain/Orders.Domain.csproj" />
@@ -38,20 +43,10 @@
     <Project Path="src/Modules/Payments/Payments.Domain/Payments.Domain.csproj" />
     <Project Path="src/Modules/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Producer/">
-    <Project Path="src/Modules/Producer/Producer.Application/Producer.Application.csproj" />
-    <Project Path="src/Modules/Producer/Producer.Domain/Producer.Domain.csproj" />
-    <Project Path="src/Modules/Producer/Producer.Infrastructure/Producer.Infrastructure.csproj" />
-  </Folder>
   <Folder Name="/src/Modules/Products/">
     <Project Path="src/Modules/Products/Products.Application/Products.Application.csproj" />
     <Project Path="src/Modules/Products/Products.Domain/Products.Domain.csproj" />
     <Project Path="src/Modules/Products/Products.Infrastructure/Products.Infrastructure.csproj" />
-  </Folder>
-  <Folder Name="/src/Modules/Tenant/">
-    <Project Path="src/Modules/Tenant/Tenant.Application/Tenant.Application.csproj" />
-    <Project Path="src/Modules/Tenant/Tenant.Domain/Tenant.Domain.csproj" />
-    <Project Path="src/Modules/Tenant/Tenant.Infrastructure/Tenant.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Admin.Tests/Admin.Tests.csproj" />
@@ -61,11 +56,10 @@
     <Project Path="tests/Checkout.Tests/Checkout.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
+    <Project Path="tests/Merchants.Tests/Merchants.Tests.csproj" />
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />
     <Project Path="tests/Payments.Tests/Payments.Tests.csproj" />
-    <Project Path="tests/Producer.Tests/Producer.Tests.csproj" />
     <Project Path="tests/Products.Tests/Products.Tests.csproj" />
     <Project Path="tests/SharedKernel.Tests/SharedKernel.Tests.csproj" />
-    <Project Path="tests/Tenant.Tests/Tenant.Tests.csproj" />
   </Folder>
 </Solution>

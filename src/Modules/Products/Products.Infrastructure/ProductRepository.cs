@@ -9,14 +9,14 @@ namespace Products.Infrastructure;
 
 /// <summary>
 /// Binds <see cref="IProductRepository"/> to the shared <c>producer</c> data plane via
-/// <c>ProducerDbContext.Set&lt;Product&gt;()</c>. Scoped (depends on the Scoped DbContext).
+/// <c>PolDbContext.Set&lt;Product&gt;()</c>. Scoped (depends on the Scoped DbContext).
 /// </summary>
 public sealed class ProductRepository : IProductRepository
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
     private readonly ILogger<ProductRepository> _logger;
 
-    public ProductRepository(ProducerDbContext db, ILogger<ProductRepository> logger)
+    public ProductRepository(PolDbContext db, ILogger<ProductRepository> logger)
     {
         _db = db;
         _logger = logger;
@@ -24,9 +24,9 @@ public sealed class ProductRepository : IProductRepository
 
     public void Add(Product product) => _db.Set<Product>().Add(product);
 
-    public async Task<IReadOnlyList<Product>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<Product>> ListByTenantAsync(Guid merchantId, CancellationToken cancellationToken) =>
         await _db.Set<Product>()
-            .Where(p => p.TenantId == tenantId)
+            .Where(p => p.MerchantId == merchantId)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync(cancellationToken);
 
@@ -36,14 +36,14 @@ public sealed class ProductRepository : IProductRepository
     public async Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken cancellationToken)
     {
         IQueryable<Product> src = _db.Set<Product>().AsNoTracking()
-            .Where(p => p.TenantId == query.TenantId)   // defence-in-depth on the SQL RLS floor (REQ-7.1)
+            .Where(p => p.MerchantId == query.MerchantId)   // defence-in-depth on the SQL RLS floor (REQ-7.1)
             .ApplySearch(query.Search)
             .ApplyFilters(query.Filters, _logger);
 
         if (query.ProductFilters is { } pf)   // typed strict filter (REQ-10)
         {
-            if (pf.MinPriceMinorUnits is { } min) src = src.Where(p => p.PriceMinorUnits >= min);
-            if (pf.MaxPriceMinorUnits is { } max) src = src.Where(p => p.PriceMinorUnits <= max);
+            if (pf.MinPriceAmount is { } min) src = src.Where(p => p.Price.Amount >= min);
+            if (pf.MaxPriceAmount is { } max) src = src.Where(p => p.Price.Amount <= max);
             if (pf.ActiveOnly == true) src = src.Where(p => p.IsActive);
         }
 
@@ -51,13 +51,12 @@ public sealed class ProductRepository : IProductRepository
 
         int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);   // overflow-safe offset (REQ-2.6)
 
-        // Project SCALAR columns only — never p.Price (unmapped computed Money; D15).
         var items = await src
             .ApplySort(query.Sort, _logger)
             .Skip(skip)
             .Take(query.Limit)
             .Select(p => new ProductListItem(
-                p.Id, p.TenantId, p.Name, p.PriceMinorUnits, p.PriceCurrency, p.IsActive, p.CreatedAt))
+                p.Id, p.MerchantId, p.Name, p.Price, p.IsActive, p.CreatedAt))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<ProductListItem>(items, query.Page, query.Limit, total);

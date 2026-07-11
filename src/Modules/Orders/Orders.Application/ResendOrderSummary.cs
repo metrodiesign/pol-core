@@ -6,9 +6,9 @@ namespace Orders.Application;
 
 /// <summary>Producer-triggered resend of a customer's summary link: rotates the order's token and extends
 /// its TTL, invalidating the old link, and re-notifies the customer when a recipient was captured (REQ-2.5).
-/// Tenant-scoped; RLS confines the lookup to the bound tenant.</summary>
-public sealed record ResendOrderSummaryCommand(Guid OrderId, Guid TenantId)
-    : ICommand<ResendOrderSummaryResult>, ITenantScoped;
+/// Merchant-scoped; RLS confines the lookup to the bound merchant.</summary>
+public sealed record ResendOrderSummaryCommand(Guid OrderId, Guid MerchantId)
+    : ICommand<ResendOrderSummaryResult>, IMerchantScoped;
 
 public sealed record ResendOrderSummaryResult(string SummaryToken, DateTime ExpiresAt);
 
@@ -38,7 +38,7 @@ public sealed class ResendOrderSummaryHandler : ICommandHandler<ResendOrderSumma
         // (mirrors the create paths; the background worker delivers it). No stored recipient -> nothing to send.
         if (!string.IsNullOrWhiteSpace(order.NotificationRecipient))
             _outbox.Enqueue(new CustomerOrderNotification(
-                order.TenantId, order.Id, order.NotificationRecipient, order.SummaryToken, _clock.UtcNow));
+                order.MerchantId, order.Id, order.NotificationRecipient, order.SummaryToken, _clock.UtcNow));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

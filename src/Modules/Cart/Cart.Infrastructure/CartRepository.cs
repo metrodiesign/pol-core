@@ -7,14 +7,14 @@ namespace Cart.Infrastructure;
 
 /// <summary>
 /// Cart persistence over the shared producer data plane. Queries go through
-/// <c>ProducerDbContext.Set&lt;Cart&gt;()</c>; the RLS interceptor and the shared unit of work apply
-/// tenant scoping and commit, so this adapter only tracks and loads.
+/// <c>PolDbContext.Set&lt;Cart&gt;()</c>; the RLS interceptor and the shared unit of work apply
+/// merchant scoping and commit, so this adapter only tracks and loads.
 /// </summary>
 public sealed class CartRepository : ICartRepository
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public CartRepository(ProducerDbContext db) => _db = db;
+    public CartRepository(PolDbContext db) => _db = db;
 
     public void Add(CartAggregate cart) => _db.Set<CartAggregate>().Add(cart);
 

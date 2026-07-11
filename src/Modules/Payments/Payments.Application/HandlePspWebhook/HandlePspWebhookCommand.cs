@@ -5,7 +5,7 @@ namespace Payments.Application.HandlePspWebhook;
 /// <summary>
 /// The critical inbound webhook path. The connection is resolved by <see cref="PspConnectionId"/>
 /// (NOT from anything parsed out of the raw URL before the signature is verified — security rules).
-/// NOT tenant-scoped: the request arrives unauthenticated from the PSP; the tenant is derived from the
+/// NOT merchant-scoped: the request arrives unauthenticated from the PSP; the merchant is derived from the
 /// trusted connection record after the signature is verified.
 /// </summary>
 public sealed record HandlePspWebhookCommand(

@@ -24,7 +24,7 @@ public sealed record PspSecretEnvelopeResult(
 /// <summary>
 /// Owns the per-PSP secret envelope shape (Payments is the only module that knows it). Validates the
 /// required keys for a PSP, serializes the provided secrets into the exact envelope the adapters
-/// parse on reveal, and returns a masked hint per field. The Tenant provisioning module calls this
+/// parse on reveal, and returns a masked hint per field. The Merchant provisioning module calls this
 /// across the module boundary instead of reaching into Payments.Infrastructure's internal records.
 /// </summary>
 public interface IPspSecretEnvelopeFactory

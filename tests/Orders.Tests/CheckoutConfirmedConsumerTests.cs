@@ -10,7 +10,7 @@ namespace Orders.Tests;
 /// whose session already has an order does nothing.</summary>
 public sealed class CheckoutConfirmedConsumerTests
 {
-    private static readonly Guid Tenant = Guid.NewGuid();
+    private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
@@ -21,11 +21,11 @@ public sealed class CheckoutConfirmedConsumerTests
         var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock());
         var sessionId = Guid.NewGuid();
 
-        await consumer.Handle(new CheckoutConfirmed(Tenant, sessionId, 15000, "THB", "buyer@example.com", At), default);
+        await consumer.Handle(new CheckoutConfirmed(Merchant, sessionId, Money.Of(15000m, "THB"), "buyer@example.com", At), default);
 
         var order = Assert.Single(orders.All);
         Assert.Equal(sessionId, order.CheckoutSessionId);
-        Assert.Equal(15000, order.AmountMinorUnits);
+        Assert.Equal(Money.Of(15000m, "THB"), order.Amount);
         var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
         Assert.Equal(order.Id, note.OrderId);
     }
@@ -34,12 +34,12 @@ public sealed class CheckoutConfirmedConsumerTests
     public async Task It_skips_when_an_order_already_exists_for_the_session()
     {
         var sessionId = Guid.NewGuid();
-        var existing = Order.Create(Tenant, Money.Of(15000, "THB"), At, checkoutSessionId: sessionId);
+        var existing = Order.Create(Merchant, Money.Of(15000m, "THB"), At, checkoutSessionId: sessionId);
         var orders = new FakeOrderRepository(existing);
         var outbox = new FakeOutbox();
         var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock());
 
-        await consumer.Handle(new CheckoutConfirmed(Tenant, sessionId, 15000, "THB", null, At), default);
+        await consumer.Handle(new CheckoutConfirmed(Merchant, sessionId, Money.Of(15000m, "THB"), null, At), default);
 
         Assert.Single(orders.All);      // still just the original — no second order
         Assert.Empty(outbox.Enqueued);  // and no notification
@@ -52,7 +52,7 @@ public sealed class CheckoutConfirmedConsumerTests
         var outbox = new FakeOutbox();
         var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock());
 
-        await consumer.Handle(new CheckoutConfirmed(Tenant, Guid.NewGuid(), 15000, "THB", null, At), default);
+        await consumer.Handle(new CheckoutConfirmed(Merchant, Guid.NewGuid(), Money.Of(15000m, "THB"), null, At), default);
 
         Assert.Single(orders.All);
         Assert.Empty(outbox.Enqueued);

@@ -75,23 +75,23 @@ internal sealed class AdminCallbackResolver : IAdminCallbackResolver
 internal sealed class AdminLoginService
 {
     private readonly IAdminCallbackResolver _resolver;
-    private readonly IAdminSessionStore _sessions;
-    private readonly IAdminAuthAuditWriter _audit;
-    private readonly AdminSessionCookies _cookies;
+    private readonly IPlatformUserSessionStore _sessions;
+    private readonly IPlatformAuthAuditWriter _audit;
+    private readonly PlatformUserSessionCookies _cookies;
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly AdminSessionOptions _session;
+    private readonly PlatformUserSessionOptions _session;
     private readonly AdminOidcOptions _oidc;
     private readonly ILogger<AdminLoginService> _logger;
 
     public AdminLoginService(
         IAdminCallbackResolver resolver,
-        IAdminSessionStore sessions,
-        IAdminAuthAuditWriter audit,
-        AdminSessionCookies cookies,
+        IPlatformUserSessionStore sessions,
+        IPlatformAuthAuditWriter audit,
+        PlatformUserSessionCookies cookies,
         IClock clock,
         IServiceScopeFactory scopeFactory,
-        IOptions<AdminSessionOptions> session,
+        IOptions<PlatformUserSessionOptions> session,
         IOptions<AdminOidcOptions> oidc,
         ILogger<AdminLoginService> logger)
     {
@@ -106,7 +106,7 @@ internal sealed class AdminLoginService
         _logger = logger;
     }
 
-    private AdminSessionPolicy Policy => new(
+    private PlatformUserSessionPolicy Policy => new(
         TimeSpan.FromMinutes(_session.IdleMinutes),
         TimeSpan.FromHours(_session.AbsoluteHours),
         TimeSpan.FromMinutes(_session.RotationMinutes),
@@ -143,15 +143,15 @@ internal sealed class AdminLoginService
         var resolution = result.Resolution!;
         try
         {
-            var sessionToken = AdminSessionTokens.NewOpaqueToken();
-            var csrfToken = AdminSessionTokens.NewOpaqueToken();
-            var session = AdminSession.Start(resolution.AdminId, AdminSessionTokens.Hash(sessionToken), _clock.UtcNow, Policy,
+            var sessionToken = PlatformUserSessionTokens.NewOpaqueToken();
+            var csrfToken = PlatformUserSessionTokens.NewOpaqueToken();
+            var session = PlatformUserSession.Start(resolution.AdminId, PlatformUserSessionTokens.Hash(sessionToken), _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
 
             // session + login-success audit commit TOGETHER on the request's keyed pol_admin context (no partial).
             _sessions.Add(session);
-            _audit.Append(AdminAuthAudit.For(AdminAuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, subject));
+            _audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, subject));
             await _sessions.SaveChangesAsync(ct);
 
             _cookies.Write(http, sessionToken, csrfToken);
@@ -173,8 +173,8 @@ internal sealed class AdminLoginService
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var audit = scope.ServiceProvider.GetRequiredService<IAdminAuthAuditWriter>();
-            audit.Append(AdminAuthAudit.For(AdminAuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: reason));
+            var audit = scope.ServiceProvider.GetRequiredService<IPlatformAuthAuditWriter>();
+            audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: reason));
             await audit.SaveChangesAsync(ct);
         }
         catch (Exception ex)

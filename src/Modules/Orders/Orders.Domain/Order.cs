@@ -3,16 +3,15 @@ using SharedKernel;
 namespace Orders.Domain;
 
 /// <summary>
-/// An order placed by a tenant's buyer. Created <see cref="OrderStatus.AwaitingPayment"/> and
+/// An order placed by a merchant's buyer. Created <see cref="OrderStatus.AwaitingPayment"/> and
 /// fulfilled when the Payments module confirms a PSP-settled charge. <see cref="Amount"/> is the
-/// money seam (PLAN decision #2): stored as two scalar columns and recomputed via
-/// <see cref="Money.Of"/>, never mapped as an owned type (avoids EF friction with the validating
-/// struct ctor). <see cref="MarkPaid"/> re-verifies the paid amount + currency before transitioning
+/// money seam (PLAN decision #2), mapped as an EF complex type (rf1 — decimal(19,4) + char(3)
+/// columns). <see cref="MarkPaid"/> re-verifies the paid amount + currency before transitioning
 /// and is idempotent, so a replayed PaymentPaid never double-fulfils (PLAN decision #10).
 /// </summary>
 public sealed class Order : AggregateRoot<Guid>
 {
-    public Guid TenantId { get; private set; }
+    public Guid MerchantId { get; private set; }
 
     /// <summary>The payment session this order is awaiting confirmation from, set when checkout
     /// hands the order to Payments. Null until a session is opened.</summary>
@@ -22,12 +21,7 @@ public sealed class Order : AggregateRoot<Guid>
     /// Unique (filtered) so a replayed CheckoutConfirmed event cannot create a second order.</summary>
     public Guid? CheckoutSessionId { get; private set; }
 
-    public long AmountMinorUnits { get; private set; }
-
-    public string AmountCurrency { get; private set; } = default!;
-
-    /// <summary>The order total, recomposed from the two scalar columns. Not mapped by EF.</summary>
-    public Money Amount => Money.Of(AmountMinorUnits, AmountCurrency);
+    public Money Amount { get; private set; }
 
     public OrderStatus Status { get; private set; }
 
@@ -52,15 +46,14 @@ public sealed class Order : AggregateRoot<Guid>
 
     private Order() { }
 
-    private Order(Guid id, Guid tenantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount,
+    private Order(Guid id, Guid merchantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount,
         string? notificationRecipient, DateTime createdAt)
         : base(id)
     {
-        TenantId = tenantId;
+        MerchantId = merchantId;
         PaymentSessionId = paymentSessionId;
         CheckoutSessionId = checkoutSessionId;
-        AmountMinorUnits = amount.MinorUnits;
-        AmountCurrency = amount.Currency;
+        Amount = amount;
         NotificationRecipient = notificationRecipient;
         Status = OrderStatus.AwaitingPayment;
         CreatedAt = createdAt;
@@ -83,9 +76,9 @@ public sealed class Order : AggregateRoot<Guid>
     }
 
     /// <summary>Opens a new order awaiting payment.</summary>
-    public static Order Create(Guid tenantId, Money amount, DateTime createdAt,
+    public static Order Create(Guid merchantId, Money amount, DateTime createdAt,
         Guid? paymentSessionId = null, Guid? checkoutSessionId = null, string? notificationRecipient = null) =>
-        new(Guid.NewGuid(), tenantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAt);
+        new(Guid.NewGuid(), merchantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAt);
 
     /// <summary>
     /// Binds the payment session this order awaits. Legacy link with no production writer — the
@@ -115,7 +108,7 @@ public sealed class Order : AggregateRoot<Guid>
         if (Status == OrderStatus.Cancelled)
             throw new InvalidOperationException("Cannot mark a cancelled order as paid.");
 
-        if (!paidAmount.SameCurrencyAs(Amount) || paidAmount.MinorUnits != Amount.MinorUnits)
+        if (!paidAmount.SameCurrencyAs(Amount) || paidAmount.Amount != Amount.Amount)
             throw new InvalidOperationException(
                 $"Paid amount {paidAmount} does not match order amount {Amount}.");
 

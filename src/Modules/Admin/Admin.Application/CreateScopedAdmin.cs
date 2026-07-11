@@ -5,10 +5,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Admin.Application.CreateScopedAdmin;
 
-/// <summary>A Super invites a Scoped admin by verified email (REQ-3.4): an <see cref="AdminAccount"/>
+/// <summary>A Super invites a Scoped admin by verified email (REQ-3.4): an <see cref="PlatformUser"/>
 /// (Tier=Scoped, unbound subject) is created and a <c>create-scoped</c> audit written. The subject is bound on
 /// the invitee's first login. A duplicate email is rejected (unique index -> <see cref="ConflictException"/>
-/// 409). Super-only authorization is enforced at the host (RequireAdminTier).</summary>
+/// 409). Super-only authorization is enforced at the host (RequirePlatformUserTier).</summary>
 public sealed record CreateScopedAdminCommand(
     string Email, Guid ActingAdminId, string CorrelationId,
     Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null)
@@ -18,15 +18,15 @@ public sealed record CreateScopedAdminResult(Guid AdminId, string Email);
 
 public sealed class CreateScopedAdminHandler : ICommandHandler<CreateScopedAdminCommand, CreateScopedAdminResult>
 {
-    private readonly IAdminAccountRepository _admins;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserRepository _admins;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IMasterDataStore _masters;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public CreateScopedAdminHandler(
-        IAdminAccountRepository admins,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserRepository admins,
+        IPlatformUserAuditWriter audit,
         IMasterDataStore masters,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
@@ -50,11 +50,11 @@ public sealed class CreateScopedAdminHandler : ICommandHandler<CreateScopedAdmin
             await _masters.ValidateProfileFksAsync(
                 command.PositionId, command.OfficeId, command.LevelId, command.DivisionId, ct);
 
-            var account = AdminAccount.CreateScoped(
+            var account = PlatformUser.CreateScoped(
                 command.Email, _clock.UtcNow,
                 command.PositionId, command.OfficeId, command.LevelId, command.DivisionId);
             _admins.Add(account);
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.CreateScoped, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: account.Id));
             await _unitOfWork.SaveChangesAsync(ct);

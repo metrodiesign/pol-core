@@ -16,7 +16,7 @@ public sealed class AdminCsrfFilterTests
         var http = new DefaultHttpContext();
         http.Request.Method = method;
         if (cookie is not null)
-            http.Request.Headers.Cookie = $"{AdminSessionCookies.CsrfCookieName}={cookie}";
+            http.Request.Headers.Cookie = $"{PlatformUserSessionCookies.CsrfCookieName}={cookie}";
         if (header is not null)
             http.Request.Headers[AdminCsrfFilter.HeaderName] = header;
 

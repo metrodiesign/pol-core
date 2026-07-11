@@ -9,17 +9,17 @@ using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Admin.Application;
-using Admin.Application.AdminAccountQueries;
-using Admin.Application.AssignTenant;
+using Admin.Application.PlatformUserQueries;
+using Admin.Application.AssignMerchant;
 using Admin.Application.CreateRole;
 using Admin.Application.CreateScopedAdmin;
 using Admin.Application.DeleteRole;
 using Admin.Application.ReactivateAdmin;
-using Admin.Application.RevokeAdminSession;
+using Admin.Application.RevokePlatformUserSession;
 using Admin.Application.RoleQueries;
 using Admin.Application.SetAdminRoles;
 using Admin.Application.SuspendAdmin;
-using Admin.Application.UnassignTenant;
+using Admin.Application.UnassignMerchant;
 using Admin.Application.UpdateAdminProfile;
 using Admin.Application.UpdateRole;
 using Admin.Domain;
@@ -43,25 +43,25 @@ using Payments.Application.StartRedirect;
 using Payments.Domain;
 using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
-using Producer.Application;
-using Producer.Domain;
-using Producer.Infrastructure;
+using Merchants.Application;
+using Merchants.Domain;
+using Merchants.Infrastructure;
 using Products.Application;
 using Products.Infrastructure;
-using Tenant.Application.GetTenant;
-using Tenant.Application.ProvisionTenant;
-using Tenant.Infrastructure;
+using Merchants.Application.GetMerchant;
+using Merchants.Application.ProvisionMerchant;
 using Api;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
+using SharedKernel;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddJsonConsoleLogging();
 
-// Fail fast on captive scope/lifetime mistakes (TenantGuardBehavior + ITenantContext are Scoped, PLAN #7).
+// Fail fast on captive scope/lifetime mistakes (MerchantGuardBehavior + IActorContext are Scoped, PLAN #7).
 if (builder.Environment.IsDevelopment())
 {
     builder.Host.UseDefaultServiceProvider(o =>
@@ -74,14 +74,14 @@ if (builder.Environment.IsDevelopment())
 // Mediator: source-gen discovers every handler across referenced module assemblies. Scoped so
 // handlers can depend on the Scoped DbContext/repositories.
 builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
-builder.Services.AddScoped(typeof(IPipelineBehavior<,>), typeof(TenantGuardBehavior<,>));
+builder.Services.AddScoped(typeof(IPipelineBehavior<,>), typeof(MerchantGuardBehavior<,>));
 
 builder.Services.AddBuildingBlocksInfrastructure();
 
-// The producer DbContext. The RLS session-context interceptor sets SESSION_CONTEXT('TenantId') at open.
-var producerConnString = builder.Configuration.GetConnectionString("Producer");
-builder.Services.AddDbContext<ProducerDbContext>((sp, opt) =>
-    opt.UseSqlServer(producerConnString)
+// The merchant-user DbContext. The RLS session-context interceptor sets SESSION_CONTEXT('MerchantId') at open.
+var appConnString = builder.Configuration.GetConnectionString("App");
+builder.Services.AddDbContext<PolDbContext>((sp, opt) =>
+    opt.UseSqlServer(appConnString)
        .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
 
 // Module entity configurations are discovered from these assemblies at model-build time.
@@ -96,14 +96,14 @@ builder.Services.AddCartModule();
 builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
-builder.Services.AddTenantModule();
+builder.Services.AddMerchantsModule();
 
-// Tenant provisioning runs cross-tenant under pol_admin (RLS bypass) via a SEPARATE keyed connection —
-// the pol_app connection is RLS-blocked from writing another tenant's rows. Fail fast at boot if it is
+// Merchant provisioning runs cross-merchant under pol_admin (RLS bypass) via a SEPARATE keyed connection —
+// the pol_app connection is RLS-blocked from writing another merchant's rows. Fail fast at boot if it is
 // not configured: the whole admin provisioning surface depends on it.
 var adminConnString = builder.Configuration.GetConnectionString("Admin")
     ?? throw new InvalidOperationException(
-        "ConnectionStrings:Admin (pol_admin) is required for tenant provisioning. Set ConnectionStrings__Admin.");
+        "ConnectionStrings:Admin (pol_admin) is required for merchant provisioning. Set ConnectionStrings__Admin.");
 // The committed appsettings.json ships an Admin string with a BLANK password (the real secret is injected
 // at runtime). Outside Development, fail fast if that injection did not happen — otherwise the host boots
 // and only the first /admin request discovers the missing credential. Development may use integrated auth.
@@ -115,84 +115,81 @@ if (!builder.Environment.IsDevelopment())
     // runtime secret was never injected — fail fast at boot rather than on the first login (REQ-8.1/8.2).
     ProvisioningGuards.RequireConfidentialClientId(builder.Configuration["Google:Oidc:ClientId"]);
     ProvisioningGuards.RequireConfidentialClientSecret(builder.Configuration["Google:Oidc:ClientSecret"]);
-    // The producer OIDC client is a SECOND confidential client. Unlike Admin, a blank Producer ClientId is allowed
-    // outside Development — the producer FE is a later slice, so producer login may be intentionally disabled (the
+    // The merchant-user OIDC client is a SECOND confidential client. Unlike Admin, a blank MerchantUser ClientId is allowed
+    // outside Development — the merchant-user FE is a later slice, so merchant-user login may be intentionally disabled (the
     // scheme is then skipped, REQ-14.2). But IF a ClientId is configured, its secret MUST be injected too, and the
     // id itself must not be a committed placeholder (REQ-14.1/14.2).
-    var producerClientId = builder.Configuration["Producer:Oidc:ClientId"];
-    if (!string.IsNullOrWhiteSpace(producerClientId))
+    var merchantUserClientId = builder.Configuration["MerchantUser:Oidc:ClientId"];
+    if (!string.IsNullOrWhiteSpace(merchantUserClientId))
     {
-        ProvisioningGuards.RequireProducerClientId(producerClientId);
-        ProvisioningGuards.RequireProducerClientSecret(builder.Configuration["Producer:Oidc:ClientSecret"]);
+        ProvisioningGuards.RequireMerchantUserClientId(merchantUserClientId);
+        ProvisioningGuards.RequireMerchantUserClientSecret(builder.Configuration["MerchantUser:Oidc:ClientSecret"]);
     }
 }
-builder.Services.AddTenantAdminScope(adminConnString);
+builder.Services.AddMerchantAdminScope(adminConnString);
 
-// Admin identity (control plane: AdminAccounts/assignments/audit). Its EF configs live in the producer
-// schema but are control-plane (pol_admin only); resolution/provisioning run cross-tenant, so the seams
+// Admin identity (control plane: PlatformUsers/assignments/audit). Its EF configs live in the merchant-user
+// schema but are control-plane (pol_admin only); resolution/provisioning run cross-merchant, so the seams
 // bind to the same pol_admin keyed scope.
 builder.Services.AddAdminModule();
 builder.Services.AddAdminIdentity();
 
-// Producer identity (data plane: TenantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
-// Profiles/RegistrationAudits). AddProducerModule loads the assembly so ProducerDbContext discovers its EF
-// configs; AddProducerIdentity binds the registration seams (keyed pol_admin write + photo + ticket protector).
-// The producer auth/session/OIDC host wiring lands in later tasks of this feature.
-builder.Services.AddProducerModule();
-builder.Services.Configure<ProducerRegistrationOptions>(
-    builder.Configuration.GetSection(ProducerRegistrationOptions.SectionName));
-builder.Services.AddProducerIdentity();
+// Merchants identity (data plane: MerchantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
+// Profiles/RegistrationAudits). AddMerchantsModule (above) loads the assembly so PolDbContext discovers its EF
+// configs; AddMerchantsIdentity binds the registration seams (keyed pol_admin write + photo + ticket protector).
+builder.Services.Configure<MerchantUserRegistrationOptions>(
+    builder.Configuration.GetSection(MerchantUserRegistrationOptions.SectionName));
+builder.Services.AddMerchantsIdentity();
 
-// Producer BFF: a SECOND confidential Google OIDC client (Authorization Code + PKCE) for the server-side producer
-// login, fully isolated from the Admin one — distinct "ProducerGoogle" scheme + callback + cookie names (REQ-8/9/14).
-// Adds the scheme WITHOUT changing the default (JwtBearer stays for tenant); a blank ClientId skips the scheme so a
-// half-configured env (the producer FE is a later slice) does not fault the whole host (REQ-14.2). The producer
-// session lifetime + cookie posture come from Producer:Session.
-builder.Services.Configure<ProducerOidcOptions>(builder.Configuration.GetSection(ProducerOidcOptions.SectionName));
-builder.Services.Configure<ProducerSessionOptions>(builder.Configuration.GetSection(ProducerSessionOptions.SectionName));
-builder.Services.AddProducerOidcAuthentication(builder.Configuration, builder.Environment);
+// MerchantUser BFF: a SECOND confidential Google OIDC client (Authorization Code + PKCE) for the server-side merchant-user
+// login, fully isolated from the Admin one — distinct "MerchantUserGoogle" scheme + callback + cookie names (REQ-8/9/14).
+// Adds the scheme WITHOUT changing the default (JwtBearer stays for merchant); a blank ClientId skips the scheme so a
+// half-configured env (the merchant-user FE is a later slice) does not fault the whole host (REQ-14.2). The merchant-user
+// session lifetime + cookie posture come from MerchantUser:Session.
+builder.Services.Configure<MerchantUserOidcOptions>(builder.Configuration.GetSection(MerchantUserOidcOptions.SectionName));
+builder.Services.Configure<MerchantUserSessionOptions>(builder.Configuration.GetSection(MerchantUserSessionOptions.SectionName));
+builder.Services.AddMerchantUserOidcAuthentication(builder.Configuration, builder.Environment);
 
-// Producer BFF session scheme: authenticate producer requests via the __Host-prd_session cookie and register the
-// DUAL-SCHEME "producer" policy (ProducerSession OR tenant Bearer, REQ-17.3). Background sweep prunes expired
-// sessions so the control-plane session table does not grow unbounded (REQ-10.4).
-builder.Services.AddProducerSessionScheme();
-builder.Services.AddHostedService<ProducerSessionPruneService>();
+// MerchantUser BFF session scheme: authenticate merchant-user requests via the __Host-mch_session cookie and register the
+// SINGLE-SCHEME "merchant-user" policy (MerchantUserSession only, T11 — the Bearer fallback is retired). Background
+// sweep prunes expired sessions so the control-plane session table does not grow unbounded (REQ-10.4).
+builder.Services.AddMerchantUserSessionScheme();
+builder.Services.AddHostedService<MerchantUserSessionPruneService>();
 
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
 builder.Services.AddAdminDataProtection();
 
 // Admin BFF session lifetime + cookie posture (REQ-3/5/7).
-builder.Services.Configure<AdminSessionOptions>(builder.Configuration.GetSection(AdminSessionOptions.SectionName));
+builder.Services.Configure<PlatformUserSessionOptions>(builder.Configuration.GetSection(PlatformUserSessionOptions.SectionName));
 
-// Tenant identity from the authenticated principal (never from the URL — PLAN #4).
+// Merchant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ITenantContext, HttpTenantContext>();
+builder.Services.AddScoped<IActorContext, HttpActorContext>();
 
-// Real Google ID-token validation (issuer/audience/lifetime/email_verified/hosted-domain + RS256 against
-// Google's JWKS via Authority). Google:Audiences maps each SPA's client id to its role: both SPAs
-// authenticate here, and the validated audience becomes a role claim that the per-role authorization
-// policies ("tenant"/"admin") gate on. See GoogleAuthenticationExtensions.
-builder.Services.AddGoogleIdTokenAuthentication(builder.Configuration, builder.Environment);
+// Google id-token Bearer is retired for the funnel (T11 — rf1 big-bang, no legacy audience). The
+// MerchantUserSession cookie scheme is the explicit default (each protected group still pins its own scheme via
+// its policy — the default only matters for UseAuthentication's principal-population pass).
+builder.Services.AddAuthentication(MerchantUserSessionAuthenticationHandler.SchemeName);
 
 // Admin BFF: confidential Google OIDC client (Authorization Code + PKCE) for the server-side admin login.
-// Adds the "Google" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default (JwtBearer stays for tenant).
+// Adds the "Google" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
 builder.Services.Configure<AdminOidcOptions>(builder.Configuration.GetSection(AdminOidcOptions.SectionName));
 builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
 
 // Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
 // REDEFINE the "admin" authorization policy to pin it — retiring the Bearer "admin" audience (REQ-4/5/9/10).
-builder.Services.AddAdminSessionScheme();
+builder.Services.AddPlatformUserSessionScheme();
 
 // Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
-builder.Services.AddHostedService<AdminSessionPruneService>();
+builder.Services.AddHostedService<PlatformUserSessionPruneService>();
 
 // CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
 builder.Services.AddPolCors(builder.Configuration);
 
 // OpenAPI document so the SPA teams have a machine-readable contract (served in Development only). The
-// document also declares the two auth schemes (tenant Bearer + admin session cookie) and tags each
-// operation with the scheme its authorization policy requires, so other teams can authenticate straight
+// document also declares the two auth schemes (merchant-user session cookie + admin session cookie) and tags
+// each operation with the scheme its authorization policy requires, so other teams can authenticate straight
 // from the Scalar reference UI.
 builder.Services.AddOpenApi(options =>
 {
@@ -224,43 +221,35 @@ builder.Services.AddOpenApi(options =>
         document.Info.Title = "pol-core API";
         document.Info.Version = "v1";
         document.Info.Description =
-            "Captive payment orchestration (redirect-only, PCI SAQ A). Tenant storefront surface + Admin BFF + Producer BFF.";
+            "Captive payment orchestration (redirect-only, PCI SAQ A). Merchant storefront surface + Admin BFF + MerchantUser BFF.";
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme
-        {
-            Type = SecuritySchemeType.Http,
-            Scheme = "bearer",
-            BearerFormat = "JWT",
-            In = ParameterLocation.Header,
-            Description = "Google id-token of the authenticated tenant principal. Send `Authorization: Bearer <id_token>`.",
-        };
-        document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes["PlatformUserSession"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
             // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
             // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
             // see the cookie they actually have.
-            Name = AdminSessionCookies.SessionCookieNameDevHttp,
+            Name = PlatformUserSessionCookies.SessionCookieNameDevHttp,
             Description = "Admin BFF session cookie issued by the OIDC login flow (GET /api/v1/admins/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-adm_session` name.",
         };
-        document.Components.SecuritySchemes["ProducerSession"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes["MerchantUserSession"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
-            Name = ProducerSessionCookies.SessionCookieNameDevHttp,
-            Description = "Producer BFF session cookie issued by the OIDC login flow (GET /api/v1/producers/auth/login). "
-                + "Set automatically in the browser. Production (HTTPS) uses the `__Host-prd_session` name. The "
-                + "`producer` policy also accepts a tenant Bearer token (REQ-17.3).",
+            Name = MerchantUserSessionCookies.SessionCookieNameDevHttp,
+            Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchant-users/auth/login). "
+                + "Set automatically in the browser. Production (HTTPS) uses the `__Host-mch_session` name (T11 — "
+                + "single-scheme, the legacy Bearer fallback is retired).",
         };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
-        // auth on the right endpoint (tenant -> Bearer, admin -> AdminSession). The host document is passed so
-        // the requirement serialises as a $ref into components.securitySchemes. Anonymous routes (order summary
-        // link, admin login, webhook) carry no requirement.
+        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> PlatformUserSession). The host
+        // document is passed so the requirement serialises as a $ref into components.securitySchemes. Anonymous
+        // routes (order summary link, admin login, webhook) carry no requirement.
         var schemeByRoute = new Dictionary<(string Path, string Method), string>();
         foreach (var d in context.ApplicationServices
                      .GetRequiredService<IApiDescriptionGroupCollectionProvider>()
@@ -293,10 +282,10 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
-// tenant routes gate on the "tenant" policy (Google Bearer); admin routes on "admin" (session cookie).
-// AllowAnonymous endpoints and the unauthenticated webhook get no security requirement in the doc.
-// Assumption: the only IAuthorizeData on an endpoint is the named policy from .RequireAuthorization(...).
-// RequireAdminTier/RequirePermission use endpoint filters + WithMetadata (AdminHostWiring.cs), NOT
+// merchant-user routes gate on the "merchant-user" policy (session cookie, T11 single-scheme); admin routes on
+// "admin" (session cookie). AllowAnonymous endpoints and the unauthenticated webhook get no security requirement
+// in the doc. Assumption: the only IAuthorizeData on an endpoint is the named policy from .RequireAuthorization(...).
+// RequirePlatformUserTier/RequirePermission use endpoint filters + WithMetadata (AdminHostWiring.cs), NOT
 // IAuthorizeData, so exactly one non-empty policy is present and LastOrDefault is unambiguous.
 static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
 {
@@ -307,9 +296,8 @@ static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
         .LastOrDefault(p => !string.IsNullOrEmpty(p));
     return policy switch
     {
-        "tenant" => "Bearer",
-        "admin" => "AdminSession",
-        "producer" => "ProducerSession", // dual-scheme (cookie OR tenant Bearer); document the cookie as primary
+        "admin" => "PlatformUserSession",
+        "merchant-user" => "MerchantUserSession",
         _ => null,
     };
 }
@@ -317,14 +305,17 @@ static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
 // PspCode crosses the wire as its stable code ("2c2p"/"omise") via the domain's PspCodes mapping —
 // not as an int or the C# member name. An unknown code fails body binding -> 400.
 builder.Services.ConfigureHttpJsonOptions(o =>
-    o.SerializerOptions.Converters.Add(new PspCodeJsonConverter()));
+{
+    o.SerializerOptions.Converters.Add(new PspCodeJsonConverter());
+    o.SerializerOptions.Converters.Add(new MoneyJsonConverter());
+});
 
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
 builder.Services.AddProblemDetailsHandling();
 builder.Services.AddReadinessHealthChecks();
 builder.Services.AddWebhookRateLimiter();
 builder.Services.AddAdminAuthRateLimiter();
-builder.Services.AddProducerAuthRateLimiter();
+builder.Services.AddMerchantUserAuthRateLimiter();
 
 // Dev-only HTTP req/res logging incl. response headers (esp. Location on a 302 — see where the OIDC callback /
 // register redirect actually sends the browser). Logs headers + bodies would leak PII/photo bytes, so this stays
@@ -347,8 +338,8 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment()
     && app.Configuration.GetConnectionString("Migrator") is { Length: > 0 } migratorConn)
 {
-    var options = new DbContextOptionsBuilder<ProducerDbContext>().UseSqlServer(migratorConn).Options;
-    using var migrateDb = new ProducerDbContext(options, app.Services.GetRequiredService<ModuleAssemblies>());
+    var options = new DbContextOptionsBuilder<PolDbContext>().UseSqlServer(migratorConn).Options;
+    using var migrateDb = new PolDbContext(options, app.Services.GetRequiredService<ModuleAssemblies>());
     await migrateDb.Database.MigrateAsync();
     app.Logger.LogInformation("Applied pending EF migrations (Development, Migrator connection).");
 }
@@ -415,20 +406,19 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 // CORS before auth so a browser preflight (OPTIONS) is answered without an auth challenge. The per-request
-// policy (admin-credentialed on /api/v1/admins/*, tenant default elsewhere) is chosen by PolCorsPolicyProvider.
+// policy (admin-credentialed on /api/v1/admins/*, merchant default elsewhere) is chosen by PolCorsPolicyProvider.
 app.UsePolCors();
 
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// The producer tenant-user resolver is restored (producer-google-sso REQ-17): it is no longer a middleware but
-// ProducerSessionAuthenticationHandler, which authenticates the __Host-prd_session cookie during authorization (the
-// "producer" policy pins that scheme + the tenant Bearer fallback), re-resolves the TenantUser READ-ONLY by id, and
-// binds IProducerScope + the ambient `tenant_id` claim per request. A tenant-SPA Bearer caller still carries its own
-// tenant binding via the Google id-token path (unchanged, REQ-23.1; the Development tenant_id shim covers local dev).
+// Merchant-user resolution is no longer a middleware: MerchantUserSessionAuthenticationHandler authenticates the
+// __Host-mch_session cookie during authorization (the single-scheme "merchant-user" policy pins that scheme, T11 —
+// the Bearer fallback is retired), re-resolves the MerchantUser READ-ONLY by id, and binds IMerchantUserScope + the
+// ambient `merchant_id` claim per request.
 
-// Admin resolution is no longer a middleware: AdminSessionAuthenticationHandler authenticates the
+// Admin resolution is no longer a middleware: PlatformUserSessionAuthenticationHandler authenticates the
 // __Host-adm_session cookie during authorization (the "admin" policy pins that scheme), re-resolves the admin
 // READ-ONLY by id, and binds IAdminScope per request (REQ-9). First-login bootstrap/bind happens at the OIDC
 // callback (AdminCallbackResolver), not per request.
@@ -442,8 +432,8 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     // Scalar reference UI over /openapi/v1.json — anonymous like the health checks. Other teams browse the
     // grouped endpoints and try them with the right auth straight from /scalar. Dev-only, same as MapOpenApi.
-    // No preferred scheme: Scalar auto-selects each operation's own security (Bearer for tenant routes,
-    // AdminSession for admin routes) instead of defaulting every endpoint to one.
+    // No preferred scheme: Scalar auto-selects each operation's own security (Bearer for merchant routes,
+    // PlatformUserSession for admin routes) instead of defaulting every endpoint to one.
     app.MapScalarApiReference(options => options.WithTitle("pol-core API"));
 }
 
@@ -454,20 +444,20 @@ if (app.Environment.IsDevelopment())
 // only the base path moves. Data-plane endpoints map their area path DIRECTLY on this group (an explicit
 // "/products", "/carts/..." pattern) rather than via a nested MapGroup with an empty-string root pattern — the
 // latter renders a trailing-slash canonical path ("/api/v1/products/"), which the clean-path intent forbids
-// (REQ-1.4). admins/producers DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
+// (REQ-1.4). admins/merchant-users DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
 // surface; the single admins-root create carries the area path + its filter per-endpoint. Infra (health, openapi,
 // scalar) is mapped ABOVE this and stays OUTSIDE /api/v1 (REQ-4).
 var api = app.MapGroup("/api/v1");
 
-// Webhook = source of truth. Routed by the trusted PSP connection id (NOT tenant/PSP parsed from the
+// Webhook = source of truth. Routed by the trusted PSP connection id (NOT merchant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
 // to the handler, which verifies -> claims idempotency -> fetches-to-confirm -> transitions -> enqueues
 // PaymentPaid, all inside one transaction.
 api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     Guid pspConnectionId,
     HttpRequest request,
-    IWebhookTenantResolver tenantResolver,
-    ITenantScope tenantScope,
+    IWebhookMerchantResolver merchantResolver,
+    IActorScope actorScope,
     IMediator mediator,
     CancellationToken ct) =>
 {
@@ -475,13 +465,13 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     var rawPayload = await reader.ReadToEndAsync(ct);
     var signature = request.Headers["X-Signature"].ToString();
 
-    // Resolve the tenant from the trusted connection id BEFORE any tenant-scoped work, then bind it so
+    // Resolve the merchant from the trusted connection id BEFORE any merchant-scoped work, then bind it so
     // every query in the handler runs under the right RLS SESSION_CONTEXT. Unknown id -> 404 (no leak).
-    var tenantId = await tenantResolver.ResolveTenantAsync(pspConnectionId, ct);
-    if (tenantId is null)
+    var merchantId = await merchantResolver.ResolveMerchantAsync(pspConnectionId, ct);
+    if (merchantId is null)
         return Results.Problem(statusCode: StatusCodes.Status404NotFound);
 
-    using var tenantBinding = tenantScope.Begin(tenantId.Value);
+    using var actorBinding = actorScope.Begin(merchantId.Value);
 
     var result = await mediator.Send(new HandlePspWebhookCommand(pspConnectionId, rawPayload, signature), ct);
     return result.Outcome == WebhookOutcome.Rejected
@@ -497,89 +487,81 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
-// producer-google-sso REQ-17.4: the 3 write endpoints are re-gated behind the Producer:EnforcePermissionsOnWrites
-// flag. ON -> the dual-scheme "producer" policy (ProducerSession OR tenant Bearer) + RequireProducerPermission
-// (a tenant-Bearer caller authenticates but binds no producer scope -> 403, fail-closed F10). OFF -> the
-// pre-existing un-gated tenant-Bearer behavior persists (a deliberate transitional state until the producer FE can
-// establish a session). Defaults ON when the key is absent (a new environment, REQ-17.4); the committed config ships
-// it OFF until the FE lands. The gate is applied per-endpoint via this helper so the rest of the chain is shared.
-var enforceProducerWrites = app.Configuration.GetValue("Producer:EnforcePermissionsOnWrites", defaultValue: true);
-static RouteHandlerBuilder GateProducerWrite(RouteHandlerBuilder builder, bool enforce, string permission) =>
-    enforce
-        ? builder.RequireAuthorization("producer").RequireProducerPermission(permission)
-        : builder.RequireAuthorization("tenant");
+// T11 (rf1 big-bang): the merchant-Bearer fallback is retired, so every write endpoint gates on the single-scheme
+// "merchant-user" policy + its permission unconditionally — the former MerchantUser:EnforcePermissionsOnWrites
+// toggle (a transitional un-gated Bearer state) no longer has a Bearer path to fall back to, so it is deleted.
 
-// Tenant-facing convenience endpoints (tenant comes from the authenticated principal via ITenantContext).
+// Merchant-facing convenience endpoints (merchant comes from the authenticated principal via IActorContext).
 var createProduct = api.MapPost("/products", async (
     CreateProductRequest body,
-    ITenantContext tenant,
+    IActorContext actor,
     IMediator mediator,
     CancellationToken ct) =>
 {
     var id = await mediator.Send(
-        new CreateProductCommand(tenant.TenantId, body.Name, body.PriceMinorUnits, body.Currency), ct);
+        new CreateProductCommand(actor.MerchantId, body.Name, body.Price), ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
-GateProducerWrite(createProduct, enforceProducerWrites, ProducerPermissions.ProductCreate)
+createProduct.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.ProductCreate)
     .WithTags("Products")
     .WithName("CreateProduct")
     .WithSummary("Create a product")
-    .WithDescription("Create a catalog product for the authenticated tenant. Behind Producer:EnforcePermissionsOnWrites: ON requires the producer policy + product.create; OFF keeps the tenant-Bearer behavior.")
+    .WithDescription("Create a catalog product for the authenticated merchant. Requires the merchant-user policy + product.create.")
     .Produces<CreateProductResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// GET /products — the tenant-scoped SFS exemplar. Tenant comes from the principal (ITenantContext), NEVER the
-// client; the query is ITenantScoped so the tenant guard + RLS floor confine every row to the bound tenant, and
-// SFS can only narrow within it (no whitelist exposes tenantId). productFilters is the optional typed surface.
-api.MapGet("/products", async (HttpContext http, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+// GET /products — the merchant-scoped SFS exemplar. Merchant comes from the principal (IActorContext), NEVER the
+// client; the query is IMerchantScoped so the merchant guard + RLS floor confine every row to the bound merchant, and
+// SFS can only narrow within it (no whitelist exposes merchantId). productFilters is the optional typed surface.
+api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
     var p = SfsQueryParser.Parse(http.Request.Query);
     var result = await mediator.Send(new ListProductsQuery
     {
-        TenantId = tenant.TenantId,
+        MerchantId = actor.MerchantId,
         Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
         ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
     }, ct);
     return Results.Ok(result);
 })
-    .RequireAuthorization("tenant")
+    .RequireAuthorization("merchant-user")
     .WithMetadata(new SfsQueryParamsMarker())
     .WithTags("Products")
     .WithName("ListProducts")
     .WithSummary("List products")
-    .WithDescription("Paged catalog for the authenticated tenant. Supports SFS (page, limit, filters, sort, search) plus a typed productFilters object.")
+    .WithDescription("Paged catalog for the authenticated merchant. Supports SFS (page, limit, filters, sort, search) plus a typed productFilters object.")
     .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// Cart — open, add/merge lines, review, adjust, clear. Tenant comes from the principal; the commands are
-// ITenantScoped so RLS + the tenant guard confine every cart to the bound tenant.
-api.MapPost("/carts", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+// Cart — open, add/merge lines, review, adjust, clear. Merchant comes from the principal; the commands are
+// IMerchantScoped so RLS + the merchant guard confine every cart to the bound merchant.
+api.MapPost("/carts", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var id = await mediator.Send(new CreateCartCommand(tenant.TenantId), ct);
+    var id = await mediator.Send(new CreateCartCommand(actor.MerchantId), ct);
     return TypedResults.Ok(new CreateCartResponse(id));
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Cart")
     .WithName("CreateCart")
     .WithSummary("Open a cart")
-    .WithDescription("Open a new empty cart for the authenticated tenant.")
+    .WithDescription("Open a new empty cart for the authenticated merchant.")
     .Produces<CreateCartResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPost("/carts/{cartId:guid}/items", async (
-    Guid cartId, AddItemToCartRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, AddItemToCartRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
     // The unit price is the catalog's, NEVER the client's: look the product up first and price the line
     // from it (the cart is "selected plans + quote", reference 2.4). Unknown/inactive product -> 400.
-    var product = await mediator.Send(new GetProductByIdQuery(tenant.TenantId, body.ProductId), ct);
+    var product = await mediator.Send(new GetProductByIdQuery(actor.MerchantId, body.ProductId), ct);
     if (product is null || !product.IsActive)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown or inactive product.");
 
     var result = await mediator.Send(new AddItemToCartCommand(
-        cartId, tenant.TenantId, body.ProductId, body.Quantity, product.Price.MinorUnits, product.Price.Currency), ct);
+        cartId, actor.MerchantId, body.ProductId, body.Quantity, product.Price), ct);
     return Results.Ok(result);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Cart")
     .WithName("AddCartItem")
     .WithSummary("Add an item to a cart")
@@ -589,11 +571,11 @@ api.MapPost("/carts/{cartId:guid}/items", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapGet("/carts/{cartId:guid}", async (
-    Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new GetCartQuery(cartId, tenant.TenantId), ct);
+    var view = await mediator.Send(new GetCartQuery(cartId, actor.MerchantId), ct);
     return view is null ? Results.NotFound() : Results.Ok(view);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Cart")
     .WithName("GetCart")
     .WithSummary("Review a cart")
@@ -603,11 +585,11 @@ api.MapGet("/carts/{cartId:guid}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
-    Guid cartId, Guid productId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, Guid productId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, tenant.TenantId, productId), ct);
+    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, actor.MerchantId, productId), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Cart")
     .WithName("RemoveCartItem")
     .WithSummary("Remove a cart line")
@@ -616,11 +598,11 @@ api.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
-    Guid cartId, Guid productId, SetCartItemQuantityRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, Guid productId, SetCartItemQuantityRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, tenant.TenantId, productId, body.Quantity), ct);
+    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, actor.MerchantId, productId, body.Quantity), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Cart")
     .WithName("SetCartItemQuantity")
     .WithSummary("Set a cart line quantity")
@@ -629,11 +611,11 @@ api.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPost("/carts/{cartId:guid}/clear", async (
-    Guid cartId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new ClearCartCommand(cartId, tenant.TenantId), ct);
+    var view = await mediator.Send(new ClearCartCommand(cartId, actor.MerchantId), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Cart")
     .WithName("ClearCart")
     .WithSummary("Clear a cart")
@@ -644,18 +626,18 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
 // Checkout. Start prices the checkout from the CART's subtotal (never a client-supplied amount), captures
 // an optional notification recipient, then Confirm emits CheckoutConfirmed -> Orders opens the order.
 api.MapPost("/checkouts", async (
-    StartCheckoutRequest body, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    StartCheckoutRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var cart = await mediator.Send(new GetCartQuery(body.CartId, tenant.TenantId), ct);
+    var cart = await mediator.Send(new GetCartQuery(body.CartId, actor.MerchantId), ct);
     if (cart is null)
         return Results.NotFound();
-    if (cart.SubtotalMinorUnits is not { } minorUnits || cart.SubtotalCurrency is not { } currency)
+    if (cart.Subtotal is not { } subtotal)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Cannot check out an empty cart.");
 
     var result = await mediator.Send(
-        new StartCheckoutCommand(tenant.TenantId, body.CartId, minorUnits, currency, body.Recipient), ct);
+        new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, body.Recipient), ct);
     return Results.Ok(result);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Checkout")
     .WithName("StartCheckout")
     .WithSummary("Start checkout")
@@ -666,11 +648,11 @@ api.MapPost("/checkouts", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
-    Guid checkoutSessionId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid checkoutSessionId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, tenant.TenantId), ct);
+    var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, actor.MerchantId), ct);
     return Results.Ok(result);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Checkout")
     .WithName("ConfirmCheckout")
     .WithSummary("Confirm checkout")
@@ -680,26 +662,26 @@ api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
 
 var createPaymentSession = api.MapPost("/payments/sessions", async (
     CreatePaymentSessionRequest body,
-    ITenantContext tenant,
+    IActorContext actor,
     IMediator mediator,
     CancellationToken ct) =>
 {
     var result = await mediator.Send(new CreatePaymentSessionCommand(
-        body.OrderId, tenant.TenantId, body.AmountMinorUnits, body.Currency, body.Method, body.Psp), ct);
+        body.OrderId, actor.MerchantId, body.Amount, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
-GateProducerWrite(createPaymentSession, enforceProducerWrites, ProducerPermissions.PaymentCreate)
+createPaymentSession.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.PaymentCreate)
     .WithTags("Payments")
     .WithName("CreatePaymentSession")
     .WithSummary("Create a payment session")
-    .WithDescription("Open a payment session for an order against the chosen method/PSP. Behind Producer:EnforcePermissionsOnWrites: ON requires the producer policy + payment.create; OFF keeps the tenant-Bearer behavior.")
+    .WithDescription("Open a payment session for an order against the chosen method/PSP. Requires the merchant-user policy + payment.create.")
     .Produces<CreatePaymentSessionResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// Claims-then-charges redirect (PLAN #11). Tenant scoping is automatic: the command is ITenantScoped, so
-// TenantGuardBehavior + RLS resolve the session for the authenticated tenant only. Errors flow through the
+// Claims-then-charges redirect (PLAN #11). Merchant scoping is automatic: the command is IMerchantScoped, so
+// MerchantGuardBehavior + RLS resolve the session for the authenticated merchant only. Errors flow through the
 // shared ProblemDetails handler (not found -> 404, illegal state / concurrent claim -> 409).
 var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redirect", async (
     Guid paymentSessionId,
@@ -709,11 +691,11 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 });
-GateProducerWrite(startRedirect, enforceProducerWrites, ProducerPermissions.PaymentRedirect)
+startRedirect.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.PaymentRedirect)
     .WithTags("Payments")
     .WithName("StartPaymentRedirect")
     .WithSummary("Start the PSP redirect")
-    .WithDescription("Claim then charge: return the PSP redirect URL for the payment session. Behind Producer:EnforcePermissionsOnWrites: ON requires the producer policy + payment.redirect; OFF keeps the tenant-Bearer behavior. Not found -> 404, illegal/concurrent state -> 409.")
+    .WithDescription("Claim then charge: return the PSP redirect URL for the payment session. Requires the merchant-user policy + payment.redirect. Not found -> 404, illegal/concurrent state -> 409.")
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -721,8 +703,8 @@ GateProducerWrite(startRedirect, enforceProducerWrites, ProducerPermissions.Paym
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
-// a bypass proc (no tenant binding). Unknown token -> 404; expired -> 410. A producer can resend (rotates
-// the token + extends the TTL), which is tenant-scoped.
+// a bypass proc (no merchant binding). Unknown token -> 404; expired -> 410. A merchant-user can resend (rotates
+// the token + extends the TTL), which is merchant-scoped.
 api.MapGet("/orders/{token}/summary", async (
     string token, IOrderSummaryReader reader, IClock clock, CancellationToken ct) =>
 {
@@ -733,7 +715,7 @@ api.MapGet("/orders/{token}/summary", async (
         return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
 
     return Results.Ok(new OrderSummaryResponse(
-        summary.OrderId, summary.AmountMinorUnits, summary.Currency, summary.Status, summary.PaymentSessionId));
+        summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId));
 }).AllowAnonymous()
     .WithTags("Orders")
     .WithName("GetOrderSummary")
@@ -744,11 +726,11 @@ api.MapGet("/orders/{token}/summary", async (
     .ProducesProblem(StatusCodes.Status410Gone);
 
 api.MapPost("/orders/{orderId:guid}/summary/resend", async (
-    Guid orderId, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+    Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, tenant.TenantId), ct);
+    var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, actor.MerchantId), ct);
     return Results.Ok(result);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Orders")
     .WithName("ResendOrderSummary")
     .WithSummary("Resend the order summary link")
@@ -756,23 +738,23 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     .Produces<ResendOrderSummaryResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// Reconciliation report: the bound tenant's orders grouped by status + currency (count + total).
-api.MapGet("/reports/reconciliation", async (ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+// Reconciliation report: the bound merchant's orders grouped by status + currency (count + total).
+api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new GetReconciliationSummaryQuery(tenant.TenantId), ct);
+    var view = await mediator.Send(new GetReconciliationSummaryQuery(actor.MerchantId), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("tenant")
+}).RequireAuthorization("merchant-user")
     .WithTags("Orders")
     .WithName("GetReconciliationReport")
     .WithSummary("Reconciliation report")
-    .WithDescription("The bound tenant's orders grouped by status and currency (count + total).")
+    .WithDescription("The bound merchant's orders grouped by status and currency (count + total).")
     .Produces<ReconciliationView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
 // One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
 // policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
-// is anonymous; every other route gates on the AdminSession "admin" policy. The CSRF filter exempts safe methods,
+// is anonymous; every other route gates on the PlatformUserSession "admin" policy. The CSRF filter exempts safe methods,
 // so the login/callback GETs pass untouched.
 var admin = api.MapGroup("/admins").AddEndpointFilter<AdminCsrfFilter>();
 
@@ -780,7 +762,7 @@ var admin = api.MapGroup("/admins").AddEndpointFilter<AdminCsrfFilter>();
 // allowlist, then hand off to the OIDC handler, which builds the Authorization Code + PKCE + state + nonce
 // redirect to Google. The callback (Google:Oidc:CallbackPath) is handled by the OIDC middleware itself, which
 // establishes the session via OnTicketReceived — there is no mapped callback endpoint.
-admin.MapGet("/auth/login", (HttpContext http, IOptions<AdminSessionOptions> session) =>
+admin.MapGet("/auth/login", (HttpContext http, IOptions<PlatformUserSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
@@ -801,17 +783,17 @@ admin.MapGet("/auth/login", (HttpContext http, IOptions<AdminSessionOptions> ses
 // presented cookie identifies the family. CSRF protection for these POSTs is added with the other /admin
 // mutations in Task 5's double-submit filter (REQ-7).
 admin.MapPost("/auth/logout", async (
-    HttpContext http, IAdminSessionStore sessions, AdminSessionCookies cookies,
-    IAdminAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+    HttpContext http, IPlatformUserSessionStore sessions, PlatformUserSessionCookies cookies,
+    IPlatformAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(AdminSessionTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(PlatformUserSessionTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
-            audit.Append(AdminAuthAudit.For(AdminAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.AdminAccountId));
+            audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.PlatformUserId));
             await audit.SaveChangesAsync(ct);
         }
     }
@@ -827,12 +809,12 @@ admin.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
 admin.MapPost("/auth/logout-all", async (
-    HttpContext http, IAdminScope scope, IAdminSessionStore sessions, AdminSessionCookies cookies,
-    IAdminAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+    HttpContext http, IAdminScope scope, IPlatformUserSessionStore sessions, PlatformUserSessionCookies cookies,
+    IPlatformAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var adminId = scope.Current.AdminId;
     await sessions.RevokeAllForAdminAsync(adminId, ct);
-    audit.Append(AdminAuthAudit.For(AdminAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
+    audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
     await audit.SaveChangesAsync(ct);
     cookies.Clear(http);
     return Results.NoContent();
@@ -844,21 +826,21 @@ admin.MapPost("/auth/logout-all", async (
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// Admin provisioning (reference 2.4). Cross-tenant, so NOT ITenantScoped — runs under pol_admin via the
+// Admin provisioning (reference 2.4). Cross-merchant, so NOT IMerchantScoped — runs under pol_admin via the
 // keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
 // never from the body. Duplicate code -> ConflictException -> 409; bad input -> ArgumentException -> 400.
-admin.MapPost("/tenants", async (
-    ProvisionTenantRequest body,
+admin.MapPost("/merchants", async (
+    ProvisionMerchantRequest body,
     HttpContext http,
     IMediator mediator,
     CancellationToken ct) =>
 {
-    // The documented 2.4 body wraps tenant fields under "tenant"; non-secret PSP config rides alongside
+    // The documented 2.4 body wraps merchant fields under "merchant"; non-secret PSP config rides alongside
     // "psp"/"secrets" and is captured verbatim via JsonExtensionData (reference 2.4 — config stored as-is).
-    var t = body.Tenant ?? throw new ArgumentException("The 'tenant' object is required.");
+    var t = body.Merchant ?? throw new ArgumentException("The 'merchant' object is required.");
 
-    var command = new ProvisionTenantCommand(
-        new TenantSpec(t.Code, t.DisplayName, t.LegalEntityId, t.Country, t.Currency,
+    var command = new ProvisionMerchantCommand(
+        new MerchantSpec(t.Code, t.DisplayName, t.LegalEntityId, t.Country, t.Currency,
             t.EnabledChannels ?? [], ToElement(t.Metadata)),
         [.. (body.PspConnections ?? []).Select(p =>
         {
@@ -873,83 +855,83 @@ admin.MapPost("/tenants", async (
         http.TraceIdentifier);
 
     var result = await mediator.Send(command, ct);
-    return Results.Created($"/api/v1/admins/tenants/{t.Code}", result);
+    return Results.Created($"/api/v1/admins/merchants/{t.Code}", result);
 
     // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 })
-    .RequireAuthorization("admin").RequireAdminTier(AdminTier.Super) // provisioning is Super-only (REQ-8.4)
-    .WithTags("Admin Tenants")
-    .WithName("ProvisionTenant")
-    .WithSummary("Provision a tenant")
-    .WithDescription("Super-only. Create a tenant with its PSP connections (secrets vaulted, config stored verbatim). Duplicate code -> 409, bad input -> 400.")
-    .Produces<ProvisionTenantResult>(StatusCodes.Status201Created)
+    .RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super) // provisioning is Super-only (REQ-8.4)
+    .WithTags("Admin Merchants")
+    .WithName("ProvisionMerchant")
+    .WithSummary("Provision a merchant")
+    .WithDescription("Super-only. Create a merchant with its PSP connections (secrets vaulted, config stored verbatim). Duplicate code -> 409, bad input -> 400.")
+    .Produces<ProvisionMerchantResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// Cross-tenant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned tenants, a
+// Cross-merchant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned merchants, a
 // Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak).
-admin.MapGet("/tenants/{code}", async (
+admin.MapGet("/merchants/{code}", async (
     string code,
     IAdminQuery adminQuery,
     CancellationToken ct) =>
 {
-    var view = await adminQuery.GetTenantByCodeAsync(code, ct);
+    var view = await adminQuery.GetMerchantByCodeAsync(code, ct);
     return view is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
 }).RequireAuthorization("admin")
-    .WithTags("Admin Tenants")
-    .WithName("GetTenant")
-    .WithSummary("Read a tenant by code")
-    .WithDescription("Scoped admins see only assigned tenants; Super is unrestricted. Out-of-scope or unknown -> 404 (no existence leak).")
-    .Produces<TenantView>(StatusCodes.Status200OK)
+    .WithTags("Admin Merchants")
+    .WithName("GetMerchant")
+    .WithSummary("Read a merchant by code")
+    .WithDescription("Scoped admins see only assigned merchants; Super is unrestricted. Out-of-scope or unknown -> 404 (no existence leak).")
+    .Produces<MerchantView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// --- Producer BFF login + registration (producer-google-sso REQ-8/9/14) ---
-// The producers area has TWO group refs at the same /api/v1/producers prefix (REQ-3.7): this UNFILTERED ref carries
+// --- MerchantUser BFF login + registration (merchant-user-google-sso REQ-8/9/14) ---
+// The merchant-users area has TWO group refs at the same /api/v1/merchant-users prefix (REQ-3.7): this UNFILTERED ref carries
 // the anonymous pre-session entry (login + register), exactly as they were mapped top-level before the migration;
-// the filtered console group below (CSRF + bound-producer) carries the authenticated surface. The area-prefix move
+// the filtered console group below (CSRF + bound-merchant-user) carries the authenticated surface. The area-prefix move
 // must NOT move any endpoint between tiers.
-var producersAnon = api.MapGroup("/producers");
+var merchantUsersAnon = api.MapGroup("/merchant-users");
 
-// Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the producer
-// allowlist, then hand off to the "ProducerGoogle" OIDC handler, which builds the Authorization Code + PKCE + state
-// + nonce redirect to Google. The callback (Producer:Oidc:CallbackPath) is handled by the OIDC middleware itself,
-// which runs the 4-way state branch via OnTicketReceived -> ProducerLoginService (session cookie for an Active
-// producer, a signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback.
-producersAnon.MapGet("/auth/login", (HttpContext http, IOptions<ProducerSessionOptions> session) =>
+// Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the merchant-user
+// allowlist, then hand off to the "MerchantUserGoogle" OIDC handler, which builds the Authorization Code + PKCE + state
+// + nonce redirect to Google. The callback (MerchantUser:Oidc:CallbackPath) is handled by the OIDC middleware itself,
+// which runs the 4-way state branch via OnTicketReceived -> MerchantUserLoginService (session cookie for an Active
+// merchant-user, a signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback.
+merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<MerchantUserSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [ProducerOidcAuthentication.Scheme]);
+        [MerchantUserOidcAuthentication.Scheme]);
 })
 .AllowAnonymous()
-.RequireRateLimiting(ProducerAuthRateLimiting.PolicyName)
-    .WithTags("Producer Auth")
-    .WithName("ProducerLogin")
-    .WithSummary("Begin producer login")
-    .WithDescription("Validate returnTo against the allowlist, then redirect to Google (OIDC Authorization Code + PKCE). The callback establishes a session cookie for an Active producer, or redirects an applicant to /register with a signed ticket.")
+.RequireRateLimiting(MerchantUserAuthRateLimiting.PolicyName)
+    .WithTags("MerchantUser Auth")
+    .WithName("MerchantUserLogin")
+    .WithSummary("Begin merchant-user login")
+    .WithDescription("Validate returnTo against the allowlist, then redirect to Google (OIDC Authorization Code + PKCE). The callback establishes a session cookie for an Active merchant-user, or redirects an applicant to /register with a signed ticket.")
     .Produces(StatusCodes.Status302Found)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
-// --- Producer self-service registration (producer-google-sso REQ-3/4/5/7/13/20) ---
+// --- MerchantUser self-service registration (merchant-user-google-sso REQ-3/4/5/7/13/20) ---
 // Anonymous + ticket-gated: the signed, time-limited (stateless) ticket IS the capability barrier, so no session CSRF on this
 // pre-session route (REQ-13.4); rate-limited per IP instead. Multipart (form + optional photo): the request body
 // is bounded BEFORE buffering (REQ-7.4/N3), the photo is validated by content-type + magic bytes (REQ-7.3), then
 // the write runs in ONE pol_admin transaction that also enqueues the registration event (REQ-4.1/20). Identity is
 // taken only from the verified ticket, never the form (REQ-4.2). Replays/duplicates -> 409 (no 500); a Correction
 // ticket resubmits a Rejected user (REQ-5).
-producersAnon.MapPost("/register", async (
+merchantUsersAnon.MapPost("/register", async (
     HttpRequest request,
-    ProducerRegistrationTickets tickets,
-    IOptions<ProducerRegistrationOptions> registrationOptions,
+    MerchantUserRegistrationTickets tickets,
+    IOptions<MerchantUserRegistrationOptions> registrationOptions,
     IMediator mediator,
     HttpContext http,
     CancellationToken ct) =>
@@ -998,7 +980,7 @@ producersAnon.MapPost("/register", async (
         photoContentType = validation.ContentType;
     }
 
-    var formModel = ProducerRegistrationForm.From(form);
+    var formModel = MerchantUserRegistrationForm.From(form);
     if (string.IsNullOrWhiteSpace(formModel.FirstName) || string.IsNullOrWhiteSpace(formModel.LastName))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "firstName and lastName are required.");
 
@@ -1006,264 +988,263 @@ producersAnon.MapPost("/register", async (
         ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
         formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
 
-    return Results.Created($"/api/v1/producers/tenant-users/{result.TenantUserId}",
-        new ProducerRegisterResponse(result.TenantUserId, result.Status.ToString()));
+    return Results.Created($"/api/v1/merchant-users/{result.MerchantUserId}",
+        new MerchantUserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
 })
     .AllowAnonymous()
     .DisableAntiforgery()
-    .RequireRateLimiting(ProducerAuthRateLimiting.PolicyName)
-    .WithTags("Producer Auth")
-    .WithName("ProducerRegister")
-    .WithSummary("Submit a producer registration")
-    .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval TenantUser and enqueues a registration event. Invalid/expired ticket -> 400; duplicate/replay (unique Subject index) -> 409; oversize -> 413.")
+    .RequireRateLimiting(MerchantUserAuthRateLimiting.PolicyName)
+    .WithTags("MerchantUser Auth")
+    .WithName("MerchantUserRegister")
+    .WithSummary("Submit a merchant-user registration")
+    .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval MerchantUser and enqueues a registration event. Invalid/expired ticket -> 400; duplicate/replay (unique Subject index) -> 409; oversize -> 413.")
     .Accepts<IFormFile>("multipart/form-data")
-    .Produces<ProducerRegisterResponse>(StatusCodes.Status201Created)
+    .Produces<MerchantUserRegisterResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
-// --- Producer BFF authenticated surface (producer-google-sso REQ-12/13/15/16/17) ---
-// One group binds the CSRF double-submit filter ONCE for the whole authenticated producer surface (the credentialed
-// producer CORS policy is applied to /api/v1/producers/* by PolCorsPolicyProvider). Every route gates on the
-// dual-scheme "producer" policy (ProducerSession OR tenant Bearer); the CSRF filter exempts safe methods, and the
+// --- MerchantUser BFF authenticated surface (merchant-user-google-sso REQ-12/13/15/16/17) ---
+// One group binds the CSRF double-submit filter ONCE for the whole authenticated merchant-user surface (the credentialed
+// merchant-user CORS policy is applied to /api/v1/merchant-users/* by PolCorsPolicyProvider). Every route gates on the
+// single-scheme "merchant-user" policy (MerchantUserSession only, T11); the CSRF filter exempts safe methods, and the
 // anonymous pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
-// ProducerBoundProducerFilter then fail-closes the whole group on a BOUND producer (REQ-17.2/F10): a tenant-Bearer
-// caller passes the dual-scheme policy but binds no scope, so it cannot read the role/permission catalog here.
-var producer = api.MapGroup("/producers")
-    .AddEndpointFilter<ProducerCsrfFilter>()
-    .AddEndpointFilter<ProducerBoundProducerFilter>();
+// MerchantBoundFilter then fail-closes the whole group on a BOUND merchant-user (REQ-17.2/F10).
+var merchantUsers = api.MapGroup("/merchant-users")
+    .AddEndpointFilter<MerchantUserCsrfFilter>()
+    .AddEndpointFilter<MerchantBoundFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
 // presented cookie identifies the family.
-producer.MapPost("/auth/logout", async (
-    HttpContext http, IProducerSessionStore sessions, ProducerSessionCookies cookies,
-    IProducerAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+merchantUsers.MapPost("/auth/logout", async (
+    HttpContext http, IMerchantUserSessionStore sessions, MerchantUserSessionCookies cookies,
+    IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(ProducerTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(MerchantUserTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
-            audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.ProducerAccountId));
+            audit.Append(MerchantAuthAudit.For(MerchantAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.MerchantUserId));
             await audit.SaveChangesAsync(ct);
         }
     }
     cookies.Clear(http);
     return Results.NoContent();
-}).RequireAuthorization("producer")
-    .WithTags("Producer Auth")
-    .WithName("ProducerLogout")
+}).RequireAuthorization("merchant-user")
+    .WithTags("MerchantUser Auth")
+    .WithName("MerchantUserLogout")
     .WithSummary("Log out this device")
-    .WithDescription("Revoke the current producer session family (this device only) and clear the cookie.")
+    .WithDescription("Revoke the current merchant-user session family (this device only) and clear the cookie.")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// Logout-all = revoke EVERY session of this producer across all devices (REQ-12.2).
-producer.MapPost("/auth/logout-all", async (
-    HttpContext http, IProducerScope scope, IProducerSessionStore sessions, ProducerSessionCookies cookies,
-    IProducerAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+// Logout-all = revoke EVERY session of this merchant-user across all devices (REQ-12.2).
+merchantUsers.MapPost("/auth/logout-all", async (
+    HttpContext http, IMerchantUserScope scope, IMerchantUserSessionStore sessions, MerchantUserSessionCookies cookies,
+    IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
-    var userId = scope.Current.TenantUserId;
+    var userId = scope.Current.MerchantUserId;
     await sessions.RevokeAllForUserAsync(userId, ct);
-    audit.Append(ProducerAuthAudit.For(ProducerAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, userId));
+    audit.Append(MerchantAuthAudit.For(MerchantAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, userId));
     await audit.SaveChangesAsync(ct);
     cookies.Clear(http);
     return Results.NoContent();
-}).RequireAuthorization("producer")
-    .WithTags("Producer Auth")
-    .WithName("ProducerLogoutAll")
+}).RequireAuthorization("merchant-user")
+    .WithTags("MerchantUser Auth")
+    .WithName("MerchantUserLogoutAll")
     .WithSummary("Log out all devices")
-    .WithDescription("Revoke every session of this producer across all devices and clear the cookie.")
+    .WithDescription("Revoke every session of this merchant-user across all devices and clear the cookie.")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// The producer SPA reads its own resolved identity (REQ-17.5): tenantUserId/email/tenantId + active role codes +
-// the effective permission set, all from the per-request IProducerScope. A tenant-Bearer caller binds no scope -> 403.
-producer.MapGet("/me", async (IProducerScope scope, IProducerRoleRepository roles, CancellationToken ct) =>
+// The merchant-user SPA reads its own resolved identity (REQ-17.5): merchantUserId/email/merchantId + active role codes +
+// the effective permission set, all from the per-request IMerchantUserScope. A merchant-Bearer caller binds no scope -> 403.
+merchantUsers.MapGet("/me", async (IMerchantUserScope scope, IMerchantUserRoleRepository roles, CancellationToken ct) =>
 {
     if (!scope.IsBound)
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your producer account is not active.");
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your merchant-user account is not active.");
     var me = scope.Current;
-    var roleCodes = await roles.ListActiveRoleCodesForUserAsync(me.TenantUserId, me.TenantId, ct);
-    return Results.Ok(new ProducerMeResponse(me.TenantUserId, me.Email, me.TenantId, roleCodes, me.Permissions));
-}).RequireAuthorization("producer")
-    .WithTags("Producer Auth")
-    .WithName("GetProducerMe")
-    .WithSummary("Resolve the current producer")
-    .WithDescription("The SPA reads its own identity: tenant, active role codes, and effective permissions. Not bound (tenant-Bearer) -> 403.")
-    .Produces<ProducerMeResponse>(StatusCodes.Status200OK)
+    var roleCodes = await roles.ListActiveRoleCodesForUserAsync(me.MerchantUserId, me.MerchantId, ct);
+    return Results.Ok(new MerchantUserMeResponse(me.MerchantUserId, me.Email, me.MerchantId, roleCodes, me.Permissions));
+}).RequireAuthorization("merchant-user")
+    .WithTags("MerchantUser Auth")
+    .WithName("GetMerchantUserMe")
+    .WithSummary("Resolve the current merchant-user")
+    .WithDescription("The SPA reads its own identity: merchant, active role codes, and effective permissions. Not bound (merchant-Bearer) -> 403.")
+    .Produces<MerchantUserMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// --- Producer Role RBAC (REQ-15/16) ---
-// Reads need only an authenticated producer (REQ-15.4/16); role mutations gate on producer.roles.manage and the
-// assignment gates on producer.user.roles (S8). status crosses the wire as "active"/"inactive" via explicit projection.
-static ProducerRoleResponse ProducerRoleToWire(ProducerRoleListItem r) => new(
+// --- MerchantUser Role RBAC (REQ-15/16) ---
+// Reads need only an authenticated merchant-user (REQ-15.4/16); role mutations gate on merchant-user.roles.manage and the
+// assignment gates on merchant-user.user.roles (S8). status crosses the wire as "active"/"inactive" via explicit projection.
+static MerchantUserRoleResponse MerchantUserRoleToWire(MerchantUserRoleListItem r) => new(
     r.Code, r.Name, r.Description, r.Color,
-    r.Status == ProducerRoleStatus.Active ? "active" : "inactive",
+    r.Status == MerchantUserRoleStatus.Active ? "active" : "inactive",
     r.PermissionKeys, r.UserCount);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active.
-static ProducerRoleStatus ParseProducerRoleStatus(string? status) => status?.ToLowerInvariant() switch
+static MerchantUserRoleStatus ParseMerchantUserRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
-    "active" => ProducerRoleStatus.Active,
-    "inactive" => ProducerRoleStatus.Inactive,
+    "active" => MerchantUserRoleStatus.Active,
+    "inactive" => MerchantUserRoleStatus.Inactive,
     _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
 };
 
-producer.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
+merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
 {
-    var catalog = await mediator.Send(new ListProducerPermissionsQuery(), ct);
-    return Results.Ok(new ProducerPermissionCatalogResponse(
-        catalog.Groups.Select(g => new ProducerPermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
-        catalog.Permissions.Select(p => new ProducerPermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
-}).RequireAuthorization("producer")
-    .WithTags("Producer Roles")
-    .WithName("ListProducerPermissions")
-    .WithSummary("Producer permission catalog")
-    .WithDescription("The permission/group catalog backing the producer role matrix (resource = the permission's group key).")
-    .Produces<ProducerPermissionCatalogResponse>(StatusCodes.Status200OK)
+    var catalog = await mediator.Send(new ListMerchantUserPermissionsQuery(), ct);
+    return Results.Ok(new MerchantUserPermissionCatalogResponse(
+        catalog.Groups.Select(g => new MerchantUserPermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
+        catalog.Permissions.Select(p => new MerchantUserPermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
+}).RequireAuthorization("merchant-user")
+    .WithTags("MerchantUser Roles")
+    .WithName("ListMerchantUserPermissions")
+    .WithSummary("MerchantUser permission catalog")
+    .WithDescription("The permission/group catalog backing the merchant-user role matrix (resource = the permission's group key).")
+    .Produces<MerchantUserPermissionCatalogResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-producer.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
-    Results.Ok((await mediator.Send(new ListProducerRolesQuery(), ct)).Select(ProducerRoleToWire)))
-    .RequireAuthorization("producer")
-    .WithTags("Producer Roles")
-    .WithName("ListProducerRoles")
-    .WithSummary("List producer roles")
-    .WithDescription("All producer roles with their permissions and bound-user counts.")
-    .Produces<IEnumerable<ProducerRoleResponse>>(StatusCodes.Status200OK)
+merchantUsers.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
+    Results.Ok((await mediator.Send(new ListMerchantUserRolesQuery(), ct)).Select(MerchantUserRoleToWire)))
+    .RequireAuthorization("merchant-user")
+    .WithTags("MerchantUser Roles")
+    .WithName("ListMerchantUserRoles")
+    .WithSummary("List merchant-user roles")
+    .WithDescription("All merchant-user roles with their permissions and bound-user counts.")
+    .Produces<IEnumerable<MerchantUserRoleResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-producer.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
+merchantUsers.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
 {
-    var role = await mediator.Send(new GetProducerRoleQuery(code), ct);
-    return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(ProducerRoleToWire(role));
-}).RequireAuthorization("producer")
-    .WithTags("Producer Roles")
-    .WithName("GetProducerRole")
-    .WithSummary("Read a producer role by code")
-    .WithDescription("Return a single producer role with its permissions. Unknown code -> 404.")
-    .Produces<ProducerRoleResponse>(StatusCodes.Status200OK)
+    var role = await mediator.Send(new GetMerchantUserRoleQuery(code), ct);
+    return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(MerchantUserRoleToWire(role));
+}).RequireAuthorization("merchant-user")
+    .WithTags("MerchantUser Roles")
+    .WithName("GetMerchantUserRole")
+    .WithSummary("Read a merchant-user role by code")
+    .WithDescription("Return a single merchant-user role with its permissions. Unknown code -> 404.")
+    .Produces<MerchantUserRoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-producer.MapPost("/roles", async (CreateProducerRoleRequest body, IMediator mediator, CancellationToken ct) =>
+merchantUsers.MapPost("/roles", async (CreateMerchantUserRoleRequest body, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new CreateProducerRoleCommand(
-        body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseProducerRoleStatus(body.Status),
+    var result = await mediator.Send(new CreateMerchantUserRoleCommand(
+        body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
-    return Results.Created($"/api/v1/producers/roles/{result.Code}", ProducerRoleToWire(result));
-}).RequireAuthorization("producer").RequireProducerPermission(ProducerPermissions.RolesManage)
-    .WithTags("Producer Roles")
-    .WithName("CreateProducerRole")
-    .WithSummary("Create a producer role")
-    .WithDescription("Requires producer.roles.manage. Duplicate code -> 409; permission key outside the catalog -> 400.")
-    .Produces<ProducerRoleResponse>(StatusCodes.Status201Created)
+    return Results.Created($"/api/v1/merchant-users/roles/{result.Code}", MerchantUserRoleToWire(result));
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+    .WithTags("MerchantUser Roles")
+    .WithName("CreateMerchantUserRole")
+    .WithSummary("Create a merchant-user role")
+    .WithDescription("Requires merchant-user.roles.manage. Duplicate code -> 409; permission key outside the catalog -> 400.")
+    .Produces<MerchantUserRoleResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-producer.MapPut("/roles/{code}", async (string code, UpdateProducerRoleRequest body, IMediator mediator, CancellationToken ct) =>
+merchantUsers.MapPut("/roles/{code}", async (string code, UpdateMerchantUserRoleRequest body, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new UpdateProducerRoleCommand(
-        code, body.Name ?? "", body.Description, body.Color, ParseProducerRoleStatus(body.Status),
+    var result = await mediator.Send(new UpdateMerchantUserRoleCommand(
+        code, body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
-    return Results.Ok(ProducerRoleToWire(result));
-}).RequireAuthorization("producer").RequireProducerPermission(ProducerPermissions.RolesManage)
-    .WithTags("Producer Roles")
-    .WithName("UpdateProducerRole")
-    .WithSummary("Update a producer role")
-    .WithDescription("Requires producer.roles.manage. Code is immutable (from the route); deactivating tenant_owner -> 409.")
-    .Produces<ProducerRoleResponse>(StatusCodes.Status200OK)
+    return Results.Ok(MerchantUserRoleToWire(result));
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+    .WithTags("MerchantUser Roles")
+    .WithName("UpdateMerchantUserRole")
+    .WithSummary("Update a merchant-user role")
+    .WithDescription("Requires merchant-user.roles.manage. Code is immutable (from the route); deactivating merchant_owner -> 409.")
+    .Produces<MerchantUserRoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-producer.MapDelete("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
+merchantUsers.MapDelete("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new DeleteProducerRoleCommand(code), ct);
+    await mediator.Send(new DeleteMerchantUserRoleCommand(code), ct);
     return Results.NoContent();
-}).RequireAuthorization("producer").RequireProducerPermission(ProducerPermissions.RolesManage)
-    .WithTags("Producer Roles")
-    .WithName("DeleteProducerRole")
-    .WithSummary("Delete a producer role")
-    .WithDescription("Requires producer.roles.manage. tenant_owner is undeletable -> 409; a role with bound users -> 409.")
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+    .WithTags("MerchantUser Roles")
+    .WithName("DeleteMerchantUserRole")
+    .WithSummary("Delete a merchant-user role")
+    .WithDescription("Requires merchant-user.roles.manage. merchant_owner is undeletable -> 409; a role with bound users -> 409.")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// Set another producer's roles to exactly the given set, within the acting producer's tenant (REQ-16.3). Unknown
-// role code -> 400; a target outside the acting tenant -> 404 (no existence leak).
-producer.MapPut("/tenant-users/{tenantUserId:guid}/roles", async (
-    Guid tenantUserId, SetProducerRolesRequest body, IProducerScope scope, IMediator mediator, CancellationToken ct) =>
+// Set another merchant-user's roles to exactly the given set, within the acting merchant-user's merchant (REQ-16.3). Unknown
+// role code -> 400; a target outside the acting merchant -> 404 (no existence leak).
+merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
+    Guid merchantUserId, SetMerchantUserRolesRequest body, IMerchantUserScope scope, IMediator mediator, CancellationToken ct) =>
 {
     var me = scope.Current;
-    await mediator.Send(new SetProducerUserRolesCommand(tenantUserId, body.RoleCodes ?? [], me.TenantId, me.TenantUserId), ct);
+    await mediator.Send(new SetMerchantUserRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
     return Results.NoContent();
-}).RequireAuthorization("producer").RequireProducerPermission(ProducerPermissions.UserRoles)
-    .WithTags("Producer Roles")
-    .WithName("SetProducerUserRoles")
-    .WithSummary("Set a producer's roles")
-    .WithDescription("Requires producer.user.roles. Replace a producer's roles with exactly the given set, scoped to your tenant. Unknown role code -> 400; target not in your tenant -> 404.")
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.UserRoles)
+    .WithTags("MerchantUser Roles")
+    .WithName("SetMerchantUserUserRoles")
+    .WithSummary("Set a merchant-user's roles")
+    .WithDescription("Requires merchant-user.user.roles. Replace a merchant-user's roles with exactly the given set, scoped to your merchant. Unknown role code -> 400; target not in your merchant -> 404.")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// --- Admin approves/rejects a producer (cross-plane, producer-google-sso REQ-6/18) ---
-// The Admin permission (producer.approve/reject) + the accessible-tenant floor (IAdminQuery) run HERE, at the host,
-// before crossing into the Producer module (critique B3) — the dispatched command receives an already-validated
-// tenant id and carries no Admin import. On the admin group, so the admin CSRF filter + AdminSession policy apply.
-admin.MapPost("/tenant-users/{subject}/approve", async (
-    string subject, ApproveTenantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
+// --- Admin approves/rejects a merchant-user (cross-plane, merchant-user-google-sso REQ-6/18) ---
+// The Admin permission (merchant-user.approve/reject) + the accessible-merchant floor (IAdminQuery) run HERE, at the host,
+// before crossing into the MerchantUser module (critique B3) — the dispatched command receives an already-validated
+// merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + PlatformUserSession policy apply.
+admin.MapPost("/merchant-users/{subject}/approve", async (
+    string subject, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
     HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    if (string.IsNullOrWhiteSpace(body.TenantCode))
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "A tenant code is required to approve.");
+    if (string.IsNullOrWhiteSpace(body.MerchantCode))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "A merchant code is required to approve.");
 
-    // The accessible-tenant floor: a Scoped admin sees only its assigned tenants, a Super is unrestricted. An
-    // unknown code OR a tenant outside the admin's scope returns null -> 404 (no existence leak, REQ-6.3/22.3).
-    var tenant = await adminQuery.GetTenantByCodeAsync(body.TenantCode, ct);
-    if (tenant is null)
-        return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Tenant not found or not in your scope.");
-    if (!string.Equals(tenant.Status, "Active", StringComparison.OrdinalIgnoreCase))
-        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The selected tenant is not active.");
+    // The accessible-merchant floor: a Scoped admin sees only its assigned merchants, a Super is unrestricted. An
+    // unknown code OR a merchant outside the admin's scope returns null -> 404 (no existence leak, REQ-6.3/22.3).
+    var merchant = await adminQuery.GetMerchantByCodeAsync(body.MerchantCode, ct);
+    if (merchant is null)
+        return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Merchant not found or not in your scope.");
+    if (!string.Equals(merchant.Status, "Active", StringComparison.OrdinalIgnoreCase))
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The selected merchant is not active.");
 
-    var result = await mediator.Send(new ApproveTenantUserCommand(
-        subject, tenant.Id, body.RoleCodes ?? [],
+    var result = await mediator.Send(new ApproveMerchantUserCommand(
+        subject, merchant.Id, body.RoleCodes ?? [],
         http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier), ct);
-    return Results.Ok(new ApproveTenantUserResponse(result.TenantUserId, result.Status.ToString(), result.AlreadyActive));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.ProducerApprove)
-    .WithTags("Admin Producers")
-    .WithName("ApproveTenantUser")
-    .WithSummary("Approve a producer onto a tenant")
-    .WithDescription("Requires producer.approve. Binds the producer to a tenant in the admin's accessible set + assigns roles + activates, in one transaction. Already-Active -> idempotent 200; unknown target -> 404; inactive/out-of-scope tenant -> 409/404; unknown/inactive role or non-Pending target -> 409.")
-    .Produces<ApproveTenantUserResponse>(StatusCodes.Status200OK)
+    return Results.Ok(new ApproveMerchantUserResponse(result.MerchantUserId, result.Status.ToString(), result.AlreadyActive));
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.MerchantUserApprove)
+    .WithTags("Admin MerchantUsers")
+    .WithName("ApproveMerchantUser")
+    .WithSummary("Approve a merchant-user onto a merchant")
+    .WithDescription("Requires merchant-user.approve. Binds the merchant-user to a merchant in the admin's accessible set + assigns roles + activates, in one transaction. Already-Active -> idempotent 200; unknown target -> 404; inactive/out-of-scope merchant -> 409/404; unknown/inactive role or non-Pending target -> 409.")
+    .Produces<ApproveMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-admin.MapPost("/tenant-users/{subject}/reject", async (
-    string subject, RejectTenantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
+admin.MapPost("/merchant-users/{subject}/reject", async (
+    string subject, RejectMerchantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new RejectTenantUserCommand(
+    var result = await mediator.Send(new RejectMerchantUserCommand(
         subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
-    return Results.Ok(new RejectTenantUserResponse(result.TenantUserId, result.Status.ToString()));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.ProducerReject)
-    .WithTags("Admin Producers")
-    .WithName("RejectTenantUser")
-    .WithSummary("Reject a pending producer")
-    .WithDescription("Requires producer.reject. Sets the producer Rejected and revokes any live sessions. Unknown target -> 404; a non-Pending target -> 409.")
-    .Produces<RejectTenantUserResponse>(StatusCodes.Status200OK)
+    return Results.Ok(new RejectMerchantUserResponse(result.MerchantUserId, result.Status.ToString()));
+}).RequireAuthorization("admin").RequirePermission(AdminPermissions.MerchantUserReject)
+    .WithTags("Admin MerchantUsers")
+    .WithName("RejectMerchantUser")
+    .WithSummary("Reject a pending merchant-user")
+    .WithDescription("Requires merchant-user.reject. Sets the merchant-user Rejected and revokes any live sessions. Unknown target -> 404; a non-Pending target -> 409.")
+    .Produces<RejectMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1273,8 +1254,8 @@ admin.MapPost("/tenant-users/{subject}/reject", async (
 
 // The Admin SPA reads its own resolved identity to render the right scope/navigation (REQ-13). adminId/tier/
 // accessible come from the per-request IAdminScope the middleware materialized; a Super returns an
-// unrestricted flag (never the full tenant list), a Scoped admin gets its assigned {id, code} pairs.
-admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, CancellationToken ct) =>
+// unrestricted flag (never the full merchant list), a Scoped admin gets its assigned {id, code} pairs.
+admin.MapGet("/me", async (IAdminScope scope, IAdminMerchantDirectory merchants, CancellationToken ct) =>
 {
     if (!scope.IsBound)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your admin account is not active.");
@@ -1283,15 +1264,15 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, Can
     AdminAccessibleResponse accessible;
     if (me.Accessible.IsUnrestricted)
     {
-        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Tenants: null);
+        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Merchants: null);
     }
     else
     {
-        var codes = await tenants.GetCodesByIdsAsync(me.Accessible.Tenants, ct);
+        var codes = await merchants.GetCodesByIdsAsync(me.Accessible.Merchants, ct);
         accessible = new AdminAccessibleResponse(
             IsUnrestricted: false,
-            Tenants: me.Accessible.Tenants
-                .Select(id => new AdminAccessibleTenantResponse(id, codes.GetValueOrDefault(id))).ToArray());
+            Merchants: me.Accessible.Merchants
+                .Select(id => new AdminAccessibleMerchantResponse(id, codes.GetValueOrDefault(id))).ToArray());
     }
 
     // permissions = effective action permissions (admin-role-rbac REQ-9.1)
@@ -1300,7 +1281,7 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminTenantDirectory tenants, Can
     .WithTags("Admin Auth")
     .WithName("GetAdminMe")
     .WithSummary("Resolve the current admin")
-    .WithDescription("The SPA reads its own identity: tier, accessible tenants (or unrestricted), and effective permissions. Inactive account -> 403.")
+    .WithDescription("The SPA reads its own identity: tier, accessible merchants (or unrestricted), and effective permissions. Inactive account -> 403.")
     .Produces<AdminMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -1317,7 +1298,7 @@ api.MapPost("/admins", async (
         body.Email, scope.Current.AdminId, http.TraceIdentifier,
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
     .WithName("CreateScopedAdmin")
     .WithSummary("Invite a scoped admin")
@@ -1330,18 +1311,18 @@ api.MapPost("/admins", async (
 // --- Admin account management (admin-account-management) ---
 // tier/status cross the wire as stable lowercase strings via explicit projection — there is no global
 // string-enum converter (B2), mirroring RoleToWire.
-static string TierToWire(AdminTier t) => t == AdminTier.Super ? "super" : "scoped";
+static string TierToWire(PlatformUserTier t) => t == PlatformUserTier.Super ? "super" : "scoped";
 static string AccountStatusToWire(AdminStatus s) => s == AdminStatus.Active ? "active" : "suspended";
-static string SessionStatusToWire(AdminSessionStatus s) => s switch
+static string SessionStatusToWire(PlatformUserSessionStatus s) => s switch
 {
-    AdminSessionStatus.Active => "active",
-    AdminSessionStatus.Superseded => "superseded",
+    PlatformUserSessionStatus.Active => "active",
+    PlatformUserSessionStatus.Superseded => "superseded",
     _ => "revoked",
 };
-static AdminListItemResponse AdminToWire(AdminAccountListItem a) =>
+static AdminListItemResponse AdminToWire(PlatformUserListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
 static MasterRefResponse? MasterRefToWire(MasterRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
-static AdminSessionResponse SessionToWire(AdminSessionView v) =>
+static PlatformUserSessionResponse SessionToWire(PlatformUserSessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
         v.CreatedIp, v.UserAgent, v.IsLive);
 
@@ -1371,9 +1352,9 @@ api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationT
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// One admin's full detail (REQ-2). Accessible tenants are mapped id->code in the host, byte-for-byte the /me
-// pattern, so the query handler stays free of the tenant directory. Unknown id -> 404.
-admin.MapGet("/{id:guid}", async (Guid id, IAdminTenantDirectory tenants, IMediator mediator, CancellationToken ct) =>
+// One admin's full detail (REQ-2). Accessible merchants are mapped id->code in the host, byte-for-byte the /me
+// pattern, so the query handler stays free of the merchant directory. Unknown id -> 404.
+admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IMediator mediator, CancellationToken ct) =>
 {
     var detail = await mediator.Send(new GetAdminByIdQuery(id), ct);
     if (detail is null)
@@ -1382,15 +1363,15 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminTenantDirectory tenants, IMedia
     AdminAccessibleResponse accessible;
     if (detail.Accessible.IsUnrestricted)
     {
-        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Tenants: null);
+        accessible = new AdminAccessibleResponse(IsUnrestricted: true, Merchants: null);
     }
     else
     {
-        var codes = await tenants.GetCodesByIdsAsync(detail.Accessible.Tenants, ct);
+        var codes = await merchants.GetCodesByIdsAsync(detail.Accessible.Merchants, ct);
         accessible = new AdminAccessibleResponse(
             IsUnrestricted: false,
-            Tenants: detail.Accessible.Tenants
-                .Select(tid => new AdminAccessibleTenantResponse(tid, codes.GetValueOrDefault(tid))).ToArray());
+            Merchants: detail.Accessible.Merchants
+                .Select(tid => new AdminAccessibleMerchantResponse(tid, codes.GetValueOrDefault(tid))).ToArray());
     }
 
     return Results.Ok(new AdminDetailResponse(
@@ -1402,7 +1383,7 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminTenantDirectory tenants, IMedia
     .WithTags("Admin Admins")
     .WithName("GetAdmin")
     .WithSummary("Read an admin account")
-    .WithDescription("Requires the user.view permission. Returns the account's tier, status, accessible tenants (unrestricted for a Super), and all assigned role codes. Unknown id -> 404.")
+    .WithDescription("Requires the user.view permission. Returns the account's tier, status, accessible merchants (unrestricted for a Super), and all assigned role codes. Unknown id -> 404.")
     .Produces<AdminDetailResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1423,33 +1404,33 @@ admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator media
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// Super assigns a tenant to a Scoped admin (REQ-4.1). Inactive/unknown tenant or duplicate -> 409.
-admin.MapPost("/{id:guid}/tenants", async (
-    Guid id, AssignTenantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+// Super assigns a merchant to a Scoped admin (REQ-4.1). Inactive/unknown merchant or duplicate -> 409.
+admin.MapPost("/{id:guid}/merchants", async (
+    Guid id, AssignMerchantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new AssignTenantCommand(id, body.TenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new AssignMerchantCommand(id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(result);
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
-    .WithName("AssignTenantToAdmin")
-    .WithSummary("Assign a tenant to an admin")
-    .WithDescription("Super-only. Grant a Scoped admin access to a tenant. Inactive/unknown tenant or duplicate -> 409.")
-    .Produces<AssignTenantResult>(StatusCodes.Status200OK)
+    .WithName("AssignMerchantToAdmin")
+    .WithSummary("Assign a merchant to an admin")
+    .WithDescription("Super-only. Grant a Scoped admin access to a merchant. Inactive/unknown merchant or duplicate -> 409.")
+    .Produces<AssignMerchantResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// Super unassigns a tenant — a hard delete of the assignment row (REQ-4.2). Unknown assignment -> 404.
-admin.MapDelete("/{id:guid}/tenants/{tenantId:guid}", async (
-    Guid id, Guid tenantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+// Super unassigns a merchant — a hard delete of the assignment row (REQ-4.2). Unknown assignment -> 404.
+admin.MapDelete("/{id:guid}/merchants/{merchantId:guid}", async (
+    Guid id, Guid merchantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new UnassignTenantCommand(id, tenantId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new UnassignMerchantCommand(id, merchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
-    .WithName("UnassignTenantFromAdmin")
-    .WithSummary("Unassign a tenant from an admin")
-    .WithDescription("Super-only. Hard-delete the tenant assignment row. Unknown assignment -> 404.")
+    .WithName("UnassignMerchantFromAdmin")
+    .WithSummary("Unassign a merchant from an admin")
+    .WithDescription("Super-only. Hard-delete the merchant assignment row. Unknown assignment -> 404.")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1463,7 +1444,7 @@ admin.MapPost("/{id:guid}/suspend", async (
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot suspend their own account.");
     await mediator.Send(new SuspendAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
     .WithName("SuspendAdmin")
     .WithSummary("Suspend an admin")
@@ -1479,7 +1460,7 @@ admin.MapPost("/{id:guid}/reactivate", async (
 {
     await mediator.Send(new ReactivateAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
     .WithName("ReactivateAdmin")
     .WithSummary("Reactivate a suspended admin")
@@ -1576,16 +1557,16 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
 // hashes never leave the store. isLive is evaluated at read time.
 admin.MapGet("/{id:guid}/sessions", async (Guid id, IMediator mediator, CancellationToken ct) =>
 {
-    var sessions = await mediator.Send(new ListAdminSessionsQuery(id), ct);
+    var sessions = await mediator.Send(new ListPlatformUserSessionsQuery(id), ct);
     return sessions is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(sessions.Select(SessionToWire).ToArray());
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
-    .WithName("ListAdminSessions")
+    .WithName("ListPlatformUserSessions")
     .WithSummary("List an admin's sessions")
     .WithDescription("Super-only. The admin's sessions, newest first, with a read-time isLive flag. Token material is never returned. Unknown admin -> 404.")
-    .Produces<IReadOnlyList<AdminSessionResponse>>(StatusCodes.Status200OK)
+    .Produces<IReadOnlyList<PlatformUserSessionResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1597,15 +1578,15 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     var result = await mediator.Send(
-        new RevokeAdminSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
+        new RevokePlatformUserSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
     // Security-log the specifics the append-only audit table has no column for (REQ-5.2), keyed by correlation id.
     loggerFactory.CreateLogger("Admin.SessionManagement").LogInformation(
         "Admin session family revoked: sessionId={SessionId} familyId={FamilyId} targetAdminId={TargetAdminId} correlationId={CorrelationId}",
         result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequireAdminTier(AdminTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
     .WithTags("Admin Admins")
-    .WithName("RevokeAdminSession")
+    .WithName("RevokePlatformUserSession")
     .WithSummary("Revoke an admin's session")
     .WithDescription("Super-only. Revoke the session's entire rotation family. Unknown session, or a session owned by a different admin -> 404. Idempotent (already-revoked -> 204).")
     .Produces(StatusCodes.Status204NoContent)
@@ -1614,7 +1595,7 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Admin Role RBAC (admin-role-rbac) ---
-// Orthogonal to AdminTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
+// Orthogonal to PlatformUserTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
 // gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
 // "active"/"inactive" via explicit projection — there is no global string-enum converter (B2).
 static RoleResponse RoleToWire(AdminRoleListItem r) => new(
@@ -1751,9 +1732,9 @@ admin.MapPut("/{id:guid}/roles", async (
 
 // admin-role-rbac REQ-11: fail fast at boot if any RequirePermission gate references a key absent from the catalog.
 AdminPermissionParity.Assert(app.Services);
-// producer-google-sso REQ-15.5: the same parity guard for the producer catalog (the cross-catalog producer.approve/
+// merchant-user-google-sso REQ-15.5: the same parity guard for the merchant-user catalog (the cross-catalog merchant-user.approve/
 // reject keys live in the Admin catalog and are asserted by AdminPermissionParity — REQ-18.3).
-ProducerPermissionParity.Assert(app.Services);
+MerchantUserPermissionParity.Assert(app.Services);
 
 app.Run();
 
@@ -1763,48 +1744,48 @@ internal sealed record UpdateRoleRequest(
     string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
 internal sealed record SetAdminRolesRequest(IReadOnlyList<string>? RoleCodes);
 
-// --- Producer BFF request/response bodies (producer-google-sso REQ-15/16/17). ActingTenant/ActingTenantUserId are
-// taken from the resolved IProducerScope, never the body. ---
-internal sealed record CreateProducerRoleRequest(
+// --- MerchantUser BFF request/response bodies (merchant-user-google-sso REQ-15/16/17). ActingMerchant/ActingMerchantUserId are
+// taken from the resolved IMerchantUserScope, never the body. ---
+internal sealed record CreateMerchantUserRoleRequest(
     string? Code, string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
-internal sealed record UpdateProducerRoleRequest(
+internal sealed record UpdateMerchantUserRoleRequest(
     string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
-internal sealed record SetProducerRolesRequest(IReadOnlyList<string>? RoleCodes);
-// `Roles` = the producer's ACTIVE role codes (the multi-role model's read of REQ-17.5's `role`).
-internal sealed record ProducerMeResponse(
-    Guid TenantUserId, string Email, Guid TenantId, IReadOnlyList<string> Roles, IReadOnlySet<string> Permissions);
-internal sealed record ProducerRoleResponse(
+internal sealed record SetMerchantUserRolesRequest(IReadOnlyList<string>? RoleCodes);
+// `Roles` = the merchant-user's ACTIVE role codes (the multi-role model's read of REQ-17.5's `role`).
+internal sealed record MerchantUserMeResponse(
+    Guid MerchantUserId, string Email, Guid MerchantId, IReadOnlyList<string> Roles, IReadOnlySet<string> Permissions);
+internal sealed record MerchantUserRoleResponse(
     string Code, string Name, string? Description, string? Color, string Status,
     IReadOnlyList<string> Permissions, int UserCount);
-internal sealed record ProducerPermissionCatalogResponse(
-    IReadOnlyCollection<ProducerPermissionGroupResponse> Groups, IReadOnlyCollection<ProducerPermissionItemResponse> Permissions);
-internal sealed record ProducerPermissionGroupResponse(string Key, string Label);
-internal sealed record ProducerPermissionItemResponse(string Key, string Label, string Resource);
-// Admin approve/reject of a producer (REQ-6). The admin subject + correlation id are taken server-side, never the body.
-internal sealed record ApproveTenantUserRequest(string? TenantCode, IReadOnlyList<string>? RoleCodes);
-internal sealed record RejectTenantUserRequest(string? Reason);
-internal sealed record ApproveTenantUserResponse(Guid TenantUserId, string Status, bool AlreadyActive);
-internal sealed record RejectTenantUserResponse(Guid TenantUserId, string Status);
+internal sealed record MerchantUserPermissionCatalogResponse(
+    IReadOnlyCollection<MerchantUserPermissionGroupResponse> Groups, IReadOnlyCollection<MerchantUserPermissionItemResponse> Permissions);
+internal sealed record MerchantUserPermissionGroupResponse(string Key, string Label);
+internal sealed record MerchantUserPermissionItemResponse(string Key, string Label, string Resource);
+// Admin approve/reject of a merchant-user (REQ-6). The admin subject + correlation id are taken server-side, never the body.
+internal sealed record ApproveMerchantUserRequest(string? MerchantCode, IReadOnlyList<string>? RoleCodes);
+internal sealed record RejectMerchantUserRequest(string? Reason);
+internal sealed record ApproveMerchantUserResponse(Guid MerchantUserId, string Status, bool AlreadyActive);
+internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string Status);
 
-internal sealed record CreateProductRequest(string Name, long PriceMinorUnits, string Currency);
+internal sealed record CreateProductRequest(string Name, Money Price);
 internal sealed record CreatePaymentSessionRequest(
-    Guid OrderId, long AmountMinorUnits, string Currency, string Method, PspCode Psp);
+    Guid OrderId, Money Amount, string Method, PspCode Psp);
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
 internal sealed record StartCheckoutRequest(Guid CartId, string? Recipient);
 internal sealed record OrderSummaryResponse(
-    Guid OrderId, long AmountMinorUnits, string Currency, string Status, Guid? PaymentSessionId);
+    Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId);
 
-// Admin provisioning request body (reference 2.4): { "tenant": { ... }, "pspConnections": [ ... ] }.
+// Admin provisioning request body (reference 2.4): { "merchant": { ... }, "pspConnections": [ ... ] }.
 // AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.
-internal sealed record ProvisionTenantRequest(
-    ProvisionTenantBody? Tenant,
+internal sealed record ProvisionMerchantRequest(
+    ProvisionMerchantBody? Merchant,
     IReadOnlyList<ProvisionPspConnectionRequest>? PspConnections);
 
-// Tenant scalars are first-class columns; every other key under "tenant" (branding/routing/session/
-// timezone/locale/...) is captured by JsonExtensionData and stored verbatim in the tenant Metadata.
-internal sealed class ProvisionTenantBody
+// Merchant scalars are first-class columns; every other key under "merchant" (branding/routing/session/
+// timezone/locale/...) is captured by JsonExtensionData and stored verbatim in the merchant Metadata.
+internal sealed class ProvisionMerchantBody
 {
     public string Code { get; init; } = default!;
     public string DisplayName { get; init; } = default!;
@@ -1876,24 +1857,24 @@ internal static class ProvisioningGuards
                 "injected. Set Google__Oidc__ClientSecret (environment / user-secrets / Vault).");
     }
 
-    /// <summary>Fails fast when a CONFIGURED producer OIDC client id is a committed placeholder (a blank id is
-    /// allowed — it disables the producer scheme, REQ-14.2). Only called when the id is non-blank.</summary>
-    public static void RequireProducerClientId(string? clientId)
+    /// <summary>Fails fast when a CONFIGURED merchant-user OIDC client id is a committed placeholder (a blank id is
+    /// allowed — it disables the merchant-user scheme, REQ-14.2). Only called when the id is non-blank.</summary>
+    public static void RequireMerchantUserClientId(string? clientId)
     {
         if (clientId is not null && clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "Producer:Oidc:ClientId is a placeholder. Map a real client id via Producer__Oidc__ClientId, or " +
-                "leave it blank to disable the producer OIDC login scheme.");
+                "MerchantUser:Oidc:ClientId is a placeholder. Map a real client id via MerchantUser__Oidc__ClientId, or " +
+                "leave it blank to disable the merchant-user OIDC login scheme.");
     }
 
-    /// <summary>Fails fast when a producer OIDC client id is configured but its secret was not injected (blank or a
+    /// <summary>Fails fast when a merchant-user OIDC client id is configured but its secret was not injected (blank or a
     /// committed placeholder). The error never echoes the value (REQ-14.1/14.3).</summary>
-    public static void RequireProducerClientSecret(string? clientSecret)
+    public static void RequireMerchantUserClientSecret(string? clientSecret)
     {
         if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "Producer:Oidc:ClientSecret is required when a Producer:Oidc:ClientId is configured — the runtime " +
-                "secret was not injected. Set Producer__Oidc__ClientSecret (environment / user-secrets / Vault).");
+                "MerchantUser:Oidc:ClientSecret is required when a MerchantUser:Oidc:ClientId is configured — the runtime " +
+                "secret was not injected. Set MerchantUser__Oidc__ClientSecret (environment / user-secrets / Vault).");
     }
 }
 
@@ -1901,7 +1882,7 @@ internal static class ProvisioningGuards
 // the host sets them from the resolved IAdminScope + the authenticated request.
 internal sealed record CreateAdminRequest(
     string Email, Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
-internal sealed record AssignTenantRequest(Guid TenantId);
+internal sealed record AssignMerchantRequest(Guid MerchantId);
 // Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
 // immutable thereafter; update only renames / toggles active.
 internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);
@@ -1918,25 +1899,25 @@ internal sealed record WebhookResponse(string Outcome);
 // Admin read responses — named records (not anonymous objects) so the OpenAPI doc carries a response schema
 // Scalar can render. Wire shape matches the previous anonymous objects (camelCase via the web JSON defaults).
 internal sealed record AdminMeResponse(
-    Guid AdminId, string Email, string Tier, AdminAccessibleResponse AccessibleTenants,
+    Guid AdminId, string Email, string Tier, AdminAccessibleResponse AccessibleMerchants,
     IReadOnlySet<string> Permissions);
 internal sealed record AdminAccessibleResponse(
     bool IsUnrestricted,
     // Omitted entirely (not null) for a Super, matching the prior shape.
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyCollection<AdminAccessibleTenantResponse>? Tenants);
-internal sealed record AdminAccessibleTenantResponse(Guid Id, string? Code);
+    IReadOnlyCollection<AdminAccessibleMerchantResponse>? Merchants);
+internal sealed record AdminAccessibleMerchantResponse(Guid Id, string? Code);
 // admin-account-management REQ-1.2/1.6: one admin directory row; tier/status are lowercase wire strings.
 internal sealed record AdminListItemResponse(
     Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound);
-// admin-account-management REQ-2.1: full detail. The accessible-tenants field is named AccessibleTenants to match
+// admin-account-management REQ-2.1: full detail. The accessible-merchants field is named AccessibleMerchants to match
 // GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
 internal sealed record AdminDetailResponse(
     Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
-    AdminAccessibleResponse AccessibleTenants, IReadOnlyList<string> RoleCodes,
+    AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes,
     MasterRefResponse? Position, MasterRefResponse? Office, MasterRefResponse? Level, MasterRefResponse? Division);
 // admin-account-management REQ-4.2: one session row; status is a lowercase wire string; NO token material.
-internal sealed record AdminSessionResponse(
+internal sealed record PlatformUserSessionResponse(
     Guid SessionId, Guid FamilyId, string Status, DateTime IssuedAt, DateTime IdleExpiresAt,
     DateTime AbsoluteExpiresAt, string? CreatedIp, string? UserAgent, bool IsLive);
 internal sealed record PermissionCatalogResponse(

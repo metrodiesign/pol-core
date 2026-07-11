@@ -5,15 +5,16 @@ using NetArchTest.Rules;
 namespace Architecture.Tests;
 
 /// <summary>
-/// Admin (the control-plane actor) is a module distinct from Identity (the producer-side actor / data plane).
-/// Its Application depends on NO other module — the <c>IAdminTenantDirectory</c> port is implemented in the
-/// host, so Admin never references Tenant, and it must never reference Identity either (control plane and data
-/// plane are separate by design). Pure Domain (no EF Core, no Infrastructure); no layer reaches a Host.
+/// Admin (the platform control-plane actor) is a module distinct from Merchants (the merchant-side actor / data
+/// plane, rf1: the merged Tenant+Producer module). Its Application depends on NO other module — the
+/// <c>IAdminMerchantDirectory</c> port is implemented in the host, so Admin never references Merchants directly
+/// (control plane and data plane are separate by design; the reverse direction is asserted in
+/// <see cref="MerchantsArchitectureTests"/>). Pure Domain (no EF Core, no Infrastructure); no layer reaches a Host.
 /// </summary>
 public class AdminArchitectureTests
 {
-    private static readonly Assembly Domain = typeof(global::Admin.Domain.AdminAccount).Assembly;
-    private static readonly Assembly Application = typeof(global::Admin.Application.IAdminAccountRepository).Assembly;
+    private static readonly Assembly Domain = typeof(global::Admin.Domain.PlatformUser).Assembly;
+    private static readonly Assembly Application = typeof(global::Admin.Application.IPlatformUserRepository).Assembly;
     private static readonly Assembly Infrastructure = typeof(global::Admin.Infrastructure.AdminModuleRegistration).Assembly;
 
     [Fact]
@@ -31,8 +32,8 @@ public class AdminArchitectureTests
         string[] forbidden =
         [
             "Products.Infrastructure", "Cart.Infrastructure", "Checkout.Infrastructure",
-            "Orders.Infrastructure", "Payments.Infrastructure", "Tenant.Infrastructure",
-            "Identity.Infrastructure", "Admin.Infrastructure", "BuildingBlocks.Infrastructure",
+            "Orders.Infrastructure", "Payments.Infrastructure", "Merchants.Infrastructure",
+            "Admin.Infrastructure", "BuildingBlocks.Infrastructure",
         ];
 
         var result = Types.InAssembly(Domain).Should().NotHaveDependencyOnAny(forbidden).GetResult();
@@ -41,19 +42,15 @@ public class AdminArchitectureTests
     }
 
     [Fact]
-    public void Admin_Application_does_not_depend_on_the_Tenant_or_Identity_modules()
+    public void Admin_Application_does_not_depend_on_the_Merchants_module()
     {
-        // Control plane (Admin) is decoupled from the data plane (Identity/Tenant): the IAdminTenantDirectory
+        // Control plane (Admin) is decoupled from the data plane (Merchants): the IAdminMerchantDirectory
         // port is implemented in the host, so Admin.Application references neither module.
-        string[] forbidden =
-        [
-            "Tenant.Domain", "Tenant.Application", "Tenant.Infrastructure",
-            "Identity.Domain", "Identity.Application", "Identity.Infrastructure",
-        ];
+        string[] forbidden = ["Merchants.Domain", "Merchants.Application", "Merchants.Infrastructure"];
 
         var result = Types.InAssembly(Application).Should().NotHaveDependencyOnAny(forbidden).GetResult();
 
-        Assert.True(result.IsSuccessful, $"Admin.Application must not depend on Tenant or Identity. {Offenders(result)}");
+        Assert.True(result.IsSuccessful, $"Admin.Application must not depend on Merchants. {Offenders(result)}");
     }
 
     [Fact]
