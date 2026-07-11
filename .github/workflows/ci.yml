@@ -171,5 +171,14 @@ jobs:
           dotnet ef database update --context PolDbContext \
             --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
             --startup-project src/Hosts/Api
+      - name: Assert fresh-DB raw objects (REQ-7.7)
+        # Fast catalog-level gate BEFORE the (much slower) test suite: RegistrationNotices, the 3 sec
+        # functions/procs, the security policy, bypass-role membership, grant floor + seed counts. A
+        # partial/silently-failed raw-SQL migration fails here with a precise message instead of a
+        # confusing permission-denied buried in Integration.Tests output.
+        run: |
+          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b \
+            -v DbName="${POL_DB}" \
+            -i docker/bootstrap/assert-fresh-db.sql
       - name: Integration tests (live SQL)
         run: dotnet test pol-core.slnx --filter "Category=Integration"
