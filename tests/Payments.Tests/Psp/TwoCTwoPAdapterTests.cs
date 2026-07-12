@@ -68,6 +68,31 @@ public sealed class TwoCTwoPAdapterTests
     }
 
     [Fact]
+    public async Task CreateRedirectCharge_rejects_amount_finer_than_the_currency_minor_unit()
+    {
+        // THB's minor unit is 2 decimals; Money itself allows scale <= 4, so 10.0050 is a valid Money but
+        // not representable at THB's wire precision — must reject, not silently round to "10.01".
+        var session = Session(10.0050m, "THB");
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_rejects_fractional_amount_on_a_zero_decimal_currency()
+    {
+        // JPY has zero minor-unit digits; 10.5 has no representable rounding target.
+        var session = Session(10.5m, "JPY");
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
     public async Task CreateRedirectCharge_throws_on_declined_respCode()
     {
         var session = Session();

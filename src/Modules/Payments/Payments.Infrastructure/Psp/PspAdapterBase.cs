@@ -52,17 +52,37 @@ public abstract class PspAdapterBase : IPspAdapter
     /// <summary>Renders <see cref="Money"/> as a major-unit decimal string (e.g. THB 250.09 -> "250.09",
     /// JPY 5000 -> "5000") at the currency's ISO 4217 minor-unit scale. Invariant culture so the decimal
     /// separator is always '.'.</summary>
-    protected static string FormatMajorUnitAmount(Money amount) =>
-        amount.Amount.ToString("F" + Iso4217.MinorUnitDigits(amount.Currency), CultureInfo.InvariantCulture);
+    /// <exception cref="ArgumentException">See <see cref="RequireRepresentableDigits"/>.</exception>
+    protected static string FormatMajorUnitAmount(Money amount)
+    {
+        var digits = RequireRepresentableDigits(amount);
+        return amount.Amount.ToString("F" + digits, CultureInfo.InvariantCulture);
+    }
 
     /// <summary>Renders <see cref="Money"/> as a minor-unit integer string (e.g. THB 250.09 -> "25009",
     /// JPY 5000 -> "5000") for PSPs (Omise) whose API takes the smallest currency unit.</summary>
+    /// <exception cref="ArgumentException">See <see cref="RequireRepresentableDigits"/>.</exception>
     protected static string FormatMinorUnitAmount(Money amount)
     {
-        var digits = Iso4217.MinorUnitDigits(amount.Currency);
+        var digits = RequireRepresentableDigits(amount);
         var scale = (decimal)Math.Pow(10, digits);
         var minorUnits = decimal.Round(amount.Amount * scale, 0, MidpointRounding.AwayFromZero);
         return minorUnits.ToString("F0", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Guards that <paramref name="amount"/> has no precision beyond its currency's ISO 4217
+    /// minor-unit scale. <see cref="Money"/> allows up to 4 decimal places, which can exceed what a PSP's
+    /// wire format (or a zero-decimal currency like JPY) can represent — silently rounding here would
+    /// charge the PSP a different amount than the unrounded one stored on the session/order (Codex review
+    /// #79, pullrequestreview-4678411626).</summary>
+    private static int RequireRepresentableDigits(Money amount)
+    {
+        var digits = Iso4217.MinorUnitDigits(amount.Currency);
+        if (amount.Amount != decimal.Round(amount.Amount, digits))
+            throw new ArgumentException(
+                $"{amount.Currency} amount {amount.Amount} is not representable at its {digits}-decimal minor unit.",
+                nameof(amount));
+        return digits;
     }
 
     // ---- HS256 JWT (2C2P): alg-pinned, symmetric ----

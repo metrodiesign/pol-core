@@ -63,6 +63,31 @@ public sealed class OmiseAdapterTests
     }
 
     [Fact]
+    public async Task Card_charge_rejects_amount_finer_than_the_currency_minor_unit()
+    {
+        // THB's minor unit is 2 decimals (satang); Money itself allows scale <= 4, so 10.0050 is a valid
+        // Money but not representable as satang — must reject, not silently round to 10.01/1001 satang.
+        var session = Session("card", 10.0050m, "THB");
+        var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount); // guard runs before the non-idempotent POST
+    }
+
+    [Fact]
+    public async Task Card_charge_rejects_fractional_amount_on_a_zero_decimal_currency()
+    {
+        // JPY has zero minor-unit digits; 10.5 has no satang-equivalent to round to.
+        var session = Session("card", 10.5m, "JPY");
+        var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
     public async Task PromptPay_is_deferred_and_throws_not_supported()
     {
         // Correlation (link id vs webhook/fetch charge id) cannot be made consistent without a sandbox —
