@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "feature": "rf2-iam-rbac",
+  "repo": "metrodiesign/pol-core",
+  "epic": {
+    "issue": 99,
+    "nodeId": "I_kwDOTAp-Ws8AAAABIiVaCg",
+    "bodyHash": "sha256:d4e181129cc54d43499244b26192b5b35a4aafa02242077e77b25c7003638d1d"
+  },
+  "tasks": {
+    "1": {
+      "issue": 100,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiVkgQ",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:3f006f13aa3623df65745ce83e5128f6e738b46454e7cfd88cc776e436fa1d4b",
+      "state": "open"
+    },
+    "2": {
+      "issue": 101,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiVraw",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:e3d24adf84b0f9451df24f76b4e9f0f2fec0344c40b9c5e688489a105f96410c",
+      "state": "open"
+    },
+    "3": {
+      "issue": 102,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiVx5g",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:f06604444718a45cb4fb7e9c7613036e949ed6dac2c93055add5659b44892dab",
+      "state": "open"
+    },
+    "4": {
+      "issue": 103,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiV3QQ",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:5ce0e3e56a0e45d76dc02d19f3f3d298f376cb383104232d909f51f6fccc26ba",
+      "state": "open"
+    },
+    "5": {
+      "issue": 104,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiV8PQ",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:c17a27e6b6f63e9dcee9012a7b6f2727c987a458bc31d15b02d9f693099f8017",
+      "state": "open"
+    },
+    "6": {
+      "issue": 105,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiWCjw",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:fc5d4cbcb0883369f6ba76806f3e29625ab8037545f5606fb5fa48cf2a2befee",
+      "state": "open"
+    },
+    "7": {
+      "issue": 106,
+      "nodeId": "I_kwDOTAp-Ws8AAAABIiWIWg",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:e78220929a7578fd014f7eea834ac9c082369a66a437bd1545f4febd42bb9951",
+      "state": "open"
+    }
+  },
+  "lastSync": "2026-07-12T16:37:45Z",
+  "labelsEnsured": [
+    "spec:rf2-iam-rbac",
+    "spec-epic",
+    "spec-task",
+    "req-spine"
+  ]
+}
