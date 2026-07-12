@@ -225,7 +225,7 @@ Build + tests:
 
 ---
 
-## - [ ] T3 — Architecture guard + canon
+## - [x] T3 — Architecture guard + canon
 
 REQ: 4.5, 7.1
 ต้องรอ T1 (assembly ต้องมีจริงก่อน)
@@ -242,3 +242,50 @@ Scope:
 Verify:
 - `dotnet test tests/Architecture.Tests` เขียว (test ใหม่ต้องเห็น fail ถ้าลองเพิ่ม ref ผิดทิศจริง)
 - `scripts/spec-trace.sh masterdata-module` ผ่าน
+
+### Evidence (2026-07-13)
+
+- New file `tests/Architecture.Tests/MasterDataArchitectureTests.cs` — 5 tests: fail-closed assembly-name
+  pin (`MasterData_layer_keys_match_their_real_assembly_names`), `MasterData.Domain` vs EF Core, `MasterData.Domain`
+  vs any `*.Infrastructure`, `MasterData.Domain`+`.Application` vs `Admins.*` (REQ-4.2), and
+  `Admins.Domain`+`.Application` vs `MasterData.Application`/`.Infrastructure` (REQ-4.1 — `MasterData.Domain` stays
+  allowed, the published-language seam `Admins.Application.csproj` already declares).
+- **Red/green guard proof** — temporarily added a violating `MasterData.Application` project reference to
+  `Admins.Application.csproj` + a `using MasterData.Application;` and a dummy `IMasterDataStore?` member on
+  `IMasterDataLookup` in `Admins.Application/Users/MasterDataLookup.cs`:
+  - RED: `dotnet test tests/Architecture.Tests --filter FullyQualifiedName~MasterDataArchitectureTests` ->
+    `Failed: 1, Passed: 4, Total: 5` — the one failure:
+    `Admins_Domain_and_Application_reference_only_MasterData_Domain_not_Application_or_Infrastructure`,
+    message `Admins.Application may reference only MasterData.Domain, not MasterData.Application/Infrastructure.
+    Offenders: Admins.Application.Users.IMasterDataLookup`.
+  - Reverted both files (`git diff --stat` on them came back empty, confirming exact revert to the T1 state).
+  - GREEN: `dotnet build pol-core.slnx` -> 0 errors; `dotnet test tests/Architecture.Tests` ->
+    `Passed: 68, Failed: 0, Total: 68` (63 pre-existing + these 5 new).
+- `.ai/shared/ARCHITECTURE.md` — added a new bullet (next to the rf2 IAM-catalog bullet, same style) recording:
+  MasterData is now its own module (3-project shape like `Iam`, `Admins.Application` may reference only
+  `MasterData.Domain`), and schema `cfg` is live — first occupant = MasterData's 4 reference tables (outside RLS,
+  `pol_admin`-only grants), rf3 will add payment config to the same schema. Checked first: `ARCHITECTURE.md` had
+  ZERO prior mentions of MasterData/`cfg`/Position-Office-Level-Division (grep confirmed) — the "v5 line saying
+  master data lives in schema `admin`" the team lead flagged lives in `.ai/specs/rf1-schema-reset/design.md`
+  (a past spec's point-in-time data-model table, line 112), not in the canon file; left that historical spec
+  artifact untouched (specs are not rewritten after the fact) and only added the new canon fact to
+  `ARCHITECTURE.md`, which had nothing to contradict.
+- `docs/reference/platform-modules.md` — added row `15 | MasterData | ...` to `## ตารางสรุป`, same 5-column
+  shape as every other row (`#`/`โมดูล`/`บทบาทหนึ่งบรรทัด`/`สถานะ`/`อ้างอิงลึก`), linking to `ARCHITECTURE.md`
+  since there's no module-specific deep doc for MasterData yet. Did not touch the rest of this doc (explicitly
+  marked stale/pre-rf1 at the top, full rewrite is out-of-scope future work, not this task) — `Iam`/`Merchants`
+  don't have rows here either; adding one more incremental row for MasterData is consistent with existing
+  incremental notes (e.g. row 4.2 already carries an inline rf2 note without a full rewrite).
+- `bash scripts/spec-trace.sh masterdata-module` -> exit 0, prints "requirements.md ... ไม่ใช่รูปแบบ REQ-based
+  (ไม่มีหัวข้อ '## REQ-N:') — ข้ามการตรวจ traceability". This is the script's own documented skip path
+  (`scripts/spec_trace.py` requires the exact `## REQ-N:` H2-with-colon heading; this spec's requirements.md
+  uses `### REQ-N — Title`, H3 with em-dash, written that way by `/spec-quick` before T3 started) — not a T3
+  regression, exit code is 0 either way.
+- Full non-DB suite re-run, all green, no regressions vs T2's baseline: `Architecture.Tests` 68/68 (was 63),
+  `BuildingBlocks.Tests` 65/65, `Admins.Tests` 95/95, `Iam.Tests` 66/66, `Merchants.Tests` 114/114,
+  `Products.Tests` 25/25, `Carts.Tests` 15/15, `Checkouts.Tests` 2/2, `Orders.Tests` 25/25, `Payments.Tests` 59/59,
+  `SharedKernel.Tests` 46/46, `Hosts.Tests` 228/228.
+- `dotnet build pol-core.slnx` -> **0 errors, 0 warnings** (48 projects).
+- `git diff --stat` (final, after revert) touches exactly the 3 files in scope:
+  `.ai/shared/ARCHITECTURE.md` (+8), `docs/reference/platform-modules.md` (+1), plus the new
+  `tests/Architecture.Tests/MasterDataArchitectureTests.cs`.

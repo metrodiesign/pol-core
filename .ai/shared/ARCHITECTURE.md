@@ -140,6 +140,14 @@ Orders → Paid. จบ ไม่มี issuance.
   boot parity guard side-aware เหลือกลไกเดียว (`Api.Iam`); resolve permission สดต่อ request จาก DB (union ของ role Active),
   fail-closed 403. `iam.*` อยู่นอก RLS (REQ-9.2 — resolve ระหว่าง authenticate, app-layer scoped read เป็น floor). แกน role
   (action) กับ Tier/RLS (visibility) ยัง **orthogonal** — งาน visibility เป็น rf6. รายละเอียด: `.ai/specs/rf2-iam-rbac/`
+- MasterData — **2026-07-13, spec `masterdata-module`**: reference data ของโปรไฟล์พนักงาน (`Position`/`Office`/`Level`/`Division`,
+  เดิมฝังอยู่ใต้ `Admins.Domain/Application/Infrastructure.MasterData`) แยกเป็น**โมดูลของตัวเอง `MasterData`** (3 project
+  shape เดียวกับ `Iam`, ไม่มี Mediator handler เพราะเป็น CRUD ธรรมดา) — `Admins.Application` อ้างได้เฉพาะ
+  `MasterData.Domain` (published language เหมือน `Iam.Domain`, ไม่ใช่ `.Application`/`.Infrastructure`), Existence/lookup
+  ของฝั่ง Admins เป็น port ของ Admins เอง (`IMasterDataLookup`) ไม่ใช่ use case ของ MasterData. ตารางทั้ง 4 ย้ายจาก schema
+  `admin` ไป **schema `cfg`** — **ผู้ใช้แรกที่ทำให้ `cfg` ใช้จริง** (1 ใน 9 schema ที่ v5 ล็อกไว้แล้ว), นอก RLS, grant
+  `SELECT, INSERT, UPDATE` ให้ `pol_admin` เท่านั้น (เท่าสิทธิ์เดิมทุกประการ); **rf3 จะเติม payment config**
+  (`Provider`/`RoutingRule`/`GatewayConfig`/`FeeStructure`) เข้า schema เดียวกัน. รายละเอียด: `.ai/specs/masterdata-module/`
 - Maker-checker (approve merchant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
 - Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ DB floor** (rf1 REQ-3.7 — Scoped INSERT `merch.Merchants` โดน BLOCK, control ใหม่)
 - Money — มาตรฐาน (ตัดสิน 2026-07-05, **as-built แล้ว rf1 2026-07-12**) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** (domain/DB/wire) **ห้าม float/double**; wire = JSON string fixed 4 ตำแหน่ง (กัน IEEE754 double) — รายละเอียดกฎเต็มดู [CODING_STANDARDS.md](CODING_STANDARDS.md); Orders verify amount+currency ตอนรับ `PaymentPaid`
