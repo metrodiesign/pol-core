@@ -285,7 +285,23 @@ Therefore:
 | key | disposition |
 |-----|-------------|
 | `Google:Oidc`, `MerchantUser:Oidc`, `MerchantUser:Session`, `MerchantUser:Registration`, `Cors:AllowedOrigins`, `Cors:AdminOrigins`, `ConnectionStrings:*`, `AdminAllowlist:Subjects` | **FROZEN** — env-var contract (`docker-compose.prod.yml:74`, `docker/entrypoint.sh:45`). L8: not namespaced, not swept. |
-| `PlatformUserSessionOptions.SectionName` = `"PlatformUserSession"` -> `"AdminSession"` | **Fix it — but as its own commit**, with the behavior change stated in the message, plus tests (`AdminAuthLoginRedirectTests.cs:41`, `AdminLoginServiceTests.cs:105` inject the old key) and a runbook check. **Never inside the rename sweep.** |
+| `PlatformUserSessionOptions.SectionName` = `"PlatformUserSession"` -> `"AdminSession"` | **Out of this spec — fixed by a separate bugfix PR that merges BEFORE the sweep** (decided 2026-07-12). |
+
+**Sequencing (decided):** the section-name defect ships as its **own bugfix PR, merged before this
+refactor starts** — not as a commit inside the sweep. Three reasons:
+
+1. Once the const and `appsettings.json` both read `AdminSession`, the sweep touching that token becomes
+   a genuine no-op. The trap is **eliminated**, not *managed* — "remember not to touch this" is a worse
+   control than "there is nothing left to touch".
+2. It is a real defect independent of this refactor and deserves a focused review, not burial in a
+   262-file diff.
+3. Bisectable: if admin `returnTo` behaviour regresses later, `git bisect` lands on a 5-file commit.
+
+**Operator precondition for that PR:** the fix makes `ReturnUrlAllowlist` **start binding**, moving the
+admin open-redirect allowlist from `[]` (deny-everything) to whatever is configured. Audit the value in
+staging and prod **before** merging it — an unreviewed entry there is an open redirect.
+Files: `AdminAuthOptions.cs:28`, `appsettings.json:25`, `AdminAuthLoginRedirectTests.cs:41`,
+`AdminLoginServiceTests.cs:105`, `docs/runbooks/deploy-self-host.md:76-77`.
 
 ### 6. DB tables (L7 — the schema disambiguates, so the drop is partial)
 
@@ -431,14 +447,10 @@ Without this list an implementer will either rename the contract (wrong) or dilu
   `merchants/users` and the four master lists to that list. Leaving two contradictory canons in the repo
   is worse than the drift being fixed.
 
-## Open questions for review
+## Resolved questions (user, 2026-07-12 — do not re-litigate)
 
-1. **§5b — the live bug.** Admin `ReturnUrlAllowlist` is dead configuration today (section name
-   mismatch), so `returnTo` is always discarded. The design fixes it in a **separate commit** and keeps
-   it out of the sweep. Confirm — or say if you want it filed as its own bugfix spec instead, since it
-   is a real (if fail-*closed*) defect independent of this refactor.
-2. **§8 — two D6 exceptions.** D6 says "move every wire string", but the design keeps
-   `MerchantUserSession` (auth scheme / OpenAPI id) and the rate-limit policy names, on the L8 grounds
-   that flat external contracts are not namespaced. Confirm or overrule.
-3. **§10 — integration-event name** `MerchantUserRegistrationSubmitted` kept, for the same L8 reason.
-   Confirm.
+| # | question | resolution |
+|---|----------|------------|
+| 1 | The §5b config-section defect — commit inside this spec, or its own bugfix? | **Its own bugfix PR, merged before the sweep.** Eliminates the trap instead of managing it (§5b). |
+| 2 | D6 says "move every wire string" — but the design keeps `MerchantUserSession` (auth scheme + OpenAPI id) and the rate-limit policy names. | **Exceptions accepted (L8).** These are flat external contracts with no namespace for L4 to lean on. The asymmetry with `PlatformUserSession` -> `AdminSession` is deliberate, not sloppy: `PlatformUser` is a **wrong** name (the route is `/admins`, the schema is `admin`; D5 exists to kill it), while `MerchantUser` is a **correct** one — the principal really is a user *of* a merchant. Fixing the wrong name and keeping the right one *is* the consistency. `MerchantSession` would invent a merchant-org session that does not exist. |
+| 3 | Integration-event name `MerchantUserRegistrationSubmitted`. | **Kept (L8).** `namespace Contracts;` is flat, so there is no prefix to drop; `RegistrationSubmitted` would not say *whose* registration in a registry shared with `PaymentPaid` / `CheckoutConfirmed`. Nesting `Contracts` would not help either — `nameof()` still yields the simple name, and keying the outbox on `FullName` is a separate change that is not worth it. |
