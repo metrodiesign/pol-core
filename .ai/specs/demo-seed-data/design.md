@@ -101,13 +101,16 @@ DECLARE @n int;
 
 ## 4. Dataset (ปริมาณ "กลาง" ตาม locked decision)
 
-**Merchants (REQ-3.1)** — `Code` ต้องอยู่ใน allowlist ของ `Merchants.Domain.MerchantCode` เท่านั้น:
+**Merchants (REQ-3.1)** — `Code` ต้องอยู่ใน allowlist ของ `Merchants.Domain.MerchantCode` เท่านั้น.
+**เก็บเป็น lowercase** — `MerchantCode.Normalize` ทำ `ToLowerInvariant()` และ allowlist เป็น ordinal set
+ของ `vprivilege`/`vcommerce`/`vsouvenir`; `Merchant.Create` normalize ก่อน persist เสมอ ดังนั้น seed ที่ใส่
+mixed-case จะไม่ตรงกับสิ่งที่แอปเขียนจริง (ชื่อ mixed-case ใช้ได้แค่ตอนพูดถึงบริษัท ไม่ใช่ค่าในคอลัมน์):
 
-| Id | Code | DisplayName | EnabledChannels |
+| Id | Code (ค่าจริงในคอลัมน์) | DisplayName | EnabledChannels |
 |----|------|-------------|-----------------|
-| `e1…0001` | `vPrivilege` | บริษัท วีพริวิเลจ จำกัด | `card,promptpay,installment` |
-| `e1…0002` | `vCommerce` | บริษัท วีคอมเมิร์ซ จำกัด | `card,promptpay` |
-| `e1…0003` | `vSouvenir` | บริษัท วีซูวีเนียร์ จำกัด | `card` |
+| `e1…0001` | `vprivilege` | บริษัท วีพริวิเลจ จำกัด | `card,promptpay,installment` |
+| `e1…0002` | `vcommerce` | บริษัท วีคอมเมิร์ซ จำกัด | `card,promptpay` |
+| `e1…0003` | `vsouvenir` | บริษัท วีซูวีเนียร์ จำกัด | `card` |
 
 `Status = 0` (Active — enum มีค่าเดียว), `Country = 'TH'`, `Currency = 'THB'`, `Metadata = '{}'` (NOT NULL).
 
