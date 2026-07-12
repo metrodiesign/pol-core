@@ -6,7 +6,7 @@
 > in one pass (it may touch many files). Decompose into sub-steps yourself at
 > execution time — do NOT pre-split tasks here.
 
-- [ ] 1. Iam module foundation — สร้าง `src/Modules/Iam/{Iam.Domain,Iam.Application,Iam.Infrastructure}`:
+- [x] 1. Iam module foundation — สร้าง `src/Modules/Iam/{Iam.Domain,Iam.Application,Iam.Infrastructure}`:
      `Keys` vocabulary (20 keys/8 groups + `KeySide` + enum `Scope`), entities
      `Permission`/`PermissionGroup`/`Role`/`RolePermission`/`RoleStatus` + invariants ครบ
      (code slug immutable, Scope immutable, Platform→MerchantId NULL, anchors `platform_admin`/
@@ -17,6 +17,27 @@
      invariants). ยังไม่แตะ catalog เดิม — build เขียวคู่กันได้
      Satisfies: REQ-1.1, 1.2, 1.3, 2.4, 3.1, 3.2, 3.3, 6.3, 10.1. Verify: `dotnet build
      -warnaserror` + `dotnet test --filter Iam.Tests`.
+     Evidence:
+       - build: `dotnet build -warnaserror` -> Build succeeded, 0 Warning(s), 0 Error(s) (45
+         projects incl. new Iam.Domain/Iam.Application/Iam.Infrastructure/Iam.Tests); old
+         admin/merch catalogs untouched, both coexist green.
+       - test: `dotnet test tests/Iam.Tests/Iam.Tests.csproj` -> Passed! Failed: 0, Passed: 24,
+         Skipped: 0, Total: 24 (KeysTests: 20 keys/8 groups/KeySide literal pins incl.
+         UserRoles≠UsersRoles swap guard; RoleTests: trim/dedupe, unknown-key 400, wrong-side
+         grant 400, blank/overlong/non-slug code 400, Platform+MerchantId invariant 400,
+         Merchant with/without MerchantId OK, both seed anchors deactivate/delete-guarded,
+         non-anchor role deactivate/reactivate OK).
+       - deviations: `Role.SetPermissions`/`Create` take `IReadOnlyDictionary<string, Scope>
+         catalog` (was `IReadOnlySet<string> catalogKeys` in the two old catalogs) so the
+         unknown-key check (400) and the new wrong-side-grant check (400, REQ-6.6) run off one
+         parameter instead of two — callers pass `Keys.KeySide` directly (pure code, no DB
+         round-trip needed since AllKeys/KeySide are the same static vocabulary the DB is
+         seeded from). `Role.EnsureDeletable()` (from the old merchant catalog) is kept and now
+         guards BOTH seed anchors, not just one, since REQ-2.4 has two anchors this cycle.
+         `Iam.Application`/`Iam.Infrastructure` referenced from `Api.csproj`/`Worker.csproj` and
+         registered in `HostModuleAssemblies`/`WorkerModuleAssemblies` per design's "every point
+         that assembles PolDbContext" instruction, even though the worker does not query `iam.*`
+         yet (harmless, keeps the worker's model in sync with the migrated schema).
 
 - [ ] 2. Catalog cutover สองฝั่ง — ย้าย role CRUD + permission catalog handlers จาก
      Admins/Merchants.Application → `Iam.Application` (handler เดียวต่อ operation รับ

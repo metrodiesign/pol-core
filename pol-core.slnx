@@ -28,6 +28,11 @@
     <Project Path="src/Modules/Checkouts/Checkouts.Domain/Checkouts.Domain.csproj" />
     <Project Path="src/Modules/Checkouts/Checkouts.Infrastructure/Checkouts.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Iam/">
+    <Project Path="src/Modules/Iam/Iam.Application/Iam.Application.csproj" />
+    <Project Path="src/Modules/Iam/Iam.Domain/Iam.Domain.csproj" />
+    <Project Path="src/Modules/Iam/Iam.Infrastructure/Iam.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Merchants/">
     <Project Path="src/Modules/Merchants/Merchants.Application/Merchants.Application.csproj" />
     <Project Path="src/Modules/Merchants/Merchants.Domain/Merchants.Domain.csproj" />
@@ -55,6 +60,7 @@
     <Project Path="tests/Carts.Tests/Carts.Tests.csproj" />
     <Project Path="tests/Checkouts.Tests/Checkouts.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
+    <Project Path="tests/Iam.Tests/Iam.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
     <Project Path="tests/Merchants.Tests/Merchants.Tests.csproj" />
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />

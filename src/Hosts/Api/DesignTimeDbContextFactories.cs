@@ -23,6 +23,7 @@ internal static class HostModuleAssemblies
         // namespaces Merchants/Admins from within namespace Api and its descendants.
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
+        typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
     ];
 
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;
