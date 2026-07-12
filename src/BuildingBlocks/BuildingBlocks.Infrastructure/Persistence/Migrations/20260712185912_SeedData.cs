@@ -117,7 +117,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // stable. RFC-4122-well-formed, namespaced by table for readability. Carried verbatim from the pre-rf2
             // chain — rf2 replaced only the RBAC catalogs, not the HR seed (the CI fresh-DB gate pins these counts). ---
             migrationBuilder.Sql("""
-                INSERT INTO admin.Positions (Id, Code, Name, IsActive) VALUES
+                INSERT INTO cfg.Positions (Id, Code, Name, IsActive) VALUES
                   ('a1000000-0000-4000-8000-000000000001', 'ceo',               N'ประธานเจ้าหน้าที่บริหาร',            1),
                   ('a1000000-0000-4000-8000-000000000002', 'coo',               N'ประธานเจ้าหน้าที่ปฏิบัติการ',        1),
                   ('a1000000-0000-4000-8000-000000000003', 'cfo',               N'ประธานเจ้าหน้าที่การเงิน',           1),
@@ -133,7 +133,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 """);
 
             migrationBuilder.Sql("""
-                INSERT INTO admin.Offices (Id, Code, Name, IsActive) VALUES
+                INSERT INTO cfg.Offices (Id, Code, Name, IsActive) VALUES
                   ('b2000000-0000-4000-8000-000000000001', 'hq',        N'สำนักงานใหญ่',                     1),
                   ('b2000000-0000-4000-8000-000000000002', 'north',     N'สำนักงานภาคเหนือ',                 1),
                   ('b2000000-0000-4000-8000-000000000003', 'northeast', N'สำนักงานภาคตะวันออกเฉียงเหนือ',    1),
@@ -145,7 +145,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 """);
 
             migrationBuilder.Sql("""
-                INSERT INTO admin.Levels (Id, Code, Name, IsActive) VALUES
+                INSERT INTO cfg.Levels (Id, Code, Name, IsActive) VALUES
                   ('c3000000-0000-4000-8000-000000000001', 'level_1',  N'ระดับ 1',  1),
                   ('c3000000-0000-4000-8000-000000000002', 'level_2',  N'ระดับ 2',  1),
                   ('c3000000-0000-4000-8000-000000000003', 'level_3',  N'ระดับ 3',  1),
@@ -159,7 +159,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 """);
 
             migrationBuilder.Sql("""
-                INSERT INTO admin.Divisions (Id, Code, Name, IsActive) VALUES
+                INSERT INTO cfg.Divisions (Id, Code, Name, IsActive) VALUES
                   ('d4000000-0000-4000-8000-000000000001', 'executive',        N'สำนักผู้บริหาร',                    1),
                   ('d4000000-0000-4000-8000-000000000002', 'finance',          N'ฝ่ายการเงินและบัญชี',               1),
                   ('d4000000-0000-4000-8000-000000000003', 'technology',       N'ฝ่ายเทคโนโลยีสารสนเทศ',             1),
@@ -190,10 +190,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 DELETE FROM iam.PermissionGroups WHERE [Key] IN
                   ('txn','merchant','user','system','merchants.users','catalog','payment','roles');
                 """);
-            migrationBuilder.Sql("DELETE FROM admin.Positions WHERE Id LIKE 'a1000000-%';");
-            migrationBuilder.Sql("DELETE FROM admin.Offices   WHERE Id LIKE 'b2000000-%';");
-            migrationBuilder.Sql("DELETE FROM admin.Levels    WHERE Id LIKE 'c3000000-%';");
-            migrationBuilder.Sql("DELETE FROM admin.Divisions WHERE Id LIKE 'd4000000-%';");
+            migrationBuilder.Sql("DELETE FROM cfg.Positions WHERE Id LIKE 'a1000000-%';");
+            migrationBuilder.Sql("DELETE FROM cfg.Offices   WHERE Id LIKE 'b2000000-%';");
+            migrationBuilder.Sql("DELETE FROM cfg.Levels    WHERE Id LIKE 'c3000000-%';");
+            migrationBuilder.Sql("DELETE FROM cfg.Divisions WHERE Id LIKE 'd4000000-%';");
         }
     }
 }

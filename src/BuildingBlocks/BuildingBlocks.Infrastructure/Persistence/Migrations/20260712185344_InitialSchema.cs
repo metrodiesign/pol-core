@@ -29,6 +29,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             migrationBuilder.EnsureSchema(
                 name: "iam");
 
+            migrationBuilder.EnsureSchema(
+                name: "cfg");
+
             migrationBuilder.CreateTable(
                 name: "AuthAudits",
                 schema: "admin",
@@ -116,7 +119,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Divisions",
-                schema: "admin",
+                schema: "cfg",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -161,7 +164,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Levels",
-                schema: "admin",
+                schema: "cfg",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -213,7 +216,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Offices",
-                schema: "admin",
+                schema: "cfg",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -311,7 +314,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Positions",
-                schema: "admin",
+                schema: "cfg",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
@@ -617,28 +620,28 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_Users_Divisions_DivisionId",
                         column: x => x.DivisionId,
-                        principalSchema: "admin",
+                        principalSchema: "cfg",
                         principalTable: "Divisions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_Users_Levels_LevelId",
                         column: x => x.LevelId,
-                        principalSchema: "admin",
+                        principalSchema: "cfg",
                         principalTable: "Levels",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_Users_Offices_OfficeId",
                         column: x => x.OfficeId,
-                        principalSchema: "admin",
+                        principalSchema: "cfg",
                         principalTable: "Offices",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_Users_Positions_PositionId",
                         column: x => x.PositionId,
-                        principalSchema: "admin",
+                        principalSchema: "cfg",
                         principalTable: "Positions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -739,7 +742,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Divisions_Code",
-                schema: "admin",
+                schema: "cfg",
                 table: "Divisions",
                 column: "Code",
                 unique: true);
@@ -753,7 +756,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Levels_Code",
-                schema: "admin",
+                schema: "cfg",
                 table: "Levels",
                 column: "Code",
                 unique: true);
@@ -774,7 +777,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Offices_Code",
-                schema: "admin",
+                schema: "cfg",
                 table: "Offices",
                 column: "Code",
                 unique: true);
@@ -835,7 +838,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Positions_Code",
-                schema: "admin",
+                schema: "cfg",
                 table: "Positions",
                 column: "Code",
                 unique: true);
@@ -1136,19 +1139,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "Divisions",
-                schema: "admin");
+                schema: "cfg");
 
             migrationBuilder.DropTable(
                 name: "Levels",
-                schema: "admin");
+                schema: "cfg");
 
             migrationBuilder.DropTable(
                 name: "Offices",
-                schema: "admin");
+                schema: "cfg");
 
             migrationBuilder.DropTable(
                 name: "Positions",
-                schema: "admin");
+                schema: "cfg");
 
             migrationBuilder.DropTable(
                 name: "PermissionGroups",

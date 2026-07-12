@@ -101,7 +101,7 @@ then both the ModelConsistency test and the migration grep go green together.
 
 ---
 
-## - [ ] T2 — ย้ายตารางไป schema `cfg` (migration + grant + seed)
+## - [x] T2 — ย้ายตารางไป schema `cfg` (migration + grant + seed)
 
 REQ: 3.3, 3.4, 3.5, 3.6, 5.5, 6.1, 6.2, 6.3
 ต้องรอ T1 (EF model ต้องชี้ `cfg` ก่อน ไม่งั้น snapshot ไม่ match)
@@ -117,6 +117,111 @@ Verify (บน DB เปล่าจริง — build อย่างเดี
 - query จริง: 4 ตารางอยู่ `cfg`, ไม่มีตาราง master เหลือใน `admin`, seed ครบ, `pol_admin` มี
   SELECT/INSERT/UPDATE บน `cfg.*` และ `pol_app` ไม่มีสิทธิ์ใด
 - integration test suite เขียว
+
+### Evidence (2026-07-13)
+
+Hand-edited the 3 existing migration files in place (no new migration) — chosen over
+`dotnet ef migrations add` because the hand-written `migrationBuilder.Sql` blocks in
+`SecurityObjects.cs` (RLS functions/procs/policy/grants) are NOT part of the EF model and would be
+silently lost by a wholesale regenerate; every edit below is a scoped, mechanical substitution
+(schema string / CLR type-name string), applied via a verified Python find-and-assert script for
+the repetitive Designer/Snapshot files and via `Edit` for the hand-written SQL:
+
+- `20260712185344_InitialSchema.cs`: added `EnsureSchema("cfg")`; `admin` -> `cfg` on the 4
+  `CreateTable` calls (Divisions/Levels/Offices/Positions), the 4 FK `principalSchema` on the
+  `Users` table, the 4 `CreateIndex` schema args, and the 4 `Down()` `DropTable` schema args.
+- `20260712185344_InitialSchema.Designer.cs`, `20260712185646_SecurityObjects.Designer.cs` (this
+  file DOES have a Designer.cs — the original T1 handoff note only checked 3 files, missed this
+  one; caught by a full-repo grep before declaring done, fixed the same way),
+  `20260712185912_SeedData.Designer.cs`, `PolDbContextModelSnapshot.cs`: renamed the CLR type
+  strings `"Admins.Domain.MasterData.{MasterDataItem,Division,Level,Office,Position}"` ->
+  `"MasterData.Domain.{MasterDataItem,Divisions.Division,Levels.Level,Offices.Office,Positions.Position}"`
+  (13 occurrences each file, matching T1's actual namespaces) and `b.ToTable("<Table>", "admin")`
+  -> `b.ToTable("<Table>", "cfg")` for the 4 tables, in all 4 files.
+- `20260712185646_SecurityObjects.cs`: added `ALTER AUTHORIZATION ON SCHEMA::cfg TO dbo;` next to
+  the other schema re-asserts (Up); moved the 4 GRANT (`SELECT, INSERT, UPDATE`) lines from
+  `admin.{Positions,Offices,Levels,Divisions}` to `cfg.*`, same principal `pol_admin`, unchanged
+  verb set; mirrored the 4 REVOKE lines in `Down()`. `pol_app` was never granted anything on these
+  tables before or after — untouched.
+- `20260712185912_SeedData.cs`: `INSERT INTO admin.{table}` -> `INSERT INTO cfg.{table}` (Up, 4x)
+  and `DELETE FROM admin.{table}` -> `DELETE FROM cfg.{table}` (Down, 4x) — GUIDs untouched.
+
+Verify, on a real fresh DB (`.env` `POL_DESIGN_SQL`/`MSSQL_SA_PASSWORD`, container `pol-db` on
+`localhost:11433`):
+
+```
+$ docker compose down -v && docker compose up -d
+ ... Container pol-db Healthy / pol-core-pol-db-init-1 Started
+$ docker compose logs pol-db-init
+pol-db-init-1  | Changed database context to 'VCentralPay'.
+
+$ POL_DESIGN_SQL=... dotnet ef database update --context PolDbContext \
+    --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
+Applying migration '20260712185344_InitialSchema'.
+Applying migration '20260712185646_SecurityObjects'.
+Applying migration '20260712185912_SeedData'.
+Done.
+
+$ POL_DESIGN_SQL=... dotnet ef migrations has-pending-model-changes --context PolDbContext \
+    --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
+No changes have been made to the model since the last migration.
+```
+
+Real DB queries (sqlcmd against `VCentralPay` on `pol-db`):
+
+```sql
+-- (a) table locations
+SELECT s.name, t.name FROM sys.tables t JOIN sys.schemas s ON t.schema_id=s.schema_id
+WHERE t.name IN ('Positions','Offices','Levels','Divisions');
+-- cfg.Divisions, cfg.Levels, cfg.Offices, cfg.Positions (4 rows) — zero rows left under admin
+
+-- (b) seed counts
+Positions=12, Offices=8, Levels=10, Divisions=10  -- matches T1's pre-move counts exactly
+
+-- (c) grants on cfg.* (sys.database_permissions)
+pol_admin: SELECT+INSERT+UPDATE on all 4 tables (12 rows total), nothing else
+pol_app grants on cfg.* -> COUNT(*) = 0
+
+-- (d) FKs
+FK_Users_Divisions_DivisionId  admin.Users -> cfg.Divisions
+FK_Users_Levels_LevelId        admin.Users -> cfg.Levels
+FK_Users_Offices_OfficeId      admin.Users -> cfg.Offices
+FK_Users_Positions_PositionId  admin.Users -> cfg.Positions
+
+-- schema ownership
+cfg owner = dbo
+```
+
+Build + tests:
+- `dotnet build pol-core.slnx` -> **0 errors, 0 warnings** (48 projects).
+- `dotnet test tests/Hosts.Tests` -> **228/228 passed** (the one red test from T1,
+  `ModelConsistencyTests.Model_has_no_pending_changes_against_the_migration_snapshot`, is now
+  green).
+- `dotnet test tests/Integration.Tests` (with `.env.integration` sourced in the same shell call)
+  -> **93/93 passed**.
+- `dotnet test tests/Admins.Tests` -> **95/95 passed** (unaffected — `MasterDataLookup`'s
+  `_db.Set<T>()` queries resolve the new schema transparently through the EF model, no code
+  change needed here).
+
+### Handoff (for T3)
+
+- No new migration file — still exactly 3: `InitialSchema`/`SecurityObjects`/`SeedData`, same
+  timestamps as before T1/T2.
+- `cfg` schema is now live in the DB with the 4 master tables, owned by `dbo`, no RLS policy,
+  grants exactly `SELECT, INSERT, UPDATE` to `pol_admin` only — this is the "cfg ใช้จริงแล้ว" fact
+  T3's `.ai/shared/ARCHITECTURE.md` update (REQ-7.1) should record.
+- `Admins.Domain.MasterData.*` no longer appears anywhere in the repo (migrations included) —
+  confirmed via `grep -rn "Admins\.Domain\.MasterData" src/ tests/` returning nothing. T3's
+  `MasterDataArchitectureTests.cs` can assert this as a fail-closed pin without any known
+  exceptions to carve out.
+- The DB container was reset (`docker compose down -v && up -d`) and re-migrated during this
+  task's verification — it is currently on the new `cfg`-schema state. T3 does not need to touch
+  the DB (its scope is Architecture.Tests + docs only) but should be aware the local dev DB is
+  already on this schema if it runs anything DB-backed.
+- One correction to T1's handoff note: `20260712185646_SecurityObjects.Designer.cs` DOES exist
+  (T1's file listing missed it) and needed the same CLR-type/schema edit as the other two
+  Designer files — worth double-checking file listings with `ls`, not a truncated `grep`, before
+  trusting a "3 files" count on future migration surgery.
 
 ---
 
