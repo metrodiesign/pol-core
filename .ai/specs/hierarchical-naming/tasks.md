@@ -95,7 +95,7 @@
          assert there; REQ-7.1's "re-attach to them" is satisfied structurally (same route group) and
          verified for the POST, where it is observable.
 
-- [ ] 2. **The naming law, written into the canon and reconciled with the specs it contradicts.**
+- [x] 2. **The naming law, written into the canon and reconciled with the specs it contradicts.**
      Record L1-L8 in `.ai/shared/ARCHITECTURE.md` §Naming Conventions (which today says only
      "type/interface: PascalCase" — the absence of this rule is the root cause of the drift). Amend
      `.ai/specs/rf1-schema-reset/design.md` §149, whose `Producer -> MerchantUser` sweep rule this spec
@@ -105,6 +105,27 @@
      `tenant`) which no longer names anything in the codebase.
      Satisfies: REQ-2 (all criteria). Verify: no two canon files state contradictory naming rules;
      `grep -rn 'producer\|tenant' .ai/specs/api-route-scheme/requirements.md` returns only history notes.
+
+     Evidence:
+       - test: n/a — docs-only task, no code touched; `dotnet build` unaffected (not re-run, nothing to
+         invalidate it)
+       - viewports: n/a — logic-only (canon documentation)
+       - deviations: `.ai/specs/api-route-scheme/requirements.md` predates rf1 and carries `producer`/
+         `tenant` vocabulary across REQ-2, REQ-3, REQ-6, REQ-8, REQ-9, and Edge Cases (~25 occurrences),
+         not just REQ-2.1/2.8. Amended REQ-2.1, REQ-2.3, REQ-2.8, REQ-2.9 (the area-taxonomy group) in
+         place to the target post-sweep vocabulary, each inline-noting it as a 2026-07-12 amendment and
+         that hierarchical-naming's tasks 3-12 had not yet shipped it as of this amendment (so it isn't
+         misread as already-live). Added one top-of-file historical-vocabulary banner covering every
+         remaining producer/tenant mention in REQ-3/6/8/9/Edge Cases, which describe the vocabulary as it
+         stood at the ORIGINAL 2026-07-05 migration and are left as-is — rewriting ~20 more lines of a
+         shipped migration's behavior-preservation requirements was judged out of this task's scope
+         (docs-canon reconciliation, not a rewrite of an unrelated shipped spec). `grep -rn
+         'producer\|tenant' .ai/specs/api-route-scheme/requirements.md` re-run after the edit: every hit
+         is either inside the new banner, inside an inline amendment note, or inside REQ-3/6/8/9/Edge
+         Cases text the banner frames as history — none reads as a live, current requirement anymore.
+         `.ai/shared/CODING_STANDARDS.md`'s own entity-naming bullet still names pre-hierarchical-naming
+         types (`PlatformUser` etc.) — left untouched; it reflects current as-built code and is this
+         spec's own tasks 4/5/9/10 to update once the rename actually ships, not task 2's docs-law scope.
 
 - [ ] 3. **Module projects pluralised; solution and dead folders cleaned.**
      `Admin.*` -> `Admins.*`, `Cart.*` -> `Carts.*`, `Checkout.*` -> `Checkouts.*` across Domain,
