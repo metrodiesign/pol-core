@@ -307,8 +307,10 @@ builder.Services.AddOpenApi(options =>
 // merchant-user routes gate on the "merchant-user" policy (session cookie, T11 single-scheme); admin routes on
 // "admin" (session cookie). AllowAnonymous endpoints and the unauthenticated webhook get no security requirement
 // in the doc. Assumption: the only IAuthorizeData on an endpoint is the named policy from .RequireAuthorization(...).
-// RequirePlatformUserTier/RequirePermission use endpoint filters + WithMetadata (AdminHostWiring.cs), NOT
-// IAuthorizeData, so exactly one non-empty policy is present and LastOrDefault is unambiguous.
+// RequirePlatformUserTier/RequirePermission use endpoint filters + WithMetadata (Api.Iam.PermissionAuthorization),
+// NOT IAuthorizeData, so exactly one non-empty policy is present and LastOrDefault is unambiguous. The
+// policy->scheme mapping itself lives in AuthPolicyScheme (rf2) — shared with the boot parity guard below so the
+// two can never drift apart.
 static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
 {
     if (metadata.OfType<IAllowAnonymous>().Any())
@@ -316,12 +318,7 @@ static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
     var policy = metadata.OfType<IAuthorizeData>()
         .Select(a => a.Policy)
         .LastOrDefault(p => !string.IsNullOrEmpty(p));
-    return policy switch
-    {
-        "admin" => "AdminSession",
-        "merchant-user" => "MerchantUserSession",
-        _ => null,
-    };
+    return AuthPolicyScheme.For(policy)?.SchemeId;
 }
 
 // PspCode crosses the wire as its stable code ("2c2p"/"omise") via the domain's PspCodes mapping —
@@ -525,7 +522,7 @@ var createProduct = api.MapPost("/products", async (
         new CreateProductCommand(actor.MerchantId, body.Name, body.Price), ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
-createProduct.RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.ProductCreate)
+createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)
     .WithTags("Products")
     .WithName("CreateProduct")
     .WithSummary("Create a product")
@@ -693,7 +690,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
         body.OrderId, actor.MerchantId, body.Amount, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
-createPaymentSession.RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.PaymentCreate)
+createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentCreate)
     .WithTags("Payments")
     .WithName("CreatePaymentSession")
     .WithSummary("Create a payment session")
@@ -714,7 +711,7 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 });
-startRedirect.RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.PaymentRedirect)
+startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentRedirect)
     .WithTags("Payments")
     .WithName("StartPaymentRedirect")
     .WithSummary("Start the PSP redirect")
@@ -1177,7 +1174,7 @@ merchantUsers.MapPost("/roles", async (
         context, body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? [], http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/merchants/users/roles/{result.Code}", MerchantUserRoleToWire(result));
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.RolesManage)
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("CreateMerchantUserRole")
     .WithSummary("Create a merchant-user role")
@@ -1196,7 +1193,7 @@ merchantUsers.MapPut("/roles/{code}", async (
         context, code, body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? [], http.TraceIdentifier), ct);
     return Results.Ok(MerchantUserRoleToWire(result));
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.RolesManage)
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("UpdateMerchantUserRole")
     .WithSummary("Update a merchant-user role")
@@ -1213,7 +1210,7 @@ merchantUsers.MapDelete("/roles/{code}", async (
     var context = RoleSideContextResolver.ForMerchantUser(scope);
     await mediator.Send(new DeleteRoleCommand(context, code, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.RolesManage)
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("DeleteMerchantUserRole")
     .WithSummary("Delete a merchant-user role")
@@ -1231,7 +1228,7 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
     var me = scope.Current;
     await mediator.Send(new MerchantSetRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(Keys.UsersRoles)
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersRoles)
     .WithTags("MerchantUser Roles")
     .WithName("SetMerchantUserUserRoles")
     .WithSummary("Set a merchant-user's roles")
@@ -1779,11 +1776,10 @@ admin.MapPut("/{id:guid}/roles", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// admin-role-rbac REQ-11: fail fast at boot if any RequirePermission gate references a key absent from the catalog.
+// rf2-iam-rbac REQ-5: fail fast at boot if any RequirePermission gate references a key absent from the catalog,
+// or a key whose side does not match the endpoint's own auth policy (side-aware, REQ-5.4) — one guard now covers
+// both consoles, incl. the cross-catalog merchant-user.approve/reject keys gated under the "admin" policy.
 PermissionParity.Assert(app.Services);
-// merchant-user-google-sso REQ-15.5: the same parity guard for the merchant-user catalog (the cross-catalog merchant-user.approve/
-// reject keys live in the Admin catalog and are asserted by AdminPermissionParity — REQ-18.3).
-UserPermissionParity.Assert(app.Services);
 
 app.Run();
 

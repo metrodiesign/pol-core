@@ -19,7 +19,7 @@ namespace Api.Merchants;
 /// current Status/Merchant/effective permissions READ-ONLY (REQ-12.4/17.1), builds a principal carrying the
 /// <c>merchant_id</c> claim the existing <see cref="HttpActorContext"/> path reads (S4 — NOT
 /// <see cref="IActorScope.Begin"/>), binds <see cref="IMerchantUserScope"/> for
-/// <c>RequireMerchantUserPermission</c>, and transparently rotates the cookie past the rotation age (REQ-11.1). No
+/// <c>RequirePermission</c>, and transparently rotates the cookie past the rotation age (REQ-11.1). No
 /// cookie -&gt; NoResult (the single-scheme <c>merchant-user</c> policy then denies 401 — REQ-17.3/T11, the Bearer
 /// fallback is retired); a session exists only for an Active merchant user (REQ-10.1), so a suspend/reject denies
 /// the next request (REQ-12.4).
@@ -108,7 +108,7 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
             return AuthenticateResult.Fail("Merchant user is not active or no longer exists."); // suspend -> next request 401
 
         var resolution = resolved.Resolution;
-        _scope.Set(resolution); // bind IMerchantUserScope so RequireMerchantUserPermission + /merchants/users/me read scope.Current
+        _scope.Set(resolution); // bind IMerchantUserScope so RequirePermission + /merchants/users/me read scope.Current
 
         // The principal carries the merchant_id claim the HttpActorContext path reads (S4) so the existing
         // CreateProductCommand(actor.MerchantId, ...) keeps working — NO role claim (T11 — single-scheme, no more
@@ -179,7 +179,7 @@ internal sealed class UserSessionResolver(IMediator mediator) : IUserSessionReso
 
 /// <summary>Per-request holder of the resolved merchant user (REQ-17.1). The merchant-user session authentication
 /// handler calls <see cref="Set"/> once per request; readers consume <see cref="IMerchantUserScope"/>. Fail-closed:
-/// an unauthenticated caller binds nothing, so <c>RequireMerchantUserPermission</c> denies it 403 (F10).</summary>
+/// an unauthenticated caller binds nothing, so <c>RequirePermission</c> denies it 403 (F10).</summary>
 internal sealed class UserScope : IUserScope
 {
     private Resolution? _current;

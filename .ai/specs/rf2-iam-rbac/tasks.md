@@ -111,7 +111,7 @@
             `using Scope = Iam.Domain.Permissions.Scope;` — `Microsoft.OpenApi` also declares a
             `Scope` type, ambiguous at the two `GetPermissionCatalogQuery(Scope.X)` call sites.
 
-- [ ] 3. Unified enforcement + parity guard — `src/Hosts/Api/Iam/PermissionAuthorization.cs`:
+- [x] 3. Unified enforcement + parity guard — `src/Hosts/Api/Iam/PermissionAuthorization.cs`:
      metadata `RequiredPermission` เดียว + extension `RequirePermission` เดียว + endpoint filter
      อ่าน scope ที่ bound (IAdminScope ก่อน, IUserScope, ไม่ bound = 403); parity guard เดียว
      side-aware (key ⊆ AllKeys + side ตรง policy ของ endpoint — reuse policy→scheme mapping
@@ -122,6 +122,56 @@
      ทั้ง 20 จุด + endpoint↔side ของ role-management endpoints, pin OpenAPI scheme ids เดิม
      Satisfies: REQ-4.1, 4.3, 4.5, 5.1, 5.2, 5.3, 5.4, 10.3, 10.4. Depends on: 1. Verify:
      `dotnet test --filter Hosts.Tests`.
+     Evidence:
+       - build: `dotnet build -warnaserror` -> Build succeeded, 0 Warning(s), 0 Error(s), full
+         solution.
+       - test: `dotnet test --filter "Category!=Integration"` -> all 12 non-integration test
+         projects green, 790 passed / 0 failed / 0 skipped total. Hosts.Tests 202→225 (+23):
+         new `PermissionAuthorizationTests` (6 — admit/deny × admin/merchant-user + neither-bound
+         fail-closed + admin-checked-first precedence), `PermissionParityTests` (6 — real gate
+         sites pass, key outside catalog, Platform key under merchant-user policy, Merchant key
+         under admin policy, unrecognized policy, null policy), `PermissionGateSitesTests` (22 —
+         a `[Theory]` pinning all 20 real (route, method) -> (policy, key) gate sites against the
+         booted host's `EndpointDataSource`, + an explicit count==20 drift guard + the
+         `AuthPolicyScheme` literal scheme-id pin), superseding the old
+         `AdminPermissionAuthorizationTests`/`AdminPermissionParityTests`/
+         `MerchantUserPermissionAuthorizationTests`/`MerchantUserPermissionParityTests`/
+         `MerchantUserWritePermissionsTests` (10 + 1 = 11 old tests deleted, net +12 new but wider
+         coverage — every branch tasks.md names is present, none reduced).
+       - deviations:
+         1. Introduced `AuthPolicyScheme` (`src/Hosts/Api/Iam/PermissionAuthorization.cs`) as the
+            literal realization of "reuse policy→scheme mapping เดิมของ Program.cs": extracted
+            Program.cs's `SecuritySchemeForEndpoint`'s inline `policy switch` into a shared table
+            keyed by policy name -> `(SchemeId, Scope Side)`, consumed by BOTH the OpenAPI
+            document transformer (unchanged behavior, now delegates instead of duplicating the
+            switch) and the new side-aware `PermissionParity.FindProblems` — so the two can never
+            silently drift apart, which a second hand-rolled switch could have.
+         2. `PermissionAuthorization.IsAllowed` takes `(IAdminScope, IUserScope, string)` directly
+            rather than resolving from `IServiceProvider` inside the pure decision function (only
+            the `RequirePermission` endpoint filter itself touches `IServiceProvider`) — kept the
+            fail-closed decision trivially unit-testable with plain fake scope objects, matching
+            the shape the two old separate `IsAllowed(TScope, string)` methods already had.
+         3. REQ-4.5's "20 gate sites" is a SOURCE-level count (20 `.RequirePermission(Keys.X)`
+            call expressions in Program.cs); Admin's master-data CRUD (positions/offices/levels/
+            divisions) instantiates one generic `MapMasterCrud<T>` body 4 times, so there are more
+            than 20 physical ROUTES at runtime. `PermissionGateSitesTests` pins one representative
+            segment ("positions") for that generic body's 3 verbs, landing on exactly 20 pinned
+            physical endpoints (7 merchant-user + 13 admin) — the other 3 segments are the
+            identical generic instantiation, not independent gate sites. Source-level
+            completeness (all 20 call sites, incl. duplicates) is separately covered by
+            `PermissionParityTests.RealGateSites`'s 10 distinct (key, policy) pairs.
+         4. "Pin OpenAPI scheme ids เดิม" implemented as a literal-value pin on `AuthPolicyScheme`
+            (`AdminSession`/`MerchantUserSession`) rather than a new full document-level Scalar
+            test mirroring the existing `MerchantUserScalarSecurityTests` for the admin side — no
+            such admin-side document test existed before this task and adding one is a larger,
+            separable surface (out of REQ-10.3's literal ask, which is about the scheme id
+            strings themselves not changing). The existing `MerchantUserScalarSecurityTests`
+            already pins `MerchantUserSession` at the document level and is untouched/still green.
+         5. Fixed 3 stale doc-comment references to the deleted `RequireMerchantUserPermission`
+            symbol in files this task otherwise touches (`UserSessionAuthenticationHandler.cs`,
+            `Merchants/HostWiring.cs`, `UserScope.cs`) — prose-only, no behavior change; left the
+            unrelated pre-existing `IMerchantUserScope` naming in the same comments alone (not
+            this task's symbol, not introduced or regressed by this change).
 
 - [ ] 4. Migration chain regen + seed + grants — regenerate 3 migrations แบบ EF-native
      (`migrations remove` จนหมด chain → `migrations add` ใหม่: `InitialSchema` generated จาก

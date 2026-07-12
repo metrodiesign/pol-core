@@ -127,53 +127,8 @@ internal static class TierAuthorization
         tierClaim is not null && allowedTierNames.Contains(tierClaim, StringComparer.Ordinal);
 }
 
-/// <summary>Marks an endpoint as requiring a specific admin permission (admin-role-rbac REQ-6/11). The boot parity
-/// guard reads this metadata; the filter below enforces it.</summary>
-internal sealed record RequiredPermission(string Permission);
-
-/// <summary>Permission gate for role-driven admin actions (REQ-6.1/6.2): 403 unless the per-request effective
-/// permission set (resolved into <see cref="IAdminScope"/> by the auth handler) contains the required key. Reads
-/// the scope rather than a claim to keep the principal lean and the decision fresh. Fail-closed when no admin is
-/// bound (S4) — a 403, never a 500. Orthogonal to <see cref="PlatformUserTierAuthorization"/> (REQ-7).</summary>
-internal static class PermissionAuthorization
-{
-    public static RouteHandlerBuilder RequirePermission(this RouteHandlerBuilder builder, string permission)
-    {
-        builder.WithMetadata(new RequiredPermission(permission));
-        return builder.AddEndpointFilter(async (context, next) =>
-            IsAllowed(context.HttpContext.RequestServices.GetRequiredService<IAdminScope>(), permission)
-                ? await next(context)
-                : Results.Problem(statusCode: StatusCodes.Status403Forbidden,
-                    title: "You do not have permission for this action."));
-    }
-
-    /// <summary>Fail-closed permission decision (REQ-6.1/6.2/S4): a bound admin whose effective set holds the key.</summary>
-    internal static bool IsAllowed(IAdminScope scope, string permission) =>
-        scope.IsBound && scope.Current.Permissions.Contains(permission);
-}
-
-/// <summary>Boot-time parity guard (REQ-11): every permission key a <c>RequirePermission</c> gate references MUST
-/// exist in the code-canonical catalog vocabulary (<see cref="Keys.AllKeys"/>, which the migration
-/// seeds the DB from). Pure in-memory — no DB — so it cannot crash a host that boots without the pol_admin
-/// connection (Program.cs already fails fast on a missing admin credential). Call right before <c>app.Run()</c>,
-/// after all endpoints are mapped.</summary>
-internal static class PermissionParity
-{
-    public static void Assert(IServiceProvider services)
-    {
-        var gated = services.GetRequiredService<EndpointDataSource>().Endpoints
-            .SelectMany(e => e.Metadata.GetOrderedMetadata<RequiredPermission>())
-            .Select(m => m.Permission);
-        var unknown = FindUnknown(gated);
-        if (unknown.Count > 0)
-            throw new InvalidOperationException(
-                $"RequirePermission references permission key(s) absent from the catalog: {string.Join(", ", unknown)}.");
-    }
-
-    /// <summary>The gated keys that are NOT in the code-canonical catalog (REQ-11). Pure — unit-testable.</summary>
-    internal static IReadOnlyList<string> FindUnknown(IEnumerable<string> gatedKeys) =>
-        [.. gatedKeys.Distinct(StringComparer.Ordinal).Where(p => !Keys.AllKeys.Contains(p))];
-}
+// RequiredPermission/PermissionAuthorization/PermissionParity moved to Api.Iam (rf2 REQ-4/5) — one gate +
+// one boot parity guard now serve both the admin and merchant-user consoles.
 
 internal static class HostWiring
 {

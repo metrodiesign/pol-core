@@ -47,7 +47,7 @@ internal static class HostWiring
         services.AddSingleton<UserSessionCookies>();
 
         // Per-request merchant-user scope (REQ-17.1): the session handler binds the concrete MerchantUserScope;
-        // endpoints read IMerchantUserScope — the SAME scoped instance. RequireMerchantUserPermission +
+        // endpoints read IMerchantUserScope — the SAME scoped instance. RequirePermission +
         // /merchants/users/me consume it.
         services.AddScoped<UserScope>();
         services.AddScoped<IUserScope>(sp => sp.GetRequiredService<UserScope>());
