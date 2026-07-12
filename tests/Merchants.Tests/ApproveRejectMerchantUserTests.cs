@@ -97,7 +97,7 @@ public sealed class ApproveRejectMerchantUserTests
         var assignment = Assert.Single(roles.Assignments);
         Assert.Equal(member, assignment.RoleId);
         Assert.Equal(Merchant, assignment.MerchantId);
-        Assert.Equal(AdminId, assignment.AssignedByAdminId);
+        Assert.Equal(AdminId, assignment.AssignedById);
         Assert.Contains(audit.Rows, a => a.Action == RegistrationAuditAction.Approved && a.TargetSubject == u.Subject);
     }
 

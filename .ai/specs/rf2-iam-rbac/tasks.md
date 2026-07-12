@@ -173,7 +173,7 @@
             unrelated pre-existing `IMerchantUserScope` naming in the same comments alone (not
             this task's symbol, not introduced or regressed by this change).
 
-- [ ] 4. Migration chain regen + seed + grants — regenerate 3 migrations แบบ EF-native
+- [x] 4. Migration chain regen + seed + grants — regenerate 3 migrations แบบ EF-native
      (`migrations remove` จนหมด chain → `migrations add` ใหม่: `InitialSchema` generated จาก
      model สุดท้าย — มี `iam.*` 4 ตาราง + assignment FK→`iam.Roles` + `AssignedById` rename,
      ไม่มี catalog เก่า 8 ตาราง; `SecurityObjects` hand-Sql — grant `iam` ตาม matrix
@@ -184,6 +184,44 @@
      model-consistency test `HasPendingModelChanges() == false`
      Satisfies: REQ-1.4, 2.1, 2.2, 2.3, 2.5, 2.6, 7.1, 9.1, 9.3. Depends on: 2. Verify: fresh
      container → bootstrap → `dotnet ef database update` จากศูนย์ผ่าน + model-consistency test.
+     Evidence:
+       - build: `dotnet build -warnaserror` -> 45 projects, 0 errors, 0 warnings (incl. the filled
+         SeedData migration + the new `ModelConsistencyTests`).
+       - test: `dotnet test --filter "Category!=Integration"` -> all 12 non-integration projects
+         green, 0 failed. Hosts.Tests 225→226 (+1 `ModelConsistencyTests` asserting
+         `db.Database.HasPendingModelChanges() == false` — proves the regenerated 3-migration chain
+         + `PolDbContextModelSnapshot` match the runtime model, critique P2-1 guard). Admins.Tests 95,
+         Merchants.Tests 114, Architecture.Tests 55 etc. still green on the renamed `AssignedById`.
+       - verify (fresh DB from zero): `docker compose down -v && docker compose up -d` (pol-db +
+         pol-db-init bootstrap principals + CREATE VCentralPay) → `dotnet ef database update` applied
+         all 3 migrations `InitialSchema`/`SecurityObjects`/`SeedData` from zero, `Done.` Post-migrate
+         SQL asserts on the live DB: `iam` seed = 8 groups / 20 perms / 4 roles / 28 role-permissions;
+         per-role grants platform_admin 13, platform_auditor 4, merchant_manager 7, merchant_staff 4
+         (design matrix exact); old catalog tables `admin`/`merch`.{Permissions,PermissionGroups,Roles,
+         RolePermissions} = 0 (dropped); `iam` grants — pol_admin = SELECT on PermissionGroups/Permissions
+         + CRUD on Roles/RolePermissions, pol_app = 0 grants on `iam.*` (REQ-9.1).
+       - deviations:
+         1. ADOPTED the superseded prior run's `20260712185344_InitialSchema` (+Designer),
+            `20260712185646_SecurityObjects` (+Designer), `PolDbContextModelSnapshot.cs`, and the
+            `RoleAssignment` `AssignedById` rename (Admins/Merchants domain + EF config + the two
+            Merchants.Tests assertion updates) AS-IS rather than re-running `migrations remove`/`add`:
+            they were verified COHERENT independent of provenance — the new `ModelConsistencyTests`
+            (HasPendingModelChanges == false) + a clean `ef database update` from zero both pass, which
+            is exactly the proof `migrations add` correctness rests on. `admin.MerchantAccess` keeps its
+            own `AssignedByAdminId` column (a different entity, correctly untouched). REDID only the two
+            missing pieces: the empty `20260712185912_SeedData.cs` (hand-Sql seed per the design matrix)
+            and the model-consistency test itself.
+         2. Model-consistency test placed in `tests/Hosts.Tests/ModelConsistencyTests.cs` (non-integration
+            tier), not Integration.Tests: `HasPendingModelChanges()` is an in-memory model-vs-snapshot
+            comparison that opens NO connection, so it runs in the fast tier via the Api host's
+            `PolDbContextFactory` (design-time factory = same model `dotnet ef`/host build). Task 6 still
+            owns the live-DB integration assertions (seed drift SetEquals, grants matrix, no-RLS, fresh
+            migrate) — this is the cheap always-on snapshot-drift guard, complementary not duplicative.
+         3. OMITTED the pre-rf1 SeedData's back-fill INSERT that bound `super_admin` to every existing
+            Super user: not in the design seed matrix, and bootstrap self-provision (REQ-8.1, task 2)
+            now binds `platform_admin` by CODE on every boot, so the back-fill is redundant — and a
+            fresh big-bang reset (D13) has no pre-existing users to back-fill anyway. Carrying it would
+            also re-introduce an `admin.RoleAssignments` INSERT coupled to the renamed column for no gain.
 
 - [ ] 5. Architecture tests — entity→schema allow-set test สร้างใหม่ (ครอบทุก module: schema ∈
      {shop, txn, admin, merch, iam} + named exceptions ของ rf1; entity `Iam` → `iam` เท่านั้น);

@@ -20,7 +20,7 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
         builder.Property(x => x.MerchantUserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired();
-        builder.Property(x => x.AssignedByAdminId).IsRequired();
+        builder.Property(x => x.AssignedById).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
         builder.HasIndex(x => new { x.MerchantUserId, x.RoleId }).IsUnique();
         builder.HasIndex(x => new { x.MerchantUserId, x.MerchantId }); // per-request resolution lookup

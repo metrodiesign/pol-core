@@ -64,7 +64,7 @@ public sealed class MerchantUserRoleHandlerTests
         var roleIds = roles.Assignments.Where(a => a.MerchantUserId == target.Id).Select(a => a.RoleId).ToHashSet();
         Assert.Equal(new HashSet<Guid> { finance }, roleIds);
         Assert.All(roles.Assignments.Where(a => a.MerchantUserId == target.Id), a => Assert.Equal(MerchantA, a.MerchantId));
-        Assert.All(roles.Assignments.Where(a => a.MerchantUserId == target.Id), a => Assert.Equal(Actor, a.AssignedByAdminId));
+        Assert.All(roles.Assignments.Where(a => a.MerchantUserId == target.Id), a => Assert.Equal(Actor, a.AssignedById));
     }
 
     private static User Approved(Guid merchantId, FakeUsers users)

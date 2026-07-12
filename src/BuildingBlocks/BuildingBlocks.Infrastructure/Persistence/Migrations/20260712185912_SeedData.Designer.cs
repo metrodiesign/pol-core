@@ -13,8 +13,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    [Migration("20260711142515_SecurityObjects")]
-    partial class SecurityObjects
+    [Migration("20260712185912_SeedData")]
+    partial class SeedData
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -25,138 +25,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
-
-            modelBuilder.Entity("Admins.Domain.Permissions.Permission", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("GroupKey")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("LabelTh")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.HasKey("Key");
-
-                    b.HasIndex("GroupKey");
-
-                    b.ToTable("Permissions", "admin");
-                });
-
-            modelBuilder.Entity("Admins.Domain.Permissions.PermissionGroup", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("LabelTh")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.HasKey("Key");
-
-                    b.ToTable("PermissionGroups", "admin");
-                });
-
-            modelBuilder.Entity("Admins.Domain.Roles.Role", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("Color")
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Code")
-                        .IsUnique();
-
-                    b.ToTable("Roles", "admin");
-                });
-
-            modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("AssignedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("AssignedByAdminId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("PlatformUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RoleId");
-
-                    b.HasIndex("PlatformUserId", "RoleId")
-                        .IsUnique();
-
-                    b.ToTable("RoleAssignments", "admin");
-                });
-
-            modelBuilder.Entity("Admins.Domain.Roles.RolePermission", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("PermissionKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PermissionKey");
-
-                    b.HasIndex("RoleId", "PermissionKey")
-                        .IsUnique();
-
-                    b.ToTable("RolePermissions", "admin");
-                });
 
             modelBuilder.Entity("Admins.Domain.MasterData.MasterDataItem", b =>
                 {
@@ -185,6 +53,75 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable((string)null);
 
                     b.UseTpcMappingStrategy();
+                });
+
+            modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AssignedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("AssignedById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PlatformUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("PlatformUserId", "RoleId")
+                        .IsUnique();
+
+                    b.ToTable("RoleAssignments", "admin");
+                });
+
+            modelBuilder.Entity("Admins.Domain.Users.Audit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("TargetAdminId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TargetRoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("UserAudits", "admin");
                 });
 
             modelBuilder.Entity("Admins.Domain.Users.AuthAudit", b =>
@@ -250,103 +187,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("MerchantAccess", "admin");
                 });
 
-            modelBuilder.Entity("Admins.Domain.Users.User", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("DivisionId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasMaxLength(320)
-                        .HasColumnType("nvarchar(320)");
-
-                    b.Property<Guid?>("LevelId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("OfficeId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("PositionId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Subject")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<int>("Tier")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DivisionId");
-
-                    b.HasIndex("Email")
-                        .IsUnique();
-
-                    b.HasIndex("LevelId");
-
-                    b.HasIndex("OfficeId");
-
-                    b.HasIndex("PositionId");
-
-                    b.HasIndex("Subject")
-                        .IsUnique()
-                        .HasFilter("[Subject] IS NOT NULL");
-
-                    b.ToTable("Users", "admin");
-                });
-
-            modelBuilder.Entity("Admins.Domain.Users.Audit", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid>("ActorId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ActorType")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<Guid?>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("OccurredAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("TargetAdminId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("TargetRoleId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("UserAudits", "admin");
-                });
-
             modelBuilder.Entity("Admins.Domain.Users.Session", b =>
                 {
                     b.Property<Guid>("Id")
@@ -402,6 +242,62 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Sessions", "admin");
+                });
+
+            modelBuilder.Entity("Admins.Domain.Users.User", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("DivisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<Guid?>("LevelId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OfficeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("PositionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<int>("Tier")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DivisionId");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.HasIndex("LevelId");
+
+                    b.HasIndex("OfficeId");
+
+                    b.HasIndex("PositionId");
+
+                    b.HasIndex("Subject")
+                        .IsUnique()
+                        .HasFilter("[Subject] IS NOT NULL");
+
+                    b.ToTable("Users", "admin");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.DataProtection.DataProtectionKey", b =>
@@ -677,31 +573,120 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CheckoutSessions", "shop");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.Users.ExternalLogin", b =>
+            modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("GroupKey")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("LabelTh")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.HasKey("Key");
+
+                    b.HasIndex("GroupKey");
+
+                    b.ToTable("Permissions", "iam");
+                });
+
+            modelBuilder.Entity("Iam.Domain.Permissions.PermissionGroup", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("LabelTh")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("PermissionGroups", "iam");
+                });
+
+            modelBuilder.Entity("Iam.Domain.Roles.Role", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Provider")
+                    b.Property<string>("Code")
                         .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
-                    b.Property<string>("Subject")
-                        .IsRequired()
+                    b.Property<string>("Color")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("Description")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<Guid?>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("Provider", "Subject")
+                    b.HasIndex("MerchantId", "Code")
                         .IsUnique();
 
-                    b.ToTable("ExternalLogins", "merch");
+                    b.ToTable("Roles", "iam", t =>
+                        {
+                            t.HasCheckConstraint("CK_Roles_ScopeMerchant", "([Scope] = 0 AND [MerchantId] IS NULL) OR [Scope] = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Iam.Domain.Roles.RolePermission", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PermissionKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PermissionKey");
+
+                    b.HasIndex("RoleId", "PermissionKey")
+                        .IsUnique();
+
+                    b.ToTable("RolePermissions", "iam");
                 });
 
             modelBuilder.Entity("Merchants.Domain.Merchant", b =>
@@ -758,6 +743,38 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Merchants", "merch");
                 });
 
+            modelBuilder.Entity("Merchants.Domain.ProvisioningAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AdminSubject")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("MerchantCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ProvisioningAudits", "merch");
+                });
+
             modelBuilder.Entity("Merchants.Domain.Users.AuthAudit", b =>
                 {
                     b.Property<Guid>("Id")
@@ -795,67 +812,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("AuthAudits", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.Users.User", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.ExternalLogin", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("Email")
-                        .IsRequired()
-                        .HasMaxLength(320)
-                        .HasColumnType("nvarchar(320)");
-
-                    b.Property<string>("FirstName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("IdNumber")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("LastName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("LicenseNumber")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid?>("MerchantId")
+                    b.Property<Guid>("MerchantUserId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<int?>("PersonType")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Phone")
+                    b.Property<string>("Provider")
+                        .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("PhotoContentType")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<string>("PhotoObjectKey")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<string>("ProducerCode")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
 
                     b.Property<string>("Subject")
                         .IsRequired()
@@ -864,236 +833,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Subject")
+                    b.HasIndex("Provider", "Subject")
                         .IsUnique();
 
-                    b.ToTable("Users", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Permissions.Permission", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("GroupKey")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("LabelTh")
-                        .IsRequired()
-                        .HasMaxLength(160)
-                        .HasColumnType("nvarchar(160)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.HasKey("Key");
-
-                    b.HasIndex("GroupKey");
-
-                    b.ToTable("Permissions", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Permissions.PermissionGroup", b =>
-                {
-                    b.Property<string>("Key")
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<string>("LabelTh")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.HasKey("Key");
-
-                    b.ToTable("PermissionGroups", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Roles.RoleAssignment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("AssignedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("AssignedByAdminId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RoleId");
-
-                    b.HasIndex("MerchantUserId", "MerchantId");
-
-                    b.HasIndex("MerchantUserId", "RoleId")
-                        .IsUnique();
-
-                    b.ToTable("RoleAssignments", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Roles.Role", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("Color")
-                        .HasMaxLength(16)
-                        .HasColumnType("nvarchar(16)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Code")
-                        .IsUnique();
-
-                    b.ToTable("Roles", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Roles.RolePermission", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("PermissionKey")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PermissionKey");
-
-                    b.HasIndex("RoleId", "PermissionKey")
-                        .IsUnique();
-
-                    b.ToTable("RolePermissions", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Session", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("AbsoluteExpiresAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedIp")
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)");
-
-                    b.Property<Guid>("FamilyId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("IdleExpiresAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("IssuedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<DateTime?>("SupersededAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid?>("SupersededBySessionId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<byte[]>("TokenHash")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("varbinary(32)");
-
-                    b.Property<string>("UserAgent")
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AbsoluteExpiresAt");
-
-                    b.HasIndex("FamilyId");
-
-                    b.HasIndex("MerchantUserId");
-
-                    b.HasIndex("TokenHash")
-                        .IsUnique();
-
-                    b.ToTable("Sessions", "merch");
-                });
-
-            modelBuilder.Entity("Merchants.Domain.ProvisioningAudit", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("AdminSubject")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.Property<string>("MerchantCode")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("OccurredAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ProvisioningAudits", "merch");
+                    b.ToTable("ExternalLogins", "merch");
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.RegistrationAudit", b =>
@@ -1185,6 +928,171 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.RoleAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AssignedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("AssignedById")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MerchantUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("MerchantUserId", "MerchantId");
+
+                    b.HasIndex("MerchantUserId", "RoleId")
+                        .IsUnique();
+
+                    b.ToTable("RoleAssignments", "merch");
+                });
+
+            modelBuilder.Entity("Merchants.Domain.Users.Session", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AbsoluteExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedIp")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
+                    b.Property<Guid>("FamilyId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("IdleExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("IssuedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("MerchantUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("SupersededAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("SupersededBySessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varbinary(32)");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AbsoluteExpiresAt");
+
+                    b.HasIndex("FamilyId");
+
+                    b.HasIndex("MerchantUserId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("Sessions", "merch");
+                });
+
+            modelBuilder.Entity("Merchants.Domain.Users.User", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("IdNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("LicenseNumber")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("PersonType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("PhotoContentType")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("PhotoObjectKey")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("ProducerCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Subject")
+                        .IsUnique();
+
+                    b.ToTable("Users", "merch");
+                });
+
             modelBuilder.Entity("Orders.Domain.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1253,6 +1161,45 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Orders", "shop");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Psp.Connection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EnabledMethods")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Psp")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SecretRefName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "Psp")
+                        .IsUnique();
+
+                    b.ToTable("PspConnections", "txn");
                 });
 
             modelBuilder.Entity("Payments.Domain.Session", b =>
@@ -1325,45 +1272,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasFilter("[PspExternalChargeId] IS NOT NULL");
 
                     b.ToTable("PaymentSessions", "txn");
-                });
-
-            modelBuilder.Entity("Payments.Domain.Psp.Connection", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("EnabledMethods")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("nvarchar(256)");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Metadata")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("Psp")
-                        .HasColumnType("int");
-
-                    b.Property<string>("SecretRefName")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MerchantId", "Psp")
-                        .IsUnique();
-
-                    b.ToTable("PspConnections", "txn");
                 });
 
             modelBuilder.Entity("Products.Domain.Product", b =>
@@ -1439,36 +1347,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Positions", "admin");
                 });
 
-            modelBuilder.Entity("Admins.Domain.Permissions.Permission", b =>
-                {
-                    b.HasOne("Admins.Domain.Permissions.PermissionGroup", null)
-                        .WithMany()
-                        .HasForeignKey("GroupKey")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
                 {
-                    b.HasOne("Admins.Domain.Roles.Role", null)
+                    b.HasOne("Iam.Domain.Roles.Role", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Admins.Domain.Roles.RolePermission", b =>
-                {
-                    b.HasOne("Admins.Domain.Permissions.Permission", null)
-                        .WithMany()
-                        .HasForeignKey("PermissionKey")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Admins.Domain.Roles.Role", null)
-                        .WithMany("Permissions")
-                        .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
@@ -1504,42 +1388,37 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Merchants.Domain.Users.Permissions.Permission", b =>
+            modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
                 {
-                    b.HasOne("Merchants.Domain.Users.Permissions.PermissionGroup", null)
+                    b.HasOne("Iam.Domain.Permissions.PermissionGroup", null)
                         .WithMany()
                         .HasForeignKey("GroupKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Merchants.Domain.Users.Roles.RoleAssignment", b =>
+            modelBuilder.Entity("Iam.Domain.Roles.RolePermission", b =>
                 {
-                    b.HasOne("Merchants.Domain.Users.Roles.Role", null)
-                        .WithMany()
-                        .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Merchants.Domain.Users.Roles.RolePermission", b =>
-                {
-                    b.HasOne("Merchants.Domain.Users.Permissions.Permission", null)
+                    b.HasOne("Iam.Domain.Permissions.Permission", null)
                         .WithMany()
                         .HasForeignKey("PermissionKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Merchants.Domain.Users.Roles.Role", null)
+                    b.HasOne("Iam.Domain.Roles.Role", null)
                         .WithMany("Permissions")
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Admins.Domain.Roles.Role", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.RoleAssignment", b =>
                 {
-                    b.Navigation("Permissions");
+                    b.HasOne("Iam.Domain.Roles.Role", null)
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Carts.Domain.Cart", b =>
@@ -1547,7 +1426,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Navigation("Items");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.Users.Roles.Role", b =>
+            modelBuilder.Entity("Iam.Domain.Roles.Role", b =>
                 {
                     b.Navigation("Permissions");
                 });

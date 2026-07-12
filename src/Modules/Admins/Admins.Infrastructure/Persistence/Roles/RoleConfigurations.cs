@@ -19,7 +19,7 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
         builder.HasKey(x => x.Id);
         builder.Property(x => x.PlatformUserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
-        builder.Property(x => x.AssignedByAdminId).IsRequired();
+        builder.Property(x => x.AssignedById).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
         builder.HasIndex(x => new { x.PlatformUserId, x.RoleId }).IsUnique(); // REQ-4.1
         // Restrict: a role with bound users cannot be deleted at the DB either (also checked in the handler

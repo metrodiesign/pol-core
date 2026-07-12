@@ -11,6 +11,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
     /// requires the tables to exist first) and its statements are NOT wrapped in one transaction (<c>ALTER
     /// SECURITY POLICY</c> is not transactional on SQL Server — a prior-session lesson). Order: schemas -> functions
     /// -> procs -> RegistrationNotices (raw table, excluded from the EF model diff) -> policy -> grants.
+    /// rf2: the RBAC catalog grants moved off the duplicated admin.*/merch.* catalog tables (dropped in this
+    /// reset's InitialSchema) onto the single central iam.* catalog — pol_admin gets read-only on the vocabulary
+    /// (PermissionGroups/Permissions) and full CRUD on Roles/RolePermissions; pol_app gets NOTHING on iam.* (it
+    /// never resolves permissions). The per-side assignment tables (admin/merch.RoleAssignments) keep their grants.
     /// </summary>
     public partial class SecurityObjects : Migration
     {
@@ -28,7 +32,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // --- Schemas (REQ-3.10: every schema owned by dbo, so ownership chaining lets a predicate reach
             // admin.Users / admin.MerchantAccess across schemas without an explicit grant). shop/
             // txn/admin/merch already exist (EnsureSchema'd by InitialSchema); re-assert authorization in case the
-            // running principal was not dbo. sec has no EF entity, so it needs its own CREATE.
+            // running principal was not dbo. sec has no EF entity, so it needs its own CREATE. iam is not touched by
+            // any predicate (no RLS on iam.*), so it needs no ownership-chaining re-assert here.
             migrationBuilder.Sql("""
                 IF SCHEMA_ID(N'sec') IS NULL EXEC(N'CREATE SCHEMA sec AUTHORIZATION dbo;');
                 ALTER AUTHORIZATION ON SCHEMA::shop  TO dbo;
@@ -234,10 +239,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 GRANT SELECT, INSERT, UPDATE, DELETE ON admin.MerchantAccess  TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE, DELETE ON admin.Sessions    TO pol_admin;
                 GRANT SELECT, INSERT                 ON admin.AuthAudits      TO pol_admin;
-                GRANT SELECT                         ON admin.PermissionGroups   TO pol_admin;
-                GRANT SELECT                         ON admin.Permissions        TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.Roles              TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.RolePermissions    TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE, DELETE ON admin.RoleAssignments    TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON admin.Positions               TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON admin.Offices                 TO pol_admin;
@@ -252,12 +253,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 GRANT SELECT                         ON merch.VaultRevealAudits       TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE, DELETE ON merch.Sessions    TO pol_admin;
                 GRANT SELECT, INSERT                 ON merch.AuthAudits      TO pol_admin;
-                GRANT SELECT                         ON merch.PermissionGroups TO pol_admin;
-                GRANT SELECT                         ON merch.Permissions      TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.Roles  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.RolePermissions  TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE, DELETE ON merch.RoleAssignments  TO pol_admin;
                 GRANT SELECT, INSERT                 ON merch.ProvisioningAudits      TO pol_admin;
+
+                -- pol_admin on the central iam catalog (rf2 grant matrix, REQ-9.1): read-only on the vocabulary,
+                -- full CRUD on Roles/RolePermissions (both consoles' role management runs on the keyed pol_admin
+                -- connection). pol_app is deliberately granted NOTHING on iam.* — the funnel never resolves
+                -- permissions, and per-request resolution for BOTH sides runs on pol_admin.
+                GRANT SELECT                         ON iam.PermissionGroups TO pol_admin;
+                GRANT SELECT                         ON iam.Permissions      TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON iam.Roles           TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON iam.RolePermissions TO pol_admin;
 
                 GRANT SELECT, INSERT ON dbo.DataProtectionKeys TO pol_admin;
                 """);
@@ -312,10 +318,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.MerchantAccess  FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.Sessions    FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON admin.AuthAudits      FROM pol_admin;
-                REVOKE SELECT                         ON admin.PermissionGroups   FROM pol_admin;
-                REVOKE SELECT                         ON admin.Permissions        FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.Roles              FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.RolePermissions    FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.RoleAssignments    FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON admin.Positions               FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON admin.Offices                 FROM pol_admin;
@@ -330,12 +332,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 REVOKE SELECT                         ON merch.VaultRevealAudits       FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.Sessions    FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON merch.AuthAudits      FROM pol_admin;
-                REVOKE SELECT                         ON merch.PermissionGroups FROM pol_admin;
-                REVOKE SELECT                         ON merch.Permissions      FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.Roles  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.RolePermissions  FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.RoleAssignments  FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON merch.ProvisioningAudits      FROM pol_admin;
+
+                REVOKE SELECT                         ON iam.PermissionGroups FROM pol_admin;
+                REVOKE SELECT                         ON iam.Permissions      FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON iam.Roles           FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON iam.RolePermissions FROM pol_admin;
 
                 REVOKE SELECT, INSERT ON dbo.DataProtectionKeys FROM pol_admin;
                 """);

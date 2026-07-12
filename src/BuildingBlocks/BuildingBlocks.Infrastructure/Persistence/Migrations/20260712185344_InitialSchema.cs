@@ -15,46 +15,54 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 name: "admin");
 
             migrationBuilder.EnsureSchema(
+                name: "merch");
+
+            migrationBuilder.EnsureSchema(
                 name: "shop");
 
             migrationBuilder.EnsureSchema(
                 name: "dbo");
 
             migrationBuilder.EnsureSchema(
-                name: "merch");
-
-            migrationBuilder.EnsureSchema(
                 name: "txn");
 
-            migrationBuilder.CreateTable(
-                name: "PermissionGroups",
-                schema: "admin",
-                columns: table => new
-                {
-                    Key = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
-                    LabelTh = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    SortOrder = table.Column<int>(type: "int", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PermissionGroups", x => x.Key);
-                });
+            migrationBuilder.EnsureSchema(
+                name: "iam");
 
             migrationBuilder.CreateTable(
-                name: "Roles",
+                name: "AuthAudits",
                 schema: "admin",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Code = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Description = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    Color = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: true),
-                    Status = table.Column<int>(type: "int", nullable: false)
+                    EventType = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
+                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    Subject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    Reason = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true),
+                    CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    OccurredAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_Roles", x => x.Id);
+                    table.PrimaryKey("PK_AuthAudits", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AuthAudits",
+                schema: "merch",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    EventType = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
+                    MerchantUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    Subject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    Reason = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true),
+                    CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    OccurredAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AuthAudits", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -167,21 +175,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "AuthAudits",
-                schema: "merch",
+                name: "MerchantAccess",
+                schema: "admin",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    EventType = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
-                    MerchantUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    Subject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    Reason = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true),
-                    CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    OccurredAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AssignedByAdminId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AssignedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AuthAudits", x => x.Id);
+                    table.PrimaryKey("PK_MerchantAccess", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -203,87 +209,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Merchants", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "PermissionGroups",
-                schema: "merch",
-                columns: table => new
-                {
-                    Key = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
-                    LabelTh = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    SortOrder = table.Column<int>(type: "int", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_PermissionGroups", x => x.Key);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Roles",
-                schema: "merch",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Code = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    Description = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    Color = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: true),
-                    Status = table.Column<int>(type: "int", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Roles", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Users",
-                schema: "merch",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Subject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
-                    Email = table.Column<string>(type: "nvarchar(320)", maxLength: 320, nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    FirstName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    LastName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
-                    PersonType = table.Column<int>(type: "int", nullable: true),
-                    IdNumber = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
-                    ProducerCode = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
-                    LicenseNumber = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
-                    Phone = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: true),
-                    PhotoObjectKey = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    PhotoContentType = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Users", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Sessions",
-                schema: "merch",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    FamilyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TokenHash = table.Column<byte[]>(type: "varbinary(32)", maxLength: 32, nullable: false),
-                    MerchantUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    IssuedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    IdleExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    AbsoluteExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    SupersededAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    SupersededBySessionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    CreatedIp = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
-                    UserAgent = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Sessions", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -370,80 +295,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "AuthAudits",
-                schema: "admin",
+                name: "PermissionGroups",
+                schema: "iam",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    EventType = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
-                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    Subject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
-                    Reason = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true),
-                    CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    OccurredAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                    Key = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
+                    Scope = table.Column<int>(type: "int", nullable: false),
+                    LabelTh = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    SortOrder = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AuthAudits", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "MerchantAccess",
-                schema: "admin",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AssignedByAdminId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AssignedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_MerchantAccess", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "UserAudits",
-                schema: "admin",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Action = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    ActorType = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: false),
-                    ActorId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TargetAdminId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    TargetRoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
-                    OccurredAt = table.Column<DateTime>(type: "datetime2", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_UserAudits", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "Sessions",
-                schema: "admin",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    FamilyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    TokenHash = table.Column<byte[]>(type: "varbinary(32)", maxLength: 32, nullable: false),
-                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    Status = table.Column<int>(type: "int", nullable: false),
-                    IssuedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    IdleExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    AbsoluteExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    SupersededAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    SupersededBySessionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
-                    CreatedIp = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
-                    UserAgent = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Sessions", x => x.Id);
+                    table.PrimaryKey("PK_PermissionGroups", x => x.Key);
                 });
 
             migrationBuilder.CreateTable(
@@ -536,6 +399,119 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Roles",
+                schema: "iam",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Code = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                    Name = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    Description = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    Color = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: true),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    Scope = table.Column<int>(type: "int", nullable: false),
+                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Roles", x => x.Id);
+                    table.CheckConstraint("CK_Roles_ScopeMerchant", "([Scope] = 0 AND [MerchantId] IS NULL) OR [Scope] = 1");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Sessions",
+                schema: "admin",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    FamilyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TokenHash = table.Column<byte[]>(type: "varbinary(32)", maxLength: 32, nullable: false),
+                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    IssuedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    IdleExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    AbsoluteExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    SupersededAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    SupersededBySessionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    CreatedIp = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
+                    UserAgent = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Sessions", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Sessions",
+                schema: "merch",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    FamilyId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TokenHash = table.Column<byte[]>(type: "varbinary(32)", maxLength: 32, nullable: false),
+                    MerchantUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    IssuedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    IdleExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    AbsoluteExpiresAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    SupersededAt = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    SupersededBySessionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    CreatedIp = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
+                    UserAgent = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Sessions", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "UserAudits",
+                schema: "admin",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Action = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
+                    ActorType = table.Column<string>(type: "nvarchar(16)", maxLength: 16, nullable: false),
+                    ActorId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    TargetAdminId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    TargetRoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    CorrelationId = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: false),
+                    OccurredAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_UserAudits", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Users",
+                schema: "merch",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Subject = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: false),
+                    Email = table.Column<string>(type: "nvarchar(320)", maxLength: 320, nullable: false),
+                    Status = table.Column<int>(type: "int", nullable: false),
+                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    DisplayName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    FirstName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    LastName = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    PersonType = table.Column<int>(type: "int", nullable: true),
+                    IdNumber = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    ProducerCode = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    LicenseNumber = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: true),
+                    Phone = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: true),
+                    PhotoObjectKey = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
+                    PhotoContentType = table.Column<string>(type: "nvarchar(128)", maxLength: 128, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Users", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "VaultRevealAudits",
                 schema: "merch",
                 columns: table => new
@@ -574,51 +550,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Permissions",
-                schema: "admin",
-                columns: table => new
-                {
-                    Key = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
-                    GroupKey = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
-                    LabelTh = table.Column<string>(type: "nvarchar(160)", maxLength: 160, nullable: false),
-                    SortOrder = table.Column<int>(type: "int", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Permissions", x => x.Key);
-                    table.ForeignKey(
-                        name: "FK_Permissions_PermissionGroups_GroupKey",
-                        column: x => x.GroupKey,
-                        principalSchema: "admin",
-                        principalTable: "PermissionGroups",
-                        principalColumn: "Key",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "RoleAssignments",
-                schema: "admin",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AssignedByAdminId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AssignedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_RoleAssignments", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_RoleAssignments_Roles_RoleId",
-                        column: x => x.RoleId,
-                        principalSchema: "admin",
-                        principalTable: "Roles",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "CartItems",
                 schema: "shop",
                 columns: table => new
@@ -644,7 +575,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Permissions",
-                schema: "merch",
+                schema: "iam",
                 columns: table => new
                 {
                     Key = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false),
@@ -658,33 +589,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_Permissions_PermissionGroups_GroupKey",
                         column: x => x.GroupKey,
-                        principalSchema: "merch",
+                        principalSchema: "iam",
                         principalTable: "PermissionGroups",
                         principalColumn: "Key",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "RoleAssignments",
-                schema: "merch",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    MerchantUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AssignedByAdminId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    AssignedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_RoleAssignments", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_RoleAssignments_Roles_RoleId",
-                        column: x => x.RoleId,
-                        principalSchema: "merch",
-                        principalTable: "Roles",
-                        principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
 
@@ -738,39 +645,58 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "RolePermissions",
+                name: "RoleAssignments",
                 schema: "admin",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    PlatformUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
-                    PermissionKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false)
+                    AssignedById = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AssignedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_RolePermissions", x => x.Id);
+                    table.PrimaryKey("PK_RoleAssignments", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_RolePermissions_Permissions_PermissionKey",
-                        column: x => x.PermissionKey,
-                        principalSchema: "admin",
-                        principalTable: "Permissions",
-                        principalColumn: "Key",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_RolePermissions_Roles_RoleId",
+                        name: "FK_RoleAssignments_Roles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "admin",
+                        principalSchema: "iam",
                         principalTable: "Roles",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "RolePermissions",
+                name: "RoleAssignments",
                 schema: "merch",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    MerchantUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    MerchantId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AssignedById = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AssignedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RoleAssignments", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RoleAssignments_Roles_RoleId",
+                        column: x => x.RoleId,
+                        principalSchema: "iam",
+                        principalTable: "Roles",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RolePermissions",
+                schema: "iam",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     RoleId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     PermissionKey = table.Column<string>(type: "nvarchar(64)", maxLength: 64, nullable: false)
                 },
@@ -780,57 +706,30 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     table.ForeignKey(
                         name: "FK_RolePermissions_Permissions_PermissionKey",
                         column: x => x.PermissionKey,
-                        principalSchema: "merch",
+                        principalSchema: "iam",
                         principalTable: "Permissions",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_RolePermissions_Roles_RoleId",
                         column: x => x.RoleId,
-                        principalSchema: "merch",
+                        principalSchema: "iam",
                         principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_Permissions_GroupKey",
+                name: "IX_AuthAudits_PlatformUserId",
                 schema: "admin",
-                table: "Permissions",
-                column: "GroupKey");
+                table: "AuthAudits",
+                column: "PlatformUserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_RoleAssignments_PlatformUserId_RoleId",
-                schema: "admin",
-                table: "RoleAssignments",
-                columns: new[] { "PlatformUserId", "RoleId" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RoleAssignments_RoleId",
-                schema: "admin",
-                table: "RoleAssignments",
-                column: "RoleId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RolePermissions_PermissionKey",
-                schema: "admin",
-                table: "RolePermissions",
-                column: "PermissionKey");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RolePermissions_RoleId_PermissionKey",
-                schema: "admin",
-                table: "RolePermissions",
-                columns: new[] { "RoleId", "PermissionKey" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Roles_Code",
-                schema: "admin",
-                table: "Roles",
-                column: "Code",
-                unique: true);
+                name: "IX_AuthAudits_MerchantUserId",
+                schema: "merch",
+                table: "AuthAudits",
+                column: "MerchantUserId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_CartItems_CartId",
@@ -860,93 +759,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_AuthAudits_MerchantUserId",
-                schema: "merch",
-                table: "AuthAudits",
-                column: "MerchantUserId");
+                name: "IX_MerchantAccess_PlatformUserId_MerchantId",
+                schema: "admin",
+                table: "MerchantAccess",
+                columns: new[] { "PlatformUserId", "MerchantId" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Merchants_Code",
                 schema: "merch",
                 table: "Merchants",
                 column: "Code",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Permissions_GroupKey",
-                schema: "merch",
-                table: "Permissions",
-                column: "GroupKey");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RoleAssignments_MerchantUserId_MerchantId",
-                schema: "merch",
-                table: "RoleAssignments",
-                columns: new[] { "MerchantUserId", "MerchantId" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RoleAssignments_MerchantUserId_RoleId",
-                schema: "merch",
-                table: "RoleAssignments",
-                columns: new[] { "MerchantUserId", "RoleId" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RoleAssignments_RoleId",
-                schema: "merch",
-                table: "RoleAssignments",
-                column: "RoleId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Roles_Code",
-                schema: "merch",
-                table: "Roles",
-                column: "Code",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RolePermissions_PermissionKey",
-                schema: "merch",
-                table: "RolePermissions",
-                column: "PermissionKey");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_RolePermissions_RoleId_PermissionKey",
-                schema: "merch",
-                table: "RolePermissions",
-                columns: new[] { "RoleId", "PermissionKey" },
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Users_Subject",
-                schema: "merch",
-                table: "Users",
-                column: "Subject",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_AbsoluteExpiresAt",
-                schema: "merch",
-                table: "Sessions",
-                column: "AbsoluteExpiresAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_FamilyId",
-                schema: "merch",
-                table: "Sessions",
-                column: "FamilyId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_MerchantUserId",
-                schema: "merch",
-                table: "Sessions",
-                column: "MerchantUserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_TokenHash",
-                schema: "merch",
-                table: "Sessions",
-                column: "TokenHash",
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -1005,16 +828,131 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 filter: "[PspExternalChargeId] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AuthAudits_PlatformUserId",
+                name: "IX_Permissions_GroupKey",
+                schema: "iam",
+                table: "Permissions",
+                column: "GroupKey");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Positions_Code",
                 schema: "admin",
-                table: "AuthAudits",
+                table: "Positions",
+                column: "Code",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Products_MerchantId_IsActive",
+                schema: "shop",
+                table: "Products",
+                columns: new[] { "MerchantId", "IsActive" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_PspConnections_MerchantId_Psp",
+                schema: "txn",
+                table: "PspConnections",
+                columns: new[] { "MerchantId", "Psp" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleAssignments_PlatformUserId_RoleId",
+                schema: "admin",
+                table: "RoleAssignments",
+                columns: new[] { "PlatformUserId", "RoleId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleAssignments_RoleId",
+                schema: "admin",
+                table: "RoleAssignments",
+                column: "RoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleAssignments_MerchantUserId_MerchantId",
+                schema: "merch",
+                table: "RoleAssignments",
+                columns: new[] { "MerchantUserId", "MerchantId" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleAssignments_MerchantUserId_RoleId",
+                schema: "merch",
+                table: "RoleAssignments",
+                columns: new[] { "MerchantUserId", "RoleId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RoleAssignments_RoleId",
+                schema: "merch",
+                table: "RoleAssignments",
+                column: "RoleId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RolePermissions_PermissionKey",
+                schema: "iam",
+                table: "RolePermissions",
+                column: "PermissionKey");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_RolePermissions_RoleId_PermissionKey",
+                schema: "iam",
+                table: "RolePermissions",
+                columns: new[] { "RoleId", "PermissionKey" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Roles_MerchantId_Code",
+                schema: "iam",
+                table: "Roles",
+                columns: new[] { "MerchantId", "Code" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_AbsoluteExpiresAt",
+                schema: "admin",
+                table: "Sessions",
+                column: "AbsoluteExpiresAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_FamilyId",
+                schema: "admin",
+                table: "Sessions",
+                column: "FamilyId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_PlatformUserId",
+                schema: "admin",
+                table: "Sessions",
                 column: "PlatformUserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantAccess_PlatformUserId_MerchantId",
+                name: "IX_Sessions_TokenHash",
                 schema: "admin",
-                table: "MerchantAccess",
-                columns: new[] { "PlatformUserId", "MerchantId" },
+                table: "Sessions",
+                column: "TokenHash",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_AbsoluteExpiresAt",
+                schema: "merch",
+                table: "Sessions",
+                column: "AbsoluteExpiresAt");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_FamilyId",
+                schema: "merch",
+                table: "Sessions",
+                column: "FamilyId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_MerchantUserId",
+                schema: "merch",
+                table: "Sessions",
+                column: "MerchantUserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Sessions_TokenHash",
+                schema: "merch",
+                table: "Sessions",
+                column: "TokenHash",
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -1057,48 +995,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 filter: "[Subject] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Sessions_AbsoluteExpiresAt",
-                schema: "admin",
-                table: "Sessions",
-                column: "AbsoluteExpiresAt");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_FamilyId",
-                schema: "admin",
-                table: "Sessions",
-                column: "FamilyId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_PlatformUserId",
-                schema: "admin",
-                table: "Sessions",
-                column: "PlatformUserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Sessions_TokenHash",
-                schema: "admin",
-                table: "Sessions",
-                column: "TokenHash",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Positions_Code",
-                schema: "admin",
-                table: "Positions",
-                column: "Code",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Products_MerchantId_IsActive",
-                schema: "shop",
-                table: "Products",
-                columns: new[] { "MerchantId", "IsActive" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_PspConnections_MerchantId_Psp",
-                schema: "txn",
-                table: "PspConnections",
-                columns: new[] { "MerchantId", "Psp" },
+                name: "IX_Users_Subject",
+                schema: "merch",
+                table: "Users",
+                column: "Subject",
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -1119,12 +1019,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "RoleAssignments",
+                name: "AuthAudits",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "RolePermissions",
-                schema: "admin");
+                name: "AuthAudits",
+                schema: "merch");
 
             migrationBuilder.DropTable(
                 name: "CartItems",
@@ -1147,27 +1047,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "txn");
 
             migrationBuilder.DropTable(
-                name: "AuthAudits",
-                schema: "merch");
+                name: "MerchantAccess",
+                schema: "admin");
 
             migrationBuilder.DropTable(
                 name: "Merchants",
-                schema: "merch");
-
-            migrationBuilder.DropTable(
-                name: "RoleAssignments",
-                schema: "merch");
-
-            migrationBuilder.DropTable(
-                name: "RolePermissions",
-                schema: "merch");
-
-            migrationBuilder.DropTable(
-                name: "Users",
-                schema: "merch");
-
-            migrationBuilder.DropTable(
-                name: "Sessions",
                 schema: "merch");
 
             migrationBuilder.DropTable(
@@ -1181,26 +1065,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             migrationBuilder.DropTable(
                 name: "PaymentSessions",
                 schema: "txn");
-
-            migrationBuilder.DropTable(
-                name: "AuthAudits",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
-                name: "MerchantAccess",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
-                name: "UserAudits",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
-                name: "Users",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
-                name: "Sessions",
-                schema: "admin");
 
             migrationBuilder.DropTable(
                 name: "Products",
@@ -1219,6 +1083,38 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "merch");
 
             migrationBuilder.DropTable(
+                name: "RoleAssignments",
+                schema: "admin");
+
+            migrationBuilder.DropTable(
+                name: "RoleAssignments",
+                schema: "merch");
+
+            migrationBuilder.DropTable(
+                name: "RolePermissions",
+                schema: "iam");
+
+            migrationBuilder.DropTable(
+                name: "Sessions",
+                schema: "admin");
+
+            migrationBuilder.DropTable(
+                name: "Sessions",
+                schema: "merch");
+
+            migrationBuilder.DropTable(
+                name: "UserAudits",
+                schema: "admin");
+
+            migrationBuilder.DropTable(
+                name: "Users",
+                schema: "admin");
+
+            migrationBuilder.DropTable(
+                name: "Users",
+                schema: "merch");
+
+            migrationBuilder.DropTable(
                 name: "VaultRevealAudits",
                 schema: "merch");
 
@@ -1227,24 +1123,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "Permissions",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
-                name: "Roles",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
                 name: "Carts",
                 schema: "shop");
 
             migrationBuilder.DropTable(
                 name: "Permissions",
-                schema: "merch");
+                schema: "iam");
 
             migrationBuilder.DropTable(
                 name: "Roles",
-                schema: "merch");
+                schema: "iam");
 
             migrationBuilder.DropTable(
                 name: "Divisions",
@@ -1264,11 +1152,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "PermissionGroups",
-                schema: "admin");
-
-            migrationBuilder.DropTable(
-                name: "PermissionGroups",
-                schema: "merch");
+                schema: "iam");
         }
     }
 }
