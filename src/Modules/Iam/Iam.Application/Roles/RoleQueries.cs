@@ -21,7 +21,7 @@ public sealed class ListRolesHandler(IRoleStore roles, IRoleAssignmentCounter co
         var page = await roles.ListAsync(query.Context, query, ct);
         if (page.Items.Count == 0)
             return page;
-        var counts = await counter.CountManyAsync([.. page.Items.Select(i => i.Id)], ct);
+        var counts = await counter.CountManyAsync(query.Context, [.. page.Items.Select(i => i.Id)], ct);
         return page with { Items = [.. page.Items.Select(i => i with { UserCount = counts.GetValueOrDefault(i.Id) })] };
     }
 }
@@ -36,7 +36,7 @@ public sealed class GetRoleHandler(IRoleStore roles, IRoleAssignmentCounter coun
         var item = await roles.GetListItemByCodeAsync(query.Context, query.Code, ct);
         if (item is null)
             return null;
-        return item with { UserCount = await counter.CountAsync(item.Id, ct) };
+        return item with { UserCount = await counter.CountAsync(query.Context, item.Id, ct) };
     }
 }
 

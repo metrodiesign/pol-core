@@ -43,7 +43,7 @@ public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, Delet
                 throw new ConflictException($"Role '{command.Code}' cannot be deleted by this merchant.");
             if (role.IsSeedAnchor)
                 throw new ConflictException($"The {role.Code} role cannot be deleted.");
-            if (await _counter.CountAsync(role.Id, ct) > 0)
+            if (await _counter.CountAsync(command.Context, role.Id, ct) > 0)
                 throw new ConflictException("A role with bound users cannot be deleted.");
 
             _roles.Remove(role);

@@ -4,6 +4,7 @@ using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Iam.Application.Roles;
+using Iam.Domain.Permissions;
 using Iam.Infrastructure.Persistence.Roles;
 using Merchants.Application;
 using Microsoft.EntityFrameworkCore;
@@ -83,18 +84,34 @@ internal sealed class HostRoleAssignmentCounter : IRoleAssignmentCounter
 
     public HostRoleAssignmentCounter(PolDbContext db) => _db = db;
 
-    public async Task<int> CountAsync(Guid roleId, CancellationToken cancellationToken)
+    public async Task<int> CountAsync(RoleSideContext context, Guid roleId, CancellationToken cancellationToken)
     {
+        // Merchant console: only its OWN merchant's rows count — a shared role's global total would leak
+        // other tenants' user counts (REQ-3.6). Admin assignments never reference Merchant-scope roles
+        // (cross-side grant is rejected + the assignment drift guard pins it), so that table is skipped.
+        if (context.Scope == Scope.Merchant)
+            return await _db.Set<MerchantRoleAssignment>()
+                .CountAsync(a => a.RoleId == roleId && a.MerchantId == context.MerchantId, cancellationToken);
+
         var admin = await _db.Set<AdminRoleAssignment>().CountAsync(a => a.RoleId == roleId, cancellationToken);
         var merch = await _db.Set<MerchantRoleAssignment>().CountAsync(a => a.RoleId == roleId, cancellationToken);
         return admin + merch;
     }
 
     public async Task<IReadOnlyDictionary<Guid, int>> CountManyAsync(
-        IReadOnlyCollection<Guid> roleIds, CancellationToken cancellationToken)
+        RoleSideContext context, IReadOnlyCollection<Guid> roleIds, CancellationToken cancellationToken)
     {
         if (roleIds.Count == 0)
             return new Dictionary<Guid, int>();
+
+        if (context.Scope == Scope.Merchant)
+        {
+            var own = await _db.Set<MerchantRoleAssignment>()
+                .Where(a => roleIds.Contains(a.RoleId) && a.MerchantId == context.MerchantId)
+                .GroupBy(a => a.RoleId).Select(g => new { RoleId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.RoleId, x => x.Count, cancellationToken);
+            return roleIds.ToDictionary(id => id, id => own.GetValueOrDefault(id));
+        }
 
         var admin = await _db.Set<AdminRoleAssignment>().Where(a => roleIds.Contains(a.RoleId))
             .GroupBy(a => a.RoleId).Select(g => new { RoleId = g.Key, Count = g.Count() })

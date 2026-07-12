@@ -91,13 +91,14 @@ public sealed class ListRolesHandlerTests
         public bool CountCalled { get; private set; }
         public bool CountManyCalled { get; private set; }
 
-        public Task<int> CountAsync(Guid roleId, CancellationToken ct)
+        public Task<int> CountAsync(RoleSideContext context, Guid roleId, CancellationToken ct)
         {
             CountCalled = true;
             return Task.FromResult(Counts.GetValueOrDefault(roleId));
         }
 
-        public Task<IReadOnlyDictionary<Guid, int>> CountManyAsync(IReadOnlyCollection<Guid> roleIds, CancellationToken ct)
+        public Task<IReadOnlyDictionary<Guid, int>> CountManyAsync(
+            RoleSideContext context, IReadOnlyCollection<Guid> roleIds, CancellationToken ct)
         {
             CountManyCalled = true;
             IReadOnlyDictionary<Guid, int> result = Counts.Where(kv => roleIds.Contains(kv.Key))

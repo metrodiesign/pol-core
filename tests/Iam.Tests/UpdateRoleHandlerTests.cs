@@ -85,8 +85,9 @@ public sealed class UpdateRoleHandlerTests
 
     internal sealed class FakeRoleAssignmentCounter : IRoleAssignmentCounter
     {
-        public Task<int> CountAsync(Guid roleId, CancellationToken ct) => Task.FromResult(0);
-        public Task<IReadOnlyDictionary<Guid, int>> CountManyAsync(IReadOnlyCollection<Guid> roleIds, CancellationToken ct) =>
+        public Task<int> CountAsync(RoleSideContext context, Guid roleId, CancellationToken ct) => Task.FromResult(0);
+        public Task<IReadOnlyDictionary<Guid, int>> CountManyAsync(
+            RoleSideContext context, IReadOnlyCollection<Guid> roleIds, CancellationToken ct) =>
             throw new NotSupportedException();
     }
 

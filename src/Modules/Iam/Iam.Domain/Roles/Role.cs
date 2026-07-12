@@ -48,10 +48,15 @@ public sealed class Role : AggregateRoot<Guid>
     /// <summary>The granted permission keys.</summary>
     public IReadOnlyCollection<string> PermissionKeys => [.. _permissions.Select(p => p.PermissionKey)];
 
-    /// <summary>Whether this is one of the two undeletable/undeactivatable recovery anchors (REQ-2.4).</summary>
+    /// <summary>Whether this is one of the two undeletable/undeactivatable recovery anchors (REQ-2.4).
+    /// Anchored to the SEEDED row, not the code alone: only a shared/NULL-bucket role can be a seed anchor
+    /// (the duplicate pre-check bars any second NULL-bucket row with these codes), so a merchant's own custom
+    /// role that happens to reuse the code — which the merchant CAN create, since the Platform seed is outside
+    /// its visible set and the unique index buckets by MerchantId — stays freely deactivatable/deletable.</summary>
     public bool IsSeedAnchor =>
-        string.Equals(Code, PlatformAdminCode, StringComparison.Ordinal) ||
-        string.Equals(Code, MerchantManagerCode, StringComparison.Ordinal);
+        MerchantId is null &&
+        (string.Equals(Code, PlatformAdminCode, StringComparison.Ordinal) ||
+         string.Equals(Code, MerchantManagerCode, StringComparison.Ordinal));
 
     private Role() { }
 

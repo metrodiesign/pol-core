@@ -61,7 +61,7 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, RoleL
             _audit.RoleUpdated(role.Id, command.CorrelationId);
             await _unitOfWork.SaveChangesAsync(ct);
 
-            var userCount = await _counter.CountAsync(role.Id, ct);
+            var userCount = await _counter.CountAsync(command.Context, role.Id, ct);
             return new RoleListItem(role.Id, role.Code, role.Name, role.Description, role.Color, role.Status,
                 Shared: role.MerchantId is null, [.. role.PermissionKeys], userCount);
         }, cancellationToken);

@@ -102,6 +102,22 @@ public sealed class RoleTests
         other.EnsureDeletable(); // does not throw
     }
 
+    [Theory]
+    [InlineData(Role.PlatformAdminCode)]
+    [InlineData(Role.MerchantManagerCode)]
+    public void A_merchant_owned_role_reusing_an_anchor_code_is_not_a_seed_anchor(string anchorCode)
+    {
+        // The Platform seed is outside a merchant's visible set and the unique index buckets by MerchantId,
+        // so a merchant CAN create a custom role with this code — it must stay deactivatable/deletable
+        // (Codex P2: code-only anchor check made it permanently stuck behind the 409 guards).
+        var custom = Role.Create(anchorCode, "Custom", null, null, RoleStatus.Active,
+            Scope.Merchant, Guid.NewGuid(), [], Catalog);
+        Assert.False(custom.IsSeedAnchor);
+        custom.Deactivate();
+        Assert.Equal(RoleStatus.Inactive, custom.Status);
+        custom.EnsureDeletable(); // does not throw
+    }
+
     [Fact]
     public void Activate_restores_an_inactive_role()
     {
