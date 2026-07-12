@@ -31,10 +31,10 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
 using Orders.Infrastructure;
-using Payments.Application.CreatePaymentSession;
+using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
 using Payments.Application.StartRedirect;
-using Payments.Domain;
+using Payments.Domain.Psp;
 using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 using Merchants.Application;
@@ -214,10 +214,10 @@ builder.Services.AddOpenApi(options =>
     {
         // PspCode has a custom JsonConverter the schema generator can't introspect, so it would emit an
         // empty schema. Describe the real wire shape: the stable string codes from the PspCodes mapping.
-        if (context.JsonTypeInfo.Type == typeof(PspCode))
+        if (context.JsonTypeInfo.Type == typeof(Code))
         {
             schema.Type = JsonSchemaType.String;
-            schema.Enum = Enum.GetValues<PspCode>().Select(p => (JsonNode)JsonValue.Create(p.ToCode())).ToList();
+            schema.Enum = Enum.GetValues<Code>().Select(p => (JsonNode)JsonValue.Create(p.ToCode())).ToList();
         }
         return Task.CompletedTask;
     });
@@ -683,7 +683,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     IMediator mediator,
     CancellationToken ct) =>
 {
-    var result = await mediator.Send(new CreatePaymentSessionCommand(
+    var result = await mediator.Send(new CreateSessionCommand(
         body.OrderId, actor.MerchantId, body.Amount, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
@@ -1786,7 +1786,7 @@ internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string St
 
 internal sealed record CreateProductRequest(string Name, Money Price);
 internal sealed record CreatePaymentSessionRequest(
-    Guid OrderId, Money Amount, string Method, PspCode Psp);
+    Guid OrderId, Money Amount, string Method, Code Psp);
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
@@ -1947,16 +1947,16 @@ internal sealed record RoleResponse(
 
 // Bridges PspCode <-> its stable wire code via the domain's single-source-of-truth PspCodes mapping,
 // so the host owns the serialization concern and the domain enum stays attribute-free.
-internal sealed class PspCodeJsonConverter : JsonConverter<PspCode>
+internal sealed class PspCodeJsonConverter : JsonConverter<Code>
 {
-    public override PspCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override Code Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var code = reader.GetString() ?? throw new JsonException("psp must be a string code.");
-        try { return PspCodes.FromCode(code); }
+        try { return Codes.FromCode(code); }
         catch (ArgumentException ex) { throw new JsonException(ex.Message); } // unknown code -> 400, not 500
     }
 
-    public override void Write(Utf8JsonWriter writer, PspCode value, JsonSerializerOptions options) =>
+    public override void Write(Utf8JsonWriter writer, Code value, JsonSerializerOptions options) =>
         writer.WriteStringValue(value.ToCode());
 }
 

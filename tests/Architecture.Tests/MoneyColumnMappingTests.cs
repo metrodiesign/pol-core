@@ -1,11 +1,12 @@
 using BuildingBlocks.Infrastructure.Persistence;
 using Carts.Domain;
-using Checkouts.Domain;
+using Carts.Domain.Items;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
-using Payments.Domain;
 using Products.Domain;
+using CheckoutSession = Checkouts.Domain.Session;
+using PaymentSession = Payments.Domain.Session;
 
 namespace Architecture.Tests;
 
@@ -64,7 +65,7 @@ public sealed class MoneyColumnMappingTests : IDisposable
 
     [Fact]
     public void CartItem_UnitPrice_maps_to_decimal_19_4_and_char3() =>
-        AssertMoneyColumns(typeof(CartItem), nameof(CartItem.UnitPrice), "UnitPriceAmount", "UnitPriceCurrency");
+        AssertMoneyColumns(typeof(Item), nameof(Item.UnitPrice), "UnitPriceAmount", "UnitPriceCurrency");
 
     [Fact]
     public void CheckoutSession_Amount_maps_to_decimal_19_4_and_char3() =>

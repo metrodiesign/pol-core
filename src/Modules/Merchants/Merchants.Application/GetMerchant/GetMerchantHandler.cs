@@ -3,8 +3,8 @@ using BuildingBlocks.Application;
 using Mediator;
 using Merchants.Domain;
 using Microsoft.Extensions.DependencyInjection;
-using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Application.Ports.Psp;
+using Payments.Domain.Psp;
 
 namespace Merchants.Application.GetMerchant;
 
@@ -16,11 +16,11 @@ namespace Merchants.Application.GetMerchant;
 public sealed class GetMerchantHandler : IQueryHandler<GetMerchantQuery, MerchantView>
 {
     private readonly IMerchantRepository _merchants;
-    private readonly IPspConnectionRepository _pspConnections;
+    private readonly IConnectionRepository _pspConnections;
 
     public GetMerchantHandler(
         IMerchantRepository merchants,
-        [FromKeyedServices("admin")] IPspConnectionRepository pspConnections)
+        [FromKeyedServices("admin")] IConnectionRepository pspConnections)
     {
         _merchants = merchants;
         _pspConnections = pspConnections;

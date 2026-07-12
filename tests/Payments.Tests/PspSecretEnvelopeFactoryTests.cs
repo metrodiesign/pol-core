@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Domain.Psp;
 using Payments.Infrastructure.Psp;
 
 namespace Payments.Tests;
@@ -16,7 +16,7 @@ public sealed class PspSecretEnvelopeFactoryTests
     public void TwoCTwoP_builds_envelope_with_merchant_and_secret_plus_hint()
     {
         var result = _factory.Build(new PspSecretInput(
-            PspCode.TwoCTwoP, Secrets(("secretKey", "abcd1234secret9z")), "merchant-123"));
+            Code.TwoCTwoP, Secrets(("secretKey", "abcd1234secret9z")), "merchant-123"));
 
         using var doc = JsonDocument.Parse(result.EnvelopeJson);
         Assert.Equal("merchant-123", doc.RootElement.GetProperty("merchantId").GetString());
@@ -28,18 +28,18 @@ public sealed class PspSecretEnvelopeFactoryTests
     [Fact]
     public void TwoCTwoP_missing_secretKey_throws() =>
         Assert.Throws<ArgumentException>(() => _factory.Build(new PspSecretInput(
-            PspCode.TwoCTwoP, Secrets(), "merchant-123")));
+            Code.TwoCTwoP, Secrets(), "merchant-123")));
 
     [Fact]
     public void TwoCTwoP_missing_merchantId_throws() =>
         Assert.Throws<ArgumentException>(() => _factory.Build(new PspSecretInput(
-            PspCode.TwoCTwoP, Secrets(("secretKey", "x")), MerchantId: null)));
+            Code.TwoCTwoP, Secrets(("secretKey", "x")), MerchantId: null)));
 
     [Fact]
     public void Omise_secretKey_only_omits_optional_fields()
     {
         var result = _factory.Build(new PspSecretInput(
-            PspCode.Omise, Secrets(("secretKey", "skey_test_abcd1234")), MerchantId: null));
+            Code.Omise, Secrets(("secretKey", "skey_test_abcd1234")), MerchantId: null));
 
         using var doc = JsonDocument.Parse(result.EnvelopeJson);
         Assert.Equal("skey_test_abcd1234", doc.RootElement.GetProperty("secretKey").GetString());
@@ -52,7 +52,7 @@ public sealed class PspSecretEnvelopeFactoryTests
     [Fact]
     public void Omise_full_envelope_stores_all_and_masks_all()
     {
-        var result = _factory.Build(new PspSecretInput(PspCode.Omise, Secrets(
+        var result = _factory.Build(new PspSecretInput(Code.Omise, Secrets(
             ("secretKey", "skey_live_aaaa1111"),
             ("publicKey", "pkey_live_bbbb2222"),
             ("webhookSecret", "whsec_cccc3333")), MerchantId: null));
@@ -69,13 +69,13 @@ public sealed class PspSecretEnvelopeFactoryTests
     [Fact]
     public void Omise_missing_secretKey_throws() =>
         Assert.Throws<ArgumentException>(() => _factory.Build(new PspSecretInput(
-            PspCode.Omise, Secrets(("publicKey", "pkey_x")), MerchantId: null)));
+            Code.Omise, Secrets(("publicKey", "pkey_x")), MerchantId: null)));
 
     [Fact]
     public void Short_secret_masks_fully()
     {
         var result = _factory.Build(new PspSecretInput(
-            PspCode.Omise, Secrets(("secretKey", "ab")), MerchantId: null));
+            Code.Omise, Secrets(("secretKey", "ab")), MerchantId: null));
 
         Assert.Equal("**", result.Hints["secretKey"]);
     }

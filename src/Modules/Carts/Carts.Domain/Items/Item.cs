@@ -1,13 +1,13 @@
 using SharedKernel;
 
-namespace Carts.Domain;
+namespace Carts.Domain.Items;
 
 /// <summary>
-/// A line in a <see cref="Cart"/>. Owned by its cart aggregate — never loaded or mutated on its own.
+/// A line in a <see cref="Domain.Cart"/>. Owned by its cart aggregate — never loaded or mutated on its own.
 /// The unit price is mapped as an EF complex type (rf1 — decimal(19,4) + char(3) columns), per the
 /// EF money mapping rule.
 /// </summary>
-public sealed class CartItem : Entity<Guid>
+public sealed class Item : Entity<Guid>
 {
     public Guid CartId { get; private set; }
     public Guid ProductId { get; private set; }
@@ -18,9 +18,9 @@ public sealed class CartItem : Entity<Guid>
     public Money LineTotal => Money.Of(UnitPrice.Amount * Quantity, UnitPrice.Currency);
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
-    private CartItem() { }
+    private Item() { }
 
-    internal CartItem(Guid id, Guid cartId, Guid productId, int quantity, Money unitPrice)
+    internal Item(Guid id, Guid cartId, Guid productId, int quantity, Money unitPrice)
         : base(id)
     {
         CartId = cartId;

@@ -1,6 +1,6 @@
 using BuildingBlocks.Application;
-using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Application.Ports.Psp;
+using Payments.Domain.Psp;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
@@ -23,15 +23,15 @@ internal sealed class FakeMerchantRepository : IMerchantRepository
     public Task<bool> ExistsByCodeAsync(string normalizedCode, CancellationToken ct) => Task.FromResult(Exists);
 }
 
-internal sealed class FakePspConnectionRepository : IPspConnectionRepository
+internal sealed class FakePspConnectionRepository : IConnectionRepository
 {
-    public readonly List<PspConnection> Added = [];
+    public readonly List<Connection> Added = [];
 
-    public void Add(PspConnection connection) => Added.Add(connection);
-    public Task<PspConnection?> GetAsync(Guid merchantId, PspCode psp, CancellationToken ct) => Task.FromResult<PspConnection?>(null);
-    public Task<PspConnection?> GetByIdAsync(Guid id, CancellationToken ct) => Task.FromResult<PspConnection?>(null);
-    public Task<IReadOnlyList<PspConnection>> ListByTenantAsync(Guid merchantId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<PspConnection>>(Added.Where(x => x.MerchantId == merchantId).ToList());
+    public void Add(Connection connection) => Added.Add(connection);
+    public Task<Connection?> GetAsync(Guid merchantId, Code psp, CancellationToken ct) => Task.FromResult<Connection?>(null);
+    public Task<Connection?> GetByIdAsync(Guid id, CancellationToken ct) => Task.FromResult<Connection?>(null);
+    public Task<IReadOnlyList<Connection>> ListByTenantAsync(Guid merchantId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Connection>>(Added.Where(x => x.MerchantId == merchantId).ToList());
 }
 
 internal sealed class FakeVault : IVaultSecretStore

@@ -1,23 +1,23 @@
 using Mediator;
 using Payments.Application.Ports;
 
-namespace Payments.Application.GetPaymentSession;
+namespace Payments.Application.GetSession;
 
-/// <summary>Loads a payment session and projects it to a <see cref="PaymentSessionView"/>.</summary>
-public sealed class GetPaymentSessionHandler : IQueryHandler<GetPaymentSessionQuery, PaymentSessionView>
+/// <summary>Loads a payment session and projects it to a <see cref="SessionView"/>.</summary>
+public sealed class GetSessionHandler : IQueryHandler<GetSessionQuery, SessionView>
 {
-    private readonly IPaymentSessionRepository _sessions;
+    private readonly ISessionRepository _sessions;
 
-    public GetPaymentSessionHandler(IPaymentSessionRepository sessions) => _sessions = sessions;
+    public GetSessionHandler(ISessionRepository sessions) => _sessions = sessions;
 
-    public async ValueTask<PaymentSessionView> Handle(
-        GetPaymentSessionQuery query,
+    public async ValueTask<SessionView> Handle(
+        GetSessionQuery query,
         CancellationToken cancellationToken)
     {
         var session = await _sessions.GetByIdAsync(query.PaymentSessionId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"PaymentSession {query.PaymentSessionId} not found.");
 
-        return new PaymentSessionView(
+        return new SessionView(
             session.Id,
             session.OrderId,
             session.MerchantId,

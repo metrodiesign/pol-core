@@ -7,7 +7,7 @@ namespace Carts.Infrastructure;
 
 /// <summary>
 /// Maps the cart aggregate into the shared <c>shop</c> schema. The items collection is owned by
-/// the cart (a one-to-many to <see cref="Domain.CartItem"/>); the computed <c>Subtotal</c> and
+/// the cart (a one-to-many to <see cref="Domain.Items.Item"/>); the computed <c>Subtotal</c> and
 /// <c>DomainEvents</c> are not persisted.
 /// </summary>
 public sealed class CartConfiguration : IEntityTypeConfiguration<CartAggregate>

@@ -6,13 +6,13 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Checkouts.Infrastructure;
 
 /// <summary>
-/// Maps <see cref="CheckoutSession"/> onto the shop schema. <see cref="CheckoutSession.Amount"/>
+/// Maps <see cref="Session"/> onto the shop schema. <see cref="Session.Amount"/>
 /// is mapped as a complex type (AmountAmount decimal(19,4), AmountCurrency char(3)) per the Money
 /// mapping rule. Discovered at model-build time from the module's Infrastructure assembly.
 /// </summary>
-public sealed class CheckoutSessionConfiguration : IEntityTypeConfiguration<CheckoutSession>
+public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 {
-    public void Configure(EntityTypeBuilder<CheckoutSession> builder)
+    public void Configure(EntityTypeBuilder<Session> builder)
     {
         builder.ToTable("CheckoutSessions", SchemaNames.Shop);
         builder.HasKey(x => x.Id);

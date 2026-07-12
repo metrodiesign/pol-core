@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Infrastructure.Psp;
 
@@ -23,7 +23,7 @@ public sealed class PspSecretEnvelopeFactory : IPspSecretEnvelopeFactory
 
         switch (input.Psp)
         {
-            case PspCode.TwoCTwoP:
+            case Code.TwoCTwoP:
             {
                 var secretKey = Require(secrets, "secretKey", input.Psp);
                 if (string.IsNullOrWhiteSpace(input.MerchantId))
@@ -31,7 +31,7 @@ public sealed class PspSecretEnvelopeFactory : IPspSecretEnvelopeFactory
                 var json = JsonSerializer.Serialize(new TwoCTwoPSecret(input.MerchantId.Trim(), secretKey), Options);
                 return new PspSecretEnvelopeResult(json, MaskAll(("secretKey", secretKey)));
             }
-            case PspCode.Omise:
+            case Code.Omise:
             {
                 var secretKey = Require(secrets, "secretKey", input.Psp);
                 var publicKey = NullIfBlank(Get(secrets, "publicKey"));
@@ -48,7 +48,7 @@ public sealed class PspSecretEnvelopeFactory : IPspSecretEnvelopeFactory
         }
     }
 
-    private static string Require(IReadOnlyDictionary<string, string> secrets, string key, PspCode psp)
+    private static string Require(IReadOnlyDictionary<string, string> secrets, string key, Code psp)
     {
         if (!secrets.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
             throw new ArgumentException($"{psp.ToCode()} requires the secret '{key}'.", nameof(secrets));

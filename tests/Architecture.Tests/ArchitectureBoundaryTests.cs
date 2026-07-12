@@ -37,9 +37,9 @@ public class ArchitectureBoundaryTests
     {
         "Products" => typeof(global::Products.Domain.Product).Assembly,
         "Cart" => typeof(global::Carts.Domain.Cart).Assembly,
-        "Checkout" => typeof(global::Checkouts.Domain.CheckoutSession).Assembly,
+        "Checkout" => typeof(global::Checkouts.Domain.Session).Assembly,
         "Orders" => typeof(global::Orders.Domain.Order).Assembly,
-        "Payments" => typeof(global::Payments.Domain.PaymentSession).Assembly,
+        "Payments" => typeof(global::Payments.Domain.Session).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
     };
 

@@ -292,7 +292,7 @@
          also unchanged throughout — the naming law governs type names, not member names (matches task 4's
          exact precedent: `Resolution.AdminId` kept its full name after `PlatformUser` dissolved to `User`).
 
-- [ ] 6. **Data-plane modules: `Carts`, `Checkouts`, `Payments`, `Orders`, `Products`.**
+- [x] 6. **Data-plane modules: `Carts`, `Checkouts`, `Payments`, `Orders`, `Products`.**
      `CartItem` -> `Carts.Domain.Items.Item`. `PspConnection`/`PspCode` -> `Payments.Domain.Psp.*`.
      `CheckoutSession` and `PaymentSession` become `Checkouts.Domain.Session` and
      `Payments.Domain.Session` — **at the module root, with no `Sessions/` folder**: each is its own
@@ -300,6 +300,47 @@
      `Orders` and `Products` gain no sub-folder: one aggregate each, nothing to cluster.
      Satisfies: REQ-4.1-4.3, 4.5, 4.7. Depends on: 3.
      Verify: `dotnet build` + `dotnet test` green.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> Build succeeded, 41 projects, 0 Warning(s), 0 Error(s)
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> Carts.Tests 15,
+         Checkouts.Tests 2, Orders.Tests 25, Products.Tests 25, Payments.Tests 59, Merchants.Tests 128,
+         Admins.Tests 129, SharedKernel.Tests 46, BuildingBlocks.Tests 65, Architecture.Tests 50 (task 1's
+         hardened detectors still green), Hosts.Tests 201 — all passed / 0 failed, identical counts to the
+         task 3/4/5 baseline (no behavior change). `Integration.Tests` not run (needs a live SQL Server
+         container, same out-of-scope condition recorded in tasks 1/3/4/5).
+       - viewports: n/a — backend-only (namespace/type rename, no UI)
+       - deviations: (1) OpenAPI component schema id `PspCode` -> `Code` in the generated document — the
+         generator keys schemas on the CLR simple name (verified empirically by dumping the generated
+         schema keys in a temporary diagnostic, not assumed), so `WebHardeningTests` now asserts
+         `schemas.Code`; this is type-rename fallout REQ-1.4 exempts, but it IS FE-visible — task 11's
+         FE-MIGRATION.md must list it. (2) L4 floor-hits (name kept, reason verified by grep):
+         `ICheckoutRepository`/`CheckoutRepository`, `ConfirmCheckout*`/`StartCheckout*` command families
+         (dropping the module token leaves a bare framework word — same floor as `GetMerchantQuery`);
+         the PSP adapter-integration family (`IPspAdapter`, `IPspAdapterFactory`,
+         `IPspSecretEnvelopeFactory`, `PspAdapterBase`, `PspOptions`, adapters) is a different sub-domain
+         from `PspConnection`/`PspCode` and is not in design §2's table — unchanged;
+         `*ModuleRegistration` classes unchanged (task 3-5 precedent). (3) The only genuine L6 collision
+         landed in `tests/Architecture.Tests/MoneyColumnMappingTests.cs` (consumes both `Checkouts.Domain`
+         and `Payments.Domain`): fixed-form aliases `using CheckoutSession = Checkouts.Domain.Session;` /
+         `using PaymentSession = Payments.Domain.Session;`. `Program.cs` needed NO new alias — its only
+         `Payments.Domain` bare reference was `PspCode`, which moved to `Payments.Domain.Psp`; the now-unused
+         `using Payments.Domain;` was removed instead (verified by green build, and by word-boundary grep
+         for every colliding bare token before deciding). (4) Test-local helper methods `Session(...)`
+         self-shadowed the renamed type in `OmiseAdapterTests`/`TwoCTwoPAdapterTests` -> renamed
+         `MakeSession` (task 4's exact precedent). One self-caught mistake: a `replace_all` of
+         `CheckoutSession` in `ConfirmCheckoutTests.cs` briefly corrupted the contract-event member
+         `evt.CheckoutSessionId` -> caught on re-read before build and reverted; member names stay. (5)
+         `GetPaymentSession` Application slice has no caller anywhere in the repo (pre-existing dead code,
+         verified by grep) — renamed in place to `GetSession`, not deleted (deletion is not a rename). (6)
+         Exception-message STRING PROSE still says `PaymentSession ...` in `Payments.Domain/Session.cs`,
+         `HandlePspWebhookHandler`, `StartRedirectHandler`, and one test input — string literals, not
+         identifiers; prose is out of task 6's scope and is task 12's grep-gate scrub to resolve (the gate
+         matches these tokens and its exception list does not cover them). (7) DB table-name strings
+         (`ToTable("CartItems"/"CheckoutSessions"/"PaymentSessions"/"PspConnections")`), migrations,
+         snapshot, docker untouched (task 9); route/OpenAPI operation strings untouched (task 8); contract
+         member `PaymentPaid.PspCode` and all `*Id` property names unchanged (member names out of scope,
+         task 5 precedent).
 
 - [ ] 7. **API host organised by area.**
      Group the twelve flat `MerchantUser*.cs` and their admin counterparts under `Api/Admins/`,

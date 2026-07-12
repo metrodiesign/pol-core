@@ -1,10 +1,11 @@
 using Payments.Domain;
+using Payments.Domain.Psp;
 using SharedKernel;
 
 namespace Payments.Tests;
 
 /// <summary>
-/// Pure domain tests for <see cref="PaymentSession"/> — no DB. They pin the redirect-only lifecycle
+/// Pure domain tests for <see cref="Session"/> — no DB. They pin the redirect-only lifecycle
 /// invariants: a charge binds exactly once (PLAN #11), MarkPaid is guarded by status and idempotent
 /// for the same charge id, and Create binds order + amount up-front (PLAN #15).
 /// </summary>
@@ -14,11 +15,11 @@ public sealed class PaymentSessionTests
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
 
-    private static PaymentSession NewSession() =>
-        PaymentSession.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", PspCode.Omise, At);
+    private static Session NewSession() =>
+        Session.Create(MerchantId, OrderId, Money.Of(15000, "THB"), "card", Code.Omise, At);
 
     /// <summary>A session that has claimed its redirect and bound a hosted charge (Created -> Redirected).</summary>
-    private static PaymentSession Redirected(string chargeId = "chrg_abc", string url = "https://hosted.example/r")
+    private static Session Redirected(string chargeId = "chrg_abc", string url = "https://hosted.example/r")
     {
         var session = NewSession();
         session.BeginRedirect(At);
@@ -35,8 +36,8 @@ public sealed class PaymentSessionTests
         Assert.Equal(OrderId, session.OrderId);
         Assert.Equal(Money.Of(15000, "THB"), session.Amount);
         Assert.Equal("card", session.Method);
-        Assert.Equal(PspCode.Omise, session.Psp);
-        Assert.Equal(PaymentStatus.Created, session.Status);
+        Assert.Equal(Code.Omise, session.Psp);
+        Assert.Equal(SessionStatus.Created, session.Status);
         Assert.Null(session.PspExternalChargeId);
         Assert.Null(session.RedirectUrl);
     }
@@ -45,14 +46,14 @@ public sealed class PaymentSessionTests
     public void Create_rejects_empty_tenant()
     {
         Assert.Throws<ArgumentException>(() =>
-            PaymentSession.Create(Guid.Empty, OrderId, Money.Of(1, "THB"), "card", PspCode.Omise, At));
+            Session.Create(Guid.Empty, OrderId, Money.Of(1, "THB"), "card", Code.Omise, At));
     }
 
     [Fact]
     public void Create_rejects_empty_order()
     {
         Assert.Throws<ArgumentException>(() =>
-            PaymentSession.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", PspCode.Omise, At));
+            Session.Create(MerchantId, Guid.Empty, Money.Of(1, "THB"), "card", Code.Omise, At));
     }
 
     [Fact]
@@ -62,7 +63,7 @@ public sealed class PaymentSessionTests
 
         session.BeginRedirect(At);
 
-        Assert.Equal(PaymentStatus.Redirected, session.Status);
+        Assert.Equal(SessionStatus.Redirected, session.Status);
         Assert.Null(session.PspExternalChargeId);
         Assert.Null(session.RedirectUrl);
     }
@@ -84,7 +85,7 @@ public sealed class PaymentSessionTests
 
         session.SetPspCharge("chrg_abc", "https://hosted.example/redirect", At);
 
-        Assert.Equal(PaymentStatus.Redirected, session.Status);
+        Assert.Equal(SessionStatus.Redirected, session.Status);
         Assert.Equal("chrg_abc", session.PspExternalChargeId);
         Assert.Equal("https://hosted.example/redirect", session.RedirectUrl);
     }
@@ -111,7 +112,7 @@ public sealed class PaymentSessionTests
             session.SetPspCharge("chrg_def", "https://hosted.example/r2", At));
 
         Assert.Equal("chrg_abc", session.PspExternalChargeId);
-        Assert.Equal(PaymentStatus.Redirected, session.Status);
+        Assert.Equal(SessionStatus.Redirected, session.Status);
     }
 
     [Fact]
@@ -121,7 +122,7 @@ public sealed class PaymentSessionTests
 
         session.MarkPaid("chrg_abc", At.AddMinutes(1));
 
-        Assert.Equal(PaymentStatus.Paid, session.Status);
+        Assert.Equal(SessionStatus.Paid, session.Status);
         Assert.Equal("chrg_abc", session.PspExternalChargeId);
     }
 
@@ -131,7 +132,7 @@ public sealed class PaymentSessionTests
         var session = Redirected();
 
         Assert.Throws<InvalidOperationException>(() => session.MarkPaid("chrg_other", At));
-        Assert.Equal(PaymentStatus.Redirected, session.Status);
+        Assert.Equal(SessionStatus.Redirected, session.Status);
     }
 
     [Fact]
@@ -143,7 +144,7 @@ public sealed class PaymentSessionTests
         // Replayed webhook with the same confirmed charge id: a no-op, no throw.
         session.MarkPaid("chrg_abc", At.AddMinutes(5));
 
-        Assert.Equal(PaymentStatus.Paid, session.Status);
+        Assert.Equal(SessionStatus.Paid, session.Status);
     }
 
     [Fact]
@@ -153,7 +154,7 @@ public sealed class PaymentSessionTests
         session.MarkPaid("chrg_abc", At);
 
         Assert.Throws<InvalidOperationException>(() => session.MarkPaid("chrg_other", At));
-        Assert.Equal(PaymentStatus.Paid, session.Status);
+        Assert.Equal(SessionStatus.Paid, session.Status);
     }
 
     [Fact]
@@ -163,7 +164,7 @@ public sealed class PaymentSessionTests
         session.MarkFailed("declined", At);
 
         Assert.Throws<InvalidOperationException>(() => session.MarkPaid("chrg_abc", At));
-        Assert.Equal(PaymentStatus.Failed, session.Status);
+        Assert.Equal(SessionStatus.Failed, session.Status);
     }
 
     [Fact]

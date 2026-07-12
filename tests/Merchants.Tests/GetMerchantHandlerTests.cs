@@ -1,5 +1,5 @@
 using BuildingBlocks.Application;
-using Payments.Domain;
+using Payments.Domain.Psp;
 using Merchants.Application.GetMerchant;
 using Merchants.Domain;
 using Merchants.Domain.Users;
@@ -24,7 +24,7 @@ public sealed class GetMerchantHandlerTests
     public async Task Returns_view_with_masked_secret_hints_from_connection_metadata()
     {
         var merchant = Merchant.Create("vcommerce", "vCommerce", "0105560000000", "TH", "THB", ["card"], null, Now);
-        var connection = PspConnection.Create(merchant.Id, PspCode.Omise, "card", "psp/omise", Now,
+        var connection = Connection.Create(merchant.Id, Code.Omise, "card", "psp/omise", Now,
             """{"config":{"accountId":"acct_1"},"secretHints":{"secretKey":"5678"}}""");
         var psp = new FakePspConnectionRepository();
         psp.Add(connection);
@@ -44,7 +44,7 @@ public sealed class GetMerchantHandlerTests
     {
         var merchant = Merchant.Create("vcommerce", "vCommerce", "0105560000000", "TH", "THB", ["card", "installment"],
             """{"branding":{"logo":"x"},"routing":{"installment":["2c2p","omise"]}}""", Now);
-        var connection = PspConnection.Create(merchant.Id, PspCode.TwoCTwoP, "card,installment", "psp/2c2p", Now,
+        var connection = Connection.Create(merchant.Id, Code.TwoCTwoP, "card,installment", "psp/2c2p", Now,
             """{"config":{"environment":"production","currencyCode":"764"},"merchantId":"merch_42","secretHints":{"secretKey":"3a9f"}}""");
         var psp = new FakePspConnectionRepository();
         psp.Add(connection);

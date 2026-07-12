@@ -215,7 +215,7 @@ public sealed class OpenApiDocumentTests
         // The PspCode schema must document the real wire shape (string codes), not the int the custom
         // converter would otherwise leave unschematized — or a generated client would send the wrong type.
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        var psp = doc.RootElement.GetProperty("components").GetProperty("schemas").GetProperty("PspCode");
+        var psp = doc.RootElement.GetProperty("components").GetProperty("schemas").GetProperty("Code");
         Assert.Equal("string", psp.GetProperty("type").GetString());
         var codes = psp.GetProperty("enum").EnumerateArray().Select(e => e.GetString()).ToList();
         Assert.Contains("2c2p", codes);

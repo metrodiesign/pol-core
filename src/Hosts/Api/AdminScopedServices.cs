@@ -3,8 +3,8 @@ using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Payments.Application.Ports;
-using Payments.Infrastructure.Persistence;
+using Payments.Application.Ports.Psp;
+using Payments.Infrastructure.Persistence.Psp;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
@@ -96,7 +96,7 @@ internal static class MerchantAdminScopeRegistration
         static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
 
         services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) => new AdminProvisioningUnitOfWork(Admin(sp)));
-        services.AddKeyedScoped<IPspConnectionRepository>("admin", (sp, _) => new PspConnectionRepository(Admin(sp)));
+        services.AddKeyedScoped<IConnectionRepository>("admin", (sp, _) => new ConnectionRepository(Admin(sp)));
         services.AddKeyedScoped<IVaultSecretStore>("admin", (sp, _) => new LocalEnvelopeVaultStore(
             Admin(sp),
             sp.GetRequiredService<IClock>(),

@@ -1,4 +1,5 @@
 using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Application.Ports;
 
@@ -10,13 +11,13 @@ namespace Payments.Application.Ports;
 public interface IPspAdapter
 {
     /// <summary>Which PSP this adapter speaks to.</summary>
-    PspCode Psp { get; }
+    Code Psp { get; }
 
     /// <summary>
     /// Creates a hosted charge for the session and returns its external id + hosted redirect URL.
     /// <paramref name="secret"/> is revealed from the vault by the caller, used here, never logged.
     /// </summary>
-    Task<PspCharge> CreateRedirectChargeAsync(PaymentSession session, string secret, CancellationToken cancellationToken);
+    Task<PspCharge> CreateRedirectChargeAsync(Session session, string secret, CancellationToken cancellationToken);
 
     /// <summary>Verifies a webhook signature against the raw payload using the connection's secret.</summary>
     bool VerifyWebhook(string rawPayload, string signature, string secret);

@@ -3,18 +3,18 @@ using Mediator;
 using Payments.Application.Ports;
 using Payments.Domain;
 
-namespace Payments.Application.CreatePaymentSession;
+namespace Payments.Application.CreateSession;
 
-/// <summary>Persists a new <see cref="PaymentSession"/> in the <see cref="PaymentStatus.Created"/> state.</summary>
-public sealed class CreatePaymentSessionHandler
-    : ICommandHandler<CreatePaymentSessionCommand, CreatePaymentSessionResult>
+/// <summary>Persists a new <see cref="Session"/> in the <see cref="SessionStatus.Created"/> state.</summary>
+public sealed class CreateSessionHandler
+    : ICommandHandler<CreateSessionCommand, CreateSessionResult>
 {
-    private readonly IPaymentSessionRepository _sessions;
+    private readonly ISessionRepository _sessions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
-    public CreatePaymentSessionHandler(
-        IPaymentSessionRepository sessions,
+    public CreateSessionHandler(
+        ISessionRepository sessions,
         IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -23,11 +23,11 @@ public sealed class CreatePaymentSessionHandler
         _clock = clock;
     }
 
-    public async ValueTask<CreatePaymentSessionResult> Handle(
-        CreatePaymentSessionCommand command,
+    public async ValueTask<CreateSessionResult> Handle(
+        CreateSessionCommand command,
         CancellationToken cancellationToken)
     {
-        var session = PaymentSession.Create(
+        var session = Session.Create(
             command.MerchantId,
             command.OrderId,
             command.Amount,
@@ -38,6 +38,6 @@ public sealed class CreatePaymentSessionHandler
         _sessions.Add(session);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return new CreatePaymentSessionResult(session.Id);
+        return new CreateSessionResult(session.Id);
     }
 }

@@ -1,8 +1,8 @@
 namespace Checkouts.Domain;
 
-/// <summary>Lifecycle of a <see cref="CheckoutSession"/>: opened (<see cref="Started"/>), turned
+/// <summary>Lifecycle of a <see cref="Session"/>: opened (<see cref="Started"/>), turned
 /// into an order/payment intent (<see cref="Confirmed"/>), or dropped (<see cref="Abandoned"/>).</summary>
-public enum CheckoutStatus
+public enum SessionStatus
 {
     Started = 0,
     Confirmed = 1,

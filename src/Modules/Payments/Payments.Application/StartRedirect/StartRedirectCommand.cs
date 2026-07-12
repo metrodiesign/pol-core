@@ -4,7 +4,7 @@ using Mediator;
 namespace Payments.Application.StartRedirect;
 
 /// <summary>
-/// Creates the hosted PSP charge for a <see cref="Domain.PaymentStatus.Created"/> session and binds it
+/// Creates the hosted PSP charge for a <see cref="Domain.SessionStatus.Created"/> session and binds it
 /// once (PLAN #11), returning the hosted redirect URL the browser is sent to. Merchant-scoped.
 /// </summary>
 public sealed record StartRedirectCommand(Guid PaymentSessionId)

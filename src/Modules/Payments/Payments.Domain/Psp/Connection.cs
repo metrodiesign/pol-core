@@ -1,6 +1,6 @@
 using SharedKernel;
 
-namespace Payments.Domain;
+namespace Payments.Domain.Psp;
 
 /// <summary>
 /// A merchant's configured credentials+capability binding for one PSP. The actual secret never lives
@@ -9,11 +9,11 @@ namespace Payments.Domain;
 /// list ("card,promptpay"); <see cref="Metadata"/> is free-form JSON restricted to low-risk display
 /// data only (PLAN #12 — never secrets).
 /// </summary>
-public sealed class PspConnection : Entity<Guid>
+public sealed class Connection : Entity<Guid>
 {
     public Guid MerchantId { get; private set; }
 
-    public PspCode Psp { get; private set; }
+    public Code Psp { get; private set; }
 
     /// <summary>Comma-separated verbatim method codes this connection enables (e.g. "card,promptpay").</summary>
     public string EnabledMethods { get; private set; } = default!;
@@ -29,12 +29,12 @@ public sealed class PspConnection : Entity<Guid>
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
-    private PspConnection() { }
+    private Connection() { }
 
-    private PspConnection(
+    private Connection(
         Guid id,
         Guid merchantId,
-        PspCode psp,
+        Code psp,
         string enabledMethods,
         string secretRefName,
         string? metadata,
@@ -51,9 +51,9 @@ public sealed class PspConnection : Entity<Guid>
     }
 
     /// <summary>Creates an enabled PSP connection for a merchant.</summary>
-    public static PspConnection Create(
+    public static Connection Create(
         Guid merchantId,
-        PspCode psp,
+        Code psp,
         string enabledMethods,
         string secretRefName,
         DateTime createdAt,
@@ -64,7 +64,7 @@ public sealed class PspConnection : Entity<Guid>
         ArgumentException.ThrowIfNullOrWhiteSpace(enabledMethods);
         ArgumentException.ThrowIfNullOrWhiteSpace(secretRefName);
 
-        return new PspConnection(
+        return new Connection(
             Guid.NewGuid(), merchantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAt);
     }
 

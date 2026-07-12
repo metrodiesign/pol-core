@@ -10,10 +10,10 @@ public sealed record ConfirmCheckoutCommand(Guid CheckoutSessionId, Guid Merchan
     : ICommand<ConfirmCheckoutResult>, IMerchantScoped;
 
 /// <summary>Outcome of the confirmation: the session id and its resulting status.</summary>
-public sealed record ConfirmCheckoutResult(Guid CheckoutSessionId, CheckoutStatus Status);
+public sealed record ConfirmCheckoutResult(Guid CheckoutSessionId, SessionStatus Status);
 
 /// <summary>
-/// Transitions the session to <see cref="CheckoutStatus.Confirmed"/> and emits <see cref="CheckoutConfirmed"/>
+/// Transitions the session to <see cref="SessionStatus.Confirmed"/> and emits <see cref="CheckoutConfirmed"/>
 /// in the SAME unit of work (transactional outbox), so the Orders module opens the order out-of-band. Keeps
 /// the modules decoupled — Checkout raises an event, it does not call Orders directly.
 /// </summary>

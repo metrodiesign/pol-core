@@ -1,17 +1,17 @@
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using Payments.Domain;
+using Payments.Domain.Psp;
 
-namespace Payments.Infrastructure.Persistence;
+namespace Payments.Infrastructure.Persistence.Psp;
 
 /// <summary>
-/// Maps <see cref="PspConnection"/> onto the txn schema. Only the vault lookup name is stored,
+/// Maps <see cref="Connection"/> onto the txn schema. Only the vault lookup name is stored,
 /// never the secret. One connection per (merchant, PSP) is enforced by a unique index.
 /// </summary>
-public sealed class PspConnectionConfiguration : IEntityTypeConfiguration<PspConnection>
+public sealed class ConnectionConfiguration : IEntityTypeConfiguration<Connection>
 {
-    public void Configure(EntityTypeBuilder<PspConnection> builder)
+    public void Configure(EntityTypeBuilder<Connection> builder)
     {
         builder.ToTable("PspConnections", SchemaNames.Txn);
         builder.HasKey(x => x.Id);

@@ -14,7 +14,7 @@ public sealed record StartCheckoutCommand(
 /// <summary>Identity of the freshly started checkout session.</summary>
 public sealed record StartCheckoutResult(Guid CheckoutSessionId);
 
-/// <summary>Opens a <see cref="CheckoutSession"/> and persists it.</summary>
+/// <summary>Opens a <see cref="Session"/> and persists it.</summary>
 public sealed class StartCheckoutHandler : ICommandHandler<StartCheckoutCommand, StartCheckoutResult>
 {
     private readonly ICheckoutRepository _repository;
@@ -30,7 +30,7 @@ public sealed class StartCheckoutHandler : ICommandHandler<StartCheckoutCommand,
 
     public async ValueTask<StartCheckoutResult> Handle(StartCheckoutCommand command, CancellationToken cancellationToken)
     {
-        var session = CheckoutSession.Start(command.MerchantId, command.CartId, command.Amount, _clock.UtcNow, command.Recipient);
+        var session = Session.Start(command.MerchantId, command.CartId, command.Amount, _clock.UtcNow, command.Recipient);
 
         _repository.Add(session);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

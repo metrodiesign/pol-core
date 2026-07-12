@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Infrastructure.Psp;
 
@@ -31,10 +32,10 @@ public sealed class OmiseAdapter : PspAdapterBase
     {
     }
 
-    public override PspCode Psp => PspCode.Omise;
+    public override Code Psp => Code.Omise;
 
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        PaymentSession session, string secret, CancellationToken cancellationToken)
+        Session session, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         GuardKeyEnvironment(creds.SecretKey);
@@ -49,7 +50,7 @@ public sealed class OmiseAdapter : PspAdapterBase
         };
     }
 
-    private async Task<PspCharge> CreateCardChargeAsync(PaymentSession session, OmiseSecret creds, CancellationToken ct)
+    private async Task<PspCharge> CreateCardChargeAsync(Session session, OmiseSecret creds, CancellationToken ct)
     {
         // No card/token/source is sent: Omise returns a pending charge with a hosted authorize_uri where
         // the cardholder enters their card and completes 3DS. No PAN ever touches us (PCI SAQ A).

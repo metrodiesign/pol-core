@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Payments.Application.Ports;
 using Payments.Domain;
+using Payments.Domain.Psp;
 using SharedKernel;
 
 namespace Payments.Infrastructure.Psp;
@@ -32,10 +33,10 @@ public abstract class PspAdapterBase : IPspAdapter
 
     protected static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public abstract PspCode Psp { get; }
+    public abstract Code Psp { get; }
 
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
-        PaymentSession session, string secret, CancellationToken cancellationToken);
+        Session session, string secret, CancellationToken cancellationToken);
 
     public abstract bool VerifyWebhook(string rawPayload, string signature, string secret);
 

@@ -29,14 +29,14 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public async Task Confirm_transitions_and_emits_CheckoutConfirmed()
     {
-        var session = CheckoutSession.Start(Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), "buyer@example.com");
+        var session = Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), "buyer@example.com");
         var repo = new FakeCheckoutRepository(session);
         var outbox = new FakeOutbox();
         var handler = new ConfirmCheckoutHandler(repo, outbox, new FakeUnitOfWork(), new FixedClock());
 
         var result = await handler.Handle(new ConfirmCheckoutCommand(session.Id, Merchant), default);
 
-        Assert.Equal(CheckoutStatus.Confirmed, result.Status);
+        Assert.Equal(SessionStatus.Confirmed, result.Status);
         var evt = Assert.IsType<CheckoutConfirmed>(Assert.Single(outbox.Enqueued));
         Assert.Equal(session.Id, evt.CheckoutSessionId);
         Assert.Equal(Money.Of(15000m, "THB"), evt.Amount);
@@ -46,14 +46,14 @@ public sealed class ConfirmCheckoutTests
 
 internal sealed class FakeCheckoutRepository : ICheckoutRepository
 {
-    private readonly List<CheckoutSession> _sessions = [];
-    public FakeCheckoutRepository(params CheckoutSession[] seed) => _sessions.AddRange(seed);
+    private readonly List<Session> _sessions = [];
+    public FakeCheckoutRepository(params Session[] seed) => _sessions.AddRange(seed);
 
-    public readonly List<CheckoutSession> Added = [];
+    public readonly List<Session> Added = [];
 
-    public void Add(CheckoutSession session) { _sessions.Add(session); Added.Add(session); }
+    public void Add(Session session) { _sessions.Add(session); Added.Add(session); }
 
-    public Task<CheckoutSession?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
+    public Task<Session?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
         Task.FromResult(_sessions.FirstOrDefault(s => s.Id == checkoutSessionId));
 }
 

@@ -1,23 +1,24 @@
+using Carts.Domain.Items;
 using SharedKernel;
 
 namespace Carts.Domain;
 
 /// <summary>
-/// A merchant's shopping cart aggregate: an ordered bag of <see cref="CartItem"/> lines that all share
+/// A merchant's shopping cart aggregate: an ordered bag of <see cref="Items.Item"/> lines that all share
 /// one currency. The cart is the transactional boundary — items are added, removed and cleared only
 /// through it, and it is frozen (<see cref="CartStatus.CheckedOut"/>) once checkout begins. It holds
 /// no money itself; the <see cref="Subtotal"/> is computed from its lines.
 /// </summary>
 public sealed class Cart : AggregateRoot<Guid>
 {
-    private readonly List<CartItem> _items = [];
+    private readonly List<Item> _items = [];
 
     public Guid MerchantId { get; private set; }
     public CartStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>The cart's lines, in insertion order. Mutated only through the aggregate's methods.</summary>
-    public IReadOnlyCollection<CartItem> Items => _items.AsReadOnly();
+    public IReadOnlyCollection<Item> Items => _items.AsReadOnly();
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Cart() { }
@@ -52,7 +53,7 @@ public sealed class Cart : AggregateRoot<Guid>
             return;
         }
 
-        _items.Add(new CartItem(Guid.CreateVersion7(), Id, productId, quantity, unitPrice));
+        _items.Add(new Item(Guid.CreateVersion7(), Id, productId, quantity, unitPrice));
     }
 
     /// <summary>Removes the line for <paramref name="productId"/>, if present.</summary>

@@ -2,7 +2,8 @@ using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Application.Ports.Psp;
+using Payments.Domain.Psp;
 
 namespace Payments.Application.HandlePspWebhook;
 
@@ -18,8 +19,8 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
 {
     private const string IdempotencyContext = "psp-webhook";
 
-    private readonly IPspConnectionRepository _connections;
-    private readonly IPaymentSessionRepository _sessions;
+    private readonly IConnectionRepository _connections;
+    private readonly ISessionRepository _sessions;
     private readonly IPspAdapterFactory _adapters;
     private readonly IVaultSecretStore _vault;
     private readonly IIdempotencyStore _idempotency;
@@ -28,8 +29,8 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
     private readonly IClock _clock;
 
     public HandlePspWebhookHandler(
-        IPspConnectionRepository connections,
-        IPaymentSessionRepository sessions,
+        IConnectionRepository connections,
+        ISessionRepository sessions,
         IPspAdapterFactory adapters,
         IVaultSecretStore vault,
         IIdempotencyStore idempotency,

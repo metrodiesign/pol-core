@@ -16,8 +16,8 @@ public sealed class CheckoutRepository : ICheckoutRepository
 
     public CheckoutRepository(PolDbContext db) => _db = db;
 
-    public void Add(CheckoutSession session) => _db.Set<CheckoutSession>().Add(session);
+    public void Add(Session session) => _db.Set<Session>().Add(session);
 
-    public Task<CheckoutSession?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
-        _db.Set<CheckoutSession>().FirstOrDefaultAsync(x => x.Id == checkoutSessionId, cancellationToken);
+    public Task<Session?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
+        _db.Set<Session>().FirstOrDefaultAsync(x => x.Id == checkoutSessionId, cancellationToken);
 }
