@@ -14,7 +14,7 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 {
     public void Configure(EntityTypeBuilder<Session> builder)
     {
-        builder.ToTable("MerchantUserSessions", SchemaNames.Merch);
+        builder.ToTable("Sessions", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.FamilyId).IsRequired();
         builder.Property(x => x.TokenHash).IsRequired().HasMaxLength(32); // varbinary(32) — SHA-256 digest
@@ -38,7 +38,7 @@ public sealed class MerchantAuthAuditConfiguration : IEntityTypeConfiguration<Au
 {
     public void Configure(EntityTypeBuilder<AuthAudit> builder)
     {
-        builder.ToTable("MerchantAuthAudits", SchemaNames.Merch);
+        builder.ToTable("AuthAudits", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.EventType).HasMaxLength(32).IsRequired();
         builder.Property(x => x.MerchantUserId);          // null when no account was resolved (REQ-12.4)

@@ -298,7 +298,7 @@ public sealed class RlsIsolationTests
     }
 
     // REQ-3.7: merch.Merchants joined the policy in rf1 (Tenants never was) specifically so provisioning a brand
-    // new merchant is Super-only at the DB — a new Id can never already be in admin.PlatformMerchantAccess, so a
+    // new merchant is Super-only at the DB — a new Id can never already be in admin.MerchantAccess, so a
     // Scoped platform user's insert is BLOCKed regardless of which merchants it is assigned to.
     [Fact]
     public async Task Super_can_insert_a_new_merchant()
@@ -324,7 +324,7 @@ public sealed class RlsIsolationTests
 
     // REQ-3.7's broader "Scoped writing cross-scope is BLOCKed" claim, on a second table beyond Merchants: a
     // Scoped platform user's own assigned merchant still writes fine, but a merchant outside its
-    // PlatformMerchantAccess rows is BLOCKed by the exact same predicate.
+    // MerchantAccess rows is BLOCKed by the exact same predicate.
     [Fact]
     public async Task Scoped_admin_can_write_a_vault_secret_for_its_assigned_merchant_but_not_others()
     {
@@ -357,7 +357,7 @@ public sealed class RlsIsolationTests
     }
 
     // REQ-3.11 — the critical fail-closed regression guard for the F2 finding (requirements.md /spec-analyze log):
-    // absence in PlatformMerchantAccess must NEVER be read as "unrestricted Super" (that would be fail-open). A
+    // absence in MerchantAccess must NEVER be read as "unrestricted Super" (that would be fail-open). A
     // Scoped platform user with zero assignments must see nothing at all.
     [Fact]
     public async Task Scoped_admin_with_no_platform_merchant_access_rows_sees_nothing()
@@ -367,7 +367,7 @@ public sealed class RlsIsolationTests
         await using (var a = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, merchantA))
             await IntegrationDb.InsertProductAsync(a, productA, merchantA);
 
-        await using var scoped = await IntegrationDb.OpenAsNewScopedUserAsync(); // zero PlatformMerchantAccess rows
+        await using var scoped = await IntegrationDb.OpenAsNewScopedUserAsync(); // zero MerchantAccess rows
 
         Assert.Equal(0, AsInt(await IntegrationDb.ScalarAsync(scoped, "SELECT COUNT(*) FROM shop.Products WHERE Id=@id", ("@id", productA))));
     }

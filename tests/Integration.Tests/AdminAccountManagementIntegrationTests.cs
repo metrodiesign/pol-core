@@ -18,7 +18,7 @@ public sealed class AdminAccountManagementIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid adminId, int status, DateTime issuedAt) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT admin.PlatformUserSessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT admin.Sessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @admin, @st, @issued, DATEADD(MINUTE, 30, @issued), DATEADD(HOUR, 8, @issued));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),
@@ -41,7 +41,7 @@ public sealed class AdminAccountManagementIntegrationTests
         var ids = new List<Guid>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT Id FROM admin.PlatformUserSessions WHERE PlatformUserId=@a ORDER BY IssuedAt DESC, Id";
+            cmd.CommandText = "SELECT Id FROM admin.Sessions WHERE PlatformUserId=@a ORDER BY IssuedAt DESC, Id";
             cmd.Parameters.AddWithValue("@a", adminA);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync()) ids.Add(r.GetGuid(0));
@@ -62,12 +62,12 @@ public sealed class AdminAccountManagementIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), other, admin, Active, now);
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE admin.PlatformUserSessions SET Status=@rev WHERE FamilyId=@f AND Status<>@rev",
+            "UPDATE admin.Sessions SET Status=@rev WHERE FamilyId=@f AND Status<>@rev",
             ("@rev", Revoked), ("@f", target));
 
         Assert.Equal(1, revoked);
         // The OTHER family is still Active — a family revoke does not touch the account's other families (REQ-5.1).
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.PlatformUserSessions WHERE FamilyId=@f AND Status=@act", ("@f", other), ("@act", Active))));
+            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status=@act", ("@f", other), ("@act", Active))));
     }
 }

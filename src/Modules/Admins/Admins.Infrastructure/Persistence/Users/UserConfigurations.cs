@@ -13,7 +13,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("PlatformUsers", SchemaNames.Admin);
+        builder.ToTable("Users", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Subject).HasMaxLength(256); // nullable until an invited Scoped account binds it
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
@@ -51,7 +51,7 @@ public sealed class AuditConfiguration : IEntityTypeConfiguration<Audit>
 {
     public void Configure(EntityTypeBuilder<Audit> builder)
     {
-        builder.ToTable("PlatformUserAudits", SchemaNames.Admin);
+        builder.ToTable("UserAudits", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasMaxLength(64).IsRequired();
         builder.Property(x => x.ActorType).HasMaxLength(16).IsRequired();

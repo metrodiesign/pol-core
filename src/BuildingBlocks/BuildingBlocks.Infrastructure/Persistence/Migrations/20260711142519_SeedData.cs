@@ -21,10 +21,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // --- Admin RBAC catalog (REQ-1.3/2.5; AdminPermissions.All is the code-canonical vocabulary this
+            // --- Admin RBAC catalog (REQ-1.3/2.5; Permissions.All is the code-canonical vocabulary this
             // mirrors — an integration test asserts they never drift) ---
             migrationBuilder.Sql("""
-                INSERT INTO admin.AdminPermissionGroups ([Key], LabelTh, SortOrder) VALUES
+                INSERT INTO admin.PermissionGroups ([Key], LabelTh, SortOrder) VALUES
                   ('txn',           N'ธุรกรรม',              1),
                   ('merchant',      N'ร้านค้า',               2),
                   ('finance',       N'การเงิน',               3),
@@ -32,7 +32,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   ('system',        N'ระบบ',                  5),
                   ('merchant_user', N'ผู้ใช้งานร้านค้า',       6);
 
-                INSERT INTO admin.AdminPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
+                INSERT INTO admin.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
                   ('txn.view',              'txn',           N'ดูรายการธุรกรรม',           1),
                   ('txn.refund',            'txn',           N'สั่งคืนเงิน',               2),
                   ('txn.export',            'txn',           N'ส่งออกข้อมูลธุรกรรม',        3),
@@ -53,14 +53,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             // Seed the 5 default roles with stable ids; super_admin is the recovery anchor.
             migrationBuilder.Sql("""
-                INSERT INTO admin.AdminRoles (Id, Code, Name, Description, Color, Status) VALUES
+                INSERT INTO admin.Roles (Id, Code, Name, Description, Color, Status) VALUES
                   ('11111111-1111-1111-1111-111111111111', 'super_admin', N'ผู้ดูแลระบบสูงสุด',    N'เข้าถึงได้ทุกส่วนของระบบ รวมถึงการตั้งค่าความปลอดภัย', 'red',   0),
                   ('22222222-2222-2222-2222-222222222222', 'ops_admin',   N'ผู้ดูแลฝ่ายปฏิบัติการ', N'ดูแลธุรกรรมและร้านค้าประจำวัน',                  'blue',  0),
                   ('33333333-3333-3333-3333-333333333333', 'finance',     N'ผู้ดูแลการเงิน',       N'จัดการใบแจ้งหนี้และรอบ Settlement',              'green', 0),
                   ('44444444-4444-4444-4444-444444444444', 'support',     N'เจ้าหน้าที่ซัพพอร์ต',   N'ตอบคำถามลูกค้า ดูข้อมูลได้อย่างเดียว',           'amber', 0),
                   ('55555555-5555-5555-5555-555555555555', 'auditor',     N'ผู้ตรวจสอบ',          N'เข้าถึงบันทึกกิจกรรมและรายงานแบบอ่านอย่างเดียว',  'gray',  1);
 
-                INSERT INTO admin.AdminRolePermissions (Id, RoleId, PermissionKey) VALUES
+                INSERT INTO admin.RolePermissions (Id, RoleId, PermissionKey) VALUES
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'txn.view'),
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'txn.refund'),
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'txn.export'),
@@ -99,12 +99,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Back-fill: bind super_admin to every EXISTING Super-tier account (a no-op on a fresh reset — kept so
             // a platform user created by an out-of-band bootstrap step ahead of this migration is never locked out).
             migrationBuilder.Sql($"""
-                INSERT INTO admin.AdminRoleAssignments (Id, PlatformUserId, RoleId, AssignedByAdminId, AssignedAt)
+                INSERT INTO admin.RoleAssignments (Id, PlatformUserId, RoleId, AssignedByAdminId, AssignedAt)
                 SELECT NEWID(), a.Id, '{SuperAdminRoleId}', a.Id, SYSUTCDATETIME()
-                FROM admin.PlatformUsers a
+                FROM admin.Users a
                 WHERE a.Tier = 1
                   AND NOT EXISTS (
-                      SELECT 1 FROM admin.AdminRoleAssignments x
+                      SELECT 1 FROM admin.RoleAssignments x
                       WHERE x.PlatformUserId = a.Id AND x.RoleId = '{SuperAdminRoleId}');
                 """);
 
@@ -167,15 +167,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   ('d4000000-0000-4000-8000-00000000000a', 'customer_service', N'ฝ่ายบริการลูกค้า',                  1);
                 """);
 
-            // --- MerchantUser RBAC catalog (MerchantUserPermissions.All is the code-canonical vocabulary this
+            // --- MerchantUser RBAC catalog (Permissions.All is the code-canonical vocabulary this
             // mirrors — an integration test asserts they never drift) ---
             migrationBuilder.Sql("""
-                INSERT INTO merch.MerchantUserPermissionGroups ([Key], LabelTh, SortOrder) VALUES
+                INSERT INTO merch.PermissionGroups ([Key], LabelTh, SortOrder) VALUES
                   ('catalog', N'สินค้า',         1),
                   ('payment', N'การชำระเงิน',    2),
                   ('roles',   N'บทบาทและสิทธิ์', 3);
 
-                INSERT INTO merch.MerchantUserPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
+                INSERT INTO merch.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
                   ('product.create',          'catalog', N'สร้างสินค้า',            1),
                   ('product.update',          'catalog', N'แก้ไขสินค้า',            2),
                   ('payment.create',          'payment', N'สร้างรายการชำระเงิน',     3),
@@ -189,11 +189,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // anchor); merchant_member is the ordinary default approval choice (product/payment only, no
             // roles.*/user.roles). Status 0 = Active.
             migrationBuilder.Sql($"""
-                INSERT INTO merch.MerchantUserRoleDefinitions (Id, Code, Name, Description, Color, Status) VALUES
+                INSERT INTO merch.Roles (Id, Code, Name, Description, Color, Status) VALUES
                   ('{MerchantOwnerRoleId}',  'merchant_owner',  N'เจ้าของร้าน',   N'เข้าถึงได้ทุกส่วนของร้าน รวมถึงการจัดการบทบาทและผู้ใช้', 'red',  0),
                   ('{MerchantMemberRoleId}', 'merchant_member', N'ผู้ใช้งานร้าน', N'จัดการสินค้าและการชำระเงิน (ไม่รวมการจัดการบทบาท)',    'blue', 0);
 
-                INSERT INTO merch.MerchantUserRolePermissions (Id, RoleId, PermissionKey) VALUES
+                INSERT INTO merch.RolePermissions (Id, RoleId, PermissionKey) VALUES
                   (NEWID(), '{MerchantOwnerRoleId}', 'product.create'),
                   (NEWID(), '{MerchantOwnerRoleId}', 'product.update'),
                   (NEWID(), '{MerchantOwnerRoleId}', 'payment.create'),
@@ -214,12 +214,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // Reverse order: children before parents (FK-safe), MerchantUser catalog first, then Admin master
             // data, then the Admin RBAC catalog.
             migrationBuilder.Sql($"""
-                DELETE FROM merch.MerchantUserRolePermissions WHERE RoleId IN ('{MerchantOwnerRoleId}', '{MerchantMemberRoleId}');
-                DELETE FROM merch.MerchantUserRoleDefinitions WHERE Id     IN ('{MerchantOwnerRoleId}', '{MerchantMemberRoleId}');
-                DELETE FROM merch.MerchantUserPermissions WHERE [Key] IN
+                DELETE FROM merch.RolePermissions WHERE RoleId IN ('{MerchantOwnerRoleId}', '{MerchantMemberRoleId}');
+                DELETE FROM merch.Roles WHERE Id     IN ('{MerchantOwnerRoleId}', '{MerchantMemberRoleId}');
+                DELETE FROM merch.Permissions WHERE [Key] IN
                   ('product.create','product.update','payment.create','payment.redirect',
                    'merchant_user.roles.view','merchant_user.roles.manage','merchant_user.user.roles');
-                DELETE FROM merch.MerchantUserPermissionGroups WHERE [Key] IN ('catalog','payment','roles');
+                DELETE FROM merch.PermissionGroups WHERE [Key] IN ('catalog','payment','roles');
                 """);
 
             migrationBuilder.Sql("DELETE FROM admin.Positions WHERE Id LIKE 'a1000000-%';");
@@ -228,20 +228,20 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql("DELETE FROM admin.Divisions WHERE Id LIKE 'd4000000-%';");
 
             migrationBuilder.Sql($"""
-                DELETE FROM admin.AdminRoleAssignments WHERE RoleId = '{SuperAdminRoleId}';
-                DELETE FROM admin.AdminRolePermissions WHERE RoleId IN
+                DELETE FROM admin.RoleAssignments WHERE RoleId = '{SuperAdminRoleId}';
+                DELETE FROM admin.RolePermissions WHERE RoleId IN
                   ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
                    '33333333-3333-3333-3333-333333333333', '44444444-4444-4444-4444-444444444444',
                    '55555555-5555-5555-5555-555555555555');
-                DELETE FROM admin.AdminRoles WHERE Id IN
+                DELETE FROM admin.Roles WHERE Id IN
                   ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
                    '33333333-3333-3333-3333-333333333333', '44444444-4444-4444-4444-444444444444',
                    '55555555-5555-5555-5555-555555555555');
-                DELETE FROM admin.AdminPermissions WHERE [Key] IN
+                DELETE FROM admin.Permissions WHERE [Key] IN
                   ('txn.view','txn.refund','txn.export','merchant.view','merchant.manage',
                    'invoice.view','invoice.manage','settlement.run','user.view','user.manage','user.roles',
                    'audit.view','settings.manage','apikey.manage','merchant_user.approve','merchant_user.reject');
-                DELETE FROM admin.AdminPermissionGroups WHERE [Key] IN
+                DELETE FROM admin.PermissionGroups WHERE [Key] IN
                   ('txn','merchant','finance','user','system','merchant_user');
                 """);
         }

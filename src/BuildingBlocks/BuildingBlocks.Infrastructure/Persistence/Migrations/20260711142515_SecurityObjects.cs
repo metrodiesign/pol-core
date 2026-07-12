@@ -26,7 +26,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // --- Schemas (REQ-3.10: every schema owned by dbo, so ownership chaining lets a predicate reach
-            // admin.PlatformUsers / admin.PlatformMerchantAccess across schemas without an explicit grant). shop/
+            // admin.Users / admin.MerchantAccess across schemas without an explicit grant). shop/
             // txn/admin/merch already exist (EnsureSchema'd by InitialSchema); re-assert authorization in case the
             // running principal was not dbo. sec has no EF entity, so it needs its own CREATE.
             migrationBuilder.Sql("""
@@ -41,7 +41,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             // --- Functions ---
             // The general-purpose predicate (design.md "RLS" section, verbatim): bypass role, own-merchant, or a
             // bound platform user acting as Super (unrestricted) / Scoped (only its assigned merchants via
-            // admin.PlatformMerchantAccess). T4: the empty-MerchantId branch requires UserId IS NOT NULL — an empty
+            // admin.MerchantAccess). T4: the empty-MerchantId branch requires UserId IS NOT NULL — an empty
             // sentinel with no bound user is never treated as "platform branch" (deny, not fail-open).
             migrationBuilder.Sql("""
                 CREATE FUNCTION sec.fn_merchant_predicate(@MerchantId uniqueidentifier)
@@ -51,10 +51,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                    OR @MerchantId = CAST(SESSION_CONTEXT(N'MerchantId') AS uniqueidentifier)
                    OR (CAST(SESSION_CONTEXT(N'MerchantId') AS uniqueidentifier) = CONVERT(uniqueidentifier, '00000000-0000-0000-0000-000000000000')
                        AND SESSION_CONTEXT(N'UserId') IS NOT NULL
-                       AND (EXISTS (SELECT 1 FROM admin.PlatformUsers u
+                       AND (EXISTS (SELECT 1 FROM admin.Users u
                                     WHERE u.Id = CAST(SESSION_CONTEXT(N'UserId') AS uniqueidentifier)
                                       AND u.Tier = 1 /* Super */)
-                            OR EXISTS (SELECT 1 FROM admin.PlatformMerchantAccess a
+                            OR EXISTS (SELECT 1 FROM admin.MerchantAccess a
                                        WHERE a.PlatformUserId = CAST(SESSION_CONTEXT(N'UserId') AS uniqueidentifier)
                                          AND a.MerchantId = @MerchantId)));
                 """);
@@ -156,7 +156,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             }
             // merch.Merchants: self-row (predicate on Id, not a MerchantId column) — new coverage vs pre-rf1
             // (Tenants was never under the policy); a Scoped platform user can no longer INSERT a brand-new merchant
-            // (its Id can never already be in admin.PlatformMerchantAccess), so provisioning is Super-only at the DB.
+            // (its Id can never already be in admin.MerchantAccess), so provisioning is Super-only at the DB.
             clauses.Add("ADD FILTER PREDICATE sec.fn_merchant_predicate(Id) ON merch.Merchants");
             clauses.Add("ADD BLOCK PREDICATE sec.fn_merchant_predicate(Id) ON merch.Merchants AFTER INSERT");
             clauses.Add("ADD BLOCK PREDICATE sec.fn_merchant_predicate(Id) ON merch.Merchants AFTER UPDATE");
@@ -229,34 +229,34 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 GRANT SELECT ON txn.IdempotencyRecords TO pol_admin;
                 GRANT INSERT ON txn.OutboxMessages TO pol_admin; -- merchant-less registration event (REQ-20.2)
 
-                GRANT SELECT, INSERT, UPDATE         ON admin.PlatformUsers           TO pol_admin;
-                GRANT SELECT, INSERT                 ON admin.PlatformUserAudits      TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.PlatformMerchantAccess  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.PlatformUserSessions    TO pol_admin;
-                GRANT SELECT, INSERT                 ON admin.PlatformAuthAudits      TO pol_admin;
-                GRANT SELECT                         ON admin.AdminPermissionGroups   TO pol_admin;
-                GRANT SELECT                         ON admin.AdminPermissions        TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.AdminRoles              TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.AdminRolePermissions    TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.AdminRoleAssignments    TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE         ON admin.Users           TO pol_admin;
+                GRANT SELECT, INSERT                 ON admin.UserAudits      TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.MerchantAccess  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.Sessions    TO pol_admin;
+                GRANT SELECT, INSERT                 ON admin.AuthAudits      TO pol_admin;
+                GRANT SELECT                         ON admin.PermissionGroups   TO pol_admin;
+                GRANT SELECT                         ON admin.Permissions        TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.Roles              TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.RolePermissions    TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON admin.RoleAssignments    TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON admin.Positions               TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON admin.Offices                 TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON admin.Levels                  TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON admin.Divisions               TO pol_admin;
 
                 GRANT SELECT, INSERT, UPDATE         ON merch.Merchants               TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE         ON merch.MerchantUsers           TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE         ON merch.Users           TO pol_admin;
                 GRANT SELECT, INSERT                 ON merch.ExternalLogins          TO pol_admin;
                 GRANT SELECT, INSERT                 ON merch.RegistrationAudits      TO pol_admin;
                 GRANT INSERT                         ON merch.VaultSecrets            TO pol_admin;
                 GRANT SELECT                         ON merch.VaultRevealAudits       TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserSessions    TO pol_admin;
-                GRANT SELECT, INSERT                 ON merch.MerchantAuthAudits      TO pol_admin;
-                GRANT SELECT                         ON merch.MerchantUserPermissionGroups TO pol_admin;
-                GRANT SELECT                         ON merch.MerchantUserPermissions      TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserRoleDefinitions  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserRolePermissions  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserRoleAssignments  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.Sessions    TO pol_admin;
+                GRANT SELECT, INSERT                 ON merch.AuthAudits      TO pol_admin;
+                GRANT SELECT                         ON merch.PermissionGroups TO pol_admin;
+                GRANT SELECT                         ON merch.Permissions      TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.Roles  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.RolePermissions  TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON merch.RoleAssignments  TO pol_admin;
                 GRANT SELECT, INSERT                 ON merch.ProvisioningAudits      TO pol_admin;
 
                 GRANT SELECT, INSERT ON dbo.DataProtectionKeys TO pol_admin;
@@ -307,34 +307,34 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 REVOKE SELECT ON txn.IdempotencyRecords FROM pol_admin;
                 REVOKE INSERT ON txn.OutboxMessages FROM pol_admin;
 
-                REVOKE SELECT, INSERT, UPDATE         ON admin.PlatformUsers           FROM pol_admin;
-                REVOKE SELECT, INSERT                 ON admin.PlatformUserAudits      FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.PlatformMerchantAccess  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.PlatformUserSessions    FROM pol_admin;
-                REVOKE SELECT, INSERT                 ON admin.PlatformAuthAudits      FROM pol_admin;
-                REVOKE SELECT                         ON admin.AdminPermissionGroups   FROM pol_admin;
-                REVOKE SELECT                         ON admin.AdminPermissions        FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.AdminRoles              FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.AdminRolePermissions    FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.AdminRoleAssignments    FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE         ON admin.Users           FROM pol_admin;
+                REVOKE SELECT, INSERT                 ON admin.UserAudits      FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.MerchantAccess  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.Sessions    FROM pol_admin;
+                REVOKE SELECT, INSERT                 ON admin.AuthAudits      FROM pol_admin;
+                REVOKE SELECT                         ON admin.PermissionGroups   FROM pol_admin;
+                REVOKE SELECT                         ON admin.Permissions        FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.Roles              FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.RolePermissions    FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.RoleAssignments    FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON admin.Positions               FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON admin.Offices                 FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON admin.Levels                  FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON admin.Divisions               FROM pol_admin;
 
                 REVOKE SELECT, INSERT, UPDATE         ON merch.Merchants               FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE         ON merch.MerchantUsers           FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE         ON merch.Users           FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON merch.ExternalLogins          FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON merch.RegistrationAudits      FROM pol_admin;
                 REVOKE INSERT                         ON merch.VaultSecrets            FROM pol_admin;
                 REVOKE SELECT                         ON merch.VaultRevealAudits       FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserSessions    FROM pol_admin;
-                REVOKE SELECT, INSERT                 ON merch.MerchantAuthAudits      FROM pol_admin;
-                REVOKE SELECT                         ON merch.MerchantUserPermissionGroups FROM pol_admin;
-                REVOKE SELECT                         ON merch.MerchantUserPermissions      FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserRoleDefinitions  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserRolePermissions  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.MerchantUserRoleAssignments  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.Sessions    FROM pol_admin;
+                REVOKE SELECT, INSERT                 ON merch.AuthAudits      FROM pol_admin;
+                REVOKE SELECT                         ON merch.PermissionGroups FROM pol_admin;
+                REVOKE SELECT                         ON merch.Permissions      FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.Roles  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.RolePermissions  FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE, DELETE ON merch.RoleAssignments  FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON merch.ProvisioningAudits      FROM pol_admin;
 
                 REVOKE SELECT, INSERT ON dbo.DataProtectionKeys FROM pol_admin;

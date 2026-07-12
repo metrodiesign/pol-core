@@ -4,7 +4,7 @@ namespace Integration.Tests;
 
 /// <summary>
 /// Control-plane posture for the merchant-user ACCOUNT table against live SQL Server 2025 with the real
-/// principals. merch.MerchantUsers is NOT under the merchant RLS predicate (like Admin's PlatformUsers):
+/// principals. merch.Users is NOT under the merchant RLS predicate (like Admin's Users):
 /// pol_app has no grant at all. T5 collapsed the old one-tenant-per-producer edge table into a single
 /// nullable MerchantId column directly on the account row (a PendingApproval account has no merchant yet;
 /// approval sets it) — reachable only via the pol_admin connection.
@@ -20,7 +20,7 @@ public sealed class MerchantUserAccountControlPlaneTests
     private const int Active = 1;
 
     private const string InsertAccount =
-        "INSERT merch.MerchantUsers (Id, Subject, Email, Status, MerchantId, DisplayName, FirstName, LastName, CreatedAt) " +
+        "INSERT merch.Users (Id, Subject, Email, Status, MerchantId, DisplayName, FirstName, LastName, CreatedAt) " +
         "VALUES (@id, @sub, @email, @status, @merchant, N'Name', N'First', N'Last', SYSUTCDATETIME())";
 
     private static (string, object)[] AccountArgs(Guid id, string subject, int status, Guid? merchantId = null) =>
@@ -35,11 +35,11 @@ public sealed class MerchantUserAccountControlPlaneTests
     [Fact]
     public async Task App_cannot_read_the_control_plane_account_table()
     {
-        // pol_app has NO grant on merch.MerchantUsers (control-plane, like Admin) — even a SELECT is refused.
+        // pol_app has NO grant on merch.Users (control-plane, like Admin) — even a SELECT is refused.
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.MerchantA);
 
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.MerchantUsers"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.Users"));
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class MerchantUserAccountControlPlaneTests
         Assert.Equal(1, rows);
 
         var seen = AsInt(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM merch.MerchantUsers WHERE Id=@id", ("@id", id)));
+            "SELECT COUNT(*) FROM merch.Users WHERE Id=@id", ("@id", id)));
         Assert.Equal(1, seen);
     }
 
@@ -69,17 +69,17 @@ public sealed class MerchantUserAccountControlPlaneTests
         await IntegrationDb.ExecAsync(admin, InsertAccount, AccountArgs(id, subject, PendingApproval));
 
         await IntegrationDb.ExecAsync(admin,
-            "UPDATE merch.MerchantUsers SET Status=@st, MerchantId=@m WHERE Id=@id",
+            "UPDATE merch.Users SET Status=@st, MerchantId=@m WHERE Id=@id",
             ("@st", Active), ("@m", IntegrationDb.MerchantA), ("@id", id));
 
         Assert.Equal(IntegrationDb.MerchantA, await IntegrationDb.ScalarAsync(admin,
-            "SELECT MerchantId FROM merch.MerchantUsers WHERE Id=@id", ("@id", id)));
+            "SELECT MerchantId FROM merch.Users WHERE Id=@id", ("@id", id)));
     }
 
     [Fact]
     public async Task A_second_account_for_the_same_subject_is_rejected_by_the_unique_index()
     {
-        // One record per subject (REQ-1.4/4.6): the UNIQUE index on MerchantUsers.Subject is what makes a replayed
+        // One record per subject (REQ-1.4/4.6): the UNIQUE index on Users.Subject is what makes a replayed
         // still-valid registration token (or a concurrent second submit) a 409 instead of a duplicate row — the
         // duplicate-registration guarantee the stateless-ticket redesign leans on. Person details now live on the
         // account itself, so this is the single guard.
@@ -99,7 +99,7 @@ public sealed class MerchantUserAccountControlPlaneTests
         // SELECT is refused.
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.MerchantA);
 
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.MerchantUsers"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.Users"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.ExternalLogins"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.RegistrationAudits"));
     }

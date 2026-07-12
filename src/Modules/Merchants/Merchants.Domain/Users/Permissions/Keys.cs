@@ -2,7 +2,7 @@ namespace Merchants.Domain.Users.Permissions;
 
 /// <summary>
 /// The canonical merchant-user permission vocabulary. Code owns the KEY set + each key's group; the
-/// SeedData migration seeds <c>merch.Keys</c> / <c>MerchantUserPermissionGroups</c> (with
+/// SeedData migration seeds <c>merch.Permissions</c> / <c>merch.PermissionGroups</c> (with
 /// Thai labels + sort order) FROM this same vocabulary, and an integration test asserts the seeded rows equal
 /// <see cref="AllKeys"/> so code and DB never drift. The boot parity guard checks every
 /// <c>RequireMerchantUserPermission</c> gate key against <see cref="AllKeys"/> WITHOUT touching the

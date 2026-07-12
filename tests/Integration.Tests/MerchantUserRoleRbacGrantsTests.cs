@@ -22,15 +22,15 @@ public sealed class MerchantUserRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        Assert.Equal(3, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.MerchantUserPermissionGroups")));
-        Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.MerchantUserPermissions")));
-        Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.MerchantUserRoleDefinitions")));
+        Assert.Equal(3, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.PermissionGroups")));
+        Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.Permissions")));
+        Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.Roles")));
 
         // merchant_owner grants all 7 (the recovery anchor); merchant_member grants the 4 product/payment keys only.
         Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM merch.MerchantUserRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(MerchantOwnerRoleId)))));
+            "SELECT COUNT(*) FROM merch.RolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(MerchantOwnerRoleId)))));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM merch.MerchantUserRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(MerchantMemberRoleId)))));
+            "SELECT COUNT(*) FROM merch.RolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(MerchantMemberRoleId)))));
     }
 
     [Fact]
@@ -41,13 +41,13 @@ public sealed class MerchantUserRoleRbacGrantsTests
         var dbKeys = new HashSet<string>(StringComparer.Ordinal);
         await using (var cmd = admin.CreateCommand())
         {
-            cmd.CommandText = "SELECT [Key] FROM merch.MerchantUserPermissions";
+            cmd.CommandText = "SELECT [Key] FROM merch.Permissions";
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
                 dbKeys.Add(reader.GetString(0));
         }
 
-        // The drift guard: the seeded rows are exactly MerchantUserPermissions.AllKeys (REQ-15.2/15.5).
+        // The drift guard: the seeded rows are exactly Permissions.AllKeys (REQ-15.2/15.5).
         Assert.True(dbKeys.SetEquals(Keys.AllKeys),
             $"catalog drift: db=[{string.Join(",", dbKeys.Order())}] code=[{string.Join(",", Keys.AllKeys.Order())}]");
     }
@@ -60,20 +60,20 @@ public sealed class MerchantUserRoleRbacGrantsTests
         var code = "it_" + roleId.ToString("N")[..8];
 
         await IntegrationDb.ExecAsync(admin,
-            "INSERT merch.MerchantUserRoleDefinitions (Id, Code, Name, Color, Status) VALUES (@id, @code, N'IT', 'gray', 0)",
+            "INSERT merch.Roles (Id, Code, Name, Color, Status) VALUES (@id, @code, N'IT', 'gray', 0)",
             ("@id", roleId), ("@code", code));
         await IntegrationDb.ExecAsync(admin,
-            "INSERT merch.MerchantUserRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'product.create')",
+            "INSERT merch.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'product.create')",
             ("@g", Guid.NewGuid()), ("@id", roleId));
-        await IntegrationDb.ExecAsync(admin, "UPDATE merch.MerchantUserRoleDefinitions SET Name=N'IT2' WHERE Id=@id", ("@id", roleId));
-        await IntegrationDb.ExecAsync(admin, "DELETE merch.MerchantUserRoleDefinitions WHERE Id=@id", ("@id", roleId)); // cascade drops the grant
+        await IntegrationDb.ExecAsync(admin, "UPDATE merch.Roles SET Name=N'IT2' WHERE Id=@id", ("@id", roleId));
+        await IntegrationDb.ExecAsync(admin, "DELETE merch.Roles WHERE Id=@id", ("@id", roleId)); // cascade drops the grant
 
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM merch.MerchantUserRoleDefinitions WHERE Id=@id", ("@id", roleId))));
+            "SELECT COUNT(*) FROM merch.Roles WHERE Id=@id", ("@id", roleId))));
 
         // Catalog is SELECT-only for pol_admin — a runtime INSERT is refused.
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT merch.MerchantUserPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','catalog',N'x',99)"));
+            "INSERT merch.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','catalog',N'x',99)"));
     }
 
     [Fact]
@@ -81,9 +81,9 @@ public sealed class MerchantUserRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        // FK MerchantUserRolePermissions.PermissionKey -> MerchantUserPermissions.Key (REQ-16.2).
+        // FK RolePermissions.PermissionKey -> Permissions.Key (REQ-16.2).
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT merch.MerchantUserRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
+            "INSERT merch.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
             ("@g", Guid.NewGuid()), ("@r", Guid.Parse(MerchantOwnerRoleId))));
     }
 
@@ -92,9 +92,9 @@ public sealed class MerchantUserRoleRbacGrantsTests
     {
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.MerchantUserRoleDefinitions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.MerchantUserPermissions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.MerchantUserRoleAssignments"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.Roles"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.Permissions"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.RoleAssignments"));
     }
 
     [Fact]
@@ -114,16 +114,16 @@ public sealed class MerchantUserRoleRbacGrantsTests
             // One Active role (product.create) + one Inactive role (payment.create), both assigned to the same user
             // in MerchantA. The Inactive role must contribute nothing (REQ-16.4).
             await IntegrationDb.ExecAsync(admin,
-                "INSERT merch.MerchantUserRoleDefinitions (Id, Code, Name, Color, Status) VALUES (@id, @c, N'A', 'gray', 0)",
+                "INSERT merch.Roles (Id, Code, Name, Color, Status) VALUES (@id, @c, N'A', 'gray', 0)",
                 ("@id", activeRole), ("@c", "ut_a_" + activeRole.ToString("N")[..6]));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT merch.MerchantUserRoleDefinitions (Id, Code, Name, Color, Status) VALUES (@id, @c, N'I', 'gray', 1)",
+                "INSERT merch.Roles (Id, Code, Name, Color, Status) VALUES (@id, @c, N'I', 'gray', 1)",
                 ("@id", inactiveRole), ("@c", "ut_i_" + inactiveRole.ToString("N")[..6]));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT merch.MerchantUserRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'product.create')",
+                "INSERT merch.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'product.create')",
                 ("@g", Guid.NewGuid()), ("@r", activeRole));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT merch.MerchantUserRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'payment.create')",
+                "INSERT merch.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'payment.create')",
                 ("@g", Guid.NewGuid()), ("@r", inactiveRole));
             await InsertAssignment(admin, assignActive, user, activeRole, merchant);
             await InsertAssignment(admin, assignInactive, user, inactiveRole, merchant);
@@ -138,9 +138,9 @@ public sealed class MerchantUserRoleRbacGrantsTests
         }
         finally
         {
-            await IntegrationDb.ExecAsync(admin, "DELETE merch.MerchantUserRoleAssignments WHERE Id IN (@a,@b)",
+            await IntegrationDb.ExecAsync(admin, "DELETE merch.RoleAssignments WHERE Id IN (@a,@b)",
                 ("@a", assignActive), ("@b", assignInactive));
-            await IntegrationDb.ExecAsync(admin, "DELETE merch.MerchantUserRoleDefinitions WHERE Id IN (@a,@b)",
+            await IntegrationDb.ExecAsync(admin, "DELETE merch.Roles WHERE Id IN (@a,@b)",
                 ("@a", activeRole), ("@b", inactiveRole)); // cascade drops the grants
         }
     }
@@ -148,7 +148,7 @@ public sealed class MerchantUserRoleRbacGrantsTests
     private static Task InsertAssignment(SqlConnection c, Guid id, Guid user, Guid role, Guid merchant) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT merch.MerchantUserRoleAssignments (Id, MerchantUserId, RoleId, MerchantId, AssignedByAdminId, AssignedAt)
+            INSERT merch.RoleAssignments (Id, MerchantUserId, RoleId, MerchantId, AssignedByAdminId, AssignedAt)
             VALUES (@id, @u, @r, @m, @by, SYSUTCDATETIME());
             """,
             ("@id", id), ("@u", user), ("@r", role), ("@m", merchant), ("@by", Guid.NewGuid()));
@@ -159,9 +159,9 @@ public sealed class MerchantUserRoleRbacGrantsTests
         await using var cmd = c.CreateCommand();
         cmd.CommandText = """
             SELECT DISTINCT rp.PermissionKey
-            FROM merch.MerchantUserRoleAssignments a
-            JOIN merch.MerchantUserRoleDefinitions r    ON a.RoleId = r.Id AND r.Status = 0
-            JOIN merch.MerchantUserRolePermissions rp ON rp.RoleId = r.Id
+            FROM merch.RoleAssignments a
+            JOIN merch.Roles r    ON a.RoleId = r.Id AND r.Status = 0
+            JOIN merch.RolePermissions rp ON rp.RoleId = r.Id
             WHERE a.MerchantUserId = @u AND a.MerchantId = @m;
             """;
         cmd.Parameters.AddWithValue("@u", user);

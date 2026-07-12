@@ -87,7 +87,7 @@ internal static class IntegrationDb
     }
 
     /// <summary>Convenience for provisioning tests (T5): creates a fresh Super platform user (via a throwaway bare
-    /// admin connection — admin.PlatformUsers carries no RLS predicate, so that insert alone needs no binding),
+    /// admin connection — admin.Users carries no RLS predicate, so that insert alone needs no binding),
     /// then returns a connection bound to it. merch.Merchants / txn.PspConnections DO carry the merchant predicate,
     /// so provisioning them now requires this bound Super identity rather than the old blanket pol_admin bypass.</summary>
     public static async Task<SqlConnection> OpenAsNewSuperUserAsync()
@@ -111,7 +111,7 @@ internal static class IntegrationDb
             await InsertPlatformUserAsync(bare, userId, "scoped-" + userId.ToString("N")[..8],
                 userId.ToString("N")[..8] + "@example.com", tier: 0, status: 0);
             foreach (var merchantId in assignedMerchantIds)
-                await InsertPlatformMerchantAccessAsync(bare, Guid.NewGuid(), userId, merchantId, Guid.NewGuid(), DateTime.UtcNow);
+                await InsertMerchantAccessAsync(bare, Guid.NewGuid(), userId, merchantId, Guid.NewGuid(), DateTime.UtcNow);
         }
         return await OpenAsPlatformUserAsync(AdminConn, userId);
     }
@@ -176,16 +176,16 @@ internal static class IntegrationDb
     public static Task InsertPlatformUserAsync(SqlConnection c, Guid id, string? subject, string email, int tier, int status) =>
         ExecAsync(c,
             """
-            INSERT admin.PlatformUsers (Id, Subject, Email, Tier, Status, CreatedAt)
+            INSERT admin.Users (Id, Subject, Email, Tier, Status, CreatedAt)
             VALUES (@id, @sub, @email, @tier, @status, SYSUTCDATETIME());
             """,
             ("@id", id), ("@sub", (object?)subject ?? DBNull.Value), ("@email", email), ("@tier", tier), ("@status", status));
 
-    public static Task InsertPlatformMerchantAccessAsync(
+    public static Task InsertMerchantAccessAsync(
         SqlConnection c, Guid id, Guid platformUserId, Guid merchantId, Guid assignedByAdminId, DateTime assignedAt) =>
         ExecAsync(c,
             """
-            INSERT admin.PlatformMerchantAccess (Id, PlatformUserId, MerchantId, AssignedByAdminId, AssignedAt)
+            INSERT admin.MerchantAccess (Id, PlatformUserId, MerchantId, AssignedByAdminId, AssignedAt)
             VALUES (@id, @u, @m, @by, @at);
             """,
             ("@id", id), ("@u", platformUserId), ("@m", merchantId), ("@by", assignedByAdminId), ("@at", assignedAt));

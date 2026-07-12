@@ -22,7 +22,7 @@ unset DB_PW
 
 # The API also provisions merchants CROSS-MERCHANT under pol_admin on a SEPARATE connection — pol_admin is NOT
 # an RLS-bypass role member (T5): it reaches other merchants' rows via the Super/Scoped branches of
-# sec.fn_merchant_predicate (a Scoped admin only as far as admin.PlatformMerchantAccess allows), not a blanket
+# sec.fn_merchant_predicate (a Scoped admin only as far as admin.MerchantAccess allows), not a blanket
 # bypass. The pol_app principal above stays RLS-filtered to its own merchant. When an admin password file is
 # mounted, build that connection too (the API fail-fasts at boot without it); the Worker mounts none and
 # skips this. A distinct principal, so it cannot be the same $CONN as App.

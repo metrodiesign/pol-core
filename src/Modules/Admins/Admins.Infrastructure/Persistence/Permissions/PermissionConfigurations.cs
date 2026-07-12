@@ -12,7 +12,7 @@ public sealed class PermissionGroupConfiguration : IEntityTypeConfiguration<Perm
 {
     public void Configure(EntityTypeBuilder<PermissionGroup> builder)
     {
-        builder.ToTable("AdminPermissionGroups", SchemaNames.Admin);
+        builder.ToTable("PermissionGroups", SchemaNames.Admin);
         builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(32);
         builder.Property(x => x.LabelTh).HasMaxLength(128).IsRequired();
@@ -24,7 +24,7 @@ public sealed class PermissionConfiguration : IEntityTypeConfiguration<Permissio
 {
     public void Configure(EntityTypeBuilder<Permission> builder)
     {
-        builder.ToTable("AdminPermissions", SchemaNames.Admin);
+        builder.ToTable("Permissions", SchemaNames.Admin);
         builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(64);
         builder.Property(x => x.GroupKey).HasMaxLength(32).IsRequired();

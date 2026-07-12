@@ -3,7 +3,7 @@ using SharedKernel;
 namespace Merchants.Domain.Users.Roles;
 
 /// <summary>One permission key granted to a role — a standalone child row with a surrogate id, a unique
-/// (RoleId, PermissionKey), and a FK to merch.Keys so a role can never grant a key outside the
+/// (RoleId, PermissionKey), and a FK to merch.Permissions so a role can never grant a key outside the
 /// catalog. Created and removed only through the <see cref="Role"/> aggregate.</summary>
 // ponytail: DUPLICATE of Admins.Domain.AdminRolePermission — deliberate debt, do not refactor into a shared base.
 public sealed class RolePermission : Entity<Guid>

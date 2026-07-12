@@ -16,7 +16,7 @@ public sealed class PermissionGroupConfiguration : IEntityTypeConfiguration<Perm
 {
     public void Configure(EntityTypeBuilder<PermissionGroup> builder)
     {
-        builder.ToTable("MerchantUserPermissionGroups", SchemaNames.Merch);
+        builder.ToTable("PermissionGroups", SchemaNames.Merch);
         builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(32);
         builder.Property(x => x.LabelTh).HasMaxLength(128).IsRequired();
@@ -28,7 +28,7 @@ public sealed class PermissionConfiguration : IEntityTypeConfiguration<Permissio
 {
     public void Configure(EntityTypeBuilder<Permission> builder)
     {
-        builder.ToTable("Keys", SchemaNames.Merch);
+        builder.ToTable("Permissions", SchemaNames.Merch);
         builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(64);
         builder.Property(x => x.GroupKey).HasMaxLength(32).IsRequired();
@@ -44,7 +44,7 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
 {
     public void Configure(EntityTypeBuilder<Role> builder)
     {
-        builder.ToTable("MerchantUserRoleDefinitions", SchemaNames.Merch);
+        builder.ToTable("Roles", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(64).IsRequired();
         builder.HasIndex(x => x.Code).IsUnique(); // immutable identity (REQ-16.1)
@@ -64,7 +64,7 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
 {
     public void Configure(EntityTypeBuilder<RolePermission> builder)
     {
-        builder.ToTable("MerchantUserRolePermissions", SchemaNames.Merch);
+        builder.ToTable("RolePermissions", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.PermissionKey).HasMaxLength(64).IsRequired();
         builder.HasIndex(x => new { x.RoleId, x.PermissionKey }).IsUnique(); // one grant per (role, permission)
@@ -79,7 +79,7 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
 {
     public void Configure(EntityTypeBuilder<RoleAssignment> builder)
     {
-        builder.ToTable("MerchantUserRoleAssignments", SchemaNames.Merch);
+        builder.ToTable("RoleAssignments", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.MerchantUserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();

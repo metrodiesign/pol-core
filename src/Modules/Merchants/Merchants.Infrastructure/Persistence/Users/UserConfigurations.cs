@@ -15,7 +15,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("MerchantUsers", SchemaNames.Merch);
+        builder.ToTable("Users", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();

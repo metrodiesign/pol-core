@@ -453,7 +453,7 @@
          spec changed); `RouteSchemeAuthPreservationTests` updated to the moved register path and still
          asserts IAllowAnonymous unchanged.
 
-- [ ] 9. **Database renamed everywhere it is named — including the raw SQL the compiler cannot see.**
+- [x] 9. **Database renamed everywhere it is named — including the raw SQL the compiler cannot see.**
      Rename the `admin` and `merch` tables per design §6; `shop` and `txn` are untouched. Rewrite the
      three migrations, their designers, and `PolDbContextModelSnapshot` **in place** — they store CLR
      type names as strings, so a missed one means EF reports pending model changes. Then follow the
@@ -464,6 +464,43 @@
      Satisfies: REQ-10 (all criteria), REQ-14.1-14.4, REQ-1.3. Depends on: 4, 5, 6.
      Verify: `docker compose down -v` then `dotnet ef database update` on a fresh DB → **no pending model
      changes**; `assert-fresh-db.sql` passes; the RLS matrix test is green.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> 41 projects, 0 Warning(s), 0 Error(s); `dotnet ef migrations
+         has-pending-model-changes` -> "No changes have been made to the model since the last migration."
+         (re-run independently by the orchestrator after the implementer's run — both clean)
+       - test: fresh-DB cutover run for real — `docker compose down -v && docker compose up -d` (:11433),
+         `dotnet ef database update` applied all 3 rewritten migrations cleanly (empirically proves the
+         same-named `PK_Users`/`PK_Roles`/`PK_Sessions` across `admin`/`merch` do not collide — SQL Server
+         object names are schema-scoped); `assert-fresh-db.sql` via sqlcmd -> "assert-fresh-db: OK"
+         (schemas, functions, procs, policy, bypass-role membership, grant floor, seed counts 6/16/5 admin
+         + 3/7/2 merch on the RENAMED tables).
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> all 11 unit/host
+         projects green at identical baseline counts. `source .env.integration && dotnet test
+         tests/Integration.Tests --no-build` -> **86 passed / 0 failed** — first green integration run of
+         this feature (RLS matrix, grants, outbox round-trip against the renamed schema), REQ-10.7/14.3
+         satisfied on a genuinely fresh database.
+       - viewports: n/a — backend-only (DB objects + migrations, no UI)
+       - deviations: (1) FOUND AND CORRECTED an undocumented drift from task 5: its sweep had changed the
+         merch `Permission` entity's mapping to `ToTable("Keys", …)` (following the TYPE rename to
+         `Permissions.Keys`) — design §6 mandates table `merch.Permissions`; corrected, plus the two
+         comments naming `merch.Keys`. Verified consistent via has-pending-model-changes + fresh-DB
+         asserts. (2) GRANT matrix: 18 GRANT lines (10 admin + 8 merch) in `Up()` + 18 mirrored REVOKE
+         lines in `Down()` all updated; `CREATE SECURITY POLICY` clauses needed no change (none of its
+         tables renamed); `sec.fn_merchant_predicate` body: `admin.PlatformUsers` -> `admin.Users`,
+         `admin.PlatformMerchantAccess` -> `admin.MerchantAccess`. SeedData: 10 INSERT + matching DELETE
+         table refs renamed; permission-key VALUES byte-for-byte untouched (12 `merchant_user.*`
+         occurrences remain, task 10 owns them). (3) Stale CLR-name strings from tasks 4/5/6 fixed
+         throughout snapshot + 3 designers: 224 quoted-string replacements over 30 distinct mappings
+         (incl. `HasBaseType` refs to `MasterDataItem`); replacements done as exact-quoted-string matches
+         because several old CLR names are literal prefixes of others. (4) Integration.Tests raw
+         SQL/comments renamed in 10 files (the same literals task 4 deliberately reverted back then —
+         their time was now). (5) Two unit-test fake in-memory SQLite doubles keep arbitrary old table
+         strings (`AdminAccountSfsTests.cs:211` `ToTable("PlatformUsers")`, `AdminRoleSfsTests.cs:216`
+         `ToTable("AdminRoles")`) — zero coupling to the real schema; left for task 12's identifier gate
+         to fix or except (flagged so it is a decision, not a surprise). (6) `docker/entrypoint.sh:25`
+         comment updated; prose comments elsewhere left for task 12's scrub (task 6 precedent). The
+         pol-db container is left up in the freshly migrated state for later tasks.
 
 - [ ] 10. **Wire strings: permission keys, auth schemes, the OIDC callback — and the three things that
      deliberately do not move.**

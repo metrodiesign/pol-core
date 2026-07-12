@@ -13,7 +13,7 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 {
     public void Configure(EntityTypeBuilder<Session> builder)
     {
-        builder.ToTable("PlatformUserSessions", SchemaNames.Admin);
+        builder.ToTable("Sessions", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.FamilyId).IsRequired();
         builder.Property(x => x.TokenHash).IsRequired().HasMaxLength(32); // varbinary(32) — SHA-256 digest
@@ -37,7 +37,7 @@ public sealed class AuthAuditConfiguration : IEntityTypeConfiguration<AuthAudit>
 {
     public void Configure(EntityTypeBuilder<AuthAudit> builder)
     {
-        builder.ToTable("PlatformAuthAudits", SchemaNames.Admin);
+        builder.ToTable("AuthAudits", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.EventType).HasMaxLength(32).IsRequired();
         builder.Property(x => x.PlatformUserId);             // null when no admin was resolved (REQ-12.4)

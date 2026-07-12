@@ -17,14 +17,14 @@ public sealed class AdminSessionStoreIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid adminId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT admin.PlatformUserSessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT admin.Sessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @admin, @st, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, @abs, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),
             ("@admin", adminId), ("@st", status), ("@abs", absHours));
 
     private const string Supersede =
-        "UPDATE admin.PlatformUserSessions SET Status=1, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=0";
+        "UPDATE admin.Sessions SET Status=1, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=0";
 
     [Fact]
     public async Task Supersede_is_a_single_winner()
@@ -51,11 +51,11 @@ public sealed class AdminSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Superseded, 8);
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE admin.PlatformUserSessions SET Status=2 WHERE FamilyId=@f AND Status<>2", ("@f", family));
+            "UPDATE admin.Sessions SET Status=2 WHERE FamilyId=@f AND Status<>2", ("@f", family));
 
         Assert.Equal(2, revoked);
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.PlatformUserSessions WHERE FamilyId=@f AND Status<>2", ("@f", family))));
+            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status<>2", ("@f", family))));
     }
 
     [Fact]
@@ -69,14 +69,14 @@ public sealed class AdminSessionStoreIntegrationTests
         await InsertSessionAsync(conn, expired, Guid.NewGuid(), admin, Revoked, -1);  // absolute 1h ago
 
         var deleted = await IntegrationDb.ExecAsync(conn,
-            "DELETE admin.PlatformUserSessions WHERE AbsoluteExpiresAt < SYSUTCDATETIME() AND Id IN (@a,@b)",
+            "DELETE admin.Sessions WHERE AbsoluteExpiresAt < SYSUTCDATETIME() AND Id IN (@a,@b)",
             ("@a", live), ("@b", expired));
 
         Assert.Equal(1, deleted);
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.PlatformUserSessions WHERE Id=@id", ("@id", live))));   // live remains
+            "SELECT COUNT(*) FROM admin.Sessions WHERE Id=@id", ("@id", live))));   // live remains
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.PlatformUserSessions WHERE Id=@id", ("@id", expired)))); // expired gone
+            "SELECT COUNT(*) FROM admin.Sessions WHERE Id=@id", ("@id", expired)))); // expired gone
     }
 
     [Fact]
@@ -91,11 +91,11 @@ public sealed class AdminSessionStoreIntegrationTests
 
         // Exactly one Active -> the store returns that id.
         Assert.Equal(active, await IntegrationDb.ScalarAsync(conn,
-            "SELECT Id FROM admin.PlatformUserSessions WHERE FamilyId=@f AND Status=0", ("@f", family)));
+            "SELECT Id FROM admin.Sessions WHERE FamilyId=@f AND Status=0", ("@f", family)));
 
         // A second Active in the same family -> the store's Take(2) count != 1 -> "no single active" (fail-closed).
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Active, 8);
         Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.PlatformUserSessions WHERE FamilyId=@f AND Status=0", ("@f", family))));
+            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status=0", ("@f", family))));
     }
 }

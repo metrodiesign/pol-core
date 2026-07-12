@@ -14,7 +14,7 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
 {
     public void Configure(EntityTypeBuilder<Role> builder)
     {
-        builder.ToTable("AdminRoles", SchemaNames.Admin);
+        builder.ToTable("Roles", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(64).IsRequired();
         builder.HasIndex(x => x.Code).IsUnique(); // immutable identity (REQ-2.1/2.4)
@@ -34,7 +34,7 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
 {
     public void Configure(EntityTypeBuilder<RolePermission> builder)
     {
-        builder.ToTable("AdminRolePermissions", SchemaNames.Admin);
+        builder.ToTable("RolePermissions", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.PermissionKey).HasMaxLength(64).IsRequired();
         builder.HasIndex(x => new { x.RoleId, x.PermissionKey }).IsUnique(); // one grant per (role, permission)
@@ -49,7 +49,7 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
 {
     public void Configure(EntityTypeBuilder<RoleAssignment> builder)
     {
-        builder.ToTable("AdminRoleAssignments", SchemaNames.Admin);
+        builder.ToTable("RoleAssignments", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.PlatformUserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();

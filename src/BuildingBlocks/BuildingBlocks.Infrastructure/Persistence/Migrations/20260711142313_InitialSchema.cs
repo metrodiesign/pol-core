@@ -27,7 +27,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 name: "txn");
 
             migrationBuilder.CreateTable(
-                name: "AdminPermissionGroups",
+                name: "PermissionGroups",
                 schema: "admin",
                 columns: table => new
                 {
@@ -37,11 +37,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AdminPermissionGroups", x => x.Key);
+                    table.PrimaryKey("PK_PermissionGroups", x => x.Key);
                 });
 
             migrationBuilder.CreateTable(
-                name: "AdminRoles",
+                name: "Roles",
                 schema: "admin",
                 columns: table => new
                 {
@@ -54,7 +54,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AdminRoles", x => x.Id);
+                    table.PrimaryKey("PK_Roles", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -167,7 +167,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantAuthAudits",
+                name: "AuthAudits",
                 schema: "merch",
                 columns: table => new
                 {
@@ -181,7 +181,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantAuthAudits", x => x.Id);
+                    table.PrimaryKey("PK_AuthAudits", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -206,7 +206,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUserPermissionGroups",
+                name: "PermissionGroups",
                 schema: "merch",
                 columns: table => new
                 {
@@ -216,11 +216,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUserPermissionGroups", x => x.Key);
+                    table.PrimaryKey("PK_PermissionGroups", x => x.Key);
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUserRoleDefinitions",
+                name: "Roles",
                 schema: "merch",
                 columns: table => new
                 {
@@ -233,11 +233,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUserRoleDefinitions", x => x.Id);
+                    table.PrimaryKey("PK_Roles", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUsers",
+                name: "Users",
                 schema: "merch",
                 columns: table => new
                 {
@@ -260,11 +260,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUsers", x => x.Id);
+                    table.PrimaryKey("PK_Users", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUserSessions",
+                name: "Sessions",
                 schema: "merch",
                 columns: table => new
                 {
@@ -283,7 +283,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUserSessions", x => x.Id);
+                    table.PrimaryKey("PK_Sessions", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -370,7 +370,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlatformAuthAudits",
+                name: "AuthAudits",
                 schema: "admin",
                 columns: table => new
                 {
@@ -384,11 +384,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PlatformAuthAudits", x => x.Id);
+                    table.PrimaryKey("PK_AuthAudits", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlatformMerchantAccess",
+                name: "MerchantAccess",
                 schema: "admin",
                 columns: table => new
                 {
@@ -400,11 +400,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PlatformMerchantAccess", x => x.Id);
+                    table.PrimaryKey("PK_MerchantAccess", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlatformUserAudits",
+                name: "UserAudits",
                 schema: "admin",
                 columns: table => new
                 {
@@ -420,11 +420,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PlatformUserAudits", x => x.Id);
+                    table.PrimaryKey("PK_UserAudits", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlatformUserSessions",
+                name: "Sessions",
                 schema: "admin",
                 columns: table => new
                 {
@@ -443,7 +443,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PlatformUserSessions", x => x.Id);
+                    table.PrimaryKey("PK_Sessions", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -574,7 +574,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "AdminPermissions",
+                name: "Permissions",
                 schema: "admin",
                 columns: table => new
                 {
@@ -585,18 +585,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AdminPermissions", x => x.Key);
+                    table.PrimaryKey("PK_Permissions", x => x.Key);
                     table.ForeignKey(
-                        name: "FK_AdminPermissions_AdminPermissionGroups_GroupKey",
+                        name: "FK_Permissions_PermissionGroups_GroupKey",
                         column: x => x.GroupKey,
                         principalSchema: "admin",
-                        principalTable: "AdminPermissionGroups",
+                        principalTable: "PermissionGroups",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "AdminRoleAssignments",
+                name: "RoleAssignments",
                 schema: "admin",
                 columns: table => new
                 {
@@ -608,12 +608,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AdminRoleAssignments", x => x.Id);
+                    table.PrimaryKey("PK_RoleAssignments", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_AdminRoleAssignments_AdminRoles_RoleId",
+                        name: "FK_RoleAssignments_Roles_RoleId",
                         column: x => x.RoleId,
                         principalSchema: "admin",
-                        principalTable: "AdminRoles",
+                        principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
@@ -643,7 +643,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUserPermissions",
+                name: "Permissions",
                 schema: "merch",
                 columns: table => new
                 {
@@ -654,18 +654,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUserPermissions", x => x.Key);
+                    table.PrimaryKey("PK_Permissions", x => x.Key);
                     table.ForeignKey(
-                        name: "FK_MerchantUserPermissions_MerchantUserPermissionGroups_GroupKey",
+                        name: "FK_Permissions_PermissionGroups_GroupKey",
                         column: x => x.GroupKey,
                         principalSchema: "merch",
-                        principalTable: "MerchantUserPermissionGroups",
+                        principalTable: "PermissionGroups",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUserRoleAssignments",
+                name: "RoleAssignments",
                 schema: "merch",
                 columns: table => new
                 {
@@ -678,18 +678,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUserRoleAssignments", x => x.Id);
+                    table.PrimaryKey("PK_RoleAssignments", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_MerchantUserRoleAssignments_MerchantUserRoleDefinitions_RoleId",
+                        name: "FK_RoleAssignments_Roles_RoleId",
                         column: x => x.RoleId,
                         principalSchema: "merch",
-                        principalTable: "MerchantUserRoleDefinitions",
+                        principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
-                name: "PlatformUsers",
+                name: "Users",
                 schema: "admin",
                 columns: table => new
                 {
@@ -706,30 +706,30 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_PlatformUsers", x => x.Id);
+                    table.PrimaryKey("PK_Users", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_PlatformUsers_Divisions_DivisionId",
+                        name: "FK_Users_Divisions_DivisionId",
                         column: x => x.DivisionId,
                         principalSchema: "admin",
                         principalTable: "Divisions",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_PlatformUsers_Levels_LevelId",
+                        name: "FK_Users_Levels_LevelId",
                         column: x => x.LevelId,
                         principalSchema: "admin",
                         principalTable: "Levels",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_PlatformUsers_Offices_OfficeId",
+                        name: "FK_Users_Offices_OfficeId",
                         column: x => x.OfficeId,
                         principalSchema: "admin",
                         principalTable: "Offices",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_PlatformUsers_Positions_PositionId",
+                        name: "FK_Users_Positions_PositionId",
                         column: x => x.PositionId,
                         principalSchema: "admin",
                         principalTable: "Positions",
@@ -738,7 +738,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "AdminRolePermissions",
+                name: "RolePermissions",
                 schema: "admin",
                 columns: table => new
                 {
@@ -748,25 +748,25 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_AdminRolePermissions", x => x.Id);
+                    table.PrimaryKey("PK_RolePermissions", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_AdminRolePermissions_AdminPermissions_PermissionKey",
+                        name: "FK_RolePermissions_Permissions_PermissionKey",
                         column: x => x.PermissionKey,
                         principalSchema: "admin",
-                        principalTable: "AdminPermissions",
+                        principalTable: "Permissions",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_AdminRolePermissions_AdminRoles_RoleId",
+                        name: "FK_RolePermissions_Roles_RoleId",
                         column: x => x.RoleId,
                         principalSchema: "admin",
-                        principalTable: "AdminRoles",
+                        principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "MerchantUserRolePermissions",
+                name: "RolePermissions",
                 schema: "merch",
                 columns: table => new
                 {
@@ -776,59 +776,59 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_MerchantUserRolePermissions", x => x.Id);
+                    table.PrimaryKey("PK_RolePermissions", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_MerchantUserRolePermissions_MerchantUserPermissions_PermissionKey",
+                        name: "FK_RolePermissions_Permissions_PermissionKey",
                         column: x => x.PermissionKey,
                         principalSchema: "merch",
-                        principalTable: "MerchantUserPermissions",
+                        principalTable: "Permissions",
                         principalColumn: "Key",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_MerchantUserRolePermissions_MerchantUserRoleDefinitions_RoleId",
+                        name: "FK_RolePermissions_Roles_RoleId",
                         column: x => x.RoleId,
                         principalSchema: "merch",
-                        principalTable: "MerchantUserRoleDefinitions",
+                        principalTable: "Roles",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminPermissions_GroupKey",
+                name: "IX_Permissions_GroupKey",
                 schema: "admin",
-                table: "AdminPermissions",
+                table: "Permissions",
                 column: "GroupKey");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminRoleAssignments_PlatformUserId_RoleId",
+                name: "IX_RoleAssignments_PlatformUserId_RoleId",
                 schema: "admin",
-                table: "AdminRoleAssignments",
+                table: "RoleAssignments",
                 columns: new[] { "PlatformUserId", "RoleId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminRoleAssignments_RoleId",
+                name: "IX_RoleAssignments_RoleId",
                 schema: "admin",
-                table: "AdminRoleAssignments",
+                table: "RoleAssignments",
                 column: "RoleId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminRolePermissions_PermissionKey",
+                name: "IX_RolePermissions_PermissionKey",
                 schema: "admin",
-                table: "AdminRolePermissions",
+                table: "RolePermissions",
                 column: "PermissionKey");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminRolePermissions_RoleId_PermissionKey",
+                name: "IX_RolePermissions_RoleId_PermissionKey",
                 schema: "admin",
-                table: "AdminRolePermissions",
+                table: "RolePermissions",
                 columns: new[] { "RoleId", "PermissionKey" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_AdminRoles_Code",
+                name: "IX_Roles_Code",
                 schema: "admin",
-                table: "AdminRoles",
+                table: "Roles",
                 column: "Code",
                 unique: true);
 
@@ -860,9 +860,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantAuthAudits_MerchantUserId",
+                name: "IX_AuthAudits_MerchantUserId",
                 schema: "merch",
-                table: "MerchantAuthAudits",
+                table: "AuthAudits",
                 column: "MerchantUserId");
 
             migrationBuilder.CreateIndex(
@@ -873,79 +873,79 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserPermissions_GroupKey",
+                name: "IX_Permissions_GroupKey",
                 schema: "merch",
-                table: "MerchantUserPermissions",
+                table: "Permissions",
                 column: "GroupKey");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserRoleAssignments_MerchantUserId_MerchantId",
+                name: "IX_RoleAssignments_MerchantUserId_MerchantId",
                 schema: "merch",
-                table: "MerchantUserRoleAssignments",
+                table: "RoleAssignments",
                 columns: new[] { "MerchantUserId", "MerchantId" });
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserRoleAssignments_MerchantUserId_RoleId",
+                name: "IX_RoleAssignments_MerchantUserId_RoleId",
                 schema: "merch",
-                table: "MerchantUserRoleAssignments",
+                table: "RoleAssignments",
                 columns: new[] { "MerchantUserId", "RoleId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserRoleAssignments_RoleId",
+                name: "IX_RoleAssignments_RoleId",
                 schema: "merch",
-                table: "MerchantUserRoleAssignments",
+                table: "RoleAssignments",
                 column: "RoleId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserRoleDefinitions_Code",
+                name: "IX_Roles_Code",
                 schema: "merch",
-                table: "MerchantUserRoleDefinitions",
+                table: "Roles",
                 column: "Code",
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserRolePermissions_PermissionKey",
+                name: "IX_RolePermissions_PermissionKey",
                 schema: "merch",
-                table: "MerchantUserRolePermissions",
+                table: "RolePermissions",
                 column: "PermissionKey");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserRolePermissions_RoleId_PermissionKey",
+                name: "IX_RolePermissions_RoleId_PermissionKey",
                 schema: "merch",
-                table: "MerchantUserRolePermissions",
+                table: "RolePermissions",
                 columns: new[] { "RoleId", "PermissionKey" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUsers_Subject",
+                name: "IX_Users_Subject",
                 schema: "merch",
-                table: "MerchantUsers",
+                table: "Users",
                 column: "Subject",
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserSessions_AbsoluteExpiresAt",
+                name: "IX_Sessions_AbsoluteExpiresAt",
                 schema: "merch",
-                table: "MerchantUserSessions",
+                table: "Sessions",
                 column: "AbsoluteExpiresAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserSessions_FamilyId",
+                name: "IX_Sessions_FamilyId",
                 schema: "merch",
-                table: "MerchantUserSessions",
+                table: "Sessions",
                 column: "FamilyId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserSessions_MerchantUserId",
+                name: "IX_Sessions_MerchantUserId",
                 schema: "merch",
-                table: "MerchantUserSessions",
+                table: "Sessions",
                 column: "MerchantUserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_MerchantUserSessions_TokenHash",
+                name: "IX_Sessions_TokenHash",
                 schema: "merch",
-                table: "MerchantUserSessions",
+                table: "Sessions",
                 column: "TokenHash",
                 unique: true);
 
@@ -1005,79 +1005,79 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 filter: "[PspExternalChargeId] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformAuthAudits_PlatformUserId",
+                name: "IX_AuthAudits_PlatformUserId",
                 schema: "admin",
-                table: "PlatformAuthAudits",
+                table: "AuthAudits",
                 column: "PlatformUserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformMerchantAccess_PlatformUserId_MerchantId",
+                name: "IX_MerchantAccess_PlatformUserId_MerchantId",
                 schema: "admin",
-                table: "PlatformMerchantAccess",
+                table: "MerchantAccess",
                 columns: new[] { "PlatformUserId", "MerchantId" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUsers_DivisionId",
+                name: "IX_Users_DivisionId",
                 schema: "admin",
-                table: "PlatformUsers",
+                table: "Users",
                 column: "DivisionId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUsers_Email",
+                name: "IX_Users_Email",
                 schema: "admin",
-                table: "PlatformUsers",
+                table: "Users",
                 column: "Email",
                 unique: true);
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUsers_LevelId",
+                name: "IX_Users_LevelId",
                 schema: "admin",
-                table: "PlatformUsers",
+                table: "Users",
                 column: "LevelId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUsers_OfficeId",
+                name: "IX_Users_OfficeId",
                 schema: "admin",
-                table: "PlatformUsers",
+                table: "Users",
                 column: "OfficeId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUsers_PositionId",
+                name: "IX_Users_PositionId",
                 schema: "admin",
-                table: "PlatformUsers",
+                table: "Users",
                 column: "PositionId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUsers_Subject",
+                name: "IX_Users_Subject",
                 schema: "admin",
-                table: "PlatformUsers",
+                table: "Users",
                 column: "Subject",
                 unique: true,
                 filter: "[Subject] IS NOT NULL");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUserSessions_AbsoluteExpiresAt",
+                name: "IX_Sessions_AbsoluteExpiresAt",
                 schema: "admin",
-                table: "PlatformUserSessions",
+                table: "Sessions",
                 column: "AbsoluteExpiresAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUserSessions_FamilyId",
+                name: "IX_Sessions_FamilyId",
                 schema: "admin",
-                table: "PlatformUserSessions",
+                table: "Sessions",
                 column: "FamilyId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUserSessions_PlatformUserId",
+                name: "IX_Sessions_PlatformUserId",
                 schema: "admin",
-                table: "PlatformUserSessions",
+                table: "Sessions",
                 column: "PlatformUserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_PlatformUserSessions_TokenHash",
+                name: "IX_Sessions_TokenHash",
                 schema: "admin",
-                table: "PlatformUserSessions",
+                table: "Sessions",
                 column: "TokenHash",
                 unique: true);
 
@@ -1119,11 +1119,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "AdminRoleAssignments",
+                name: "RoleAssignments",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "AdminRolePermissions",
+                name: "RolePermissions",
                 schema: "admin");
 
             migrationBuilder.DropTable(
@@ -1147,7 +1147,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "txn");
 
             migrationBuilder.DropTable(
-                name: "MerchantAuthAudits",
+                name: "AuthAudits",
                 schema: "merch");
 
             migrationBuilder.DropTable(
@@ -1155,19 +1155,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "MerchantUserRoleAssignments",
+                name: "RoleAssignments",
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "MerchantUserRolePermissions",
+                name: "RolePermissions",
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "MerchantUsers",
+                name: "Users",
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "MerchantUserSessions",
+                name: "Sessions",
                 schema: "merch");
 
             migrationBuilder.DropTable(
@@ -1183,23 +1183,23 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "txn");
 
             migrationBuilder.DropTable(
-                name: "PlatformAuthAudits",
+                name: "AuthAudits",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "PlatformMerchantAccess",
+                name: "MerchantAccess",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "PlatformUserAudits",
+                name: "UserAudits",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "PlatformUsers",
+                name: "Users",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "PlatformUserSessions",
+                name: "Sessions",
                 schema: "admin");
 
             migrationBuilder.DropTable(
@@ -1227,11 +1227,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "AdminPermissions",
+                name: "Permissions",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "AdminRoles",
+                name: "Roles",
                 schema: "admin");
 
             migrationBuilder.DropTable(
@@ -1239,11 +1239,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "shop");
 
             migrationBuilder.DropTable(
-                name: "MerchantUserPermissions",
+                name: "Permissions",
                 schema: "merch");
 
             migrationBuilder.DropTable(
-                name: "MerchantUserRoleDefinitions",
+                name: "Roles",
                 schema: "merch");
 
             migrationBuilder.DropTable(
@@ -1263,11 +1263,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "AdminPermissionGroups",
+                name: "PermissionGroups",
                 schema: "admin");
 
             migrationBuilder.DropTable(
-                name: "MerchantUserPermissionGroups",
+                name: "PermissionGroups",
                 schema: "merch");
         }
     }
