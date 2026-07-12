@@ -35,7 +35,12 @@ public sealed class EntitySchemaMappingTests : IDisposable
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
 
-        var options = new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection).Options;
+        // EnableServiceProviderCaching(false): EF's model cache keys on the CONTEXT TYPE, not on
+        // ModuleAssemblies — with caching on, this class and MoneyColumnMappingTests (5 assemblies, same
+        // PolDbContext + SQLite) share one cached model and whichever test class runs first wins, making
+        // Every_Iam_entity_maps_to_the_iam_schema flake by xunit ordering.
+        var options = new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection)
+            .EnableServiceProviderCaching(false).Options;
         var modules = new ModuleAssemblies([
             typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
             typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
