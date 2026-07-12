@@ -49,18 +49,21 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         });
     }
 
-    // Detail is a FIXED string per bucket — NEVER exception.Message — so tenant ids, PSP charge ids, SQL
-    // text, or tenant-binding state cannot leak. TenantBindingException is an opaque 500 by design.
+    // Detail is either a FIXED string per bucket or the exception's vetted, caller-safe SafeDetail —
+    // NEVER exception.Message — so tenant ids, PSP charge ids, SQL text, or tenant-binding state cannot
+    // leak. The opaque buckets (TenantBindingException, unknown 500) still emit no detail at all.
     private static (int Status, string Title, string? Detail) Map(Exception exception) => exception switch
     {
         NotFoundException =>
             (StatusCodes.Status404NotFound, "Resource not found", null),
         GoneException =>
             (StatusCodes.Status410Gone, "Gone", "This link has expired."),
-        ConcurrencyConflictException =>
-            (StatusCodes.Status409Conflict, "Conflict", "The resource was modified concurrently; please retry."),
-        ConflictException =>
-            (StatusCodes.Status409Conflict, "Conflict", "A resource with the same identifier already exists."),
+        ConcurrencyConflictException c =>
+            (StatusCodes.Status409Conflict, "Conflict",
+                c.SafeDetail ?? "The resource was modified concurrently; please retry."),
+        ConflictException c =>
+            (StatusCodes.Status409Conflict, "Conflict",
+                c.SafeDetail ?? "A resource with the same identifier already exists."),
         TenantBindingException =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
         ArgumentException =>

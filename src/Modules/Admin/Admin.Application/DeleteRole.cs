@@ -41,9 +41,13 @@ public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, Delet
             // Recovery-anchor guard (REQ-8.3): deleting the seed would create the same Super-tier lockout that
             // the deactivation guard prevents. A role with bound users is also undeletable (REQ-4.4).
             if (role.IsSuperAdminSeed)
-                throw new ConflictException("The super_admin role cannot be deleted.");
+                throw new ConflictException(
+                    "The super_admin role cannot be deleted.",
+                    safeDetail: "The super_admin role cannot be deleted.");
             if (await _roles.CountAssignmentsForRoleAsync(role.Id, ct) > 0)
-                throw new ConflictException("A role with bound users cannot be deleted.");
+                throw new ConflictException(
+                    "A role with bound users cannot be deleted.",
+                    safeDetail: "A role with bound users cannot be deleted; reassign or remove its users first.");
 
             _roles.Remove(role);
             _audit.Append(AdminAccountAudit.For(

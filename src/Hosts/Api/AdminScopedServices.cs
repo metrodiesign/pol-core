@@ -33,14 +33,17 @@ internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
         catch (DbUpdateConcurrencyException ex)
         {
             throw new ConcurrencyConflictException(
-                "A concurrent change to the same record was detected; the save was rejected.", ex);
+                "A concurrent change to the same record was detected; the save was rejected.",
+                safeDetail: "The resource was modified concurrently; please retry.", ex);
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 2627 or 2601 })
         {
-            // SQL Server 2627/2601 = unique-violation. A duplicate tenant code that races past the
-            // ExistsByCodeAsync pre-check lands here -> surface a domain conflict (409), not an opaque 500.
+            // SQL Server 2627/2601 = unique-violation. A duplicate tenant code (or role code) that races past
+            // the application pre-check lands here -> surface a domain conflict (409), not an opaque 500.
+            // SafeDetail stays generic (no table/index/key names) so nothing about the schema leaks.
             throw new ConflictException(
-                "A record with the same unique key already exists; the insert was rejected.", ex);
+                "A record with the same unique key already exists; the insert was rejected.",
+                safeDetail: "A record with the same unique key already exists.", ex);
         }
     }
 

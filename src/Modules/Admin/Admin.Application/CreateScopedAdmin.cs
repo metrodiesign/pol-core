@@ -39,7 +39,9 @@ public sealed class CreateScopedAdminHandler : ICommandHandler<CreateScopedAdmin
         {
             // Pre-check for a clean 409 message (the unique Email index is the race-safe backstop).
             if (await _admins.GetByEmailAsync(command.Email.Trim(), ct) is not null)
-                throw new ConflictException($"An admin with email '{command.Email}' already exists.");
+                throw new ConflictException(
+                    $"An admin with email '{command.Email}' already exists.",
+                    safeDetail: "An admin with this email already exists.");
 
             var account = AdminAccount.CreateScoped(command.Email, _clock.UtcNow);
             _admins.Add(account);

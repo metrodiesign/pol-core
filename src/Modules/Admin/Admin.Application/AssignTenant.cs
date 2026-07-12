@@ -39,17 +39,23 @@ public sealed class AssignTenantHandler : ICommandHandler<AssignTenantCommand, A
     {
         // The selected tenant must exist AND be active — reuse the same directory the approve path trusts.
         if (!await _tenants.IsActiveTenantAsync(command.TenantId, cancellationToken))
-            throw new ConflictException("The selected tenant does not exist or is not active.");
+            throw new ConflictException(
+                "The selected tenant does not exist or is not active.",
+                safeDetail: "The selected tenant does not exist or is not active.");
 
         var assignmentId = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var admin = await _admins.GetByIdAsync(command.AdminId, ct)
                 ?? throw new NotFoundException("The admin account was not found.");
             if (admin.Tier != AdminTier.Scoped)
-                throw new ConflictException("Tenant assignments apply only to Scoped admins; a Super already has unrestricted reach.");
+                throw new ConflictException(
+                    "Tenant assignments apply only to Scoped admins; a Super already has unrestricted reach.",
+                    safeDetail: "Tenant assignments apply only to Scoped admins; a Super already has unrestricted reach.");
 
             if (await _admins.GetAssignmentAsync(command.AdminId, command.TenantId, ct) is not null)
-                throw new ConflictException("That tenant is already assigned to this admin.");
+                throw new ConflictException(
+                    "That tenant is already assigned to this admin.",
+                    safeDetail: "That tenant is already assigned to this admin.");
 
             var assignment = AdminTenantAssignment.Create(command.AdminId, command.TenantId, command.ActingAdminId, _clock.UtcNow);
             _admins.AddAssignment(assignment);

@@ -38,7 +38,9 @@ public sealed class CreateRoleHandler : ICommandHandler<CreateRoleCommand, Admin
         {
             var code = command.Code?.Trim() ?? string.Empty;
             if (await _roles.CodeExistsAsync(code, ct))
-                throw new ConflictException($"A role with code '{code}' already exists.");
+                throw new ConflictException(
+                    $"A role with code '{code}' already exists.",
+                    safeDetail: "A role with this code already exists.");
 
             var catalog = await _roles.ListCatalogKeysAsync(ct);
             var role = AdminRole.Create(code, command.Name, command.Description, command.Color,

@@ -41,7 +41,9 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, Admin
 
             // Recovery-anchor guard (REQ-8.3): a clean 409 before the domain backstop would throw.
             if (role.IsSuperAdminSeed && command.Status == AdminRoleStatus.Inactive)
-                throw new ConflictException("The super_admin role cannot be deactivated.");
+                throw new ConflictException(
+                    "The super_admin role cannot be deactivated.",
+                    safeDetail: "The super_admin role cannot be deactivated.");
 
             var catalog = await _roles.ListCatalogKeysAsync(ct);
             role.Rename(command.Name);

@@ -21,17 +21,21 @@ public sealed class EfUnitOfWork : IUnitOfWork
         catch (DbUpdateConcurrencyException ex)
         {
             // Translate the provider-specific concurrency failure into an application-layer signal so
-            // handlers can react without referencing EF Core.
+            // handlers can react without referencing EF Core. SafeDetail is a generic, caller-safe wire
+            // string — no SQL text or key names leak.
             throw new ConcurrencyConflictException(
-                "A concurrent change to the same record was detected; the save was rejected.", ex);
+                "A concurrent change to the same record was detected; the save was rejected.",
+                safeDetail: "The resource was modified concurrently; please retry.", ex);
         }
         catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
             // A unique-index violation that races past an application-level pre-check (e.g. two admins
             // provisioning the same tenant code at once) is a 409, not a 500. Same layering rationale as
-            // above — the application sees a domain conflict, never an EF/SQL type.
+            // above — the application sees a domain conflict, never an EF/SQL type. SafeDetail stays
+            // generic (no table/index/key names) so nothing about the schema leaks.
             throw new ConflictException(
-                "A record with the same unique key already exists; the insert was rejected.", ex);
+                "A record with the same unique key already exists; the insert was rejected.",
+                safeDetail: "A record with the same unique key already exists.", ex);
         }
     }
 

@@ -232,13 +232,14 @@ permissions array = the permission's `GroupKey` (no extra column). Enum stored a
 
 ## Error Handling Strategy
 
-| condition | response | REQ |
+| condition | response (`detail`) | REQ |
 |---|---|---|
-| create role, duplicate `Code` | 409 Conflict | 2.3 |
+| create role, duplicate `Code` | 409 Conflict — "A role with this code already exists." | 2.3 |
 | create/update role, permission key ∉ catalog | 400 Bad Request (no persist) | 3.3 |
 | update attempts to change `Code` | `Code` simply not read from body (immutable) | 2.4 |
-| delete role with ≥1 assignment | 409 Conflict | 4.4 |
-| deactivate `super_admin` seed | 400/409 (domain throws) | 8.3 |
+| delete role with ≥1 assignment | 409 Conflict — "A role with bound users cannot be deleted; reassign or remove its users first." | 4.4 |
+| deactivate `super_admin` seed | 409 Conflict — "The super_admin role cannot be deactivated." | 8.3 |
+| delete `super_admin` seed | 409 Conflict — "The super_admin role cannot be deleted." | 8.3 |
 | gated request missing permission | 403 Forbidden, handler not run | 6.2 |
 | startup: gate key absent from catalog | throw in StartAsync → app fails to boot | 11.2 |
 | unknown role `{code}` on GET/PUT/DELETE | 404 Not Found | — |
@@ -247,6 +248,15 @@ permissions array = the permission's `GroupKey` (no extra column). Enum stored a
 
 Domain invariants throw; command handlers translate to the documented HTTP status. Permission validation
 happens BEFORE any persistence so a rejected mutation leaves no partial state.
+
+**409 `detail` is precise and caller-safe.** Every 409 carries an RFC7807 `detail` sourced from
+`ConflictException.SafeDetail` (a fixed, reviewed sentence per throw site) so the frontend can distinguish
+*why* a conflict occurred and surface it to the operator — the previous single generic string
+("A resource with the same identifier already exists.") made a legitimate edit-conflict look like a
+spurious backend bug. The rich `exception.Message` (which may interpolate an email/code/id) is logged
+server-side only and is NEVER put on the wire; an un-annotated conflict falls back to the generic string.
+This is the ONLY place a conflict reason reaches the client — `ProblemDetailsExceptionHandler` stays the
+single status/detail authority, and the opaque buckets (`TenantBindingException`, unknown 500) leak nothing.
 
 ## Testing Strategy
 

@@ -37,8 +37,11 @@ public sealed class ProblemDetailsExceptionHandlerTests
 
     public static TheoryData<Exception> OpaqueBuckets() => new()
     {
-        new Exception(LeakProbe),                 // unknown -> 500
-        new TenantBindingException(LeakProbe),    // security-floor signal -> opaque 500
+        new Exception(LeakProbe),                                  // unknown -> 500
+        new TenantBindingException(LeakProbe),                    // security-floor signal -> opaque 500
+        new ConflictException(LeakProbe),                        // 409, no SafeDetail -> generic detail, message stays off the wire
+        new ConflictException(LeakProbe, safeDetail: null),     // 409, explicit null SafeDetail -> same
+        new ConcurrencyConflictException(LeakProbe),           // 409, no SafeDetail -> generic detail, message stays off the wire
     };
 
     private const string LeakProbe = "do-not-leak-internal-detail-xyz";
@@ -55,6 +58,36 @@ public sealed class ProblemDetailsExceptionHandlerTests
         var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
         Assert.DoesNotContain(LeakProbe, body);
         Assert.DoesNotContain("StackTrace", body);
+    }
+
+    [Fact]
+    public async Task A_conflict_with_a_safe_detail_surfaces_it_without_leaking_the_message()
+    {
+        var (handler, context) = Build();
+        // Message carries an internal probe (as if it interpolated an email/id); SafeDetail is the vetted wire string.
+        var exception = new ConflictException(LeakProbe, safeDetail: "The super_admin role cannot be deactivated.");
+
+        await handler.TryHandleAsync(context, exception, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("The super_admin role cannot be deactivated.", body);
+        Assert.DoesNotContain(LeakProbe, body);
+    }
+
+    [Fact]
+    public async Task A_conflict_without_a_safe_detail_falls_back_to_the_generic_detail()
+    {
+        var (handler, context) = Build();
+
+        await handler.TryHandleAsync(context, new ConflictException(LeakProbe), CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("A resource with the same identifier already exists.", body);
+        Assert.DoesNotContain(LeakProbe, body);
     }
 
     [Fact]
