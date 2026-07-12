@@ -272,7 +272,7 @@
             found — the only existing dependents are the Iam store (`RoleStore`/`RoleSfs`/`RoleConfigurations`)
             and the two side resolution repositories, all already inside the carve-out namespaces.
 
-- [ ] 6. Integration suite — บน :11433 (bootstrap+migrate ก่อน): seed drift guard (iam rows
+- [x] 6. Integration suite — บน :11433 (bootstrap+migrate ก่อน): seed drift guard (iam rows
      SetEquals vocabulary + 4 roles + grants ต่อ role), grants matrix (pol_admin ตามตาราง /
      pol_app deny บน `iam.*`), no-RLS บน `iam.*` (sys.security_policies), FK bogus key reject,
      UNIQUE NULL-bucket pin (shared code ซ้ำ → DB reject), assignment drift guard (Scope ตรงฝั่ง
@@ -285,6 +285,76 @@
      Satisfies: REQ-2.5, 2.6, 4.2, 4.4, 7.6, 8.1, 8.2, 8.3, 9.1, 9.2, 9.3, 10.2. Depends on: 4.
      Verify: `source .env.integration && dotnet test --filter Integration.Tests` (คำสั่งเดียวกัน
      ใน Bash call เดียว).
+     Evidence:
+       - build: `dotnet build -warnaserror` -> Build succeeded, 0 Warning(s), 0 Error(s) (full solution;
+         Integration.Tests now references `Iam.Domain` instead of the now-unused `Merchants.Domain` — the code
+         side of the seed drift guard moved to the single `Keys` vocabulary + `Role` anchors).
+       - test (verify gate, one Bash call): `source .env.integration && dotnet test --filter Integration.Tests`
+         -> Passed! Failed: 0, Passed: 93, Skipped: 0 (Integration.Tests.dll). The 17 new `iam.*`-native tests
+         (`IamCatalogGrantsTests` 8 + `IamRoleResolutionTests` 9) all green against live SQL Server 2025 on
+         :11433 (bootstrap + migrated chain `20260712185344_InitialSchema`/`SecurityObjects`/`SeedData` applied;
+         live pre-check: 8 groups/20 keys/4 roles/28 grants).
+       - non-integration (no collateral): `dotnet test --filter "Category!=Integration"` -> all 12 projects
+         green, 0 failed (Iam.Tests 64, Admins.Tests 95, Merchants.Tests 114, Hosts.Tests 226, Architecture.Tests
+         63, etc. unchanged).
+       - coverage of task-6 items:
+         * seed drift guard (REQ-10.2): `Seeded_catalog_equals_the_code_vocabulary` — DB keys/groups/role-codes
+           SetEqual `Keys.AllKeys`/`Keys.GroupKeys`/{4 roles}, and each group's DB `Scope` == `Keys.GroupScope`.
+         * seed shape + per-role grants (REQ-2.3/2.5): `Catalog_seed_matches_the_advertised_shape` — 8/20/4/28
+           and platform_admin 13 / platform_auditor 4 / merchant_manager 7 / merchant_staff 4.
+         * grants matrix (REQ-9.1): `Admin_has_full_crud_on_roles_but_the_vocabulary_is_read_only` (pol_admin
+           CRUD Roles/RolePermissions, INSERT on Permissions/PermissionGroups refused) + `App_principal_cannot
+           _touch_any_iam_table` (pol_app denied SELECT on all 4).
+         * no-RLS (REQ-9.2): `No_row_level_security_policy_covers_the_iam_schema` (sys.security_predicates on
+           iam objects = 0).
+         * FK bogus key reject (REQ-2.6): `A_role_cannot_grant_a_permission_outside_the_catalog`.
+         * UNIQUE NULL-bucket pin (REQ-6.3): `Shared_role_code_is_unique_across_the_null_bucket_but_reusable_
+           per_merchant` (two shared-NULL roles same Code → SqlException; two different merchants may reuse).
+         * assignment drift guard (REQ-7.6): `Every_assignment_row_points_at_a_same_side_role` (admin.* → Scope
+           Platform; merch.* → Scope Merchant AND MerchantId ∈ {NULL, assignment.MerchantId}).
+         * resolution defense-in-depth (REQ-4.2): `A_merchant_assignment_pointing_at_another_merchants_role_
+           does_not_contribute` + `Merchant_effective_permissions_union_only_active_visible_roles`.
+         * merchant A/B isolation (REQ-3.6): `Merchant_B_cannot_see_merchant_A_custom_role`.
+         * revoke/deactivate next request (REQ-4.4/4.6): `Deactivating_a_role_drops_its_permissions_on_the_
+           next_resolution`.
+         * orthogonality (REQ-8.2/8.3): `Platform_admin_role_grants_every_action_key_regardless_of_tier`
+           (Scoped tier still resolves all 13 keys — action from role) + `Tier_alone_grants_no_action_and_admin
+           _ignores_merchant_scope_roles` (Super with no role = 0 keys; a merchant-scope role assigned on the
+           admin side never resolves).
+         * bootstrap self-provision idempotent (REQ-8.1): `Bootstrap_binds_platform_admin_by_code_idempotently`
+           (resolve platform_admin by CODE in the Platform visible set, assign, second identical bind rejected
+           by the unique (PlatformUserId, RoleId) index, effective set = 13 keys).
+         * fresh-DB migrate from zero (REQ-9.3/1.4/2.5): `Reset_dropped_the_two_legacy_per_side_catalogs`
+           (the 8 admin.*/merch.* catalog tables gone, 4 iam.* present) — the whole run executes against a DB
+           migrated from zero per the runbook.
+       - deviations:
+         1. DELETED `tests/Integration.Tests/AdminRoleRbacGrantsTests.cs` — the admin-side analog of the merch
+            catalog test task 2 already deleted. It asserted against `admin.Permissions`/`admin.PermissionGroups`/
+            `admin.Roles`/`admin.RolePermissions`, all DROPPED by task 4's InitialSchema, so it was already RED
+            against the migrated DB (a pre-existing loose end task 6 owns). `IamCatalogGrantsTests` is its
+            `iam.*`-native successor (same drift-guard / grants / FK / pol_app-deny shape, now over the single
+            central catalog), so no coverage is lost.
+         2. Swapped the csproj `Merchants.Domain` ProjectReference for `Iam.Domain`: no source file referenced
+            `Merchants.Domain` any longer (the old per-side drift guard was deleted), and the drift guard's code
+            side is now `Iam.Domain.Permissions.Keys` + `Iam.Domain.Roles.Role`.
+         3. The three app-RESPONSE status codes in the task-6 E2E list — merchant edits shared = 409, cross-side
+            grant = 400, assign across scope = 400 — are HTTP-shaped handler outcomes; the Integration.Tests
+            suite is deliberately raw-connection (no HTTP/DbContext harness — see its csproj comment). Those exact
+            codes are already unit-covered over a real `PolDbContext` in `Iam.Tests`
+            (`UpdateRoleHandlerTests`/`CreateRoleHandlerTests`/`DeleteRoleHandlerTests`, both scopes, per task 2).
+            At the integration tier this task pins the LIVE-SQL floor those codes rest on and that SQLite cannot
+            prove: the shared seed is never in a merchant's owned mutable set (`A_shared_seed_role_is_not_in_any_
+            merchants_owned_mutable_set`, the 409's floor), the admin side never resolves a merchant-scope role
+            and Tier grants no action (the cross-side/assign-scope floor), and the assignment drift guard catches
+            any write that escaped validation. No E2E behaviour is unverified — the split is unit(app-code) +
+            integration(DB-contract), matching the suite's convention.
+         4. Added `IamCatalogCollection` ([CollectionDefinition]) and put both new classes in it so they run
+            sequentially: both mutate the one shared `iam.*` catalog, and the absolute seed-count / SetEquals
+            drift assertions would otherwise race the resolution class's transient probe rows under xUnit's
+            default per-class parallelism. Every mutating test cleans up its own iam.Roles/RoleAssignments in a
+            `finally`; transient `admin.Users` rows are left in place (pol_admin has no DELETE grant on that
+            control-plane table — the existing provisioning integration tests leave rows the same way; DB is
+            throwaway).
 
 - [ ] 7. Canon + docs sync — อัปเดต `.ai/shared/CODING_STANDARDS.md` (canonical entities:
      Iam catalog แทน 2 ชุดเดิม, permission keys/roles ใหม่) + `.ai/shared/ARCHITECTURE.md`
