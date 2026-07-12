@@ -11,7 +11,7 @@
 > and the detectors second satisfies every REQ on paper and defeats all of them in
 > practice (requirements.md, Edge Cases). Do not reorder 0 or 1.
 
-- [ ] 0. **Preconditions — the admin session-config bugfix, and proof there is no production data.**
+- [x] 0. **Preconditions — the admin session-config bugfix, and proof there is no production data.**
      Two gates that must both be true before a single file is renamed.
      (a) Fix the section-name mismatch: `PlatformUserSessionOptions.SectionName` reads
      `"PlatformUserSession"` while `appsettings.json` defines `"AdminSession"`, so admin session options
@@ -35,6 +35,21 @@
      widen. Awaiting PR #95 review/merge before checking this task done.
      (b) Confirmed with repo owner (2026-07-12): **no production deployment holds real data** — the
      big-bang reset in task 9 is safe to proceed as specced; no transfer migration needed.
+
+     Evidence:
+       - test: `dotnet test tests/Hosts.Tests` -> 194 passed / 0 failed (post-merge, on this branch after
+         merging develop@a0f9825, which carries PR #95)
+       - test: `dotnet test tests/Hosts.Tests --filter FullyQualifiedName~AdminAuthLoginRedirectTests` ->
+         3 passed / 0 failed, including the new
+         `PlatformUserSessionOptions_bind_from_the_appsettings_AdminSession_section` test; re-verified green
+         with `appsettings.Development.json` temporarily removed (CI-equivalent, no gitignored dev config)
+       - viewports: n/a — logic-only (config binding + backend test)
+       - deviations: none. PR #95 merged to develop (a0f9825); Codex P2 review flagged the binding test
+         depending on a gitignored local dev config to hit its asserted values — fixed (1585d66) before
+         merge to assert NotEmpty + Contains instead of a full-list Equal, verified self-contained.
+         Repo owner confirmed (this session, 2026-07-12): no staging/production deployment exists, so the
+         pre-merge `ReturnUrlAllowlist` audit had nothing live to widen; no production data exists, so the
+         big-bang reset in task 9 stays valid without a transfer migration.
 
 - [ ] 1. **Detectors, written against the code as it stands today.**
      Every one of these must be **green on the pre-rename, pre-move code** — a detector authored after
