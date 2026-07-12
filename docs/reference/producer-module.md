@@ -8,6 +8,15 @@
 > [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม) ·
 > [`rf1-schema-reset/FE-MIGRATION.md`](../../.ai/specs/rf1-schema-reset/FE-MIGRATION.md) (route/field mapping ที่ FE ใช้).
 > rewrite เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+>
+> **อัปเดต (hierarchical-naming, 2026-07-12):** มี rename รอบสองต่อจาก rf1 อีกชั้น — route
+> `/api/v1/merchant-users/*`→**`/api/v1/merchants/users/*`**, permission key admin catalog
+> `merchant_user.approve`/`.reject`→**`merchants.users.approve`/`.reject`**, merchant-user catalog
+> self-prefix ถูก drop (`merchant_user.roles.*`→**`roles.*`**, `merchant_user.user.roles`→**`users.roles`**),
+> auth scheme `PlatformUserSession`→**`AdminSession`** (`MerchantUserSession` ไม่เปลี่ยน). ดู
+> [`hierarchical-naming/FE-MIGRATION.md`](../../.ai/specs/hierarchical-naming/FE-MIGRATION.md) สำหรับ mapping
+> เต็ม — เนื้อหาด้านล่างของไฟล์นี้ (ที่ใช้ vocab `producer`/`tenant-user` เดิม) ไม่ได้ถูกไล่แก้ตามรอบนี้ด้วย
+> เหตุผลเดียวกับย่อหน้าบน.
 
 คู่มือฉบับสมบูรณ์ของโมดูล `producer-google-sso` (rebuild ของ Identity module เดิม). โมดูลนี้ให้
 ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant

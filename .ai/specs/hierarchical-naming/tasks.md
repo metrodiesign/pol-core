@@ -557,7 +557,7 @@
          RESTARTED API binary. CI stays green either way — login breaks only in the environment if the
          Console step is skipped.
 
-- [ ] 11. **The FE-facing contract, published where FE will find it.**
+- [x] 11. **The FE-facing contract, published where FE will find it.**
      Write `.ai/specs/hierarchical-naming/FE-MIGRATION.md` — this spec's own document, not
      `rf1-schema-reset`'s — covering every route change, every changed `Location` header, every changed
      permission-key string, the OpenAPI security-scheme id change (`PlatformUserSession` -> `AdminSession`,
@@ -566,6 +566,29 @@
      `docs/runbooks/local-dev-run.md` and `docs/reference/producer-module.md`, which still name the old
      routes.
      Satisfies: REQ-12 (all criteria). Depends on: 8, 10. Batch: B1.
+
+     Evidence:
+       - test: n/a — docs-only task, no code/test touched (`git status` shows only the four .md files);
+         build/test unaffected. Every old->new pair in the new document was verified against the working
+         tree or the task-8/10 commit diffs by grep, not written from memory.
+       - viewports: n/a — documentation
+       - deviations: (1) FE-MIGRATION.md additionally documents two FE-visible changes design §9 predates:
+         OpenAPI component schema id `PspCode` -> `Code` (task 6 fallout, pinned by
+         `WebHardeningTests.cs:218`) and the definitive answer on master-data operation ids — they did
+         NOT change (task 8's diff touched no `.WithName(...)` line; actual ids are `Listpositions`/
+         `Createpositions`/… — lowercase segment interpolation, a pre-existing quirk documented as-is).
+         Location headers: 4 changed (provision-merchant, register, create-role, master-create), 2
+         explicitly documented as unchanged (`CreateScopedAdmin`, admin `CreateRole`) so FE does not
+         over-migrate. (2) `docs/reference/producer-module.md`: extended its existing pre-rf1 stale-banner
+         with the hierarchical-naming layer + pointer to FE-MIGRATION.md; did NOT rewrite the 680-line
+         body — it is written in pre-rf1 vocabulary (`/api/v1/producers/*`, `ProducerAccount`) that
+         hierarchical-naming's pairs never touch, and rf1 already deferred the full rewrite to a
+         downstream spec. Body rewrite = separate job, out of REQ-12.7's "name the old routes" scope.
+         (3) Orchestrator fixed one additional operator-facing staleness the teammate flagged:
+         `local-dev-run.md:374` still probed `merch.MerchantUsers` in a HAS_PERMS_BY_NAME example —
+         renamed to `merch.Users` (task 9's table rename reached docs nowhere else; verified by grep
+         across the runbook for all 18 renamed tables, single hit). (4) rf1's FE-MIGRATION.md got a
+         top banner pointer only, content untouched (REQ-12.6).
 
 - [ ] 12. **Final gate: prove it was a rename.**
      Run the identifier check — `MerchantUser`, `PlatformUser`, `AdminRole`, `AdminPermission`,
