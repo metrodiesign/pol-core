@@ -1,6 +1,6 @@
 # Requirements: Hierarchical Naming (namespace + route)
 
-> Status: draft
+> Status: approved 2026-07-12, amended 2026-07-12
 > Derived FROM `design.md` (approved 2026-07-12, rev 2). Design is upstream: if a requirement below
 > conflicts with the design, the requirement is wrong. Each REQ cites its design section.
 
@@ -30,7 +30,7 @@ suite is real evidence rather than a false one.
 - 1.1 THE SYSTEM SHALL expose, after the rename, exactly the same set of HTTP capabilities it exposed before — every endpoint that existed still exists (at its new path per REQ-6) and no endpoint is added. (design: Architecture Overview)
 - 1.2 THE SYSTEM SHALL reach the same authorization decision for every (principal, endpoint) pair as it did before the rename. (design: Architecture Overview, §5)
 - 1.3 THE SYSTEM SHALL persist and read back the same data for every entity, with only table and column *names* changed per REQ-10. (design: §6)
-- 1.4 IF a pre-existing test's ASSERTION (not merely its identifiers) must change for the suite to pass, THEN THE SYSTEM SHALL treat that as a behavior change and the change SHALL be escalated for review rather than absorbed into the rename. (design: Testing Strategy)
+- 1.4 IF a pre-existing test's ASSERTION must change for the suite to pass, AND the new asserted value is NOT one this spec explicitly mandates (a route path per REQ-6, a permission key or scheme id per REQ-11, a table name per REQ-10, or a type/namespace identifier per REQ-3/4/16), THEN THE SYSTEM SHALL treat that as a behavior change and escalate it for review rather than absorb it into the rename. (design: Testing Strategy)
 - 1.5 WHERE the design records a deliberate exception to a locked decision (L8 exceptions in §8 and §10), THE SYSTEM SHALL keep the pre-existing name unchanged. (design: §8, §10)
 
 ## REQ-2: The naming law is codified, not just applied
@@ -45,6 +45,9 @@ does not drift back within three months.
 - 2.3 THE SYSTEM SHALL state in that canon that a module's root aggregate stays at the module-root namespace and is never given a sub-namespace of its own. (design: L2)
 - 2.4 THE SYSTEM SHALL state in that canon that configuration keys, OpenAPI security-scheme ids, and integration-event type names are flat external contracts to which the prefix-drop rule does not apply. (design: L8)
 - 2.5 THE SYSTEM SHALL amend `.ai/specs/rf1-schema-reset/design.md` §149, whose `Producer -> MerchantUser` sweep rule this spec supersedes, so that the repo does not hold two contradictory naming canons. (design: Non-Functional Considerations)
+- 2.6 THE SYSTEM SHALL amend REQ-2.1 of `.ai/specs/api-route-scheme/requirements.md` so that its area taxonomy lists `merchants` and no longer lists the compound area this spec removes. (design: §4, Non-Functional Considerations)
+- 2.7 THE SYSTEM SHALL amend REQ-2.8 of that same file, which enumerates the literal sub-resources of the `admins` area, to include the sub-resources this spec adds — `merchants/users` (REQ-6.3) and the four master-data collections (REQ-6.4). (design: §4, Non-Functional Considerations)
+- 2.8 WHERE `.ai/specs/api-route-scheme/requirements.md` still uses pre-rf1 vocabulary (`producers`, `tenant`) that no longer names anything in the codebase, THE SYSTEM SHALL bring it to current vocabulary as part of the same amendment, so the amended file is not internally inconsistent. (design: Non-Functional Considerations)
 
 ## REQ-3: Module projects are pluralised
 
@@ -58,6 +61,7 @@ does not drift back within three months.
 - 3.3 THE SYSTEM SHALL update all twelve affected entries in `pol-core.slnx`, and `dotnet build` SHALL resolve all 40 projects afterwards. (design: §1, Testing Strategy)
 - 3.4 THE SYSTEM SHALL perform every folder move with `git mv`, preserving per-file history. (design: Technology Decisions #1)
 - 3.5 THE SYSTEM SHALL leave `SchemaNames.Admin = "admin"` singular and unchanged, and SHALL record in the design why the project name and the schema name deliberately differ. (design: §1)
+- 3.6 THE SYSTEM SHALL delete the `src/Modules/Identity/`, `src/Modules/Producer/`, and `src/Modules/Tenant/` directories, which are absent from `pol-core.slnx` and hold only stale `obj/` build output, in a commit separate from the rename sweep. (design: §1)
 
 ## REQ-4: Domain types are nested and de-prefixed
 
@@ -129,6 +133,7 @@ a test, so that we do not trade a working mechanism for a broken one.
 - 8.3 THE SYSTEM SHALL enumerate `EndpointDataSource` in an architecture test and, for every endpoint carrying the `"admin"` authorization policy or `AdminCsrfFilter`, assert that `PolCorsPolicyProvider` returns the admin policy for its route template. (design: §5)
 - 8.4 IF an admin-plane endpoint's template is not covered by the admin CORS path table, THEN THE SYSTEM SHALL fail that test — the guard SHALL be fail-closed. (design: §5)
 - 8.5 THE SYSTEM SHALL preserve the existing preflight behavior exercised by `CorsTests`, since a CORS preflight is an `OPTIONS` that minimal-API endpoints do not accept and therefore carries no endpoint metadata. (design: §5)
+- 8.6 THE SYSTEM SHALL have the guard of REQ-8.3 written and passing against the pre-move code before any endpoint moves, on the same grounds as REQ-7.5: a detector authored after the code it guards proves only that the two agree, not that the control survived. (design: §5, Error Handling Strategy)
 
 ## REQ-9: Configuration keys are frozen; the section-name defect is fixed separately
 
@@ -139,9 +144,10 @@ open-redirect allowlist, so that a naming change cannot become an authorization 
 
 - 9.1 THE SYSTEM SHALL leave every configuration section key unchanged by this rename, including `Google:Oidc`, `MerchantUser:*`, `Cors:*`, `ConnectionStrings:*`, and `AdminAllowlist:Subjects`. (design: §5b, L8)
 - 9.2 THE SYSTEM SHALL NOT change `PlatformUserSessionOptions.SectionName` as part of the rename sweep. (design: §5b)
-- 9.3 THE SYSTEM SHALL fix the section-name mismatch — `SectionName` reads `"PlatformUserSession"` while `appsettings.json` defines `"AdminSession"`, so admin session options bind to nothing and `ReturnUrlAllowlist` is empty — in a **separate bugfix PR merged before this rename begins**. (design: §5b)
-- 9.4 WHEN that bugfix PR is prepared, THE SYSTEM SHALL have the configured `ReturnUrlAllowlist` value audited in staging and production first, because the fix makes a previously dead allowlist start binding. (design: §5b)
-- 9.5 IF the bugfix PR has not merged, THEN THE SYSTEM SHALL NOT begin the rename sweep, since the sweep's safety depends on the token already being consistent. (design: §5b)
+- 9.3 THE SYSTEM SHALL fix the section-name mismatch — `SectionName` reads `"PlatformUserSession"` while `appsettings.json` defines `"AdminSession"`, so admin session options bind to nothing and `ReturnUrlAllowlist` is empty — as **task 0 of this spec, shipped on its own branch and PR, merged before any rename task starts**. (design: §5b)
+- 9.4 WHEN that fix is prepared, THE SYSTEM SHALL have the configured `ReturnUrlAllowlist` value audited in staging and production first, because the fix makes a previously dead allowlist start binding, widening the admin open-redirect surface from deny-everything to whatever is configured. (design: §5b)
+- 9.5 IF task 0 has not merged, THEN THE SYSTEM SHALL NOT begin the rename sweep, since the sweep's safety depends on that token already being consistent. (design: §5b)
+- 9.6 WHEN task 0 has merged, THE SYSTEM SHALL leave the now-consistent `AdminSession` section name untouched by the sweep, so that the sweep is a genuine no-op on it. (design: §5b)
 
 ## REQ-10: Database objects are renamed, including every raw-SQL surface
 
@@ -182,11 +188,13 @@ discovering it endpoint by endpoint.
 
 **Acceptance Criteria (EARS):**
 
-- 12.1 THE SYSTEM SHALL record in `.ai/specs/rf1-schema-reset/FE-MIGRATION.md` every route change from REQ-6. (design: §9)
+- 12.1 THE SYSTEM SHALL record every route change from REQ-6 in `.ai/specs/hierarchical-naming/FE-MIGRATION.md` — this spec's own document, not `rf1-schema-reset`'s, so the two migrations do not braid their histories. (design: §9)
 - 12.2 THE SYSTEM SHALL record every changed `Location` response header. (design: §9)
 - 12.3 THE SYSTEM SHALL record every changed permission-key string. (design: §9)
 - 12.4 THE SYSTEM SHALL record the OpenAPI security-scheme id change from `PlatformUserSession` to `AdminSession`, on which generated clients key. (design: §9)
 - 12.5 THE SYSTEM SHALL record the changed master-data operation ids. (design: §9)
+- 12.6 THE SYSTEM SHALL add a pointer from `.ai/specs/rf1-schema-reset/FE-MIGRATION.md` to this spec's document, so an FE reader following the older trail is not left on a stale page. (design: §9)
+- 12.7 THE SYSTEM SHALL update the operator-facing documentation that names the old routes — `docs/runbooks/local-dev-run.md` and `docs/reference/producer-module.md`. (design: §9)
 
 ## REQ-13: Integration events are out of scope
 
@@ -206,6 +214,7 @@ EF's stored CLR type names cannot disagree with the code.
 
 **Acceptance Criteria (EARS):**
 
+- 14.0 THE SYSTEM SHALL confirm, before any migration is rewritten, that no production deployment holds real data — REQ-14.2 destroys the database volume, so if that assumption is false this spec SHALL stop and be redesigned around a transfer migration. This is stated as a checkable precondition rather than left as knowledge in someone's head. (design: Technology Decisions #2)
 - 14.1 THE SYSTEM SHALL rewrite the three existing migrations, their designers, and `PolDbContextModelSnapshot` in place, rather than adding a transfer migration. (design: Technology Decisions #2, Sequence Diagrams)
 - 14.2 WHEN the rename is deployed, THE SYSTEM SHALL be brought up on a freshly created database (`docker compose down -v`, then `dotnet ef database update`). (design: Sequence Diagrams)
 - 14.3 THE SYSTEM SHALL report no pending model changes against that fresh database. (design: Error Handling Strategy)
@@ -220,9 +229,22 @@ does not read as a passing one.
 
 - 15.1 THE SYSTEM SHALL update the hardcoded namespace literals in `AdminArchitectureTests` and `MerchantsArchitectureTests`, which after the rename would match nothing and pass vacuously. (design: Error Handling Strategy)
 - 15.2 THE SYSTEM SHALL add a positive assertion to those tests requiring every forbidden namespace to resolve to at least one real assembly, so that a typo fails instead of passing. (design: Error Handling Strategy)
-- 15.3 THE SYSTEM SHALL verify that the old compound identifiers no longer appear in `src/` or `tests/`. (design: Testing Strategy)
+- 15.3 THE SYSTEM SHALL verify that none of the identifiers `MerchantUser`, `PlatformUser`, `AdminRole`, `AdminPermission`, `PaymentSession`, `CartItem`, `CheckoutSession`, or `PspConnection` appears in `src/` or `tests/`, other than the exceptions in REQ-15.4. (design: Testing Strategy)
 - 15.4 WHERE the design deliberately retains an old name, THE SYSTEM SHALL list it as an explicit exception to that check — namely `MerchantUserRegistrationSubmitted`, the `MerchantUser:*` configuration keys, and comments citing history. (design: Testing Strategy)
 - 15.5 IF the exception list is absent, THEN an implementer SHALL be forced to either rename a retained contract or weaken the check — therefore the list SHALL ship with the check. (design: Testing Strategy)
+
+## REQ-16: The API host is organised by area
+
+**User Story:** As a developer opening `src/Hosts/Api`, I want the twelve `MerchantUser*.cs` files to sit
+under the area they serve, so that the composition root is navigable rather than a flat pile.
+
+**Acceptance Criteria (EARS):**
+
+- 16.1 THE SYSTEM SHALL group the `src/Hosts/Api` files by API area into `Api/Admins/`, `Api/Merchants/`, `Api/Payments/`, and `Api/Webhooks/`, leaving files that belong to no single area at the host root. (design: Component map, D7)
+- 16.2 THE SYSTEM SHALL place each grouped file in the namespace `Api.<Area>` matching its folder. (design: Component map, D7)
+- 16.3 THE SYSTEM SHALL apply the REQ-4 prefix-drop rule to these files' type names, since their namespace now carries the area token. (design: L4, Component map)
+- 16.4 THE SYSTEM SHALL keep the endpoint route mappings themselves in `Program.cs` unless a task explicitly splits them, so that this reorganisation does not silently rewrite the route table. (design: Architecture Overview)
+- 16.5 THE SYSTEM SHALL move these files with `git mv`. (design: Technology Decisions #1)
 
 ## Edge Cases & Open Questions
 
@@ -233,6 +255,27 @@ does not read as a passing one.
   **pre-rf1 vocabulary** — `requirements.md:43` says `producers`, and several REQs still say `tenant` /
   `producer`. REQ-2.8 also enumerates the literal admin sub-resources, which REQ-6.3 and REQ-6.4 extend.
   The amendment is part of this spec's work; its full extent is confirmed during `/spec-tasks`.
-- **Review order is load-bearing.** REQ-7.5 and REQ-15.1/15.2 require the detectors to exist *before* the
-  code they detect against moves. A tasks breakdown that ships the sweep first and the guards second
-  satisfies the letter of these requirements and defeats their purpose.
+- **Review order is load-bearing.** REQ-7.5, REQ-8.6 and REQ-15.1/15.2 require the detectors to exist
+  *before* the code they detect against moves. A tasks breakdown that ships the sweep first and the
+  guards second satisfies the letter of these requirements and defeats their purpose.
+
+### Analysis findings log (`/spec-analyze`, anchor `a71dd1d`, 2026-07-12)
+
+All ten findings were raised as questions and resolved by the user in one pass; every one was accepted
+as recommended. Recorded so a re-run skips them and so no finding code dangles into a lost conversation.
+
+| # | category | finding | decision |
+|---|----------|---------|----------|
+| F1 | logical inconsistency | REQ-1.4 escalated *every* assertion change, but REQ-6 (routes) and REQ-11 (permission keys) mandate assertion changes by construction — the rule cancelled itself. | **Fixed.** REQ-1.4 now exempts assertions whose new value this spec explicitly mandates. |
+| F2 | gap | D7 (nest `src/Hosts/Api` into `Api/<Area>/`) had **no requirement at all** — 12 files would have been untraceable and unimplemented. | **Fixed.** New REQ-16. |
+| F3 | gap / process | REQ-9.3-9.5 described a bugfix PR declared out of scope, but `spec-trace.sh` requires every criterion to be cited by a task — no task could honestly cite them. | **Fixed.** The bugfix is **task 0 of this spec** (own branch and PR, gated to merge first). REQ-9.6 added so the sweep is a proven no-op on that token afterwards. |
+| F4 | gap | No criterion amended `api-route-scheme`, whose taxonomy REQ-6.8 depends on. | **Fixed.** REQ-2.6, 2.7, 2.8. |
+| F5 | gap | `docs/runbooks/local-dev-run.md` and `docs/reference/producer-module.md` name the old routes; nothing required updating them. | **Fixed.** REQ-12.7. |
+| F6 | ambiguity | REQ-15.3 said "the old compound identifiers" without naming them — not testable as written. | **Fixed.** The eight identifiers are now enumerated. |
+| F7 | gap | REQ-7.5 required its detector to pass against pre-move code; the CORS guard (REQ-8.3) — same trap, same risk — carried no such requirement. | **Fixed.** REQ-8.6. |
+| F8 | gap | T11 (delete the dead `Identity/`, `Producer/`, `Tenant/` folders) had no criterion. | **Fixed.** REQ-3.6, in a commit separate from the sweep. |
+| F9 | unstated assumption | REQ-14.2 destroys the database volume, yet the spec never stated the assumption that no production data exists. If that assumption is wrong, REQ-14 is not a rename — it is data loss. | **Fixed.** REQ-14.0 makes it a checkable precondition with an explicit stop condition. |
+| F10 | ambiguity | REQ-12.1 wrote this spec's FE migration into **`rf1-schema-reset`'s** document. | **Fixed.** This spec owns `FE-MIGRATION.md`; REQ-12.6 leaves a pointer on the rf1 one. |
+
+**Downstream sync:** `design.md`'s `## Requirement Traceability` table was updated in the same pass to
+cover REQ-2.6-2.8, 3.6, 8.6, 9.6, 12.6-12.7, 14.0, and REQ-16. `tasks.md` does not exist yet.
