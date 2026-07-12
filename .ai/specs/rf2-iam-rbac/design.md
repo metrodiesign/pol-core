@@ -124,10 +124,13 @@ Assignment (แก้ FK อย่างเดียว — ชื่อตา�
   — assignment ที่ชี้ role ของ merchant อื่น (scope ถูกแต่ merchant ผิด) ไม่ contribute permission
 
 หมายเหตุ DB constraints (critique P3-2/P3-5): CHECK + UNIQUE `(MerchantId, Code)` นิยามใน
-**EF model** (`HasCheckConstraint`/`HasIndex().IsUnique()`) ไม่ใช่ raw `migrationBuilder.Sql`
-— ลง ModelSnapshot ให้ model-consistency guard ใช้ได้; shared-NULL-bucket uniqueness พึ่ง
-พฤติกรรม SQL Server ที่ถือ NULL เท่ากันใน unique index (non-ANSI — ถูกต้องบน stack ที่ pin,
-มี integration test pin พฤติกรรมนี้)
+**EF model** (`HasCheckConstraint`/`HasIndex().IsUnique().HasFilter(null)`) ไม่ใช่ raw
+`migrationBuilder.Sql` — ลง ModelSnapshot ให้ model-consistency guard ใช้ได้.
+**`HasFilter(null)` บังคับ** (Codex P2, PR #98): SQL Server provider default ใส่ filter
+`[MerchantId] IS NOT NULL` ให้ unique index บน nullable column — filtered index จะไม่คุม
+แถว NULL เลย ทำให้ shared role code ซ้ำ insert ได้; ต้อง clear filter เป็น unfiltered index
+ถึงจะได้ shared-NULL-bucket uniqueness ตามพฤติกรรม SQL Server ที่ถือ NULL เท่ากันใน
+unique index (non-ANSI — ถูกต้องบน stack ที่ pin, มี integration test pin พฤติกรรมนี้)
 
 ### `Iam.Domain` types
 
