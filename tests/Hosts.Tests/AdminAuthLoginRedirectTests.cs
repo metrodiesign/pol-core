@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
@@ -38,7 +39,6 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
                 ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["PlatformUserSession:ReturnUrlAllowlist:0"] = "/dashboard",
             });
         });
         builder.ConfigureServices(services =>
@@ -101,5 +101,18 @@ public sealed class AdminAuthLoginRedirectTests
         // The OIDC handler persists state/nonce in a correlation + nonce cookie (REQ-1.2).
         Assert.Contains(response.Headers.GetValues("Set-Cookie"),
             c => c.Contains("Correlation", StringComparison.OrdinalIgnoreCase) || c.Contains("Nonce", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Guards against the section-name mismatch bugfix regressing (AdminAuthOptions.cs): PlatformUserSessionOptions
+    // must bind from the "AdminSession" section that appsettings.Development.json actually defines. If the option
+    // class's SectionName drifts back out of sync with the config key, this comes back as an empty allowlist.
+    [Fact]
+    public void PlatformUserSessionOptions_bind_from_the_appsettings_AdminSession_section()
+    {
+        using var factory = new LoginFactory();
+
+        var options = factory.Services.GetRequiredService<IOptions<ApiHost::Api.PlatformUserSessionOptions>>().Value;
+
+        Assert.Equal(["/", "/main", "/dashboard", "/tenants"], options.ReturnUrlAllowlist);
     }
 }
