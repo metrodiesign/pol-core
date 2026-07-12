@@ -15,7 +15,7 @@ public static class SchemaNames
     public const string Txn = "txn";
 
     /// <summary>
-    /// Control plane: PlatformUsers, PlatformMerchantAccess, RBAC catalog, master data.
+    /// Control plane: PlatformUsers, PlatformMerchantAccess, RBAC catalog.
     /// Deliberately stays singular even though the <c>Admins.*</c> module projects are plural
     /// (hierarchical-naming L3/L7, design.md §1) — schemas are SQL namespaces, singular is the SQL
     /// convention, and rf1 already locked this schema name. Do not "fix" it to match the module name.
@@ -35,4 +35,9 @@ public static class SchemaNames
 
     /// <summary>Framework-owned; the ONE named exception to the schema guard (REQ-1.4): DataProtectionKeys.</summary>
     public const string Dbo = "dbo";
+
+    /// <summary>Config/reference data: Positions, Offices, Levels, Divisions (MasterData module — first occupant,
+    /// masterdata-module). rf3 will add Provider/RoutingRule/GatewayConfig/FeeStructure to this same schema.
+    /// Control-plane, no RLS predicate (same rule as <see cref="Iam"/>).</summary>
+    public const string Cfg = "cfg";
 }

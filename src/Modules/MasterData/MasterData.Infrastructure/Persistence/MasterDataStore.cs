@@ -1,10 +1,10 @@
-using Admins.Application.MasterData;
-using Admins.Domain.MasterData;
+using MasterData.Application;
+using MasterData.Domain;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
-namespace Admins.Infrastructure.Persistence.MasterData;
+namespace MasterData.Infrastructure.Persistence;
 
 /// <summary>Master-data CRUD over the keyed pol_admin (RLS-bypass) context — control-plane reference lists.
 /// Writes commit through the keyed <c>"admin"</c> <see cref="IUnitOfWork"/> (S2), never DbContext.SaveChanges.</summary>
@@ -63,13 +63,4 @@ public sealed class MasterDataStore : IMasterDataStore
             await _unitOfWork.SaveChangesAsync(ct);
             return new MasterItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
         }, cancellationToken);
-
-    public Task<bool> ExistsActiveAsync<T>(Guid id, CancellationToken cancellationToken) where T : MasterDataItem =>
-        _db.Set<T>().AnyAsync(m => m.Id == id && m.IsActive, cancellationToken);
-
-    public Task<MasterRef?> GetRefAsync<T>(Guid id, CancellationToken cancellationToken) where T : MasterDataItem =>
-        _db.Set<T>().AsNoTracking()
-            .Where(m => m.Id == id)
-            .Select(m => new MasterRef(m.Id, m.Code, m.Name))
-            .FirstOrDefaultAsync(cancellationToken);
 }

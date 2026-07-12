@@ -1,32 +1,21 @@
-using Admins.Domain.MasterData;
-using BuildingBlocks.Application;
+using MasterData.Domain;
+using MasterData.Domain.Divisions;
+using MasterData.Domain.Levels;
+using MasterData.Domain.Offices;
+using MasterData.Domain.Positions;
 
-namespace Admins.Application.MasterData;
-
-/// <summary>A master row as the management endpoints render it.</summary>
-public sealed record MasterItem(Guid Id, string Code, string Name, bool IsActive);
+namespace Admins.Application.Users;
 
 /// <summary>A resolved master reference embedded in an admin's detail (id + code + display name).</summary>
 public sealed record MasterRef(Guid Id, string Code, string Name);
 
 /// <summary>
-/// Runtime CRUD + lookup over the four admin-profile master lists (Position/Office/Level/Division). This is
-/// simple control-plane reference data, so it deliberately bypasses Mediator — but it still commits through
-/// the keyed <c>"admin"</c> <see cref="IUnitOfWork"/>. One store, parameterised by the concrete master type.
+/// Admins' own port over the MasterData reference lists (design.md §1) — existence/lookup is a caller need, not a
+/// MasterData use case, so it lives here rather than on <c>MasterData.Application.IMasterDataStore</c>. Precedent:
+/// <c>Admins.Infrastructure</c> already queries <c>iam.Roles</c> directly with <c>Iam.Domain</c> types the same way.
 /// </summary>
-public interface IMasterDataStore
+public interface IMasterDataLookup
 {
-    /// <summary>Paged list, optional case-insensitive contains-search over Code/Name, ordered by Name.</summary>
-    Task<PagedResult<MasterItem>> ListAsync<T>(int page, int limit, string? search, CancellationToken cancellationToken)
-        where T : MasterDataItem;
-
-    /// <summary>Persists a new master. A duplicate <c>Code</c> is rejected (<see cref="ConflictException"/> 409).</summary>
-    Task<MasterItem> CreateAsync<T>(T entity, CancellationToken cancellationToken) where T : MasterDataItem;
-
-    /// <summary>Renames + toggles active on an existing master. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<MasterItem> UpdateAsync<T>(Guid id, string name, bool isActive, CancellationToken cancellationToken)
-        where T : MasterDataItem;
-
     /// <summary>True when the master exists AND is active — the invariant an FK assignment must satisfy.</summary>
     Task<bool> ExistsActiveAsync<T>(Guid id, CancellationToken cancellationToken) where T : MasterDataItem;
 
@@ -39,7 +28,7 @@ public static class MasterProfileValidation
     /// <summary>Rejects any non-null org-profile FK that does not reference an existing, ACTIVE master
     /// (<see cref="ArgumentException"/> -> 400). Shared by the create-invite and edit-profile handlers.</summary>
     public static async Task ValidateProfileFksAsync(
-        this IMasterDataStore masters,
+        this IMasterDataLookup masters,
         Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId, CancellationToken cancellationToken)
     {
         if (positionId is { } pid && !await masters.ExistsActiveAsync<Position>(pid, cancellationToken))

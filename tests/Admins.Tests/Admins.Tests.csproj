@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\Modules\Admins\Admins.Application\Admins.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admins\Admins.Domain\Admins.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admins\Admins.Infrastructure\Admins.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Application\MasterData.Application.csproj" />
     <ProjectReference Include="..\..\src\SharedKernel\SharedKernel.csproj" />
   </ItemGroup>
 

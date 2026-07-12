@@ -6,6 +6,10 @@
     <!-- Iam.Domain is a published language (rf2, design.md) — Admins.Application may reference it directly
          (e.g. SelfProvisionSuperAdmin's Role.PlatformAdminCode), like SharedKernel. Never Iam.Application/Infrastructure. -->
     <ProjectReference Include="..\..\Iam\Iam.Domain\Iam.Domain.csproj" />
+    <!-- MasterData.Domain is a published language (masterdata-module, design.md) — Admins.Application may
+         reference it directly (Position/Office/Level/Division for the profile-FK lookup port), like SharedKernel.
+         Never MasterData.Application/Infrastructure. -->
+    <ProjectReference Include="..\..\MasterData\MasterData.Domain\MasterData.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

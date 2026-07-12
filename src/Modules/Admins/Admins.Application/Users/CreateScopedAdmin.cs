@@ -1,4 +1,3 @@
-using Admins.Application.MasterData;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Mediator;
@@ -21,14 +20,14 @@ public sealed class CreateScopedHandler : ICommandHandler<CreateScopedCommand, C
 {
     private readonly IUserRepository _admins;
     private readonly IAuditWriter _audit;
-    private readonly IMasterDataStore _masters;
+    private readonly IMasterDataLookup _masters;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public CreateScopedHandler(
         IUserRepository admins,
         IAuditWriter audit,
-        IMasterDataStore masters,
+        IMasterDataLookup masters,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {

@@ -1,7 +1,9 @@
-using Admins.Application.MasterData;
 using Admins.Application.Roles;
-using Admins.Domain.MasterData;
 using Admins.Domain.Users;
+using MasterData.Domain.Divisions;
+using MasterData.Domain.Levels;
+using MasterData.Domain.Offices;
+using MasterData.Domain.Positions;
 using BuildingBlocks.Application;
 using Mediator;
 
@@ -28,7 +30,7 @@ public sealed record Detail(
     bool SubjectBound, AccessibleMerchants Accessible, IReadOnlyList<string> RoleCodes,
     MasterRef? Position, MasterRef? Office, MasterRef? Level, MasterRef? Division);
 
-public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository roles, IMasterDataStore masters)
+public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository roles, IMasterDataLookup masters)
     : IQueryHandler<GetAdminByIdQuery, Detail?>
 {
     public async ValueTask<Detail?> Handle(GetAdminByIdQuery query, CancellationToken ct)

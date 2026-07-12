@@ -33,6 +33,11 @@
     <Project Path="src/Modules/Iam/Iam.Domain/Iam.Domain.csproj" />
     <Project Path="src/Modules/Iam/Iam.Infrastructure/Iam.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/MasterData/">
+    <Project Path="src/Modules/MasterData/MasterData.Application/MasterData.Application.csproj" />
+    <Project Path="src/Modules/MasterData/MasterData.Domain/MasterData.Domain.csproj" />
+    <Project Path="src/Modules/MasterData/MasterData.Infrastructure/MasterData.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Merchants/">
     <Project Path="src/Modules/Merchants/Merchants.Application/Merchants.Application.csproj" />
     <Project Path="src/Modules/Merchants/Merchants.Domain/Merchants.Domain.csproj" />

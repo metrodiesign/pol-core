@@ -1,10 +1,12 @@
 using Admins.Application;
-using Admins.Application.MasterData;
 using Admins.Application.Roles;
 using Admins.Application.Users;
-using Admins.Domain.MasterData;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
+using MasterData.Domain.Divisions;
+using MasterData.Domain.Levels;
+using MasterData.Domain.Offices;
+using MasterData.Domain.Positions;
 using BuildingBlocks.Application;
 
 namespace Admins.Tests;

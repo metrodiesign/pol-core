@@ -49,6 +49,9 @@
     <ProjectReference Include="..\..\src\Modules\Iam\Iam.Domain\Iam.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Iam\Iam.Application\Iam.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Iam\Iam.Infrastructure\Iam.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Domain\MasterData.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Application\MasterData.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Infrastructure\MasterData.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>
