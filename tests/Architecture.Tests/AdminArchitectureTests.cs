@@ -13,8 +13,8 @@ namespace Architecture.Tests;
 /// </summary>
 public class AdminArchitectureTests
 {
-    private static readonly Assembly Domain = typeof(global::Admins.Domain.PlatformUser).Assembly;
-    private static readonly Assembly Application = typeof(global::Admins.Application.IPlatformUserRepository).Assembly;
+    private static readonly Assembly Domain = typeof(global::Admins.Domain.Users.User).Assembly;
+    private static readonly Assembly Application = typeof(global::Admins.Application.Users.IUserRepository).Assembly;
     private static readonly Assembly Infrastructure = typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly;
 
     [Fact]

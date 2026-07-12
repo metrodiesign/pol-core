@@ -1,7 +1,13 @@
 extern alias ApiHost;
 using Admins.Application;
-using Admins.Application.ResolveAdmin;
-using Admins.Domain;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 
 namespace Hosts.Tests;
 
@@ -12,7 +18,7 @@ public sealed class AdminPermissionAuthorizationTests
     private static ApiHost::Api.AdminScope BoundScope(params string[] permissions)
     {
         var scope = new ApiHost::Api.AdminScope();
-        scope.Set(new AdminResolution(Guid.NewGuid(), "a@org.com", PlatformUserTier.Scoped, AccessibleMerchants.All)
+        scope.Set(new Resolution(Guid.NewGuid(), "a@org.com", Tier.Scoped, AccessibleMerchants.All)
         {
             Permissions = permissions.ToHashSet(),
         });
@@ -38,7 +44,7 @@ public sealed class AdminPermissionParityTests
 {
     [Fact]
     public void Every_catalog_key_passes_parity() =>
-        Assert.Empty(ApiHost::Api.AdminPermissionParity.FindUnknown(AdminPermissions.AllKeys));
+        Assert.Empty(ApiHost::Api.AdminPermissionParity.FindUnknown(Keys.AllKeys));
 
     [Fact]
     public void A_gate_key_outside_the_catalog_is_flagged() =>

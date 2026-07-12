@@ -9,20 +9,14 @@ using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Admins.Application;
-using Admins.Application.PlatformUserQueries;
-using Admins.Application.AssignMerchant;
-using Admins.Application.CreateRole;
-using Admins.Application.CreateScopedAdmin;
-using Admins.Application.DeleteRole;
-using Admins.Application.ReactivateAdmin;
-using Admins.Application.RevokePlatformUserSession;
-using Admins.Application.RoleQueries;
-using Admins.Application.SetAdminRoles;
-using Admins.Application.SuspendAdmin;
-using Admins.Application.UnassignMerchant;
-using Admins.Application.UpdateAdminProfile;
-using Admins.Application.UpdateRole;
-using Admins.Domain;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using Admins.Infrastructure;
 using Carts.Application;
 using Carts.Infrastructure;
@@ -225,7 +219,7 @@ builder.Services.AddOpenApi(options =>
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["PlatformUserSession"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes["Session"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
@@ -247,7 +241,7 @@ builder.Services.AddOpenApi(options =>
         };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
-        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> PlatformUserSession). The host
+        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> Session). The host
         // document is passed so the requirement serialises as a $ref into components.securitySchemes. Anonymous
         // routes (order summary link, admin login, webhook) carry no requirement.
         var schemeByRoute = new Dictionary<(string Path, string Method), string>();
@@ -296,7 +290,7 @@ static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
         .LastOrDefault(p => !string.IsNullOrEmpty(p));
     return policy switch
     {
-        "admin" => "PlatformUserSession",
+        "admin" => "Session",
         "merchant-user" => "MerchantUserSession",
         _ => null,
     };
@@ -433,7 +427,7 @@ if (app.Environment.IsDevelopment())
     // Scalar reference UI over /openapi/v1.json — anonymous like the health checks. Other teams browse the
     // grouped endpoints and try them with the right auth straight from /scalar. Dev-only, same as MapOpenApi.
     // No preferred scheme: Scalar auto-selects each operation's own security (Bearer for merchant routes,
-    // PlatformUserSession for admin routes) instead of defaulting every endpoint to one.
+    // Session for admin routes) instead of defaulting every endpoint to one.
     app.MapScalarApiReference(options => options.WithTitle("pol-core API"));
 }
 
@@ -754,7 +748,7 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
 // --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
 // One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
 // policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
-// is anonymous; every other route gates on the PlatformUserSession "admin" policy. The CSRF filter exempts safe methods,
+// is anonymous; every other route gates on the Session "admin" policy. The CSRF filter exempts safe methods,
 // so the login/callback GETs pass untouched.
 var admin = api.MapGroup("/admins").AddEndpointFilter<AdminCsrfFilter>();
 
@@ -783,8 +777,8 @@ admin.MapGet("/auth/login", (HttpContext http, IOptions<PlatformUserSessionOptio
 // presented cookie identifies the family. CSRF protection for these POSTs is added with the other /admin
 // mutations in Task 5's double-submit filter (REQ-7).
 admin.MapPost("/auth/logout", async (
-    HttpContext http, IPlatformUserSessionStore sessions, PlatformUserSessionCookies cookies,
-    IPlatformAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+    HttpContext http, ISessionStore sessions, PlatformUserSessionCookies cookies,
+    IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
@@ -793,7 +787,7 @@ admin.MapPost("/auth/logout", async (
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
-            audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.PlatformUserId));
+            audit.Append(AuthAudit.For(AuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.PlatformUserId));
             await audit.SaveChangesAsync(ct);
         }
     }
@@ -809,12 +803,12 @@ admin.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
 admin.MapPost("/auth/logout-all", async (
-    HttpContext http, IAdminScope scope, IPlatformUserSessionStore sessions, PlatformUserSessionCookies cookies,
-    IPlatformAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+    HttpContext http, IAdminScope scope, ISessionStore sessions, PlatformUserSessionCookies cookies,
+    IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var adminId = scope.Current.AdminId;
     await sessions.RevokeAllForAdminAsync(adminId, ct);
-    audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
+    audit.Append(AuthAudit.For(AuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
     await audit.SaveChangesAsync(ct);
     cookies.Clear(http);
     return Results.NoContent();
@@ -861,7 +855,7 @@ admin.MapPost("/merchants", async (
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 })
-    .RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super) // provisioning is Super-only (REQ-8.4)
+    .RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super) // provisioning is Super-only (REQ-8.4)
     .WithTags("Admin Merchants")
     .WithName("ProvisionMerchant")
     .WithSummary("Provision a merchant")
@@ -1201,7 +1195,7 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
 // --- Admin approves/rejects a merchant-user (cross-plane, merchant-user-google-sso REQ-6/18) ---
 // The Admin permission (merchant-user.approve/reject) + the accessible-merchant floor (IAdminQuery) run HERE, at the host,
 // before crossing into the MerchantUser module (critique B3) — the dispatched command receives an already-validated
-// merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + PlatformUserSession policy apply.
+// merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + Session policy apply.
 admin.MapPost("/merchant-users/{subject}/approve", async (
     string subject, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
     HttpContext http, IMediator mediator, CancellationToken ct) =>
@@ -1221,7 +1215,7 @@ admin.MapPost("/merchant-users/{subject}/approve", async (
         subject, merchant.Id, body.RoleCodes ?? [],
         http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(new ApproveMerchantUserResponse(result.MerchantUserId, result.Status.ToString(), result.AlreadyActive));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.MerchantUserApprove)
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserApprove)
     .WithTags("Admin MerchantUsers")
     .WithName("ApproveMerchantUser")
     .WithSummary("Approve a merchant-user onto a merchant")
@@ -1239,7 +1233,7 @@ admin.MapPost("/merchant-users/{subject}/reject", async (
     var result = await mediator.Send(new RejectMerchantUserCommand(
         subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
     return Results.Ok(new RejectMerchantUserResponse(result.MerchantUserId, result.Status.ToString()));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.MerchantUserReject)
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserReject)
     .WithTags("Admin MerchantUsers")
     .WithName("RejectMerchantUser")
     .WithSummary("Reject a pending merchant-user")
@@ -1294,16 +1288,16 @@ api.MapPost("/admins", async (
 {
     if (string.IsNullOrWhiteSpace(body.Email))
         throw new ArgumentException("Email is required.");
-    var result = await mediator.Send(new CreateScopedAdminCommand(
+    var result = await mediator.Send(new CreateScopedCommand(
         body.Email, scope.Current.AdminId, http.TraceIdentifier,
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("CreateScopedAdmin")
     .WithSummary("Invite a scoped admin")
     .WithDescription("Super-only. Invite a Scoped admin by verified email; the subject binds on their first login. Missing email -> 400.")
-    .Produces<CreateScopedAdminResult>(StatusCodes.Status201Created)
+    .Produces<CreateScopedResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1311,18 +1305,18 @@ api.MapPost("/admins", async (
 // --- Admin account management (admin-account-management) ---
 // tier/status cross the wire as stable lowercase strings via explicit projection — there is no global
 // string-enum converter (B2), mirroring RoleToWire.
-static string TierToWire(PlatformUserTier t) => t == PlatformUserTier.Super ? "super" : "scoped";
-static string AccountStatusToWire(AdminStatus s) => s == AdminStatus.Active ? "active" : "suspended";
-static string SessionStatusToWire(PlatformUserSessionStatus s) => s switch
+static string TierToWire(Tier t) => t == Tier.Super ? "super" : "scoped";
+static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
+static string SessionStatusToWire(SessionStatus s) => s switch
 {
-    PlatformUserSessionStatus.Active => "active",
-    PlatformUserSessionStatus.Superseded => "superseded",
+    SessionStatus.Active => "active",
+    SessionStatus.Superseded => "superseded",
     _ => "revoked",
 };
-static AdminListItemResponse AdminToWire(PlatformUserListItem a) =>
+static AdminListItemResponse AdminToWire(UserListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
 static MasterRefResponse? MasterRefToWire(MasterRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
-static PlatformUserSessionResponse SessionToWire(PlatformUserSessionView v) =>
+static PlatformUserSessionResponse SessionToWire(SessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
         v.CreatedIp, v.UserAgent, v.IsLive);
 
@@ -1341,7 +1335,7 @@ api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationT
         [.. result.Items.Select(AdminToWire)], result.Page, result.Limit, result.Total));
 })
     .RequireAuthorization("admin")
-    .RequirePermission(AdminPermissions.UserView)
+    .RequirePermission(Keys.UserView)
     .WithMetadata(new SfsQueryParamsMarker())
     .WithTags("Admin Admins")
     .WithName("ListAdmins")
@@ -1379,7 +1373,7 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
         detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes,
         MasterRefToWire(detail.Position), MasterRefToWire(detail.Office),
         MasterRefToWire(detail.Level), MasterRefToWire(detail.Division)));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserView)
     .WithTags("Admin Admins")
     .WithName("GetAdmin")
     .WithSummary("Read an admin account")
@@ -1392,9 +1386,9 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
 // The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
 admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>
 {
-    var permissions = await mediator.Send(new GetAdminEffectivePermissionsQuery(id), ct);
+    var permissions = await mediator.Send(new GetEffectivePermissionsQuery(id), ct);
     return permissions is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(permissions);
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserView)
     .WithTags("Admin Admins")
     .WithName("GetAdminEffectivePermissions")
     .WithSummary("Read an admin's effective permissions")
@@ -1410,7 +1404,7 @@ admin.MapPost("/{id:guid}/merchants", async (
 {
     var result = await mediator.Send(new AssignMerchantCommand(id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(result);
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("AssignMerchantToAdmin")
     .WithSummary("Assign a merchant to an admin")
@@ -1426,7 +1420,7 @@ admin.MapDelete("/{id:guid}/merchants/{merchantId:guid}", async (
 {
     await mediator.Send(new UnassignMerchantCommand(id, merchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("UnassignMerchantFromAdmin")
     .WithSummary("Unassign a merchant from an admin")
@@ -1442,9 +1436,9 @@ admin.MapPost("/{id:guid}/suspend", async (
 {
     if (id == scope.Current.AdminId)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot suspend their own account.");
-    await mediator.Send(new SuspendAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new SuspendCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("SuspendAdmin")
     .WithSummary("Suspend an admin")
@@ -1458,9 +1452,9 @@ admin.MapPost("/{id:guid}/suspend", async (
 admin.MapPost("/{id:guid}/reactivate", async (
     Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new ReactivateAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new ReactivateCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("ReactivateAdmin")
     .WithSummary("Reactivate a suspended admin")
@@ -1476,11 +1470,11 @@ admin.MapPost("/{id:guid}/reactivate", async (
 admin.MapPut("/{id:guid}/profile", async (
     Guid id, UpdateAdminProfileRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new UpdateAdminProfileCommand(
+    await mediator.Send(new UpdateProfileCommand(
         id, body.PositionId, body.OfficeId, body.LevelId, body.DivisionId,
         scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
     .WithTags("Admin Admins")
     .WithName("UpdateAdminProfile")
     .WithSummary("Edit an admin's org profile")
@@ -1502,7 +1496,7 @@ MapMasterCrud<Level>(masterData, "levels", Level.Create);
 MapMasterCrud<Division>(masterData, "divisions", Division.Create);
 
 static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<string, string, T> create)
-    where T : MasterData
+    where T : MasterDataItem
 {
     // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
     // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
@@ -1513,7 +1507,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         return Results.Ok(new PagedResult<MasterResponse>(
             [.. result.Items.Select(m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive))],
             result.Page, result.Limit, result.Total));
-    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"List{segment}")
         .WithSummary($"List {segment}")
@@ -1526,7 +1520,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         var item = await store.CreateAsync(create(body.Code ?? "", body.Name ?? ""), ct);
         return Results.Created($"/api/v1/admins/master-data/{segment}/{item.Id}",
             new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
-    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"Create{segment}")
         .WithSummary($"Create a {segment} entry")
@@ -1541,7 +1535,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
     {
         var item = await store.UpdateAsync<T>(id, body.Name ?? "", body.IsActive, ct);
         return Results.Ok(new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
-    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"Update{segment}")
         .WithSummary($"Rename or (de)activate a {segment} entry")
@@ -1557,11 +1551,11 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
 // hashes never leave the store. isLive is evaluated at read time.
 admin.MapGet("/{id:guid}/sessions", async (Guid id, IMediator mediator, CancellationToken ct) =>
 {
-    var sessions = await mediator.Send(new ListPlatformUserSessionsQuery(id), ct);
+    var sessions = await mediator.Send(new ListSessionsQuery(id), ct);
     return sessions is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(sessions.Select(SessionToWire).ToArray());
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("ListPlatformUserSessions")
     .WithSummary("List an admin's sessions")
@@ -1578,13 +1572,13 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     var result = await mediator.Send(
-        new RevokePlatformUserSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
+        new RevokeSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
     // Security-log the specifics the append-only audit table has no column for (REQ-5.2), keyed by correlation id.
     loggerFactory.CreateLogger("Admin.SessionManagement").LogInformation(
         "Admin session family revoked: sessionId={SessionId} familyId={FamilyId} targetAdminId={TargetAdminId} correlationId={CorrelationId}",
         result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("RevokePlatformUserSession")
     .WithSummary("Revoke an admin's session")
@@ -1595,18 +1589,18 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Admin Role RBAC (admin-role-rbac) ---
-// Orthogonal to PlatformUserTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
+// Orthogonal to Tier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
 // gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
 // "active"/"inactive" via explicit projection — there is no global string-enum converter (B2).
-static RoleResponse RoleToWire(AdminRoleListItem r) => new(
+static RoleResponse RoleToWire(RoleListItem r) => new(
     r.Code, r.Name, r.Description, r.Color,
-    r.Status == AdminRoleStatus.Active ? "active" : "inactive",
+    r.Status == RoleStatus.Active ? "active" : "inactive",
     r.PermissionKeys, r.UserCount);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active (B2).
-static AdminRoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
+static RoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
-    "active" => AdminRoleStatus.Active,
-    "inactive" => AdminRoleStatus.Inactive,
+    "active" => RoleStatus.Active,
+    "inactive" => RoleStatus.Inactive,
     _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
 };
 
@@ -1667,7 +1661,7 @@ admin.MapPost("/roles", async (
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
         body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/admins/roles/{result.Code}", RoleToWire(result));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Roles")
     .WithName("CreateRole")
     .WithSummary("Create a role")
@@ -1686,7 +1680,7 @@ admin.MapPut("/roles/{code}", async (
         code, body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
         body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(RoleToWire(result));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Roles")
     .WithName("UpdateRole")
     .WithSummary("Update a role")
@@ -1703,7 +1697,7 @@ admin.MapDelete("/roles/{code}", async (
 {
     await mediator.Send(new DeleteRoleCommand(code, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Roles")
     .WithName("DeleteRole")
     .WithSummary("Delete a role")
@@ -1717,9 +1711,9 @@ admin.MapDelete("/roles/{code}", async (
 admin.MapPut("/{id:guid}/roles", async (
     Guid id, SetAdminRolesRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new SetAdminRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new SetRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Admins")
     .WithName("SetAdminRoles")
     .WithSummary("Set an admin's roles")

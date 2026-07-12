@@ -1,7 +1,13 @@
 using Admins.Application;
-using Admins.Application.ResolveAdmin;
-using Admins.Domain;
+using Admins.Application.MasterData;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.Permissions;
+using Admins.Domain.Users;
 using Admins.Infrastructure.Persistence;
+using Admins.Infrastructure.Persistence.MasterData;
+using Admins.Infrastructure.Persistence.Roles;
+using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Mediator;
@@ -46,13 +52,13 @@ internal sealed class AdminMerchantDirectory : IAdminMerchantDirectory
 /// <see cref="IAdminScope"/>.</summary>
 internal sealed class AdminScope : IAdminScope
 {
-    private AdminResolution? _current;
+    private Resolution? _current;
 
     public bool IsBound => _current is not null;
-    public AdminResolution Current => _current ?? throw new InvalidOperationException("No admin is bound to this request.");
+    public Resolution Current => _current ?? throw new InvalidOperationException("No admin is bound to this request.");
     public AccessibleMerchants Accessible => Current.Accessible;
 
-    public void Set(AdminResolution resolution) => _current = resolution;
+    public void Set(Resolution resolution) => _current = resolution;
 }
 
 /// <summary>The ONLY seam through which an admin handler may read a merchant-scoped business table cross-merchant
@@ -106,7 +112,7 @@ internal sealed class AdminQuery : IAdminQuery
 /// is in the allowed set. Mirrors <see cref="MerchantRoleAuthorization"/>.</summary>
 internal static class PlatformUserTierAuthorization
 {
-    public static RouteHandlerBuilder RequirePlatformUserTier(this RouteHandlerBuilder builder, params PlatformUserTier[] allowed)
+    public static RouteHandlerBuilder RequirePlatformUserTier(this RouteHandlerBuilder builder, params Tier[] allowed)
     {
         var allowedNames = allowed.Select(t => t.ToString()).ToArray();
         return builder.AddEndpointFilter(async (context, next) =>
@@ -146,7 +152,7 @@ internal static class AdminPermissionAuthorization
 }
 
 /// <summary>Boot-time parity guard (REQ-11): every permission key a <c>RequirePermission</c> gate references MUST
-/// exist in the code-canonical catalog vocabulary (<see cref="AdminPermissions.AllKeys"/>, which the migration
+/// exist in the code-canonical catalog vocabulary (<see cref="Keys.AllKeys"/>, which the migration
 /// seeds the DB from). Pure in-memory — no DB — so it cannot crash a host that boots without the pol_admin
 /// connection (Program.cs already fails fast on a missing admin credential). Call right before <c>app.Run()</c>,
 /// after all endpoints are mapped.</summary>
@@ -165,7 +171,7 @@ internal static class AdminPermissionParity
 
     /// <summary>The gated keys that are NOT in the code-canonical catalog (REQ-11). Pure — unit-testable.</summary>
     internal static IReadOnlyList<string> FindUnknown(IEnumerable<string> gatedKeys) =>
-        [.. gatedKeys.Distinct(StringComparer.Ordinal).Where(p => !AdminPermissions.AllKeys.Contains(p))];
+        [.. gatedKeys.Distinct(StringComparer.Ordinal).Where(p => !Keys.AllKeys.Contains(p))];
 }
 
 internal static class AdminHostWiring
@@ -176,19 +182,19 @@ internal static class AdminHostWiring
     {
         static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
 
-        services.AddScoped<IPlatformUserRepository>(sp =>
-            new PlatformUserRepository(Admin(sp), sp.GetRequiredService<ILogger<PlatformUserRepository>>()));
-        services.AddScoped<IPlatformUserAuditWriter>(sp => new PlatformUserAuditWriter(Admin(sp)));
+        services.AddScoped<IUserRepository>(sp =>
+            new UserRepository(Admin(sp), sp.GetRequiredService<ILogger<UserRepository>>()));
+        services.AddScoped<IAuditWriter>(sp => new AuditWriter(Admin(sp)));
         services.AddScoped<IAdminMerchantDirectory>(sp => new AdminMerchantDirectory(Admin(sp)));
-        services.AddScoped<IAdminRoleRepository>(sp =>
-            new AdminRoleRepository(Admin(sp), sp.GetRequiredService<ILogger<AdminRoleRepository>>())); // admin-role-rbac
+        services.AddScoped<IRoleRepository>(sp =>
+            new RoleRepository(Admin(sp), sp.GetRequiredService<ILogger<RoleRepository>>())); // admin-role-rbac
         services.AddScoped<IMasterDataStore>(sp =>
             new MasterDataStore(Admin(sp), sp.GetRequiredKeyedService<IUnitOfWork>("admin"))); // profile master lists
 
         // Admin BFF session substrate (REQ-3/5/6/11/12): store + append-only auth audit on the keyed pol_admin
         // context; the cookie service is stateless (singleton).
-        services.AddScoped<IPlatformUserSessionStore>(sp => new PlatformUserSessionStore(Admin(sp)));
-        services.AddScoped<IPlatformAuthAuditWriter>(sp => new PlatformAuthAuditWriter(Admin(sp)));
+        services.AddScoped<ISessionStore>(sp => new SessionStore(Admin(sp)));
+        services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(Admin(sp)));
         services.AddSingleton<PlatformUserSessionCookies>();
 
         services.AddScoped<AdminScope>();

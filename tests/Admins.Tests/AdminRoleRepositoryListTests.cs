@@ -1,7 +1,18 @@
 using System.Text.Json;
-using Admins.Application.RoleQueries;
-using Admins.Domain;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using Admins.Infrastructure.Persistence;
+using Admins.Infrastructure.Persistence.MasterData;
+using Admins.Infrastructure.Persistence.Permissions;
+using Admins.Infrastructure.Persistence.Roles;
+using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
@@ -12,7 +23,7 @@ using SearchOption = BuildingBlocks.Application.SearchOption;
 namespace Admins.Tests;
 
 /// <summary>
-/// The SFS-paged <c>AdminRoleRepository.ListAsync</c> over a real <see cref="PolDbContext"/> backed by
+/// The SFS-paged <c>RoleRepository.ListAsync</c> over a real <see cref="PolDbContext"/> backed by
 /// in-memory SQLite (the Admin module's EF configs are applied via <see cref="ModuleAssemblies"/>). Proves the
 /// wiring behaviours task 4 adds: a paged slice with a total counted after filter/search but before paging
 /// (REQ-2.4, REQ-2.5), and <c>UserCount</c> preserved through the materialize-then-map path (REQ-12.1).
@@ -33,17 +44,17 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
 
     private PolDbContext NewContext() =>
         new(new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection).Options,
-            new ModuleAssemblies([typeof(AdminRoleSfs).Assembly]));
+            new ModuleAssemblies([typeof(RoleSfs).Assembly]));
 
-    private AdminRoleRepository Repo() => new(NewContext(), NullLogger<AdminRoleRepository>.Instance);
+    private RoleRepository Repo() => new(NewContext(), NullLogger<RoleRepository>.Instance);
 
-    private static AdminRole Role(string code, string name, string? description = null,
-        AdminRoleStatus status = AdminRoleStatus.Active) =>
-        AdminRole.Create(code, name, description, null, status, [], NoCatalog);
+    private static Role MakeRole(string code, string name, string? description = null,
+        RoleStatus status = RoleStatus.Active) =>
+        Role.Create(code, name, description, null, status, [], NoCatalog);
 
-    private void Seed(params AdminRole[] roles)
+    private void Seed(params Role[] roles)
     {
-        _seed.Set<AdminRole>().AddRange(roles);
+        _seed.Set<Role>().AddRange(roles);
         _seed.SaveChanges();
         _seed.ChangeTracker.Clear();
     }
@@ -52,7 +63,7 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     {
         var when = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         for (var i = 0; i < count; i++)
-            _seed.Set<AdminRoleAssignment>().Add(AdminRoleAssignment.Create(Guid.NewGuid(), roleId, Guid.NewGuid(), when));
+            _seed.Set<RoleAssignment>().Add(RoleAssignment.Create(Guid.NewGuid(), roleId, Guid.NewGuid(), when));
         _seed.SaveChanges();
         _seed.ChangeTracker.Clear();
     }
@@ -62,7 +73,7 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     [Fact]
     public async Task Returns_a_paged_slice_with_total_across_all_matches()
     {
-        Seed(Role("r1", "One"), Role("r2", "Two"), Role("r3", "Three"), Role("r4", "Four"), Role("r5", "Five"));
+        Seed(MakeRole("r1", "One"), MakeRole("r2", "Two"), MakeRole("r3", "Three"), MakeRole("r4", "Four"), MakeRole("r5", "Five"));
 
         var page = await Repo().ListAsync(
             new ListRolesQuery { Page = 1, Limit = 2, Sort = [new SortOption("code")] }, CancellationToken.None);
@@ -75,7 +86,7 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     [Fact]
     public async Task Second_page_returns_the_next_slice()
     {
-        Seed(Role("r1", "One"), Role("r2", "Two"), Role("r3", "Three"), Role("r4", "Four"), Role("r5", "Five"));
+        Seed(MakeRole("r1", "One"), MakeRole("r2", "Two"), MakeRole("r3", "Three"), MakeRole("r4", "Four"), MakeRole("r5", "Five"));
 
         var page = await Repo().ListAsync(
             new ListRolesQuery { Page = 2, Limit = 2, Sort = [new SortOption("code")] }, CancellationToken.None);
@@ -88,11 +99,11 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     public async Task Total_counts_after_filter_before_paging()
     {
         Seed(
-            Role("a1", "A", status: AdminRoleStatus.Active),
-            Role("a2", "A", status: AdminRoleStatus.Active),
-            Role("a3", "A", status: AdminRoleStatus.Active),
-            Role("i1", "I", status: AdminRoleStatus.Inactive),
-            Role("i2", "I", status: AdminRoleStatus.Inactive));
+            MakeRole("a1", "A", status: RoleStatus.Active),
+            MakeRole("a2", "A", status: RoleStatus.Active),
+            MakeRole("a3", "A", status: RoleStatus.Active),
+            MakeRole("i1", "I", status: RoleStatus.Inactive),
+            MakeRole("i2", "I", status: RoleStatus.Inactive));
 
         var page = await Repo().ListAsync(new ListRolesQuery
         {
@@ -109,8 +120,8 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     [Fact]
     public async Task Preserves_user_count_per_role()
     {
-        var busy = Role("busy", "Busy");
-        Seed(busy, Role("lonely", "Lonely"));
+        var busy = MakeRole("busy", "Busy");
+        Seed(busy, MakeRole("lonely", "Lonely"));
         Assign(busy.Id, 2);
 
         var page = await Repo().ListAsync(new ListRolesQuery { Sort = [new SortOption("code")] }, CancellationToken.None);
@@ -122,7 +133,7 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     [Fact]
     public async Task Search_narrows_the_result_set()
     {
-        Seed(Role("finance_admin", "Finance"), Role("support", "Support"));
+        Seed(MakeRole("finance_admin", "Finance"), MakeRole("support", "Support"));
 
         var page = await Repo().ListAsync(
             new ListRolesQuery { Search = new SearchOption("finance", ["name"]) }, CancellationToken.None);

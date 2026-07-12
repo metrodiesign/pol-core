@@ -1,7 +1,14 @@
 extern alias ApiHost;
 
 using Admins.Application;
-using Admins.Application.ResolveAdmin;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using Mediator;
 
 namespace Hosts.Tests;
@@ -51,7 +58,7 @@ public sealed class AdminQueryScopeFloorTests
     private sealed class FakeScope(AccessibleMerchants accessible) : IAdminScope
     {
         public bool IsBound => true;
-        public AdminResolution Current => throw new NotSupportedException();
+        public Resolution Current => throw new NotSupportedException();
         public AccessibleMerchants Accessible { get; } = accessible;
     }
 

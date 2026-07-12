@@ -1,6 +1,18 @@
 using System.Text.Json;
-using Admins.Domain;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using Admins.Infrastructure.Persistence;
+using Admins.Infrastructure.Persistence.MasterData;
+using Admins.Infrastructure.Persistence.Permissions;
+using Admins.Infrastructure.Persistence.Roles;
+using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -10,7 +22,7 @@ using SearchOption = BuildingBlocks.Application.SearchOption;
 namespace Admins.Tests;
 
 /// <summary>
-/// The AdminRole SFS apply pipeline (control-plane exemplar). In-memory <c>List.AsQueryable</c> cases prove the
+/// The Role SFS apply pipeline (control-plane exemplar). In-memory <c>List.AsQueryable</c> cases prove the
 /// whitelist gating, silent-drop, AND-combine, status parsing, and the coercion guard (wrong-typed value ->
 /// ArgumentException -> 400, eagerly). SQLite cases prove the two behaviours that need a real relational
 /// provider: NULLS-last ordering on the nullable Description in both directions, and LIKE-wildcard escaping so a
@@ -20,11 +32,11 @@ public sealed class AdminRoleSfsTests
 {
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
-    private static AdminRole Role(string code, string name, string? description = null,
-        AdminRoleStatus status = AdminRoleStatus.Active) =>
-        AdminRole.Create(code, name, description, color: null, status, permissionKeys: [], catalogKeys: new HashSet<string>());
+    private static Role MakeRole(string code, string name, string? description = null,
+        RoleStatus status = RoleStatus.Active) =>
+        Role.Create(code, name, description, color: null, status, permissionKeys: [], catalogKeys: new HashSet<string>());
 
-    private static IQueryable<AdminRole> Roles(params AdminRole[] roles) => roles.AsQueryable();
+    private static IQueryable<Role> Roles(params Role[] roles) => roles.AsQueryable();
 
     // ===== EscapeLike (REQ-5.4, REQ-6.4) =====
     [Theory]
@@ -42,7 +54,7 @@ public sealed class AdminRoleSfsTests
     [Fact]
     public void Unknown_field_is_silently_dropped()
     {
-        var filtered = Roles(Role("a", "A"), Role("b", "B"))
+        var filtered = Roles(MakeRole("a", "A"), MakeRole("b", "B"))
             .ApplyFilters([new FilterOption("secret", FilterOperator.Equals, J("\"x\""))]).ToList();
         Assert.Equal(2, filtered.Count);
     }
@@ -50,7 +62,7 @@ public sealed class AdminRoleSfsTests
     [Fact]
     public void Wrong_case_field_is_silently_dropped()
     {
-        var filtered = Roles(Role("a", "A"))
+        var filtered = Roles(MakeRole("a", "A"))
             .ApplyFilters([new FilterOption("Code", FilterOperator.Equals, J("\"a\""))]).ToList();
         Assert.Single(filtered);   // "Code" != "code" under Ordinal -> treated as absent (REQ-6.7)
     }
@@ -59,7 +71,7 @@ public sealed class AdminRoleSfsTests
     public void Operator_not_allowed_on_field_is_dropped_and_logged_without_value()
     {
         var log = new CapturingLogger();
-        var filtered = Roles(Role("a", "A"))
+        var filtered = Roles(MakeRole("a", "A"))
             .ApplyFilters([new FilterOption("code", FilterOperator.GreaterThan, J("\"sekret\""))], log).ToList();
 
         Assert.Single(filtered);                                         // gt is not allowed on code
@@ -70,7 +82,7 @@ public sealed class AdminRoleSfsTests
     [Fact]
     public void Empty_in_values_is_silently_dropped()
     {
-        var filtered = Roles(Role("a", "A"), Role("b", "B"))
+        var filtered = Roles(MakeRole("a", "A"), MakeRole("b", "B"))
             .ApplyFilters([new FilterOption("code", FilterOperator.In, Values: [])]).ToList();
         Assert.Equal(2, filtered.Count);
     }
@@ -79,9 +91,9 @@ public sealed class AdminRoleSfsTests
     public void Multiple_filters_AND_combine()
     {
         var filtered = Roles(
-                Role("keep", "A", status: AdminRoleStatus.Active),
-                Role("keep2", "A", status: AdminRoleStatus.Inactive),
-                Role("other", "A", status: AdminRoleStatus.Active))
+                MakeRole("keep", "A", status: RoleStatus.Active),
+                MakeRole("keep2", "A", status: RoleStatus.Inactive),
+                MakeRole("other", "A", status: RoleStatus.Active))
             .ApplyFilters([
                 new FilterOption("name", FilterOperator.Equals, J("\"A\"")),
                 new FilterOption("status", FilterOperator.Equals, J("\"active\"")),
@@ -96,8 +108,8 @@ public sealed class AdminRoleSfsTests
     public void Status_filter_parses_lowercase_wire_value()
     {
         var filtered = Roles(
-                Role("a", "A", status: AdminRoleStatus.Active),
-                Role("b", "B", status: AdminRoleStatus.Inactive))
+                MakeRole("a", "A", status: RoleStatus.Active),
+                MakeRole("b", "B", status: RoleStatus.Inactive))
             .ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("\"inactive\""))]).ToList();
 
         Assert.Single(filtered);
@@ -111,21 +123,21 @@ public sealed class AdminRoleSfsTests
         // status expects a lowercase string token; a JSON number must be a 400 (ArgumentException), raised
         // eagerly during apply — never a 409 (InvalidOperationException) or 500 (FormatException).
         Assert.Throws<ArgumentException>(() =>
-            Roles(Role("a", "A")).ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("5"))]));
+            Roles(MakeRole("a", "A")).ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("5"))]));
     }
 
     [Fact]
     public void Invalid_status_token_throws_ArgumentException()
     {
         Assert.Throws<ArgumentException>(() =>
-            Roles(Role("a", "A")).ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("\"deleted\""))]));
+            Roles(MakeRole("a", "A")).ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("\"deleted\""))]));
     }
 
     // ===== sort default fallback =====
     [Fact]
     public void Unknown_sort_field_falls_back_to_default_code_desc()
     {
-        var sorted = Roles(Role("a", "A"), Role("c", "C"), Role("b", "B"))
+        var sorted = Roles(MakeRole("a", "A"), MakeRole("c", "C"), MakeRole("b", "B"))
             .ApplySort([new SortOption("bogus")]).Select(r => r.Code).ToList();
         Assert.Equal(new[] { "c", "b", "a" }, sorted);   // mandatory default OrderByDescending(Code) (REQ-4.5)
     }
@@ -137,9 +149,9 @@ public sealed class AdminRoleSfsTests
     public async Task Sort_by_nullable_description_places_nulls_last_in_both_directions(SortDirection dir)
     {
         using var db = NewDb(
-            Role("r_beta", "beta", "beta desc"),
-            Role("r_null", "null", null),
-            Role("r_alpha", "alpha", "alpha desc"));
+            MakeRole("r_beta", "beta", "beta desc"),
+            MakeRole("r_null", "null", null),
+            MakeRole("r_alpha", "alpha", "alpha desc"));
 
         var codes = await db.Roles.ApplySort([new SortOption("description", dir)]).Select(r => r.Code).ToListAsync();
 
@@ -149,7 +161,7 @@ public sealed class AdminRoleSfsTests
     [Fact]
     public async Task Search_escapes_percent_so_it_matches_literally()
     {
-        using var db = NewDb(Role("r_pct", "50% off", null), Role("r_num", "500 baht", null));
+        using var db = NewDb(MakeRole("r_pct", "50% off", null), MakeRole("r_num", "500 baht", null));
 
         var hits = await db.Roles.ApplySearch(new SearchOption("50%", ["name"])).Select(r => r.Code).ToListAsync();
 
@@ -159,7 +171,7 @@ public sealed class AdminRoleSfsTests
     [Fact]
     public async Task Search_escapes_underscore_so_it_matches_literally()
     {
-        using var db = NewDb(Role("r_us", "a_b", null), Role("r_any", "axb", null));
+        using var db = NewDb(MakeRole("r_us", "a_b", null), MakeRole("r_any", "axb", null));
 
         var hits = await db.Roles.ApplySearch(new SearchOption("a_b", ["name"])).Select(r => r.Code).ToListAsync();
 
@@ -169,7 +181,7 @@ public sealed class AdminRoleSfsTests
     [Fact]
     public async Task Filter_contains_escapes_wildcards()
     {
-        using var db = NewDb(Role("r_pct", "50% off", null), Role("r_num", "500 baht", null));
+        using var db = NewDb(MakeRole("r_pct", "50% off", null), MakeRole("r_num", "500 baht", null));
 
         var hits = await db.Roles
             .ApplyFilters([new FilterOption("name", FilterOperator.Contains, J("\"50%\""))])
@@ -178,9 +190,9 @@ public sealed class AdminRoleSfsTests
         Assert.Equal(new[] { "r_pct" }, hits);
     }
 
-    // ---- SQLite standalone context (maps only AdminRole; ponytail: [ wildcard is SQL-Server-only, covered by
+    // ---- SQLite standalone context (maps only Role; ponytail: [ wildcard is SQL-Server-only, covered by
     // the EscapeLike output assertion above — SQLite does not treat [ specially) ----
-    private static RoleDb NewDb(params AdminRole[] seed)
+    private static RoleDb NewDb(params Role[] seed)
     {
         var connection = new SqliteConnection("DataSource=:memory:");
         connection.Open();
@@ -194,13 +206,13 @@ public sealed class AdminRoleSfsTests
 
     private sealed class RoleDb(SqliteConnection connection) : DbContext
     {
-        public DbSet<AdminRole> Roles => Set<AdminRole>();
+        public DbSet<Role> Roles => Set<Role>();
 
         protected override void OnConfiguring(DbContextOptionsBuilder options) => options.UseSqlite(connection);
 
         protected override void OnModelCreating(ModelBuilder model)
         {
-            var e = model.Entity<AdminRole>();
+            var e = model.Entity<Role>();
             e.ToTable("AdminRoles");
             e.HasKey(x => x.Id);
             e.Property(x => x.Code).HasMaxLength(64).IsRequired();

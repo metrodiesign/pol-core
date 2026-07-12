@@ -1,6 +1,18 @@
 using System.Text.Json;
-using Admins.Domain;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using Admins.Infrastructure.Persistence;
+using Admins.Infrastructure.Persistence.MasterData;
+using Admins.Infrastructure.Persistence.Permissions;
+using Admins.Infrastructure.Persistence.Roles;
+using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -20,14 +32,14 @@ public sealed class PlatformUserSfsTests
 {
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
-    private static PlatformUser Super(string email, DateTime createdAt) =>
-        PlatformUser.SelfProvision(Guid.NewGuid().ToString("N"), email, createdAt);
-    private static PlatformUser Scoped(string email, DateTime createdAt) =>
-        PlatformUser.CreateScoped(email, createdAt);
+    private static User Super(string email, DateTime createdAt) =>
+        User.SelfProvision(Guid.NewGuid().ToString("N"), email, createdAt);
+    private static User Scoped(string email, DateTime createdAt) =>
+        User.CreateScoped(email, createdAt);
 
     private static readonly DateTime T0 = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static IQueryable<PlatformUser> Accounts(params PlatformUser[] accounts) => accounts.AsQueryable();
+    private static IQueryable<User> Accounts(params User[] accounts) => accounts.AsQueryable();
 
     // ===== filter whitelist gating =====
     [Fact]
@@ -76,9 +88,9 @@ public sealed class PlatformUserSfsTests
     }
 
     [Theory]
-    [InlineData("super", PlatformUserTier.Super)]
-    [InlineData("scoped", PlatformUserTier.Scoped)]
-    public void Tier_filter_parses_lowercase_wire_value(string wire, PlatformUserTier expected)
+    [InlineData("super", Tier.Super)]
+    [InlineData("scoped", Tier.Scoped)]
+    public void Tier_filter_parses_lowercase_wire_value(string wire, Tier expected)
     {
         var kept = Accounts(Super("s@x", T0), Scoped("c@x", T0))
             .ApplyFilters([new FilterOption("tier", FilterOperator.Equals, J($"\"{wire}\""))]).ToList();
@@ -174,8 +186,8 @@ public sealed class PlatformUserSfsTests
         Assert.Equal(new[] { "a_b@x" }, hits);
     }
 
-    // ---- SQLite standalone context (maps only PlatformUser) ----
-    private static AccountDb NewDb(params PlatformUser[] seed)
+    // ---- SQLite standalone context (maps only User) ----
+    private static AccountDb NewDb(params User[] seed)
     {
         var connection = new SqliteConnection("DataSource=:memory:");
         connection.Open();
@@ -189,13 +201,13 @@ public sealed class PlatformUserSfsTests
 
     private sealed class AccountDb(SqliteConnection connection) : DbContext
     {
-        public DbSet<PlatformUser> Accounts => Set<PlatformUser>();
+        public DbSet<User> Accounts => Set<User>();
 
         protected override void OnConfiguring(DbContextOptionsBuilder options) => options.UseSqlite(connection);
 
         protected override void OnModelCreating(ModelBuilder model)
         {
-            var e = model.Entity<PlatformUser>();
+            var e = model.Entity<User>();
             e.ToTable("PlatformUsers");
             e.HasKey(x => x.Id);
             e.Property(x => x.Subject).HasMaxLength(256);

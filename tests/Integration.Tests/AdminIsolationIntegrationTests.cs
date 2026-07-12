@@ -5,7 +5,7 @@ namespace Integration.Tests;
 /// <summary>
 /// Proves the Admin control-plane isolation + grant floor against live SQL Server 2025 with the real
 /// principals and the SecurityObjects migration applied. The admin tables (PlatformUsers,
-/// PlatformMerchantAccess, PlatformUserAudits) are control-plane: pol_admin owns them and pol_app has NO
+/// MerchantAccess, PlatformUserAudits) are control-plane: pol_admin owns them and pol_app has NO
 /// grant at all (REQ-3.2). The filtered unique index on Subject rejects a duplicate bound subject but exempts
 /// NULL (invited) subjects (REQ-3.1). Tagged Integration so the default unit run skips them; CI runs them
 /// against a migrated service.

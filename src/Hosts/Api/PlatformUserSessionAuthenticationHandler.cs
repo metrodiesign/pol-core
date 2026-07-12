@@ -1,8 +1,8 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Admins.Application;
-using Admins.Application.ResolveAdmin;
-using Admins.Domain;
+using Admins.Application.Users;
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Mediator;
@@ -21,10 +21,10 @@ namespace Api;
 /// </summary>
 internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
-    public const string SchemeName = "PlatformUserSession";
+    public const string SchemeName = "Session";
 
-    private readonly IPlatformUserSessionStore _sessions;
-    private readonly IPlatformAuthAuditWriter _audit;
+    private readonly ISessionStore _sessions;
+    private readonly IAuthAuditWriter _audit;
     private readonly PlatformUserSessionCookies _cookies;
     private readonly IPlatformUserSessionResolver _resolver;
     private readonly AdminScope _scope;
@@ -36,8 +36,8 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
-        IPlatformUserSessionStore sessions,
-        IPlatformAuthAuditWriter audit,
+        ISessionStore sessions,
+        IAuthAuditWriter audit,
         PlatformUserSessionCookies cookies,
         IPlatformUserSessionResolver resolver,
         AdminScope scope,
@@ -56,7 +56,7 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
         _options = sessionOptions.Value;
     }
 
-    private PlatformUserSessionPolicy Policy => new(
+    private SessionPolicy Policy => new(
         TimeSpan.FromMinutes(_options.IdleMinutes),
         TimeSpan.FromHours(_options.AbsoluteHours),
         TimeSpan.FromMinutes(_options.RotationMinutes),
@@ -76,31 +76,31 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
         var now = _clock.UtcNow;
         var policy = Policy;
 
-        var familyActiveId = session.Status == PlatformUserSessionStatus.Superseded
+        var familyActiveId = session.Status == SessionStatus.Superseded
             ? await _sessions.GetFamilyActiveSessionIdAsync(session.FamilyId, ct)
             : null;
 
-        switch (PlatformUserSessionDecisionPolicy.Decide(session, familyActiveId, now, policy))
+        switch (SessionDecisionPolicy.Decide(session, familyActiveId, now, policy))
         {
-            case PlatformUserSessionDecision.Reject:
+            case SessionDecision.Reject:
                 return AuthenticateResult.Fail("Session is revoked or expired."); // 401 (REQ-4.2/5.4)
 
-            case PlatformUserSessionDecision.ReuseRevokeFamily:
+            case SessionDecision.ReuseRevokeFamily:
                 await _sessions.RevokeFamilyAsync(session.FamilyId, ct);
-                _audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
+                _audit.Append(AuthAudit.For(AuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
                     session.PlatformUserId, reason: "reuse-detected"));
                 await _audit.SaveChangesAsync(ct);
                 return AuthenticateResult.Fail("Session reuse detected."); // 401, family killed (REQ-5.3/12.1)
 
-            case PlatformUserSessionDecision.ServeActive:
-            case PlatformUserSessionDecision.ServeUnderGrace:
+            case SessionDecision.ServeActive:
+            case SessionDecision.ServeUnderGrace:
             default:
                 break;
         }
 
         // Per-request READ-ONLY resolution (REQ-9.1/9.4): fresh Status/Tier/accessible + Subject by account id.
         var resolved = await _resolver.ResolveByIdAsync(session.PlatformUserId, ct);
-        if (resolved.Outcome != AdminResolveOutcome.Resolved || resolved.Resolution is null)
+        if (resolved.Outcome != ResolveOutcome.Resolved || resolved.Resolution is null)
             return AuthenticateResult.Fail("Admin is suspended or no longer exists."); // suspend -> next request 401 (REQ-6.3/9.2)
 
         var resolution = resolved.Resolution;
@@ -119,7 +119,7 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
         var principal = new ClaimsPrincipal(identity);
 
         // Rotation + idle-slide apply only to a live Active session (a grace predecessor is already superseded).
-        if (session.Status == PlatformUserSessionStatus.Active)
+        if (session.Status == SessionStatus.Active)
         {
             if (now - session.IssuedAt >= policy.Rotation)
                 await TryRotateAsync(session, now, policy, ct);
@@ -130,7 +130,7 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 
-    private async Task TryRotateAsync(PlatformUserSession session, DateTime now, PlatformUserSessionPolicy policy, CancellationToken ct)
+    private async Task TryRotateAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
         var newToken = PlatformUserSessionTokens.NewOpaqueToken();
         var csrfToken = PlatformUserSessionTokens.NewOpaqueToken();
@@ -142,12 +142,12 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
             return;
 
         _sessions.Add(successor);
-        _audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.Rotated, Context.TraceIdentifier, now, session.PlatformUserId));
+        _audit.Append(AuthAudit.For(AuthEventType.Rotated, Context.TraceIdentifier, now, session.PlatformUserId));
         await _sessions.SaveChangesAsync(ct);
         _cookies.Write(Context, newToken, csrfToken); // safe: UseAuthentication runs before the response body
     }
 
-    private async Task MaybeSlideIdleAsync(PlatformUserSession session, DateTime now, PlatformUserSessionPolicy policy, CancellationToken ct)
+    private async Task MaybeSlideIdleAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
         // Lazy: persist at most ~once a minute (REQ-3.5 / Tech #8), bounded by the absolute expiry.
         var lastSlide = session.IdleExpiresAt - policy.Idle;
@@ -164,18 +164,18 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
 /// decision/principal/rotation logic can be unit-tested without it (mirrors <see cref="IAdminCallbackResolver"/>).</summary>
 internal interface IPlatformUserSessionResolver
 {
-    Task<AdminByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken cancellationToken);
+    Task<ByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken cancellationToken);
 }
 
 internal sealed class PlatformUserSessionResolver(IMediator mediator) : IPlatformUserSessionResolver
 {
-    public Task<AdminByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken cancellationToken) =>
-        mediator.Send(new ResolveAdminByIdQuery(adminAccountId), cancellationToken).AsTask();
+    public Task<ByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken cancellationToken) =>
+        mediator.Send(new ResolveByIdQuery(adminAccountId), cancellationToken).AsTask();
 }
 
 internal static class PlatformUserSessionSchemeRegistration
 {
-    /// <summary>Registers the PlatformUserSession cookie scheme and REDEFINES the <c>admin</c> authorization policy to
+    /// <summary>Registers the Session cookie scheme and REDEFINES the <c>admin</c> authorization policy to
     /// pin that scheme and require only an authenticated user (REQ-10.6) — the old
     /// <c>RequireClaim("role","admin")</c> is dropped (a session principal has no role claim). Existing
     /// <c>.RequireAuthorization("admin")</c> call sites are unchanged.</summary>

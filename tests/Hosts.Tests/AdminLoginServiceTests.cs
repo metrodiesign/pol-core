@@ -1,8 +1,14 @@
 extern alias ApiHost;
 using ApiHost::Api;
 using Admins.Application;
-using Admins.Application.ResolveAdmin;
-using Admins.Domain;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -43,16 +49,16 @@ public sealed class AdminLoginServiceTests
     public async Task A_resolved_admin_gets_a_session_login_audit_cookies_and_a_returnTo_redirect()
     {
         var (service, store, audit, http) = Build(
-            new AdminResolveResult(AdminResolveOutcome.Resolved,
-                new AdminResolution(AdminId, "ops@org.com", PlatformUserTier.Super, AccessibleMerchants.All)));
+            new ResolveResult(ResolveOutcome.Resolved,
+                new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)));
 
         await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", "/dashboard", default);
 
         var session = Assert.Single(store.Added);
         Assert.Equal(AdminId, session.PlatformUserId);
-        Assert.Equal(PlatformUserSessionStatus.Active, session.Status);
+        Assert.Equal(SessionStatus.Active, session.Status);
         Assert.Equal(1, store.SaveCount);
-        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.LoginSuccess && a.PlatformUserId == AdminId);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.PlatformUserId == AdminId);
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);
         Assert.Equal("/dashboard", http.Response.Headers.Location);
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));
@@ -61,12 +67,12 @@ public sealed class AdminLoginServiceTests
     [Fact]
     public async Task A_suspended_admin_gets_no_session_a_denied_audit_and_an_error_redirect()
     {
-        var (service, store, audit, http) = Build(AdminResolveResult.Suspended);
+        var (service, store, audit, http) = Build(ResolveResult.Suspended);
 
         await service.EstablishSessionAsync(http, "google-sub-2", "ops@org.com", "/dashboard", default);
 
         Assert.Empty(store.Added);
-        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.AuthDenied && a.Reason == "suspended");
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);
         Assert.Equal("/login-error?reason=suspended", http.Response.Headers.Location);
         Assert.DoesNotContain(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));
@@ -76,28 +82,28 @@ public sealed class AdminLoginServiceTests
     public async Task An_unknown_not_allowlisted_caller_is_denied_not_provisioned()
     {
         // the resolver returns NotFound (not an existing admin, not invited, not allowlisted)
-        var (service, store, audit, http) = Build(AdminResolveResult.NotFound);
+        var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
         await service.EstablishSessionAsync(http, "google-sub-3", "stranger@org.com", "/", default);
 
         Assert.Empty(store.Added);
-        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.AuthDenied && a.Reason == "not-provisioned");
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "not-provisioned");
     }
 
     [Fact]
     public async Task A_missing_subject_is_denied_before_any_resolution()
     {
-        var (service, store, audit, http) = Build(AdminResolveResult.NotFound);
+        var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
         await service.EstablishSessionAsync(http, subject: null, email: "x@org.com", returnTo: "/", default);
 
         Assert.Empty(store.Added);
-        Assert.Contains(audit.Appended, a => a.EventType == PlatformAuthEventType.AuthDenied && a.Reason == "missing-subject");
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
     }
 
     // --- harness ---
 
-    private static (AdminLoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(AdminResolveResult resolve)
+    private static (AdminLoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(ResolveResult resolve)
     {
         var store = new FakeSessionStore();
         var audit = new FakeAuthAudit();
@@ -105,7 +111,7 @@ public sealed class AdminLoginServiceTests
         var sessionOptions = Options.Create(new PlatformUserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"] });
         var oidcOptions = Options.Create(new AdminOidcOptions { ErrorPath = "/login-error" });
         var provider = new ServiceCollection()
-            .AddScoped<IPlatformAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
+            .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();
 
         var service = new AdminLoginService(new FakeResolver(resolve), store, audit, cookies, new TestClock(Now),
@@ -117,34 +123,34 @@ public sealed class AdminLoginServiceTests
         return (service, store, audit, http);
     }
 
-    private sealed class FakeResolver(AdminResolveResult result) : IAdminCallbackResolver
+    private sealed class FakeResolver(ResolveResult result) : IAdminCallbackResolver
     {
-        public Task<AdminResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken ct) =>
+        public Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);
     }
 
-    private sealed class FakeSessionStore : IPlatformUserSessionStore
+    private sealed class FakeSessionStore : ISessionStore
     {
-        public readonly List<PlatformUserSession> Added = [];
+        public readonly List<Session> Added = [];
         public int SaveCount;
-        public void Add(PlatformUserSession session) => Added.Add(session);
+        public void Add(Session session) => Added.Add(session);
         public Task<int> SaveChangesAsync(CancellationToken ct) { SaveCount++; return Task.FromResult(1); }
-        public Task<PlatformUserSession?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<PlatformUserSession?>(null);
+        public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<Session?>(null);
         public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
         public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => Task.FromResult(false);
         public Task SlideIdleAsync(Guid id, DateTime idle, CancellationToken ct) => Task.CompletedTask;
         public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) => Task.CompletedTask;
         public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) => Task.CompletedTask;
         public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
-        public Task<IReadOnlyList<PlatformUserSession>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
-            Task.FromResult<IReadOnlyList<PlatformUserSession>>([]);
-        public Task<PlatformUserSession?> FindByIdAsync(Guid sessionId, CancellationToken ct) => Task.FromResult<PlatformUserSession?>(null);
+        public Task<IReadOnlyList<Session>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<Session>>([]);
+        public Task<Session?> FindByIdAsync(Guid sessionId, CancellationToken ct) => Task.FromResult<Session?>(null);
     }
 
-    private sealed class FakeAuthAudit : IPlatformAuthAuditWriter
+    private sealed class FakeAuthAudit : IAuthAuditWriter
     {
-        public readonly List<PlatformAuthAudit> Appended = [];
-        public void Append(PlatformAuthAudit entry) => Appended.Add(entry);
+        public readonly List<AuthAudit> Appended = [];
+        public void Append(AuthAudit entry) => Appended.Add(entry);
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
     }
 

@@ -100,7 +100,7 @@ internal static class IntegrationDb
     }
 
     /// <summary>Convenience for the Scoped-admin matrix (T5/REQ-3.3/REQ-3.11): creates a fresh Scoped platform user
-    /// (Tier=Scoped) and grants it <see cref="Admins.Domain.PlatformMerchantAccess"/> to each of
+    /// (Tier=Scoped) and grants it <see cref="Admins.Domain.MerchantAccess"/> to each of
     /// <paramref name="assignedMerchantIds"/> — zero merchants is a valid, deliberate call shape (the REQ-3.11
     /// fail-closed case: a Scoped actor with no PMA rows at all must see nothing, not everything).</summary>
     public static async Task<SqlConnection> OpenAsNewScopedUserAsync(params Guid[] assignedMerchantIds)

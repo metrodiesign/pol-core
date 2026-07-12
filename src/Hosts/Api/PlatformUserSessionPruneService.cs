@@ -1,4 +1,4 @@
-using Admins.Application;
+using Admins.Application.Users;
 using BuildingBlocks.Application;
 
 namespace Api;
@@ -33,7 +33,7 @@ internal sealed class PlatformUserSessionPruneService : BackgroundService
                 try
                 {
                     using var scope = _scopeFactory.CreateScope();
-                    var store = scope.ServiceProvider.GetRequiredService<IPlatformUserSessionStore>();
+                    var store = scope.ServiceProvider.GetRequiredService<ISessionStore>();
                     var removed = await store.PruneAsync(_clock.UtcNow, stoppingToken);
                     if (removed > 0)
                         _logger.LogInformation("Pruned {Count} admin sessions past absolute expiry.", removed);

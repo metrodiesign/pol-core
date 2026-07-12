@@ -23,8 +23,8 @@ public class MerchantsArchitectureTests
     private static readonly Assembly Application = typeof(global::Merchants.Application.IMerchantRepository).Assembly;
     private static readonly Assembly Infrastructure = typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly;
 
-    private static readonly Assembly AdminDomain = typeof(global::Admins.Domain.PlatformUser).Assembly;
-    private static readonly Assembly AdminApplication = typeof(global::Admins.Application.IPlatformUserRepository).Assembly;
+    private static readonly Assembly AdminDomain = typeof(global::Admins.Domain.Users.User).Assembly;
+    private static readonly Assembly AdminApplication = typeof(global::Admins.Application.Users.IUserRepository).Assembly;
     private static readonly Assembly AdminInfrastructure = typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly;
 
     [Fact]

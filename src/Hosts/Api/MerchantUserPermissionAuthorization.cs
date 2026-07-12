@@ -46,7 +46,7 @@ internal sealed class MerchantBoundFilter : IEndpointFilter
 /// references MUST exist in the code-canonical catalog vocabulary (<see cref="MerchantUserPermissions.AllKeys"/>,
 /// which the migration seeds the DB from). Pure in-memory — no DB. Call right before <c>app.Run()</c>, after all
 /// endpoints are mapped.</summary>
-// ponytail: DUPLICATE-shaped of Api.AdminPermissionParity (AdminPermissions -> MerchantUserPermissions) — deliberate.
+// ponytail: DUPLICATE-shaped of Api.AdminPermissionParity (Keys -> MerchantUserPermissions) — deliberate.
 internal static class MerchantUserPermissionParity
 {
     public static void Assert(IServiceProvider services)

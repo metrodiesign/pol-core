@@ -5,7 +5,7 @@ namespace Integration.Tests;
 
 /// <summary>
 /// The set-based session transitions the store relies on, asserted against live SQL (REQ-5.5/5.3/11.5). These
-/// mirror <c>PlatformUserSessionStore</c>'s ExecuteUpdate/ExecuteDelete statements: the single-winner supersede
+/// mirror <c>SessionStore</c>'s ExecuteUpdate/ExecuteDelete statements: the single-winner supersede
 /// (only one of two conditional UPDATEs touches an Active row), family revocation, prune-by-absolute-expiry, and
 /// the "at most one Active per family" invariant. Tagged Integration: the default unit run skips them.
 /// </summary>

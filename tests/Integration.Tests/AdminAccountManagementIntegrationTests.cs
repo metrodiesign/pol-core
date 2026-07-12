@@ -7,7 +7,7 @@ namespace Integration.Tests;
 /// The admin session-management store SQL, asserted against live SQL (admin-account-management REQ-4/5):
 /// <c>ListByAdminAsync</c> scopes to one admin and orders newest-first + id tiebreak, and a family revoke touches
 /// ONLY the target family (other families of the SAME admin survive — REQ-5.1 revokes a family, not the whole
-/// account). Mirrors <c>PlatformUserSessionStore.ListByAdminAsync</c> / <c>RevokeFamilyAsync</c>. Tagged
+/// account). Mirrors <c>SessionStore.ListByAdminAsync</c> / <c>RevokeFamilyAsync</c>. Tagged
 /// Integration: the default unit run skips these.
 /// </summary>
 [Trait("Category", "Integration")]

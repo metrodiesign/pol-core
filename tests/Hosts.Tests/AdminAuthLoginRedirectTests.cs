@@ -107,7 +107,7 @@ public sealed class AdminAuthLoginRedirectTests
 
     // Guards against the section-name mismatch bugfix regressing (AdminAuthOptions.cs): PlatformUserSessionOptions
     // must bind from the "AdminSession" section (matches the committed appsettings.json key), not the old
-    // "PlatformUserSession" section that section-name value never matched. The allowlist above is set via the
+    // "Session" section that section-name value never matched. The allowlist above is set via the
     // factory's own in-memory config (not a gitignored appsettings.Development.json) so this test is
     // self-contained in a clean checkout/CI.
     [Fact]

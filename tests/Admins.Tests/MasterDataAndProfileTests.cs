@@ -1,8 +1,12 @@
 using Admins.Application;
-using Admins.Application.PlatformUserQueries;
-using Admins.Application.CreateScopedAdmin;
-using Admins.Application.UpdateAdminProfile;
-using Admins.Domain;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 
 namespace Admins.Tests;
@@ -12,7 +16,7 @@ public sealed class MasterDataAndProfileTests
     private static readonly DateTime Now = new(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Guid Actor = Guid.NewGuid();
 
-    // ===== Domain: MasterData =====
+    // ===== Domain: MasterDataItem =====
 
     [Fact]
     public void Create_sets_fields_active_and_trims()
@@ -45,13 +49,13 @@ public sealed class MasterDataAndProfileTests
         Assert.True(l.IsActive);
     }
 
-    // ===== Domain: PlatformUser profile FKs =====
+    // ===== Domain: User profile FKs =====
 
     [Fact]
     public void CreateScoped_stores_profile_fks_and_UpdateProfile_replaces_them()
     {
         var pid = Guid.NewGuid();
-        var acc = PlatformUser.CreateScoped("a@x", Now, positionId: pid);
+        var acc = User.CreateScoped("a@x", Now, positionId: pid);
         Assert.Equal(pid, acc.PositionId);
         Assert.Null(acc.OfficeId);
 
@@ -66,12 +70,12 @@ public sealed class MasterDataAndProfileTests
     [Fact]
     public async Task CreateScoped_rejects_an_unknown_master_fk()
     {
-        var handler = new CreateScopedAdminHandler(
+        var handler = new CreateScopedHandler(
             new FakePlatformUserRepository(), new FakePlatformUserAuditWriter(),
             new FakeMasterDataStore(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await handler.Handle(new CreateScopedAdminCommand(
+            await handler.Handle(new CreateScopedCommand(
                 "a@x", Actor, "corr", PositionId: Guid.NewGuid()), default));
     }
 
@@ -82,10 +86,10 @@ public sealed class MasterDataAndProfileTests
         var pos = Position.Create("ceo", "CEO");
         masters.Items.Add(pos);
         var admins = new FakePlatformUserRepository();
-        var handler = new CreateScopedAdminHandler(
+        var handler = new CreateScopedHandler(
             admins, new FakePlatformUserAuditWriter(), masters, new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new CreateScopedAdminCommand("a@x", Actor, "corr", PositionId: pos.Id), default);
+        await handler.Handle(new CreateScopedCommand("a@x", Actor, "corr", PositionId: pos.Id), default);
 
         Assert.Equal(pos.Id, Assert.Single(admins.Accounts).PositionId);
     }
@@ -97,17 +101,17 @@ public sealed class MasterDataAndProfileTests
         var pos = Position.Create("ceo", "CEO");
         pos.Deactivate();
         masters.Items.Add(pos);
-        var handler = new CreateScopedAdminHandler(
+        var handler = new CreateScopedHandler(
             new FakePlatformUserRepository(), new FakePlatformUserAuditWriter(),
             masters, new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await handler.Handle(new CreateScopedAdminCommand("a@x", Actor, "corr", PositionId: pos.Id), default));
+            await handler.Handle(new CreateScopedCommand("a@x", Actor, "corr", PositionId: pos.Id), default));
     }
 
     // ===== UpdateAdminProfile =====
 
-    private static UpdateAdminProfileHandler ProfileHandler(
+    private static UpdateProfileHandler ProfileHandler(
         FakePlatformUserRepository admins, FakeMasterDataStore masters, FakePlatformUserAuditWriter audit) =>
         new(admins, masters, audit, new FakeUnitOfWork(), new FixedClock());
 
@@ -116,14 +120,14 @@ public sealed class MasterDataAndProfileTests
     {
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await ProfileHandler(new FakePlatformUserRepository(), new FakeMasterDataStore(), new FakePlatformUserAuditWriter())
-                .Handle(new UpdateAdminProfileCommand(Guid.NewGuid(), null, null, null, null, Actor, "corr"), default));
+                .Handle(new UpdateProfileCommand(Guid.NewGuid(), null, null, null, null, Actor, "corr"), default));
     }
 
     [Fact]
     public async Task UpdateProfile_sets_fks_and_audits()
     {
         var admins = new FakePlatformUserRepository();
-        var acc = PlatformUser.CreateScoped("a@x", Now);
+        var acc = User.CreateScoped("a@x", Now);
         admins.Add(acc);
         var masters = new FakeMasterDataStore();
         var div = Division.Create("north", "ภาคเหนือ");
@@ -131,11 +135,11 @@ public sealed class MasterDataAndProfileTests
         var audit = new FakePlatformUserAuditWriter();
 
         await ProfileHandler(admins, masters, audit)
-            .Handle(new UpdateAdminProfileCommand(acc.Id, null, null, null, div.Id, Actor, "corr"), default);
+            .Handle(new UpdateProfileCommand(acc.Id, null, null, null, div.Id, Actor, "corr"), default);
 
         Assert.Equal(div.Id, acc.DivisionId);
         var row = Assert.Single(audit.Appended);
-        Assert.Equal(AdminAuditAction.UpdateProfile, row.Action);
+        Assert.Equal(AuditAction.UpdateProfile, row.Action);
         Assert.Equal(acc.Id, row.TargetAdminId);
     }
 
@@ -143,7 +147,7 @@ public sealed class MasterDataAndProfileTests
     public async Task UpdateProfile_rejects_an_inactive_master_fk()
     {
         var admins = new FakePlatformUserRepository();
-        var acc = PlatformUser.CreateScoped("a@x", Now);
+        var acc = User.CreateScoped("a@x", Now);
         admins.Add(acc);
         var masters = new FakeMasterDataStore();
         var div = Division.Create("north", "ภาคเหนือ");
@@ -152,7 +156,7 @@ public sealed class MasterDataAndProfileTests
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await ProfileHandler(admins, masters, new FakePlatformUserAuditWriter())
-                .Handle(new UpdateAdminProfileCommand(acc.Id, null, null, null, div.Id, Actor, "corr"), default));
+                .Handle(new UpdateProfileCommand(acc.Id, null, null, null, div.Id, Actor, "corr"), default));
     }
 
     // ===== Detail exposes resolved refs =====
@@ -164,7 +168,7 @@ public sealed class MasterDataAndProfileTests
         var masters = new FakeMasterDataStore();
         var pos = Position.Create("ceo", "CEO");
         masters.Items.Add(pos);
-        var acc = PlatformUser.CreateScoped("a@x", Now, positionId: pos.Id);
+        var acc = User.CreateScoped("a@x", Now, positionId: pos.Id);
         admins.Add(acc);
 
         var detail = await new GetAdminByIdHandler(admins, new FakeAdminRoleRepository(), masters)

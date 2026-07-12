@@ -1,5 +1,12 @@
-using Admins.Application.DeleteRole;
-using Admins.Domain;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 
 namespace Admins.Tests;
@@ -9,8 +16,8 @@ namespace Admins.Tests;
 /// with zero bound users. A normal, unbound role deletes cleanly.</summary>
 public sealed class AdminRoleHandlerTests
 {
-    private static AdminRole Seed(string code) =>
-        AdminRole.Create(code, code, null, null, AdminRoleStatus.Active, [], AdminPermissions.AllKeys);
+    private static Role Seed(string code) =>
+        Role.Create(code, code, null, null, RoleStatus.Active, [], Keys.AllKeys);
 
     private static DeleteRoleHandler Handler(FakeAdminRoleRepository roles) =>
         new(roles, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
@@ -19,10 +26,10 @@ public sealed class AdminRoleHandlerTests
     public async Task Deleting_the_super_admin_seed_is_blocked_even_with_no_bound_users()
     {
         var roles = new FakeAdminRoleRepository();
-        roles.Add(Seed(AdminRole.SuperAdminCode));
+        roles.Add(Seed(Role.SuperAdminCode));
 
         await Assert.ThrowsAsync<ConflictException>(() =>
-            Handler(roles).Handle(new DeleteRoleCommand(AdminRole.SuperAdminCode, Guid.NewGuid(), "corr"), default).AsTask());
+            Handler(roles).Handle(new DeleteRoleCommand(Role.SuperAdminCode, Guid.NewGuid(), "corr"), default).AsTask());
 
         Assert.Single(roles.Roles); // anchor not removed
     }

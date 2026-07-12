@@ -60,7 +60,7 @@ public sealed class AdminRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        // FK AdminRolePermissions.PermissionKey -> AdminPermissions.Key (REQ-3.2).
+        // FK AdminRolePermissions.PermissionKey -> Keys.Key (REQ-3.2).
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
             "INSERT admin.AdminRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
             ("@g", Guid.NewGuid()), ("@r", Guid.Parse(SuperAdminRoleId))));

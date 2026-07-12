@@ -1,8 +1,5 @@
-using Admins.Application.BindInvitedAdmin;
-using Admins.Application.ResolveAdmin;
-using Admins.Application.SelfProvisionSuperAdmin;
-using Admins.Application;
-using Admins.Domain;
+using Admins.Application.Users;
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Mediator;
 using Microsoft.AspNetCore.WebUtilities;
@@ -29,7 +26,7 @@ internal static class ReturnUrlPolicy
 /// behind this interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
 internal interface IAdminCallbackResolver
 {
-    Task<AdminResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken);
+    Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken);
 }
 
 internal sealed class AdminCallbackResolver : IAdminCallbackResolver
@@ -43,25 +40,25 @@ internal sealed class AdminCallbackResolver : IAdminCallbackResolver
         _configuration = configuration;
     }
 
-    public async Task<AdminResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken)
+    public async Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(new ResolveAdminQuery(subject), cancellationToken);
-        if (result.Outcome != AdminResolveOutcome.NotFound)
+        var result = await _mediator.Send(new ResolveQuery(subject), cancellationToken);
+        if (result.Outcome != ResolveOutcome.NotFound)
             return result;
 
         // Invite-bind FIRST so an invited email never collides with the unique Email index via self-provision.
         if (!string.IsNullOrEmpty(email))
         {
-            var bound = await _mediator.Send(new BindInvitedAdminCommand(subject, email, correlationId), cancellationToken);
-            if (bound.Outcome != AdminResolveOutcome.NotFound)
+            var bound = await _mediator.Send(new BindInvitedCommand(subject, email, correlationId), cancellationToken);
+            if (bound.Outcome != ResolveOutcome.NotFound)
                 return bound;
         }
 
         var allowlist = _configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? [];
         if (allowlist.Contains(subject, StringComparer.Ordinal))
-            return AdminResolveResult.Of(await _mediator.Send(new SelfProvisionSuperAdminCommand(subject, email, correlationId), cancellationToken));
+            return ResolveResult.Of(await _mediator.Send(new SelfProvisionSuperCommand(subject, email, correlationId), cancellationToken));
 
-        return AdminResolveResult.NotFound;
+        return ResolveResult.NotFound;
     }
 }
 
@@ -75,8 +72,8 @@ internal sealed class AdminCallbackResolver : IAdminCallbackResolver
 internal sealed class AdminLoginService
 {
     private readonly IAdminCallbackResolver _resolver;
-    private readonly IPlatformUserSessionStore _sessions;
-    private readonly IPlatformAuthAuditWriter _audit;
+    private readonly ISessionStore _sessions;
+    private readonly IAuthAuditWriter _audit;
     private readonly PlatformUserSessionCookies _cookies;
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -86,8 +83,8 @@ internal sealed class AdminLoginService
 
     public AdminLoginService(
         IAdminCallbackResolver resolver,
-        IPlatformUserSessionStore sessions,
-        IPlatformAuthAuditWriter audit,
+        ISessionStore sessions,
+        IAuthAuditWriter audit,
         PlatformUserSessionCookies cookies,
         IClock clock,
         IServiceScopeFactory scopeFactory,
@@ -106,7 +103,7 @@ internal sealed class AdminLoginService
         _logger = logger;
     }
 
-    private PlatformUserSessionPolicy Policy => new(
+    private SessionPolicy Policy => new(
         TimeSpan.FromMinutes(_session.IdleMinutes),
         TimeSpan.FromHours(_session.AbsoluteHours),
         TimeSpan.FromMinutes(_session.RotationMinutes),
@@ -122,7 +119,7 @@ internal sealed class AdminLoginService
         }
 
         var correlationId = http.TraceIdentifier;
-        AdminResolveResult result;
+        ResolveResult result;
         try
         {
             result = await _resolver.ResolveAtCallbackAsync(subject, email ?? string.Empty, correlationId, ct);
@@ -134,9 +131,9 @@ internal sealed class AdminLoginService
             return;
         }
 
-        if (result.Outcome != AdminResolveOutcome.Resolved)
+        if (result.Outcome != ResolveOutcome.Resolved)
         {
-            await DenyAsync(http, result.Outcome == AdminResolveOutcome.Suspended ? "suspended" : "not-provisioned", subject, ct);
+            await DenyAsync(http, result.Outcome == ResolveOutcome.Suspended ? "suspended" : "not-provisioned", subject, ct);
             return;
         }
 
@@ -145,13 +142,13 @@ internal sealed class AdminLoginService
         {
             var sessionToken = PlatformUserSessionTokens.NewOpaqueToken();
             var csrfToken = PlatformUserSessionTokens.NewOpaqueToken();
-            var session = PlatformUserSession.Start(resolution.AdminId, PlatformUserSessionTokens.Hash(sessionToken), _clock.UtcNow, Policy,
+            var session = Session.Start(resolution.AdminId, PlatformUserSessionTokens.Hash(sessionToken), _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
 
             // session + login-success audit commit TOGETHER on the request's keyed pol_admin context (no partial).
             _sessions.Add(session);
-            _audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, subject));
+            _audit.Append(AuthAudit.For(AuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, subject));
             await _sessions.SaveChangesAsync(ct);
 
             _cookies.Write(http, sessionToken, csrfToken);
@@ -173,8 +170,8 @@ internal sealed class AdminLoginService
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var audit = scope.ServiceProvider.GetRequiredService<IPlatformAuthAuditWriter>();
-            audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: reason));
+            var audit = scope.ServiceProvider.GetRequiredService<IAuthAuditWriter>();
+            audit.Append(AuthAudit.For(AuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: reason));
             await audit.SaveChangesAsync(ct);
         }
         catch (Exception ex)

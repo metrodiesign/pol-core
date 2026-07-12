@@ -1,5 +1,12 @@
-using Admins.Application.ReactivateAdmin;
-using Admins.Domain;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using BuildingBlocks.Application;
 
 namespace Admins.Tests;
@@ -16,29 +23,29 @@ public sealed class PlatformUserCommandTests
     [Fact]
     public void Reactivate_sets_status_active()
     {
-        var a = PlatformUser.CreateScoped("x@x", T0);
+        var a = User.CreateScoped("x@x", T0);
         a.Suspend(Actor);
-        Assert.Equal(AdminStatus.Suspended, a.Status);
+        Assert.Equal(UserStatus.Suspended, a.Status);
         a.Reactivate();
-        Assert.Equal(AdminStatus.Active, a.Status);
+        Assert.Equal(UserStatus.Active, a.Status);
     }
 
     [Fact]
     public void Reactivate_on_active_account_is_idempotent()
     {
-        var a = PlatformUser.CreateScoped("x@x", T0);   // Active from creation
+        var a = User.CreateScoped("x@x", T0);   // Active from creation
         a.Reactivate();
-        Assert.Equal(AdminStatus.Active, a.Status);
+        Assert.Equal(UserStatus.Active, a.Status);
     }
 
     // ===== handler =====
-    private static (ReactivateAdminHandler H, FakePlatformUserRepository Accounts,
+    private static (ReactivateHandler H, FakePlatformUserRepository Accounts,
         FakePlatformUserSessionStore Sessions, FakePlatformUserAuditWriter Audit) NewHandler()
     {
         var accounts = new FakePlatformUserRepository();
         var sessions = new FakePlatformUserSessionStore();
         var audit = new FakePlatformUserAuditWriter();
-        var h = new ReactivateAdminHandler(accounts, sessions, audit, new FakeUnitOfWork(), new FixedClock());
+        var h = new ReactivateHandler(accounts, sessions, audit, new FakeUnitOfWork(), new FixedClock());
         return (h, accounts, sessions, audit);
     }
 
@@ -47,24 +54,24 @@ public sealed class PlatformUserCommandTests
     {
         var (h, _, _, _) = NewHandler();
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            h.Handle(new ReactivateAdminCommand(Guid.NewGuid(), Actor, "corr"), default).AsTask());
+            h.Handle(new ReactivateCommand(Guid.NewGuid(), Actor, "corr"), default).AsTask());
     }
 
     [Fact]
     public async Task Reactivate_suspended_activates_revokes_sessions_and_audits()
     {
         var (h, accounts, sessions, audit) = NewHandler();
-        var target = PlatformUser.CreateScoped("t@x", T0);
+        var target = User.CreateScoped("t@x", T0);
         target.Suspend(Actor);
         accounts.Add(target);
 
-        var result = await h.Handle(new ReactivateAdminCommand(target.Id, Actor, "corr"), default);
+        var result = await h.Handle(new ReactivateCommand(target.Id, Actor, "corr"), default);
 
-        Assert.Equal(nameof(AdminStatus.Active), result.Status);
-        Assert.Equal(AdminStatus.Active, target.Status);
+        Assert.Equal(nameof(UserStatus.Active), result.Status);
+        Assert.Equal(UserStatus.Active, target.Status);
         Assert.Equal(new[] { target.Id }, sessions.RevokedAdmins);          // fresh-login guarantee (REQ-3.5)
         Assert.Single(audit.Appended);                                      // every accepted call (REQ-3.2)
-        Assert.Equal(AdminAuditAction.Reactivate, audit.Appended[0].Action);
+        Assert.Equal(AuditAction.Reactivate, audit.Appended[0].Action);
         Assert.Equal(target.Id, audit.Appended[0].TargetAdminId);
     }
 
@@ -72,13 +79,13 @@ public sealed class PlatformUserCommandTests
     public async Task Reactivate_already_active_does_not_revoke_but_still_audits()
     {
         var (h, accounts, sessions, audit) = NewHandler();
-        var target = PlatformUser.CreateScoped("t@x", T0);   // already Active
+        var target = User.CreateScoped("t@x", T0);   // already Active
         accounts.Add(target);
 
-        await h.Handle(new ReactivateAdminCommand(target.Id, Actor, "corr"), default);
+        await h.Handle(new ReactivateCommand(target.Id, Actor, "corr"), default);
 
         Assert.Empty(sessions.RevokedAdmins);               // idempotent: no revoke (REQ-3.6)
         Assert.Single(audit.Appended);                      // but still audits (REQ-3.3)
-        Assert.Equal(AdminAuditAction.Reactivate, audit.Appended[0].Action);
+        Assert.Equal(AuditAction.Reactivate, audit.Appended[0].Action);
     }
 }

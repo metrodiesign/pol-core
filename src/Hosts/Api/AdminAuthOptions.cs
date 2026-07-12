@@ -20,7 +20,7 @@ internal sealed class AdminOidcOptions
 
 /// <summary>
 /// Server-side session lifetime + cookie posture for the admin BFF (REQ-3/5/7). Timings drive the
-/// <c>PlatformUserSessionPolicy</c> the domain consumes; <c>SameSite</c>/allowlist are the host's cookie + open-redirect
+/// <c>SessionPolicy</c> the domain consumes; <c>SameSite</c>/allowlist are the host's cookie + open-redirect
 /// posture. Defaults assume a same-site admin SPA + API (REQ-7.3); set <c>SameSite=None</c> for a cross-site deploy.
 /// </summary>
 internal sealed class PlatformUserSessionOptions
