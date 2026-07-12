@@ -11,10 +11,10 @@ GO
 
 DECLARE @fail nvarchar(max) = N'';
 
--- --- Schemas (6) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
+-- --- Schemas (7) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
 IF (SELECT COUNT(*) FROM sys.schemas s JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
-    WHERE s.name IN (N'admin', N'iam', N'merch', N'sec', N'shop', N'txn') AND dp.name = N'dbo') <> 6
-    SET @fail += N'schemas: expected 6 of {admin,iam,merch,sec,shop,txn} owned by dbo; ';
+    WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'sec', N'shop', N'txn') AND dp.name = N'dbo') <> 7
+    SET @fail += N'schemas: expected 7 of {admin,cfg,iam,merch,sec,shop,txn} owned by dbo; ';
 
 -- --- Raw table: merch.RegistrationNotices (ExcludeFromMigrations — EF never diffs/creates it) ---
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
@@ -83,14 +83,25 @@ IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 28
     SET @fail += N'iam.RolePermissions expected 28 rows; ';
 IF OBJECT_ID(N'admin.Roles', N'U') IS NOT NULL OR OBJECT_ID(N'merch.Roles', N'U') IS NOT NULL
     SET @fail += N'legacy per-side RBAC catalog tables must not exist (rf2 cutover); ';
-IF (SELECT COUNT(*) FROM admin.Positions) <> 12
-    SET @fail += N'admin.Positions expected 12 rows; ';
-IF (SELECT COUNT(*) FROM admin.Offices) <> 8
-    SET @fail += N'admin.Offices expected 8 rows; ';
-IF (SELECT COUNT(*) FROM admin.Levels) <> 10
-    SET @fail += N'admin.Levels expected 10 rows; ';
-IF (SELECT COUNT(*) FROM admin.Divisions) <> 10
-    SET @fail += N'admin.Divisions expected 10 rows; ';
+-- master data lives in cfg since the masterdata-module cutover (it left the Admins module) —
+-- assert the old admin.* copies are gone, so a half-applied schema move fails here, not later
+IF OBJECT_ID(N'admin.Positions', N'U') IS NOT NULL OR OBJECT_ID(N'admin.Offices', N'U') IS NOT NULL
+   OR OBJECT_ID(N'admin.Levels', N'U') IS NOT NULL OR OBJECT_ID(N'admin.Divisions', N'U') IS NOT NULL
+    SET @fail += N'master-data tables must not exist in admin (masterdata-module cutover moved them to cfg); ';
+IF (SELECT COUNT(*) FROM cfg.Positions) <> 12
+    SET @fail += N'cfg.Positions expected 12 rows; ';
+IF (SELECT COUNT(*) FROM cfg.Offices) <> 8
+    SET @fail += N'cfg.Offices expected 8 rows; ';
+IF (SELECT COUNT(*) FROM cfg.Levels) <> 10
+    SET @fail += N'cfg.Levels expected 10 rows; ';
+IF (SELECT COUNT(*) FROM cfg.Divisions) <> 10
+    SET @fail += N'cfg.Divisions expected 10 rows; ';
+-- cfg.* is pol_admin-only (REQ-3.4) — the funnel principal never reads reference data
+IF EXISTS (SELECT 1 FROM sys.database_permissions p
+           JOIN sys.database_principals dp ON dp.principal_id = p.grantee_principal_id
+           JOIN sys.objects o ON o.object_id = p.major_id
+           WHERE dp.name = N'pol_app' AND p.state = 'G' AND SCHEMA_NAME(o.schema_id) = N'cfg')
+    SET @fail += N'pol_app must have no grants on cfg.* ; ';
 
 IF LEN(@fail) > 0
     THROW 50000, @fail, 1;
