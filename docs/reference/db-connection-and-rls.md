@@ -1,5 +1,13 @@
 # Connection Strings + RLS — คู่มือ reference (pol-core)
 
+> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
+> rename ทั้งระบบ: `Tenant`→`Merchant`, `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`,
+> `Money.MinorUnits`→`DECIMAL(19,4)`) — เนื้อหาด้านล่างอาจยังอ้างชื่อ/schema เก่า (RLS section นี้โดยเฉพาะถูก
+> superseded เกือบทั้งหมด: single schema `producer` → 5 schema, `pol_admin` ไม่อยู่ใน bypass แล้ว). ของจริงปัจจุบันดู
+> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
+> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
+> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+
 คู่มือสรุปสถานะ **ปัจจุบัน** ของการเข้าถึง database ใน pol-core: connection string, SQL principal,
 Row-Level Security (RLS) และ flow การทำงานจริงแต่ละเส้นทาง. เป็น current-state reference (ไม่ใช่ prescriptive) —
 อ้าง file:line ตามโค้ดจริง เพื่อให้ตามอ่านต่อได้.

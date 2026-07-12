@@ -1,5 +1,14 @@
 # Producer Module — Google SSO (BFF) + Sequence Diagrams
 
+> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset`: module `Producer` ถูก
+> merge เข้ากับ `Tenant` เป็น **`Merchants` module** แล้ว, actor `ProducerAccount` rename เป็น **`MerchantUser`**,
+> scheme `ProducerGoogle`→`MerchantUserGoogle`, cookie `__Host-prd_session`/`prd_csrf`→`__Host-mch_session`/`mch_csrf`,
+> route `/api/v1/producers/*`→`/api/v1/merchant-users/*` — เนื้อหาด้านล่างอาจยังอ้างชื่อ/schema เก่า. ของจริงปัจจุบันดู
+> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
+> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม) ·
+> [`rf1-schema-reset/FE-MIGRATION.md`](../../.ai/specs/rf1-schema-reset/FE-MIGRATION.md) (route/field mapping ที่ FE ใช้).
+> rewrite เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+
 คู่มือฉบับสมบูรณ์ของโมดูล `producer-google-sso` (rebuild ของ Identity module เดิม). โมดูลนี้ให้
 ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant
 context เดิมร่วมกับ tenant-Bearer API พร้อม role -> permission RBAC.

@@ -1,5 +1,13 @@
 # Search / Filter / Sort — คู่มือ convention (pol-core)
 
+> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
+> rename ทั้งระบบ: `Tenant`→`Merchant`, `ITenantScoped`/`TenantGuardBehavior`→`IMerchantScoped`/`MerchantGuardBehavior`,
+> `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`) — เนื้อหาด้านล่างอาจยังอ้างชื่อ/type เก่า (convention
+> เรื่อง SFS เองยังใช้ได้อยู่ ไม่ได้ superseded). ของจริงปัจจุบันดู
+> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
+> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
+> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+
 คู่มือมาตรฐานฉบับละเอียดสำหรับทำ search / filter / sort / pagination (เรียกรวมว่า SFS) บน list endpoint
 ของ pol-core. พอร์ต *แนวคิด* มาจาก guide ต้นฉบับของโปรเจกต์ `nong-kaewta-api`
 (NestJS / TypeORM / PostgreSQL) แต่ปรับ server-side ทั้งหมดให้ตรง stack จริงของเรา:

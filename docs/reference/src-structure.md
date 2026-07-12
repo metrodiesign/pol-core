@@ -1,5 +1,12 @@
 # โครงสร้าง `src/` — pol-core (payment platform)
 
+> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset`: `src/Modules/Tenant` +
+> `src/Modules/Producer` ถูก merge เป็น `src/Modules/Merchants` แล้ว, `src/Modules/Identity` (shell เดิม) ถูกลบ,
+> `ProducerDbContext`→`PolDbContext` — เนื้อหาด้านล่างอาจยังอ้าง path/ชื่อ module เก่า. ของจริงปัจจุบันดู
+> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
+> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
+> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+
 > เอกสารอ้างอิงโครงสร้างจริงของโค้ดใน `src/` (file-by-file role map).
 > ground truth คือไฟล์จริง; เอกสารนี้สรุปบทบาท ไม่ใช่ spec. canonical architecture: [`.ai/shared/ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · product canon: [`.ai/shared/PROJECT_CONTEXT.md`](../../.ai/shared/PROJECT_CONTEXT.md) · โมดูลเชิงลึก: [`payment-orchestration-modules.md`](payment-orchestration-modules.md)
 
