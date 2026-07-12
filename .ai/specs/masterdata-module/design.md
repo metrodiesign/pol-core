@@ -84,7 +84,7 @@ Verify = fresh DB (`docker compose down -v` + bootstrap + `dotnet ef database up
   segment, `RequirePermission(Keys.UserManage)`, response shape คงเดิมทุกบรรทัด (REQ-5.1/5.2)
 - `Api.csproj` / `Worker.csproj` / `pol-core.slnx` -> เพิ่ม 3 project
 
-## 6. Requirement Traceability
+## Requirement Traceability
 
 | REQ | ไฟล์ / จุดที่รับผิดชอบ |
 |-----|------------------------|

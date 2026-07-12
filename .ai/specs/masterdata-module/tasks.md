@@ -9,7 +9,7 @@
 
 ## - [x] T1 — สร้างโมดูล MasterData + ย้ายโค้ดออกจาก Admins + ต่อ seam ใหม่
 
-REQ: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 7.2
+Satisfies: 1.1, 1.2, 1.3, 1.4, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 7.2
 
 Scope (design §1, §2, §3, §5):
 1. สร้าง 3 project ใต้ `src/Modules/MasterData/` (ลอก csproj จาก `Iam.*`) + เพิ่มเข้า `pol-core.slnx`
@@ -103,7 +103,7 @@ then both the ModelConsistency test and the migration grep go green together.
 
 ## - [x] T2 — ย้ายตารางไป schema `cfg` (migration + grant + seed)
 
-REQ: 3.3, 3.4, 3.5, 3.6, 5.5, 6.1, 6.2, 6.3
+Satisfies: 3.3, 3.4, 3.5, 3.6, 5.5, 6.1, 6.2, 6.3
 ต้องรอ T1 (EF model ต้องชี้ `cfg` ก่อน ไม่งั้น snapshot ไม่ match)
 
 Scope (design §4): แก้ migration 3 ไฟล์เดิมในที่ (+ Designer + snapshot) — `EnsureSchema("cfg")`,
@@ -227,7 +227,7 @@ Build + tests:
 
 ## - [x] T3 — Architecture guard + canon
 
-REQ: 4.5, 7.1
+Satisfies: 4.5, 7.1
 ต้องรอ T1 (assembly ต้องมีจริงก่อน)
 
 Scope:

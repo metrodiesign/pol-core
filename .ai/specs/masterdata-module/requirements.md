@@ -22,96 +22,95 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
 - route คงเดิม `/api/v1/admins/{positions|offices|levels|divisions}` — ไม่ใช่ contract change
 - permission key คงเดิม (`iam.*` ของ rf2) — ไม่แตะ catalog
 
-## Requirements
+## REQ-1: Module extraction
 
-### REQ-1 — Module extraction
-
-- **1.1** The system SHALL host Position, Office, Level, Division และ base type ของมัน ใน module
+- 1.1 THE SYSTEM SHALL วาง Position, Office, Level, Division และ base type ของมัน ไว้ใน module
   ของตัวเองที่ `src/Modules/MasterData/` ประกอบด้วย 3 project: `MasterData.Domain`,
   `MasterData.Application`, `MasterData.Infrastructure`.
-- **1.2** The system SHALL NOT leave any Position/Office/Level/Division type, EF configuration,
-  หรือ store implementation ค้างอยู่ใน project ใดของ module `Admins`.
-- **1.3** The 3 projects ใหม่ SHALL ถูกเพิ่มเข้า `pol-core.slnx` และ compile เป็นส่วนหนึ่งของ
+- 1.2 THE SYSTEM SHALL NOT คงเหลือ Position/Office/Level/Division type, EF configuration,
+  หรือ store implementation ใด ๆ ไว้ใน project ของ module `Admins`.
+- 1.3 THE SYSTEM SHALL เพิ่ม 3 project ใหม่เข้า `pol-core.slnx` และ compile เป็นส่วนหนึ่งของ
   solution build.
-- **1.4** `MasterData.Infrastructure` SHALL ถูกลงทะเบียนใน `ModuleAssemblies` ของทุก host ที่
-  โหลด EF model (Api และ Worker) เพื่อให้ `PolDbContext` เก็บ entity configuration ของมันได้.
+- 1.4 THE SYSTEM SHALL ลงทะเบียน `MasterData.Infrastructure` ใน `ModuleAssemblies` ของ host ที่
+  โหลด EF model เพื่อให้ `PolDbContext` เก็บ entity configuration ของมันได้.
 
-### REQ-2 — Naming (hierarchical-naming L1-L8)
+## REQ-2: Naming (hierarchical-naming L1-L8)
 
-- **2.1** Sub-namespace/folder ของแต่ละ master list SHALL เป็นพหูพจน์:
+- 2.1 THE SYSTEM SHALL ตั้ง sub-namespace/folder ของแต่ละ master list เป็นพหูพจน์:
   `MasterData.Domain.Positions`, `.Offices`, `.Levels`, `.Divisions` (L3).
-- **2.2** ชื่อ type SHALL คงเป็นเอกพจน์: `Position`, `Office`, `Level`, `Division` (L3) — ห้าม
-  rename เป็นพหูพจน์.
-- **2.3** Base type ที่ 4 aggregate ใช้ร่วมกัน SHALL อยู่ที่ module-root namespace
-  (`MasterData.Domain`) และ SHALL คงชื่อ `MasterDataItem` — L4 หยุดตรงนี้เพราะชื่อที่สั้นลง
-  (`Item`) กำกวมกับ `CartItem`/`OrderItem` ที่มีอยู่แล้ว.
-- **2.4** ชื่อตาราง SHALL คงเป็น `Positions` / `Offices` / `Levels` / `Divisions` (พหูพจน์อยู่แล้ว
-  ตาม L7) — เปลี่ยนเฉพาะ schema ที่ qualify มัน.
+- 2.2 THE SYSTEM SHALL คงชื่อ type เป็นเอกพจน์: `Position`, `Office`, `Level`, `Division` (L3) —
+  ห้าม rename เป็นพหูพจน์.
+- 2.3 THE SYSTEM SHALL วาง base type ที่ 4 aggregate ใช้ร่วมกันไว้ที่ module-root namespace
+  (`MasterData.Domain`) และคงชื่อ `MasterDataItem` — L4 หยุดตรงนี้เพราะชื่อที่สั้นลง (`Item`)
+  กำกวมกับ `CartItem`/`OrderItem` ที่มีอยู่แล้ว.
+- 2.4 THE SYSTEM SHALL คงชื่อตารางเป็น `Positions` / `Offices` / `Levels` / `Divisions` (พหูพจน์
+  อยู่แล้วตาม L7) — เปลี่ยนเฉพาะ schema ที่ qualify มัน.
 
-### REQ-3 — Schema
+## REQ-3: Schema
 
-- **3.1** ตารางทั้ง 4 SHALL อยู่ใน schema `cfg` แทน `admin`.
-- **3.2** `SchemaNames` SHALL ประกาศค่าคงที่ `Cfg = "cfg"` และ EF configuration ของ 4 entity
-  SHALL อ้าง constant นั้น (ห้าม hardcode string ที่ call site).
-- **3.3** Schema `cfg` SHALL ถูกสร้างแบบ `AUTHORIZATION dbo` เหมือนทุก schema อื่น (rf1 —
+- 3.1 THE SYSTEM SHALL วางตารางทั้ง 4 ไว้ใน schema `cfg` แทน `admin`.
+- 3.2 THE SYSTEM SHALL ประกาศค่าคงที่ `SchemaNames.Cfg = "cfg"` และให้ EF configuration ของ 4
+  entity อ้าง constant นั้น (ห้าม hardcode string ที่ call site).
+- 3.3 THE SYSTEM SHALL สร้าง schema `cfg` แบบ `AUTHORIZATION dbo` เหมือนทุก schema อื่น (rf1 —
   ownership chaining).
-- **3.4** WHEN a fresh DB ถูก migrate, THE system SHALL ให้สิทธิ์ `SELECT, INSERT, UPDATE` บน
-  `cfg.Positions`/`Offices`/`Levels`/`Divisions` แก่ principal `pol_admin` เท่านั้น — `pol_app`
-  SHALL ไม่ได้รับสิทธิ์ใดบน `cfg.*` (เท่ากับสิทธิ์เดิมบน `admin.*` ทุกประการ).
-- **3.5** ตาราง `cfg.*` SHALL อยู่นอก RLS policy (control-plane reference data — เหมือน `iam.*`).
-- **3.6** FK 4 ตัวบน `admin.PlatformUsers` SHALL ยังคงบังคับ referential integrity ข้าม schema
-  ไปยัง `cfg.*` (cross-schema FK — precedent: `admin.RoleAssignments` -> `iam.Roles`).
+- 3.4 WHEN a fresh DB ถูก migrate, THE SYSTEM SHALL ให้สิทธิ์ `SELECT, INSERT, UPDATE` บน
+  `cfg.Positions`/`Offices`/`Levels`/`Divisions` แก่ principal `pol_admin` เท่านั้น และ SHALL NOT
+  ให้สิทธิ์ใดแก่ `pol_app` บน `cfg.*` (เท่ากับสิทธิ์เดิมบน `admin.*` ทุกประการ).
+- 3.5 THE SYSTEM SHALL วาง `cfg.*` ไว้นอก RLS policy (control-plane reference data — เหมือน `iam.*`).
+- 3.6 THE SYSTEM SHALL คงการบังคับ referential integrity ของ FK 4 ตัวบนตาราง admin user ข้าม
+  schema ไปยัง `cfg.*` (cross-schema FK — precedent: `admin.RoleAssignments` -> `iam.Roles`).
 
-### REQ-4 — Module boundary
+## REQ-4: Module boundary
 
-- **4.1** `Admins.Domain` และ `Admins.Application` SHALL NOT อ้างถึง `MasterData.Application`
-  หรือ `MasterData.Infrastructure` (published-language rule เดียวกับ Iam ใน rf2 — อ้างได้เฉพาะ
-  `MasterData.Domain`).
-- **4.2** `MasterData.Domain` และ `MasterData.Application` SHALL NOT อ้างถึง module `Admins`
-  ชั้นใดเลย (MasterData ไม่รู้จักผู้ใช้ของมัน).
-- **4.3** `MasterData.Domain` SHALL NOT อ้าง EF Core หรือ Infrastructure ชั้นใด.
-- **4.4** Port ที่ `Admins` ใช้ตรวจ/แปลง FK โปรไฟล์ SHALL ถูกประกาศใน `Admins.Application`
-  (port เป็นของผู้เรียก) และ implement ใน `Admins.Infrastructure` — ตรงตาม precedent rf2 ที่
-  `Admins.Infrastructure` query `iam.Roles` ตรงโดยใช้ type ของ `Iam.Domain`.
-- **4.5** Architecture.Tests SHALL assert REQ-4.1, 4.2 และ 4.3 เป็น test จริง (fail-closed —
-  ผูก assembly name จริงเหมือน `Module_key_matches_its_real_assembly_names`).
+- 4.1 THE SYSTEM SHALL NOT ให้ `Admins.Domain` หรือ `Admins.Application` อ้างถึง
+  `MasterData.Application` หรือ `MasterData.Infrastructure` (published-language rule เดียวกับ Iam
+  ใน rf2 — อ้างได้เฉพาะ `MasterData.Domain`).
+- 4.2 THE SYSTEM SHALL NOT ให้ `MasterData.Domain` หรือ `MasterData.Application` อ้างถึง module
+  `Admins` ชั้นใดเลย (MasterData ไม่รู้จักผู้ใช้ของมัน).
+- 4.3 THE SYSTEM SHALL NOT ให้ `MasterData.Domain` อ้าง EF Core หรือ Infrastructure ชั้นใด.
+- 4.4 THE SYSTEM SHALL ประกาศ port ที่ `Admins` ใช้ตรวจ/แปลง FK โปรไฟล์ ไว้ใน
+  `Admins.Application` (port เป็นของผู้เรียก) และ implement ใน `Admins.Infrastructure` — ตรงตาม
+  precedent rf2 ที่ `Admins.Infrastructure` query `iam.Roles` ตรงโดยใช้ type ของ `Iam.Domain`.
+- 4.5 THE SYSTEM SHALL บังคับ 4.1, 4.2 และ 4.3 ด้วย Architecture.Tests จริง (fail-closed — ผูก
+  assembly name จริงเหมือน `Module_key_matches_its_real_assembly_names`).
 
-### REQ-5 — Behaviour preservation
+## REQ-5: Behaviour preservation
 
-- **5.1** Endpoint ทั้ง 4 ชุด SHALL คง path เดิม `/api/v1/admins/{positions|offices|levels|divisions}`
-  (+ `/{id:guid}` สำหรับ PUT), คง verb เดิม (GET list, POST create, PUT update) และคง
-  request/response shape เดิม.
-- **5.2** Endpoint เหล่านั้น SHALL คง permission key เดิมที่ gate อยู่วันนี้ — ห้ามเพิ่ม/แก้/ลบ
-  key หรือ group ใดใน iam catalog.
-- **5.3** Domain invariant เดิม SHALL ไม่เปลี่ยน: `Code` ตรง `^[a-z0-9_]+$`, immutable หลังสร้าง,
-  unique ต่อตาราง (ซ้ำ -> 409); `Rename` แก้ได้แค่ `Name`; master ที่ inactive ยังถูกอ้างโดย
-  แถวเดิมได้แต่ assign ใหม่ไม่ได้ (400).
-- **5.4** WHEN a create/update-profile request อ้าง FK ที่ไม่มีอยู่จริงหรือ inactive, THE system
-  SHALL ตอบ 400 เหมือนเดิม.
-- **5.5** Seed data เดิม (HR master rows) SHALL ยังถูก seed ครบเท่าเดิม ด้วย GUID เดิม — เปลี่ยน
-  เฉพาะ schema ปลายทาง.
+- 5.1 THE SYSTEM SHALL คง path เดิมของ endpoint ทั้ง 4 ชุด
+  (`/api/v1/admins/{positions|offices|levels|divisions}` + `/{id:guid}` สำหรับ PUT), คง verb เดิม
+  (GET list, POST create, PUT update) และคง request/response shape เดิม.
+- 5.2 THE SYSTEM SHALL คง permission key เดิมที่ gate endpoint เหล่านั้นอยู่วันนี้ และ SHALL NOT
+  เพิ่ม/แก้/ลบ key หรือ group ใดใน iam catalog.
+- 5.3 THE SYSTEM SHALL คง domain invariant เดิม: `Code` ตรง `^[a-z0-9_]+$`, immutable หลังสร้าง,
+  unique ต่อตาราง (ซ้ำ -> 409); `Rename` แก้ได้แค่ `Name`; master ที่ inactive ยังถูกอ้างโดยแถวเดิม
+  ได้แต่ assign ใหม่ไม่ได้.
+- 5.4 WHEN a create/update-profile request อ้าง FK ที่ไม่มีอยู่จริงหรือ inactive, THE SYSTEM SHALL
+  ตอบ 400 เหมือนเดิม.
+- 5.5 THE SYSTEM SHALL seed HR master rows เดิมครบเท่าเดิมด้วย GUID เดิม — เปลี่ยนเฉพาะ schema
+  ปลายทาง.
 
-### REQ-6 — Migrations (big-bang, pre-prod)
+## REQ-6: Migrations (big-bang, pre-prod)
 
-- **6.1** THE system SHALL แก้ migration 3 ไฟล์เดิมในที่ (`InitialSchema`, `SecurityObjects`,
-  `SeedData`) ตาม precedent big-bang ของ rf1/rf2 — ห้ามเพิ่ม migration ใหม่สำหรับการย้าย schema.
-- **6.2** WHEN `dotnet ef database update` รันบน DB เปล่า, THE system SHALL สร้างตารางทั้ง 4 ใน
-  `cfg`, ตั้ง grant ตาม REQ-3.4 และ seed ตาม REQ-5.5 โดยไม่มี error.
-- **6.3** EF model snapshot SHALL ตรงกับ model จริง (ไม่มี pending model change) หลังแก้เสร็จ.
+- 6.1 THE SYSTEM SHALL แก้ migration 3 ไฟล์เดิมในที่ (`InitialSchema`, `SecurityObjects`,
+  `SeedData`) ตาม precedent big-bang ของ rf1/rf2 และ SHALL NOT เพิ่ม migration ใหม่สำหรับการย้าย
+  schema.
+- 6.2 WHEN `dotnet ef database update` รันบน DB เปล่า, THE SYSTEM SHALL สร้างตารางทั้ง 4 ใน `cfg`,
+  ตั้ง grant ตาม 3.4 และ seed ตาม 5.5 โดยไม่มี error.
+- 6.3 THE SYSTEM SHALL คง EF model snapshot ให้ตรงกับ model จริง (ไม่มี pending model change).
 
-### REQ-7 — Canon
+## REQ-7: Canon
 
-- **7.1** `.ai/shared/ARCHITECTURE.md` SHALL บันทึกว่า schema `cfg` ถูกใช้จริงแล้ว (ผู้ใช้แรก =
-  MasterData; rf3 จะมาเติม payment config) และ MasterData เป็นโมดูลแยก.
-- **7.2** `SchemaNames.Cfg` SHALL มี XML doc บอกว่าใครอยู่ใน schema นี้ และเตือนว่า rf3 จะเพิ่ม
-  payment config ตามมา.
+- 7.1 THE SYSTEM SHALL บันทึกใน `.ai/shared/ARCHITECTURE.md` ว่า schema `cfg` ถูกใช้จริงแล้ว
+  (ผู้ใช้แรก = MasterData; rf3 จะมาเติม payment config) และ MasterData เป็นโมดูลแยก.
+- 7.2 THE SYSTEM SHALL ใส่ XML doc บน `SchemaNames.Cfg` บอกว่าใครอยู่ใน schema นี้ และเตือนว่า rf3
+  จะเพิ่ม payment config ตามมา.
 
 ## Self-check (5 categories, /spec-analyze inline)
 
 | Category | ผลตรวจ |
 |----------|--------|
-| Logical inconsistency | REQ-2.2 (type เอกพจน์) เทียบคำขอเดิมของ user ("ตั้งชื่อเป็นพหูพจน์") — user เคาะแล้วว่าหมายถึง namespace/folder ไม่ใช่ type; ไม่ขัดกันแล้ว |
+| Logical inconsistency | 2.2 (type เอกพจน์) เทียบคำขอเดิมของ user ("ตั้งชื่อเป็นพหูพจน์") — user เคาะแล้วว่าหมายถึง namespace/folder ไม่ใช่ type; ไม่ขัดกันแล้ว |
 | Ambiguity | "schema ใหม่" ถูก pin เป็น `cfg` (ไม่ใช่ `master` — ชนชื่อ system DB ของ SQL Server และไม่ใช่ 1 ใน 9 schema ที่ล็อกไว้) |
-| Conflicting constraint | v5 locked plan เขียนว่า master data อยู่ schema `admin` — REQ-3.1 supersede โดย user ตัดสินตรง 2026-07-13; canon ต้องอัปเดตตาม REQ-7.1 |
-| Gap | เดิมไม่ได้ระบุว่าใคร implement port ที่ Admins ใช้ -> ปิดด้วย REQ-4.4; grant/RLS ของ schema ใหม่ -> ปิดด้วย REQ-3.4/3.5 |
-| Unstated assumption | ไม่มี prod DB (pre-prod, reset-only) -> จึงแก้ migration ในที่ได้ (REQ-6.1); ยืนยันจาก precedent PR #79 (rf1) และ rf2 |
+| Conflicting constraint | v5 locked plan เขียนว่า master data อยู่ schema `admin` — 3.1 supersede โดย user ตัดสินตรง 2026-07-13; canon ต้องอัปเดตตาม 7.1 |
+| Gap | เดิมไม่ได้ระบุว่าใคร implement port ที่ Admins ใช้ -> ปิดด้วย 4.4; grant/RLS ของ schema ใหม่ -> ปิดด้วย 3.4/3.5 |
+| Unstated assumption | ไม่มี prod DB (pre-prod, reset-only) -> จึงแก้ migration ในที่ได้ (6.1); ยืนยันจาก precedent PR #79 (rf1) และ rf2 |
