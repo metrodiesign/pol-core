@@ -88,7 +88,7 @@ public sealed class MerchantUserAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.False(string.IsNullOrEmpty(query["code_challenge"]));
-        Assert.EndsWith("/api/v1/merchant-users/auth/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // REQ-6.2: challenge targets the NEW callback
+        Assert.EndsWith("/api/v1/merchants/users/auth/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // REQ-11.7: challenge targets the moved callback
     }
 
     [Fact]

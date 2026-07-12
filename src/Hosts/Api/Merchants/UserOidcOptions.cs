@@ -17,7 +17,7 @@ internal sealed class UserOidcOptions
     public string Authority { get; init; } = "https://accounts.google.com";
     public string ClientId { get; init; } = "";
     public string ClientSecret { get; init; } = "";
-    public string CallbackPath { get; init; } = "/api/v1/merchant-users/auth/callback";
+    public string CallbackPath { get; init; } = "/api/v1/merchants/users/auth/callback";
     /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
     public string ErrorPath { get; init; } = "/login-error";
     /// <summary>Google hosted-domain (<c>hd</c>) guard; blank = any verified Google account (REQ-9.2).</summary>

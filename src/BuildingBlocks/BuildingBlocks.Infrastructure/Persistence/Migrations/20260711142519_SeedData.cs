@@ -30,7 +30,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   ('finance',       N'การเงิน',               3),
                   ('user',          N'ผู้ใช้งาน',              4),
                   ('system',        N'ระบบ',                  5),
-                  ('merchant_user', N'ผู้ใช้งานร้านค้า',       6);
+                  ('merchants.users', N'ผู้ใช้งานร้านค้า',       6);
 
                 INSERT INTO admin.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES
                   ('txn.view',              'txn',           N'ดูรายการธุรกรรม',           1),
@@ -47,8 +47,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   ('audit.view',            'system',        N'ดูบันทึกกิจกรรม (audit)',   12),
                   ('settings.manage',       'system',        N'ตั้งค่าระบบและความปลอดภัย',  13),
                   ('apikey.manage',         'system',        N'จัดการ API client / secret', 14),
-                  ('merchant_user.approve', 'merchant_user', N'อนุมัติผู้ใช้งานร้านค้า',   15),
-                  ('merchant_user.reject',  'merchant_user', N'ปฏิเสธผู้ใช้งานร้านค้า',    16);
+                  ('merchants.users.approve', 'merchants.users', N'อนุมัติผู้ใช้งานร้านค้า',   15),
+                  ('merchants.users.reject',  'merchants.users', N'ปฏิเสธผู้ใช้งานร้านค้า',    16);
                 """);
 
             // Seed the 5 default roles with stable ids; super_admin is the recovery anchor.
@@ -75,8 +75,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'audit.view'),
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'settings.manage'),
                   (NEWID(), '11111111-1111-1111-1111-111111111111', 'apikey.manage'),
-                  (NEWID(), '11111111-1111-1111-1111-111111111111', 'merchant_user.approve'),
-                  (NEWID(), '11111111-1111-1111-1111-111111111111', 'merchant_user.reject'),
+                  (NEWID(), '11111111-1111-1111-1111-111111111111', 'merchants.users.approve'),
+                  (NEWID(), '11111111-1111-1111-1111-111111111111', 'merchants.users.reject'),
                   (NEWID(), '22222222-2222-2222-2222-222222222222', 'txn.view'),
                   (NEWID(), '22222222-2222-2222-2222-222222222222', 'txn.refund'),
                   (NEWID(), '22222222-2222-2222-2222-222222222222', 'txn.export'),
@@ -180,9 +180,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   ('product.update',          'catalog', N'แก้ไขสินค้า',            2),
                   ('payment.create',          'payment', N'สร้างรายการชำระเงิน',     3),
                   ('payment.redirect',        'payment', N'เปิดหน้าชำระเงินให้ลูกค้า', 4),
-                  ('merchant_user.roles.view',   'roles', N'ดูบทบาท',               5),
-                  ('merchant_user.roles.manage', 'roles', N'สร้าง/แก้ไข/ลบบทบาท',     6),
-                  ('merchant_user.user.roles',   'roles', N'กำหนดบทบาทให้ผู้ใช้',     7);
+                  ('roles.view',   'roles', N'ดูบทบาท',               5),
+                  ('roles.manage', 'roles', N'สร้าง/แก้ไข/ลบบทบาท',     6),
+                  ('users.roles',  'roles', N'กำหนดบทบาทให้ผู้ใช้',     7);
                 """);
 
             // Seed the two anchor roles: merchant_owner grants every key (undeletable/undeactivatable recovery
@@ -198,9 +198,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   (NEWID(), '{MerchantOwnerRoleId}', 'product.update'),
                   (NEWID(), '{MerchantOwnerRoleId}', 'payment.create'),
                   (NEWID(), '{MerchantOwnerRoleId}', 'payment.redirect'),
-                  (NEWID(), '{MerchantOwnerRoleId}', 'merchant_user.roles.view'),
-                  (NEWID(), '{MerchantOwnerRoleId}', 'merchant_user.roles.manage'),
-                  (NEWID(), '{MerchantOwnerRoleId}', 'merchant_user.user.roles'),
+                  (NEWID(), '{MerchantOwnerRoleId}', 'roles.view'),
+                  (NEWID(), '{MerchantOwnerRoleId}', 'roles.manage'),
+                  (NEWID(), '{MerchantOwnerRoleId}', 'users.roles'),
                   (NEWID(), '{MerchantMemberRoleId}', 'product.create'),
                   (NEWID(), '{MerchantMemberRoleId}', 'product.update'),
                   (NEWID(), '{MerchantMemberRoleId}', 'payment.create'),
@@ -218,7 +218,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 DELETE FROM merch.Roles WHERE Id     IN ('{MerchantOwnerRoleId}', '{MerchantMemberRoleId}');
                 DELETE FROM merch.Permissions WHERE [Key] IN
                   ('product.create','product.update','payment.create','payment.redirect',
-                   'merchant_user.roles.view','merchant_user.roles.manage','merchant_user.user.roles');
+                   'roles.view','roles.manage','users.roles');
                 DELETE FROM merch.PermissionGroups WHERE [Key] IN ('catalog','payment','roles');
                 """);
 
@@ -240,9 +240,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 DELETE FROM admin.Permissions WHERE [Key] IN
                   ('txn.view','txn.refund','txn.export','merchant.view','merchant.manage',
                    'invoice.view','invoice.manage','settlement.run','user.view','user.manage','user.roles',
-                   'audit.view','settings.manage','apikey.manage','merchant_user.approve','merchant_user.reject');
+                   'audit.view','settings.manage','apikey.manage','merchants.users.approve','merchants.users.reject');
                 DELETE FROM admin.PermissionGroups WHERE [Key] IN
-                  ('txn','merchant','finance','user','system','merchant_user');
+                  ('txn','merchant','finance','user','system','merchants.users');
                 """);
         }
     }

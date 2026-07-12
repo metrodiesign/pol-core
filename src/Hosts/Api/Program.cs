@@ -245,7 +245,7 @@ builder.Services.AddOpenApi(options =>
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["Session"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
@@ -267,7 +267,7 @@ builder.Services.AddOpenApi(options =>
         };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
-        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> Session). The host
+        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> AdminSession). The host
         // document is passed so the requirement serialises as a $ref into components.securitySchemes. Anonymous
         // routes (order summary link, admin login, webhook) carry no requirement.
         var schemeByRoute = new Dictionary<(string Path, string Method), string>();
@@ -316,7 +316,7 @@ static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
         .LastOrDefault(p => !string.IsNullOrEmpty(p));
     return policy switch
     {
-        "admin" => "Session",
+        "admin" => "AdminSession",
         "merchant-user" => "MerchantUserSession",
         _ => null,
     };

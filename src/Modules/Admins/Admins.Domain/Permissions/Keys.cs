@@ -18,7 +18,7 @@ public static class Keys
     public const string GroupSystem = "system";
     // The cross-catalog merchant-user-approval group (producer-google-sso REQ-18.1) — the single intentional coupling
     // between the Admin and Merchants RBAC systems: the Admin who approves a merchant user is gated by a real Admin permission.
-    public const string GroupMerchantUser = "merchant_user";
+    public const string GroupMerchantUser = "merchants.users";
 
     // Permission keys — stable strings, never renamed once shipped (CODING_STANDARDS).
     public const string TxnView = "txn.view";
@@ -37,8 +37,8 @@ public static class Keys
     public const string ApiKeyManage = "apikey.manage";
     // Merchant-user-approval keys (producer-google-sso REQ-18.1, renamed REQ-2.6): an Admin holding these may
     // approve/reject a merchant user.
-    public const string MerchantUserApprove = "merchant_user.approve";
-    public const string MerchantUserReject = "merchant_user.reject";
+    public const string MerchantUserApprove = "merchants.users.approve";
+    public const string MerchantUserReject = "merchants.users.reject";
 
     /// <summary>Every (key, group) pair in display order. The migration seed mirrors this exactly.</summary>
     public static readonly IReadOnlyList<(string Key, string GroupKey)> All =

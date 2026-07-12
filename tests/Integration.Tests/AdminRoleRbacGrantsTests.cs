@@ -19,12 +19,12 @@ public sealed class AdminRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        // 6 groups / 16 perms: the merchant_user group (formerly producer) adds merchant_user.approve/reject.
+        // 6 groups / 16 perms: the merchants.users group (formerly producer, renamed hierarchical-naming task 10) adds merchants.users.approve/reject.
         Assert.Equal(6, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.PermissionGroups")));
         Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.Permissions")));
         Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.Roles")));
 
-        // super_admin holds the full 16 (the +2 merchant_user keys are seed-granted to it); auditor ships Inactive (Status = 1).
+        // super_admin holds the full 16 (the +2 merchants.users keys are seed-granted to it); auditor ships Inactive (Status = 1).
         Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
             "SELECT COUNT(*) FROM admin.RolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(SuperAdminRoleId)))));
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,

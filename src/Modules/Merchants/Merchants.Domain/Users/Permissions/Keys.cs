@@ -22,9 +22,9 @@ public static class Keys
     public const string ProductUpdate = "product.update";
     public const string PaymentCreate = "payment.create";
     public const string PaymentRedirect = "payment.redirect";
-    public const string RolesView = "merchant_user.roles.view";
-    public const string RolesManage = "merchant_user.roles.manage";
-    public const string UserRoles = "merchant_user.user.roles";
+    public const string RolesView = "roles.view";
+    public const string RolesManage = "roles.manage";
+    public const string UserRoles = "users.roles";
 
     /// <summary>Every (key, group) pair in display order. The migration seed mirrors this exactly.</summary>
     public static readonly IReadOnlyList<(string Key, string GroupKey)> All =

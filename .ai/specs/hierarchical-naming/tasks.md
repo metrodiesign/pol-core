@@ -502,7 +502,7 @@
          comment updated; prose comments elsewhere left for task 12's scrub (task 6 precedent). The
          pol-db container is left up in the freshly migrated state for later tasks.
 
-- [ ] 10. **Wire strings: permission keys, auth schemes, the OIDC callback — and the three things that
+- [x] 10. **Wire strings: permission keys, auth schemes, the OIDC callback — and the three things that
      deliberately do not move.**
      Admin catalog: `merchant_user.approve|reject` -> `merchants.users.approve|reject`, group renamed to
      match. Merchant-user catalog: drop the redundant self-prefix — `merchant_user.roles.view|manage` ->
@@ -517,6 +517,45 @@
      Verify: permission-key unit tests green; outbox publish → worker consume round-trips; admin and
      merchant-user Google login both succeed on dev against the new callback path (restart the API — a
      stale dev binary will lie to you).
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> 41 projects, 0 Warning(s), 0 Error(s); `dotnet test
+         pol-core.slnx --no-build --filter "Category!=Integration"` -> all projects green at identical
+         baseline counts (Hosts.Tests 201, Admins 129, Merchants 128, …).
+       - test: fresh-DB gate REDONE (SeedData values changed): `docker compose down -v && up -d`,
+         `source .env.integration && dotnet ef database update` -> 3 migrations applied clean;
+         `has-pending-model-changes` -> none; `assert-fresh-db.sql` (docker cp + sqlcmd in container) ->
+         "assert-fresh-db: OK" incl. RBAC seed counts on the renamed keys; `source .env.integration &&
+         dotnet test tests/Integration.Tests --no-build` -> **86 passed / 0 failed** (outbox round-trip +
+         RBAC grants against the new seed keys).
+       - viewports: n/a — backend-only (wire strings, no UI)
+       - deviations: (1) Applied exactly the enumerated contract changes — admin catalog
+         `merchant_user.approve|reject` -> `merchants.users.approve|reject` + group `merchant_user` ->
+         `merchants.users` (consts, SeedData Up+Down, display-name rows); merchant-user catalog self-prefix
+         drop `merchant_user.roles.view|manage` -> `roles.view|manage`, `merchant_user.user.roles` ->
+         `users.roles` (its group key was already bare `roles` — no group change needed); auth scheme ->
+         `"AdminSession"` + OpenAPI securitySchemes id + policy→scheme map; OIDC callback ->
+         `/api/v1/merchants/users/auth/callback` (options default + appsettings VALUE; the `MerchantUser:*`
+         section KEY untouched per L8/REQ-9.1). (2) **Discovered an undocumented wire regression from task
+         4**: commit a8415df had silently changed the scheme string `"PlatformUserSession"` -> `"Session"`
+         during its sweep — no test pins the literal (every consumer reads the const), so the OpenAPI
+         security-scheme id was silently `"Session"` from tasks 4-9 (branch-only, never deployed). Task 10
+         lands the design-mandated `"AdminSession"`, so the net branch delta equals REQ-11.4 exactly; noted
+         here so the intermediate state is on the record, and flagged for task 12's assertion review that
+         the scheme-id literal has NO pinning test (L8 contract without a detector). (3) Orchestrator
+         additionally updated doc-prose that documents the exact strings this task renamed (XML-docs in
+         `SetUserRoles.cs`/`RoleCommands.cs`/`ApproveReject.cs`, seed-count comments in
+         `AdminRoleRbacGrantsTests.cs`, and the stale example redirect_uri in
+         `appsettings.Development.json.example`) — same principle as task 9's predicate-comment updates.
+         (4) E-list verified unchanged by grep: `MerchantUserSession` + `MerchantUserGoogle` scheme ids,
+         cookie names, rate-limit policy names (3 hits intact), `MerchantUserRegistrationSubmitted` +
+         outbox registry, all config section keys, non-prefixed permission keys (`user.*`, `txn.*`,
+         `product.*`, `payment.*`, …). (5) PENDING OPERATOR STEPS (REQ-11.8/11.9, explicitly not
+         automatable from the repo): update the Google Console authorized redirect URI to
+         `/api/v1/merchants/users/auth/callback` for each environment's merchant-user OIDC client BEFORE
+         deploying this branch, then verify real admin + merchant-user Google login on dev with a
+         RESTARTED API binary. CI stays green either way — login breaks only in the environment if the
+         Console step is skipped.
 
 - [ ] 11. **The FE-facing contract, published where FE will find it.**
      Write `.ai/specs/hierarchical-naming/FE-MIGRATION.md` — this spec's own document, not

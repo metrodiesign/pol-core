@@ -12,7 +12,7 @@ namespace Merchants.Application.Users;
 /// missing assignments and removes the extras, idempotently. The target must be an Active merchant user in the SAME merchant
 /// as the actor (else 404 — no cross-merchant existence leak). Role codes are resolved to ids; an unknown code -> 400.
 /// New assignments are stamped with the acting merchant + the acting merchant user as the assigner. Gated
-/// <c>merchant_user.user.roles</c> at the host (S8).</summary>
+/// <c>users.roles</c> at the host (S8).</summary>
 // ponytail: DUPLICATE-shaped of Admins.Application.SetAdminRoles (+ merchant scoping; no audit — not in REQ-21) — deliberate.
 public sealed record SetRolesCommand(
     Guid TargetMerchantUserId, IReadOnlyList<string> RoleCodes, Guid ActingMerchantId, Guid ActingMerchantUserId)

@@ -10,7 +10,7 @@ namespace Merchants.Application.Users;
 
 /// <summary>
 /// Approves a merchant user onto a merchant the admin already validated (REQ-6). The Admin permission check
-/// (<c>merchant_user.approve</c>) AND the accessible-merchant floor run at the HOST before dispatch (critique B3); this
+/// (<c>merchants.users.approve</c>) AND the accessible-merchant floor run at the HOST before dispatch (critique B3); this
 /// command receives an ALREADY-VALIDATED merchant id and lives in Merchants.Application with NO Admin import. It runs
 /// in ONE pol_admin transaction: validate the assigned roles exist + are Active (REQ-6.5), bind the merchant, set the
 /// role assignments, flip the user Active, and audit. Idempotent: an already-Active target is a no-op success
@@ -96,7 +96,7 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
 }
 
 /// <summary>
-/// Rejects a PendingApproval merchant user (REQ-5.1/6). Gated <c>merchant_user.reject</c> at the host. Sets Status Rejected,
+/// Rejects a PendingApproval merchant user (REQ-5.1/6). Gated <c>merchants.users.reject</c> at the host. Sets Status Rejected,
 /// kills any live sessions of that user (REQ-12.3 — a pending user has none, but defensive), and audits, in ONE
 /// pol_admin transaction. A non-PendingApproval target is a 409; an unknown target is a 404 (REQ-22.2).
 /// </summary>

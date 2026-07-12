@@ -7,7 +7,7 @@ namespace Merchants.Application.Users.Roles;
 
 /// <summary>Creates a merchant-user role (REQ-16). A duplicate <see cref="Code"/> -> 409 (pre-check; the unique index is
 /// the race-safe backstop). A permission key outside the catalog is rejected by the aggregate (ArgumentException ->
-/// 400, REQ-16.2). Gated <c>merchant_user.roles.manage</c> at the host (S8).</summary>
+/// 400, REQ-16.2). Gated <c>roles.manage</c> at the host (S8).</summary>
 // ponytail: DUPLICATE-shaped of Admins.Application.CreateRole (no audit — merchant-user role CRUD is not in REQ-21) — deliberate.
 public sealed record CreateCommand(
     string Code, string Name, string? Description, string? Color, RoleStatus Status,
@@ -44,7 +44,7 @@ public sealed class CreateHandler : ICommandHandler<CreateCommand, RoleListItem>
 
 /// <summary>Updates a merchant-user role's name/description/color/status/permissions (REQ-16.1). <c>Code</c> is immutable.
 /// Unknown target -> 404; a key outside the catalog -> 400; deactivating the <c>merchant_owner</c> anchor -> 409
-/// (REQ-16.5). Gated <c>merchant_user.roles.manage</c> at the host.</summary>
+/// (REQ-16.5). Gated <c>roles.manage</c> at the host.</summary>
 public sealed record UpdateCommand(
     string Code, string Name, string? Description, string? Color, RoleStatus Status,
     IReadOnlyList<string> PermissionKeys) : ICommand<RoleListItem>;
@@ -89,7 +89,7 @@ public sealed class UpdateHandler : ICommandHandler<UpdateCommand, RoleListItem>
 }
 
 /// <summary>Deletes a merchant-user role (REQ-16). The <c>merchant_owner</c> anchor is undeletable (409, REQ-16.5); a role
-/// with ≥1 bound assignment is undeletable (409); unknown role -> 404. Gated <c>merchant_user.roles.manage</c> at the host.</summary>
+/// with ≥1 bound assignment is undeletable (409); unknown role -> 404. Gated <c>roles.manage</c> at the host.</summary>
 public sealed record DeleteCommand(string Code) : ICommand<DeleteResult>;
 
 public sealed record DeleteResult(string Code);

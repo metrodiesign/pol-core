@@ -21,7 +21,7 @@ namespace Api.Admins;
 /// </summary>
 internal sealed class SessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
-    public const string SchemeName = "Session";
+    public const string SchemeName = "AdminSession";
 
     private readonly ISessionStore _sessions;
     private readonly IAuthAuditWriter _audit;
