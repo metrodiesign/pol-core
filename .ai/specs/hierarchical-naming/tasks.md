@@ -165,7 +165,7 @@
          (confirmed with repo owner first, since it required `rm -r` past the destructive-ops hook) after
          the rename commit, verified `git status --short` shows nothing.
 
-- [ ] 4. **Admins module: dissolve `Platform*`, nest, de-prefix.**
+- [x] 4. **Admins module: dissolve `Platform*`, nest, de-prefix.**
      The largest single naming change: `PlatformUser` -> `Admins.Domain.Users.User` and its whole
      satellite family (sessions, audits, tier, merchant access), `AdminRole*` -> `Admins.Domain.Roles.*`,
      `AdminPermission*` -> `Admins.Domain.Permissions.*` with the const catalog becoming
@@ -175,6 +175,43 @@
      qualification, never a re-added prefix.
      Satisfies: REQ-4.1-4.4, 4.6, 4.7, REQ-5.1-5.4. Depends on: 3.
      Verify: `dotnet build` + `dotnet test` green; Architecture.Tests (hardened in task 1) still green.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> Build succeeded, 0 Warning(s), 0 Error(s)
+       - test: `dotnet test pol-core.slnx --no-build` -> every project green except `Integration.Tests`
+         (86 failed, pre-existing: needs a live SQL Server container + `.env.integration`, unchanged from
+         tasks 1/3's baseline) — Carts.Tests 15, Checkouts.Tests 2, Orders.Tests 25, SharedKernel.Tests 46,
+         Merchants.Tests 128, Payments.Tests 59, Architecture.Tests 50 (task 1's hardened detectors still
+         green — the four controls and the resolves-to-a-real-assembly guard survived this rename too),
+         BuildingBlocks.Tests 65, Products.Tests 25, Admins.Tests 129, Hosts.Tests 201 — all passed / 0
+         failed, same counts as task 3's baseline (no behavior change)
+       - viewports: n/a — backend-only (namespace/type rename, no UI)
+       - deviations: (1) Domain/Application/Infrastructure all collapse into four sub-namespaces mirroring
+         the module's own aggregates (Users/Roles/Permissions/MasterData) — Application/Infrastructure had
+         no explicit per-type table in design.md beyond 4 worked examples ("derived, not enumerated"), so
+         every other rename was derived by the same rule the worked examples show: drop the redundant
+         Platform/Admin actor-prefix token, but keep an entity-qualifying word when the bare remainder
+         would be a generic framework word or would collide with a sibling sub-namespace. Two places where
+         this floor was hit, confirmed empirically rather than assumed: (a) `ListAdminsQuery`/
+         `GetAdminByIdQuery` (Users) and `ListRolesQuery`/`GetRoleQuery` (Roles) were NOT bared to
+         `ListQuery`/`GetQuery` — `Program.cs` already imports both `Admins.Application.Users` and
+         `Admins.Application.Roles` unqualified in the same file (verified via `grep`), so an identical
+         bare name in both would be a real `CS0104` ambiguous-reference, not a hypothetical one; (b)
+         `IMasterDataStore`/`MasterItem`/`MasterRef`/`MasterProfileValidation` kept their names unchanged
+         (only namespace moved) — the fully-dropped form (`IStore`/`Item`/`Ref`) is exactly L4's stated
+         floor ("`GetQuery` is illegible"), and unlike `Carts.Domain.Items.Item` there is no single-aggregate
+         framing here (`Item`/`Ref` would describe whichever of 4 unrelated master types is generic at
+         the call site). (2) A first blind sweep pass renamed 3 raw-SQL/prose spots in `Integration.Tests`
+         that name the *database* table (`admin.PlatformMerchantAccess`, `admin.AdminPermissions`) — caught
+         before commit (the DB itself isn't renamed until task 9) and reverted; `git diff` re-audited
+         afterward for any other quoted `schema.table` or permission-key (L8) string touched by the sweep —
+         none found. (3) Two test-only local helper methods (`Role(...)` in 3 files, `Session(...)` in 1)
+         now literally match the domain type name they construct, self-shadowing inside their own method
+         body (`Role.Create(...)` resolving to the method group, not the type — `CS0119`) — renamed to
+         `MakeRole`/`MakeSession`, a direct and expected consequence of the rename, not a scope expansion.
+         (4) No L6 alias was needed yet — collisions arise only once a SECOND module also defines
+         `Users.User`/`Users.Session`/etc (Merchants, task 5); until then `Admins.Domain.Users.User` is the
+         only type of that shape in the solution.
 
 - [ ] 5. **Merchants module: nest and de-prefix; `Merchant` stays at the root.**
      `MerchantUser*` -> `Merchants.Domain.Users.*` (user, session, external login, auth audit,
