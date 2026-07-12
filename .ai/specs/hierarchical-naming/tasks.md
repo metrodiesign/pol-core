@@ -26,6 +26,16 @@
      Satisfies: REQ-9.3, 9.4, 9.5, 14.0. Verify: bugfix PR merged to develop; a test asserts which
      section the options bind from; the no-production-data answer is recorded in this file before task 1.
 
+     Progress (2026-07-12): (a) fixed on branch `fix/admin-session-config-binding`, PR
+     [#95](https://github.com/metrodiesign/pol-core/pull/95) open against `develop` — SectionName now
+     `"AdminSession"`; `AdminAuthLoginRedirectTests.cs` gained a test resolving
+     `IOptions<PlatformUserSessionOptions>` from real app config and asserting the allowlist actually
+     binds. Confirmed with repo owner: no staging/production deployment exists yet, so the
+     pre-merge allowlist audit has nothing to audit — gate satisfied by there being no live config to
+     widen. Awaiting PR #95 review/merge before checking this task done.
+     (b) Confirmed with repo owner (2026-07-12): **no production deployment holds real data** — the
+     big-bang reset in task 9 is safe to proceed as specced; no transfer migration needed.
+
 - [ ] 1. **Detectors, written against the code as it stands today.**
      Every one of these must be **green on the pre-rename, pre-move code** — a detector authored after
      the code it guards proves only that the two agree, not that the control survived.
