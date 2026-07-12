@@ -138,6 +138,27 @@ Orders → Paid. จบ ไม่มี issuance.
 - ไฟล์ logic/data: ตาม convention ของภาษา/stack ที่ project เลือก แต่คงเส้นคงวาทั้ง repo
 - ค่าคงที่ที่ export: ตั้งชื่อสื่อความหมาย + มี type ชัด
 
+### Namespace + route naming law (L1-L8, spec `hierarchical-naming`, 2026-07-12)
+
+โครงสร้าง module/namespace ของ backend (C#) ยึดกฎ 8 ข้อนี้ — ที่มาและตัวอย่างเต็มอยู่ที่
+[hierarchical-naming design.md](../specs/hierarchical-naming/design.md#the-naming-law-implementers-derive-every-rename-from-it);
+สรุปเป็น canon ที่นี่กันไม่ให้ repo drift กลับไปเหมือนก่อนกฎนี้มีอยู่ (สาเหตุเดิมของความไม่คงเส้นคงวา:
+project ตัวเอกพจน์ปนพหูพจน์, type คำนำหน้าซ้ำ namespace ตัวเอง, route area หนึ่งเป็น compound noun):
+
+| ID | Law |
+|----|-----|
+| **L1** | Nesting unit = sub-domain (กลุ่ม type ที่แขวนกับ non-root aggregate เดียวหรือ cross-cutting concern เดียว) ห้าม nest เพื่อความสมมาตรเฉยๆ |
+| **L2** | Root aggregate ของ module อยู่ที่ module-root namespace เสมอ — module ห้าม nest ตัวเองซ้ำ, ห้ามสร้าง sub-namespace ไว้เก็บแค่ root |
+| **L3** | **Plural** สำหรับ module project + sub-namespace/folder; **Singular** สำหรับชื่อ type |
+| **L4** | Prefix drop — type ตัดทุก token ที่ namespace ตัวเองมีอยู่แล้วออก แต่หยุดตรงจุดที่ชื่อที่สั้นลงจะกำกวม (bare verb หรือ framework word) |
+| **L5** | Max nesting depth = 2 ชั้นย่อยใต้ layer หนึ่ง ลึกกว่านั้นให้คง compound type name แทน |
+| **L6** | Ambiguity policy — แก้ด้วย file-level alias รูปแบบเดียวคงที่ (`using <ModuleSingular><Type> = <Module>.<Layer>.<Sub>.<Type>`) เท่านั้น อยู่แค่ในไฟล์ที่ใช้ ห้าม `GlobalUsings`, ห้าม partial qualification, ห้ามแก้ปัญหาด้วยการเติม prefix กลับเข้า type (จะย้อนกลับไปเป็นปัญหาเดิม) |
+| **L7** | DB table qualify ด้วย schema เท่านั้น (SQL มี namespace แค่ชั้นเดียว) — L4 ใช้ได้แค่เท่าที่ schema แยกความกำกวมให้แล้ว ตารางคงคำที่จำเป็นเพื่อไม่ให้ชนกันและยังอ่านออก |
+| **L8** | Configuration key, OpenAPI security-scheme id, และ integration-event type name **ไม่ namespace** — เป็น flat external contract, L4 ใช้ไม่ได้ (ไม่มี namespace ให้อิง) การเปลี่ยนชื่อพวกนี้คือ contract change ต้องรีวิวแยกเป็นของตัวเอง ห้ามเปลี่ยนเป็นผลพลอยได้จากการ sweep เปลี่ยนชื่ออื่น |
+
+L8 สำคัญที่สุด — ไม่มีกฎนี้ find-and-replace ทั่ว repo อาจไปแก้ configuration key ที่ผูกกับ security
+control (เช่น open-redirect allowlist) แบบเงียบๆ โดยไม่มี test จับได้เลย.
+
 ## Import Ordering
 
 1. external (dependency ของภายนอก)

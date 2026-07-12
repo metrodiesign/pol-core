@@ -11,7 +11,7 @@
   "Merchant": {
     "DevMerchantId": "00000000-0000-0000-0000-000000000001"
   },
-  "_MerchantUser_note": "Merchant-user BFF OIDC client (REQ-8/9/14). Leave ClientId blank to keep merchant-user login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client (registered redirect_uri = http://localhost:5200/merchant-users/auth/callback via the SPA proxy) to exercise the live flow.",
+  "_MerchantUser_note": "Merchant-user BFF OIDC client (REQ-8/9/14). Leave ClientId blank to keep merchant-user login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client (registered redirect_uri = http://localhost:5200/api/v1/merchants/users/auth/callback via the SPA proxy) to exercise the live flow.",
   "MerchantUser": {
     "Oidc": {
       "ClientId": "",

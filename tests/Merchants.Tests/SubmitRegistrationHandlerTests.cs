@@ -2,7 +2,13 @@ using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -29,8 +35,8 @@ public sealed class SubmitRegistrationHandlerTests
         var account = Assert.Single(ctx.Users.Added);
         Assert.Equal("g-sub-1", account.Subject);          // from the ticket
         Assert.Equal("p@org.com", account.Email);
-        Assert.Equal(MerchantUserStatus.PendingApproval, account.Status); // no merchant until approval
-        Assert.Equal(MerchantUserStatus.PendingApproval, result.Status);
+        Assert.Equal(UserStatus.PendingApproval, account.Status); // no merchant until approval
+        Assert.Equal(UserStatus.PendingApproval, result.Status);
         Assert.Equal(account.Id, result.MerchantUserId);
 
         Assert.Equal("Acme", account.FirstName);           // person details land on the account, not a profile
@@ -73,7 +79,7 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_ticket_resubmits_the_existing_rejected_account_without_a_second_login()
     {
         var ctx = new Ctx();
-        var existing = MerchantUser.Register("g-sub-1", "p@org.com", Now);
+        var existing = User.Register("g-sub-1", "p@org.com", Now);
         existing.SetDetails("Old", "Name", null, null, null, null, null);
         existing.Reject(Now);                            // PendingApproval -> Rejected
         ctx.Users.Seed(existing);
@@ -83,7 +89,7 @@ public sealed class SubmitRegistrationHandlerTests
 
         Assert.Empty(ctx.Users.Added);                   // edits the existing record, never a second account
         Assert.Empty(ctx.Logins.Added);                  // no second external login (REQ-5.4)
-        Assert.Equal(MerchantUserStatus.PendingApproval, existing.Status); // Rejected -> Pending
+        Assert.Equal(UserStatus.PendingApproval, existing.Status); // Rejected -> Pending
         Assert.Equal(existing.Id, result.MerchantUserId);
         Assert.Equal("New Name", existing.DisplayName);  // account updated in place (computed from first + last)
 
@@ -96,7 +102,7 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_ticket_for_a_non_rejected_account_is_refused_and_emits_no_event()
     {
         var ctx = new Ctx();
-        var active = MerchantUser.Register("g-sub-1", "p@org.com", Now);
+        var active = User.Register("g-sub-1", "p@org.com", Now);
         active.SetDetails("Name", "User", null, null, null, null, null);
         active.Approve(Guid.NewGuid(), Now); // -> Active
         ctx.Users.Seed(active);
@@ -135,16 +141,16 @@ public sealed class SubmitRegistrationHandlerTests
 
     private sealed class FakeClock(DateTime now) : IClock { public DateTime UtcNow => now; }
 
-    private sealed class FakeMerchantUsers : IMerchantUserRepository
+    private sealed class FakeMerchantUsers : IUserRepository
     {
-        public List<MerchantUser> Added { get; } = [];
-        private readonly Dictionary<string, MerchantUser> _bySubject = [];
-        public void Seed(MerchantUser u) => _bySubject[u.Subject] = u;
-        public Task<MerchantUser?> FindBySubjectAsync(string subject, CancellationToken ct) =>
+        public List<User> Added { get; } = [];
+        private readonly Dictionary<string, User> _bySubject = [];
+        public void Seed(User u) => _bySubject[u.Subject] = u;
+        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
-        public Task<MerchantUser?> FindByIdAsync(Guid id, CancellationToken ct) =>
+        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) =>
             Task.FromResult(_bySubject.Values.FirstOrDefault(u => u.Id == id));
-        public void Add(MerchantUser account) { Added.Add(account); _bySubject[account.Subject] = account; }
+        public void Add(User account) { Added.Add(account); _bySubject[account.Subject] = account; }
     }
 
     private sealed class FakeExternalLogins : IExternalLoginRepository
@@ -159,13 +165,13 @@ public sealed class SubmitRegistrationHandlerTests
         public void Append(RegistrationAudit audit) => Appended.Add(audit);
     }
 
-    private sealed class FakeOutbox : IMerchantsOutboxWriter
+    private sealed class FakeOutbox : IRegistrationOutboxWriter
     {
         public List<INotification> Enqueued { get; } = [];
         public void Enqueue(INotification notification) => Enqueued.Add(notification);
     }
 
-    private sealed class FakeUow : IMerchantsRegistrationUnitOfWork
+    private sealed class FakeUow : IRegistrationUnitOfWork
     {
         public int SaveCalls { get; private set; }
         public Task<int> SaveChangesAsync(CancellationToken ct) { SaveCalls++; return Task.FromResult(1); }

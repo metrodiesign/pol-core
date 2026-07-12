@@ -1,7 +1,14 @@
 extern alias ApiHost;
 
-using Admin.Application;
-using Admin.Application.ResolveAdmin;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 using Mediator;
 
 namespace Hosts.Tests;
@@ -22,7 +29,7 @@ public sealed class AdminQueryScopeFloorTests
     public async Task A_scoped_admin_requesting_an_out_of_set_merchant_gets_null_without_issuing_the_bypass_query()
     {
         var mediator = new ThrowingMediator();
-        var query = new ApiHost::Api.AdminQuery(
+        var query = new ApiHost::Api.Admins.AdminQuery(
             mediator,
             new FakeScope(AccessibleMerchants.Of(new HashSet<Guid> { InSet })),
             new StubDirectory(OutOfSet)); // code resolves to an id NOT in the accessible set
@@ -37,7 +44,7 @@ public sealed class AdminQueryScopeFloorTests
     public async Task A_scoped_admin_requesting_an_unknown_code_gets_null_without_issuing_the_bypass_query()
     {
         var mediator = new ThrowingMediator();
-        var query = new ApiHost::Api.AdminQuery(
+        var query = new ApiHost::Api.Admins.AdminQuery(
             mediator,
             new FakeScope(AccessibleMerchants.Of(new HashSet<Guid> { InSet })),
             new StubDirectory(null)); // unknown code -> no id
@@ -51,7 +58,7 @@ public sealed class AdminQueryScopeFloorTests
     private sealed class FakeScope(AccessibleMerchants accessible) : IAdminScope
     {
         public bool IsBound => true;
-        public AdminResolution Current => throw new NotSupportedException();
+        public Resolution Current => throw new NotSupportedException();
         public AccessibleMerchants Accessible { get; } = accessible;
     }
 

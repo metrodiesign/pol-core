@@ -23,9 +23,9 @@ public class MerchantsArchitectureTests
     private static readonly Assembly Application = typeof(global::Merchants.Application.IMerchantRepository).Assembly;
     private static readonly Assembly Infrastructure = typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly;
 
-    private static readonly Assembly AdminDomain = typeof(global::Admin.Domain.PlatformUser).Assembly;
-    private static readonly Assembly AdminApplication = typeof(global::Admin.Application.IPlatformUserRepository).Assembly;
-    private static readonly Assembly AdminInfrastructure = typeof(global::Admin.Infrastructure.AdminModuleRegistration).Assembly;
+    private static readonly Assembly AdminDomain = typeof(global::Admins.Domain.Users.User).Assembly;
+    private static readonly Assembly AdminApplication = typeof(global::Admins.Application.Users.IUserRepository).Assembly;
+    private static readonly Assembly AdminInfrastructure = typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly;
 
     [Fact]
     public void Merchants_Domain_does_not_depend_on_EntityFrameworkCore()
@@ -41,10 +41,11 @@ public class MerchantsArchitectureTests
     {
         string[] forbidden =
         [
-            "Products.Infrastructure", "Cart.Infrastructure", "Checkout.Infrastructure",
+            "Products.Infrastructure", "Carts.Infrastructure", "Checkouts.Infrastructure",
             "Orders.Infrastructure", "Payments.Infrastructure", "Merchants.Infrastructure",
-            "Admin.Infrastructure", "BuildingBlocks.Infrastructure",
+            "Admins.Infrastructure", "BuildingBlocks.Infrastructure",
         ];
+        AssertAllResolveToARealAssembly(forbidden);
 
         var result = Types.InAssembly(Domain).Should().NotHaveDependencyOnAny(forbidden).GetResult();
 
@@ -64,7 +65,8 @@ public class MerchantsArchitectureTests
     [Fact]
     public void Merchants_does_not_depend_on_the_Admin_module()
     {
-        string[] forbidden = ["Admin.Domain", "Admin.Application", "Admin.Infrastructure"];
+        string[] forbidden = ["Admins.Domain", "Admins.Application", "Admins.Infrastructure"];
+        AssertAllResolveToARealAssembly(forbidden);
 
         foreach (var assembly in new[] { Domain, Application, Infrastructure })
         {
@@ -78,6 +80,7 @@ public class MerchantsArchitectureTests
     public void Admin_does_not_depend_on_the_Merchants_module()
     {
         string[] forbidden = ["Merchants.Domain", "Merchants.Application", "Merchants.Infrastructure"];
+        AssertAllResolveToARealAssembly(forbidden);
 
         foreach (var assembly in new[] { AdminDomain, AdminApplication, AdminInfrastructure })
         {
@@ -89,4 +92,20 @@ public class MerchantsArchitectureTests
 
     private static string Offenders(TestResult result) =>
         result.IsSuccessful ? "(none)" : "Offenders: " + string.Join(", ", result.FailingTypeNames ?? []);
+
+    // REQ-15.2: NotHaveDependencyOnAny only checks dependencies that exist; a name that resolves to NO assembly
+    // at all (e.g. stale after a rename) makes the guard above pass vacuously instead of catching a real crossing.
+    private static void AssertAllResolveToARealAssembly(string[] names)
+    {
+        foreach (var name in names)
+        {
+            Exception? failure = null;
+            try { Assembly.Load(name); }
+            catch (Exception ex) { failure = ex; }
+
+            Assert.True(failure is null,
+                $"'{name}' does not resolve to any loaded assembly ({failure?.Message}) — a stale or " +
+                "mistyped name here would make NotHaveDependencyOnAny pass vacuously instead of guarding anything.");
+        }
+    }
 }

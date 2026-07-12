@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
+using Payments.Domain.Psp;
 using Payments.Infrastructure.Psp;
 using SharedKernel;
 
@@ -27,8 +28,8 @@ public sealed class TwoCTwoPAdapterTests
         return (new TwoCTwoPAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
-    private static PaymentSession Session(decimal amount = 250.09m, string currency = "THB") =>
-        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), "card", PspCode.TwoCTwoP, DateTime.UtcNow);
+    private static Session MakeSession(decimal amount = 250.09m, string currency = "THB") =>
+        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), "card", Code.TwoCTwoP, DateTime.UtcNow);
 
     private static HttpResponseMessage PaymentTokenOk(string webPaymentUrl) =>
         StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
@@ -37,7 +38,7 @@ public sealed class TwoCTwoPAdapterTests
     [Fact]
     public async Task CreateRedirectCharge_returns_hosted_url_and_stable_invoiceNo_key()
     {
-        var session = Session();
+        var session = MakeSession();
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         var charge = await adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None);
@@ -54,7 +55,7 @@ public sealed class TwoCTwoPAdapterTests
     [InlineData(5000, "JPY", "5000")]
     public async Task CreateRedirectCharge_formats_major_unit_amount_and_alpha_currency(double amount, string currency, string expectedAmount)
     {
-        var session = Session((decimal)amount, currency);
+        var session = MakeSession((decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None);
@@ -72,7 +73,7 @@ public sealed class TwoCTwoPAdapterTests
     {
         // THB's minor unit is 2 decimals; Money itself allows scale <= 4, so 10.0050 is a valid Money but
         // not representable at THB's wire precision — must reject, not silently round to "10.01".
-        var session = Session(10.0050m, "THB");
+        var session = MakeSession(10.0050m, "THB");
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await Assert.ThrowsAsync<ArgumentException>(
@@ -84,7 +85,7 @@ public sealed class TwoCTwoPAdapterTests
     public async Task CreateRedirectCharge_rejects_fractional_amount_on_a_zero_decimal_currency()
     {
         // JPY has zero minor-unit digits; 10.5 has no representable rounding target.
-        var session = Session(10.5m, "JPY");
+        var session = MakeSession(10.5m, "JPY");
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await Assert.ThrowsAsync<ArgumentException>(
@@ -95,7 +96,7 @@ public sealed class TwoCTwoPAdapterTests
     [Fact]
     public async Task CreateRedirectCharge_throws_on_declined_respCode()
     {
-        var session = Session();
+        var session = MakeSession();
         var declined = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
             JsonSerializer.Serialize(new { respCode = "4009", respDesc = "declined" }), Key)));
         var (adapter, _) = Build((_, _) => declined);
@@ -183,7 +184,7 @@ public sealed class TwoCTwoPAdapterTests
     [Fact]
     public async Task CreateRedirectCharge_does_not_retry_the_non_idempotent_post()
     {
-        var session = Session();
+        var session = MakeSession();
         var (adapter, handler) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -224,7 +225,7 @@ public sealed class TwoCTwoPAdapterTests
     public async Task CreateRedirectCharge_rejects_a_response_signed_with_the_wrong_key()
     {
         // The adapter must not trust a forged/tampered PSP response (the response JWT is signature-verified).
-        var session = Session();
+        var session = MakeSession();
         var forged = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
             JsonSerializer.Serialize(new { respCode = "0000", webPaymentUrl = "https://evil.test/pay" }),
             "a-different-key-aaaaaaaaaaaaaaaaaa")));

@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Admins;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -14,8 +15,8 @@ namespace Hosts.Tests;
 /// </summary>
 public sealed class AdminSessionCookieTests
 {
-    private static PlatformUserSessionCookies Cookies(string environment, string sameSite = "Lax") =>
-        new(Options.Create(new PlatformUserSessionOptions { SameSite = sameSite }), new Env { EnvironmentName = environment });
+    private static SessionCookies Cookies(string environment, string sameSite = "Lax") =>
+        new(Options.Create(new AdminSessionOptions { SameSite = sameSite }), new Env { EnvironmentName = environment });
 
     private static HttpContext Context(bool https)
     {
@@ -33,15 +34,15 @@ public sealed class AdminSessionCookieTests
     [Fact]
     public void Opaque_token_is_random_and_only_its_hash_is_stored()
     {
-        var a = PlatformUserSessionTokens.NewOpaqueToken();
-        var b = PlatformUserSessionTokens.NewOpaqueToken();
+        var a = SessionTokens.NewOpaqueToken();
+        var b = SessionTokens.NewOpaqueToken();
 
         Assert.NotEqual(a, b);                                  // 256-bit random — practically never collides
         Assert.True(a.Length >= 43);                            // base64url of 32 bytes
-        var hash = PlatformUserSessionTokens.Hash(a);
+        var hash = SessionTokens.Hash(a);
         Assert.Equal(32, hash.Length);                          // SHA-256
-        Assert.Equal(hash, PlatformUserSessionTokens.Hash(a));         // deterministic
-        Assert.NotEqual(hash, PlatformUserSessionTokens.Hash(b));      // different token -> different hash
+        Assert.Equal(hash, SessionTokens.Hash(a));         // deterministic
+        Assert.NotEqual(hash, SessionTokens.Hash(b));      // different token -> different hash
     }
 
     [Fact]

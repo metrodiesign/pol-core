@@ -59,7 +59,7 @@ public sealed class MerchantUserWritePermissionsTests
         {
             var endpoint = FindPost(factory, route);
             Assert.Equal("merchant-user", PolicyOf(endpoint));
-            var perm = Assert.Single(endpoint.Metadata.OfType<ApiHost::Api.RequiredMerchantUserPermission>());
+            var perm = Assert.Single(endpoint.Metadata.OfType<ApiHost::Api.Merchants.RequiredUserPermission>());
             Assert.Equal(permission, perm.Permission);
         }
     }

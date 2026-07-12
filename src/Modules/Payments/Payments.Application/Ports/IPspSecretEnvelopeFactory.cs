@@ -1,4 +1,4 @@
-using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Application.Ports;
 
@@ -9,7 +9,7 @@ namespace Payments.Application.Ports;
 /// co-locates inside its envelope.
 /// </summary>
 public sealed record PspSecretInput(
-    PspCode Psp,
+    Code Psp,
     IReadOnlyDictionary<string, string> Secrets,
     string? MerchantId);
 

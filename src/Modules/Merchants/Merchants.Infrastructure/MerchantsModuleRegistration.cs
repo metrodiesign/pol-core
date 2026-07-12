@@ -2,7 +2,11 @@ using System.IO;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
 using Merchants.Infrastructure.Persistence;
+using Merchants.Infrastructure.Persistence.Users;
+using Merchants.Infrastructure.Persistence.Users.Roles;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Merchants.Infrastructure;
@@ -18,7 +22,7 @@ namespace Merchants.Infrastructure;
 /// composition root (Api host) knows, so the host wires them (REQ-4.4).
 /// <para>
 /// It also registers the registration seams on the DEFAULT context. That is what the WORKER needs: the outbox
-/// dispatcher there discovers <c>MerchantUserRegistrationConsumer</c> (which writes the control-plane notice as
+/// dispatcher there discovers <c>RegistrationConsumer</c> (which writes the control-plane notice as
 /// pol_worker) and — because Mediator scans the whole referenced assembly — <c>SubmitRegistrationHandler</c> too,
 /// so its dependency graph must resolve even though the worker never sends that command. The API re-registers the
 /// WRITE seams on the keyed pol_admin context via the host's identity wiring (last registration wins), because the
@@ -31,22 +35,22 @@ public static class MerchantsModuleRegistration
     {
         static PolDbContext Db(IServiceProvider sp) => sp.GetRequiredService<PolDbContext>();
 
-        services.AddScoped<IMerchantUserRepository>(sp => new MerchantUserRepository(Db(sp)));
+        services.AddScoped<IUserRepository>(sp => new UserRepository(Db(sp)));
         services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Db(sp)));
         services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Db(sp)));
         // The role repo backs ResolveLoginHandler (effective-permission resolution). The worker never SENDS that
         // query, but Mediator discovers the handler in this assembly, so its dependency graph must RESOLVE under
         // ValidateOnBuild — hence a default-context binding here. The API overrides it onto keyed pol_admin
         // (the host identity wiring) so the login lookup reads the control-plane catalog under RLS-bypass.
-        services.AddScoped<IMerchantUserRoleRepository>(sp => new MerchantUserRoleRepository(Db(sp)));
-        services.AddScoped<IMerchantsOutboxWriter>(sp => new MerchantsOutboxWriter(Db(sp), sp.GetRequiredService<IClock>()));
-        services.AddScoped<IMerchantsRegistrationUnitOfWork>(sp => new MerchantsRegistrationUnitOfWork(Db(sp)));
+        services.AddScoped<IRoleRepository>(sp => new RoleRepository(Db(sp)));
+        services.AddScoped<IRegistrationOutboxWriter>(sp => new RegistrationOutboxWriter(Db(sp), sp.GetRequiredService<IClock>()));
+        services.AddScoped<IRegistrationUnitOfWork>(sp => new UserUnitOfWork(Db(sp)));
         // Neutral control-plane commit seam (role/assignment + approve/reject handlers). Default context here so the
         // worker's Mediator-discovered handlers resolve under ValidateOnBuild; the API overrides it onto keyed pol_admin.
-        services.AddScoped<IMerchantsUnitOfWork>(sp => new MerchantsRegistrationUnitOfWork(Db(sp)));
-        // RejectMerchantUserHandler revokes the user's live sessions — default context here for worker ValidateOnBuild
+        services.AddScoped<IUserUnitOfWork>(sp => new UserUnitOfWork(Db(sp)));
+        // RejectHandler revokes the user's live sessions — default context here for worker ValidateOnBuild
         // (the worker never sends that command); the API overrides it onto keyed pol_admin (the host identity wiring).
-        services.AddScoped<IMerchantUserSessionStore>(sp => new MerchantUserSessionStore(Db(sp)));
+        services.AddScoped<ISessionStore>(sp => new SessionStore(Db(sp)));
         services.AddScoped<IRegistrationNoticeWriter>(sp => new RegistrationNoticeWriter(Db(sp)));
 
         // Default photo store (worker/local). The API overrides with a config-rooted one in the host identity wiring.

@@ -55,7 +55,7 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
 
             // Static config -> the challenge builds the redirect without fetching Google's discovery document.
-            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.AdminOidcAuthentication.Scheme, options =>
+            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Admins.OidcAuthentication.Scheme, options =>
                 options.Configuration = new OpenIdConnectConfiguration
                 {
                     Issuer = "https://accounts.google.com",
@@ -107,7 +107,7 @@ public sealed class AdminAuthLoginRedirectTests
 
     // Guards against the section-name mismatch bugfix regressing (AdminAuthOptions.cs): PlatformUserSessionOptions
     // must bind from the "AdminSession" section (matches the committed appsettings.json key), not the old
-    // "PlatformUserSession" section that section-name value never matched. The allowlist above is set via the
+    // "Session" section that section-name value never matched. The allowlist above is set via the
     // factory's own in-memory config (not a gitignored appsettings.Development.json) so this test is
     // self-contained in a clean checkout/CI.
     [Fact]
@@ -115,7 +115,7 @@ public sealed class AdminAuthLoginRedirectTests
     {
         using var factory = new LoginFactory();
 
-        var options = factory.Services.GetRequiredService<IOptions<ApiHost::Api.PlatformUserSessionOptions>>().Value;
+        var options = factory.Services.GetRequiredService<IOptions<ApiHost::Api.Admins.AdminSessionOptions>>().Value;
 
         // NotEmpty + Contains (not a full-list Equal): a machine's own gitignored appsettings.Development.json
         // may add further allowlist entries on top of these, and this test must stay green either way — only

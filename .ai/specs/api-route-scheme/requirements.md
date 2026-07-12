@@ -1,6 +1,21 @@
 # Requirements: API Route Scheme (/api/v1/{area})
 
-> Status: approved 2026-07-05, amended 2026-07-05
+> Status: approved 2026-07-05, amended 2026-07-05, amended 2026-07-12 (see below)
+
+> **Historical vocabulary notice (2026-07-12, spec `hierarchical-naming` REQ-2.6-2.8).** This file was
+> written and shipped 2026-07-05, when the control-plane actors were three separate modules — Tenant,
+> Producer, Admin — each with a `tenant`/`producer`/`admin` authorization policy. rf1 (2026-07-12) merged
+> Tenant+Producer into one `Merchants` module and retired the `producers` area in favor of
+> `merchant-users`; hierarchical-naming (2026-07-12) retires `merchant-users` in favor of `merchants`,
+> which now also carries the merchant-provisioning endpoints moved out of `admins` (REQ-6.1/6.2 of
+> `hierarchical-naming/requirements.md`). REQ-2.1, REQ-2.3, REQ-2.8, and REQ-2.9 below are amended in
+> place to that **target** taxonomy — hierarchical-naming's tasks 3-12 had not yet shipped it as of this
+> amendment; `.ai/shared/ARCHITECTURE.md`'s "as-built" API-scheme note is the source of truth for what is
+> live right now. Every other `producer`/`tenant` mention in REQ-3, REQ-6, REQ-8, REQ-9,
+> and Edge Cases describes the vocabulary and endpoint names **as they stood at the original 2026-07-05
+> migration** — read them as history, not current requirements. Current naming law:
+> [ARCHITECTURE.md §Naming Conventions](../../shared/ARCHITECTURE.md#namespace--route-naming-law-l1-l8-spec-hierarchical-naming-2026-07-12);
+> current module map: [PROJECT_CONTEXT.md](../../shared/PROJECT_CONTEXT.md).
 
 ## Overview
 
@@ -40,15 +55,15 @@ path** แต่บังคับต่อ endpoint ด้วย `RequireAuthor
 **User Story:** As a backend maintainer, I want a fixed set of API areas and a defined endpoint-to-area assignment, so that every route has exactly one correct home.
 
 **Acceptance Criteria (EARS):**
-- 2.1 THE SYSTEM SHALL define exactly nine API areas, each a lowercase plural noun: `products`, `carts`, `checkouts`, `orders`, `payments`, `admins`, `producers`, `webhooks`, `reports`.
+- 2.1 THE SYSTEM SHALL define exactly nine API areas, each a lowercase plural noun: `products`, `carts`, `checkouts`, `orders`, `payments`, `admins`, `merchants`, `webhooks`, `reports`. *(Amended 2026-07-12, hierarchical-naming REQ-2.6: originally `producers`; rf1 first renamed it `merchant-users`, and hierarchical-naming (tasks 3-12 of that spec, not yet shipped as of this amendment) renames it again to `merchants`, which also absorbs merchant provisioning out of `admins`. `.ai/shared/ARCHITECTURE.md`'s "as-built" API-scheme note still says `merchant-users` until that sweep ships.)*
 - 2.2 THE SYSTEM SHALL assign every existing endpoint to exactly one area, per the complete old→new mapping in `design.md` (Data Models & Interfaces).
-- 2.3 THE SYSTEM SHALL surface the `tenant` and `identity` modules WITHOUT a dedicated area segment — their endpoints appear under `admins`, `producers`, or the relevant data-plane area.
+- 2.3 THE SYSTEM SHALL surface no area segment for a module with no top-level HTTP surface of its own — its endpoints appear under `admins`, `merchants`, or the relevant data-plane area. *(Amended 2026-07-12: the original `tenant` and `identity` modules named here no longer exist — `identity` was deleted (admin-module-shipped-identity-removed); `tenant` merged into the `Merchants` module at rf1, which inherited the `producers`/`merchant-users` area, itself renamed `merchants` by hierarchical-naming.)*
 - 2.4 THE SYSTEM SHALL map the data-plane endpoints as: `/products` -> `/api/v1/products`; `/carts/...` -> `/api/v1/carts/...`; `/checkout/...` -> `/api/v1/checkouts/...`; `/orders/...` -> `/api/v1/orders/...`.
 - 2.5 THE SYSTEM SHALL map payment-session endpoints under the `payments` area as `/api/v1/payments/sessions` and `/api/v1/payments/sessions/{paymentSessionId}/redirect`.
 - 2.6 THE SYSTEM SHALL route the PSP webhook callback at `/api/v1/webhooks/{pspConnectionId}`.
 - 2.7 THE SYSTEM SHALL route the reconciliation report at `/api/v1/reports/reconciliation`.
-- 2.8 THE SYSTEM SHALL map the admin console endpoints under `/api/v1/admins/...`, with the admin-account sub-collection at the area root: `POST /api/v1/admins` (create), `/api/v1/admins/{id}/suspend`, `/api/v1/admins/{id}/tenants`, `/api/v1/admins/{id}/tenants/{tenantId}`, `/api/v1/admins/{id}/roles` — no doubled `admins/admins` segment (the guid-constrained `{id}` does not collide with the literal sub-resources `roles`/`permissions`/`tenants`/`tenant-users`/`me`/`auth`).
-- 2.9 THE SYSTEM SHALL map the producer console endpoints under `/api/v1/producers/...`.
+- 2.8 THE SYSTEM SHALL map the admin console endpoints under `/api/v1/admins/...`, with the admin-account sub-collection at the area root: `POST /api/v1/admins` (create), `/api/v1/admins/{id}/suspend`, `/api/v1/admins/{id}/merchants`, `/api/v1/admins/{id}/merchants/{merchantId}`, `/api/v1/admins/{id}/roles` — no doubled `admins/admins` segment (the guid-constrained `{id}` does not collide with the literal sub-resources `roles`/`permissions`/`merchants`/`merchants/users`/`positions`/`offices`/`levels`/`divisions`/`me`/`auth`). *(Amended 2026-07-12, hierarchical-naming REQ-2.7 — target state, that spec's tasks 3-12 not yet shipped: `tenants`/`tenant-users` sub-resource tokens become `merchants`/`merchants/users` (REQ-6.3 of that spec); the four master-data lists `positions`/`offices`/`levels`/`divisions` are added, `master-data` wrapper segment dropped (REQ-6.4 of that spec).)*
+- 2.9 THE SYSTEM SHALL map the merchant-user console endpoints under `/api/v1/merchants/users/...`, nested under the `merchants` area alongside merchant provisioning — no separate area of its own. *(Amended 2026-07-12: originally the producer console under `/api/v1/producers/...`; rf1 first moved it to `/api/v1/merchant-users/...`, hierarchical-naming REQ-6.1 nests it under `merchants/users/**`.)*
 
 ## REQ-3: Authorization preserved, audience out of the path
 

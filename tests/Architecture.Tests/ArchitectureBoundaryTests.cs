@@ -20,8 +20,8 @@ public class ArchitectureBoundaryTests
     private static readonly string[] Modules =
     [
         "Products",
-        "Cart",
-        "Checkout",
+        "Carts",
+        "Checkouts",
         "Orders",
         "Payments",
     ];
@@ -36,18 +36,18 @@ public class ArchitectureBoundaryTests
     private static Assembly DomainAssembly(string module) => module switch
     {
         "Products" => typeof(global::Products.Domain.Product).Assembly,
-        "Cart" => typeof(global::Cart.Domain.Cart).Assembly,
-        "Checkout" => typeof(global::Checkout.Domain.CheckoutSession).Assembly,
+        "Carts" => typeof(global::Carts.Domain.Cart).Assembly,
+        "Checkouts" => typeof(global::Checkouts.Domain.Session).Assembly,
         "Orders" => typeof(global::Orders.Domain.Order).Assembly,
-        "Payments" => typeof(global::Payments.Domain.PaymentSession).Assembly,
+        "Payments" => typeof(global::Payments.Domain.Session).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
     };
 
     private static Assembly ApplicationAssembly(string module) => module switch
     {
         "Products" => typeof(global::Products.Application.IProductRepository).Assembly,
-        "Cart" => typeof(global::Cart.Application.ICartRepository).Assembly,
-        "Checkout" => typeof(global::Checkout.Application.ICheckoutRepository).Assembly,
+        "Carts" => typeof(global::Carts.Application.ICartRepository).Assembly,
+        "Checkouts" => typeof(global::Checkouts.Application.ICheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Application.IOrderRepository).Assembly,
         "Payments" => typeof(global::Payments.Application.Ports.IPspAdapter).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
@@ -56,8 +56,8 @@ public class ArchitectureBoundaryTests
     private static Assembly InfrastructureAssembly(string module) => module switch
     {
         "Products" => typeof(global::Products.Infrastructure.ProductRepository).Assembly,
-        "Cart" => typeof(global::Cart.Infrastructure.CartRepository).Assembly,
-        "Checkout" => typeof(global::Checkout.Infrastructure.CheckoutRepository).Assembly,
+        "Carts" => typeof(global::Carts.Infrastructure.CartRepository).Assembly,
+        "Checkouts" => typeof(global::Checkouts.Infrastructure.CheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Infrastructure.OrderRepository).Assembly,
         "Payments" => typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
@@ -93,6 +93,21 @@ public class ArchitectureBoundaryTests
         "Application" => ApplicationAssembly(module),
         _ => throw new ArgumentOutOfRangeException(nameof(layer), layer, "Unknown layer"),
     };
+
+    /// <summary>
+    /// Fail-closed guard (REQ-15.2, mirrors AdminArchitectureTests): every forbidden-namespace string
+    /// below is derived from a module key, and NotHaveDependencyOnAny passes vacuously on a name that
+    /// matches nothing — a stale key (the pre-rename "Cart"/"Checkout" singulars) would silently kill
+    /// the layer guards. Pinning each key to its REAL assembly names makes a stale key fail loudly.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(AllModules))]
+    public void Module_key_matches_its_real_assembly_names(string module)
+    {
+        Assert.Equal($"{module}.Domain", DomainAssembly(module).GetName().Name);
+        Assert.Equal($"{module}.Application", ApplicationAssembly(module).GetName().Name);
+        Assert.Equal($"{module}.Infrastructure", InfrastructureAssembly(module).GetName().Name);
+    }
 
     /// <summary>
     /// Modules communicate ONLY through Contracts. A module's Domain or Application assembly must not

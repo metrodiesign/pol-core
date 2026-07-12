@@ -72,12 +72,12 @@ IF EXISTS (SELECT 1 FROM sys.database_permissions p
     SET @fail += N'pol_admin must not have SELECT on merch.VaultSecrets (no plaintext read-back invariant); ';
 
 -- --- Seeds: RBAC catalogs + HR master data (exact counts — fixed VALUES lists, no NEWID rows) ---
-IF (SELECT COUNT(*) FROM admin.AdminPermissionGroups) <> 6
-    SET @fail += N'admin.AdminPermissionGroups expected 6 rows; ';
-IF (SELECT COUNT(*) FROM admin.AdminPermissions) <> 16
-    SET @fail += N'admin.AdminPermissions expected 16 rows; ';
-IF (SELECT COUNT(*) FROM admin.AdminRoles) <> 5
-    SET @fail += N'admin.AdminRoles expected 5 rows; ';
+IF (SELECT COUNT(*) FROM admin.PermissionGroups) <> 6
+    SET @fail += N'admin.PermissionGroups expected 6 rows; ';
+IF (SELECT COUNT(*) FROM admin.Permissions) <> 16
+    SET @fail += N'admin.Permissions expected 16 rows; ';
+IF (SELECT COUNT(*) FROM admin.Roles) <> 5
+    SET @fail += N'admin.Roles expected 5 rows; ';
 IF (SELECT COUNT(*) FROM admin.Positions) <> 12
     SET @fail += N'admin.Positions expected 12 rows; ';
 IF (SELECT COUNT(*) FROM admin.Offices) <> 8
@@ -86,12 +86,12 @@ IF (SELECT COUNT(*) FROM admin.Levels) <> 10
     SET @fail += N'admin.Levels expected 10 rows; ';
 IF (SELECT COUNT(*) FROM admin.Divisions) <> 10
     SET @fail += N'admin.Divisions expected 10 rows; ';
-IF (SELECT COUNT(*) FROM merch.MerchantUserPermissionGroups) <> 3
-    SET @fail += N'merch.MerchantUserPermissionGroups expected 3 rows; ';
-IF (SELECT COUNT(*) FROM merch.MerchantUserPermissions) <> 7
-    SET @fail += N'merch.MerchantUserPermissions expected 7 rows; ';
-IF (SELECT COUNT(*) FROM merch.MerchantUserRoleDefinitions) <> 2
-    SET @fail += N'merch.MerchantUserRoleDefinitions expected 2 rows; ';
+IF (SELECT COUNT(*) FROM merch.PermissionGroups) <> 3
+    SET @fail += N'merch.PermissionGroups expected 3 rows; ';
+IF (SELECT COUNT(*) FROM merch.Permissions) <> 7
+    SET @fail += N'merch.Permissions expected 7 rows; ';
+IF (SELECT COUNT(*) FROM merch.Roles) <> 2
+    SET @fail += N'merch.Roles expected 2 rows; ';
 
 IF LEN(@fail) > 0
     THROW 50000, @fail, 1;

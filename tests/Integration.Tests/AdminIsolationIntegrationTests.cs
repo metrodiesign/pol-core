@@ -4,8 +4,8 @@ namespace Integration.Tests;
 
 /// <summary>
 /// Proves the Admin control-plane isolation + grant floor against live SQL Server 2025 with the real
-/// principals and the SecurityObjects migration applied. The admin tables (PlatformUsers,
-/// PlatformMerchantAccess, PlatformUserAudits) are control-plane: pol_admin owns them and pol_app has NO
+/// principals and the SecurityObjects migration applied. The admin tables (Users,
+/// MerchantAccess, UserAudits) are control-plane: pol_admin owns them and pol_app has NO
 /// grant at all (REQ-3.2). The filtered unique index on Subject rejects a duplicate bound subject but exempts
 /// NULL (invited) subjects (REQ-3.1). Tagged Integration so the default unit run skips them; CI runs them
 /// against a migrated service.
@@ -29,7 +29,7 @@ public sealed class AdminIsolationIntegrationTests
         await IntegrationDb.InsertPlatformUserAsync(admin, id, UniqueSubject(), UniqueEmail(), Super, Active);
 
         Assert.Equal(1, AsInt(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM admin.PlatformUsers WHERE Id=@id", ("@id", id))));
+            "SELECT COUNT(*) FROM admin.Users WHERE Id=@id", ("@id", id))));
     }
 
     [Fact]
@@ -38,11 +38,11 @@ public sealed class AdminIsolationIntegrationTests
         // pol_app has NO grant on any admin table — a merchant principal cannot even SELECT them (REQ-3.2).
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, IntegrationDb.MerchantA);
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.PlatformUsers"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.Users"));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.PlatformMerchantAccess"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.MerchantAccess"));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.PlatformUserAudits"));
+            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.UserAudits"));
     }
 
     [Fact]

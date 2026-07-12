@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Admins;
 using Microsoft.AspNetCore.Http;
 
 namespace Hosts.Tests;
@@ -8,7 +9,7 @@ namespace Hosts.Tests;
 /// <c>X-CSRF-Token</c> header equal to the <c>adm_csrf</c> cookie, else 403; safe methods are exempt.</summary>
 public sealed class AdminCsrfFilterTests
 {
-    private static readonly AdminCsrfFilter Filter = new();
+    private static readonly CsrfFilter Filter = new();
     private static readonly object Passed = new();
 
     private static async Task<object?> Run(string method, string? cookie, string? header)
@@ -16,9 +17,9 @@ public sealed class AdminCsrfFilterTests
         var http = new DefaultHttpContext();
         http.Request.Method = method;
         if (cookie is not null)
-            http.Request.Headers.Cookie = $"{PlatformUserSessionCookies.CsrfCookieName}={cookie}";
+            http.Request.Headers.Cookie = $"{SessionCookies.CsrfCookieName}={cookie}";
         if (header is not null)
-            http.Request.Headers[AdminCsrfFilter.HeaderName] = header;
+            http.Request.Headers[CsrfFilter.HeaderName] = header;
 
         var context = EndpointFilterInvocationContext.Create(http);
         return await Filter.InvokeAsync(context, _ => ValueTask.FromResult<object?>(Passed));

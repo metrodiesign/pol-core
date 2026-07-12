@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
+using Payments.Domain.Psp;
 using Payments.Infrastructure.Psp;
 using SharedKernel;
 
@@ -26,13 +27,13 @@ public sealed class OmiseAdapterTests
         return (new OmiseAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
-    private static PaymentSession Session(string method, decimal amount = 20.00m, string currency = "THB") =>
-        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, PspCode.Omise, DateTime.UtcNow);
+    private static Session MakeSession(string method, decimal amount = 20.00m, string currency = "THB") =>
+        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.Omise, DateTime.UtcNow);
 
     [Fact]
     public async Task Card_charge_returns_hosted_authorize_uri_with_idempotency_key_and_minor_unit_amount()
     {
-        var session = Session("card");
+        var session = MakeSession("card");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
@@ -53,7 +54,7 @@ public sealed class OmiseAdapterTests
     [InlineData(5000, "JPY", "amount=5000")]    // 0-decimal currency: major == minor
     public async Task Card_charge_converts_amount_to_minor_units(double amount, string currency, string expected)
     {
-        var session = Session("card", (decimal)amount, currency);
+        var session = MakeSession("card", (decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
@@ -67,7 +68,7 @@ public sealed class OmiseAdapterTests
     {
         // THB's minor unit is 2 decimals (satang); Money itself allows scale <= 4, so 10.0050 is a valid
         // Money but not representable as satang — must reject, not silently round to 10.01/1001 satang.
-        var session = Session("card", 10.0050m, "THB");
+        var session = MakeSession("card", 10.0050m, "THB");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<ArgumentException>(
@@ -79,7 +80,7 @@ public sealed class OmiseAdapterTests
     public async Task Card_charge_rejects_fractional_amount_on_a_zero_decimal_currency()
     {
         // JPY has zero minor-unit digits; 10.5 has no satang-equivalent to round to.
-        var session = Session("card", 10.5m, "JPY");
+        var session = MakeSession("card", 10.5m, "JPY");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<ArgumentException>(
@@ -92,7 +93,7 @@ public sealed class OmiseAdapterTests
     {
         // Correlation (link id vs webhook/fetch charge id) cannot be made consistent without a sandbox —
         // PromptPay is deferred rather than shipped broken. No PSP call is made on the deferred path.
-        var session = Session("promptpay");
+        var session = MakeSession("promptpay");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<NotSupportedException>(
@@ -105,7 +106,7 @@ public sealed class OmiseAdapterTests
     [InlineData("skey_test_abc", false)]  // test key, production config
     public async Task Charge_fails_fast_when_key_environment_mismatches_UseSandbox(string secretKey, bool useSandbox)
     {
-        var session = Session("card");
+        var session = MakeSession("card");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"), useSandbox);
         var secret = $$"""{"secretKey":"{{secretKey}}"}""";
 

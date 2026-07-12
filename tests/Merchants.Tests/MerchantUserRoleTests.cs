@@ -1,4 +1,7 @@
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -7,18 +10,18 @@ namespace Merchants.Tests;
 /// undeletable/undeactivatable, ordinary roles are not, and the code vocabulary is internally consistent.</summary>
 public sealed class MerchantUserRoleTests
 {
-    private static readonly IReadOnlySet<string> Catalog = MerchantUserPermissions.AllKeys;
+    private static readonly IReadOnlySet<string> Catalog = Keys.AllKeys;
 
-    private static MerchantUserRoleDefinition NewRole(string code, params string[] keys) =>
-        MerchantUserRoleDefinition.Create(code, code, null, null, MerchantUserRoleStatus.Active, keys, Catalog);
+    private static Role NewRole(string code, params string[] keys) =>
+        Role.Create(code, code, null, null, RoleStatus.Active, keys, Catalog);
 
     [Fact]
     public void Create_keeps_only_the_granted_subset()
     {
-        var role = NewRole("editor", MerchantUserPermissions.ProductCreate, MerchantUserPermissions.ProductUpdate);
+        var role = NewRole("editor", Keys.ProductCreate, Keys.ProductUpdate);
 
         Assert.Equal(
-            new[] { MerchantUserPermissions.ProductCreate, MerchantUserPermissions.ProductUpdate }.OrderBy(x => x),
+            new[] { Keys.ProductCreate, Keys.ProductUpdate }.OrderBy(x => x),
             role.PermissionKeys.OrderBy(x => x));
     }
 
@@ -36,41 +39,41 @@ public sealed class MerchantUserRoleTests
     [InlineData("")]
     public void Create_rejects_a_code_outside_the_slug_pattern(string code) =>
         Assert.ThrowsAny<ArgumentException>(() =>
-            MerchantUserRoleDefinition.Create(code, "Name", null, null, MerchantUserRoleStatus.Active, [], Catalog));
+            Role.Create(code, "Name", null, null, RoleStatus.Active, [], Catalog));
 
     [Fact]
     public void SetPermissions_replaces_and_dedupes()
     {
-        var role = NewRole("editor", MerchantUserPermissions.ProductCreate);
+        var role = NewRole("editor", Keys.ProductCreate);
 
         role.SetPermissions(
-            [MerchantUserPermissions.PaymentCreate, MerchantUserPermissions.PaymentCreate, MerchantUserPermissions.PaymentRedirect],
+            [Keys.PaymentCreate, Keys.PaymentCreate, Keys.PaymentRedirect],
             Catalog);
 
         Assert.Equal(
-            new[] { MerchantUserPermissions.PaymentCreate, MerchantUserPermissions.PaymentRedirect }.OrderBy(x => x),
+            new[] { Keys.PaymentCreate, Keys.PaymentRedirect }.OrderBy(x => x),
             role.PermissionKeys.OrderBy(x => x));
     }
 
     [Fact]
     public void Merchant_owner_anchor_cannot_be_deactivated_or_deleted()
     {
-        var owner = NewRole(MerchantUserRoleDefinition.MerchantOwnerCode, [.. Catalog]);
+        var owner = NewRole(Role.MerchantOwnerCode, [.. Catalog]);
 
         Assert.True(owner.IsMerchantOwnerSeed);
         Assert.Throws<InvalidOperationException>(() => owner.Deactivate());
         Assert.Throws<InvalidOperationException>(() => owner.EnsureDeletable());
-        Assert.Equal(MerchantUserRoleStatus.Active, owner.Status); // Deactivate threw -> unchanged
+        Assert.Equal(RoleStatus.Active, owner.Status); // Deactivate threw -> unchanged
     }
 
     [Fact]
     public void An_ordinary_role_can_be_deactivated_and_deleted()
     {
-        var member = NewRole(MerchantUserRoleDefinition.MerchantMemberCode, MerchantUserPermissions.ProductCreate);
+        var member = NewRole(Role.MerchantMemberCode, Keys.ProductCreate);
 
         member.EnsureDeletable();          // does not throw
         member.Deactivate();
-        Assert.Equal(MerchantUserRoleStatus.Inactive, member.Status);
+        Assert.Equal(RoleStatus.Inactive, member.Status);
     }
 
     [Fact]
@@ -78,8 +81,8 @@ public sealed class MerchantUserRoleTests
     {
         // The seven seeded keys, each mapped to a real group — the in-memory half of the code<->DB parity guard
         // (the DB half lives in the RBAC grants integration suite).
-        Assert.Equal(7, MerchantUserPermissions.AllKeys.Count);
-        Assert.Equal(MerchantUserPermissions.All.Count, MerchantUserPermissions.AllKeys.Count); // no duplicate keys
-        Assert.All(MerchantUserPermissions.All, p => Assert.Contains(p.GroupKey, MerchantUserPermissions.GroupKeys));
+        Assert.Equal(7, Keys.AllKeys.Count);
+        Assert.Equal(Keys.All.Count, Keys.AllKeys.Count); // no duplicate keys
+        Assert.All(Keys.All, p => Assert.Contains(p.GroupKey, Keys.GroupKeys));
     }
 }

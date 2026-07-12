@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports;
 using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Infrastructure.Psp;
 
@@ -24,14 +25,14 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
     {
     }
 
-    public override PspCode Psp => PspCode.TwoCTwoP;
+    public override Code Psp => Code.TwoCTwoP;
 
     private string BaseUrl => Options.UseSandbox
         ? Options.TwoCTwoP.SandboxBaseUrl
         : Options.TwoCTwoP.ProductionBaseUrl;
 
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        PaymentSession session, string secret, CancellationToken cancellationToken)
+        Session session, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         var invoiceNo = session.Id.ToString("N");

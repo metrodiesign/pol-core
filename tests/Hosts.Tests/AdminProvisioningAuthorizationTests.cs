@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Admins;
 using System.Net;
 using System.Security.Claims;
 using BuildingBlocks.Infrastructure.Outbox;
@@ -14,7 +15,7 @@ namespace Hosts.Tests;
 
 /// <summary>
 /// The /api/v1/admins/* surface gates on <c>RequireAuthorization("admin")</c>. That policy is the
-/// PlatformUserSession COOKIE scheme — T5 retired the Google id-token Bearer scheme entirely, so there is no
+/// Session COOKIE scheme — T5 retired the Google id-token Bearer scheme entirely, so there is no
 /// dual-scheme fallback left to test against: it is pinned to that one scheme and refuses anonymous (REQ-7.2). A
 /// live /api/v1/admins request with no session cookie returns 401 — not 500 (missing policy) and not a login
 /// redirect.
@@ -31,7 +32,7 @@ public sealed class AdminProvisioningAuthorizationTests
 
         var policy = await sp.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync("admin");
         Assert.NotNull(policy);
-        Assert.Contains(PlatformUserSessionAuthenticationHandler.SchemeName, policy!.AuthenticationSchemes); // REQ-10.6 scheme-pinned
+        Assert.Contains(SessionAuthenticationHandler.SchemeName, policy!.AuthenticationSchemes); // REQ-10.6 scheme-pinned
         Assert.False((await sp.GetRequiredService<IAuthorizationService>().AuthorizeAsync(Anonymous(), "admin")).Succeeded); // REQ-7.2
     }
 

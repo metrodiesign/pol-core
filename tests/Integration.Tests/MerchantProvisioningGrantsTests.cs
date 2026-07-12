@@ -19,7 +19,7 @@ public sealed class MerchantProvisioningGrantsTests
             IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM merch.VaultSecrets"));
     }
 
-    // Sibling of P1 — GET /api/v1/admins/merchants/{code} reads masked hints from PspConnection.Metadata under
+    // Sibling of P1 — GET /api/v1/merchants/{code} reads masked hints from PspConnection.Metadata under
     // pol_admin, so that principal MUST hold SELECT on PspConnections (the grant the read-back depends on).
     [Fact]
     public async Task Admin_can_select_psp_connections()

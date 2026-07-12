@@ -26,7 +26,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Admin.Domain.AdminPermission", b =>
+            modelBuilder.Entity("Admins.Domain.Permissions.Permission", b =>
                 {
                     b.Property<string>("Key")
                         .HasMaxLength(64)
@@ -49,10 +49,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("GroupKey");
 
-                    b.ToTable("AdminPermissions", "admin");
+                    b.ToTable("Permissions", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminPermissionGroup", b =>
+            modelBuilder.Entity("Admins.Domain.Permissions.PermissionGroup", b =>
                 {
                     b.Property<string>("Key")
                         .HasMaxLength(32)
@@ -68,10 +68,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Key");
 
-                    b.ToTable("AdminPermissionGroups", "admin");
+                    b.ToTable("PermissionGroups", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminRole", b =>
+            modelBuilder.Entity("Admins.Domain.Roles.Role", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -103,10 +103,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("AdminRoles", "admin");
+                    b.ToTable("Roles", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminRoleAssignment", b =>
+            modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -131,10 +131,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("PlatformUserId", "RoleId")
                         .IsUnique();
 
-                    b.ToTable("AdminRoleAssignments", "admin");
+                    b.ToTable("RoleAssignments", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminRolePermission", b =>
+            modelBuilder.Entity("Admins.Domain.Roles.RolePermission", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -155,10 +155,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId", "PermissionKey")
                         .IsUnique();
 
-                    b.ToTable("AdminRolePermissions", "admin");
+                    b.ToTable("RolePermissions", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.MasterData", b =>
+            modelBuilder.Entity("Admins.Domain.MasterData.MasterDataItem", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -187,7 +187,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.UseTpcMappingStrategy();
                 });
 
-            modelBuilder.Entity("Admin.Domain.PlatformAuthAudit", b =>
+            modelBuilder.Entity("Admins.Domain.Users.AuthAudit", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -221,10 +221,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PlatformUserId");
 
-                    b.ToTable("PlatformAuthAudits", "admin");
+                    b.ToTable("AuthAudits", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.PlatformMerchantAccess", b =>
+            modelBuilder.Entity("Admins.Domain.Users.MerchantAccess", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -247,10 +247,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("PlatformUserId", "MerchantId")
                         .IsUnique();
 
-                    b.ToTable("PlatformMerchantAccess", "admin");
+                    b.ToTable("MerchantAccess", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.PlatformUser", b =>
+            modelBuilder.Entity("Admins.Domain.Users.User", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -303,10 +303,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[Subject] IS NOT NULL");
 
-                    b.ToTable("PlatformUsers", "admin");
+                    b.ToTable("Users", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.PlatformUserAudit", b =>
+            modelBuilder.Entity("Admins.Domain.Users.Audit", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -344,10 +344,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PlatformUserAudits", "admin");
+                    b.ToTable("UserAudits", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.PlatformUserSession", b =>
+            modelBuilder.Entity("Admins.Domain.Users.Session", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -401,7 +401,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("PlatformUserSessions", "admin");
+                    b.ToTable("Sessions", "admin");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.DataProtection.DataProtectionKey", b =>
@@ -570,7 +570,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("VaultSecrets", "merch");
                 });
 
-            modelBuilder.Entity("Cart.Domain.Cart", b =>
+            modelBuilder.Entity("Carts.Domain.Cart", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -592,7 +592,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Carts", "shop");
                 });
 
-            modelBuilder.Entity("Cart.Domain.CartItem", b =>
+            modelBuilder.Entity("Carts.Domain.Items.Item", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -607,7 +607,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Cart.Domain.CartItem.UnitPrice#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Carts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -632,7 +632,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CartItems", "shop");
                 });
 
-            modelBuilder.Entity("Checkout.Domain.CheckoutSession", b =>
+            modelBuilder.Entity("Checkouts.Domain.Session", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -654,7 +654,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Checkout.Domain.CheckoutSession.Amount#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Checkouts.Domain.Session.Amount#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -677,7 +677,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CheckoutSessions", "shop");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.ExternalLogin", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.ExternalLogin", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -758,7 +758,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Merchants", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantAuthAudit", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.AuthAudit", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -792,10 +792,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("MerchantUserId");
 
-                    b.ToTable("MerchantAuthAudits", "merch");
+                    b.ToTable("AuthAudits", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUser", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.User", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -867,10 +867,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Subject")
                         .IsUnique();
 
-                    b.ToTable("MerchantUsers", "merch");
+                    b.ToTable("Users", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserPermission", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Permissions.Permission", b =>
                 {
                     b.Property<string>("Key")
                         .HasMaxLength(64)
@@ -893,10 +893,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("GroupKey");
 
-                    b.ToTable("MerchantUserPermissions", "merch");
+                    b.ToTable("Permissions", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserPermissionGroup", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Permissions.PermissionGroup", b =>
                 {
                     b.Property<string>("Key")
                         .HasMaxLength(32)
@@ -912,10 +912,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Key");
 
-                    b.ToTable("MerchantUserPermissionGroups", "merch");
+                    b.ToTable("PermissionGroups", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserRoleAssignment", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.RoleAssignment", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -945,10 +945,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("MerchantUserId", "RoleId")
                         .IsUnique();
 
-                    b.ToTable("MerchantUserRoleAssignments", "merch");
+                    b.ToTable("RoleAssignments", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserRoleDefinition", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.Role", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -980,10 +980,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("MerchantUserRoleDefinitions", "merch");
+                    b.ToTable("Roles", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserRolePermission", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.RolePermission", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1004,10 +1004,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId", "PermissionKey")
                         .IsUnique();
 
-                    b.ToTable("MerchantUserRolePermissions", "merch");
+                    b.ToTable("RolePermissions", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserSession", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Session", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1061,7 +1061,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.ToTable("MerchantUserSessions", "merch");
+                    b.ToTable("Sessions", "merch");
                 });
 
             modelBuilder.Entity("Merchants.Domain.ProvisioningAudit", b =>
@@ -1096,7 +1096,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("ProvisioningAudits", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.RegistrationAudit", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.RegistrationAudit", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1140,7 +1140,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("RegistrationAudits", "merch");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.RegistrationNotice", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.RegistrationNotice", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1255,7 +1255,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Orders", "shop");
                 });
 
-            modelBuilder.Entity("Payments.Domain.PaymentSession", b =>
+            modelBuilder.Entity("Payments.Domain.Session", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1298,7 +1298,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Payments.Domain.PaymentSession.Amount#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Payments.Domain.Session.Amount#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -1327,7 +1327,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("PaymentSessions", "txn");
                 });
 
-            modelBuilder.Entity("Payments.Domain.PspConnection", b =>
+            modelBuilder.Entity("Payments.Domain.Psp.Connection", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1411,143 +1411,143 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Products", "shop");
                 });
 
-            modelBuilder.Entity("Admin.Domain.Division", b =>
+            modelBuilder.Entity("Admins.Domain.MasterData.Division", b =>
                 {
-                    b.HasBaseType("Admin.Domain.MasterData");
+                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
 
                     b.ToTable("Divisions", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.Level", b =>
+            modelBuilder.Entity("Admins.Domain.MasterData.Level", b =>
                 {
-                    b.HasBaseType("Admin.Domain.MasterData");
+                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
 
                     b.ToTable("Levels", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.Office", b =>
+            modelBuilder.Entity("Admins.Domain.MasterData.Office", b =>
                 {
-                    b.HasBaseType("Admin.Domain.MasterData");
+                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
 
                     b.ToTable("Offices", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.Position", b =>
+            modelBuilder.Entity("Admins.Domain.MasterData.Position", b =>
                 {
-                    b.HasBaseType("Admin.Domain.MasterData");
+                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
 
                     b.ToTable("Positions", "admin");
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminPermission", b =>
+            modelBuilder.Entity("Admins.Domain.Permissions.Permission", b =>
                 {
-                    b.HasOne("Admin.Domain.AdminPermissionGroup", null)
+                    b.HasOne("Admins.Domain.Permissions.PermissionGroup", null)
                         .WithMany()
                         .HasForeignKey("GroupKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminRoleAssignment", b =>
+            modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
                 {
-                    b.HasOne("Admin.Domain.AdminRole", null)
+                    b.HasOne("Admins.Domain.Roles.Role", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminRolePermission", b =>
+            modelBuilder.Entity("Admins.Domain.Roles.RolePermission", b =>
                 {
-                    b.HasOne("Admin.Domain.AdminPermission", null)
+                    b.HasOne("Admins.Domain.Permissions.Permission", null)
                         .WithMany()
                         .HasForeignKey("PermissionKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Admin.Domain.AdminRole", null)
+                    b.HasOne("Admins.Domain.Roles.Role", null)
                         .WithMany("Permissions")
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Admin.Domain.PlatformUser", b =>
+            modelBuilder.Entity("Admins.Domain.Users.User", b =>
                 {
-                    b.HasOne("Admin.Domain.Division", null)
+                    b.HasOne("Admins.Domain.MasterData.Division", null)
                         .WithMany()
                         .HasForeignKey("DivisionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Admin.Domain.Level", null)
+                    b.HasOne("Admins.Domain.MasterData.Level", null)
                         .WithMany()
                         .HasForeignKey("LevelId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Admin.Domain.Office", null)
+                    b.HasOne("Admins.Domain.MasterData.Office", null)
                         .WithMany()
                         .HasForeignKey("OfficeId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Admin.Domain.Position", null)
+                    b.HasOne("Admins.Domain.MasterData.Position", null)
                         .WithMany()
                         .HasForeignKey("PositionId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
-            modelBuilder.Entity("Cart.Domain.CartItem", b =>
+            modelBuilder.Entity("Carts.Domain.Items.Item", b =>
                 {
-                    b.HasOne("Cart.Domain.Cart", null)
+                    b.HasOne("Carts.Domain.Cart", null)
                         .WithMany("Items")
                         .HasForeignKey("CartId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserPermission", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Permissions.Permission", b =>
                 {
-                    b.HasOne("Merchants.Domain.MerchantUserPermissionGroup", null)
+                    b.HasOne("Merchants.Domain.Users.Permissions.PermissionGroup", null)
                         .WithMany()
                         .HasForeignKey("GroupKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserRoleAssignment", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.RoleAssignment", b =>
                 {
-                    b.HasOne("Merchants.Domain.MerchantUserRoleDefinition", null)
+                    b.HasOne("Merchants.Domain.Users.Roles.Role", null)
                         .WithMany()
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserRolePermission", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.RolePermission", b =>
                 {
-                    b.HasOne("Merchants.Domain.MerchantUserPermission", null)
+                    b.HasOne("Merchants.Domain.Users.Permissions.Permission", null)
                         .WithMany()
                         .HasForeignKey("PermissionKey")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Merchants.Domain.MerchantUserRoleDefinition", null)
+                    b.HasOne("Merchants.Domain.Users.Roles.Role", null)
                         .WithMany("Permissions")
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Admin.Domain.AdminRole", b =>
+            modelBuilder.Entity("Admins.Domain.Roles.Role", b =>
                 {
                     b.Navigation("Permissions");
                 });
 
-            modelBuilder.Entity("Cart.Domain.Cart", b =>
+            modelBuilder.Entity("Carts.Domain.Cart", b =>
                 {
                     b.Navigation("Items");
                 });
 
-            modelBuilder.Entity("Merchants.Domain.MerchantUserRoleDefinition", b =>
+            modelBuilder.Entity("Merchants.Domain.Users.Roles.Role", b =>
                 {
                     b.Navigation("Permissions");
                 });

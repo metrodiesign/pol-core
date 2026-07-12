@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Mediator;
 using Payments.Application.Ports;
+using Payments.Application.Ports.Psp;
 using Payments.Domain;
 
 namespace Payments.Application.StartRedirect;
@@ -8,23 +9,23 @@ namespace Payments.Application.StartRedirect;
 /// <summary>
 /// Starts a redirect for a payment session. To avoid orphaning PSP charges under concurrent
 /// retries/clicks (PLAN #11), it CLAIMS the redirect first — transitioning the session to
-/// <see cref="PaymentStatus.Redirected"/> and saving under the optimistic-concurrency token — and only
+/// <see cref="SessionStatus.Redirected"/> and saving under the optimistic-concurrency token — and only
 /// the request that wins that claim goes on to create the hosted charge with the PSP and bind it. A
 /// concurrent loser returns the winner's redirect URL instead of minting a second charge. The secret is
 /// used only for the server-side PSP call and is never returned to the caller or logged.
 /// </summary>
 public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand, StartRedirectResult>
 {
-    private readonly IPaymentSessionRepository _sessions;
-    private readonly IPspConnectionRepository _connections;
+    private readonly ISessionRepository _sessions;
+    private readonly IConnectionRepository _connections;
     private readonly IPspAdapterFactory _adapters;
     private readonly IVaultSecretStore _vault;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public StartRedirectHandler(
-        IPaymentSessionRepository sessions,
-        IPspConnectionRepository connections,
+        ISessionRepository sessions,
+        IConnectionRepository connections,
         IPspAdapterFactory adapters,
         IVaultSecretStore vault,
         IUnitOfWork unitOfWork,
@@ -47,10 +48,10 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
 
         // Idempotent re-entry: a session already redirected (e.g. a retried click) returns its existing
         // hosted URL — never a second PSP charge.
-        if (session is { Status: PaymentStatus.Redirected, RedirectUrl: not null })
+        if (session is { Status: SessionStatus.Redirected, RedirectUrl: not null })
             return new StartRedirectResult(session.RedirectUrl);
 
-        if (session.Status != PaymentStatus.Created)
+        if (session.Status != SessionStatus.Created)
             throw new InvalidOperationException(
                 $"PaymentSession {session.Id} cannot start a redirect from status {session.Status}.");
 

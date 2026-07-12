@@ -7,10 +7,10 @@
     <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Web\BuildingBlocks.Web.csproj" />
     <ProjectReference Include="..\..\Modules\Products\Products.Application\Products.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Products\Products.Infrastructure\Products.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Cart\Cart.Application\Cart.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Cart\Cart.Infrastructure\Cart.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Checkout\Checkout.Application\Checkout.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Checkout\Checkout.Infrastructure\Checkout.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Carts\Carts.Application\Carts.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Carts\Carts.Infrastructure\Carts.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Application\Checkouts.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Infrastructure\Checkouts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\Orders.Application\Orders.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\Orders.Infrastructure\Orders.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Payments.Application\Payments.Application.csproj" />

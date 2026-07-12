@@ -55,6 +55,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Rename identifier gate (hierarchical-naming REQ-15.3)
+        # Tier 1 floor: the eight retired compound identifiers (MerchantUser, PlatformUser,
+        # AdminRole, AdminPermission, PaymentSession, CartItem, CheckoutSession, PspConnection)
+        # must not reappear as live-code tokens in src/ or tests/. The exception list
+        # (REQ-15.4) ships inside the script: retained contracts, frozen wire strings
+        # (string literals stripped), history comments (stripped), L6 file-local aliases.
+        run: scripts/check-rename-identifiers.sh
       - name: Spec trace (REQ coverage)
         # Tier 1 floor: every REQ in each feature's requirements.md must be referenced in
         # design.md and tasks.md. Fails the build on any uncovered REQ. Runs once per

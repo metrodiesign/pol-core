@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Merchants.Application;
+using Merchants.Application.Users;
 
 namespace Merchants.Infrastructure;
 

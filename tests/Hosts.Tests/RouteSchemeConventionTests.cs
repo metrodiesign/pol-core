@@ -44,9 +44,10 @@ file sealed class RouteSchemeFactory : WebApplicationFactory<ApiHost::Program>
 
 public sealed class RouteSchemeConventionTests
 {
-    // REQ-1.5: LITERAL /api/v1 (fail-closed) — NOT v\d+. The nine areas are the REQ-2.1 taxonomy.
+    // REQ-1.5: LITERAL /api/v1 (fail-closed) — NOT v\d+. The nine areas are the REQ-2.1 taxonomy (hierarchical-naming
+    // task 8: merchant-users out, merchants in — it now covers both provisioning and the merchant-user surface).
     private static readonly Regex ApiScheme = new(
-        @"^/api/v1/(products|carts|checkouts|orders|payments|admins|merchant-users|webhooks|reports)(/.*)?$",
+        @"^/api/v1/(products|carts|checkouts|orders|payments|admins|merchants|webhooks|reports)(/.*)?$",
         RegexOptions.Compiled);
 
     // REQ-4.3: health/readiness + the OpenAPI document + the Scalar UI are excluded from the area taxonomy.

@@ -1,11 +1,12 @@
 using BuildingBlocks.Infrastructure.Persistence;
-using Cart.Domain;
-using Checkout.Domain;
+using Carts.Domain;
+using Carts.Domain.Items;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
-using Payments.Domain;
 using Products.Domain;
+using CheckoutSession = Checkouts.Domain.Session;
+using PaymentSession = Payments.Domain.Session;
 
 namespace Architecture.Tests;
 
@@ -29,8 +30,8 @@ public sealed class MoneyColumnMappingTests : IDisposable
         var options = new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection).Options;
         var modules = new ModuleAssemblies([
             typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
-            typeof(Cart.Infrastructure.CartModuleRegistration).Assembly,
-            typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
+            typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
+            typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
             typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
             typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         ]);
@@ -64,7 +65,7 @@ public sealed class MoneyColumnMappingTests : IDisposable
 
     [Fact]
     public void CartItem_UnitPrice_maps_to_decimal_19_4_and_char3() =>
-        AssertMoneyColumns(typeof(CartItem), nameof(CartItem.UnitPrice), "UnitPriceAmount", "UnitPriceCurrency");
+        AssertMoneyColumns(typeof(Item), nameof(Item.UnitPrice), "UnitPriceAmount", "UnitPriceCurrency");
 
     [Fact]
     public void CheckoutSession_Amount_maps_to_decimal_19_4_and_char3() =>

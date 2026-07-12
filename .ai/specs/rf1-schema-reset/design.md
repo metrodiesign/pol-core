@@ -148,6 +148,13 @@ Drop ใน rf1: `ProducerTenantAssignments` (ดูดซับ), Identity modu
 
 Naming rule ของ sweep: token `Tenant`/`tenant` → `Merchant`/`merchant`, `Producer`/`producer` → `MerchantUser`/`merchant-user` (ยกเว้น vocabulary PSP: `PspConnection` ฯลฯ คงเดิมจนตาย rf3/rf6, และ principal names `pol_app`/`pol_admin`/`pol_worker` คงเดิม) — จบแล้ว grep `\b[Tt]enant|[Pp]roducer\b` ใน `src/ tests/ docker/ .github/` ต้องเหลือศูนย์ (ยกเว้น comment อ้างประวัติ + docs ที่ mark stale)
 
+> **Superseded 2026-07-12 (spec `hierarchical-naming`, REQ-2.5).** กฎข้างบนนี้เป็น history — บันทึกว่า rf1
+> เปลี่ยนชื่ออะไรตอนนั้น (flat `MerchantUser`/`merchant-user` คือผลลัพธ์จริงที่ shipped). กฎการตั้งชื่อที่ยัง
+> apply อยู่ ณ ตอนนี้ (namespace nesting, prefix-drop, plural/singular ฯลฯ) คือ L1-L8 ใน
+> [ARCHITECTURE.md §Naming Conventions](../../shared/ARCHITECTURE.md#namespace--route-naming-law-l1-l8-spec-hierarchical-naming-2026-07-12)
+> — flat `MerchantUser*` ที่ rule นี้สร้างไว้ ถูก nest ต่อเป็น `Merchants.Domain.Users.*` โดย
+> hierarchical-naming เอง อย่า derive ชื่อใหม่จาก rule ข้างบนนี้อีก.
+
 ### Money (SharedKernel)
 
 ```csharp

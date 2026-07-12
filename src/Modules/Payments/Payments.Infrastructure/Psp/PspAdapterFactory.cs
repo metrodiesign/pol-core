@@ -1,17 +1,17 @@
 using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Infrastructure.Psp;
 
-/// <summary>Resolves the registered <see cref="IPspAdapter"/> for a <see cref="PspCode"/>.</summary>
+/// <summary>Resolves the registered <see cref="IPspAdapter"/> for a <see cref="Code"/>.</summary>
 public sealed class PspAdapterFactory : IPspAdapterFactory
 {
-    private readonly IReadOnlyDictionary<PspCode, IPspAdapter> _adapters;
+    private readonly IReadOnlyDictionary<Code, IPspAdapter> _adapters;
 
     public PspAdapterFactory(IEnumerable<IPspAdapter> adapters) =>
         _adapters = adapters.ToDictionary(a => a.Psp);
 
-    public IPspAdapter For(PspCode psp) =>
+    public IPspAdapter For(Code psp) =>
         _adapters.TryGetValue(psp, out var adapter)
             ? adapter
             : throw new ArgumentOutOfRangeException(nameof(psp), psp, "No PSP adapter registered.");

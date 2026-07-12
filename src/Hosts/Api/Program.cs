@@ -8,26 +8,20 @@ using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
-using Admin.Application;
-using Admin.Application.PlatformUserQueries;
-using Admin.Application.AssignMerchant;
-using Admin.Application.CreateRole;
-using Admin.Application.CreateScopedAdmin;
-using Admin.Application.DeleteRole;
-using Admin.Application.ReactivateAdmin;
-using Admin.Application.RevokePlatformUserSession;
-using Admin.Application.RoleQueries;
-using Admin.Application.SetAdminRoles;
-using Admin.Application.SuspendAdmin;
-using Admin.Application.UnassignMerchant;
-using Admin.Application.UpdateAdminProfile;
-using Admin.Application.UpdateRole;
-using Admin.Domain;
-using Admin.Infrastructure;
-using Cart.Application;
-using Cart.Infrastructure;
-using Checkout.Application;
-using Checkout.Infrastructure;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
+using Admins.Infrastructure;
+using Carts.Application;
+using Carts.Infrastructure;
+using Checkouts.Application;
+using Checkouts.Infrastructure;
 using Mediator;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpLogging;
@@ -37,10 +31,10 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
 using Orders.Infrastructure;
-using Payments.Application.CreatePaymentSession;
+using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
 using Payments.Application.StartRedirect;
-using Payments.Domain;
+using Payments.Domain.Psp;
 using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 using Merchants.Application;
@@ -50,7 +44,33 @@ using Products.Application;
 using Products.Infrastructure;
 using Merchants.Application.GetMerchant;
 using Merchants.Application.ProvisionMerchant;
+// L6 (hierarchical-naming): Admins.*.Users/.Roles and Merchants.*.Users/.Roles/.Permissions now share bare names
+// (User, Session, Role, RoleStatus, IRoleRepository, Keys, ...). This host file is composition-root-neutral and
+// needs both planes, so every colliding name is imported by explicit alias rather than a blanket `using` — a
+// module never aliases its own types (L6), but this file is neither module's own.
+using PhotoValidation = Merchants.Application.Users.PhotoValidation;
+using ApproveCommand = Merchants.Application.Users.ApproveCommand;
+using RejectCommand = Merchants.Application.Users.RejectCommand;
+using SubmitRegistrationCommand = Merchants.Application.Users.SubmitRegistrationCommand;
+using CreateCommand = Merchants.Application.Users.Roles.CreateCommand;
+using UpdateCommand = Merchants.Application.Users.Roles.UpdateCommand;
+using DeleteCommand = Merchants.Application.Users.Roles.DeleteCommand;
+using IMerchantSessionStore = Merchants.Application.Users.ISessionStore;
+using IMerchantAuthAuditWriter = Merchants.Application.Users.IAuthAuditWriter;
+using IMerchantRoleRepository = Merchants.Application.Users.Roles.IRoleRepository;
+using MerchantRoleListItem = Merchants.Application.Users.Roles.RoleListItem;
+using MerchantListPermissionsQuery = Merchants.Application.Users.Roles.ListPermissionsQuery;
+using MerchantListRolesQuery = Merchants.Application.Users.Roles.ListRolesQuery;
+using MerchantGetRoleQuery = Merchants.Application.Users.Roles.GetRoleQuery;
+using MerchantSetRolesCommand = Merchants.Application.Users.SetRolesCommand;
+using MerchantAuthAudit = Merchants.Domain.Users.AuthAudit;
+using MerchantAuthEventType = Merchants.Domain.Users.AuthEventType;
+using MerchantRoleStatus = Merchants.Domain.Users.Roles.RoleStatus;
+using MerchantKeys = Merchants.Domain.Users.Permissions.Keys;
 using Api;
+using Api.Admins;
+using Api.Merchants;
+using Api.Webhooks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -137,8 +157,8 @@ builder.Services.AddAdminIdentity();
 // Merchants identity (data plane: MerchantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
 // Profiles/RegistrationAudits). AddMerchantsModule (above) loads the assembly so PolDbContext discovers its EF
 // configs; AddMerchantsIdentity binds the registration seams (keyed pol_admin write + photo + ticket protector).
-builder.Services.Configure<MerchantUserRegistrationOptions>(
-    builder.Configuration.GetSection(MerchantUserRegistrationOptions.SectionName));
+builder.Services.Configure<UserRegistrationOptions>(
+    builder.Configuration.GetSection(UserRegistrationOptions.SectionName));
 builder.Services.AddMerchantsIdentity();
 
 // MerchantUser BFF: a SECOND confidential Google OIDC client (Authorization Code + PKCE) for the server-side merchant-user
@@ -146,22 +166,22 @@ builder.Services.AddMerchantsIdentity();
 // Adds the scheme WITHOUT changing the default (JwtBearer stays for merchant); a blank ClientId skips the scheme so a
 // half-configured env (the merchant-user FE is a later slice) does not fault the whole host (REQ-14.2). The merchant-user
 // session lifetime + cookie posture come from MerchantUser:Session.
-builder.Services.Configure<MerchantUserOidcOptions>(builder.Configuration.GetSection(MerchantUserOidcOptions.SectionName));
-builder.Services.Configure<MerchantUserSessionOptions>(builder.Configuration.GetSection(MerchantUserSessionOptions.SectionName));
+builder.Services.Configure<UserOidcOptions>(builder.Configuration.GetSection(UserOidcOptions.SectionName));
+builder.Services.Configure<UserSessionOptions>(builder.Configuration.GetSection(UserSessionOptions.SectionName));
 builder.Services.AddMerchantUserOidcAuthentication(builder.Configuration, builder.Environment);
 
 // MerchantUser BFF session scheme: authenticate merchant-user requests via the __Host-mch_session cookie and register the
 // SINGLE-SCHEME "merchant-user" policy (MerchantUserSession only, T11 — the Bearer fallback is retired). Background
 // sweep prunes expired sessions so the control-plane session table does not grow unbounded (REQ-10.4).
 builder.Services.AddMerchantUserSessionScheme();
-builder.Services.AddHostedService<MerchantUserSessionPruneService>();
+builder.Services.AddHostedService<UserSessionPruneService>();
 
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
 builder.Services.AddAdminDataProtection();
 
 // Admin BFF session lifetime + cookie posture (REQ-3/5/7).
-builder.Services.Configure<PlatformUserSessionOptions>(builder.Configuration.GetSection(PlatformUserSessionOptions.SectionName));
+builder.Services.Configure<AdminSessionOptions>(builder.Configuration.GetSection(AdminSessionOptions.SectionName));
 
 // Merchant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
@@ -170,11 +190,11 @@ builder.Services.AddScoped<IActorContext, HttpActorContext>();
 // Google id-token Bearer is retired for the funnel (T11 — rf1 big-bang, no legacy audience). The
 // MerchantUserSession cookie scheme is the explicit default (each protected group still pins its own scheme via
 // its policy — the default only matters for UseAuthentication's principal-population pass).
-builder.Services.AddAuthentication(MerchantUserSessionAuthenticationHandler.SchemeName);
+builder.Services.AddAuthentication(UserSessionAuthenticationHandler.SchemeName);
 
 // Admin BFF: confidential Google OIDC client (Authorization Code + PKCE) for the server-side admin login.
 // Adds the "Google" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
-builder.Services.Configure<AdminOidcOptions>(builder.Configuration.GetSection(AdminOidcOptions.SectionName));
+builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection(OidcOptions.SectionName));
 builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
 
 // Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
@@ -182,7 +202,7 @@ builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Envir
 builder.Services.AddPlatformUserSessionScheme();
 
 // Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
-builder.Services.AddHostedService<PlatformUserSessionPruneService>();
+builder.Services.AddHostedService<SessionPruneService>();
 
 // CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
 builder.Services.AddPolCors(builder.Configuration);
@@ -197,10 +217,10 @@ builder.Services.AddOpenApi(options =>
     {
         // PspCode has a custom JsonConverter the schema generator can't introspect, so it would emit an
         // empty schema. Describe the real wire shape: the stable string codes from the PspCodes mapping.
-        if (context.JsonTypeInfo.Type == typeof(PspCode))
+        if (context.JsonTypeInfo.Type == typeof(Code))
         {
             schema.Type = JsonSchemaType.String;
-            schema.Enum = Enum.GetValues<PspCode>().Select(p => (JsonNode)JsonValue.Create(p.ToCode())).ToList();
+            schema.Enum = Enum.GetValues<Code>().Select(p => (JsonNode)JsonValue.Create(p.ToCode())).ToList();
         }
         return Task.CompletedTask;
     });
@@ -225,14 +245,14 @@ builder.Services.AddOpenApi(options =>
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["PlatformUserSession"] = new OpenApiSecurityScheme
+        document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
             // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
             // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
             // see the cookie they actually have.
-            Name = PlatformUserSessionCookies.SessionCookieNameDevHttp,
+            Name = SessionCookies.SessionCookieNameDevHttp,
             Description = "Admin BFF session cookie issued by the OIDC login flow (GET /api/v1/admins/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-adm_session` name.",
         };
@@ -240,14 +260,14 @@ builder.Services.AddOpenApi(options =>
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
-            Name = MerchantUserSessionCookies.SessionCookieNameDevHttp,
-            Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchant-users/auth/login). "
+            Name = UserSessionCookies.SessionCookieNameDevHttp,
+            Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchants/users/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-mch_session` name (T11 — "
                 + "single-scheme, the legacy Bearer fallback is retired).",
         };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
-        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> PlatformUserSession). The host
+        // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> AdminSession). The host
         // document is passed so the requirement serialises as a $ref into components.securitySchemes. Anonymous
         // routes (order summary link, admin login, webhook) carry no requirement.
         var schemeByRoute = new Dictionary<(string Path, string Method), string>();
@@ -296,7 +316,7 @@ static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
         .LastOrDefault(p => !string.IsNullOrEmpty(p));
     return policy switch
     {
-        "admin" => "PlatformUserSession",
+        "admin" => "AdminSession",
         "merchant-user" => "MerchantUserSession",
         _ => null,
     };
@@ -433,7 +453,7 @@ if (app.Environment.IsDevelopment())
     // Scalar reference UI over /openapi/v1.json — anonymous like the health checks. Other teams browse the
     // grouped endpoints and try them with the right auth straight from /scalar. Dev-only, same as MapOpenApi.
     // No preferred scheme: Scalar auto-selects each operation's own security (Bearer for merchant routes,
-    // PlatformUserSession for admin routes) instead of defaulting every endpoint to one.
+    // Session for admin routes) instead of defaulting every endpoint to one.
     app.MapScalarApiReference(options => options.WithTitle("pol-core API"));
 }
 
@@ -444,9 +464,10 @@ if (app.Environment.IsDevelopment())
 // only the base path moves. Data-plane endpoints map their area path DIRECTLY on this group (an explicit
 // "/products", "/carts/..." pattern) rather than via a nested MapGroup with an empty-string root pattern — the
 // latter renders a trailing-slash canonical path ("/api/v1/products/"), which the clean-path intent forbids
-// (REQ-1.4). admins/merchant-users DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
-// surface; the single admins-root create carries the area path + its filter per-endpoint. Infra (health, openapi,
-// scalar) is mapped ABOVE this and stays OUTSIDE /api/v1 (REQ-4).
+// (REQ-1.4). admins/merchants-users DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
+// surface; the admins-root create and the two admin-provisioned /merchants endpoints (moved out of /admins, D9)
+// carry the area path + their filters per-endpoint instead. Infra (health, openapi, scalar) is mapped ABOVE this
+// and stays OUTSIDE /api/v1 (REQ-4).
 var api = app.MapGroup("/api/v1");
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT merchant/PSP parsed from the
@@ -477,7 +498,7 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     return result.Outcome == WebhookOutcome.Rejected
         ? Results.Problem(statusCode: StatusCodes.Status401Unauthorized)
         : Results.Ok(new WebhookResponse(result.Outcome.ToString()));
-}).RequireRateLimiting(WebhookRateLimiting.PolicyName)
+}).RequireRateLimiting(RateLimiting.PolicyName)
     .WithTags("Webhooks")
     .WithName("HandlePspWebhook")
     .WithSummary("PSP webhook callback")
@@ -502,7 +523,7 @@ var createProduct = api.MapPost("/products", async (
         new CreateProductCommand(actor.MerchantId, body.Name, body.Price), ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
-createProduct.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.ProductCreate)
+createProduct.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.ProductCreate)
     .WithTags("Products")
     .WithName("CreateProduct")
     .WithSummary("Create a product")
@@ -666,11 +687,11 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     IMediator mediator,
     CancellationToken ct) =>
 {
-    var result = await mediator.Send(new CreatePaymentSessionCommand(
+    var result = await mediator.Send(new CreateSessionCommand(
         body.OrderId, actor.MerchantId, body.Amount, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
-createPaymentSession.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.PaymentCreate)
+createPaymentSession.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.PaymentCreate)
     .WithTags("Payments")
     .WithName("CreatePaymentSession")
     .WithSummary("Create a payment session")
@@ -691,7 +712,7 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 });
-startRedirect.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.PaymentRedirect)
+startRedirect.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.PaymentRedirect)
     .WithTags("Payments")
     .WithName("StartPaymentRedirect")
     .WithSummary("Start the PSP redirect")
@@ -754,24 +775,24 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
 // --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
 // One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
 // policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
-// is anonymous; every other route gates on the PlatformUserSession "admin" policy. The CSRF filter exempts safe methods,
+// is anonymous; every other route gates on the Session "admin" policy. The CSRF filter exempts safe methods,
 // so the login/callback GETs pass untouched.
-var admin = api.MapGroup("/admins").AddEndpointFilter<AdminCsrfFilter>();
+var admin = api.MapGroup("/admins").AddEndpointFilter<CsrfFilter>();
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
 // allowlist, then hand off to the OIDC handler, which builds the Authorization Code + PKCE + state + nonce
 // redirect to Google. The callback (Google:Oidc:CallbackPath) is handled by the OIDC middleware itself, which
 // establishes the session via OnTicketReceived — there is no mapped callback endpoint.
-admin.MapGet("/auth/login", (HttpContext http, IOptions<PlatformUserSessionOptions> session) =>
+admin.MapGet("/auth/login", (HttpContext http, IOptions<AdminSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [AdminOidcAuthentication.Scheme]);
+        [OidcAuthentication.Scheme]);
 })
 .AllowAnonymous()
-.RequireRateLimiting(AdminAuthRateLimiting.PolicyName)
+.RequireRateLimiting(AuthRateLimiting.PolicyName)
     .WithTags("Admin Auth")
     .WithName("AdminLogin")
     .WithSummary("Begin admin login")
@@ -783,17 +804,17 @@ admin.MapGet("/auth/login", (HttpContext http, IOptions<PlatformUserSessionOptio
 // presented cookie identifies the family. CSRF protection for these POSTs is added with the other /admin
 // mutations in Task 5's double-submit filter (REQ-7).
 admin.MapPost("/auth/logout", async (
-    HttpContext http, IPlatformUserSessionStore sessions, PlatformUserSessionCookies cookies,
-    IPlatformAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+    HttpContext http, ISessionStore sessions, SessionCookies cookies,
+    IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(PlatformUserSessionTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(SessionTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
-            audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.PlatformUserId));
+            audit.Append(AuthAudit.For(AuthEventType.Logout, http.TraceIdentifier, clock.UtcNow, session.PlatformUserId));
             await audit.SaveChangesAsync(ct);
         }
     }
@@ -809,12 +830,12 @@ admin.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
 admin.MapPost("/auth/logout-all", async (
-    HttpContext http, IAdminScope scope, IPlatformUserSessionStore sessions, PlatformUserSessionCookies cookies,
-    IPlatformAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
+    HttpContext http, IAdminScope scope, ISessionStore sessions, SessionCookies cookies,
+    IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var adminId = scope.Current.AdminId;
     await sessions.RevokeAllForAdminAsync(adminId, ct);
-    audit.Append(PlatformAuthAudit.For(PlatformAuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
+    audit.Append(AuthAudit.For(AuthEventType.LogoutAll, http.TraceIdentifier, clock.UtcNow, adminId));
     await audit.SaveChangesAsync(ct);
     cookies.Clear(http);
     return Results.NoContent();
@@ -826,10 +847,15 @@ admin.MapPost("/auth/logout-all", async (
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
+// --- Admin-provisioned merchants (/api/v1/merchants, D9) ---
+// Moved out of the /admins group (hierarchical-naming task 8, design §5): mapped DIRECTLY on `api`, like the
+// admins-root create above it, so each endpoint re-attaches its own controls explicitly instead of inheriting
+// them from group membership — CsrfFilter, the "admin" policy, and (POST only) the Super tier. The admin CORS
+// policy is re-attached via the path table in CorsExtensions.cs, not here (CORS selection stays path-based).
 // Admin provisioning (reference 2.4). Cross-merchant, so NOT IMerchantScoped — runs under pol_admin via the
 // keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
 // never from the body. Duplicate code -> ConflictException -> 409; bad input -> ArgumentException -> 400.
-admin.MapPost("/merchants", async (
+api.MapPost("/merchants", async (
     ProvisionMerchantRequest body,
     HttpContext http,
     IMediator mediator,
@@ -855,13 +881,14 @@ admin.MapPost("/merchants", async (
         http.TraceIdentifier);
 
     var result = await mediator.Send(command, ct);
-    return Results.Created($"/api/v1/admins/merchants/{t.Code}", result);
+    return Results.Created($"/api/v1/merchants/{t.Code}", result);
 
     // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 })
-    .RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super) // provisioning is Super-only (REQ-8.4)
+    .AddEndpointFilter<CsrfFilter>() // re-attached explicitly — no longer inherited from the /admins group (REQ-7.1)
+    .RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super) // provisioning is Super-only (REQ-8.4)
     .WithTags("Admin Merchants")
     .WithName("ProvisionMerchant")
     .WithSummary("Provision a merchant")
@@ -873,8 +900,9 @@ admin.MapPost("/merchants", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Cross-merchant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned merchants, a
-// Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak).
-admin.MapGet("/merchants/{code}", async (
+// Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak). {code} stays
+// unconstrained (REQ-6.5) — adding a route constraint here would itself be a behavior change.
+api.MapGet("/merchants/{code}", async (
     string code,
     IAdminQuery adminQuery,
     CancellationToken ct) =>
@@ -883,7 +911,7 @@ admin.MapGet("/merchants/{code}", async (
     return view is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
-}).RequireAuthorization("admin")
+}).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin") // GET is CSRF-exempt by design; attached for REQ-7.1
     .WithTags("Admin Merchants")
     .WithName("GetMerchant")
     .WithSummary("Read a merchant by code")
@@ -893,27 +921,27 @@ admin.MapGet("/merchants/{code}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // --- MerchantUser BFF login + registration (merchant-user-google-sso REQ-8/9/14) ---
-// The merchant-users area has TWO group refs at the same /api/v1/merchant-users prefix (REQ-3.7): this UNFILTERED ref carries
+// The merchant-users area has TWO group refs at the same /api/v1/merchants/users prefix (REQ-3.7): this UNFILTERED ref carries
 // the anonymous pre-session entry (login + register), exactly as they were mapped top-level before the migration;
 // the filtered console group below (CSRF + bound-merchant-user) carries the authenticated surface. The area-prefix move
 // must NOT move any endpoint between tiers.
-var merchantUsersAnon = api.MapGroup("/merchant-users");
+var merchantUsersAnon = api.MapGroup("/merchants/users");
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the merchant-user
 // allowlist, then hand off to the "MerchantUserGoogle" OIDC handler, which builds the Authorization Code + PKCE + state
 // + nonce redirect to Google. The callback (MerchantUser:Oidc:CallbackPath) is handled by the OIDC middleware itself,
 // which runs the 4-way state branch via OnTicketReceived -> MerchantUserLoginService (session cookie for an Active
 // merchant-user, a signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback.
-merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<MerchantUserSessionOptions> session) =>
+merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<UserSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [MerchantUserOidcAuthentication.Scheme]);
+        [UserOidcAuthentication.Scheme]);
 })
 .AllowAnonymous()
-.RequireRateLimiting(MerchantUserAuthRateLimiting.PolicyName)
+.RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("MerchantUser Auth")
     .WithName("MerchantUserLogin")
     .WithSummary("Begin merchant-user login")
@@ -930,8 +958,8 @@ merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<MerchantUser
 // ticket resubmits a Rejected user (REQ-5).
 merchantUsersAnon.MapPost("/register", async (
     HttpRequest request,
-    MerchantUserRegistrationTickets tickets,
-    IOptions<MerchantUserRegistrationOptions> registrationOptions,
+    UserRegistrationTickets tickets,
+    IOptions<UserRegistrationOptions> registrationOptions,
     IMediator mediator,
     HttpContext http,
     CancellationToken ct) =>
@@ -980,7 +1008,7 @@ merchantUsersAnon.MapPost("/register", async (
         photoContentType = validation.ContentType;
     }
 
-    var formModel = MerchantUserRegistrationForm.From(form);
+    var formModel = UserRegistrationForm.From(form);
     if (string.IsNullOrWhiteSpace(formModel.FirstName) || string.IsNullOrWhiteSpace(formModel.LastName))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "firstName and lastName are required.");
 
@@ -988,18 +1016,18 @@ merchantUsersAnon.MapPost("/register", async (
         ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
         formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
 
-    return Results.Created($"/api/v1/merchant-users/{result.MerchantUserId}",
-        new MerchantUserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
+    return Results.Created($"/api/v1/merchants/users/{result.MerchantUserId}",
+        new UserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
 })
     .AllowAnonymous()
     .DisableAntiforgery()
-    .RequireRateLimiting(MerchantUserAuthRateLimiting.PolicyName)
+    .RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("MerchantUser Auth")
     .WithName("MerchantUserRegister")
     .WithSummary("Submit a merchant-user registration")
     .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval MerchantUser and enqueues a registration event. Invalid/expired ticket -> 400; duplicate/replay (unique Subject index) -> 409; oversize -> 413.")
     .Accepts<IFormFile>("multipart/form-data")
-    .Produces<MerchantUserRegisterResponse>(StatusCodes.Status201Created)
+    .Produces<UserRegisterResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
@@ -1007,24 +1035,24 @@ merchantUsersAnon.MapPost("/register", async (
 
 // --- MerchantUser BFF authenticated surface (merchant-user-google-sso REQ-12/13/15/16/17) ---
 // One group binds the CSRF double-submit filter ONCE for the whole authenticated merchant-user surface (the credentialed
-// merchant-user CORS policy is applied to /api/v1/merchant-users/* by PolCorsPolicyProvider). Every route gates on the
+// merchant-user CORS policy is applied to /api/v1/merchants/users/* by PolCorsPolicyProvider). Every route gates on the
 // single-scheme "merchant-user" policy (MerchantUserSession only, T11); the CSRF filter exempts safe methods, and the
 // anonymous pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
 // MerchantBoundFilter then fail-closes the whole group on a BOUND merchant-user (REQ-17.2/F10).
-var merchantUsers = api.MapGroup("/merchant-users")
-    .AddEndpointFilter<MerchantUserCsrfFilter>()
-    .AddEndpointFilter<MerchantBoundFilter>();
+var merchantUsers = api.MapGroup("/merchants/users")
+    .AddEndpointFilter<UserCsrfFilter>()
+    .AddEndpointFilter<BoundFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
 // presented cookie identifies the family.
 merchantUsers.MapPost("/auth/logout", async (
-    HttpContext http, IMerchantUserSessionStore sessions, MerchantUserSessionCookies cookies,
+    HttpContext http, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(MerchantUserTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(UserTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
@@ -1044,7 +1072,7 @@ merchantUsers.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this merchant-user across all devices (REQ-12.2).
 merchantUsers.MapPost("/auth/logout-all", async (
-    HttpContext http, IMerchantUserScope scope, IMerchantUserSessionStore sessions, MerchantUserSessionCookies cookies,
+    HttpContext http, IUserScope scope, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var userId = scope.Current.MerchantUserId;
@@ -1063,7 +1091,7 @@ merchantUsers.MapPost("/auth/logout-all", async (
 
 // The merchant-user SPA reads its own resolved identity (REQ-17.5): merchantUserId/email/merchantId + active role codes +
 // the effective permission set, all from the per-request IMerchantUserScope. A merchant-Bearer caller binds no scope -> 403.
-merchantUsers.MapGet("/me", async (IMerchantUserScope scope, IMerchantUserRoleRepository roles, CancellationToken ct) =>
+merchantUsers.MapGet("/me", async (IUserScope scope, IMerchantRoleRepository roles, CancellationToken ct) =>
 {
     if (!scope.IsBound)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your merchant-user account is not active.");
@@ -1082,21 +1110,21 @@ merchantUsers.MapGet("/me", async (IMerchantUserScope scope, IMerchantUserRoleRe
 // --- MerchantUser Role RBAC (REQ-15/16) ---
 // Reads need only an authenticated merchant-user (REQ-15.4/16); role mutations gate on merchant-user.roles.manage and the
 // assignment gates on merchant-user.user.roles (S8). status crosses the wire as "active"/"inactive" via explicit projection.
-static MerchantUserRoleResponse MerchantUserRoleToWire(MerchantUserRoleListItem r) => new(
+static MerchantUserRoleResponse MerchantUserRoleToWire(MerchantRoleListItem r) => new(
     r.Code, r.Name, r.Description, r.Color,
-    r.Status == MerchantUserRoleStatus.Active ? "active" : "inactive",
+    r.Status == MerchantRoleStatus.Active ? "active" : "inactive",
     r.PermissionKeys, r.UserCount);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active.
-static MerchantUserRoleStatus ParseMerchantUserRoleStatus(string? status) => status?.ToLowerInvariant() switch
+static MerchantRoleStatus ParseMerchantUserRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
-    "active" => MerchantUserRoleStatus.Active,
-    "inactive" => MerchantUserRoleStatus.Inactive,
+    "active" => MerchantRoleStatus.Active,
+    "inactive" => MerchantRoleStatus.Inactive,
     _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
 };
 
 merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
 {
-    var catalog = await mediator.Send(new ListMerchantUserPermissionsQuery(), ct);
+    var catalog = await mediator.Send(new MerchantListPermissionsQuery(), ct);
     return Results.Ok(new MerchantUserPermissionCatalogResponse(
         catalog.Groups.Select(g => new MerchantUserPermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
         catalog.Permissions.Select(p => new MerchantUserPermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
@@ -1109,7 +1137,7 @@ merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToke
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 merchantUsers.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
-    Results.Ok((await mediator.Send(new ListMerchantUserRolesQuery(), ct)).Select(MerchantUserRoleToWire)))
+    Results.Ok((await mediator.Send(new MerchantListRolesQuery(), ct)).Select(MerchantUserRoleToWire)))
     .RequireAuthorization("merchant-user")
     .WithTags("MerchantUser Roles")
     .WithName("ListMerchantUserRoles")
@@ -1120,7 +1148,7 @@ merchantUsers.MapGet("/roles", async (IMediator mediator, CancellationToken ct) 
 
 merchantUsers.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
 {
-    var role = await mediator.Send(new GetMerchantUserRoleQuery(code), ct);
+    var role = await mediator.Send(new MerchantGetRoleQuery(code), ct);
     return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(MerchantUserRoleToWire(role));
 }).RequireAuthorization("merchant-user")
     .WithTags("MerchantUser Roles")
@@ -1133,11 +1161,11 @@ merchantUsers.MapGet("/roles/{code}", async (string code, IMediator mediator, Ca
 
 merchantUsers.MapPost("/roles", async (CreateMerchantUserRoleRequest body, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new CreateMerchantUserRoleCommand(
+    var result = await mediator.Send(new CreateCommand(
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
-    return Results.Created($"/api/v1/merchant-users/roles/{result.Code}", MerchantUserRoleToWire(result));
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+    return Results.Created($"/api/v1/merchants/users/roles/{result.Code}", MerchantUserRoleToWire(result));
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("CreateMerchantUserRole")
     .WithSummary("Create a merchant-user role")
@@ -1150,11 +1178,11 @@ merchantUsers.MapPost("/roles", async (CreateMerchantUserRoleRequest body, IMedi
 
 merchantUsers.MapPut("/roles/{code}", async (string code, UpdateMerchantUserRoleRequest body, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new UpdateMerchantUserRoleCommand(
+    var result = await mediator.Send(new UpdateCommand(
         code, body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
     return Results.Ok(MerchantUserRoleToWire(result));
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("UpdateMerchantUserRole")
     .WithSummary("Update a merchant-user role")
@@ -1167,9 +1195,9 @@ merchantUsers.MapPut("/roles/{code}", async (string code, UpdateMerchantUserRole
 
 merchantUsers.MapDelete("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new DeleteMerchantUserRoleCommand(code), ct);
+    await mediator.Send(new DeleteCommand(code), ct);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("DeleteMerchantUserRole")
     .WithSummary("Delete a merchant-user role")
@@ -1182,12 +1210,12 @@ merchantUsers.MapDelete("/roles/{code}", async (string code, IMediator mediator,
 // Set another merchant-user's roles to exactly the given set, within the acting merchant-user's merchant (REQ-16.3). Unknown
 // role code -> 400; a target outside the acting merchant -> 404 (no existence leak).
 merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
-    Guid merchantUserId, SetMerchantUserRolesRequest body, IMerchantUserScope scope, IMediator mediator, CancellationToken ct) =>
+    Guid merchantUserId, SetMerchantUserRolesRequest body, IUserScope scope, IMediator mediator, CancellationToken ct) =>
 {
     var me = scope.Current;
-    await mediator.Send(new SetMerchantUserRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
+    await mediator.Send(new MerchantSetRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.UserRoles)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.UserRoles)
     .WithTags("MerchantUser Roles")
     .WithName("SetMerchantUserUserRoles")
     .WithSummary("Set a merchant-user's roles")
@@ -1201,8 +1229,8 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
 // --- Admin approves/rejects a merchant-user (cross-plane, merchant-user-google-sso REQ-6/18) ---
 // The Admin permission (merchant-user.approve/reject) + the accessible-merchant floor (IAdminQuery) run HERE, at the host,
 // before crossing into the MerchantUser module (critique B3) — the dispatched command receives an already-validated
-// merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + PlatformUserSession policy apply.
-admin.MapPost("/merchant-users/{subject}/approve", async (
+// merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + Session policy apply.
+admin.MapPost("/merchants/users/{subject}/approve", async (
     string subject, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
     HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
@@ -1217,11 +1245,11 @@ admin.MapPost("/merchant-users/{subject}/approve", async (
     if (!string.Equals(merchant.Status, "Active", StringComparison.OrdinalIgnoreCase))
         return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The selected merchant is not active.");
 
-    var result = await mediator.Send(new ApproveMerchantUserCommand(
+    var result = await mediator.Send(new ApproveCommand(
         subject, merchant.Id, body.RoleCodes ?? [],
         http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(new ApproveMerchantUserResponse(result.MerchantUserId, result.Status.ToString(), result.AlreadyActive));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.MerchantUserApprove)
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserApprove)
     .WithTags("Admin MerchantUsers")
     .WithName("ApproveMerchantUser")
     .WithSummary("Approve a merchant-user onto a merchant")
@@ -1233,13 +1261,13 @@ admin.MapPost("/merchant-users/{subject}/approve", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-admin.MapPost("/merchant-users/{subject}/reject", async (
+admin.MapPost("/merchants/users/{subject}/reject", async (
     string subject, RejectMerchantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new RejectMerchantUserCommand(
+    var result = await mediator.Send(new RejectCommand(
         subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
     return Results.Ok(new RejectMerchantUserResponse(result.MerchantUserId, result.Status.ToString()));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.MerchantUserReject)
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserReject)
     .WithTags("Admin MerchantUsers")
     .WithName("RejectMerchantUser")
     .WithSummary("Reject a pending merchant-user")
@@ -1294,16 +1322,16 @@ api.MapPost("/admins", async (
 {
     if (string.IsNullOrWhiteSpace(body.Email))
         throw new ArgumentException("Email is required.");
-    var result = await mediator.Send(new CreateScopedAdminCommand(
+    var result = await mediator.Send(new CreateScopedCommand(
         body.Email, scope.Current.AdminId, http.TraceIdentifier,
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("CreateScopedAdmin")
     .WithSummary("Invite a scoped admin")
     .WithDescription("Super-only. Invite a Scoped admin by verified email; the subject binds on their first login. Missing email -> 400.")
-    .Produces<CreateScopedAdminResult>(StatusCodes.Status201Created)
+    .Produces<CreateScopedResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1311,18 +1339,18 @@ api.MapPost("/admins", async (
 // --- Admin account management (admin-account-management) ---
 // tier/status cross the wire as stable lowercase strings via explicit projection — there is no global
 // string-enum converter (B2), mirroring RoleToWire.
-static string TierToWire(PlatformUserTier t) => t == PlatformUserTier.Super ? "super" : "scoped";
-static string AccountStatusToWire(AdminStatus s) => s == AdminStatus.Active ? "active" : "suspended";
-static string SessionStatusToWire(PlatformUserSessionStatus s) => s switch
+static string TierToWire(Tier t) => t == Tier.Super ? "super" : "scoped";
+static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
+static string SessionStatusToWire(SessionStatus s) => s switch
 {
-    PlatformUserSessionStatus.Active => "active",
-    PlatformUserSessionStatus.Superseded => "superseded",
+    SessionStatus.Active => "active",
+    SessionStatus.Superseded => "superseded",
     _ => "revoked",
 };
-static AdminListItemResponse AdminToWire(PlatformUserListItem a) =>
+static AdminListItemResponse AdminToWire(UserListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
 static MasterRefResponse? MasterRefToWire(MasterRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
-static PlatformUserSessionResponse SessionToWire(PlatformUserSessionView v) =>
+static PlatformUserSessionResponse SessionToWire(SessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
         v.CreatedIp, v.UserAgent, v.IsLive);
 
@@ -1341,7 +1369,7 @@ api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationT
         [.. result.Items.Select(AdminToWire)], result.Page, result.Limit, result.Total));
 })
     .RequireAuthorization("admin")
-    .RequirePermission(AdminPermissions.UserView)
+    .RequirePermission(Keys.UserView)
     .WithMetadata(new SfsQueryParamsMarker())
     .WithTags("Admin Admins")
     .WithName("ListAdmins")
@@ -1379,7 +1407,7 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
         detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes,
         MasterRefToWire(detail.Position), MasterRefToWire(detail.Office),
         MasterRefToWire(detail.Level), MasterRefToWire(detail.Division)));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserView)
     .WithTags("Admin Admins")
     .WithName("GetAdmin")
     .WithSummary("Read an admin account")
@@ -1392,9 +1420,9 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
 // The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
 admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>
 {
-    var permissions = await mediator.Send(new GetAdminEffectivePermissionsQuery(id), ct);
+    var permissions = await mediator.Send(new GetEffectivePermissionsQuery(id), ct);
     return permissions is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(permissions);
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserView)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserView)
     .WithTags("Admin Admins")
     .WithName("GetAdminEffectivePermissions")
     .WithSummary("Read an admin's effective permissions")
@@ -1410,7 +1438,7 @@ admin.MapPost("/{id:guid}/merchants", async (
 {
     var result = await mediator.Send(new AssignMerchantCommand(id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(result);
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("AssignMerchantToAdmin")
     .WithSummary("Assign a merchant to an admin")
@@ -1426,7 +1454,7 @@ admin.MapDelete("/{id:guid}/merchants/{merchantId:guid}", async (
 {
     await mediator.Send(new UnassignMerchantCommand(id, merchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("UnassignMerchantFromAdmin")
     .WithSummary("Unassign a merchant from an admin")
@@ -1442,9 +1470,9 @@ admin.MapPost("/{id:guid}/suspend", async (
 {
     if (id == scope.Current.AdminId)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot suspend their own account.");
-    await mediator.Send(new SuspendAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new SuspendCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("SuspendAdmin")
     .WithSummary("Suspend an admin")
@@ -1458,9 +1486,9 @@ admin.MapPost("/{id:guid}/suspend", async (
 admin.MapPost("/{id:guid}/reactivate", async (
     Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new ReactivateAdminCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new ReactivateCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("ReactivateAdmin")
     .WithSummary("Reactivate a suspended admin")
@@ -1476,11 +1504,11 @@ admin.MapPost("/{id:guid}/reactivate", async (
 admin.MapPut("/{id:guid}/profile", async (
     Guid id, UpdateAdminProfileRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new UpdateAdminProfileCommand(
+    await mediator.Send(new UpdateProfileCommand(
         id, body.PositionId, body.OfficeId, body.LevelId, body.DivisionId,
         scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
     .WithTags("Admin Admins")
     .WithName("UpdateAdminProfile")
     .WithSummary("Edit an admin's org profile")
@@ -1492,17 +1520,19 @@ admin.MapPut("/{id:guid}/profile", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Profile master data (Position/Office/Level/Division) ---
-// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Nested under /admins so the
-// group's auth + AdminCsrfFilter apply; all writes gated user.manage. List/Create/Update only — masters are
-// soft-deactivated via IsActive, never hard-deleted (the FK is Restrict). One generic registration per list.
-var masterData = admin.MapGroup("/master-data");
-MapMasterCrud<Position>(masterData, "positions", Position.Create);
-MapMasterCrud<Office>(masterData, "offices", Office.Create);
-MapMasterCrud<Level>(masterData, "levels", Level.Create);
-MapMasterCrud<Division>(masterData, "divisions", Division.Create);
+// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Mapped DIRECTLY on the
+// `admin` group with no /master-data wrapper (D11 — the wrapper was a code-organisation word, not a resource;
+// each list is already its own collection) so the group's auth + AdminCsrfFilter still apply; all writes gated
+// user.manage. List/Create/Update only — masters are soft-deactivated via IsActive, never hard-deleted (the FK
+// is Restrict). One generic registration per list. Safe against /admins/{id:guid}: that route is
+// guid-constrained and a literal segment beats a parameter at the same depth (design §4).
+MapMasterCrud<Position>(admin, "positions", Position.Create);
+MapMasterCrud<Office>(admin, "offices", Office.Create);
+MapMasterCrud<Level>(admin, "levels", Level.Create);
+MapMasterCrud<Division>(admin, "divisions", Division.Create);
 
 static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<string, string, T> create)
-    where T : MasterData
+    where T : MasterDataItem
 {
     // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
     // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
@@ -1513,7 +1543,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         return Results.Ok(new PagedResult<MasterResponse>(
             [.. result.Items.Select(m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive))],
             result.Page, result.Limit, result.Total));
-    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"List{segment}")
         .WithSummary($"List {segment}")
@@ -1524,9 +1554,9 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
     parent.MapPost($"/{segment}", async (MasterWriteRequest body, IMasterDataStore store, CancellationToken ct) =>
     {
         var item = await store.CreateAsync(create(body.Code ?? "", body.Name ?? ""), ct);
-        return Results.Created($"/api/v1/admins/master-data/{segment}/{item.Id}",
+        return Results.Created($"/api/v1/admins/{segment}/{item.Id}",
             new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
-    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"Create{segment}")
         .WithSummary($"Create a {segment} entry")
@@ -1541,7 +1571,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
     {
         var item = await store.UpdateAsync<T>(id, body.Name ?? "", body.IsActive, ct);
         return Results.Ok(new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
-    }).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserManage)
+    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"Update{segment}")
         .WithSummary($"Rename or (de)activate a {segment} entry")
@@ -1557,11 +1587,11 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
 // hashes never leave the store. isLive is evaluated at read time.
 admin.MapGet("/{id:guid}/sessions", async (Guid id, IMediator mediator, CancellationToken ct) =>
 {
-    var sessions = await mediator.Send(new ListPlatformUserSessionsQuery(id), ct);
+    var sessions = await mediator.Send(new ListSessionsQuery(id), ct);
     return sessions is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(sessions.Select(SessionToWire).ToArray());
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("ListPlatformUserSessions")
     .WithSummary("List an admin's sessions")
@@ -1578,13 +1608,13 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     var result = await mediator.Send(
-        new RevokePlatformUserSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
+        new RevokeSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
     // Security-log the specifics the append-only audit table has no column for (REQ-5.2), keyed by correlation id.
     loggerFactory.CreateLogger("Admin.SessionManagement").LogInformation(
         "Admin session family revoked: sessionId={SessionId} familyId={FamilyId} targetAdminId={TargetAdminId} correlationId={CorrelationId}",
         result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePlatformUserTier(PlatformUserTier.Super)
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("RevokePlatformUserSession")
     .WithSummary("Revoke an admin's session")
@@ -1595,18 +1625,18 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Admin Role RBAC (admin-role-rbac) ---
-// Orthogonal to PlatformUserTier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
+// Orthogonal to Tier: roles grant ACTIONS. Reads need only an authenticated admin (REQ-6.4); mutations are
 // gated on the user.roles permission, dogfooding RequirePermission (REQ-6.3). status crosses the wire as
 // "active"/"inactive" via explicit projection — there is no global string-enum converter (B2).
-static RoleResponse RoleToWire(AdminRoleListItem r) => new(
+static RoleResponse RoleToWire(RoleListItem r) => new(
     r.Code, r.Name, r.Description, r.Color,
-    r.Status == AdminRoleStatus.Active ? "active" : "inactive",
+    r.Status == RoleStatus.Active ? "active" : "inactive",
     r.PermissionKeys, r.UserCount);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active (B2).
-static AdminRoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
+static RoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
-    "active" => AdminRoleStatus.Active,
-    "inactive" => AdminRoleStatus.Inactive,
+    "active" => RoleStatus.Active,
+    "inactive" => RoleStatus.Inactive,
     _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
 };
 
@@ -1667,7 +1697,7 @@ admin.MapPost("/roles", async (
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
         body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/admins/roles/{result.Code}", RoleToWire(result));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Roles")
     .WithName("CreateRole")
     .WithSummary("Create a role")
@@ -1686,7 +1716,7 @@ admin.MapPut("/roles/{code}", async (
         code, body.Name ?? "", body.Description, body.Color, ParseRoleStatus(body.Status),
         body.Permissions ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(RoleToWire(result));
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Roles")
     .WithName("UpdateRole")
     .WithSummary("Update a role")
@@ -1703,7 +1733,7 @@ admin.MapDelete("/roles/{code}", async (
 {
     await mediator.Send(new DeleteRoleCommand(code, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Roles")
     .WithName("DeleteRole")
     .WithSummary("Delete a role")
@@ -1717,9 +1747,9 @@ admin.MapDelete("/roles/{code}", async (
 admin.MapPut("/{id:guid}/roles", async (
     Guid id, SetAdminRolesRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new SetAdminRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
+    await mediator.Send(new SetRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
-}).RequireAuthorization("admin").RequirePermission(AdminPermissions.UserRoles)
+}).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
     .WithTags("Admin Admins")
     .WithName("SetAdminRoles")
     .WithSummary("Set an admin's roles")
@@ -1731,10 +1761,10 @@ admin.MapPut("/{id:guid}/roles", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // admin-role-rbac REQ-11: fail fast at boot if any RequirePermission gate references a key absent from the catalog.
-AdminPermissionParity.Assert(app.Services);
+PermissionParity.Assert(app.Services);
 // merchant-user-google-sso REQ-15.5: the same parity guard for the merchant-user catalog (the cross-catalog merchant-user.approve/
 // reject keys live in the Admin catalog and are asserted by AdminPermissionParity — REQ-18.3).
-MerchantUserPermissionParity.Assert(app.Services);
+UserPermissionParity.Assert(app.Services);
 
 app.Run();
 
@@ -1769,7 +1799,7 @@ internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string St
 
 internal sealed record CreateProductRequest(string Name, Money Price);
 internal sealed record CreatePaymentSessionRequest(
-    Guid OrderId, Money Amount, string Method, PspCode Psp);
+    Guid OrderId, Money Amount, string Method, Code Psp);
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
@@ -1930,16 +1960,16 @@ internal sealed record RoleResponse(
 
 // Bridges PspCode <-> its stable wire code via the domain's single-source-of-truth PspCodes mapping,
 // so the host owns the serialization concern and the domain enum stays attribute-free.
-internal sealed class PspCodeJsonConverter : JsonConverter<PspCode>
+internal sealed class PspCodeJsonConverter : JsonConverter<Code>
 {
-    public override PspCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    public override Code Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         var code = reader.GetString() ?? throw new JsonException("psp must be a string code.");
-        try { return PspCodes.FromCode(code); }
+        try { return Codes.FromCode(code); }
         catch (ArgumentException ex) { throw new JsonException(ex.Message); } // unknown code -> 400, not 500
     }
 
-    public override void Write(Utf8JsonWriter writer, PspCode value, JsonSerializerOptions options) =>
+    public override void Write(Utf8JsonWriter writer, Code value, JsonSerializerOptions options) =>
         writer.WriteStringValue(value.ToCode());
 }
 

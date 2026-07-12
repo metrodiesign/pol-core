@@ -4,7 +4,8 @@ using Mediator;
 using Merchants.Domain;
 using Microsoft.Extensions.DependencyInjection;
 using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Application.Ports.Psp;
+using Payments.Domain.Psp;
 
 namespace Merchants.Application.ProvisionMerchant;
 
@@ -22,7 +23,7 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     private readonly IMerchantRepository _merchants;
-    private readonly IPspConnectionRepository _pspConnections;
+    private readonly IConnectionRepository _pspConnections;
     private readonly IVaultSecretStore _vault;
     private readonly IProvisioningAuditWriter _audit;
     private readonly IPspSecretEnvelopeFactory _envelopeFactory;
@@ -35,7 +36,7 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
     // their single registration is already admin-bound (no key needed).
     public ProvisionMerchantHandler(
         IMerchantRepository merchants,
-        [FromKeyedServices("admin")] IPspConnectionRepository pspConnections,
+        [FromKeyedServices("admin")] IConnectionRepository pspConnections,
         [FromKeyedServices("admin")] IVaultSecretStore vault,
         IProvisioningAuditWriter audit,
         IPspSecretEnvelopeFactory envelopeFactory,
@@ -62,10 +63,10 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
             throw new ArgumentException("At least one PSP connection is required."); // REQ-3.5
 
         var prepared = new List<PreparedConnection>(command.PspConnections.Count);
-        var seen = new HashSet<PspCode>();
+        var seen = new HashSet<Code>();
         foreach (var spec in command.PspConnections)
         {
-            var psp = PspCodes.FromCode(spec.Psp); // REQ-3.2 — throws on unknown
+            var psp = Codes.FromCode(spec.Psp); // REQ-3.2 — throws on unknown
             if (!seen.Add(psp))
                 throw new ArgumentException($"Duplicate PSP '{spec.Psp}' in submission."); // REQ-3.6
 
@@ -98,7 +99,7 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
             foreach (var p in prepared)
             {
                 var secretRefName = "psp/" + p.Psp.ToCode();
-                var connection = PspConnection.Create(merchant.Id, p.Psp, p.EnabledMethods, secretRefName, _clock.UtcNow, p.Metadata);
+                var connection = Connection.Create(merchant.Id, p.Psp, p.EnabledMethods, secretRefName, _clock.UtcNow, p.Metadata);
                 _pspConnections.Add(connection);
                 await _vault.InsertAsync(merchant.Id, secretRefName, p.Envelope.EnvelopeJson, ct);
                 built.Add(new ProvisionedConnection(connection.Id, p.Psp.ToCode(), Mask(p.Envelope.Hints)));
@@ -122,5 +123,5 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
         JsonElement? Config, string? MerchantId, IReadOnlyDictionary<string, string> SecretHints);
 
     private sealed record PreparedConnection(
-        PspCode Psp, string EnabledMethods, PspSecretEnvelopeResult Envelope, string Metadata);
+        Code Psp, string EnabledMethods, PspSecretEnvelopeResult Envelope, string Metadata);
 }

@@ -67,7 +67,7 @@ public sealed class RouteSchemeAuthPreservationTests
         using var factory = new AuthPreservationFactory();
         using var _ = factory.CreateClient();
 
-        var register = Endpoint(factory, "/api/v1/merchant-users/register", "POST");
+        var register = Endpoint(factory, "/api/v1/merchants/users/register", "POST");
 
         Assert.Contains(register.Metadata, m => m is IAllowAnonymous); // anon-reachable, unchanged by the move (REQ-3.4)
     }

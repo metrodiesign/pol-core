@@ -1,7 +1,13 @@
 extern alias ApiHost;
-using Admin.Application;
-using Admin.Application.ResolveAdmin;
-using Admin.Domain;
+using Admins.Application;
+using Admins.Application.MasterData;
+using Admins.Application.Permissions;
+using Admins.Application.Roles;
+using Admins.Application.Users;
+using Admins.Domain.MasterData;
+using Admins.Domain.Permissions;
+using Admins.Domain.Roles;
+using Admins.Domain.Users;
 
 namespace Hosts.Tests;
 
@@ -9,10 +15,10 @@ namespace Hosts.Tests;
 /// permission set holds the key is admitted; a missing key or an unbound scope (S4) is denied — never a 500.</summary>
 public sealed class AdminPermissionAuthorizationTests
 {
-    private static ApiHost::Api.AdminScope BoundScope(params string[] permissions)
+    private static ApiHost::Api.Admins.AdminScope BoundScope(params string[] permissions)
     {
-        var scope = new ApiHost::Api.AdminScope();
-        scope.Set(new AdminResolution(Guid.NewGuid(), "a@org.com", PlatformUserTier.Scoped, AccessibleMerchants.All)
+        var scope = new ApiHost::Api.Admins.AdminScope();
+        scope.Set(new Resolution(Guid.NewGuid(), "a@org.com", Tier.Scoped, AccessibleMerchants.All)
         {
             Permissions = permissions.ToHashSet(),
         });
@@ -21,15 +27,15 @@ public sealed class AdminPermissionAuthorizationTests
 
     [Fact]
     public void Admits_when_the_effective_set_holds_the_permission() =>
-        Assert.True(ApiHost::Api.AdminPermissionAuthorization.IsAllowed(BoundScope("user.roles", "txn.view"), "user.roles"));
+        Assert.True(ApiHost::Api.Admins.PermissionAuthorization.IsAllowed(BoundScope("user.roles", "txn.view"), "user.roles"));
 
     [Fact]
     public void Denies_when_the_permission_is_missing() =>
-        Assert.False(ApiHost::Api.AdminPermissionAuthorization.IsAllowed(BoundScope("txn.view"), "user.roles"));
+        Assert.False(ApiHost::Api.Admins.PermissionAuthorization.IsAllowed(BoundScope("txn.view"), "user.roles"));
 
     [Fact]
     public void Fails_closed_when_no_admin_is_bound() =>
-        Assert.False(ApiHost::Api.AdminPermissionAuthorization.IsAllowed(new ApiHost::Api.AdminScope(), "user.roles"));
+        Assert.False(ApiHost::Api.Admins.PermissionAuthorization.IsAllowed(new ApiHost::Api.Admins.AdminScope(), "user.roles"));
 }
 
 /// <summary>The boot parity guard (admin-role-rbac REQ-11): a gate key outside the code-canonical catalog is
@@ -38,9 +44,9 @@ public sealed class AdminPermissionParityTests
 {
     [Fact]
     public void Every_catalog_key_passes_parity() =>
-        Assert.Empty(ApiHost::Api.AdminPermissionParity.FindUnknown(AdminPermissions.AllKeys));
+        Assert.Empty(ApiHost::Api.Admins.PermissionParity.FindUnknown(Keys.AllKeys));
 
     [Fact]
     public void A_gate_key_outside_the_catalog_is_flagged() =>
-        Assert.Contains("bogus.key", ApiHost::Api.AdminPermissionParity.FindUnknown(["user.roles", "bogus.key"]));
+        Assert.Contains("bogus.key", ApiHost::Api.Admins.PermissionParity.FindUnknown(["user.roles", "bogus.key"]));
 }

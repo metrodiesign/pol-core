@@ -1,6 +1,12 @@
 using BuildingBlocks.Application;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -22,45 +28,45 @@ public sealed class MerchantUserRoleHandlerTests
     public async Task Create_rejects_a_duplicate_code()
     {
         var roles = new FakeRoles();
-        roles.SeedRole("merchant_member", MerchantUserRoleStatus.Active);
-        var handler = new CreateMerchantUserRoleHandler(roles, new FakeUow());
+        roles.SeedRole("merchant_member", RoleStatus.Active);
+        var handler = new CreateHandler(roles, new FakeUow());
 
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(
-            new CreateMerchantUserRoleCommand("merchant_member", "dup", null, null, MerchantUserRoleStatus.Active, ["product.create"]), default).AsTask());
+            new CreateCommand("merchant_member", "dup", null, null, RoleStatus.Active, ["product.create"]), default).AsTask());
     }
 
     [Fact]
     public async Task Create_rejects_a_permission_key_outside_the_catalog()
     {
         var roles = new FakeRoles();
-        var handler = new CreateMerchantUserRoleHandler(roles, new FakeUow());
+        var handler = new CreateHandler(roles, new FakeUow());
 
         await Assert.ThrowsAsync<ArgumentException>(() => handler.Handle(
-            new CreateMerchantUserRoleCommand("ops", "Ops", null, null, MerchantUserRoleStatus.Active, ["bogus.key"]), default).AsTask());
+            new CreateCommand("ops", "Ops", null, null, RoleStatus.Active, ["bogus.key"]), default).AsTask());
     }
 
     [Fact]
     public async Task Update_rejects_deactivating_the_merchant_owner_anchor()
     {
         var roles = new FakeRoles();
-        roles.SeedRole(MerchantUserRoleDefinition.MerchantOwnerCode, MerchantUserRoleStatus.Active);
-        var handler = new UpdateMerchantUserRoleHandler(roles, new FakeUow());
+        roles.SeedRole(Role.MerchantOwnerCode, RoleStatus.Active);
+        var handler = new UpdateHandler(roles, new FakeUow());
 
         await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(
-            new UpdateMerchantUserRoleCommand(MerchantUserRoleDefinition.MerchantOwnerCode, "Owner", null, null, MerchantUserRoleStatus.Inactive, []), default).AsTask());
+            new UpdateCommand(Role.MerchantOwnerCode, "Owner", null, null, RoleStatus.Inactive, []), default).AsTask());
     }
 
     [Fact]
     public async Task Delete_rejects_the_anchor_and_a_role_with_bound_users()
     {
         var roles = new FakeRoles();
-        roles.SeedRole(MerchantUserRoleDefinition.MerchantOwnerCode, MerchantUserRoleStatus.Active);
-        var member = roles.SeedRole("merchant_member", MerchantUserRoleStatus.Active);
-        roles.Assignments.Add(MerchantUserRoleAssignment.Create(Guid.NewGuid(), member.Id, MerchantA, Actor, Now));
-        var handler = new DeleteMerchantUserRoleHandler(roles, new FakeUow());
+        roles.SeedRole(Role.MerchantOwnerCode, RoleStatus.Active);
+        var member = roles.SeedRole("merchant_member", RoleStatus.Active);
+        roles.Assignments.Add(RoleAssignment.Create(Guid.NewGuid(), member.Id, MerchantA, Actor, Now));
+        var handler = new DeleteHandler(roles, new FakeUow());
 
-        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new DeleteMerchantUserRoleCommand(MerchantUserRoleDefinition.MerchantOwnerCode), default).AsTask());
-        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new DeleteMerchantUserRoleCommand("merchant_member"), default).AsTask());
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new DeleteCommand(Role.MerchantOwnerCode), default).AsTask());
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(new DeleteCommand("merchant_member"), default).AsTask());
     }
 
     [Fact]
@@ -69,11 +75,11 @@ public sealed class MerchantUserRoleHandlerTests
         var users = new FakeUsers();
         var target = Approved(MerchantB, users); // different merchant
         var roles = new FakeRoles();
-        roles.SeedRole("merchant_member", MerchantUserRoleStatus.Active);
-        var handler = new SetMerchantUserRolesHandler(users, roles, new FakeUow(), new FakeClock());
+        roles.SeedRole("merchant_member", RoleStatus.Active);
+        var handler = new SetRolesHandler(users, roles, new FakeUow(), new FakeClock());
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
-            new SetMerchantUserRolesCommand(target.Id, ["merchant_member"], MerchantA, Actor), default).AsTask());
+            new SetRolesCommand(target.Id, ["merchant_member"], MerchantA, Actor), default).AsTask());
     }
 
     [Fact]
@@ -81,10 +87,10 @@ public sealed class MerchantUserRoleHandlerTests
     {
         var users = new FakeUsers();
         var target = Approved(MerchantA, users);
-        var handler = new SetMerchantUserRolesHandler(users, new FakeRoles(), new FakeUow(), new FakeClock());
+        var handler = new SetRolesHandler(users, new FakeRoles(), new FakeUow(), new FakeClock());
 
         await Assert.ThrowsAsync<ArgumentException>(() => handler.Handle(
-            new SetMerchantUserRolesCommand(target.Id, ["ghost_role"], MerchantA, Actor), default).AsTask());
+            new SetRolesCommand(target.Id, ["ghost_role"], MerchantA, Actor), default).AsTask());
     }
 
     [Fact]
@@ -93,13 +99,13 @@ public sealed class MerchantUserRoleHandlerTests
         var users = new FakeUsers();
         var target = Approved(MerchantA, users);
         var roles = new FakeRoles();
-        var member = roles.SeedRole("merchant_member", MerchantUserRoleStatus.Active);
-        var finance = roles.SeedRole("finance", MerchantUserRoleStatus.Active);
+        var member = roles.SeedRole("merchant_member", RoleStatus.Active);
+        var finance = roles.SeedRole("finance", RoleStatus.Active);
         // pre-existing assignment to `member`; request only `finance` -> add finance, remove member.
-        roles.Assignments.Add(MerchantUserRoleAssignment.Create(target.Id, member.Id, MerchantA, Actor, Now));
-        var handler = new SetMerchantUserRolesHandler(users, roles, new FakeUow(), new FakeClock());
+        roles.Assignments.Add(RoleAssignment.Create(target.Id, member.Id, MerchantA, Actor, Now));
+        var handler = new SetRolesHandler(users, roles, new FakeUow(), new FakeClock());
 
-        await handler.Handle(new SetMerchantUserRolesCommand(target.Id, ["finance"], MerchantA, Actor), default);
+        await handler.Handle(new SetRolesCommand(target.Id, ["finance"], MerchantA, Actor), default);
 
         var roleIds = roles.Assignments.Where(a => a.MerchantUserId == target.Id).Select(a => a.RoleId).ToHashSet();
         Assert.Equal(new HashSet<Guid> { finance.Id }, roleIds);
@@ -107,15 +113,15 @@ public sealed class MerchantUserRoleHandlerTests
         Assert.All(roles.Assignments.Where(a => a.MerchantUserId == target.Id), a => Assert.Equal(Actor, a.AssignedByAdminId));
     }
 
-    private static MerchantUser Approved(Guid merchantId, FakeUsers users)
+    private static User Approved(Guid merchantId, FakeUsers users)
     {
-        var a = MerchantUser.Register(Guid.NewGuid().ToString(), "p@org.com", Now);
+        var a = User.Register(Guid.NewGuid().ToString(), "p@org.com", Now);
         a.Approve(merchantId, Now);
         users.Seed(a);
         return a;
     }
 
-    private sealed class FakeUow : IMerchantsUnitOfWork
+    private sealed class FakeUow : IUserUnitOfWork
     {
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> op, CancellationToken ct) => op(ct);
@@ -123,51 +129,51 @@ public sealed class MerchantUserRoleHandlerTests
 
     private sealed class FakeClock : IClock { public DateTime UtcNow => Now; }
 
-    private sealed class FakeUsers : IMerchantUserRepository
+    private sealed class FakeUsers : IUserRepository
     {
-        private readonly Dictionary<Guid, MerchantUser> _byId = [];
-        public void Seed(MerchantUser u) => _byId[u.Id] = u;
-        public Task<MerchantUser?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult(_byId.GetValueOrDefault(id));
-        public Task<MerchantUser?> FindBySubjectAsync(string subject, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(MerchantUser account) => throw new NotSupportedException();
+        private readonly Dictionary<Guid, User> _byId = [];
+        public void Seed(User u) => _byId[u.Id] = u;
+        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult(_byId.GetValueOrDefault(id));
+        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(User account) => throw new NotSupportedException();
     }
 
-    private sealed class FakeRoles : IMerchantUserRoleRepository
+    private sealed class FakeRoles : IRoleRepository
     {
-        private readonly Dictionary<string, MerchantUserRoleDefinition> _byCode = [];
-        public readonly List<MerchantUserRoleAssignment> Assignments = [];
+        private readonly Dictionary<string, Role> _byCode = [];
+        public readonly List<RoleAssignment> Assignments = [];
 
-        public MerchantUserRoleDefinition SeedRole(string code, MerchantUserRoleStatus status)
+        public Role SeedRole(string code, RoleStatus status)
         {
-            var role = MerchantUserRoleDefinition.Create(code, code, null, null, status, [], MerchantUserPermissions.AllKeys);
+            var role = Role.Create(code, code, null, null, status, [], Keys.AllKeys);
             _byCode[code] = role;
             return role;
         }
 
-        public void Add(MerchantUserRoleDefinition role) => _byCode[role.Code] = role;
-        public void Remove(MerchantUserRoleDefinition role) => _byCode.Remove(role.Code);
-        public void AddAssignment(MerchantUserRoleAssignment assignment) => Assignments.Add(assignment);
-        public void RemoveAssignment(MerchantUserRoleAssignment assignment) => Assignments.Remove(assignment);
+        public void Add(Role role) => _byCode[role.Code] = role;
+        public void Remove(Role role) => _byCode.Remove(role.Code);
+        public void AddAssignment(RoleAssignment assignment) => Assignments.Add(assignment);
+        public void RemoveAssignment(RoleAssignment assignment) => Assignments.Remove(assignment);
 
-        public Task<MerchantUserRoleDefinition?> GetByCodeAsync(string code, CancellationToken ct) => Task.FromResult(_byCode.GetValueOrDefault(code));
+        public Task<Role?> GetByCodeAsync(string code, CancellationToken ct) => Task.FromResult(_byCode.GetValueOrDefault(code));
         public Task<bool> CodeExistsAsync(string code, CancellationToken ct) => Task.FromResult(_byCode.ContainsKey(code));
         public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) =>
             Task.FromResult(Assignments.Count(a => a.RoleId == roleId));
         public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) =>
-            Task.FromResult(MerchantUserPermissions.AllKeys);
+            Task.FromResult(Keys.AllKeys);
         public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) =>
             Task.FromResult<IReadOnlyDictionary<string, Guid>>(
                 _byCode.Where(kv => codes.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value.Id));
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) =>
             Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.MerchantUserId == merchantUserId).Select(a => a.RoleId).ToHashSet());
-        public Task<MerchantUserRoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) =>
+        public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) =>
             Task.FromResult(Assignments.FirstOrDefault(a => a.MerchantUserId == merchantUserId && a.RoleId == roleId));
 
         // Unused by the handlers under test.
-        public Task<IReadOnlyList<MerchantUserRoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserRoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<RoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<RoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserPermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
     }

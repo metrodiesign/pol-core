@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Payments.Application.Ports;
-using Payments.Domain;
+using Payments.Application.Ports.Psp;
+using Payments.Domain.Psp;
 using Payments.Infrastructure.Persistence;
+using Payments.Infrastructure.Persistence.Psp;
 using Payments.Infrastructure.Psp;
 
 namespace Payments.Infrastructure;
@@ -18,15 +20,15 @@ public static class PaymentsModuleRegistration
     public static IServiceCollection AddPaymentsModule(this IServiceCollection services)
     {
         // Repositories depend on the Scoped PolDbContext, so they are Scoped too.
-        services.AddScoped<IPaymentSessionRepository, PaymentSessionRepository>();
-        services.AddScoped<IPspConnectionRepository, PspConnectionRepository>();
+        services.AddScoped<ISessionRepository, SessionRepository>();
+        services.AddScoped<IConnectionRepository, ConnectionRepository>();
 
         // Named pooled HttpClients (handler-rotated) so the singleton adapters can do real HTTP without
         // socket exhaustion. Per-call timeout only — charge-create never retries (single-shot in the
         // adapter so a timeout cannot double-charge); the fetch GET retries in the adapter. Keyed by the
         // PSP code string the adapter resolves via Psp.ToCode().
-        services.AddHttpClient(PspCode.TwoCTwoP.ToCode(), c => c.Timeout = TimeSpan.FromSeconds(30));
-        services.AddHttpClient(PspCode.Omise.ToCode(), c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddHttpClient(Code.TwoCTwoP.ToCode(), c => c.Timeout = TimeSpan.FromSeconds(30));
+        services.AddHttpClient(Code.Omise.ToCode(), c => c.Timeout = TimeSpan.FromSeconds(30));
 
         // Adapters are stateless (all per-call state is in method args) — safe as singletons consuming the
         // singleton IHttpClientFactory + IOptions<PspOptions>. Lifetime unchanged so PspAdapterFactory's

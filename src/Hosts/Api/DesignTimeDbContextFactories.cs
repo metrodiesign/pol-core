@@ -15,12 +15,14 @@ internal static class HostModuleAssemblies
     public static IReadOnlyList<Assembly> All { get; } =
     [
         typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
-        typeof(Cart.Infrastructure.CartModuleRegistration).Assembly,
-        typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
+        typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
+        typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
-        typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
-        typeof(Admin.Infrastructure.AdminModuleRegistration).Assembly,
+        // global:: required: Api.Merchants/Api.Admins (D7 area namespaces) now shadow the module root
+        // namespaces Merchants/Admins from within namespace Api and its descendants.
+        typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
+        typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
     ];
 
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;

@@ -1,5 +1,11 @@
 # FE Migration Notes — rf1-schema-reset
 
+> **อัปเดต (2026-07-12):** มี breaking change รอบสองต่อจากนี้แล้ว — route/permission-key/OpenAPI-id รอบ
+> `hierarchical-naming` (เช่น `/api/v1/merchant-users/*` ที่เอกสารนี้อ้างถึงด้านล่าง ถูกเปลี่ยนต่อเป็น
+> `/api/v1/merchants/users/*`). ดู [`hierarchical-naming/FE-MIGRATION.md`](../hierarchical-naming/FE-MIGRATION.md)
+> สำหรับรอบล่าสุด — เอกสารนี้ (rf1) ยังถูกต้องสำหรับ auth model / Money wire format / JSON field rename
+> ที่คุมอยู่ด้านล่าง, ไม่ต้องอ่านซ้ำสองรอบ.
+
 > สำหรับทีม FE ทั้ง 2 repo (`pol-tenant`/merchant-user console, `pol-admin`) ที่เรียก backend `pol-core` นี้อยู่.
 > rf1 เป็น breaking change ฝั่ง client แบบ big-bang — ไม่มี alias/route เก่าเหลือ, ไม่มี dual-write ช่วงเปลี่ยนผ่าน.
 > ต้อง deploy backend + FE ทั้งสองพร้อมกัน (coordinate cutover ก่อน merge ตาม design.md Non-Functional

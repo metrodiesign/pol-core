@@ -1,8 +1,12 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
 using Merchants.Domain;
+using Merchants.Domain.Users;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
@@ -34,16 +38,16 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task An_active_merchant_user_gets_a_session_login_audit_cookies_and_a_returnTo_redirect()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.Active(
-            new MerchantUserResolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "product.create" })));
+        var (service, ctx) = Build(LoginResult.Active(
+            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "product.create" })));
 
         await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "/dashboard", default);
 
         var session = Assert.Single(ctx.Sessions.Added);
         Assert.Equal(UserId, session.MerchantUserId);
-        Assert.Equal(MerchantUserSessionStatus.Active, session.Status);
+        Assert.Equal(SessionStatus.Active, session.Status);
         Assert.Equal(1, ctx.Sessions.SaveCount);
-        Assert.Contains(ctx.Audit.Appended, a => a.EventType == MerchantAuthEventType.LoginSuccess && a.MerchantUserId == UserId);
+        Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.MerchantUserId == UserId);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.Equal("/dashboard", ctx.Http.Response.Headers.Location);
         Assert.Contains(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("mch_session", StringComparison.Ordinal));
@@ -52,7 +56,7 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task An_unknown_subject_gets_a_registration_ticket_and_a_redirect_to_register_no_session()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.NotFound);
+        var (service, ctx) = Build(LoginResult.NotFound);
 
         await service.HandleCallbackAsync(ctx.Http, "google-sub-new", "new@org.com", "org.com", "/", default);
 
@@ -69,7 +73,7 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task A_rejected_user_gets_a_correction_ticket_and_a_redirect_to_register()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.Rejected);
+        var (service, ctx) = Build(LoginResult.Rejected);
 
         await service.HandleCallbackAsync(ctx.Http, "google-sub-rej", "rej@org.com", null, "/", default);
 
@@ -81,7 +85,7 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task A_repeated_callback_for_the_same_subject_just_mints_a_fresh_ticket_no_state()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.NotFound);
+        var (service, ctx) = Build(LoginResult.NotFound);
 
         // With no server-side ticket row, a repeated callback for the same subject is harmless: it simply mints
         // another fresh, self-expiring token and redirects to /register — no error, no "pending" state.
@@ -98,7 +102,7 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task A_pending_user_is_redirected_with_awaiting_approval_reason_no_session_no_ticket()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.Pending);
+        var (service, ctx) = Build(LoginResult.Pending);
 
         await service.HandleCallbackAsync(ctx.Http, "google-sub-pend", "pend@org.com", null, "/", default);
 
@@ -111,12 +115,12 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task A_suspended_user_gets_no_session_a_denied_audit_and_an_error_redirect()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.Suspended);
+        var (service, ctx) = Build(LoginResult.Suspended);
 
         await service.HandleCallbackAsync(ctx.Http, "google-sub-susp", "susp@org.com", null, "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
-        Assert.Contains(ctx.Audit.Appended, a => a.EventType == MerchantAuthEventType.AuthDenied && a.Reason == "suspended");
+        Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.Equal("/login-error?reason=suspended", ctx.Http.Response.Headers.Location);
     }
@@ -124,21 +128,21 @@ public sealed class MerchantUserLoginServiceTests
     [Fact]
     public async Task A_missing_identity_is_denied_before_any_resolution()
     {
-        var (service, ctx) = Build(MerchantUserLoginResult.NotFound);
+        var (service, ctx) = Build(LoginResult.NotFound);
 
         await service.HandleCallbackAsync(ctx.Http, subject: null, email: "x@org.com", hostedDomain: null, returnTo: "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
-        Assert.Contains(ctx.Audit.Appended, a => a.EventType == MerchantAuthEventType.AuthDenied && a.Reason == "missing-identity");
+        Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-identity");
     }
 
     // --- harness ---
 
     private sealed record Ctx(DefaultHttpContext Http, FakeSessionStore Sessions, FakeAuthAudit Audit,
-        MerchantUserRegistrationTickets Protector)
+        UserRegistrationTickets Protector)
     {
         /// <summary>Decodes the signed ticket carried in the redirect Location's <c>ticket</c> query param.</summary>
-        public MerchantUserTicketPayload DecodeMintedTicket()
+        public UserTicketPayload DecodeMintedTicket()
         {
             var location = Http.Response.Headers.Location.ToString();
             var query = QueryHelpers.ParseQuery(location[location.IndexOf('?')..]);
@@ -147,42 +151,42 @@ public sealed class MerchantUserLoginServiceTests
         }
     }
 
-    private static (MerchantUserLoginService, Ctx) Build(MerchantUserLoginResult resolve)
+    private static (UserLoginService, Ctx) Build(LoginResult resolve)
     {
         var sessions = new FakeSessionStore();
         var audit = new FakeAuthAudit();
         var env = new Env();
-        var registrationOptions = Options.Create(new MerchantUserRegistrationOptions());
-        var ticketProtector = new MerchantUserRegistrationTickets(new EphemeralDataProtectionProvider(), registrationOptions);
-        var cookies = new MerchantUserSessionCookies(Options.Create(new MerchantUserSessionOptions()), env);
-        var sessionOptions = Options.Create(new MerchantUserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard"] });
-        var oidcOptions = Options.Create(new MerchantUserOidcOptions { ErrorPath = "/login-error", RegisterUrl = RegisterUrl });
+        var registrationOptions = Options.Create(new UserRegistrationOptions());
+        var ticketProtector = new UserRegistrationTickets(new EphemeralDataProtectionProvider(), registrationOptions);
+        var cookies = new UserSessionCookies(Options.Create(new UserSessionOptions()), env);
+        var sessionOptions = Options.Create(new UserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard"] });
+        var oidcOptions = Options.Create(new UserOidcOptions { ErrorPath = "/login-error", RegisterUrl = RegisterUrl });
         var provider = new ServiceCollection()
-            .AddScoped<IMerchantAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
+            .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();
 
-        var service = new MerchantUserLoginService(
+        var service = new UserLoginService(
             new FakeResolver(resolve), sessions, audit, ticketProtector, cookies,
             new TestClock(Now), provider.GetRequiredService<IServiceScopeFactory>(),
-            sessionOptions, oidcOptions, NullLogger<MerchantUserLoginService>.Instance);
+            sessionOptions, oidcOptions, NullLogger<UserLoginService>.Instance);
 
         var http = new DefaultHttpContext();
         http.Request.IsHttps = true;
         return (service, new Ctx(http, sessions, audit, ticketProtector));
     }
 
-    private sealed class FakeResolver(MerchantUserLoginResult result) : IMerchantUserCallbackResolver
+    private sealed class FakeResolver(LoginResult result) : IUserCallbackResolver
     {
-        public Task<MerchantUserLoginResult> ResolveAtCallbackAsync(string subject, CancellationToken ct) => Task.FromResult(result);
+        public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken ct) => Task.FromResult(result);
     }
 
-    private sealed class FakeSessionStore : IMerchantUserSessionStore
+    private sealed class FakeSessionStore : ISessionStore
     {
-        public readonly List<MerchantUserSession> Added = [];
+        public readonly List<Session> Added = [];
         public int SaveCount;
-        public void Add(MerchantUserSession session) => Added.Add(session);
+        public void Add(Session session) => Added.Add(session);
         public Task<int> SaveChangesAsync(CancellationToken ct) { SaveCount++; return Task.FromResult(1); }
-        public Task<MerchantUserSession?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<MerchantUserSession?>(null);
+        public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<Session?>(null);
         public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
         public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => Task.FromResult(false);
         public Task SlideIdleAsync(Guid id, DateTime idle, CancellationToken ct) => Task.CompletedTask;
@@ -191,10 +195,10 @@ public sealed class MerchantUserLoginServiceTests
         public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
     }
 
-    private sealed class FakeAuthAudit : IMerchantAuthAuditWriter
+    private sealed class FakeAuthAudit : IAuthAuditWriter
     {
-        public readonly List<MerchantAuthAudit> Appended = [];
-        public void Append(MerchantAuthAudit entry) => Appended.Add(entry);
+        public readonly List<AuthAudit> Appended = [];
+        public void Append(AuthAudit entry) => Appended.Add(entry);
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
     }
 

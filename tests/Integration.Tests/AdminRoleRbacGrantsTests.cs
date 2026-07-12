@@ -19,16 +19,16 @@ public sealed class AdminRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        // 6 groups / 16 perms: the merchant_user group (formerly producer) adds merchant_user.approve/reject.
-        Assert.Equal(6, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.AdminPermissionGroups")));
-        Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.AdminPermissions")));
-        Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.AdminRoles")));
+        // 6 groups / 16 perms: the merchants.users group (formerly producer, renamed hierarchical-naming task 10) adds merchants.users.approve/reject.
+        Assert.Equal(6, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.PermissionGroups")));
+        Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.Permissions")));
+        Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM admin.Roles")));
 
-        // super_admin holds the full 16 (the +2 merchant_user keys are seed-granted to it); auditor ships Inactive (Status = 1).
+        // super_admin holds the full 16 (the +2 merchants.users keys are seed-granted to it); auditor ships Inactive (Status = 1).
         Assert.Equal(16, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM admin.AdminRolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(SuperAdminRoleId)))));
+            "SELECT COUNT(*) FROM admin.RolePermissions WHERE RoleId=@r", ("@r", Guid.Parse(SuperAdminRoleId)))));
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT Status FROM admin.AdminRoles WHERE Code=N'auditor'")));
+            "SELECT Status FROM admin.Roles WHERE Code=N'auditor'")));
     }
 
     [Fact]
@@ -39,20 +39,20 @@ public sealed class AdminRoleRbacGrantsTests
         var code = "it_" + roleId.ToString("N")[..8];
 
         await IntegrationDb.ExecAsync(admin,
-            "INSERT admin.AdminRoles (Id, Code, Name, Color, Status) VALUES (@id, @code, N'IT', 'gray', 0)",
+            "INSERT admin.Roles (Id, Code, Name, Color, Status) VALUES (@id, @code, N'IT', 'gray', 0)",
             ("@id", roleId), ("@code", code));
         await IntegrationDb.ExecAsync(admin,
-            "INSERT admin.AdminRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'txn.view')",
+            "INSERT admin.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'txn.view')",
             ("@g", Guid.NewGuid()), ("@id", roleId));
-        await IntegrationDb.ExecAsync(admin, "UPDATE admin.AdminRoles SET Name=N'IT2' WHERE Id=@id", ("@id", roleId));
-        await IntegrationDb.ExecAsync(admin, "DELETE admin.AdminRoles WHERE Id=@id", ("@id", roleId)); // cascade drops the grant
+        await IntegrationDb.ExecAsync(admin, "UPDATE admin.Roles SET Name=N'IT2' WHERE Id=@id", ("@id", roleId));
+        await IntegrationDb.ExecAsync(admin, "DELETE admin.Roles WHERE Id=@id", ("@id", roleId)); // cascade drops the grant
 
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM admin.AdminRoles WHERE Id=@id", ("@id", roleId))));
+            "SELECT COUNT(*) FROM admin.Roles WHERE Id=@id", ("@id", roleId))));
 
         // Catalog is SELECT-only for pol_admin — a runtime INSERT is refused.
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT admin.AdminPermissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','system',N'x',99)"));
+            "INSERT admin.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','system',N'x',99)"));
     }
 
     [Fact]
@@ -60,9 +60,9 @@ public sealed class AdminRoleRbacGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
 
-        // FK AdminRolePermissions.PermissionKey -> AdminPermissions.Key (REQ-3.2).
+        // FK RolePermissions.PermissionKey -> Keys.Key (REQ-3.2).
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT admin.AdminRolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
+            "INSERT admin.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @r, 'bogus.key')",
             ("@g", Guid.NewGuid()), ("@r", Guid.Parse(SuperAdminRoleId))));
     }
 
@@ -71,8 +71,8 @@ public sealed class AdminRoleRbacGrantsTests
     {
         await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.AdminRoles"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.AdminPermissions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.AdminRoleAssignments"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.Roles"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.Permissions"));
+        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.RoleAssignments"));
     }
 }

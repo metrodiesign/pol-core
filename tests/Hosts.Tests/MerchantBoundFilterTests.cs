@@ -1,17 +1,20 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
 
 namespace Hosts.Tests;
 
 /// <summary>The merchant-bound group filter (REQ-17.2/F10): a request that bound a merchant-user scope (a real
 /// merchant-user session) passes; any other caller binds no scope and is denied 403 — so the role/permission
-/// catalog reads under <c>/merchant-users</c> cannot leak to an unbound caller.</summary>
+/// catalog reads under <c>/merchants/users</c> cannot leak to an unbound caller.</summary>
 public sealed class MerchantBoundFilterTests
 {
-    private static readonly MerchantBoundFilter Filter = new();
+    private static readonly BoundFilter Filter = new();
     private static readonly object Passed = new();
 
     private static async Task<object?> Run(bool bound)
@@ -19,7 +22,7 @@ public sealed class MerchantBoundFilterTests
         var http = new DefaultHttpContext
         {
             RequestServices = new ServiceCollection()
-                .AddSingleton<IMerchantUserScope>(new FakeScope(bound))
+                .AddSingleton<IUserScope>(new FakeScope(bound))
                 .BuildServiceProvider(),
         };
         var context = EndpointFilterInvocationContext.Create(http);
@@ -34,11 +37,11 @@ public sealed class MerchantBoundFilterTests
         Assert.Equal(StatusCodes.Status403Forbidden,
             Assert.IsAssignableFrom<IStatusCodeHttpResult>(await Run(bound: false)).StatusCode);
 
-    private sealed class FakeScope(bool bound) : IMerchantUserScope
+    private sealed class FakeScope(bool bound) : IUserScope
     {
         public bool IsBound => bound;
-        public MerchantUserResolution Current => bound
-            ? new MerchantUserResolution(Guid.NewGuid(), "p@org.com", Guid.NewGuid(), new HashSet<string>())
+        public Resolution Current => bound
+            ? new Resolution(Guid.NewGuid(), "p@org.com", Guid.NewGuid(), new HashSet<string>())
             : throw new InvalidOperationException("not bound");
     }
 }

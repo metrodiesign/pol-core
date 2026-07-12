@@ -70,16 +70,16 @@ public sealed class MerchantUserScalarSecurityTests
     }
 
     [Theory]
-    [InlineData("/api/v1/merchant-users/me", "get")]
-    [InlineData("/api/v1/merchant-users/roles", "get")]
-    [InlineData("/api/v1/merchant-users/permissions", "get")]
+    [InlineData("/api/v1/merchants/users/me", "get")]
+    [InlineData("/api/v1/merchants/users/roles", "get")]
+    [InlineData("/api/v1/merchants/users/permissions", "get")]
     public async Task MerchantUser_surface_operations_require_the_MerchantUserSession_scheme(string path, string method) =>
         Assert.True(OperationRequires(await Document(), path, method, "MerchantUserSession"));
 
     [Fact]
     public async Task Anonymous_merchant_user_login_carries_no_security_requirement()
     {
-        var op = (await Document()).GetProperty("paths").GetProperty("/api/v1/merchant-users/auth/login").GetProperty("get");
+        var op = (await Document()).GetProperty("paths").GetProperty("/api/v1/merchants/users/auth/login").GetProperty("get");
         Assert.False(op.TryGetProperty("security", out _)); // AllowAnonymous -> no requirement
     }
 
