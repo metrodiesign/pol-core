@@ -356,13 +356,58 @@
             control-plane table — the existing provisioning integration tests leave rows the same way; DB is
             throwaway).
 
-- [ ] 7. Canon + docs sync — อัปเดต `.ai/shared/CODING_STANDARDS.md` (canonical entities:
+- [x] 7. Canon + docs sync — อัปเดต `.ai/shared/CODING_STANDARDS.md` (canonical entities:
      Iam catalog แทน 2 ชุดเดิม, permission keys/roles ใหม่) + `.ai/shared/ARCHITECTURE.md`
      (identity/RBAC section: catalog กลาง iam, seed 4 roles) + `docs/reference/platform-modules.md`
      (สถานะ RBAC); grep gates ปิดท้าย: `ponytail: DUPLICATE` (RBAC) = 0, `PermissionParity`/
      `UserPermissionParity`/`Admins.Domain.Permissions`/`Merchants.Domain.Users.Permissions` = 0
      ใน src/; `scripts/spec-trace.sh rf2-iam-rbac` เขียว
      Satisfies: REQ-1.5. Depends on: 2, 3. Verify: grep = 0 + spec-trace exit 0.
+     Evidence:
+       - docs (surgical — rf2 RBAC cutover only, no unrelated rewrite):
+         * `.ai/shared/CODING_STANDARDS.md` — canonical-entities bullet: appended rf2 clause superseding the two
+           per-side catalogs (`Admins.Domain.Permissions.*` + `Merchants.Domain.Users.Permissions.*`, tables
+           `admin.*`/`merch.*`) with the central `Iam` module / schema `iam` (4 tables, PK dot-notation key,
+           group `Scope`; 20 keys / 8 groups; seed 4 roles; anchors `platform_admin`+`merchant_manager`; per-side
+           `RoleAssignment` kept, FK→`iam.Roles`, `AssignedById`; unified `RequirePermission` + parity guard).
+         * `.ai/shared/ARCHITECTURE.md` — Identity block: new "RBAC catalog — rf2" bullet (central `iam` catalog,
+           group Scope + cross-side fail-closed, seed 4 roles w/ per-role key counts, `Roles.MerchantId` wart-close,
+           single `RequirePermission` + side-aware boot parity guard, `iam.*` outside RLS per REQ-9.2, role×Tier
+           still orthogonal → rf6).
+         * `docs/reference/platform-modules.md` — rf2 status banner at top of §3.2 (Admin RBAC) + §4.2 (merchant-
+           user RBAC) marking the pre-rf2 numbers/anchors in those bodies as superseded; module-summary table (§12)
+           cell 4.2 updated to central `iam` (no longer "แคตตาล็อกแยก").
+       - spec-trace: `scripts/spec-trace.sh rf2-iam-rbac` -> OK, 53 criteria referenced in design.md+tasks.md,
+         EARS lint pass, exit 0.
+       - build: `dotnet build -warnaserror` -> Build succeeded, 0 Warning(s), 0 Error(s) — proves docs-only (no
+         accidental production-code touch).
+       - grep gates (symbol-scoped — see deviation 1): RBAC-catalog `ponytail: DUPLICATE` = 0; no old per-side
+         `PermissionParity`/`UserPermissionParity`/`UserPermissionAuthorization` class defs; no
+         `namespace Admins.Domain.Permissions`/`Merchants.Domain.Users.Permissions` decls.
+       - deviations:
+         1. GREP-GATE INTERPRETATION (REQ-1.5 + team-lead handoff). The four closing greps are read as
+            SYMBOL-scoped ("the OLD duplicated RBAC-catalog symbols are gone"), not raw text counts — because
+            task 3 deliberately named the NEW unified guard `PermissionParity` (`src/Hosts/Api/Iam/
+            PermissionAuthorization.cs`, invoked at `Program.cs` `PermissionParity.Assert`), so a raw
+            `grep PermissionParity src/ = 0` is impossible by design and was never the intent (handoff confirmed
+            the gate targets the old per-side symbols, not the new one). Verified structurally: (a) RBAC-catalog
+            `ponytail: DUPLICATE` = 0 — the 16 residual DUPLICATE markers are all the two-console auth/session BFF
+            duplication (handlers/OIDC/CSRF/cookies/tokens/session store+config/session-decision) + the
+            deliberately-KEPT per-side `RoleAssignment`/`SetUserRoles` (REQ-7.1 keeps 2 assignment tables); none is
+            RBAC *catalog* duplication, which is what REQ-1.5 targets. (b) old
+            `PermissionParity`/`UserPermissionParity`/`UserPermissionAuthorization` classes are deleted.
+            (c) `namespace Admins.Domain.Permissions`/`Merchants.Domain.Users.Permissions` are gone. Two residual
+            NON-symbol prose refs are intentionally left (docs-only + surgical; task 3 deviation-5 already chose to
+            keep these breadcrumbs): a "moved to Api.Iam" navigation comment in `UserPermissionAuthorization.cs`
+            (contains the word `UserPermissionParity`) and the `Iam.Domain/Permissions/Keys.cs` XML-doc sentence
+            "replacing ... `Admins.Domain.Permissions.Keys` + `Merchants.Domain.Users.Permissions.Keys`" — both
+            DOCUMENT the removal rather than being duplicated code, and editing them would be a production-code
+            change this docs-only task explicitly does not expect.
+         2. `platform-modules.md` §3.2/§4.2 bodies (16/6, `AdminRole*`, `super_admin`; 7/3, `RequireProducerPermission`,
+            `Producer:EnforcePermissionsOnWrites`) left in place under an explicit "pre-rf2" banner rather than
+            rewritten: those sections are target-design and also carry pre-existing rf1 drift (still "Producer",
+            `/api/admin|producer/v1`) outside rf2's scope — surgically flagging RBAC status (the task's ask) beats a
+            full rewrite that would churn unrelated target-design prose.
 
 ## Suggested execution batches
 
