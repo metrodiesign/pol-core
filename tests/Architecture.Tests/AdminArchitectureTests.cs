@@ -35,6 +35,7 @@ public class AdminArchitectureTests
             "Orders.Infrastructure", "Payments.Infrastructure", "Merchants.Infrastructure",
             "Admin.Infrastructure", "BuildingBlocks.Infrastructure",
         ];
+        AssertAllResolveToARealAssembly(forbidden);
 
         var result = Types.InAssembly(Domain).Should().NotHaveDependencyOnAny(forbidden).GetResult();
 
@@ -47,6 +48,7 @@ public class AdminArchitectureTests
         // Control plane (Admin) is decoupled from the data plane (Merchants): the IAdminMerchantDirectory
         // port is implemented in the host, so Admin.Application references neither module.
         string[] forbidden = ["Merchants.Domain", "Merchants.Application", "Merchants.Infrastructure"];
+        AssertAllResolveToARealAssembly(forbidden);
 
         var result = Types.InAssembly(Application).Should().NotHaveDependencyOnAny(forbidden).GetResult();
 
@@ -65,4 +67,20 @@ public class AdminArchitectureTests
 
     private static string Offenders(TestResult result) =>
         result.IsSuccessful ? "(none)" : "Offenders: " + string.Join(", ", result.FailingTypeNames ?? []);
+
+    // REQ-15.2: NotHaveDependencyOnAny only checks dependencies that exist; a name that resolves to NO assembly
+    // at all (e.g. stale after a rename) makes the guard above pass vacuously instead of catching a real crossing.
+    private static void AssertAllResolveToARealAssembly(string[] names)
+    {
+        foreach (var name in names)
+        {
+            Exception? failure = null;
+            try { Assembly.Load(name); }
+            catch (Exception ex) { failure = ex; }
+
+            Assert.True(failure is null,
+                $"'{name}' does not resolve to any loaded assembly ({failure?.Message}) — a stale or " +
+                "mistyped name here would make NotHaveDependencyOnAny pass vacuously instead of guarding anything.");
+        }
+    }
 }

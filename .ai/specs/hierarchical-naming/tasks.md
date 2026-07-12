@@ -51,7 +51,7 @@
          pre-merge `ReturnUrlAllowlist` audit had nothing live to widen; no production data exists, so the
          big-bang reset in task 9 stays valid without a transfer migration.
 
-- [ ] 1. **Detectors, written against the code as it stands today.**
+- [x] 1. **Detectors, written against the code as it stands today.**
      Every one of these must be **green on the pre-rename, pre-move code** — a detector authored after
      the code it guards proves only that the two agree, not that the control survived.
      Add Hosts.Tests asserting all four controls on `POST /api/v1/admins/merchants` and
@@ -65,6 +65,35 @@
      Satisfies: REQ-7.5, 8.3, 8.4, 8.6, 15.1, 15.2. Depends on: 0.
      Verify: `dotnet test` green **before** any rename; deliberately break one control locally and watch
      each new test fail.
+
+     Evidence:
+       - test: `dotnet test` (full solution) -> Cart 15, BuildingBlocks 65, Products 25, Orders 25,
+         Payments 59, Checkout 2, Admin 129, Merchants 128, Architecture 50, Hosts.Tests 201 — all
+         passed / 0 failed. `Integration.Tests` (86 tests) not run — needs a live SQL Server container +
+         `.env.integration` env vars not sourced in this session; out of this task's scope (Hosts.Tests +
+         Architecture.Tests only) and untouched by this change.
+       - test: deliberately broke each control on the pre-move code and watched its own new test fail,
+         then restored and re-verified green — `AdminCsrfFilter` removed from the `/admins` group ->
+         `POST_without_a_CSRF_token_is_rejected_even_with_a_Super_session` failed; `RequirePlatformUserTier`
+         removed from the POST -> `POST_from_a_Scoped_admin_is_rejected_even_with_a_valid_CSRF_token`
+         failed; `RequireAuthorization("admin")` swapped for `AllowAnonymous()` on the GET ->
+         `Without_a_session_the_admin_policy_rejects_the_request(GET)` failed; `PolCorsPolicyProvider`'s
+         `/api/v1/admins` prefix literal broken -> `AdminCorsGuardTests` failed; a forbidden assembly-name
+         literal typo'd in `AdminArchitectureTests` -> the new resolve-assertion failed.
+       - viewports: n/a — backend-only (endpoint filters, CORS, architecture guards)
+       - deviations: (1) `AdminCsrfFilter` and the Super-tier gate are plain endpoint filters with zero
+         queryable `Endpoint.Metadata` (verified empirically by dumping metadata for
+         `POST /api/v1/admins/merchants` — only `IAuthorizeData`/`HttpMethodMetadata`/etc show up), so the
+         CORS guard's "carrying `AdminCsrfFilter`" clause is approximated as "requires the `admin`
+         authorization policy" — today the two sets coincide exactly (one call site, `Program.cs`).
+         (2) proving CSRF/tier attachment requires an authenticated request past `RequireAuthorization`,
+         but there is no DB-backed session in Hosts.Tests, so the new `AdminMerchantsEndpointControlsTests`
+         re-points the `"admin"` policy at a fake always-present test scheme in its own factory only — the
+         real scheme pinning is already covered by `AdminProvisioningAuthorizationTests`. (3) CSRF is not
+         independently asserted on the GET endpoint — it is a safe method the filter exempts by design
+         (already covered by `AdminCsrfFilterTests`), so there is no observable behavior difference to
+         assert there; REQ-7.1's "re-attach to them" is satisfied structurally (same route group) and
+         verified for the POST, where it is observable.
 
 - [ ] 2. **The naming law, written into the canon and reconciled with the specs it contradicts.**
      Record L1-L8 in `.ai/shared/ARCHITECTURE.md` §Naming Conventions (which today says only
