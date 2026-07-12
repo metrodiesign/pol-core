@@ -39,6 +39,8 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
                 ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                ["AdminSession:ReturnUrlAllowlist:0"] = "/",
+                ["AdminSession:ReturnUrlAllowlist:1"] = "/dashboard",
             });
         });
         builder.ConfigureServices(services =>
@@ -104,8 +106,10 @@ public sealed class AdminAuthLoginRedirectTests
     }
 
     // Guards against the section-name mismatch bugfix regressing (AdminAuthOptions.cs): PlatformUserSessionOptions
-    // must bind from the "AdminSession" section that appsettings.Development.json actually defines. If the option
-    // class's SectionName drifts back out of sync with the config key, this comes back as an empty allowlist.
+    // must bind from the "AdminSession" section (matches the committed appsettings.json key), not the old
+    // "PlatformUserSession" section that section-name value never matched. The allowlist above is set via the
+    // factory's own in-memory config (not a gitignored appsettings.Development.json) so this test is
+    // self-contained in a clean checkout/CI.
     [Fact]
     public void PlatformUserSessionOptions_bind_from_the_appsettings_AdminSession_section()
     {
@@ -113,6 +117,10 @@ public sealed class AdminAuthLoginRedirectTests
 
         var options = factory.Services.GetRequiredService<IOptions<ApiHost::Api.PlatformUserSessionOptions>>().Value;
 
-        Assert.Equal(["/", "/main", "/dashboard", "/tenants"], options.ReturnUrlAllowlist);
+        // NotEmpty + Contains (not a full-list Equal): a machine's own gitignored appsettings.Development.json
+        // may add further allowlist entries on top of these, and this test must stay green either way — only
+        // the regression (SectionName drifts, section never binds, allowlist silently comes back empty) should fail it.
+        Assert.NotEmpty(options.ReturnUrlAllowlist);
+        Assert.Contains("/dashboard", options.ReturnUrlAllowlist);
     }
 }
