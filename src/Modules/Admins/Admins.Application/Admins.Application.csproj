@@ -3,6 +3,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Admins.Domain\Admins.Domain.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
+    <!-- Iam.Domain is a published language (rf2, design.md) — Admins.Application may reference it directly
+         (e.g. SelfProvisionSuperAdmin's Role.PlatformAdminCode), like SharedKernel. Never Iam.Application/Infrastructure. -->
+    <ProjectReference Include="..\..\Iam\Iam.Domain\Iam.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

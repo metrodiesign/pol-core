@@ -46,6 +46,9 @@
     <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Application\Merchants.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Infrastructure\Merchants.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Iam\Iam.Domain\Iam.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Iam\Iam.Application\Iam.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Iam\Iam.Infrastructure\Iam.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

@@ -128,6 +128,18 @@ Orders → Paid. จบ ไม่มี issuance.
   `merch` — **คนละ schema กันแล้ว** (เดิมทั้งคู่ schema เดียว `producer` ก่อน rf1). schema ไม่ใช่เส้นแบ่ง RLS — floor บังคับ
   รายตาราง (`merch.Merchants` self-row + `merch.VaultSecrets`/`VaultRevealAudits` อยู่ใต้ policy แม้อยู่ schema เดียวกับ
   ตารางข้างบนที่ไม่อยู่ใต้ policy)
+- RBAC catalog — **rf2 (2026-07-13, spec `rf2-iam-rbac`)**: catalog ที่เดิมซ้ำ 2 ชุดต่อ console (schema `admin` + `merch`,
+  16 keys/6 groups + 7 keys/3 groups) ยุบเป็น **catalog กลางเดียว module `Iam` schema `iam`** — 4 tables
+  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary = **20 keys /
+  8 groups** โดย `PermissionGroups.Scope ∈ {Platform, Merchant}` ทุก key สืบทอด side จาก group → assign/grant ข้าม side
+  fail-closed by construction (ปิด cross-side grant hole ที่ 2 catalog เดิม detect ไม่ได้). Seed **4 roles**: `platform_admin`
+  (13 platform keys) / `platform_auditor` (4) / `merchant_manager` (7 merchant keys) / `merchant_staff` (4); anchor ปิด/ลบ
+  ไม่ได้ = `platform_admin` + `merchant_manager` (แทน anchor เดิม `super_admin`/`merchant_owner`). `Roles.MerchantId` (NULL =
+  shared/seed, มีค่า = custom ของ merchant นั้น) ปิด wart เดิมที่ merchant custom role รั่วข้าม merchant. คงต่อ side แค่
+  assignment 2 ตาราง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK `RoleId`→`iam.Roles`). `RequirePermission` +
+  boot parity guard side-aware เหลือกลไกเดียว (`Api.Iam`); resolve permission สดต่อ request จาก DB (union ของ role Active),
+  fail-closed 403. `iam.*` อยู่นอก RLS (REQ-9.2 — resolve ระหว่าง authenticate, app-layer scoped read เป็น floor). แกน role
+  (action) กับ Tier/RLS (visibility) ยัง **orthogonal** — งาน visibility เป็น rf6. รายละเอียด: `.ai/specs/rf2-iam-rbac/`
 - Maker-checker (approve merchant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
 - Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ DB floor** (rf1 REQ-3.7 — Scoped INSERT `merch.Merchants` โดน BLOCK, control ใหม่)
 - Money — มาตรฐาน (ตัดสิน 2026-07-05, **as-built แล้ว rf1 2026-07-12**) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** (domain/DB/wire) **ห้าม float/double**; wire = JSON string fixed 4 ตำแหน่ง (กัน IEEE754 double) — รายละเอียดกฎเต็มดู [CODING_STANDARDS.md](CODING_STANDARDS.md); Orders verify amount+currency ตอนรับ `PaymentPaid`

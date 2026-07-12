@@ -68,16 +68,18 @@ public sealed class SelfProvisionSuperHandler : ICommandHandler<SelfProvisionSup
         }
     }
 
-    /// <summary>Idempotently binds the seed super_admin role to the bootstrap account (REQ-8.1). No-op if the seed
-    /// role is absent (pre-migration) or already assigned (race/retry safe — S1).</summary>
+    /// <summary>Idempotently binds the seed platform_admin role to the bootstrap account (REQ-8.1, rf2 —
+    /// was super_admin). No-op if the seed role is absent (pre-migration) or already assigned (race/retry
+    /// safe — S1).</summary>
     private async Task AssignSuperAdminRoleAsync(Guid adminId, string correlationId, CancellationToken ct)
     {
-        var role = await _roles.GetByCodeAsync(Role.SuperAdminCode, ct);
-        if (role is null || await _roles.AssignmentExistsAsync(adminId, role.Id, ct))
+        var resolved = await _roles.GetRoleIdsByCodesAsync([Iam.Domain.Roles.Role.PlatformAdminCode], ct);
+        if (!resolved.TryGetValue(Iam.Domain.Roles.Role.PlatformAdminCode, out var roleId)
+            || await _roles.AssignmentExistsAsync(adminId, roleId, ct))
             return;
-        _roles.AddAssignment(RoleAssignment.Create(adminId, role.Id, adminId, _clock.UtcNow));
+        _roles.AddAssignment(RoleAssignment.Create(adminId, roleId, adminId, _clock.UtcNow));
         _audit.Append(Audit.For(
             AuditAction.RoleAssigned, adminId, correlationId, _clock.UtcNow,
-            targetAdminId: adminId, targetRoleId: role.Id));
+            targetAdminId: adminId, targetRoleId: roleId));
     }
 }

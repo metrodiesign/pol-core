@@ -28,6 +28,11 @@ public static class SchemaNames
     /// <summary>RLS functions/procs only — no tables live here.</summary>
     public const string Sec = "sec";
 
+    /// <summary>Central IAM catalog (rf2): Permissions, PermissionGroups, Roles, RolePermissions — the single
+    /// vocabulary replacing the duplicated admin/merch RBAC catalogs. No RLS predicate (design.md REQ-9.2);
+    /// per-merchant visibility on <c>Roles</c>/<c>RolePermissions</c> is an app-layer floor.</summary>
+    public const string Iam = "iam";
+
     /// <summary>Framework-owned; the ONE named exception to the schema guard (REQ-1.4): DataProtectionKeys.</summary>
     public const string Dbo = "dbo";
 }

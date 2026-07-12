@@ -11,10 +11,10 @@ GO
 
 DECLARE @fail nvarchar(max) = N'';
 
--- --- Schemas (5) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
+-- --- Schemas (6) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
 IF (SELECT COUNT(*) FROM sys.schemas s JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
-    WHERE s.name IN (N'admin', N'merch', N'sec', N'shop', N'txn') AND dp.name = N'dbo') <> 5
-    SET @fail += N'schemas: expected 5 of {admin,merch,sec,shop,txn} owned by dbo; ';
+    WHERE s.name IN (N'admin', N'iam', N'merch', N'sec', N'shop', N'txn') AND dp.name = N'dbo') <> 6
+    SET @fail += N'schemas: expected 6 of {admin,iam,merch,sec,shop,txn} owned by dbo; ';
 
 -- --- Raw table: merch.RegistrationNotices (ExcludeFromMigrations — EF never diffs/creates it) ---
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
@@ -71,13 +71,18 @@ IF EXISTS (SELECT 1 FROM sys.database_permissions p
              AND p.major_id = OBJECT_ID(N'merch.VaultSecrets'))
     SET @fail += N'pol_admin must not have SELECT on merch.VaultSecrets (no plaintext read-back invariant); ';
 
--- --- Seeds: RBAC catalogs + HR master data (exact counts — fixed VALUES lists, no NEWID rows) ---
-IF (SELECT COUNT(*) FROM admin.PermissionGroups) <> 6
-    SET @fail += N'admin.PermissionGroups expected 6 rows; ';
-IF (SELECT COUNT(*) FROM admin.Permissions) <> 16
-    SET @fail += N'admin.Permissions expected 16 rows; ';
-IF (SELECT COUNT(*) FROM admin.Roles) <> 5
-    SET @fail += N'admin.Roles expected 5 rows; ';
+-- --- Seeds: central RBAC catalog (rf2 — iam.* replaced the two per-side catalogs) + HR master data
+-- (exact counts — fixed VALUES lists, no NEWID rows) ---
+IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 8
+    SET @fail += N'iam.PermissionGroups expected 8 rows; ';
+IF (SELECT COUNT(*) FROM iam.Permissions) <> 20
+    SET @fail += N'iam.Permissions expected 20 rows; ';
+IF (SELECT COUNT(*) FROM iam.Roles) <> 4
+    SET @fail += N'iam.Roles expected 4 rows; ';
+IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 28
+    SET @fail += N'iam.RolePermissions expected 28 rows; ';
+IF OBJECT_ID(N'admin.Roles', N'U') IS NOT NULL OR OBJECT_ID(N'merch.Roles', N'U') IS NOT NULL
+    SET @fail += N'legacy per-side RBAC catalog tables must not exist (rf2 cutover); ';
 IF (SELECT COUNT(*) FROM admin.Positions) <> 12
     SET @fail += N'admin.Positions expected 12 rows; ';
 IF (SELECT COUNT(*) FROM admin.Offices) <> 8
@@ -86,15 +91,9 @@ IF (SELECT COUNT(*) FROM admin.Levels) <> 10
     SET @fail += N'admin.Levels expected 10 rows; ';
 IF (SELECT COUNT(*) FROM admin.Divisions) <> 10
     SET @fail += N'admin.Divisions expected 10 rows; ';
-IF (SELECT COUNT(*) FROM merch.PermissionGroups) <> 3
-    SET @fail += N'merch.PermissionGroups expected 3 rows; ';
-IF (SELECT COUNT(*) FROM merch.Permissions) <> 7
-    SET @fail += N'merch.Permissions expected 7 rows; ';
-IF (SELECT COUNT(*) FROM merch.Roles) <> 2
-    SET @fail += N'merch.Roles expected 2 rows; ';
 
 IF LEN(@fail) > 0
     THROW 50000, @fail, 1;
 
-PRINT N'assert-fresh-db: OK — schemas, RegistrationNotices, 3 functions, 3 procs, policy, bypass-role membership, grant floor + 2 security invariants, RBAC/master-data seed counts all verified.';
+PRINT N'assert-fresh-db: OK — schemas, RegistrationNotices, 3 functions, 3 procs, policy, bypass-role membership, grant floor + 2 security invariants, iam RBAC catalog + master-data seed counts all verified.';
 GO

@@ -1,10 +1,8 @@
 using Admins.Application;
 using Admins.Application.MasterData;
-using Admins.Application.Permissions;
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.MasterData;
-using Admins.Domain.Permissions;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
 

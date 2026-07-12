@@ -1,13 +1,13 @@
 using Admins.Application;
 using Admins.Application.MasterData;
-using Admins.Application.Permissions;
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.MasterData;
-using Admins.Domain.Permissions;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
+using Iam.Domain.Permissions;
+using Iam.Domain.Roles;
 
 namespace Admins.Tests;
 
@@ -105,9 +105,9 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var seed = Role.Create(Role.SuperAdminCode, "Super", null, "red", RoleStatus.Active,
-            ["user.roles"], Keys.AllKeys);
-        roles.Add(seed);
+        var seed = Role.Create(Role.PlatformAdminCode, "Super", null, "red", RoleStatus.Active,
+            Scope.Platform, null, ["user.roles"], Keys.KeySide);
+        roles.Roles.Add(seed);
         var audit = new FakePlatformUserAuditWriter();
         var handler = new SelfProvisionSuperHandler(admins, roles, audit, new FakeUnitOfWork(), new FixedClock());
 

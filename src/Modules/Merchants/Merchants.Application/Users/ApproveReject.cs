@@ -73,14 +73,14 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
             if (roleCodes.Count == 0)
                 throw new ArgumentException("At least one role must be assigned at approval."); // 400 (REQ-6.2)
 
-            var roleIds = new List<Guid>(roleCodes.Count);
-            foreach (var code in roleCodes)
-            {
-                var role = await _roles.GetByCodeAsync(code, ct);
-                if (role is null || role.Status != RoleStatus.Active)
-                    throw new ConflictException($"Role '{code}' is unknown or inactive."); // 409 (REQ-6.5)
-                roleIds.Add(role.Id);
-            }
+            // Visible (shared + this merchant's own) AND Active in one lookup (REQ-3.5/7.2/6.5) — a code
+            // missing from the result is unknown, invisible to this merchant, OR inactive; all three collapse
+            // to the same "unknown or inactive" 409 the original two-step check produced.
+            var resolved = await _roles.GetActiveRoleIdsByCodesAsync(command.ValidatedMerchantId, roleCodes, ct);
+            var unresolved = roleCodes.Where(c => !resolved.ContainsKey(c)).ToList();
+            if (unresolved.Count > 0)
+                throw new ConflictException($"Role(s) unknown or inactive: {string.Join(", ", unresolved)}."); // 409 (REQ-6.5)
+            var roleIds = resolved.Values.ToList();
 
             account.Approve(command.ValidatedMerchantId, now); // PendingApproval -> Active, sets MerchantId (REQ-6.2/9.2)
             foreach (var roleId in roleIds)

@@ -27,7 +27,11 @@ public sealed class MoneyColumnMappingTests : IDisposable
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
 
-        var options = new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection).Options;
+        // EnableServiceProviderCaching(false): see EntitySchemaMappingTests — EF's model cache keys on the
+        // context type, so two PolDbContext test classes with different ModuleAssemblies would otherwise
+        // share whichever model got built first.
+        var options = new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection)
+            .EnableServiceProviderCaching(false).Options;
         var modules = new ModuleAssemblies([
             typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
             typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,

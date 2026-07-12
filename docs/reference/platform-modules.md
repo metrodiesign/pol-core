@@ -493,6 +493,8 @@ redirect URL ลง span attribute
 
 ### 3.2 โมดูล Admin RBAC
 
+> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** permission/role catalog ฝั่ง admin (เดิม `admin.*` 16 keys / 6 groups, entities `AdminRole*`/`AdminPermission*`) ถูกยุบเข้า **catalog กลางเดียว module `Iam` schema `iam`** ร่วมกับฝั่ง merchant-user — vocabulary รวม 20 keys / 8 groups, seed 4 roles (platform: `platform_admin`/`platform_auditor`; merchant: `merchant_manager`/`merchant_staff`). Admin console เห็นเฉพาะ Platform-scope keys (13 keys / 5 groups). recovery anchor เปลี่ยน `super_admin` → `platform_admin` (ปิด/ลบไม่ได้). `RequirePermission` + boot parity guard เหลือกลไกเดียว side-aware (`Api.Iam`). ตัวเลข/ชื่อ entity ในส่วนด้านล่าง (16/6, `AdminRole*`, `super_admin`) เป็นสถานะก่อน rf2 — ดู `.ai/specs/rf2-iam-rbac/`.
+
 **บทบาท**
 - permission catalog เป็น reference data ใน DB (16 keys / 6 กลุ่ม: txn, merchant, finance, user, system, producer) — feature ใหม่ seed key ของตัวเองผ่าน migration
 - `AdminRole` → `AdminRolePermission` → `AdminRoleAssignment`; สิทธิ์รวม = **union ของ role ที่ Active**
@@ -585,6 +587,8 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 **สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [producer-module.md](producer-module.md)
 
 ### 4.2 โมดูล Producer RBAC
+
+> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** catalog ฝั่ง merchant-user (เดิม producer, `merch.*` 7 keys / 3 groups, จงใจ duplicate โครงจาก Admin) ถูกยุบเข้า **catalog กลางเดียว `iam`** ร่วมกับฝั่ง admin — merchant console เห็นเฉพาะ Merchant-scope keys (7 keys / 3 groups: `catalog`/`payment`/`roles`), seed 2 roles ฝั่ง merchant `merchant_manager` (ทุก merchant key) / `merchant_staff`; anchor `merchant_manager` ปิด/ลบไม่ได้. custom role ของ merchant ผูก `Roles.MerchantId` ไม่รั่วข้าม merchant แล้ว (ปิด wart เดิม). merchant-user gate ใช้ `RequirePermission` กลไกเดียวร่วมกับ admin (แทน `RequireProducerPermission`/`RequireMerchantUserPermission` แยกฝั่ง). ตัวเลข/ชื่อในส่วนด้านล่างเป็นสถานะก่อน rf2 — ดู `.ai/specs/rf2-iam-rbac/`.
 
 **บทบาท**
 - แคตตาล็อกแยกของฝั่ง producer (จงใจ duplicate โครงจาก Admin RBAC — คนละวงจรชีวิต ห้าม refactor รวม): 7 keys / 3 กลุ่ม — `product.create`, `product.update`, `payment.create`, `payment.redirect`, `producer.roles.view`, `producer.roles.manage`, `producer.user.roles`
@@ -1093,7 +1097,7 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 | 3.1 | Admin | บัญชีพนักงานภายใน + OIDC BFF session | มีแล้ว | [admin-module.md](admin-module.md) |
 | 3.2 | Admin RBAC | role → permission (fail-closed) orthogonal กับ Tier | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 4.1 | Producer | บัญชีตัวแทน/นายหน้า + สมัคร ticket-gated + OIDC BFF | มีแล้ว | [producer-module.md](producer-module.md) |
-| 4.2 | Producer RBAC | role → permission ฝั่ง producer (แคตตาล็อกแยก) | มีแล้ว | [producer-module.md](producer-module.md) |
+| 4.2 | Producer RBAC | role → permission ฝั่ง merchant-user (rf2: catalog กลาง `iam` ร่วมกับ admin) | มีแล้ว | [producer-module.md](producer-module.md) |
 | 5 | Product | catalog สินค้า/กรมธรรม์ต่อ tenant, source ของราคา | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 6 | Cart | ตะกร้า + subtotal สกุลเดียว | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 7 | Checkout | กำหนดข้อมูล + ล็อกยอด ก่อนยืนยันคำสั่งซื้อ | บางส่วน | [entity-fields.md](entity-fields.md) |

@@ -2,11 +2,9 @@ using BuildingBlocks.Application;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
-using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
-using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -97,9 +95,9 @@ public sealed class ApproveRejectMerchantUserTests
         Assert.Equal(UserStatus.Active, u.Status);
         Assert.Equal(Merchant, u.MerchantId);
         var assignment = Assert.Single(roles.Assignments);
-        Assert.Equal(member.Id, assignment.RoleId);
+        Assert.Equal(member, assignment.RoleId);
         Assert.Equal(Merchant, assignment.MerchantId);
-        Assert.Equal(AdminId, assignment.AssignedByAdminId);
+        Assert.Equal(AdminId, assignment.AssignedById);
         Assert.Contains(audit.Rows, a => a.Action == RegistrationAuditAction.Approved && a.TargetSubject == u.Subject);
     }
 
@@ -200,35 +198,34 @@ public sealed class ApproveRejectMerchantUserTests
 
     private sealed class FakeRoles : IRoleRepository
     {
-        private readonly Dictionary<string, Role> _byCode = [];
+        // Only ACTIVE codes land here — GetActiveRoleIdsByCodesAsync (REQ-6.5) collapses "unknown" and
+        // "inactive" into the same absent-from-result case, so an inactive seed need not be tracked at all.
+        private readonly Dictionary<string, Guid> _active = [];
         public readonly List<RoleAssignment> Assignments = [];
 
-        public Role SeedActive(string code) => Seed(code, RoleStatus.Active);
-        public Role SeedInactive(string code) => Seed(code, RoleStatus.Inactive);
-        private Role Seed(string code, RoleStatus status)
+        public Guid SeedActive(string code)
         {
-            var role = Role.Create(code, code, null, null, status, [], Keys.AllKeys);
-            _byCode[code] = role;
-            return role;
+            var id = Guid.NewGuid();
+            _active[code] = id;
+            return id;
         }
 
-        public Task<Role?> GetByCodeAsync(string code, CancellationToken ct) => Task.FromResult(_byCode.GetValueOrDefault(code));
+        public Guid SeedInactive(string code) => Guid.NewGuid(); // never resolvable — absent from _active
+
         public void AddAssignment(RoleAssignment assignment) => Assignments.Add(assignment);
 
+        public Task<IReadOnlyDictionary<string, Guid>> GetActiveRoleIdsByCodesAsync(
+            Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyDictionary<string, Guid>>(
+                _active.Where(kv => codes.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value));
+
         // Unused by approve/reject.
-        public void Add(Role role) => throw new NotSupportedException();
-        public void Remove(Role role) => throw new NotSupportedException();
         public void RemoveAssignment(RoleAssignment assignment) => throw new NotSupportedException();
-        public Task<bool> CodeExistsAsync(string code, CancellationToken ct) => throw new NotSupportedException();
-        public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<RoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<RoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(
+            Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) => throw new NotSupportedException();
         public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
     }

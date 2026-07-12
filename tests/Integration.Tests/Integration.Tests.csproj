@@ -22,8 +22,9 @@
        the tests drive raw connections so they can control SESSION_CONTEXT and impersonation directly. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
-    <!-- Merchants.Domain: the MerchantUserPermissions catalog vocabulary, for the seed code<->DB parity drift guard. -->
-    <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
+    <!-- Iam.Domain: the single central permission/role vocabulary (Keys, Role anchors) — the code side of the
+         seed code<->DB parity drift guard (rf2 replaced the two per-side catalogs with this one). -->
+    <ProjectReference Include="..\..\src\Modules\Iam\Iam.Domain\Iam.Domain.csproj" />
   </ItemGroup>
 
 </Project>

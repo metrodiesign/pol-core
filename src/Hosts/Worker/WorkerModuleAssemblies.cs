@@ -19,5 +19,9 @@ internal static class WorkerModuleAssemblies
         // The dispatcher consumes MerchantUserRegistrationSubmitted -> records a control-plane notice (REQ-20.4);
         // the merchant-user EF configs (incl. MerchantUserRegistrationNotices) must be in the worker's model to write it.
         typeof(Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
+        // The worker's PolDbContext must map the same iam.* tables the API/migrations model has (rf2) — even
+        // though the worker never queries them today, a model that omits them would diverge from the migrated
+        // schema and fail HasPendingModelChanges()-style consistency checks.
+        typeof(Iam.Infrastructure.IamModuleRegistration).Assembly,
     ];
 }

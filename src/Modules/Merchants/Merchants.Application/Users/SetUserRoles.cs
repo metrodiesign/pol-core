@@ -51,7 +51,7 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
             if (target is null || target.Status != UserStatus.Active || target.MerchantId != command.ActingMerchantId)
                 throw new NotFoundException("The merchant user was not found in your merchant.");
 
-            var resolved = await _roles.GetRoleIdsByCodesAsync(requestedCodes, ct);
+            var resolved = await _roles.GetRoleIdsByCodesAsync(command.ActingMerchantId, requestedCodes, ct);
             var unknown = requestedCodes.Where(c => !resolved.ContainsKey(c)).ToList();
             if (unknown.Count > 0)
                 throw new ArgumentException($"Unknown role codes: {string.Join(", ", unknown)}");

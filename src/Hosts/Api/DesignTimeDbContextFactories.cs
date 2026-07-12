@@ -19,10 +19,11 @@ internal static class HostModuleAssemblies
         typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
-        // global:: required: Api.Merchants/Api.Admins (D7 area namespaces) now shadow the module root
-        // namespaces Merchants/Admins from within namespace Api and its descendants.
+        // global:: required: Api.Merchants/Api.Admins/Api.Iam (D7 area namespaces) now shadow the module root
+        // namespaces Merchants/Admins/Iam from within namespace Api and its descendants.
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
+        typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
     ];
 
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;

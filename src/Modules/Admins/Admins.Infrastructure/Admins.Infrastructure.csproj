@@ -3,6 +3,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Admins.Application\Admins.Application.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
+    <!-- Iam.Domain is a published language (rf2) — this repo queries iam.Roles/iam.RolePermissions directly
+         for assignment resolution; only Iam.Domain, never Iam.Application/Infrastructure. -->
+    <ProjectReference Include="..\..\Iam\Iam.Domain\Iam.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
