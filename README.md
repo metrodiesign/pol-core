@@ -106,6 +106,26 @@ dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL 
    (AI agent: เริ่มที่ `AGENTS.md` หรือ `CLAUDE.md`)
 2. งานใหม่ผ่าน spec workflow เสมอ — ไม่ code ก่อน requirements -> design -> tasks
 
+## Demo seed data (dev only)
+
+DB ที่ migrate เสร็จใหม่มีแค่ IAM catalog กับ master data (`cfg.*`) — ตารางอื่นว่างเปล่า ทำให้เปิด
+console/เรียก API แล้วไม่เห็นอะไร. `docker/bootstrap/seed-demo.sql` เติม demo dataset ครอบคลุมทั้ง
+funnel (merchant -> ผู้ใช้ทั้งสองฝั่ง -> สินค้า -> ตะกร้า -> checkout -> order -> payment session)
+สำหรับ dev/localhost เท่านั้น — **ห้ามรันบน prod**.
+
+```bash
+set -a && source .env && set +a
+./scripts/seed-demo.sh          # โหลด/โหลดซ้ำได้เรื่อย ๆ (idempotent, ไม่ TRUNCATE)
+```
+
+- **ไม่ใช่ EF migration** — `dotnet ef database update` ไม่แตะ demo data แม้แต่แถวเดียว; รันแยกด้วยมือ
+  เท่านั้น เพราะ demo data ไม่ควรอยู่ใน schema-migration history ที่วิ่งบน prod ด้วย
+- id ทุกแถวเป็น GUID คงที่ (prefix `e1…`–`ee…` ต่อตาราง) — รันซ้ำ = ลบแถว demo ของตัวเองแล้วใส่ใหม่
+  เท่านั้น ไม่แตะแถวอื่น
+- **login Google จริงไม่ได้** — `Subject`/`sub` ของบัญชี demo ทั้งหมดเป็นค่าปลอม (prefix `demo-adm-`/`demo-mch-`)
+- password อ่านจาก `POL_SA_PASSWORD` หรือ `MSSQL_SA_PASSWORD` เท่านั้น ไม่มี secret ฝังในสคริปต์
+- รายละเอียด: `.ai/specs/demo-seed-data/{requirements,design}.md`
+
 ## กฎที่ขาดไม่ได้
 
 - **Spec first** — ไม่ code ก่อนผ่าน gate (requirements → design → tasks)

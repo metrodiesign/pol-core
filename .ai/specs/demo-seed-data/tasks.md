@@ -13,7 +13,7 @@ Canon ที่ implementer ต้องอ่านก่อนเริ่ม:
 
 ---
 
-## - [ ] T1 — โครงสคริปต์ + RLS context + platform users + runner
+## - [x] T1 — โครงสคริปต์ + RLS context + platform users + runner
 
 Satisfies: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 2.1, 2.2, 2.3, 2.4, 4.1, 4.2, 7.1, 7.2, 7.3
 
@@ -44,6 +44,82 @@ Verify:
 - พิสูจน์ REQ-2.4: ลอง comment ขั้น (ข) ชั่วคราวแล้วรัน -> ต้องพัง (PK violation หรือ 0 rows deleted);
   uncomment กลับ. เขียนผลลงใน Evidence
 - `git status` ไม่มีไฟล์ใต้ `src/` เปลี่ยน
+
+### Evidence (2026-07-13)
+
+รันจริงบน `pol-db` container (`localhost,11433`, DB `VCentralPay`), `sqlcmd` ที่ `/opt/homebrew/bin/sqlcmd`.
+โหลด env ด้วย `set -a && source .env && set +a` (แสดง noise "command not found: User" จากบรรทัด
+connection-string ใน `.env` — harmless, ตัวแปรถูก set จริง).
+
+**1. รันครั้งแรก:**
+```
+$ ./scripts/seed-demo.sh
+Changed database context to 'VCentralPay'.
+admin.Users = 6
+seed-demo: OK.
+EXIT=0
+```
+
+**2. รันซ้ำครั้งที่ 2 (idempotent):**
+```
+$ ./scripts/seed-demo.sh
+Changed database context to 'VCentralPay'.
+admin.Users = 6
+seed-demo: OK.
+EXIT=0
+```
+
+**3. GOTCHA ที่เจอระหว่างทาง (ไม่ได้อยู่ใน design):** รันครั้งแรกพังด้วย
+`Msg 1934 ... DELETE failed because the following SET options have incorrect settings: 'QUOTED_IDENTIFIER'`
+— `sec.MerchantIsolationPolicy` ใช้ schema-bound inline function เป็น predicate (ตระกูลเดียวกับ
+indexed view/filtered index) ซึ่งต้องการ `QUOTED_IDENTIFIER ON` และ sqlcmd session ไม่ set ให้โดย
+default. แก้ด้วย `SET QUOTED_IDENTIFIER ON;` ต่อจาก `SET XACT_ABORT ON;` ที่หัวสคริปต์ (ทำครั้งเดียว
+คลุมทั้งไฟล์เพราะ session-level setting ข้าม batch ใน sqlcmd connection เดียวกัน) — **T2-T4 ไม่ต้องทำอะไรเพิ่ม
+เรื่องนี้ ของมันมีอยู่แล้วที่หัวไฟล์**
+
+**4. พิสูจน์ REQ-2.4** — T1 ยังไม่มี INSERT ตารางที่ merchant-scoped เลย (T2-T4 ยังไม่ทำ) ดังนั้น comment
+step (ข) แล้วรัน `seed-demo.sh` ตรง ๆ **ไม่พัง** (exit 0 เหมือนเดิม) เพราะไม่มีอะไรให้ INSERT ชน PK ในตอนนี้ —
+เลยพิสูจน์ trap ด้วยการทดลองแยกแทน (insert แถวทดสอบเข้า `merch.Merchants` ด้วยมือ, สลับ stamp/ไม่ stamp
+session context, cleanup หลังจบ):
+```
+-- Setup: stamp context, insert 1 test row into merch.Merchants (e1000000-...-000000000099)
+(1 rows affected)   -- insert OK
+after_insert = 1
+
+-- DELETE WITHOUT stamping session context (fresh sqlcmd connection, no EXEC sp_set_session_context):
+DELETE FROM merch.Merchants WHERE Id LIKE 'e1000000-%';
+rows_deleted_without_context_stamp = 0     -- <-- RLS filters it out, DELETE silently "succeeds" removing nothing
+still_present = 0                          -- <-- SAME query also returns 0: the row LOOKS gone under this session,
+                                            --     but that's the FILTER predicate hiding it, not an actual delete
+
+-- Verify it is still physically there: re-stamp context, re-check, then clean up properly:
+visible_with_context_stamped = 1           -- <-- proves the row never left; it was just invisible without the stamp
+cleanup_rows_deleted = 1                   -- <-- DELETE only works once context is stamped
+```
+ผลตรงกับ design's warning เป๊ะ: ไม่ stamp context -> DELETE (และ SELECT ใด ๆ) มองไม่เห็นแถว merchant-scoped
+เลยสักแถว ไม่ใช่แค่ "ลบไม่ได้" แต่ "มองไม่เห็นด้วย" — เงียบสนิท ไม่ error. **PK collision จริงจะเห็นเป็นครั้งแรก
+ตอน T2 เพิ่ม INSERT เข้า merchant-scoped tables** (ถ้า T2 comment step (ข) แล้วรันซ้ำ จะได้ PK violation
+เพราะรอบแรกที่ INSERT สำเร็จ, DELETE รอบสองมองไม่เห็นแถวเดิม, INSERT รอบสองชน PK) — ทดสอบ pattern เดิมซ้ำได้
+ตอน T2 เพื่อยืนยัน exact failure mode นั้น. หลัง cleanup แล้วรัน `seed-demo.sh` ปกติ (step (ข) restore แล้ว)
+กลับมา exit 0 เหมือนเดิม, `admin.Users` ยังคง 28 แถว (ไม่มี leftover test row).
+
+**5. ยืนยันไม่แตะแถวเดิม:**
+```
+$ sqlcmd ... -Q "SELECT COUNT(*) FROM admin.Users"
+28    -- 22 pre-existing + 6 demo, ตรงตาม spec
+```
+
+**6. `git status` (หลัง T1):**
+```
+ M README.md
+?? docker/bootstrap/seed-demo.sql
+?? scripts/seed-demo.sh
+```
+ไม่มีไฟล์ใต้ `src/` เปลี่ยนแปลง (REQ-7.3).
+
+**ส่งต่อ T2:** step (ค) มี DELETE ครบทุกตาราง merchant-scoped อยู่แล้ว (child->parent) — T2 แค่เติม INSERT
+ในโซน (ง) และเติมชื่อตารางเข้า `@counts` ในโซน (จ) เท่านั้น ห้ามแก้ลำดับ DELETE. ตัว `SET QUOTED_IDENTIFIER ON;`
+อยู่ที่หัวไฟล์แล้ว ไม่ต้องเติมซ้ำ.
 
 ---
 
