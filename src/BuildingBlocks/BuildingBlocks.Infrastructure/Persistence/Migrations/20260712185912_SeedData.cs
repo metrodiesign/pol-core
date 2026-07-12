@@ -111,6 +111,66 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                   (NEWID(), '{MerchantStaffRoleId}', 'payment.create'),
                   (NEWID(), '{MerchantStaffRoleId}', 'payment.redirect');
                 """);
+
+            // --- Admin master data: HR org lists (Positions/Offices/Levels/Divisions). Fixed, deterministic GUIDs
+            // (never NEWID in a migration) so every environment shares the same ids and the PlatformUser FKs stay
+            // stable. RFC-4122-well-formed, namespaced by table for readability. Carried verbatim from the pre-rf2
+            // chain — rf2 replaced only the RBAC catalogs, not the HR seed (the CI fresh-DB gate pins these counts). ---
+            migrationBuilder.Sql("""
+                INSERT INTO admin.Positions (Id, Code, Name, IsActive) VALUES
+                  ('a1000000-0000-4000-8000-000000000001', 'ceo',               N'ประธานเจ้าหน้าที่บริหาร',            1),
+                  ('a1000000-0000-4000-8000-000000000002', 'coo',               N'ประธานเจ้าหน้าที่ปฏิบัติการ',        1),
+                  ('a1000000-0000-4000-8000-000000000003', 'cfo',               N'ประธานเจ้าหน้าที่การเงิน',           1),
+                  ('a1000000-0000-4000-8000-000000000004', 'cto',               N'ประธานเจ้าหน้าที่เทคโนโลยีสารสนเทศ', 1),
+                  ('a1000000-0000-4000-8000-000000000005', 'director',          N'ผู้อำนวยการ',                       1),
+                  ('a1000000-0000-4000-8000-000000000006', 'deputy_director',   N'รองผู้อำนวยการ',                    1),
+                  ('a1000000-0000-4000-8000-000000000007', 'manager',           N'ผู้จัดการ',                         1),
+                  ('a1000000-0000-4000-8000-000000000008', 'assistant_manager', N'ผู้ช่วยผู้จัดการ',                   1),
+                  ('a1000000-0000-4000-8000-000000000009', 'supervisor',        N'หัวหน้างาน',                        1),
+                  ('a1000000-0000-4000-8000-00000000000a', 'senior_officer',    N'เจ้าหน้าที่อาวุโส',                 1),
+                  ('a1000000-0000-4000-8000-00000000000b', 'officer',           N'เจ้าหน้าที่',                       1),
+                  ('a1000000-0000-4000-8000-00000000000c', 'staff',             N'พนักงาน',                           1);
+                """);
+
+            migrationBuilder.Sql("""
+                INSERT INTO admin.Offices (Id, Code, Name, IsActive) VALUES
+                  ('b2000000-0000-4000-8000-000000000001', 'hq',        N'สำนักงานใหญ่',                     1),
+                  ('b2000000-0000-4000-8000-000000000002', 'north',     N'สำนักงานภาคเหนือ',                 1),
+                  ('b2000000-0000-4000-8000-000000000003', 'northeast', N'สำนักงานภาคตะวันออกเฉียงเหนือ',    1),
+                  ('b2000000-0000-4000-8000-000000000004', 'central',   N'สำนักงานภาคกลาง',                  1),
+                  ('b2000000-0000-4000-8000-000000000005', 'east',      N'สำนักงานภาคตะวันออก',              1),
+                  ('b2000000-0000-4000-8000-000000000006', 'west',      N'สำนักงานภาคตะวันตก',               1),
+                  ('b2000000-0000-4000-8000-000000000007', 'south',     N'สำนักงานภาคใต้',                   1),
+                  ('b2000000-0000-4000-8000-000000000008', 'remote',    N'ปฏิบัติงานนอกสถานที่',             1);
+                """);
+
+            migrationBuilder.Sql("""
+                INSERT INTO admin.Levels (Id, Code, Name, IsActive) VALUES
+                  ('c3000000-0000-4000-8000-000000000001', 'level_1',  N'ระดับ 1',  1),
+                  ('c3000000-0000-4000-8000-000000000002', 'level_2',  N'ระดับ 2',  1),
+                  ('c3000000-0000-4000-8000-000000000003', 'level_3',  N'ระดับ 3',  1),
+                  ('c3000000-0000-4000-8000-000000000004', 'level_4',  N'ระดับ 4',  1),
+                  ('c3000000-0000-4000-8000-000000000005', 'level_5',  N'ระดับ 5',  1),
+                  ('c3000000-0000-4000-8000-000000000006', 'level_6',  N'ระดับ 6',  1),
+                  ('c3000000-0000-4000-8000-000000000007', 'level_7',  N'ระดับ 7',  1),
+                  ('c3000000-0000-4000-8000-000000000008', 'level_8',  N'ระดับ 8',  1),
+                  ('c3000000-0000-4000-8000-000000000009', 'level_9',  N'ระดับ 9',  1),
+                  ('c3000000-0000-4000-8000-00000000000a', 'level_10', N'ระดับ 10', 1);
+                """);
+
+            migrationBuilder.Sql("""
+                INSERT INTO admin.Divisions (Id, Code, Name, IsActive) VALUES
+                  ('d4000000-0000-4000-8000-000000000001', 'executive',        N'สำนักผู้บริหาร',                    1),
+                  ('d4000000-0000-4000-8000-000000000002', 'finance',          N'ฝ่ายการเงินและบัญชี',               1),
+                  ('d4000000-0000-4000-8000-000000000003', 'technology',       N'ฝ่ายเทคโนโลยีสารสนเทศ',             1),
+                  ('d4000000-0000-4000-8000-000000000004', 'operations',       N'ฝ่ายปฏิบัติการ',                    1),
+                  ('d4000000-0000-4000-8000-000000000005', 'product',          N'ฝ่ายผลิตภัณฑ์',                     1),
+                  ('d4000000-0000-4000-8000-000000000006', 'sales_marketing',  N'ฝ่ายขายและการตลาด',                 1),
+                  ('d4000000-0000-4000-8000-000000000007', 'risk_compliance',  N'ฝ่ายบริหารความเสี่ยงและกำกับดูแล',  1),
+                  ('d4000000-0000-4000-8000-000000000008', 'legal',            N'ฝ่ายกฎหมาย',                        1),
+                  ('d4000000-0000-4000-8000-000000000009', 'hr',               N'ฝ่ายทรัพยากรบุคคล',                 1),
+                  ('d4000000-0000-4000-8000-00000000000a', 'customer_service', N'ฝ่ายบริการลูกค้า',                  1);
+                """);
         }
 
         /// <inheritdoc />
@@ -130,6 +190,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 DELETE FROM iam.PermissionGroups WHERE [Key] IN
                   ('txn','merchant','user','system','merchants.users','catalog','payment','roles');
                 """);
+            migrationBuilder.Sql("DELETE FROM admin.Positions WHERE Id LIKE 'a1000000-%';");
+            migrationBuilder.Sql("DELETE FROM admin.Offices   WHERE Id LIKE 'b2000000-%';");
+            migrationBuilder.Sql("DELETE FROM admin.Levels    WHERE Id LIKE 'c3000000-%';");
+            migrationBuilder.Sql("DELETE FROM admin.Divisions WHERE Id LIKE 'd4000000-%';");
         }
     }
 }
