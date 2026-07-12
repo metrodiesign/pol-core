@@ -1,6 +1,6 @@
 # Implementation Tasks: Hierarchical Naming (namespace + route)
 
-> Status: draft
+> Status: approved 2026-07-12
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task
 > in one pass (it may touch many files). Decompose into sub-steps yourself at
