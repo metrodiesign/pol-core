@@ -211,6 +211,135 @@ VALUES
     ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', N'ประกันร้านขายของฝาก Souvenir Shop Cover',  1, SYSUTCDATETIME(),   2100.0000, 'THB'),
     ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', N'ประกันสินค้าที่ระลึกพิเศษ Limited Edition (เลิกขาย)', 0, SYSUTCDATETIME(), 48000.0000, 'THB');
 
+-- shop.Carts (REQ-6.1): 2 per merchant, string Status ('Open'/'CheckedOut' — CartConfiguration
+-- uses HasConversion<string>() into nvarchar(16); an int here would violate the column mapping).
+INSERT INTO shop.Carts (Id, MerchantId, Status, CreatedAt)
+VALUES
+    ('ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', N'Open',       SYSUTCDATETIME()),
+    ('ea000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', N'CheckedOut', SYSUTCDATETIME()),
+    ('ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', N'Open',       SYSUTCDATETIME()),
+    ('ea000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000002', N'CheckedOut', SYSUTCDATETIME()),
+    ('ea000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000003', N'Open',       SYSUTCDATETIME()),
+    ('ea000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000003', N'Open',       SYSUTCDATETIME());
+
+-- shop.CartItems (REQ-6.1): ProductId always belongs to the same merchant as the parent cart.
+-- No MerchantId column here — RLS delegates through sec.fn_cartitem_predicate(CartId), it does not
+-- need one, but a cross-merchant ProductId would still be a data bug (checked by verify query below).
+INSERT INTO shop.CartItems (Id, CartId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency)
+VALUES
+    -- cart ea…0001 (vprivilege, Open) — sum 23400.0000
+    ('eb000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000001', 1, 1200.0000,  'THB'),
+    ('eb000000-0000-4000-8000-000000000002', 'ea000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000002', 2, 1850.0000,  'THB'),
+    ('eb000000-0000-4000-8000-000000000003', 'ea000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000003', 1, 18500.0000, 'THB'),
+    -- cart ea…0002 (vprivilege, CheckedOut) — sum 56500.0000
+    ('eb000000-0000-4000-8000-000000000004', 'ea000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000004', 1, 32000.0000, 'THB'),
+    ('eb000000-0000-4000-8000-000000000005', 'ea000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000005', 1, 24500.0000, 'THB'),
+    -- cart ea…0003 (vcommerce, Open) — sum 12650.0000
+    ('eb000000-0000-4000-8000-000000000006', 'ea000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-000000000009', 3, 650.0000,   'THB'),
+    ('eb000000-0000-4000-8000-000000000007', 'ea000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-00000000000a', 2, 450.0000,   'THB'),
+    ('eb000000-0000-4000-8000-000000000008', 'ea000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-00000000000b', 1, 9800.0000,  'THB'),
+    -- cart ea…0004 (vcommerce, CheckedOut) — sum 21700.0000
+    ('eb000000-0000-4000-8000-000000000009', 'ea000000-0000-4000-8000-000000000004', 'e9000000-0000-4000-8000-00000000000c', 1, 12800.0000, 'THB'),
+    ('eb000000-0000-4000-8000-00000000000a', 'ea000000-0000-4000-8000-000000000004', 'e9000000-0000-4000-8000-00000000000d', 1, 8900.0000,  'THB'),
+    -- cart ea…0005 (vsouvenir, Open) — sum 3130.0000
+    ('eb000000-0000-4000-8000-00000000000b', 'ea000000-0000-4000-8000-000000000005', 'e9000000-0000-4000-8000-000000000011', 5, 390.0000,   'THB'),
+    ('eb000000-0000-4000-8000-00000000000c', 'ea000000-0000-4000-8000-000000000005', 'e9000000-0000-4000-8000-000000000012', 2, 590.0000,   'THB'),
+    -- cart ea…0006 (vsouvenir, Open) — sum 3450.0000
+    ('eb000000-0000-4000-8000-00000000000d', 'ea000000-0000-4000-8000-000000000006', 'e9000000-0000-4000-8000-000000000013', 4, 450.0000,   'THB'),
+    ('eb000000-0000-4000-8000-00000000000e', 'ea000000-0000-4000-8000-000000000006', 'e9000000-0000-4000-8000-000000000014', 3, 550.0000,   'THB');
+
+-- shop.CheckoutSessions (REQ-6.2): AmountAmount = SUM(Quantity * UnitPriceAmount) of the bound
+-- cart. Both Confirmed rows point at the 2 CheckedOut carts; Started/Abandoned point at Open carts.
+INSERT INTO shop.CheckoutSessions (Id, MerchantId, CartId, Status, CreatedAt, NotificationRecipient, AmountAmount, AmountCurrency)
+VALUES
+    ('ec000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000002', 1, SYSUTCDATETIME(), N'somchai.p@demo.pol.local', 56500.0000, 'THB'),
+    ('ec000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000002', 'ea000000-0000-4000-8000-000000000004', 1, SYSUTCDATETIME(), N'araya.c@demo.pol.local',   21700.0000, 'THB'),
+    ('ec000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000001', 0, SYSUTCDATETIME(), NULL,                        23400.0000, 'THB'),
+    ('ec000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000003', 'ea000000-0000-4000-8000-000000000005', 2, SYSUTCDATETIME(), NULL,                         3130.0000, 'THB');
+
+-- shop.Orders (REQ-6.3) + txn.PaymentSessions (REQ-6.4/6.5): generated from a number sequence
+-- (GENERATE_SERIES — DB compat level 170 here, SQL Server 2022+ feature) instead of 40+36 hand-typed
+-- rows (design §3's own suggested pattern). n=1/n=2 are pinned to the 2 Confirmed checkout sessions
+-- above (same merchant, AmountAmount == that checkout's total). CreatedAt spreads back over 90 days
+-- (n % 90); MerchantId rotates n % 3; Status cycles n % 8 (~5/8 Paid, ~2/8 AwaitingPayment, ~1/8
+-- Cancelled) — 25 Paid / 10 AwaitingPayment / 5 Cancelled out of 40.
+DECLARE @OrderSeed TABLE (
+    n int NOT NULL PRIMARY KEY,
+    Id uniqueidentifier NOT NULL,
+    MerchantId uniqueidentifier NOT NULL,
+    Status int NOT NULL,
+    CreatedAt datetime2 NOT NULL,
+    PaidAt datetime2 NULL,
+    SummaryToken nvarchar(64) NOT NULL,
+    SummaryTokenExpiresAt datetime2 NOT NULL,
+    CheckoutSessionId uniqueidentifier NULL,
+    AmountAmount decimal(19,4) NOT NULL,
+    AmountCurrency char(3) NOT NULL
+);
+
+INSERT INTO @OrderSeed (n, Id, MerchantId, Status, CreatedAt, PaidAt, SummaryToken, SummaryTokenExpiresAt, CheckoutSessionId, AmountAmount, AmountCurrency)
+SELECT
+    g.n,
+    CONVERT(uniqueidentifier, CONCAT('ed000000-0000-4000-8000-', RIGHT('000000000000' + CONVERT(varchar(12), g.n), 12))),
+    CASE g.n % 3 WHEN 1 THEN 'e1000000-0000-4000-8000-000000000001'
+                 WHEN 2 THEN 'e1000000-0000-4000-8000-000000000002'
+                 ELSE       'e1000000-0000-4000-8000-000000000003' END,
+    CASE WHEN g.n % 8 IN (0,1,2,3,4) THEN 1 WHEN g.n % 8 IN (5,6) THEN 0 ELSE 2 END,
+    g.createdAt,
+    CASE WHEN g.n % 8 IN (0,1,2,3,4) THEN DATEADD(hour, 2, g.createdAt) END,
+    CONCAT(N'demo-ord-', RIGHT('00000' + CONVERT(varchar(5), g.n), 5)),
+    DATEADD(day, 30, g.createdAt),
+    CASE g.n WHEN 1 THEN 'ec000000-0000-4000-8000-000000000001' WHEN 2 THEN 'ec000000-0000-4000-8000-000000000002' END,
+    CASE g.n WHEN 1 THEN 56500.0000 WHEN 2 THEN 21700.0000 ELSE CAST(300 + ((g.n * 733) % 47700) AS decimal(19,4)) END,
+    'THB'
+FROM (SELECT value AS n, DATEADD(day, -(value % 90), SYSUTCDATETIME()) AS createdAt FROM GENERATE_SERIES(1, 40)) AS g;
+
+INSERT INTO shop.Orders (Id, MerchantId, PaymentSessionId, CheckoutSessionId, Status, CreatedAt, PaidAt, SummaryToken, SummaryTokenExpiresAt, NotificationRecipient, AmountAmount, AmountCurrency)
+SELECT Id, MerchantId, NULL, CheckoutSessionId, Status, CreatedAt, PaidAt, SummaryToken, SummaryTokenExpiresAt, NULL, AmountAmount, AmountCurrency
+FROM @OrderSeed;
+
+-- txn.PaymentSessions: 1 per order except 4 AwaitingPayment orders (n IN (29,30,37,38)) left with
+-- no PSP attempt at all — matches the real flow where an order can exist before payment starts
+-- (25 Paid + 5 Cancelled + 6 of the 10 AwaitingPayment = 36). MerchantId/AmountAmount/AmountCurrency
+-- always copied from the parent order (REQ-6.4). Every Paid order's session is Status=2/Paid
+-- (REQ-6.5). Method is always in the merchant's PSP EnabledMethods (Psp=0/2C2P, enabled for all 3
+-- merchants). RowVersion is NOT listed — it's a `rowversion` column, SQL Server generates it.
+INSERT INTO txn.PaymentSessions (Id, MerchantId, OrderId, Method, Psp, Status, PspExternalChargeId, RedirectUrl, CreatedAt, UpdatedAt, AmountAmount, AmountCurrency)
+SELECT
+    CONVERT(uniqueidentifier, CONCAT('ee000000-0000-4000-8000-', RIGHT('000000000000' + CONVERT(varchar(12), s.n), 12))),
+    s.MerchantId,
+    s.Id,
+    CASE s.MerchantId
+        WHEN 'e1000000-0000-4000-8000-000000000001' THEN CASE s.n % 3 WHEN 0 THEN N'card' WHEN 1 THEN N'promptpay' ELSE N'installment' END
+        WHEN 'e1000000-0000-4000-8000-000000000002' THEN CASE s.n % 2 WHEN 0 THEN N'card' ELSE N'promptpay' END
+        ELSE N'card'
+    END,
+    0,
+    ss.SessionStatus,
+    CASE WHEN ss.SessionStatus IN (2,3) THEN CONCAT(N'demo_chrg_', s.n) END,
+    CASE WHEN ss.SessionStatus IN (1,2,3) THEN CONCAT(N'https://demo.psp.local/checkout/', s.n) END,
+    DATEADD(minute, 5, s.CreatedAt),
+    CASE WHEN ss.SessionStatus IN (2,3,4) THEN DATEADD(hour, 1, DATEADD(minute, 5, s.CreatedAt)) ELSE DATEADD(minute, 5, s.CreatedAt) END,
+    s.AmountAmount,
+    s.AmountCurrency
+FROM @OrderSeed s
+CROSS APPLY (SELECT CASE
+        WHEN s.Status = 1 THEN 2
+        WHEN s.Status = 2 THEN CASE (s.n / 8) % 2 WHEN 0 THEN 3 ELSE 4 END
+        ELSE CASE s.n % 2 WHEN 0 THEN 0 ELSE 1 END
+    END AS SessionStatus) ss
+WHERE s.Status IN (1,2) OR (s.Status = 0 AND s.n NOT IN (29,30,37,38));
+
+-- REQ-6.5: every Paid order points back at its (Status=Paid) payment session — no conflicting pair.
+UPDATE o
+SET o.PaymentSessionId = p.Id
+FROM shop.Orders o
+JOIN txn.PaymentSessions p ON p.OrderId = o.Id AND p.Status = 2
+WHERE o.Id LIKE 'ed000000-%' AND o.Status = 1;
+
+-- Not seeded (REQ-6.6): txn.OutboxMessages, txn.IdempotencyRecords, and every audit/session table
+-- — those are runtime side effects, not starting data.
+
 -- ============================================================================
 -- (จ) Self-check: every table already seeded must have its expected demo row
 -- count, or the whole seed is incomplete. T1 asserts only admin.Users; T2-T4
@@ -227,7 +356,12 @@ INSERT INTO @counts (TableName, Rows) VALUES
     (N'merch.Users', (SELECT COUNT(*) FROM merch.Users WHERE Id LIKE 'e5000000-%')),
     (N'merch.ExternalLogins', (SELECT COUNT(*) FROM merch.ExternalLogins WHERE Id LIKE 'e6000000-%')),
     (N'merch.RoleAssignments', (SELECT COUNT(*) FROM merch.RoleAssignments WHERE Id LIKE 'e7000000-%')),
-    (N'shop.Products', (SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%'));
+    (N'shop.Products', (SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%')),
+    (N'shop.Carts', (SELECT COUNT(*) FROM shop.Carts WHERE Id LIKE 'ea000000-%')),
+    (N'shop.CartItems', (SELECT COUNT(*) FROM shop.CartItems WHERE Id LIKE 'eb000000-%')),
+    (N'shop.CheckoutSessions', (SELECT COUNT(*) FROM shop.CheckoutSessions WHERE Id LIKE 'ec000000-%')),
+    (N'shop.Orders', (SELECT COUNT(*) FROM shop.Orders WHERE Id LIKE 'ed000000-%')),
+    (N'txn.PaymentSessions', (SELECT COUNT(*) FROM txn.PaymentSessions WHERE Id LIKE 'ee000000-%'));
 
 DECLARE @report nvarchar(max) = (
     SELECT STRING_AGG(TableName + N' = ' + CAST(Rows AS nvarchar(10)), CHAR(13) + CHAR(10))

@@ -329,7 +329,7 @@ SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%';                  
 
 ---
 
-## - [ ] T4 — funnel: carts, checkouts, orders, payment sessions
+## - [x] T4 — funnel: carts, checkouts, orders, payment sessions
 
 Depends on: T3
 
@@ -366,4 +366,117 @@ Verify:
   `SELECT COUNT(*) FROM shop.CartItems i JOIN shop.Carts c ON c.Id = i.CartId
   JOIN shop.Products pr ON pr.Id = i.ProductId WHERE pr.MerchantId <> c.MerchantId` = 0
 - `dotnet build pol-core.slnx` เขียว (ยืนยันว่าไม่มีอะไรใต้ `src/` ถูกแตะ)
+
+### Evidence (2026-07-13)
+
+รันจริงบน `pol-db` container เดิม (`localhost,11433`, DB `VCentralPay`). โหลด env ด้วย
+`set -a && source .env && set +a` (noise "command not found: User" เดิมจาก T1-T3 — harmless).
+
+**สิ่งที่เพิ่ม** — ต่อจาก T3 ในโซน (ง) ของ `docker/bootstrap/seed-demo.sql`: `INSERT shop.Carts` 6 แถว
+(2 ต่อ merchant, `Status` เป็น string `'Open'`/`'CheckedOut'`), `INSERT shop.CartItems` 14 แถว
+(hand-typed ทั้งหมด, `ProductId` ตรง merchant ของ cart เสมอ, `UnitPriceAmount` = ราคาสินค้าจริงจาก T3),
+`INSERT shop.CheckoutSessions` 4 แถว (`AmountAmount` = SUM ของ cart items ที่ผูก, คำนวณด้วยมือแล้วยืนยัน
+ตรง), แล้ว `shop.Orders` 40 แถว + `txn.PaymentSessions` 36 แถว **generate จาก `GENERATE_SERIES(1, 40)`**
+ผ่าน table variable `@OrderSeed` (ไม่ hand-type 76 แถว — DB compat level 170 ยืนยันแล้วว่ารองรับ
+`GENERATE_SERIES`) แทนที่จะ hand-type ทีละแถวแบบ T1-T3. `n=1`/`n=2` ถูก pin ให้ผูกกับ 2 checkout session
+ที่ `Confirmed` (merchant + AmountAmount ตรงกับ checkout total). `UPDATE shop.Orders SET
+PaymentSessionId` ปิดท้ายให้ order ที่ `Paid` ทุกแถวชี้กลับไปยัง payment session ที่ `Status = Paid`
+(REQ-6.5). เติม 5 ตารางนี้เข้า `@counts` ในโซน (จ) — ครบทุกตาราง demo แล้ว.
+
+**GOTCHA #1 (bug จริง เจอจากการ verify ไม่ใช่แค่รันผ่าน):** สูตรตั้งต้นให้ `Cancelled` order (n ∈
+{7,15,23,31,39}, มาจาก `n % 8 = 7`) สลับ `Failed`/`Expired` ด้วย `n % 2` — แต่ทุกค่าใน set นี้เป็นเลขคี่
+เสมอ (`8k+7` เป็นคี่เสมอ) ทำให้ `n % 2` ได้ `1` ทุกตัว, ตกไปที่ branch `Expired` ล้วน ไม่มี `Failed` เลย
+สักแถว — เจอตอน verify "5 payment session statuses present" ได้ 4 ไม่ใช่ 5. แก้ด้วยการเปลี่ยน
+discriminator จาก `s.n % 2` เป็น `(s.n / 8) % 2` (integer division ให้ 0,1,2,3,4 สำหรับ n=7,15,23,31,39
+ตามลำดับ → สลับ Failed/Expired ได้จริง 3 Failed + 2 Expired).
+
+**GOTCHA #2 (ไม่ใช่ bug ของ T4 — data contamination ที่มีอยู่ก่อนแล้วใน dev DB):** verify query ของ
+REQ-6.5 ตามที่ทีมลีดให้มา (ไม่มี `AND o.Id LIKE 'ed000000-%'`) คืนค่า **3** ไม่ใช่ 0. ตรวจสอบแล้วพบว่า
+เป็น 3 แถวใน `shop.Orders` ที่ **ไม่ใช่ demo data** (`Id` ไม่ตรง prefix `ed000000-`, `MerchantId` ไม่ตรง
+`e1000000-*` เลยสักแถว) ค้างอยู่ใน DB นี้ก่อนที่ T4 จะรันเสียอีก (`Status = 1` แต่ `PaymentSessionId IS
+NULL` — น่าจะเป็นข้อมูลทดสอบเก่าจาก integration test/manual test บน DB dev เดียวกัน). เมื่อเติม
+`AND o.Id LIKE 'ed000000-%'` เข้าไปในเงื่อนไข (ขอบเขตที่ REQ-6.5 พูดถึงจริง ๆ คือ "demo data ต้อง
+consistent" ไม่ใช่ "ทุกแถวในตารางไม่ว่าที่มา") ผลลัพธ์คือ **0** ตรงตามคาด. ไม่ได้แก้ไข/ลบ 3 แถวนั้น
+เพราะไม่ใช่ demo data และ T4 ไม่มีสิทธิ์แตะแถวที่ไม่ใช่ของตัวเอง (REQ-1.3) — ทีมลีด/เจ้าของ DB ควรตาม
+สืบว่ามาจากไหนถ้าต้องการเคลียร์.
+
+**1. รันครั้งแรก (หลังแก้ GOTCHA #1):**
+```
+$ ./scripts/seed-demo.sh
+Changed database context to 'VCentralPay'.
+admin.Users = 6
+merch.Merchants = 3
+txn.PspConnections = 6
+admin.MerchantAccess = 4
+admin.RoleAssignments = 6
+merch.Users = 12
+merch.ExternalLogins = 12
+merch.RoleAssignments = 6
+shop.Products = 24
+shop.Carts = 6
+shop.CartItems = 14
+shop.CheckoutSessions = 4
+shop.Orders = 40
+txn.PaymentSessions = 36
+seed-demo: OK.
+EXIT=0
+```
+
+**2. รันซ้ำครั้งที่ 2 (idempotent):** ผลลัพธ์เหมือนเดิมทุกตัว, `EXIT=0`.
+
+**3. REQ-6.5 (scoped ไปยัง demo data — ตัวจริงที่ REQ ตั้งใจตรวจ):**
+```sql
+SELECT COUNT(*) FROM shop.Orders o LEFT JOIN txn.PaymentSessions p ON p.Id = o.PaymentSessionId
+WHERE o.Status = 1 AND (p.Id IS NULL OR p.Status <> 2) AND o.Id LIKE 'ed000000-%';
+-- 0
+```
+(query ตามตัวหนังสือที่ทีมลีดให้ ไม่มี `AND o.Id LIKE` ได้ 3 — ดู GOTCHA #2 ด้านบน)
+
+**4. REQ-6.4:**
+```sql
+SELECT COUNT(*) FROM txn.PaymentSessions p JOIN shop.Orders o ON o.Id = p.OrderId
+WHERE p.MerchantId <> o.MerchantId OR p.AmountAmount <> o.AmountAmount OR p.AmountCurrency <> o.AmountCurrency;
+-- 0
+```
+
+**5. REQ-6.1 (cart item ไม่ข้าม merchant):**
+```sql
+SELECT COUNT(*) FROM shop.CartItems i JOIN shop.Carts c ON c.Id = i.CartId
+JOIN shop.Products pr ON pr.Id = i.ProductId WHERE pr.MerchantId <> c.MerchantId;
+-- 0
+```
+
+**6. REQ-6.3 (PaidAt เฉพาะ Paid):**
+```sql
+SELECT COUNT(*) FROM shop.Orders WHERE Id LIKE 'ed000000-%'
+AND ((Status = 1 AND PaidAt IS NULL) OR (Status <> 1 AND PaidAt IS NOT NULL));
+-- 0
+```
+
+**7. ครบ 5 payment session status (หลังแก้ GOTCHA #1):**
+```sql
+SELECT Status, COUNT(*) FROM txn.PaymentSessions WHERE Id LIKE 'ee000000-%' GROUP BY Status ORDER BY Status;
+-- 0=3 (Created), 1=3 (Redirected), 2=25 (Paid), 3=3 (Failed), 4=2 (Expired)  → 5 distinct
+```
+
+**8. `SummaryToken` unique:** `SELECT COUNT(*) FROM (SELECT SummaryToken FROM shop.Orders WHERE Id LIKE 'ed000000-%' GROUP BY SummaryToken HAVING COUNT(*) > 1) x;` = 0.
+
+**9. `dotnet build pol-core.slnx`:**
+```
+ok dotnet build: 48 projects, 0 errors, 0 warnings (00:00:08.11)
+```
+
+**10. `git status`:**
+```
+* feat/demo-seed-data
+ M docker/bootstrap/seed-demo.sql
+?? .claude/agents/rf2-opus-worker.md
+```
+ไม่มีไฟล์ใต้ `src/` เปลี่ยนแปลง (REQ-7.3). `.claude/agents/rf2-opus-worker.md` เป็น untracked file
+ที่มีอยู่ก่อน T4 (ไม่เกี่ยวกับงานนี้) — ไม่รวมเข้า commit.
+
+**สรุป T4 (feature demo-seed-data ปิดครบ 4/4 task):** ทั้ง 14 ตาราง demo มีข้อมูลครบ, self-check
+`@counts` ครอบคลุมทุกตารางแล้ว, ทุก invariant ที่ REQ-6.x ต้องการผ่านจริงเมื่อ scope ไปยัง demo data
+(`Id LIKE '<prefix>-%'`) — ตัวเลข "3" ที่เห็นตอน verify ตรงตัวหนังสือ (ไม่ scope) เป็น pre-existing
+non-demo noise ในตาราง `shop.Orders` ของ DB dev เครื่องนี้ ไม่ใช่ผลจาก T4.
 </content>
