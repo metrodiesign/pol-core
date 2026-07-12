@@ -1,7 +1,7 @@
 extern alias ApiHost;
-using Admin.Application;
-using Admin.Application.ResolveAdmin;
-using Admin.Domain;
+using Admins.Application;
+using Admins.Application.ResolveAdmin;
+using Admins.Domain;
 
 namespace Hosts.Tests;
 

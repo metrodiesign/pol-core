@@ -7,8 +7,8 @@ namespace Merchants.Domain;
 /// child row with a surrogate id and a unique (MerchantUserId, RoleId); <see cref="MerchantId"/> scopes the grant to the
 /// approved merchant and <see cref="AssignedByAdminId"/> records the approving admin. There is no per-assignment status
 /// column: the effective-permission union keys on the ROLE's status, mirroring
-/// <see cref="Admin.Domain.AdminRoleAssignment"/>.</summary>
-// ponytail: DUPLICATE of Admin.Domain.AdminRoleAssignment (+ MerchantId rename) — deliberate debt, do not refactor into a shared base.
+/// <see cref="Admins.Domain.AdminRoleAssignment"/>.</summary>
+// ponytail: DUPLICATE of Admins.Domain.AdminRoleAssignment (+ MerchantId rename) — deliberate debt, do not refactor into a shared base.
 public sealed class MerchantUserRoleAssignment : Entity<Guid>
 {
     public Guid MerchantUserId { get; private set; }

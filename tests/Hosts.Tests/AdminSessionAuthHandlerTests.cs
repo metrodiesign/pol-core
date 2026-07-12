@@ -1,9 +1,9 @@
 extern alias ApiHost;
 using System.Text.Encodings.Web;
 using ApiHost::Api;
-using Admin.Application;
-using Admin.Application.ResolveAdmin;
-using Admin.Domain;
+using Admins.Application;
+using Admins.Application.ResolveAdmin;
+using Admins.Domain;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;

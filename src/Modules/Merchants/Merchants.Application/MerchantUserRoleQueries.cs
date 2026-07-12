@@ -4,7 +4,7 @@ namespace Merchants.Application;
 
 /// <summary>Read models for the merchant-user role-management console (REQ-15.4/16). Read-only — no transaction. Bound to
 /// the keyed pol_admin context in the API (the catalog/role tables are control-plane).</summary>
-// ponytail: DUPLICATE-shaped of Admin.Application.RoleQueries — deliberate debt.
+// ponytail: DUPLICATE-shaped of Admins.Application.RoleQueries — deliberate debt.
 public sealed record ListMerchantUserRolesQuery : IQuery<IReadOnlyList<MerchantUserRoleListItem>>;
 
 public sealed class ListMerchantUserRolesHandler(IMerchantUserRoleRepository roles)

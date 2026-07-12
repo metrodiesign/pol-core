@@ -4,7 +4,7 @@ namespace Merchants.Domain;
 
 /// <summary>
 /// A person who can act for a merchant (the merchant-side actor — schema <c>merch</c>). Control-plane — NOT
-/// under the merchant RLS predicate for its OWN identity row (mirrors Admin.Domain.PlatformUser);
+/// under the merchant RLS predicate for its OWN identity row (mirrors Admins.Domain.PlatformUser);
 /// <see cref="MerchantId"/> is the one merchant this account acts for, set at approval — NULL until then
 /// (absorbs the former separate assignment edge, REQ-2.3). Role and merchant are decided server-side at
 /// approval, NEVER by the token. <see cref="Subject"/> (Google <c>sub</c>) is the stable identity, unique

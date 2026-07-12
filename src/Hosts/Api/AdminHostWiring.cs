@@ -1,7 +1,7 @@
-using Admin.Application;
-using Admin.Application.ResolveAdmin;
-using Admin.Domain;
-using Admin.Infrastructure.Persistence;
+using Admins.Application;
+using Admins.Application.ResolveAdmin;
+using Admins.Domain;
+using Admins.Infrastructure.Persistence;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Mediator;
@@ -11,7 +11,7 @@ using Merchants.Application.GetMerchant;
 namespace Api;
 
 /// <summary>Merchant checks the Admin module needs, over the pol_admin (bypass) connection. Lives in the host so
-/// Admin.Application needs no Merchant dependency (mirrors <see cref="MerchantDirectory"/> for Identity).</summary>
+/// Admins.Application needs no Merchant dependency (mirrors <see cref="MerchantDirectory"/> for Identity).</summary>
 internal sealed class AdminMerchantDirectory : IAdminMerchantDirectory
 {
     private readonly PolDbContext _admin;

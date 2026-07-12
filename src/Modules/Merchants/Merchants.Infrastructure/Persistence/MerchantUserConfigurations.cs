@@ -9,7 +9,7 @@ namespace Merchants.Infrastructure.Persistence;
 // MerchantUsers is control-plane (NO merchant predicate, pol_admin only — like Admin.PlatformUsers); the merchant edge
 // is now MerchantUser.MerchantId directly (the former separate assignment row is absorbed, REQ-2.3). The other child
 // tables are control-plane too. PascalCase identifiers map straight to columns.
-// ponytail: shape mirrors Admin.Infrastructure.Persistence.AdminConfigurations (control-plane EF style) — deliberate.
+// ponytail: shape mirrors Admins.Infrastructure.Persistence.AdminConfigurations (control-plane EF style) — deliberate.
 
 public sealed class MerchantUserConfiguration : IEntityTypeConfiguration<MerchantUser>
 {

@@ -23,9 +23,9 @@ public class MerchantsArchitectureTests
     private static readonly Assembly Application = typeof(global::Merchants.Application.IMerchantRepository).Assembly;
     private static readonly Assembly Infrastructure = typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly;
 
-    private static readonly Assembly AdminDomain = typeof(global::Admin.Domain.PlatformUser).Assembly;
-    private static readonly Assembly AdminApplication = typeof(global::Admin.Application.IPlatformUserRepository).Assembly;
-    private static readonly Assembly AdminInfrastructure = typeof(global::Admin.Infrastructure.AdminModuleRegistration).Assembly;
+    private static readonly Assembly AdminDomain = typeof(global::Admins.Domain.PlatformUser).Assembly;
+    private static readonly Assembly AdminApplication = typeof(global::Admins.Application.IPlatformUserRepository).Assembly;
+    private static readonly Assembly AdminInfrastructure = typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly;
 
     [Fact]
     public void Merchants_Domain_does_not_depend_on_EntityFrameworkCore()
@@ -41,9 +41,9 @@ public class MerchantsArchitectureTests
     {
         string[] forbidden =
         [
-            "Products.Infrastructure", "Cart.Infrastructure", "Checkout.Infrastructure",
+            "Products.Infrastructure", "Carts.Infrastructure", "Checkouts.Infrastructure",
             "Orders.Infrastructure", "Payments.Infrastructure", "Merchants.Infrastructure",
-            "Admin.Infrastructure", "BuildingBlocks.Infrastructure",
+            "Admins.Infrastructure", "BuildingBlocks.Infrastructure",
         ];
         AssertAllResolveToARealAssembly(forbidden);
 
@@ -65,7 +65,7 @@ public class MerchantsArchitectureTests
     [Fact]
     public void Merchants_does_not_depend_on_the_Admin_module()
     {
-        string[] forbidden = ["Admin.Domain", "Admin.Application", "Admin.Infrastructure"];
+        string[] forbidden = ["Admins.Domain", "Admins.Application", "Admins.Infrastructure"];
         AssertAllResolveToARealAssembly(forbidden);
 
         foreach (var assembly in new[] { Domain, Application, Infrastructure })

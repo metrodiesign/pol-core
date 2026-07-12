@@ -2,7 +2,7 @@ namespace Merchants.Domain;
 
 /// <summary>Whether a role contributes its permissions. An Inactive role is excluded from a merchant-user's effective
 /// permission union. Stored as int (mirrors <see cref="MerchantUserStatus"/>).</summary>
-// ponytail: DUPLICATE of Admin.Domain.AdminRoleStatus — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.AdminRoleStatus — deliberate debt, do not refactor into a shared base.
 public enum MerchantUserRoleStatus
 {
     Active = 0,

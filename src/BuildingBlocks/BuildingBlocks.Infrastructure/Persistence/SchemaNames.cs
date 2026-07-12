@@ -14,7 +14,12 @@ public static class SchemaNames
     /// <summary>Payment (interim): PaymentSessions, PspConnections, OutboxMessages, IdempotencyRecords.</summary>
     public const string Txn = "txn";
 
-    /// <summary>Control plane: PlatformUsers, PlatformMerchantAccess, RBAC catalog, master data.</summary>
+    /// <summary>
+    /// Control plane: PlatformUsers, PlatformMerchantAccess, RBAC catalog, master data.
+    /// Deliberately stays singular even though the <c>Admins.*</c> module projects are plural
+    /// (hierarchical-naming L3/L7, design.md §1) — schemas are SQL namespaces, singular is the SQL
+    /// convention, and rf1 already locked this schema name. Do not "fix" it to match the module name.
+    /// </summary>
     public const string Admin = "admin";
 
     /// <summary>Merchant + merchant-user + vault: Merchants, MerchantUsers, RBAC catalog, vault.</summary>

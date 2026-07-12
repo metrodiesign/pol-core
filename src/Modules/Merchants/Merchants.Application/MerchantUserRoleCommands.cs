@@ -7,7 +7,7 @@ namespace Merchants.Application;
 /// <summary>Creates a merchant-user role (REQ-16). A duplicate <see cref="Code"/> -> 409 (pre-check; the unique index is
 /// the race-safe backstop). A permission key outside the catalog is rejected by the aggregate (ArgumentException ->
 /// 400, REQ-16.2). Gated <c>merchant_user.roles.manage</c> at the host (S8).</summary>
-// ponytail: DUPLICATE-shaped of Admin.Application.CreateRole (no audit — merchant-user role CRUD is not in REQ-21) — deliberate.
+// ponytail: DUPLICATE-shaped of Admins.Application.CreateRole (no audit — merchant-user role CRUD is not in REQ-21) — deliberate.
 public sealed record CreateMerchantUserRoleCommand(
     string Code, string Name, string? Description, string? Color, MerchantUserRoleStatus Status,
     IReadOnlyList<string> PermissionKeys) : ICommand<MerchantUserRoleListItem>;

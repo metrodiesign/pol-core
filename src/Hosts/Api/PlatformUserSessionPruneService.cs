@@ -1,4 +1,4 @@
-using Admin.Application;
+using Admins.Application;
 using BuildingBlocks.Application;
 
 namespace Api;

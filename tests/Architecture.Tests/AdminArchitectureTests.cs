@@ -13,9 +13,9 @@ namespace Architecture.Tests;
 /// </summary>
 public class AdminArchitectureTests
 {
-    private static readonly Assembly Domain = typeof(global::Admin.Domain.PlatformUser).Assembly;
-    private static readonly Assembly Application = typeof(global::Admin.Application.IPlatformUserRepository).Assembly;
-    private static readonly Assembly Infrastructure = typeof(global::Admin.Infrastructure.AdminModuleRegistration).Assembly;
+    private static readonly Assembly Domain = typeof(global::Admins.Domain.PlatformUser).Assembly;
+    private static readonly Assembly Application = typeof(global::Admins.Application.IPlatformUserRepository).Assembly;
+    private static readonly Assembly Infrastructure = typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly;
 
     [Fact]
     public void Admin_Domain_does_not_depend_on_EntityFrameworkCore()
@@ -23,7 +23,7 @@ public class AdminArchitectureTests
         var result = Types.InAssembly(Domain)
             .Should().NotHaveDependencyOn("Microsoft.EntityFrameworkCore").GetResult();
 
-        Assert.True(result.IsSuccessful, $"Admin.Domain must not depend on EF Core. {Offenders(result)}");
+        Assert.True(result.IsSuccessful, $"Admins.Domain must not depend on EF Core. {Offenders(result)}");
     }
 
     [Fact]
@@ -31,28 +31,28 @@ public class AdminArchitectureTests
     {
         string[] forbidden =
         [
-            "Products.Infrastructure", "Cart.Infrastructure", "Checkout.Infrastructure",
+            "Products.Infrastructure", "Carts.Infrastructure", "Checkouts.Infrastructure",
             "Orders.Infrastructure", "Payments.Infrastructure", "Merchants.Infrastructure",
-            "Admin.Infrastructure", "BuildingBlocks.Infrastructure",
+            "Admins.Infrastructure", "BuildingBlocks.Infrastructure",
         ];
         AssertAllResolveToARealAssembly(forbidden);
 
         var result = Types.InAssembly(Domain).Should().NotHaveDependencyOnAny(forbidden).GetResult();
 
-        Assert.True(result.IsSuccessful, $"Admin.Domain must not depend on any Infrastructure. {Offenders(result)}");
+        Assert.True(result.IsSuccessful, $"Admins.Domain must not depend on any Infrastructure. {Offenders(result)}");
     }
 
     [Fact]
     public void Admin_Application_does_not_depend_on_the_Merchants_module()
     {
         // Control plane (Admin) is decoupled from the data plane (Merchants): the IAdminMerchantDirectory
-        // port is implemented in the host, so Admin.Application references neither module.
+        // port is implemented in the host, so Admins.Application references neither module.
         string[] forbidden = ["Merchants.Domain", "Merchants.Application", "Merchants.Infrastructure"];
         AssertAllResolveToARealAssembly(forbidden);
 
         var result = Types.InAssembly(Application).Should().NotHaveDependencyOnAny(forbidden).GetResult();
 
-        Assert.True(result.IsSuccessful, $"Admin.Application must not depend on Merchants. {Offenders(result)}");
+        Assert.True(result.IsSuccessful, $"Admins.Application must not depend on Merchants. {Offenders(result)}");
     }
 
     [Fact]

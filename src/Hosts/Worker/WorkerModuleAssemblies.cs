@@ -12,8 +12,8 @@ internal static class WorkerModuleAssemblies
     public static IReadOnlyList<Assembly> All { get; } =
     [
         typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
-        typeof(Cart.Infrastructure.CartModuleRegistration).Assembly,
-        typeof(Checkout.Infrastructure.CheckoutModuleRegistration).Assembly,
+        typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
+        typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         // The dispatcher consumes MerchantUserRegistrationSubmitted -> records a control-plane notice (REQ-20.4);

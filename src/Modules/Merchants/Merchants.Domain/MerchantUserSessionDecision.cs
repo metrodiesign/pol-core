@@ -19,7 +19,7 @@ public enum MerchantUserSessionDecision
 
 /// <summary>Pure decision table over a presented session. The family's current Active session
 /// id is supplied only for a Superseded token (immediate-predecessor detection); null otherwise.</summary>
-// ponytail: DUPLICATE of Admin.Domain.AdminSessionDecisionPolicy — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.AdminSessionDecisionPolicy — deliberate debt, do not refactor into a shared base.
 public static class MerchantUserSessionDecisionPolicy
 {
     public static MerchantUserSessionDecision Decide(MerchantUserSession session, Guid? familyActiveSessionId, DateTime now, MerchantUserSessionPolicy policy) =>

@@ -36,8 +36,8 @@ public class ArchitectureBoundaryTests
     private static Assembly DomainAssembly(string module) => module switch
     {
         "Products" => typeof(global::Products.Domain.Product).Assembly,
-        "Cart" => typeof(global::Cart.Domain.Cart).Assembly,
-        "Checkout" => typeof(global::Checkout.Domain.CheckoutSession).Assembly,
+        "Cart" => typeof(global::Carts.Domain.Cart).Assembly,
+        "Checkout" => typeof(global::Checkouts.Domain.CheckoutSession).Assembly,
         "Orders" => typeof(global::Orders.Domain.Order).Assembly,
         "Payments" => typeof(global::Payments.Domain.PaymentSession).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
@@ -46,8 +46,8 @@ public class ArchitectureBoundaryTests
     private static Assembly ApplicationAssembly(string module) => module switch
     {
         "Products" => typeof(global::Products.Application.IProductRepository).Assembly,
-        "Cart" => typeof(global::Cart.Application.ICartRepository).Assembly,
-        "Checkout" => typeof(global::Checkout.Application.ICheckoutRepository).Assembly,
+        "Cart" => typeof(global::Carts.Application.ICartRepository).Assembly,
+        "Checkout" => typeof(global::Checkouts.Application.ICheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Application.IOrderRepository).Assembly,
         "Payments" => typeof(global::Payments.Application.Ports.IPspAdapter).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
@@ -56,8 +56,8 @@ public class ArchitectureBoundaryTests
     private static Assembly InfrastructureAssembly(string module) => module switch
     {
         "Products" => typeof(global::Products.Infrastructure.ProductRepository).Assembly,
-        "Cart" => typeof(global::Cart.Infrastructure.CartRepository).Assembly,
-        "Checkout" => typeof(global::Checkout.Infrastructure.CheckoutRepository).Assembly,
+        "Cart" => typeof(global::Carts.Infrastructure.CartRepository).Assembly,
+        "Checkout" => typeof(global::Checkouts.Infrastructure.CheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Infrastructure.OrderRepository).Assembly,
         "Payments" => typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),

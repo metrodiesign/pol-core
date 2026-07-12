@@ -9,7 +9,7 @@ namespace Merchants.Infrastructure.Persistence;
 // Control-plane tables: NO merchant RLS predicate, granted to pol_admin only (see the SecurityObjects migration). The
 // permission/group tables are reference data seeded by the SeedData migration; MerchantUserPermissions.Key is the FK
 // target of role grants so a role can never reference a key outside the catalog (REQ-16.2).
-// ponytail: DUPLICATE of Admin.Infrastructure.Persistence.AdminRoleConfigurations — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Infrastructure.Persistence.AdminRoleConfigurations — deliberate debt, do not refactor into a shared base.
 
 public sealed class MerchantUserPermissionGroupConfiguration : IEntityTypeConfiguration<MerchantUserPermissionGroup>
 {

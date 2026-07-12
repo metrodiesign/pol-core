@@ -13,20 +13,20 @@
     <Project Path="src/Hosts/Worker/Worker.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
-  <Folder Name="/src/Modules/Admin/">
-    <Project Path="src/Modules/Admin/Admin.Application/Admin.Application.csproj" />
-    <Project Path="src/Modules/Admin/Admin.Domain/Admin.Domain.csproj" />
-    <Project Path="src/Modules/Admin/Admin.Infrastructure/Admin.Infrastructure.csproj" />
+  <Folder Name="/src/Modules/Admins/">
+    <Project Path="src/Modules/Admins/Admins.Application/Admins.Application.csproj" />
+    <Project Path="src/Modules/Admins/Admins.Domain/Admins.Domain.csproj" />
+    <Project Path="src/Modules/Admins/Admins.Infrastructure/Admins.Infrastructure.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Cart/">
-    <Project Path="src/Modules/Cart/Cart.Application/Cart.Application.csproj" />
-    <Project Path="src/Modules/Cart/Cart.Domain/Cart.Domain.csproj" />
-    <Project Path="src/Modules/Cart/Cart.Infrastructure/Cart.Infrastructure.csproj" />
+  <Folder Name="/src/Modules/Carts/">
+    <Project Path="src/Modules/Carts/Carts.Application/Carts.Application.csproj" />
+    <Project Path="src/Modules/Carts/Carts.Domain/Carts.Domain.csproj" />
+    <Project Path="src/Modules/Carts/Carts.Infrastructure/Carts.Infrastructure.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Checkout/">
-    <Project Path="src/Modules/Checkout/Checkout.Application/Checkout.Application.csproj" />
-    <Project Path="src/Modules/Checkout/Checkout.Domain/Checkout.Domain.csproj" />
-    <Project Path="src/Modules/Checkout/Checkout.Infrastructure/Checkout.Infrastructure.csproj" />
+  <Folder Name="/src/Modules/Checkouts/">
+    <Project Path="src/Modules/Checkouts/Checkouts.Application/Checkouts.Application.csproj" />
+    <Project Path="src/Modules/Checkouts/Checkouts.Domain/Checkouts.Domain.csproj" />
+    <Project Path="src/Modules/Checkouts/Checkouts.Infrastructure/Checkouts.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Merchants/">
     <Project Path="src/Modules/Merchants/Merchants.Application/Merchants.Application.csproj" />
@@ -49,11 +49,11 @@
     <Project Path="src/Modules/Products/Products.Infrastructure/Products.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/Admin.Tests/Admin.Tests.csproj" />
+    <Project Path="tests/Admins.Tests/Admins.Tests.csproj" />
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
     <Project Path="tests/BuildingBlocks.Tests/BuildingBlocks.Tests.csproj" />
-    <Project Path="tests/Cart.Tests/Cart.Tests.csproj" />
-    <Project Path="tests/Checkout.Tests/Checkout.Tests.csproj" />
+    <Project Path="tests/Carts.Tests/Carts.Tests.csproj" />
+    <Project Path="tests/Checkouts.Tests/Checkouts.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
     <Project Path="tests/Merchants.Tests/Merchants.Tests.csproj" />

@@ -8,7 +8,7 @@ namespace Merchants.Infrastructure.Persistence;
 /// <summary>Merchant-User Role RBAC persistence over the shared data plane, bound by the host to the pol_admin
 /// (RLS-bypass) connection — role/catalog tables are control-plane. Effective-permission resolution is a LINQ union
 /// over the user's ACTIVE roles, scoped to the merchant the user was approved into (REQ-16.4/17.1).</summary>
-// ponytail: DUPLICATE of Admin.Infrastructure.Persistence.AdminRoleRepository (+ merchant-scoped union) — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Infrastructure.Persistence.AdminRoleRepository (+ merchant-scoped union) — deliberate debt, do not refactor into a shared base.
 public sealed class MerchantUserRoleRepository : IMerchantUserRoleRepository
 {
     private readonly PolDbContext _db;

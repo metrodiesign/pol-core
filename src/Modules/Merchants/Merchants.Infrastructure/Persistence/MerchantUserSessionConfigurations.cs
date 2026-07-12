@@ -8,7 +8,7 @@ namespace Merchants.Infrastructure.Persistence;
 // EF mappings for the merchant-user BFF session tables onto the merch schema (discovered via ModuleAssemblies.Modules).
 // Control-plane: NO merchant RLS predicate, granted to pol_admin only. The raw session token is NEVER stored — only
 // its SHA-256 hash (REQ-10.1).
-// ponytail: DUPLICATE of Admin.Infrastructure.Persistence.AdminSession/AuthAudit configs — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Infrastructure.Persistence.AdminSession/AuthAudit configs — deliberate debt, do not refactor into a shared base.
 
 public sealed class MerchantUserSessionConfiguration : IEntityTypeConfiguration<MerchantUserSession>
 {

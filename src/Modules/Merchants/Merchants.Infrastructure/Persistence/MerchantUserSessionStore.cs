@@ -11,7 +11,7 @@ namespace Merchants.Infrastructure.Persistence;
 /// concurrent requests cannot lost-update — the affected-row count of <see cref="TrySupersedeAsync"/> is the
 /// single-winner flag for rotation (REQ-11.5).
 /// </summary>
-// ponytail: DUPLICATE of Admin.Infrastructure.Persistence.AdminSessionStore (RevokeAllForAdmin -> RevokeAllForUser) — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Infrastructure.Persistence.AdminSessionStore (RevokeAllForAdmin -> RevokeAllForUser) — deliberate debt, do not refactor into a shared base.
 public sealed class MerchantUserSessionStore : IMerchantUserSessionStore
 {
     private readonly PolDbContext _db;
@@ -70,7 +70,7 @@ public sealed class MerchantUserSessionStore : IMerchantUserSessionStore
 }
 
 /// <summary>Append-only writer for <c>MerchantAuthAudits</c> (REQ-12/21) on the keyed pol_admin context.</summary>
-// ponytail: DUPLICATE of Admin.Infrastructure.Persistence.AdminAuthAuditWriter — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Infrastructure.Persistence.AdminAuthAuditWriter — deliberate debt, do not refactor into a shared base.
 public sealed class MerchantAuthAuditWriter : IMerchantAuthAuditWriter
 {
     private readonly PolDbContext _db;

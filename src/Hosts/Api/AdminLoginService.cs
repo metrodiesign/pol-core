@@ -1,8 +1,8 @@
-using Admin.Application.BindInvitedAdmin;
-using Admin.Application.ResolveAdmin;
-using Admin.Application.SelfProvisionSuperAdmin;
-using Admin.Application;
-using Admin.Domain;
+using Admins.Application.BindInvitedAdmin;
+using Admins.Application.ResolveAdmin;
+using Admins.Application.SelfProvisionSuperAdmin;
+using Admins.Application;
+using Admins.Domain;
 using BuildingBlocks.Application;
 using Mediator;
 using Microsoft.AspNetCore.WebUtilities;

@@ -1,8 +1,8 @@
 extern alias ApiHost;
 using ApiHost::Api;
-using Admin.Application;
-using Admin.Application.ResolveAdmin;
-using Admin.Domain;
+using Admins.Application;
+using Admins.Application.ResolveAdmin;
+using Admins.Domain;
 using BuildingBlocks.Application;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
