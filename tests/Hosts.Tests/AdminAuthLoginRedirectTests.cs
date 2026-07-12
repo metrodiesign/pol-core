@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
@@ -38,7 +39,8 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
                 ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["PlatformUserSession:ReturnUrlAllowlist:0"] = "/dashboard",
+                ["AdminSession:ReturnUrlAllowlist:0"] = "/",
+                ["AdminSession:ReturnUrlAllowlist:1"] = "/dashboard",
             });
         });
         builder.ConfigureServices(services =>
@@ -101,5 +103,24 @@ public sealed class AdminAuthLoginRedirectTests
         // The OIDC handler persists state/nonce in a correlation + nonce cookie (REQ-1.2).
         Assert.Contains(response.Headers.GetValues("Set-Cookie"),
             c => c.Contains("Correlation", StringComparison.OrdinalIgnoreCase) || c.Contains("Nonce", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Guards against the section-name mismatch bugfix regressing (AdminAuthOptions.cs): PlatformUserSessionOptions
+    // must bind from the "AdminSession" section (matches the committed appsettings.json key), not the old
+    // "PlatformUserSession" section that section-name value never matched. The allowlist above is set via the
+    // factory's own in-memory config (not a gitignored appsettings.Development.json) so this test is
+    // self-contained in a clean checkout/CI.
+    [Fact]
+    public void PlatformUserSessionOptions_bind_from_the_appsettings_AdminSession_section()
+    {
+        using var factory = new LoginFactory();
+
+        var options = factory.Services.GetRequiredService<IOptions<ApiHost::Api.PlatformUserSessionOptions>>().Value;
+
+        // NotEmpty + Contains (not a full-list Equal): a machine's own gitignored appsettings.Development.json
+        // may add further allowlist entries on top of these, and this test must stay green either way — only
+        // the regression (SectionName drifts, section never binds, allowlist silently comes back empty) should fail it.
+        Assert.NotEmpty(options.ReturnUrlAllowlist);
+        Assert.Contains("/dashboard", options.ReturnUrlAllowlist);
     }
 }

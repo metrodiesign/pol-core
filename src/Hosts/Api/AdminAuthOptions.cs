@@ -25,7 +25,7 @@ internal sealed class AdminOidcOptions
 /// </summary>
 internal sealed class PlatformUserSessionOptions
 {
-    public const string SectionName = "PlatformUserSession";
+    public const string SectionName = "AdminSession";
 
     public int IdleMinutes { get; init; } = 30;
     public int AbsoluteHours { get; init; } = 8;
