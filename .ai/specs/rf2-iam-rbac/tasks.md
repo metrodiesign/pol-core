@@ -223,11 +223,54 @@
             fresh big-bang reset (D13) has no pre-existing users to back-fill anyway. Carrying it would
             also re-introduce an `admin.RoleAssignments` INSERT coupled to the renamed column for no gain.
 
-- [ ] 5. Architecture tests — entity→schema allow-set test สร้างใหม่ (ครอบทุก module: schema ∈
+- [x] 5. Architecture tests — entity→schema allow-set test สร้างใหม่ (ครอบทุก module: schema ∈
      {shop, txn, admin, merch, iam} + named exceptions ของ rf1; entity `Iam` → `iam` เท่านั้น);
      module reference rules (`Iam.*` ไม่อ้าง module ใด, module อื่นอ้างได้แค่ `Iam.Domain`);
      confinement: ห้าม query `iam.Roles` นอก Iam store + resolution repositories
      Satisfies: REQ-1.6. Depends on: 2. Verify: `dotnet test --filter Architecture.Tests`.
+     Evidence:
+       - build: `dotnet build -warnaserror` -> Build succeeded, 0 Warning(s), 0 Error(s) (full solution;
+         added Iam.Domain/Iam.Application/Iam.Infrastructure ProjectReferences to Architecture.Tests.csproj
+         so the full 8-module model + Iam anchor types are loadable in the test tier).
+       - test: `dotnet test --filter Architecture.Tests` -> Passed! Failed: 0, Passed: 63 (was 55, +8).
+         Full non-integration suite (`dotnet test --filter "Category!=Integration"`) all 12 projects green,
+         0 failed (Hosts.Tests 226, Admins.Tests 95, Merchants.Tests 114, Iam.Tests 64, etc. — no collateral
+         damage). New files:
+           * `tests/Architecture.Tests/EntitySchemaMappingTests.cs` (3 facts) — builds `PolDbContext` over ALL
+             7 module registration assemblies (Sqlite in-memory, same recipe as `MoneyColumnMappingTests` but
+             all modules) and asserts: (1) every mapped entity's schema ∈ {shop, txn, admin, merch, iam, dbo};
+             (2) `dbo` holds ONLY `DataProtectionKeys` (the single rf1 named exception — a forgotten
+             `ToTable` schema would silently fall to dbo, this makes it red); (3) every `Iam.Domain` entity →
+             `iam` and the four catalog tables Permissions/PermissionGroups/Roles/RolePermissions are all
+             present (fail-loud vs a vacuous pass if the catalog vanished from the model).
+           * `tests/Architecture.Tests/IamArchitectureTests.cs` (5 facts) — (b) module reference rules:
+             `Iam.{Domain,Application,Infrastructure}` depend on NO business module and no Host;
+             every OTHER module references only `Iam.Domain`, never `Iam.Application`/`Iam.Infrastructure`
+             (NetArchTest `NotHaveDependencyOnAny` + the `AssertAllResolveToARealAssembly` anti-vacuity helper
+             carried from Admin/Merchants tests); (c) confinement: across all production Infrastructure
+             assemblies, any type depending on the `Iam.Domain.Roles.Role` entity MUST live under one of the
+             three carve-out namespaces (`Iam.Infrastructure.Persistence.Roles`,
+             `Admins.Infrastructure.Persistence.Roles`, `Merchants.Infrastructure.Persistence.Users.Roles`) —
+             with a `dependents.Count > 0` guard so a renamed entity can't make the test pass vacuously.
+       - deviations:
+         1. Entity→schema test scoped by the confinement carve-out and the schema-allow-set uses Sqlite
+            in-memory offline model (no SQL Server) — identical to the existing `MoneyColumnMappingTests`
+            recipe: it asserts the CONFIGURED relational metadata (schema per `ToTable`), which is
+            provider-independent, so no live DB is needed and it runs in the fast tier.
+         2. `Every_Iam_entity_maps_to_the_iam_schema` matches Iam entities by assembly NAME
+            (`ClrType.Assembly.GetName().Name == "Iam.Domain"`) rather than reference identity
+            (`== typeof(Role).Assembly`) — the latter returned an empty set under the test host's load
+            context even though the entities are genuinely from Iam.Domain (confirmed by a throwaway model
+            dump); name comparison is robust and reads as the intent (the published-language assembly owns
+            the RBAC catalog types).
+         3. Confinement scan targets the 7 module Infrastructure assemblies + `Iam.Infrastructure` (the only
+            layer that holds a `PolDbContext` and could write a `Set<Role>()` query), NOT
+            `BuildingBlocks.Infrastructure`: the regenerated migration snapshot/designers there reference the
+            catalog entities as STRING model names (`modelBuilder.Entity("Iam.Domain.Roles.Role", …)`), which
+            create no IL type dependency, so excluding them avoids any snapshot false-positive while still
+            catching a real rogue querier in any business module's infra. No confinement violations were
+            found — the only existing dependents are the Iam store (`RoleStore`/`RoleSfs`/`RoleConfigurations`)
+            and the two side resolution repositories, all already inside the carve-out namespaces.
 
 - [ ] 6. Integration suite — บน :11433 (bootstrap+migrate ก่อน): seed drift guard (iam rows
      SetEquals vocabulary + 4 roles + grants ต่อ role), grants matrix (pol_admin ตามตาราง /
