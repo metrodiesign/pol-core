@@ -127,7 +127,7 @@
          types (`PlatformUser` etc.) — left untouched; it reflects current as-built code and is this
          spec's own tasks 4/5/9/10 to update once the rename actually ships, not task 2's docs-law scope.
 
-- [ ] 3. **Module projects pluralised; solution and dead folders cleaned.**
+- [x] 3. **Module projects pluralised; solution and dead folders cleaned.**
      `Admin.*` -> `Admins.*`, `Cart.*` -> `Carts.*`, `Checkout.*` -> `Checkouts.*` across Domain,
      Application and Infrastructure, plus the three test projects. Update all twelve `pol-core.slnx`
      entries. Every folder move is `git mv` — a delete+create loses per-file history across a 262-file
@@ -137,6 +137,33 @@
      Satisfies: REQ-3 (all criteria). Depends on: 1.
      Verify: `dotnet build` resolves all 40 projects; `dotnet test` green; `git log --follow` still
      traces a moved file's history.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> Build succeeded, 0 Warning(s), 0 Error(s), all 40
+         projects resolved
+       - test: `dotnet test pol-core.slnx --no-build` -> every project green except `Integration.Tests`
+         (86 failed, pre-existing: needs a live SQL Server container + `.env.integration`, same
+         out-of-scope condition recorded in task 1's evidence, untouched by this change) — Carts.Tests
+         15, Checkouts.Tests 2, Admins.Tests 129, Merchants.Tests 128, Orders.Tests 25, Products.Tests
+         25, Payments.Tests 59, BuildingBlocks.Tests 65, SharedKernel.Tests 46, Architecture.Tests 50,
+         Hosts.Tests 201 — all passed / 0 failed
+       - test: `git log --follow --oneline -3 -- src/Modules/Admins/Admins.Domain/PlatformUser.cs` (run
+         after committing the sweep, commit 580d95d) -> traces through the rename into the file's prior
+         history; `git diff --cached --stat` before commit showed 103 renames (git similarity-detected,
+         >84% each) + 45 modifies, 0 delete+create pairs
+       - viewports: n/a — backend-only (project/namespace rename, no UI)
+       - deviations: (1) the namespace/using-alias sweep and the `pol-core.slnx` path fixes had to be
+         done as two passes — `rg --type cs --type xml` for `.cs`/`.slnx` files, then a second pass
+         for `*.csproj` (ProjectReference paths use the same `Admin.Domain`-style tokens but aren't
+         matched by a `cs`/`xml` type filter) — first `dotnet build` attempt failed with 408 errors from
+         the missed csproj references; fixed and re-verified green. (2) Docs (`docs/reference/
+         admin-module.md`) and `retrospectives/**` still say `Modules/Admin/` — left as-is, out of REQ-3
+         scope (no build/test dependency on them; historical record for retrospectives). (3) REQ-3.6's
+         dead-folder deletion produced **no git diff and no separate commit**: `git ls-files` on
+         `src/Modules/{Identity,Producer,Tenant}/` returned 0 tracked files before deletion (only
+         gitignored `bin`/`obj`), so there was nothing for git to record — deleted directly from disk
+         (confirmed with repo owner first, since it required `rm -r` past the destructive-ops hook) after
+         the rename commit, verified `git status --short` shows nothing.
 
 - [ ] 4. **Admins module: dissolve `Platform*`, nest, de-prefix.**
      The largest single naming change: `PlatformUser` -> `Admins.Domain.Users.User` and its whole
