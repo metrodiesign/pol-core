@@ -13,7 +13,7 @@ public sealed class AdminRoleHandlerTests
         AdminRole.Create(code, code, null, null, AdminRoleStatus.Active, [], AdminPermissions.AllKeys);
 
     private static DeleteRoleHandler Handler(FakeAdminRoleRepository roles) =>
-        new(roles, new FakeAdminAccountAuditWriter(), new FakeUnitOfWork(), new FixedClock());
+        new(roles, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 
     [Fact]
     public async Task Deleting_the_super_admin_seed_is_blocked_even_with_no_bound_users()

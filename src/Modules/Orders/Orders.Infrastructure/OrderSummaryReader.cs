@@ -3,13 +3,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Orders.Application;
 using Orders.Domain;
+using SharedKernel;
 
 namespace Orders.Infrastructure;
 
 /// <summary>
-/// Reads an order summary by its link token via <c>VCentralPay.usp_resolve_order_summary</c> — a proc that
+/// Reads an order summary by its link token via <c>sec.usp_resolve_order_summary</c> — a proc that
 /// runs WITH EXECUTE AS the bypass resolver, so it reads the one order the token names while the calling
-/// principal stays RLS-blocked (mirrors <c>WebhookTenantResolver</c>). Runs in a FRESH DI scope so the
+/// principal stays RLS-blocked (mirrors <c>WebhookMerchantResolver</c>). Runs in a FRESH DI scope so the
 /// anonymous request's own DbContext connection is not opened with an empty SESSION_CONTEXT and reused.
 /// </summary>
 public sealed class OrderSummaryReader : IOrderSummaryReader
@@ -21,10 +22,10 @@ public sealed class OrderSummaryReader : IOrderSummaryReader
     public async Task<OrderSummary?> GetByTokenAsync(string token, CancellationToken cancellationToken)
     {
         using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<ProducerDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<PolDbContext>();
 
         var rows = await db.Database
-            .SqlQueryRaw<OrderSummaryRow>("EXEC VCentralPay.usp_resolve_order_summary @Token = {0}", token)
+            .SqlQueryRaw<OrderSummaryRow>("EXEC sec.usp_resolve_order_summary @Token = {0}", token)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -33,7 +34,7 @@ public sealed class OrderSummaryReader : IOrderSummaryReader
 
         var r = rows[0];
         return new OrderSummary(
-            r.Id, r.AmountMinorUnits, r.AmountCurrency, ((OrderStatus)r.Status).ToString(), r.PaymentSessionId, r.SummaryTokenExpiresAt);
+            r.Id, Money.Of(r.AmountAmount, r.AmountCurrency), ((OrderStatus)r.Status).ToString(), r.PaymentSessionId, r.SummaryTokenExpiresAt);
     }
 }
 
@@ -41,8 +42,8 @@ public sealed class OrderSummaryReader : IOrderSummaryReader
 public sealed class OrderSummaryRow
 {
     public Guid Id { get; set; }
-    public Guid TenantId { get; set; }
-    public long AmountMinorUnits { get; set; }
+    public Guid MerchantId { get; set; }
+    public decimal AmountAmount { get; set; }
     public string AmountCurrency { get; set; } = default!;
     public int Status { get; set; }
     public Guid? PaymentSessionId { get; set; }

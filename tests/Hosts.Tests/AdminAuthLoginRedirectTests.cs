@@ -24,7 +24,9 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
-        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
+        // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
+        // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
+        builder.UseSetting("ConnectionStrings:Migrator", "");
         // ClientId/ClientSecret are read at service-registration time (AddAdminOidcAuthentication), so they must
         // be host settings, not late-layered app config.
         builder.UseSetting("Google:Oidc:ClientId", ClientId);
@@ -33,9 +35,10 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["AdminSession:ReturnUrlAllowlist:0"] = "/dashboard",
+                ["PlatformUserSession:ReturnUrlAllowlist:0"] = "/dashboard",
             });
         });
         builder.ConfigureServices(services =>

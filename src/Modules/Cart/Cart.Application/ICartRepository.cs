@@ -4,7 +4,7 @@ namespace Cart.Application;
 
 /// <summary>
 /// Persistence port for the cart aggregate. Implemented in Cart.Infrastructure over the shared
-/// producer data plane; the application layer depends only on this abstraction. Adding/tracking is
+/// shop data plane; the application layer depends only on this abstraction. Adding/tracking is
 /// flushed by the shared <c>IUnitOfWork</c>, so this port deliberately exposes no save method.
 /// </summary>
 public interface ICartRepository

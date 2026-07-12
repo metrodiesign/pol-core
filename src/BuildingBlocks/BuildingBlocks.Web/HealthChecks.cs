@@ -11,11 +11,11 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 namespace BuildingBlocks.Web;
 
 /// <summary>Readiness probe: can the host reach its database? Connectivity only, no schema is named.</summary>
-internal sealed class ProducerDbReadinessCheck : IHealthCheck
+internal sealed class AppDbReadinessCheck : IHealthCheck
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public ProducerDbReadinessCheck(ProducerDbContext db) => _db = db;
+    public AppDbReadinessCheck(PolDbContext db) => _db = db;
 
     public async Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context, CancellationToken cancellationToken = default)
@@ -76,7 +76,7 @@ public static class HealthCheckExtensions
     public static IServiceCollection AddReadinessHealthChecks(this IServiceCollection services)
     {
         services.AddHealthChecks()
-            .AddCheck<ProducerDbReadinessCheck>("producer-db", tags: [ReadyTag])
+            .AddCheck<AppDbReadinessCheck>("app-db", tags: [ReadyTag])
             .AddCheck<VaultReadinessCheck>("vault", tags: [ReadyTag]);
         return services;
     }

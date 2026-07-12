@@ -5,24 +5,24 @@ using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Payments.Application.Ports;
 using Payments.Infrastructure.Persistence;
-using Tenant.Application;
-using Tenant.Infrastructure.Persistence;
+using Merchants.Application;
+using Merchants.Infrastructure.Persistence;
 
 namespace Api;
 
 /// <summary>
-/// Unit of work over the pol_admin (RLS-bypass) connection used by tenant provisioning. Unlike the
+/// Unit of work over the pol_admin (RLS-bypass) connection used by merchant provisioning. Unlike the
 /// pol_app <c>EfUnitOfWork</c> it clears the change tracker at the START of every transaction attempt:
-/// provisioning stages new entities (each with a fresh Guid and a UNIQUE tenant code), so a retried attempt
+/// provisioning stages new entities (each with a fresh Guid and a UNIQUE merchant code), so a retried attempt
 /// that did not clear would re-insert the previous attempt's rows and hit a duplicate-key violation.
 /// Clearing makes each attempt independent (REQ-4.1). Translates the same persistence faults as EfUnitOfWork
-/// so the provisioning path returns 409 (not 500) when a duplicate tenant code races past the pre-check.
+/// so the provisioning path returns 409 (not 500) when a duplicate merchant code races past the pre-check.
 /// </summary>
 internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public AdminProvisioningUnitOfWork(ProducerDbContext db) => _db = db;
+    public AdminProvisioningUnitOfWork(PolDbContext db) => _db = db;
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
     {
@@ -37,7 +37,7 @@ internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
         }
         catch (DbUpdateException ex) when (ex.InnerException is SqlException { Number: 2627 or 2601 })
         {
-            // SQL Server 2627/2601 = unique-violation. A duplicate tenant code that races past the
+            // SQL Server 2627/2601 = unique-violation. A duplicate merchant code that races past the
             // ExistsByCodeAsync pre-check lands here -> surface a domain conflict (409), not an opaque 500.
             throw new ConflictException(
                 "A record with the same unique key already exists; the insert was rejected.", ex);
@@ -59,25 +59,36 @@ internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
     }
 }
 
-internal static class TenantAdminScopeRegistration
+internal static class MerchantAdminScopeRegistration
 {
     /// <summary>
-    /// Binds the tenant-provisioning seams to a keyed pol_admin <see cref="ProducerDbContext"/> (no
-    /// SESSION_CONTEXT interceptor — the bypass role sees every tenant). The keyed context is Scoped, so
-    /// the UoW, PSP-connection repo, vault store, tenant repo and audit writer below all share ONE
-    /// instance — therefore ONE transaction — per request (REQ-4.4). The three seams that also have a
-    /// pol_app consumer are registered KEYED ("admin"); the tenant-only seams are plain.
+    /// Binds the merchant-provisioning seams to a keyed pol_admin <see cref="PolDbContext"/>. T5: <c>pol_admin</c>
+    /// is OUT of <c>pol_rls_bypass</c> under rf1, so this connection now DOES need the
+    /// <see cref="SessionContextConnectionInterceptor"/> — stamped from <see cref="AdminActorContext"/> (a
+    /// DIFFERENT scoped instance from the request's default <see cref="IActorContext"/>, REQ-4.5 — resolving the
+    /// admin's own identity would be chicken-and-egg if it depended on itself). The options are built INSIDE the
+    /// per-scope factory (via <c>UseApplicationServiceProvider</c>) so EF still caches the model across requests —
+    /// never hand-build fresh <see cref="DbContextOptions"/> per request. The keyed context is Scoped, so the UoW,
+    /// PSP-connection repo, vault store, merchant repo and audit writer below all share ONE instance — therefore
+    /// ONE transaction — per request (REQ-4.4). The three seams that also have a pol_app consumer are registered
+    /// KEYED ("admin"); the merchant-only seams are plain.
     /// </summary>
-    public static IServiceCollection AddTenantAdminScope(this IServiceCollection services, string adminConnectionString)
+    public static IServiceCollection AddMerchantAdminScope(this IServiceCollection services, string adminConnectionString)
     {
-        var options = new DbContextOptionsBuilder<ProducerDbContext>()
-            .UseSqlServer(adminConnectionString)
-            .Options;
+        services.AddScoped<AdminActorContext>();
 
-        services.AddKeyedScoped<ProducerDbContext>("admin",
-            (sp, _) => new ProducerDbContext(options, sp.GetRequiredService<ModuleAssemblies>()));
+        services.AddKeyedScoped<PolDbContext>("admin", (sp, _) =>
+        {
+            var interceptor = new SessionContextConnectionInterceptor(sp.GetRequiredService<AdminActorContext>());
+            var options = new DbContextOptionsBuilder<PolDbContext>()
+                .UseSqlServer(adminConnectionString)
+                .UseApplicationServiceProvider(sp)
+                .AddInterceptors(interceptor)
+                .Options;
+            return new PolDbContext(options, sp.GetRequiredService<ModuleAssemblies>());
+        });
 
-        static ProducerDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<ProducerDbContext>("admin");
+        static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
 
         services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) => new AdminProvisioningUnitOfWork(Admin(sp)));
         services.AddKeyedScoped<IPspConnectionRepository>("admin", (sp, _) => new PspConnectionRepository(Admin(sp)));
@@ -87,7 +98,7 @@ internal static class TenantAdminScopeRegistration
             sp.GetRequiredService<VaultKeyring>(),
             sp.GetRequiredService<IVaultRevealAuditWriter>())); // unused by StoreAsync; provisioning never reveals
 
-        services.AddScoped<ITenantRepository>(sp => new TenantRepository(Admin(sp)));
+        services.AddScoped<IMerchantRepository>(sp => new MerchantRepository(Admin(sp)));
         services.AddScoped<IProvisioningAuditWriter>(sp => new ProvisioningAuditWriter(Admin(sp)));
 
         return services;

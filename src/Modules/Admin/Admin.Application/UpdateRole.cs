@@ -16,13 +16,13 @@ public sealed record UpdateRoleCommand(
 public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, AdminRoleListItem>
 {
     private readonly IAdminRoleRepository _roles;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public UpdateRoleHandler(
         IAdminRoleRepository roles,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -53,7 +53,7 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, Admin
             else
                 role.Deactivate();
 
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.RoleUpdated, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetRoleId: role.Id));
             await _unitOfWork.SaveChangesAsync(ct);

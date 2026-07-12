@@ -10,10 +10,10 @@ namespace Admin.Infrastructure.Persistence;
 /// Writes commit through the keyed <c>"admin"</c> <see cref="IUnitOfWork"/> (S2), never DbContext.SaveChanges.</summary>
 public sealed class MasterDataStore : IMasterDataStore
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
     private readonly IUnitOfWork _unitOfWork;
 
-    public MasterDataStore(ProducerDbContext db, IUnitOfWork unitOfWork)
+    public MasterDataStore(PolDbContext db, IUnitOfWork unitOfWork)
     {
         _db = db;
         _unitOfWork = unitOfWork;

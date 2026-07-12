@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -58,7 +57,7 @@ public sealed class OmiseAdapter : PspAdapterBase
         // sandbox smoke-test (real Omise may require a token/source) — adjust the form on key handoff.
         var form = new FormUrlEncodedContent(new[]
         {
-            new KeyValuePair<string, string>("amount", session.Amount.MinorUnits.ToString(CultureInfo.InvariantCulture)),
+            new KeyValuePair<string, string>("amount", FormatMinorUnitAmount(session.Amount)),
             new KeyValuePair<string, string>("currency", session.Amount.Currency),
             new KeyValuePair<string, string>("return_uri", Options.Omise.ReturnUri),
             new KeyValuePair<string, string>("capture", "true"),

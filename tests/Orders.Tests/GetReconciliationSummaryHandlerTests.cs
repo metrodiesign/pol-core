@@ -12,9 +12,9 @@ public sealed class GetReconciliationSummaryHandlerTests
         {
             Reconciliation =
             [
-                new OrderStatusTotal(OrderStatus.Paid, "THB", 3, 45000),
-                new OrderStatusTotal(OrderStatus.AwaitingPayment, "THB", 2, 30000),
-                new OrderStatusTotal(OrderStatus.Paid, "USD", 1, 999),
+                new OrderStatusTotal(OrderStatus.Paid, "THB", 3, 450.00m),
+                new OrderStatusTotal(OrderStatus.AwaitingPayment, "THB", 2, 300.00m),
+                new OrderStatusTotal(OrderStatus.Paid, "USD", 1, 9.99m),
             ],
         };
         var handler = new GetReconciliationSummaryHandler(repo);
@@ -24,8 +24,8 @@ public sealed class GetReconciliationSummaryHandlerTests
         Assert.Equal(3, view.Lines.Count);
         var paidThb = view.Lines.Single(l => l.Status == "Paid" && l.Currency == "THB");
         Assert.Equal(3, paidThb.Count);
-        Assert.Equal(45000, paidThb.TotalMinorUnits);
+        Assert.Equal(450.00m, paidThb.Total);
         // USD kept as its own line — never summed across currencies.
-        Assert.Contains(view.Lines, l => l.Currency == "USD" && l.TotalMinorUnits == 999);
+        Assert.Contains(view.Lines, l => l.Currency == "USD" && l.Total == 9.99m);
     }
 }

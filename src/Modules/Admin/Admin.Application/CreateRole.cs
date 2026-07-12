@@ -16,13 +16,13 @@ public sealed record CreateRoleCommand(
 public sealed class CreateRoleHandler : ICommandHandler<CreateRoleCommand, AdminRoleListItem>
 {
     private readonly IAdminRoleRepository _roles;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public CreateRoleHandler(
         IAdminRoleRepository roles,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -44,7 +44,7 @@ public sealed class CreateRoleHandler : ICommandHandler<CreateRoleCommand, Admin
             var role = AdminRole.Create(code, command.Name, command.Description, command.Color,
                 command.Status, command.PermissionKeys, catalog);
             _roles.Add(role);
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.RoleCreated, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetRoleId: role.Id));
             await _unitOfWork.SaveChangesAsync(ct);

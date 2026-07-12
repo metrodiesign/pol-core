@@ -4,10 +4,10 @@ using Mediator;
 namespace Admin.Application.ResolveAdmin;
 
 /// <summary>Per-request, READ-ONLY admin resolution by account id (REQ-9). The session carries the
-/// <c>AdminAccountId</c>; the auth handler re-resolves the admin's current Status/Tier/accessible set + Subject
+/// <c>PlatformUserId</c>; the auth handler re-resolves the admin's current Status/Tier/accessible set + Subject
 /// fresh on every request so suspension and assignment changes take effect without re-login (REQ-9.1/9.2/9.3).
 /// The write path (bind/self-provision) runs ONLY at callback, never here (REQ-9.4).</summary>
-public sealed record ResolveAdminByIdQuery(Guid AdminAccountId) : IQuery<AdminByIdResult>;
+public sealed record ResolveAdminByIdQuery(Guid PlatformUserId) : IQuery<AdminByIdResult>;
 
 public sealed record AdminByIdResult(AdminResolveOutcome Outcome, AdminResolution? Resolution, string? Subject)
 {
@@ -19,10 +19,10 @@ public sealed record AdminByIdResult(AdminResolveOutcome Outcome, AdminResolutio
 
 public sealed class ResolveAdminByIdHandler : IQueryHandler<ResolveAdminByIdQuery, AdminByIdResult>
 {
-    private readonly IAdminAccountRepository _admins;
+    private readonly IPlatformUserRepository _admins;
     private readonly IAdminRoleRepository _roles;
 
-    public ResolveAdminByIdHandler(IAdminAccountRepository admins, IAdminRoleRepository roles)
+    public ResolveAdminByIdHandler(IPlatformUserRepository admins, IAdminRoleRepository roles)
     {
         _admins = admins;
         _roles = roles;
@@ -30,7 +30,7 @@ public sealed class ResolveAdminByIdHandler : IQueryHandler<ResolveAdminByIdQuer
 
     public async ValueTask<AdminByIdResult> Handle(ResolveAdminByIdQuery query, CancellationToken cancellationToken)
     {
-        var account = await _admins.GetByIdAsync(query.AdminAccountId, cancellationToken);
+        var account = await _admins.GetByIdAsync(query.PlatformUserId, cancellationToken);
         if (account is null)
             return AdminByIdResult.NotFound;
         if (account.Status == AdminStatus.Suspended)

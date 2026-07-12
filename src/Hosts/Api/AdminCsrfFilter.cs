@@ -22,7 +22,7 @@ internal sealed class AdminCsrfFilter : IEndpointFilter
         var http = context.HttpContext;
         if (!SafeMethods.Contains(http.Request.Method))
         {
-            var cookie = http.Request.Cookies[AdminSessionCookies.CsrfCookieName];
+            var cookie = http.Request.Cookies[PlatformUserSessionCookies.CsrfCookieName];
             var header = http.Request.Headers[HeaderName].ToString();
             if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(header) || !FixedTimeEquals(cookie, header))
                 return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Missing or invalid CSRF token.");

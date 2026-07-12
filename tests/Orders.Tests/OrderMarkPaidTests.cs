@@ -11,11 +11,11 @@ namespace Orders.Tests;
 /// </summary>
 public sealed class OrderMarkPaidTests
 {
-    private static readonly Guid TenantId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+    private static readonly Guid MerchantId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
 
-    private static Order NewOrder(long minorUnits = 15000, string currency = "THB") =>
-        Order.Create(TenantId, Money.Of(minorUnits, currency), At);
+    private static Order NewOrder(decimal amount = 15000m, string currency = "THB") =>
+        Order.Create(MerchantId, Money.Of(amount, currency), At);
 
     [Fact]
     public void MarkPaid_with_matching_amount_transitions_to_Paid_and_raises_event_once()

@@ -64,7 +64,7 @@ retrospectives/       # บันทึก retro รายเดือน
 >
 > **API path scheme (as-built, spec `api-route-scheme` 2026-07-05):** `/api/v1/{area}` — version-first global
 > (`v1` เดียวทั้ง API), segment ที่สอง = domain area (9 area plural: `products`/`carts`/`checkouts`/`orders`/
-> `payments`/`webhooks`/`reports`/`admins`/`producers`), audience บังคับ per-endpoint ผ่าน `RequireAuthorization`
+> `payments`/`webhooks`/`reports`/`admins`/`merchant-users`), audience บังคับ per-endpoint ผ่าน `RequireAuthorization`
 > (ไม่อยู่ใน path). infra (`/health/live`,`/health/ready`,`/openapi/*`,`/scalar`) อยู่นอก `/api/v1`. big-bang —
 > route flat เดิมถูกลบ (ไม่ alias); supersede มาตรฐานเดิมแบบ surface-first (audience นำหน้า version).
 
@@ -96,19 +96,41 @@ Orders → Paid. จบ ไม่มี issuance.
 - Orders จับคู่ order ด้วย **`PaymentPaid.OrderId`** (PR #44, spec `bugfix-order-paid-link`) — `Order.PaymentSessionId` เป็น legacy ไม่มี production writer ห้ามใช้เป็น join key
 
 **Cross-cutting (บังคับทั้งระบบ — security detail: [SECURITY_RULES.md](SECURITY_RULES.md) Product security):**
-- Multi-tenant isolation — **floor = SQL Server native RLS + `SESSION_CONTEXT('TenantId')`** ต่อ request (ไม่พึ่ง app code);
-  EF global query filter = ชั้นสะดวกเสริมไม่ใช่ floor. ban raw SQL / `IgnoreQueryFilters` ข้าม tenant + test leak. backend ร่วมกัน
-- แยก backend authz scope ให้ขาด — endpoint admin (cross-tenant/approve/config) เรียกผ่าน session ของ Tenant Console ไม่ได้;
-  admin cross-tenant bypass RLS ผ่าน **DB principal แยก** เท่านั้น + reason/correlation id → audit
-- **Scoped-admin isolation = app-layer exception จาก RLS floor (admin-actor-rename REQ-7.4):** `pol_admin` อยู่ใน
-  `pol_rls_bypass` จึงไม่ถูก RLS scope → scoped-admin cross-tenant business read ถูกบังคับผ่าน seam เดียว `IAdminQuery`
-  (ฝัง `WHERE TenantId ∈ accessible`; Super = unrestricted) + Architecture.Tests ห้าม handler อื่นส่ง cross-tenant
-  query ตรง + leak/bypass test = compensating control แทน RLS floor
-- Credential vault — **envelope encryption (per-tenant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
-- Identity — Google SSO ทำที่ชั้น auth แต่ **คนละโมเดลต่อ console**: **tenant SPA** ใช้ Google id-token เป็น Bearer (verify sig/`iss`/`aud`/exp/`email_verified` + `hd` guard; audience `tenant`); **admin console = server-side OIDC BFF** (Authorization Code + PKCE, confidential client) — opaque session cookie `__Host-adm_session` (control-plane เก็บแค่ SHA-256 hash), rotation + reuse-detection + instant revoke, CSRF double-submit, RBAC resolve สดต่อ request. **retire admin id-token-as-bearer audience 2026-06-24** (admin policy ผูก session-cookie scheme, ไม่รับ Google bearer). **Identity module (producer-side actor) ถูกลบ 2026-06-23** แล้ว **rebuild เป็น Producer module 2026-06-28** (feature `producer-google-sso`): producer login = **server-side OIDC BFF** มิเรอร์ admin (scheme `ProducerGoogle` แยกขาด, opaque session cookie `__Host-prd_session` + `prd_csrf`, rotation/reuse-detection/instant-revoke, RBAC resolve สดต่อ request, dual-scheme `producer` policy = ProducerSession OR tenant Bearer). actor = **`ProducerAccount`** (control-plane หลัง reshape 2026-06-29 — ข้อมูลบุคคล/ใบอนุญาตอยู่บนตัว account; ตาราง `ProducerAccounts`) + `ProducerTenantAssignments` (1 tenant/account) + `ExternalLogins`/`RegistrationAudits` + session `ProducerSessions`/`ProducerAuthAudits` + RBAC `ProducerRoles`/`ProducerRolePermissions`/`ProducerRoleAssignments`/`ProducerPermission(Groups)` (control-plane). register = anonymous ticket-gated (ticket = stateless signed Data Protection token — ตาราง `RegistrationTickets` ถูก drop 2026-07-01) → admin approve/reject (gated Admin perm `producer.approve`/`producer.reject` ใน catalog เดียวกัน). คงเหลือ `AdminAccount`* + BFF session tables (`AdminSessions`/`AdminAuthAudits`) + `DataProtectionKeys` = control-plane (ไม่มี RLS predicate, pol_admin only) ใน **Admin module**; ทั้ง Admin + Producer อยู่ schema เดียว `producer` — control plane แยกขาดจาก data plane
-- Maker-checker (approve tenant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
-- Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย tenant key
-- Money — มาตรฐาน (ตัดสิน 2026-07-05) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** (domain/DB/wire) **ห้าม float/double**; as-built ปัจจุบันยังเป็น `Money { MinorUnits: long }` (bigint) = legacy จนกว่า migration (gap ข้อ 22 + ADR 16 ใน `docs/reference/platform-modules.md` — รายละเอียดกฎเต็มดู [CODING_STANDARDS.md](CODING_STANDARDS.md)); Orders verify amount+currency ตอนรับ `PaymentPaid`
+- Multi-merchant isolation — **floor = SQL Server native RLS + `SESSION_CONTEXT('MerchantId', 'UserId')`** ต่อ request (ไม่พึ่ง app code);
+  EF global query filter = ชั้นสะดวกเสริมไม่ใช่ floor. ban raw SQL / `IgnoreQueryFilters` ข้าม merchant + test leak. backend ร่วมกัน
+- แยก backend authz scope ให้ขาด — endpoint admin (cross-merchant/approve/config) เรียกผ่าน session ฝั่ง merchant-user ไม่ได้;
+  admin cross-merchant bypass RLS ผ่าน **DB principal แยก** เท่านั้น + reason/correlation id → audit
+- **Scoped-admin isolation = RLS floor จริงแล้ว (rf1 REQ-3.2/3.3 — เดิมเป็น app-layer exception ตาม admin-actor-rename REQ-7.4):**
+  `pol_admin` ถูกถอดออกจาก `pol_rls_bypass` (2026-07-12) — `sec.fn_merchant_predicate` เช็ค tier ของ `admin.PlatformUsers`
+  เองใน DB: Super เห็นทุกแถว, Scoped เห็นเฉพาะ merchant ที่มีแถวใน `admin.PlatformMerchantAccess` (fail-closed —
+  ไม่มีแถวเลย = เห็นศูนย์ ไม่ใช่เห็นหมด). seam แอป `IAdminQuery` (ฝัง `WHERE MerchantId ∈ accessible`; Super = unrestricted)
+  **ยังอยู่เป็น belt-and-braces เสริม** ไม่ใช่ floor เดี่ยวอีกต่อไป — Architecture.Tests ห้าม handler อื่นส่ง cross-merchant
+  query ตรง + leak/bypass test = compensating control ชั้นสอง
+- Credential vault — **envelope encryption (per-merchant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
+- Identity — Google SSO ทำที่ชั้น auth, **ทั้ง 2 console โมเดลเดียวกันแล้ว (rf1 — ถอด Bearer ทิ้งทั้งระบบ)**: admin console และ
+  merchant-user (ตัวแทน) console ต่างมี **server-side OIDC BFF** ของตัวเอง (Authorization Code + PKCE, confidential client),
+  คนละ scheme/cookie/DP-purpose แยกขาด — ไม่มี Google id-token Bearer เหลือแล้ว (เดิม tenant SPA ใช้ Bearer audience `tenant`,
+  ถอดพร้อม policy `tenant` ทั้งก้อน). Admin: scheme `Google`, opaque session cookie `__Host-adm_session` (เก็บแค่ SHA-256
+  hash), rotation + reuse-detection + instant revoke, CSRF double-submit, RBAC resolve สดต่อ request (**retire
+  id-token-as-bearer audience 2026-06-24**). Merchant-user: scheme `MerchantUserGoogle` (เดิม `ProducerGoogle`), cookie
+  `__Host-mch_session` + csrf `mch_csrf` (เดิม `__Host-prd_session`/`prd_csrf`), กลไกเดียวกัน, policy `merchant-user`
+  **single-scheme** (เดิม dual-scheme `producer` = ProducerSession OR tenant Bearer). actor = **`MerchantUser`** (เดิม
+  `ProducerAccount`; ตาราง `MerchantUsers` — ดูดซับ `ProducerTenantAssignments` เดิมเป็นคอลัมน์ `MerchantId` บนตัว account
+  ตรง) + `ExternalLogins`/`RegistrationAudits` (ชื่อเดิม) + session `MerchantUserSessions`/`MerchantAuthAudits` (เดิม
+  `ProducerSessions`/`ProducerAuthAudits`) + RBAC catalog เดิม rename ทั้งชุด (รายตารางดู
+  [rf1-schema-reset design.md](../specs/rf1-schema-reset/design.md#data-models--interfaces)) + permission key
+  `merchant_user.approve`/`.reject` (เดิม `producer.*`). register ยัง anonymous ticket-gated (signed Data Protection
+  token) → admin approve/reject เหมือนเดิม. **module Identity ถูกลบ 2026-06-23 → rebuild เป็น Producer 2026-06-28 → รวมกับ
+  Tenant เป็น Merchants module เดียว (rf1, 2026-07-12).** คงเหลือ **`PlatformUser`\*** (เดิม `AdminAccount`\*) + BFF
+  session tables (`PlatformUserSessions`/`PlatformAuthAudits`/`PlatformUserAudits`, เดิม
+  `AdminSessions`/`AdminAuthAudits`/`AdminAccountAudits`) + `DataProtectionKeys` = control-plane (ไม่มี RLS predicate,
+  pol_admin only) ใน **Admin module**, schema `admin`; MerchantUser identity/session/RBAC ตารางข้างต้นอยู่ schema
+  `merch` — **คนละ schema กันแล้ว** (เดิมทั้งคู่ schema เดียว `producer` ก่อน rf1). schema ไม่ใช่เส้นแบ่ง RLS — floor บังคับ
+  รายตาราง (`merch.Merchants` self-row + `merch.VaultSecrets`/`VaultRevealAudits` อยู่ใต้ policy แม้อยู่ schema เดียวกับ
+  ตารางข้างบนที่ไม่อยู่ใต้ policy)
+- Maker-checker (approve merchant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
+- Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ DB floor** (rf1 REQ-3.7 — Scoped INSERT `merch.Merchants` โดน BLOCK, control ใหม่)
+- Money — มาตรฐาน (ตัดสิน 2026-07-05, **as-built แล้ว rf1 2026-07-12**) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** (domain/DB/wire) **ห้าม float/double**; wire = JSON string fixed 4 ตำแหน่ง (กัน IEEE754 double) — รายละเอียดกฎเต็มดู [CODING_STANDARDS.md](CODING_STANDARDS.md); Orders verify amount+currency ตอนรับ `PaymentPaid`
 
 ## Naming Conventions
 

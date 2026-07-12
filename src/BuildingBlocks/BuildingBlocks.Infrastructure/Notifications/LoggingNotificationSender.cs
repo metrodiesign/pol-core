@@ -17,8 +17,8 @@ public sealed class LoggingNotificationSender : INotificationSender
     public Task SendAsync(NotificationMessage message, CancellationToken cancellationToken)
     {
         _logger.LogInformation(
-            "Customer summary-link notification dispatched for order {OrderId} (tenant {TenantId}).",
-            message.OrderId, message.TenantId);
+            "Customer summary-link notification dispatched for order {OrderId} (merchant {MerchantId}).",
+            message.OrderId, message.MerchantId);
         return Task.CompletedTask;
     }
 }

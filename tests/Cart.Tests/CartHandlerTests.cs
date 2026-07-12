@@ -7,13 +7,13 @@ namespace Cart.Tests;
 public sealed class CartHandlerTests
 {
     private static readonly DateTime Now = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
-    private static readonly Guid Tenant = Guid.NewGuid();
+    private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid Product = Guid.NewGuid();
 
     private static CartAggregate SeededCart(out Guid cartId)
     {
-        var cart = new CartAggregate(Guid.NewGuid(), Tenant, Now);
-        cart.AddItem(Product, 2, Money.Of(150, "THB"));
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
+        cart.AddItem(Product, 2, Money.Of(150m, "THB"));
         cartId = cart.Id;
         return cart;
     }
@@ -24,12 +24,12 @@ public sealed class CartHandlerTests
         var cart = SeededCart(out var cartId);
         var handler = new GetCartHandler(new FakeCartRepository(cart));
 
-        var view = await handler.Handle(new GetCartQuery(cartId, Tenant), default);
+        var view = await handler.Handle(new GetCartQuery(cartId, Merchant), default);
 
         Assert.NotNull(view);
         Assert.Single(view!.Items);
-        Assert.Equal(300, view.SubtotalMinorUnits);
-        Assert.Equal("THB", view.SubtotalCurrency);
+        Assert.Equal(300m, view.Subtotal!.Value.Amount);
+        Assert.Equal("THB", view.Subtotal.Value.Currency);
     }
 
     [Fact]
@@ -38,8 +38,8 @@ public sealed class CartHandlerTests
         var cart = SeededCart(out var cartId);
         var handler = new GetCartHandler(new FakeCartRepository(cart));
 
-        Assert.Null(await handler.Handle(new GetCartQuery(cartId, Guid.NewGuid()), default)); // wrong tenant
-        Assert.Null(await handler.Handle(new GetCartQuery(Guid.NewGuid(), Tenant), default));  // missing
+        Assert.Null(await handler.Handle(new GetCartQuery(cartId, Guid.NewGuid()), default)); // wrong merchant
+        Assert.Null(await handler.Handle(new GetCartQuery(Guid.NewGuid(), Merchant), default));  // missing
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class CartHandlerTests
         var uow = new FakeUnitOfWork();
         var handler = new RemoveItemFromCartHandler(new FakeCartRepository(cart), uow);
 
-        var view = await handler.Handle(new RemoveItemFromCartCommand(cartId, Tenant, Product), default);
+        var view = await handler.Handle(new RemoveItemFromCartCommand(cartId, Merchant, Product), default);
 
         Assert.Empty(view.Items);
         Assert.Equal(1, uow.SaveCount);
@@ -61,7 +61,7 @@ public sealed class CartHandlerTests
         var cart = SeededCart(out var cartId);
         var handler = new SetCartItemQuantityHandler(new FakeCartRepository(cart), new FakeUnitOfWork());
 
-        var view = await handler.Handle(new SetCartItemQuantityCommand(cartId, Tenant, Product, 9), default);
+        var view = await handler.Handle(new SetCartItemQuantityCommand(cartId, Merchant, Product, 9), default);
 
         Assert.Equal(9, view.Items.Single().Quantity);
     }
@@ -73,7 +73,7 @@ public sealed class CartHandlerTests
         var handler = new SetCartItemQuantityHandler(new FakeCartRepository(cart), new FakeUnitOfWork());
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(async () =>
-            await handler.Handle(new SetCartItemQuantityCommand(cartId, Tenant, Product, 0), default));
+            await handler.Handle(new SetCartItemQuantityCommand(cartId, Merchant, Product, 0), default));
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class CartHandlerTests
         var cart = SeededCart(out var cartId);
         var handler = new ClearCartHandler(new FakeCartRepository(cart), new FakeUnitOfWork());
 
-        var view = await handler.Handle(new ClearCartCommand(cartId, Tenant), default);
+        var view = await handler.Handle(new ClearCartCommand(cartId, Merchant), default);
 
         Assert.Empty(view.Items);
     }
@@ -93,6 +93,6 @@ public sealed class CartHandlerTests
         var handler = new ClearCartHandler(new FakeCartRepository(), new FakeUnitOfWork());
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await handler.Handle(new ClearCartCommand(Guid.NewGuid(), Tenant), default));
+            await handler.Handle(new ClearCartCommand(Guid.NewGuid(), Merchant), default));
     }
 }

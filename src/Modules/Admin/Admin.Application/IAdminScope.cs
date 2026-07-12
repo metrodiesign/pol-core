@@ -16,5 +16,5 @@ public interface IAdminScope
     AdminResolution Current { get; }
 
     /// <summary>Convenience accessor for <see cref="AdminResolution.Accessible"/> — the floor's decision input.</summary>
-    AccessibleTenants Accessible { get; }
+    AccessibleMerchants Accessible { get; }
 }

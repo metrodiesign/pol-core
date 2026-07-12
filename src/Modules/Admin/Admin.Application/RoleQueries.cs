@@ -5,7 +5,7 @@ namespace Admin.Application.RoleQueries;
 
 /// <summary>Read models for the role-management console (REQ-1.5, REQ-2). Read-only — no transaction. The role
 /// list is the SFS control-plane exemplar: it inherits <see cref="PagedQuery"/> and returns a
-/// <see cref="PagedResult{T}"/>. Control-plane data (no TenantId) -> NOT <c>ITenantScoped</c>.</summary>
+/// <see cref="PagedResult{T}"/>. Control-plane data (no MerchantId) -> NOT <c>IMerchantScoped</c>.</summary>
 public sealed record ListRolesQuery : PagedQuery, IQuery<PagedResult<AdminRoleListItem>>;
 
 public sealed class ListRolesHandler(IAdminRoleRepository roles)

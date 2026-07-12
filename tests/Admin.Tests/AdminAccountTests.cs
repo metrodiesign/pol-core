@@ -2,16 +2,16 @@ using Admin.Domain;
 
 namespace Admin.Tests;
 
-public sealed class AdminAccountTests
+public sealed class PlatformUserTests
 {
     private static readonly DateTime Now = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
     public void SelfProvision_creates_an_active_super_with_a_bound_subject()
     {
-        var admin = AdminAccount.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = PlatformUser.SelfProvision("g-sub-1", "ops@org.com", Now);
 
-        Assert.Equal(AdminTier.Super, admin.Tier);
+        Assert.Equal(PlatformUserTier.Super, admin.Tier);
         Assert.Equal(AdminStatus.Active, admin.Status);
         Assert.Equal("g-sub-1", admin.Subject);
         Assert.Equal("ops@org.com", admin.Email);
@@ -20,9 +20,9 @@ public sealed class AdminAccountTests
     [Fact]
     public void CreateScoped_creates_an_active_scoped_invite_with_no_subject()
     {
-        var admin = AdminAccount.CreateScoped("scoped@org.com", Now);
+        var admin = PlatformUser.CreateScoped("scoped@org.com", Now);
 
-        Assert.Equal(AdminTier.Scoped, admin.Tier);
+        Assert.Equal(PlatformUserTier.Scoped, admin.Tier);
         Assert.Equal(AdminStatus.Active, admin.Status);
         Assert.Null(admin.Subject); // unbound until first login (REQ-3.1)
         Assert.Equal("scoped@org.com", admin.Email);
@@ -31,7 +31,7 @@ public sealed class AdminAccountTests
     [Fact]
     public void BindSubject_binds_an_invited_account_on_first_login()
     {
-        var admin = AdminAccount.CreateScoped("scoped@org.com", Now);
+        var admin = PlatformUser.CreateScoped("scoped@org.com", Now);
 
         admin.BindSubject("g-sub-2");
 
@@ -41,7 +41,7 @@ public sealed class AdminAccountTests
     [Fact]
     public void BindSubject_rejects_rebinding_a_bound_account()
     {
-        var admin = AdminAccount.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = PlatformUser.SelfProvision("g-sub-1", "ops@org.com", Now);
 
         Assert.Throws<InvalidOperationException>(() => admin.BindSubject("g-sub-other"));
     }
@@ -49,7 +49,7 @@ public sealed class AdminAccountTests
     [Fact]
     public void Suspend_revokes_another_admin()
     {
-        var admin = AdminAccount.CreateScoped("scoped@org.com", Now);
+        var admin = PlatformUser.CreateScoped("scoped@org.com", Now);
 
         admin.Suspend(Guid.NewGuid()); // a different acting admin
 
@@ -59,7 +59,7 @@ public sealed class AdminAccountTests
     [Fact]
     public void Suspend_rejects_self_suspension()
     {
-        var admin = AdminAccount.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = PlatformUser.SelfProvision("g-sub-1", "ops@org.com", Now);
 
         // Oversight can never be locked out — an admin cannot suspend itself (REQ-8.2).
         Assert.Throws<InvalidOperationException>(() => admin.Suspend(admin.Id));
@@ -71,26 +71,26 @@ public sealed class AdminAccountTests
     [InlineData("")]
     [InlineData("   ")]
     public void SelfProvision_rejects_a_blank_subject(string? subject) =>
-        Assert.ThrowsAny<ArgumentException>(() => AdminAccount.SelfProvision(subject!, "ops@org.com", Now));
+        Assert.ThrowsAny<ArgumentException>(() => PlatformUser.SelfProvision(subject!, "ops@org.com", Now));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     public void CreateScoped_rejects_a_blank_email(string? email) =>
-        Assert.ThrowsAny<ArgumentException>(() => AdminAccount.CreateScoped(email!, Now));
+        Assert.ThrowsAny<ArgumentException>(() => PlatformUser.CreateScoped(email!, Now));
 
     [Fact]
     public void Assignment_rejects_empty_ids()
     {
-        Assert.Throws<ArgumentException>(() => AdminTenantAssignment.Create(Guid.Empty, Guid.NewGuid(), Guid.NewGuid(), Now));
-        Assert.Throws<ArgumentException>(() => AdminTenantAssignment.Create(Guid.NewGuid(), Guid.Empty, Guid.NewGuid(), Now));
+        Assert.Throws<ArgumentException>(() => PlatformMerchantAccess.Create(Guid.Empty, Guid.NewGuid(), Guid.NewGuid(), Now));
+        Assert.Throws<ArgumentException>(() => PlatformMerchantAccess.Create(Guid.NewGuid(), Guid.Empty, Guid.NewGuid(), Now));
     }
 
     [Fact]
     public void Audit_requires_an_action_correlation_and_actor()
     {
-        Assert.ThrowsAny<ArgumentException>(() => AdminAccountAudit.For("", Guid.NewGuid(), "corr", Now));
-        Assert.ThrowsAny<ArgumentException>(() => AdminAccountAudit.For(AdminAuditAction.Suspend, Guid.NewGuid(), "", Now));
-        Assert.Throws<ArgumentException>(() => AdminAccountAudit.For(AdminAuditAction.Suspend, Guid.Empty, "corr", Now));
+        Assert.ThrowsAny<ArgumentException>(() => PlatformUserAudit.For("", Guid.NewGuid(), "corr", Now));
+        Assert.ThrowsAny<ArgumentException>(() => PlatformUserAudit.For(AdminAuditAction.Suspend, Guid.NewGuid(), "", Now));
+        Assert.Throws<ArgumentException>(() => PlatformUserAudit.For(AdminAuditAction.Suspend, Guid.Empty, "corr", Now));
     }
 }

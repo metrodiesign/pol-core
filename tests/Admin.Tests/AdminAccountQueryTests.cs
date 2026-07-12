@@ -1,4 +1,4 @@
-using Admin.Application.AdminAccountQueries;
+using Admin.Application.PlatformUserQueries;
 using Admin.Domain;
 
 namespace Admin.Tests;
@@ -7,7 +7,7 @@ namespace Admin.Tests;
 /// 404-on-unknown existence checks, that detail carries ALL assigned role codes (incl. Inactive) with the correct
 /// accessible shape, and that effective-permissions is ACTIVE-only and ordinal-ascending even for a suspended
 /// target.</summary>
-public sealed class AdminAccountQueryTests
+public sealed class PlatformUserQueryTests
 {
     private static readonly DateTime T0 = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Guid Actor = Guid.NewGuid();
@@ -19,16 +19,16 @@ public sealed class AdminAccountQueryTests
     [Fact]
     public async Task GetAdminById_returns_null_for_unknown_id()
     {
-        var handler = new GetAdminByIdHandler(new FakeAdminAccountRepository(), new FakeAdminRoleRepository(), new FakeMasterDataStore());
+        var handler = new GetAdminByIdHandler(new FakePlatformUserRepository(), new FakeAdminRoleRepository(), new FakeMasterDataStore());
         Assert.Null(await handler.Handle(new GetAdminByIdQuery(Guid.NewGuid()), default));
     }
 
     [Fact]
     public async Task GetAdminById_super_is_unrestricted_with_all_role_codes_incl_inactive()
     {
-        var accounts = new FakeAdminAccountRepository();
+        var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var super = AdminAccount.SelfProvision("sub-1", "super@x", T0);
+        var super = PlatformUser.SelfProvision("sub-1", "super@x", T0);
         accounts.Add(super);
 
         var active = Role("ops", AdminRoleStatus.Active, "txn.view");
@@ -41,19 +41,19 @@ public sealed class AdminAccountQueryTests
 
         Assert.NotNull(detail);
         Assert.True(detail!.SubjectBound);                 // Super's subject is bound
-        Assert.Equal(AdminTier.Super, detail.Tier);
+        Assert.Equal(PlatformUserTier.Super, detail.Tier);
         Assert.True(detail.Accessible.IsUnrestricted);     // /me shape for a Super
         Assert.Equal(new[] { "legacy", "ops" }, detail.RoleCodes);   // ALL assigned, incl. Inactive, code-sorted
     }
 
     [Fact]
-    public async Task GetAdminById_scoped_carries_assigned_tenant_set_and_unbound_flag()
+    public async Task GetAdminById_scoped_carries_assigned_merchant_set_and_unbound_flag()
     {
-        var accounts = new FakeAdminAccountRepository();
-        var scoped = AdminAccount.CreateScoped("scoped@x", T0);   // subject unbound (pending invite)
+        var accounts = new FakePlatformUserRepository();
+        var scoped = PlatformUser.CreateScoped("scoped@x", T0);   // subject unbound (pending invite)
         accounts.Add(scoped);
-        var tenant = Guid.NewGuid();
-        accounts.AddAssignment(AdminTenantAssignment.Create(scoped.Id, tenant, Actor, T0));
+        var merchant = Guid.NewGuid();
+        accounts.AddAssignment(PlatformMerchantAccess.Create(scoped.Id, merchant, Actor, T0));
 
         var detail = await new GetAdminByIdHandler(accounts, new FakeAdminRoleRepository(), new FakeMasterDataStore())
             .Handle(new GetAdminByIdQuery(scoped.Id), default);
@@ -61,7 +61,7 @@ public sealed class AdminAccountQueryTests
         Assert.NotNull(detail);
         Assert.False(detail!.SubjectBound);                // invite not yet claimed
         Assert.False(detail.Accessible.IsUnrestricted);
-        Assert.Equal(new[] { tenant }, detail.Accessible.Tenants);
+        Assert.Equal(new[] { merchant }, detail.Accessible.Merchants);
         Assert.Empty(detail.RoleCodes);
     }
 
@@ -69,16 +69,16 @@ public sealed class AdminAccountQueryTests
     [Fact]
     public async Task GetEffectivePermissions_returns_null_for_unknown_id()
     {
-        var handler = new GetAdminEffectivePermissionsHandler(new FakeAdminAccountRepository(), new FakeAdminRoleRepository());
+        var handler = new GetAdminEffectivePermissionsHandler(new FakePlatformUserRepository(), new FakeAdminRoleRepository());
         Assert.Null(await handler.Handle(new GetAdminEffectivePermissionsQuery(Guid.NewGuid()), default));
     }
 
     [Fact]
     public async Task GetEffectivePermissions_is_active_only_and_ordinal_ascending()
     {
-        var accounts = new FakeAdminAccountRepository();
+        var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var admin = AdminAccount.SelfProvision("sub-2", "a@x", T0);
+        var admin = PlatformUser.SelfProvision("sub-2", "a@x", T0);
         accounts.Add(admin);
 
         // Active role grants keys in NON-sorted order; an Inactive role's key must NOT appear.
@@ -97,9 +97,9 @@ public sealed class AdminAccountQueryTests
     [Fact]
     public async Task GetEffectivePermissions_works_for_a_suspended_target()
     {
-        var accounts = new FakeAdminAccountRepository();
+        var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var admin = AdminAccount.SelfProvision("sub-3", "s@x", T0);
+        var admin = PlatformUser.SelfProvision("sub-3", "s@x", T0);
         admin.Suspend(Actor);                              // suspension blocks sign-in, not role grants
         accounts.Add(admin);
         var active = Role("ops", AdminRoleStatus.Active, "txn.view");

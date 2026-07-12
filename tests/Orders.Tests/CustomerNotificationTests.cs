@@ -9,7 +9,7 @@ namespace Orders.Tests;
 /// propagates a delivery failure so the outbox retries.</summary>
 public sealed class CustomerNotificationTests
 {
-    private static readonly Guid TenantId = Guid.NewGuid();
+    private static readonly Guid MerchantId = Guid.NewGuid();
 
     [Fact]
     public async Task CreateOrder_with_a_recipient_enqueues_the_notification()
@@ -18,7 +18,7 @@ public sealed class CustomerNotificationTests
         var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock());
 
         var result = await handler.Handle(
-            new CreateOrderCommand(TenantId, 15000, "THB", Recipient: "buyer@example.com"), default);
+            new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB"), Recipient: "buyer@example.com"), default);
 
         var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
         Assert.Equal(result.OrderId, note.OrderId);
@@ -32,7 +32,7 @@ public sealed class CustomerNotificationTests
         var outbox = new FakeOutbox();
         var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new CreateOrderCommand(TenantId, 15000, "THB"), default);
+        await handler.Handle(new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB")), default);
 
         Assert.Empty(outbox.Enqueued);
     }
@@ -44,7 +44,7 @@ public sealed class CustomerNotificationTests
         var consumer = new CustomerOrderNotificationConsumer(sender);
 
         await consumer.Handle(
-            new CustomerOrderNotification(TenantId, Guid.NewGuid(), "buyer@example.com", "tok", default), default);
+            new CustomerOrderNotification(MerchantId, Guid.NewGuid(), "buyer@example.com", "tok", default), default);
 
         Assert.Single(sender.Sent);
     }
@@ -56,6 +56,6 @@ public sealed class CustomerNotificationTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await consumer.Handle(
-                new CustomerOrderNotification(TenantId, Guid.NewGuid(), "buyer@example.com", "tok", default), default));
+                new CustomerOrderNotification(MerchantId, Guid.NewGuid(), "buyer@example.com", "tok", default), default));
     }
 }

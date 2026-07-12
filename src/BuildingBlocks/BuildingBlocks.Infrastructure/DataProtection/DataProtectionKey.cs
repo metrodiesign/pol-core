@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -20,7 +21,7 @@ public sealed class DataProtectionKeyConfiguration : IEntityTypeConfiguration<Da
 {
     public void Configure(EntityTypeBuilder<DataProtectionKey> builder)
     {
-        builder.ToTable("DataProtectionKeys");
+        builder.ToTable("DataProtectionKeys", SchemaNames.Dbo);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedOnAdd();
         builder.Property(x => x.FriendlyName).HasMaxLength(256);

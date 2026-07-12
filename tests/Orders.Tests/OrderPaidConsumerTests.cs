@@ -14,18 +14,18 @@ namespace Orders.Tests;
 /// </summary>
 public sealed class OrderPaidConsumerTests
 {
-    private static readonly Guid Tenant = Guid.NewGuid();
+    private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
     // Mirrors the production path: CheckoutConfirmedConsumer opens orders WITHOUT a payment session id.
-    private static Order ProductionOrder(long minorUnits = 15000, string currency = "THB") =>
-        Order.Create(Tenant, Money.Of(minorUnits, currency), At, checkoutSessionId: Guid.NewGuid());
+    private static Order ProductionOrder(decimal amount = 15000m, string currency = "THB") =>
+        Order.Create(Merchant, Money.Of(amount, currency), At, checkoutSessionId: Guid.NewGuid());
 
-    private static PaymentPaid PaidEvent(Order order, long minorUnits = 15000, string currency = "THB") => new(
+    private static PaymentPaid PaidEvent(Order order, decimal amount = 15000m, string currency = "THB") => new(
         PaymentSessionId: Guid.NewGuid(),
         OrderId: order.Id,
-        TenantId: Tenant,
-        Amount: Money.Of(minorUnits, currency),
+        MerchantId: Merchant,
+        Amount: Money.Of(amount, currency),
         PspCode: "2c2p",
         ExternalChargeId: "chg_abc123",
         EventId: "evt_xyz789",

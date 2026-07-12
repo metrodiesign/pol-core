@@ -15,16 +15,16 @@ public sealed record UpdateAdminProfileCommand(
 
 public sealed class UpdateAdminProfileHandler : ICommandHandler<UpdateAdminProfileCommand, Unit>
 {
-    private readonly IAdminAccountRepository _admins;
+    private readonly IPlatformUserRepository _admins;
     private readonly IMasterDataStore _masters;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public UpdateAdminProfileHandler(
-        IAdminAccountRepository admins,
+        IPlatformUserRepository admins,
         IMasterDataStore masters,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -47,7 +47,7 @@ public sealed class UpdateAdminProfileHandler : ICommandHandler<UpdateAdminProfi
                 command.PositionId, command.OfficeId, command.LevelId, command.DivisionId, ct);
 
             admin.UpdateProfile(command.PositionId, command.OfficeId, command.LevelId, command.DivisionId);
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.UpdateProfile, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.TargetAdminId));
             await _unitOfWork.SaveChangesAsync(ct);

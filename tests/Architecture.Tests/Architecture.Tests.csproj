@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="NetArchTest.Rules" />
     <PackageReference Include="xunit" />
@@ -39,15 +40,12 @@
     <ProjectReference Include="..\..\src\Modules\Payments\Payments.Domain\Payments.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\Payments.Application\Payments.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Payments\Payments.Infrastructure\Payments.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Tenant\Tenant.Domain\Tenant.Domain.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Tenant\Tenant.Application\Tenant.Application.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Tenant\Tenant.Infrastructure\Tenant.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admin\Admin.Domain\Admin.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admin\Admin.Application\Admin.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Admin\Admin.Infrastructure\Admin.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Producer\Producer.Domain\Producer.Domain.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Producer\Producer.Application\Producer.Application.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Producer\Producer.Infrastructure\Producer.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Application\Merchants.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Infrastructure\Merchants.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

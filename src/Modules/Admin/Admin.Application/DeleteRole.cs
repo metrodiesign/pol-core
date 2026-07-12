@@ -15,13 +15,13 @@ public sealed record DeleteRoleResult(string Code);
 public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, DeleteRoleResult>
 {
     private readonly IAdminRoleRepository _roles;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public DeleteRoleHandler(
         IAdminRoleRepository roles,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -46,7 +46,7 @@ public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, Delet
                 throw new ConflictException("A role with bound users cannot be deleted.");
 
             _roles.Remove(role);
-            _audit.Append(AdminAccountAudit.For(
+            _audit.Append(PlatformUserAudit.For(
                 AdminAuditAction.RoleDeleted, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetRoleId: role.Id));
             await _unitOfWork.SaveChangesAsync(ct);

@@ -1,17 +1,18 @@
 using Admin.Domain;
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Admin.Infrastructure.Persistence;
 
-// EF mappings for the admin realm onto the producer schema (discovered via ModuleAssemblies.Producer). These
-// are control-plane tables: NO tenant RLS predicate, granted to pol_admin only (see AddAdminIdentityTables).
+// EF mappings for the admin realm onto the admin schema (discovered via HostModuleAssemblies.All). These
+// are control-plane tables: NO merchant RLS predicate, granted to pol_admin only (see AddAdminIdentityTables).
 
-public sealed class AdminAccountConfiguration : IEntityTypeConfiguration<AdminAccount>
+public sealed class PlatformUserConfiguration : IEntityTypeConfiguration<PlatformUser>
 {
-    public void Configure(EntityTypeBuilder<AdminAccount> builder)
+    public void Configure(EntityTypeBuilder<PlatformUser> builder)
     {
-        builder.ToTable("AdminAccounts");
+        builder.ToTable("PlatformUsers", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Subject).HasMaxLength(256); // nullable until an invited Scoped account binds it
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
@@ -31,31 +32,31 @@ public sealed class AdminAccountConfiguration : IEntityTypeConfiguration<AdminAc
     }
 }
 
-public sealed class AdminTenantAssignmentConfiguration : IEntityTypeConfiguration<AdminTenantAssignment>
+public sealed class PlatformMerchantAccessConfiguration : IEntityTypeConfiguration<PlatformMerchantAccess>
 {
-    public void Configure(EntityTypeBuilder<AdminTenantAssignment> builder)
+    public void Configure(EntityTypeBuilder<PlatformMerchantAccess> builder)
     {
-        builder.ToTable("AdminTenantAssignments");
+        builder.ToTable("PlatformMerchantAccess", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.AdminAccountId).IsRequired();
-        builder.Property(x => x.TenantId).IsRequired();
+        builder.Property(x => x.PlatformUserId).IsRequired();
+        builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.AssignedByAdminId).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.AdminAccountId, x.TenantId }).IsUnique(); // REQ-4.1/4.4
+        builder.HasIndex(x => new { x.PlatformUserId, x.MerchantId }).IsUnique(); // REQ-4.1/4.4
     }
 }
 
-public sealed class AdminAccountAuditConfiguration : IEntityTypeConfiguration<AdminAccountAudit>
+public sealed class PlatformUserAuditConfiguration : IEntityTypeConfiguration<PlatformUserAudit>
 {
-    public void Configure(EntityTypeBuilder<AdminAccountAudit> builder)
+    public void Configure(EntityTypeBuilder<PlatformUserAudit> builder)
     {
-        builder.ToTable("AdminAccountAudits");
+        builder.ToTable("PlatformUserAudits", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasMaxLength(64).IsRequired();
         builder.Property(x => x.ActorType).HasMaxLength(16).IsRequired();
         builder.Property(x => x.ActorId).IsRequired();
         builder.Property(x => x.TargetAdminId);
-        builder.Property(x => x.TenantId);
+        builder.Property(x => x.MerchantId);
         builder.Property(x => x.TargetRoleId); // role-CRUD audit target (admin-role-rbac REQ-10.2)
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();

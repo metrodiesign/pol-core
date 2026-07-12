@@ -72,11 +72,11 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         }
 
         // This request owns the claim: create the hosted charge and bind it once.
-        var connection = await _connections.GetAsync(session.TenantId, session.Psp, cancellationToken).ConfigureAwait(false)
+        var connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException(
-                $"No PSP connection for tenant {session.TenantId} and PSP {session.Psp}.");
+                $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
 
-        var secret = await _vault.RevealAsync(session.TenantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+        var secret = await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
 
         var adapter = _adapters.For(session.Psp);
         var charge = await adapter.CreateRedirectChargeAsync(session, secret, cancellationToken).ConfigureAwait(false);

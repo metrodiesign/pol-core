@@ -11,7 +11,7 @@ namespace Api;
 
 /// <summary>
 /// Persists the ASP.NET Core Data Protection key ring in the control-plane <c>DataProtectionKeys</c> table via
-/// the keyed pol_admin <see cref="ProducerDbContext"/> (REQ-8, Tech #5). The OIDC handler's correlation/state/
+/// the keyed pol_admin <see cref="PolDbContext"/> (REQ-8, Tech #5). The OIDC handler's correlation/state/
 /// nonce cookies are DP-protected; without a shared, persisted key ring those cookies break across a restart or
 /// a second instance. <see cref="IXmlRepository"/> is synchronous and the repository is a singleton, so it opens
 /// a fresh DI scope per call to reach the Scoped admin context. The framework only ever appends keys + reads them
@@ -26,7 +26,7 @@ internal sealed class EfCoreXmlRepository : IXmlRepository
     public IReadOnlyCollection<XElement> GetAllElements()
     {
         using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredKeyedService<ProducerDbContext>("admin");
+        var db = scope.ServiceProvider.GetRequiredKeyedService<PolDbContext>("admin");
         return db.Set<DataProtectionKey>().AsNoTracking()
             .Select(k => k.Xml)
             .ToList()
@@ -37,7 +37,7 @@ internal sealed class EfCoreXmlRepository : IXmlRepository
     public void StoreElement(XElement element, string friendlyName)
     {
         using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredKeyedService<ProducerDbContext>("admin");
+        var db = scope.ServiceProvider.GetRequiredKeyedService<PolDbContext>("admin");
         db.Set<DataProtectionKey>().Add(new DataProtectionKey
         {
             FriendlyName = friendlyName,
@@ -49,7 +49,7 @@ internal sealed class EfCoreXmlRepository : IXmlRepository
 
 internal static class AdminDataProtection
 {
-    /// <summary>Wires Data Protection onto the control-plane key store. Call AFTER AddTenantAdminScope (the
+    /// <summary>Wires Data Protection onto the control-plane key store. Call AFTER AddMerchantAdminScope (the
     /// repository resolves the keyed "admin" context). Keys are read lazily on first protect/unprotect, so this
     /// does not touch SQL at boot.</summary>
     public static IServiceCollection AddAdminDataProtection(this IServiceCollection services)

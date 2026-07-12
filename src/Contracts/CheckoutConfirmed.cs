@@ -1,18 +1,18 @@
 using Mediator;
+using SharedKernel;
 
 namespace Contracts;
 
 /// <summary>
 /// CheckoutConfirmed v1 — emitted (via the transactional outbox) when a checkout is confirmed, so the
 /// Orders module can open the order out-of-band. Published at-least-once; the consumer is idempotent on
-/// <see cref="CheckoutSessionId"/> (one order per checkout). Carries the agreed amount + the optional
-/// notification recipient so the created order can notify the customer.
+/// <see cref="CheckoutSessionId"/> (one order per checkout). Carries the agreed <see cref="Amount"/> +
+/// the optional notification recipient so the created order can notify the customer.
 /// </summary>
 public sealed record CheckoutConfirmed(
-    Guid TenantId,
+    Guid MerchantId,
     Guid CheckoutSessionId,
-    long AmountMinorUnits,
-    string Currency,
+    Money Amount,
     string? Recipient,
     DateTime OccurredAt) : INotification
 {

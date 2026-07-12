@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Admin.Application.SelfProvisionSuperAdmin;
 
 /// <summary>
-/// Bootstrap path (REQ-5): an allowlisted Google subject with no <see cref="AdminAccount"/> self-provisions as
+/// Bootstrap path (REQ-5): an allowlisted Google subject with no <see cref="PlatformUser"/> self-provisions as
 /// Super/Active on first login. Idempotent — a concurrent first-login race surfaces a unique-violation
 /// (translated to <see cref="ConflictException"/> by the admin unit of work) which is caught and re-read so
 /// exactly one row wins and both requests resolve (REQ-5.2). The allowlist gate itself is enforced by the
@@ -18,16 +18,16 @@ public sealed record SelfProvisionSuperAdminCommand(string Subject, string Email
 
 public sealed class SelfProvisionSuperAdminHandler : ICommandHandler<SelfProvisionSuperAdminCommand, AdminResolution>
 {
-    private readonly IAdminAccountRepository _admins;
+    private readonly IPlatformUserRepository _admins;
     private readonly IAdminRoleRepository _roles;
-    private readonly IAdminAccountAuditWriter _audit;
+    private readonly IPlatformUserAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public SelfProvisionSuperAdminHandler(
-        IAdminAccountRepository admins,
+        IPlatformUserRepository admins,
         IAdminRoleRepository roles,
-        IAdminAccountAuditWriter audit,
+        IPlatformUserAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -44,15 +44,15 @@ public sealed class SelfProvisionSuperAdminHandler : ICommandHandler<SelfProvisi
         {
             return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                var account = AdminAccount.SelfProvision(command.Subject, command.Email, _clock.UtcNow);
+                var account = PlatformUser.SelfProvision(command.Subject, command.Email, _clock.UtcNow);
                 _admins.Add(account);
-                _audit.Append(AdminAccountAudit.For(
+                _audit.Append(PlatformUserAudit.For(
                     AdminAuditAction.SelfProvision, account.Id, command.CorrelationId, _clock.UtcNow, targetAdminId: account.Id));
                 // Bootstrap is usable immediately only if it also holds the super_admin role (orthogonal model has
                 // no Super-bypass — REQ-8.1). Assigned in the same transaction so the account never exists roleless.
                 await AssignSuperAdminRoleAsync(account.Id, command.CorrelationId, ct);
                 await _unitOfWork.SaveChangesAsync(ct);
-                return new AdminResolution(account.Id, account.Email, AdminTier.Super, AccessibleTenants.All);
+                return new AdminResolution(account.Id, account.Email, PlatformUserTier.Super, AccessibleMerchants.All);
             }, cancellationToken);
         }
         catch (ConflictException)
@@ -75,7 +75,7 @@ public sealed class SelfProvisionSuperAdminHandler : ICommandHandler<SelfProvisi
         if (role is null || await _roles.AssignmentExistsAsync(adminId, role.Id, ct))
             return;
         _roles.AddAssignment(AdminRoleAssignment.Create(adminId, role.Id, adminId, _clock.UtcNow));
-        _audit.Append(AdminAccountAudit.For(
+        _audit.Append(PlatformUserAudit.For(
             AdminAuditAction.RoleAssigned, adminId, correlationId, _clock.UtcNow,
             targetAdminId: adminId, targetRoleId: role.Id));
     }

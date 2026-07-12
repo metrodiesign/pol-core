@@ -27,8 +27,8 @@ public sealed class TwoCTwoPAdapterTests
         return (new TwoCTwoPAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
-    private static PaymentSession Session(long minor = 25009, string currency = "THB") =>
-        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(minor, currency), "card", PspCode.TwoCTwoP, DateTime.UtcNow);
+    private static PaymentSession Session(decimal amount = 250.09m, string currency = "THB") =>
+        PaymentSession.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), "card", PspCode.TwoCTwoP, DateTime.UtcNow);
 
     private static HttpResponseMessage PaymentTokenOk(string webPaymentUrl) =>
         StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
@@ -50,11 +50,11 @@ public sealed class TwoCTwoPAdapterTests
     }
 
     [Theory]
-    [InlineData(25009, "THB", "250.09")]
+    [InlineData(250.09, "THB", "250.09")]
     [InlineData(5000, "JPY", "5000")]
-    public async Task CreateRedirectCharge_formats_major_unit_amount_and_alpha_currency(long minor, string currency, string expectedAmount)
+    public async Task CreateRedirectCharge_formats_major_unit_amount_and_alpha_currency(double amount, string currency, string expectedAmount)
     {
-        var session = Session(minor, currency);
+        var session = Session((decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None);
@@ -65,6 +65,31 @@ public sealed class TwoCTwoPAdapterTests
         Assert.Equal(session.Id.ToString("N"), claims.GetProperty("invoiceNo").GetString());
         // The idempotencyID rides with the invoiceNo so a PSP-side retry returns the first charge.
         Assert.Equal(session.Id.ToString("N"), claims.GetProperty("idempotencyID").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_rejects_amount_finer_than_the_currency_minor_unit()
+    {
+        // THB's minor unit is 2 decimals; Money itself allows scale <= 4, so 10.0050 is a valid Money but
+        // not representable at THB's wire precision — must reject, not silently round to "10.01".
+        var session = Session(10.0050m, "THB");
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_rejects_fractional_amount_on_a_zero_decimal_currency()
+    {
+        // JPY has zero minor-unit digits; 10.5 has no representable rounding target.
+        var session = Session(10.5m, "JPY");
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+        Assert.Equal(0, handler.CallCount);
     }
 
     [Fact]

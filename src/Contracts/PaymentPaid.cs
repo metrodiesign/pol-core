@@ -12,7 +12,7 @@ namespace Contracts;
 public sealed record PaymentPaid(
     Guid PaymentSessionId,
     Guid OrderId,
-    Guid TenantId,
+    Guid MerchantId,
     Money Amount,
     string PspCode,
     string ExternalChargeId,

@@ -5,16 +5,16 @@ using Payments.Domain;
 
 namespace Payments.Infrastructure.Persistence;
 
-/// <summary>EF Core repository for <see cref="PspConnection"/> over the shared producer data plane.</summary>
+/// <summary>EF Core repository for <see cref="PspConnection"/> over the shared txn data plane.</summary>
 public sealed class PspConnectionRepository : IPspConnectionRepository
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public PspConnectionRepository(ProducerDbContext db) => _db = db;
+    public PspConnectionRepository(PolDbContext db) => _db = db;
 
-    public Task<PspConnection?> GetAsync(Guid tenantId, PspCode psp, CancellationToken cancellationToken) =>
+    public Task<PspConnection?> GetAsync(Guid merchantId, PspCode psp, CancellationToken cancellationToken) =>
         _db.Set<PspConnection>()
-            .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.Psp == psp, cancellationToken);
+            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Psp == psp, cancellationToken);
 
     public Task<PspConnection?> GetByIdAsync(Guid pspConnectionId, CancellationToken cancellationToken) =>
         _db.Set<PspConnection>()
@@ -22,8 +22,8 @@ public sealed class PspConnectionRepository : IPspConnectionRepository
 
     public void Add(PspConnection connection) => _db.Set<PspConnection>().Add(connection);
 
-    public async Task<IReadOnlyList<PspConnection>> ListByTenantAsync(Guid tenantId, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<PspConnection>> ListByTenantAsync(Guid merchantId, CancellationToken cancellationToken) =>
         await _db.Set<PspConnection>()
-            .Where(x => x.TenantId == tenantId)
+            .Where(x => x.MerchantId == merchantId)
             .ToListAsync(cancellationToken);
 }

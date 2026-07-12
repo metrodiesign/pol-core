@@ -49,10 +49,13 @@ file sealed class AdminMgmtFactory : WebApplicationFactory<ApiHost::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
-        builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
+        // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
+        // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
+        builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+            ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+            ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
             ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         }));
         builder.ConfigureServices(services =>

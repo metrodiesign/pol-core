@@ -1,5 +1,13 @@
 # Entity Field Reference (persisted model)
 
+> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
+> rename ทั้งระบบ: `Tenant`→`Merchant`, `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`,
+> `Money.MinorUnits`→`DECIMAL(19,4)`) — เนื้อหาด้านล่างอ้าง `ProducerDbContextModelSnapshot`/schema `producer` เดียว
+> ซึ่งไม่มีอยู่จริงแล้ว (rename เป็น `PolDbContextModelSnapshot` + 5 schema). ของจริงปัจจุบันดู
+> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
+> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
+> เอกสารนี้ทั้งฉบับ (regenerate จาก model จริง) เป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+
 > Generated 2026-06-23 from `ProducerDbContextModelSnapshot.cs` (the authoritative EF model) + the domain
 > enums + the RLS/proc/grant migrations. นี่คือรูปจริงของตารางใน schema `producer` ของ `ProducerDbContext`
 > ตัวเดียว (modular monolith — ทุกโมดูล map เข้า DbContext เดียวกัน). สะท้อนสถานะปัจจุบัน: Identity module ถูกลบ

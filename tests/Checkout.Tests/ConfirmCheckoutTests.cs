@@ -7,12 +7,12 @@ using SharedKernel;
 
 namespace Checkout.Tests;
 
-/// <summary>Checkout -> Order keystone, producer side (REQ-5.1/5.5): start captures the recipient; confirm
+/// <summary>Checkout -> Order keystone, merchant-user side (REQ-5.1/5.5): start captures the recipient; confirm
 /// transitions the session AND emits CheckoutConfirmed (carrying amount + recipient) in the same unit of
 /// work, so Orders opens the order out-of-band.</summary>
 public sealed class ConfirmCheckoutTests
 {
-    private static readonly Guid Tenant = Guid.NewGuid();
+    private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid Cart = Guid.NewGuid();
 
     [Fact]
@@ -21,7 +21,7 @@ public sealed class ConfirmCheckoutTests
         var repo = new FakeCheckoutRepository();
         var handler = new StartCheckoutHandler(repo, new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new StartCheckoutCommand(Tenant, Cart, 15000, "THB", "buyer@example.com"), default);
+        await handler.Handle(new StartCheckoutCommand(Merchant, Cart, Money.Of(15000m, "THB"), "buyer@example.com"), default);
 
         Assert.Equal("buyer@example.com", Assert.Single(repo.Added).NotificationRecipient);
     }
@@ -29,17 +29,17 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public async Task Confirm_transitions_and_emits_CheckoutConfirmed()
     {
-        var session = CheckoutSession.Start(Tenant, Cart, Money.Of(15000, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), "buyer@example.com");
+        var session = CheckoutSession.Start(Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), "buyer@example.com");
         var repo = new FakeCheckoutRepository(session);
         var outbox = new FakeOutbox();
         var handler = new ConfirmCheckoutHandler(repo, outbox, new FakeUnitOfWork(), new FixedClock());
 
-        var result = await handler.Handle(new ConfirmCheckoutCommand(session.Id, Tenant), default);
+        var result = await handler.Handle(new ConfirmCheckoutCommand(session.Id, Merchant), default);
 
         Assert.Equal(CheckoutStatus.Confirmed, result.Status);
         var evt = Assert.IsType<CheckoutConfirmed>(Assert.Single(outbox.Enqueued));
         Assert.Equal(session.Id, evt.CheckoutSessionId);
-        Assert.Equal(15000, evt.AmountMinorUnits);
+        Assert.Equal(Money.Of(15000m, "THB"), evt.Amount);
         Assert.Equal("buyer@example.com", evt.Recipient);
     }
 }

@@ -3,7 +3,7 @@ using SharedKernel;
 namespace Payments.Domain;
 
 /// <summary>
-/// A tenant's configured credentials+capability binding for one PSP. The actual secret never lives
+/// A merchant's configured credentials+capability binding for one PSP. The actual secret never lives
 /// here — only <see cref="SecretRefName"/>, the lookup name under which the plaintext is custodied in
 /// <c>IVaultSecretStore</c> (PLAN #14). Enabled methods are kept as a verbatim comma-separated code
 /// list ("card,promptpay"); <see cref="Metadata"/> is free-form JSON restricted to low-risk display
@@ -11,7 +11,7 @@ namespace Payments.Domain;
 /// </summary>
 public sealed class PspConnection : Entity<Guid>
 {
-    public Guid TenantId { get; private set; }
+    public Guid MerchantId { get; private set; }
 
     public PspCode Psp { get; private set; }
 
@@ -33,7 +33,7 @@ public sealed class PspConnection : Entity<Guid>
 
     private PspConnection(
         Guid id,
-        Guid tenantId,
+        Guid merchantId,
         PspCode psp,
         string enabledMethods,
         string secretRefName,
@@ -41,7 +41,7 @@ public sealed class PspConnection : Entity<Guid>
         DateTime createdAt)
         : base(id)
     {
-        TenantId = tenantId;
+        MerchantId = merchantId;
         Psp = psp;
         EnabledMethods = enabledMethods;
         SecretRefName = secretRefName;
@@ -50,22 +50,22 @@ public sealed class PspConnection : Entity<Guid>
         CreatedAt = createdAt;
     }
 
-    /// <summary>Creates an enabled PSP connection for a tenant.</summary>
+    /// <summary>Creates an enabled PSP connection for a merchant.</summary>
     public static PspConnection Create(
-        Guid tenantId,
+        Guid merchantId,
         PspCode psp,
         string enabledMethods,
         string secretRefName,
         DateTime createdAt,
         string? metadata = null)
     {
-        if (tenantId == Guid.Empty)
-            throw new ArgumentException("TenantId is required.", nameof(tenantId));
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
         ArgumentException.ThrowIfNullOrWhiteSpace(enabledMethods);
         ArgumentException.ThrowIfNullOrWhiteSpace(secretRefName);
 
         return new PspConnection(
-            Guid.NewGuid(), tenantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAt);
+            Guid.NewGuid(), merchantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAt);
     }
 
     /// <summary>True when <paramref name="method"/> appears in this connection's enabled method list.</summary>

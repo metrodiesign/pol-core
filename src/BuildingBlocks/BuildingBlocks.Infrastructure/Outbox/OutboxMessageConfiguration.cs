@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -7,9 +8,9 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
 {
     public void Configure(EntityTypeBuilder<OutboxMessage> builder)
     {
-        builder.ToTable("OutboxMessages");
+        builder.ToTable("OutboxMessages", SchemaNames.Txn);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.TenantId).IsRequired();
+        builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.Type).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Payload).IsRequired();
         builder.Property(x => x.LeaseOwner).HasMaxLength(256);

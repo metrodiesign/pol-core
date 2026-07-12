@@ -20,9 +20,8 @@ public sealed class GetPaymentSessionHandler : IQueryHandler<GetPaymentSessionQu
         return new PaymentSessionView(
             session.Id,
             session.OrderId,
-            session.TenantId,
-            session.AmountMinorUnits,
-            session.AmountCurrency,
+            session.MerchantId,
+            session.Amount,
             session.Method,
             session.Psp,
             session.Status,

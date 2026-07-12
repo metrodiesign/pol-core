@@ -7,7 +7,7 @@ namespace Api;
 /// Authorization Code + PKCE + state + nonce + code-exchange + JWKS id_token validation; we only assert
 /// <c>email_verified</c> + <c>hd</c> (REQ-2.3) and, on the canonical post-principal hook, establish the
 /// server session ourselves and short-circuit the framework sign-in (<see cref="AdminLoginService"/>). Schemes
-/// are ADDED here without changing the default (JwtBearer stays the default for tenant routes).
+/// are ADDED here without changing the default (JwtBearer stays the default for merchant routes).
 /// </summary>
 internal static class AdminOidcAuthentication
 {
@@ -30,14 +30,14 @@ internal static class AdminOidcAuthentication
         // The OIDC scheme is a per-request handler: AuthenticationMiddleware initializes — and VALIDATES — it on
         // EVERY request to detect the callback, and OpenIdConnectOptions.Validate() requires a non-empty ClientId.
         // A blank ClientId would therefore throw on every request and take the WHOLE API down (health, webhooks,
-        // tenant routes), not just admin login. Outside Development the boot guard already requires the ClientId;
+        // merchant routes), not just admin login. Outside Development the boot guard already requires the ClientId;
         // when it is blank (tests, an unconfigured dev box) skip the scheme so the rest of the API stays up — an
         // admin login attempt then fails loudly at the challenge rather than silently breaking every request.
         if (string.IsNullOrWhiteSpace(oidc.ClientId))
             return services;
 
-        // Parameterless AddAuthentication() does NOT set a default scheme, so the JwtBearer default that
-        // AddGoogleIdTokenAuthentication established (tenant routes) is preserved.
+        // Parameterless AddAuthentication() does NOT set a default scheme, so the explicit default Program.cs
+        // established (MerchantUserSessionAuthenticationHandler.SchemeName) is preserved.
         services.AddAuthentication()
             .AddCookie(SignInScheme)
             .AddOpenIdConnect(Scheme, options =>

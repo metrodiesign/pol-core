@@ -59,23 +59,25 @@ services:
       DB_NAME: ${DB_NAME:-VCentralPay}
       DB_PRINCIPAL: pol_app
       DB_PASSWORD_FILE: /run/secrets/pol_app_password
-      # Cross-tenant provisioning runs under pol_admin (RLS bypass) on ConnectionStrings:Admin — the
-      # entrypoint builds it from this file. Required: the API fail-fasts at boot without it.
+      # Cross-merchant provisioning runs under pol_admin on ConnectionStrings:Admin — the entrypoint builds it
+      # from this file. pol_admin is NOT an RLS-bypass role member (T5): it reaches other merchants' rows via
+      # the Super/Scoped branches of sec.fn_merchant_predicate. Required: the API fail-fasts at boot without it.
       DB_ADMIN_PRINCIPAL: pol_admin
       ADMIN_DB_PASSWORD_FILE: /run/secrets/pol_admin_password
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
-      # One API, two browser SPAs with DIFFERENT auth models. tenant SPA = Google id-token Bearer: map its
-      # OAuth client id to the tenant audience/role. admin SPA = server-side OIDC BFF: a CONFIDENTIAL client
-      # (id + secret, the secret via a mounted file secret) — NOT an id-token audience (the admin audience is
-      # retired). CORS is split: tenant origin (no credentials) + admin origin (credentialed cookie XHR).
-      Google__Audiences__tenant: ${TENANT_GOOGLE_CLIENT_ID:?set TENANT_GOOGLE_CLIENT_ID in .env}
+      # One API, two browser SPAs, BOTH server-side OIDC BFFs (T5 retired the Google id-token Bearer scheme
+      # entirely) — each its own CONFIDENTIAL client (id + secret, the secret via a mounted file secret),
+      # fully isolated scheme/cookie/callback names. CORS is split: merchant-user origin + admin origin, both
+      # credentialed cookie XHR.
+      MerchantUser__Oidc__ClientId: ${MERCHANT_USER_OIDC_CLIENT_ID:?set MERCHANT_USER_OIDC_CLIENT_ID in .env}
+      MERCHANT_USER_OIDC_CLIENT_SECRET_FILE: /run/secrets/merchant_user_oidc_client_secret
       Google__Oidc__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
       ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
-      Cors__AllowedOrigins__0: ${TENANT_FRONTEND_ORIGIN:?set TENANT_FRONTEND_ORIGIN in .env}
+      Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
-    secrets: [pol_app_password, pol_admin_password, vault_master_key, admin_oidc_client_secret]
+    secrets: [pol_app_password, pol_admin_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret]
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
       # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
@@ -135,3 +137,5 @@ secrets:
     file: ./secrets/vault_master_key
   admin_oidc_client_secret:
     file: ./secrets/admin_oidc_client_secret
+  merchant_user_oidc_client_secret:
+    file: ./secrets/merchant_user_oidc_client_secret

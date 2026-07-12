@@ -41,7 +41,7 @@ internal sealed class FakeOrderRepository : IOrderRepository
 
     public IReadOnlyList<OrderStatusTotal> Reconciliation { get; init; } = [];
 
-    public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid tenantId, CancellationToken ct) =>
+    public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken ct) =>
         Task.FromResult(Reconciliation);
 
     public void Add(Order order) => _orders.Add(order);

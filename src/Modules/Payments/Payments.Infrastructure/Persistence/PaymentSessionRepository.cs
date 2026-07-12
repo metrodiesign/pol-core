@@ -5,12 +5,12 @@ using Payments.Domain;
 
 namespace Payments.Infrastructure.Persistence;
 
-/// <summary>EF Core repository for <see cref="PaymentSession"/> over the shared producer data plane.</summary>
+/// <summary>EF Core repository for <see cref="PaymentSession"/> over the shared txn data plane.</summary>
 public sealed class PaymentSessionRepository : IPaymentSessionRepository
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public PaymentSessionRepository(ProducerDbContext db) => _db = db;
+    public PaymentSessionRepository(PolDbContext db) => _db = db;
 
     public void Add(PaymentSession session) => _db.Set<PaymentSession>().Add(session);
 

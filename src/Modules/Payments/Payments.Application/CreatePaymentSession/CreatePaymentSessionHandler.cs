@@ -2,7 +2,6 @@ using BuildingBlocks.Application;
 using Mediator;
 using Payments.Application.Ports;
 using Payments.Domain;
-using SharedKernel;
 
 namespace Payments.Application.CreatePaymentSession;
 
@@ -28,11 +27,10 @@ public sealed class CreatePaymentSessionHandler
         CreatePaymentSessionCommand command,
         CancellationToken cancellationToken)
     {
-        var amount = Money.Of(command.AmountMinorUnits, command.Currency);
         var session = PaymentSession.Create(
-            command.TenantId,
+            command.MerchantId,
             command.OrderId,
-            amount,
+            command.Amount,
             command.Method,
             command.Psp,
             _clock.UtcNow);

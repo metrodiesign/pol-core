@@ -3,7 +3,7 @@ namespace SharedKernel;
 /// <summary>
 /// Minimal ISO 4217 registry used by <see cref="Money"/> to validate currency codes and
 /// know each code's minor-unit exponent (THB=2 satang, JPY=0). This is the platform-wide
-/// allowlist; per-tenant / per-PSP currency allowlists narrow it further at their own seam.
+/// allowlist; per-merchant / per-PSP currency allowlists narrow it further at their own seam.
 /// </summary>
 public static class Iso4217
 {

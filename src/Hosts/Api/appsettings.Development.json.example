@@ -6,20 +6,13 @@
     }
   },
   "ConnectionStrings": {
-    "Producer": "Server=localhost,11433;Database=VCentralPay;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+    "App": "Server=localhost,11433;Database=VCentralPay;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
   },
-  "Tenant": {
-    "DevTenantId": "00000000-0000-0000-0000-000000000001"
+  "Merchant": {
+    "DevMerchantId": "00000000-0000-0000-0000-000000000001"
   },
-  "Google": {
-    "Audiences": {
-      "tenant": "REPLACE_WITH_TENANT_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
-      "admin": "REPLACE_WITH_ADMIN_SPA_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
-    },
-    "HostedDomain": ""
-  },
-  "_Producer_note": "Producer BFF OIDC client (REQ-8/9/14). Leave ClientId blank to keep producer login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client (registered redirect_uri = http://localhost:5200/producer/auth/callback via the SPA proxy) to exercise the live flow.",
-  "Producer": {
+  "_MerchantUser_note": "Merchant-user BFF OIDC client (REQ-8/9/14). Leave ClientId blank to keep merchant-user login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client (registered redirect_uri = http://localhost:5200/merchant-users/auth/callback via the SPA proxy) to exercise the live flow.",
+  "MerchantUser": {
     "Oidc": {
       "ClientId": "",
       "ClientSecret": "",
@@ -27,8 +20,9 @@
     }
   },
   "Cors": {
-    "_note": "Both browser SPA dev origins (pol-tenant :5120, pol-admin :5130) — the single API serves both.",
-    "AllowedOrigins": ["http://localhost:5120", "http://localhost:5130"]
+    "_note": "Two dev SPA origins, two distinct CORS policies (BuildingBlocks.Web/CorsExtensions.cs): AllowedOrigins = merchant-user console :5120 (default policy); AdminOrigins = admin console :5130 (/api/v1/admins/* only).",
+    "AllowedOrigins": ["http://localhost:5120"],
+    "AdminOrigins": ["http://localhost:5130"]
   },
   "Vault": {
     "MasterKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="

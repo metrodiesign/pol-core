@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Orders.Domain;
@@ -5,26 +6,28 @@ using Orders.Domain;
 namespace Orders.Infrastructure;
 
 /// <summary>
-/// EF mapping for the Order aggregate. Discovered at model-build time from the Orders producer
-/// assembly by <c>ProducerDbContext</c> (schema <c>producer</c>). The money seam is stored as two
-/// scalar columns and the computed <see cref="Order.Amount"/> is ignored — the validating
-/// <c>Money</c> struct ctor is not EF-friendly as an owned/complex type (PLAN decision #2).
+/// EF mapping for the Order aggregate. Discovered at model-build time from the Orders Infrastructure
+/// assembly by <c>PolDbContext</c> (schema <c>shop</c>). <see cref="Order.Amount"/> is
+/// mapped as an EF complex type (AmountAmount decimal(19,4), AmountCurrency char(3)) per the
+/// Money mapping rule (PLAN decision #2).
 /// </summary>
 public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
     public void Configure(EntityTypeBuilder<Order> builder)
     {
-        builder.ToTable("Orders");
+        builder.ToTable("Orders", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
 
-        builder.Property(x => x.TenantId).IsRequired();
+        builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.PaymentSessionId);
         builder.Property(x => x.CheckoutSessionId);
 
-        builder.Ignore(x => x.Amount);
-        builder.Property(x => x.AmountMinorUnits).IsRequired();
-        builder.Property(x => x.AmountCurrency).HasMaxLength(3).IsRequired();
+        builder.ComplexProperty(x => x.Amount, p =>
+        {
+            p.Property(m => m.Amount).HasColumnName("AmountAmount").HasPrecision(19, 4);
+            p.Property(m => m.Currency).HasColumnName("AmountCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        });
 
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
@@ -50,7 +53,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             .IsUnique()
             .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
-        // RLS predicate uses TenantId; index supports the tenant-scoped reads.
-        builder.HasIndex(x => x.TenantId);
+        // RLS predicate uses MerchantId; index supports the merchant-scoped reads.
+        builder.HasIndex(x => x.MerchantId);
     }
 }

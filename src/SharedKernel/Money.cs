@@ -1,42 +1,45 @@
 namespace SharedKernel;
 
 /// <summary>
-/// The cross-module money seam (PLAN decision #2). Stored as an integer count of the
-/// currency's minor unit (e.g. THB satang) plus an ISO 4217 alpha-3 code — never a
-/// float/decimal at a module boundary. Non-negative; addition is currency-checked and
-/// overflow-checked. <c>default(Money)</c> is an invalid sentinel (Currency is null) and
-/// throws on any arithmetic — always construct via <see cref="Of"/>.
+/// The cross-module money seam (PLAN decision #2; decimal since the v5 restructure, rf1
+/// REQ-6 — supersedes the earlier minor-units representation). Stored as an exact decimal
+/// amount (scale &lt;= 4) plus an ISO 4217 alpha-3 code — never a float/double at a module
+/// boundary. Non-negative; addition is currency-checked (decimal arithmetic overflow-checks
+/// itself). <c>default(Money)</c> is an invalid sentinel (Currency is null) and throws on any
+/// arithmetic — always construct via <see cref="Of"/>.
 /// </summary>
 public readonly record struct Money
 {
-    public long MinorUnits { get; }
+    public decimal Amount { get; }
 
     /// <summary>ISO 4217 alpha-3 code, upper-invariant.</summary>
     public string Currency { get; }
 
-    private Money(long minorUnits, string currency)
+    private Money(decimal amount, string currency)
     {
-        MinorUnits = minorUnits;
+        Amount = amount;
         Currency = currency;
     }
 
-    public static Money Of(long minorUnits, string currency)
+    public static Money Of(decimal amount, string currency)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(currency);
         var code = currency.ToUpperInvariant();
         if (!Iso4217.IsSupported(code))
             throw new ArgumentOutOfRangeException(nameof(currency), code, "Unsupported ISO 4217 currency.");
-        if (minorUnits < 0)
-            throw new ArgumentOutOfRangeException(nameof(minorUnits), minorUnits, "Money cannot be negative.");
-        return new Money(minorUnits, code);
+        if (amount < 0)
+            throw new ArgumentOutOfRangeException(nameof(amount), amount, "Money cannot be negative.");
+        if (amount != decimal.Round(amount, 4))
+            throw new ArgumentException($"Money scale must be <= 4 decimal places: {amount}.", nameof(amount));
+        return new Money(amount, code);
     }
 
-    public static Money Zero(string currency) => Of(0, currency);
+    public static Money Zero(string currency) => Of(0m, currency);
 
     public Money Add(Money other)
     {
         EnsureSameCurrency(other);
-        return new Money(checked(MinorUnits + other.MinorUnits), Currency);
+        return new Money(Amount + other.Amount, Currency);
     }
 
     public bool SameCurrencyAs(Money other) =>
@@ -50,5 +53,5 @@ public readonly record struct Money
             throw new InvalidOperationException($"Currency mismatch: {Currency} vs {other.Currency}.");
     }
 
-    public override string ToString() => $"{MinorUnits} {Currency} (minor units)";
+    public override string ToString() => $"{Amount:F4} {Currency}";
 }

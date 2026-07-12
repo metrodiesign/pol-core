@@ -7,15 +7,14 @@ using SharedKernel;
 namespace Orders.Application;
 
 /// <summary>
-/// Opens a new order awaiting payment for the active tenant. Tenant-scoped: rejected by the tenant
-/// guard if no tenant is bound to the request (PLAN decision #4). The amount is the money seam —
-/// minor units + ISO 4217 code — validated by <see cref="Money.Of"/>. An optional notification
+/// Opens a new order awaiting payment for the active merchant. Merchant-scoped: rejected by the merchant
+/// guard if no merchant is bound to the request (PLAN decision #4). An optional notification
 /// <paramref name="Recipient"/> (the customer's email/phone, set at checkout) drives the summary-link
 /// notification; absent means no notification is enqueued.
 /// </summary>
 public sealed record CreateOrderCommand(
-    Guid TenantId, long AmountMinorUnits, string Currency, string? Recipient = null, Guid? CheckoutSessionId = null)
-    : ICommand<CreateOrderResult>, ITenantScoped;
+    Guid MerchantId, Money Amount, string? Recipient = null, Guid? CheckoutSessionId = null)
+    : ICommand<CreateOrderResult>, IMerchantScoped;
 
 /// <summary>The identity of the newly created order.</summary>
 public sealed record CreateOrderResult(Guid OrderId);
@@ -39,8 +38,7 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
 
     public async ValueTask<CreateOrderResult> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
-        var amount = Money.Of(command.AmountMinorUnits, command.Currency);
-        var order = Order.Create(command.TenantId, amount, _clock.UtcNow,
+        var order = Order.Create(command.MerchantId, command.Amount, _clock.UtcNow,
             checkoutSessionId: command.CheckoutSessionId, notificationRecipient: command.Recipient);
 
         _orders.Add(order);
@@ -49,7 +47,7 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
         // delivers it, so creation never blocks on or fails for delivery (REQ-3.2).
         if (!string.IsNullOrWhiteSpace(command.Recipient))
             _outbox.Enqueue(new CustomerOrderNotification(
-                order.TenantId, order.Id, command.Recipient, order.SummaryToken, _clock.UtcNow));
+                order.MerchantId, order.Id, command.Recipient, order.SummaryToken, _clock.UtcNow));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

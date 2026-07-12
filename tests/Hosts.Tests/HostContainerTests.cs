@@ -10,7 +10,7 @@ using Microsoft.Extensions.Hosting;
 namespace Hosts.Tests;
 
 // The Api and Worker hosts are the composition roots. PLAN #7 says the container must be free of
-// captive-dependency / scope mistakes: a Scoped service (ITenantContext, the TenantGuardBehavior,
+// captive-dependency / scope mistakes: a Scoped service (IActorContext, the MerchantGuardBehavior,
 // the DbContext-backed idempotency/outbox/vault stores) must never be captured by a Singleton. Both
 // Program.cs files switch on ValidateScopes + ValidateOnBuild in the Development environment, so the
 // observable contract is: "boot the host under Development and the provider validates without
@@ -30,21 +30,24 @@ file static class HostHarness
         {
             // Development is what flips on ValidateScopes + ValidateOnBuild in both Program.cs files.
             builder.UseEnvironment(Environments.Development);
-            // Google:Audiences is read at registration (to register the per-role policies), so it must be host
-            // config (UseSetting), not an in-memory source that lands after registration.
-            builder.UseSetting("Google:Audiences:tenant", "test-client-id.apps.googleusercontent.com");
+
+            // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
+            // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
+            builder.UseSetting("ConnectionStrings:Migrator", "");
 
             // Deterministic, never-opened connection strings so DbContext registration does not depend
             // on the machine's environment. A query would fail, but container validation never runs one.
+            // ConnectionStrings:Admin is required at boot (Program.cs fails fast without it) even though
+            // Development skips the confidential-client/injected-credential guards.
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:Producer"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                    ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
+                    ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                     // Self-contained: the test must not depend on a (now uncommitted) appsettings.Development.json.
                     // Fake 32-byte (all-zero) base64 key — never a real secret.
                     ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                    ["Tenant:DevTenantId"] = "00000000-0000-0000-0000-000000000001",
                 });
             });
 

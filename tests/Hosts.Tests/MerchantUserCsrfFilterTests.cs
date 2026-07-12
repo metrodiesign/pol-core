@@ -1,0 +1,56 @@
+extern alias ApiHost;
+using ApiHost::Api;
+using Microsoft.AspNetCore.Http;
+
+namespace Hosts.Tests;
+
+/// <summary>The merchant-user CSRF double-submit filter (REQ-13.2): an unsafe-method request must carry an
+/// <c>X-CSRF-Token</c> header equal to the <c>mch_csrf</c> cookie, else 403; safe methods are exempt.</summary>
+public sealed class MerchantUserCsrfFilterTests
+{
+    private static readonly MerchantUserCsrfFilter Filter = new();
+    private static readonly object Passed = new();
+
+    private static async Task<object?> Run(string method, string? cookie, string? header)
+    {
+        var http = new DefaultHttpContext();
+        http.Request.Method = method;
+        if (cookie is not null)
+            http.Request.Headers.Cookie = $"{MerchantUserSessionCookies.CsrfCookieName}={cookie}";
+        if (header is not null)
+            http.Request.Headers[MerchantUserCsrfFilter.HeaderName] = header;
+
+        var context = EndpointFilterInvocationContext.Create(http);
+        return await Filter.InvokeAsync(context, _ => ValueTask.FromResult<object?>(Passed));
+    }
+
+    private static int StatusOf(object? result) =>
+        Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? 0;
+
+    [Fact]
+    public async Task Matching_token_on_an_unsafe_method_passes() =>
+        Assert.Same(Passed, await Run("POST", "tok-abc", "tok-abc"));
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task Missing_header_on_an_unsafe_method_is_403(string method) =>
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(await Run(method, "tok-abc", header: null)));
+
+    [Fact]
+    public async Task Mismatched_header_is_403() =>
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(await Run("POST", "tok-abc", "tok-XYZ")));
+
+    [Fact]
+    public async Task Missing_cookie_is_403() =>
+        Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(await Run("POST", cookie: null, header: "tok-abc")));
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("HEAD")]
+    [InlineData("OPTIONS")]
+    public async Task Safe_methods_skip_the_check(string method) =>
+        Assert.Same(Passed, await Run(method, cookie: null, header: null));
+}

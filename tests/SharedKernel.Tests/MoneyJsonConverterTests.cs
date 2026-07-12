@@ -14,11 +14,12 @@ public class MoneyJsonConverterTests
     [Theory]
     [InlineData(0, "JPY")]
     [InlineData(150, "THB")]
-    [InlineData(99, "USD")]
-    public void RoundTrips_SerializeThenDeserialize_EqualsOriginal(long minorUnits, string currency)
+    [InlineData(99.99, "USD")]
+    [InlineData(1.2345, "THB")]
+    public void RoundTrips_SerializeThenDeserialize_EqualsOriginal(double amount, string currency)
     {
         var options = Options();
-        var original = Money.Of(minorUnits, currency);
+        var original = Money.Of((decimal)amount, currency);
 
         var json = JsonSerializer.Serialize(original, options);
         var restored = JsonSerializer.Deserialize<Money>(json, options);
@@ -27,43 +28,66 @@ public class MoneyJsonConverterTests
     }
 
     [Fact]
-    public void Write_EmitsCamelCaseMinorUnitsAndCurrency()
+    public void Write_EmitsAmountAsStringFixedToFourDecimals()
     {
-        var json = JsonSerializer.Serialize(Money.Of(150, "THB"), Options());
+        var json = JsonSerializer.Serialize(Money.Of(150m, "THB"), Options());
 
         using var doc = JsonDocument.Parse(json);
-        Assert.Equal(150, doc.RootElement.GetProperty("minorUnits").GetInt64());
+        Assert.Equal(JsonValueKind.String, doc.RootElement.GetProperty("amount").ValueKind);
+        Assert.Equal("150.0000", doc.RootElement.GetProperty("amount").GetString());
         Assert.Equal("THB", doc.RootElement.GetProperty("currency").GetString());
     }
 
     [Fact]
     public void Read_NormalisesCurrencyThroughMoneyOf()
     {
-        var restored = JsonSerializer.Deserialize<Money>("{\"minorUnits\":150,\"currency\":\"thb\"}", Options());
+        var restored = JsonSerializer.Deserialize<Money>("{\"amount\":\"150.0000\",\"currency\":\"thb\"}", Options());
 
         Assert.Equal("THB", restored.Currency);
-        Assert.Equal(150, restored.MinorUnits);
+        Assert.Equal(150m, restored.Amount);
     }
 
     [Fact]
-    public void Read_ValidatesNegativeMinorUnits()
+    public void Read_ValidatesNegativeAmount()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            JsonSerializer.Deserialize<Money>("{\"minorUnits\":-1,\"currency\":\"THB\"}", Options()));
+            JsonSerializer.Deserialize<Money>("{\"amount\":\"-1.0000\",\"currency\":\"THB\"}", Options()));
     }
 
     [Fact]
     public void Read_ValidatesUnknownCurrency()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
-            JsonSerializer.Deserialize<Money>("{\"minorUnits\":100,\"currency\":\"EUR\"}", Options()));
+            JsonSerializer.Deserialize<Money>("{\"amount\":\"100.0000\",\"currency\":\"EUR\"}", Options()));
+    }
+
+    [Fact]
+    public void Read_ValidatesScaleGreaterThanFour()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            JsonSerializer.Deserialize<Money>("{\"amount\":\"1.23455\",\"currency\":\"THB\"}", Options()));
+    }
+
+    [Fact]
+    public void Read_RejectsJsonNumberAmount()
+    {
+        // REQ-6.5: amount MUST be a JSON string (never a number) — guards IEEE754 double precision loss.
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<Money>("{\"amount\":150,\"currency\":\"THB\"}", Options()));
+    }
+
+    [Fact]
+    public void Read_MissingAmount_Throws()
+    {
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<Money>("{\"currency\":\"THB\"}", Options()));
     }
 
     [Fact]
     public void Read_MissingCurrency_Throws()
     {
         Assert.Throws<JsonException>(() =>
-            JsonSerializer.Deserialize<Money>("{\"minorUnits\":100}", Options()));
+            JsonSerializer.Deserialize<Money>("{\"amount\":\"100.0000\"}", Options()));
     }
 
     [Fact]

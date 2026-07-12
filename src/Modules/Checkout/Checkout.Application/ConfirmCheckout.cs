@@ -6,8 +6,8 @@ using Mediator;
 namespace Checkout.Application;
 
 /// <summary>Confirms a started checkout session.</summary>
-public sealed record ConfirmCheckoutCommand(Guid CheckoutSessionId, Guid TenantId)
-    : ICommand<ConfirmCheckoutResult>, ITenantScoped;
+public sealed record ConfirmCheckoutCommand(Guid CheckoutSessionId, Guid MerchantId)
+    : ICommand<ConfirmCheckoutResult>, IMerchantScoped;
 
 /// <summary>Outcome of the confirmation: the session id and its resulting status.</summary>
 public sealed record ConfirmCheckoutResult(Guid CheckoutSessionId, CheckoutStatus Status);
@@ -39,7 +39,7 @@ public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutComm
 
         session.Confirm();
         _outbox.Enqueue(new CheckoutConfirmed(
-            session.TenantId, session.Id, session.AmountMinorUnits, session.AmountCurrency,
+            session.MerchantId, session.Id, session.Amount,
             session.NotificationRecipient, _clock.UtcNow));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

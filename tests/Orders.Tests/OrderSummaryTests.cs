@@ -8,10 +8,10 @@ namespace Orders.Tests;
 /// and is rejected once the order leaves AwaitingPayment.</summary>
 public sealed class OrderSummaryTests
 {
-    private static readonly Guid TenantId = Guid.NewGuid();
+    private static readonly Guid MerchantId = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
-    private static Order NewOrder() => Order.Create(TenantId, Money.Of(15000, "THB"), At);
+    private static Order NewOrder() => Order.Create(MerchantId, Money.Of(15000, "THB"), At);
 
     [Fact]
     public void Create_issues_a_token_expiring_after_the_ttl()

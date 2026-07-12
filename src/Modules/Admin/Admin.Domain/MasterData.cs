@@ -9,7 +9,7 @@ namespace Admin.Domain;
 /// Control-plane, admin-managed at runtime (no RLS). <see cref="Code"/> is the stable slug — unique per
 /// table and immutable once created; <see cref="Name"/> is the display label. An inactive master stays
 /// referenceable by existing accounts but cannot be newly assigned (guarded at the application layer).
-/// Each concrete subclass maps to its own table so the FK on <c>AdminAccount</c> is type-safe.
+/// Each concrete subclass maps to its own table so the FK on <c>PlatformUser</c> is type-safe.
 /// </summary>
 public abstract class MasterData : AggregateRoot<Guid>
 {

@@ -7,11 +7,11 @@ using Mediator;
 namespace Hosts.Tests;
 
 /// <summary>
-/// The scoped-admin app-layer floor (REQ-7.1): the <c>IAdminQuery</c> seam must apply the accessible-tenant
-/// predicate BEFORE issuing the pol_admin RLS-bypass query. For a Scoped admin asking for a tenant outside its
+/// The scoped-admin app-layer floor (REQ-7.1): the <c>IAdminQuery</c> seam must apply the accessible-merchant
+/// predicate BEFORE issuing the pol_admin RLS-bypass query. For a Scoped admin asking for a merchant outside its
 /// set (or an unknown code) the full projection must NEVER load — fail-closed, no existence leak, and no
-/// handler-side error can surface for an inaccessible tenant. These pin that the gate runs before the bypass
-/// <c>GetTenantQuery</c> (a regression here would re-introduce the load-then-reject ordering).
+/// handler-side error can surface for an inaccessible merchant. These pin that the gate runs before the bypass
+/// <c>GetMerchantQuery</c> (a regression here would re-introduce the load-then-reject ordering).
 /// </summary>
 public sealed class AdminQueryScopeFloorTests
 {
@@ -19,15 +19,15 @@ public sealed class AdminQueryScopeFloorTests
     private static readonly Guid OutOfSet = Guid.NewGuid();
 
     [Fact]
-    public async Task A_scoped_admin_requesting_an_out_of_set_tenant_gets_null_without_issuing_the_bypass_query()
+    public async Task A_scoped_admin_requesting_an_out_of_set_merchant_gets_null_without_issuing_the_bypass_query()
     {
         var mediator = new ThrowingMediator();
         var query = new ApiHost::Api.AdminQuery(
             mediator,
-            new FakeScope(AccessibleTenants.Of(new HashSet<Guid> { InSet })),
+            new FakeScope(AccessibleMerchants.Of(new HashSet<Guid> { InSet })),
             new StubDirectory(OutOfSet)); // code resolves to an id NOT in the accessible set
 
-        var result = await query.GetTenantByCodeAsync("acme", default);
+        var result = await query.GetMerchantByCodeAsync("acme", default);
 
         Assert.Null(result);
         Assert.Equal(0, mediator.SendCount); // floor applied BEFORE the bypass projection (REQ-7.1)
@@ -39,25 +39,25 @@ public sealed class AdminQueryScopeFloorTests
         var mediator = new ThrowingMediator();
         var query = new ApiHost::Api.AdminQuery(
             mediator,
-            new FakeScope(AccessibleTenants.Of(new HashSet<Guid> { InSet })),
+            new FakeScope(AccessibleMerchants.Of(new HashSet<Guid> { InSet })),
             new StubDirectory(null)); // unknown code -> no id
 
-        var result = await query.GetTenantByCodeAsync("ghost", default);
+        var result = await query.GetMerchantByCodeAsync("ghost", default);
 
         Assert.Null(result);
         Assert.Equal(0, mediator.SendCount);
     }
 
-    private sealed class FakeScope(AccessibleTenants accessible) : IAdminScope
+    private sealed class FakeScope(AccessibleMerchants accessible) : IAdminScope
     {
         public bool IsBound => true;
         public AdminResolution Current => throw new NotSupportedException();
-        public AccessibleTenants Accessible { get; } = accessible;
+        public AccessibleMerchants Accessible { get; } = accessible;
     }
 
-    private sealed class StubDirectory(Guid? id) : IAdminTenantDirectory
+    private sealed class StubDirectory(Guid? id) : IAdminMerchantDirectory
     {
-        public Task<bool> IsActiveTenantAsync(Guid tenantId, CancellationToken ct) => Task.FromResult(true);
+        public Task<bool> IsActiveMerchantAsync(Guid merchantId, CancellationToken ct) => Task.FromResult(true);
         public Task<IReadOnlyDictionary<Guid, string>> GetCodesByIdsAsync(IReadOnlySet<Guid> ids, CancellationToken ct) =>
             Task.FromResult<IReadOnlyDictionary<Guid, string>>(new Dictionary<Guid, string>());
         public Task<Guid?> GetIdByCodeAsync(string code, CancellationToken ct) => Task.FromResult(id);
@@ -72,7 +72,7 @@ public sealed class AdminQueryScopeFloorTests
         private ValueTask<T> Hit<T>()
         {
             SendCount++;
-            throw new InvalidOperationException("The bypass GetTenantQuery must not run for an inaccessible tenant.");
+            throw new InvalidOperationException("The bypass GetMerchantQuery must not run for an inaccessible merchant.");
         }
 
         public ValueTask<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken ct = default) => Hit<TResponse>();

@@ -17,7 +17,7 @@ public sealed class ProblemDetailsExceptionHandlerTests
     {
         { new NotFoundException("PaymentSession 123 not found."), StatusCodes.Status404NotFound },
         { new ConcurrencyConflictException("rowversion clash"), StatusCodes.Status409Conflict },
-        { new TenantBindingException("no tenant bound"), StatusCodes.Status500InternalServerError },
+        { new MerchantBindingException("no merchant bound"), StatusCodes.Status500InternalServerError },
         { new ArgumentException("bad arg"), StatusCodes.Status400BadRequest },
         { new InvalidOperationException("illegal state"), StatusCodes.Status409Conflict },
         { new Exception("some internal failure"), StatusCodes.Status500InternalServerError },
@@ -38,7 +38,7 @@ public sealed class ProblemDetailsExceptionHandlerTests
     public static TheoryData<Exception> OpaqueBuckets() => new()
     {
         new Exception(LeakProbe),                 // unknown -> 500
-        new TenantBindingException(LeakProbe),    // security-floor signal -> opaque 500
+        new MerchantBindingException(LeakProbe),    // security-floor signal -> opaque 500
     };
 
     private const string LeakProbe = "do-not-leak-internal-detail-xyz";

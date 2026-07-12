@@ -7,52 +7,52 @@ using Microsoft.Extensions.Logging;
 
 namespace Admin.Infrastructure.Persistence;
 
-/// <summary>Admin realm persistence over the shared producer data plane. The host binds these to the
-/// pol_admin (RLS-bypass) connection — admin tables are control-plane (no per-tenant predicate) and
-/// resolution/provisioning run cross-tenant.</summary>
-public sealed class AdminAccountRepository : IAdminAccountRepository
+/// <summary>Admin realm persistence over the shared admin data plane. The host binds these to the
+/// pol_admin (RLS-bypass) connection — admin tables are control-plane (no per-merchant predicate) and
+/// resolution/provisioning run cross-merchant.</summary>
+public sealed class PlatformUserRepository : IPlatformUserRepository
 {
-    private readonly ProducerDbContext _db;
-    private readonly ILogger<AdminAccountRepository> _logger;
+    private readonly PolDbContext _db;
+    private readonly ILogger<PlatformUserRepository> _logger;
 
-    public AdminAccountRepository(ProducerDbContext db, ILogger<AdminAccountRepository> logger)
+    public PlatformUserRepository(PolDbContext db, ILogger<PlatformUserRepository> logger)
     {
         _db = db;
         _logger = logger;
     }
 
-    public void Add(AdminAccount account) => _db.Set<AdminAccount>().Add(account);
-    public void AddAssignment(AdminTenantAssignment assignment) => _db.Set<AdminTenantAssignment>().Add(assignment);
-    public void RemoveAssignment(AdminTenantAssignment assignment) => _db.Set<AdminTenantAssignment>().Remove(assignment);
+    public void Add(PlatformUser account) => _db.Set<PlatformUser>().Add(account);
+    public void AddAssignment(PlatformMerchantAccess assignment) => _db.Set<PlatformMerchantAccess>().Add(assignment);
+    public void RemoveAssignment(PlatformMerchantAccess assignment) => _db.Set<PlatformMerchantAccess>().Remove(assignment);
 
-    public Task<AdminAccount?> GetBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        _db.Set<AdminAccount>().FirstOrDefaultAsync(x => x.Subject == subject, cancellationToken);
+    public Task<PlatformUser?> GetBySubjectAsync(string subject, CancellationToken cancellationToken) =>
+        _db.Set<PlatformUser>().FirstOrDefaultAsync(x => x.Subject == subject, cancellationToken);
 
-    public Task<AdminAccount?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
-        _db.Set<AdminAccount>().FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
+    public Task<PlatformUser?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
+        _db.Set<PlatformUser>().FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
 
-    public Task<AdminAccount?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
-        _db.Set<AdminAccount>().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+    public Task<PlatformUser?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
+        _db.Set<PlatformUser>().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
     public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken) =>
-        _db.Set<AdminAccount>().AnyAsync(x => x.Id == id, cancellationToken);
+        _db.Set<PlatformUser>().AnyAsync(x => x.Id == id, cancellationToken);
 
-    public async Task<IReadOnlySet<Guid>> ListAssignedTenantIdsAsync(Guid adminAccountId, CancellationToken cancellationToken)
+    public async Task<IReadOnlySet<Guid>> ListAssignedMerchantIdsAsync(Guid adminAccountId, CancellationToken cancellationToken)
     {
-        var ids = await _db.Set<AdminTenantAssignment>()
-            .Where(x => x.AdminAccountId == adminAccountId)
-            .Select(x => x.TenantId)
+        var ids = await _db.Set<PlatformMerchantAccess>()
+            .Where(x => x.PlatformUserId == adminAccountId)
+            .Select(x => x.MerchantId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();
     }
 
-    public Task<AdminTenantAssignment?> GetAssignmentAsync(Guid adminAccountId, Guid tenantId, CancellationToken cancellationToken) =>
-        _db.Set<AdminTenantAssignment>()
-            .FirstOrDefaultAsync(x => x.AdminAccountId == adminAccountId && x.TenantId == tenantId, cancellationToken);
+    public Task<PlatformMerchantAccess?> GetAssignmentAsync(Guid adminAccountId, Guid merchantId, CancellationToken cancellationToken) =>
+        _db.Set<PlatformMerchantAccess>()
+            .FirstOrDefaultAsync(x => x.PlatformUserId == adminAccountId && x.MerchantId == merchantId, cancellationToken);
 
-    public async Task<PagedResult<AdminAccountListItem>> ListAsync(PagedQuery query, CancellationToken cancellationToken)
+    public async Task<PagedResult<PlatformUserListItem>> ListAsync(PagedQuery query, CancellationToken cancellationToken)
     {
-        IQueryable<AdminAccount> src = _db.Set<AdminAccount>().AsNoTracking()
+        IQueryable<PlatformUser> src = _db.Set<PlatformUser>().AsNoTracking()
             .ApplySearch(query.Search)
             .ApplyFilters(query.Filters, _logger);
 
@@ -62,23 +62,23 @@ public sealed class AdminAccountRepository : IAdminAccountRepository
         // already clamps page to the offset ceiling.
         int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);
 
-        // AdminAccount has no computed member, so project server-side directly. SubjectBound => Subject IS NOT NULL.
+        // PlatformUser has no computed member, so project server-side directly. SubjectBound => Subject IS NOT NULL.
         var items = await src
             .ApplySort(query.Sort, _logger)
             .Skip(skip)
             .Take(query.Limit)
-            .Select(a => new AdminAccountListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject != null))
+            .Select(a => new PlatformUserListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject != null))
             .ToListAsync(cancellationToken);
 
-        return new PagedResult<AdminAccountListItem>(items, query.Page, query.Limit, total);
+        return new PagedResult<PlatformUserListItem>(items, query.Page, query.Limit, total);
     }
 }
 
-public sealed class AdminAccountAuditWriter : IAdminAccountAuditWriter
+public sealed class PlatformUserAuditWriter : IPlatformUserAuditWriter
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public AdminAccountAuditWriter(ProducerDbContext db) => _db = db;
+    public PlatformUserAuditWriter(PolDbContext db) => _db = db;
 
-    public void Append(AdminAccountAudit entry) => _db.Set<AdminAccountAudit>().Add(entry);
+    public void Append(PlatformUserAudit entry) => _db.Set<PlatformUserAudit>().Add(entry);
 }

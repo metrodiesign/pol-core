@@ -7,7 +7,7 @@ namespace Admin.Tests;
 /// <summary>Write-side handler for admin-account-management REQ-3 (reactivate). Proves the idempotent domain
 /// transition, the 404 on unknown target, that sessions are revoked ONLY on the Suspended->Active transition
 /// (fresh-login guarantee), and that every accepted call audits.</summary>
-public sealed class AdminAccountCommandTests
+public sealed class PlatformUserCommandTests
 {
     private static readonly DateTime T0 = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Guid Actor = Guid.NewGuid();
@@ -16,7 +16,7 @@ public sealed class AdminAccountCommandTests
     [Fact]
     public void Reactivate_sets_status_active()
     {
-        var a = AdminAccount.CreateScoped("x@x", T0);
+        var a = PlatformUser.CreateScoped("x@x", T0);
         a.Suspend(Actor);
         Assert.Equal(AdminStatus.Suspended, a.Status);
         a.Reactivate();
@@ -26,18 +26,18 @@ public sealed class AdminAccountCommandTests
     [Fact]
     public void Reactivate_on_active_account_is_idempotent()
     {
-        var a = AdminAccount.CreateScoped("x@x", T0);   // Active from creation
+        var a = PlatformUser.CreateScoped("x@x", T0);   // Active from creation
         a.Reactivate();
         Assert.Equal(AdminStatus.Active, a.Status);
     }
 
     // ===== handler =====
-    private static (ReactivateAdminHandler H, FakeAdminAccountRepository Accounts,
-        FakeAdminSessionStore Sessions, FakeAdminAccountAuditWriter Audit) NewHandler()
+    private static (ReactivateAdminHandler H, FakePlatformUserRepository Accounts,
+        FakePlatformUserSessionStore Sessions, FakePlatformUserAuditWriter Audit) NewHandler()
     {
-        var accounts = new FakeAdminAccountRepository();
-        var sessions = new FakeAdminSessionStore();
-        var audit = new FakeAdminAccountAuditWriter();
+        var accounts = new FakePlatformUserRepository();
+        var sessions = new FakePlatformUserSessionStore();
+        var audit = new FakePlatformUserAuditWriter();
         var h = new ReactivateAdminHandler(accounts, sessions, audit, new FakeUnitOfWork(), new FixedClock());
         return (h, accounts, sessions, audit);
     }
@@ -54,7 +54,7 @@ public sealed class AdminAccountCommandTests
     public async Task Reactivate_suspended_activates_revokes_sessions_and_audits()
     {
         var (h, accounts, sessions, audit) = NewHandler();
-        var target = AdminAccount.CreateScoped("t@x", T0);
+        var target = PlatformUser.CreateScoped("t@x", T0);
         target.Suspend(Actor);
         accounts.Add(target);
 
@@ -72,7 +72,7 @@ public sealed class AdminAccountCommandTests
     public async Task Reactivate_already_active_does_not_revoke_but_still_audits()
     {
         var (h, accounts, sessions, audit) = NewHandler();
-        var target = AdminAccount.CreateScoped("t@x", T0);   // already Active
+        var target = PlatformUser.CreateScoped("t@x", T0);   // already Active
         accounts.Add(target);
 
         await h.Handle(new ReactivateAdminCommand(target.Id, Actor, "corr"), default);

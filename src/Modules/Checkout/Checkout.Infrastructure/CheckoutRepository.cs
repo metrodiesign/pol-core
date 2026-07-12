@@ -6,15 +6,15 @@ using Microsoft.EntityFrameworkCore;
 namespace Checkout.Infrastructure;
 
 /// <summary>
-/// EF Core adapter for <see cref="ICheckoutRepository"/> over the shared <see cref="ProducerDbContext"/>.
-/// Scoped — it depends on the Scoped DbContext. Tenant isolation is enforced by the data-layer RLS
+/// EF Core adapter for <see cref="ICheckoutRepository"/> over the shared <see cref="PolDbContext"/>.
+/// Scoped — it depends on the Scoped DbContext. Merchant isolation is enforced by the data-layer RLS
 /// floor, so queries here are deliberately not re-scoped in SQL.
 /// </summary>
 public sealed class CheckoutRepository : ICheckoutRepository
 {
-    private readonly ProducerDbContext _db;
+    private readonly PolDbContext _db;
 
-    public CheckoutRepository(ProducerDbContext db) => _db = db;
+    public CheckoutRepository(PolDbContext db) => _db = db;
 
     public void Add(CheckoutSession session) => _db.Set<CheckoutSession>().Add(session);
 

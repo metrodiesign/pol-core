@@ -6,7 +6,7 @@ namespace Checkout.Infrastructure;
 /// <summary>
 /// Wires the Checkout module's Infrastructure adapters. Handlers are auto-registered by the
 /// Mediator source generator in the host; this only registers the repository port. Scoped, since
-/// it depends on the Scoped <c>ProducerDbContext</c>.
+/// it depends on the Scoped <c>PolDbContext</c>.
 /// </summary>
 public static class CheckoutModuleRegistration
 {

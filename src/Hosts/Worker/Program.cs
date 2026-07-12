@@ -9,7 +9,7 @@ using Mediator;
 using Microsoft.EntityFrameworkCore;
 using Orders.Infrastructure;
 using Payments.Infrastructure;
-using Producer.Infrastructure;
+using Merchants.Infrastructure;
 using Products.Infrastructure;
 using Worker;
 
@@ -31,11 +31,11 @@ builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetim
 builder.Services.AddBuildingBlocksInfrastructure();
 builder.Services.AddOutboxDispatcher();
 
-// The worker connects as pol_worker: it can read/lease the outbox across tenants (the table has no
+// The worker connects as pol_worker: it can read/lease the outbox across merchants (the table has no
 // FILTER predicate) but is NOT in the bypass role, so per-message it writes consumer tables (Orders)
-// only for the tenant the dispatcher binds via SESSION_CONTEXT.
+// only for the merchant the dispatcher binds via SESSION_CONTEXT.
 var workerConnString = builder.Configuration.GetConnectionString("Worker");
-builder.Services.AddDbContext<ProducerDbContext>((sp, opt) =>
+builder.Services.AddDbContext<PolDbContext>((sp, opt) =>
     opt.UseSqlServer(workerConnString)
        .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
 
@@ -44,17 +44,17 @@ builder.Services.AddReadinessHealthChecks();
 builder.Services.AddSingleton(new ModuleAssemblies(WorkerModuleAssemblies.All));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 
-// Tenant is bound per outbox message by the dispatcher (no HTTP, no claim).
-builder.Services.AddScoped<ITenantContext, WorkerTenantContext>();
+// The actor is bound per outbox message by the dispatcher (no HTTP, no claim).
+builder.Services.AddScoped<IActorContext, WorkerActorContext>();
 
 builder.Services.AddProductsModule();
 builder.Services.AddCartModule();
 builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
-// Producer registration seams on the default (pol_worker) context so the dispatcher's
-// TenantUserRegistrationConsumer (+ the Mediator-discovered SubmitRegistrationHandler graph) resolve here.
-builder.Services.AddProducerModule();
+// MerchantUser registration seams on the default (pol_worker) context so the dispatcher's
+// MerchantUserRegistrationConsumer (+ the Mediator-discovered SubmitRegistrationHandler graph) resolve here.
+builder.Services.AddMerchantsModule();
 
 var app = builder.Build();
 

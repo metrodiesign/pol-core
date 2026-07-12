@@ -25,7 +25,7 @@ sqlcmd -S "$DB_SERVER" -U sa -P "$MSSQL_SA_PASSWORD" -C -b \
 
 echo "[migrate] applying EF migrations (schema + RLS policy + reveal-audit)..."
 export POL_DESIGN_SQL="Server=${DB_SERVER};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True"
-dotnet ef database update --context ProducerDbContext \
+dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
   --startup-project src/Hosts/Api
 

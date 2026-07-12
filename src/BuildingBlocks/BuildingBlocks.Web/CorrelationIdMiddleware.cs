@@ -8,7 +8,7 @@ namespace BuildingBlocks.Web;
 
 /// <summary>
 /// Stamps every request with a correlation id: it reuses a caller-supplied <c>X-Correlation-ID</c> (when
-/// well-formed) or mints one, echoes it on the response, and pushes it — plus the bound tenant id when one
+/// well-formed) or mints one, echoes it on the response, and pushes it — plus the bound merchant id when one
 /// exists — into the logging scope so every log line for the request shares it. It logs ONLY identifiers;
 /// request bodies, headers, tokens, and PII are never read into the scope.
 /// </summary>
@@ -26,7 +26,7 @@ public sealed class CorrelationIdMiddleware
         _logger = logger;
     }
 
-    public async Task InvokeAsync(HttpContext context, ITenantContext tenant)
+    public async Task InvokeAsync(HttpContext context, IActorContext actor)
     {
         var incoming = context.Request.Headers[HeaderName].ToString();
         var correlationId = IsWellFormed(incoming) ? incoming : Guid.NewGuid().ToString("N");
@@ -41,8 +41,8 @@ public sealed class CorrelationIdMiddleware
         }, context);
 
         var scope = new Dictionary<string, object> { ["CorrelationId"] = correlationId };
-        if (tenant.HasTenant)
-            scope["TenantId"] = tenant.TenantId;
+        if (actor.HasActor)
+            scope["MerchantId"] = actor.MerchantId;
 
         using (_logger.BeginScope(scope))
             await _next(context);
@@ -57,7 +57,7 @@ public static class ObservabilityExtensions
 {
     /// <summary>
     /// Replaces the default console providers with the framework JSON console formatter and turns on scope
-    /// rendering, so the correlation id / tenant id pushed by <see cref="CorrelationIdMiddleware"/> appear
+    /// rendering, so the correlation id / merchant id pushed by <see cref="CorrelationIdMiddleware"/> appear
     /// on every line. Levels still come from the existing "Logging" configuration section.
     /// </summary>
     public static IHostApplicationBuilder AddJsonConsoleLogging(this IHostApplicationBuilder builder)

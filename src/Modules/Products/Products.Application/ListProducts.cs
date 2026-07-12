@@ -2,18 +2,17 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using BuildingBlocks.Application;
 using Mediator;
+using SharedKernel;
 
 namespace Products.Application;
 
 /// <summary>
-/// Scalar read model for the paged product list (the tenant-scoped SFS exemplar). Carries the price as two
-/// scalar columns — NOT the computed <c>Product.Price</c> (<c>Money</c>), which EF cannot project in a
-/// server-side <c>Select</c> (D15); reconstitute <c>Money.Of(PriceMinorUnits, PriceCurrency)</c> client-side if
-/// a <c>Money</c> is needed. This is a NEW read model alongside <see cref="ProductView"/>, deliberately not a
-/// redefinition of it (which would break <see cref="GetProductsHandler"/>).
+/// Read model for the paged product list (the merchant-scoped SFS exemplar), projected server-side via EF
+/// complex-type selection. This is a NEW read model alongside <see cref="ProductView"/>, deliberately not
+/// a redefinition of it (which would break <see cref="GetProductsHandler"/>).
 /// </summary>
 public sealed record ProductListItem(
-    Guid Id, Guid TenantId, string Name, long PriceMinorUnits, string PriceCurrency, bool IsActive, DateTime CreatedAt);
+    Guid Id, Guid MerchantId, string Name, Money Price, bool IsActive, DateTime CreatedAt);
 
 /// <summary>
 /// Optional strictly-validated filter surface for the product list (REQ-10). Parsed from the
@@ -22,8 +21,8 @@ public sealed record ProductListItem(
 /// </summary>
 public sealed record ProductFilterDto
 {
-    [Range(0, long.MaxValue)] public long? MinPriceMinorUnits { get; init; }
-    [Range(0, long.MaxValue)] public long? MaxPriceMinorUnits { get; init; }
+    [Range(0, double.MaxValue)] public decimal? MinPriceAmount { get; init; }
+    [Range(0, double.MaxValue)] public decimal? MaxPriceAmount { get; init; }
     public bool? ActiveOnly { get; init; }
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -47,13 +46,13 @@ public sealed record ProductFilterDto
 }
 
 /// <summary>
-/// Lists a tenant's products with SFS (REQ-2, REQ-7). Tenant data -> <see cref="ITenantScoped"/>, so
-/// <c>TenantGuardBehavior</c> rejects a request with no tenant context (REQ-7.2). <see cref="TenantId"/> is
+/// Lists a merchant's products with SFS (REQ-2, REQ-7). Merchant data -> <see cref="IMerchantScoped"/>, so
+/// <c>MerchantGuardBehavior</c> rejects a request with no merchant context (REQ-7.2). <see cref="MerchantId"/> is
 /// bound from the authenticated principal by the endpoint, never supplied by the client.
 /// </summary>
-public sealed record ListProductsQuery : PagedQuery, IQuery<PagedResult<ProductListItem>>, ITenantScoped
+public sealed record ListProductsQuery : PagedQuery, IQuery<PagedResult<ProductListItem>>, IMerchantScoped
 {
-    public required Guid TenantId { get; init; }
+    public required Guid MerchantId { get; init; }
     public ProductFilterDto? ProductFilters { get; init; }
 }
 

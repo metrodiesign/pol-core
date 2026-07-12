@@ -1,13 +1,14 @@
 using Admin.Domain;
+using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Admin.Infrastructure.Persistence;
 
-// EF mappings for the four admin-profile master lists onto the producer schema (control-plane, no RLS,
+// EF mappings for the four admin-profile master lists onto the admin schema (control-plane, no RLS,
 // granted to pol_admin only — see the AddAdminMasterDataAndProfileFks migration). The shared MasterData base
 // uses TPC (table-per-concrete) so each concrete master gets its OWN table with the full column set and NO
-// base table / discriminator — the AdminAccount FKs stay type-safe. Shared columns/key/index live on the base.
+// base table / discriminator — the PlatformUser FKs stay type-safe. Shared columns/key/index live on the base.
 
 public sealed class MasterDataConfiguration : IEntityTypeConfiguration<MasterData>
 {
@@ -24,20 +25,20 @@ public sealed class MasterDataConfiguration : IEntityTypeConfiguration<MasterDat
 
 public sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
 {
-    public void Configure(EntityTypeBuilder<Position> builder) => builder.ToTable("Positions");
+    public void Configure(EntityTypeBuilder<Position> builder) => builder.ToTable("Positions", SchemaNames.Admin);
 }
 
 public sealed class OfficeConfiguration : IEntityTypeConfiguration<Office>
 {
-    public void Configure(EntityTypeBuilder<Office> builder) => builder.ToTable("Offices");
+    public void Configure(EntityTypeBuilder<Office> builder) => builder.ToTable("Offices", SchemaNames.Admin);
 }
 
 public sealed class LevelConfiguration : IEntityTypeConfiguration<Level>
 {
-    public void Configure(EntityTypeBuilder<Level> builder) => builder.ToTable("Levels");
+    public void Configure(EntityTypeBuilder<Level> builder) => builder.ToTable("Levels", SchemaNames.Admin);
 }
 
 public sealed class DivisionConfiguration : IEntityTypeConfiguration<Division>
 {
-    public void Configure(EntityTypeBuilder<Division> builder) => builder.ToTable("Divisions");
+    public void Configure(EntityTypeBuilder<Division> builder) => builder.ToTable("Divisions", SchemaNames.Admin);
 }

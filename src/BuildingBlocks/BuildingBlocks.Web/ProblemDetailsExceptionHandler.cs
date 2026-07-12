@@ -49,8 +49,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         });
     }
 
-    // Detail is a FIXED string per bucket — NEVER exception.Message — so tenant ids, PSP charge ids, SQL
-    // text, or tenant-binding state cannot leak. TenantBindingException is an opaque 500 by design.
+    // Detail is a FIXED string per bucket — NEVER exception.Message — so merchant ids, PSP charge ids, SQL
+    // text, or merchant-binding state cannot leak. MerchantBindingException is an opaque 500 by design.
     private static (int Status, string Title, string? Detail) Map(Exception exception) => exception switch
     {
         NotFoundException =>
@@ -61,7 +61,7 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
             (StatusCodes.Status409Conflict, "Conflict", "The resource was modified concurrently; please retry."),
         ConflictException =>
             (StatusCodes.Status409Conflict, "Conflict", "A resource with the same identifier already exists."),
-        TenantBindingException =>
+        MerchantBindingException =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
         ArgumentException =>
             (StatusCodes.Status400BadRequest, "Invalid request", null),
