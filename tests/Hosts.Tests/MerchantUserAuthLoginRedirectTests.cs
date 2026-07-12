@@ -13,7 +13,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
 
-// GET /api/v1/merchant-users/auth/login hands off to the "MerchantUserGoogle" OIDC handler, which redirects to
+// GET /api/v1/merchants/users/auth/login hands off to the "MerchantUserGoogle" OIDC handler, which redirects to
 // Google's authorize endpoint with the Authorization Code + PKCE + state + nonce parameters and only the
 // openid+email scope (REQ-8.1/8.4). A static OIDC Configuration is injected so the challenge builds the redirect
 // WITHOUT a network metadata fetch.
@@ -74,7 +74,7 @@ public sealed class MerchantUserAuthLoginRedirectTests
         using var factory = new MerchantUserLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/merchant-users/auth/login?returnTo=/dashboard");
+        var response = await client.GetAsync("/api/v1/merchants/users/auth/login?returnTo=/dashboard");
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         var location = response.Headers.Location!;
@@ -97,7 +97,7 @@ public sealed class MerchantUserAuthLoginRedirectTests
         using var factory = new MerchantUserLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/merchant-users/auth/login");
+        var response = await client.GetAsync("/api/v1/merchants/users/auth/login");
 
         // The OIDC handler persists state/nonce in a correlation + nonce cookie under the MerchantUserGoogle
         // scheme's own DP purpose (REQ-8.2/14.4).

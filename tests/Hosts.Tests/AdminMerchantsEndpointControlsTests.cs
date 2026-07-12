@@ -96,8 +96,8 @@ public sealed class AdminMerchantsEndpointControlsTests
     }
 
     [Theory]
-    [InlineData("POST", "/api/v1/admins/merchants")]
-    [InlineData("GET", "/api/v1/admins/merchants/ACME")]
+    [InlineData("POST", "/api/v1/merchants")]
+    [InlineData("GET", "/api/v1/merchants/ACME")]
     public async Task Without_a_session_the_admin_policy_rejects_the_request(string method, string path)
     {
         using var factory = new ControlsFactory();
@@ -115,7 +115,7 @@ public sealed class AdminMerchantsEndpointControlsTests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         var response = await client.SendAsync(
-            BuildRequest(HttpMethod.Post, "/api/v1/admins/merchants", tier: "Super", csrf: null));
+            BuildRequest(HttpMethod.Post, "/api/v1/merchants", tier: "Super", csrf: null));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode); // REQ-7.1
         Assert.Contains("CSRF", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
@@ -128,15 +128,15 @@ public sealed class AdminMerchantsEndpointControlsTests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
         var response = await client.SendAsync(
-            BuildRequest(HttpMethod.Post, "/api/v1/admins/merchants", tier: "Scoped", csrf: "tok-1"));
+            BuildRequest(HttpMethod.Post, "/api/v1/merchants", tier: "Scoped", csrf: "tok-1"));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode); // REQ-7.4: Super-only
         Assert.Contains("tier", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
-    [InlineData("POST", "/api/v1/admins/merchants")]
-    [InlineData("GET", "/api/v1/admins/merchants/ACME")]
+    [InlineData("POST", "/api/v1/merchants")]
+    [InlineData("GET", "/api/v1/merchants/ACME")]
     public async Task Admin_origin_gets_the_credentialed_admin_CORS_policy(string method, string path)
     {
         using var factory = new ControlsFactory();

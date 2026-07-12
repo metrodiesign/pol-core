@@ -11,15 +11,17 @@ namespace BuildingBlocks.Web;
 /// <summary>
 /// CORS for the two browser SPA frontends served by the one API (REQ-10.5). They have DIFFERENT origins but the
 /// SAME credential posture now: T5 collapsed the old Bearer "tenant" scheme into the merchant-user session
-/// cookie, which the WHOLE funnel authenticates with (not just <c>/merchant-users/*</c> — every endpoint that
+/// cookie, which the WHOLE funnel authenticates with (not just <c>/merchants/users/*</c> — every endpoint that
 /// used to gate on policy <c>tenant</c>: products/carts/checkouts/orders/payments/reports), so there is no more
 /// uncredentialed surface left to keep a separate default for.
 /// <list type="bullet">
 /// <item>the <b>default</b> policy is the merchant-user SPA — cookie (credentialed) XHR, so it sets
 /// <c>AllowCredentials</c>, which the spec forbids pairing with a wildcard origin: the origins are pinned
 /// explicitly.</item>
-/// <item><see cref="AdminPolicyName"/> is the admin SPA — also cookie (credentialed) XHR, its own pinned
-/// origin set. Applied ONLY to <c>/api/v1/admins/*</c>.</item>
+/// <item><see cref="AdminPolicyName"/> is the admin SPA — also cookie (credentialed) XHR, its own pinned origin
+/// set. Applied to <c>/api/v1/admins/*</c> PLUS the two admin-provisioned merchant endpoints that moved out of
+/// that group (hierarchical-naming D9): <c>/api/v1/merchants</c> and <c>/api/v1/merchants/{code}</c> — but NOT
+/// <c>/api/v1/merchants/users/*</c>, which is the merchant-user plane and stays on the default policy.</item>
 /// </list>
 /// Origins come from config (<c>Cors:AllowedOrigins</c> merchant-user, <c>Cors:AdminOrigins</c> admin); never
 /// <c>AllowAnyOrigin</c>. When a list is empty the policy allows no cross-origin request (safe default — prod
@@ -53,10 +55,10 @@ public static class CorsExtensions
             });
         });
 
-        // Select the policy by path: /api/v1/admins/* -> credentialed admin policy, everything else (the whole
-        // merchant-user funnel, incl. /api/v1/merchant-users/*) -> the credentialed default. A provider (not
-        // per-endpoint RequireCors) so policy selection does not depend on endpoint metadata being resolved
-        // before the CORS middleware runs.
+        // Select the policy by path: the admin plane (see PolCorsPolicyProvider) -> credentialed admin policy,
+        // everything else (the whole merchant-user funnel, incl. /api/v1/merchants/users/*) -> the credentialed
+        // default. A provider (not per-endpoint RequireCors) so policy selection does not depend on endpoint
+        // metadata being resolved before the CORS middleware runs.
         services.Replace(ServiceDescriptor.Transient<ICorsPolicyProvider, PolCorsPolicyProvider>());
         return services;
     }
@@ -66,8 +68,8 @@ public static class CorsExtensions
     public static IApplicationBuilder UsePolCors(this IApplicationBuilder app) => app.UseCors();
 }
 
-/// <summary>Chooses the CORS policy by request path: the credentialed admin policy for <c>/api/v1/admins/*</c>,
-/// the credentialed merchant-user default everywhere else (REQ-10.5).</summary>
+/// <summary>Chooses the CORS policy by request path: the credentialed admin policy for the admin plane
+/// (<see cref="IsAdminPlane"/>), the credentialed merchant-user default everywhere else (REQ-10.5).</summary>
 public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 {
     private readonly CorsOptions _options;
@@ -76,8 +78,14 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 
     public Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        var name = context.Request.Path.StartsWithSegments("/api/v1/admins") ? CorsExtensions.AdminPolicyName
-            : _options.DefaultPolicyName;
+        var name = IsAdminPlane(context.Request.Path) ? CorsExtensions.AdminPolicyName : _options.DefaultPolicyName;
         return Task.FromResult(_options.GetPolicy(name));
     }
+
+    // admin plane = /api/v1/admins/** + /api/v1/merchants and /api/v1/merchants/{code} (D9) — but NOT
+    // /api/v1/merchants/users/**, which is the merchant-user plane (REQ-8.2). Backed by a fail-closed guard
+    // (AdminCorsGuardTests) that enumerates every "admin"-policy endpoint and asserts it resolves here.
+    private static bool IsAdminPlane(PathString path) =>
+        path.StartsWithSegments("/api/v1/admins")
+        || (path.StartsWithSegments("/api/v1/merchants", out var rest) && !rest.StartsWithSegments("/users"));
 }

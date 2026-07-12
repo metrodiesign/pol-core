@@ -396,7 +396,7 @@
          — task 5 precedent; wire strings (scheme ids, cookie names, config keys, permission keys) all
          byte-for-byte identical, deferred to task 10 where mandated.
 
-- [ ] 8. **Routes moved; the four controls re-attached; the CORS path table extended and guarded.**
+- [x] 8. **Routes moved; the four controls re-attached; the CORS path table extended and guarded.**
      `/api/v1/merchant-users/**` -> `/api/v1/merchants/users/**`. Provision and read merchant leave the
      `admins` group for `/api/v1/merchants` and `/api/v1/merchants/{code}` — and **arrive with all four
      controls explicitly re-attached** (CSRF filter, admin CORS policy, `"admin"` policy, Super tier on
@@ -411,6 +411,47 @@
      Satisfies: REQ-6 (all criteria), REQ-7.1-7.4, 7.6, REQ-8.1, 8.2, 8.5. Depends on: 1, 7.
      Verify: task 1's four-control tests and CORS guard still green **after** the move; `CorsTests`
      unchanged and green; `RouteSchemeConventionTests` green with `merchants` and without the old area.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> Build succeeded, 41 projects, 0 Warning(s), 0 Error(s)
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> all projects
+         green at the identical task 6/7 baseline counts (Hosts.Tests 201, Architecture.Tests 50,
+         Admins.Tests 129, Merchants.Tests 128, Payments.Tests 59, others unchanged), 0 failed.
+       - test: detector suites after the move — `dotnet test tests/Hosts.Tests --no-build --filter
+         "FullyQualifiedName~AdminMerchantsEndpointControls|FullyQualifiedName~AdminCorsGuard|
+         FullyQualifiedName~Cors"` -> 12 passed / 0 failed. `git diff` on
+         `tests/Hosts.Tests/CorsTests.cs` is EMPTY (file untouched, REQ-8.5 honoured).
+       - test: NEGATIVE PROBE run by the orchestrator, not assumed — commented out the re-attached
+         `.AddEndpointFilter<CsrfFilter>()` on `POST /api/v1/merchants` (Program.cs:890), rebuilt, ran
+         `AdminMerchantsEndpointControlsTests` -> 1 failed / 5 passed (the CSRF detector bit); restored the
+         line -> 12/12 green again. The task-1 detectors still guard the moved endpoints.
+       - viewports: n/a — backend-only (route table + CORS provider, no UI)
+       - deviations: (1) Route moves exactly per design §4: merchant-user group prefix `/api/v1/merchant-users`
+         -> `/api/v1/merchants/users` (both group refs — anon + filtered console — moved together, no
+         endpoint changed tiers); `POST/GET (admins group) /merchants*` -> mapped DIRECT on `api` at
+         `/api/v1/merchants` + `/{code}` with all four controls re-attached explicitly (CsrfFilter +
+         `"admin"` policy + Super tier on POST + admin CORS via path table); approve/reject ->
+         `/api/v1/admins/merchants/users/{subject}/…`; master-data wrapper DROPPED — the four lists map
+         direct on the `admin` group (`MapMasterCrud<T>(admin, …)`), safe against `/admins/{id:guid}`
+         (guid-constrained, literal beats parameter); `{code}` left unconstrained (REQ-6.5, comment added).
+         All `Location` headers embedding moved paths updated (`/api/v1/merchants/{code}`,
+         `/api/v1/merchants/users/{id}`, `/api/v1/merchants/users/roles/{code}`,
+         `/api/v1/admins/{segment}/{id}`). (2) `GET /api/v1/merchants/{code}` carries `CsrfFilter`
+         explicitly too — structural parity with its old group-inherited filter (safe methods are exempt
+         inside the filter itself, so no observable change; REQ-7.1's "re-attach to them" satisfied
+         structurally, same reading as task 1 evidence deviation 3). (3) `PolCorsPolicyProvider` predicate
+         extended to an explicit `IsAdminPlane`: `/api/v1/admins/**` OR (`/api/v1/merchants**` AND rest
+         not starting segment `/users`) — merchant-user plane excluded per REQ-8.2, provider stays
+         path-based (REQ-8.1), design comment block carried over. (4) The OIDC `CallbackPath`
+         (`/api/v1/merchant-users/auth/callback` in `UserOidcOptions.cs`, `appsettings.json`, and the
+         runbook) deliberately did NOT move — task 10 owns it (Google Console contract);
+         `MerchantUserAuthLoginRedirectTests` accordingly still asserts the old callback and stays green
+         until task 10. (5) Files outside the host touched ONLY in comment/doc prose that names moved
+         routes (`RolePorts.cs`, `Role.cs` xml-docs, `appsettings.json` `_note` strings,
+         `MerchantProvisioningGrantsTests` comment) — no code or config-key change among them. (6)
+         `RouteSchemeConventionTests` regex now the nine-area taxonomy with `merchants` (edited because the
+         spec changed); `RouteSchemeAuthPreservationTests` updated to the moved register path and still
+         asserts IAllowAnonymous unchanged.
 
 - [ ] 9. **Database renamed everywhere it is named — including the raw SQL the compiler cannot see.**
      Rename the `admin` and `merch` tables per design §6; `shop` and `txn` are untouched. Rewrite the

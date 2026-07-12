@@ -37,7 +37,7 @@ internal static class UserPermissionAuthorization
 
 /// <summary>
 /// Fail-closed gate for the WHOLE authenticated merchant-user BFF surface (REQ-17.2/F10): every route in the
-/// <c>/merchant-users</c> group is for a BOUND merchant user. The pre-session routes (login/callback/register) are
+/// <c>/merchants/users</c> group is for a BOUND merchant user. The pre-session routes (login/callback/register) are
 /// mapped OUTSIDE this group, so they are untouched by it.
 /// </summary>
 internal sealed class BoundFilter : IEndpointFilter

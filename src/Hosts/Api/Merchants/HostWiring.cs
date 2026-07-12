@@ -49,7 +49,7 @@ internal static class HostWiring
 
         // Per-request merchant-user scope (REQ-17.1): the session handler binds the concrete MerchantUserScope;
         // endpoints read IMerchantUserScope — the SAME scoped instance. RequireMerchantUserPermission +
-        // /merchant-users/me consume it.
+        // /merchants/users/me consume it.
         services.AddScoped<UserScope>();
         services.AddScoped<IUserScope>(sp => sp.GetRequiredService<UserScope>());
 

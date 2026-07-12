@@ -20,7 +20,7 @@ public sealed class Role : AggregateRoot<Guid>
     /// <summary>The ordinary default approval role (product/payment only, no role-management) — NOT an anchor.</summary>
     public const string MerchantMemberCode = "merchant_member";
 
-    // Code lands in route paths (GET /merchant-users/roles/{code}); constrain to a URL-safe slug so it can never carry
+    // Code lands in route paths (GET /merchants/users/roles/{code}); constrain to a URL-safe slug so it can never carry
     // '/', '?', '#', '%' etc. All seeded codes are lowercase snake_case.
     private static readonly Regex CodePattern = new("^[a-z0-9_]+$");
 

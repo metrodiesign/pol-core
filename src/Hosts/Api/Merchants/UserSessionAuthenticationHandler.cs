@@ -110,7 +110,7 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
             return AuthenticateResult.Fail("Merchant user is not active or no longer exists."); // suspend -> next request 401
 
         var resolution = resolved.Resolution;
-        _scope.Set(resolution); // bind IMerchantUserScope so RequireMerchantUserPermission + /merchant-users/me read scope.Current
+        _scope.Set(resolution); // bind IMerchantUserScope so RequireMerchantUserPermission + /merchants/users/me read scope.Current
 
         // The principal carries the merchant_id claim the HttpActorContext path reads (S4) so the existing
         // CreateProductCommand(actor.MerchantId, ...) keeps working — NO role claim (T11 — single-scheme, no more

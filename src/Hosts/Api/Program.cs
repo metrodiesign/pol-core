@@ -261,7 +261,7 @@ builder.Services.AddOpenApi(options =>
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
             Name = UserSessionCookies.SessionCookieNameDevHttp,
-            Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchant-users/auth/login). "
+            Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchants/users/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-mch_session` name (T11 — "
                 + "single-scheme, the legacy Bearer fallback is retired).",
         };
@@ -464,9 +464,10 @@ if (app.Environment.IsDevelopment())
 // only the base path moves. Data-plane endpoints map their area path DIRECTLY on this group (an explicit
 // "/products", "/carts/..." pattern) rather than via a nested MapGroup with an empty-string root pattern — the
 // latter renders a trailing-slash canonical path ("/api/v1/products/"), which the clean-path intent forbids
-// (REQ-1.4). admins/merchant-users DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
-// surface; the single admins-root create carries the area path + its filter per-endpoint. Infra (health, openapi,
-// scalar) is mapped ABOVE this and stays OUTSIDE /api/v1 (REQ-4).
+// (REQ-1.4). admins/merchants-users DO use a MapGroup, because it binds their endpoint FILTERS once for the whole
+// surface; the admins-root create and the two admin-provisioned /merchants endpoints (moved out of /admins, D9)
+// carry the area path + their filters per-endpoint instead. Infra (health, openapi, scalar) is mapped ABOVE this
+// and stays OUTSIDE /api/v1 (REQ-4).
 var api = app.MapGroup("/api/v1");
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT merchant/PSP parsed from the
@@ -846,10 +847,15 @@ admin.MapPost("/auth/logout-all", async (
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
+// --- Admin-provisioned merchants (/api/v1/merchants, D9) ---
+// Moved out of the /admins group (hierarchical-naming task 8, design §5): mapped DIRECTLY on `api`, like the
+// admins-root create above it, so each endpoint re-attaches its own controls explicitly instead of inheriting
+// them from group membership — CsrfFilter, the "admin" policy, and (POST only) the Super tier. The admin CORS
+// policy is re-attached via the path table in CorsExtensions.cs, not here (CORS selection stays path-based).
 // Admin provisioning (reference 2.4). Cross-merchant, so NOT IMerchantScoped — runs under pol_admin via the
 // keyed admin scope. AdminSubject (sub claim) + correlation id (TraceIdentifier) are taken server-side,
 // never from the body. Duplicate code -> ConflictException -> 409; bad input -> ArgumentException -> 400.
-admin.MapPost("/merchants", async (
+api.MapPost("/merchants", async (
     ProvisionMerchantRequest body,
     HttpContext http,
     IMediator mediator,
@@ -875,12 +881,13 @@ admin.MapPost("/merchants", async (
         http.TraceIdentifier);
 
     var result = await mediator.Send(command, ct);
-    return Results.Created($"/api/v1/admins/merchants/{t.Code}", result);
+    return Results.Created($"/api/v1/merchants/{t.Code}", result);
 
     // Re-pack the captured overflow fields into a single JSON element for verbatim storage.
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 })
+    .AddEndpointFilter<CsrfFilter>() // re-attached explicitly — no longer inherited from the /admins group (REQ-7.1)
     .RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super) // provisioning is Super-only (REQ-8.4)
     .WithTags("Admin Merchants")
     .WithName("ProvisionMerchant")
@@ -893,8 +900,9 @@ admin.MapPost("/merchants", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // Cross-merchant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned merchants, a
-// Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak).
-admin.MapGet("/merchants/{code}", async (
+// Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak). {code} stays
+// unconstrained (REQ-6.5) — adding a route constraint here would itself be a behavior change.
+api.MapGet("/merchants/{code}", async (
     string code,
     IAdminQuery adminQuery,
     CancellationToken ct) =>
@@ -903,7 +911,7 @@ admin.MapGet("/merchants/{code}", async (
     return view is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
-}).RequireAuthorization("admin")
+}).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin") // GET is CSRF-exempt by design; attached for REQ-7.1
     .WithTags("Admin Merchants")
     .WithName("GetMerchant")
     .WithSummary("Read a merchant by code")
@@ -913,11 +921,11 @@ admin.MapGet("/merchants/{code}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // --- MerchantUser BFF login + registration (merchant-user-google-sso REQ-8/9/14) ---
-// The merchant-users area has TWO group refs at the same /api/v1/merchant-users prefix (REQ-3.7): this UNFILTERED ref carries
+// The merchant-users area has TWO group refs at the same /api/v1/merchants/users prefix (REQ-3.7): this UNFILTERED ref carries
 // the anonymous pre-session entry (login + register), exactly as they were mapped top-level before the migration;
 // the filtered console group below (CSRF + bound-merchant-user) carries the authenticated surface. The area-prefix move
 // must NOT move any endpoint between tiers.
-var merchantUsersAnon = api.MapGroup("/merchant-users");
+var merchantUsersAnon = api.MapGroup("/merchants/users");
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the merchant-user
 // allowlist, then hand off to the "MerchantUserGoogle" OIDC handler, which builds the Authorization Code + PKCE + state
@@ -1008,7 +1016,7 @@ merchantUsersAnon.MapPost("/register", async (
         ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
         formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
 
-    return Results.Created($"/api/v1/merchant-users/{result.MerchantUserId}",
+    return Results.Created($"/api/v1/merchants/users/{result.MerchantUserId}",
         new UserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
 })
     .AllowAnonymous()
@@ -1027,11 +1035,11 @@ merchantUsersAnon.MapPost("/register", async (
 
 // --- MerchantUser BFF authenticated surface (merchant-user-google-sso REQ-12/13/15/16/17) ---
 // One group binds the CSRF double-submit filter ONCE for the whole authenticated merchant-user surface (the credentialed
-// merchant-user CORS policy is applied to /api/v1/merchant-users/* by PolCorsPolicyProvider). Every route gates on the
+// merchant-user CORS policy is applied to /api/v1/merchants/users/* by PolCorsPolicyProvider). Every route gates on the
 // single-scheme "merchant-user" policy (MerchantUserSession only, T11); the CSRF filter exempts safe methods, and the
 // anonymous pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
 // MerchantBoundFilter then fail-closes the whole group on a BOUND merchant-user (REQ-17.2/F10).
-var merchantUsers = api.MapGroup("/merchant-users")
+var merchantUsers = api.MapGroup("/merchants/users")
     .AddEndpointFilter<UserCsrfFilter>()
     .AddEndpointFilter<BoundFilter>();
 
@@ -1156,7 +1164,7 @@ merchantUsers.MapPost("/roles", async (CreateMerchantUserRoleRequest body, IMedi
     var result = await mediator.Send(new CreateCommand(
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
-    return Results.Created($"/api/v1/merchant-users/roles/{result.Code}", MerchantUserRoleToWire(result));
+    return Results.Created($"/api/v1/merchants/users/roles/{result.Code}", MerchantUserRoleToWire(result));
 }).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("CreateMerchantUserRole")
@@ -1222,7 +1230,7 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
 // The Admin permission (merchant-user.approve/reject) + the accessible-merchant floor (IAdminQuery) run HERE, at the host,
 // before crossing into the MerchantUser module (critique B3) — the dispatched command receives an already-validated
 // merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + Session policy apply.
-admin.MapPost("/merchant-users/{subject}/approve", async (
+admin.MapPost("/merchants/users/{subject}/approve", async (
     string subject, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
     HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
@@ -1253,7 +1261,7 @@ admin.MapPost("/merchant-users/{subject}/approve", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-admin.MapPost("/merchant-users/{subject}/reject", async (
+admin.MapPost("/merchants/users/{subject}/reject", async (
     string subject, RejectMerchantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new RejectCommand(
@@ -1512,14 +1520,16 @@ admin.MapPut("/{id:guid}/profile", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Profile master data (Position/Office/Level/Division) ---
-// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Nested under /admins so the
-// group's auth + AdminCsrfFilter apply; all writes gated user.manage. List/Create/Update only — masters are
-// soft-deactivated via IsActive, never hard-deleted (the FK is Restrict). One generic registration per list.
-var masterData = admin.MapGroup("/master-data");
-MapMasterCrud<Position>(masterData, "positions", Position.Create);
-MapMasterCrud<Office>(masterData, "offices", Office.Create);
-MapMasterCrud<Level>(masterData, "levels", Level.Create);
-MapMasterCrud<Division>(masterData, "divisions", Division.Create);
+// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Mapped DIRECTLY on the
+// `admin` group with no /master-data wrapper (D11 — the wrapper was a code-organisation word, not a resource;
+// each list is already its own collection) so the group's auth + AdminCsrfFilter still apply; all writes gated
+// user.manage. List/Create/Update only — masters are soft-deactivated via IsActive, never hard-deleted (the FK
+// is Restrict). One generic registration per list. Safe against /admins/{id:guid}: that route is
+// guid-constrained and a literal segment beats a parameter at the same depth (design §4).
+MapMasterCrud<Position>(admin, "positions", Position.Create);
+MapMasterCrud<Office>(admin, "offices", Office.Create);
+MapMasterCrud<Level>(admin, "levels", Level.Create);
+MapMasterCrud<Division>(admin, "divisions", Division.Create);
 
 static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<string, string, T> create)
     where T : MasterDataItem
@@ -1544,7 +1554,7 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
     parent.MapPost($"/{segment}", async (MasterWriteRequest body, IMasterDataStore store, CancellationToken ct) =>
     {
         var item = await store.CreateAsync(create(body.Code ?? "", body.Name ?? ""), ct);
-        return Results.Created($"/api/v1/admins/master-data/{segment}/{item.Id}",
+        return Results.Created($"/api/v1/admins/{segment}/{item.Id}",
             new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
     }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")

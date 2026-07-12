@@ -11,7 +11,7 @@ namespace Hosts.Tests;
 
 /// <summary>The merchant-bound group filter (REQ-17.2/F10): a request that bound a merchant-user scope (a real
 /// merchant-user session) passes; any other caller binds no scope and is denied 403 — so the role/permission
-/// catalog reads under <c>/merchant-users</c> cannot leak to an unbound caller.</summary>
+/// catalog reads under <c>/merchants/users</c> cannot leak to an unbound caller.</summary>
 public sealed class MerchantBoundFilterTests
 {
     private static readonly BoundFilter Filter = new();
