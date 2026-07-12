@@ -123,7 +123,7 @@ $ sqlcmd ... -Q "SELECT COUNT(*) FROM admin.Users"
 
 ---
 
-## - [ ] T2 — merchants + PSP connections + platform access/roles
+## - [x] T2 — merchants + PSP connections + platform access/roles
 
 Depends on: T1
 
@@ -147,6 +147,73 @@ Verify:
 - รันซ้ำ exit 0 (idempotent)
 - `SELECT COUNT(*) FROM admin.MerchantAccess a JOIN admin.Users u ON u.Id = a.PlatformUserId
   WHERE u.Tier = 1` = 0 (REQ-4.3 — Super ไม่มีแถว)
+
+### Evidence (2026-07-13)
+
+รันจริงบน `pol-db` container เดิม (`localhost,11433`, DB `VCentralPay`). โหลด env ด้วย
+`set -a && source .env && set +a` (noise "command not found: User" เดิม จาก T1 — harmless).
+
+**สิ่งที่เพิ่ม** — ต่อจาก T1 ในโซน (ง) ของ `docker/bootstrap/seed-demo.sql`: `INSERT merch.Merchants`
+3 แถว (`Code` เก็บเป็น **normalized lowercase** `'vprivilege'/'vcommerce'/'vsouvenir'` — ไม่ใช่
+`'vPrivilege'` แบบที่ design doc เขียนไว้เพื่อความอ่านง่าย, ยืนยันจาก `Merchant.Create` ->
+`MerchantCode.Normalize` ใน `src/Modules/Merchants/Merchants.Domain/Merchant.cs:61`), `INSERT
+txn.PspConnections` 6 แถว (Omise ของ vSouvenir `IsEnabled=0`), `INSERT admin.MerchantAccess` 4 แถว
+(เฉพาะ Scoped), `INSERT admin.RoleAssignments` 6 แถว (`RoleId` อ้าง `platform_admin`/`platform_auditor`
+จาก migration `20260712185912_SeedData.cs` ตรง ไม่ได้สร้างใหม่). เติม 4 ตารางนี้เข้า `@counts` ในโซน (จ).
+
+**1. รันครั้งแรก:**
+```
+$ ./scripts/seed-demo.sh
+Changed database context to 'VCentralPay'.
+admin.Users = 6
+merch.Merchants = 3
+txn.PspConnections = 6
+admin.MerchantAccess = 4
+admin.RoleAssignments = 6
+seed-demo: OK.
+EXIT=0
+```
+
+**2. รันซ้ำครั้งที่ 2 (idempotent):** ผลลัพธ์เหมือนเดิมทุกตัว, `EXIT=0`.
+
+**3. พิสูจน์ REQ-2.4 ของจริง (T1 ทำไม่ได้เพราะยังไม่มี INSERT merchant-scoped):** comment ขั้น (ข)
+(2 บรรทัด `EXEC sp_set_session_context`) แล้วรัน `seed-demo.sh` ตรง ๆ:
+```
+Changed database context to 'VCentralPay'.
+Msg 2627, Level 14, State 1, Server 24ecc441547a, Line 75
+Violation of PRIMARY KEY constraint 'PK_Merchants'. Cannot insert duplicate key in object
+'merch.Merchants'. The duplicate key value is (e1000000-0000-4000-8000-000000000001).
+EXIT=1
+```
+ตรงตามที่ T1/design ทำนายไว้เป๊ะ: ไม่ stamp context -> ขั้น (ค) มองไม่เห็นแถว merchant-scoped เดิม
+เลยสักแถว (DELETE ลบ 0 แถวเงียบ ๆ เพราะ FILTER predicate) -> ขั้น (ง) INSERT รอบใหม่ชน PK ของแถวที่ยัง
+อยู่จริงในตาราง. Uncomment กลับ (`diff` กับ backup ก่อนแก้ ยืนยันว่า restore สะอาด 100%) แล้วรันใหม่
+กลับมา `EXIT=0` เหมือนเดิมทุกตัว (ไม่มี leftover จากการทดลอง เพราะ transaction ที่ fail ทั้งก้อน rollback
+ด้วย `XACT_ABORT`).
+
+**4. REQ-4.3 — Super ต้องไม่มีแถวใน MerchantAccess:**
+```sql
+SELECT COUNT(*) FROM admin.MerchantAccess a JOIN admin.Users u ON u.Id = a.PlatformUserId WHERE u.Tier = 1;
+-- 0
+```
+
+**5. `iam.Roles` ไม่เปลี่ยน (ยืนยันไม่ได้สร้าง role ใหม่):**
+```sql
+SELECT COUNT(*) FROM iam.Roles;  -- 4
+```
+
+**6. `git status` — เฉพาะไฟล์ที่แก้:**
+```
+ M docker/bootstrap/seed-demo.sql
+```
+ไม่มีไฟล์ใต้ `src/` เปลี่ยนแปลง (REQ-7.3).
+
+**ส่งต่อ T3:** ไม่มี gotcha ใหม่นอกเหนือจากที่ T1 เตือนไว้แล้ว (`SET QUOTED_IDENTIFIER ON` อยู่หัวไฟล์แล้ว,
+ลำดับ DELETE ใน (ค) ครบทุกตารางอยู่แล้ว ไม่ต้องแก้). ข้อควรระวังเดียวที่ T3 น่าจะเจอ: คอลัมน์ `Code` ของ
+`merch.Merchants` เก็บ lowercase — ถ้า T3 ต้อง join กลับไปยัง merchant ผ่าน Code (ไม่ใช่ Id) ให้ใช้ค่า
+lowercase เดียวกัน (`vprivilege`/`vcommerce`/`vsouvenir`), และ `admin.RoleAssignments` **ไม่มีคอลัมน์
+`MerchantId`** (ต่างจาก `merch.RoleAssignments` ที่ T3 จะใช้ ซึ่งมี `MerchantId` — อ่านคอลัมน์จริงจาก
+migration ก่อนเขียน INSERT เสมอ อย่าเดา).
 
 ---
 
