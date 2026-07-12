@@ -49,7 +49,7 @@ internal sealed class BoundFilter : IEndpointFilter
 }
 
 /// <summary>Boot-time parity guard (REQ-15.5): every permission key a <c>RequireMerchantUserPermission</c> gate
-/// references MUST exist in the code-canonical catalog vocabulary (<see cref="MerchantUserPermissions.AllKeys"/>,
+/// references MUST exist in the code-canonical catalog vocabulary (<see cref="Merchants.Domain.Users.Permissions.Keys.All"/>,
 /// which the migration seeds the DB from). Pure in-memory — no DB. Call right before <c>app.Run()</c>, after all
 /// endpoints are mapped.</summary>
 // ponytail: DUPLICATE-shaped of Api.AdminPermissionParity (Keys -> MerchantUserPermissions) — deliberate.

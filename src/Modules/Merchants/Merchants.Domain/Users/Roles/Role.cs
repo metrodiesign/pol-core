@@ -10,7 +10,7 @@ namespace Merchants.Domain.Users.Roles;
 /// role grants every merchant-user key as the deliberate recovery anchor and cannot be deactivated or deleted;
 /// <see cref="MerchantMemberCode"/> is the ordinary default approval choice (product/payment only).
 /// </summary>
-// ponytail: DUPLICATE of Admins.Domain.AdminRole — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.Roles.Role — deliberate debt, do not refactor into a shared base.
 public sealed class Role : AggregateRoot<Guid>
 {
     /// <summary>The seed role granting ALL merchant-user keys; the deliberate anchor that may not be deactivated or

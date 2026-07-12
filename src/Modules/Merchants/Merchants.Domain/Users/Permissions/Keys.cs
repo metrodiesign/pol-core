@@ -9,7 +9,7 @@ namespace Merchants.Domain.Users.Permissions;
 /// database. A new feature adds its permission here + a seed migration row (and a gate that uses it) — the catalog
 /// is feature-sourced and open-ended.
 /// </summary>
-// ponytail: DUPLICATE of Admins.Domain.AdminPermissions — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.Permissions.Keys — deliberate debt, do not refactor into a shared base.
 public static class Keys
 {
     // Resource group keys (the buckets the merchant-user console UI shows).

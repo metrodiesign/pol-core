@@ -20,7 +20,7 @@ public sealed record SessionPolicy(TimeSpan Idle, TimeSpan Absolute, TimeSpan Ro
 /// its successor, so replay of a non-immediate predecessor is detectable as theft. Racing transitions
 /// (rotate/revoke) are applied in the store via atomic set-based updates, not by mutating a tracked entity.
 /// </summary>
-// ponytail: DUPLICATE of Admins.Domain.AdminSession (owner AdminAccountId -> MerchantUserId) — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.Users.Session (owner AdminAccountId -> MerchantUserId) — deliberate debt, do not refactor into a shared base.
 public sealed class Session : AggregateRoot<Guid>
 {
     public Guid FamilyId { get; private set; }

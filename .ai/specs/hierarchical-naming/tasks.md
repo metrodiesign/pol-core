@@ -590,7 +590,7 @@
          across the runbook for all 18 renamed tables, single hit). (4) rf1's FE-MIGRATION.md got a
          top banner pointer only, content untouched (REQ-12.6).
 
-- [ ] 12. **Final gate: prove it was a rename.**
+- [x] 12. **Final gate: prove it was a rename.**
      Run the identifier check — `MerchantUser`, `PlatformUser`, `AdminRole`, `AdminPermission`,
      `PaymentSession`, `CartItem`, `CheckoutSession`, `PspConnection` must not appear in `src/` or
      `tests/` — and ship it **together with its exception list** (`MerchantUserRegistrationSubmitted`,
@@ -602,6 +602,52 @@
      Satisfies: REQ-15.3, 15.4, 15.5, REQ-1.1, 1.2, 1.4, 1.5. Depends on: 2, 3, 4, 5, 6, 7, 8, 9, 10, 11.
      Verify: full `dotnet test` green; the identifier check passes with its exception list; the
      assertion-diff review is recorded.
+
+     Evidence:
+       - test: identifier gate SHIPPED as `scripts/check-rename-identifiers.sh` (+
+         `check_rename_identifiers.py`, spec-trace wrapper pattern), wired into the CI guards job
+         ("Rename identifier gate"). Word-bounded match on the eight identifiers over tracked `src/`
+         + `tests/` C#. Exception list ships INSIDE the script (REQ-15.4/15.5): (1)
+         `MerchantUserRegistrationSubmitted` retained contract; (2) `MerchantUser:*` config keys —
+         string literals are stripped before matching, which also covers the other frozen wire strings
+         (DP purpose `MerchantUser.RegistrationTicket.v1`, OpenAPI tag prose, exception-message prose,
+         the two test-fake `ToTable("PlatformUsers"/"AdminRoles")` SQLite doubles task 9 flagged; renamed
+         TABLE strings stay guarded by the fresh-DB gate instead); (3) comments stripped (history
+         exception); (4) L6 file-local aliases (`using PaymentSession = Payments.Domain.Session;` —
+         design L6's own fixed form reconstructs the compound) allowed per declaring file. Run -> OK.
+         NEGATIVE PROBE: planted `internal sealed class PlatformUser { }` in a tracked file -> gate
+         FAILED (exit 1, exact file:line reported); restored -> OK. The gate bites.
+       - test: assertion-diff review RECORDED (REQ-1.4) — full branch diff 9bb2731..HEAD over `tests/`:
+         186 removed / 196 added `Assert.` lines. Mechanically normalized with the spec's mandated maps
+         (types, routes, permission keys, scheme id, tables), then hand-reviewed the residue: every
+         changed assertion is a mandated rename my map simply hadn't enumerated (Application-layer
+         `AdminResolveOutcome`->`ResolveOutcome`, `ListPlatformUserSessionsQuery`->`ListSessionsQuery`,
+         host `ApiHost::Api.X` -> `Api.Admins/Merchants.X` etc.), a namespace literal inside an
+         architecture-test failure MESSAGE (REQ-15.1), or a REQ-tag comment swap on an unchanged
+         assertion. The ONLY assertions with no old counterpart are task 1's mandated new detectors
+         (`AdminMerchantsEndpointControlsTests` x6, `AdminCorsGuardTests` x2, the two positive
+         resolve-assertions). ZERO unexplained assertion changes — nothing to escalate.
+       - test: full `dotnet test` green — 11 unit/host projects at baseline counts, 0 Failed;
+         `Integration.Tests` 86/86 against the fresh renamed DB; `scripts/spec-trace.sh
+         hierarchical-naming` -> OK, all 98 criteria referenced, EARS lint clean;
+         `scripts/check-rename-identifiers.sh` -> OK.
+       - viewports: n/a — backend-only (verification gate, no UI)
+       - deviations: (1) Gate scope decision documented: matching is on live-code TOKENS (strings +
+         comments stripped) — REQ-15.3's intent is "no retired identifier survives in code the compiler
+         sees"; frozen wire strings are exactly the exception list, and renamed tables in raw SQL are
+         positively asserted by `assert-fresh-db.sql` + `has-pending-model-changes` instead of grep. (2)
+         Word-boundary matching means member names CONTAINING a token (`PaymentSessionId`,
+         `AddPlatformUserSessionScheme`, test classes `PlatformUserSessionTests`, fakes
+         `FakePlatformUserRepository`) do not match — consistent with the standing "member names out of
+         scope" precedent (tasks 4-7); they are deliberate retentions, not misses. (3) Orchestrator
+         updated 9 stale comments whose fully-qualified type paths read as CURRENT references to types
+         that no longer exist (`Admins.Domain.AdminPermission` -> `Admins.Domain.Permissions.Permission`
+         style + one dead `<see cref>`); history-phrasing comments ("formerly", "renamed from") kept
+         as-is per the exception. (4) REQ-1.1/1.2 evidence rests on the task-level gates already recorded
+         (task 1 detectors surviving tasks 3-8 unchanged, the task 8 negative probe, CorsTests untouched,
+         RouteSchemeAuthPreservationTests, Integration RLS/grants matrix) — this task adds the
+         identifier gate and the assertion review on top; no new endpoint or authz change surfaced in
+         either.
 
 ## Suggested execution batches
 

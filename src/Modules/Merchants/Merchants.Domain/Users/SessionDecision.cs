@@ -19,7 +19,7 @@ public enum SessionDecision
 
 /// <summary>Pure decision table over a presented session. The family's current Active session
 /// id is supplied only for a Superseded token (immediate-predecessor detection); null otherwise.</summary>
-// ponytail: DUPLICATE of Admins.Domain.AdminSessionDecisionPolicy — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.Users.SessionDecisionPolicy — deliberate debt, do not refactor into a shared base.
 public static class SessionDecisionPolicy
 {
     public static SessionDecision Decide(Session session, Guid? familyActiveSessionId, DateTime now, SessionPolicy policy) =>
