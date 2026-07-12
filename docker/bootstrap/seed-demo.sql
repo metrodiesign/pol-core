@@ -127,6 +127,90 @@ VALUES
     ('e4000000-0000-4000-8000-000000000005', 'e2000000-0000-4000-8000-000000000005', '55555555-5555-5555-5555-555555555555', 'e2000000-0000-4000-8000-000000000001', SYSUTCDATETIME()),
     ('e4000000-0000-4000-8000-000000000006', 'e2000000-0000-4000-8000-000000000006', '55555555-5555-5555-5555-555555555555', 'e2000000-0000-4000-8000-000000000001', SYSUTCDATETIME());
 
+-- merch.Users (REQ-5.1): 4 per merchant, all 4 UserStatus values + both PersonType values covered.
+-- NOTE: merch.Users/ExternalLogins/RoleAssignments carry NO RLS predicate at all (see
+-- SecurityObjects migration's MerchantTables list — only merch.Merchants/shop.*/txn.* are policy-
+-- protected); the session-context stamp from (ข) is irrelevant here but harmless to leave in place.
+-- Subject is fake (demo-mch-<n>) — REQ-5.2's Google login can never resolve to these.
+INSERT INTO merch.Users (Id, Subject, Email, Status, MerchantId, CreatedAt, DisplayName, FirstName, LastName, PersonType, IdNumber, ProducerCode, LicenseNumber, Phone)
+VALUES
+    -- vprivilege (merchant e1...0001)
+    ('e5000000-0000-4000-8000-000000000001', N'demo-mch-1', N'somchai.p@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'สมชาย พริวิเลจ', N'สมชาย', N'พริวิเลจ', 0, N'1100200300401', N'PRD-VP-001', N'LIC-2024-00101', N'0812345001'),
+    ('e5000000-0000-4000-8000-000000000002', N'demo-mch-2', N'vprivilege.dist@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'บริษัท วีพริวิเลจ ตัวแทนจำหน่าย จำกัด', N'-', N'-', 1, N'0105561000045', N'PRD-VP-002', N'LIC-2024-00102', N'0812345002'),
+    ('e5000000-0000-4000-8000-000000000003', N'demo-mch-3', N'wanida.k@demo.pol.local', 0, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'วนิดา คงพริวิเลจ', N'วนิดา', N'คงพริวิเลจ', 0, N'1100200300402', NULL, NULL, N'0812345003'),
+    ('e5000000-0000-4000-8000-000000000004', N'demo-mch-4', N'pichit.s@demo.pol.local', 2, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'พิชิต แสงพริวิเลจ', N'พิชิต', N'แสงพริวิเลจ', 0, N'1100200300403', NULL, NULL, N'0812345004'),
+    -- vcommerce (merchant e1...0002)
+    ('e5000000-0000-4000-8000-000000000005', N'demo-mch-5', N'araya.c@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'อารยา คอมเมิร์ซ', N'อารยา', N'คอมเมิร์ซ', 0, N'1100200300404', N'PRD-VC-001', N'LIC-2024-00201', N'0823456001'),
+    ('e5000000-0000-4000-8000-000000000006', N'demo-mch-6', N'vcommerce.hq@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'บริษัท วีคอมเมิร์ซ โฮลดิ้ง จำกัด', N'-', N'-', 1, N'0105561000053', N'PRD-VC-002', N'LIC-2024-00202', N'0823456002'),
+    ('e5000000-0000-4000-8000-000000000007', N'demo-mch-7', N'natthapong.r@demo.pol.local', 3, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'ณัฐพงศ์ รุ่งคอมเมิร์ซ', N'ณัฐพงศ์', N'รุ่งคอมเมิร์ซ', 0, N'1100200300405', N'PRD-VC-003', N'LIC-2024-00203', N'0823456003'),
+    ('e5000000-0000-4000-8000-000000000008', N'demo-mch-8', N'suda.m@demo.pol.local', 0, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'สุดา มั่นคอมเมิร์ซ', N'สุดา', N'มั่นคอมเมิร์ซ', 0, N'1100200300406', NULL, NULL, N'0823456004'),
+    -- vsouvenir (merchant e1...0003)
+    ('e5000000-0000-4000-8000-000000000009', N'demo-mch-9', N'kanya.s@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'กัญญา ซูวีเนียร์', N'กัญญา', N'ซูวีเนียร์', 0, N'1100200300407', N'PRD-VS-001', N'LIC-2024-00301', N'0834567001'),
+    ('e5000000-0000-4000-8000-00000000000a', N'demo-mch-10', N'vsouvenir.shop@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'บริษัท วีซูวีเนียร์ ช็อป จำกัด', N'-', N'-', 1, N'0105561000061', N'PRD-VS-002', N'LIC-2024-00302', N'0834567002'),
+    ('e5000000-0000-4000-8000-00000000000b', N'demo-mch-11', N'thanawat.j@demo.pol.local', 0, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'ธนวัฒน์ จันทร์ซูวีเนียร์', N'ธนวัฒน์', N'จันทร์ซูวีเนียร์', 0, N'1100200300408', NULL, NULL, N'0834567003'),
+    ('e5000000-0000-4000-8000-00000000000c', N'demo-mch-12', N'orawan.b@demo.pol.local', 2, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'อรวรรณ บุญซูวีเนียร์', N'อรวรรณ', N'บุญซูวีเนียร์', 0, N'1100200300409', NULL, NULL, N'0834567004');
+
+-- merch.ExternalLogins (REQ-5.2): 1:1 with merch.Users, Subject matches, Provider = google.
+INSERT INTO merch.ExternalLogins (Id, Provider, Subject, MerchantUserId)
+VALUES
+    ('e6000000-0000-4000-8000-000000000001', N'google', N'demo-mch-1',  'e5000000-0000-4000-8000-000000000001'),
+    ('e6000000-0000-4000-8000-000000000002', N'google', N'demo-mch-2',  'e5000000-0000-4000-8000-000000000002'),
+    ('e6000000-0000-4000-8000-000000000003', N'google', N'demo-mch-3',  'e5000000-0000-4000-8000-000000000003'),
+    ('e6000000-0000-4000-8000-000000000004', N'google', N'demo-mch-4',  'e5000000-0000-4000-8000-000000000004'),
+    ('e6000000-0000-4000-8000-000000000005', N'google', N'demo-mch-5',  'e5000000-0000-4000-8000-000000000005'),
+    ('e6000000-0000-4000-8000-000000000006', N'google', N'demo-mch-6',  'e5000000-0000-4000-8000-000000000006'),
+    ('e6000000-0000-4000-8000-000000000007', N'google', N'demo-mch-7',  'e5000000-0000-4000-8000-000000000007'),
+    ('e6000000-0000-4000-8000-000000000008', N'google', N'demo-mch-8',  'e5000000-0000-4000-8000-000000000008'),
+    ('e6000000-0000-4000-8000-000000000009', N'google', N'demo-mch-9',  'e5000000-0000-4000-8000-000000000009'),
+    ('e6000000-0000-4000-8000-00000000000a', N'google', N'demo-mch-10', 'e5000000-0000-4000-8000-00000000000a'),
+    ('e6000000-0000-4000-8000-00000000000b', N'google', N'demo-mch-11', 'e5000000-0000-4000-8000-00000000000b'),
+    ('e6000000-0000-4000-8000-00000000000c', N'google', N'demo-mch-12', 'e5000000-0000-4000-8000-00000000000c');
+
+-- merch.RoleAssignments (REQ-5.3): only Status=1 (Active) users — 2 per merchant, first=manager,
+-- second=staff. RoleId from migration 20260712185912_SeedData.cs (no new iam.* rows). MerchantId
+-- column IS present here (unlike admin.RoleAssignments — see T2 evidence).
+INSERT INTO merch.RoleAssignments (Id, MerchantUserId, RoleId, MerchantId, AssignedById, AssignedAt)
+VALUES
+    ('e7000000-0000-4000-8000-000000000001', 'e5000000-0000-4000-8000-000000000001', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000001', 'e5000000-0000-4000-8000-000000000001', SYSUTCDATETIME()),
+    ('e7000000-0000-4000-8000-000000000002', 'e5000000-0000-4000-8000-000000000002', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000001', 'e5000000-0000-4000-8000-000000000001', SYSUTCDATETIME()),
+    ('e7000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000005', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000002', 'e5000000-0000-4000-8000-000000000005', SYSUTCDATETIME()),
+    ('e7000000-0000-4000-8000-000000000004', 'e5000000-0000-4000-8000-000000000006', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000002', 'e5000000-0000-4000-8000-000000000005', SYSUTCDATETIME()),
+    ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
+    ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
+
+-- shop.Products (REQ-5.4): 8 per merchant, realistic Thai insurance-plan names. 1 inactive per
+-- merchant (last row of each block) so IsActive covers both values. Policy-protected table (in
+-- MerchantTables) — relies on the (ข) session-context stamp already in place.
+INSERT INTO shop.Products (Id, MerchantId, Name, IsActive, CreatedAt, PriceAmount, PriceCurrency)
+VALUES
+    -- vprivilege
+    ('e9000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', N'ประกันอุบัติเหตุส่วนบุคคล PA Plus',        1, SYSUTCDATETIME(),   1200.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', N'ประกันเดินทางต่างประเทศ Travel Gold',      1, SYSUTCDATETIME(),   1850.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', N'ประกันสุขภาพ Health Care 1M',              1, SYSUTCDATETIME(),  18500.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000001', N'ประกันชีวิตคุ้มครองสินเชื่อ MRTA Premium', 1, SYSUTCDATETIME(),  32000.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000001', N'ประกันโรคร้ายแรง Critical Illness Care',   1, SYSUTCDATETIME(),  24500.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000001', N'ประกันรถยนต์ชั้น 1 Motor First Class',     1, SYSUTCDATETIME(),  15900.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000007', 'e1000000-0000-4000-8000-000000000001', N'ประกันบ้าน Home Protect Standard',         1, SYSUTCDATETIME(),   3500.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000001', N'ประกันอุบัติเหตุนักเรียน Student PA (เลิกขาย)', 0, SYSUTCDATETIME(),  350.0000, 'THB'),
+    -- vcommerce
+    ('e9000000-0000-4000-8000-000000000009', 'e1000000-0000-4000-8000-000000000002', N'ประกันอุบัติเหตุส่วนบุคคล PA Basic',       1, SYSUTCDATETIME(),    650.0000, 'THB'),
+    ('e9000000-0000-4000-8000-00000000000a', 'e1000000-0000-4000-8000-000000000002', N'ประกันเดินทางในประเทศ Travel Domestic',    1, SYSUTCDATETIME(),    450.0000, 'THB'),
+    ('e9000000-0000-4000-8000-00000000000b', 'e1000000-0000-4000-8000-000000000002', N'ประกันสุขภาพ Health Care 500K',            1, SYSUTCDATETIME(),   9800.0000, 'THB'),
+    ('e9000000-0000-4000-8000-00000000000c', 'e1000000-0000-4000-8000-000000000002', N'ประกันมะเร็ง Cancer Care Plus',            1, SYSUTCDATETIME(),  12800.0000, 'THB'),
+    ('e9000000-0000-4000-8000-00000000000d', 'e1000000-0000-4000-8000-000000000002', N'ประกันรถยนต์ชั้น 2+ Motor Class 2 Plus',   1, SYSUTCDATETIME(),   8900.0000, 'THB'),
+    ('e9000000-0000-4000-8000-00000000000e', 'e1000000-0000-4000-8000-000000000002', N'ประกันร้านค้า Shop Owner Protect',         1, SYSUTCDATETIME(),   6200.0000, 'THB'),
+    ('e9000000-0000-4000-8000-00000000000f', 'e1000000-0000-4000-8000-000000000002', N'ประกันขนส่งสินค้า Cargo Transit Cover',    1, SYSUTCDATETIME(),   4100.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000010', 'e1000000-0000-4000-8000-000000000002', N'ประกันสัตว์เลี้ยง Pet Care (เลิกขาย)',     0, SYSUTCDATETIME(),    990.0000, 'THB'),
+    -- vsouvenir
+    ('e9000000-0000-4000-8000-000000000011', 'e1000000-0000-4000-8000-000000000003', N'ประกันอุบัติเหตุนักท่องเที่ยว Tourist PA', 1, SYSUTCDATETIME(),    390.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000012', 'e1000000-0000-4000-8000-000000000003', N'ประกันเดินทางระยะสั้น Travel Mini',        1, SYSUTCDATETIME(),    590.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000013', 'e1000000-0000-4000-8000-000000000003', N'ประกันของที่ระลึกชำรุด Souvenir Protect',  1, SYSUTCDATETIME(),    450.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000014', 'e1000000-0000-4000-8000-000000000003', N'ประกันสัมภาระเดินทาง Baggage Guard',       1, SYSUTCDATETIME(),    550.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000015', 'e1000000-0000-4000-8000-000000000003', N'ประกันเที่ยวบินล่าช้า Flight Delay Cover', 1, SYSUTCDATETIME(),    480.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000003', N'ประกันอุบัติเหตุกลุ่มทัวร์ Group Tour PA', 1, SYSUTCDATETIME(),    720.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', N'ประกันร้านขายของฝาก Souvenir Shop Cover',  1, SYSUTCDATETIME(),   2100.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', N'ประกันสินค้าที่ระลึกพิเศษ Limited Edition (เลิกขาย)', 0, SYSUTCDATETIME(), 48000.0000, 'THB');
+
 -- ============================================================================
 -- (จ) Self-check: every table already seeded must have its expected demo row
 -- count, or the whole seed is incomplete. T1 asserts only admin.Users; T2-T4
@@ -139,7 +223,11 @@ INSERT INTO @counts (TableName, Rows) VALUES
     (N'merch.Merchants', (SELECT COUNT(*) FROM merch.Merchants WHERE Id LIKE 'e1000000-%')),
     (N'txn.PspConnections', (SELECT COUNT(*) FROM txn.PspConnections WHERE Id LIKE 'e8000000-%')),
     (N'admin.MerchantAccess', (SELECT COUNT(*) FROM admin.MerchantAccess WHERE Id LIKE 'e3000000-%')),
-    (N'admin.RoleAssignments', (SELECT COUNT(*) FROM admin.RoleAssignments WHERE Id LIKE 'e4000000-%'));
+    (N'admin.RoleAssignments', (SELECT COUNT(*) FROM admin.RoleAssignments WHERE Id LIKE 'e4000000-%')),
+    (N'merch.Users', (SELECT COUNT(*) FROM merch.Users WHERE Id LIKE 'e5000000-%')),
+    (N'merch.ExternalLogins', (SELECT COUNT(*) FROM merch.ExternalLogins WHERE Id LIKE 'e6000000-%')),
+    (N'merch.RoleAssignments', (SELECT COUNT(*) FROM merch.RoleAssignments WHERE Id LIKE 'e7000000-%')),
+    (N'shop.Products', (SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%'));
 
 DECLARE @report nvarchar(max) = (
     SELECT STRING_AGG(TableName + N' = ' + CAST(Rows AS nvarchar(10)), CHAR(13) + CHAR(10))

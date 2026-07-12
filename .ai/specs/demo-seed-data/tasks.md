@@ -217,7 +217,7 @@ migration ก่อนเขียน INSERT เสมอ อย่าเดา)
 
 ---
 
-## - [ ] T3 — merchant users + external logins + merchant roles + products
+## - [x] T3 — merchant users + external logins + merchant roles + products
 
 Depends on: T2
 
@@ -240,6 +240,92 @@ Verify:
   `merch.RoleAssignments = 6`, `shop.Products = 24`
 - รันซ้ำ exit 0 (idempotent)
 - `SELECT COUNT(DISTINCT Status) FROM merch.Users WHERE Id LIKE 'e5______-%'` = 4 (REQ-5.1)
+
+### Evidence (2026-07-13)
+
+รันจริงบน `pol-db` container เดิม (`localhost,11433`, DB `VCentralPay`). โหลด env ด้วย
+`set -a && source .env && set +a` (noise "command not found: User" เดิมจาก T1/T2 — harmless).
+
+**สิ่งที่เพิ่ม** — ต่อจาก T2 ในโซน (ง) ของ `docker/bootstrap/seed-demo.sql`: `INSERT merch.Users` 12 แถว
+(4 ต่อ merchant, ครบ 4 `UserStatus` + ทั้ง 2 `PersonType`, `Subject` = `demo-mch-<n>`), `INSERT
+merch.ExternalLogins` 12 แถว (1:1, `Provider = 'google'`, `Subject` ตรงกับ user), `INSERT
+merch.RoleAssignments` 6 แถว (เฉพาะ user ที่ `Status = 1`), `INSERT shop.Products` 24 แถว (8 ต่อ
+merchant, แผนประกันภาษาไทย, 1 แถว `IsActive = 0` ต่อ merchant). เติม 4 ตารางนี้เข้า `@counts` ในโซน (จ).
+
+**GOTCHA ที่เจอ (ไม่ใช่ bug แต่ทำให้เกือบวิ่งผิดทาง):** `merch.Users` / `merch.ExternalLogins` /
+`merch.RoleAssignments` **ไม่มี RLS predicate เลย** — เช็คจาก `SecurityObjects.cs`'s `MerchantTables`
+array (`shop.Products/Carts/CheckoutSessions/Orders`, `txn.PaymentSessions/PspConnections/
+IdempotencyRecords`, `merch.VaultSecrets` เท่านั้น) บวก `merch.Merchants` ที่มี predicate แยกบน `Id`
+(ไม่ใช่ `MerchantId`) — สามตารางที่ T3 insert ("merch.Users/ExternalLogins/RoleAssignments") ไม่อยู่ใน
+รายการไหนเลย. แปลว่า step (ข) ที่ stamp session context ไม่จำเป็นสำหรับ 3 ตารางนี้ (แต่ยังจำเป็นสำหรับ
+`shop.Products` ที่ T3 insert ด้วยเช่นกัน เพราะมันอยู่ใน `MerchantTables`). **ผลคือตอน verify ด้วย
+sqlcmd session ใหม่ที่ไม่ได้ stamp context, query นับ `shop.Products` ได้ 0 แถวเงียบ ๆ (RLS filter ซ่อนไว้
+ไม่ error) — ต้อง `EXEC sp_set_session_context` เหมือนสคริปต์ก่อน query shop.Products/carts/orders/ฯลฯ
+ด้วยมือเสมอเวลา debug นอกสคริปต์.**
+
+**1. รันครั้งแรก:**
+```
+$ ./scripts/seed-demo.sh
+Changed database context to 'VCentralPay'.
+admin.Users = 6
+merch.Merchants = 3
+txn.PspConnections = 6
+admin.MerchantAccess = 4
+admin.RoleAssignments = 6
+merch.Users = 12
+merch.ExternalLogins = 12
+merch.RoleAssignments = 6
+shop.Products = 24
+seed-demo: OK.
+EXIT=0
+```
+
+**2. รันซ้ำครั้งที่ 2 (idempotent):** ผลลัพธ์เหมือนเดิมทุกตัว, `EXIT=0`.
+
+**3. REQ-5.1 — ครบทุก Status และ PersonType:**
+```sql
+SELECT COUNT(DISTINCT Status) FROM merch.Users WHERE Id LIKE 'e5000000-%';      -- 4
+SELECT COUNT(DISTINCT PersonType) FROM merch.Users WHERE Id LIKE 'e5000000-%';  -- 2
+```
+
+**4. REQ-5.3 — RoleAssignments ผูกเฉพาะ user ที่ Active:**
+```sql
+SELECT COUNT(*) FROM merch.RoleAssignments r JOIN merch.Users u ON u.Id = r.MerchantUserId
+WHERE u.Status <> 1;
+-- 0
+```
+
+**5. `iam.Roles` ไม่เปลี่ยน (ยืนยันไม่ได้สร้าง role ใหม่):**
+```sql
+SELECT COUNT(*) FROM iam.Roles;  -- 4
+```
+
+**6. REQ-5.4 — IsActive ครบทั้ง 2 ค่า (ต้อง stamp session context ก่อน query เพราะ shop.Products มี RLS,
+ดู GOTCHA ด้านบน):**
+```sql
+EXEC sp_set_session_context @key = N'UserId',     @value = 'e2000000-0000-4000-8000-000000000001';
+EXEC sp_set_session_context @key = N'MerchantId', @value = '00000000-0000-0000-0000-000000000000';
+SELECT COUNT(DISTINCT IsActive) FROM shop.Products WHERE Id LIKE 'e9000000-%';  -- 2
+SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%';                  -- 24
+```
+
+**7. `git status` — เฉพาะไฟล์ที่แก้:**
+```
+ M docker/bootstrap/seed-demo.sql
+```
+ไม่มีไฟล์ใต้ `src/` เปลี่ยนแปลง (REQ-7.3). หมายเหตุ: `git status` ตอนเริ่มงาน T3 พบ
+`.ai/specs/demo-seed-data/design.md` ค้างเป็น modified (การแก้ไขบันทึกเรื่อง merchant Code เป็น lowercase
+ที่ T2 evidence พูดถึงแต่ยังไม่ถูก commit ไปกับ `942853b`) — **ไม่ใช่การเปลี่ยนแปลงของ T3**, ผมไม่ได้แตะไฟล์
+นั้นและไม่รวมมันเข้า commit นี้ ทีมลีดอาจต้องตามเก็บแยกต่างหาก.
+
+**ส่งต่อ T4:** สินค้าทั้ง 24 ตัวอยู่ใต้ merchant ผ่าน `MerchantId` ตรง ๆ (แบ่งเป็น 3 บล็อก ๆ ละ 8 —
+`e9…0001`-`0008` = vprivilege, `e9…0009`-`0010` = vcommerce, `e9…0011`-`0018` = vsouvenir; ใน hex, `0010`
+= 16 ทศนิยม), ราคาช่วง 350.0000–48,000.0000 THB, แต่ละ merchant มี 1 แถวสุดท้าย `IsActive = 0` (ตัวที่ 8
+ของบล็อก). `merch.Users` ที่ `Status = 1` (Active, ใช้เป็นเจ้าของ cart/checkout ได้สมเหตุสมผล) คือ
+`e5…0001/0002` (vprivilege), `e5…0005/0006` (vcommerce), `e5…0009/000a` (vsouvenir) — ตรงกับ 6 แถว
+`merch.RoleAssignments`. T4 ไม่ต้อง stamp session context เพิ่ม (T1 stamp ไว้ตลอดทั้ง transaction แล้ว)
+แต่ต้อง stamp เองเวลา query ตาราง merchant-scoped (`shop.*`, `txn.*`) นอกสคริปต์เพื่อ debug/verify
+เหมือนที่ผมเจอใน gotcha ข้อ 6.
 
 ---
 
