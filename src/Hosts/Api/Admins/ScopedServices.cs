@@ -13,7 +13,7 @@ using Merchants.Infrastructure.Persistence;
 using Merchants.Infrastructure.Persistence.Users;
 using Merchants.Infrastructure.Persistence.Users.Roles;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>
 /// Unit of work over the pol_admin (RLS-bypass) connection used by merchant provisioning. Unlike the
@@ -23,11 +23,11 @@ namespace Api;
 /// Clearing makes each attempt independent (REQ-4.1). Translates the same persistence faults as EfUnitOfWork
 /// so the provisioning path returns 409 (not 500) when a duplicate merchant code races past the pre-check.
 /// </summary>
-internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
+internal sealed class ProvisioningUnitOfWork : IUnitOfWork
 {
     private readonly PolDbContext _db;
 
-    public AdminProvisioningUnitOfWork(PolDbContext db) => _db = db;
+    public ProvisioningUnitOfWork(PolDbContext db) => _db = db;
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken)
     {
@@ -64,7 +64,7 @@ internal sealed class AdminProvisioningUnitOfWork : IUnitOfWork
     }
 }
 
-internal static class MerchantAdminScopeRegistration
+internal static class MerchantScopeRegistration
 {
     /// <summary>
     /// Binds the merchant-provisioning seams to a keyed pol_admin <see cref="PolDbContext"/>. T5: <c>pol_admin</c>
@@ -95,7 +95,7 @@ internal static class MerchantAdminScopeRegistration
 
         static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
 
-        services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) => new AdminProvisioningUnitOfWork(Admin(sp)));
+        services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) => new ProvisioningUnitOfWork(Admin(sp)));
         services.AddKeyedScoped<IConnectionRepository>("admin", (sp, _) => new ConnectionRepository(Admin(sp)));
         services.AddKeyedScoped<IVaultSecretStore>("admin", (sp, _) => new LocalEnvelopeVaultStore(
             Admin(sp),

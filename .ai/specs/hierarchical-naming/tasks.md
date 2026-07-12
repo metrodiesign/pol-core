@@ -342,7 +342,7 @@
          member `PaymentPaid.PspCode` and all `*Id` property names unchanged (member names out of scope,
          task 5 precedent).
 
-- [ ] 7. **API host organised by area.**
+- [x] 7. **API host organised by area.**
      Group the twelve flat `MerchantUser*.cs` and their admin counterparts under `Api/Admins/`,
      `Api/Merchants/`, `Api/Payments/`, `Api/Webhooks/`, namespace `Api.<Area>`, prefix dropped, moved
      with `git mv`. Files belonging to no single area stay at the host root. **Leave the route mappings
@@ -351,6 +351,50 @@
      lands, including in `tests/Hosts.Tests/*`, which consumes both planes.
      Satisfies: REQ-16 (all criteria), REQ-5.5. Depends on: 4, 5, 6.
      Verify: `dotnet build` + `dotnet test` green; `git diff --stat` shows no change to any route string.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> Build succeeded, 41 projects, 0 Warning(s), 0 Error(s)
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> Carts.Tests 15,
+         Checkouts.Tests 2, Orders.Tests 25, Products.Tests 25, Payments.Tests 59, Merchants.Tests 128,
+         Admins.Tests 129, SharedKernel.Tests 46, BuildingBlocks.Tests 65, Architecture.Tests 50,
+         Hosts.Tests 201 — all passed / 0 failed, identical to the task 6 baseline. Integration.Tests not
+         run (live SQL container, same standing condition).
+       - test: route/wire-string audit — `git diff HEAD -- src/Hosts tests | grep -E
+         '^[-+].*(/api/v1|Location|WithName|WithTags|WithSummary|__Host-|MerchantUser:)' | grep -vE
+         '^[-+]{3}'` -> EMPTY: zero route paths, Location headers, OpenAPI metadata, cookie names, or
+         config keys changed (REQ-16.4 honoured — Program.cs route table untouched except type-identifier
+         substitutions outside strings).
+       - viewports: n/a — backend-only (file moves + namespace/type rename, no UI)
+       - deviations: (1) NO `Api/Payments/` folder created — no flat host file is payments-specific (the
+         payments host surface lives entirely in Program.cs's route table, which REQ-16.4 forbids moving);
+         REQ-16.1's four-folder enumeration presumed one existed. 24 files moved by `git mv`: 11 ->
+         `Api/Admins/`, 12 -> `Api/Merchants/`, 1 -> `Api/Webhooks/`; cross-area files stay at root
+         (`HttpActorContext`, `SfsOpenApi`, `SfsQueryParser`, `DesignTimeDbContextFactories`, `Program.cs`).
+         (2) One NEW root file `ReturnUrlPolicy.cs` (namespace `Api`, class name unchanged) — extracted
+         from `AdminLoginService.cs` because it is consumed by admin login, merchant-user login, AND
+         `Program.cs` directly: a genuine cross-area type, not an area resident. (3) L4 host model: the
+         host layer is flat `Api.<Area>` (no sub-namespaces), so only the area token drops; `PlatformUser*`
+         first dissolves to `Admin*` (D5) whose token then also drops -> Admin session family goes bare
+         (`SessionCookies`/`SessionTokens`/`SessionAuthenticationHandler`/`SessionPruneService`), while
+         Merchants keeps the `User` qualifier (`UserSessionCookies` etc.). (4) L4 floor-hits, all verified
+         empirically: `PlatformUserSessionOptions` -> `AdminSessionOptions` NOT bare `SessionOptions`
+         (real CS0104 with `Microsoft.AspNetCore.Builder.SessionOptions`, caught by build);
+         `AdminDataProtection` kept (file imports `Microsoft.AspNetCore.DataProtection` — bare class name
+         would clash with the namespace); `AdminScope`/`IAdminQuery`/`AdminQuery` kept (bare `Query` is
+         the L4 illegibility floor; mirrors task 4's `IAdminScope`); `AdminActorContext` untouched — its
+         declaration lives in BuildingBlocks.Infrastructure (out of scope; an initial mis-rename was
+         caught by CS0246 and reverted). (5) ZERO L6 aliases needed: the only bare-name collision after
+         the drop is `HostWiring` (Admins + Merchants), and neither class is ever referenced by name —
+         both are extension-method containers; confirmed by clean build with the two coexisting. Plain
+         `using Api.Admins;`/`using Api.Merchants;` imports added in Program.cs and 20 Hosts.Tests files
+         (via the project's existing `extern alias ApiHost` convention). (6) Namespace shadowing found and
+         fixed: inside `namespace Api.*`, qualified expressions like `Merchants.Domain.Merchant` resolve
+         to the sibling `Api.Merchants` first — `DesignTimeDbContextFactories` now uses `global::`
+         (commented why), `Admins/HostWiring.cs` switched 4 sites to a `using Merchants.Domain;` import.
+         Structural consequence of D7, applies to any future `Api.<Area>` file. (7) Member/method names
+         unchanged (`AddPlatformUserSessionScheme()`, `RequirePlatformUserTier()`, `AddAdminIdentity()` …)
+         — task 5 precedent; wire strings (scheme ids, cookie names, config keys, permission keys) all
+         byte-for-byte identical, deferred to task 10 where mandated.
 
 - [ ] 8. **Routes moved; the four controls re-attached; the CORS path table extended and guarded.**
      `/api/v1/merchant-users/**` -> `/api/v1/merchants/users/**`. Provision and read merchant leave the

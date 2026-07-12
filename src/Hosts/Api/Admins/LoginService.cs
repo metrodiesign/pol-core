@@ -5,36 +5,22 @@ using Mediator;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 
-namespace Api;
-
-/// <summary>Same-origin return-path allowlist (open-redirect prevention, REQ-1.3). A requested target is honored
-/// ONLY when it is a relative same-origin path (single leading slash) that is in the configured allowlist; any
-/// other value falls back to the default landing path.</summary>
-internal static class ReturnUrlPolicy
-{
-    public static string Resolve(string? requested, IReadOnlyCollection<string> allowlist, string defaultPath) =>
-        !string.IsNullOrEmpty(requested)
-        && requested.StartsWith('/')
-        && !requested.StartsWith("//", StringComparison.Ordinal)   // protocol-relative -> off-origin
-        && allowlist.Contains(requested, StringComparer.Ordinal)
-            ? requested
-            : defaultPath;
-}
+namespace Api.Admins;
 
 /// <summary>Resolves the admin at callback time (REQ-2.5): an existing admin is a READ; first login binds an
 /// invited Scoped account by email, else allowlist self-provisions a Super (idempotent). The IMediator seam is
 /// behind this interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
-internal interface IAdminCallbackResolver
+internal interface ICallbackResolver
 {
     Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken);
 }
 
-internal sealed class AdminCallbackResolver : IAdminCallbackResolver
+internal sealed class CallbackResolver : ICallbackResolver
 {
     private readonly IMediator _mediator;
     private readonly IConfiguration _configuration;
 
-    public AdminCallbackResolver(IMediator mediator, IConfiguration configuration)
+    public CallbackResolver(IMediator mediator, IConfiguration configuration)
     {
         _mediator = mediator;
         _configuration = configuration;
@@ -69,28 +55,28 @@ internal sealed class AdminCallbackResolver : IAdminCallbackResolver
 /// session can never be committed by the audit save — REQ-2.7) and redirects to the SPA error page with a
 /// non-sensitive reason. No secret, token, code, or raw session id is ever logged (REQ-8.3).
 /// </summary>
-internal sealed class AdminLoginService
+internal sealed class LoginService
 {
-    private readonly IAdminCallbackResolver _resolver;
+    private readonly ICallbackResolver _resolver;
     private readonly ISessionStore _sessions;
     private readonly IAuthAuditWriter _audit;
-    private readonly PlatformUserSessionCookies _cookies;
+    private readonly SessionCookies _cookies;
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly PlatformUserSessionOptions _session;
-    private readonly AdminOidcOptions _oidc;
-    private readonly ILogger<AdminLoginService> _logger;
+    private readonly AdminSessionOptions _session;
+    private readonly OidcOptions _oidc;
+    private readonly ILogger<LoginService> _logger;
 
-    public AdminLoginService(
-        IAdminCallbackResolver resolver,
+    public LoginService(
+        ICallbackResolver resolver,
         ISessionStore sessions,
         IAuthAuditWriter audit,
-        PlatformUserSessionCookies cookies,
+        SessionCookies cookies,
         IClock clock,
         IServiceScopeFactory scopeFactory,
-        IOptions<PlatformUserSessionOptions> session,
-        IOptions<AdminOidcOptions> oidc,
-        ILogger<AdminLoginService> logger)
+        IOptions<AdminSessionOptions> session,
+        IOptions<OidcOptions> oidc,
+        ILogger<LoginService> logger)
     {
         _resolver = resolver;
         _sessions = sessions;
@@ -140,9 +126,9 @@ internal sealed class AdminLoginService
         var resolution = result.Resolution!;
         try
         {
-            var sessionToken = PlatformUserSessionTokens.NewOpaqueToken();
-            var csrfToken = PlatformUserSessionTokens.NewOpaqueToken();
-            var session = Session.Start(resolution.AdminId, PlatformUserSessionTokens.Hash(sessionToken), _clock.UtcNow, Policy,
+            var sessionToken = SessionTokens.NewOpaqueToken();
+            var csrfToken = SessionTokens.NewOpaqueToken();
+            var session = Session.Start(resolution.AdminId, SessionTokens.Hash(sessionToken), _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
 

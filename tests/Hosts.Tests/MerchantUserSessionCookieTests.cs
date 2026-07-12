@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
@@ -15,8 +16,8 @@ namespace Hosts.Tests;
 /// </summary>
 public sealed class MerchantUserSessionCookieTests
 {
-    private static MerchantUserSessionCookies Cookies(string environment, string sameSite = "Lax") =>
-        new(Options.Create(new MerchantUserSessionOptions { SameSite = sameSite }), new Env { EnvironmentName = environment });
+    private static UserSessionCookies Cookies(string environment, string sameSite = "Lax") =>
+        new(Options.Create(new UserSessionOptions { SameSite = sameSite }), new Env { EnvironmentName = environment });
 
     private static HttpContext Context(bool https)
     {
@@ -34,15 +35,15 @@ public sealed class MerchantUserSessionCookieTests
     [Fact]
     public void Opaque_token_is_random_and_only_its_hash_is_stored()
     {
-        var a = MerchantUserTokens.NewOpaqueToken();
-        var b = MerchantUserTokens.NewOpaqueToken();
+        var a = UserTokens.NewOpaqueToken();
+        var b = UserTokens.NewOpaqueToken();
 
         Assert.NotEqual(a, b);
         Assert.True(a.Length >= 43);
-        var hash = MerchantUserTokens.Hash(a);
+        var hash = UserTokens.Hash(a);
         Assert.Equal(32, hash.Length);
-        Assert.Equal(hash, MerchantUserTokens.Hash(a));
-        Assert.NotEqual(hash, MerchantUserTokens.Hash(b));
+        Assert.Equal(hash, UserTokens.Hash(a));
+        Assert.NotEqual(hash, UserTokens.Hash(b));
     }
 
     [Fact]

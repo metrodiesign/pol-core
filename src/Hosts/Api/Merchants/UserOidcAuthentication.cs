@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>
 /// The confidential Google OIDC client for the merchant-user BFF login (REQ-8/9/14). The framework handler does the
@@ -12,7 +12,7 @@ namespace Api;
 /// default — the Bearer path is retired, REQ-6).
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminOidcAuthentication (distinct scheme/callback + 4-way hook) — deliberate.
-internal static class MerchantUserOidcAuthentication
+internal static class UserOidcAuthentication
 {
     /// <summary>The merchant-user OIDC scheme — distinct from Admin's <c>Google</c> (REQ-14.4). The distinct name
     /// also isolates the framework's correlation/nonce Data Protection purposes from the Admin client automatically.</summary>
@@ -25,10 +25,10 @@ internal static class MerchantUserOidcAuthentication
     public static IServiceCollection AddMerchantUserOidcAuthentication(
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
-        var oidc = configuration.GetSection(MerchantUserOidcOptions.SectionName).Get<MerchantUserOidcOptions>() ?? new MerchantUserOidcOptions();
+        var oidc = configuration.GetSection(UserOidcOptions.SectionName).Get<UserOidcOptions>() ?? new UserOidcOptions();
 
-        services.AddScoped<IMerchantUserCallbackResolver, MerchantUserCallbackResolver>();
-        services.AddScoped<MerchantUserLoginService>();
+        services.AddScoped<IUserCallbackResolver, UserCallbackResolver>();
+        services.AddScoped<UserLoginService>();
 
         // Blank ClientId -> skip the scheme (REQ-14.2). The OIDC scheme is a per-request handler that AuthN middleware
         // VALIDATES on every request, and OpenIdConnectOptions.Validate() requires a non-empty ClientId — a blank one
@@ -82,7 +82,7 @@ internal static class MerchantUserOidcAuthentication
                     // verified id_token (REQ-9.3).
                     OnTicketReceived = async context =>
                     {
-                        var login = context.HttpContext.RequestServices.GetRequiredService<MerchantUserLoginService>();
+                        var login = context.HttpContext.RequestServices.GetRequiredService<UserLoginService>();
                         var principal = context.Principal;
                         await login.HandleCallbackAsync(
                             context.HttpContext,
@@ -97,7 +97,7 @@ internal static class MerchantUserOidcAuthentication
                     // OAuth error=access_denied at Google (REQ-9.5).
                     OnAccessDenied = async context =>
                     {
-                        var login = context.HttpContext.RequestServices.GetRequiredService<MerchantUserLoginService>();
+                        var login = context.HttpContext.RequestServices.GetRequiredService<UserLoginService>();
                         await login.DenyAsync(context.HttpContext, "access-denied", null, context.HttpContext.RequestAborted);
                         context.HandleResponse();
                     },
@@ -105,7 +105,7 @@ internal static class MerchantUserOidcAuthentication
                     // State mismatch / code-exchange fail / email_verified|hd Fail / OAuth error (REQ-9.5).
                     OnRemoteFailure = async context =>
                     {
-                        var login = context.HttpContext.RequestServices.GetRequiredService<MerchantUserLoginService>();
+                        var login = context.HttpContext.RequestServices.GetRequiredService<UserLoginService>();
                         await login.DenyAsync(context.HttpContext, MapFailureReason(context.Failure), null, context.HttpContext.RequestAborted);
                         context.HandleResponse();
                     },

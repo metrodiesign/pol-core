@@ -1,7 +1,7 @@
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>
 /// Flood protection for the admin auth endpoints (<c>GET /admin/auth/login</c> + the OIDC callback), partitioned
@@ -9,7 +9,7 @@ namespace Api;
 /// window edge is smoothed, immediate rejection (no queued connections). Bounds login-spam / callback-probe
 /// abuse from one source without affecting legitimate, infrequent admin logins.
 /// </summary>
-internal static class AdminAuthRateLimiting
+internal static class AuthRateLimiting
 {
     public const string PolicyName = "admin-auth";
 

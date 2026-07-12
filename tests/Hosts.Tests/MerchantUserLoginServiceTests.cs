@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
 using Merchants.Application;
 using Merchants.Application.Users;
@@ -138,10 +139,10 @@ public sealed class MerchantUserLoginServiceTests
     // --- harness ---
 
     private sealed record Ctx(DefaultHttpContext Http, FakeSessionStore Sessions, FakeAuthAudit Audit,
-        MerchantUserRegistrationTickets Protector)
+        UserRegistrationTickets Protector)
     {
         /// <summary>Decodes the signed ticket carried in the redirect Location's <c>ticket</c> query param.</summary>
-        public MerchantUserTicketPayload DecodeMintedTicket()
+        public UserTicketPayload DecodeMintedTicket()
         {
             var location = Http.Response.Headers.Location.ToString();
             var query = QueryHelpers.ParseQuery(location[location.IndexOf('?')..]);
@@ -150,31 +151,31 @@ public sealed class MerchantUserLoginServiceTests
         }
     }
 
-    private static (MerchantUserLoginService, Ctx) Build(LoginResult resolve)
+    private static (UserLoginService, Ctx) Build(LoginResult resolve)
     {
         var sessions = new FakeSessionStore();
         var audit = new FakeAuthAudit();
         var env = new Env();
-        var registrationOptions = Options.Create(new MerchantUserRegistrationOptions());
-        var ticketProtector = new MerchantUserRegistrationTickets(new EphemeralDataProtectionProvider(), registrationOptions);
-        var cookies = new MerchantUserSessionCookies(Options.Create(new MerchantUserSessionOptions()), env);
-        var sessionOptions = Options.Create(new MerchantUserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard"] });
-        var oidcOptions = Options.Create(new MerchantUserOidcOptions { ErrorPath = "/login-error", RegisterUrl = RegisterUrl });
+        var registrationOptions = Options.Create(new UserRegistrationOptions());
+        var ticketProtector = new UserRegistrationTickets(new EphemeralDataProtectionProvider(), registrationOptions);
+        var cookies = new UserSessionCookies(Options.Create(new UserSessionOptions()), env);
+        var sessionOptions = Options.Create(new UserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard"] });
+        var oidcOptions = Options.Create(new UserOidcOptions { ErrorPath = "/login-error", RegisterUrl = RegisterUrl });
         var provider = new ServiceCollection()
             .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();
 
-        var service = new MerchantUserLoginService(
+        var service = new UserLoginService(
             new FakeResolver(resolve), sessions, audit, ticketProtector, cookies,
             new TestClock(Now), provider.GetRequiredService<IServiceScopeFactory>(),
-            sessionOptions, oidcOptions, NullLogger<MerchantUserLoginService>.Instance);
+            sessionOptions, oidcOptions, NullLogger<UserLoginService>.Instance);
 
         var http = new DefaultHttpContext();
         http.Request.IsHttps = true;
         return (service, new Ctx(http, sessions, audit, ticketProtector));
     }
 
-    private sealed class FakeResolver(LoginResult result) : IMerchantUserCallbackResolver
+    private sealed class FakeResolver(LoginResult result) : IUserCallbackResolver
     {
         public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken ct) => Task.FromResult(result);
     }

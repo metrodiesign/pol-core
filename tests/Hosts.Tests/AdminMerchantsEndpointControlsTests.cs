@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Encodings.Web;
 using ApiHost::Api;
+using ApiHost::Api.Admins;
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -86,8 +87,8 @@ public sealed class AdminMerchantsEndpointControlsTests
             request.Headers.Add(TestAdminAuthHandler.TierHeader, tier);
         if (csrf is not null)
         {
-            request.Headers.Add("Cookie", $"{PlatformUserSessionCookies.CsrfCookieName}={csrf}");
-            request.Headers.Add(AdminCsrfFilter.HeaderName, csrf);
+            request.Headers.Add("Cookie", $"{SessionCookies.CsrfCookieName}={csrf}");
+            request.Headers.Add(CsrfFilter.HeaderName, csrf);
         }
         if (method == HttpMethod.Post)
             request.Content = new StringContent("{}", Encoding.UTF8, "application/json");

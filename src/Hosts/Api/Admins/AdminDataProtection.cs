@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>
 /// Persists the ASP.NET Core Data Protection key ring in the control-plane <c>DataProtectionKeys</c> table via

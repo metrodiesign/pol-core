@@ -3,11 +3,11 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>Opaque session-token generation + hashing for the admin BFF. The raw token is the credential and is
 /// only ever held in the cookie; the SHA-256 hash is what the store persists (REQ-3.1/11.2).</summary>
-internal static class PlatformUserSessionTokens
+internal static class SessionTokens
 {
     /// <summary>A fresh opaque 256-bit token, URL-safe for a cookie value.</summary>
     public static string NewOpaqueToken() => Base64Url.EncodeToString(RandomNumberGenerator.GetBytes(32));
@@ -22,16 +22,16 @@ internal static class PlatformUserSessionTokens
 /// check. dev-http (Development over plain http, localhost only) drops <c>Secure</c> and the <c>__Host-</c>
 /// prefix because that prefix REQUIRES Secure, which a browser rejects over http (REQ-3.3).
 /// </summary>
-internal sealed class PlatformUserSessionCookies
+internal sealed class SessionCookies
 {
     public const string SessionCookieName = "__Host-adm_session";
     public const string SessionCookieNameDevHttp = "adm_session";
     public const string CsrfCookieName = "adm_csrf";
 
-    private readonly PlatformUserSessionOptions _options;
+    private readonly AdminSessionOptions _options;
     private readonly IHostEnvironment _environment;
 
-    public PlatformUserSessionCookies(IOptions<PlatformUserSessionOptions> options, IHostEnvironment environment)
+    public SessionCookies(IOptions<AdminSessionOptions> options, IHostEnvironment environment)
     {
         _options = options.Value;
         _environment = environment;

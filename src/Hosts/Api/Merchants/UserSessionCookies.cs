@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>
 /// Reads/writes the merchant-user session + CSRF cookies (REQ-10.2/13.1). Names are distinct from Admin's (REQ-14.4):
@@ -10,16 +10,16 @@ namespace Api;
 /// Secure, which a browser rejects over http (REQ-10.3).
 /// </summary>
 // ponytail: DUPLICATE of Api.AdminSessionCookies (adm_* -> mch_*) — deliberate debt, do not refactor into a shared base.
-internal sealed class MerchantUserSessionCookies
+internal sealed class UserSessionCookies
 {
     public const string SessionCookieName = "__Host-mch_session";
     public const string SessionCookieNameDevHttp = "mch_session";
     public const string CsrfCookieName = "mch_csrf";
 
-    private readonly MerchantUserSessionOptions _options;
+    private readonly UserSessionOptions _options;
     private readonly IHostEnvironment _environment;
 
-    public MerchantUserSessionCookies(IOptions<MerchantUserSessionOptions> options, IHostEnvironment environment)
+    public UserSessionCookies(IOptions<UserSessionOptions> options, IHostEnvironment environment)
     {
         _options = options.Value;
         _environment = environment;

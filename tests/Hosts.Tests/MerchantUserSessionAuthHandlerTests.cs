@@ -1,6 +1,7 @@
 extern alias ApiHost;
 using System.Text.Encodings.Web;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
 using Merchants.Application;
 using Merchants.Application.Users;
@@ -50,7 +51,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
     {
         var (handler, store, _, _, http) = await Make(T0, Resolved);
         store.Seeded = null;
-        SetCookie(http, MerchantUserTokens.NewOpaqueToken());
+        SetCookie(http, UserTokens.NewOpaqueToken());
 
         var result = await handler.AuthenticateAsync();
 
@@ -60,8 +61,8 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task Live_active_session_authenticates_with_merchant_id_and_sub_claims_and_binds_scope()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var session = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
         var (handler, store, _, scope, _) = await Make(T0.AddSeconds(30), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -79,8 +80,8 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task Active_session_past_the_rotation_age_rotates_sets_a_new_cookie_and_audits()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var session = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
         var (handler, store, audit, _, http) = await Make(T0.AddMinutes(16), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -96,8 +97,8 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task Active_session_slides_idle_lazily_when_past_the_throttle_without_rotating()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var session = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
         var (handler, store, _, _, _) = await Make(T0.AddMinutes(2), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -112,8 +113,8 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task Expired_active_session_is_rejected()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var session = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
         var (handler, _, _, scope, _) = await Make(T0.AddMinutes(31), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -125,9 +126,9 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task Immediate_predecessor_within_grace_is_served_without_rotating()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var predecessor = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
-        var successor = predecessor.Rotate(MerchantUserTokens.Hash(MerchantUserTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var predecessor = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
+        var successor = predecessor.Rotate(UserTokens.Hash(UserTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
         var (handler, store, _, scope, _) = await Make(T0.AddMinutes(15).AddSeconds(30), Resolved, token, predecessor);
         store.FamilyActiveId = successor.Id;
 
@@ -142,9 +143,9 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task Superseded_token_past_grace_is_treated_as_reuse_and_revokes_the_family()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var predecessor = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
-        var successor = predecessor.Rotate(MerchantUserTokens.Hash(MerchantUserTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var predecessor = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
+        var successor = predecessor.Rotate(UserTokens.Hash(UserTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
         var (handler, store, audit, scope, _) = await Make(T0.AddMinutes(17), Resolved, token, predecessor);
         store.FamilyActiveId = successor.Id;
 
@@ -159,8 +160,8 @@ public sealed class MerchantUserSessionAuthHandlerTests
     [Fact]
     public async Task A_suspended_merchant_user_is_rejected_even_with_a_live_session()
     {
-        var token = MerchantUserTokens.NewOpaqueToken();
-        var session = Session.Start(UserId, MerchantUserTokens.Hash(token), T0, Policy);
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
         var (handler, _, _, scope, _) = await Make(T0.AddSeconds(30), ByIdResult.NotActive, token, session);
 
         var result = await handler.AuthenticateAsync();
@@ -171,30 +172,30 @@ public sealed class MerchantUserSessionAuthHandlerTests
 
     // --- harness ---
 
-    private static async Task<(MerchantUserSessionAuthenticationHandler handler, FakeStore store, FakeAudit audit, MerchantUserScope scope, DefaultHttpContext http)>
+    private static async Task<(UserSessionAuthenticationHandler handler, FakeStore store, FakeAudit audit, UserScope scope, DefaultHttpContext http)>
         Make(DateTime now, ByIdResult resolverResult, string? cookieToken = null, Session? seeded = null)
     {
         var store = new FakeStore { Seeded = seeded };
         var audit = new FakeAudit();
-        var scope = new MerchantUserScope();
-        var cookies = new MerchantUserSessionCookies(Options.Create(new MerchantUserSessionOptions()), new Env());
-        var handler = new MerchantUserSessionAuthenticationHandler(
+        var scope = new UserScope();
+        var cookies = new UserSessionCookies(Options.Create(new UserSessionOptions()), new Env());
+        var handler = new UserSessionAuthenticationHandler(
             new StubMonitor(), NullLoggerFactory.Instance, UrlEncoder.Default,
             store, audit, cookies, new FakeResolver(resolverResult), scope, new TestClock(now),
-            Options.Create(new MerchantUserSessionOptions()));
+            Options.Create(new UserSessionOptions()));
 
         var http = new DefaultHttpContext();
         if (cookieToken is not null)
             SetCookie(http, cookieToken);
 
         await handler.InitializeAsync(
-            new AuthenticationScheme(MerchantUserSessionAuthenticationHandler.SchemeName, null, typeof(MerchantUserSessionAuthenticationHandler)),
+            new AuthenticationScheme(UserSessionAuthenticationHandler.SchemeName, null, typeof(UserSessionAuthenticationHandler)),
             http);
         return (handler, store, audit, scope, http);
     }
 
     private static void SetCookie(HttpContext http, string token) =>
-        http.Request.Headers.Cookie = $"{MerchantUserSessionCookies.SessionCookieName}={token}";
+        http.Request.Headers.Cookie = $"{UserSessionCookies.SessionCookieName}={token}";
 
     private sealed class FakeStore : ISessionStore
     {
@@ -226,7 +227,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
     }
 
-    private sealed class FakeResolver(ByIdResult result) : IMerchantUserSessionResolver
+    private sealed class FakeResolver(ByIdResult result) : IUserSessionResolver
     {
         public Task<ByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken ct) => Task.FromResult(result);
     }

@@ -1,4 +1,4 @@
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>
 /// The confidential Google OIDC client for the merchant-user BFF login (REQ-8/9/14). Fully isolated from the Admin
@@ -10,7 +10,7 @@ namespace Api;
 /// committed/logged (REQ-14.1/14.3).
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminOidcOptions (distinct section + register/hd) — deliberate.
-internal sealed class MerchantUserOidcOptions
+internal sealed class UserOidcOptions
 {
     public const string SectionName = "MerchantUser:Oidc";
 
@@ -34,7 +34,7 @@ internal sealed class MerchantUserOidcOptions
 /// for a cross-site deploy.
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminSessionOptions (distinct section) — deliberate.
-internal sealed class MerchantUserSessionOptions
+internal sealed class UserSessionOptions
 {
     public const string SectionName = "MerchantUser:Session";
 

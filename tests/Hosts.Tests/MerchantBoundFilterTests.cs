@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Merchants.Application;
@@ -13,7 +14,7 @@ namespace Hosts.Tests;
 /// catalog reads under <c>/merchant-users</c> cannot leak to an unbound caller.</summary>
 public sealed class MerchantBoundFilterTests
 {
-    private static readonly MerchantBoundFilter Filter = new();
+    private static readonly BoundFilter Filter = new();
     private static readonly object Passed = new();
 
     private static async Task<object?> Run(bool bound)

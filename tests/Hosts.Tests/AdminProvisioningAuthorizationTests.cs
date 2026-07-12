@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Admins;
 using System.Net;
 using System.Security.Claims;
 using BuildingBlocks.Infrastructure.Outbox;
@@ -31,7 +32,7 @@ public sealed class AdminProvisioningAuthorizationTests
 
         var policy = await sp.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync("admin");
         Assert.NotNull(policy);
-        Assert.Contains(PlatformUserSessionAuthenticationHandler.SchemeName, policy!.AuthenticationSchemes); // REQ-10.6 scheme-pinned
+        Assert.Contains(SessionAuthenticationHandler.SchemeName, policy!.AuthenticationSchemes); // REQ-10.6 scheme-pinned
         Assert.False((await sp.GetRequiredService<IAuthorizationService>().AuthorizeAsync(Anonymous(), "admin")).Succeeded); // REQ-7.2
     }
 

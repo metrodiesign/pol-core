@@ -54,7 +54,7 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
 
             // Static config -> the challenge builds the redirect without fetching Google's discovery document.
-            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.MerchantUserOidcAuthentication.Scheme, options =>
+            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Merchants.UserOidcAuthentication.Scheme, options =>
                 options.Configuration = new OpenIdConnectConfiguration
                 {
                     Issuer = "https://accounts.google.com",

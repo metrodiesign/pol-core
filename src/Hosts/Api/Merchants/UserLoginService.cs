@@ -11,17 +11,17 @@ using Merchants.Domain.Users.Permissions;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>Resolves the merchant user at callback time (REQ-9.4) — a pure lookup behind the source-generated
 /// mediator so the 4-way branch policy in <see cref="MerchantUserLoginService"/> can be unit-tested without it
 /// (mirrors <c>IAdminCallbackResolver</c>). The callback NEVER self-provisions (REQ-9.6).</summary>
-internal interface IMerchantUserCallbackResolver
+internal interface IUserCallbackResolver
 {
     Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken);
 }
 
-internal sealed class MerchantUserCallbackResolver(IMediator mediator) : IMerchantUserCallbackResolver
+internal sealed class UserCallbackResolver(IMediator mediator) : IUserCallbackResolver
 {
     public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken) =>
         mediator.Send(new ResolveLoginQuery(subject), cancellationToken).AsTask();
@@ -38,30 +38,30 @@ internal sealed class MerchantUserCallbackResolver(IMediator mediator) : IMercha
 /// by the audit save (REQ-9.5/21.2). No secret, token, code, raw session id, or ticket is ever logged (REQ-14.3).
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminLoginService (4-way branch + ticket mint, NO self-provision) — deliberate.
-internal sealed class MerchantUserLoginService
+internal sealed class UserLoginService
 {
-    private readonly IMerchantUserCallbackResolver _resolver;
+    private readonly IUserCallbackResolver _resolver;
     private readonly ISessionStore _sessions;
     private readonly IAuthAuditWriter _audit;
-    private readonly MerchantUserRegistrationTickets _ticketProtector;
-    private readonly MerchantUserSessionCookies _cookies;
+    private readonly UserRegistrationTickets _ticketProtector;
+    private readonly UserSessionCookies _cookies;
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly MerchantUserSessionOptions _session;
-    private readonly MerchantUserOidcOptions _oidc;
-    private readonly ILogger<MerchantUserLoginService> _logger;
+    private readonly UserSessionOptions _session;
+    private readonly UserOidcOptions _oidc;
+    private readonly ILogger<UserLoginService> _logger;
 
-    public MerchantUserLoginService(
-        IMerchantUserCallbackResolver resolver,
+    public UserLoginService(
+        IUserCallbackResolver resolver,
         ISessionStore sessions,
         IAuthAuditWriter audit,
-        MerchantUserRegistrationTickets ticketProtector,
-        MerchantUserSessionCookies cookies,
+        UserRegistrationTickets ticketProtector,
+        UserSessionCookies cookies,
         IClock clock,
         IServiceScopeFactory scopeFactory,
-        IOptions<MerchantUserSessionOptions> session,
-        IOptions<MerchantUserOidcOptions> oidc,
-        ILogger<MerchantUserLoginService> logger)
+        IOptions<UserSessionOptions> session,
+        IOptions<UserOidcOptions> oidc,
+        ILogger<UserLoginService> logger)
     {
         _resolver = resolver;
         _sessions = sessions;
@@ -133,9 +133,9 @@ internal sealed class MerchantUserLoginService
     {
         try
         {
-            var sessionToken = MerchantUserTokens.NewOpaqueToken();
-            var csrfToken = MerchantUserTokens.NewOpaqueToken();
-            var session = Session.Start(resolution.MerchantUserId, MerchantUserTokens.Hash(sessionToken),
+            var sessionToken = UserTokens.NewOpaqueToken();
+            var csrfToken = UserTokens.NewOpaqueToken();
+            var session = Session.Start(resolution.MerchantUserId, UserTokens.Hash(sessionToken),
                 _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
@@ -166,7 +166,7 @@ internal sealed class MerchantUserLoginService
         string wireTicket;
         try
         {
-            wireTicket = _ticketProtector.Protect(new MerchantUserTicketPayload(subject, email, hostedDomain, purpose));
+            wireTicket = _ticketProtector.Protect(new UserTicketPayload(subject, email, hostedDomain, purpose));
         }
         catch (Exception ex)
         {

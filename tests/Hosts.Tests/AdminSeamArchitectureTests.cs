@@ -14,7 +14,7 @@ namespace Hosts.Tests;
 /// </summary>
 public sealed class AdminSeamArchitectureTests
 {
-    private static readonly Assembly ApiAssembly = typeof(ApiHost::Api.AdminQuery).Assembly;
+    private static readonly Assembly ApiAssembly = typeof(ApiHost::Api.Admins.AdminQuery).Assembly;
 
     [Fact]
     public void Only_AdminQuery_may_send_the_cross_merchant_GetMerchantQuery_read()

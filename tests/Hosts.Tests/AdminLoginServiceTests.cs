@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Admins;
 using Admins.Application;
 using Admins.Application.MasterData;
 using Admins.Application.Permissions;
@@ -103,27 +104,27 @@ public sealed class AdminLoginServiceTests
 
     // --- harness ---
 
-    private static (AdminLoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(ResolveResult resolve)
+    private static (LoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(ResolveResult resolve)
     {
         var store = new FakeSessionStore();
         var audit = new FakeAuthAudit();
-        var cookies = new PlatformUserSessionCookies(Options.Create(new PlatformUserSessionOptions()), new Env());
-        var sessionOptions = Options.Create(new PlatformUserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"] });
-        var oidcOptions = Options.Create(new AdminOidcOptions { ErrorPath = "/login-error" });
+        var cookies = new SessionCookies(Options.Create(new AdminSessionOptions()), new Env());
+        var sessionOptions = Options.Create(new AdminSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"] });
+        var oidcOptions = Options.Create(new OidcOptions { ErrorPath = "/login-error" });
         var provider = new ServiceCollection()
             .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();
 
-        var service = new AdminLoginService(new FakeResolver(resolve), store, audit, cookies, new TestClock(Now),
+        var service = new LoginService(new FakeResolver(resolve), store, audit, cookies, new TestClock(Now),
             provider.GetRequiredService<IServiceScopeFactory>(), sessionOptions, oidcOptions,
-            NullLogger<AdminLoginService>.Instance);
+            NullLogger<LoginService>.Instance);
 
         var http = new DefaultHttpContext();
         http.Request.IsHttps = true;
         return (service, store, audit, http);
     }
 
-    private sealed class FakeResolver(ResolveResult result) : IAdminCallbackResolver
+    private sealed class FakeResolver(ResolveResult result) : ICallbackResolver
     {
         public Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);

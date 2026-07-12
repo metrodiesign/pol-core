@@ -29,7 +29,7 @@ public sealed class AdminQueryScopeFloorTests
     public async Task A_scoped_admin_requesting_an_out_of_set_merchant_gets_null_without_issuing_the_bypass_query()
     {
         var mediator = new ThrowingMediator();
-        var query = new ApiHost::Api.AdminQuery(
+        var query = new ApiHost::Api.Admins.AdminQuery(
             mediator,
             new FakeScope(AccessibleMerchants.Of(new HashSet<Guid> { InSet })),
             new StubDirectory(OutOfSet)); // code resolves to an id NOT in the accessible set
@@ -44,7 +44,7 @@ public sealed class AdminQueryScopeFloorTests
     public async Task A_scoped_admin_requesting_an_unknown_code_gets_null_without_issuing_the_bypass_query()
     {
         var mediator = new ThrowingMediator();
-        var query = new ApiHost::Api.AdminQuery(
+        var query = new ApiHost::Api.Admins.AdminQuery(
             mediator,
             new FakeScope(AccessibleMerchants.Of(new HashSet<Guid> { InSet })),
             new StubDirectory(null)); // unknown code -> no id

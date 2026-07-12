@@ -1,4 +1,4 @@
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>
 /// The confidential OIDC client for the admin BFF login (REQ-1/2/8). <c>ClientSecret</c> is a real secret —
@@ -6,7 +6,7 @@ namespace Api;
 /// (REQ-8.1/8.3). The merchant-user side runs its own separate OIDC BFF (<c>MerchantUserOidcOptions</c>) —
 /// there is no shared Google id-token Bearer plumbing left (removed with T5's single-scheme session cookie).
 /// </summary>
-internal sealed class AdminOidcOptions
+internal sealed class OidcOptions
 {
     public const string SectionName = "Google:Oidc";
 
@@ -23,7 +23,7 @@ internal sealed class AdminOidcOptions
 /// <c>SessionPolicy</c> the domain consumes; <c>SameSite</c>/allowlist are the host's cookie + open-redirect
 /// posture. Defaults assume a same-site admin SPA + API (REQ-7.3); set <c>SameSite=None</c> for a cross-site deploy.
 /// </summary>
-internal sealed class PlatformUserSessionOptions
+internal sealed class AdminSessionOptions
 {
     public const string SectionName = "AdminSession";
 

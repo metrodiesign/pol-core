@@ -9,7 +9,7 @@ using Merchants.Infrastructure.Persistence;
 using Merchants.Infrastructure.Persistence.Users;
 using Merchants.Infrastructure.Persistence.Users.Roles;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>
 /// Binds the Merchants identity seams. The registration/correction write runs cross-merchant / merchant-less on the
@@ -20,7 +20,7 @@ namespace Api;
 /// AddAdminScope.
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminHostWiring.AddAdminIdentity (same keyed-pol_admin pattern) — deliberate.
-internal static class MerchantsHostWiring
+internal static class HostWiring
 {
     public static IServiceCollection AddMerchantsIdentity(this IServiceCollection services)
     {
@@ -45,25 +45,25 @@ internal static class MerchantsHostWiring
         services.AddScoped<IRoleRepository>(sp => new RoleRepository(Admin(sp)));
         services.AddScoped<ISessionStore>(sp => new SessionStore(Admin(sp)));
         services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(Admin(sp)));
-        services.AddSingleton<MerchantUserSessionCookies>();
+        services.AddSingleton<UserSessionCookies>();
 
         // Per-request merchant-user scope (REQ-17.1): the session handler binds the concrete MerchantUserScope;
         // endpoints read IMerchantUserScope — the SAME scoped instance. RequireMerchantUserPermission +
         // /merchant-users/me consume it.
-        services.AddScoped<MerchantUserScope>();
-        services.AddScoped<IUserScope>(sp => sp.GetRequiredService<MerchantUserScope>());
+        services.AddScoped<UserScope>();
+        services.AddScoped<IUserScope>(sp => sp.GetRequiredService<UserScope>());
 
         // Photo store + ticket protector (host-only concerns).
         services.AddSingleton<IPhotoStore>(sp =>
         {
-            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<MerchantUserRegistrationOptions>>().Value;
+            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<UserRegistrationOptions>>().Value;
             var env = sp.GetRequiredService<IHostEnvironment>();
             var root = Path.IsPathRooted(options.PhotoStoreRootPath)
                 ? options.PhotoStoreRootPath
                 : Path.Combine(env.ContentRootPath, options.PhotoStoreRootPath);
             return new LocalPhotoStore(root);
         });
-        services.AddSingleton<MerchantUserRegistrationTickets>();
+        services.AddSingleton<UserRegistrationTickets>();
 
         return services;
     }

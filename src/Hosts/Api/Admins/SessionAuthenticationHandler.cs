@@ -9,7 +9,7 @@ using Mediator;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>
 /// Authenticates every <c>/admin/*</c> request via the opaque <c>__Host-adm_session</c> cookie (REQ-4/5/9). It
@@ -19,31 +19,31 @@ namespace Api;
 /// past the rotation age (REQ-5.1). A Google id_token Bearer is never consulted on these routes (REQ-4.4): no
 /// cookie -&gt; NoResult, and the <c>admin</c> policy is pinned to this scheme only.
 /// </summary>
-internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+internal sealed class SessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     public const string SchemeName = "Session";
 
     private readonly ISessionStore _sessions;
     private readonly IAuthAuditWriter _audit;
-    private readonly PlatformUserSessionCookies _cookies;
-    private readonly IPlatformUserSessionResolver _resolver;
+    private readonly SessionCookies _cookies;
+    private readonly ISessionResolver _resolver;
     private readonly AdminScope _scope;
     private readonly AdminActorContext _actor;
     private readonly IClock _clock;
-    private readonly PlatformUserSessionOptions _options;
+    private readonly AdminSessionOptions _options;
 
-    public PlatformUserSessionAuthenticationHandler(
+    public SessionAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
         ISessionStore sessions,
         IAuthAuditWriter audit,
-        PlatformUserSessionCookies cookies,
-        IPlatformUserSessionResolver resolver,
+        SessionCookies cookies,
+        ISessionResolver resolver,
         AdminScope scope,
         AdminActorContext actor,
         IClock clock,
-        IOptions<PlatformUserSessionOptions> sessionOptions)
+        IOptions<AdminSessionOptions> sessionOptions)
         : base(options, logger, encoder)
     {
         _sessions = sessions;
@@ -69,7 +69,7 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
             return AuthenticateResult.NoResult(); // no cookie -> unauthenticated; no fallthrough to bearer (REQ-4.2/4.4)
 
         var ct = Context.RequestAborted;
-        var session = await _sessions.FindByTokenHashAsync(PlatformUserSessionTokens.Hash(token), ct);
+        var session = await _sessions.FindByTokenHashAsync(SessionTokens.Hash(token), ct);
         if (session is null)
             return AuthenticateResult.Fail("Unknown session.");
 
@@ -132,9 +132,9 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
 
     private async Task TryRotateAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
-        var newToken = PlatformUserSessionTokens.NewOpaqueToken();
-        var csrfToken = PlatformUserSessionTokens.NewOpaqueToken();
-        var successor = session.Rotate(PlatformUserSessionTokens.Hash(newToken), now, policy);
+        var newToken = SessionTokens.NewOpaqueToken();
+        var csrfToken = SessionTokens.NewOpaqueToken();
+        var successor = session.Rotate(SessionTokens.Hash(newToken), now, policy);
 
         // Atomic single-winner supersede (REQ-5.5): if a concurrent request already rotated this session, we lose
         // and serve under grace with the existing cookie (no Set-Cookie) — exactly one successor is created.
@@ -162,18 +162,18 @@ internal sealed class PlatformUserSessionAuthenticationHandler : AuthenticationH
 
 /// <summary>READ-ONLY per-request admin resolution behind the source-generated mediator, so the auth handler's
 /// decision/principal/rotation logic can be unit-tested without it (mirrors <see cref="IAdminCallbackResolver"/>).</summary>
-internal interface IPlatformUserSessionResolver
+internal interface ISessionResolver
 {
     Task<ByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken cancellationToken);
 }
 
-internal sealed class PlatformUserSessionResolver(IMediator mediator) : IPlatformUserSessionResolver
+internal sealed class SessionResolver(IMediator mediator) : ISessionResolver
 {
     public Task<ByIdResult> ResolveByIdAsync(Guid adminAccountId, CancellationToken cancellationToken) =>
         mediator.Send(new ResolveByIdQuery(adminAccountId), cancellationToken).AsTask();
 }
 
-internal static class PlatformUserSessionSchemeRegistration
+internal static class SessionSchemeRegistration
 {
     /// <summary>Registers the Session cookie scheme and REDEFINES the <c>admin</c> authorization policy to
     /// pin that scheme and require only an authenticated user (REQ-10.6) — the old
@@ -181,14 +181,14 @@ internal static class PlatformUserSessionSchemeRegistration
     /// <c>.RequireAuthorization("admin")</c> call sites are unchanged.</summary>
     public static IServiceCollection AddPlatformUserSessionScheme(this IServiceCollection services)
     {
-        services.AddScoped<IPlatformUserSessionResolver, PlatformUserSessionResolver>();
+        services.AddScoped<ISessionResolver, SessionResolver>();
         services.AddAuthentication()
-            .AddScheme<AuthenticationSchemeOptions, PlatformUserSessionAuthenticationHandler>(
-                PlatformUserSessionAuthenticationHandler.SchemeName, _ => { });
+            .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(
+                SessionAuthenticationHandler.SchemeName, _ => { });
 
         services.AddAuthorizationBuilder()
             .AddPolicy("admin", policy => policy
-                .AddAuthenticationSchemes(PlatformUserSessionAuthenticationHandler.SchemeName)
+                .AddAuthenticationSchemes(SessionAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser());
 
         return services;

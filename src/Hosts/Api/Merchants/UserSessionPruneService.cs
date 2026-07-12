@@ -4,22 +4,22 @@ using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
 using Merchants.Application.Users.Permissions;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>Periodically deletes merchant-user sessions past their absolute expiry so the table does not grow
 /// unbounded (REQ-10.4). Runs in the API host because the prune writes through the keyed pol_admin context (the
 /// Worker connects as pol_worker, which has no grant on the control-plane merchant-user session tables).</summary>
 // ponytail: DUPLICATE of Api.AdminSessionPruneService (IAdminSessionStore -> IMerchantUserSessionStore) — deliberate debt.
-internal sealed class MerchantUserSessionPruneService : BackgroundService
+internal sealed class UserSessionPruneService : BackgroundService
 {
     private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan Period = TimeSpan.FromHours(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IClock _clock;
-    private readonly ILogger<MerchantUserSessionPruneService> _logger;
+    private readonly ILogger<UserSessionPruneService> _logger;
 
-    public MerchantUserSessionPruneService(IServiceScopeFactory scopeFactory, IClock clock, ILogger<MerchantUserSessionPruneService> logger)
+    public UserSessionPruneService(IServiceScopeFactory scopeFactory, IClock clock, ILogger<UserSessionPruneService> logger)
     {
         _scopeFactory = scopeFactory;
         _clock = clock;

@@ -7,22 +7,22 @@ using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
 using Merchants.Domain.Users.Permissions;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>Marks an endpoint as requiring a specific merchant-user permission (REQ-17.2). The boot parity guard
 /// reads this metadata; the filter below enforces it.</summary>
-internal sealed record RequiredMerchantUserPermission(string Permission);
+internal sealed record RequiredUserPermission(string Permission);
 
 /// <summary>Permission gate for role-driven merchant-user actions (REQ-17.2): 403 unless the per-request effective
 /// permission set (resolved into <see cref="IMerchantUserScope"/> by the auth handler) contains the required key.
 /// Reads the scope rather than a claim to keep the principal lean and the decision fresh. <b>Fail-closed when no
 /// merchant user is bound</b> (F10).</summary>
 // ponytail: DUPLICATE-shaped of Api.AdminPermissionAuthorization (IAdminScope -> IMerchantUserScope) — deliberate debt.
-internal static class MerchantUserPermissionAuthorization
+internal static class UserPermissionAuthorization
 {
     public static RouteHandlerBuilder RequireMerchantUserPermission(this RouteHandlerBuilder builder, string permission)
     {
-        builder.WithMetadata(new RequiredMerchantUserPermission(permission));
+        builder.WithMetadata(new RequiredUserPermission(permission));
         return builder.AddEndpointFilter(async (context, next) =>
             IsAllowed(context.HttpContext.RequestServices.GetRequiredService<IUserScope>(), permission)
                 ? await next(context)
@@ -40,7 +40,7 @@ internal static class MerchantUserPermissionAuthorization
 /// <c>/merchant-users</c> group is for a BOUND merchant user. The pre-session routes (login/callback/register) are
 /// mapped OUTSIDE this group, so they are untouched by it.
 /// </summary>
-internal sealed class MerchantBoundFilter : IEndpointFilter
+internal sealed class BoundFilter : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
         context.HttpContext.RequestServices.GetRequiredService<IUserScope>().IsBound
@@ -53,12 +53,12 @@ internal sealed class MerchantBoundFilter : IEndpointFilter
 /// which the migration seeds the DB from). Pure in-memory — no DB. Call right before <c>app.Run()</c>, after all
 /// endpoints are mapped.</summary>
 // ponytail: DUPLICATE-shaped of Api.AdminPermissionParity (Keys -> MerchantUserPermissions) — deliberate.
-internal static class MerchantUserPermissionParity
+internal static class UserPermissionParity
 {
     public static void Assert(IServiceProvider services)
     {
         var gated = services.GetRequiredService<EndpointDataSource>().Endpoints
-            .SelectMany(e => e.Metadata.GetOrderedMetadata<RequiredMerchantUserPermission>())
+            .SelectMany(e => e.Metadata.GetOrderedMetadata<RequiredUserPermission>())
             .Select(m => m.Permission);
         var unknown = FindUnknown(gated);
         if (unknown.Count > 0)

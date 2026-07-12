@@ -13,7 +13,7 @@ using Merchants.Domain.Users.Permissions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>
 /// Authenticates every merchant-user-scoped request via the opaque <c>__Host-mch_session</c> cookie (REQ-11/12/17).
@@ -28,29 +28,29 @@ namespace Api;
 /// </summary>
 // ponytail: DUPLICATE of Api.AdminSessionAuthenticationHandler (PlatformUserId -> MerchantUserId; admin_tier claim ->
 // merchant_id claim) — deliberate debt.
-internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
+internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     public const string SchemeName = "MerchantUserSession";
 
     private readonly ISessionStore _sessions;
     private readonly IAuthAuditWriter _audit;
-    private readonly MerchantUserSessionCookies _cookies;
-    private readonly IMerchantUserSessionResolver _resolver;
-    private readonly MerchantUserScope _scope;
+    private readonly UserSessionCookies _cookies;
+    private readonly IUserSessionResolver _resolver;
+    private readonly UserScope _scope;
     private readonly IClock _clock;
-    private readonly MerchantUserSessionOptions _options;
+    private readonly UserSessionOptions _options;
 
-    public MerchantUserSessionAuthenticationHandler(
+    public UserSessionAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
         ISessionStore sessions,
         IAuthAuditWriter audit,
-        MerchantUserSessionCookies cookies,
-        IMerchantUserSessionResolver resolver,
-        MerchantUserScope scope,
+        UserSessionCookies cookies,
+        IUserSessionResolver resolver,
+        UserScope scope,
         IClock clock,
-        IOptions<MerchantUserSessionOptions> sessionOptions)
+        IOptions<UserSessionOptions> sessionOptions)
         : base(options, logger, encoder)
     {
         _sessions = sessions;
@@ -75,7 +75,7 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
             return AuthenticateResult.NoResult(); // no cookie -> the merchant-user policy denies 401 (single-scheme, T11)
 
         var ct = Context.RequestAborted;
-        var session = await _sessions.FindByTokenHashAsync(MerchantUserTokens.Hash(token), ct);
+        var session = await _sessions.FindByTokenHashAsync(UserTokens.Hash(token), ct);
         if (session is null)
             return AuthenticateResult.Fail("Unknown session.");
 
@@ -137,9 +137,9 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
 
     private async Task TryRotateAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
-        var newToken = MerchantUserTokens.NewOpaqueToken();
-        var csrfToken = MerchantUserTokens.NewOpaqueToken();
-        var successor = session.Rotate(MerchantUserTokens.Hash(newToken), now, policy);
+        var newToken = UserTokens.NewOpaqueToken();
+        var csrfToken = UserTokens.NewOpaqueToken();
+        var successor = session.Rotate(UserTokens.Hash(newToken), now, policy);
 
         // Atomic single-winner supersede (REQ-11.5): a concurrent request that already rotated wins; we serve under
         // grace with the existing cookie (no Set-Cookie) — exactly one successor is created.
@@ -168,12 +168,12 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
 /// <summary>READ-ONLY per-request merchant-user resolution behind the source-generated mediator, so the auth
 /// handler's decision/principal/rotation logic can be unit-tested without it (mirrors
 /// <see cref="IMerchantUserCallbackResolver"/>).</summary>
-internal interface IMerchantUserSessionResolver
+internal interface IUserSessionResolver
 {
     Task<ByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken cancellationToken);
 }
 
-internal sealed class MerchantUserSessionResolver(IMediator mediator) : IMerchantUserSessionResolver
+internal sealed class UserSessionResolver(IMediator mediator) : IUserSessionResolver
 {
     public Task<ByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
         mediator.Send(new ResolveByIdQuery(merchantUserId), cancellationToken).AsTask();
@@ -182,7 +182,7 @@ internal sealed class MerchantUserSessionResolver(IMediator mediator) : IMerchan
 /// <summary>Per-request holder of the resolved merchant user (REQ-17.1). The merchant-user session authentication
 /// handler calls <see cref="Set"/> once per request; readers consume <see cref="IMerchantUserScope"/>. Fail-closed:
 /// an unauthenticated caller binds nothing, so <c>RequireMerchantUserPermission</c> denies it 403 (F10).</summary>
-internal sealed class MerchantUserScope : IUserScope
+internal sealed class UserScope : IUserScope
 {
     private Resolution? _current;
 
@@ -192,7 +192,7 @@ internal sealed class MerchantUserScope : IUserScope
     public void Set(Resolution resolution) => _current = resolution;
 }
 
-internal static class MerchantUserSessionSchemeRegistration
+internal static class UserSessionSchemeRegistration
 {
     /// <summary>Registers the MerchantUserSession cookie scheme and the SINGLE-SCHEME <c>merchant-user</c>
     /// authorization policy (T11 — the dual-scheme Bearer fallback is retired): it admits only the merchant-user
@@ -200,14 +200,14 @@ internal static class MerchantUserSessionSchemeRegistration
     /// now also gates on this one (REQ-6/design "Auth policies").</summary>
     public static IServiceCollection AddMerchantUserSessionScheme(this IServiceCollection services)
     {
-        services.AddScoped<IMerchantUserSessionResolver, MerchantUserSessionResolver>();
+        services.AddScoped<IUserSessionResolver, UserSessionResolver>();
         services.AddAuthentication()
-            .AddScheme<AuthenticationSchemeOptions, MerchantUserSessionAuthenticationHandler>(
-                MerchantUserSessionAuthenticationHandler.SchemeName, _ => { });
+            .AddScheme<AuthenticationSchemeOptions, UserSessionAuthenticationHandler>(
+                UserSessionAuthenticationHandler.SchemeName, _ => { });
 
         services.AddAuthorizationBuilder()
             .AddPolicy("merchant-user", policy => policy
-                .AddAuthenticationSchemes(MerchantUserSessionAuthenticationHandler.SchemeName)
+                .AddAuthenticationSchemes(UserSessionAuthenticationHandler.SchemeName)
                 .RequireAuthenticatedUser());
 
         return services;

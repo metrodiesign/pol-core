@@ -12,16 +12,16 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>The 201 body for a submitted registration.</summary>
-public sealed record MerchantUserRegisterResponse(Guid MerchantUserId, string Status);
+public sealed record UserRegisterResponse(Guid MerchantUserId, string Status);
 
 /// <summary>Maps the posted multipart fields onto a <see cref="RegistrationForm"/> (REQ-7.1). Identity fields are
 /// NOT read here — they come only from the verified ticket (REQ-4.2). Blank fields normalise to null (empty string
 /// for the required first/last name, caught by the host's required-field check); an unknown personType normalises to
 /// null (no hard failure on an optional field). DisplayName is not a form field — the domain computes it.</summary>
-internal static class MerchantUserRegistrationForm
+internal static class UserRegistrationForm
 {
     public static RegistrationForm From(IFormCollection form) => new(
         FirstName: Value(form, "firstName") ?? string.Empty,
@@ -43,7 +43,7 @@ internal static class MerchantUserRegistrationForm
 }
 
 /// <summary>Merchant-user registration tuning (REQ-3.2/7.4). TTL default 10 min, photo cap default 2 MB.</summary>
-public sealed class MerchantUserRegistrationOptions
+public sealed class UserRegistrationOptions
 {
     public const string SectionName = "MerchantUser:Registration";
 
@@ -61,7 +61,7 @@ public sealed class MerchantUserRegistrationOptions
 /// the callback and returned by the client at submission. The form body can never override these. Stateless — the
 /// signed+time-limited token is self-contained (no server-side row); replay/duplicate safety is the account's unique
 /// (Subject) index at submit time.</summary>
-public sealed record MerchantUserTicketPayload(string Subject, string Email, string? HostedDomain, TicketPurpose Purpose);
+public sealed record UserTicketPayload(string Subject, string Email, string? HostedDomain, TicketPurpose Purpose);
 
 /// <summary>
 /// Signs+encrypts the registration/correction wire ticket with ASP.NET Core Data Protection under a purpose string
@@ -69,24 +69,24 @@ public sealed record MerchantUserTicketPayload(string Subject, string Email, str
 /// token fails to unprotect (returns false). The token is stateless — there is no server-side ticket row; a replayed
 /// still-valid token is stopped at submit time by the account's unique (Subject) index (REQ-4.6).
 /// </summary>
-internal sealed class MerchantUserRegistrationTickets
+internal sealed class UserRegistrationTickets
 {
     private readonly ITimeLimitedDataProtector _protector;
     private readonly TimeSpan _ttl;
 
-    public MerchantUserRegistrationTickets(IDataProtectionProvider provider, IOptions<MerchantUserRegistrationOptions> options)
+    public UserRegistrationTickets(IDataProtectionProvider provider, IOptions<UserRegistrationOptions> options)
     {
         _protector = provider.CreateProtector("MerchantUser.RegistrationTicket.v1").ToTimeLimitedDataProtector();
         _ttl = TimeSpan.FromMinutes(options.Value.TicketTtlMinutes);
     }
 
     /// <summary>Issues a signed+encrypted wire ticket valid for the configured TTL (used by the callback, Task 5).</summary>
-    public string Protect(MerchantUserTicketPayload payload) =>
+    public string Protect(UserTicketPayload payload) =>
         _protector.Protect(JsonSerializer.Serialize(payload), _ttl);
 
     /// <summary>Verifies + decodes a wire ticket. Returns false on tamper or expiry (the wire-level guard); replay
     /// safety is the account's unique (Subject) index at submit time (REQ-4.6).</summary>
-    public bool TryUnprotect(string token, out MerchantUserTicketPayload payload)
+    public bool TryUnprotect(string token, out UserTicketPayload payload)
     {
         payload = null!;
         if (string.IsNullOrWhiteSpace(token))
@@ -94,7 +94,7 @@ internal sealed class MerchantUserRegistrationTickets
         try
         {
             var json = _protector.Unprotect(token);
-            var decoded = JsonSerializer.Deserialize<MerchantUserTicketPayload>(json);
+            var decoded = JsonSerializer.Deserialize<UserTicketPayload>(json);
             if (decoded is null ||
                 string.IsNullOrWhiteSpace(decoded.Subject) || string.IsNullOrWhiteSpace(decoded.Email))
                 return false;

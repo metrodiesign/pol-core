@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Api;
+namespace Api.Webhooks;
 
 /// <summary>
 /// Flood protection for the unauthenticated webhook surface, using the built-in rate limiter (no package).
@@ -19,7 +19,7 @@ namespace Api;
 /// Behind a reverse proxy, configure ForwardedHeaders so this is the real client IP; otherwise all webhook
 /// traffic shares the proxy's single bounded budget — still safe, just a global cap instead of per-source.
 /// </summary>
-internal static class WebhookRateLimiting
+internal static class RateLimiting
 {
     public const string PolicyName = "psp-webhook";
 

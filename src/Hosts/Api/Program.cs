@@ -68,6 +68,9 @@ using MerchantAuthEventType = Merchants.Domain.Users.AuthEventType;
 using MerchantRoleStatus = Merchants.Domain.Users.Roles.RoleStatus;
 using MerchantKeys = Merchants.Domain.Users.Permissions.Keys;
 using Api;
+using Api.Admins;
+using Api.Merchants;
+using Api.Webhooks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -154,8 +157,8 @@ builder.Services.AddAdminIdentity();
 // Merchants identity (data plane: MerchantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
 // Profiles/RegistrationAudits). AddMerchantsModule (above) loads the assembly so PolDbContext discovers its EF
 // configs; AddMerchantsIdentity binds the registration seams (keyed pol_admin write + photo + ticket protector).
-builder.Services.Configure<MerchantUserRegistrationOptions>(
-    builder.Configuration.GetSection(MerchantUserRegistrationOptions.SectionName));
+builder.Services.Configure<UserRegistrationOptions>(
+    builder.Configuration.GetSection(UserRegistrationOptions.SectionName));
 builder.Services.AddMerchantsIdentity();
 
 // MerchantUser BFF: a SECOND confidential Google OIDC client (Authorization Code + PKCE) for the server-side merchant-user
@@ -163,22 +166,22 @@ builder.Services.AddMerchantsIdentity();
 // Adds the scheme WITHOUT changing the default (JwtBearer stays for merchant); a blank ClientId skips the scheme so a
 // half-configured env (the merchant-user FE is a later slice) does not fault the whole host (REQ-14.2). The merchant-user
 // session lifetime + cookie posture come from MerchantUser:Session.
-builder.Services.Configure<MerchantUserOidcOptions>(builder.Configuration.GetSection(MerchantUserOidcOptions.SectionName));
-builder.Services.Configure<MerchantUserSessionOptions>(builder.Configuration.GetSection(MerchantUserSessionOptions.SectionName));
+builder.Services.Configure<UserOidcOptions>(builder.Configuration.GetSection(UserOidcOptions.SectionName));
+builder.Services.Configure<UserSessionOptions>(builder.Configuration.GetSection(UserSessionOptions.SectionName));
 builder.Services.AddMerchantUserOidcAuthentication(builder.Configuration, builder.Environment);
 
 // MerchantUser BFF session scheme: authenticate merchant-user requests via the __Host-mch_session cookie and register the
 // SINGLE-SCHEME "merchant-user" policy (MerchantUserSession only, T11 — the Bearer fallback is retired). Background
 // sweep prunes expired sessions so the control-plane session table does not grow unbounded (REQ-10.4).
 builder.Services.AddMerchantUserSessionScheme();
-builder.Services.AddHostedService<MerchantUserSessionPruneService>();
+builder.Services.AddHostedService<UserSessionPruneService>();
 
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
 builder.Services.AddAdminDataProtection();
 
 // Admin BFF session lifetime + cookie posture (REQ-3/5/7).
-builder.Services.Configure<PlatformUserSessionOptions>(builder.Configuration.GetSection(PlatformUserSessionOptions.SectionName));
+builder.Services.Configure<AdminSessionOptions>(builder.Configuration.GetSection(AdminSessionOptions.SectionName));
 
 // Merchant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
@@ -187,11 +190,11 @@ builder.Services.AddScoped<IActorContext, HttpActorContext>();
 // Google id-token Bearer is retired for the funnel (T11 — rf1 big-bang, no legacy audience). The
 // MerchantUserSession cookie scheme is the explicit default (each protected group still pins its own scheme via
 // its policy — the default only matters for UseAuthentication's principal-population pass).
-builder.Services.AddAuthentication(MerchantUserSessionAuthenticationHandler.SchemeName);
+builder.Services.AddAuthentication(UserSessionAuthenticationHandler.SchemeName);
 
 // Admin BFF: confidential Google OIDC client (Authorization Code + PKCE) for the server-side admin login.
 // Adds the "Google" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
-builder.Services.Configure<AdminOidcOptions>(builder.Configuration.GetSection(AdminOidcOptions.SectionName));
+builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection(OidcOptions.SectionName));
 builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
 
 // Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
@@ -199,7 +202,7 @@ builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Envir
 builder.Services.AddPlatformUserSessionScheme();
 
 // Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
-builder.Services.AddHostedService<PlatformUserSessionPruneService>();
+builder.Services.AddHostedService<SessionPruneService>();
 
 // CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
 builder.Services.AddPolCors(builder.Configuration);
@@ -249,7 +252,7 @@ builder.Services.AddOpenApi(options =>
             // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
             // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
             // see the cookie they actually have.
-            Name = PlatformUserSessionCookies.SessionCookieNameDevHttp,
+            Name = SessionCookies.SessionCookieNameDevHttp,
             Description = "Admin BFF session cookie issued by the OIDC login flow (GET /api/v1/admins/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-adm_session` name.",
         };
@@ -257,7 +260,7 @@ builder.Services.AddOpenApi(options =>
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
-            Name = MerchantUserSessionCookies.SessionCookieNameDevHttp,
+            Name = UserSessionCookies.SessionCookieNameDevHttp,
             Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchant-users/auth/login). "
                 + "Set automatically in the browser. Production (HTTPS) uses the `__Host-mch_session` name (T11 — "
                 + "single-scheme, the legacy Bearer fallback is retired).",
@@ -494,7 +497,7 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     return result.Outcome == WebhookOutcome.Rejected
         ? Results.Problem(statusCode: StatusCodes.Status401Unauthorized)
         : Results.Ok(new WebhookResponse(result.Outcome.ToString()));
-}).RequireRateLimiting(WebhookRateLimiting.PolicyName)
+}).RequireRateLimiting(RateLimiting.PolicyName)
     .WithTags("Webhooks")
     .WithName("HandlePspWebhook")
     .WithSummary("PSP webhook callback")
@@ -773,22 +776,22 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
 // policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
 // is anonymous; every other route gates on the Session "admin" policy. The CSRF filter exempts safe methods,
 // so the login/callback GETs pass untouched.
-var admin = api.MapGroup("/admins").AddEndpointFilter<AdminCsrfFilter>();
+var admin = api.MapGroup("/admins").AddEndpointFilter<CsrfFilter>();
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
 // allowlist, then hand off to the OIDC handler, which builds the Authorization Code + PKCE + state + nonce
 // redirect to Google. The callback (Google:Oidc:CallbackPath) is handled by the OIDC middleware itself, which
 // establishes the session via OnTicketReceived — there is no mapped callback endpoint.
-admin.MapGet("/auth/login", (HttpContext http, IOptions<PlatformUserSessionOptions> session) =>
+admin.MapGet("/auth/login", (HttpContext http, IOptions<AdminSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [AdminOidcAuthentication.Scheme]);
+        [OidcAuthentication.Scheme]);
 })
 .AllowAnonymous()
-.RequireRateLimiting(AdminAuthRateLimiting.PolicyName)
+.RequireRateLimiting(AuthRateLimiting.PolicyName)
     .WithTags("Admin Auth")
     .WithName("AdminLogin")
     .WithSummary("Begin admin login")
@@ -800,13 +803,13 @@ admin.MapGet("/auth/login", (HttpContext http, IOptions<PlatformUserSessionOptio
 // presented cookie identifies the family. CSRF protection for these POSTs is added with the other /admin
 // mutations in Task 5's double-submit filter (REQ-7).
 admin.MapPost("/auth/logout", async (
-    HttpContext http, ISessionStore sessions, PlatformUserSessionCookies cookies,
+    HttpContext http, ISessionStore sessions, SessionCookies cookies,
     IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(PlatformUserSessionTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(SessionTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
@@ -826,7 +829,7 @@ admin.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this admin across all devices (REQ-6.2).
 admin.MapPost("/auth/logout-all", async (
-    HttpContext http, IAdminScope scope, ISessionStore sessions, PlatformUserSessionCookies cookies,
+    HttpContext http, IAdminScope scope, ISessionStore sessions, SessionCookies cookies,
     IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var adminId = scope.Current.AdminId;
@@ -921,16 +924,16 @@ var merchantUsersAnon = api.MapGroup("/merchant-users");
 // + nonce redirect to Google. The callback (MerchantUser:Oidc:CallbackPath) is handled by the OIDC middleware itself,
 // which runs the 4-way state branch via OnTicketReceived -> MerchantUserLoginService (session cookie for an Active
 // merchant-user, a signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback.
-merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<MerchantUserSessionOptions> session) =>
+merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<UserSessionOptions> session) =>
 {
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [MerchantUserOidcAuthentication.Scheme]);
+        [UserOidcAuthentication.Scheme]);
 })
 .AllowAnonymous()
-.RequireRateLimiting(MerchantUserAuthRateLimiting.PolicyName)
+.RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("MerchantUser Auth")
     .WithName("MerchantUserLogin")
     .WithSummary("Begin merchant-user login")
@@ -947,8 +950,8 @@ merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<MerchantUser
 // ticket resubmits a Rejected user (REQ-5).
 merchantUsersAnon.MapPost("/register", async (
     HttpRequest request,
-    MerchantUserRegistrationTickets tickets,
-    IOptions<MerchantUserRegistrationOptions> registrationOptions,
+    UserRegistrationTickets tickets,
+    IOptions<UserRegistrationOptions> registrationOptions,
     IMediator mediator,
     HttpContext http,
     CancellationToken ct) =>
@@ -997,7 +1000,7 @@ merchantUsersAnon.MapPost("/register", async (
         photoContentType = validation.ContentType;
     }
 
-    var formModel = MerchantUserRegistrationForm.From(form);
+    var formModel = UserRegistrationForm.From(form);
     if (string.IsNullOrWhiteSpace(formModel.FirstName) || string.IsNullOrWhiteSpace(formModel.LastName))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "firstName and lastName are required.");
 
@@ -1006,17 +1009,17 @@ merchantUsersAnon.MapPost("/register", async (
         formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
 
     return Results.Created($"/api/v1/merchant-users/{result.MerchantUserId}",
-        new MerchantUserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
+        new UserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
 })
     .AllowAnonymous()
     .DisableAntiforgery()
-    .RequireRateLimiting(MerchantUserAuthRateLimiting.PolicyName)
+    .RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("MerchantUser Auth")
     .WithName("MerchantUserRegister")
     .WithSummary("Submit a merchant-user registration")
     .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval MerchantUser and enqueues a registration event. Invalid/expired ticket -> 400; duplicate/replay (unique Subject index) -> 409; oversize -> 413.")
     .Accepts<IFormFile>("multipart/form-data")
-    .Produces<MerchantUserRegisterResponse>(StatusCodes.Status201Created)
+    .Produces<UserRegisterResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
@@ -1029,19 +1032,19 @@ merchantUsersAnon.MapPost("/register", async (
 // anonymous pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
 // MerchantBoundFilter then fail-closes the whole group on a BOUND merchant-user (REQ-17.2/F10).
 var merchantUsers = api.MapGroup("/merchant-users")
-    .AddEndpointFilter<MerchantUserCsrfFilter>()
-    .AddEndpointFilter<MerchantBoundFilter>();
+    .AddEndpointFilter<UserCsrfFilter>()
+    .AddEndpointFilter<BoundFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
 // presented cookie identifies the family.
 merchantUsers.MapPost("/auth/logout", async (
-    HttpContext http, IMerchantSessionStore sessions, MerchantUserSessionCookies cookies,
+    HttpContext http, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
     if (token is not null)
     {
-        var session = await sessions.FindByTokenHashAsync(MerchantUserTokens.Hash(token), ct);
+        var session = await sessions.FindByTokenHashAsync(UserTokens.Hash(token), ct);
         if (session is not null)
         {
             await sessions.RevokeFamilyAsync(session.FamilyId, ct);
@@ -1061,7 +1064,7 @@ merchantUsers.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this merchant-user across all devices (REQ-12.2).
 merchantUsers.MapPost("/auth/logout-all", async (
-    HttpContext http, IUserScope scope, IMerchantSessionStore sessions, MerchantUserSessionCookies cookies,
+    HttpContext http, IUserScope scope, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var userId = scope.Current.MerchantUserId;
@@ -1315,7 +1318,7 @@ api.MapPost("/admins", async (
         body.Email, scope.Current.AdminId, http.TraceIdentifier,
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).AddEndpointFilter<AdminCsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+}).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("Admin Admins")
     .WithName("CreateScopedAdmin")
     .WithSummary("Invite a scoped admin")
@@ -1748,10 +1751,10 @@ admin.MapPut("/{id:guid}/roles", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // admin-role-rbac REQ-11: fail fast at boot if any RequirePermission gate references a key absent from the catalog.
-AdminPermissionParity.Assert(app.Services);
+PermissionParity.Assert(app.Services);
 // merchant-user-google-sso REQ-15.5: the same parity guard for the merchant-user catalog (the cross-catalog merchant-user.approve/
 // reject keys live in the Admin catalog and are asserted by AdminPermissionParity — REQ-18.3).
-MerchantUserPermissionParity.Assert(app.Services);
+UserPermissionParity.Assert(app.Services);
 
 app.Run();
 

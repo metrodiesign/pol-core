@@ -1,6 +1,6 @@
 using System.Threading.RateLimiting;
 
-namespace Api;
+namespace Api.Merchants;
 
 /// <summary>
 /// Per-source-IP rate limit for the anonymous merchant-user auth surface — the ticket-gated register endpoint
@@ -10,7 +10,7 @@ namespace Api;
 /// status are configured once elsewhere).
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminAuthRateLimiting (distinct policy name + partition) — deliberate.
-internal static class MerchantUserAuthRateLimiting
+internal static class UserAuthRateLimiting
 {
     public const string PolicyName = "merchant-user-auth";
 

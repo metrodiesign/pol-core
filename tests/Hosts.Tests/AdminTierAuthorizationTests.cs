@@ -10,7 +10,7 @@ public sealed class AdminTierAuthorizationTests
     private static readonly string[] SuperOnly = ["Super"];
 
     private static bool Allowed(string? tier) =>
-        ApiHost::Api.PlatformUserTierAuthorization.IsTierAllowed(tier, SuperOnly);
+        ApiHost::Api.Admins.TierAuthorization.IsTierAllowed(tier, SuperOnly);
 
     [Fact] public void Super_is_admitted() => Assert.True(Allowed("Super"));
     [Fact] public void Scoped_is_denied_a_super_only_action() => Assert.False(Allowed("Scoped"));

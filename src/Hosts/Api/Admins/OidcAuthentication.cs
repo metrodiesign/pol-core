@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>
 /// The confidential Google OIDC client for the admin BFF login (REQ-1/2). The framework handler does the
@@ -9,7 +9,7 @@ namespace Api;
 /// server session ourselves and short-circuit the framework sign-in (<see cref="AdminLoginService"/>). Schemes
 /// are ADDED here without changing the default (JwtBearer stays the default for merchant routes).
 /// </summary>
-internal static class AdminOidcAuthentication
+internal static class OidcAuthentication
 {
     /// <summary>The OIDC scheme the admin login challenges (REQ-1.1).</summary>
     public const string Scheme = "Google";
@@ -21,11 +21,11 @@ internal static class AdminOidcAuthentication
     public static IServiceCollection AddAdminOidcAuthentication(
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
-        var oidc = configuration.GetSection(AdminOidcOptions.SectionName).Get<AdminOidcOptions>() ?? new AdminOidcOptions();
+        var oidc = configuration.GetSection(OidcOptions.SectionName).Get<OidcOptions>() ?? new OidcOptions();
         var hostedDomain = configuration["Google:HostedDomain"];
 
-        services.AddScoped<IAdminCallbackResolver, AdminCallbackResolver>();
-        services.AddScoped<AdminLoginService>();
+        services.AddScoped<ICallbackResolver, CallbackResolver>();
+        services.AddScoped<LoginService>();
 
         // The OIDC scheme is a per-request handler: AuthenticationMiddleware initializes — and VALIDATES — it on
         // EVERY request to detect the callback, and OpenIdConnectOptions.Validate() requires a non-empty ClientId.
@@ -80,7 +80,7 @@ internal static class AdminOidcAuthentication
                     // and short-circuit the framework sign-in (REQ-2.5/3.1).
                     OnTicketReceived = async context =>
                     {
-                        var login = context.HttpContext.RequestServices.GetRequiredService<AdminLoginService>();
+                        var login = context.HttpContext.RequestServices.GetRequiredService<LoginService>();
                         var principal = context.Principal;
                         await login.EstablishSessionAsync(
                             context.HttpContext,
@@ -94,7 +94,7 @@ internal static class AdminOidcAuthentication
                     // OAuth error=access_denied at Google (REQ-2.8).
                     OnAccessDenied = async context =>
                     {
-                        var login = context.HttpContext.RequestServices.GetRequiredService<AdminLoginService>();
+                        var login = context.HttpContext.RequestServices.GetRequiredService<LoginService>();
                         await login.DenyAsync(context.HttpContext, "access-denied", null, context.HttpContext.RequestAborted);
                         context.HandleResponse();
                     },
@@ -102,7 +102,7 @@ internal static class AdminOidcAuthentication
                     // State mismatch / code-exchange fail / email_verified|hd Fail / OAuth error (REQ-2.1/2.7/2.8/12.4).
                     OnRemoteFailure = async context =>
                     {
-                        var login = context.HttpContext.RequestServices.GetRequiredService<AdminLoginService>();
+                        var login = context.HttpContext.RequestServices.GetRequiredService<LoginService>();
                         await login.DenyAsync(context.HttpContext, MapFailureReason(context.Failure), null, context.HttpContext.RequestAborted);
                         context.HandleResponse();
                     },

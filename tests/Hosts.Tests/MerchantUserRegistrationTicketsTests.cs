@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using ApiHost::Api;
+using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using Merchants.Domain;
@@ -16,10 +17,10 @@ namespace Hosts.Tests;
 /// </summary>
 public sealed class MerchantUserRegistrationTicketsTests
 {
-    private static ApiHost::Api.MerchantUserRegistrationTickets Build(IDataProtectionProvider provider) =>
-        new(provider, Options.Create(new MerchantUserRegistrationOptions { TicketTtlMinutes = 10 }));
+    private static ApiHost::Api.Merchants.UserRegistrationTickets Build(IDataProtectionProvider provider) =>
+        new(provider, Options.Create(new UserRegistrationOptions { TicketTtlMinutes = 10 }));
 
-    private static readonly MerchantUserTicketPayload Payload = new(
+    private static readonly UserTicketPayload Payload = new(
         "g-sub-1", "p@org.com", "org.com", TicketPurpose.Registration);
 
     [Fact]

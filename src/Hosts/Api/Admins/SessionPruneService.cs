@@ -1,21 +1,21 @@
 using Admins.Application.Users;
 using BuildingBlocks.Application;
 
-namespace Api;
+namespace Api.Admins;
 
 /// <summary>Periodically deletes admin sessions past their absolute expiry so the table does not grow unbounded
 /// (REQ-11.5). Runs in the API host because the prune writes through the keyed pol_admin context (the Worker
 /// connects as pol_worker, which has no grant on the control-plane session tables).</summary>
-internal sealed class PlatformUserSessionPruneService : BackgroundService
+internal sealed class SessionPruneService : BackgroundService
 {
     private static readonly TimeSpan InitialDelay = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan Period = TimeSpan.FromHours(1);
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IClock _clock;
-    private readonly ILogger<PlatformUserSessionPruneService> _logger;
+    private readonly ILogger<SessionPruneService> _logger;
 
-    public PlatformUserSessionPruneService(IServiceScopeFactory scopeFactory, IClock clock, ILogger<PlatformUserSessionPruneService> logger)
+    public SessionPruneService(IServiceScopeFactory scopeFactory, IClock clock, ILogger<SessionPruneService> logger)
     {
         _scopeFactory = scopeFactory;
         _clock = clock;
