@@ -1,9 +1,9 @@
 extern alias ApiHost;
+using Iam.Domain.Permissions;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Domain;
 using Merchants.Domain.Users;
-using Merchants.Domain.Users.Permissions;
 
 namespace Hosts.Tests;
 

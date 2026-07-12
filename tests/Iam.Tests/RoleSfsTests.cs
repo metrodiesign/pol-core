@@ -1,44 +1,35 @@
 using System.Text.Json;
-using Admins.Application;
-using Admins.Application.MasterData;
-using Admins.Application.Permissions;
-using Admins.Application.Roles;
-using Admins.Application.Users;
-using Admins.Domain.MasterData;
-using Admins.Domain.Permissions;
-using Admins.Domain.Roles;
-using Admins.Domain.Users;
-using Admins.Infrastructure.Persistence;
-using Admins.Infrastructure.Persistence.MasterData;
-using Admins.Infrastructure.Persistence.Permissions;
-using Admins.Infrastructure.Persistence.Roles;
-using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
+using Iam.Domain.Permissions;
+using Iam.Domain.Roles;
+using Iam.Infrastructure.Persistence.Roles;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SearchOption = BuildingBlocks.Application.SearchOption;
 
-namespace Admins.Tests;
+namespace Iam.Tests;
 
 /// <summary>
-/// The Role SFS apply pipeline (control-plane exemplar). In-memory <c>List.AsQueryable</c> cases prove the
-/// whitelist gating, silent-drop, AND-combine, status parsing, and the coercion guard (wrong-typed value ->
-/// ArgumentException -> 400, eagerly). SQLite cases prove the two behaviours that need a real relational
-/// provider: NULLS-last ordering on the nullable Description in both directions, and LIKE-wildcard escaping so a
-/// term containing <c>%</c>/<c>_</c> matches literally. (REQ-3, REQ-4, REQ-5, REQ-6, REQ-8.5, REQ-8.6)
+/// The Role SFS apply pipeline (control-plane exemplar), moved from
+/// <c>Admins.Infrastructure.Persistence.Roles.RoleSfs</c> onto the unified <see cref="Role"/> (rf2). In-memory
+/// <c>List.AsQueryable</c> cases prove the whitelist gating, silent-drop, AND-combine, status parsing, and the
+/// coercion guard (wrong-typed value -> ArgumentException -> 400, eagerly). SQLite cases prove the two
+/// behaviours that need a real relational provider: NULLS-last ordering on the nullable Description in both
+/// directions, and LIKE-wildcard escaping so a term containing <c>%</c>/<c>_</c> matches literally.
 /// </summary>
-public sealed class AdminRoleSfsTests
+public sealed class RoleSfsTests
 {
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     private static Role MakeRole(string code, string name, string? description = null,
         RoleStatus status = RoleStatus.Active) =>
-        Role.Create(code, name, description, color: null, status, permissionKeys: [], catalogKeys: new HashSet<string>());
+        Role.Create(code, name, description, color: null, status, Scope.Platform, null,
+            permissionKeys: [], catalog: new Dictionary<string, Scope>());
 
     private static IQueryable<Role> Roles(params Role[] roles) => roles.AsQueryable();
 
-    // ===== EscapeLike (REQ-5.4, REQ-6.4) =====
+    // ===== EscapeLike =====
     [Theory]
     [InlineData("50%", "50\\%")]
     [InlineData("a_b", "a\\_b")]
@@ -64,7 +55,7 @@ public sealed class AdminRoleSfsTests
     {
         var filtered = Roles(MakeRole("a", "A"))
             .ApplyFilters([new FilterOption("Code", FilterOperator.Equals, J("\"a\""))]).ToList();
-        Assert.Single(filtered);   // "Code" != "code" under Ordinal -> treated as absent (REQ-6.7)
+        Assert.Single(filtered);   // "Code" != "code" under Ordinal -> treated as absent
     }
 
     [Fact]
@@ -75,7 +66,7 @@ public sealed class AdminRoleSfsTests
             .ApplyFilters([new FilterOption("code", FilterOperator.GreaterThan, J("\"sekret\""))], log).ToList();
 
         Assert.Single(filtered);                                         // gt is not allowed on code
-        Assert.Contains(log.Messages, m => m.Contains("code"));          // field name logged (REQ-8.6)
+        Assert.Contains(log.Messages, m => m.Contains("code"));          // field name logged
         Assert.DoesNotContain(log.Messages, m => m.Contains("sekret"));  // value is NEVER logged
     }
 
@@ -116,12 +107,10 @@ public sealed class AdminRoleSfsTests
         Assert.Equal("b", filtered[0].Code);
     }
 
-    // ===== coercion guard -> 400 (REQ-8.5) =====
+    // ===== coercion guard -> 400 =====
     [Fact]
     public void Wrong_typed_value_throws_ArgumentException_not_409_or_500()
     {
-        // status expects a lowercase string token; a JSON number must be a 400 (ArgumentException), raised
-        // eagerly during apply — never a 409 (InvalidOperationException) or 500 (FormatException).
         Assert.Throws<ArgumentException>(() =>
             Roles(MakeRole("a", "A")).ApplyFilters([new FilterOption("status", FilterOperator.Equals, J("5"))]));
     }
@@ -139,7 +128,7 @@ public sealed class AdminRoleSfsTests
     {
         var sorted = Roles(MakeRole("a", "A"), MakeRole("c", "C"), MakeRole("b", "B"))
             .ApplySort([new SortOption("bogus")]).Select(r => r.Code).ToList();
-        Assert.Equal(new[] { "c", "b", "a" }, sorted);   // mandatory default OrderByDescending(Code) (REQ-4.5)
+        Assert.Equal(new[] { "c", "b", "a" }, sorted);   // mandatory default OrderByDescending(Code)
     }
 
     // ===== relational (SQLite): NULLS-last + LIKE escape =====
@@ -155,7 +144,7 @@ public sealed class AdminRoleSfsTests
 
         var codes = await db.Roles.ApplySort([new SortOption("description", dir)]).Select(r => r.Code).ToListAsync();
 
-        Assert.Equal("r_null", codes[^1]);   // NULL description is last regardless of direction (REQ-4.4)
+        Assert.Equal("r_null", codes[^1]);   // NULL description is last regardless of direction
     }
 
     [Fact]
@@ -213,7 +202,7 @@ public sealed class AdminRoleSfsTests
         protected override void OnModelCreating(ModelBuilder model)
         {
             var e = model.Entity<Role>();
-            e.ToTable("AdminRoles");
+            e.ToTable("Roles");
             e.HasKey(x => x.Id);
             e.Property(x => x.Code).HasMaxLength(64).IsRequired();
             e.Property(x => x.Name).HasMaxLength(128).IsRequired();
@@ -222,7 +211,7 @@ public sealed class AdminRoleSfsTests
             e.Property(x => x.Status).HasConversion<int>().IsRequired();
             e.Ignore(x => x.Permissions);
             e.Ignore(x => x.PermissionKeys);
-            e.Ignore(x => x.IsSuperAdminSeed);
+            e.Ignore(x => x.IsSeedAnchor);
             e.Ignore(x => x.DomainEvents);
         }
 

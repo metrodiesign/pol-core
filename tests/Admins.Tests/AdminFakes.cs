@@ -1,13 +1,13 @@
 using Admins.Application;
 using Admins.Application.MasterData;
-using Admins.Application.Permissions;
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.MasterData;
-using Admins.Domain.Permissions;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
+using Iam.Domain.Permissions;
+using Iam.Domain.Roles;
 
 namespace Admins.Tests;
 
@@ -78,45 +78,28 @@ internal sealed class FakePlatformUserSessionStore : ISessionStore
         Task.FromResult(Sessions.FirstOrDefault(s => s.Id == sessionId));
 }
 
+/// <summary>Stands in for the central iam.Roles catalog (rf2) — <see cref="Roles"/> holds
+/// <see cref="Iam.Domain.Roles.Role"/> instances directly, since the real repository now resolves/joins
+/// against that table instead of an admin-owned one. Only the assignment+resolution surface remains here;
+/// CRUD moved to Iam.Application (see Iam.Tests for the CRUD-handler fakes).</summary>
 internal sealed class FakeAdminRoleRepository : IRoleRepository
 {
     public readonly List<Role> Roles = [];
     public readonly List<RoleAssignment> Assignments = [];
-    public IReadOnlySet<string> Catalog = Keys.AllKeys;
 
-    public void Add(Role role) => Roles.Add(role);
-    public void Remove(Role role) => Roles.RemoveAll(r => r.Id == role.Id);
     public void AddAssignment(RoleAssignment a) => Assignments.Add(a);
     public void RemoveAssignment(RoleAssignment a) => Assignments.RemoveAll(x => x.Id == a.Id);
 
-    public Task<Role?> GetByCodeAsync(string code, CancellationToken ct) =>
-        Task.FromResult(Roles.FirstOrDefault(r => r.Code == code));
-    public Task<bool> CodeExistsAsync(string code, CancellationToken ct) =>
-        Task.FromResult(Roles.Any(r => r.Code == code));
-    public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) =>
-        Task.FromResult(Assignments.Count(a => a.RoleId == roleId));
-
-    public Task<PagedResult<RoleListItem>> ListAsync(PagedQuery query, CancellationToken ct)
-    {
-        var all = Roles.Select(ToItem).ToList();
-        var items = all.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList();
-        return Task.FromResult(new PagedResult<RoleListItem>(items, query.Page, query.Limit, all.Count));
-    }
-    public Task<RoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) =>
-        Task.FromResult(Roles.Where(r => r.Code == code).Select(ToItem).FirstOrDefault());
-
     public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyDictionary<string, Guid>>(Roles.Where(r => codes.Contains(r.Code)).ToDictionary(r => r.Code, r => r.Id));
+        Task.FromResult<IReadOnlyDictionary<string, Guid>>(
+            Roles.Where(r => r.Scope == Scope.Platform && r.MerchantId == null && codes.Contains(r.Code))
+                .ToDictionary(r => r.Code, r => r.Id));
     public Task<IReadOnlySet<Guid>> ListRoleIdsForAdminAsync(Guid adminId, CancellationToken ct) =>
         Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.PlatformUserId == adminId).Select(a => a.RoleId).ToHashSet());
     public Task<RoleAssignment?> GetAssignmentAsync(Guid adminId, Guid roleId, CancellationToken ct) =>
         Task.FromResult(Assignments.FirstOrDefault(a => a.PlatformUserId == adminId && a.RoleId == roleId));
     public Task<bool> AssignmentExistsAsync(Guid adminId, Guid roleId, CancellationToken ct) =>
         Task.FromResult(Assignments.Any(a => a.PlatformUserId == adminId && a.RoleId == roleId));
-
-    public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) => Task.FromResult(Catalog);
-    public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) =>
-        Task.FromResult(new PermissionCatalogResult([], []));
 
     public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid adminId, CancellationToken ct)
     {
@@ -133,9 +116,6 @@ internal sealed class FakeAdminRoleRepository : IRoleRepository
         var codes = Roles.Where(r => roleIds.Contains(r.Id)).Select(r => r.Code).OrderBy(c => c).ToList();
         return Task.FromResult<IReadOnlyList<string>>(codes);
     }
-
-    private RoleListItem ToItem(Role r) =>
-        new(r.Code, r.Name, r.Description, r.Color, r.Status, [.. r.PermissionKeys], Assignments.Count(a => a.RoleId == r.Id));
 }
 
 /// <summary>In-memory master-data store for handler tests. One flat list holds all four master types; the

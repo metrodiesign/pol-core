@@ -3,7 +3,6 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
-using Merchants.Application.Users.Permissions;
 using Merchants.Infrastructure;
 using Merchants.Infrastructure.Persistence;
 using Merchants.Infrastructure.Persistence.Users;

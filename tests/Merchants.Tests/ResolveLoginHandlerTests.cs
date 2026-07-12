@@ -1,11 +1,9 @@
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
-using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
-using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -101,21 +99,13 @@ public sealed class ResolveLoginHandlerTests
         }
 
         // Unused by ResolveLoginHandler.
-        public void Add(Role role) => throw new NotSupportedException();
-        public void Remove(Role role) => throw new NotSupportedException();
         public void AddAssignment(RoleAssignment assignment) => throw new NotSupportedException();
         public void RemoveAssignment(RoleAssignment assignment) => throw new NotSupportedException();
-        public Task<Role?> GetByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> CodeExistsAsync(string code, CancellationToken ct) => throw new NotSupportedException();
-        public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<RoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<RoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyDictionary<string, Guid>> GetActiveRoleIdsByCodesAsync(Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) => throw new NotSupportedException();
         public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
     }
 }

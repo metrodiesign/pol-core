@@ -2,7 +2,6 @@ using BuildingBlocks.Application;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
-using Merchants.Application.Users.Permissions;
 
 namespace Api.Merchants;
 

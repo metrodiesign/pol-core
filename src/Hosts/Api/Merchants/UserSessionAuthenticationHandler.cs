@@ -5,11 +5,9 @@ using Mediator;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
-using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
-using Merchants.Domain.Users.Permissions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 

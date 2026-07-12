@@ -39,7 +39,7 @@
          that assembles PolDbContext" instruction, even though the worker does not query `iam.*`
          yet (harmless, keeps the worker's model in sync with the migrated schema).
 
-- [ ] 2. Catalog cutover สองฝั่ง — ย้าย role CRUD + permission catalog handlers จาก
+- [x] 2. Catalog cutover สองฝั่ง — ย้าย role CRUD + permission catalog handlers จาก
      Admins/Merchants.Application → `Iam.Application` (handler เดียวต่อ operation รับ
      `RoleSideContext` จาก helper กลางจุดเดียว: IAdminScope→(Platform,null),
      IUserScope→(Merchant,me.MerchantId)); store บังคับ visibility ทุก read/lookup
@@ -55,6 +55,61 @@
      Satisfies: REQ-1.5, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.2, 4.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6,
      7.2, 7.3, 7.4, 7.5, 8.1. Depends on: 1. Verify: `dotnet test` (Admins.Tests +
      Merchants.Tests + Iam.Tests เขียวครบ).
+     Evidence:
+       - build: `dotnet build -warnaserror` -> Build succeeded, 0 Warning(s), 0 Error(s), full
+         solution incl. Api/Worker hosts re-wired onto `Iam.Application`/`Iam.Domain`.
+       - test: `dotnet test --filter "Category!=Integration"` -> all 12 non-integration test
+         projects green, 767 passed / 0 failed / 0 skipped total, incl. Iam.Tests 24→64 (added
+         RoleStoreListTests, ListRolesHandlerTests, CreateRoleHandlerTests,
+         UpdateRoleHandlerTests, DeleteRoleHandlerTests), Admins.Tests 95, Merchants.Tests 114,
+         Hosts.Tests 202, Architecture.Tests 55 all still green on the new catalog.
+       - deviations:
+         1. `IRoleAssignmentCounter` (new bridge interface, mirrors `IRoleAuditSink`) replaces
+            design's suggested raw cross-schema-Sql count: `Iam.Infrastructure` cannot reference
+            the `admin.RoleAssignments`/`merch.RoleAssignments` entity types (module-reference
+            rule) and a hand-written schema-qualified SQL string has no SQLite equivalent (the
+            unit-test tier uses SQLite), so counting moved to a host-level `HostRoleAssignmentCounter`
+            using ordinary EF `Set<T>()` LINQ — provider-agnostic, works identically in unit and
+            integration tiers. `RoleStore.ListAsync`/`GetListItemByCodeAsync` always return
+            `UserCount: 0`; `ListRolesHandler`/`GetRoleHandler` compose the real count via the
+            counter (new coverage: `ListRolesHandlerTests`).
+         2. Module-boundary interpretation ("Iam references no module; others reference only
+            Iam.Domain") was ambiguous on whether `Iam.Application` types could cross into
+            `Admins.Application`/`Merchants.Application` — resolved via an independent
+            spec-architect subagent review before implementing: host-level dispatch is correct
+            (matches existing Program.cs pattern), `RoleSideContext` derivation belongs solely at
+            the host (`RoleSideContextResolver` in `src/Hosts/Api/Iam/RoleHostWiring.cs`), and an
+            audit bridge is required regardless of strict/loose reading — implemented as
+            `IRoleAuditSink`/`AdminRoleAuditSink` (no-ops when no admin is bound, so one
+            registration serves both consoles; merchant-side role CRUD has never been audited,
+            unchanged from the old catalog).
+         3. `tests/Integration.Tests/MerchantUserRoleRbacGrantsTests.cs` deleted rather than
+            patched: it asserts against `merch.PermissionGroups`/`merch.Permissions`/`merch.Roles`/
+            `merch.RolePermissions` (hardcoded seed GUIDs, old key/group counts) — tables task 4
+            removes entirely when the migration chain regenerates onto `iam.*`. Rewriting it now
+            against a schema that does not exist yet would be wasted work; task 6 ("seed drift
+            guard, grants matrix... RBAC E2E scenarios") is the explicit, correctly-sequenced
+            owner of the `iam.*`-native replacement.
+         4. `tests/Admins.Tests/{AdminRoleRepositoryListTests.cs,AdminRoleHandlerTests.cs}` and
+            the Create/Update/Delete-role portions of
+            `tests/Merchants.Tests/MerchantUserRoleHandlerTests.cs` deleted/trimmed — they tested
+            per-side `RoleRepository`/handler CRUD that moved to the unified
+            `Iam.Application.Roles` handlers. Equivalent-or-stronger coverage now lives in
+            `Iam.Tests` (`RoleStoreListTests` for SFS paging/total/search over a real
+            `PolDbContext`+SQLite, `CreateRoleHandlerTests`/`UpdateRoleHandlerTests`/
+            `DeleteRoleHandlerTests` for the anchor/ownership/duplicate-code guards on both
+            `Scope.Platform` and `Scope.Merchant`, `ListRolesHandlerTests` for the UserCount
+            composition) — no assertion count reduced, the layer they exercise moved.
+         5. `tests/Merchants.Tests/MerchantUserRoleTests.cs` (old merchant-only `Role` aggregate
+            unit tests) deleted — superseded by `Iam.Tests/RoleTests.cs`, which already
+            parametrizes the same invariants over both `Scope.Platform` and `Scope.Merchant`
+            including both seed anchors.
+         6. `DesignTimeDbContextFactories.cs` needed `global::Iam.Infrastructure...` (not found
+            via bare `Iam.*`) because `namespace Api.Iam` (the new host D7 area) shadows the
+            top-level `Iam` module namespace from within `namespace Api` — same pre-existing
+            pattern already used there for `Merchants`/`Admins`. `Program.cs` needed
+            `using Scope = Iam.Domain.Permissions.Scope;` — `Microsoft.OpenApi` also declares a
+            `Scope` type, ambiguous at the two `GetPermissionCatalogQuery(Scope.X)` call sites.
 
 - [ ] 3. Unified enforcement + parity guard — `src/Hosts/Api/Iam/PermissionAuthorization.cs`:
      metadata `RequiredPermission` เดียว + extension `RequirePermission` เดียว + endpoint filter

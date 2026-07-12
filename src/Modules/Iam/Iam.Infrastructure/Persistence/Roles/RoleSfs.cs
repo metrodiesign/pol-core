@@ -1,31 +1,22 @@
 using System.Collections.Frozen;
 using System.Text.Json;
-using Admins.Domain.Roles;
 using BuildingBlocks.Application;
+using Iam.Domain.Roles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using SearchOption = BuildingBlocks.Application.SearchOption;   // disambiguate from System.IO.SearchOption
 
-namespace Admins.Infrastructure.Persistence.Roles;
+namespace Iam.Infrastructure.Persistence.Roles;
 
 /// <summary>
-/// The SFS apply pipeline for the Role list — the control-plane exemplar. Deny-by-default whitelists
-/// (immutable <see cref="FrozenDictionary{TKey,TValue}"/> / <see cref="FrozenSet{T}"/>) gate which
-/// field+operator pairs reach SQL; every predicate is a compile-checked, parameterized EF Core
-/// <c>.Where</c>/ordering, so no client string is ever interpolated into SQL. Filter values are coerced from
-/// <see cref="JsonElement"/> eagerly and guarded, so a type mismatch is a 400 (<see cref="ArgumentException"/>)
-/// rather than a 409/500 from a raw accessor. NULLS-last is emulated inline for the nullable Description
-/// column, and a mandatory default sort keeps paging deterministic.
-///
-/// Role is all string/enum columns, so this exemplar exercises the 9 operators meaningful to those
-/// columns (eq, ne, in, not_in, like, ilike, contains, is_null, is_not_null). The 5 range/numeric operators
-/// (gt, gte, lt, lte, between) are demonstrated on Products in the merchant-scoped exemplar, where numeric/date
-/// columns exist; the full 14-operator reference is doc section 4.1. (REQ-3, REQ-4, REQ-5, REQ-6, REQ-8.5, REQ-8.6)
+/// The SFS apply pipeline for the admin-side Role list (REQ-6.1) — moved from
+/// <c>Admins.Infrastructure.Persistence.Roles.RoleSfs</c> onto the unified <see cref="Role"/>. Visibility
+/// (<see cref="RoleVisibility"/>) is applied by the caller BEFORE this pipeline runs; SFS itself only
+/// filters/sorts/searches within whatever set it is handed. Same deny-by-default whitelist shape as every
+/// other SFS exemplar in this codebase (see <c>docs/reference/search-filter-sort.md</c>).
 /// </summary>
 public static class RoleSfs
 {
-    // Deny-by-default filter whitelist. Matched case-sensitively (Ordinal) so a wrong-case field is treated as
-    // absent (REQ-6.7). Each field maps to exactly the operators allowed on it (REQ-3.1).
     private static readonly FrozenDictionary<string, FilterOperator[]> FilterFields =
         new Dictionary<string, FilterOperator[]>(StringComparer.Ordinal)
         {
@@ -44,9 +35,6 @@ public static class RoleSfs
     private static readonly FrozenSet<string> SearchFields =
         new[] { "code", "name", "description" }.ToFrozenSet(StringComparer.Ordinal);
 
-    /// <summary>Applies the whitelisted filters as AND-combined parameterized predicates (REQ-3.2, REQ-3.7).
-    /// Unknown fields, disallowed operators, and empty set/range values are silently dropped (REQ-3.3, REQ-3.4,
-    /// REQ-3.6) and logged by name at debug level (REQ-8.6).</summary>
     public static IQueryable<Role> ApplyFilters(
         this IQueryable<Role> query, IReadOnlyList<FilterOption> filters, ILogger? logger = null)
     {
@@ -54,7 +42,7 @@ public static class RoleSfs
         {
             if (!FilterFields.TryGetValue(f.Field, out var allowed))
             {
-                logger?.LogDebug("SFS filter dropped: unknown field {Field}", f.Field);   // name only, never the value
+                logger?.LogDebug("SFS filter dropped: unknown field {Field}", f.Field);
                 continue;
             }
             if (!allowed.Contains(f.Operator))
@@ -110,15 +98,10 @@ public static class RoleSfs
             case ("description", FilterOperator.Contains):
             { var p = $"%{SfsLike.Escape(Str(f.Value))}%"; return q.Where(r => r.Description != null && EF.Functions.Like(r.Description, p, "\\")); }
 
-            // Reached only when a set/range value is empty (the `when` guards above failed) — silent-drop (REQ-3.6).
-            default: return q;
+            default: return q; // reached only when a set/range value is empty (the `when` guards above failed)
         }
     }
 
-    /// <summary>Orders by the whitelisted sort keys in the order given (REQ-4.2), NULLS-last on the nullable
-    /// Description column in both directions (REQ-4.4), with a mandatory deterministic default so paging is
-    /// stable when no key survives the whitelist (REQ-4.5). Sort fields map to properties via compile-checked
-    /// code — no client string reaches ORDER BY (REQ-4.6).</summary>
     public static IQueryable<Role> ApplySort(
         this IQueryable<Role> query, IReadOnlyList<SortOption> sort, ILogger? logger = null)
     {
@@ -133,13 +116,11 @@ public static class RoleSfs
             bool asc = s.Order == SortDirection.Asc;
             o = (s.Field, first: o is null) switch
             {
-                // description = nullable -> NULLS LAST: order (Description == null) first, then Description.
                 ("description", true) => asc ? query.OrderBy(r => r.Description == null).ThenBy(r => r.Description)
                                              : query.OrderBy(r => r.Description == null).ThenByDescending(r => r.Description),
                 ("description", false) => asc ? o!.ThenBy(r => r.Description == null).ThenBy(r => r.Description)
                                               : o!.ThenBy(r => r.Description == null).ThenByDescending(r => r.Description),
 
-                // code / name = non-nullable -> plain ordering.
                 ("name", true) => asc ? query.OrderBy(r => r.Name) : query.OrderByDescending(r => r.Name),
                 ("name", false) => asc ? o!.ThenBy(r => r.Name) : o!.ThenByDescending(r => r.Name),
                 ("code", true) => asc ? query.OrderBy(r => r.Code) : query.OrderByDescending(r => r.Code),
@@ -148,35 +129,28 @@ public static class RoleSfs
                 _ => o,
             };
         }
-        return o ?? query.OrderByDescending(r => r.Code);   // mandatory default — Role has no CreatedAt (REQ-4.5)
+        return o ?? query.OrderByDescending(r => r.Code); // mandatory default — Role has no CreatedAt
     }
 
-    /// <summary>Free-text search: case-insensitive substring (CI collation), OR-combined across the intersection
-    /// of requested and whitelisted fields, defaulting to all whitelisted fields (REQ-5.2, REQ-5.3). The term is
-    /// LIKE-escaped with an explicit ESCAPE clause so wildcard characters match literally (REQ-5.4); an empty
-    /// query applies no predicate (REQ-5.5).</summary>
     public static IQueryable<Role> ApplySearch(this IQueryable<Role> query, SearchOption? search)
     {
         if (search is null || string.IsNullOrWhiteSpace(search.Query)) return query;
 
         var fields = (search.Fields is { Length: > 0 } requested ? requested : SearchFields.ToArray())
-            .Where(SearchFields.Contains).ToArray();     // silent-drop non-whitelisted requested fields
+            .Where(SearchFields.Contains).ToArray();
         if (fields.Length == 0) return query;
 
         var pattern = $"%{SfsLike.Escape(search.Query.Trim())}%";
         bool code = fields.Contains("code"), name = fields.Contains("name"), description = fields.Contains("description");
 
-        // The bool flags are constants at translation time, so EF prunes the un-requested branches; the single
-        // grouped OR keeps LIKE precedence correct without an outer AND leaking in.
         return query.Where(r =>
             (code && EF.Functions.Like(r.Code, pattern, "\\")) ||
             (name && EF.Functions.Like(r.Name, pattern, "\\")) ||
             (description && r.Description != null && EF.Functions.Like(r.Description, pattern, "\\")));
     }
 
-    // Role status is always lowercase on the wire (the host has no global string-enum converter), so parse it
-    // here instead of Enum.Parse (case-sensitive on the PascalCase members). Evaluates client-side to a constant
-    // EF parameter. A bad value is a 400, not a 409/500.
+    // Role status is always lowercase on the wire; parse it here instead of Enum.Parse (case-sensitive on the
+    // PascalCase members). Evaluates client-side to a constant EF parameter. A bad value is a 400, not 409/500.
     private static RoleStatus ParseStatus(string value) => value.ToLowerInvariant() switch
     {
         "active" => RoleStatus.Active,
@@ -184,9 +158,6 @@ public static class RoleSfs
         _ => throw new ArgumentException("Invalid role status."),
     };
 
-    // Coerce a JsonElement filter value to string, guarded: a non-string kind (e.g. a JSON number) raises an
-    // ArgumentException (-> 400) instead of letting the raw JsonElement accessor surface an
-    // InvalidOperationException (-> 409) or FormatException (-> 500). (REQ-8.5)
     private static string Str(JsonElement? value)
     {
         if (value is { ValueKind: JsonValueKind.String } element && element.GetString() is { } s)

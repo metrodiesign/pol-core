@@ -1,12 +1,12 @@
 using Admins.Application;
 using Admins.Application.MasterData;
-using Admins.Application.Permissions;
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.MasterData;
-using Admins.Domain.Permissions;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
+using Iam.Domain.Permissions;
+using Iam.Domain.Roles;
 
 namespace Admins.Tests;
 
@@ -20,7 +20,7 @@ public sealed class PlatformUserQueryTests
     private static readonly Guid Actor = Guid.NewGuid();
 
     private static Role MakeRole(string code, RoleStatus status, params string[] keys) =>
-        Role.Create(code, code, null, null, status, keys, Keys.AllKeys);
+        Role.Create(code, code, null, null, status, Scope.Platform, null, keys, Keys.KeySide);
 
     // ===== REQ-2: detail =====
     [Fact]

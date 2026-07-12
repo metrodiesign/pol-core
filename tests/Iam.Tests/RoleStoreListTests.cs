@@ -1,40 +1,32 @@
 using System.Text.Json;
-using Admins.Application;
-using Admins.Application.MasterData;
-using Admins.Application.Permissions;
-using Admins.Application.Roles;
-using Admins.Application.Users;
-using Admins.Domain.MasterData;
-using Admins.Domain.Permissions;
-using Admins.Domain.Roles;
-using Admins.Domain.Users;
-using Admins.Infrastructure.Persistence;
-using Admins.Infrastructure.Persistence.MasterData;
-using Admins.Infrastructure.Persistence.Permissions;
-using Admins.Infrastructure.Persistence.Roles;
-using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
+using Iam.Application.Roles;
+using Iam.Domain.Permissions;
+using Iam.Domain.Roles;
+using Iam.Infrastructure.Persistence.Roles;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using SearchOption = BuildingBlocks.Application.SearchOption;
 
-namespace Admins.Tests;
+namespace Iam.Tests;
 
 /// <summary>
-/// The SFS-paged <c>RoleRepository.ListAsync</c> over a real <see cref="PolDbContext"/> backed by
-/// in-memory SQLite (the Admin module's EF configs are applied via <see cref="ModuleAssemblies"/>). Proves the
-/// wiring behaviours task 4 adds: a paged slice with a total counted after filter/search but before paging
-/// (REQ-2.4, REQ-2.5), and <c>UserCount</c> preserved through the materialize-then-map path (REQ-12.1).
+/// The SFS-paged <see cref="RoleStore.ListAsync"/> over a real <see cref="PolDbContext"/> backed by in-memory
+/// SQLite, moved from <c>Admins.Infrastructure.Persistence.Roles.RoleRepository</c> onto the unified store
+/// (rf2). Proves a paged slice with a total counted after filter/search but before paging (REQ-2.4/2.5).
+/// <see cref="RoleListItem.UserCount"/> composition (RoleStore always returns 0 — the caller fills it via
+/// <c>IRoleAssignmentCounter</c>, since Iam.Infrastructure cannot reference the Admins/Merchants assignment
+/// entity types) is covered separately in <c>ListRolesHandlerTests</c>.
 /// </summary>
-public sealed class AdminRoleRepositoryListTests : IDisposable
+public sealed class RoleStoreListTests : IDisposable
 {
-    private static readonly IReadOnlySet<string> NoCatalog = new HashSet<string>();
+    private static readonly IReadOnlyDictionary<string, Scope> NoCatalog = new Dictionary<string, Scope>();
     private readonly SqliteConnection _connection;
     private readonly PolDbContext _seed;
 
-    public AdminRoleRepositoryListTests()
+    public RoleStoreListTests()
     {
         _connection = new SqliteConnection("DataSource=:memory:");
         _connection.Open();
@@ -46,11 +38,11 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
         new(new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_connection).Options,
             new ModuleAssemblies([typeof(RoleSfs).Assembly]));
 
-    private RoleRepository Repo() => new(NewContext(), NullLogger<RoleRepository>.Instance);
+    private RoleStore Store() => new(NewContext(), NullLogger<RoleStore>.Instance);
 
     private static Role MakeRole(string code, string name, string? description = null,
         RoleStatus status = RoleStatus.Active) =>
-        Role.Create(code, name, description, null, status, [], NoCatalog);
+        Role.Create(code, name, description, null, status, Scope.Platform, null, [], NoCatalog);
 
     private void Seed(params Role[] roles)
     {
@@ -59,24 +51,16 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
         _seed.ChangeTracker.Clear();
     }
 
-    private void Assign(Guid roleId, int count)
-    {
-        var when = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        for (var i = 0; i < count; i++)
-            _seed.Set<RoleAssignment>().Add(RoleAssignment.Create(Guid.NewGuid(), roleId, Guid.NewGuid(), when));
-        _seed.SaveChanges();
-        _seed.ChangeTracker.Clear();
-    }
-
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    private static readonly RoleSideContext Platform = RoleSideContext.Platform();
 
     [Fact]
     public async Task Returns_a_paged_slice_with_total_across_all_matches()
     {
         Seed(MakeRole("r1", "One"), MakeRole("r2", "Two"), MakeRole("r3", "Three"), MakeRole("r4", "Four"), MakeRole("r5", "Five"));
 
-        var page = await Repo().ListAsync(
-            new ListRolesQuery { Page = 1, Limit = 2, Sort = [new SortOption("code")] }, CancellationToken.None);
+        var page = await Store().ListAsync(Platform,
+            new ListRolesQuery { Context = Platform, Page = 1, Limit = 2, Sort = [new SortOption("code")] }, CancellationToken.None);
 
         Assert.Equal(5, page.Total);
         Assert.Equal(3, page.TotalPages);
@@ -88,8 +72,8 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     {
         Seed(MakeRole("r1", "One"), MakeRole("r2", "Two"), MakeRole("r3", "Three"), MakeRole("r4", "Four"), MakeRole("r5", "Five"));
 
-        var page = await Repo().ListAsync(
-            new ListRolesQuery { Page = 2, Limit = 2, Sort = [new SortOption("code")] }, CancellationToken.None);
+        var page = await Store().ListAsync(Platform,
+            new ListRolesQuery { Context = Platform, Page = 2, Limit = 2, Sort = [new SortOption("code")] }, CancellationToken.None);
 
         Assert.Equal(new[] { "r3", "r4" }, page.Items.Select(i => i.Code));
         Assert.Equal(5, page.Total);
@@ -105,8 +89,9 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
             MakeRole("i1", "I", status: RoleStatus.Inactive),
             MakeRole("i2", "I", status: RoleStatus.Inactive));
 
-        var page = await Repo().ListAsync(new ListRolesQuery
+        var page = await Store().ListAsync(Platform, new ListRolesQuery
         {
+            Context = Platform,
             Page = 1,
             Limit = 2,
             Filters = [new FilterOption("status", FilterOperator.Equals, J("\"active\""))],
@@ -118,16 +103,13 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     }
 
     [Fact]
-    public async Task Preserves_user_count_per_role()
+    public async Task Every_item_reports_zero_user_count_the_store_defers_to_the_counter()
     {
-        var busy = MakeRole("busy", "Busy");
-        Seed(busy, MakeRole("lonely", "Lonely"));
-        Assign(busy.Id, 2);
+        Seed(MakeRole("lonely", "Lonely"));
 
-        var page = await Repo().ListAsync(new ListRolesQuery { Sort = [new SortOption("code")] }, CancellationToken.None);
+        var page = await Store().ListAsync(Platform, new ListRolesQuery { Context = Platform }, CancellationToken.None);
 
-        Assert.Equal(2, page.Items.Single(i => i.Code == "busy").UserCount);
-        Assert.Equal(0, page.Items.Single(i => i.Code == "lonely").UserCount);
+        Assert.Equal(0, page.Items.Single().UserCount);
     }
 
     [Fact]
@@ -135,11 +117,26 @@ public sealed class AdminRoleRepositoryListTests : IDisposable
     {
         Seed(MakeRole("finance_admin", "Finance"), MakeRole("support", "Support"));
 
-        var page = await Repo().ListAsync(
-            new ListRolesQuery { Search = new SearchOption("finance", ["name"]) }, CancellationToken.None);
+        var page = await Store().ListAsync(Platform,
+            new ListRolesQuery { Context = Platform, Search = new SearchOption("finance", ["name"]) }, CancellationToken.None);
 
         Assert.Equal(1, page.Total);
         Assert.Equal("finance_admin", page.Items.Single().Code);
+    }
+
+    [Fact]
+    public async Task Merchant_scope_excludes_platform_rows()
+    {
+        var merchantId = Guid.NewGuid();
+        Seed(MakeRole("plat", "Platform"));
+        var merch = Role.Create("merch", "Merch", null, null, RoleStatus.Active, Scope.Merchant, merchantId, [], NoCatalog);
+        Seed(merch);
+
+        var page = await Store().ListAsync(
+            RoleSideContext.Merchant(merchantId),
+            new ListRolesQuery { Context = RoleSideContext.Merchant(merchantId) }, CancellationToken.None);
+
+        Assert.Equal("merch", page.Items.Single().Code);
     }
 
     public void Dispose()
