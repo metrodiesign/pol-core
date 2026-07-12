@@ -1,5 +1,11 @@
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Api;
 
@@ -18,14 +24,14 @@ internal static class MerchantUserPermissionAuthorization
     {
         builder.WithMetadata(new RequiredMerchantUserPermission(permission));
         return builder.AddEndpointFilter(async (context, next) =>
-            IsAllowed(context.HttpContext.RequestServices.GetRequiredService<IMerchantUserScope>(), permission)
+            IsAllowed(context.HttpContext.RequestServices.GetRequiredService<IUserScope>(), permission)
                 ? await next(context)
                 : Results.Problem(statusCode: StatusCodes.Status403Forbidden,
                     title: "You do not have permission for this action."));
     }
 
     /// <summary>Fail-closed permission decision (REQ-17.2/F10): a bound merchant user whose effective set holds the key.</summary>
-    internal static bool IsAllowed(IMerchantUserScope scope, string permission) =>
+    internal static bool IsAllowed(IUserScope scope, string permission) =>
         scope.IsBound && scope.Current.Permissions.Contains(permission);
 }
 
@@ -37,7 +43,7 @@ internal static class MerchantUserPermissionAuthorization
 internal sealed class MerchantBoundFilter : IEndpointFilter
 {
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
-        context.HttpContext.RequestServices.GetRequiredService<IMerchantUserScope>().IsBound
+        context.HttpContext.RequestServices.GetRequiredService<IUserScope>().IsBound
             ? await next(context)
             : Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your merchant-user account is not active.");
 }
@@ -62,5 +68,5 @@ internal static class MerchantUserPermissionParity
 
     /// <summary>The gated keys that are NOT in the code-canonical catalog (REQ-15.5). Pure — unit-testable.</summary>
     internal static IReadOnlyList<string> FindUnknown(IEnumerable<string> gatedKeys) =>
-        [.. gatedKeys.Distinct(StringComparer.Ordinal).Where(p => !MerchantUserPermissions.AllKeys.Contains(p))];
+        [.. gatedKeys.Distinct(StringComparer.Ordinal).Where(p => !Keys.AllKeys.Contains(p))];
 }

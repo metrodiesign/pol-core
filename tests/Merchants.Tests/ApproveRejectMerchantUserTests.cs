@@ -1,6 +1,12 @@
 using BuildingBlocks.Application;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -88,7 +94,7 @@ public sealed class ApproveRejectMerchantUserTests
         var result = await Approve(users, "merchant_member", roles, u.Subject, audit);
 
         Assert.False(result.AlreadyActive);
-        Assert.Equal(MerchantUserStatus.Active, u.Status);
+        Assert.Equal(UserStatus.Active, u.Status);
         Assert.Equal(Merchant, u.MerchantId);
         var assignment = Assert.Single(roles.Assignments);
         Assert.Equal(member.Id, assignment.RoleId);
@@ -119,7 +125,7 @@ public sealed class ApproveRejectMerchantUserTests
 
         await Reject(users, sessions, u.Subject, audit, reason: "Incomplete tax documents");
 
-        Assert.Equal(MerchantUserStatus.Rejected, u.Status);
+        Assert.Equal(UserStatus.Rejected, u.Status);
         Assert.Equal(u.Id, sessions.RevokedUser);
         var row = Assert.Single(audit.Rows, a => a.Action == RegistrationAuditAction.Rejected && a.TargetSubject == u.Subject);
         Assert.Equal("Incomplete tax documents", row.Reason); // REQ-5.1: the rationale is recorded
@@ -138,23 +144,23 @@ public sealed class ApproveRejectMerchantUserTests
 
     // --- harness ---
 
-    private static MerchantUser Pending() => MerchantUser.Register("google-sub-" + Guid.NewGuid().ToString("N")[..6], "p@org.com", Now);
+    private static User Pending() => User.Register("google-sub-" + Guid.NewGuid().ToString("N")[..6], "p@org.com", Now);
 
-    private static Task<ApproveMerchantUserResult> Approve(
+    private static Task<ApproveResult> Approve(
         FakeUsers users, string roleCode, FakeRoles? roles = null, string subject = "google-sub", FakeAudit? audit = null) =>
         Approve(users, [roleCode], subject, audit, roles);
 
-    private static Task<ApproveMerchantUserResult> Approve(
+    private static Task<ApproveResult> Approve(
         FakeUsers users, IReadOnlyList<string> roleCodes, string subject, FakeAudit? audit = null, FakeRoles? roles = null) =>
-        new ApproveMerchantUserHandler(users, roles ?? new FakeRoles(), audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
-            .Handle(new ApproveMerchantUserCommand(subject, Merchant, roleCodes, "admin-sub", AdminId, "corr"), default).AsTask();
+        new ApproveHandler(users, roles ?? new FakeRoles(), audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
+            .Handle(new ApproveCommand(subject, Merchant, roleCodes, "admin-sub", AdminId, "corr"), default).AsTask();
 
-    private static Task<RejectMerchantUserResult> Reject(
+    private static Task<RejectResult> Reject(
         FakeUsers users, FakeSessions sessions, string subject = "google-sub", FakeAudit? audit = null, string? reason = "reason") =>
-        new RejectMerchantUserHandler(users, sessions, audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
-            .Handle(new RejectMerchantUserCommand(subject, reason, "admin-sub", "corr"), default).AsTask();
+        new RejectHandler(users, sessions, audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
+            .Handle(new RejectCommand(subject, reason, "admin-sub", "corr"), default).AsTask();
 
-    private sealed class FakeUow : IMerchantsUnitOfWork
+    private sealed class FakeUow : IUserUnitOfWork
     {
         public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> op, CancellationToken ct) => op(ct);
@@ -162,13 +168,13 @@ public sealed class ApproveRejectMerchantUserTests
 
     private sealed class FakeClock : IClock { public DateTime UtcNow => Now; }
 
-    private sealed class FakeUsers : IMerchantUserRepository
+    private sealed class FakeUsers : IUserRepository
     {
-        private readonly Dictionary<string, MerchantUser> _bySubject = [];
-        public void Seed(MerchantUser u) => _bySubject[u.Subject] = u;
-        public Task<MerchantUser?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(_bySubject.GetValueOrDefault(subject));
-        public Task<MerchantUser?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(MerchantUser account) => throw new NotSupportedException();
+        private readonly Dictionary<string, User> _bySubject = [];
+        public void Seed(User u) => _bySubject[u.Subject] = u;
+        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(_bySubject.GetValueOrDefault(subject));
+        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(User account) => throw new NotSupportedException();
     }
 
     private sealed class FakeAudit : IRegistrationAuditWriter
@@ -177,14 +183,14 @@ public sealed class ApproveRejectMerchantUserTests
         public void Append(RegistrationAudit audit) => Rows.Add(audit);
     }
 
-    private sealed class FakeSessions : IMerchantUserSessionStore
+    private sealed class FakeSessions : ISessionStore
     {
         public Guid? RevokedUser;
         public Task RevokeAllForUserAsync(Guid merchantUserId, CancellationToken ct) { RevokedUser = merchantUserId; return Task.CompletedTask; }
         // Unused.
-        public Task<MerchantUserSession?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => throw new NotSupportedException();
+        public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => throw new NotSupportedException();
         public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(MerchantUserSession session) => throw new NotSupportedException();
+        public void Add(Session session) => throw new NotSupportedException();
         public Task<int> SaveChangesAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => throw new NotSupportedException();
         public Task SlideIdleAsync(Guid id, DateTime idle, CancellationToken ct) => throw new NotSupportedException();
@@ -192,37 +198,37 @@ public sealed class ApproveRejectMerchantUserTests
         public Task<int> PruneAsync(DateTime now, CancellationToken ct) => throw new NotSupportedException();
     }
 
-    private sealed class FakeRoles : IMerchantUserRoleRepository
+    private sealed class FakeRoles : IRoleRepository
     {
-        private readonly Dictionary<string, MerchantUserRoleDefinition> _byCode = [];
-        public readonly List<MerchantUserRoleAssignment> Assignments = [];
+        private readonly Dictionary<string, Role> _byCode = [];
+        public readonly List<RoleAssignment> Assignments = [];
 
-        public MerchantUserRoleDefinition SeedActive(string code) => Seed(code, MerchantUserRoleStatus.Active);
-        public MerchantUserRoleDefinition SeedInactive(string code) => Seed(code, MerchantUserRoleStatus.Inactive);
-        private MerchantUserRoleDefinition Seed(string code, MerchantUserRoleStatus status)
+        public Role SeedActive(string code) => Seed(code, RoleStatus.Active);
+        public Role SeedInactive(string code) => Seed(code, RoleStatus.Inactive);
+        private Role Seed(string code, RoleStatus status)
         {
-            var role = MerchantUserRoleDefinition.Create(code, code, null, null, status, [], MerchantUserPermissions.AllKeys);
+            var role = Role.Create(code, code, null, null, status, [], Keys.AllKeys);
             _byCode[code] = role;
             return role;
         }
 
-        public Task<MerchantUserRoleDefinition?> GetByCodeAsync(string code, CancellationToken ct) => Task.FromResult(_byCode.GetValueOrDefault(code));
-        public void AddAssignment(MerchantUserRoleAssignment assignment) => Assignments.Add(assignment);
+        public Task<Role?> GetByCodeAsync(string code, CancellationToken ct) => Task.FromResult(_byCode.GetValueOrDefault(code));
+        public void AddAssignment(RoleAssignment assignment) => Assignments.Add(assignment);
 
         // Unused by approve/reject.
-        public void Add(MerchantUserRoleDefinition role) => throw new NotSupportedException();
-        public void Remove(MerchantUserRoleDefinition role) => throw new NotSupportedException();
-        public void RemoveAssignment(MerchantUserRoleAssignment assignment) => throw new NotSupportedException();
+        public void Add(Role role) => throw new NotSupportedException();
+        public void Remove(Role role) => throw new NotSupportedException();
+        public void RemoveAssignment(RoleAssignment assignment) => throw new NotSupportedException();
         public Task<bool> CodeExistsAsync(string code, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<MerchantUserRoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserRoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<RoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<RoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserRoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserPermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
     }

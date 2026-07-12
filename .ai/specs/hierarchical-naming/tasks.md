@@ -213,13 +213,84 @@
          `Users.User`/`Users.Session`/etc (Merchants, task 5); until then `Admins.Domain.Users.User` is the
          only type of that shape in the solution.
 
-- [ ] 5. **Merchants module: nest and de-prefix; `Merchant` stays at the root.**
+- [x] 5. **Merchants module: nest and de-prefix; `Merchant` stays at the root.**
      `MerchantUser*` -> `Merchants.Domain.Users.*` (user, session, external login, auth audit,
      registration), `MerchantUserRole*` -> `Users.Roles.*`, `MerchantUserPermission*` ->
      `Users.Permissions.*`. `Merchant`, `MerchantCode`, `MerchantStatus` and `ProvisioningAudit` stay at
      the module root — L2 forbids nesting a module inside itself. Application and Infrastructure follow.
      Satisfies: REQ-4.1-4.3, 4.7, REQ-5.1-5.4. Depends on: 3.
      Verify: `dotnet build` + `dotnet test` green.
+
+     Evidence:
+       - test: `dotnet build pol-core.slnx` -> Build succeeded, 0 Warning(s), 0 Error(s)
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> Carts.Tests 15,
+         Orders.Tests 25, Merchants.Tests 128, Checkouts.Tests 2, SharedKernel.Tests 46, Architecture.Tests
+         50 (task 1's hardened detectors still green), BuildingBlocks.Tests 65, Payments.Tests 59,
+         Admins.Tests 129, Products.Tests 25, Hosts.Tests 201 — all passed / 0 failed, identical counts to
+         task 3/4's baseline (no behavior change). `Integration.Tests` not run (needs a live SQL Server
+         container, same out-of-scope condition recorded in tasks 1/3/4).
+       - viewports: n/a — backend-only (namespace/type rename, no UI)
+       - deviations: (1) THIS is the task where the first real cross-module L6 collision lands (task 4's
+         evidence flagged it as inevitable): `Program.cs` already imports `Admins.Domain.Users`,
+         `Admins.Application.Users`, `Admins.Domain.Roles`, `Admins.Application.Roles`,
+         `Admins.Domain.Permissions` unqualified, and now needs `User`/`Session`/`SessionStatus`/
+         `SessionPolicy`/`SessionDecision`/`SessionDecisionPolicy`/`AuthAudit`/`AuthEventType`/`Role`/
+         `RoleStatus`/`RoleAssignment`/`RolePermission`/`IRoleRepository`/`RoleListItem`/`ListRolesQuery`/
+         `GetRoleQuery`/`ListPermissionsQuery`/`ISessionStore`/`IAuthAuditWriter`/`IUserRepository`/
+         `Resolution`/`SetRolesCommand`/`Keys` from Merchants too — all bare-name collisions. Rather than a
+         blanket `using Merchants.*.Users;` (which would silently ambiguate every ALREADY-WORKING bare
+         Admin reference elsewhere in this 1900+ line file, since ambiguity is file-wide once both
+         namespaces are blanket-imported), every Merchants Users-tree type Program.cs needs is imported by
+         an explicit single-type alias (`using IMerchantSessionStore = Merchants.Application.Users.
+         ISessionStore;`, `using MerchantKeys = Merchants.Domain.Users.Permissions.Keys;`, etc. — module
+         token placed after the leading `I` for interfaces, since L6's own worked examples only cover
+         concrete classes). Only the ~15 merchant-context call sites (lines ~1030-1210, plus three
+         `RequireMerchantUserPermission(Keys.*)` gates on the product/payment endpoints) were rewritten to
+         the alias; Admin's own bare usages of the same short names (its own Session/Role/Keys/etc,
+         elsewhere in the file) are untouched and still resolve via the pre-existing plain `using
+         Admins.*;` — verified by full green build (a real leftover ambiguity is a compile error, not a
+         silent pass). `CreateCommand`/`UpdateCommand`/`DeleteCommand` (Merchants role CRUD) do NOT collide
+         with Admin's `CreateRoleCommand`/`UpdateRoleCommand`/`DeleteRoleCommand` (Admin kept the `Role`
+         qualifier there, task 4's own floor-hit case) so they're imported as same-name aliases, no rename.
+         (2) Two non-mechanical Application/Infrastructure renames not literally spelled out in design.md's
+         worked examples, derived from the SAME floor rule design.md demonstrates: the three cross-cutting
+         Infrastructure seams named `IMerchants*` (`IMerchantsOutboxWriter`, `IMerchantsRegistrationUnitOfWork`,
+         `IMerchantsUnitOfWork`) don't drop to bare `IOutboxWriter`/`IUnitOfWork` (both are ALREADY bare
+         names in `BuildingBlocks.Application`, so a bare drop would be an immediate same-file collision,
+         the literal L4 floor: "a framework word already in scope") — renamed instead to
+         `IRegistrationOutboxWriter`/`IRegistrationUnitOfWork`/`IUserUnitOfWork` (the third serves both
+         Users.Roles' role-assignment writes AND Users' approve/reject writes, so it takes the broader
+         `User` qualifier, not `Registration`). Their one shared concrete class (`MerchantsRegistrationUnitOfWork`,
+         which implements both) is renamed `UserUnitOfWork` to match the broader interface. (3) `IUserScope`
+         (dissolved from `IMerchantUserScope`) stays at the Merchants.Application ROOT, not nested in Users
+         — mirrors `IAdminScope` staying at Admins.Application root in task 4 despite wrapping `User` data;
+         a per-request ambient-scope port is a cross-cutting concern, not a Users-sub-domain type (L1). Its
+         paired `Resolution` record (from `MerchantUserResolution`) DOES nest into `Users` (in
+         `ResolveLogin.cs`, alongside the primary resolve flow) — exact mirror of Admin's split between
+         `IAdminScope` (root) and `Resolution` (`Admins.Application.Users`). (4) Permission-catalog DTOs
+         (`PermissionCatalogResult`/`PermissionGroupItem`/`PermissionItem`) were extracted from
+         `RolePorts.cs` into a new `Users/Permissions/PermissionCatalog.cs` file — they conceptually belong
+         to the Permissions sub-namespace (design's own table places them there), and one namespace per
+         file is this codebase's prevailing convention; this is the one new file the task added, everything
+         else is git-mv + edit. (5) Two self-caught mistakes, fixed before this evidence was written: (a) a
+         first blind `MerchantUser -> User` sed pass over `src/Hosts`/`tests/*` corrupted config-key string
+         literals (`"MerchantUser:Oidc:ClientId"` -> `"User:Oidc:ClientId"`), OpenAPI tag/summary strings,
+         and comments — caught by inspecting the diff, reverted with `git checkout`, and redone with a
+         hand-written comment/string-aware tokenizer (skips `//`, `/* */`, `"..."`, `$"..."` literal
+         segments — only substitutes inside actual code and inside `{expr}` holes of interpolated strings)
+         so config keys, wire tags, and prose stayed byte-for-byte unchanged; re-verified after with a full
+         `git diff` scan for any `WithTags`/`WithSummary`/`Configuration[` corruption (none). (b) a mapping
+         omission (`MerchantUserPermissionConfiguration` has no listed target) left one EF config class
+         unrenamed after the first pass — caught by grep before the build attempt and fixed to
+         `PermissionConfiguration`, matching its siblings. (6) Following task 4's own precedent (verified by
+         inspecting task 4's commit diff before starting): Host-layer and test-layer file/class names that
+         happen to carry `MerchantUser*` (`MerchantUserLoginService.cs`, `MerchantUserSessionAuthenticationHandler`,
+         wire DTOs like `MerchantUserRoleResponse`, `GetMerchant`/`ProvisionMerchant` Application
+         sub-namespaces) are OUT of this task's scope — task 7 organizes the API host by area and is where
+         those get renamed/reprefixed; renaming them now would be a second, uncoordinated pass over files
+         task 7 already owns. Property/field names (`MerchantUserId`, `ActingMerchantId`, `AdminId`, …) are
+         also unchanged throughout — the naming law governs type names, not member names (matches task 4's
+         exact precedent: `Resolution.AdminId` kept its full name after `PlatformUser` dissolved to `User`).
 
 - [ ] 6. **Data-plane modules: `Carts`, `Checkouts`, `Payments`, `Orders`, `Products`.**
      `CartItem` -> `Carts.Domain.Items.Item`. `PspConnection`/`PspCode` -> `Payments.Domain.Psp.*`.

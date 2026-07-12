@@ -44,6 +44,29 @@ using Products.Application;
 using Products.Infrastructure;
 using Merchants.Application.GetMerchant;
 using Merchants.Application.ProvisionMerchant;
+// L6 (hierarchical-naming): Admins.*.Users/.Roles and Merchants.*.Users/.Roles/.Permissions now share bare names
+// (User, Session, Role, RoleStatus, IRoleRepository, Keys, ...). This host file is composition-root-neutral and
+// needs both planes, so every colliding name is imported by explicit alias rather than a blanket `using` — a
+// module never aliases its own types (L6), but this file is neither module's own.
+using PhotoValidation = Merchants.Application.Users.PhotoValidation;
+using ApproveCommand = Merchants.Application.Users.ApproveCommand;
+using RejectCommand = Merchants.Application.Users.RejectCommand;
+using SubmitRegistrationCommand = Merchants.Application.Users.SubmitRegistrationCommand;
+using CreateCommand = Merchants.Application.Users.Roles.CreateCommand;
+using UpdateCommand = Merchants.Application.Users.Roles.UpdateCommand;
+using DeleteCommand = Merchants.Application.Users.Roles.DeleteCommand;
+using IMerchantSessionStore = Merchants.Application.Users.ISessionStore;
+using IMerchantAuthAuditWriter = Merchants.Application.Users.IAuthAuditWriter;
+using IMerchantRoleRepository = Merchants.Application.Users.Roles.IRoleRepository;
+using MerchantRoleListItem = Merchants.Application.Users.Roles.RoleListItem;
+using MerchantListPermissionsQuery = Merchants.Application.Users.Roles.ListPermissionsQuery;
+using MerchantListRolesQuery = Merchants.Application.Users.Roles.ListRolesQuery;
+using MerchantGetRoleQuery = Merchants.Application.Users.Roles.GetRoleQuery;
+using MerchantSetRolesCommand = Merchants.Application.Users.SetRolesCommand;
+using MerchantAuthAudit = Merchants.Domain.Users.AuthAudit;
+using MerchantAuthEventType = Merchants.Domain.Users.AuthEventType;
+using MerchantRoleStatus = Merchants.Domain.Users.Roles.RoleStatus;
+using MerchantKeys = Merchants.Domain.Users.Permissions.Keys;
 using Api;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -496,7 +519,7 @@ var createProduct = api.MapPost("/products", async (
         new CreateProductCommand(actor.MerchantId, body.Name, body.Price), ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
-createProduct.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.ProductCreate)
+createProduct.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.ProductCreate)
     .WithTags("Products")
     .WithName("CreateProduct")
     .WithSummary("Create a product")
@@ -664,7 +687,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
         body.OrderId, actor.MerchantId, body.Amount, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
-createPaymentSession.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.PaymentCreate)
+createPaymentSession.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.PaymentCreate)
     .WithTags("Payments")
     .WithName("CreatePaymentSession")
     .WithSummary("Create a payment session")
@@ -685,7 +708,7 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 });
-startRedirect.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.PaymentRedirect)
+startRedirect.RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.PaymentRedirect)
     .WithTags("Payments")
     .WithName("StartPaymentRedirect")
     .WithSummary("Start the PSP redirect")
@@ -1012,7 +1035,7 @@ var merchantUsers = api.MapGroup("/merchant-users")
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
 // presented cookie identifies the family.
 merchantUsers.MapPost("/auth/logout", async (
-    HttpContext http, IMerchantUserSessionStore sessions, MerchantUserSessionCookies cookies,
+    HttpContext http, IMerchantSessionStore sessions, MerchantUserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var token = cookies.ReadSessionToken(http);
@@ -1038,7 +1061,7 @@ merchantUsers.MapPost("/auth/logout", async (
 
 // Logout-all = revoke EVERY session of this merchant-user across all devices (REQ-12.2).
 merchantUsers.MapPost("/auth/logout-all", async (
-    HttpContext http, IMerchantUserScope scope, IMerchantUserSessionStore sessions, MerchantUserSessionCookies cookies,
+    HttpContext http, IUserScope scope, IMerchantSessionStore sessions, MerchantUserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
     var userId = scope.Current.MerchantUserId;
@@ -1057,7 +1080,7 @@ merchantUsers.MapPost("/auth/logout-all", async (
 
 // The merchant-user SPA reads its own resolved identity (REQ-17.5): merchantUserId/email/merchantId + active role codes +
 // the effective permission set, all from the per-request IMerchantUserScope. A merchant-Bearer caller binds no scope -> 403.
-merchantUsers.MapGet("/me", async (IMerchantUserScope scope, IMerchantUserRoleRepository roles, CancellationToken ct) =>
+merchantUsers.MapGet("/me", async (IUserScope scope, IMerchantRoleRepository roles, CancellationToken ct) =>
 {
     if (!scope.IsBound)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Your merchant-user account is not active.");
@@ -1076,21 +1099,21 @@ merchantUsers.MapGet("/me", async (IMerchantUserScope scope, IMerchantUserRoleRe
 // --- MerchantUser Role RBAC (REQ-15/16) ---
 // Reads need only an authenticated merchant-user (REQ-15.4/16); role mutations gate on merchant-user.roles.manage and the
 // assignment gates on merchant-user.user.roles (S8). status crosses the wire as "active"/"inactive" via explicit projection.
-static MerchantUserRoleResponse MerchantUserRoleToWire(MerchantUserRoleListItem r) => new(
+static MerchantUserRoleResponse MerchantUserRoleToWire(MerchantRoleListItem r) => new(
     r.Code, r.Name, r.Description, r.Color,
-    r.Status == MerchantUserRoleStatus.Active ? "active" : "inactive",
+    r.Status == MerchantRoleStatus.Active ? "active" : "inactive",
     r.PermissionKeys, r.UserCount);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active.
-static MerchantUserRoleStatus ParseMerchantUserRoleStatus(string? status) => status?.ToLowerInvariant() switch
+static MerchantRoleStatus ParseMerchantUserRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
-    "active" => MerchantUserRoleStatus.Active,
-    "inactive" => MerchantUserRoleStatus.Inactive,
+    "active" => MerchantRoleStatus.Active,
+    "inactive" => MerchantRoleStatus.Inactive,
     _ => throw new ArgumentException($"Invalid role status '{status}'. Expected 'active' or 'inactive'."),
 };
 
 merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
 {
-    var catalog = await mediator.Send(new ListMerchantUserPermissionsQuery(), ct);
+    var catalog = await mediator.Send(new MerchantListPermissionsQuery(), ct);
     return Results.Ok(new MerchantUserPermissionCatalogResponse(
         catalog.Groups.Select(g => new MerchantUserPermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
         catalog.Permissions.Select(p => new MerchantUserPermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
@@ -1103,7 +1126,7 @@ merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToke
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 merchantUsers.MapGet("/roles", async (IMediator mediator, CancellationToken ct) =>
-    Results.Ok((await mediator.Send(new ListMerchantUserRolesQuery(), ct)).Select(MerchantUserRoleToWire)))
+    Results.Ok((await mediator.Send(new MerchantListRolesQuery(), ct)).Select(MerchantUserRoleToWire)))
     .RequireAuthorization("merchant-user")
     .WithTags("MerchantUser Roles")
     .WithName("ListMerchantUserRoles")
@@ -1114,7 +1137,7 @@ merchantUsers.MapGet("/roles", async (IMediator mediator, CancellationToken ct) 
 
 merchantUsers.MapGet("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
 {
-    var role = await mediator.Send(new GetMerchantUserRoleQuery(code), ct);
+    var role = await mediator.Send(new MerchantGetRoleQuery(code), ct);
     return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(MerchantUserRoleToWire(role));
 }).RequireAuthorization("merchant-user")
     .WithTags("MerchantUser Roles")
@@ -1127,11 +1150,11 @@ merchantUsers.MapGet("/roles/{code}", async (string code, IMediator mediator, Ca
 
 merchantUsers.MapPost("/roles", async (CreateMerchantUserRoleRequest body, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new CreateMerchantUserRoleCommand(
+    var result = await mediator.Send(new CreateCommand(
         body.Code ?? "", body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
     return Results.Created($"/api/v1/merchant-users/roles/{result.Code}", MerchantUserRoleToWire(result));
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("CreateMerchantUserRole")
     .WithSummary("Create a merchant-user role")
@@ -1144,11 +1167,11 @@ merchantUsers.MapPost("/roles", async (CreateMerchantUserRoleRequest body, IMedi
 
 merchantUsers.MapPut("/roles/{code}", async (string code, UpdateMerchantUserRoleRequest body, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new UpdateMerchantUserRoleCommand(
+    var result = await mediator.Send(new UpdateCommand(
         code, body.Name ?? "", body.Description, body.Color, ParseMerchantUserRoleStatus(body.Status),
         body.Permissions ?? []), ct);
     return Results.Ok(MerchantUserRoleToWire(result));
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("UpdateMerchantUserRole")
     .WithSummary("Update a merchant-user role")
@@ -1161,9 +1184,9 @@ merchantUsers.MapPut("/roles/{code}", async (string code, UpdateMerchantUserRole
 
 merchantUsers.MapDelete("/roles/{code}", async (string code, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new DeleteMerchantUserRoleCommand(code), ct);
+    await mediator.Send(new DeleteCommand(code), ct);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.RolesManage)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.RolesManage)
     .WithTags("MerchantUser Roles")
     .WithName("DeleteMerchantUserRole")
     .WithSummary("Delete a merchant-user role")
@@ -1176,12 +1199,12 @@ merchantUsers.MapDelete("/roles/{code}", async (string code, IMediator mediator,
 // Set another merchant-user's roles to exactly the given set, within the acting merchant-user's merchant (REQ-16.3). Unknown
 // role code -> 400; a target outside the acting merchant -> 404 (no existence leak).
 merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
-    Guid merchantUserId, SetMerchantUserRolesRequest body, IMerchantUserScope scope, IMediator mediator, CancellationToken ct) =>
+    Guid merchantUserId, SetMerchantUserRolesRequest body, IUserScope scope, IMediator mediator, CancellationToken ct) =>
 {
     var me = scope.Current;
-    await mediator.Send(new SetMerchantUserRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
+    await mediator.Send(new MerchantSetRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
     return Results.NoContent();
-}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantUserPermissions.UserRoles)
+}).RequireAuthorization("merchant-user").RequireMerchantUserPermission(MerchantKeys.UserRoles)
     .WithTags("MerchantUser Roles")
     .WithName("SetMerchantUserUserRoles")
     .WithSummary("Set a merchant-user's roles")
@@ -1211,7 +1234,7 @@ admin.MapPost("/merchant-users/{subject}/approve", async (
     if (!string.Equals(merchant.Status, "Active", StringComparison.OrdinalIgnoreCase))
         return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The selected merchant is not active.");
 
-    var result = await mediator.Send(new ApproveMerchantUserCommand(
+    var result = await mediator.Send(new ApproveCommand(
         subject, merchant.Id, body.RoleCodes ?? [],
         http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(new ApproveMerchantUserResponse(result.MerchantUserId, result.Status.ToString(), result.AlreadyActive));
@@ -1230,7 +1253,7 @@ admin.MapPost("/merchant-users/{subject}/approve", async (
 admin.MapPost("/merchant-users/{subject}/reject", async (
     string subject, RejectMerchantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new RejectMerchantUserCommand(
+    var result = await mediator.Send(new RejectCommand(
         subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
     return Results.Ok(new RejectMerchantUserResponse(result.MerchantUserId, result.Status.ToString()));
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserReject)

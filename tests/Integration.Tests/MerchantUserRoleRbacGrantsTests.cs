@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
-using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Permissions;
 
 namespace Integration.Tests;
 
@@ -47,8 +48,8 @@ public sealed class MerchantUserRoleRbacGrantsTests
         }
 
         // The drift guard: the seeded rows are exactly MerchantUserPermissions.AllKeys (REQ-15.2/15.5).
-        Assert.True(dbKeys.SetEquals(MerchantUserPermissions.AllKeys),
-            $"catalog drift: db=[{string.Join(",", dbKeys.Order())}] code=[{string.Join(",", MerchantUserPermissions.AllKeys.Order())}]");
+        Assert.True(dbKeys.SetEquals(Keys.AllKeys),
+            $"catalog drift: db=[{string.Join(",", dbKeys.Order())}] code=[{string.Join(",", Keys.AllKeys.Order())}]");
     }
 
     [Fact]

@@ -1,5 +1,8 @@
 using BuildingBlocks.Application;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 
 namespace Api;
 
@@ -34,7 +37,7 @@ internal sealed class MerchantUserSessionPruneService : BackgroundService
                 try
                 {
                     using var scope = _scopeFactory.CreateScope();
-                    var store = scope.ServiceProvider.GetRequiredService<IMerchantUserSessionStore>();
+                    var store = scope.ServiceProvider.GetRequiredService<ISessionStore>();
                     var removed = await store.PruneAsync(_clock.UtcNow, stoppingToken);
                     if (removed > 0)
                         _logger.LogInformation("Pruned {Count} merchant-user sessions past absolute expiry.", removed);

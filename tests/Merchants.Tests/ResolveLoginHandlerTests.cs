@@ -1,5 +1,11 @@
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -19,7 +25,7 @@ public sealed class ResolveLoginHandlerTests
     public async Task Unknown_subject_is_NotFound_never_self_provisioned()
     {
         var result = await Handle(account: null);
-        Assert.Equal(MerchantUserLoginOutcome.NotFound, result.Outcome);
+        Assert.Equal(LoginOutcome.NotFound, result.Outcome);
         Assert.Null(result.Resolution);
     }
 
@@ -27,7 +33,7 @@ public sealed class ResolveLoginHandlerTests
     public async Task Pending_user_maps_to_PendingApproval()
     {
         var result = await Handle(Pending());
-        Assert.Equal(MerchantUserLoginOutcome.PendingApproval, result.Outcome);
+        Assert.Equal(LoginOutcome.PendingApproval, result.Outcome);
         Assert.Null(result.Resolution);
     }
 
@@ -37,7 +43,7 @@ public sealed class ResolveLoginHandlerTests
         var user = Pending();
         user.Reject(Now);
         var result = await Handle(user);
-        Assert.Equal(MerchantUserLoginOutcome.Rejected, result.Outcome);
+        Assert.Equal(LoginOutcome.Rejected, result.Outcome);
     }
 
     [Fact]
@@ -47,7 +53,7 @@ public sealed class ResolveLoginHandlerTests
         account.Approve(MerchantId, Now);
         account.Suspend(Now);
         var result = await Handle(account);
-        Assert.Equal(MerchantUserLoginOutcome.Suspended, result.Outcome);
+        Assert.Equal(LoginOutcome.Suspended, result.Outcome);
         Assert.Null(result.Resolution);
     }
 
@@ -60,8 +66,8 @@ public sealed class ResolveLoginHandlerTests
 
         var result = await Handle(account, roles);
 
-        Assert.Equal(MerchantUserLoginOutcome.Active, result.Outcome);
-        var resolution = Assert.IsType<MerchantUserResolution>(result.Resolution);
+        Assert.Equal(LoginOutcome.Active, result.Outcome);
+        var resolution = Assert.IsType<Resolution>(result.Resolution);
         Assert.Equal(account.Id, resolution.MerchantUserId);
         Assert.Equal(MerchantId, resolution.MerchantId);
         Assert.Equal(account.Email, resolution.Email);
@@ -70,20 +76,20 @@ public sealed class ResolveLoginHandlerTests
         Assert.Equal((account.Id, MerchantId), roles.LastQuery);
     }
 
-    private static MerchantUser Pending() => MerchantUser.Register("google-sub", "p@org.com", Now);
+    private static User Pending() => User.Register("google-sub", "p@org.com", Now);
 
-    private static Task<MerchantUserLoginResult> Handle(MerchantUser? account, FakeRoles? roles = null) =>
+    private static Task<LoginResult> Handle(User? account, FakeRoles? roles = null) =>
         new ResolveLoginHandler(new FakeAccounts(account), roles ?? new FakeRoles())
             .Handle(new ResolveLoginQuery("google-sub"), default).AsTask();
 
-    private sealed class FakeAccounts(MerchantUser? account) : IMerchantUserRepository
+    private sealed class FakeAccounts(User? account) : IUserRepository
     {
-        public Task<MerchantUser?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(account);
-        public Task<MerchantUser?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(MerchantUser a) => throw new NotSupportedException();
+        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(account);
+        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(User a) => throw new NotSupportedException();
     }
 
-    private sealed class FakeRoles(params string[] permissions) : IMerchantUserRoleRepository
+    private sealed class FakeRoles(params string[] permissions) : IRoleRepository
     {
         private readonly IReadOnlySet<string> _permissions = permissions.ToHashSet(StringComparer.Ordinal);
         public (Guid User, Guid Merchant)? LastQuery { get; private set; }
@@ -95,21 +101,21 @@ public sealed class ResolveLoginHandlerTests
         }
 
         // Unused by ResolveLoginHandler.
-        public void Add(MerchantUserRoleDefinition role) => throw new NotSupportedException();
-        public void Remove(MerchantUserRoleDefinition role) => throw new NotSupportedException();
-        public void AddAssignment(MerchantUserRoleAssignment assignment) => throw new NotSupportedException();
-        public void RemoveAssignment(MerchantUserRoleAssignment assignment) => throw new NotSupportedException();
-        public Task<MerchantUserRoleDefinition?> GetByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
+        public void Add(Role role) => throw new NotSupportedException();
+        public void Remove(Role role) => throw new NotSupportedException();
+        public void AddAssignment(RoleAssignment assignment) => throw new NotSupportedException();
+        public void RemoveAssignment(RoleAssignment assignment) => throw new NotSupportedException();
+        public Task<Role?> GetByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> CodeExistsAsync(string code, CancellationToken ct) => throw new NotSupportedException();
         public Task<int> CountAssignmentsForRoleAsync(Guid roleId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<IReadOnlyList<MerchantUserRoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserRoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<RoleListItem>> ListAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<RoleListItem?> GetListItemByCodeAsync(string code, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserRoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<string>> ListCatalogKeysAsync(CancellationToken ct) => throw new NotSupportedException();
-        public Task<MerchantUserPermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<PermissionCatalogResult> ListCatalogAsync(CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
     }
 }

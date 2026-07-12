@@ -1,8 +1,13 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Infrastructure;
 using Merchants.Infrastructure.Persistence;
+using Merchants.Infrastructure.Persistence.Users;
+using Merchants.Infrastructure.Persistence.Users.Roles;
 
 namespace Api;
 
@@ -23,12 +28,12 @@ internal static class MerchantsHostWiring
 
         // Registration realm on the keyed pol_admin context (REQ-19.2) — one shared Scoped instance = one tx.
         // No assignment repository: MerchantUser.MerchantId absorbs the former separate assignment edge (REQ-2.3).
-        services.AddScoped<IMerchantUserRepository>(sp => new MerchantUserRepository(Admin(sp)));
+        services.AddScoped<IUserRepository>(sp => new UserRepository(Admin(sp)));
         services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Admin(sp)));
         services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Admin(sp)));
-        services.AddScoped<IMerchantsOutboxWriter>(sp => new MerchantsOutboxWriter(Admin(sp), sp.GetRequiredService<IClock>()));
-        services.AddScoped<IMerchantsRegistrationUnitOfWork>(sp => new MerchantsRegistrationUnitOfWork(Admin(sp)));
-        services.AddScoped<IMerchantsUnitOfWork>(sp => new MerchantsRegistrationUnitOfWork(Admin(sp)));
+        services.AddScoped<IRegistrationOutboxWriter>(sp => new RegistrationOutboxWriter(Admin(sp), sp.GetRequiredService<IClock>()));
+        services.AddScoped<IRegistrationUnitOfWork>(sp => new UserUnitOfWork(Admin(sp)));
+        services.AddScoped<IUserUnitOfWork>(sp => new UserUnitOfWork(Admin(sp)));
         // (The notice writer + a default photo store are registered by AddMerchantsModule on the default context —
         // the Admin-side consumer never runs in the API. Here we only override the WRITE seams onto pol_admin.)
 
@@ -37,16 +42,16 @@ internal static class MerchantsHostWiring
         // the effective permission set; the session store + auth audit persist control-plane rows pol_app has no
         // grant on. The role repo is OVERRIDDEN here onto pol_admin (AddMerchantsModule binds the default context
         // for worker DI). The cookie service is stateless (singleton).
-        services.AddScoped<IMerchantUserRoleRepository>(sp => new MerchantUserRoleRepository(Admin(sp)));
-        services.AddScoped<IMerchantUserSessionStore>(sp => new MerchantUserSessionStore(Admin(sp)));
-        services.AddScoped<IMerchantAuthAuditWriter>(sp => new MerchantAuthAuditWriter(Admin(sp)));
+        services.AddScoped<IRoleRepository>(sp => new RoleRepository(Admin(sp)));
+        services.AddScoped<ISessionStore>(sp => new SessionStore(Admin(sp)));
+        services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(Admin(sp)));
         services.AddSingleton<MerchantUserSessionCookies>();
 
         // Per-request merchant-user scope (REQ-17.1): the session handler binds the concrete MerchantUserScope;
         // endpoints read IMerchantUserScope — the SAME scoped instance. RequireMerchantUserPermission +
         // /merchant-users/me consume it.
         services.AddScoped<MerchantUserScope>();
-        services.AddScoped<IMerchantUserScope>(sp => sp.GetRequiredService<MerchantUserScope>());
+        services.AddScoped<IUserScope>(sp => sp.GetRequiredService<MerchantUserScope>());
 
         // Photo store + ticket protector (host-only concerns).
         services.AddSingleton<IPhotoStore>(sp =>

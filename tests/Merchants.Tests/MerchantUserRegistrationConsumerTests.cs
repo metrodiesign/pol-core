@@ -1,7 +1,13 @@
 using BuildingBlocks.Application;
 using Contracts;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -20,7 +26,7 @@ public sealed class MerchantUserRegistrationConsumerTests
     public async Task A_first_event_records_a_notice()
     {
         var notices = new FakeNotices();
-        var consumer = new MerchantUserRegistrationConsumer(notices, new FakeClock(Now));
+        var consumer = new RegistrationConsumer(notices, new FakeClock(Now));
 
         await consumer.Handle(Event(), default);
 
@@ -35,7 +41,7 @@ public sealed class MerchantUserRegistrationConsumerTests
     {
         var notices = new FakeNotices();
         notices.SeedExisting(UserId);
-        var consumer = new MerchantUserRegistrationConsumer(notices, new FakeClock(Now));
+        var consumer = new RegistrationConsumer(notices, new FakeClock(Now));
 
         await consumer.Handle(Event(), default);
 
@@ -47,7 +53,7 @@ public sealed class MerchantUserRegistrationConsumerTests
     public async Task A_concurrent_unique_violation_is_swallowed_not_thrown()
     {
         var notices = new FakeNotices { FailNextSaveAsConflict = true };
-        var consumer = new MerchantUserRegistrationConsumer(notices, new FakeClock(Now));
+        var consumer = new RegistrationConsumer(notices, new FakeClock(Now));
 
         // Exists() returned false (race), the insert lost the unique-index race -> TrySave returns false, no throw.
         await consumer.Handle(Event(), default);

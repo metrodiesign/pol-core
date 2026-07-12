@@ -3,7 +3,13 @@ using System.Text.Encodings.Web;
 using BuildingBlocks.Application;
 using Mediator;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
@@ -26,8 +32,8 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
 {
     public const string SchemeName = "MerchantUserSession";
 
-    private readonly IMerchantUserSessionStore _sessions;
-    private readonly IMerchantAuthAuditWriter _audit;
+    private readonly ISessionStore _sessions;
+    private readonly IAuthAuditWriter _audit;
     private readonly MerchantUserSessionCookies _cookies;
     private readonly IMerchantUserSessionResolver _resolver;
     private readonly MerchantUserScope _scope;
@@ -38,8 +44,8 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
-        IMerchantUserSessionStore sessions,
-        IMerchantAuthAuditWriter audit,
+        ISessionStore sessions,
+        IAuthAuditWriter audit,
         MerchantUserSessionCookies cookies,
         IMerchantUserSessionResolver resolver,
         MerchantUserScope scope,
@@ -56,7 +62,7 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
         _options = sessionOptions.Value;
     }
 
-    private MerchantUserSessionPolicy Policy => new(
+    private SessionPolicy Policy => new(
         TimeSpan.FromMinutes(_options.IdleMinutes),
         TimeSpan.FromHours(_options.AbsoluteHours),
         TimeSpan.FromMinutes(_options.RotationMinutes),
@@ -76,31 +82,31 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
         var now = _clock.UtcNow;
         var policy = Policy;
 
-        var familyActiveId = session.Status == MerchantUserSessionStatus.Superseded
+        var familyActiveId = session.Status == SessionStatus.Superseded
             ? await _sessions.GetFamilyActiveSessionIdAsync(session.FamilyId, ct)
             : null;
 
-        switch (MerchantUserSessionDecisionPolicy.Decide(session, familyActiveId, now, policy))
+        switch (SessionDecisionPolicy.Decide(session, familyActiveId, now, policy))
         {
-            case MerchantUserSessionDecision.Reject:
+            case SessionDecision.Reject:
                 return AuthenticateResult.Fail("Session is revoked or expired."); // 401 (REQ-11.3/11.4)
 
-            case MerchantUserSessionDecision.ReuseRevokeFamily:
+            case SessionDecision.ReuseRevokeFamily:
                 await _sessions.RevokeFamilyAsync(session.FamilyId, ct);
-                _audit.Append(MerchantAuthAudit.For(MerchantAuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
+                _audit.Append(AuthAudit.For(AuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
                     session.MerchantUserId, reason: "reuse-detected"));
                 await _audit.SaveChangesAsync(ct);
                 return AuthenticateResult.Fail("Session reuse detected."); // 401, family killed (REQ-11.3)
 
-            case MerchantUserSessionDecision.ServeActive:
-            case MerchantUserSessionDecision.ServeUnderGrace:
+            case SessionDecision.ServeActive:
+            case SessionDecision.ServeUnderGrace:
             default:
                 break;
         }
 
         // Per-request READ-ONLY resolution (REQ-12.4/17.1): a suspend/reject/role-change takes effect within one request.
         var resolved = await _resolver.ResolveByIdAsync(session.MerchantUserId, ct);
-        if (resolved.Outcome != MerchantUserByIdOutcome.Resolved || resolved.Resolution is null)
+        if (resolved.Outcome != ByIdOutcome.Resolved || resolved.Resolution is null)
             return AuthenticateResult.Fail("Merchant user is not active or no longer exists."); // suspend -> next request 401
 
         var resolution = resolved.Resolution;
@@ -118,7 +124,7 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
         var principal = new ClaimsPrincipal(identity);
 
         // Rotation + idle-slide apply only to a live Active session (a grace predecessor is already superseded).
-        if (session.Status == MerchantUserSessionStatus.Active)
+        if (session.Status == SessionStatus.Active)
         {
             if (now - session.IssuedAt >= policy.Rotation)
                 await TryRotateAsync(session, now, policy, ct);
@@ -129,7 +135,7 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 
-    private async Task TryRotateAsync(MerchantUserSession session, DateTime now, MerchantUserSessionPolicy policy, CancellationToken ct)
+    private async Task TryRotateAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
         var newToken = MerchantUserTokens.NewOpaqueToken();
         var csrfToken = MerchantUserTokens.NewOpaqueToken();
@@ -141,12 +147,12 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
             return;
 
         _sessions.Add(successor);
-        _audit.Append(MerchantAuthAudit.For(MerchantAuthEventType.Rotated, Context.TraceIdentifier, now, session.MerchantUserId));
+        _audit.Append(AuthAudit.For(AuthEventType.Rotated, Context.TraceIdentifier, now, session.MerchantUserId));
         await _sessions.SaveChangesAsync(ct);
         _cookies.Write(Context, newToken, csrfToken); // safe: UseAuthentication runs before the response body
     }
 
-    private async Task MaybeSlideIdleAsync(MerchantUserSession session, DateTime now, MerchantUserSessionPolicy policy, CancellationToken ct)
+    private async Task MaybeSlideIdleAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
         // Lazy: persist at most ~once a minute (REQ-10.4), bounded by the absolute expiry.
         var lastSlide = session.IdleExpiresAt - policy.Idle;
@@ -164,26 +170,26 @@ internal sealed class MerchantUserSessionAuthenticationHandler : AuthenticationH
 /// <see cref="IMerchantUserCallbackResolver"/>).</summary>
 internal interface IMerchantUserSessionResolver
 {
-    Task<MerchantUserByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken cancellationToken);
+    Task<ByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken cancellationToken);
 }
 
 internal sealed class MerchantUserSessionResolver(IMediator mediator) : IMerchantUserSessionResolver
 {
-    public Task<MerchantUserByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
-        mediator.Send(new ResolveMerchantUserByIdQuery(merchantUserId), cancellationToken).AsTask();
+    public Task<ByIdResult> ResolveByIdAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
+        mediator.Send(new ResolveByIdQuery(merchantUserId), cancellationToken).AsTask();
 }
 
 /// <summary>Per-request holder of the resolved merchant user (REQ-17.1). The merchant-user session authentication
 /// handler calls <see cref="Set"/> once per request; readers consume <see cref="IMerchantUserScope"/>. Fail-closed:
 /// an unauthenticated caller binds nothing, so <c>RequireMerchantUserPermission</c> denies it 403 (F10).</summary>
-internal sealed class MerchantUserScope : IMerchantUserScope
+internal sealed class MerchantUserScope : IUserScope
 {
-    private MerchantUserResolution? _current;
+    private Resolution? _current;
 
     public bool IsBound => _current is not null;
-    public MerchantUserResolution Current => _current ?? throw new InvalidOperationException("No merchant user is bound to this request.");
+    public Resolution Current => _current ?? throw new InvalidOperationException("No merchant user is bound to this request.");
 
-    public void Set(MerchantUserResolution resolution) => _current = resolution;
+    public void Set(Resolution resolution) => _current = resolution;
 }
 
 internal static class MerchantUserSessionSchemeRegistration

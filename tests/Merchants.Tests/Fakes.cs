@@ -2,7 +2,13 @@ using BuildingBlocks.Application;
 using Payments.Application.Ports;
 using Payments.Domain;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 

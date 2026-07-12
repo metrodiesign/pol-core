@@ -1,4 +1,7 @@
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
@@ -11,14 +14,14 @@ public sealed class MerchantUserTests
     private static readonly DateTime Now = new(2026, 6, 25, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Guid MerchantId = Guid.Parse("d2222222-2222-2222-2222-222222222222");
 
-    private static MerchantUser NewPending() => MerchantUser.Register("g-sub-1", "p@org.com", Now);
+    private static User NewPending() => User.Register("g-sub-1", "p@org.com", Now);
 
     [Fact]
     public void Register_creates_a_pending_account()
     {
         var account = NewPending();
 
-        Assert.Equal(MerchantUserStatus.PendingApproval, account.Status);
+        Assert.Equal(UserStatus.PendingApproval, account.Status);
         Assert.Equal("g-sub-1", account.Subject);
         Assert.Equal("p@org.com", account.Email);
         Assert.Null(account.MerchantId);
@@ -29,13 +32,13 @@ public sealed class MerchantUserTests
     [InlineData("")]
     [InlineData("   ")]
     public void Register_rejects_a_blank_subject(string? subject) =>
-        Assert.ThrowsAny<ArgumentException>(() => MerchantUser.Register(subject!, "p@org.com", Now));
+        Assert.ThrowsAny<ArgumentException>(() => User.Register(subject!, "p@org.com", Now));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     public void Register_rejects_a_blank_email(string? email) =>
-        Assert.ThrowsAny<ArgumentException>(() => MerchantUser.Register("g-sub-1", email!, Now));
+        Assert.ThrowsAny<ArgumentException>(() => User.Register("g-sub-1", email!, Now));
 
     // --- Approve (PendingApproval -> Active) ---
 
@@ -46,7 +49,7 @@ public sealed class MerchantUserTests
 
         account.Approve(MerchantId, Now);
 
-        Assert.Equal(MerchantUserStatus.Active, account.Status);
+        Assert.Equal(UserStatus.Active, account.Status);
         Assert.Equal(MerchantId, account.MerchantId);
     }
 
@@ -62,7 +65,7 @@ public sealed class MerchantUserTests
 
         account.Approve(MerchantId, Now); // REQ-6.4 — re-approving succeeds with no change
 
-        Assert.Equal(MerchantUserStatus.Active, account.Status);
+        Assert.Equal(UserStatus.Active, account.Status);
         Assert.Equal(MerchantId, account.MerchantId);
     }
 
@@ -83,7 +86,7 @@ public sealed class MerchantUserTests
         account.Reject(Now);
 
         Assert.Throws<InvalidOperationException>(() => account.Approve(MerchantId, Now)); // must resubmit first (REQ-6.5)
-        Assert.Equal(MerchantUserStatus.Rejected, account.Status);
+        Assert.Equal(UserStatus.Rejected, account.Status);
     }
 
     [Fact]
@@ -94,7 +97,7 @@ public sealed class MerchantUserTests
         account.Suspend(Now);
 
         Assert.Throws<InvalidOperationException>(() => account.Approve(MerchantId, Now));
-        Assert.Equal(MerchantUserStatus.Suspended, account.Status);
+        Assert.Equal(UserStatus.Suspended, account.Status);
     }
 
     // --- Reject (PendingApproval -> Rejected) ---
@@ -106,7 +109,7 @@ public sealed class MerchantUserTests
 
         account.Reject(Now);
 
-        Assert.Equal(MerchantUserStatus.Rejected, account.Status);
+        Assert.Equal(UserStatus.Rejected, account.Status);
     }
 
     [Fact]
@@ -116,7 +119,7 @@ public sealed class MerchantUserTests
         account.Approve(MerchantId, Now);
 
         Assert.Throws<InvalidOperationException>(() => account.Reject(Now));
-        Assert.Equal(MerchantUserStatus.Active, account.Status);
+        Assert.Equal(UserStatus.Active, account.Status);
     }
 
     [Fact]
@@ -138,7 +141,7 @@ public sealed class MerchantUserTests
 
         account.Resubmit(Now);
 
-        Assert.Equal(MerchantUserStatus.PendingApproval, account.Status);
+        Assert.Equal(UserStatus.PendingApproval, account.Status);
     }
 
     [Fact]
@@ -168,7 +171,7 @@ public sealed class MerchantUserTests
 
         account.Suspend(Now);
 
-        Assert.Equal(MerchantUserStatus.Suspended, account.Status);
+        Assert.Equal(UserStatus.Suspended, account.Status);
     }
 
     [Fact]
@@ -177,7 +180,7 @@ public sealed class MerchantUserTests
         var account = NewPending();
 
         Assert.Throws<InvalidOperationException>(() => account.Suspend(Now));
-        Assert.Equal(MerchantUserStatus.PendingApproval, account.Status);
+        Assert.Equal(UserStatus.PendingApproval, account.Status);
     }
 
     [Fact]
@@ -200,7 +203,7 @@ public sealed class MerchantUserTests
         account.Resubmit(Now);
         account.Approve(MerchantId, Now);
 
-        Assert.Equal(MerchantUserStatus.Active, account.Status);
+        Assert.Equal(UserStatus.Active, account.Status);
     }
 
     // --- Person details (REQ-7.1): live on the account (a "merchant" is the company/app, not the person) ---

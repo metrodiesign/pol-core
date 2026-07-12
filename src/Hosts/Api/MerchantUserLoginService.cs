@@ -1,7 +1,13 @@
 using BuildingBlocks.Application;
 using Mediator;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 
@@ -12,12 +18,12 @@ namespace Api;
 /// (mirrors <c>IAdminCallbackResolver</c>). The callback NEVER self-provisions (REQ-9.6).</summary>
 internal interface IMerchantUserCallbackResolver
 {
-    Task<MerchantUserLoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken);
+    Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken);
 }
 
 internal sealed class MerchantUserCallbackResolver(IMediator mediator) : IMerchantUserCallbackResolver
 {
-    public Task<MerchantUserLoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken) =>
+    public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken) =>
         mediator.Send(new ResolveLoginQuery(subject), cancellationToken).AsTask();
 }
 
@@ -35,8 +41,8 @@ internal sealed class MerchantUserCallbackResolver(IMediator mediator) : IMercha
 internal sealed class MerchantUserLoginService
 {
     private readonly IMerchantUserCallbackResolver _resolver;
-    private readonly IMerchantUserSessionStore _sessions;
-    private readonly IMerchantAuthAuditWriter _audit;
+    private readonly ISessionStore _sessions;
+    private readonly IAuthAuditWriter _audit;
     private readonly MerchantUserRegistrationTickets _ticketProtector;
     private readonly MerchantUserSessionCookies _cookies;
     private readonly IClock _clock;
@@ -47,8 +53,8 @@ internal sealed class MerchantUserLoginService
 
     public MerchantUserLoginService(
         IMerchantUserCallbackResolver resolver,
-        IMerchantUserSessionStore sessions,
-        IMerchantAuthAuditWriter audit,
+        ISessionStore sessions,
+        IAuthAuditWriter audit,
         MerchantUserRegistrationTickets ticketProtector,
         MerchantUserSessionCookies cookies,
         IClock clock,
@@ -69,7 +75,7 @@ internal sealed class MerchantUserLoginService
         _logger = logger;
     }
 
-    private MerchantUserSessionPolicy Policy => new(
+    private SessionPolicy Policy => new(
         TimeSpan.FromMinutes(_session.IdleMinutes),
         TimeSpan.FromHours(_session.AbsoluteHours),
         TimeSpan.FromMinutes(_session.RotationMinutes),
@@ -86,7 +92,7 @@ internal sealed class MerchantUserLoginService
             return;
         }
 
-        MerchantUserLoginResult result;
+        LoginResult result;
         try
         {
             result = await _resolver.ResolveAtCallbackAsync(subject, ct);
@@ -100,19 +106,19 @@ internal sealed class MerchantUserLoginService
 
         switch (result.Outcome)
         {
-            case MerchantUserLoginOutcome.Active:
+            case LoginOutcome.Active:
                 await EstablishSessionAsync(http, result.Resolution!, subject, returnTo, ct);
                 break;
-            case MerchantUserLoginOutcome.NotFound:
+            case LoginOutcome.NotFound:
                 await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, TicketPurpose.Registration, ct);
                 break;
-            case MerchantUserLoginOutcome.Rejected:
+            case LoginOutcome.Rejected:
                 await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, TicketPurpose.Correction, ct);
                 break;
-            case MerchantUserLoginOutcome.PendingApproval:
+            case LoginOutcome.PendingApproval:
                 RespondAwaitingApproval(http);
                 break;
-            case MerchantUserLoginOutcome.Suspended:
+            case LoginOutcome.Suspended:
             default:
                 await DenyAsync(http, "suspended", subject, ct);
                 break;
@@ -123,19 +129,19 @@ internal sealed class MerchantUserLoginService
     /// request's keyed pol_admin context (no partial). Any failure after resolution → no partial session, a denied
     /// audit on a fresh scope + an error redirect, never a 500 (REQ-9.5).</summary>
     private async Task EstablishSessionAsync(
-        HttpContext http, MerchantUserResolution resolution, string subject, string? returnTo, CancellationToken ct)
+        HttpContext http, Resolution resolution, string subject, string? returnTo, CancellationToken ct)
     {
         try
         {
             var sessionToken = MerchantUserTokens.NewOpaqueToken();
             var csrfToken = MerchantUserTokens.NewOpaqueToken();
-            var session = MerchantUserSession.Start(resolution.MerchantUserId, MerchantUserTokens.Hash(sessionToken),
+            var session = Session.Start(resolution.MerchantUserId, MerchantUserTokens.Hash(sessionToken),
                 _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
 
             _sessions.Add(session);
-            _audit.Append(MerchantAuthAudit.For(MerchantAuthEventType.LoginSuccess, http.TraceIdentifier, _clock.UtcNow,
+            _audit.Append(AuthAudit.For(AuthEventType.LoginSuccess, http.TraceIdentifier, _clock.UtcNow,
                 resolution.MerchantUserId, subject));
             await _sessions.SaveChangesAsync(ct);
 
@@ -191,8 +197,8 @@ internal sealed class MerchantUserLoginService
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var audit = scope.ServiceProvider.GetRequiredService<IMerchantAuthAuditWriter>();
-            audit.Append(MerchantAuthAudit.For(MerchantAuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow,
+            var audit = scope.ServiceProvider.GetRequiredService<IAuthAuditWriter>();
+            audit.Append(AuthAudit.For(AuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow,
                 subject: subject, reason: reason));
             await audit.SaveChangesAsync(ct);
         }

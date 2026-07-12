@@ -3,6 +3,7 @@ using ApiHost::Api;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using Merchants.Domain;
+using Merchants.Domain.Users;
 
 namespace Hosts.Tests;
 

@@ -6,7 +6,12 @@ using Microsoft.EntityFrameworkCore;
 using Payments.Application.Ports;
 using Payments.Infrastructure.Persistence;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Application.Users.Permissions;
 using Merchants.Infrastructure.Persistence;
+using Merchants.Infrastructure.Persistence.Users;
+using Merchants.Infrastructure.Persistence.Users.Roles;
 
 namespace Api;
 

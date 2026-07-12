@@ -3,6 +3,8 @@ using ApiHost::Api;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Merchants.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
 
 namespace Hosts.Tests;
 
@@ -19,7 +21,7 @@ public sealed class MerchantBoundFilterTests
         var http = new DefaultHttpContext
         {
             RequestServices = new ServiceCollection()
-                .AddSingleton<IMerchantUserScope>(new FakeScope(bound))
+                .AddSingleton<IUserScope>(new FakeScope(bound))
                 .BuildServiceProvider(),
         };
         var context = EndpointFilterInvocationContext.Create(http);
@@ -34,11 +36,11 @@ public sealed class MerchantBoundFilterTests
         Assert.Equal(StatusCodes.Status403Forbidden,
             Assert.IsAssignableFrom<IStatusCodeHttpResult>(await Run(bound: false)).StatusCode);
 
-    private sealed class FakeScope(bool bound) : IMerchantUserScope
+    private sealed class FakeScope(bool bound) : IUserScope
     {
         public bool IsBound => bound;
-        public MerchantUserResolution Current => bound
-            ? new MerchantUserResolution(Guid.NewGuid(), "p@org.com", Guid.NewGuid(), new HashSet<string>())
+        public Resolution Current => bound
+            ? new Resolution(Guid.NewGuid(), "p@org.com", Guid.NewGuid(), new HashSet<string>())
             : throw new InvalidOperationException("not bound");
     }
 }

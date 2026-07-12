@@ -2,6 +2,9 @@ using BuildingBlocks.Application;
 using Payments.Domain;
 using Merchants.Application.GetMerchant;
 using Merchants.Domain;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Merchants.Domain.Users.Permissions;
 
 namespace Merchants.Tests;
 
