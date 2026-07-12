@@ -604,7 +604,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Carts.Domain.CartItem.UnitPrice#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Carts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -651,7 +651,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Checkouts.Domain.CheckoutSession.Amount#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Checkouts.Domain.Session.Amount#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -1295,7 +1295,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Payments.Domain.PaymentSession.Amount#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Payments.Domain.Session.Amount#Money", b1 =>
                         {
                             b1.IsRequired();
 

@@ -18,9 +18,11 @@ Exception list (REQ-15.4) — shipped WITH the check, each excluded mechanically
   2. `MerchantUser:*` configuration section keys (design §5b, L8). STRING LITERALS ARE
      STRIPPED before matching, which covers these and every other frozen wire string
      (the `MerchantUser.RegistrationTicket.v1` DataProtection purpose, OpenAPI
-     tag/summary display strings, exception-message prose). Renamed TABLE names inside
-     raw-SQL strings are guarded by the fresh-DB gate (`assert-fresh-db.sql` + EF
-     has-pending-model-changes), not by this check.
+     tag/summary display strings, exception-message prose). Interpolation holes
+     (`{...}` inside `$"..."`) are the exception to the exception: their content is
+     live code and IS scanned. Renamed TABLE names inside raw-SQL strings are guarded
+     by the fresh-DB gate (`assert-fresh-db.sql` + EF has-pending-model-changes),
+     not by this check.
   3. Comments citing history — COMMENTS ARE STRIPPED before matching (// and /* */).
   4. L6 file-level aliases (design L6): `using PaymentSession = Payments.Domain.Session;`
      deliberately reconstructs a compound as a file-local alias. Alias names declared in
@@ -43,8 +45,36 @@ TOKENS = re.compile(
 ALIAS_DECL = re.compile(r"^\s*using\s+(\w+)\s*=")
 
 
+def emit_hole(source: str, i: int, n: int, out: list[str]) -> int:
+    """Emit an interpolation hole's content — it is LIVE CODE, not string text.
+
+    `i` points at the opening `{`. Emits everything up to the matching `}` (brace
+    depth tracked) and returns the index just past it. Codex P2 on PR #96 caught
+    the original version stripping holes with the rest of the string, which made
+    the gate fail open on `$"{RetiredType.X}"`.
+    ponytail: a nested string literal inside a hole is emitted as-is (a retired
+    token in such prose would false-POSITIVE, the safe direction); switch to a
+    real C# lexer if that ever bites.
+    """
+    depth = 1
+    i += 1
+    while i < n and depth:
+        c = source[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        if depth:
+            out.append(c)
+        i += 1
+    return i
+
+
 def strip_strings_and_comments(source: str) -> str:
-    """Blank out string/char literals and comments, preserving line structure."""
+    """Blank out string/char literals and comments, preserving line structure.
+
+    Interpolation holes (`{...}` inside `$"..."` / `$@"..."`) are NOT stripped —
+    their content is scanned as live code via emit_hole."""
     out: list[str] = []
     i, n = 0, len(source)
     while i < n:
@@ -61,7 +91,8 @@ def strip_strings_and_comments(source: str) -> str:
                 i += 1
             i += 2
         elif ch == "@" and nxt == '"' or (ch == "$" and nxt == "@") or (ch == "@" and nxt == "$"):
-            # verbatim (possibly interpolated) string: "" is the only escape
+            # verbatim (possibly interpolated) string: "" is the only escape.
+            interpolated = ch == "$" or nxt == "$"
             i += 2 if nxt == '"' else 3
             while i < n:
                 if source[i] == '"' and i + 1 < n and source[i + 1] == '"':
@@ -70,11 +101,18 @@ def strip_strings_and_comments(source: str) -> str:
                 if source[i] == '"':
                     i += 1
                     break
+                if interpolated and source[i] == "{":
+                    if i + 1 < n and source[i + 1] == "{":  # {{ escape — literal text
+                        i += 2
+                        continue
+                    i = emit_hole(source, i, n, out)
+                    continue
                 if source[i] == "\n":
                     out.append("\n")
                 i += 1
         elif ch == '"' or (ch == "$" and nxt == '"'):
             # regular / interpolated string: backslash escapes
+            interpolated = ch == "$"
             i += 1 if ch == '"' else 2
             while i < n:
                 if source[i] == "\\":
@@ -83,6 +121,12 @@ def strip_strings_and_comments(source: str) -> str:
                 if source[i] == '"':
                     i += 1
                     break
+                if interpolated and source[i] == "{":
+                    if i + 1 < n and source[i + 1] == "{":  # {{ escape — literal text
+                        i += 2
+                        continue
+                    i = emit_hole(source, i, n, out)
+                    continue
                 i += 1
         elif ch == "'":
             i += 1
