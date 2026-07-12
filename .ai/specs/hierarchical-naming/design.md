@@ -1,7 +1,9 @@
 # Design: Hierarchical Naming (namespace + route)
 
-> Status: draft (rev 2 — rewritten after spec-architect critique; 2 blockers + 5 majors folded in)
-> Mode: Design-First (no requirements.md yet — `/spec-requirements` backfills EARS + traceability after approval)
+> Status: approved 2026-07-12, amended 2026-07-12 (rev 2 — rewritten after spec-architect critique; 2 blockers + 5 majors folded in)
+> Mode: Design-First. `requirements.md` was derived FROM this design on 2026-07-12; the traceability
+> table below was backfilled at that time. Design remains upstream — a requirement that conflicts with
+> it is the requirement that is wrong.
 > Input: `APPROVED-PLAN.md` in this folder — D1-D15 locked, T1-T11 must be closed here.
 
 ## Architecture Overview
@@ -408,18 +410,20 @@ Behavior-preserving means **the existing suite is the specification**. The bar: 
 today passes after the rename with only *names* changed. A test whose **assertion** had to change is a
 behavior change — escalate it, do not edit it.
 
-| layer | covers | design element |
-|-------|--------|----------------|
-| `dotnet build` on `pol-core.slnx` | all 40 projects resolve after the csproj/folder moves | §1, T10 |
-| Architecture.Tests (**hardened first**) | layer boundaries survive nesting — *and the guard cannot fail open* | L1-L5, Error §3 |
-| `RouteSchemeConventionTests` | area taxonomy = the new nine; still fail-closed | §4, T6 |
-| Hosts.Tests (**new, written before the move**) | moved endpoints keep CSRF + admin CORS + `"admin"` policy + Super tier | §5, T1 |
-| Hosts.Tests (**new**) | fail-closed CORS guard: every admin-policy endpoint resolves to `AdminPolicyName` | §5 |
-| `CorsTests` | preflight behaviour unchanged (it exercises `OPTIONS` — see §5) | §5 |
-| Integration.Tests, fresh DB | no pending model changes; RLS matrix green; `assert-fresh-db.sql` green | §6, T4 |
-| Integration.Tests | outbox publish → worker consume round-trips | §10, T5 |
-| Admins/Merchants unit tests | permission keys resolve under the new names | §7, T8 |
-| manual (dev) | admin + merchant-user Google login on the new callback path | T3 |
+| layer | covers | REQ |
+|-------|--------|-----|
+| `dotnet build` on `pol-core.slnx` | all 40 projects resolve after the csproj/folder moves | 3.1-3.4 |
+| Architecture.Tests (**hardened first**) | layer boundaries survive nesting — *and the guard cannot fail open* | 15.1, 15.2 |
+| `RouteSchemeConventionTests` | area taxonomy = the new nine; still fail-closed | 6.8 |
+| Hosts.Tests (**new, written before the move**) | moved endpoints keep CSRF + admin CORS + `"admin"` policy + Super tier | 7.1-7.6 |
+| Hosts.Tests (**new**) | fail-closed CORS guard: every admin-policy endpoint resolves to `AdminPolicyName` | 8.3, 8.4 |
+| `CorsTests` | preflight behaviour unchanged (it exercises `OPTIONS` — see §5) | 8.5 |
+| Hosts.Tests | routes served at their new paths; `Location` headers updated; `{code}` still unconstrained | 6.1-6.7 |
+| Integration.Tests, fresh DB | no pending model changes; RLS matrix green; `assert-fresh-db.sql` green | 10.3-10.7, 14.2, 14.3 |
+| Integration.Tests | outbox publish → worker consume round-trips | 13.3 |
+| Admins/Merchants unit tests | permission keys resolve under the new names | 11.1-11.3 |
+| manual (dev) | admin + merchant-user Google login on the new callback path | 11.7-11.9 |
+| review-time | behavior preservation: no assertion changed, only identifiers | 1.1-1.5 |
 
 **grep gate + its exception list.** `\b(MerchantUser|PlatformUser|AdminRole|PaymentSession|CartItem|CheckoutSession|PspConnection)\b`
 must be zero in `src/` and `tests/` **except**:
@@ -446,6 +450,31 @@ Without this list an implementer will either rename the contract (wrong) or dilu
   still say `tenant`/`producer`. REQ-2.8 also enumerates the literal admin sub-resources, and D10/D11 add
   `merchants/users` and the four master lists to that list. Leaving two contradictory canons in the repo
   is worse than the drift being fixed.
+
+## Requirement Traceability
+
+| design element | REQ |
+|----------------|-----|
+| Architecture Overview — behavior-preserving bar | REQ-1 (all criteria) |
+| L1-L8 written into `.ai/shared/ARCHITECTURE.md`; rf1 §149 amended | REQ-2 (all criteria) |
+| §1 Module projects (`Admin`→`Admins`, `Cart`→`Carts`, `Checkout`→`Checkouts`); `pol-core.slnx`; `git mv`; schema stays `admin` | REQ-3 (all criteria) |
+| §2 Domain type nesting + prefix drop; `Platform*` dissolved; L2 root-stays; `MasterDataItem`; L5 depth cap | REQ-4 (all criteria) |
+| L6 alias discipline (fixed form, no `GlobalUsings`, no re-prefixing, no partial qualification, applies to `tests/`) | REQ-5 (all criteria) |
+| §3 Application/Infrastructure derived from L4, with L4's illegibility floor | 4.2, 4.3 |
+| §4 Routes: merchants/users, provision-merchant, approve/reject, master-data wrapper dropped, `{code}` unconstrained, `Location` headers, area guard | REQ-6 (all criteria) |
+| §5 Four controls re-attached on the moved endpoints; detectors written first | REQ-7 (all criteria) |
+| §5 CORS stays path-based; admin-plane table; fail-closed endpoint guard; preflight preserved | REQ-8 (all criteria) |
+| §5b Config keys frozen (L8); section-name defect fixed in a separate PR merged first; allowlist audited | REQ-9 (all criteria) |
+| §6 DB tables; L7 partial drop; RLS predicate + policies; GRANT matrix; `assert-fresh-db.sql`; `entrypoint.sh` | REQ-10 (all criteria) |
+| §7 Permission keys; §8 auth schemes + rate-limit policies + OIDC callback + Google Console step | REQ-11 (all criteria) |
+| §9 FE-facing contract publication | REQ-12 (all criteria) |
+| §10 Integration events out of scope (L8) | REQ-13 (all criteria) |
+| Technology Decisions #2 + Sequence Diagrams — reset-only cutover, migrations rewritten in place | REQ-14 (all criteria) |
+| Error Handling Strategy — no guard fails open; grep gate + its exception list | REQ-15 (all criteria) |
+| Technology Decisions #1 (`git mv`) | 3.4 |
+| Technology Decisions #3 (keep path-based CORS) | 8.1 |
+| Technology Decisions #5 (no `GlobalUsings` aliases) | 5.2 |
+| Technology Decisions #7 (law into the canon) | 2.1 |
 
 ## Resolved questions (user, 2026-07-12 — do not re-litigate)
 
