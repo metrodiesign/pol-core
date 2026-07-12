@@ -1108,6 +1108,7 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 | 12 | Webhooks | source of truth ของสถานะจ่าย, idempotent + fetch-to-confirm | มีแล้ว | [payment-orchestration-modules.md](payment-orchestration-modules.md) |
 | 13 | Notifications | แจ้งเตือน background ผ่าน outbox + Worker | บางส่วน (stub) | [entity-fields.md](entity-fields.md) |
 | 14 | Audit | append-only ทุกการกระทำสำคัญ แก้/ลบไม่ได้ | มีแล้ว (กระจาย) | [entity-fields.md](entity-fields.md) |
+| 15 | MasterData | reference data โปรไฟล์พนักงาน (Position/Office/Level/Division) — แยกออกจาก Admin เป็นโมดูลของตัวเอง (2026-07-13), schema `cfg` | มีแล้ว | [ARCHITECTURE.md](../../.ai/shared/ARCHITECTURE.md) |
 
 ---
 

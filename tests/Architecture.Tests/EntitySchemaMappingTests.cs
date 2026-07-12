@@ -6,7 +6,7 @@ namespace Architecture.Tests;
 
 /// <summary>
 /// Model assertion (rf1 REQ-1.4 + rf2 REQ-1.6): every mapped entity across EVERY module must land in one
-/// of the allowed rf1 schemas — <c>shop</c>, <c>txn</c>, <c>admin</c>, <c>merch</c>, <c>iam</c> — with a
+/// of the allowed schemas — <c>shop</c>, <c>txn</c>, <c>admin</c>, <c>merch</c>, <c>iam</c>, <c>cfg</c> — with a
 /// single named exception, <c>dbo</c> for the framework-owned <c>DataProtectionKeys</c> table. There is no
 /// <c>HasDefaultSchema</c> fallback (<see cref="SchemaNames"/>), so an entity that forgets its schema would
 /// silently land in <c>dbo</c>; this guard turns that into a red test. The rf2-specific tightening: every
@@ -19,9 +19,9 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class EntitySchemaMappingTests : IDisposable
 {
-    // The rf1 multi-schema allow-set (design.md "Schema map") + the ONE named framework exception.
+    // The multi-schema allow-set (design.md "Schema map") + the ONE named framework exception.
     private static readonly HashSet<string> AllowedSchemas =
-        [SchemaNames.Shop, SchemaNames.Txn, SchemaNames.Admin, SchemaNames.Merch, SchemaNames.Iam, SchemaNames.Dbo];
+        [SchemaNames.Shop, SchemaNames.Txn, SchemaNames.Admin, SchemaNames.Merch, SchemaNames.Iam, SchemaNames.Cfg, SchemaNames.Dbo];
 
     // The named exception (REQ-1.4): dbo is allowed ONLY for framework-owned DataProtectionKeys. Any other
     // entity in dbo means a missing ToTable schema silently falling back — caught explicitly below.
@@ -50,6 +50,7 @@ public sealed class EntitySchemaMappingTests : IDisposable
             typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
             typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
             typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
+            typeof(MasterData.Infrastructure.MasterDataModuleRegistration).Assembly,
         ]);
         _db = new PolDbContext(options, modules);
     }

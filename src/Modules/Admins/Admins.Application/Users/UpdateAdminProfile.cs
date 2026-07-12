@@ -1,4 +1,3 @@
-using Admins.Application.MasterData;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Mediator;
@@ -17,14 +16,14 @@ public sealed record UpdateProfileCommand(
 public sealed class UpdateProfileHandler : ICommandHandler<UpdateProfileCommand, Unit>
 {
     private readonly IUserRepository _admins;
-    private readonly IMasterDataStore _masters;
+    private readonly IMasterDataLookup _masters;
     private readonly IAuditWriter _audit;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
     public UpdateProfileHandler(
         IUserRepository admins,
-        IMasterDataStore masters,
+        IMasterDataLookup masters,
         IAuditWriter audit,
         [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)

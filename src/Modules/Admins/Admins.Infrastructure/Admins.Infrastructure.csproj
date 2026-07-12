@@ -6,6 +6,10 @@
     <!-- Iam.Domain is a published language (rf2) — this repo queries iam.Roles/iam.RolePermissions directly
          for assignment resolution; only Iam.Domain, never Iam.Application/Infrastructure. -->
     <ProjectReference Include="..\..\Iam\Iam.Domain\Iam.Domain.csproj" />
+    <!-- MasterData.Domain is a published language (masterdata-module) — this repo queries cfg.Positions/Offices/
+         Levels/Divisions directly for the profile-FK lookup port; only MasterData.Domain, never
+         MasterData.Application/Infrastructure. -->
+    <ProjectReference Include="..\..\MasterData\MasterData.Domain\MasterData.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

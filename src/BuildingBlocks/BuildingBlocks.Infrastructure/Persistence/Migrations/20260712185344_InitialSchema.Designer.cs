@@ -26,7 +26,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("Admins.Domain.MasterData.MasterDataItem", b =>
+            modelBuilder.Entity("MasterData.Domain.MasterDataItem", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1319,32 +1319,32 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Products", "shop");
                 });
 
-            modelBuilder.Entity("Admins.Domain.MasterData.Division", b =>
+            modelBuilder.Entity("MasterData.Domain.Divisions.Division", b =>
                 {
-                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
+                    b.HasBaseType("MasterData.Domain.MasterDataItem");
 
-                    b.ToTable("Divisions", "admin");
+                    b.ToTable("Divisions", "cfg");
                 });
 
-            modelBuilder.Entity("Admins.Domain.MasterData.Level", b =>
+            modelBuilder.Entity("MasterData.Domain.Levels.Level", b =>
                 {
-                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
+                    b.HasBaseType("MasterData.Domain.MasterDataItem");
 
-                    b.ToTable("Levels", "admin");
+                    b.ToTable("Levels", "cfg");
                 });
 
-            modelBuilder.Entity("Admins.Domain.MasterData.Office", b =>
+            modelBuilder.Entity("MasterData.Domain.Offices.Office", b =>
                 {
-                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
+                    b.HasBaseType("MasterData.Domain.MasterDataItem");
 
-                    b.ToTable("Offices", "admin");
+                    b.ToTable("Offices", "cfg");
                 });
 
-            modelBuilder.Entity("Admins.Domain.MasterData.Position", b =>
+            modelBuilder.Entity("MasterData.Domain.Positions.Position", b =>
                 {
-                    b.HasBaseType("Admins.Domain.MasterData.MasterDataItem");
+                    b.HasBaseType("MasterData.Domain.MasterDataItem");
 
-                    b.ToTable("Positions", "admin");
+                    b.ToTable("Positions", "cfg");
                 });
 
             modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
@@ -1358,22 +1358,22 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Admins.Domain.Users.User", b =>
                 {
-                    b.HasOne("Admins.Domain.MasterData.Division", null)
+                    b.HasOne("MasterData.Domain.Divisions.Division", null)
                         .WithMany()
                         .HasForeignKey("DivisionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Admins.Domain.MasterData.Level", null)
+                    b.HasOne("MasterData.Domain.Levels.Level", null)
                         .WithMany()
                         .HasForeignKey("LevelId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Admins.Domain.MasterData.Office", null)
+                    b.HasOne("MasterData.Domain.Offices.Office", null)
                         .WithMany()
                         .HasForeignKey("OfficeId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Admins.Domain.MasterData.Position", null)
+                    b.HasOne("MasterData.Domain.Positions.Position", null)
                         .WithMany()
                         .HasForeignKey("PositionId")
                         .OnDelete(DeleteBehavior.Restrict);

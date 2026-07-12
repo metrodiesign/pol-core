@@ -1,10 +1,10 @@
 using Admins.Application;
-using Admins.Application.MasterData;
 using Admins.Application.Roles;
 using Admins.Application.Users;
-using Admins.Domain.MasterData;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
+using MasterData.Application;
+using MasterData.Domain;
 using BuildingBlocks.Application;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
@@ -119,8 +119,10 @@ internal sealed class FakeAdminRoleRepository : IRoleRepository
 }
 
 /// <summary>In-memory master-data store for handler tests. One flat list holds all four master types; the
-/// generic methods filter by concrete type via <c>OfType&lt;T&gt;</c> (mirrors the real per-table Set&lt;T&gt;()).</summary>
-internal sealed class FakeMasterDataStore : IMasterDataStore
+/// generic methods filter by concrete type via <c>OfType&lt;T&gt;</c> (mirrors the real per-table Set&lt;T&gt;()).
+/// Implements both the CRUD store (MasterData.Application) and Admins' lookup port (IMasterDataLookup) so one
+/// fake still stands in wherever either was injected pre-split.</summary>
+internal sealed class FakeMasterDataStore : IMasterDataStore, IMasterDataLookup
 {
     public readonly List<MasterDataItem> Items = [];
 

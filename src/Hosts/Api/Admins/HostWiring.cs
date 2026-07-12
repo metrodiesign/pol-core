@@ -1,16 +1,15 @@
 using Admins.Application;
-using Admins.Application.MasterData;
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.Users;
 using Admins.Infrastructure.Persistence;
-using Admins.Infrastructure.Persistence.MasterData;
 using Admins.Infrastructure.Persistence.Roles;
 using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Persistence;
 using Iam.Domain.Permissions;
 using Mediator;
+using MasterData.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Merchants.Application.GetMerchant;
 using Merchants.Domain;
@@ -143,8 +142,8 @@ internal static class HostWiring
         services.AddScoped<IAuditWriter>(sp => new AuditWriter(Admin(sp)));
         services.AddScoped<IAdminMerchantDirectory>(sp => new MerchantDirectory(Admin(sp)));
         services.AddScoped<IRoleRepository>(sp => new RoleRepository(Admin(sp))); // admin-role-rbac (rf2: assignment+resolution only)
-        services.AddScoped<IMasterDataStore>(sp =>
-            new MasterDataStore(Admin(sp), sp.GetRequiredKeyedService<IUnitOfWork>("admin"))); // profile master lists
+        services.AddMasterDataModule(Admin); // profile master lists (masterdata-module)
+        services.AddScoped<IMasterDataLookup>(sp => new MasterDataLookup(Admin(sp))); // profile FK exists/lookup
 
         // Admin BFF session substrate (REQ-3/5/6/11/12): store + append-only auth audit on the keyed pol_admin
         // context; the cookie service is stateless (singleton).

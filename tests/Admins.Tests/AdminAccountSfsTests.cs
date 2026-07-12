@@ -1,13 +1,10 @@
 using System.Text.Json;
 using Admins.Application;
-using Admins.Application.MasterData;
 using Admins.Application.Roles;
 using Admins.Application.Users;
-using Admins.Domain.MasterData;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using Admins.Infrastructure.Persistence;
-using Admins.Infrastructure.Persistence.MasterData;
 using Admins.Infrastructure.Persistence.Roles;
 using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;

@@ -31,15 +31,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         {
             // --- Schemas (REQ-3.10: every schema owned by dbo, so ownership chaining lets a predicate reach
             // admin.Users / admin.MerchantAccess across schemas without an explicit grant). shop/
-            // txn/admin/merch already exist (EnsureSchema'd by InitialSchema); re-assert authorization in case the
-            // running principal was not dbo. sec has no EF entity, so it needs its own CREATE. iam is not touched by
-            // any predicate (no RLS on iam.*), so it needs no ownership-chaining re-assert here.
+            // txn/admin/merch/cfg already exist (EnsureSchema'd by InitialSchema); re-assert authorization in case
+            // the running principal was not dbo. sec has no EF entity, so it needs its own CREATE. iam is not
+            // touched by any predicate (no RLS on iam.*), so it needs no ownership-chaining re-assert here.
             migrationBuilder.Sql("""
                 IF SCHEMA_ID(N'sec') IS NULL EXEC(N'CREATE SCHEMA sec AUTHORIZATION dbo;');
                 ALTER AUTHORIZATION ON SCHEMA::shop  TO dbo;
                 ALTER AUTHORIZATION ON SCHEMA::txn   TO dbo;
                 ALTER AUTHORIZATION ON SCHEMA::admin TO dbo;
                 ALTER AUTHORIZATION ON SCHEMA::merch TO dbo;
+                ALTER AUTHORIZATION ON SCHEMA::cfg   TO dbo;
                 ALTER AUTHORIZATION ON SCHEMA::sec   TO dbo;
                 """);
 
@@ -221,7 +222,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 -- pol_admin (control plane, T5: NOT a pol_rls_bypass member — every read/write below goes through
                 -- the Super/Scoped branches of fn_merchant_predicate, or is a control-plane table outside the
                 -- policy entirely). Cross-merchant READ on the funnel (admin queries via the IAdminQuery seam);
-                -- full CRUD on admin.* and merch.* control-plane tables; VaultSecrets stays INSERT-only (provisioning
+                -- full CRUD on admin.*/merch.* control-plane tables and SELECT/INSERT/UPDATE on cfg.* (HR master
+                -- data — no DELETE, same as before the schema move); VaultSecrets stays INSERT-only (provisioning
                 -- writes a PSP secret but can NEVER read plaintext back — masked read-back uses
                 -- PspConnection.Metadata, not the vault; this is a hard security invariant, not an oversight).
                 GRANT SELECT ON shop.Products         TO pol_admin;
@@ -240,10 +242,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 GRANT SELECT, INSERT, UPDATE, DELETE ON admin.Sessions    TO pol_admin;
                 GRANT SELECT, INSERT                 ON admin.AuthAudits      TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE, DELETE ON admin.RoleAssignments    TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE         ON admin.Positions               TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE         ON admin.Offices                 TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE         ON admin.Levels                  TO pol_admin;
-                GRANT SELECT, INSERT, UPDATE         ON admin.Divisions               TO pol_admin;
+
+                GRANT SELECT, INSERT, UPDATE         ON cfg.Positions                 TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE         ON cfg.Offices                   TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE         ON cfg.Levels                    TO pol_admin;
+                GRANT SELECT, INSERT, UPDATE         ON cfg.Divisions                 TO pol_admin;
 
                 GRANT SELECT, INSERT, UPDATE         ON merch.Merchants               TO pol_admin;
                 GRANT SELECT, INSERT, UPDATE         ON merch.Users           TO pol_admin;
@@ -319,10 +322,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.Sessions    FROM pol_admin;
                 REVOKE SELECT, INSERT                 ON admin.AuthAudits      FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE, DELETE ON admin.RoleAssignments    FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE         ON admin.Positions               FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE         ON admin.Offices                 FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE         ON admin.Levels                  FROM pol_admin;
-                REVOKE SELECT, INSERT, UPDATE         ON admin.Divisions               FROM pol_admin;
+
+                REVOKE SELECT, INSERT, UPDATE         ON cfg.Positions                 FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE         ON cfg.Offices                   FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE         ON cfg.Levels                    FROM pol_admin;
+                REVOKE SELECT, INSERT, UPDATE         ON cfg.Divisions                 FROM pol_admin;
 
                 REVOKE SELECT, INSERT, UPDATE         ON merch.Merchants               FROM pol_admin;
                 REVOKE SELECT, INSERT, UPDATE         ON merch.Users           FROM pol_admin;
