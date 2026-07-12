@@ -147,6 +147,25 @@ SECRET_HITS=$(
   printf '%s' "$CONTENT" | grep -E '^\+' | \
     grep -ioE "${SECRET_KEYPAT}[${SECRET_VALCLASS}]{20,}" 2>/dev/null || true
 )
+# Drop hits whose value is a pure-alphabetic identifier — a C# actor-rename introduced e.g.
+# `newToken = PlatformUserSessionTokens.Hash(...)`, where the RHS up to the '.' is a 20+ char
+# PascalCase class name, not a hardcoded value, and blocked CI (rf1-schema-reset PR #79). A real
+# secret/token/key/password is virtually always base64/hex/random and contains at least one digit
+# or other value-class special char; a pure-alphabetic RHS is a strong code-identifier signal.
+# This narrows the generic rule without weakening it — real secrets still match via the
+# digit/special-char path (see the adversarial cases in secrets-guard.test.sh).
+if [ -n "$SECRET_HITS" ]; then
+  SECRET_HITS=$(
+    printf '%s\n' "$SECRET_HITS" | while IFS= read -r hit; do
+      [ -z "$hit" ] && continue
+      value_only=$(printf '%s' "$hit" | sed -E 's/^.*[:=][[:space:]]*["'"'"']?//')
+      if printf '%s' "$value_only" | grep -qE '^[A-Za-z]+$'; then
+        continue
+      fi
+      printf '%s\n' "$hit"
+    done
+  )
+fi
 if [ -n "$SECRET_HITS" ] && \
    printf '%s' "$SECRET_HITS" | grep -ivE "$SECRET_PLACEHOLDER" >/dev/null 2>&1; then
   fail=1

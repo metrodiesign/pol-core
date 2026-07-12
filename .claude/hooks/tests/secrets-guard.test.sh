@@ -164,6 +164,19 @@ run_case allow "os.environ read reference"        staged src/app.py \
 run_case allow "settings dotted reference"        staged src/cfg.ts \
   'const secret_key = settings.authTokenProviderService;'
 
+# ============================================================================
+# pure-alphabetic identifier (PascalCase class/method reference) must NOT block, even when
+# 20+ chars land BEFORE the '.' — regression from rf1-schema-reset PR #79: an actor-model
+# rename (AdminSessionTokens -> PlatformUserSessionTokens) blocked CI's --all scan because the
+# RHS up to '.' alone is 25 chars. A real secret is virtually always base64/hex/random and
+# contains a digit or special char; a pure-alphabetic RHS must always pass. Paired with a
+# same-shape BLOCK case (digit present) to prove the digit/special-char path still fires.
+# ============================================================================
+run_case allow "pure-alpha class.method reference (no dot in value class)" staged src/Handler.cs \
+  'var newToken = PlatformUserSessionTokens.Hash(newToken);'
+run_case block "same shape but value has a digit -> digit/special-char path still fires" staged src/Handler2.cs \
+  'var newToken = PlatformUserSessionTokens1.Hash(newToken);'
+
 echo "---"
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
