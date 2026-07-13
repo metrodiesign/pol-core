@@ -38,6 +38,14 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
   เดียว + `SET XACT_ABORT ON`) — ห้ามทิ้ง DB ไว้ในสภาพ seed ครึ่งเดียว.
 - 1.6 WHEN seed สำเร็จ THE SYSTEM SHALL พิมพ์จำนวนแถวต่อตารางที่ใส่ และ THE SYSTEM SHALL fail ด้วย
   `RAISERROR` ถ้าตารางเป้าหมายใดได้ 0 แถว (self-check ในตัวสคริปต์).
+- 1.7 THE SYSTEM SHALL พิมพ์ server + database ที่กำลังจะ seed ก่อนลงมือเสมอ, และ IF เป้าหมายไม่ใช่
+  localhost THEN THE SYSTEM SHALL ปฏิเสธการ seed เว้นแต่ตั้ง `POL_ALLOW_DEMO_SEED=1` โดยเจตนา — สคริปต์
+  ลบแล้วเขียนใหม่ในฐานะ `sa` การเผลอ source `.env` ของ prod/staging แล้วรันต้องไม่ปลูก demo data ลงที่นั่นเงียบ ๆ.
+- 1.8 WHERE เครื่องไม่มี `sqlcmd` บน host THE SYSTEM SHALL รัน seed ผ่าน `sqlcmd` ที่มากับ container
+  `pol-db` แทน (feed ไฟล์ทาง stdin) — README prerequisites ไม่ได้บังคับให้ลง `sqlcmd` บน host และ
+  `01-principals.sql` ก็รันจากใน container อยู่แล้ว. IF ไม่มี host `sqlcmd` และเป้าหมายไม่ใช่ compose DB
+  THEN THE SYSTEM SHALL fail พร้อมข้อความชัด (container เข้าไม่ถึง server นั้น) ไม่ใช่ redirect เงียบ ๆ
+  ไปที่ DB local.
 
 ## REQ-2: ผ่าน RLS floor โดยไม่เจาะ bypass
 

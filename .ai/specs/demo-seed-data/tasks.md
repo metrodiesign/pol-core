@@ -528,3 +528,55 @@ demo_cartitems = 14           demo_orphans = 0    <- 24 แถวเดิมไ
 **หมายเหตุ:** `cartitems_orphaned` แบบไม่ scope = 1 — เป็น cart item เก่านอก demo (GUID สุ่ม
 `545BF69D-…` ตระกูลเดียวกับ 3 non-demo orders ที่ T4 เจอ) ไม่ใช่ของ seed; scope ไป demo แล้ว = 0.
 ช่วงราคา max ขยับจาก 48,000 เป็น 73,800 (แผนบำนาญ tier Platinum) — design อัปเดตให้ตรงแล้ว.
+
+---
+
+## - [x] T6 — dev-target guard + sqlcmd fallback (Codex review PR #110)
+
+Depends on: T5
+
+Satisfies: 1.7, 1.8
+
+Codex review บน PR #110 ให้ 2 finding (P2) บน `scripts/seed-demo.sh` — verify แล้ว **จริงทั้งคู่**.
+
+**Finding 1 (REQ-1.7) — ไม่มี dev-target guard.** สคริปต์รับ `POL_SQL_SERVER`/`POL_DB` จาก env ตรง ๆ
+ไม่ validate เลย แล้วลบ+เขียนใหม่ในฐานะ `sa`. repo มี `.env.prod.example` อยู่จริง ดังนั้น "เผลอ source
+prod env แล้วรัน" ไม่ใช่สถานการณ์สมมติ — demo merchant/user/order จะลง prod เงียบ ๆ. README เขียนว่า
+dev-only แต่ไม่มีอะไรบังคับ.
+แก้: echo `server=… db=…` ก่อนเสมอ + ปฏิเสธเป้าหมายที่ไม่ใช่ localhost/`127.0.0.1`/`[::1]` เว้นแต่ตั้ง
+`POL_ALLOW_DEMO_SEED=1`.
+
+**Finding 2 (REQ-1.8) — `sqlcmd` ไม่ใช่ prerequisite ที่ documented.** README Prerequisites มีแค่ .NET SDK /
+Docker+Compose / `dotnet-ef`. `01-principals.sql` รันผ่าน compose service `pol-db-init` (ข้างใน container),
+CI ลง sqlcmd เอง — เครื่อง dev ที่ทำตาม README จะไม่มี host sqlcmd และได้ `sqlcmd: command not found`.
+(เครื่องที่พัฒนางานนี้มี homebrew sqlcmd อยู่ก่อนแล้ว จึงไม่เจอตอน T1-T5.)
+แก้: ใช้ host sqlcmd ถ้ามี; ไม่มี + เป้าหมายเป็น compose DB -> fall back ไป
+`docker compose -f <repo>/docker-compose.yml exec -T pol-db /opt/mssql-tools18/bin/sqlcmd` โดย feed ไฟล์ทาง
+**stdin** (`docker/bootstrap` mount เข้าแค่ service `pol-db-init` ไม่ได้ mount เข้า `pol-db` จึงใช้ `-i` ไม่ได้).
+ไม่มี host sqlcmd + เป้าหมายไม่ใช่ compose DB -> fail ชัด ๆ ไม่ redirect เงียบไป DB local.
+
+### Evidence (2026-07-13)
+
+```
+### 1. local run ปกติ
+seed-demo: target server=localhost,11433 db=VCentralPay
+... shop.Products = 100 ... seed-demo: OK.          exit 0
+
+### 2. เป้าหมายไม่ใช่ localhost -> ปฏิเสธ
+$ POL_SQL_SERVER="prod-sql.internal,1433" ./scripts/seed-demo.sh
+seed-demo: target server=prod-sql.internal,1433 db=VCentralPay
+seed-demo: refusing to seed a non-local target (prod-sql.internal,1433).
+...
+    POL_ALLOW_DEMO_SEED=1 ./scripts/seed-demo.sh      exit 1
+
+### 3. non-local + POL_ALLOW_DEMO_SEED=1 -> ไม่ปฏิเสธ (ผ่าน guard, ไปตายที่ connect จริง = ถูกต้อง)
+seed-demo: target server=prod-sql.internal,1433 db=VCentralPay
+Sqlcmd: Error: Microsoft ODBC Driver 18 for SQL Server : Login timeout expired.
+
+### 4. container fallback (ซ่อน host sqlcmd จาก PATH แต่คง docker ไว้)
+seed-demo: target server=localhost,11433 db=VCentralPay
+seed-demo: no host sqlcmd — using the one inside the pol-db container.
+... shop.Products = 100 ... seed-demo: OK.          exit 0
+```
+
+`bash -n scripts/seed-demo.sh` ผ่าน. README อัปเดตทั้งสองข้อแล้ว.

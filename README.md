@@ -124,6 +124,10 @@ set -a && source .env && set +a
   เท่านั้น ไม่แตะแถวอื่น
 - **login Google จริงไม่ได้** — `Subject`/`sub` ของบัญชี demo ทั้งหมดเป็นค่าปลอม (prefix `demo-adm-`/`demo-mch-`)
 - password อ่านจาก `POL_SA_PASSWORD` หรือ `MSSQL_SA_PASSWORD` เท่านั้น ไม่มี secret ฝังในสคริปต์
+- **guard เป้าหมาย** — สคริปต์ echo `server=… db=…` ก่อนเสมอ และ **ปฏิเสธถ้า `POL_SQL_SERVER` ไม่ใช่
+  localhost** (เผลอ `source` prod env แล้วรัน = ปลูก demo data ลง prod). DB dev/test ที่ไม่ใช่ localhost
+  จริง ๆ ต้องยืนยันด้วย `POL_ALLOW_DEMO_SEED=1 ./scripts/seed-demo.sh`
+- **ไม่ต้องลง `sqlcmd` บน host** — ถ้าไม่มีบน PATH สคริปต์ fall back ไปใช้ตัวใน container `pol-db` ให้เอง
 - รายละเอียด: `.ai/specs/demo-seed-data/{requirements,design}.md`
 
 ## กฎที่ขาดไม่ได้

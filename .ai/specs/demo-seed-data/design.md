@@ -23,14 +23,21 @@ set -a && source .env && set +a
 ./scripts/seed-demo.sh          # โหลด/โหลดซ้ำ demo dataset (idempotent)
 ```
 
-`seed-demo.sh` ทำแค่: ตรวจว่ามี `POL_SA_PASSWORD` (หรือ `MSSQL_SA_PASSWORD`) + `POL_DB` แล้วเรียก
+`seed-demo.sh` ทำ 4 อย่าง:
 
-```bash
-sqlcmd -S "${POL_SQL_SERVER:-localhost,11433}" -U sa -P "$PASS" -C -b \
-       -v DbName="$DB" -i docker/bootstrap/seed-demo.sql
-```
-
-`-b` = exit non-zero เมื่อ RAISERROR (สำคัญกับ REQ-1.6).
+1. ตรวจว่ามี `POL_SA_PASSWORD` (หรือ `MSSQL_SA_PASSWORD`)
+2. **echo เป้าหมาย + dev-target guard (REQ-1.7)** — พิมพ์ `server=… db=…` เสมอ; ถ้า `POL_SQL_SERVER`
+   ไม่ใช่ localhost/`127.0.0.1`/`[::1]` จะ **ปฏิเสธ** เว้นแต่ตั้ง `POL_ALLOW_DEMO_SEED=1`. สคริปต์ลบแล้ว
+   เขียนใหม่ในฐานะ `sa` — ไม่มี guard = เผลอ `source .env` ของ prod (repo มี `.env.prod.example` จริง)
+   แล้วรัน จะปลูก demo merchant/order ลง prod เงียบ ๆ
+3. **sqlcmd resolution (REQ-1.8)** — ใช้ host `sqlcmd` ถ้ามี; ถ้าไม่มีและเป้าหมายเป็น compose DB ให้ fall
+   back ไป `docker compose exec -T pol-db /opt/mssql-tools18/bin/sqlcmd` โดย feed ไฟล์ทาง **stdin**
+   (`docker/bootstrap` ไม่ได้ mount เข้า service `pol-db` — mount เข้าแค่ `pol-db-init` เท่านั้น จึงใช้ `-i` ไม่ได้).
+   README Prerequisites ไม่ได้บังคับ host `sqlcmd` และ `01-principals.sql` ก็รันจากใน container อยู่แล้ว —
+   ถ้าไม่ fall back เครื่องใหม่ที่ทำตาม README จะได้ `sqlcmd: command not found`. ไม่มี host sqlcmd +
+   เป้าหมายไม่ใช่ compose DB = fail ชัด ๆ (container เข้าไม่ถึง server นั้น) ห้าม redirect เงียบไป DB local
+4. เรียก `sqlcmd … -C -b -v DbName=… -i docker/bootstrap/seed-demo.sql` — `-b` = exit non-zero เมื่อ
+   `RAISERROR`/`THROW` (สำคัญกับ REQ-1.6)
 
 ## 2. โครงของ `seed-demo.sql`
 
@@ -227,6 +234,8 @@ demo ไม่แตะ `iam.*`/`cfg.*` จึงไม่กระทบ).
 | 1.4 | GUID namespace table (§3) |
 | 1.5 | `SET XACT_ABORT ON` + `BEGIN TRAN`/`COMMIT` (§2) |
 | 1.6 | ขั้น (จ) count + `THROW 51000` (§5); `sqlcmd -b` ใน `seed-demo.sh` (§1) |
+| 1.7 | echo target + non-local refusal ใน `scripts/seed-demo.sh` (§1 ข้อ 2) |
+| 1.8 | host sqlcmd -> container fallback ผ่าน stdin ใน `scripts/seed-demo.sh` (§1 ข้อ 3) |
 | 2.1 | ไม่แตะ `sec.MerchantIsolationPolicy` / `pol_rls_bypass` (§2 หมายเหตุ RLS) |
 | 2.2 | `sp_set_session_context` UserId=DemoSuper + MerchantId=Guid.Empty (§2 ขั้น (ข)) |
 | 2.3 | สคริปต์รันด้วย `sa` ซึ่งไม่ใช่สมาชิก bypass (§1 `seed-demo.sh`; §2 หมายเหตุ RLS) |
