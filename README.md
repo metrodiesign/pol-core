@@ -87,7 +87,12 @@ dotnet ef database update --context PolDbContext \
 | FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/producer/*` -> `:5100` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
-`Producer`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
+`App`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
+
+> ชื่อคีย์คือ **`App`** — rf1 rename มาจาก `Producer` แล้ว (`Program.cs` เรียก `GetConnectionString("App")`).
+> คีย์เก่าที่ค้างใน `.env` / `appsettings.Development.json` ของเครื่องใครจะ **ไม่ถูกอ่านเลย** และ `App` จะตกไป
+> หยิบค่าจาก `appsettings.json` ที่ commit ไว้ซึ่ง password ว่าง -> `pol_app` ต่อ DB ไม่ได้. ทั้งสองไฟล์
+> gitignored จึงไม่มี CI จับให้ — เช็คด้วยตาเองตอน setup.
 
 ### รันประจำวัน
 
