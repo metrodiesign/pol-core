@@ -57,13 +57,22 @@ git config core.hooksPath .githooks
 # 3) ยก DB + สร้าง principals (idempotent): สร้าง DB VCentralPay +
 #    logins pol_app / pol_admin / pol_worker + role pol_rls_bypass
 docker compose up -d
+docker compose ps pol-db      # รอจนขึ้น (healthy) ก่อนค่อยไปต่อ — ดูหมายเหตุด้านล่าง
 ```
+
+> `docker compose up -d` คืน prompt ทันที แต่ SQL Server ยังบูตอยู่อีก ~30-60 วิ (นานกว่านั้นถ้าเพิ่ง
+> `down -v` เพราะต้อง init volume ใหม่). ยิง `dotnet ef` ก่อน `pol-db` เป็น `healthy` จะได้
+> `Connection refused` (error 10061) — ไม่ใช่ config พัง แค่เร็วไป.
+
+> ค่าใน `.env` ที่มี `;` (connection string ทุกตัว) **ต้องอยู่ใน single quote** ตามที่ `.env.example` ทำไว้ —
+> Docker Compose ไม่แคร์ แต่ `source .env` ในเชลล์จะตัดค่าทิ้งที่ `;` ตัวแรกอย่างเงียบ ๆ แล้วโผล่มาเป็น
+> pre-login-handshake error ตอนรัน `dotnet ef` ทีหลัง.
 
 migrations: API auto-migrate ตอน boot ใน Dev (ถ้าตั้ง `ConnectionStrings:Migrator`). หรือรันเอง:
 
 ```bash
-POL_DESIGN_SQL="<sa conn string>" \
-dotnet ef database update --context ProducerDbContext \
+set -a && source .env && set +a
+dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
 ```
 
