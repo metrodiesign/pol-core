@@ -28,12 +28,22 @@ cp .env.prod.example .env          # แก้ค่า non-secret + ตั้�
 mkdir -p secrets                   # ./secrets/ ถูก gitignore แล้ว
 ```
 
-`.env` ต้องตั้ง (required — API ไม่ start ถ้าไม่มี): `TENANT_FRONTEND_ORIGIN` + `ADMIN_FRONTEND_ORIGIN` = origin
-ของ 2 SPA (CORS allowlist, scheme+host+port ไม่มี trailing slash); `TENANT_GOOGLE_CLIENT_ID` = Google OAuth
-client ของ tenant SPA (API รับเป็น `tenant` audience ของ id-token bearer); `ADMIN_OIDC_CLIENT_ID` = Google OAuth
-client (type **Web application** = confidential) ของ admin console สำหรับ OIDC BFF login — client **secret** ของ
-มันใส่เป็น secret file (`admin_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. ตั้ง Authorized redirect URI ที่ Google
-client นั้น = `https://<api-host>/admin/auth/callback`.
+`.env` ต้องตั้ง (required — API ไม่ start ถ้าไม่มี): `MERCHANT_USER_FRONTEND_ORIGIN` + `ADMIN_FRONTEND_ORIGIN`
+= origin ของ 2 SPA (CORS allowlist, scheme+host+port ไม่มี trailing slash). ทั้ง merchant-user และ admin เป็น
+server-side OIDC BFF คนละ **confidential** Google OAuth client (type **Web application**), คนละ scheme/cookie/
+callback เต็ม — ไม่ใช่ id-token bearer แบบเดิมอีกแล้ว:
+
+- `MERCHANT_USER_OIDC_CLIENT_ID` = client ของ merchant-user SPA; client **secret** ใส่เป็น secret file
+  (`merchant_user_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. Authorized redirect URI ที่ Google client นั้น =
+  `https://<api-host>/api/v1/merchants/users/auth/callback`.
+- `ADMIN_OIDC_CLIENT_ID` = client ของ admin console; client **secret** ใส่เป็น secret file
+  (`admin_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. Authorized redirect URI ที่ Google client นั้น =
+  `https://<api-host>/api/v1/admins/auth/callback`.
+
+Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`, ไม่ fail-fast แต่ blank แล้ว
+redirect พังเงียบๆ — ตั้งให้ครบ): `PSP_USE_SANDBOX` (default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง),
+`PSP_TWOCTWOP_FRONTEND_RETURN_URL` (2C2P ส่ง browser ลูกค้ากลับหลัง hosted page), `PSP_TWOCTWOP_BACKEND_RETURN_URL`
+(2C2P POST callback -> endpoint `/webhooks` ของเรา), `PSP_OMISE_RETURN_URI` (Omise ส่ง browser กลับหลัง hosted 3DS).
 
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 
@@ -45,6 +55,10 @@ printf '%s' "Ci$(openssl rand -hex 10)Cc3" > secrets/pol_worker_password
 
 # Vault master key — 32-byte AES key, base64 (PR4 keyring อ่านจาก KeyFile; active id = v1)
 head -c 32 /dev/urandom | base64 > secrets/vault_master_key
+
+# Merchant-user OIDC client secret — confidential client secret ของ merchant-user SPA (คู่กับ MERCHANT_USER_OIDC_CLIENT_ID).
+# ไม่ใช่ random: paste ค่าจริงจาก Google Cloud Console (OAuth 2.0 Client ของ merchant-user = Web application -> Client secret).
+printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/merchant_user_oidc_client_secret
 
 # Admin OIDC client secret — confidential client secret ของ admin console (คู่กับ ADMIN_OIDC_CLIENT_ID).
 # ไม่ใช่ random: paste ค่าจริงจาก Google Cloud Console (OAuth 2.0 Client ของ admin = Web application -> Client secret).

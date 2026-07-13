@@ -77,6 +77,14 @@ services:
       ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
       Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
+      # Non-secret PSP operational config (Payments.Infrastructure/Psp/PspOptions.cs) — UseSandbox
+      # defaults true (safe) so going live with real PSP credentials is an explicit .env opt-in. The
+      # return URL/URI values are platform-wide redirect targets, required like the vars above: a
+      # blank value boots fine but silently ships broken PSP redirects, so fail fast instead.
+      Psp__UseSandbox: ${PSP_USE_SANDBOX:-true}
+      Psp__TwoCTwoP__FrontendReturnUrl: ${PSP_TWOCTWOP_FRONTEND_RETURN_URL:?set PSP_TWOCTWOP_FRONTEND_RETURN_URL in .env}
+      Psp__TwoCTwoP__BackendReturnUrl: ${PSP_TWOCTWOP_BACKEND_RETURN_URL:?set PSP_TWOCTWOP_BACKEND_RETURN_URL in .env}
+      Psp__Omise__ReturnUri: ${PSP_OMISE_RETURN_URI:?set PSP_OMISE_RETURN_URI in .env}
     secrets: [pol_app_password, pol_admin_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret]
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
