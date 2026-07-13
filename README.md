@@ -57,13 +57,22 @@ git config core.hooksPath .githooks
 # 3) ยก DB + สร้าง principals (idempotent): สร้าง DB VCentralPay +
 #    logins pol_app / pol_admin / pol_worker + role pol_rls_bypass
 docker compose up -d
+docker compose ps pol-db      # รอจนขึ้น (healthy) ก่อนค่อยไปต่อ — ดูหมายเหตุด้านล่าง
 ```
+
+> `docker compose up -d` คืน prompt ทันที แต่ SQL Server ยังบูตอยู่อีก ~30-60 วิ (นานกว่านั้นถ้าเพิ่ง
+> `down -v` เพราะต้อง init volume ใหม่). ยิง `dotnet ef` ก่อน `pol-db` เป็น `healthy` จะได้
+> `Connection refused` (error 10061) — ไม่ใช่ config พัง แค่เร็วไป.
+
+> ค่าใน `.env` ที่มี `;` (connection string ทุกตัว) **ต้องอยู่ใน single quote** ตามที่ `.env.example` ทำไว้ —
+> Docker Compose ไม่แคร์ แต่ `source .env` ในเชลล์จะตัดค่าทิ้งที่ `;` ตัวแรกอย่างเงียบ ๆ แล้วโผล่มาเป็น
+> pre-login-handshake error ตอนรัน `dotnet ef` ทีหลัง.
 
 migrations: API auto-migrate ตอน boot ใน Dev (ถ้าตั้ง `ConnectionStrings:Migrator`). หรือรันเอง:
 
 ```bash
-POL_DESIGN_SQL="<sa conn string>" \
-dotnet ef database update --context ProducerDbContext \
+set -a && source .env && set +a
+dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
 ```
 
@@ -78,7 +87,12 @@ dotnet ef database update --context ProducerDbContext \
 | FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/producer/*` -> `:5100` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
-`Producer`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
+`App`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
+
+> ชื่อคีย์คือ **`App`** — rf1 rename มาจาก `Producer` แล้ว (`Program.cs` เรียก `GetConnectionString("App")`).
+> คีย์เก่าที่ค้างใน `.env` / `appsettings.Development.json` ของเครื่องใครจะ **ไม่ถูกอ่านเลย** และ `App` จะตกไป
+> หยิบค่าจาก `appsettings.json` ที่ commit ไว้ซึ่ง password ว่าง -> `pol_app` ต่อ DB ไม่ได้. ทั้งสองไฟล์
+> gitignored จึงไม่มี CI จับให้ — เช็คด้วยตาเองตอน setup.
 
 ### รันประจำวัน
 
@@ -105,6 +119,30 @@ dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL 
 1. read order: `.ai/shared/PROJECT_CONTEXT.md` -> `ARCHITECTURE.md` -> `CODING_STANDARDS.md` -> `TASK_PROTOCOL.md`
    (AI agent: เริ่มที่ `AGENTS.md` หรือ `CLAUDE.md`)
 2. งานใหม่ผ่าน spec workflow เสมอ — ไม่ code ก่อน requirements -> design -> tasks
+
+## Demo seed data (dev only)
+
+DB ที่ migrate เสร็จใหม่มีแค่ IAM catalog กับ master data (`cfg.*`) — ตารางอื่นว่างเปล่า ทำให้เปิด
+console/เรียก API แล้วไม่เห็นอะไร. `docker/bootstrap/seed-demo.sql` เติม demo dataset ครอบคลุมทั้ง
+funnel (merchant -> ผู้ใช้ทั้งสองฝั่ง -> สินค้า -> ตะกร้า -> checkout -> order -> payment session)
+สำหรับ dev/localhost เท่านั้น — **ห้ามรันบน prod**.
+
+```bash
+set -a && source .env && set +a
+./scripts/seed-demo.sh          # โหลด/โหลดซ้ำได้เรื่อย ๆ (idempotent, ไม่ TRUNCATE)
+```
+
+- **ไม่ใช่ EF migration** — `dotnet ef database update` ไม่แตะ demo data แม้แต่แถวเดียว; รันแยกด้วยมือ
+  เท่านั้น เพราะ demo data ไม่ควรอยู่ใน schema-migration history ที่วิ่งบน prod ด้วย
+- id ทุกแถวเป็น GUID คงที่ (prefix `e1…`–`ee…` ต่อตาราง) — รันซ้ำ = ลบแถว demo ของตัวเองแล้วใส่ใหม่
+  เท่านั้น ไม่แตะแถวอื่น
+- **login Google จริงไม่ได้** — `Subject`/`sub` ของบัญชี demo ทั้งหมดเป็นค่าปลอม (prefix `demo-adm-`/`demo-mch-`)
+- password อ่านจาก `POL_SA_PASSWORD` หรือ `MSSQL_SA_PASSWORD` เท่านั้น ไม่มี secret ฝังในสคริปต์
+- **guard เป้าหมาย** — สคริปต์ echo `server=… db=…` ก่อนเสมอ และ **ปฏิเสธถ้า `POL_SQL_SERVER` ไม่ใช่
+  localhost** (เผลอ `source` prod env แล้วรัน = ปลูก demo data ลง prod). DB dev/test ที่ไม่ใช่ localhost
+  จริง ๆ ต้องยืนยันด้วย `POL_ALLOW_DEMO_SEED=1 ./scripts/seed-demo.sh`
+- **ไม่ต้องลง `sqlcmd` บน host** — ถ้าไม่มีบน PATH สคริปต์ fall back ไปใช้ตัวใน container `pol-db` ให้เอง
+- รายละเอียด: `.ai/specs/demo-seed-data/{requirements,design}.md`
 
 ## กฎที่ขาดไม่ได้
 
