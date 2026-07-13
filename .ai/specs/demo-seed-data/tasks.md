@@ -479,4 +479,52 @@ ok dotnet build: 48 projects, 0 errors, 0 warnings (00:00:08.11)
 `@counts` ครอบคลุมทุกตารางแล้ว, ทุก invariant ที่ REQ-6.x ต้องการผ่านจริงเมื่อ scope ไปยัง demo data
 (`Id LIKE '<prefix>-%'`) — ตัวเลข "3" ที่เห็นตอน verify ตรงตัวหนังสือ (ไม่ scope) เป็น pre-existing
 non-demo noise ในตาราง `shop.Orders` ของ DB dev เครื่องนี้ ไม่ใช่ผลจาก T4.
-</content>
+
+---
+
+## - [x] T5 — ขยาย shop.Products เป็น 100 แถว
+
+Depends on: T4
+
+Satisfies: 5.4, 5.5
+
+เพิ่มตามคำสั่ง user หลัง T4 ปิด — catalogue 24 แถวน้อยเกินกว่าจะทดสอบ SFS/pagination ได้จริง.
+
+Scope (design §4 shop.Products):
+1. **เก็บ 24 แถวเดิมไว้ทั้งหมด ไม่ขยับ id** — `shop.CartItems` อ้าง `ProductId` ไปที่ `e9…0001`–`e9…0018`
+   ตรง ๆ; regenerate ใหม่ทั้งชุดจะทำให้ cart item กลายเป็น orphan
+2. เติมอีก 76 แถว (id `e9…0019`–`e9…0064` hex) จาก cross join **plan-line x tier** ใน table variable:
+   9 plan line/merchant x 3 tier (Silver 1.00 / Gold 1.35 / Platinum 1.80) = 27 candidate หยิบ 26/25/25
+3. id = `ROW_NUMBER()` + offset 24 เรนเดอร์เป็น hex (`CONVERT(varbinary(4), n)` style 2) — deterministic,
+   `DELETE … LIKE 'e9000000-%'` ใน (ค) กวาดคืนครบทั้ง 100 โดยไม่ต้องแก้อะไร
+
+### Evidence (2026-07-13)
+
+**GOTCHA: `LINENO` เป็น reserved keyword ของ T-SQL.** ตั้งชื่อคอลัมน์ table variable ว่า `LineNo` ครั้งแรก
+แล้วได้:
+```
+Msg 156, Level 15, State 1, Line 208
+Incorrect syntax near the keyword 'LineNo'.
+```
+เปลี่ยนเป็น `LineIdx` แล้วผ่าน.
+
+**รันจริง (`./scripts/seed-demo.sh`, exit 0, รันซ้ำอีกรอบ exit 0):**
+```
+shop.Products = 100          (ตารางอื่นเท่าเดิมทุกตัว)
+```
+
+**Invariant (query ใต้ session-context stamp):**
+```
+per merchant:  e1…0001 = 34   e1…0002 = 33   e1…0003 = 33
+distinct_isactive = 2         inactive = 13
+dup_names = 0                 dup_ids  = 0
+price_range = 350.0000 .. 73800.0000
+req61_cartitem_crossmerchant = 0
+demo_cartitems = 14           demo_orphans = 0    <- 24 แถวเดิมไม่ขยับ, cart item ยังชี้ถูก
+```
+ตัวอย่างแถว generate: `ประกันสุขภาพเหมาจ่าย Health Lumpsum Silver / 22000.0000`,
+`… Gold / 29700.0000`, `… Platinum / 39600.0000`.
+
+**หมายเหตุ:** `cartitems_orphaned` แบบไม่ scope = 1 — เป็น cart item เก่านอก demo (GUID สุ่ม
+`545BF69D-…` ตระกูลเดียวกับ 3 non-demo orders ที่ T4 เจอ) ไม่ใช่ของ seed; scope ไป demo แล้ว = 0.
+ช่วงราคา max ขยับจาก 48,000 เป็น 73,800 (แผนบำนาญ tier Platinum) — design อัปเดตให้ตรงแล้ว.

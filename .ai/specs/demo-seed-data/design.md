@@ -84,7 +84,7 @@ COMMIT;
 | `e6000000` | `merch.ExternalLogins` | 12 |
 | `e7000000` | `merch.RoleAssignments` | 6 |
 | `e8000000` | `txn.PspConnections` | 6 |
-| `e9000000` | `shop.Products` | 24 |
+| `e9000000` | `shop.Products` | 100 |
 | `ea000000` | `shop.Carts` | 6 |
 | `eb000000` | `shop.CartItems` | 14 |
 | `ec000000` | `shop.CheckoutSessions` | 4 |
@@ -153,10 +153,22 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 → คนแรก `merchant_manager` (`aaaaaaaa-…`), คนที่สอง `merchant_staff` (`bbbbbbbb-…`). `MerchantId` = ของ user,
 `AssignedById` = merchant user คนแรกของ merchant นั้น.
 
-**shop.Products (REQ-5.4)** — 24 แถว, 8 ต่อ merchant, ชื่อเป็นแผนประกันจริง (เช่น
-"ประกันอุบัติเหตุส่วนบุคคล PA Plus", "ประกันเดินทางต่างประเทศ Travel Gold", "ประกันสุขภาพ Health Care 1M"),
-`PriceCurrency = 'THB'`, `PriceAmount` DECIMAL(19,4) ช่วง 350.0000–48,000.0000, `IsActive` = 1 ยกเว้น
-1 แถว/merchant เป็น 0.
+**shop.Products (REQ-5.4/5.5)** — **100 แถว** แบ่ง 34 / 33 / 33 ต่อ merchant, สองชั้น:
+
+1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex, 8 ต่อ merchant) — แผนเรือธงที่อ่านแล้วเป็นข้อมูลจริง
+   ("ประกันอุบัติเหตุส่วนบุคคล PA Plus", "ประกันเดินทางต่างประเทศ Travel Gold", "ประกันสุขภาพ Health Care 1M").
+   **id ของ 24 แถวนี้ load-bearing** — `shop.CartItems` อ้างถึงตรง ๆ ห้ามขยับ
+2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก cross join **plan-line x tier**:
+   9 plan line ต่อ merchant x 3 tier (`Silver` 1.00 / `Gold` 1.35 / `Platinum` 1.80) = 27 candidate ต่อ merchant
+   แล้วหยิบ 26 / 25 / 25. `Name` = `<plan line> <tier>` (ไม่ซ้ำกัน), `PriceAmount` = base x multiplier.
+   id = row number เรนเดอร์เป็น hex + offset 24 → deterministic, รันซ้ำได้แถวเดิมเป๊ะ และ
+   `DELETE … LIKE 'e9000000-%'` ใน (ค) ยังกวาดคืนครบทั้ง 100
+
+`PriceCurrency = 'THB'`, `PriceAmount` DECIMAL(19,4) ช่วง 350.0000–73,800.0000. `IsActive = 0` = 13 แถว
+(1 แถวท้ายของแต่ละ block ที่เขียนมือ + ทุกแถวที่ 7 ของชุด generate) — ครบทั้งสองค่า.
+
+ข้อควรระวังตอนเขียน: **`LINENO` เป็น reserved keyword ของ T-SQL** — ตั้งชื่อคอลัมน์ table variable ว่า
+`LineNo` จะได้ `Msg 156 Incorrect syntax near the keyword 'LineNo'` (ใช้ `LineIdx`).
 
 **shop.Carts + CartItems (REQ-6.1)** — 6 carts (2 ต่อ merchant): 4 `Open` + 2 `CheckedOut`.
 `Status` เก็บเป็น **string** (`'Open'`/`'CheckedOut'`) — `CartConfiguration` ใช้ `HasConversion<string>()`
@@ -229,7 +241,8 @@ demo ไม่แตะ `iam.*`/`cfg.*` จึงไม่กระทบ).
 | 5.1 | INSERT `merch.Users` 12 แถว ครบ 4 status + 2 PersonType (§4 merch.Users) |
 | 5.2 | INSERT `merch.ExternalLogins` 12 แถว, Subject `demo-mch-*` (§4 merch.ExternalLogins) |
 | 5.3 | INSERT `merch.RoleAssignments` 6 แถว (§4 merch.RoleAssignments) |
-| 5.4 | INSERT `shop.Products` 24 แถว (§4 shop.Products) |
+| 5.4 | INSERT `shop.Products` 100 แถว, 34/33/33 (§4 shop.Products) |
+| 5.5 | 24 แถวแรกเขียนมือ (id คงที่, CartItems อ้างถึง) + 76 แถว generate จาก plan-line x tier (§4 shop.Products) |
 | 6.1 | INSERT `shop.Carts` 6 + `shop.CartItems` 14 (§4 shop.Carts + CartItems) |
 | 6.2 | INSERT `shop.CheckoutSessions` 4 (§4 shop.CheckoutSessions) |
 | 6.3 | INSERT `shop.Orders` 40 (§4 shop.Orders) |

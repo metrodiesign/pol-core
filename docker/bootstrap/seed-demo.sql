@@ -178,8 +178,11 @@ VALUES
     ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
     ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
 
--- shop.Products (REQ-5.4): 8 per merchant, realistic Thai insurance-plan names. 1 inactive per
--- merchant (last row of each block) so IsActive covers both values. Policy-protected table (in
+-- shop.Products (REQ-5.4): 100 rows total, 34/33/33 across the three merchants. The first 24
+-- (ids ...01-...18 hex) are the hand-written flagship plans below — shop.CartItems references
+-- them by id, so their ids are load-bearing and must not move. The remaining 76 (ids ...19-...64
+-- hex) are generated right after from a plan-line x tier cross join. 1 inactive per hand-written
+-- block plus every 7th generated row, so IsActive covers both values. Policy-protected table (in
 -- MerchantTables) — relies on the (ข) session-context stamp already in place.
 INSERT INTO shop.Products (Id, MerchantId, Name, IsActive, CreatedAt, PriceAmount, PriceCurrency)
 VALUES
@@ -210,6 +213,74 @@ VALUES
     ('e9000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000003', N'ประกันอุบัติเหตุกลุ่มทัวร์ Group Tour PA', 1, SYSUTCDATETIME(),    720.0000, 'THB'),
     ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', N'ประกันร้านขายของฝาก Souvenir Shop Cover',  1, SYSUTCDATETIME(),   2100.0000, 'THB'),
     ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', N'ประกันสินค้าที่ระลึกพิเศษ Limited Edition (เลิกขาย)', 0, SYSUTCDATETIME(), 48000.0000, 'THB');
+
+-- The remaining 76 products (ids ...19-...64 hex), taking the catalogue to 100. Built from a
+-- plan-line x tier cross join rather than 76 hand-typed rows: 9 lines x 3 tiers = 27 candidates per
+-- merchant, of which 26/25/25 are taken. Deterministic throughout — the id is the row number
+-- rendered as hex (offset by the 24 above), so a re-run reproduces the exact same 76 rows and the
+-- DELETE ... LIKE 'e9000000-%' in step (ค) still reclaims every one of them.
+DECLARE @PlanLine TABLE (MerchantIdx tinyint, LineIdx tinyint, LineName nvarchar(120), BasePrice decimal(19,4));
+INSERT INTO @PlanLine (MerchantIdx, LineIdx, LineName, BasePrice) VALUES
+    (1, 1, N'ประกันสุขภาพเหมาจ่าย Health Lumpsum',        22000.0000),
+    (1, 2, N'ประกันชีวิตตลอดชีพ Whole Life',              38000.0000),
+    (1, 3, N'ประกันโรคร้ายแรงเจอจ่ายจบ CI Lumpsum',       26500.0000),
+    (1, 4, N'ประกันอุบัติเหตุครอบครัว Family PA',          4200.0000),
+    (1, 5, N'ประกันรถยนต์ชั้น 1 ซ่อมห้าง Motor Premium',  19800.0000),
+    (1, 6, N'ประกันบ้านและทรัพย์สิน Home All Risk',        7400.0000),
+    (1, 7, N'ประกันการเดินทางรายปี Travel Annual',         5600.0000),
+    (1, 8, N'ประกันบำนาญ Retirement Saver',               41000.0000),
+    (1, 9, N'ประกันสุขภาพเด็ก Kids Health',                9600.0000),
+    (2, 1, N'ประกันร้านค้าออนไลน์ E-Shop Cover',            5200.0000),
+    (2, 2, N'ประกันความรับผิดต่อบุคคลภายนอก Public Liability', 8800.0000),
+    (2, 3, N'ประกันขนส่งพัสดุ Parcel Transit',              3300.0000),
+    (2, 4, N'ประกันสินค้าคงคลัง Inventory Protect',         6900.0000),
+    (2, 5, N'ประกันภัยไซเบอร์ Cyber Shield',              14500.0000),
+    (2, 6, N'ประกันหยุดชะงักธุรกิจ Business Interruption', 21000.0000),
+    (2, 7, N'ประกันอุบัติเหตุพนักงาน Staff Group PA',       2800.0000),
+    (2, 8, N'ประกันสุขภาพกลุ่ม Group Health',             16400.0000),
+    (2, 9, N'ประกันรถขนส่งเชิงพาณิชย์ Commercial Fleet',  27500.0000),
+    (3, 1, N'ประกันทริปในประเทศ Domestic Trip',              520.0000),
+    (3, 2, N'ประกันของฝากเสียหาย Gift Damage Cover',         480.0000),
+    (3, 3, N'ประกันอุบัติเหตุรายวัน Daily PA',               390.0000),
+    (3, 4, N'ประกันกล้องและอุปกรณ์ Gadget Guard',           1150.0000),
+    (3, 5, N'ประกันยกเลิกทริป Trip Cancellation',            860.0000),
+    (3, 6, N'ประกันรถเช่าท่องเที่ยว Rental Car Cover',      1450.0000),
+    (3, 7, N'ประกันกิจกรรมผจญภัย Adventure Sports',         1780.0000),
+    (3, 8, N'ประกันร้านของฝากรายปี Souvenir Shop Annual',   2600.0000),
+    (3, 9, N'ประกันคณะทัวร์ Tour Group Cover',              3400.0000);
+
+DECLARE @Tier TABLE (TierNo tinyint, TierName nvarchar(16), Multiplier decimal(5,2));
+INSERT INTO @Tier (TierNo, TierName, Multiplier) VALUES
+    (1, N'Silver', 1.00), (2, N'Gold', 1.35), (3, N'Platinum', 1.80);
+
+-- 26 for vprivilege, 25 each for vcommerce/vsouvenir = 76. Ordered by (merchant, line, tier) so the
+-- row number -> id mapping is stable across runs.
+;WITH candidate AS (
+    SELECT  l.MerchantIdx,
+            CONCAT(l.LineName, N' ', t.TierName)                       AS Name,
+            CAST(l.BasePrice * t.Multiplier AS decimal(19,4))          AS PriceAmount,
+            ROW_NUMBER() OVER (PARTITION BY l.MerchantIdx ORDER BY l.LineIdx, t.TierNo) AS RankInMerchant
+    FROM @PlanLine l CROSS JOIN @Tier t
+),
+taken AS (
+    SELECT  MerchantIdx, Name, PriceAmount,
+            ROW_NUMBER() OVER (ORDER BY MerchantIdx, RankInMerchant)   AS Seq
+    FROM candidate
+    WHERE RankInMerchant <= CASE MerchantIdx WHEN 1 THEN 26 ELSE 25 END
+)
+INSERT INTO shop.Products (Id, MerchantId, Name, IsActive, CreatedAt, PriceAmount, PriceCurrency)
+SELECT
+    CONVERT(uniqueidentifier, 'e9000000-0000-4000-8000-'
+        + RIGHT('000000000000'
+            + LOWER(CONVERT(varchar(20), CONVERT(varbinary(4), 24 + Seq), 2)), 12)),
+    CONVERT(uniqueidentifier, 'e1000000-0000-4000-8000-'
+        + RIGHT('000000000000' + CONVERT(varchar(12), MerchantIdx), 12)),
+    Name,
+    CASE WHEN Seq % 7 = 0 THEN 0 ELSE 1 END,
+    SYSUTCDATETIME(),
+    PriceAmount,
+    'THB'
+FROM taken;
 
 -- shop.Carts (REQ-6.1): 2 per merchant, string Status ('Open'/'CheckedOut' — CartConfiguration
 -- uses HasConversion<string>() into nvarchar(16); an int here would violate the column mapping).
