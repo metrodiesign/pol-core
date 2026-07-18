@@ -43,7 +43,12 @@ callback เต็ม — ไม่ใช่ id-token bearer แบบเดิ�
 Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`, ไม่ fail-fast แต่ blank แล้ว
 redirect พังเงียบๆ — ตั้งให้ครบ): `PSP_USE_SANDBOX` (default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง),
 `PSP_TWOCTWOP_FRONTEND_RETURN_URL` (2C2P ส่ง browser ลูกค้ากลับหลัง hosted page), `PSP_TWOCTWOP_BACKEND_RETURN_URL`
-(2C2P POST callback -> endpoint `/webhooks` ของเรา), `PSP_OMISE_RETURN_URI` (Omise ส่ง browser กลับหลัง hosted 3DS).
+(2C2P POST callback -> route จริงคือ `POST /api/v1/webhooks/{pspConnectionId}`, **ไม่ใช่** `/webhooks` เฉยๆ —
+`{pspConnectionId}` คือ `Id` ของแถวใน `txn.PspConnections` ของคู่ merchant+2C2P นั้น ไม่ใช่ค่าคงที่ หาได้จาก DB
+หลัง provision merchant. ช่องโหว่ที่ยังไม่ปิด: ค่านี้เป็น env เดียวทั้งแพลตฟอร์ม แต่ route ต้องการ id ต่อ
+connection — ถูกต้องเฉพาะตอนมี 2C2P connection เดียวทั้งระบบ, หลาย merchant ใช้ 2C2P พร้อมกันคือของที่ยังค้าง
+ใน production-hardening PR3), `PSP_OMISE_RETURN_URI` (Omise ส่ง browser กลับหลัง hosted 3DS เท่านั้น — webhook
+ของ Omise ตั้งแยกใน Omise dashboard เอง ไม่ผ่าน env นี้).
 
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 
