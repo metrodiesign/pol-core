@@ -222,3 +222,53 @@ Delivered:
 Verify: build 31/0/0 -warnaserror; unit suite green incl CorsTests (preflight from an allowlisted origin is
 echoed back on both hosts; an unknown origin gets NO Access-Control-Allow-Origin). The deploy scaffold (PR #9)
 should pass the frontend origin through to the host containers via Cors__AllowedOrigins__0 once merged.
+
+## PR6 — Deploy scaffold catch-up: docker-compose.prod.yml + runbook drift (branch feat/prod-hardening-deploy-scaffold)
+
+Closes the PR5 note above — Cors__AllowedOrigins__0/Cors__AdminOrigins__0 turned out already wired into
+docker-compose.prod.yml, so that half of "PR #9" was already done. What was actually still broken: the
+hierarchical-naming rename (Tenant/Producer -> Merchant, 2026-07-12) and the PR3 real-PSP-adapter work were
+never grepped into docker-compose.prod.yml / docs/runbooks/deploy-self-host.md / README.md — the exact class
+of bug LESSONS.md already names ("renames must be grepped into docker/ and .github/, not just src/ /tests/").
+Two of the gaps were genuine deploy-breakers, not cosmetic (following the runbook as-written would fail
+`docker compose up` on a missing secret file; the PSP gap boots fine but silently ships blank redirect URLs).
+A third, unrelated bug surfaced only by actually building the images: the .NET 10 base images
+(`mcr.microsoft.com/dotnet/aspnet:10.0` and `sdk:10.0`) have moved to Ubuntu 24.04 (Noble) — confirmed via
+`docker run ... cat /etc/os-release` — and no longer ship `adduser` (a Debian-only convenience wrapper), so
+the `final` stage's non-root-user step failed with `adduser: not found` (exit 127) on a plain `docker build`.
+
+Delivered:
+- `docker-compose.prod.yml` api service: added `Psp__UseSandbox` (default true, matches PspOptions.cs's own
+  safe-default comment) + `Psp__TwoCTwoP__FrontendReturnUrl` / `Psp__TwoCTwoP__BackendReturnUrl` /
+  `Psp__Omise__ReturnUri` (fail-closed `:?`, same pattern as `Cors__AllowedOrigins__0`) — previously absent
+  entirely. Worker confirmed (grep) to never bind `PspOptions`, so the worker service is untouched.
+- `Dockerfile` `final` stage: `adduser --disabled-password --gecos '' --uid 10001 appuser` ->
+  `useradd --uid 10001 --no-create-home appuser` — root-caused against the actual base image (not guessed);
+  `useradd` comes from `passwd`/`login`, present on both Debian and Ubuntu, so this is distro-proof rather
+  than a Noble-specific patch. (The `migrate` stage's Debian-12-pinned mssql-tools18 apt source was suspected
+  of the same class of bug but empirically still installs clean on the Ubuntu Noble SDK image — verified by
+  building the target, left as-is; changing it would have been an unverified, unrequested edit.)
+- `docs/runbooks/deploy-self-host.md` SS1: renamed `TENANT_FRONTEND_ORIGIN`/`TENANT_GOOGLE_CLIENT_ID` ->
+  `MERCHANT_USER_FRONTEND_ORIGIN`/`MERCHANT_USER_OIDC_CLIENT_ID`, corrected the auth-model description
+  (confidential OIDC BFF client, not id-token-bearer/tenant-audience), fixed both OIDC callback URLs to the
+  real routes (`/api/v1/merchants/users/auth/callback`, `/api/v1/admins/auth/callback` — grepped from
+  Program.cs's actual MapGroup calls; the runbook previously had neither the `/api/v1` prefix nor the plural
+  `admins`), added the missing `secrets/merchant_user_oidc_client_secret` creation step (compose has required
+  this file since PR5; the runbook's setup script never created it), and documented the 4 new `PSP_*` vars.
+- `README.md` Topology table: merged the dev/integration SQL Server rows into one (`:11433` has served both
+  since the rf1 cutover; the separate `:11434` container no longer exists), fixed the `:11434` comment on the
+  integration test command, corrected the FE proxy row's stale `/producer/*` -> `/merchants/*` (confirmed via
+  grep: no `/produc*` route group exists anywhere in Program.cs anymore).
+- `.github/workflows/ci.yml`: new `docker-build` job — builds the api/worker/migrate image targets and runs
+  `docker compose -f docker-compose.prod.yml config` with placeholder env, so this class of drift (a var
+  renamed in one file but not the compose file) fails CI automatically going forward. No secrets needed; no
+  container is ever started.
+
+Verify: `docker build` green for all 3 targets (final x2, migrate) after the useradd fix; `docker compose -f
+docker-compose.prod.yml config` renders clean with placeholder env (all `Psp__*`/Cors/OIDC required vars
+resolve); full isolated dry-run of the corrected runbook (`docker compose -p pol-core-verify up -d --build`
+with throwaway secrets, separate project name + port so it never touched the developer's already-running
+dev `pol-db`/API) — migrate logs ended `[migrate] done.` after applying all 3 EF migrations, exit code 0,
+`sql`/`api`/`worker` all reported `healthy`, `curl /health/ready` -> `{"status":"healthy"}`, `curl /health/live`
+-> `Healthy`; torn down with `down -v` after. `dotnet build -warnaserror` 0/0; `dotnet test
+--filter "Category!=Integration"` all green (808 tests across 12 projects, incl. Hosts.Tests 228).

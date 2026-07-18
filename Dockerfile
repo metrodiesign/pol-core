@@ -23,7 +23,7 @@ WORKDIR /app
 COPY --from=build /app .
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && adduser --disabled-password --gecos '' --uid 10001 appuser
+    && useradd --uid 10001 --no-create-home appuser
 USER appuser
 ARG HOST_DLL
 ENV HOST_DLL=${HOST_DLL} \

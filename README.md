@@ -80,11 +80,10 @@ dotnet ef database update --context PolDbContext \
 
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
-| SQL Server (dev) | `11433` | — | DB หลัก `VCentralPay` |
-| SQL Server (integration test) | `11434` | — | DB แยกของ Integration suite (`.env.integration`) |
+| SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
 | API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (default) + `pol_admin` (keyed, control-plane) | REST + BFF auth |
 | Worker (`src/Hosts/Worker`) | console | `pol_worker` | outbox dispatcher |
-| FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/producer/*` -> `:5100` |
+| FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/merchants/*` -> `:5100` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
 `App`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
@@ -111,7 +110,7 @@ dotnet run   --project src/Hosts/Worker/Worker.csproj     # Worker (เมื่
 ```bash
 dotnet test pol-core.slnx --filter "Category!=Integration"   # unit (ไม่ต้องใช้ DB)
 source .env.integration                                      # gitignored — สร้างเอง (runbook §6)
-dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL :11434)
+dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL :11433)
 ```
 
 ### สำหรับ contributor / agent

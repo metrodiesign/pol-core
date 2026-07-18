@@ -98,6 +98,34 @@ jobs:
       - name: Test (unit + in-memory; integration excluded)
         run: dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
 
+  docker-build:
+    # Builds the prod deploy scaffold's 3 image targets + validates docker-compose.prod.yml renders,
+    # so a rename/config drift (env var renamed in src/ but not docker-compose.prod.yml — the exact
+    # class of bug production-hardening PR6 fixed) fails CI instead of being found by hand. No
+    # secrets needed: images are built but never run, and `config` only needs placeholder values to
+    # satisfy the compose file's ${VAR:?...} required-var checks.
+    name: docker build (api, worker, migrate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build --target final --build-arg HOST_PROJECT=src/Hosts/Api/Api.csproj --build-arg HOST_DLL=Api.dll -t pol-core-api:ci .
+      - name: Build Worker image
+        run: docker build --target final --build-arg HOST_PROJECT=src/Hosts/Worker/Worker.csproj --build-arg HOST_DLL=Worker.dll -t pol-core-worker:ci .
+      - name: Build migrate image
+        run: docker build --target migrate -t pol-core-migrate:ci .
+      - name: Validate docker-compose.prod.yml renders
+        env:
+          MSSQL_SA_PASSWORD: ci-placeholder
+          MERCHANT_USER_OIDC_CLIENT_ID: ci-placeholder
+          ADMIN_OIDC_CLIENT_ID: ci-placeholder
+          MERCHANT_USER_FRONTEND_ORIGIN: https://ci.example.com
+          ADMIN_FRONTEND_ORIGIN: https://ci-admin.example.com
+          PSP_TWOCTWOP_FRONTEND_RETURN_URL: https://ci.example.com/return
+          PSP_TWOCTWOP_BACKEND_RETURN_URL: https://ci.example.com/webhooks/2c2p
+          PSP_OMISE_RETURN_URI: https://ci.example.com/return
+        run: docker compose -f docker-compose.prod.yml config
+
   integration-gate:
     # The integration job needs the MSSQL_SA_PASSWORD repo secret to stand up SQL Server. Until that
     # secret is configured, SKIP the integration job (don't red the build) so verify + dotnet stay the
