@@ -32,7 +32,7 @@ public sealed class AdminAccountManagementIntegrationTests
         var older = Guid.NewGuid();
         var newer = Guid.NewGuid();
         var now = DateTime.UtcNow;
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, older, Guid.NewGuid(), adminA, Active, now.AddHours(-2));
         await InsertSessionAsync(conn, newer, Guid.NewGuid(), adminA, Active, now.AddHours(-1));
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), adminB, Active, now);   // a different admin
@@ -57,7 +57,7 @@ public sealed class AdminAccountManagementIntegrationTests
         var target = Guid.NewGuid();
         var other = Guid.NewGuid();
         var now = DateTime.UtcNow;
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, Guid.NewGuid(), target, admin, Active, now);
         await InsertSessionAsync(conn, Guid.NewGuid(), other, admin, Active, now);
 

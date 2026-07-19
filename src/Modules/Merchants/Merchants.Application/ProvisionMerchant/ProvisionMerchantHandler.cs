@@ -2,7 +2,6 @@ using System.Text.Json;
 using BuildingBlocks.Application;
 using Mediator;
 using Merchants.Domain;
-using Microsoft.Extensions.DependencyInjection;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain.Psp;
@@ -10,11 +9,15 @@ using Payments.Domain.Psp;
 namespace Merchants.Application.ProvisionMerchant;
 
 /// <summary>
-/// Orchestrates admin-driven provisioning (reference 2.4): validate everything BEFORE any write, then
-/// in ONE transaction (REQ-4.1) create the merchant, one PspConnection + vault secret per PSP, and the
-/// audit row. Idempotent under the unit-of-work's retrying execution strategy — all entities and the
-/// result are built INSIDE the transaction delegate and re-initialised each attempt, and the masked
+/// Orchestrates admin-driven provisioning (reference 2.4): validate everything BEFORE any write (pure, no
+/// side effects), then delegate the actual cross-context write to <see cref="IProvisioningWriter"/> (task
+/// 8.5.4 — the ONE place a merchant, its PSP connection(s)/vault secret(s), and the provisioning audit row
+/// are created atomically alongside the in-transaction Super-tier authorization recheck). The masked
 /// response is derived from the (immutable) input, never read back from the vault (REQ-6.5).
+/// <c>operationKey</c> is derived deterministically from the already-unique, already-validated merchant
+/// code — a retry with the same code collides on the same idempotency-ledger key and returns the stored
+/// result rather than re-executing (strictly better semantics than the old naive <c>ExistsByCodeAsync</c>
+/// pre-check alone, which only narrowed the race window).
 /// </summary>
 public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchantCommand, ProvisionMerchantResult>
 {
@@ -23,32 +26,19 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
         new Dictionary<string, string>(StringComparer.Ordinal);
 
     private readonly IMerchantRepository _merchants;
-    private readonly IConnectionRepository _pspConnections;
-    private readonly IVaultSecretStore _vault;
-    private readonly IProvisioningAuditWriter _audit;
+    private readonly IProvisioningWriter _provisioningWriter;
     private readonly IPspSecretEnvelopeFactory _envelopeFactory;
-    private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
-    // The provisioning seams that ALSO have a pol_app consumer (UoW, vault, PSP connections) are resolved
-    // from the keyed "admin" registrations -> the pol_admin (RLS-bypass) connection, so every write shares
-    // ONE transaction (REQ-4.4). IMerchantRepository / IProvisioningAuditWriter have no pol_app consumer, so
-    // their single registration is already admin-bound (no key needed).
     public ProvisionMerchantHandler(
         IMerchantRepository merchants,
-        [FromKeyedServices("admin")] IConnectionRepository pspConnections,
-        [FromKeyedServices("admin")] IVaultSecretStore vault,
-        IProvisioningAuditWriter audit,
+        IProvisioningWriter provisioningWriter,
         IPspSecretEnvelopeFactory envelopeFactory,
-        [FromKeyedServices("admin")] IUnitOfWork unitOfWork,
         IClock clock)
     {
         _merchants = merchants;
-        _pspConnections = pspConnections;
-        _vault = vault;
-        _audit = audit;
+        _provisioningWriter = provisioningWriter;
         _envelopeFactory = envelopeFactory;
-        _unitOfWork = unitOfWork;
         _clock = clock;
     }
 
@@ -81,38 +71,28 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
             prepared.Add(new PreparedConnection(psp, methods, envelope, metadata));
         }
 
-        // ---- idempotency pre-check (REQ-5.2) on the admin (bypass) connection, OUTSIDE the tx ----
+        // ---- idempotency fast-path pre-check (REQ-5.2): cheap, avoids the write path for the obvious-conflict
+        // case. Not the sole guard — the coordinator's own operationKey ledger is authoritative under a race. ----
         if (await _merchants.ExistsByCodeAsync(code, cancellationToken))
             throw new ConflictException($"Merchant '{code}' is already provisioned.");
 
         var merchantMetadata = command.Merchant.Metadata is { } m ? m.GetRawText() : "{}";
 
-        // ---- single transaction (REQ-4.1, REQ-11.2) ----
-        IReadOnlyList<ProvisionedConnection> connections = [];
-        var merchantId = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
-        {
-            var merchant = Merchant.Create(code, command.Merchant.DisplayName, command.Merchant.LegalEntityId,
-                command.Merchant.Country, command.Merchant.Currency, command.Merchant.EnabledChannels, merchantMetadata, _clock.UtcNow);
-            _merchants.Add(merchant);
+        var provisionSpec = new ProvisionSpec(
+            code, command.Merchant.DisplayName, command.Merchant.LegalEntityId, command.Merchant.Country,
+            command.Merchant.Currency, command.Merchant.EnabledChannels, merchantMetadata,
+            command.AdminSubject, command.CorrelationId,
+            [.. prepared.Select(p => new ProvisionConnectionSpec(
+                p.Psp.ToCode(), p.EnabledMethods, p.Metadata, "psp/" + p.Psp.ToCode(),
+                p.Envelope.EnvelopeJson, Mask(p.Envelope.Hints)))]);
 
-            var built = new List<ProvisionedConnection>(prepared.Count); // re-init each attempt -> retry-safe
-            foreach (var p in prepared)
-            {
-                var secretRefName = "psp/" + p.Psp.ToCode();
-                var connection = Connection.Create(merchant.Id, p.Psp, p.EnabledMethods, secretRefName, _clock.UtcNow, p.Metadata);
-                _pspConnections.Add(connection);
-                await _vault.InsertAsync(merchant.Id, secretRefName, p.Envelope.EnvelopeJson, ct);
-                built.Add(new ProvisionedConnection(connection.Id, p.Psp.ToCode(), Mask(p.Envelope.Hints)));
-            }
+        var operationKey = $"provision-merchant:{code}";
+        var result = await _provisioningWriter.ProvisionAsync(
+            provisionSpec, command.CallerAdminId, command.ExpectedAuthorizationVersion, operationKey, cancellationToken);
 
-            _audit.Append(ProvisioningAudit.Create(merchant.Id, code, command.AdminSubject, command.CorrelationId, _clock.UtcNow));
-            await _unitOfWork.SaveChangesAsync(ct);
-
-            connections = built;
-            return merchant.Id;
-        }, cancellationToken);
-
-        return new ProvisionMerchantResult(merchantId, connections);
+        return new ProvisionMerchantResult(
+            result.MerchantId,
+            [.. result.Connections.Select(c => new ProvisionedConnection(c.PspConnectionId, c.Psp, c.MaskedSecrets))]);
     }
 
     private static IReadOnlyDictionary<string, string> Mask(IReadOnlyDictionary<string, string> hints) =>

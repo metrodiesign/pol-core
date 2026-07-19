@@ -87,6 +87,15 @@ request, so that scoped checks are cheap and consistent.
 - 6.3 WHEN an admin request is authenticated THE SYSTEM SHALL resolve and materialize the accessible-tenant set once per request into `IAdminScope` (no per-query re-resolution) and add an `admin_tier` claim.
 
 ## REQ-7: Scoped-admin app-layer floor
+> **[SUPERSEDED 2026-07-19, spec `rls-to-query-filter`]** 7.4 below records scoped-admin isolation as an
+> "app-layer EXCEPTION to the RLS floor" — that framing no longer applies because **the RLS floor itself was
+> torn out entirely** (task 8, 1 forward migration). Scoped-admin isolation is app-layer by the same mechanism
+> as every other isolation decision now (`IAdminMerchantDirectory` + merchant-role capability, task 4) — not an
+> exception to anything, just the ordinary floor. Current canon:
+> [`../../shared/ARCHITECTURE.md`](../../shared/ARCHITECTURE.md) ·
+> [`docs/reference/db-connection-and-rls.md`](../../../docs/reference/db-connection-and-rls.md). Criterion kept
+> below as historical record of the decision at the time this spec shipped.
+
 **User Story:** As a security reviewer, I want scoped-admin tenant isolation enforced by a mechanism strong
 enough to replace the RLS floor, so that a forgotten filter cannot leak cross-tenant data.
 **Source:** design §"Scoped-admin app-layer floor".

@@ -7,7 +7,7 @@ namespace BuildingBlocks.Infrastructure.Vault;
 /// KEK derived from a master key (HKDF-SHA256) and AES-256-GCM seal/open over a packed nonce|ciphertext|tag.
 /// The HKDF salt/info/algorithm are FROZEN — changing any of them would make every existing blob undecryptable.
 /// </summary>
-internal static class VaultEnvelope
+public static class VaultEnvelope
 {
     private static readonly byte[] KekInfo = "pol-core/vault/kek/v1"u8.ToArray();
 

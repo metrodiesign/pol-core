@@ -19,6 +19,8 @@
     <ProjectReference Include="..\..\Modules\Merchants\Merchants.Infrastructure\Merchants.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Application\Iam.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Infrastructure\Iam.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
+    <ProjectReference Include="..\..\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,5 +35,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Hosts.Tests" />
+  </ItemGroup>
 
 </Project>

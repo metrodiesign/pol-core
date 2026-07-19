@@ -24,9 +24,16 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<CartAggregate>
         builder.Ignore(x => x.Subtotal);
         builder.Ignore(x => x.DomainEvents);
 
+        // Composite FK (CartId, MerchantId) -> Cart(Id, MerchantId) closes denormalization drift: an Item
+        // stamped with a different MerchantId than its parent Cart cannot even be inserted (rls-to-query-filter
+        // REQ-6.5, Codex-R1 #8). Requires an explicit alternate key on (Id, MerchantId) since Id alone is
+        // already the PK.
+        builder.HasAlternateKey(x => new { x.Id, x.MerchantId });
+
         builder.HasMany(x => x.Items)
             .WithOne()
-            .HasForeignKey(i => i.CartId)
+            .HasForeignKey(i => new { i.CartId, i.MerchantId })
+            .HasPrincipalKey(x => new { x.Id, x.MerchantId })
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);

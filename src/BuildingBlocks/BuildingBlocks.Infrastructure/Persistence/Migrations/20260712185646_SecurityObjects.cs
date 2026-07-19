@@ -29,6 +29,21 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // --- Legacy principals (rls-to-query-filter task 8 catch-up) ---
+            // This migration's procs/grants below name the pre-teardown principals, which the OLD
+            // docker/bootstrap/01-principals.sql used to create before any migration ran. The 1-principal
+            // bootstrap no longer does, so a FRESH database replaying the chain (CI, local `down -v`) hit
+            // "Cannot execute as the user 'pol_resolver'". Create them here, login-less and idempotent, so the
+            // chain is self-contained; 20260719081817_RlsTeardownAndOnePrincipal drops every one of them.
+            // Already-migrated databases never re-run this migration, so this block changes nothing for them.
+            migrationBuilder.Sql("""
+                IF DATABASE_PRINCIPAL_ID(N'pol_admin') IS NULL         CREATE USER pol_admin WITHOUT LOGIN;
+                IF DATABASE_PRINCIPAL_ID(N'pol_worker') IS NULL        CREATE USER pol_worker WITHOUT LOGIN;
+                IF DATABASE_PRINCIPAL_ID(N'pol_resolver') IS NULL      CREATE USER pol_resolver WITHOUT LOGIN;
+                IF DATABASE_PRINCIPAL_ID(N'pol_vault_auditor') IS NULL CREATE USER pol_vault_auditor WITHOUT LOGIN;
+                IF DATABASE_PRINCIPAL_ID(N'pol_rls_bypass') IS NULL    CREATE ROLE pol_rls_bypass;
+                """);
+
             // --- Schemas (REQ-3.10: every schema owned by dbo, so ownership chaining lets a predicate reach
             // admin.Users / admin.MerchantAccess across schemas without an explicit grant). shop/
             // txn/admin/merch/cfg already exist (EnsureSchema'd by InitialSchema); re-assert authorization in case

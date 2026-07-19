@@ -13,6 +13,8 @@ public static class AuditAction
     // admin-account-management: lifecycle + session management (REQ-3.2, REQ-5.2).
     public const string Reactivate = "reactivate";
     public const string SessionRevoke = "session-revoke";
+    // rls-to-query-filter REQ-4.11 invalidation-matrix source "Tier".
+    public const string TierChanged = "tier-changed";
     // admin-account-management: org-profile edit (Position/Office/Level/Division FKs), targets an admin.
     public const string UpdateProfile = "update-profile";
 

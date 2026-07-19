@@ -1,27 +1,28 @@
-# Connection Strings + RLS — คู่มือ reference (pol-core)
+# Connection Strings + App-Layer Isolation Floor — คู่มือ reference (pol-core)
 
-> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
-> rename ทั้งระบบ: `Tenant`→`Merchant`, `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`,
-> `Money.MinorUnits`→`DECIMAL(19,4)`) — เนื้อหาด้านล่างอาจยังอ้างชื่อ/schema เก่า (RLS section นี้โดยเฉพาะถูก
-> superseded เกือบทั้งหมด: single schema `producer` → 5 schema, `pol_admin` ไม่อยู่ใน bypass แล้ว). ของจริงปัจจุบันดู
-> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
-> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
-> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+> **[rewrite เต็มฉบับ, 2026-07-19 — spec `rls-to-query-filter`]** เอกสารนี้เคยอธิบาย SQL Server native RLS
+> เป็น isolation floor (pre-rf1 vocabulary) — RLS **ถูกถอดทิ้งทั้งหมดแล้ว** ใน 1 forward migration (task 8) และ
+> ไม่มีอยู่จริงในระบบอีกต่อไป. เนื้อหาด้านล่างคือ current-state ของสถาปัตยกรรมใหม่: **app-layer isolation floor**
+> (EF global query filter + sealed write guard), **1 DB principal เดียว** (`pol_app`), **3 runtime `DbContext`**
+> แยกตาม cluster, และ **observability taxonomy** (REQ-13) ที่ชดเชย DB-level attribution ที่หายไปตอนยุบเหลือ
+> 1 principal. Supersede: rf1 REQ-3.2/3.3/3.7/3.8, admin-actor-rename REQ-7.4.
 
-คู่มือสรุปสถานะ **ปัจจุบัน** ของการเข้าถึง database ใน pol-core: connection string, SQL principal,
-Row-Level Security (RLS) และ flow การทำงานจริงแต่ละเส้นทาง. เป็น current-state reference (ไม่ใช่ prescriptive) —
-อ้าง file:line ตามโค้ดจริง เพื่อให้ตามอ่านต่อได้.
+คู่มือสรุปสถานะ **ปัจจุบัน** ของการเข้าถึง database ใน pol-core: connection string, SQL principal, EF query
+filter, sealed write guard และ flow การทำงานจริงแต่ละเส้นทาง. เป็น current-state reference (ไม่ใช่
+prescriptive) — อ้าง file:line ตามโค้ดจริง เพื่อให้ตามอ่านต่อได้.
 
-> Stack: C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator. การกรอง row ต่อ tenant
-> ทำที่ **SQL Server native RLS** เป็นพื้น (floor) ไม่ใช่ EF query filter — โปรเจกต์ **ไม่มี** `HasQueryFilter`
-> เลย (`grep HasQueryFilter` = ว่าง). App-layer guard เป็นชั้นสะดวกบน RLS ไม่ใช่ตัวแทน.
+> Stack: C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator. การกรอง row ต่อ merchant
+> ทำที่ **EF global query filter (deny-default)** เป็นพื้น (floor) — ไม่มี SQL RLS/security policy/
+> `SESSION_CONTEXT`/`EXECUTE AS` bypass proc หลงเหลืออยู่เลย. สองชั้น app-layer (query filter อ่าน + sealed
+> write guard เขียน) ประกบกันเป็น floor เดียวกัน ไม่ใช่ชั้นสะดวกเสริมบน floor อื่น.
 
-> ข้อควรรู้: "account" ในระบบมี 2 ความหมายที่ห้ามสับสน — (1) **SQL principal / login** (`pol_app`,
-> `pol_admin`, ...) คือตัวที่ runtime ใช้ connect DB = "database access account" จริง; (2) **application
-> identity row** (`ProducerAccount`, `AdminAccount`) คือแถวในตาราง identity keyed ด้วย Google `sub` = "คนที่
-> operate" ไม่ใช่ DB login. คู่มือนี้ว่าด้วยความหมาย (1).
+> ข้อควรรู้: "account" ในระบบมี 2 ความหมายที่ห้ามสับสน — (1) **SQL principal / login** (`pol_app` — ตัวเดียว
+> ตอนนี้) คือตัวที่ runtime ใช้ connect DB = "database access account" จริง; (2) **application identity row**
+> (`Merchants.Domain.Users.User`, `Admins.Domain.Users.User`) คือแถวในตาราง identity keyed ด้วย Google `sub` =
+> "คนที่ operate" ไม่ใช่ DB login. คู่มือนี้ว่าด้วยความหมาย (1).
 
-- RLS floor + tenant isolation (แนวคิดระดับสถาปัตย์): `../../.ai/shared/ARCHITECTURE.md`, `../../.ai/shared/SECURITY_RULES.md`
+- isolation floor (แนวคิดระดับสถาปัตย์): `../../.ai/shared/ARCHITECTURE.md`, `../../.ai/shared/SECURITY_RULES.md`
+- design เต็มของ rewrite นี้: `../../.ai/specs/rls-to-query-filter/design.md`
 - module map: `docs/reference/platform-modules.md`
 - entity fields: `docs/reference/entity-fields.md`
 
@@ -30,382 +31,415 @@ Row-Level Security (RLS) และ flow การทำงานจริงแ�
 ## สารบัญ
 
 0. [อธิบายแบบเข้าใจง่าย (ตึกให้เช่า)](#อธิบายแบบเข้าใจง่าย-ตึกให้เช่า) — อ่านก่อนถ้าไม่ใช่สาย technical
-1. [Mental model — defense in depth](#1-mental-model--defense-in-depth)
-2. [Connection strings -> principal](#2-connection-strings---principal)
-3. [SQL principals ทั้งหมด](#3-sql-principals-ทั้งหมด)
-4. [DbContext wiring](#4-dbcontext-wiring)
-5. [RLS layer (isolation floor)](#5-rls-layer-isolation-floor)
-6. [Session-context stamping](#6-session-context-stamping)
-7. [App-layer guards](#7-app-layer-guards)
-8. [EXECUTE AS procs](#8-execute-as-procs)
-9. [Per-principal GRANT (least privilege)](#9-per-principal-grant-least-privilege)
-10. [Flow การทำงาน (A-E)](#10-flow-การทำงาน-a-e)
-11. [File map](#11-file-map)
+1. [Mental model — สองชั้น app-layer](#1-mental-model--สองชั้น-app-layer)
+2. [Connection string -> principal](#2-connection-string---principal)
+3. [SQL principal (เหลือใบเดียว)](#3-sql-principal-เหลือใบเดียว)
+4. [3 runtime DbContext + migration-owner](#4-3-runtime-dbcontext--migration-owner)
+5. [Read floor — EF query filter](#5-read-floor--ef-query-filter)
+6. [Write floor — sealed guard](#6-write-floor--sealed-guard)
+7. [Escape-hatch allowlist (แทน EXECUTE AS procs เดิม)](#7-escape-hatch-allowlist-แทน-execute-as-procs-เดิม)
+8. [Observability — denial/rollback/authz taxonomy](#8-observability--denialrollbackauthz-taxonomy)
+9. [Flow การทำงาน (A-E)](#9-flow-การทำงาน-a-e)
+10. [File map](#10-file-map)
 
 ---
 
 ## อธิบายแบบเข้าใจง่าย (ตึกให้เช่า)
 
 ส่วนนี้อธิบายแนวคิดด้วยการเปรียบเทียบ สำหรับคนที่ไม่ใช่สาย technical. เดินเรื่องด้วยภาพเดียว: **ตึกออฟฟิศให้เช่า
-ที่มีหลายบริษัทมาเช่าห้อง**.
+ที่มีหลายบริษัทมาเช่าห้อง** — เหมือนเอกสารเดิม แต่ **ไม่มีล็อกอัจฉริยะที่ตัวประตูอีกแล้ว**: ตอนนี้ **พนักงานเอง
+(โปรแกรม) เป็นคนตรวจบัตรก่อนหยิบของทุกครั้ง** แทน.
 
-> "บริษัท A / B / C" ในตัวอย่าง = **tenant จริงของแพลตฟอร์ม 3 เจ้า: vPrivilege / vCommerce / vSouvenir** (บริษัทในเครือ,
-> allowlist). ทั้ง 3 ใช้ Tenant Console + backend + database **ชุดเดียวกัน** แต่ข้อมูลแยกเด็ดขาดด้วย RLS — ดู
-> [ตัวอย่างสถานการณ์จริง](#ตัวอย่างสถานการณ์จริง-vprivilege--vcommerce--vsouvenir) ท้ายหัวข้อนี้.
+> "บริษัท A / B / C" ในตัวอย่าง = **merchant จริงของแพลตฟอร์ม 3 เจ้า: vPrivilege / vCommerce / vSouvenir**
+> (บริษัทในเครือ, allowlist). ทั้ง 3 ใช้ Merchant Console + backend + database **ชุดเดียวกัน** แต่ข้อมูลแยกเด็ดขาด
+> ด้วยการเช็คของพนักงานทุกครั้ง — ดู [ตัวอย่างสถานการณ์จริง](#ตัวอย่างสถานการณ์จริง-vprivilege--vcommerce--vsouvenir) ท้ายหัวข้อนี้.
 
 | ในเรื่องเปรียบเทียบ | ของจริงในระบบ | คืออะไร |
 |---|---|---|
 | ตัวตึก | Database | ที่เก็บข้อมูลของทุกคนรวมกัน |
-| บริษัทที่เช่าห้อง (vPrivilege, vCommerce, vSouvenir) | Tenant | ลูกค้าแต่ละเจ้าที่ใช้ระบบเรา |
-| ของในห้องบริษัท vPrivilege | ข้อมูล (row) ของ tenant vPrivilege | order, product, การจ่ายเงิน ของ vPrivilege |
-| คีย์การ์ดเข้าตึก | Connection string / DB account | บัตรที่ "โปรแกรม" ใช้เข้าไปในฐานข้อมูล |
-| ล็อกอัจฉริยะหน้าห้อง | RLS (Row-Level Security) | ระบบที่กันไม่ให้ vPrivilege เห็นของ vCommerce โดยอัตโนมัติ |
-| ป้ายชื่อที่แตะตอนเข้า | `SESSION_CONTEXT('TenantId')` | บอกล็อกว่า "ฉันคือบริษัท vPrivilege" |
-| คู่มือพนักงาน (ใครทำอะไรได้) | RBAC | กฎว่า role ไหนกดปุ่มอะไรได้ |
+| บริษัทที่เช่าห้อง (vPrivilege, vCommerce, vSouvenir) | Merchant | ลูกค้าแต่ละเจ้าที่ใช้ระบบเรา |
+| ของในห้องบริษัท vPrivilege | ข้อมูล (row) ของ merchant vPrivilege | order, product, การจ่ายเงิน ของ vPrivilege |
+| คีย์การ์ดเข้าตึก (ใบเดียวตอนนี้) | Connection string / `pol_app` | บัตรที่ "โปรแกรม" ใช้เข้าไปในฐานข้อมูล — เข้าได้ทุกห้องทางกายภาพ |
+| **พนักงานที่ยืนตรวจของทุกครั้งก่อนหยิบ/วาง** (แทนล็อกอัจฉริยะเดิม) | EF query filter + sealed write guard | โค้ดแอปเช็คทุกครั้งว่า "ของชิ้นนี้เป็นของบริษัทที่กำลังให้บริการอยู่จริงไหม" ก่อนอ่าน/เขียน |
+| ป้ายชื่อที่พนักงานถืออยู่ | `IActorContext.CurrentMerchant` | บอกพนักงานว่า "ตอนนี้ฉันกำลังบริการบริษัทไหน" |
+| คู่มือพนักงาน (ใครทำอะไรได้) | RBAC / `IWriteAuthorizer` | กฎว่า role ไหนกดปุ่มอะไรได้ + เขียนอะไรได้ |
+| สมุดจดเหตุการณ์ผิดปกติ (ใหม่) | `ISecurityTelemetry` -> Seq | ทุกครั้งที่พนักงานปฏิเสธไม่ให้หยิบของผิดห้อง ถูกจดไว้ส่งไปที่ศูนย์กลางแยกต่างหาก |
 
-### Connection string / "DB account" คืออะไร
+### Connection string / "DB account" คืออะไร (ตอนนี้เหลือใบเดียว)
 
 Database เหมือน **ตึกที่เก็บของทุกบริษัทไว้รวมกัน**. โปรแกรมจะเข้าไปหยิบ/วางข้อมูลได้ ต้องมี **คีย์การ์ด** ก่อน —
-คีย์การ์ดนั้นคือ **connection string** ซึ่งบอกว่า ตึกไหน (server), ใช้บัญชีอะไร (`User Id`), รหัสอะไร (password).
-ระบบนี้มี **คีย์การ์ด 3 ใบ** (3 account): `pol_app`, `pol_admin`, `pol_worker` — สิทธิ์ต่างกัน.
+คีย์การ์ดนั้นคือ **connection string**. **เดิมมี 3 ใบ** (`pol_app`/`pol_admin`/`pol_worker`, สิทธิ์ต่างกันที่ DB)
+**ตอนนี้เหลือใบเดียว: `pol_app`** — ทุก host (Api และ Worker) เข้าตึกด้วยบัตรใบเดียวกัน, เข้าได้ทุกห้องทางกายภาพ
+เหมือนกันหมด. สิ่งที่กันไม่ให้พนักงานหยิบของผิดห้องไม่ใช่บัตรอีกต่อไป — เป็น **พนักงานเองที่เช็คก่อนหยิบทุกครั้ง**
+(โค้ดแอป).
 
-### ทำไมมีหลายคีย์การ์ด
+### ทำไมยุบเหลือใบเดียว
 
-เพราะงาน 3 แบบต้องการสิทธิ์ต่างกัน — และการแยกใบคือ **กำแพงความปลอดภัยที่จงใจ** ไม่ใช่ความรก:
+เพราะ RLS (ล็อกอัจฉริยะที่ตัวประตู) ถูกถอดทิ้งทั้งระบบ — ไม่มีเหตุผลให้ต้องมีบัตรสิทธิ์ต่างกันอีกต่อไป (บัตรที่
+"ข้ามล็อกได้" ไม่มีความหมายเมื่อไม่มีล็อกให้ข้าม). ทีมตัดสินใจแลก **least-privilege ที่ DB** (บัตรแยกสิทธิ์)
+เพื่อความง่ายในการ operate — ความปลอดภัยทั้งหมดย้ายไปอยู่ที่ **แอปพลิเคชันชั้นเดียว** แทน (บันทึกไว้ใน
+[design.md ของ `rls-to-query-filter`](../../.ai/specs/rls-to-query-filter/design.md) หัวข้อ "Human sign-off
+item" — เจ้าของระบบ confirm รับความเสี่ยงนี้แล้ว).
 
-- **`pol_app`** = คีย์ของ "พนักงานหน้าร้าน" ที่คุยกับลูกค้า. เข้าตึกได้ แต่ล็อกอัจฉริยะเปิดให้เฉพาะห้องของบริษัทที่กำลังให้บริการอยู่
-- **`pol_admin`** = **คีย์มาสเตอร์ของผู้จัดการตึก**. เข้าได้ทุกห้อง. ใช้เฉพาะตอน "เปิดห้องใหม่ให้บริษัทที่เพิ่งมาเช่า" (สร้าง tenant ใหม่)
-- **`pol_worker`** = คีย์ของ "แม่บ้าน/ภารโรง". เดินเก็บจดหมาย (งานเบื้องหลัง) จากทุกห้อง แต่จะทำงานในห้องไหน ต้องแตะป้ายบอกเข้าห้องนั้นก่อน
+### พนักงานเช็คของยังไง — สองขั้นตอน
 
-### RLS คือหัวใจ — "ล็อกอัจฉริยะหน้าห้อง"
+1. **ตอนหยิบของ (อ่าน)** — พนักงานดูป้ายชื่อของตัวเอง (`CurrentMerchant`) แล้วเทียบกับป้ายบนกล่อง (`MerchantId`
+   ของแถว) ก่อนหยิบให้ลูกค้าดูเสมอ — ไม่ตรง = ไม่ให้ดู (deny-default, ไม่ใช่ allow-list). ไม่มีป้ายชื่อผูกตัวเอง
+   เลย (ไม่มี actor bound) = **เห็นศูนย์ชิ้น** ไม่ใช่เห็นหมด.
+2. **ตอนวางของ (เขียน)** — พนักงานเช็คคู่มือ (`IWriteAuthorizer`) ว่า "ของประเภทนี้ ด้วยสิทธิ์ปัจจุบัน วางที่ห้องนี้
+   ได้ไหม" ก่อนวางทุกครั้ง — ป้ายบนกล่องเปลี่ยนทีหลังไม่ได้ (immutable-after-insert), กล่องเก่าแก้ไม่ได้ถ้าเป็น
+   audit log (append-only).
 
-**RLS** คือระบบที่ **ฐานข้อมูลเองเป็นคนกัน** ว่าใครเห็น row ของใคร (ไม่ใช่โปรแกรมกัน — ตัว database กันเอง).
+นี่คือเหตุผลที่ระบบ **ต้องพึ่งโค้ดแอปเขียนถูกทุกจุด** (ต่างจากเดิมที่ฐานข้อมูลกันให้ที่พื้นแม้โปรแกรมเขียนพลาด) —
+เพื่อชดเชยจุดอ่อนนี้ ระบบมี **สมุดจดเหตุการณ์ผิดปกติ** (observability, REQ-13) ที่จดทุกครั้งที่พนักงานปฏิเสธ/เจอ
+สถานการณ์แปลก ส่งไปศูนย์กลางแยกต่างหาก (Seq) ที่แก้ไขย้อนหลังไม่ได้.
 
-ต่อให้พนักงานถือคีย์ `pol_app` เดินไปหน้าห้องบริษัท B แล้วสั่ง "ขอดูของทั้งหมด" — ล็อกจะโชว์ให้แค่ห้องของบริษัทที่แตะป้ายไว้
-(เช่น A) เท่านั้น ของ B ไม่โผล่เลย แม้โปรแกรมจะเขียนพลาดขอไปทั้งหมด. ทำงาน 2 ขั้น:
-
-1. ตอนเข้า แตะป้าย `SESSION_CONTEXT('TenantId') = A` (บอกว่า "ฉันทำงานให้บริษัท A")
-2. ทุกครั้งที่ขอข้อมูล ล็อกเช็ค: row นี้เป็นของ A ไหม? ใช่ = เห็น, ไม่ใช่ = ซ่อน
-
-นี่คือเหตุผลที่ระบบ **ไม่ต้องเขียนโค้ดกรอง "เอาเฉพาะของ A" ในทุกจุด** — ฐานข้อมูลกันให้ที่พื้น. มีแค่คีย์มาสเตอร์ `pol_admin`
-ที่ข้ามล็อกนี้ได้ (เพราะผู้จัดการต้องเปิดห้องใหม่).
-
-### RBAC ต่างจาก RLS ยังไง (จุดที่มักสับสน)
+### RBAC ต่างจาก isolation floor ยังไง (จุดที่มักสับสน — เหมือนเดิม)
 
 สองอันนี้ **คนละแกน** ต้องแยก:
 
 | | ตอบว่า | ตัวอย่าง |
 |---|---|---|
 | **RBAC** | "ใคร/ตำแหน่งไหน **กดปุ่มอะไร** ได้" | ผู้จัดการ **สร้าง** ห้องใหม่ได้, พนักงานทั่วไปสร้างไม่ได้ |
-| **RLS** | "คนนั้นเห็น **ของห้องไหน**" | พนักงานที่ดูแลบริษัท A เห็นแค่ของ A |
+| **Isolation floor** | "คนนั้นเห็น/แก้ **ของห้องไหน**" | พนักงานที่ดูแลบริษัท A เห็น/แก้แค่ของ A |
 
-- **RBAC = คู่มือพนักงาน** บอก "action" ที่แต่ละตำแหน่งทำได้ (สร้าง/ลบ/แก้)
-- **RLS = ล็อกหน้าห้อง** บอก "ห้อง/ข้อมูล" ที่มองเห็น
-
-**RBAC แทน RLS ไม่ได้**: คู่มือพนักงานไม่ได้ล็อกประตูห้อง. ต่อให้คู่มือเขียนว่า "พนักงานคนนี้ดูออเดอร์ได้" มันไม่ได้บอกว่า
-**ออเดอร์ของบริษัทไหน** — ตัวที่บอกว่าเห็นของบริษัทไหนคือล็อก RLS เท่านั้น.
+**RBAC แทน isolation floor ไม่ได้**: คู่มือพนักงานไม่ได้เช็คว่าของชิ้นนี้เป็นของใคร. ต่อให้คู่มือเขียนว่า
+"พนักงานคนนี้ดูออเดอร์ได้" มันไม่ได้บอกว่า **ออเดอร์ของบริษัทไหน** — ตัวที่บอกว่าเห็นของบริษัทไหนคือ query
+filter + write guard เท่านั้น.
 
 ### ตัวอย่างสถานการณ์จริง (vPrivilege / vCommerce / vSouvenir)
 
-3 บริษัทในเครือ = 3 tenant จริง (allowlist; `code` normalize เป็น lowercase: `vprivilege`, `vcommerce`, `vsouvenir`).
-อยู่ในตึกเดียวกัน (database + backend ชุดเดียว) แต่คนละห้อง. 4 สถานการณ์ผูกกับ flow ในหัวข้อ 10:
+3 บริษัทในเครือ = 3 merchant จริง (allowlist; `code` normalize เป็น lowercase: `vprivilege`, `vcommerce`,
+`vsouvenir`). อยู่ในตึกเดียวกัน (database + backend ชุดเดียว) แต่คนละห้อง. 4 สถานการณ์ผูกกับ flow ในหัวข้อ 9:
 
 **S1 — ตัวแทนของ vCommerce เปิดดูออเดอร์ตัวเอง** (= Flow A)
-- ตัวแทนล็อกอิน Google SSO -> token มี claim tenant = `vcommerce`
-- `pol_app` แตะป้าย `SESSION_CONTEXT('TenantId') = <vcommerce id>`
-- `GET /api/v1/orders` -> RLS โชว์เฉพาะออเดอร์ของ vcommerce; ของ `vprivilege`/`vsouvenir` **ไม่โผล่** แม้อยู่ในตาราง `Orders` เดียวกัน
-- ต่อให้ query เขียนพลาดขอทั้งตาราง ก็ยังเห็นแค่ vcommerce — ล็อกกันที่ DB ไม่ใช่ที่โปรแกรม
+- ตัวแทนล็อกอิน Google SSO -> session cookie ผูก merchant = `vcommerce`
+- `MerchantRuntimeDbContext.CurrentMerchant = <vcommerce id>` (จาก `IActorContext`)
+- `GET /api/v1/orders` -> EF query filter โชว์เฉพาะออเดอร์ของ vcommerce; ของ `vprivilege`/`vsouvenir`
+  **ไม่โผล่** แม้อยู่ในตาราง `Orders` เดียวกัน — filter ต่อไว้ที่ `DbSet` ระดับ `OnModelCreating`, handler เขียน
+  query ปกติไม่ต้องกรองเองซ้ำ
 
-**S2 — ทีมกลางเปิด tenant ใหม่ให้ vSouvenir** (= Flow B)
+**S2 — ทีมกลางเปิด merchant ใหม่ให้ vSouvenir** (= Flow B)
 - Admin Console (session cookie) -> RBAC เช็คสิทธิ์ provision (operation authz)
-- ใช้คีย์มาสเตอร์ `pol_admin` (bypass) -> `POST /api/v1/admins/tenants` payload `code = vsouvenir`, PSP credential
-- เก็บ PSP secret ลง vault (encrypt, key แยกต่อ tenant); สร้าง "ห้อง" ของ vsouvenir ในตึกเดียวกัน
+- `ProvisioningCoordinator` (Super-only, task 7) — **บัตร `pol_app` ใบเดียวกัน**, ไม่มีบัตรมาสเตอร์แยกแล้ว —
+  แทนที่ด้วย `WITH (UPDLOCK, HOLDLOCK)` recheck ว่า caller เป็น active Super ที่ `AuthorizationVersion` ที่
+  คาดไว้ IN-TRANSACTION ก่อนเขียน `merch.Merchants`/`PspConnections`/`VaultSecrets` แบบ atomic (2 `DbContext`
+  ใน tx เดียวกัน — the ONE cross-context write ในระบบ)
 
 **S3 — ลูกค้าของ vCommerce จ่ายเงิน แล้ว PSP (2C2P/Omise) ยิง webhook กลับ** (= Flow D)
-- callback มาแค่ connection id (ยังไม่รู้ว่า tenant ไหน)
-- `usp_resolve_webhook_tenant` (EXECUTE AS bypass) map connection id -> `vcommerce`
-- bind `SESSION_CONTEXT = vcommerce` -> ยืนยัน/อัปเดตออเดอร์ของ vcommerce เท่านั้น
+- callback มาแค่ connection id (ยังไม่รู้ว่า merchant ไหน)
+- `WebhookMerchantResolver` (escape-hatch port, allowlisted) map connection id -> `vcommerce`
+- `IActorScope.Begin(vcommerceId)` -> ยืนยัน/อัปเดตออเดอร์ของ vcommerce เท่านั้น
 
 **S4 — งานเบื้องหลังส่งลิงก์สรุปออเดอร์ของ vPrivilege** (= Flow C)
-- worker ดึง message จาก outbox (เห็นทุก tenant — ตารางนี้ไม่มีล็อกกรอง)
-- ต่อ message: bind `SESSION_CONTEXT = vprivilege` -> อ่าน/เขียนออเดอร์ของ vprivilege แบบ scoped
+- worker ดึง message จาก outbox (escape-hatch lease query, allowlisted — ตารางนี้ต้องเห็นทุก merchant เพื่อ
+  drain)
+- ต่อ message: `IActorScope.Begin(msg.MerchantId)` -> อ่าน/เขียนออเดอร์ของ vprivilege แบบ scoped
 
-**บทสรุปที่เห็นจาก 4 สถานการณ์**: การแยก tenant (vcommerce เห็นแค่ vcommerce) เกิดจาก **RLS ที่ DB floor** —
-ไม่ใช่ RBAC. RBAC ตัดสินแค่ "ใครกดปุ่ม provision/ดูออเดอร์ได้"; ตัวที่กันไม่ให้ vcommerce เห็นออเดอร์ vsouvenir คือ RLS.
+**บทสรุปที่เห็นจาก 4 สถานการณ์**: การแยก merchant (vcommerce เห็นแค่ vcommerce) เกิดจาก **EF query filter +
+sealed write guard ที่ app layer** — ไม่มี DB-level floor เหลืออยู่แล้ว. RBAC ตัดสินแค่ "ใครกดปุ่ม
+provision/ดูออเดอร์ได้"; ตัวที่กันไม่ให้ vcommerce เห็นออเดอร์ vsouvenir คือ query filter + guard.
 
 ---
 
-## 1. Mental model — defense in depth
+## 1. Mental model — สองชั้น app-layer
 
-การเข้าถึงข้อมูลถูกกั้นเป็นชั้น โดยมี **SQL RLS เป็นพื้นแข็ง (hard floor)** และ app-layer guard อยู่บน:
+การเข้าถึงข้อมูลถูกกั้นเป็นสองชั้น **ที่ app layer ทั้งคู่** (ไม่มี SQL floor แยกอีกต่อไป):
 
 ```
                 request (HTTP)
                      |
-   [app-layer]  TenantGuardBehavior + ITenantContext + RBAC/RequirePermission
-                     |   ตั้ง SESSION_CONTEXT('TenantId') ผ่าน interceptor
-                     v
-   [SQL floor]  RLS security policy (FILTER/BLOCK predicate) + per-principal GRANT
+   [app-layer]  MerchantGuardBehavior + IActorContext + RBAC/RequirePermission
                      |
                      v
-                SQL Server 2025
+   [read floor]  EF global query filter (deny-default, per-DbContext, OnModelCreating)
+                     |
+                     v
+   [write floor] GuardedRuntimeDbContext.GuardPendingChanges (sealed SaveChanges override)
+                     |   IWriteAuthorizer.CanWrite + concurrency token + immutable-after-insert + CHECK/FK
+                     v
+                SQL Server 2025  (1 principal: pol_app, no RLS, no bypass role)
 ```
 
-- **RBAC != RLS**: RBAC = "ใคร/role ไหน ทำ operation อะไรได้" (app layer). RLS = "เห็น row ของ tenant ไหน"
-  (DB floor). สองอันคนละแกน — RBAC แทน RLS ไม่ได้.
-- ชั้น isolation แต่ละชั้นอิสระกัน: RLS bypass ข้าม *predicate* แต่ไม่ข้าม *GRANT*; GRANT ผ่านแต่ก็ยังโดน
-  RLS predicate กรอง.
+- **RBAC != isolation floor**: RBAC = "ใคร/role ไหน ทำ operation อะไรได้" (app layer, operation authz). Read
+  floor = "เห็น row ของ merchant ไหน" (app layer, query filter). Write floor = "เขียน row นี้ ด้วยสิทธิ์นี้ ได้
+  ไหม" (app layer, sealed guard). สามอันคนละแกน.
+- Query filter กัน **read** เท่านั้น — ทุก `SaveChanges` ต้องผ่าน write guard แยกต่างหาก (เขียนผ่าน tracked
+  entity **หรือ** raw `ExecuteUpdate`/`ExecuteDelete` ก็โดนกันคนละแบบ: tracked ผ่าน guard, raw ผ่าน escape-hatch
+  allowlist เท่านั้น — ดูหัวข้อ 7).
+- ทุก denial จากทั้งสองชั้นยิง `ISecurityTelemetry.Emit` ไปสมุดจดกลาง (หัวข้อ 8) — ช่องทางเดียวที่เหลือให้
+  detect attack/bug หลังยุบเหลือ 1 principal (ไม่มี DB-level audit ตาม principal แยกให้เทียบอีกแล้ว).
 
 ---
 
-## 2. Connection strings -> principal
+## 2. Connection string -> principal
 
-| Config key | login (`User Id=`) | RLS posture | ใช้โดย | นิยามที่ |
+| Config key | login (`User Id=`) | isolation posture | ใช้โดย | นิยามที่ |
 |---|---|---|---|---|
-| `ConnectionStrings:Producer` | `pol_app` | **RLS-enforced** | API default `ProducerDbContext` (tenant-facing) | `src/Hosts/Api/appsettings.json:11` |
-| `ConnectionStrings:Admin` | `pol_admin` | **RLS-bypass** | API keyed `"admin"` context (provisioning/control-plane) | `src/Hosts/Api/appsettings.json:12` |
-| `ConnectionStrings:Worker` | `pol_worker` | RLS-enforced | Worker `ProducerDbContext` (outbox) | `src/Hosts/Worker/appsettings.json:11` |
-| `ConnectionStrings:Migrator` | *(privileged, ไม่ commit)* | — | dev boot auto-migrate | `src/Hosts/Api/Program.cs:347` |
-| `POL_DESIGN_SQL` (env) | `sa` | — | `dotnet ef database update` (design-time DDL) | `.env:18`, `docker/migrate-entrypoint.sh` |
+| `ConnectionStrings:App` | `pol_app` | app-layer floor เท่านั้น (query filter + write guard) | Api — ทุก `DbContext` ทุก flow | `src/Hosts/Api/appsettings.json:11` |
+| `ConnectionStrings:Worker` | `pol_app` | เดียวกัน | Worker — ทุก `DbContext` | `src/Hosts/Worker/appsettings.json:11` |
+| `ConnectionStrings:Migrator` | *(privileged, ไม่ commit)* | — | dev boot auto-migrate | `src/Hosts/Api/Program.cs:390` |
+| `POL_DESIGN_SQL` (env) | `sa` | — | `dotnet ef database update` (design-time DDL) | `.env:*`, `docker/migrate-entrypoint.sh` |
 
-- Password ใน committed config = **ว่าง**; ฉีดตอน runtime ผ่าน env `ConnectionStrings__Producer/__Admin/__Worker`
-  (ASP.NET map `__` -> `:`). ทุกเส้นมี `Database=VCentralPay;Encrypt=True`.
+- Password ใน committed config = **ว่าง**; ฉีดตอน runtime ผ่าน env `ConnectionStrings__App`/`__Worker`
+  (ASP.NET map `__` -> `:`). ทั้งสองเส้นมี `Database=VCentralPay;Encrypt=True`.
 - นอก Development ถ้า password ว่าง -> fail-fast (`ProvisioningGuards.RequireInjectedCredential`,
-  `src/Hosts/Api/Program.cs:1763-1769`).
-- Prod: `docker/entrypoint.sh` สร้าง connection string ตอน container start จาก `DB_PRINCIPAL` + password
-  file secret (`entrypoint.sh:18` = Producer/Worker; `:29` = Admin เมื่อ mount admin password). `docker-compose.prod.yml`:
-  `DB_PRINCIPAL: pol_app` (api) / `pol_worker` (worker), `DB_ADMIN_PRINCIPAL: pol_admin`.
+  `src/Hosts/Api/Program.cs:~1944`).
+- Prod: `docker-compose.prod.yml` กับ `docker/entrypoint.sh` สร้าง connection string จาก `DB_PRINCIPAL=pol_app`
+  (ทั้ง api และ worker service — เดิมมี `DB_ADMIN_PRINCIPAL`/`DB_PRINCIPAL` แยก, ตอนนี้ตัวแปรเดียว) + password
+  file secret.
+- Api/Worker's `Program.cs` แต่ละไฟล์ห่อ connection string ด้วย `SqlConnectionStringBuilder { ApplicationName =
+  "Api" | "Worker" }` ก่อนใช้ (REQ-13.3 — partial DB attribution แม้ใช้ 1 principal, ดูหัวข้อ 8).
 
 ---
 
-## 3. SQL principals ทั้งหมด
+## 3. SQL principal (เหลือใบเดียว)
 
 นิยามที่ `docker/bootstrap/01-principals.sql` (รันเป็น `sa`, ก่อน EF migration, idempotent).
 
-**Server logins (connect ได้):**
-
 | login | posture | หน้าที่ |
 |---|---|---|
-| `pol_app` | **RLS-enforced** (ไม่อยู่ใน bypass role) | API tenant-facing; CRUD เฉพาะ tenant ตัวเอง |
-| `pol_admin` | **RLS-bypass** (สมาชิก `pol_rls_bypass`) | provisioning/control-plane ข้าม tenant; ใช้เฉพาะ endpoint admin |
-| `pol_worker` | RLS-enforced | Worker outbox dispatcher; อ่าน OutboxMessages ข้าม tenant ได้ (ตารางไม่มี FILTER) แต่เขียน Orders scoped |
+| `pol_app` | ไม่มี RLS ให้ bypass, ไม่มี query filter ที่ DB — grant ครอบคลุมทุก runtime table (UNION ของสิทธิ์เดิมทุก principal) | ใช้โดยทั้ง Api และ Worker, ทุก flow |
 | `sa` | — | bootstrap + DDL migration เท่านั้น; runtime login ไม่มีสิทธิ DDL; app ไม่เคยใช้ |
 
-**Login-less users** (`CREATE USER ... WITHOUT LOGIN` — login ไม่ได้, เป็นแค่ `EXECUTE AS` proc identity; ทั้งคู่เป็นสมาชิก `pol_rls_bypass`):
-
-- `pol_webhook_resolver` — target ของ `usp_resolve_webhook_tenant` / `usp_resolve_order_summary`
-- `pol_vault_auditor` — target ของ `usp_vault_audit_head`
-
-**Database role:**
-
-- `pol_rls_bypass` — **ทางข้าม RLS ทางเดียว**. สมาชิก: `pol_admin`, `pol_webhook_resolver`, `pol_vault_auditor`.
-  `pol_app` / `pol_worker` จงใจ **ไม่** เป็นสมาชิก. (พิสูจน์บน SQL Server 2025: ownership chaining และ
-  `EXECUTE AS OWNER` ไม่ข้าม RLS — role membership เท่านั้นที่ข้าม.)
+**ถูกถอดทิ้งทั้งหมดในการ migration เดียว (task 8):** `pol_admin`, `pol_worker`, `pol_rls_bypass` role,
+login-less `pol_webhook_resolver`/`pol_vault_auditor` (`EXECUTE AS` proc identity เดิม). ไม่มี principal แยกตาม
+capability เหลืออยู่แล้ว — capability แยกที่ app layer ผ่าน `IWriteAuthorizer` implementation แทน (หัวข้อ 6).
 
 ---
 
-## 4. DbContext wiring
+## 4. 3 runtime DbContext + migration-owner
 
-มี `ProducerDbContext` type เดียว register หลายแบบ แต่ละแบบต่อคนละ login:
+`PolDbContext` เดิม (single DbContext ที่ RLS ผูกไว้) **ไม่ถูกลบ** แต่เหลือบทบาทเดียว: **migration-owner**
+(`dotnet ef migrations add` ยังชี้มาที่นี่, CLR name kept) — **ไม่ registered ที่ runtime เลย**, ไม่มี host ไหน
+resolve มันได้จริง.
 
-| Registration | login | interceptor? | ที่ |
+Runtime ใช้ **3 context แยกตาม cluster** แทน — แต่ละอันมี query filter ของตัวเอง (หัวข้อ 5) และสืบทอด sealed
+write guard เดียวกัน (`GuardedRuntimeDbContext`, หัวข้อ 6):
+
+| DbContext | schema ที่คุม | query filter | registration |
 |---|---|---|---|
-| API default | `pol_app` | **มี** `SessionContextConnectionInterceptor` | `src/Hosts/Api/Program.cs:81-84` |
-| API keyed `"admin"` | `pol_admin` | **ไม่มี** (bypass เห็นทุก tenant) | `src/Hosts/Api/AdminScopedServices.cs:71-94` |
-| Worker | `pol_worker` | **มี** | `src/Hosts/Worker/Program.cs:37-40` |
-| Design-time | `sa`/fallback | — | `src/Hosts/Api/DesignTimeDbContextFactories.cs` |
+| `ControlPlaneDbContext` | `admin`, `iam`, `cfg` | **ไม่มี** (control-plane ไม่มี merchant dimension) | `Persistence.ControlPlane/ControlPlanePersistenceRegistration.cs` |
+| `MerchantUserDbContext` | `merch` (identity/session ส่วนเดียว) | เฉพาะ `Users`/`RoleAssignments` | `Persistence.MerchantUsers/MerchantUserPersistenceRegistration.cs` |
+| `MerchantRuntimeDbContext` | `shop`, `txn`, `merch` (data ส่วนเดียว) | ทุก entity ที่ implement `IMerchantFiltered` | `Persistence.MerchantRuntime/MerchantRuntimePersistenceRegistration.cs` |
 
-Handler ที่ต้องการ cross-tenant/control-plane inject keyed ผ่าน `[FromKeyedServices("admin")]` — Admin RBAC
-handlers, tenant provisioning, producer identity wiring, admin OIDC data-protection key ring.
+แต่ละ context อยู่คนละ assembly (`Persistence.ControlPlane`/`Persistence.MerchantUsers`/
+`Persistence.MerchantRuntime`, `internal sealed class`) — ไม่มี `InternalsVisibleTo(Api)` เลย (ยกเว้น
+`Persistence.Provisioning` ที่ต้องแตะสองอัน, หัวข้อ 9 Flow B) กันไม่ให้ host เห็น context ตรง ๆ; adapter สำหรับ
+port ของ Application layer ต้องอยู่ใน assembly เดียวกับ context ที่มันแตะเสมอ.
+
+Ctor ทั้ง 3 context รับ `ISecurityTelemetry` เป็น param สุดท้าย (task 9) — ใช้ยิง denial event จาก guard ภายใน
+(หัวข้อ 8).
 
 ---
 
-## 5. RLS layer (isolation floor)
+## 5. Read floor — EF query filter
 
-นิยามที่ `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260621133209_AddRlsSecurityPolicy.cs`.
+นิยามใน `OnModelCreating` ของแต่ละ `EntityTypeConfiguration` (เช่น
+`Persistence.MerchantRuntime/.../OrderConfiguration.cs`):
 
-**Predicate function** (`fn_tenant_predicate`, :27-33):
-
-```sql
-CREATE FUNCTION VCentralPay.fn_tenant_predicate(@TenantId uniqueidentifier)
-RETURNS TABLE WITH SCHEMABINDING AS
-RETURN SELECT 1 AS allowed
-WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS uniqueidentifier)   -- row ตรง tenant ที่ผูกไว้
-   OR IS_ROLEMEMBER(N'pol_rls_bypass') = 1;                                 -- หรือ principal อยู่ใน bypass role
+```csharp
+builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
 ```
 
-- แถวมองเห็น/เขียนได้ก็ต่อเมื่อ `TenantId` = `SESSION_CONTEXT('TenantId')` ของ connection **หรือ** principal
-  เป็นสมาชิก bypass.
-- `CartItems` ไม่มี `TenantId` -> `fn_cartitem_predicate` (:36-44) scope ผ่าน parent `Carts.TenantId`.
+- **Deny-default**: `context.CurrentMerchant` มาจาก `IActorContext.CurrentMerchant` — ถ้า `HasActor == false`
+  (ไม่มี actor ผูก) มันคือ throw ไม่ใช่ wildcard match, ดังนั้น query ที่ไม่มี actor ผูกจะเห็น **ศูนย์แถว** ไม่ใช่
+  เห็นหมด (fail-closed).
+- `TenantKeyDescriptor` (`BuildingBlocks.Infrastructure/Persistence/TenantKeyDescriptor.cs`) mark entity ว่ามี
+  tenant key คอลัมน์ไหน — arch test (`Architecture.Tests.ReadFloorTests`) เช็คว่าทุก entity ที่ควรมี filter มี
+  จริง (deny-by-omission = red).
+- **IDOR closure**: `CartItems` (denormalize `MerchantId` ของตัวเองแทนพึ่ง parent join, REQ-6) ปิดช่องที่เดิม
+  ต้อง join ผ่าน `Carts` ก่อนถึงจะกรองได้ — ตอนนี้กรองตรงที่ตัวมันเอง.
+- `IgnoreQueryFilters()` ข้าม read floor ได้ — **ห้าม** เว้นแต่อยู่ใน escape-hatch allowlist (หัวข้อ 7).
 
-**Security policy `VCentralPay.TenantIsolationPolicy`** (:58-75) — coverage ต่อกลุ่มตาราง:
+---
 
-| กลุ่ม | predicate | ตาราง |
+## 6. Write floor — sealed guard
+
+`GuardedRuntimeDbContext` (`BuildingBlocks.Infrastructure/Persistence/GuardedRuntimeDbContext.cs`) เป็น base
+class ของทั้ง 3 runtime context — override `SaveChanges`/`SaveChangesAsync` แบบ **sealed** (derived class
+เขียนทับไม่ได้) เรียก `GuardPendingChanges()` ก่อนทุกครั้งเสมอ, เช็คต่อ tracked entry:
+
+1. **`IWriteAuthorizer.CanWrite(entityType, operation, targetMerchant)`** — default-deny, ต้องมี capability
+   ที่ host ผูกไว้ชัดเจนถึงจะเขียนผ่าน (4 implementation ต่อ flow, ดูตารางล่าง)
+2. **Concurrency token** — `RowVersion`/`AuthorizationVersion`-style column บังคับเข้า `WHERE` clause ของ
+   `UPDATE` ที่ EF emit; ชนกัน = `DbUpdateConcurrencyException`
+3. **Tenant-key immutable-after-insert** — เปลี่ยน `MerchantId` ของแถวที่มีอยู่แล้วไม่ได้ (ทางเดียวที่ยอมให้
+   ผ่าน = pre-bind approve/reject write ที่มี WHERE predicate ของตัวเองเป็น immutability enforcement แทน,
+   หัวข้อ 7)
+4. **`MerchantId == Guid.Empty` reject** — sentinel/unbound hit ที่ guard ระดับนี้ (แยกจาก deny-default ของ
+   read floor)
+5. Set-based DML (`ExecuteUpdate`/`ExecuteDelete`) **ข้าม guard นี้ไปเลย** โดยธรรมชาติ (ไม่ผ่าน change
+   tracker) — ต้องอยู่ใน escape-hatch allowlist เท่านั้น (หัวข้อ 7)
+
+**4 production `IWriteAuthorizer` implementation** (host-owned, `internal sealed`):
+
+| Class | ที่ | capability |
 |---|---|---|
-| tenant data | **FILTER + BLOCK** (insert/update) | `PaymentSessions, PspConnections, Products, CheckoutSessions, Carts, Orders, VaultSecrets, IdempotencyRecords` + `CartItems` (ผ่าน parent) |
-| tenant master row | **FILTER + BLOCK** ผูกกับ `Id` แทน `TenantId` (join เข้า policy เดิมแบบ additive, `20260622170702_AddTenantTable.cs:76-80`) | `Tenants` — tenant เห็น/แก้ได้แค่ row ของตัวเอง; `pol_admin` (bypass) provision ข้าม tenant ได้ |
-| outbox | **BLOCK-on-insert** เท่านั้น (อ่านข้าม tenant ได้; ปลอม tenant id ตอนเขียนไม่ได้) | `OutboxMessages` (dispatcher ต้อง drain ทุก tenant) |
-| audit | **BLOCK-on-insert** (append-only) | `VaultRevealAudits` (เพิ่มโดย `20260622022145_AddVaultRevealAudit.cs`) |
-| control-plane | **ไม่อยู่ใน policy** — กั้นด้วย GRANT อย่างเดียว | `ProvisioningAudits, AdminAccounts, ProducerAccounts, *Roles, *Sessions, *Assignments, *Audits, DataProtectionKeys` |
+| `MerchantRequestWriteAuthorizer` | `src/Hosts/Api/Persistence/WriteAuthorizers.cs` | merchant request เขียนได้เฉพาะ `targetMerchant` ของ actor ตัวเอง |
+| `ControlPlaneAdminWriteAuthorizer` | เดียวกัน | admin เขียน control-plane entity ผ่าน `IAdminScope`/RBAC |
+| `ProvisioningSuperWriteAuthorizer` | เดียวกัน | ครอบคลุมเฉพาะ entity set ของ provisioning ภายใต้ Super lock |
+| `WorkerWriteAuthorizer` | `src/Hosts/Worker/WriteAuthorizer.cs` | outbox dispatch capability (cross-merchant drain ที่ระบุ merchant ต่อ message) |
 
-`Tenants` เป็นข้อยกเว้นสำคัญ: แม้เป็นตาราง "master record" ที่ทีมกลาง provision ข้าม tenant ได้ (control-plane
-โดยหน้าที่) แต่ตัวตารางเอง **อยู่ใต้ RLS policy จริง** เพราะ tenant เองก็ต้องอ่าน row ตัวเอง (REQ-10) — ต่างจาก
-`ProvisioningAudits`/`AdminAccounts`/ฯลฯ ที่ไม่มี tenant-scoped read path เลยจึงไม่อยู่ใน policy.
-
-`20260629085733_AddProducerAccountAdminParity.cs:39-42` ถอด predicate ออกจาก `TenantUsers` ตอน graduate เป็น
-control-plane `ProducerAccounts`. RLS มีผลกับทุก principal แม้ sysadmin — ทางข้ามเดียว = membership ใน `pol_rls_bypass`.
+ล้มเหลวจุดไหนของ guard = `WriteGuardException`/`ConcurrencyConflictException`/`ConflictException` (แปลจาก SQL
+2627/2601/547) + `ISecurityTelemetry.Emit` (หัวข้อ 8).
 
 ---
 
-## 6. Session-context stamping
+## 7. Escape-hatch allowlist (แทน EXECUTE AS procs เดิม)
 
-`src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/SessionContextConnectionInterceptor.cs` —
-`DbConnectionInterceptor` ที่ทุกครั้ง connection เปิด (physical open) รัน:
+เดิมมี proc `WITH EXECUTE AS '<bypass member>'` (3 ตัว: webhook resolver, order-summary resolver, vault-audit
+head reader) ให้ query bypass RLS แบบจำกัดเฉพาะ proc นั้น — **ไม่มีอยู่แล้ว**. แทนที่ด้วย **named escape-hatch
+port** ที่ตั้งชื่อไว้ชัดเจน ทำ `IgnoreQueryFilters()`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL ได้เฉพาะไฟล์ที่
+อยู่ใน allowlist (`Architecture.Tests.BypassPrimitiveTests.AllowedPorts`, regex-scan gate — call site ใหม่นอก
+allowlist = red CI ทันที ไม่ต้องรอ code review จับ):
 
-```sql
-EXEC sys.sp_set_session_context @key = N'TenantId', @value = @tenant, @read_only = 1;
-```
+| Port | หน้าที่ (เทียบ proc เดิม) |
+|---|---|
+| `Persistence.MerchantRuntime/Webhooks/WebhookMerchantResolver.cs` | map PSP connection id -> merchant id (เดิม `usp_resolve_webhook_tenant`) |
+| `Persistence.MerchantRuntime/Orders/OrderSummaryReader.cs` | resolve anonymous order-summary token (เดิม `usp_resolve_order_summary`) |
+| `Persistence.MerchantRuntime/Vault/VaultAuditAppender.cs` | `sp_getapplock`-based audit-chain append (เดิม `usp_vault_audit_head`, ตอน task 6 เปลี่ยนกลไก) |
+| `Persistence.ControlPlane/Admins/SessionStore.cs`, `Persistence.MerchantUsers/Users/MerchantUserSessionStore.cs` | session rotate/revoke/prune (conditional `ExecuteUpdate`/`ExecuteDelete`) |
+| `Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs`, `Persistence.MerchantUsers/Outbox/MerchantUserOutboxDrain.cs` | outbox lease query (ต้องเห็นทุก merchant เพื่อ drain) |
+| `Persistence.MerchantUsers/Users/MerchantResolveLoginBySubject.cs`, `MerchantRegistrationWriter.cs`, `MerchantRegistrationSubmitWriter.cs` | pre-bind registration read/write (Subject lookup ก่อนมี `MerchantId`) |
+| `Persistence.MerchantUsers/MerchantRoleAssignmentCountReader.cs`, `MerchantRoleAssignmentReader.cs` | cross-merchant role-assignment count/read (explicit param เสมอ ไม่ใช่ ambient state) |
+| `Persistence.Provisioning/ProvisioningCoordinator.cs` | Super-recheck `UPDLOCK`/`HOLDLOCK` + idempotency-ledger raw INSERT |
+| `Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs` | admin cross-merchant read-back (`ListByTenantAsync`, `GetMerchantHandler`'s ONE caller) |
 
-- ค่ามาจาก `ITenantContext.TenantId`; รันเฉพาะเมื่อ `_tenant.HasTenant` = true (:37-38). `@read_only = 1` ->
-  request code แก้ทับไม่ได้.
-- ต้องรันตอน connection-open (ไม่ใช่ per-query) เพราะ SESSION_CONTEXT เป็น per-connection — pooled connection
-  ที่ reuse จะค้างค่าของ tenant ก่อนหน้า (comment ยืนยัน spike 2026-06-21).
-- ผูกกับ default ctx (pol_app) + worker ctx (pol_worker) เท่านั้น. keyed `"admin"` **ไม่**ผูก -> SESSION_CONTEXT
-  ไม่ถูกตั้ง -> bypass role governs.
-
----
-
-## 7. App-layer guards
-
-- **`TenantGuardBehavior`** (`BuildingBlocks.Application/TenantGuardBehavior.cs`, register `Program.cs:76`) —
-  MediatR pipeline behavior: ปฏิเสธ message ที่ implement `ITenantScoped` เมื่อ `!HasTenant` ->
-  `TenantBindingException` -> 500 opaque. กัน "tenant-scoped แต่ไม่มี tenant = RLS scoping หาย".
-- **`ITenantContext`** (scoped) — `HttpTenantContext` precedence: explicit `AmbientTenant` binding ->
-  `tenant_id` **claim** จาก authenticated principal -> dev fallback. **ไม่เคย** เอา tenant จาก URL path.
-- **`ITenantScope` / `AmbientTenant`** — `Begin(tenantId)` ตั้ง scoped binding (throw ถ้า bind ซ้ำ =
-  confused-deputy guard), dispose แล้วล้าง. ใช้ที่ entry point ที่ไม่มี auth claim: webhook, outbox
-  dispatcher, vault audit writer.
+ทุกอันมีเหตุผลเดียวกัน: จุดที่ ambient `CurrentMerchant`/query filter **ใช้ไม่ได้โดยธรรมชาติ** (ยังไม่รู้
+merchant, หรือต้อง cross-merchant โดยตั้งใจภายใต้ capability ที่ตรวจแล้ว) — ไม่ใช่ "ขี้เกียจเขียน filter"
 
 ---
 
-## 8. EXECUTE AS procs
+## 8. Observability — denial/rollback/authz taxonomy
 
-proc ที่ `WITH EXECUTE AS '<bypass member>'` — ตัว proc query แบบ bypass ได้ ขณะ caller (`pol_app`) ยังถูกกั้น:
+**ใหม่ทั้งหมด (REQ-13, task 9)** — ชดเชย DB-level attribution (แยกตาม principal) ที่หายไปตอนยุบเหลือ 1
+principal. ทุก denial/anomaly path ยิง `ISecurityTelemetry.Emit(DenialEvent)`
+(`BuildingBlocks.Application/ISecurityTelemetry.cs`) — bounded channel (10k, non-blocking) drain โดย
+`BackgroundService` POST เป็น CLEF JSON ไปยัง **Seq** (`docker-compose.yml`, local dev service), retry 3x แล้ว
+fallback log แทนดรอปเงียบ.
 
-| proc | EXECUTE AS | หน้าที่ |
-|---|---|---|
-| `usp_resolve_webhook_tenant` | `pol_webhook_resolver` | map PSP connection id -> tenant id (`AddRlsSecurityPolicy.cs:49-56`) |
-| `usp_resolve_order_summary` | `pol_webhook_resolver` | resolve anonymous order-summary token (`AddOrderSummaryToken.cs`) |
-| `usp_vault_audit_head` | `pol_vault_auditor` | อ่าน audit-chain head ต่อ tenant (`AddVaultRevealAudit.cs`); pol_app INSERT-only, SELECT ไม่ได้ |
+`DenialCategory` 11 ค่า (REQ-13.1's ลำดับเดิม) + call site หลัก:
 
-login-less user เหล่านี้ **ไม่ขึ้นกับจำนวน connecting login** — เป็น proc-execution identity.
+| Category | Site |
+|---|---|
+| `GuardDenial` | `GuardedRuntimeDbContext` — append-only reject, tenant-key immutable |
+| `CanWriteDenial` | `GuardedRuntimeDbContext` — `IWriteAuthorizer` deny |
+| `ConcurrencyConflict` | ทั้ง 3 `IUnitOfWork` — `DbUpdateConcurrencyException` |
+| `CheckOrForeignKeyViolation` | ทั้ง 3 `IUnitOfWork` — SQL 2627/2601/547 |
+| `UnboundActor` | `MerchantGuardBehavior<,>` — `IMerchantScoped` ไม่มี actor ผูก |
+| `EmptyOrSentinelHit` | `GuardedRuntimeDbContext` — `MerchantId == Guid.Empty` |
+| `PortCardinalityAnomaly` | session `TrySupersedeAsync` (×2), `MerchantRegistrationWriter` approve/reject — affected-row 0 |
+| `ApplockTimeout` | `VaultAuditAppender` — `sp_getapplock` timeout |
+| `AdminCrossMerchantAction` | `ConnectionRepository.ListByTenantAsync` — escape-hatch use |
+| `AdminRevalidationDenial` | `AuthorizationLease.VerifyAsync`, `ProvisioningCoordinator.VerifyCallerIsActiveSuperAsync` |
+| `RegistrationSentinelMisuse` | ไม่มี site แยก — degenerate เข้า `CanWriteDenial` |
 
----
+`DenialEvent` มี ActorKind/ActorId/TargetMerchant/Entity/Operation/**Reason**/CorrelationId/OccurredAt
+(REQ-13.2) — `Reason` เป็น **string literal ตายตัวเสมอ** (ห้าม `exception.Message`, ห้าม interpolate ค่าที่มี
+PII/secret) บังคับด้วย `Architecture.Tests.SecurityTelemetryRedactionTests` (regex-scan ทุก `Emit(...)` call
+site). `CorrelationId` มาจาก `System.Diagnostics.Activity.Current` (host-agnostic, ใช้ได้ทั้ง Api's HTTP
+request และ Worker's background dispatch).
 
-## 9. Per-principal GRANT (least privilege)
-
-RLS bypass ข้าม *predicate* ไม่ข้าม *GRANT* -> grant เป็นด่านที่สอง อิสระ. grant matrix หลักที่
-`AddRlsSecurityPolicy.cs:77-108`:
-
-- `pol_app`: CRUD 8 ตาราง tenant + `CartItems`; SELECT/INSERT `IdempotencyRecords`; **INSERT-only**
-  `OutboxMessages` (อ่าน payload tenant อื่นไม่ได้); EXECUTE webhook resolve proc. (INSERT-only `VaultRevealAudits`
-  เพิ่มที่ vault migration.)
-- `pol_worker`: SELECT/UPDATE `OutboxMessages`, `Orders` (dispatcher หลัก) **+** SELECT/INSERT
-  `ProducerRegistrationNotices` (`20260626022204_AddProducerIdentityTables.cs:324` — worker เป็น consumer ของ
-  producer-registration outbox ด้วย ไม่ใช่แค่ outbox หลัก).
-- `pol_admin`: cross-tenant **SELECT** ตาราง data ทั้งหมด (`AddRlsSecurityPolicy.cs:99-107`) — **ไม่มี** grant
-  อ่าน vault plaintext. แต่ในตาราง provisioning `pol_admin` ได้ grant **เขียน** เพิ่มด้วย: SELECT/INSERT/UPDATE
-  `Tenants`, INSERT `PspConnections`/`VaultSecrets`, SELECT/INSERT `ProvisioningAudits`
-  (`20260622170702_AddTenantTable.cs:93-96` — ไม่ใช่ SELECT-only เฉพาะจุดนี้). grant ตาราง control-plane อื่น
-  (`AdminAccounts`, roles, sessions, `ProducerAccounts`, `DataProtectionKeys`, ...) อยู่ใน identity migration
-  (`AddAdminIdentityTables`, `AddProducerIdentityTables`, `AddDataProtectionKeys`, ...).
-- `pol_webhook_resolver`: SELECT `PspConnections` (+`Orders` สำหรับ summary proc). `pol_vault_auditor`: SELECT
-  `VaultRevealAudits`.
-- ไม่มี `db_owner`/`db_datareader`/blanket role กับ runtime login เลย — grant ต่อตารางล้วน; runtime login ไม่มีสิทธิ DDL.
+Alert + retention เป็นการตั้งค่าฝั่ง Seq เอง (Signals feature, stream retention policy) — operator config
+post-deploy ไม่ใช่โค้ด.
 
 ---
 
-## 10. Flow การทำงาน (A-E)
+## 9. Flow การทำงาน (A-E)
 
-### Flow A — Tenant-facing request (เช่น `GET /api/v1/products`)
+### Flow A — Merchant-facing request (เช่น `GET /api/v1/products`)
 
 ```
-HTTP + Bearer(id-token, tenant audience)
-  -> auth -> tenant_id claim
-  -> HttpTenantContext.TenantId (จาก claim)
-  -> [default ProducerDbContext = pol_app]
-  -> connection open -> SessionContextConnectionInterceptor
-        EXEC sp_set_session_context 'TenantId' = <tenant>  (read_only)
+HTTP + merchant-user session cookie
+  -> auth -> MerchantUserDbContext resolve caller -> merchant id
+  -> IActorContext.CurrentMerchant = merchant id
+  -> [MerchantRuntimeDbContext]
   -> query Products
-  -> RLS fn_tenant_predicate: TenantId = SESSION_CONTEXT  -> เห็นเฉพาะ row ของ tenant นี้
-[ถ้า message เป็น ITenantScoped แต่ HasTenant=false -> TenantGuardBehavior โยน 500 ก่อนแตะ DB]
+  -> EF query filter: MerchantId == CurrentMerchant -> เห็นเฉพาะ row ของ merchant นี้
+[ถ้า message เป็น IMerchantScoped แต่ HasActor=false -> MerchantGuardBehavior โยน exception ก่อนแตะ DB,
+ ยิง UnboundActor telemetry]
 ```
 
-Isolation มาจาก: RLS (pol_app non-bypass) + SESSION_CONTEXT จาก claim.
+Isolation มาจาก: EF query filter (ทุก request ผ่าน context เดียวกัน, capability แยกที่ actor ไม่ใช่ principal)
 
-### Flow B — Admin provisioning (`POST /api/v1/admins/tenants`) — cross-tenant
+### Flow B — Admin provisioning (`POST /api/v1/admins/merchants`) — cross-context (the ONE)
 
 ```
 HTTP + Admin session cookie (BFF)
   -> RBAC: RequirePermission (operation authz ที่ app layer)
-  -> ProvisionTenantHandler [keyed "admin" = pol_admin, ไม่มี interceptor]
-  -> connection open: SESSION_CONTEXT('TenantId') = ไม่ถูกตั้ง
-  -> INSERT Tenant (control-plane, ไม่อยู่ใน RLS)
-     INSERT PspConnection, VaultSecret ของ tenant ใหม่ (FILTER+BLOCK tables)
-  -> RLS BLOCK predicate ผ่านเพราะ IS_ROLEMEMBER('pol_rls_bypass')=1  (pol_admin)
+  -> ProvisioningCoordinator.ProvisionAsync [Persistence.Provisioning, task 7]
+  -> เปิด connection เดียว (pol_app) -> BeginTransaction
+  -> ControlPlaneDbContext + MerchantRuntimeDbContext บน connection/tx เดียวกัน
+  -> VerifyCallerIsActiveSuperAsync: SELECT ... WITH (UPDLOCK, HOLDLOCK) WHERE Tier=Super AND
+     AuthorizationVersion=<expected>  [ล้มเหลว -> AdminRevalidationDenial telemetry + WriteGuardException]
+  -> idempotency-ledger raw INSERT (ProvisioningOperations)
+  -> INSERT Merchant, PspConnection(s), VaultSecret(s), ProvisioningAudit (ทั้งหมดผ่าน ProvisioningSuperWriteAuthorizer)
+  -> SaveChanges(false) x2 -> Commit -> AcceptAllChanges x2
 ```
 
-ข้อสังเกต: provisioning **พึ่ง bypass ล้วน ไม่ bind SESSION_CONTEXT** แม้จะรู้ tenant id ใหม่อยู่แล้ว.
+ข้อสังเกต: นี่คือ **จุดเดียวในระบบ** ที่ 2 runtime context แชร์ transaction เดียวกัน — ทุกที่อื่นแยกขาดกันเสมอ.
 
 ### Flow C — Worker outbox drain
 
 ```
-Worker loop [pol_worker + interceptor], lease pass: HasTenant=false
-  -> SELECT OutboxMessages (BLOCK-only, ไม่มี FILTER) -> อ่านได้ทุก tenant
-  -> ต่อ message: ITenantScope.Begin(msg.TenantId)   (OutboxDispatcher.cs:106-109)
-  -> fresh scope -> connection open -> interceptor stamps SESSION_CONTEXT = msg tenant
-  -> consumer เขียน Orders -> RLS scoped ตาม tenant นั้น
+Worker loop [MerchantRuntimeDbContext, WorkerWriteAuthorizer], lease pass: HasActor=false
+  -> OutboxDispatcher.LeaseNextBatchAsync (escape-hatch allowlisted, ExecuteUpdate ข้าม query filter โดยธรรมชาติ)
+     -> อ่านได้ทุก merchant (ตารางนี้ไม่มี IMerchantFiltered)
+  -> ต่อ message: IActorScope.Begin(msg.MerchantId)
+  -> fresh scope -> query filter ผูก merchant นั้นแล้ว
+  -> consumer เขียน Orders -> ผ่าน write guard, CanWrite เช็ค WorkerWriteAuthorizer capability
 ```
 
-pol_worker non-bypass เขียน scoped ได้เพราะ bind tenant ต่อ message.
+Worker เขียน scoped ได้เพราะ bind merchant ต่อ message ผ่าน `IActorScope`, ไม่ใช่เพราะ principal ต่างจาก Api.
 
 ### Flow D — Webhook (PSP callback, ไม่มี auth claim)
 
 ```
-HTTP callback (มี connection id, ยังไม่รู้ tenant)
-  -> WebhookTenantResolver (fresh DI scope — กัน request ctx เปิด connection ก่อนรู้ tenant)
-  -> usp_resolve_webhook_tenant  [EXECUTE AS pol_webhook_resolver, bypass]
-        map connection id -> tenant id
-  -> ITenantScope.Begin(tenantId)   (Program.cs:479-483)
-  -> dispatch -> default ctx pol_app -> interceptor stamps tenant -> RLS scoped
+HTTP callback (มี connection id, ยังไม่รู้ merchant)
+  -> fresh DI scope (กัน request ctx เปิด connection ก่อนรู้ merchant)
+  -> WebhookMerchantResolver.ResolveAsync  [escape-hatch allowlisted, IgnoreQueryFilters()]
+        map connection id -> merchant id
+  -> IActorScope.Begin(merchantId)
+  -> dispatch -> query filter ผูก merchant นั้นแล้ว
 ```
 
-bypass ใช้เฉพาะ "หา tenant จาก connection id" (ต้องอ่านก่อนรู้ tenant) แล้ว flow หลักกลับมา scoped.
+escape-hatch ใช้เฉพาะ "หา merchant จาก connection id" (ต้องอ่านก่อนรู้ merchant) แล้ว flow หลักกลับมา scoped
+ปกติทันที.
 
 ### Flow E — Vault reveal + audit
 
 ```
-reveal secret ของ tenant X:
-  -> อ่าน VaultSecrets ของ X  [pol_app CRUD, RLS scoped ด้วย SESSION_CONTEXT=X]
-  -> usp_vault_audit_head  [EXECUTE AS pol_vault_auditor, bypass] อ่าน audit-chain head (pol_app SELECT ไม่ได้)
-  -> VaultRevealAuditWriter (fresh tenant-bound scope, .cs:30-33)
-        INSERT VaultRevealAudits -> BLOCK predicate ผ่านเพราะ scope bind tenant X
+reveal secret ของ merchant X:
+  -> อ่าน VaultSecrets ของ X  [MerchantRuntimeDbContext, query filter scoped ด้วย CurrentMerchant=X]
+  -> VaultAuditAppender.AcquireChainLockAsync  [escape-hatch allowlisted, sp_getapplock ต่อ merchant —
+     กัน race บน hash-chain append, timeout -> ApplockTimeout telemetry]
+  -> INSERT VaultRevealAudit  -> ผ่าน write guard ปกติ (append-only descriptor บังคับ, guard reject ทุก
+     Delete/Modified บน entity นี้)
 ```
 
 ---
 
-## 11. File map
+## 10. File map
 
 | ชิ้นส่วน | ไฟล์ |
 |---|---|
-| connection strings (Api) | `src/Hosts/Api/appsettings.json:10-13` |
-| connection string (Worker) | `src/Hosts/Worker/appsettings.json:10-12` |
-| principals + role + members | `docker/bootstrap/01-principals.sql` |
-| conn build ตอน container start | `docker/entrypoint.sh:18,29`; `docker-compose.prod.yml` |
-| credential guard | `src/Hosts/Api/Program.cs:1763-1769` |
-| RLS predicate + policy + grant matrix | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260621133209_AddRlsSecurityPolicy.cs` |
-| session-context interceptor | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/SessionContextConnectionInterceptor.cs` |
-| tenant guard behavior | `src/BuildingBlocks/BuildingBlocks.Application/TenantGuardBehavior.cs` |
-| ambient tenant / scope | `ITenantContext.cs`, `ITenantScope.cs`, `AmbientTenant.cs`, `src/Hosts/Api/HttpTenantContext.cs` |
-| keyed "admin" registration | `src/Hosts/Api/AdminScopedServices.cs:71-94` |
-| EXECUTE AS procs | `AddRlsSecurityPolicy.cs`, `AddVaultRevealAudit.cs`, `AddOrderSummaryToken.cs` |
+| connection strings (Api) | `src/Hosts/Api/appsettings.json:9-12` |
+| connection string (Worker) | `src/Hosts/Worker/appsettings.json:9-12` |
+| principal (1 ใบ) | `docker/bootstrap/01-principals.sql` |
+| conn build ตอน container start | `docker/entrypoint.sh`; `docker-compose.prod.yml` |
+| credential guard | `src/Hosts/Api/Program.cs` (`ProvisioningGuards.RequireInjectedCredential`) |
+| migration-owner (ไม่ runtime) | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/PolDbContext.cs` |
+| sealed write guard base class | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/GuardedRuntimeDbContext.cs` |
+| `IWriteAuthorizer` + `WriteOperation` | `src/BuildingBlocks/BuildingBlocks.Application/IWriteAuthorizer.cs` |
+| production `IWriteAuthorizer` impls | `src/Hosts/Api/Persistence/WriteAuthorizers.cs`, `src/Hosts/Worker/WriteAuthorizer.cs` |
+| 3 runtime `DbContext` + registration | `src/Persistence/Persistence.{ControlPlane,MerchantUser,MerchantRuntime}/*PersistenceRegistration.cs` |
+| cross-context provisioning UoW | `src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs` |
+| escape-hatch allowlist (enforced) | `tests/Architecture.Tests/BypassPrimitiveTests.cs` |
+| observability core (channel/dispatcher/registration) | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Observability/*.cs` |
+| `ISecurityTelemetry`/`DenialEvent`/`DenialCategory` | `src/BuildingBlocks/BuildingBlocks.Application/ISecurityTelemetry.cs` |
+| redaction test | `tests/Architecture.Tests/SecurityTelemetryRedactionTests.cs` |
+| `MerchantGuardBehavior` (unbound-actor guard) | `src/BuildingBlocks/BuildingBlocks.Application/MerchantGuardBehavior.cs` |
+| `IActorContext`/`IActorScope` | `src/BuildingBlocks/BuildingBlocks.Application/` |
+| forward migration (RLS teardown) | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260719081817_RlsTeardownAndOnePrincipal.cs` |
+| spec เต็ม | `.ai/specs/rls-to-query-filter/{requirements,design,tasks}.md` |

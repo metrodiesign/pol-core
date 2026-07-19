@@ -175,13 +175,26 @@ fork or weaken these checks per harness.
 - **Webhook = source of truth.** อัปเดตสถานะการจ่ายจาก webhook ที่ **verify ลายเซ็น + idempotent + fetch-to-confirm** เท่านั้น
   (`IWebhookVerifier`). **ห้ามตัดสินสถานะจาก browser return/redirect** (return handler = UX เท่านั้น).
   **ห้าม trust tenant/PSP จาก URL path ก่อน verify signature** — resolve connection จาก path/signed path → verify webhook secret → fetch-to-confirm ค่อยเชื่อ.
-- **Multi-tenant isolation (RLS) — data-layer floor.** ชั้นจริง = **SQL Server native RLS + `SESSION_CONTEXT('TenantId')`**
-  set ต่อ request (ไม่พึ่ง app code). EF global query filter = ชั้นสะดวกเสริม **ไม่ใช่** floor. **ban raw SQL / `IgnoreQueryFilters`**
-  ที่ข้าม tenant scope + test พิสูจน์ leak ปิด (รวม pooled-connection ไม่ retain tenant เดิม). leak ข้าม tenant = ช่องโหว่ร้ายแรง.
+- **Multi-tenant isolation — app-layer floor (supersede 2026-07-19, spec `rls-to-query-filter`).** เดิม floor =
+  SQL Server native RLS + `SESSION_CONTEXT('TenantId')`; **ถอดทิ้งทั้งหมดแล้ว** (1 forward migration, task 8) —
+  floor จริงตอนนี้คือ **app layer เท่านั้น**: EF global query filter deny-default (`MerchantId == CurrentMerchant`,
+  ไม่มี actor ผูก = เห็นศูนย์) ต่อ 3 runtime `DbContext` (`ControlPlaneDbContext`/`MerchantUserDbContext`/
+  `MerchantRuntimeDbContext`, cluster-aligned) **บวก** sealed write guard (`GuardedRuntimeDbContext`, 4-overload
+  `IWriteAuthorizer`, concurrency token, immutable tenant-key-after-insert, CHECK/FK) ที่ทุก `SaveChanges` ต้องผ่าน.
+  DB เหลือ **1 principal เดียว (`pol_app`)** — ไม่มี `pol_admin`/`pol_worker`/bypass role/`EXECUTE AS` proc แยกอีกแล้ว.
+  `IgnoreQueryFilters`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL ที่ข้าม merchant scope **ยังต้อง ban ตามเดิม** — บังคับ
+  ผ่าน escape-hatch allowlist (`Architecture.Tests.BypassPrimitiveTests`, regex-scan gate) แทน DB-level bypass role;
+  เพิ่ม path ใหม่นอก allowlist = red CI ทันที. leak ข้าม merchant = ช่องโหว่ร้ายแรงเหมือนเดิม — แค่ชั้นที่กันเปลี่ยนที่อยู่
+  (จาก DB ไปแอป), ไม่ได้ผ่อนมาตรฐาน. รายละเอียดสถาปัตย์: [ARCHITECTURE.md](ARCHITECTURE.md) · เอกสาร reference:
+  `docs/reference/db-connection-and-rls.md`.
 - **แยก authz scope Admin ↔ Tenant ให้ขาด.** endpoint อำนาจสูง (cross-tenant / approve / config / vault) ต้องเรียกผ่าน
   session ของ Tenant Console **ไม่ได้**. การแยกเป็น 2 แอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ backend authorization.
-  Identity: verify Google id_token (sig/`iss`/`aud`/exp/`email_verified`) → `hd` guard → lookup ตาราง identity ของ console นั้น → scope `TenantId`.
-  **Admin cross-tenant bypass RLS** ผ่าน **DB principal แยก** (admin connection) เท่านั้น — tenant console principal ทำไม่ได้ + ทุก bypass มี reason + correlation id → audit.
+  Identity: verify Google id_token (sig/`iss`/`aud`/exp/`email_verified`) → `hd` guard → lookup ตาราง identity ของ console นั้น → scope `MerchantId`.
+  **Admin cross-merchant action** ไม่ผ่าน DB principal แยกอีกต่อไป (ไม่มีแล้ว) — ผ่าน **narrow escape-hatch port ที่ตั้งชื่อไว้**
+  เท่านั้น (`ConnectionRepository.ListByTenantAsync`, allowlisted), บวก **authorization lease** (`AuthorizationLease.
+  VerifyAsync` — recheck `AuthorizationVersion` ในทรานแซกชันเดียวกับ business write กัน revoke-then-still-commit) และ
+  **observability**: ทุก escape-hatch use + ทุก revalidation denial ยิง `ISecurityTelemetry.Emit` (`DenialCategory.
+  AdminCrossMerchantAction`/`AdminRevalidationDenial`, REQ-13) ไป external tamper-resistant sink พร้อม correlation id.
 - **Maker-checker** สำหรับ action อ่อนไหว: approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist.
 - **Captive allowlist.** เปิดเฉพาะ vPrivilege / vCommerce / vSouvenir. ห้าม public/self-serve onboarding สำหรับคนนอก.
 - **Idempotency.** webhook/payment ประมวลผลซ้ำไม่ได้ — unique key DB `(psp, eventId)` **และ** `(psp, externalChargeId, normalizedStatus)`

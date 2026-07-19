@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Compile-negative fixture for CompileNegativeReferenceTests (rls-to-query-filter REQ-11.8). This
+       project is deliberately NOT part of pol-core.slnx and is never restored/built by the normal solution
+       build — it exists only so the test can shell `dotnet build` on it directly and assert the
+       Directory.Build.props guard (RlsToQueryFilter_EnforcePersistenceBoundaries) fails it, since an xUnit
+       assertion cannot itself prove a SEPARATE `dotnet build` invocation fails. "Bad" is not in the
+       allowlist, so referencing Persistence.ControlPlane here must fail the build. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\src\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

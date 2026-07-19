@@ -96,16 +96,35 @@ Orders → Paid. จบ ไม่มี issuance.
 - Orders จับคู่ order ด้วย **`PaymentPaid.OrderId`** (PR #44, spec `bugfix-order-paid-link`) — `Order.PaymentSessionId` เป็น legacy ไม่มี production writer ห้ามใช้เป็น join key
 
 **Cross-cutting (บังคับทั้งระบบ — security detail: [SECURITY_RULES.md](SECURITY_RULES.md) Product security):**
-- Multi-merchant isolation — **floor = SQL Server native RLS + `SESSION_CONTEXT('MerchantId', 'UserId')`** ต่อ request (ไม่พึ่ง app code);
-  EF global query filter = ชั้นสะดวกเสริมไม่ใช่ floor. ban raw SQL / `IgnoreQueryFilters` ข้าม merchant + test leak. backend ร่วมกัน
+- **Multi-merchant isolation — app-layer floor (supersede 2026-07-19, spec `rls-to-query-filter`, REQ-1/2/3;
+  supersede rf1 REQ-3.2/3.3/3.7/3.8 + admin-actor-rename REQ-7.4).** เดิม floor = SQL Server native RLS +
+  `SESSION_CONTEXT('MerchantId', 'UserId')` ต่อ request; **ถอดทิ้งทั้งหมดใน 1 forward migration** (task 8) — ไม่มี
+  `sec.fn_merchant_predicate`/security policy/`SESSION_CONTEXT` stamping/`EXECUTE AS` proc เหลืออยู่เลย. DB เหลือ
+  **1 principal เดียว (`pol_app`)**. Floor ตัวจริงตอนนี้คือ **app layer ล้วน**, สองชั้นประกบกันต่อ context:
+  1. **EF global query filter, deny-default** (`MerchantId == CurrentMerchant`; ไม่มี actor ผูก → เห็นศูนย์แถว ไม่ใช่เห็นหมด)
+     ต่อ 3 runtime `DbContext` ที่แยกตาม cluster: `ControlPlaneDbContext` (admin/iam/masterdata, ไม่มี filter — ไม่มี
+     merchant dimension), `MerchantUserDbContext` (merchant identity/session, filter เฉพาะ `Users`/`RoleAssignments`),
+     `MerchantRuntimeDbContext` (shop/txn data, filter ทุก entity ที่ implement `IMerchantFiltered`). `PolDbContext`
+     เดิมเหลือแค่ **migration-owner** (`NOT REGISTERED AT RUNTIME`).
+  2. **Sealed write guard** (`GuardedRuntimeDbContext.GuardPendingChanges`/`GuardTenantKey`, base class ของทั้ง 3
+     context) — 4-overload `IWriteAuthorizer.CanWrite` ต่อ (entity, operation), concurrency token, tenant-key
+     immutable-after-insert, `MerchantId == Guid.Empty` reject, ban set-based DML นอก allowlist.
+  `IgnoreQueryFilters`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL ที่ข้าม merchant ยัง **ban เหมือนเดิม** — บังคับผ่าน
+  **escape-hatch allowlist** (`Architecture.Tests.BypassPrimitiveTests`, regex-scan gate ต่อไฟล์ตั้งชื่อไว้) แทน
+  DB bypass role เดิม; call site ใหม่นอก allowlist = red CI. ทุก denial (guard/`CanWrite`/concurrency/CHECK-FK/
+  unbound actor/Empty-sentinel/applock timeout/admin cross-merchant/admin revalidation) ยิง
+  `ISecurityTelemetry.Emit` (REQ-13, task 9) ไป external tamper-resistant sink (Seq) พร้อม actor/target/entity/
+  operation/reason(redacted)/correlation id — ชดเชย DB-level attribution ที่หายไปตอนยุบเหลือ 1 principal.
 - แยก backend authz scope ให้ขาด — endpoint admin (cross-merchant/approve/config) เรียกผ่าน session ฝั่ง merchant-user ไม่ได้;
-  admin cross-merchant bypass RLS ผ่าน **DB principal แยก** เท่านั้น + reason/correlation id → audit
-- **Scoped-admin isolation = RLS floor จริงแล้ว (rf1 REQ-3.2/3.3 — เดิมเป็น app-layer exception ตาม admin-actor-rename REQ-7.4):**
-  `pol_admin` ถูกถอดออกจาก `pol_rls_bypass` (2026-07-12) — `sec.fn_merchant_predicate` เช็ค tier ของ `admin.PlatformUsers`
-  เองใน DB: Super เห็นทุกแถว, Scoped เห็นเฉพาะ merchant ที่มีแถวใน `admin.PlatformMerchantAccess` (fail-closed —
-  ไม่มีแถวเลย = เห็นศูนย์ ไม่ใช่เห็นหมด). seam แอป `IAdminQuery` (ฝัง `WHERE MerchantId ∈ accessible`; Super = unrestricted)
-  **ยังอยู่เป็น belt-and-braces เสริม** ไม่ใช่ floor เดี่ยวอีกต่อไป — Architecture.Tests ห้าม handler อื่นส่ง cross-merchant
-  query ตรง + leak/bypass test = compensating control ชั้นสอง
+  **admin cross-merchant action** ไม่ผ่าน DB principal แยกอีกต่อไป (ไม่มีแล้ว) — ผ่าน named escape-hatch port
+  (`ConnectionRepository.ListByTenantAsync`, allowlisted, `IgnoreQueryFilters()`) เท่านั้น + reason/correlation id → audit
+- **Scoped-admin isolation = app-layer floor เต็มรูปแบบอีกครั้ง** (RLS-floor ระยะสั้นของ rf1 REQ-3.2/3.3 ถูก supersede —
+  RLS ทั้งก้อนถอดแล้ว): `IAdminMerchantDirectory` + merchant-role capability (task 4) เช็ค tier ของ `admin.Users` ที่
+  แอป — Super เห็นทุกแถว (`ControlPlaneDbContext` ไม่มี query filter), Scoped ถูกจำกัดผ่าน seam แอป (`IAdminQuery`-style,
+  ฝัง `WHERE MerchantId ∈ accessible`). **authorization lease** (`AuthorizationLease.VerifyAsync`) recheck
+  `AuthorizationVersion` ในทรานแซกชันเดียวกับ business write กัน revoke-then-still-commit (concurrency token คู่กับ
+  explicit version check) — Architecture.Tests ห้าม handler อื่นส่ง cross-merchant query ตรง + leak/bypass test =
+  compensating control ชั้นสอง
 - Credential vault — **envelope encryption (per-merchant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
 - Identity — Google SSO ทำที่ชั้น auth, **ทั้ง 2 console โมเดลเดียวกันแล้ว (rf1 — ถอด Bearer ทิ้งทั้งระบบ)**: admin console และ
   merchant-user (ตัวแทน) console ต่างมี **server-side OIDC BFF** ของตัวเอง (Authorization Code + PKCE, confidential client),
@@ -123,11 +142,13 @@ Orders → Paid. จบ ไม่มี issuance.
   token) → admin approve/reject เหมือนเดิม. **module Identity ถูกลบ 2026-06-23 → rebuild เป็น Producer 2026-06-28 → รวมกับ
   Tenant เป็น Merchants module เดียว (rf1, 2026-07-12).** คงเหลือ **`PlatformUser`\*** (เดิม `AdminAccount`\*) + BFF
   session tables (`PlatformUserSessions`/`PlatformAuthAudits`/`PlatformUserAudits`, เดิม
-  `AdminSessions`/`AdminAuthAudits`/`AdminAccountAudits`) + `DataProtectionKeys` = control-plane (ไม่มี RLS predicate,
-  pol_admin only) ใน **Admin module**, schema `admin`; MerchantUser identity/session/RBAC ตารางข้างต้นอยู่ schema
-  `merch` — **คนละ schema กันแล้ว** (เดิมทั้งคู่ schema เดียว `producer` ก่อน rf1). schema ไม่ใช่เส้นแบ่ง RLS — floor บังคับ
-  รายตาราง (`merch.Merchants` self-row + `merch.VaultSecrets`/`VaultRevealAudits` อยู่ใต้ policy แม้อยู่ schema เดียวกับ
-  ตารางข้างบนที่ไม่อยู่ใต้ policy)
+  `AdminSessions`/`AdminAuthAudits`/`AdminAccountAudits`) + `DataProtectionKeys` = control-plane (`ControlPlaneDbContext`,
+  ไม่มี query filter) ใน **Admin module**, schema `admin`; MerchantUser identity/session/RBAC ตารางข้างต้นอยู่ schema
+  `merch` — **คนละ schema กันแล้ว** (เดิมทั้งคู่ schema เดียว `producer` ก่อน rf1). schema ยังไม่ใช่เส้นแบ่งของ floor (หลัง
+  rls-to-query-filter ยิ่งชัดกว่าเดิม — ไม่มี DB policy ให้ผูกกับ schema เลย): floor บังคับตาม **`DbContext` cluster** —
+  `merch.Merchants`/`merch.VaultSecrets`/`VaultRevealAudits` อยู่ใต้ `MerchantRuntimeDbContext`'s query filter
+  แม้อยู่ schema เดียวกับตาราง identity/session ข้างบนที่อยู่คนละ context (`MerchantUserDbContext`, filter แค่
+  `Users`/`RoleAssignments`) และไม่อยู่ใต้ filter เดียวกัน
 - RBAC catalog — **rf2 (2026-07-13, spec `rf2-iam-rbac`)**: catalog ที่เดิมซ้ำ 2 ชุดต่อ console (schema `admin` + `merch`,
   16 keys/6 groups + 7 keys/3 groups) ยุบเป็น **catalog กลางเดียว module `Iam` schema `iam`** — 4 tables
   `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary = **20 keys /
@@ -145,11 +166,16 @@ Orders → Paid. จบ ไม่มี issuance.
   shape เดียวกับ `Iam`, ไม่มี Mediator handler เพราะเป็น CRUD ธรรมดา) — `Admins.Application` อ้างได้เฉพาะ
   `MasterData.Domain` (published language เหมือน `Iam.Domain`, ไม่ใช่ `.Application`/`.Infrastructure`), Existence/lookup
   ของฝั่ง Admins เป็น port ของ Admins เอง (`IMasterDataLookup`) ไม่ใช่ use case ของ MasterData. ตารางทั้ง 4 ย้ายจาก schema
-  `admin` ไป **schema `cfg`** — **ผู้ใช้แรกที่ทำให้ `cfg` ใช้จริง** (1 ใน 9 schema ที่ v5 ล็อกไว้แล้ว), นอก RLS, grant
-  `SELECT, INSERT, UPDATE` ให้ `pol_admin` เท่านั้น (เท่าสิทธิ์เดิมทุกประการ); **rf3 จะเติม payment config**
+  `admin` ไป **schema `cfg`** — **ผู้ใช้แรกที่ทำให้ `cfg` ใช้จริง** (1 ใน 9 schema ที่ v5 ล็อกไว้แล้ว), ไม่มี query
+  filter (เดิม "นอก RLS"; RLS ถอดทิ้งทั้งระบบแล้ว 2026-07-19), เข้าถึงผ่าน `ControlPlaneDbContext` เท่านั้น (grant
+  DB-level ตอนนี้อยู่ที่ principal เดียว `pol_app`, capability กันที่ app-layer `IWriteAuthorizer` แทน) — **rf3
+  จะเติม payment config**
   (`Provider`/`RoutingRule`/`GatewayConfig`/`FeeStructure`) เข้า schema เดียวกัน. รายละเอียด: `.ai/specs/masterdata-module/`
 - Maker-checker (approve merchant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
-- Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ DB floor** (rf1 REQ-3.7 — Scoped INSERT `merch.Merchants` โดน BLOCK, control ใหม่)
+- Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ app floor** (supersede rf1 REQ-3.7's DB-policy BLOCK — RLS ถอดแล้ว; control
+ใหม่ = `ProvisioningCoordinator`, task 7: `WITH (UPDLOCK, HOLDLOCK)` recheck ว่า caller เป็น active Super ที่
+`AuthorizationVersion` ที่คาดไว้ IN-TRANSACTION ก่อนเขียน, atomic กับ merchant+connection+vault-secret insert เดียวกัน;
+ล้มเหลว → `AdminRevalidationDenial` telemetry, REQ-13)
 - Money — มาตรฐาน (ตัดสิน 2026-07-05, **as-built แล้ว rf1 2026-07-12**) = `Money { Amount: DECIMAL(19,4), Currency: ISO4217 }` **ทุกชั้น** (domain/DB/wire) **ห้าม float/double**; wire = JSON string fixed 4 ตำแหน่ง (กัน IEEE754 double) — รายละเอียดกฎเต็มดู [CODING_STANDARDS.md](CODING_STANDARDS.md); Orders verify amount+currency ตอนรับ `PaymentPaid`
 
 ## Naming Conventions

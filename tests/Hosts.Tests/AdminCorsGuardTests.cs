@@ -42,13 +42,6 @@ file sealed class CorsGuardFactory : WebApplicationFactory<ApiHost::Program>
             ["Cors:AllowedOrigins:0"] = MerchantUserOrigin,
             ["Cors:AdminOrigins:0"] = AdminOrigin,
         }));
-        builder.ConfigureServices(services =>
-        {
-            var dispatcher = services.SingleOrDefault(d =>
-                d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(OutboxDispatcher));
-            if (dispatcher is not null)
-                services.Remove(dispatcher);
-        });
     }
 }
 

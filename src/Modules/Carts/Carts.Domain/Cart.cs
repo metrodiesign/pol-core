@@ -53,7 +53,7 @@ public sealed class Cart : AggregateRoot<Guid>
             return;
         }
 
-        _items.Add(new Item(Guid.CreateVersion7(), Id, productId, quantity, unitPrice));
+        _items.Add(new Item(Guid.CreateVersion7(), Id, MerchantId, productId, quantity, unitPrice));
     }
 
     /// <summary>Removes the line for <paramref name="productId"/>, if present.</summary>

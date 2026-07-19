@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runtime persistence assembly for the MerchantUser cluster (merch.Users/Sessions/ExternalLogins/
+       AuthAudits/RegistrationAudits/RegistrationNotices/RoleAssignments — rls-to-query-filter design.md
+       "Context topology"). References Merchants.Domain + Merchants.Application (task 8.5.2: implements its
+       user/session/role ports) + BuildingBlocks.Infrastructure (SchemaNames) — NEVER Iam.Domain, NEVER
+       Merchants.Infrastructure — so this assembly stays narrow and cannot even name a cross-cluster type. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Merchants\Merchants.Application\Merchants.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+  </ItemGroup>
+
+  <!-- internal sealed context: no production code outside this assembly may construct it (REQ-11.8).
+       Architecture.Tests needs InternalsVisibleTo to build the model-disjointness/seal-reflection guardrail
+       tests — the same pattern BuildingBlocks.Web/Api already use for Hosts.Tests. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Architecture.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

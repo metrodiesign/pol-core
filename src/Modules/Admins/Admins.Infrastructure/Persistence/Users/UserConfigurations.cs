@@ -23,6 +23,10 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
+        // rls-to-query-filter REQ-4.9/4.11 (task 8): real column, mirrors Persistence.ControlPlane's own
+        // UserConfiguration — the authorization lease's conditional no-op UPDATE relies on EF's native
+        // concurrency-token WHERE clause (WHERE Id=@caller AND AuthorizationVersion=@expected).
+        builder.Property(x => x.AuthorizationVersion).IsConcurrencyToken();
         // Filtered unique: one account per bound subject; invited (NULL-subject) rows are exempt (REQ-3.1).
         builder.HasIndex(x => x.Subject).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique(); // the invite key before a subject is bound

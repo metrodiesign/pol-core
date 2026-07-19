@@ -20,6 +20,16 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Fixtures/ForbiddenControlPlaneReference/Bad.csproj is a standalone project built directly by
+       CompileNegativeReferenceTests (a nested `dotnet build`, not a ProjectReference) — its own bin/obj
+       output sits inside THIS project's directory tree, outside the default SDK exclude (which only covers
+       Architecture.Tests' OWN bin/obj), so its generated AssemblyInfo.cs would otherwise double-compile
+       into this assembly (duplicate assembly-attribute errors) once Bad.csproj has been built once. -->
+  <ItemGroup>
+    <Compile Remove="Fixtures/**/bin/**" />
+    <Compile Remove="Fixtures/**/obj/**" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\SharedKernel\SharedKernel.csproj" />
     <ProjectReference Include="..\..\src\Contracts\Contracts.csproj" />
@@ -52,6 +62,10 @@
     <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Domain\MasterData.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Application\MasterData.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\MasterData\MasterData.Infrastructure\MasterData.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
+    <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
+    <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
+    <ProjectReference Include="..\..\src\Persistence\Persistence.Provisioning\Persistence.Provisioning.csproj" />
   </ItemGroup>
 
 </Project>

@@ -18,6 +18,7 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.CartId).IsRequired();
+        builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Cart (rls-to-query-filter REQ-6)
         builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
 

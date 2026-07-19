@@ -2,15 +2,11 @@ using Admins.Application;
 using Admins.Application.Users;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
-using BuildingBlocks.Infrastructure.Persistence;
 using Iam.Application.Roles;
 using Iam.Domain.Permissions;
-using Iam.Infrastructure.Persistence.Roles;
 using Merchants.Application;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
-using MerchantRoleAssignment = Merchants.Domain.Users.Roles.RoleAssignment;
+using Persistence.ControlPlane;
+using Persistence.MerchantUsers;
 
 namespace Api.Iam;
 
@@ -41,11 +37,11 @@ internal static class RoleSideContextResolver
 /// <summary>
 /// The concrete <see cref="IRoleAuditSink"/> the host registers. <c>Iam.Application</c> cannot reference
 /// Admins' <see cref="IAuditWriter"/>/<see cref="Audit"/>/<see cref="AuditAction"/> types directly
-/// (module-reference rule), so this class is the bridge. It writes into the SAME keyed "admin"
-/// <c>PolDbContext</c>/transaction the Iam role store commits through (both are Scoped, resolved once per
-/// request), so the audit row can never be separated from the write it describes by a crash. No-ops when no
-/// admin is bound — merchant-side role CRUD has never been audited (the old Merchants catalog's own
-/// "not in REQ-21" note), so one registration transparently serves both consoles.
+/// (module-reference rule), so this class is the bridge. It writes into the SAME <c>ControlPlaneDbContext</c>/
+/// transaction the Iam role store commits through (both are Scoped, resolved once per request), so the audit
+/// row can never be separated from the write it describes by a crash. No-ops when no admin is bound —
+/// merchant-side role CRUD has never been audited (the old Merchants catalog's own "not in REQ-21" note), so
+/// one registration transparently serves both consoles.
 /// </summary>
 internal sealed class AdminRoleAuditSink : IRoleAuditSink
 {
@@ -75,26 +71,31 @@ internal sealed class AdminRoleAuditSink : IRoleAuditSink
 /// <summary>
 /// The concrete <see cref="IRoleAssignmentCounter"/> the host registers. <c>Iam.Application</c> cannot
 /// reference the <c>admin.RoleAssignments</c>/<c>merch.RoleAssignments</c> entity types (module-reference
-/// rule), so this class counts both through ordinary EF queries the host CAN see — no raw SQL, provider-
-/// agnostic (works against the SQLite unit-test harness the same as SQL Server).
+/// rule), and this host may not resolve <c>ControlPlaneDbContext</c>/<c>MerchantUserDbContext</c> directly
+/// either (design.md "Assembly split + Api host boundary", task 8.5.7) — so it composes the two narrow count
+/// ports each cluster exposes instead of querying either context itself.
 /// </summary>
 internal sealed class HostRoleAssignmentCounter : IRoleAssignmentCounter
 {
-    private readonly PolDbContext _db;
+    private readonly IAdminRoleAssignmentCountReader _admin;
+    private readonly IMerchantRoleAssignmentCountReader _merchant;
 
-    public HostRoleAssignmentCounter(PolDbContext db) => _db = db;
+    public HostRoleAssignmentCounter(IAdminRoleAssignmentCountReader admin, IMerchantRoleAssignmentCountReader merchant)
+    {
+        _admin = admin;
+        _merchant = merchant;
+    }
 
     public async Task<int> CountAsync(RoleSideContext context, Guid roleId, CancellationToken cancellationToken)
     {
         // Merchant console: only its OWN merchant's rows count — a shared role's global total would leak
         // other tenants' user counts (REQ-3.6). Admin assignments never reference Merchant-scope roles
-        // (cross-side grant is rejected + the assignment drift guard pins it), so that table is skipped.
+        // (cross-side grant is rejected + the assignment drift guard pins it), so that reader is skipped.
         if (context.Scope == Scope.Merchant)
-            return await _db.Set<MerchantRoleAssignment>()
-                .CountAsync(a => a.RoleId == roleId && a.MerchantId == context.MerchantId, cancellationToken);
+            return await _merchant.CountForMerchantAsync(roleId, context.MerchantId!.Value, cancellationToken);
 
-        var admin = await _db.Set<AdminRoleAssignment>().CountAsync(a => a.RoleId == roleId, cancellationToken);
-        var merch = await _db.Set<MerchantRoleAssignment>().CountAsync(a => a.RoleId == roleId, cancellationToken);
+        var admin = await _admin.CountAsync(roleId, cancellationToken);
+        var merch = await _merchant.CountGlobalAsync(roleId, cancellationToken);
         return admin + merch;
     }
 
@@ -105,20 +106,10 @@ internal sealed class HostRoleAssignmentCounter : IRoleAssignmentCounter
             return new Dictionary<Guid, int>();
 
         if (context.Scope == Scope.Merchant)
-        {
-            var own = await _db.Set<MerchantRoleAssignment>()
-                .Where(a => roleIds.Contains(a.RoleId) && a.MerchantId == context.MerchantId)
-                .GroupBy(a => a.RoleId).Select(g => new { RoleId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(x => x.RoleId, x => x.Count, cancellationToken);
-            return roleIds.ToDictionary(id => id, id => own.GetValueOrDefault(id));
-        }
+            return await _merchant.CountManyForMerchantAsync(roleIds, context.MerchantId!.Value, cancellationToken);
 
-        var admin = await _db.Set<AdminRoleAssignment>().Where(a => roleIds.Contains(a.RoleId))
-            .GroupBy(a => a.RoleId).Select(g => new { RoleId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.RoleId, x => x.Count, cancellationToken);
-        var merch = await _db.Set<MerchantRoleAssignment>().Where(a => roleIds.Contains(a.RoleId))
-            .GroupBy(a => a.RoleId).Select(g => new { RoleId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.RoleId, x => x.Count, cancellationToken);
+        var admin = await _admin.CountManyAsync(roleIds, cancellationToken);
+        var merch = await _merchant.CountManyGlobalAsync(roleIds, cancellationToken);
 
         var combined = new Dictionary<Guid, int>();
         foreach (var id in roleIds)
@@ -129,17 +120,14 @@ internal sealed class HostRoleAssignmentCounter : IRoleAssignmentCounter
 
 internal static class RoleHostWiring
 {
-    /// <summary>Binds the Iam role store + audit sink + assignment counter to the pol_admin keyed context
-    /// (control-plane, same as every other identity/RBAC seam). Call once; both consoles share the
-    /// registration. Must run AFTER AddAdminIdentity (needs <c>IAdminScope</c>/<c>IAuditWriter</c> already
-    /// registered).</summary>
+    /// <summary>Binds the Iam audit sink + assignment counter (task 8.5.7 — <c>IRoleStore</c> is no longer
+    /// registered here: <c>AddControlPlanePersistence</c> already registers it unkeyed, shared by both
+    /// hosts). Call once; both consoles share the registration. Must run AFTER AddAdminIdentity (needs
+    /// <c>IAdminScope</c>/<c>IAuditWriter</c> already registered) and AFTER AddControlPlanePersistence +
+    /// AddMerchantUserPersistence (needs the two count-reader ports).</summary>
     public static IServiceCollection AddIamRoleManagement(this IServiceCollection services)
     {
-        static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
-
-        services.AddScoped<IRoleStore>(sp =>
-            new RoleStore(Admin(sp), sp.GetRequiredService<ILogger<RoleStore>>()));
-        services.AddScoped<IRoleAssignmentCounter>(sp => new HostRoleAssignmentCounter(Admin(sp)));
+        services.AddScoped<IRoleAssignmentCounter, HostRoleAssignmentCounter>();
         services.AddScoped<IRoleAuditSink, AdminRoleAuditSink>();
         return services;
     }

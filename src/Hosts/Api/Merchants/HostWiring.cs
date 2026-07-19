@@ -1,56 +1,98 @@
-using BuildingBlocks.Application;
-using BuildingBlocks.Infrastructure.Persistence;
 using Merchants.Application;
 using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
+using Merchants.Domain.Users.Roles;
 using Merchants.Infrastructure;
-using Merchants.Infrastructure.Persistence;
-using Merchants.Infrastructure.Persistence.Users;
-using Merchants.Infrastructure.Persistence.Users.Roles;
+using Persistence.ControlPlane.Iam;
+using Persistence.MerchantUsers;
 
 namespace Api.Merchants;
 
 /// <summary>
-/// Binds the Merchants identity seams. The registration/correction write runs cross-merchant / merchant-less on the
-/// keyed pol_admin <see cref="PolDbContext"/> (a NULL-merchant Pending row the RLS BLOCK predicate would reject
-/// under a merchant principal — REQ-19.2), so those seams resolve the SAME keyed "admin" context the Admin module
-/// uses; they share one Scoped instance per request, hence one transaction. The notice writer binds the DEFAULT
-/// context (the Admin-side outbox consumer that actually runs on the worker writes as pol_worker). Call AFTER
-/// AddAdminScope.
+/// Composes <c>Merchants.Application.Users.Roles.IRoleRepository</c> for the host (task 8.5.7): the 5 members
+/// that touch only <c>merch.RoleAssignments</c> delegate to the keyed "merchantUserPartial" adapter
+/// <c>Persistence.MerchantUsers</c> already builds; the 4 members that also need <c>iam.Roles</c>/
+/// <c>iam.RolePermissions</c> (a DIFFERENT runtime context that assembly may never reference) compose
+/// <see cref="IMerchantRoleReader"/> (<c>Persistence.ControlPlane</c>) with
+/// <see cref="IMerchantRoleAssignmentReader"/> (<c>Persistence.MerchantUsers</c>) — first resolve the user's
+/// role ids IN THIS MERCHANT, then resolve those ids against the iam catalog. Same two-port-composition shape
+/// as <see cref="Api.Iam.HostRoleAssignmentCounter"/>.
 /// </summary>
-// ponytail: DUPLICATE-shaped of AdminHostWiring.AddAdminIdentity (same keyed-pol_admin pattern) — deliberate.
+internal sealed class HostMerchantRoleRepository : IRoleRepository
+{
+    private readonly IRoleRepository _partial;
+    private readonly IMerchantRoleReader _roles;
+    private readonly IMerchantRoleAssignmentReader _assignments;
+
+    public HostMerchantRoleRepository(
+        IRoleRepository partial, IMerchantRoleReader roles, IMerchantRoleAssignmentReader assignments)
+    {
+        _partial = partial;
+        _roles = roles;
+        _assignments = assignments;
+    }
+
+    public void AddAssignment(RoleAssignment assignment) => _partial.AddAssignment(assignment);
+    public void RemoveAssignment(RoleAssignment assignment) => _partial.RemoveAssignment(assignment);
+
+    public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
+        _partial.ListRoleIdsForUserAsync(merchantUserId, cancellationToken);
+
+    public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken cancellationToken) =>
+        _partial.GetAssignmentAsync(merchantUserId, roleId, cancellationToken);
+
+    public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken cancellationToken) =>
+        _partial.AssignmentExistsAsync(merchantUserId, roleId, cancellationToken);
+
+    public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(
+        Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken cancellationToken) =>
+        _roles.GetRoleIdsByCodesAsync(merchantId, codes, cancellationToken);
+
+    public Task<IReadOnlyDictionary<string, Guid>> GetActiveRoleIdsByCodesAsync(
+        Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken cancellationToken) =>
+        _roles.GetActiveRoleIdsByCodesAsync(merchantId, codes, cancellationToken);
+
+    public async Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(
+        Guid merchantUserId, Guid merchantId, CancellationToken cancellationToken)
+    {
+        var roleIds = await _assignments.ListRoleIdsForUserInMerchantAsync(merchantUserId, merchantId, cancellationToken);
+        return await _roles.ListEffectivePermissionsAsync(merchantId, roleIds, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(
+        Guid merchantUserId, Guid merchantId, CancellationToken cancellationToken)
+    {
+        var roleIds = await _assignments.ListRoleIdsForUserInMerchantAsync(merchantUserId, merchantId, cancellationToken);
+        return await _roles.ListActiveRoleCodesAsync(merchantId, roleIds, cancellationToken);
+    }
+}
+
+/// <summary>
+/// Binds the host-only Merchants identity seams (task 8.5.7 — every repository/session-store/audit seam now
+/// binds directly to <c>MerchantUserDbContext</c> via <c>AddMerchantUserPersistence</c>, shared unkeyed by
+/// both hosts). Overrides ONLY <see cref="IRoleRepository"/> onto the cross-context composition above; the
+/// rest are host-only concerns (photo store, session cookies, per-request scope, ticket protector) with no
+/// persistence dependency of their own. Call AFTER AddMerchantUserPersistence + AddControlPlanePersistence.
+/// </summary>
 internal static class HostWiring
 {
     public static IServiceCollection AddMerchantsIdentity(this IServiceCollection services)
     {
-        static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
-
-        // Registration realm on the keyed pol_admin context (REQ-19.2) — one shared Scoped instance = one tx.
-        // No assignment repository: MerchantUser.MerchantId absorbs the former separate assignment edge (REQ-2.3).
-        services.AddScoped<IUserRepository>(sp => new UserRepository(Admin(sp)));
-        services.AddScoped<IExternalLoginRepository>(sp => new ExternalLoginRepository(Admin(sp)));
-        services.AddScoped<IRegistrationAuditWriter>(sp => new RegistrationAuditWriter(Admin(sp)));
-        services.AddScoped<IRegistrationOutboxWriter>(sp => new RegistrationOutboxWriter(Admin(sp), sp.GetRequiredService<IClock>()));
-        services.AddScoped<IRegistrationUnitOfWork>(sp => new UserUnitOfWork(Admin(sp)));
-        services.AddScoped<IUserUnitOfWork>(sp => new UserUnitOfWork(Admin(sp)));
-        // (The notice writer + a default photo store are registered by AddMerchantsModule on the default context —
-        // the Admin-side consumer never runs in the API. Here we only override the WRITE seams onto pol_admin.)
-
-        // Merchant-user BFF session substrate (REQ-10/11/12) + the control-plane RBAC catalog, all on the keyed
-        // pol_admin context: the login lookup reads PendingApproval/NULL-merchant rows (RLS bypass, REQ-19.2) and
-        // the effective permission set; the session store + auth audit persist control-plane rows pol_app has no
-        // grant on. The role repo is OVERRIDDEN here onto pol_admin (AddMerchantsModule binds the default context
-        // for worker DI). The cookie service is stateless (singleton).
-        services.AddScoped<IRoleRepository>(sp => new RoleRepository(Admin(sp)));
-        services.AddScoped<ISessionStore>(sp => new SessionStore(Admin(sp)));
-        services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(Admin(sp)));
-        services.AddSingleton<UserSessionCookies>();
+        // Explicit factory (not plain AddScoped<IRoleRepository, HostMerchantRoleRepository>): constructor
+        // injection would resolve its own "IRoleRepository partial" parameter back to itself (the latest
+        // unkeyed registration) and recurse. The keyed "merchantUserPartial" registration is the real target.
+        services.AddScoped<IRoleRepository>(sp => new HostMerchantRoleRepository(
+            sp.GetRequiredKeyedService<IRoleRepository>("merchantUserPartial"),
+            sp.GetRequiredService<IMerchantRoleReader>(),
+            sp.GetRequiredService<IMerchantRoleAssignmentReader>()));
 
         // Per-request merchant-user scope (REQ-17.1): the session handler binds the concrete MerchantUserScope;
         // endpoints read IMerchantUserScope — the SAME scoped instance. RequirePermission +
         // /merchants/users/me consume it.
         services.AddScoped<UserScope>();
         services.AddScoped<IUserScope>(sp => sp.GetRequiredService<UserScope>());
+
+        services.AddSingleton<UserSessionCookies>();
 
         // Photo store + ticket protector (host-only concerns).
         services.AddSingleton<IPhotoStore>(sp =>

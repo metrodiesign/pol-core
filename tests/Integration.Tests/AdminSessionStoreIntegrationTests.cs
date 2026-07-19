@@ -30,7 +30,7 @@ public sealed class AdminSessionStoreIntegrationTests
     public async Task Supersede_is_a_single_winner()
     {
         var id = Guid.NewGuid();
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(admin, id, Guid.NewGuid(), Guid.NewGuid(), Active, 8);
 
         // Two conditional updates race for the one Active row; only the first matches Status=0 (REQ-5.5).
@@ -46,7 +46,7 @@ public sealed class AdminSessionStoreIntegrationTests
     {
         var family = Guid.NewGuid();
         var admin = Guid.NewGuid();
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Active, 8);
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Superseded, 8);
 
@@ -64,7 +64,7 @@ public sealed class AdminSessionStoreIntegrationTests
         var live = Guid.NewGuid();
         var expired = Guid.NewGuid();
         var admin = Guid.NewGuid();
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, live, Guid.NewGuid(), admin, Active, 8);       // absolute 8h out
         await InsertSessionAsync(conn, expired, Guid.NewGuid(), admin, Revoked, -1);  // absolute 1h ago
 
@@ -85,7 +85,7 @@ public sealed class AdminSessionStoreIntegrationTests
         var family = Guid.NewGuid();
         var admin = Guid.NewGuid();
         var active = Guid.NewGuid();
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, active, family, admin, Active, 8);
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Superseded, 8);
 

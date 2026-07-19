@@ -1,50 +1,35 @@
 using Admins.Application;
-using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.Users;
-using Admins.Infrastructure.Persistence;
-using Admins.Infrastructure.Persistence.Roles;
-using Admins.Infrastructure.Persistence.Users;
 using BuildingBlocks.Application;
-using BuildingBlocks.Infrastructure.Persistence;
 using Iam.Domain.Permissions;
 using Mediator;
-using MasterData.Infrastructure;
-using Microsoft.EntityFrameworkCore;
 using Merchants.Application.GetMerchant;
-using Merchants.Domain;
+using Persistence.MerchantRuntime.Merchants;
 
 namespace Api.Admins;
 
-/// <summary>Merchant checks the Admin module needs, over the pol_admin (bypass) connection. Lives in the host so
-/// Admins.Application needs no Merchant dependency (mirrors <see cref="MerchantDirectory"/> for Identity).</summary>
+/// <summary>Merchant checks the Admin module needs, over the shared pol_app connection (task 8.5.7 — no more
+/// pol_admin bypass principal, "1 principal"). Delegates to <see cref="IMerchantDirectoryReader"/>
+/// (<c>Persistence.MerchantRuntime</c>) — the host may not resolve <c>MerchantRuntimeDbContext</c> directly
+/// (design.md "Assembly split + Api host boundary"), so this class stays a thin adapter onto that public port,
+/// living in the host so <c>Admins.Application</c> needs no Merchant dependency (mirrors
+/// <see cref="MerchantDirectory"/>'s original role for Identity).</summary>
 internal sealed class MerchantDirectory : IAdminMerchantDirectory
 {
-    private readonly PolDbContext _admin;
+    private readonly IMerchantDirectoryReader _reader;
 
-    public MerchantDirectory(PolDbContext admin) => _admin = admin;
+    public MerchantDirectory(IMerchantDirectoryReader reader) => _reader = reader;
 
     public Task<bool> IsActiveMerchantAsync(Guid merchantId, CancellationToken cancellationToken) =>
-        _admin.Set<Merchant>()
-            .AnyAsync(t => t.Id == merchantId && t.Status == MerchantStatus.Active, cancellationToken);
+        _reader.IsActiveMerchantAsync(merchantId, cancellationToken);
 
-    public async Task<IReadOnlyDictionary<Guid, string>> GetCodesByIdsAsync(
-        IReadOnlySet<Guid> merchantIds, CancellationToken cancellationToken)
-    {
-        if (merchantIds.Count == 0)
-            return new Dictionary<Guid, string>();
-        return await _admin.Set<Merchant>()
-            .Where(t => merchantIds.Contains(t.Id))
-            .ToDictionaryAsync(t => t.Id, t => t.Code, cancellationToken);
-    }
+    public Task<IReadOnlyDictionary<Guid, string>> GetCodesByIdsAsync(
+        IReadOnlySet<Guid> merchantIds, CancellationToken cancellationToken) =>
+        _reader.GetCodesByIdsAsync(merchantIds, cancellationToken);
 
-    // Bare id lookup (no projection, no PSP metadata) so the read seam can apply the accessible-merchant floor
-    // before loading a full merchant view. Unknown code -> null (the seam treats null as inaccessible).
     public Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken) =>
-        _admin.Set<Merchant>()
-            .Where(t => t.Code == code)
-            .Select(t => (Guid?)t.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+        _reader.GetIdByCodeAsync(code, cancellationToken);
 }
 
 /// <summary>Per-request holder of the resolved admin (REQ-6.3). The admin authentication handler
@@ -131,24 +116,14 @@ internal static class TierAuthorization
 
 internal static class HostWiring
 {
-    /// <summary>Binds the Admin seams to the pol_admin keyed <see cref="PolDbContext"/> (admin tables are
-    /// control-plane — resolution/provisioning run cross-merchant). Call AFTER AddMerchantAdminScope.</summary>
+    /// <summary>Binds the host-only Admin seams (task 8.5.7 — every repository/session-store/audit seam now
+    /// binds directly to <c>ControlPlaneDbContext</c> via <c>AddControlPlanePersistence</c>, shared unkeyed by
+    /// both hosts; only the pieces that genuinely need the host's own types stay here).</summary>
     public static IServiceCollection AddAdminIdentity(this IServiceCollection services)
     {
-        static PolDbContext Admin(IServiceProvider sp) => sp.GetRequiredKeyedService<PolDbContext>("admin");
+        services.AddScoped<IAdminMerchantDirectory, MerchantDirectory>();
 
-        services.AddScoped<IUserRepository>(sp =>
-            new UserRepository(Admin(sp), sp.GetRequiredService<ILogger<UserRepository>>()));
-        services.AddScoped<IAuditWriter>(sp => new AuditWriter(Admin(sp)));
-        services.AddScoped<IAdminMerchantDirectory>(sp => new MerchantDirectory(Admin(sp)));
-        services.AddScoped<IRoleRepository>(sp => new RoleRepository(Admin(sp))); // admin-role-rbac (rf2: assignment+resolution only)
-        services.AddMasterDataModule(Admin); // profile master lists (masterdata-module)
-        services.AddScoped<IMasterDataLookup>(sp => new MasterDataLookup(Admin(sp))); // profile FK exists/lookup
-
-        // Admin BFF session substrate (REQ-3/5/6/11/12): store + append-only auth audit on the keyed pol_admin
-        // context; the cookie service is stateless (singleton).
-        services.AddScoped<ISessionStore>(sp => new SessionStore(Admin(sp)));
-        services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(Admin(sp)));
+        // Admin BFF session cookie service (stateless, singleton).
         services.AddSingleton<SessionCookies>();
 
         services.AddScoped<AdminScope>();

@@ -22,6 +22,13 @@ public sealed class User : AggregateRoot<Guid>
 
     public UserStatus Status { get; private set; }
 
+    /// <summary>rls-to-query-filter REQ-4.11: bumped in the SAME transaction as every write that changes
+    /// this admin's effective authorization (Status/Tier/Session/MerchantAccess/RoleAssignment/
+    /// RolePermission) — a caller holding a stale <see cref="AuthorizationVersion"/> fails the in-tx
+    /// authorization lease. Not yet a real column (task 8's migration adds it) — the migration-owner's own
+    /// config explicitly ignores this property until then, so setting it today is a safe no-op there.</summary>
+    public long AuthorizationVersion { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     /// <summary>ตำแหน่ง — FK to <see cref="Position"/>. NULL until set via invite or the profile edit.</summary>
@@ -92,13 +99,40 @@ public sealed class User : AggregateRoot<Guid>
         if (actingAdminId == Id)
             throw new InvalidOperationException("An admin cannot suspend their own account.");
         Status = UserStatus.Suspended;
+        BumpAuthorizationVersion();
     }
 
     /// <summary>Restores access (admin-account-management REQ-3). Idempotent: an already-Active account stays
     /// Active. No self-guard is needed (a suspended admin cannot authenticate, so self-reactivation cannot
     /// arise). Revoking the target's sessions on the Suspended->Active transition is the caller's
     /// responsibility — the handler owns the transaction and the session store (REQ-3.5).</summary>
-    public void Reactivate() => Status = UserStatus.Active;
+    public void Reactivate()
+    {
+        Status = UserStatus.Active;
+        BumpAuthorizationVersion();
+    }
+
+    /// <summary>Promotes/demotes between Scoped and Super (rls-to-query-filter REQ-4.11 invalidation-matrix
+    /// source "Tier"). Mirrors <see cref="Suspend"/>'s self-guard — an admin changing their OWN tier could
+    /// strand oversight (a lone Super demoting itself with no other Super left) exactly like self-suspend
+    /// could, so it is rejected the same way. Idempotent: setting the current tier is a no-op (no spurious
+    /// version bump).</summary>
+    public void ChangeTier(Tier newTier, Guid actingAdminId)
+    {
+        if (actingAdminId == Id)
+            throw new InvalidOperationException("An admin cannot change their own tier.");
+        if (Tier == newTier)
+            return;
+        Tier = newTier;
+        BumpAuthorizationVersion();
+    }
+
+    /// <summary>Invalidates every authorization lease this admin currently holds. Called directly for
+    /// mutations local to this aggregate (<see cref="Suspend"/>/<see cref="Reactivate"/>/
+    /// <see cref="ChangeTier"/>); a caller mutating a RELATED aggregate that also affects this admin's
+    /// effective authorization (MerchantAccess grant/revoke, RoleAssignment add/remove, RolePermission
+    /// update/delete) calls this explicitly on the loaded admin in the same transaction.</summary>
+    public void BumpAuthorizationVersion() => AuthorizationVersion++;
 
     /// <summary>Full replace of the org-profile FKs (a NULL clears that dimension). The caller validates that
     /// each non-null FK references an existing, active master before calling — the aggregate only stores ids.</summary>

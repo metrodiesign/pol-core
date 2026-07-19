@@ -308,4 +308,36 @@ public sealed class AdminHandlerTests
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await handler.Handle(new SuspendCommand(Guid.NewGuid(), Guid.NewGuid(), "corr"), default));
     }
+
+    // ---- ChangeAdminTier ----
+
+    [Fact]
+    public async Task ChangeTier_promotes_a_scoped_admin_to_super_and_audits()
+    {
+        var admins = new FakePlatformUserRepository();
+        var target = User.CreateScoped("scoped@org.com", Now);
+        admins.Add(target);
+        var audit = new FakePlatformUserAuditWriter();
+        var handler = new ChangeAdminTierHandler(admins, audit, new FakeUnitOfWork(), new FixedClock());
+
+        var result = await handler.Handle(new ChangeAdminTierCommand(target.Id, Tier.Super, Guid.NewGuid(), "corr"), default);
+
+        Assert.Equal("Super", result.Tier);
+        Assert.Equal(Tier.Super, admins.Accounts[0].Tier);
+        Assert.Equal(AuditAction.TierChanged, Assert.Single(audit.Appended).Action);
+    }
+
+    [Fact]
+    public async Task ChangeTier_rejects_changing_ones_own_tier_and_an_unknown_target()
+    {
+        var admins = new FakePlatformUserRepository();
+        var self = User.SelfProvision("super-1", "ops@org.com", Now);
+        admins.Add(self);
+        var handler = new ChangeAdminTierHandler(admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await handler.Handle(new ChangeAdminTierCommand(self.Id, Tier.Scoped, self.Id, "corr"), default));
+        await Assert.ThrowsAsync<NotFoundException>(async () =>
+            await handler.Handle(new ChangeAdminTierCommand(Guid.NewGuid(), Tier.Super, Guid.NewGuid(), "corr"), default));
+    }
 }

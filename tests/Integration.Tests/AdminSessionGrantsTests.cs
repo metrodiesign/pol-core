@@ -4,9 +4,12 @@ using Microsoft.Data.SqlClient;
 namespace Integration.Tests;
 
 /// <summary>
-/// Grant posture for the admin BFF session tables (REQ-11.1/11.2/12.2). Sessions is full CRUD for
-/// pol_admin (rotate/revoke = UPDATE, prune = DELETE); AuthAudits is append-only (SELECT, INSERT — no
-/// UPDATE/DELETE); neither is granted to pol_app. Tagged Integration: the default unit run skips them; CI runs
+/// Grant posture for the admin BFF session tables (REQ-11.1/11.2/12.2), updated for rls-to-query-filter task 8
+/// (RlsTeardownAndOnePrincipal): pol_admin is retired — pol_app is the sole runtime principal and now holds
+/// exactly the grants pol_admin used to hold on these two tables. Sessions is full CRUD (rotate/revoke =
+/// UPDATE, prune = DELETE); AuthAudits is append-only (SELECT, INSERT — no UPDATE/DELETE). The old
+/// "pol_app cannot read these tables at all" separation test is gone — there is only one principal left, so
+/// there is nothing left to separate it from. Tagged Integration: the default unit run skips them; CI runs
 /// against live SQL.
 /// </summary>
 [Trait("Category", "Integration")]
@@ -23,52 +26,41 @@ public sealed class AdminSessionGrantsTests
     }
 
     [Fact]
-    public async Task Admin_can_insert_select_update_and_delete_sessions()
+    public async Task PolApp_can_insert_select_update_and_delete_sessions()
     {
         var id = Guid.NewGuid();
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        await InsertSessionAsync(admin, id);
-        Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
+        await InsertSessionAsync(app, id);
+        Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(app,
             "SELECT COUNT(*) FROM admin.Sessions WHERE Id=@id", ("@id", id))));
 
         // rotate/revoke == UPDATE, prune == DELETE — both granted.
-        await IntegrationDb.ExecAsync(admin, "UPDATE admin.Sessions SET Status=2 WHERE Id=@id", ("@id", id));
-        await IntegrationDb.ExecAsync(admin, "DELETE admin.Sessions WHERE Id=@id", ("@id", id));
-        Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
+        await IntegrationDb.ExecAsync(app, "UPDATE admin.Sessions SET Status=2 WHERE Id=@id", ("@id", id));
+        await IntegrationDb.ExecAsync(app, "DELETE admin.Sessions WHERE Id=@id", ("@id", id));
+        Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(app,
             "SELECT COUNT(*) FROM admin.Sessions WHERE Id=@id", ("@id", id))));
     }
 
     [Fact]
-    public async Task Auth_audits_are_append_only_for_admin()
+    public async Task Auth_audits_are_append_only_for_pol_app()
     {
         var id = Guid.NewGuid();
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // INSERT + SELECT are granted...
-        await IntegrationDb.ExecAsync(admin,
+        await IntegrationDb.ExecAsync(app,
             """
             INSERT admin.AuthAudits (Id, EventType, CorrelationId, OccurredAt)
             VALUES (@id, N'login-success', N'corr-1', SYSUTCDATETIME());
             """, ("@id", id));
-        Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
+        Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(app,
             "SELECT COUNT(*) FROM admin.AuthAudits WHERE Id=@id", ("@id", id))));
 
         // ...but UPDATE and DELETE are NOT (append-only, REQ-12.2).
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ExecAsync(admin, "UPDATE admin.AuthAudits SET Reason=N'x' WHERE Id=@id", ("@id", id)));
+            IntegrationDb.ExecAsync(app, "UPDATE admin.AuthAudits SET Reason=N'x' WHERE Id=@id", ("@id", id)));
         await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ExecAsync(admin, "DELETE admin.AuthAudits WHERE Id=@id", ("@id", id)));
-    }
-
-    [Fact]
-    public async Task App_principal_cannot_read_the_control_plane_session_tables()
-    {
-        await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-
-        await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.Sessions"));
-        await Assert.ThrowsAsync<SqlException>(() =>
-            IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM admin.AuthAudits"));
+            IntegrationDb.ExecAsync(app, "DELETE admin.AuthAudits WHERE Id=@id", ("@id", id)));
     }
 }

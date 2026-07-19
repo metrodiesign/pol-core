@@ -44,11 +44,6 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
         });
         builder.ConfigureServices(services =>
         {
-            var dispatcher = services.SingleOrDefault(d =>
-                d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(OutboxDispatcher));
-            if (dispatcher is not null)
-                services.Remove(dispatcher);
-
             // The real key ring persists to SQL via the keyed pol_admin context; tests have no DB, so use an
             // in-memory ephemeral provider for the OIDC correlation/nonce cookies.
             services.AddDataProtection().UseEphemeralDataProtectionProvider();

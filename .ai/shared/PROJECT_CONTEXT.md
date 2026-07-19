@@ -45,7 +45,9 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 ## Business Objectives
 
 - รับชำระ redirect-only ได้ครบ 3 ช่องทางทั้ง 2 PSP โดย **คง SAQ A** (ไม่แตะข้อมูลบัตรบนโดเมนเรา)
-- **Multi-tenant isolation** เด็ดขาดด้วย RLS ที่ data layer (ทุก query กรอง `TenantId`) — backend ร่วมกันแต่ข้อมูลไม่รั่ว
+- **Multi-tenant isolation** เด็ดขาดที่ app layer (EF global query filter deny-default ต่อ merchant + sealed write
+  guard, ทุก query/write กรอง `MerchantId`; ไม่ใช่ SQL RLS อีกต่อไป — supersede 2026-07-19, spec
+  `rls-to-query-filter`) — backend ร่วมกันแต่ข้อมูลไม่รั่ว
 - คงสถานะ **captive + ไม่ถือเงิน** → อยู่นอก funds flow เสมอ (ไม่เข้าข่ายใบอนุญาตประเภทที่ 3)
 - จ่ายไม่ผิด/ไม่ซ้ำ: idempotency + verify amount/currency ตอน Orders รับ `PaymentPaid` (ไม่ใช่แค่ `PaymentId`)
 

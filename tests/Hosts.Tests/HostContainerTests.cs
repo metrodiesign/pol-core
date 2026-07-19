@@ -50,18 +50,6 @@ file static class HostHarness
                     ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 });
             });
-
-            builder.ConfigureServices(services =>
-            {
-                // Remove ONLY the outbox dispatcher (a BackgroundService that polls SQL Server with
-                // provider-specific T-SQL) — never the web host's own IHostedService — so starting the
-                // host for validation never reaches for a live database.
-                var dispatcher = services.SingleOrDefault(d =>
-                    d.ServiceType == typeof(IHostedService) &&
-                    d.ImplementationType == typeof(OutboxDispatcher));
-                if (dispatcher is not null)
-                    services.Remove(dispatcher);
-            });
         }
     }
 }

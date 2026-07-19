@@ -44,7 +44,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Merchant_effective_permissions_union_only_active_visible_roles()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var user = Guid.NewGuid();
         var merchant = IntegrationDb.MerchantA;
         var activeRole = Guid.NewGuid();
@@ -73,7 +73,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Deactivating_a_role_drops_its_permissions_on_the_next_resolution()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var user = Guid.NewGuid();
         var merchant = IntegrationDb.MerchantA;
         var role = Guid.NewGuid();
@@ -98,7 +98,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task A_merchant_assignment_pointing_at_another_merchants_role_does_not_contribute()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var user = Guid.NewGuid();
         var role = Guid.NewGuid();
 
@@ -122,7 +122,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Merchant_B_cannot_see_merchant_A_custom_role()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var roleA = Guid.NewGuid();
         var code = "iso_" + roleA.ToString("N")[..6];
 
@@ -148,7 +148,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task A_shared_seed_role_is_not_in_any_merchants_owned_mutable_set()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // The DB floor under the 409 for "merchant edits a shared seed role" (REQ-3.8): the store's mutation
         // filter matches only MerchantId = @m; the shared anchor (MerchantId NULL) is never in that owned set,
@@ -161,7 +161,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Platform_admin_role_grants_every_action_key_regardless_of_tier()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var user = Guid.NewGuid();
         var platformAdminId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
@@ -184,7 +184,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Tier_alone_grants_no_action_and_admin_ignores_merchant_scope_roles()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var superNoRole = Guid.NewGuid();
         var adminWithMerchRole = Guid.NewGuid();
         var merchRole = Guid.NewGuid();
@@ -217,7 +217,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Every_assignment_row_points_at_a_same_side_role()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // Drift guard (REQ-7.6): the single FK to iam.Roles does not constrain scope, so assert at the data level
         // that no assignment row escaped the write-path validation — every admin.* assignment points at a
@@ -240,7 +240,7 @@ public sealed class IamRoleResolutionTests
     [Fact]
     public async Task Bootstrap_binds_platform_admin_by_code_idempotently()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var user = Guid.NewGuid();
 
         try

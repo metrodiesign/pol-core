@@ -52,14 +52,6 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
                 ["Merchant:DevMerchantId"] = "00000000-0000-0000-0000-000000000001",
             });
         });
-        builder.ConfigureServices(services =>
-        {
-            var dispatcher = services.SingleOrDefault(d =>
-                d.ServiceType == typeof(IHostedService) &&
-                d.ImplementationType == typeof(OutboxDispatcher));
-            if (dispatcher is not null)
-                services.Remove(dispatcher);
-        });
     }
 }
 

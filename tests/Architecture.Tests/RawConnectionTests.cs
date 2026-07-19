@@ -5,13 +5,18 @@ using NetArchTest.Rules;
 namespace Architecture.Tests;
 
 /// <summary>
-/// The RLS floor (PLAN #3) trusts that <c>SESSION_CONTEXT('MerchantId')</c> is set by the
-/// <see cref="BuildingBlocks.Infrastructure.Persistence.SessionContextConnectionInterceptor"/> at
-/// connection open. A hand-rolled <c>Microsoft.Data.SqlClient.SqlConnection</c> would open a
-/// connection the interceptor never sees — no merchant context, RLS silently wide open under the bypass
-/// role or just broken. This test bans that type from production infrastructure so every connection
-/// goes through EF + the interceptor. (Tests legitimately use SqlConnection to drive RLS directly;
-/// they are not in scope here.)
+/// The tenant floor (task 8, "1 principal") lives entirely in EF: the read floor is each runtime context's
+/// own query filter (<c>MerchantId==CurrentMerchant</c>) and the write floor is <c>IWriteAuthorizer</c>. A
+/// hand-rolled <c>Microsoft.Data.SqlClient.SqlConnection</c> would bypass BOTH — no query filter, no write
+/// check. This test bans that type from production infrastructure so every connection goes through EF.
+/// (Tests legitimately use SqlConnection directly; they are not in scope here. <c>Persistence.Provisioning</c>
+/// is also excluded — its shared-connection UoW legitimately opens one raw connection per attempt, task 7.)
+/// <para>
+/// rls-to-query-filter REQ-11.3 (task 3): coverage extended to Admins/Iam/MasterData.Infrastructure (the
+/// requirement names these three explicitly) and the three new runtime Persistence assemblies. The exact
+/// allowlist exception for the provisioning-integration UoW's shared-connection requirement (design.md
+/// section "Assembly split") is task 7's, once that assembly exists.
+/// </para>
 /// </summary>
 public class RawConnectionTests
 {
@@ -24,6 +29,12 @@ public class RawConnectionTests
         typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
+        typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
+        typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
+        typeof(MasterData.Infrastructure.MasterDataModuleRegistration).Assembly,
+        typeof(Persistence.ControlPlane.ControlPlaneDbContext).Assembly,
+        typeof(Persistence.MerchantUsers.MerchantUserDbContext).Assembly,
+        typeof(Persistence.MerchantRuntime.MerchantRuntimeDbContext).Assembly,
     ];
 
     [Fact]
