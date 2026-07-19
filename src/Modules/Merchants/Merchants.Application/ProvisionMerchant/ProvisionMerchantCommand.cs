@@ -26,11 +26,16 @@ public sealed record PspConnectionSpec(
 
 /// <summary>
 /// Admin-driven merchant provisioning (reference 2.4). NOT <c>IMerchantScoped</c> — it is cross-merchant and
-/// runs under the pol_admin connection. <see cref="AdminSubject"/> and <see cref="CorrelationId"/> are
-/// populated server-side from the authenticated request, never from the JSON body.
+/// runs through the <c>IProvisioningWriter</c> cross-context UoW (task 8.5.4). <see cref="AdminSubject"/> and
+/// <see cref="CorrelationId"/> are populated server-side from the authenticated request, never from the JSON
+/// body. <see cref="CallerAdminId"/>/<see cref="ExpectedAuthorizationVersion"/> are the caller's identity +
+/// authorization snapshot, pinned at the request boundary (read fresh from the admin store right before
+/// dispatch) and re-verified in-transaction by the coordinator — never trusted from an earlier check alone.
 /// </summary>
 public sealed record ProvisionMerchantCommand(
     MerchantSpec Merchant,
     IReadOnlyList<PspConnectionSpec> PspConnections,
     string AdminSubject,
-    string CorrelationId) : ICommand<ProvisionMerchantResult>;
+    string CorrelationId,
+    Guid CallerAdminId,
+    long ExpectedAuthorizationVersion) : ICommand<ProvisionMerchantResult>;

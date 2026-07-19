@@ -24,6 +24,7 @@ public sealed class PolDbContext : DbContext
         => _modules = modules;
 
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<MerchantUserOutbox> MerchantUserOutbox => Set<MerchantUserOutbox>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<VaultSecretBlob> VaultSecrets => Set<VaultSecretBlob>();
     public DbSet<VaultRevealAudit> VaultRevealAudits => Set<VaultRevealAudit>();
@@ -31,6 +32,7 @@ public sealed class PolDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new MerchantUserOutboxConfiguration());
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration());
         modelBuilder.ApplyConfiguration(new VaultSecretBlobConfiguration());
         modelBuilder.ApplyConfiguration(new VaultRevealAuditConfiguration());

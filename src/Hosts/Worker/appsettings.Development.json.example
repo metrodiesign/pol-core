@@ -6,7 +6,7 @@
     }
   },
   "ConnectionStrings": {
-    "Worker": "Server=localhost,11433;Database=VCentralPay;User Id=pol_worker;Password=REPLACE_WITH_LOCAL_WORKER_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+    "Worker": "Server=localhost,11433;Database=VCentralPay;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
   },
   "Vault": {
     "MasterKeyBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="

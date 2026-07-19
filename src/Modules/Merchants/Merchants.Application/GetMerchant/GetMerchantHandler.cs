@@ -2,25 +2,23 @@ using System.Text.Json;
 using BuildingBlocks.Application;
 using Mediator;
 using Merchants.Domain;
-using Microsoft.Extensions.DependencyInjection;
 using Payments.Application.Ports.Psp;
 using Payments.Domain.Psp;
 
 namespace Merchants.Application.GetMerchant;
 
 /// <summary>
-/// Handles <see cref="GetMerchantQuery"/>: loads the merchant (admin/bypass connection) and projects it +
-/// its PSP connections to a read model. Masked secret hints are read from the connection's metadata
-/// (stored at provisioning), so this path never touches the vault (REQ-6.5 / REQ-9).
+/// Handles <see cref="GetMerchantQuery"/>: loads the merchant and projects it + its PSP connections to a
+/// read model (admin cross-merchant read-back — <see cref="IConnectionRepository.ListByTenantAsync"/> is an
+/// escape-hatch port for this one caller, task 8.5.8). Masked secret hints are read from the connection's
+/// metadata (stored at provisioning), so this path never touches the vault (REQ-6.5 / REQ-9).
 /// </summary>
 public sealed class GetMerchantHandler : IQueryHandler<GetMerchantQuery, MerchantView>
 {
     private readonly IMerchantRepository _merchants;
     private readonly IConnectionRepository _pspConnections;
 
-    public GetMerchantHandler(
-        IMerchantRepository merchants,
-        [FromKeyedServices("admin")] IConnectionRepository pspConnections)
+    public GetMerchantHandler(IMerchantRepository merchants, IConnectionRepository pspConnections)
     {
         _merchants = merchants;
         _pspConnections = pspConnections;

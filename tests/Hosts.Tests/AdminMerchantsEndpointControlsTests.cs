@@ -62,11 +62,6 @@ file sealed class ControlsFactory : WebApplicationFactory<ApiHost::Program>
         }));
         builder.ConfigureServices(services =>
         {
-            var dispatcher = services.SingleOrDefault(d =>
-                d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(OutboxDispatcher));
-            if (dispatcher is not null)
-                services.Remove(dispatcher);
-
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestAdminAuthHandler>(TestAdminAuthHandler.SchemeName, _ => { });
             // Swaps only which SCHEME the "admin" policy trusts (proven for the real scheme elsewhere) so a

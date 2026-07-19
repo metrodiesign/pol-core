@@ -15,7 +15,7 @@
 | .NET / ASP.NET Core | **10** (LTS) | runtime + web |
 | C# | **14** | เปิด nullable + type checking เข้มสุด |
 | EF Core | **10** (align กับ .NET 10) | ORM |
-| SQL Server | **2025 Standard** | เก็บ UTC เสมอ (datetime2; field/column **ไม่ใส่** suffix `Utc` — ตั้งชื่อ `CreatedAt`/`UpdatedAt`/`OccurredAt`/...) · multi-schema (rf1, 2026-07-12): `shop`(funnel)/`txn`(payment interim)/`admin`(control-plane, ไม่มี RLS predicate, pol_admin only)/`merch`(merchant+merchant-user+vault, ผสม RLS+control-plane รายตาราง)/`sec`(RLS fn/proc, ไม่มีตาราง)/`dbo`(framework); schema ไม่ใช่เส้นแบ่ง RLS — ดู [ARCHITECTURE.md](ARCHITECTURE.md) |
+| SQL Server | **2025 Standard** | เก็บ UTC เสมอ (datetime2; field/column **ไม่ใส่** suffix `Utc` — ตั้งชื่อ `CreatedAt`/`UpdatedAt`/`OccurredAt`/...) · multi-schema (rf1, 2026-07-12): `shop`(funnel)/`txn`(payment interim)/`admin`(control-plane)/`merch`(merchant+merchant-user+vault)/`cfg`(reference data, masterdata-module)/`iam`(catalog กลาง, rf2)/`dbo`(framework); **1 principal `pol_app`, ไม่มี RLS แล้ว (supersede 2026-07-19, spec `rls-to-query-filter`)** — isolation floor ย้ายไปที่ app layer ทั้งหมด (EF query filter deny-default + sealed write guard ต่อ 3 runtime `DbContext`: `ControlPlaneDbContext`/`MerchantUserDbContext`/`MerchantRuntimeDbContext`); schema จัดกลุ่มตาม cluster ไม่ใช่เส้นแบ่ง RLS อีกต่อไป — ดู [ARCHITECTURE.md](ARCHITECTURE.md) |
 | martinothamar/Mediator | **3.0.1** | in-process command/query/handler + pipeline behaviors (3.0.0 ไม่ publish) |
 | Omise API | `apiVersion` **2019-05-29** | external PSP API (ต่อ merchant, จาก config) |
 

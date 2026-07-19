@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 12
 
-  # Creates logins / users / the pol_rls_bypass role (idempotent). Exits 0 when done.
+  # Creates the pol_app login/user (idempotent). Exits 0 when done.
   pol-db-init:
     image: mcr.microsoft.com/mssql/server:2025-latest
     depends_on:
@@ -29,8 +29,6 @@ services:
     environment:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
       POL_APP_PASSWORD: ${POL_APP_PASSWORD}
-      POL_ADMIN_PASSWORD: ${POL_ADMIN_PASSWORD}
-      POL_WORKER_PASSWORD: ${POL_WORKER_PASSWORD}
     volumes:
       - ./docker/bootstrap:/bootstrap:ro
     entrypoint:
@@ -40,9 +38,26 @@ services:
         /opt/mssql-tools18/bin/sqlcmd -S pol-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C
         -v DbName="VCentralPay"
         POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
-        POL_ADMIN_PASSWORD="$${POL_ADMIN_PASSWORD}"
-        POL_WORKER_PASSWORD="$${POL_WORKER_PASSWORD}"
         -i /bootstrap/01-principals.sql
+
+  # rls-to-query-filter task 9 (REQ-13.4): the external tamper-resistant sink for the denial/authz telemetry
+  # taxonomy. Local dev runs it wide open (no API key, per Seq's own quickstart) — the hosts POST structured
+  # events to http://seq:5341/api/events/raw. UI/query API on the same port at http://localhost:5341.
+  seq:
+    image: datalust/seq:latest
+    container_name: pol-seq
+    environment:
+      ACCEPT_EULA: "Y"
+    ports:
+      - "5341:80"
+    volumes:
+      - pol-seq-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
 
 volumes:
   pol-db-data:
+  pol-seq-data:

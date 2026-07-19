@@ -10,6 +10,13 @@ namespace Carts.Domain.Items;
 public sealed class Item : Entity<Guid>
 {
     public Guid CartId { get; private set; }
+
+    /// <summary>Denormalized from the parent <see cref="Domain.Cart"/> at construction (rls-to-query-filter
+    /// REQ-6) — Item has no navigation to Cart, so this is its own tenant key for the read floor. Enforced
+    /// against drift by a composite FK <c>(CartId, MerchantId) → Cart(Id, MerchantId)</c>; only
+    /// <see cref="Domain.Cart.AddItem"/> stamps it, so it can never diverge from the parent in practice.</summary>
+    public Guid MerchantId { get; private set; }
+
     public Guid ProductId { get; private set; }
     public int Quantity { get; private set; }
     public Money UnitPrice { get; private set; }
@@ -20,10 +27,11 @@ public sealed class Item : Entity<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Item() { }
 
-    internal Item(Guid id, Guid cartId, Guid productId, int quantity, Money unitPrice)
+    internal Item(Guid id, Guid cartId, Guid merchantId, Guid productId, int quantity, Money unitPrice)
         : base(id)
     {
         CartId = cartId;
+        MerchantId = merchantId;
         ProductId = productId;
         Quantity = quantity;
         UnitPrice = unitPrice;

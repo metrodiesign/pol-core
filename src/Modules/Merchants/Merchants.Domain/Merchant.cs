@@ -56,8 +56,18 @@ public sealed class Merchant : AggregateRoot<Guid>
     /// and metadata are stored verbatim (no semantic validation — that is the Method router's job).
     /// </summary>
     public static Merchant Create(string code, string displayName, string legalEntityId, string country,
+        string currency, IReadOnlyList<string>? enabledChannels, string? metadataJson, DateTime createdAt) =>
+        CreateWithId(Guid.NewGuid(), code, displayName, legalEntityId, country, currency, enabledChannels, metadataJson, createdAt);
+
+    /// <summary>Same as <see cref="Create"/> but with an EXPLICIT id — used only by the provisioning
+    /// coordinator (rls-to-query-filter task 7), which pre-mints the merchant id into its idempotency ledger
+    /// row (<c>admin.ProvisioningOperations</c>) BEFORE this entity exists, so the two must agree.</summary>
+    public static Merchant CreateWithId(Guid id, string code, string displayName, string legalEntityId, string country,
         string currency, IReadOnlyList<string>? enabledChannels, string? metadataJson, DateTime createdAt)
     {
+        if (id == Guid.Empty)
+            throw new ArgumentException("Id is required.", nameof(id));
+
         var normalizedCode = MerchantCode.Normalize(code);
         if (!MerchantCode.IsAllowed(normalizedCode))
             throw new ArgumentException($"Merchant code '{normalizedCode}' is not in the captive allowlist.", nameof(code));
@@ -79,7 +89,7 @@ public sealed class Merchant : AggregateRoot<Guid>
             ? string.Empty
             : string.Join(',', enabledChannels.Select(c => c.Trim()).Where(c => c.Length > 0));
 
-        return new Merchant(Guid.NewGuid(), normalizedCode, displayName.Trim(), legalEntityId.Trim(),
+        return new Merchant(id, normalizedCode, displayName.Trim(), legalEntityId.Trim(),
             normalizedCountry, normalizedCurrency, channels, metadataJson ?? "{}", createdAt);
     }
 }

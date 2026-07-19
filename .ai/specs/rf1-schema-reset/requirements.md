@@ -35,6 +35,17 @@ pol-core เป็น payment orchestration platform ของบริษัท
 
 **User Story:** As a security owner, I want tenant isolation + scoped-admin scope บังคับที่ DB จริง (ไม่ใช่ app layer อย่างเดียว), so that mis-scoped query ของ admin หรือ merchant รั่วข้ามกันไม่ได้แม้ code ผิด
 
+> **[SUPERSEDED บางส่วน 2026-07-19, spec `rls-to-query-filter`]** 3.2/3.3/3.7/3.8 ด้านล่างอธิบาย SQL Server RLS
+> (`SESSION_CONTEXT`/security policy/`pol_rls_bypass` role) เป็น isolation floor — **RLS ถูกถอดทิ้งทั้งระบบแล้ว**
+> ใน 1 forward migration (task 8). Floor ปัจจุบัน = app-layer เท่านั้น (EF query filter deny-default + sealed
+> write guard); scoped-admin visibility ยังคงพฤติกรรมเดิม (Super เห็นทุกแถว, Scoped เห็นเฉพาะ assigned) แต่ผ่าน
+> `IAdminMerchantDirectory` + merchant-role capability (task 4) ที่แอปแทน DB predicate; provisioning Super-only
+> ยังคงอยู่แต่ผ่าน `ProvisioningCoordinator`'s in-transaction recheck (task 7) แทน DB BLOCK; ไม่มี `pol_rls_bypass`
+> role เหลืออยู่เลย (ไม่ใช่แค่ถอด `pol_admin` ออก — role ทั้งก้อนถูกลบ). ของจริงปัจจุบัน:
+> [`docs/reference/db-connection-and-rls.md`](../../../docs/reference/db-connection-and-rls.md) ·
+> [`rls-to-query-filter/design.md`](../rls-to-query-filter/design.md). เก็บ criteria เดิมไว้ด้านล่างเป็น
+> historical record ของการตัดสินใจตอน rf1 เท่านั้น.
+
 **Acceptance Criteria (EARS):** *(design: RLS section, Sequence 1-2, T4-T5, Error Handling)*
 - 3.1 WHEN `SESSION_CONTEXT('MerchantId')` ตรงกับคอลัมน์ MerchantId ของแถว THE SYSTEM SHALL ให้แถวนั้นผ่าน predicate (merchant branch)
 - 3.2 WHEN `SESSION_CONTEXT('MerchantId') = Guid.Empty` และ `UserId` เป็น `admin.PlatformUsers` ที่ `Tier = Super` THE SYSTEM SHALL ให้เห็นทุกแถว (platform Super — **เช็ค tier จริง ไม่ใช่ absence ใน PMA**; deviate จาก doc §8 โดยเจตนาเพื่อปิด fail-open F2)

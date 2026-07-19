@@ -1,30 +1,33 @@
-using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace BuildingBlocks.Web;
 
-/// <summary>Readiness probe: can the host reach its database? Connectivity only, no schema is named.</summary>
+/// <summary>Readiness probe: can the host reach its database? Connectivity only, no schema is named. A raw
+/// connection open (not a DbContext) — task 8's "1 principal" collapse split the single migration-owner
+/// PolDbContext into 3 separate runtime contexts, each living in its own host-specific Persistence.* project
+/// this shared BuildingBlocks.Web assembly may not reference; every host still connects to ONE physical
+/// database, so a plain connection-string probe covers all of them identically.</summary>
 internal sealed class AppDbReadinessCheck : IHealthCheck
 {
-    private readonly PolDbContext _db;
+    private readonly string _connectionString;
 
-    public AppDbReadinessCheck(PolDbContext db) => _db = db;
+    public AppDbReadinessCheck(string connectionString) => _connectionString = connectionString;
 
     public async Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context, CancellationToken cancellationToken = default)
     {
         try
         {
-            return await _db.Database.CanConnectAsync(cancellationToken).ConfigureAwait(false)
-                ? HealthCheckResult.Healthy()
-                : HealthCheckResult.Unhealthy("database unreachable");
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            return HealthCheckResult.Healthy();
         }
         catch (Exception ex)
         {
@@ -73,10 +76,10 @@ public static class HealthCheckExtensions
 {
     private const string ReadyTag = "ready";
 
-    public static IServiceCollection AddReadinessHealthChecks(this IServiceCollection services)
+    public static IServiceCollection AddReadinessHealthChecks(this IServiceCollection services, string connectionString)
     {
         services.AddHealthChecks()
-            .AddCheck<AppDbReadinessCheck>("app-db", tags: [ReadyTag])
+            .AddCheck("app-db", new AppDbReadinessCheck(connectionString), tags: [ReadyTag])
             .AddCheck<VaultReadinessCheck>("vault", tags: [ReadyTag]);
         return services;
     }

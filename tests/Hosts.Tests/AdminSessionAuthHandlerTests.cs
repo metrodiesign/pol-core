@@ -8,7 +8,6 @@ using Admins.Application.Users;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
-using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
@@ -36,7 +35,7 @@ public sealed class AdminSessionAuthHandlerTests
     [Fact]
     public async Task No_cookie_yields_no_result_so_authorization_returns_401_without_consulting_bearer()
     {
-        var (handler, _, _, scope, _, http) = await Make(T0, Resolved);
+        var (handler, _, _, scope, http) = await Make(T0, Resolved);
 
         var result = await handler.AuthenticateAsync();
 
@@ -47,7 +46,7 @@ public sealed class AdminSessionAuthHandlerTests
     [Fact]
     public async Task Unknown_token_fails()
     {
-        var (handler, store, _, _, _, http) = await Make(T0, Resolved);
+        var (handler, store, _, _, http) = await Make(T0, Resolved);
         store.Seeded = null; // nothing matches the presented hash
         SetCookie(http, SessionTokens.NewOpaqueToken());
 
@@ -61,7 +60,7 @@ public sealed class AdminSessionAuthHandlerTests
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
-        var (handler, store, _, scope, actor, http) = await Make(T0.AddSeconds(30), Resolved, token, session);
+        var (handler, store, _, scope, http) = await Make(T0.AddSeconds(30), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
 
@@ -72,13 +71,6 @@ public sealed class AdminSessionAuthHandlerTests
         Assert.Equal(AdminId, scope.Current.AdminId);
         Assert.Empty(store.Added);          // young -> no rotation
         Assert.Null(store.Slid);            // within the 1-minute slide throttle
-
-        // T5: the keyed "admin" PolDbContext now stamps its own SESSION_CONTEXT via AdminActorContext (no more
-        // blanket RLS bypass) — the handler must bind it alongside IAdminScope so that connection's interceptor
-        // has something to stamp (REQ-4.5).
-        Assert.True(actor.HasActor);
-        Assert.Equal(AdminId, actor.UserId);
-        Assert.Equal(Guid.Empty, actor.MerchantId);
     }
 
     [Fact]
@@ -86,7 +78,7 @@ public sealed class AdminSessionAuthHandlerTests
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
-        var (handler, store, audit, _, _, http) = await Make(T0.AddMinutes(16), Resolved, token, session);
+        var (handler, store, audit, _, http) = await Make(T0.AddMinutes(16), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
 
@@ -103,7 +95,7 @@ public sealed class AdminSessionAuthHandlerTests
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
-        var (handler, store, _, _, _, http) = await Make(T0.AddMinutes(2), Resolved, token, session);
+        var (handler, store, _, _, http) = await Make(T0.AddMinutes(2), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
 
@@ -119,7 +111,7 @@ public sealed class AdminSessionAuthHandlerTests
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
-        var (handler, _, _, scope, _, http) = await Make(T0.AddMinutes(31), Resolved, token, session); // past idle (30m)
+        var (handler, _, _, scope, http) = await Make(T0.AddMinutes(31), Resolved, token, session); // past idle (30m)
 
         var result = await handler.AuthenticateAsync();
 
@@ -134,7 +126,7 @@ public sealed class AdminSessionAuthHandlerTests
         var predecessor = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
         var successor = predecessor.Rotate(SessionTokens.Hash(SessionTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
         // present the (now Superseded) predecessor 30s after rotation — a legit in-flight lag (grace 60s).
-        var (handler, store, _, scope, _, http) = await Make(T0.AddMinutes(15).AddSeconds(30), Resolved, token, predecessor);
+        var (handler, store, _, scope, http) = await Make(T0.AddMinutes(15).AddSeconds(30), Resolved, token, predecessor);
         store.FamilyActiveId = successor.Id;
 
         var result = await handler.AuthenticateAsync();
@@ -151,7 +143,7 @@ public sealed class AdminSessionAuthHandlerTests
         var token = SessionTokens.NewOpaqueToken();
         var predecessor = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
         var successor = predecessor.Rotate(SessionTokens.Hash(SessionTokens.NewOpaqueToken()), T0.AddMinutes(15), Policy);
-        var (handler, store, audit, scope, _, http) = await Make(T0.AddMinutes(17), Resolved, token, predecessor); // 2m > 60s grace
+        var (handler, store, audit, scope, http) = await Make(T0.AddMinutes(17), Resolved, token, predecessor); // 2m > 60s grace
         store.FamilyActiveId = successor.Id;
 
         var result = await handler.AuthenticateAsync();
@@ -167,7 +159,7 @@ public sealed class AdminSessionAuthHandlerTests
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
-        var (handler, _, _, scope, _, http) = await Make(T0.AddSeconds(30), ByIdResult.Suspended, token, session);
+        var (handler, _, _, scope, http) = await Make(T0.AddSeconds(30), ByIdResult.Suspended, token, session);
 
         var result = await handler.AuthenticateAsync();
 
@@ -177,17 +169,16 @@ public sealed class AdminSessionAuthHandlerTests
 
     // --- harness ---
 
-    private static async Task<(SessionAuthenticationHandler handler, FakeStore store, FakeAudit audit, AdminScope scope, AdminActorContext actor, DefaultHttpContext http)>
+    private static async Task<(SessionAuthenticationHandler handler, FakeStore store, FakeAudit audit, AdminScope scope, DefaultHttpContext http)>
         Make(DateTime now, ByIdResult resolverResult, string? cookieToken = null, Session? seeded = null)
     {
         var store = new FakeStore { Seeded = seeded };
         var audit = new FakeAudit();
         var scope = new AdminScope();
-        var actor = new AdminActorContext();
         var cookies = new SessionCookies(Options.Create(new AdminSessionOptions()), new Env());
         var handler = new SessionAuthenticationHandler(
             new StubMonitor(), NullLoggerFactory.Instance, UrlEncoder.Default,
-            store, audit, cookies, new FakeResolver(resolverResult), scope, actor, new TestClock(now),
+            store, audit, cookies, new FakeResolver(resolverResult), scope, new TestClock(now),
             Options.Create(new AdminSessionOptions()));
 
         var http = new DefaultHttpContext();
@@ -197,7 +188,7 @@ public sealed class AdminSessionAuthHandlerTests
         await handler.InitializeAsync(
             new AuthenticationScheme(SessionAuthenticationHandler.SchemeName, null, typeof(SessionAuthenticationHandler)),
             http);
-        return (handler, store, audit, scope, actor, http);
+        return (handler, store, audit, scope, http);
     }
 
     private static void SetCookie(HttpContext http, string token) =>

@@ -23,6 +23,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hosts\Api\Api.csproj" Aliases="ApiHost" />
+    <ProjectReference Include="..\..\src\Hosts\Worker\Worker.csproj" Aliases="WorkerHost" />
+    <!-- Unaliased: only public types are needed here (e.g. MerchantRegistrationOutboxSentinel,
+         IAdminRoleAssignmentCountReader/IMerchantRoleAssignmentCountReader), unlike the internal Api/Worker
+         types resolved through the ApiHost::/WorkerHost:: aliases above. -->
+    <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantUser\Persistence.MerchantUser.csproj" />
+    <ProjectReference Include="..\..\src\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
   </ItemGroup>
 
 </Project>

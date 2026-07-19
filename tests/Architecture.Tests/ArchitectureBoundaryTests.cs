@@ -55,10 +55,10 @@ public class ArchitectureBoundaryTests
 
     private static Assembly InfrastructureAssembly(string module) => module switch
     {
-        "Products" => typeof(global::Products.Infrastructure.ProductRepository).Assembly,
-        "Carts" => typeof(global::Carts.Infrastructure.CartRepository).Assembly,
-        "Checkouts" => typeof(global::Checkouts.Infrastructure.CheckoutRepository).Assembly,
-        "Orders" => typeof(global::Orders.Infrastructure.OrderRepository).Assembly,
+        "Products" => typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
+        "Carts" => typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
+        "Checkouts" => typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
+        "Orders" => typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         "Payments" => typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
     };

@@ -49,4 +49,35 @@
     <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-2m69-gcr7-jv3q" />
   </ItemGroup>
 
+  <!-- rls-to-query-filter REQ-11.8 / design.md "Assembly split + Api host boundary": ControlPlaneDbContext
+       is the ONE runtime context merchant-TENANT code must never be able to name. A forbidden ProjectReference
+       to Persistence.ControlPlane fails the build immediately for every project outside this allowlist —
+       compile-time, not just an arch-lint test. Widen the allowlist only for a project that legitimately
+       needs both control-plane and merchant persistence in one assembly (e.g. the provisioning-integration
+       assembly design.md §"Provisioning-integration assembly" calls for, task 7) — never for convenience.
+       Api is in the allowlist (task 8.5.7, "1 principal"): it is the composition root serving BOTH the admin
+       console and the merchant-user console, so it wires AddControlPlanePersistence/AddMerchantUserPersistence/
+       AddMerchantRuntimePersistence itself — this only exposes the PUBLIC ports each registration extension
+       declares (IMerchantRoleReader, IAdminRoleAssignmentCountReader, IPersistedXmlRepository, ...), never the
+       internal ControlPlaneDbContext type itself (still inaccessible — no InternalsVisibleTo(Api) exists).
+       The guard still blocks every module's own Infrastructure project (Products/Carts/Checkouts/Orders/
+       Payments/Merchants) from referencing Persistence.ControlPlane, which is the actual REQ-11.8 concern.
+       Hosts.Tests is in the allowlist for the same reason as Api: it tests Api's composition root directly
+       (extern alias ApiHost) and needs the same public ports (e.g. IAdminRoleAssignmentCountReader) to build
+       fakes/compose the classes it tests — never the internal ControlPlaneDbContext itself.
+       Runs BeforeTargets="Build" so `dotnet build`/`dotnet test` on the whole solution enforces it, not only
+       a dedicated arch-lint test run. -->
+  <PropertyGroup>
+    <_ControlPlaneReferenceAllowlist>;Persistence.ControlPlane;Architecture.Tests;Persistence.Provisioning;Api;Hosts.Tests;</_ControlPlaneReferenceAllowlist>
+  </PropertyGroup>
+
+  <Target Name="RlsToQueryFilter_EnforcePersistenceBoundaries" BeforeTargets="Build">
+    <ItemGroup>
+      <_ForbiddenControlPlaneRef Include="@(ProjectReference)" Condition="'%(Filename)' == 'Persistence.ControlPlane'" />
+    </ItemGroup>
+    <Error
+      Condition="'@(_ForbiddenControlPlaneRef)' != '' AND !$(_ControlPlaneReferenceAllowlist.Contains(';$(MSBuildProjectName);'))"
+      Text="Forbidden ProjectReference: '$(MSBuildProjectName)' may not reference Persistence.ControlPlane (compile-time control-plane isolation boundary, rls-to-query-filter REQ-11.8). Allowed: $(_ControlPlaneReferenceAllowlist)" />
+  </Target>
+
 </Project>

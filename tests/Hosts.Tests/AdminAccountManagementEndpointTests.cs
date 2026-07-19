@@ -58,11 +58,5 @@ file sealed class AdminMgmtFactory : WebApplicationFactory<ApiHost::Program>
             ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
             ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         }));
-        builder.ConfigureServices(services =>
-        {
-            var dispatcher = services.SingleOrDefault(d =>
-                d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(OutboxDispatcher));
-            if (dispatcher is not null) services.Remove(dispatcher);
-        });
     }
 }

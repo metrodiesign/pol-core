@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Runtime persistence assembly for the MerchantRuntime cluster (shop.*/txn.* + merch.Merchants/
+       VaultSecrets/VaultRevealAudits/ProvisioningAudits — rls-to-query-filter design.md "Context
+       topology"). References the Domain AND Application projects of its cluster's modules (the
+       repository/port adapters that used to live in each module's Infrastructure project now live here,
+       since MerchantRuntimeDbContext is internal to this assembly) + BuildingBlocks.Infrastructure
+       (SchemaNames + the framework-owned Outbox/Idempotency/Vault types) — NEVER a module's Infrastructure
+       project, NEVER Merchants.Domain's Users/* subtree types (that's the sibling MerchantUser cluster) —
+       so this assembly stays narrow. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Products\Products.Domain\Products.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Products\Products.Application\Products.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Carts\Carts.Domain\Carts.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Carts\Carts.Application\Carts.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Domain\Checkouts.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Application\Checkouts.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Orders\Orders.Domain\Orders.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Orders\Orders.Application\Orders.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\Payments.Domain\Payments.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\Payments.Application\Payments.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Merchants\Merchants.Application\Merchants.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+  </ItemGroup>
+
+  <!-- internal sealed context: no production code outside this assembly may construct it (REQ-11.8).
+       Architecture.Tests needs InternalsVisibleTo to build the model-disjointness/seal-reflection guardrail
+       tests — the same pattern BuildingBlocks.Web/Api already use for Hosts.Tests. Persistence.Provisioning
+       (task 7) is the ONE narrow, design-sanctioned exception (R3-v7 #4): the provisioning coordinator binds
+       this context to a shared connection/transaction alongside ControlPlaneDbContext. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Architecture.Tests" />
+    <InternalsVisibleTo Include="Persistence.Provisioning" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

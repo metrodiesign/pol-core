@@ -6,9 +6,11 @@ namespace Integration.Tests;
 /// <summary>
 /// The set-based session transitions the merchant-user store relies on, asserted against live SQL
 /// (REQ-11.5/11.3/10.4). These mirror <c>MerchantUserSessionStore</c>'s ExecuteUpdate/ExecuteDelete statements:
-/// the single-winner supersede, family revocation, logout-all (revoke-all-for-user), prune-by-absolute-expiry,
-/// and the control-plane grant posture (pol_app cannot touch the tables). Tagged Integration: the default unit
-/// run skips them.
+/// the single-winner supersede, family revocation, logout-all (revoke-all-for-user), and
+/// prune-by-absolute-expiry. Updated for rls-to-query-filter task 8 (RlsTeardownAndOnePrincipal): pol_app is
+/// the sole runtime principal now and holds full CRUD on these tables (it IS the store's own connection in
+/// production), so the old "pol_app cannot touch the tables" separation test is gone — there is only one
+/// principal left. Tagged Integration: the default unit run skips them.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class MerchantUserSessionStoreIntegrationTests
@@ -31,7 +33,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
     public async Task Supersede_is_a_single_winner()
     {
         var id = Guid.NewGuid();
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(admin, id, Guid.NewGuid(), Guid.NewGuid(), Active, 8);
 
         var first = await IntegrationDb.ExecAsync(admin, Supersede, ("@s", Guid.NewGuid()), ("@id", id));
@@ -46,7 +48,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
     {
         var family = Guid.NewGuid();
         var user = Guid.NewGuid();
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, Guid.NewGuid(), family, user, Active, 8);
         await InsertSessionAsync(conn, Guid.NewGuid(), family, user, Superseded, 8);
 
@@ -62,7 +64,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
     public async Task Revoke_all_for_user_kills_every_device()
     {
         var user = Guid.NewGuid();
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), user, Active, 8);      // device 1
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), user, Active, 8);      // device 2
 
@@ -78,7 +80,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
         var live = Guid.NewGuid();
         var expired = Guid.NewGuid();
         var user = Guid.NewGuid();
-        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(conn, live, Guid.NewGuid(), user, Active, 8);       // absolute 8h out
         await InsertSessionAsync(conn, expired, Guid.NewGuid(), user, Revoked, -1);  // absolute 1h ago
 
@@ -89,14 +91,5 @@ public sealed class MerchantUserSessionStoreIntegrationTests
         Assert.Equal(1, pruned);
         Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
             "SELECT COUNT(*) FROM merch.Sessions WHERE Id=@id", ("@id", live))));
-    }
-
-    [Fact]
-    public async Task App_principal_cannot_touch_the_session_tables()
-    {
-        await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.Sessions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM merch.AuthAudits"));
     }
 }

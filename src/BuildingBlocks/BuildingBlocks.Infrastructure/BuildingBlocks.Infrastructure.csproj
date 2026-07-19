@@ -7,6 +7,15 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <!-- rls-to-query-filter task 9: HttpClientFactory for SecurityTelemetryDispatcher's Seq ingestion POSTs -->
+    <PackageReference Include="Microsoft.Extensions.Http" />
+  </ItemGroup>
+
+  <!-- rls-to-query-filter task 7: Persistence.Provisioning's coordinator needs the internal VaultEnvelope
+       crypto primitives (the SAME envelope-encryption LocalEnvelopeVaultStore uses) to store a provisioned
+       PSP secret identically to every other vault write, without widening VaultEnvelope to public. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Persistence.Provisioning" />
   </ItemGroup>
 
   <PropertyGroup>

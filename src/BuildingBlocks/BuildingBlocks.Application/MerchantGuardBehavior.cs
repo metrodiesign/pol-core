@@ -12,8 +12,13 @@ public sealed class MerchantGuardBehavior<TMessage, TResponse> : IPipelineBehavi
     where TMessage : notnull, IMessage
 {
     private readonly IActorContext _actor;
+    private readonly ISecurityTelemetry _telemetry;
 
-    public MerchantGuardBehavior(IActorContext actor) => _actor = actor;
+    public MerchantGuardBehavior(IActorContext actor, ISecurityTelemetry telemetry)
+    {
+        _actor = actor;
+        _telemetry = telemetry;
+    }
 
     public ValueTask<TResponse> Handle(
         TMessage message,
@@ -24,6 +29,10 @@ public sealed class MerchantGuardBehavior<TMessage, TResponse> : IPipelineBehavi
         {
             // Security-floor violation: a merchant-scoped message with no actor means RLS scoping is absent.
             // Mapped to an opaque 500 by the host — never confirm/deny binding state to the caller.
+            _telemetry.Emit(new DenialEvent(
+                DenialCategory.UnboundActor, "request", ActorId: null, TargetMerchant: null,
+                typeof(TMessage).Name, "Dispatch", "IMerchantScoped message dispatched with no actor bound.",
+                CorrelationId.Current, DateTime.UtcNow));
             throw new MerchantBindingException(
                 $"Message '{typeof(TMessage).Name}' is merchant-scoped but no actor is bound to the request.");
         }

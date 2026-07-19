@@ -26,16 +26,16 @@ public class IamArchitectureTests
     [
         typeof(global::Products.Domain.Product).Assembly,
         typeof(global::Products.Application.IProductRepository).Assembly,
-        typeof(global::Products.Infrastructure.ProductRepository).Assembly,
+        typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
         typeof(global::Carts.Domain.Cart).Assembly,
         typeof(global::Carts.Application.ICartRepository).Assembly,
-        typeof(global::Carts.Infrastructure.CartRepository).Assembly,
+        typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
         typeof(global::Checkouts.Domain.Session).Assembly,
         typeof(global::Checkouts.Application.ICheckoutRepository).Assembly,
-        typeof(global::Checkouts.Infrastructure.CheckoutRepository).Assembly,
+        typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(global::Orders.Domain.Order).Assembly,
         typeof(global::Orders.Application.IOrderRepository).Assembly,
-        typeof(global::Orders.Infrastructure.OrderRepository).Assembly,
+        typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Domain.Session).Assembly,
         typeof(global::Payments.Application.Ports.IPspAdapter).Assembly,
         typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
@@ -47,27 +47,40 @@ public class IamArchitectureTests
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
     ];
 
-    // Every OTHER module's Infrastructure — the only layer holding a PolDbContext, hence the only place a rogue
-    // `iam.Roles` query could be written. The three confinement carve-outs live in these assemblies too.
+    // Every OTHER module's Infrastructure (the migration-owner's EF configs still live there, task 8's
+    // PolDbContext stays the migration owner) PLUS the three runtime Persistence assemblies (task 8.5 — the
+    // actual repositories that query iam.Roles at runtime now live there, not in a module's own
+    // Infrastructure project). Together these are the only place a rogue `iam.Roles` query could be written.
     private static readonly Assembly[] ProductionInfrastructure =
     [
-        typeof(global::Products.Infrastructure.ProductRepository).Assembly,
-        typeof(global::Carts.Infrastructure.CartRepository).Assembly,
-        typeof(global::Checkouts.Infrastructure.CheckoutRepository).Assembly,
-        typeof(global::Orders.Infrastructure.OrderRepository).Assembly,
+        typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
+        typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
+        typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
+        typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
+        typeof(Persistence.ControlPlane.ControlPlaneDbContext).Assembly,
+        typeof(Persistence.MerchantUser.MerchantUserDbContext).Assembly,
+        typeof(Persistence.MerchantRuntime.MerchantRuntimeDbContext).Assembly,
     ];
 
-    // The ONLY namespaces allowed to depend on the iam.Roles entity type: the Iam store and each side's
-    // resolution repository (design.md confinement carve-out — see the two RoleRepository summaries).
+    // The ONLY namespaces allowed to depend on the iam.Roles entity type: the migration-owner's EF configs
+    // (unchanged, task 8 keeps PolDbContext as the schema owner) and, at runtime, the Iam store + the
+    // ControlPlane-side resolution repositories (task 8.5.1/8.5.7 — MerchantRoleReader resolves iam.Roles for
+    // BOTH the admin console's own RoleRepository AND the merchant side's cross-context read, since
+    // Persistence.MerchantUser may never reference Iam.Domain directly, design.md "Context topology").
     private static readonly string[] ConfinedNamespaces =
     [
         "Iam.Infrastructure.Persistence.Roles",
         "Admins.Infrastructure.Persistence.Roles",
         "Merchants.Infrastructure.Persistence.Users.Roles",
+        "Persistence.ControlPlane.Iam",
+        "Persistence.ControlPlane.Admins",
+        // The context class itself declares "DbSet<Role> Roles => Set<Role>()" (task 8.5.1) — an IL-level
+        // dependency on the entity type, not a query. It is not itself a rogue querier.
+        "Persistence.ControlPlane",
     ];
 
     private const string RoleEntity = "Iam.Domain.Roles.Role";

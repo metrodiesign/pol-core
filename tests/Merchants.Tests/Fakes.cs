@@ -32,51 +32,29 @@ internal sealed class FakePspConnectionRepository : IConnectionRepository
         Task.FromResult<IReadOnlyList<Connection>>(Added.Where(x => x.MerchantId == merchantId).ToList());
 }
 
-internal sealed class FakeVault : IVaultSecretStore
+/// <summary>Stands in for the cross-context provisioning UoW (task 8.5.4). Records every call and replays
+/// the STORED result for a repeated <c>operationKey</c> (mirrors the real coordinator's idempotency-ledger
+/// behavior closely enough for a handler-level test, without the SQL machinery — full retry/ledger coverage
+/// lives in ProvisioningCoordinatorTests).</summary>
+internal sealed class FakeProvisioningWriter : IProvisioningWriter
 {
-    public readonly List<(Guid MerchantId, string Name, string Secret)> Stored = [];
+    public readonly List<(ProvisionSpec Spec, Guid CallerAdminId, long ExpectedAuthorizationVersion, string OperationKey)> Calls = [];
+    private readonly Dictionary<string, ProvisioningWriteResult> _resultsByKey = new(StringComparer.Ordinal);
 
-    public Task StoreAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken ct)
+    public Task<ProvisioningWriteResult> ProvisionAsync(
+        ProvisionSpec spec, Guid callerAdminId, long expectedAuthorizationVersion, string operationKey,
+        CancellationToken cancellationToken)
     {
-        Stored.Add((merchantId, name, plaintextSecret));
-        return Task.CompletedTask;
-    }
+        Calls.Add((spec, callerAdminId, expectedAuthorizationVersion, operationKey));
 
-    public Task InsertAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken ct)
-    {
-        Stored.Add((merchantId, name, plaintextSecret));
-        return Task.CompletedTask;
-    }
+        if (_resultsByKey.TryGetValue(operationKey, out var existing))
+            return Task.FromResult(existing);
 
-    public Task<string> RevealAsync(Guid merchantId, string name, CancellationToken ct) => throw new NotSupportedException();
-    public Task<string?> MaskedAsync(Guid merchantId, string name, CancellationToken ct) => Task.FromResult<string?>(null);
-    public Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken ct) => Task.FromResult(false);
-}
-
-internal sealed class FakeAuditWriter : IProvisioningAuditWriter
-{
-    public readonly List<ProvisioningAudit> Appended = [];
-    public void Append(ProvisioningAudit entry) => Appended.Add(entry);
-}
-
-/// <summary>Runs the transaction delegate (RetriesToSimulate + 1) times to exercise the retrying
-/// execution strategy — the handler must stay idempotent (result built fresh each attempt).</summary>
-internal sealed class FakeUnitOfWork : IUnitOfWork
-{
-    public int Runs;
-    public int RetriesToSimulate;
-
-    public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(0);
-
-    public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct)
-    {
-        T result = default!;
-        for (var attempt = 0; attempt <= RetriesToSimulate; attempt++)
-        {
-            Runs++;
-            result = await operation(ct);
-        }
-        return result;
+        var result = new ProvisioningWriteResult(
+            Guid.NewGuid(),
+            [.. spec.Connections.Select(c => new ProvisionedConnectionWrite(Guid.NewGuid(), c.Psp, c.MaskedSecretHints))]);
+        _resultsByKey[operationKey] = result;
+        return Task.FromResult(result);
     }
 }
 

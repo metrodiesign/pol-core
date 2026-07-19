@@ -1,15 +1,20 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
+using BuildingBlocks.Infrastructure.Observability;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
 using Carts.Infrastructure;
 using Checkouts.Infrastructure;
 using Mediator;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Orders.Infrastructure;
 using Payments.Infrastructure;
 using Merchants.Infrastructure;
+using Persistence.MerchantRuntime;
+using Persistence.MerchantRuntime.Outbox;
+using Persistence.MerchantUser;
+using Persistence.MerchantUser.Outbox;
 using Products.Infrastructure;
 using Worker;
 
@@ -29,17 +34,32 @@ if (builder.Environment.IsDevelopment())
 
 builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
 builder.Services.AddBuildingBlocksInfrastructure();
-builder.Services.AddOutboxDispatcher();
+builder.Services.AddSecurityTelemetry(builder.Configuration, applicationName: "Worker");
 
-// The worker connects as pol_worker: it can read/lease the outbox across merchants (the table has no
-// FILTER predicate) but is NOT in the bypass role, so per-message it writes consumer tables (Orders)
-// only for the merchant the dispatcher binds via SESSION_CONTEXT.
+// 1-principal collapse (task 8): the worker connects as pol_app, same as every other host — cross-merchant
+// outbox lease/drain is a WorkerWriteAuthorizer capability now (app-layer default-deny), not a DB-level RLS
+// bypass grant. Both runtime clusters the worker touches get their own dispatcher: MerchantRuntimeDbContext
+// (payment/checkout/order events, txn.OutboxMessages) and MerchantUserDbContext (registration events,
+// merch.UserOutbox).
 var workerConnString = builder.Configuration.GetConnectionString("Worker");
-builder.Services.AddDbContext<PolDbContext>((sp, opt) =>
-    opt.UseSqlServer(workerConnString)
-       .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
+// REQ-13.3: every host connects as the SAME pol_app login (task 8, 1 principal) — Application Name is the
+// one thing that still lets sys.dm_exec_sessions/sys.dm_exec_requests attribute activity to Api vs Worker.
+workerConnString = new SqlConnectionStringBuilder(workerConnString) { ApplicationName = "Worker" }.ConnectionString;
+builder.Services.AddMerchantRuntimePersistence(workerConnString!, _ => new WorkerWriteAuthorizer())
+    .AddMerchantRuntimeOutboxDispatcher();
+builder.Services.AddMerchantUserPersistence(workerConnString!, _ => new WorkerWriteAuthorizer())
+    .AddMerchantUserOutboxDispatcher();
 
-builder.Services.AddReadinessHealthChecks();
+// The worker has no admin/control-plane surface — Mediator still discovers Iam's role-CRUD handlers and
+// ProvisionMerchantHandler transitively (Merchants.Application needs Iam.Application for RolePorts), so
+// ValidateOnBuild needs something constructible even though the worker's own code never dispatches either.
+builder.Services.AddSingleton<Iam.Application.Roles.IRoleStore, WorkerUnsupportedRoleStore>();
+builder.Services.AddSingleton<IProvisioningWriter, WorkerUnsupportedProvisioningWriter>();
+builder.Services.AddSingleton<Iam.Application.Roles.IRoleAssignmentCounter, WorkerUnsupportedRoleAssignmentCounter>();
+builder.Services.AddSingleton<Iam.Application.Roles.IRoleAuditSink>(Iam.Application.Roles.NullRoleAuditSink.Instance);
+builder.Services.AddKeyedSingleton<IUnitOfWork, WorkerUnsupportedAdminUnitOfWork>("admin");
+
+builder.Services.AddReadinessHealthChecks(workerConnString!);
 
 builder.Services.AddSingleton(new ModuleAssemblies(WorkerModuleAssemblies.All));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
@@ -52,8 +72,6 @@ builder.Services.AddCartModule();
 builder.Services.AddCheckoutModule();
 builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
-// MerchantUser registration seams on the default (pol_worker) context so the dispatcher's
-// MerchantUserRegistrationConsumer (+ the Mediator-discovered SubmitRegistrationHandler graph) resolve here.
 builder.Services.AddMerchantsModule();
 
 var app = builder.Build();

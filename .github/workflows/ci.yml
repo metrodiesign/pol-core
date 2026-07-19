@@ -179,19 +179,15 @@ jobs:
           curl -sSL -O https://github.com/microsoft/go-sqlcmd/releases/download/v1.8.0/sqlcmd-linux-amd64.tar.bz2
           tar xjf sqlcmd-linux-amd64.tar.bz2
           sudo install sqlcmd /usr/local/bin/
-      - name: Generate ephemeral principal passwords
+      - name: Generate ephemeral principal password
         # hex (no login-name substring) + a mixed-case/digit suffix -> meets SQL password policy.
         run: |
           echo "POL_APP_PASSWORD=Ci$(openssl rand -hex 8)Aa1" >> "$GITHUB_ENV"
-          echo "POL_ADMIN_PASSWORD=Ci$(openssl rand -hex 8)Bb2" >> "$GITHUB_ENV"
-          echo "POL_WORKER_PASSWORD=Ci$(openssl rand -hex 8)Cc3" >> "$GITHUB_ENV"
-      - name: Bootstrap DB principals
+      - name: Bootstrap DB principal
         run: |
           sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C \
             -v DbName="VCentralPay" \
                POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
-               POL_ADMIN_PASSWORD="${POL_ADMIN_PASSWORD}" \
-               POL_WORKER_PASSWORD="${POL_WORKER_PASSWORD}" \
             -i docker/bootstrap/01-principals.sql
       - name: Restore
         # `dotnet ef database update` builds the startup project, which needs a restored assets file
@@ -206,11 +202,20 @@ jobs:
           dotnet ef database update --context PolDbContext \
             --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
             --startup-project src/Hosts/Api
+      - name: Migration lineage gate (rls-to-query-filter REQ-8.6)
+        # PolDbContext must still discover the FULL existing migration chain — a class-identity/assembly
+        # change that orphans the lineage would otherwise only surface the next time someone hand-authors a
+        # forward migration and gets a re-create-existing-table diff.
+        env:
+          POL_DESIGN_SQL: "Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          ./scripts/check-migration-lineage.sh
       - name: Assert fresh-DB raw objects (REQ-7.7)
-        # Fast catalog-level gate BEFORE the (much slower) test suite: RegistrationNotices, the 3 sec
-        # functions/procs, the security policy, bypass-role membership, grant floor + seed counts. A
-        # partial/silently-failed raw-SQL migration fails here with a precise message instead of a
-        # confusing permission-denied buried in Integration.Tests output.
+        # Fast catalog-level gate BEFORE the (much slower) test suite: RegistrationNotices, no legacy
+        # RLS object/principal survives, pol_app grant floor + seed counts. A partial/silently-failed
+        # raw-SQL migration fails here with a precise message instead of a confusing permission-denied
+        # buried in Integration.Tests output.
         run: |
           sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b \
             -v DbName="${POL_DB}" \

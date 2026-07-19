@@ -1,4 +1,3 @@
-using Carts.Application;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Carts.Infrastructure;
@@ -10,11 +9,7 @@ namespace Carts.Infrastructure;
 /// </summary>
 public static class CartModuleRegistration
 {
-    /// <summary>Registers the Cart module's persistence adapters (Scoped — they depend on the
-    /// Scoped <c>PolDbContext</c>).</summary>
-    public static IServiceCollection AddCartModule(this IServiceCollection services)
-    {
-        services.AddScoped<ICartRepository, CartRepository>();
-        return services;
-    }
+    /// <summary>The repository moved to <c>Persistence.MerchantRuntime</c> (task 8.5.3) — registered
+    /// there via <c>AddMerchantRuntimePersistence</c>, not here.</summary>
+    public static IServiceCollection AddCartModule(this IServiceCollection services) => services;
 }

@@ -67,6 +67,58 @@ public sealed class PlatformUserTests
         Assert.Equal(UserStatus.Active, admin.Status);
     }
 
+    [Fact]
+    public void Suspend_and_Reactivate_each_bump_the_authorization_version()
+    {
+        // rls-to-query-filter REQ-4.11 invalidation-matrix source "Status": every write that changes
+        // effective authorization bumps AuthorizationVersion so a caller holding a stale lease is denied.
+        var admin = User.CreateScoped("scoped@org.com", Now);
+        Assert.Equal(0, admin.AuthorizationVersion);
+
+        admin.Suspend(Guid.NewGuid());
+        Assert.Equal(1, admin.AuthorizationVersion);
+
+        admin.Reactivate();
+        Assert.Equal(2, admin.AuthorizationVersion);
+    }
+
+    [Fact]
+    public void ChangeTier_promotes_and_demotes_and_bumps_the_authorization_version()
+    {
+        var admin = User.CreateScoped("scoped@org.com", Now);
+        Assert.Equal(Tier.Scoped, admin.Tier);
+
+        admin.ChangeTier(Tier.Super, Guid.NewGuid());
+        Assert.Equal(Tier.Super, admin.Tier);
+        Assert.Equal(1, admin.AuthorizationVersion);
+
+        admin.ChangeTier(Tier.Scoped, Guid.NewGuid());
+        Assert.Equal(Tier.Scoped, admin.Tier);
+        Assert.Equal(2, admin.AuthorizationVersion);
+    }
+
+    [Fact]
+    public void ChangeTier_to_the_current_tier_is_an_idempotent_no_op()
+    {
+        var admin = User.CreateScoped("scoped@org.com", Now);
+
+        admin.ChangeTier(Tier.Scoped, Guid.NewGuid()); // already Scoped
+
+        Assert.Equal(Tier.Scoped, admin.Tier);
+        Assert.Equal(0, admin.AuthorizationVersion); // no spurious bump
+    }
+
+    [Fact]
+    public void ChangeTier_rejects_changing_ones_own_tier()
+    {
+        var admin = User.SelfProvision("g-sub-1", "ops@org.com", Now);
+
+        // Mirrors Suspend's self-guard (REQ-8.2) — a lone Super demoting itself could strand oversight.
+        Assert.Throws<InvalidOperationException>(() => admin.ChangeTier(Tier.Scoped, admin.Id));
+        Assert.Equal(Tier.Super, admin.Tier);
+        Assert.Equal(0, admin.AuthorizationVersion);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

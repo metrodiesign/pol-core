@@ -4,7 +4,6 @@ using Admins.Application;
 using Admins.Application.Users;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
-using BuildingBlocks.Infrastructure.Persistence;
 using Mediator;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -28,7 +27,6 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
     private readonly SessionCookies _cookies;
     private readonly ISessionResolver _resolver;
     private readonly AdminScope _scope;
-    private readonly AdminActorContext _actor;
     private readonly IClock _clock;
     private readonly AdminSessionOptions _options;
 
@@ -41,7 +39,6 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
         SessionCookies cookies,
         ISessionResolver resolver,
         AdminScope scope,
-        AdminActorContext actor,
         IClock clock,
         IOptions<AdminSessionOptions> sessionOptions)
         : base(options, logger, encoder)
@@ -51,7 +48,6 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
         _cookies = cookies;
         _resolver = resolver;
         _scope = scope;
-        _actor = actor;
         _clock = clock;
         _options = sessionOptions.Value;
     }
@@ -105,8 +101,6 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
 
         var resolution = resolved.Resolution;
         _scope.Set(resolution); // bind IAdminScope so endpoints read scope.Current
-        _actor.Bind(resolution.AdminId); // bind AdminActorContext so the keyed "admin" PolDbContext stamps
-                                          // SESSION_CONTEXT { MerchantId = Guid.Empty, UserId = AdminId } (T5/REQ-4.5)
 
         // The principal must carry the claims existing consumers read: admin_tier (the Super-only tier gate) and
         // sub (the provisioning actor id on POST /admin/merchants). (REQ-4.3 / P1-2)

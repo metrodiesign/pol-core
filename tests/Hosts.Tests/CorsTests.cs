@@ -39,14 +39,6 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
                 ["Cors:AdminOrigins:0"] = AdminSpaOrigin,          // admin (credentialed, /api/v1/admins group only)
             });
         });
-        builder.ConfigureServices(services =>
-        {
-            var dispatcher = services.SingleOrDefault(d =>
-                d.ServiceType == typeof(IHostedService) &&
-                d.ImplementationType == typeof(OutboxDispatcher));
-            if (dispatcher is not null)
-                services.Remove(dispatcher);
-        });
     }
 }
 

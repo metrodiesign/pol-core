@@ -5,12 +5,14 @@ using Microsoft.Data.SqlClient;
 namespace Integration.Tests;
 
 /// <summary>
-/// Static posture of the single central <c>iam.*</c> catalog against live SQL Server (rf2 REQ-2/9/10): the seeded
-/// rows equal the code-canonical <see cref="Keys"/> vocabulary (drift guard), the grant matrix is exactly the
-/// design's least-privilege shape (pol_admin SELECT on the vocabulary + CRUD on Roles/RolePermissions; pol_app
-/// nothing on <c>iam.*</c>), no RLS policy covers the schema, the catalog FK rejects a phantom-key grant, the
-/// shared-NULL bucket is unique on Code, and the reset dropped the two legacy per-side catalogs. Tagged
-/// Integration: the default unit run skips it; the runbook applies the migration to live SQL first.
+/// Static posture of the single central <c>iam.*</c> catalog against live SQL Server (rf2 REQ-2/9/10), updated
+/// for rls-to-query-filter task 8 (RlsTeardownAndOnePrincipal): the seeded rows equal the code-canonical
+/// <see cref="Keys"/> vocabulary (drift guard), no RLS policy covers the schema, the catalog FK rejects a
+/// phantom-key grant, the shared-NULL bucket is unique on Code, and the reset dropped the two legacy per-side
+/// catalogs. The grant matrix is now the 1-principal shape: pol_admin is retired, pol_app holds SELECT on the
+/// vocabulary + CRUD on Roles/RolePermissions (exactly what pol_admin used to hold alone) — the old "pol_app
+/// has nothing on iam.*" separation test is gone, there is no separate principal left to separate it from.
+/// Tagged Integration: the default unit run skips it; the runbook applies the migration to live SQL first.
 /// The behavioural 409/400 role-management responses are unit-covered in Iam.Tests over a real PolDbContext —
 /// this suite pins only what live SQL Server uniquely establishes.
 /// </summary>
@@ -29,7 +31,7 @@ public sealed class IamCatalogGrantsTests
     [Fact]
     public async Task Catalog_seed_matches_the_advertised_shape()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // 8 groups / 20 keys / 4 roles / 28 grants (REQ-2.1/2.3/10.1).
         Assert.Equal(8, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
@@ -55,7 +57,7 @@ public sealed class IamCatalogGrantsTests
     [Fact]
     public async Task Seeded_catalog_equals_the_code_vocabulary()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // The drift guard (REQ-10.2): the seeded rows are EXACTLY the code-canonical vocabulary in Iam.Domain —
         // keys, groups, group side, and the four role codes all SetEqual their code counterparts.
@@ -83,7 +85,7 @@ public sealed class IamCatalogGrantsTests
     [Fact]
     public async Task Admin_has_full_crud_on_roles_but_the_vocabulary_is_read_only()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var roleId = Guid.NewGuid();
         var code = "it_" + roleId.ToString("N")[..8];
 
@@ -106,7 +108,7 @@ public sealed class IamCatalogGrantsTests
             await IntegrationDb.ExecAsync(admin, "DELETE iam.Roles WHERE Id=@id", ("@id", roleId));
         }
 
-        // The vocabulary (Permissions/PermissionGroups) is SELECT-only for pol_admin — a runtime INSERT is refused.
+        // The vocabulary (Permissions/PermissionGroups) is SELECT-only for pol_app — a runtime INSERT is refused.
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
             "INSERT iam.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','system',N'x',99)"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
@@ -116,7 +118,7 @@ public sealed class IamCatalogGrantsTests
     [Fact]
     public async Task A_role_cannot_grant_a_permission_outside_the_catalog()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // FK RolePermissions.PermissionKey -> Permissions.Key (REQ-2.6).
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
@@ -125,21 +127,9 @@ public sealed class IamCatalogGrantsTests
     }
 
     [Fact]
-    public async Task App_principal_cannot_touch_any_iam_table()
-    {
-        await using var app = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-
-        // pol_app resolves no permissions and is granted NOTHING on iam.* (REQ-9.1) — every table is denied.
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM iam.PermissionGroups"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM iam.Permissions"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM iam.Roles"));
-        await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ScalarAsync(app, "SELECT COUNT(*) FROM iam.RolePermissions"));
-    }
-
-    [Fact]
     public async Task No_row_level_security_policy_covers_the_iam_schema()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // REQ-9.2: iam.* is deliberately outside RLS (vocabulary is public; Roles/RolePermissions use app-layer
         // visibility). Assert no security predicate targets any object in the iam schema.
@@ -156,7 +146,7 @@ public sealed class IamCatalogGrantsTests
     [Fact]
     public async Task Shared_role_code_is_unique_across_the_null_bucket_but_reusable_per_merchant()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var code = "dup_" + Guid.NewGuid().ToString("N")[..8];
         var a = Guid.NewGuid();
         var b = Guid.NewGuid();
@@ -192,7 +182,7 @@ public sealed class IamCatalogGrantsTests
     [Fact]
     public async Task Reset_dropped_the_two_legacy_per_side_catalogs()
     {
-        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AdminConn);
+        await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
         // REQ-1.4: the eight duplicated admin.*/merch.* catalog tables are gone; only the four iam.* tables remain.
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,

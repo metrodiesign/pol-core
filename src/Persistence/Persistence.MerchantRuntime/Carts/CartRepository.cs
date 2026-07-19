@@ -1,0 +1,24 @@
+using Carts.Application;
+using Microsoft.EntityFrameworkCore;
+using CartAggregate = Carts.Domain.Cart;
+
+namespace Persistence.MerchantRuntime.Carts;
+
+/// <summary>
+/// Cart persistence over the MerchantRuntime data plane. Queries go through
+/// <c>MerchantRuntimeDbContext.Set&lt;Cart&gt;()</c>; the query filter and the sealed write guard apply
+/// merchant scoping, so this adapter only tracks and loads.
+/// </summary>
+internal sealed class CartRepository : ICartRepository
+{
+    private readonly MerchantRuntimeDbContext _db;
+
+    public CartRepository(MerchantRuntimeDbContext db) => _db = db;
+
+    public void Add(CartAggregate cart) => _db.Set<CartAggregate>().Add(cart);
+
+    public Task<CartAggregate?> GetAsync(Guid cartId, CancellationToken cancellationToken) =>
+        _db.Set<CartAggregate>()
+            .Include(c => c.Items)
+            .FirstOrDefaultAsync(c => c.Id == cartId, cancellationToken);
+}

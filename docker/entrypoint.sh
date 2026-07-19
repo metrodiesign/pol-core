@@ -20,18 +20,6 @@ export ConnectionStrings__App="$CONN"
 export ConnectionStrings__Worker="$CONN"
 unset DB_PW
 
-# The API also provisions merchants CROSS-MERCHANT under pol_admin on a SEPARATE connection — pol_admin is NOT
-# an RLS-bypass role member (T5): it reaches other merchants' rows via the Super/Scoped branches of
-# sec.fn_merchant_predicate (a Scoped admin only as far as admin.MerchantAccess allows), not a blanket
-# bypass. The pol_app principal above stays RLS-filtered to its own merchant. When an admin password file is
-# mounted, build that connection too (the API fail-fasts at boot without it); the Worker mounts none and
-# skips this. A distinct principal, so it cannot be the same $CONN as App.
-if [ -n "${ADMIN_DB_PASSWORD_FILE:-}" ]; then
-    ADMIN_PW="$(cat "$ADMIN_DB_PASSWORD_FILE")"
-    export ConnectionStrings__Admin="Server=${DB_SERVER};Database=${DB_NAME};User Id=${DB_ADMIN_PRINCIPAL:-pol_admin};Password=${ADMIN_PW};Encrypt=True;TrustServerCertificate=True"
-    unset ADMIN_PW
-fi
-
 # The admin BFF login is a confidential Google OIDC client: export its client secret from the mounted file
 # secret so it never enters the image, the compose file, or `docker inspect` (REQ-8.1). The API fail-fasts at
 # boot (outside Development) when it is unset.

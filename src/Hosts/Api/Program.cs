@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Microsoft.OpenApi;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
+using BuildingBlocks.Infrastructure.Observability;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Vault;
 using BuildingBlocks.Web;
@@ -72,7 +73,12 @@ using Api;
 using Api.Admins;
 using Api.Iam;
 using Api.Merchants;
+using Api.Persistence;
 using Api.Webhooks;
+using Persistence.ControlPlane;
+using Persistence.MerchantRuntime;
+using Persistence.MerchantUser;
+using Persistence.Provisioning;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
@@ -99,12 +105,18 @@ builder.Services.AddMediator(options => options.ServiceLifetime = ServiceLifetim
 builder.Services.AddScoped(typeof(IPipelineBehavior<,>), typeof(MerchantGuardBehavior<,>));
 
 builder.Services.AddBuildingBlocksInfrastructure();
+builder.Services.AddSecurityTelemetry(builder.Configuration, applicationName: "Api");
 
-// The merchant-user DbContext. The RLS session-context interceptor sets SESSION_CONTEXT('MerchantId') at open.
-var appConnString = builder.Configuration.GetConnectionString("App");
-builder.Services.AddDbContext<PolDbContext>((sp, opt) =>
-    opt.UseSqlServer(appConnString)
-       .AddInterceptors(sp.GetRequiredService<SessionContextConnectionInterceptor>()));
+// Single pol_app principal for every runtime cluster (task 8, "1 principal" — RLS is gone, so there is no
+// separate pol_admin bypass role to key a second connection against). Each Persistence.* registration
+// extension below builds its own DbContext + adapters over this ONE connection string; the write floor (an
+// app-layer IWriteAuthorizer, not a DB role) is what still stops a merchant request from writing another
+// merchant's rows (WriteAuthorizers.cs).
+var appConnString = builder.Configuration.GetConnectionString("App")
+    ?? throw new InvalidOperationException("ConnectionStrings:App is required. Set ConnectionStrings__App.");
+// REQ-13.3: every host connects as the SAME pol_app login (task 8, 1 principal) — Application Name is the
+// one thing that still lets sys.dm_exec_sessions/sys.dm_exec_requests attribute activity to Api vs Worker.
+appConnString = new SqlConnectionStringBuilder(appConnString) { ApplicationName = "Api" }.ConnectionString;
 
 // Module entity configurations are discovered from these assemblies at model-build time.
 builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All));
@@ -120,18 +132,12 @@ builder.Services.AddOrdersModule();
 builder.Services.AddPaymentsModule();
 builder.Services.AddMerchantsModule();
 
-// Merchant provisioning runs cross-merchant under pol_admin (RLS bypass) via a SEPARATE keyed connection —
-// the pol_app connection is RLS-blocked from writing another merchant's rows. Fail fast at boot if it is
-// not configured: the whole admin provisioning surface depends on it.
-var adminConnString = builder.Configuration.GetConnectionString("Admin")
-    ?? throw new InvalidOperationException(
-        "ConnectionStrings:Admin (pol_admin) is required for merchant provisioning. Set ConnectionStrings__Admin.");
-// The committed appsettings.json ships an Admin string with a BLANK password (the real secret is injected
+// The committed appsettings.json ships an App string with a BLANK password (the real secret is injected
 // at runtime). Outside Development, fail fast if that injection did not happen — otherwise the host boots
-// and only the first /admin request discovers the missing credential. Development may use integrated auth.
+// and only the first request discovers the missing credential. Development may use integrated auth.
 if (!builder.Environment.IsDevelopment())
 {
-    ProvisioningGuards.RequireInjectedCredential(adminConnString, "Admin");
+    ProvisioningGuards.RequireInjectedCredential(appConnString, "App");
     // The admin BFF login is a confidential OIDC client: the client id + secret must be injected outside
     // Development (the committed config ships blanks/placeholders). A blank/placeholder secret means the
     // runtime secret was never injected — fail fast at boot rather than on the first login (REQ-8.1/8.2).
@@ -148,23 +154,36 @@ if (!builder.Environment.IsDevelopment())
         ProvisioningGuards.RequireMerchantUserClientSecret(builder.Configuration["MerchantUser:Oidc:ClientSecret"]);
     }
 }
-builder.Services.AddMerchantAdminScope(adminConnString);
 
-// Admin identity (control plane: PlatformUsers/assignments/audit). Its EF configs live in the merchant-user
-// schema but are control-plane (pol_admin only); resolution/provisioning run cross-merchant, so the seams
-// bind to the same pol_admin keyed scope.
+// The 3 runtime clusters + the Provisioning UoW (task 8.5.7), all on the single pol_app connection. The
+// write-floor authorizer differs per capability (WriteAuthorizers.cs): an ordinary admin-console request
+// (ControlPlaneDbContext), an ordinary merchant request (MerchantUserDbContext/MerchantRuntimeDbContext), or
+// the ONE cross-context provisioning writer — a single instance, since ProvisioningCoordinator constructs
+// its own context instances per attempt rather than resolving them from this container.
+builder.Services.AddControlPlanePersistence(
+    appConnString, sp => new ControlPlaneAdminWriteAuthorizer(sp.GetRequiredService<IAdminScope>()));
+builder.Services.AddMerchantUserPersistence(
+    appConnString, sp => new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>()));
+builder.Services.AddMerchantRuntimePersistence(
+    appConnString, sp => new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>()));
+
+var vaultOptions = builder.Configuration.GetSection(VaultOptions.SectionName).Get<VaultOptions>() ?? new VaultOptions();
+builder.Services.AddProvisioning(appConnString, VaultKeyringFactory.Build(vaultOptions), new ProvisioningSuperWriteAuthorizer());
+
+// Admin identity (control plane: PlatformUsers/assignments/audit) + Merchants identity (data plane:
+// MerchantUsers + control-plane ExternalLogins/RegistrationTickets/Profiles/RegistrationAudits) — every
+// repository/session-store/audit seam is already bound by AddControlPlanePersistence/AddMerchantUserPersistence
+// above; these calls wire only the host-only pieces (scope, session cookies, cross-context compositions).
 builder.Services.AddAdminModule();
 builder.Services.AddAdminIdentity();
 
-// Merchants identity (data plane: MerchantUsers under RLS + control-plane ExternalLogins/RegistrationTickets/
-// Profiles/RegistrationAudits). AddMerchantsModule (above) loads the assembly so PolDbContext discovers its EF
-// configs; AddMerchantsIdentity binds the registration seams (keyed pol_admin write + photo + ticket protector).
 builder.Services.Configure<UserRegistrationOptions>(
     builder.Configuration.GetSection(UserRegistrationOptions.SectionName));
 builder.Services.AddMerchantsIdentity();
 
-// Central IAM role store + audit bridge (rf2) — replaces the two duplicated catalogs. Both consoles share
-// one registration; AddIamRoleManagement needs IAdminScope/IAuditWriter already bound (AddAdminIdentity above).
+// Central IAM audit bridge + assignment counter (rf2) — IRoleStore itself comes from
+// AddControlPlanePersistence above. Needs IAdminScope/IAuditWriter (AddAdminIdentity) and the two
+// count-reader ports (AddControlPlanePersistence/AddMerchantUserPersistence) already bound.
 builder.Services.AddIamRoleManagement();
 
 // MerchantUser BFF: a SECOND confidential Google OIDC client (Authorization Code + PKCE) for the server-side merchant-user
@@ -335,7 +354,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
 builder.Services.AddProblemDetailsHandling();
-builder.Services.AddReadinessHealthChecks();
+builder.Services.AddReadinessHealthChecks(appConnString);
 builder.Services.AddWebhookRateLimiter();
 builder.Services.AddAdminAuthRateLimiter();
 builder.Services.AddMerchantUserAuthRateLimiter();
@@ -862,11 +881,18 @@ api.MapPost("/merchants", async (
     ProvisionMerchantRequest body,
     HttpContext http,
     IMediator mediator,
+    IAdminScope adminScope,
+    IUserRepository adminUsers,
     CancellationToken ct) =>
 {
     // The documented 2.4 body wraps merchant fields under "merchant"; non-secret PSP config rides alongside
     // "psp"/"secrets" and is captured verbatim via JsonExtensionData (reference 2.4 — config stored as-is).
     var t = body.Merchant ?? throw new ArgumentException("The 'merchant' object is required.");
+
+    // The caller's CURRENT AuthorizationVersion, read fresh right before dispatch (task 8.5.4) — this IS the
+    // "pinned at the request boundary" snapshot the provisioning UoW re-verifies in-transaction under lock.
+    var caller = await adminUsers.GetByIdAsync(adminScope.Current.AdminId, ct)
+        ?? throw new InvalidOperationException("The authenticated admin no longer exists.");
 
     var command = new ProvisionMerchantCommand(
         new MerchantSpec(t.Code, t.DisplayName, t.LegalEntityId, t.Country, t.Currency,
@@ -881,7 +907,9 @@ api.MapPost("/merchants", async (
                 p.Secrets ?? new Dictionary<string, string>(), ToElement(p.Config));
         })],
         http.User.FindFirst("sub")?.Value ?? "unknown",
-        http.TraceIdentifier);
+        http.TraceIdentifier,
+        adminScope.Current.AdminId,
+        caller.AuthorizationVersion);
 
     var result = await mediator.Send(command, ct);
     return Results.Created($"/api/v1/merchants/{t.Code}", result);
@@ -1357,6 +1385,12 @@ api.MapPost("/admins", async (
 // tier/status cross the wire as stable lowercase strings via explicit projection — there is no global
 // string-enum converter (B2), mirroring RoleToWire.
 static string TierToWire(Tier t) => t == Tier.Super ? "super" : "scoped";
+static Tier? WireToTier(string wire) => wire.ToLowerInvariant() switch
+{
+    "super" => Tier.Super,
+    "scoped" => Tier.Scoped,
+    _ => null,
+};
 static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
 static string SessionStatusToWire(SessionStatus s) => s switch
 {
@@ -1511,6 +1545,28 @@ admin.MapPost("/{id:guid}/reactivate", async (
     .WithSummary("Reactivate a suspended admin")
     .WithDescription("Super-only. Restore a suspended admin to Active and revoke its existing sessions (a fresh login is required). Idempotent when already Active. Unknown id -> 404.")
     .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// Super promotes/demotes another admin's tier; changing your OWN tier is rejected (mirrors REQ-8.2 — a lone
+// Super demoting itself could strand oversight). Idempotent: setting the current tier is a no-op.
+admin.MapPost("/{id:guid}/tier", async (
+    Guid id, ChangeAdminTierRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    if (id == scope.Current.AdminId)
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot change their own tier.");
+    if (WireToTier(body.Tier) is not { } newTier)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: $"Unknown tier '{body.Tier}'.");
+    var result = await mediator.Send(new ChangeAdminTierCommand(id, newTier, scope.Current.AdminId, http.TraceIdentifier), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithTags("Admin Admins")
+    .WithName("ChangeAdminTier")
+    .WithSummary("Promote or demote an admin's tier")
+    .WithDescription("Super-only. Changes an admin between scoped and super; changing your own tier is rejected (403) so oversight is never stranded. Idempotent when already at the requested tier. Unknown id -> 404.")
+    .Produces<ChangeAdminTierResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1934,6 +1990,7 @@ internal static class ProvisioningGuards
 internal sealed record CreateAdminRequest(
     string Email, Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
 internal sealed record AssignMerchantRequest(Guid MerchantId);
+internal sealed record ChangeAdminTierRequest(string Tier);
 // Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
 // immutable thereafter; update only renames / toggles active.
 internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);
