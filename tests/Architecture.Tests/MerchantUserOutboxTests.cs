@@ -2,8 +2,8 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Persistence.MerchantUser;
-using Persistence.MerchantUser.Outbox;
+using Persistence.MerchantUsers;
+using Persistence.MerchantUsers.Outbox;
 
 namespace Architecture.Tests;
 

@@ -11,7 +11,7 @@ namespace Merchants.Infrastructure;
 /// <para>
 /// NO repository/session-store/role-repo/unit-of-work registered here (task 8.5.7): every one of those ports
 /// now binds to <c>MerchantUserDbContext</c>/<c>MerchantRuntimeDbContext</c>, registered directly by
-/// <c>Persistence.MerchantUser.MerchantUserPersistenceRegistration.AddMerchantUserPersistence</c> /
+/// <c>Persistence.MerchantUsers.MerchantUserPersistenceRegistration.AddMerchantUserPersistence</c> /
 /// <c>Persistence.MerchantRuntime.MerchantRuntimePersistenceRegistration.AddMerchantRuntimePersistence</c> —
 /// both hosts (Api, Worker) call those directly, so the old "default-context stub for Worker's
 /// ValidateOnBuild, host overrides for Api" two-layer pattern no longer applies: there is only ONE

@@ -3,10 +3,10 @@ using Merchants.Application.Users;
 using Merchants.Application.Users.Roles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using Persistence.MerchantUser.Outbox;
-using Persistence.MerchantUser.Users;
+using Persistence.MerchantUsers.Outbox;
+using Persistence.MerchantUsers.Users;
 
-namespace Persistence.MerchantUser;
+namespace Persistence.MerchantUsers;
 
 /// <summary>
 /// The ONE public seam onto <see cref="MerchantUserDbContext"/> (task 8.5.2, design.md "Assembly split + Api

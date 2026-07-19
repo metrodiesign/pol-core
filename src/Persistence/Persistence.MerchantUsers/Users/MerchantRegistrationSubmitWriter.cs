@@ -1,12 +1,12 @@
 using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 /// <summary>
 /// rls-to-query-filter task 5 (design.md "Pre-owner-bind READS vs WRITES" — <c>IRegistrationWriter</c>,
 /// anonymous, gated by a verified registration ticket at the host). Self-contained inside
-/// <c>Persistence.MerchantUser</c> (same assembly-boundary constraint as
+/// <c>Persistence.MerchantUsers</c> (same assembly-boundary constraint as
 /// <see cref="MerchantRegistrationWriter"/>). Mirrors <c>SubmitRegistrationHandler</c>'s two branches
 /// (Registration/Correction) one level lower, but verifies its own trust root by STATE rather than trusting
 /// the caller's ticket purpose: no existing row for the Subject -&gt; Registration; an existing row -&gt; only

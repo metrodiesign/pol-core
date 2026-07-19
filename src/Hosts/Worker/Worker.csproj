@@ -20,7 +20,7 @@
     <ProjectReference Include="..\..\Modules\Iam\Iam.Application\Iam.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Infrastructure\Iam.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
-    <ProjectReference Include="..\..\Persistence\Persistence.MerchantUser\Persistence.MerchantUser.csproj" />
+    <ProjectReference Include="..\..\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
   </ItemGroup>
 
   <ItemGroup>

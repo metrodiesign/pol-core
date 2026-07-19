@@ -77,7 +77,7 @@ using Api.Persistence;
 using Api.Webhooks;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
-using Persistence.MerchantUser;
+using Persistence.MerchantUsers;
 using Persistence.Provisioning;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -167,8 +167,10 @@ builder.Services.AddMerchantUserPersistence(
 builder.Services.AddMerchantRuntimePersistence(
     appConnString, sp => new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>()));
 
-var vaultOptions = builder.Configuration.GetSection(VaultOptions.SectionName).Get<VaultOptions>() ?? new VaultOptions();
-builder.Services.AddProvisioning(appConnString, VaultKeyringFactory.Build(vaultOptions), new ProvisioningSuperWriteAuthorizer());
+// Keyring comes from the DI singleton (options-bound, validated once) — an inline eager
+// VaultKeyringFactory.Build here reads builder.Configuration BEFORE deferred test/host config
+// sources are applied, which is exactly the CI-only "Vault is not configured" boot crash.
+builder.Services.AddProvisioning(appConnString, new ProvisioningSuperWriteAuthorizer());
 
 // Admin identity (control plane: PlatformUsers/assignments/audit) + Merchants identity (data plane:
 // MerchantUsers + control-plane ExternalLogins/RegistrationTickets/Profiles/RegistrationAudits) — every

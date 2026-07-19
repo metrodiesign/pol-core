@@ -21,7 +21,6 @@ public static class ProvisioningRegistration
     public static IServiceCollection AddProvisioning(
         this IServiceCollection services,
         string connectionString,
-        VaultKeyring keyring,
         IWriteAuthorizer provisioningAuthorizer)
     {
         services.AddScoped<IProvisioningWriter>(sp => new ProvisioningCoordinator(
@@ -40,7 +39,7 @@ public static class ProvisioningRegistration
                 UnboundActorContext.Instance,
                 provisioningAuthorizer,
                 sp.GetRequiredService<ISecurityTelemetry>()),
-            keyring,
+            sp.GetRequiredService<VaultKeyring>(),
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<ISecurityTelemetry>()));
 

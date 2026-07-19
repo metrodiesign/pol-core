@@ -3,7 +3,7 @@ using Merchants.Domain.Users.Roles;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 // Runtime (scalar-only) mapping — mirrors Merchants.Infrastructure.Persistence.Users.Roles.RoleConfigurations.
 // RoleId stays a plain scalar (no HasOne<Iam.Domain.Roles.Role>()): RoleId now points at the central iam.Roles

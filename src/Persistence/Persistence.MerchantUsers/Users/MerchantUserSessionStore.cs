@@ -3,7 +3,7 @@ using Merchants.Application.Users;
 using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 /// <summary>
 /// rls-to-query-filter task 8.5.2 mirror of <c>Merchants.Infrastructure.Persistence.Users.SessionStore</c>

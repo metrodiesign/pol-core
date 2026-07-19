@@ -3,7 +3,7 @@ extern alias ApiHost;
 using ApiHost::Api.Iam;
 using Iam.Application.Roles;
 using Persistence.ControlPlane;
-using Persistence.MerchantUser;
+using Persistence.MerchantUsers;
 
 namespace Hosts.Tests;
 
@@ -15,7 +15,7 @@ namespace Hosts.Tests;
 /// since <c>ControlPlaneDbContext</c>/<c>MerchantUserDbContext</c> are two SEPARATE runtime contexts this host
 /// may not query directly — this test now pins <see cref="HostRoleAssignmentCounter"/>'s own branch/sum logic
 /// in isolation via fakes of those two ports; each reader's own EF query correctness (IgnoreQueryFilters,
-/// per-merchant scoping) is the concern of <c>Persistence.ControlPlane</c>/<c>Persistence.MerchantUser</c>'s
+/// per-merchant scoping) is the concern of <c>Persistence.ControlPlane</c>/<c>Persistence.MerchantUsers</c>'s
 /// own coverage, not this composing class.
 /// </summary>
 public sealed class RoleAssignmentCounterTests

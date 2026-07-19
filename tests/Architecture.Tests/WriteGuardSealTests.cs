@@ -1,7 +1,7 @@
 using System.Reflection;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
-using Persistence.MerchantUser;
+using Persistence.MerchantUsers;
 
 namespace Architecture.Tests;
 

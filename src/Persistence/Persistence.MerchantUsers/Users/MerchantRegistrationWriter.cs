@@ -2,12 +2,12 @@ using BuildingBlocks.Application;
 using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 /// <summary>
 /// rls-to-query-filter task 5 (design.md "Pre-owner-bind READS vs WRITES" — <c>IApproveRegistrationWriter</c> /
 /// <c>IRejectRegistrationWriter</c>, R1-v7 #1): the one-time tenant-key transition NULL -&gt; verified target
-/// merchant for a PENDING <c>merch.Users</c> row. Self-contained inside <c>Persistence.MerchantUser</c> (not
+/// merchant for a PENDING <c>merch.Users</c> row. Self-contained inside <c>Persistence.MerchantUsers</c> (not
 /// exposed through <c>Merchants.Application</c> — that assembly cannot be referenced from here, the same
 /// boundary task 5's login-by-subject ports hit first). Conditional set-based DML, not a tracked
 /// load-then-SaveChanges: the DML's own <c>WHERE Subject=@s AND MerchantId IS NULL AND Status=Pending</c>

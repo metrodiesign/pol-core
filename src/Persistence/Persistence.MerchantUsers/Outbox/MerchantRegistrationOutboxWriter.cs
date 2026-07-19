@@ -4,7 +4,7 @@ using Mediator;
 using Merchants.Application.Users;
 using System.Text.Json;
 
-namespace Persistence.MerchantUser.Outbox;
+namespace Persistence.MerchantUsers.Outbox;
 
 /// <summary>
 /// The sentinel <c>MerchantId</c> a still-pending (no real merchant yet) registration's outbox row carries —

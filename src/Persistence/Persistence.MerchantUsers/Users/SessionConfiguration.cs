@@ -3,7 +3,7 @@ using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 // Runtime (scalar-only) mapping — mirrors Merchants.Infrastructure.Persistence.Users.SessionConfigurations.
 // Control-plane: no merchant RLS predicate. The raw session token is NEVER stored — only its SHA-256 hash.

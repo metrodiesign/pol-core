@@ -5,7 +5,7 @@ namespace Persistence.ControlPlane;
 /// <summary>
 /// The admin half of <c>Api.Iam.HostRoleAssignmentCounter</c>'s combined admin+merchant count (task 8.5.1) —
 /// counts <c>admin.RoleAssignments</c> only. A later step re-derives the host's counter by combining this with
-/// the Persistence.MerchantUser side's equivalent reader, so neither host-level type needs to name
+/// the Persistence.MerchantUsers side's equivalent reader, so neither host-level type needs to name
 /// <see cref="ControlPlaneDbContext"/> directly.
 /// </summary>
 public interface IAdminRoleAssignmentCountReader

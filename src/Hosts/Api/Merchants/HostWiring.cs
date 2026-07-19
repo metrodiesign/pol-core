@@ -4,17 +4,17 @@ using Merchants.Application.Users.Roles;
 using Merchants.Domain.Users.Roles;
 using Merchants.Infrastructure;
 using Persistence.ControlPlane.Iam;
-using Persistence.MerchantUser;
+using Persistence.MerchantUsers;
 
 namespace Api.Merchants;
 
 /// <summary>
 /// Composes <c>Merchants.Application.Users.Roles.IRoleRepository</c> for the host (task 8.5.7): the 5 members
 /// that touch only <c>merch.RoleAssignments</c> delegate to the keyed "merchantUserPartial" adapter
-/// <c>Persistence.MerchantUser</c> already builds; the 4 members that also need <c>iam.Roles</c>/
+/// <c>Persistence.MerchantUsers</c> already builds; the 4 members that also need <c>iam.Roles</c>/
 /// <c>iam.RolePermissions</c> (a DIFFERENT runtime context that assembly may never reference) compose
 /// <see cref="IMerchantRoleReader"/> (<c>Persistence.ControlPlane</c>) with
-/// <see cref="IMerchantRoleAssignmentReader"/> (<c>Persistence.MerchantUser</c>) — first resolve the user's
+/// <see cref="IMerchantRoleAssignmentReader"/> (<c>Persistence.MerchantUsers</c>) — first resolve the user's
 /// role ids IN THIS MERCHANT, then resolve those ids against the iam catalog. Same two-port-composition shape
 /// as <see cref="Api.Iam.HostRoleAssignmentCounter"/>.
 /// </summary>

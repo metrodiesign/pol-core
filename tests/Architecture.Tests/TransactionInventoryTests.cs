@@ -52,7 +52,7 @@ public sealed class TransactionInventoryTests
     [
         "src/Persistence/Persistence.ControlPlane/Admins/ControlPlaneUnitOfWork.cs",
         "src/Persistence/Persistence.MerchantRuntime/MerchantRuntimeUnitOfWork.cs",
-        "src/Persistence/Persistence.MerchantUser/Users/MerchantUserRepositories.cs",
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantUserRepositories.cs",
     ];
 
     // design row 22 (R1-v7 #6): the raw-transaction sites that do NOT go through the shared UoW.

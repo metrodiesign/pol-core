@@ -1,7 +1,7 @@
 using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 /// <summary>rls-to-query-filter task 5 pre-bind read port (design.md "Pre-owner-bind READS vs WRITES") over
 /// <c>MerchantUserDbContext</c>. Login-by-subject runs BEFORE any actor is bound (the whole point is
@@ -9,7 +9,7 @@ namespace Persistence.MerchantUser.Users;
 /// (<c>MerchantId==CurrentMerchant</c>, which for an unbound caller is <c>Guid.Empty</c>) would hide EVERY
 /// row, including an already-approved user's real merchant. This is a sanctioned <c>IgnoreQueryFilters()</c>
 /// narrow port (design.md §"Escape-hatch allowlist" — the Architecture.Tests bypass-primitive allowlist
-/// names this file). Not exposed as a <c>Merchants.Application</c> port: <c>Persistence.MerchantUser</c>
+/// names this file). Not exposed as a <c>Merchants.Application</c> port: <c>Persistence.MerchantUsers</c>
 /// never references a module's Application/Infrastructure project — this stays a narrow, self-contained
 /// internal type until a later task (8's cutover) wires a caller onto it.</summary>
 internal interface IMerchantResolveLoginBySubject

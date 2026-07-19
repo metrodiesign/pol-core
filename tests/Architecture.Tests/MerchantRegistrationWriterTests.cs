@@ -1,8 +1,8 @@
 using BuildingBlocks.Application;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Persistence.MerchantUser;
-using Persistence.MerchantUser.Users;
+using Persistence.MerchantUsers;
+using Persistence.MerchantUsers.Users;
 using MerchantUserAccount = Merchants.Domain.Users.User;
 
 namespace Architecture.Tests;

@@ -62,7 +62,7 @@ public class IamArchitectureTests
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
         typeof(Persistence.ControlPlane.ControlPlaneDbContext).Assembly,
-        typeof(Persistence.MerchantUser.MerchantUserDbContext).Assembly,
+        typeof(Persistence.MerchantUsers.MerchantUserDbContext).Assembly,
         typeof(Persistence.MerchantRuntime.MerchantRuntimeDbContext).Assembly,
     ];
 
@@ -70,7 +70,7 @@ public class IamArchitectureTests
     // (unchanged, task 8 keeps PolDbContext as the schema owner) and, at runtime, the Iam store + the
     // ControlPlane-side resolution repositories (task 8.5.1/8.5.7 — MerchantRoleReader resolves iam.Roles for
     // BOTH the admin console's own RoleRepository AND the merchant side's cross-context read, since
-    // Persistence.MerchantUser may never reference Iam.Domain directly, design.md "Context topology").
+    // Persistence.MerchantUsers may never reference Iam.Domain directly, design.md "Context topology").
     private static readonly string[] ConfinedNamespaces =
     [
         "Iam.Infrastructure.Persistence.Roles",

@@ -6,7 +6,7 @@ using Iam.Application.Roles;
 using Iam.Domain.Permissions;
 using Merchants.Application;
 using Persistence.ControlPlane;
-using Persistence.MerchantUser;
+using Persistence.MerchantUsers;
 
 namespace Api.Iam;
 

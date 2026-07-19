@@ -33,7 +33,7 @@ public class RawConnectionTests
         typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
         typeof(MasterData.Infrastructure.MasterDataModuleRegistration).Assembly,
         typeof(Persistence.ControlPlane.ControlPlaneDbContext).Assembly,
-        typeof(Persistence.MerchantUser.MerchantUserDbContext).Assembly,
+        typeof(Persistence.MerchantUsers.MerchantUserDbContext).Assembly,
         typeof(Persistence.MerchantRuntime.MerchantRuntimeDbContext).Assembly,
     ];
 

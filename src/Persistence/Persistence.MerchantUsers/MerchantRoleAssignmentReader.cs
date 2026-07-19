@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser;
+namespace Persistence.MerchantUsers;
 
 /// <summary>
 /// The merchant-side half of the <c>IMerchantRoleReader</c> cross-context composition (task 8.5.7): "which

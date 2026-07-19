@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser;
+namespace Persistence.MerchantUsers;
 
 /// <summary>
 /// The merchant half of <c>Api.Iam.HostRoleAssignmentCounter</c>'s combined admin+merchant count (task

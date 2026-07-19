@@ -3,7 +3,7 @@ using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 // Runtime (scalar-only) mapping — mirrors Merchants.Infrastructure.Persistence.Users.UserConfigurations.
 // None of these entities carry a CLR navigation to another type in this cluster (MerchantUserId/MerchantId

@@ -2,7 +2,7 @@ using BuildingBlocks.Application;
 using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 /// <summary>rls-to-query-filter task 5 pre-bind read port over <c>MerchantUserDbContext</c>. <c>merch.Sessions</c>
 /// carries no query filter (only <c>merch.Users</c>/<c>RoleAssignments</c> are merchant-filtered in this

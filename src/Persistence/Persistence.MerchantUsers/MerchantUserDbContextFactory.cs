@@ -2,7 +2,7 @@ using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
 
-namespace Persistence.MerchantUser;
+namespace Persistence.MerchantUsers;
 
 /// <summary>Lets <c>dotnet ef migrations</c> construct <see cref="MerchantUserDbContext"/> without booting a
 /// host (task 8.5.2, mirrors <c>Persistence.ControlPlane.ControlPlaneDbContextFactory</c>'s precedent).

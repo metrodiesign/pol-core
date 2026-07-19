@@ -1,7 +1,7 @@
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Outbox;
+namespace Persistence.MerchantUsers.Outbox;
 
 /// <summary>
 /// rls-to-query-filter task 5 (design.md "suppressed-op read ports" — <c>IOutboxDrain</c>): the ONE

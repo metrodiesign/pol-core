@@ -13,8 +13,8 @@ using Payments.Infrastructure;
 using Merchants.Infrastructure;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Outbox;
-using Persistence.MerchantUser;
-using Persistence.MerchantUser.Outbox;
+using Persistence.MerchantUsers;
+using Persistence.MerchantUsers.Outbox;
 using Products.Infrastructure;
 using Worker;
 

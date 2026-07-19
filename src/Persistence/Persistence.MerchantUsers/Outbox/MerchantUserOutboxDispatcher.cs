@@ -7,7 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Persistence.MerchantUser.Outbox;
+namespace Persistence.MerchantUsers.Outbox;
 
 /// <summary>
 /// Polls <c>merch.UserOutbox</c> and publishes pending registration events at-least-once (task 8.5.6) —

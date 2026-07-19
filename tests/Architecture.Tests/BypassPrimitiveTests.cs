@@ -25,13 +25,13 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Webhooks/WebhookMerchantResolver.cs", // task 8.5.3 mirror of the old BuildingBlocks.Infrastructure WebhookMerchantResolver (moved)
         "src/Persistence/Persistence.MerchantRuntime/Vault/VaultAuditAppender.cs", // task 6 applock-based vault-audit chain append (replaces sec.usp_vault_audit_head)
         "src/Persistence/Persistence.MerchantRuntime/Orders/OrderSummaryReader.cs", // task 8.5.3 mirror of the old Orders.Infrastructure OrderSummaryReader (moved)
-        "src/Persistence/Persistence.MerchantUser/Users/MerchantResolveLoginBySubject.cs", // task 5 pre-bind login-by-subject read
-        "src/Persistence/Persistence.MerchantUser/Outbox/MerchantUserOutboxDrain.cs", // task 5 per-owner outbox drain (cross-owner lease scan)
-        "src/Persistence/Persistence.MerchantUser/Users/MerchantRegistrationWriter.cs", // task 5 approve/reject conditional DML (one-time NULL->merchant transition)
-        "src/Persistence/Persistence.MerchantUser/Users/MerchantRegistrationSubmitWriter.cs", // task 5 registration/correction pre-bind write (Subject lookup with NULL MerchantId)
-        "src/Persistence/Persistence.MerchantUser/Users/MerchantUserSessionStore.cs", // task 8.5.2 mirror of the old Merchants.Infrastructure SessionStore (deleted)
-        "src/Persistence/Persistence.MerchantUser/MerchantRoleAssignmentCountReader.cs", // task 8.5.2 cross-merchant role-assignment count (mirrors IRoleAssignmentCounter)
-        "src/Persistence/Persistence.MerchantUser/MerchantRoleAssignmentReader.cs", // task 8.5.7 cross-context role-id read for HostMerchantRoleRepository (explicit merchantId param, not ambient state)
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantResolveLoginBySubject.cs", // task 5 pre-bind login-by-subject read
+        "src/Persistence/Persistence.MerchantUsers/Outbox/MerchantUserOutboxDrain.cs", // task 5 per-owner outbox drain (cross-owner lease scan)
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantRegistrationWriter.cs", // task 5 approve/reject conditional DML (one-time NULL->merchant transition)
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantRegistrationSubmitWriter.cs", // task 5 registration/correction pre-bind write (Subject lookup with NULL MerchantId)
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantUserSessionStore.cs", // task 8.5.2 mirror of the old Merchants.Infrastructure SessionStore (deleted)
+        "src/Persistence/Persistence.MerchantUsers/MerchantRoleAssignmentCountReader.cs", // task 8.5.2 cross-merchant role-assignment count (mirrors IRoleAssignmentCounter)
+        "src/Persistence/Persistence.MerchantUsers/MerchantRoleAssignmentReader.cs", // task 8.5.7 cross-context role-id read for HostMerchantRoleRepository (explicit merchantId param, not ambient state)
         "src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs", // task 7 provisioning UoW: UPDLOCK/HOLDLOCK authz recheck + idempotency-ledger raw INSERT (named-index conflict detection)
         "src/Persistence/Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs", // task 8.5.8: ListByTenantAsync is GetMerchantHandler's admin cross-merchant read-back (explicit merchantId param, its only caller)
     ];

@@ -2,7 +2,7 @@ using Merchants.Application.Users.Roles;
 using Merchants.Domain.Users.Roles;
 using Microsoft.EntityFrameworkCore;
 
-namespace Persistence.MerchantUser.Users;
+namespace Persistence.MerchantUsers.Users;
 
 /// <summary>
 /// rls-to-query-filter task 8.5.2 PARTIAL mirror of
@@ -19,7 +19,7 @@ namespace Persistence.MerchantUser.Users;
 /// <see cref="ListEffectivePermissionsAsync"/>/<see cref="ListActiveRoleCodesForUserAsync"/>) join
 /// <c>merch.RoleAssignments</c> against <c>iam.Roles</c>/<c>iam.RolePermissions</c> — but <c>iam.*</c> now
 /// lives in <c>ControlPlaneDbContext</c>, a DIFFERENT runtime context this assembly may never reference
-/// (<c>Persistence.MerchantUser.csproj</c>: "NEVER Iam.Domain"; <c>Directory.Build.props</c>'s
+/// (<c>Persistence.MerchantUsers.csproj</c>: "NEVER Iam.Domain"; <c>Directory.Build.props</c>'s
 /// <c>RlsToQueryFilter_EnforcePersistenceBoundaries</c> target forbids a ProjectReference to
 /// <c>Persistence.ControlPlane</c> from here; <c>ModelDisjointnessTests</c> would fail if <c>Role</c>/
 /// <c>RolePermission</c> were mapped into BOTH contexts anyway). This is a genuine cross-context read —
@@ -72,7 +72,7 @@ internal sealed class MerchantUserRoleRepository : IRoleRepository
 
     private static NotSupportedException CrossContextNotSupported() => new(
         "This IRoleRepository member needs iam.Roles/RolePermissions, which live in ControlPlaneDbContext — a " +
-        "different runtime context Persistence.MerchantUser may never reference (rls-to-query-filter " +
+        "different runtime context Persistence.MerchantUsers may never reference (rls-to-query-filter " +
         "design.md \"iam read via port\", REQ-11.8 boundary). Not implementable here; needs a host-composed " +
         "IMerchantRoleReader-shaped port (same pattern as HostRoleAssignmentCounter, Api/Iam/RoleHostWiring.cs) " +
         "before this method can be called.");

@@ -14,7 +14,7 @@
   </Folder>
   <Folder Name="/src/Persistence/">
     <Project Path="src/Persistence/Persistence.ControlPlane/Persistence.ControlPlane.csproj" />
-    <Project Path="src/Persistence/Persistence.MerchantUser/Persistence.MerchantUser.csproj" />
+    <Project Path="src/Persistence/Persistence.MerchantUsers/Persistence.MerchantUsers.csproj" />
     <Project Path="src/Persistence/Persistence.MerchantRuntime/Persistence.MerchantRuntime.csproj" />
     <Project Path="src/Persistence/Persistence.Provisioning/Persistence.Provisioning.csproj" />
   </Folder>

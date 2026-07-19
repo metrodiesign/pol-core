@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace BuildingBlocks.Infrastructure.Outbox;
 
-// Migration-owner mapping — mirrors Persistence.MerchantUser.Outbox.MerchantUserOutboxConfiguration
+// Migration-owner mapping — mirrors Persistence.MerchantUsers.Outbox.MerchantUserOutboxConfiguration
 // exactly for column/index shape. PolDbContext is scalar-only (no CurrentMerchant to filter by), same
 // pattern as OutboxMessageConfiguration alongside it.
 

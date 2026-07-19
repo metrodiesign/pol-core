@@ -4,8 +4,8 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Persistence.ControlPlane;
 using Persistence.ControlPlane.Admins;
-using Persistence.MerchantUser;
-using Persistence.MerchantUser.Users;
+using Persistence.MerchantUsers;
+using Persistence.MerchantUsers.Users;
 using MerchantUserAccount = Merchants.Domain.Users.User;
 
 namespace Architecture.Tests;

@@ -4,7 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
-using Persistence.MerchantUser;
+using Persistence.MerchantUsers;
 using SharedKernel;
 using MerchantUserAccount = Merchants.Domain.Users.User;
 

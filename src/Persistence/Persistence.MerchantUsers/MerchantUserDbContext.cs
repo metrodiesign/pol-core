@@ -4,12 +4,12 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
 using Microsoft.EntityFrameworkCore;
-using Persistence.MerchantUser.Users;
+using Persistence.MerchantUsers.Users;
 // Fully-qualified (not `using`-imported) to avoid colliding with BuildingBlocks.Infrastructure.Outbox's
 // same-named migration-owner config (task 8.1) — this context uses its OWN filtered config.
-using MerchantUserOutboxConfiguration = Persistence.MerchantUser.Outbox.MerchantUserOutboxConfiguration;
+using MerchantUserOutboxConfiguration = Persistence.MerchantUsers.Outbox.MerchantUserOutboxConfiguration;
 
-namespace Persistence.MerchantUser;
+namespace Persistence.MerchantUsers;
 
 /// <summary>
 /// Runtime context for the MerchantUser co-commit cluster — merch.Users/Sessions/ExternalLogins/AuthAudits/

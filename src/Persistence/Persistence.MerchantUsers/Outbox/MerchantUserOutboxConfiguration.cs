@@ -3,7 +3,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Persistence.MerchantUser.Outbox;
+namespace Persistence.MerchantUsers.Outbox;
 
 // Mirrors BuildingBlocks.Infrastructure.Outbox.OutboxMessageConfiguration exactly for column/index shape,
 // mapped onto the NEW merch.UserOutbox table (task 8's migration creates it + atomically moves the legacy

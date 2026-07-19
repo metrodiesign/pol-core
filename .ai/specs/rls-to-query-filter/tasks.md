@@ -38,7 +38,7 @@
          handler/repository. "Not registered at runtime" (design.md/PLAN.md wording) is the task-8 cutover end-state,
          reached only once every consumer has migrated off PolDbContext across tasks 2-7; wiring it off now would
          break every current handler with nothing yet to replace it. Also: `Merchants.Infrastructure` was NOT
-         physically split — the two new Persistence.MerchantUser/MerchantRuntime projects reference only
+         physically split — the two new Persistence.MerchantUsers/MerchantRuntime projects reference only
          `Merchants.Domain` (never `Merchants.Infrastructure`) with fresh scalar-only configs, so the compile-time
          narrowness goal is met without touching the existing (still-live) `Merchants.Infrastructure` project.
 - [x] 2. **Read floor — global query filter + deny-default + CartItems + IDOR closure**
@@ -477,7 +477,7 @@
        - viewports: n/a — logic-only (no browser surface in this task)
        - deviations: the boot smoke check surfaced 2 real gaps beyond the original 8.5 plan, both fixed here: (1)
          `src/Hosts/Worker/appsettings.json`/`.example` still referenced the retired `pol_worker` login (stale from
-         before the 1-principal collapse) — switched to `pol_app`; (2) `Persistence.MerchantUser`'s
+         before the 1-principal collapse) — switched to `pol_app`; (2) `Persistence.MerchantUsers`'s
          `AddMerchantUserPersistence` never registered `IMerchantUserOutboxDrain` (the dispatcher added in 8.5.6
          resolved it at runtime and threw) — added the registration; and Mediator's whole-compilation handler scan
          pulls `Iam.Application`'s role-CRUD handlers + `Merchants.Application.ProvisionMerchantHandler` into the

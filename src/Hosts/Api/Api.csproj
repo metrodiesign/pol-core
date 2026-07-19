@@ -24,7 +24,7 @@
     <ProjectReference Include="..\..\Modules\MasterData\MasterData.Application\MasterData.Application.csproj" />
     <ProjectReference Include="..\..\Modules\MasterData\MasterData.Infrastructure\MasterData.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
-    <ProjectReference Include="..\..\Persistence\Persistence.MerchantUser\Persistence.MerchantUser.csproj" />
+    <ProjectReference Include="..\..\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.Provisioning\Persistence.Provisioning.csproj" />
   </ItemGroup>

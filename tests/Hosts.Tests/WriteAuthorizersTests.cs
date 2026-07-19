@@ -9,7 +9,7 @@ using BuildingBlocks.Infrastructure.Provisioning;
 using BuildingBlocks.Infrastructure.Vault;
 using Merchants.Domain;
 using Payments.Domain.Psp;
-using Persistence.MerchantUser.Outbox;
+using Persistence.MerchantUsers.Outbox;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantUser = Merchants.Domain.Users.User;
 using AdminUser = Admins.Domain.Users.User;

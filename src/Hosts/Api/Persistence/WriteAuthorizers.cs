@@ -4,7 +4,7 @@ using BuildingBlocks.Infrastructure.Idempotency;
 using BuildingBlocks.Infrastructure.Outbox;
 using BuildingBlocks.Infrastructure.Provisioning;
 using BuildingBlocks.Infrastructure.Vault;
-using Persistence.MerchantUser.Outbox;
+using Persistence.MerchantUsers.Outbox;
 using Admins.Application;
 using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
 using AdminUser = Admins.Domain.Users.User;

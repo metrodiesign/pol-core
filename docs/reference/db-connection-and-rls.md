@@ -220,10 +220,10 @@ write guard เดียวกัน (`GuardedRuntimeDbContext`, หัวข้
 | DbContext | schema ที่คุม | query filter | registration |
 |---|---|---|---|
 | `ControlPlaneDbContext` | `admin`, `iam`, `cfg` | **ไม่มี** (control-plane ไม่มี merchant dimension) | `Persistence.ControlPlane/ControlPlanePersistenceRegistration.cs` |
-| `MerchantUserDbContext` | `merch` (identity/session ส่วนเดียว) | เฉพาะ `Users`/`RoleAssignments` | `Persistence.MerchantUser/MerchantUserPersistenceRegistration.cs` |
+| `MerchantUserDbContext` | `merch` (identity/session ส่วนเดียว) | เฉพาะ `Users`/`RoleAssignments` | `Persistence.MerchantUsers/MerchantUserPersistenceRegistration.cs` |
 | `MerchantRuntimeDbContext` | `shop`, `txn`, `merch` (data ส่วนเดียว) | ทุก entity ที่ implement `IMerchantFiltered` | `Persistence.MerchantRuntime/MerchantRuntimePersistenceRegistration.cs` |
 
-แต่ละ context อยู่คนละ assembly (`Persistence.ControlPlane`/`Persistence.MerchantUser`/
+แต่ละ context อยู่คนละ assembly (`Persistence.ControlPlane`/`Persistence.MerchantUsers`/
 `Persistence.MerchantRuntime`, `internal sealed class`) — ไม่มี `InternalsVisibleTo(Api)` เลย (ยกเว้น
 `Persistence.Provisioning` ที่ต้องแตะสองอัน, หัวข้อ 9 Flow B) กันไม่ให้ host เห็น context ตรง ๆ; adapter สำหรับ
 port ของ Application layer ต้องอยู่ใน assembly เดียวกับ context ที่มันแตะเสมอ.
@@ -299,10 +299,10 @@ allowlist = red CI ทันที ไม่ต้องรอ code review จ�
 | `Persistence.MerchantRuntime/Webhooks/WebhookMerchantResolver.cs` | map PSP connection id -> merchant id (เดิม `usp_resolve_webhook_tenant`) |
 | `Persistence.MerchantRuntime/Orders/OrderSummaryReader.cs` | resolve anonymous order-summary token (เดิม `usp_resolve_order_summary`) |
 | `Persistence.MerchantRuntime/Vault/VaultAuditAppender.cs` | `sp_getapplock`-based audit-chain append (เดิม `usp_vault_audit_head`, ตอน task 6 เปลี่ยนกลไก) |
-| `Persistence.ControlPlane/Admins/SessionStore.cs`, `Persistence.MerchantUser/Users/MerchantUserSessionStore.cs` | session rotate/revoke/prune (conditional `ExecuteUpdate`/`ExecuteDelete`) |
-| `Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs`, `Persistence.MerchantUser/Outbox/MerchantUserOutboxDrain.cs` | outbox lease query (ต้องเห็นทุก merchant เพื่อ drain) |
-| `Persistence.MerchantUser/Users/MerchantResolveLoginBySubject.cs`, `MerchantRegistrationWriter.cs`, `MerchantRegistrationSubmitWriter.cs` | pre-bind registration read/write (Subject lookup ก่อนมี `MerchantId`) |
-| `Persistence.MerchantUser/MerchantRoleAssignmentCountReader.cs`, `MerchantRoleAssignmentReader.cs` | cross-merchant role-assignment count/read (explicit param เสมอ ไม่ใช่ ambient state) |
+| `Persistence.ControlPlane/Admins/SessionStore.cs`, `Persistence.MerchantUsers/Users/MerchantUserSessionStore.cs` | session rotate/revoke/prune (conditional `ExecuteUpdate`/`ExecuteDelete`) |
+| `Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs`, `Persistence.MerchantUsers/Outbox/MerchantUserOutboxDrain.cs` | outbox lease query (ต้องเห็นทุก merchant เพื่อ drain) |
+| `Persistence.MerchantUsers/Users/MerchantResolveLoginBySubject.cs`, `MerchantRegistrationWriter.cs`, `MerchantRegistrationSubmitWriter.cs` | pre-bind registration read/write (Subject lookup ก่อนมี `MerchantId`) |
+| `Persistence.MerchantUsers/MerchantRoleAssignmentCountReader.cs`, `MerchantRoleAssignmentReader.cs` | cross-merchant role-assignment count/read (explicit param เสมอ ไม่ใช่ ambient state) |
 | `Persistence.Provisioning/ProvisioningCoordinator.cs` | Super-recheck `UPDLOCK`/`HOLDLOCK` + idempotency-ledger raw INSERT |
 | `Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs` | admin cross-merchant read-back (`ListByTenantAsync`, `GetMerchantHandler`'s ONE caller) |
 

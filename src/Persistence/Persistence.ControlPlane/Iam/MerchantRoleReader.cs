@@ -8,7 +8,7 @@ namespace Persistence.ControlPlane.Iam;
 /// Resolves <c>iam.Roles</c>/<c>iam.RolePermissions</c> for a MERCHANT-scoped caller (task 8.5.7's
 /// cross-context fix for <c>Merchants.Application.Users.Roles.IRoleRepository</c>'s 4 members the
 /// MerchantUser cluster cannot implement — <c>merch.RoleAssignments</c> lives in a DIFFERENT runtime
-/// context). A host-level composition combines this with <c>Persistence.MerchantUser</c>'s own
+/// context). A host-level composition combines this with <c>Persistence.MerchantUsers</c>'s own
 /// <c>IMerchantRoleAssignmentReader</c> — same pattern as <c>IAdminRoleAssignmentCountReader</c> /
 /// <c>IMerchantRoleAssignmentCountReader</c> composing into <c>HostRoleAssignmentCounter</c>. Matches
 /// design.md's cross-cutting section, which names exactly this shape <c>IMerchantRoleReader</c>.
