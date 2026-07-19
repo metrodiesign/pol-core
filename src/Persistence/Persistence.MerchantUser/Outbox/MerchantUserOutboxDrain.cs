@@ -22,6 +22,14 @@ internal interface IMerchantUserOutboxDrain
 {
     Task<IReadOnlyList<MerchantUserOutbox>> LeaseNextBatchAsync(
         int batchSize, string owner, DateTime now, TimeSpan leaseDuration, int maxAttempts, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Re-fetches ONE row this dispatcher already leased, for the per-message publish/mark step. Same
+    /// sanctioned cross-owner bypass as the lease scan: the dispatcher is unbound, so an ordinary
+    /// <c>UserOutbox</c> lookup would be filtered to nothing and the message would never publish.
+    /// Scoped to the caller's lease (<paramref name="owner"/>) so it cannot read rows it does not hold.
+    /// </summary>
+    Task<MerchantUserOutbox?> FindLeasedAsync(Guid id, string owner, CancellationToken cancellationToken);
 }
 
 internal sealed class MerchantUserOutboxDrain(MerchantUserDbContext db) : IMerchantUserOutboxDrain
@@ -44,4 +52,8 @@ internal sealed class MerchantUserOutboxDrain(MerchantUserDbContext db) : IMerch
 
         return leased;
     }
+
+    public Task<MerchantUserOutbox?> FindLeasedAsync(Guid id, string owner, CancellationToken cancellationToken) =>
+        db.UserOutbox.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(m => m.Id == id && m.LeaseOwner == owner, cancellationToken);
 }

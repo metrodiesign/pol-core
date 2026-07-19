@@ -101,6 +101,32 @@ public sealed class MerchantUserOutboxTests : IDisposable
         Assert.Empty(leased); // Attempts (1) is not < maxAttempts (1)
     }
 
+    [Fact]
+    public async Task FindLeased_returns_the_row_to_the_unbound_dispatcher_that_holds_the_lease()
+    {
+        await SeedAsync(MerchantA, "a-event");
+        Guid leasedId;
+        using (var leasing = NewContext(FakeActorContext.Unbound))
+        {
+            var batch = await new MerchantUserOutboxDrain(leasing).LeaseNextBatchAsync(
+                10, "worker-1", DateTime.UtcNow, TimeSpan.FromMinutes(1), 8, CancellationToken.None);
+            leasedId = Assert.Single(batch).Id;
+        }
+
+        // Codex P1 regression: a plain db.UserOutbox lookup under the unbound dispatcher is filtered to
+        // nothing (CurrentMerchant == Guid.Empty), so the message would lease forever and never publish.
+        using var unbound = NewContext(FakeActorContext.Unbound);
+        Assert.Null(await unbound.UserOutbox.FirstOrDefaultAsync(m => m.Id == leasedId));
+
+        var drain = new MerchantUserOutboxDrain(unbound);
+        var found = await drain.FindLeasedAsync(leasedId, "worker-1", CancellationToken.None);
+        Assert.NotNull(found);
+        Assert.Equal(MerchantA, found.MerchantId);
+
+        // Lease-owner scoped: a dispatcher that does not hold the lease sees nothing.
+        Assert.Null(await drain.FindLeasedAsync(leasedId, "worker-2", CancellationToken.None));
+    }
+
     private async Task SeedAsync(Guid merchantId, string type)
     {
         using var writer = NewContext(FakeActorContext.For(merchantId));

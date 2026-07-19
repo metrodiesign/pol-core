@@ -3,7 +3,6 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Outbox;
 using Contracts;
 using Mediator;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -91,10 +90,13 @@ internal sealed class MerchantUserOutboxDispatcher : BackgroundService
         {
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MerchantUserDbContext>();
+            var drain = scope.ServiceProvider.GetRequiredService<IMerchantUserOutboxDrain>();
             var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
             var clock = scope.ServiceProvider.GetRequiredService<IClock>();
 
-            var message = await db.UserOutbox.FirstOrDefaultAsync(m => m.Id == id, cancellationToken).ConfigureAwait(false);
+            // Through the drain port, not db.UserOutbox: the dispatcher is unbound, so the per-merchant
+            // query filter would hide every leased row and the message would never publish.
+            var message = await drain.FindLeasedAsync(id, Owner, cancellationToken).ConfigureAwait(false);
             if (message is null)
                 continue;
 
