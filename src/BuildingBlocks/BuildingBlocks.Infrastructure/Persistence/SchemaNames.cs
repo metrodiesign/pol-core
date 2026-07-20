@@ -25,9 +25,6 @@ public static class SchemaNames
     /// <summary>Merchant + merchant-user + vault: Merchants, MerchantUsers, RBAC catalog, vault.</summary>
     public const string Merch = "merch";
 
-    /// <summary>RLS functions/procs only — no tables live here.</summary>
-    public const string Sec = "sec";
-
     /// <summary>Central IAM catalog (rf2): Permissions, PermissionGroups, Roles, RolePermissions — the single
     /// vocabulary replacing the duplicated admin/merch RBAC catalogs. No RLS predicate (design.md REQ-9.2);
     /// per-merchant visibility on <c>Roles</c>/<c>RolePermissions</c> is an app-layer floor.</summary>
