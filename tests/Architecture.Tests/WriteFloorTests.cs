@@ -46,7 +46,7 @@ public sealed class WriteFloorTests : IDisposable
         // since a freshly-attached detached entity has Original == Current) — it targets zero real rows
         // because the actual row's MerchantId is MerchantA, not MerchantB.
         using var forger = NewMerchantRuntimeContext(FakeActorContext.For(MerchantB), FakeWriteAuthorizer.AllowAll);
-        var forgedStub = Products.Domain.Product.Create(MerchantB, "renamed", Money.Of(1m, "THB"), DateTime.UtcNow);
+        var forgedStub = Products.Domain.Product.Create(MerchantB, "renamed", Money.Of(1m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         typeof(Products.Domain.Product).GetProperty(nameof(Products.Domain.Product.Id))!
             .SetValue(forgedStub, productId);
         forger.Attach(forgedStub).State = EntityState.Modified;
@@ -58,7 +58,7 @@ public sealed class WriteFloorTests : IDisposable
     public async Task Insert_with_MerchantId_Guid_Empty_is_rejected()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
-        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), DateTime.UtcNow);
+        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
         writer.Entry(product).Property("MerchantId").CurrentValue = Guid.Empty;
 
@@ -83,7 +83,7 @@ public sealed class WriteFloorTests : IDisposable
     public async Task CanWrite_denial_rejects_the_whole_save()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.DenyAll);
-        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), DateTime.UtcNow);
+        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
 
         await Assert.ThrowsAsync<WriteGuardException>(() => writer.SaveChangesAsync());
@@ -176,7 +176,7 @@ public sealed class WriteFloorTests : IDisposable
     private async Task<Guid> SeedProductAsync(Guid merchantId, string name)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId), FakeWriteAuthorizer.AllowAll);
-        var product = Products.Domain.Product.Create(merchantId, name, Money.Of(10m, "THB"), DateTime.UtcNow);
+        var product = Products.Domain.Product.Create(merchantId, name, Money.Of(10m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
         await writer.SaveChangesAsync();
         return product.Id;

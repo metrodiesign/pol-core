@@ -5,8 +5,9 @@ using SharedKernel;
 
 namespace Products.Application;
 
-/// <summary>Creates a catalog product for a merchant and returns its new identifier.</summary>
-public sealed record CreateProductCommand(Guid MerchantId, string Name, Money Price)
+/// <summary>Creates a catalog product (insurance plan) for a merchant and returns its new identifier.</summary>
+public sealed record CreateProductCommand(
+    Guid MerchantId, string Name, Money Price, Money SumInsured, int CoverageDurationDays, string Insurer)
     : ICommand<Guid>, IMerchantScoped;
 
 /// <summary>Handles <see cref="CreateProductCommand"/>: builds the aggregate and stages it for commit.</summary>
@@ -25,7 +26,9 @@ public sealed class CreateProductHandler : ICommandHandler<CreateProductCommand,
 
     public async ValueTask<Guid> Handle(CreateProductCommand command, CancellationToken cancellationToken)
     {
-        var product = Product.Create(command.MerchantId, command.Name, command.Price, _clock.UtcNow);
+        var product = Product.Create(
+            command.MerchantId, command.Name, command.Price, command.SumInsured, command.CoverageDurationDays,
+            command.Insurer, _clock.UtcNow);
 
         _repository.Add(product);
         await _unitOfWork.SaveChangesAsync(cancellationToken);

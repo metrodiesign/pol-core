@@ -27,7 +27,9 @@ public sealed class ProductSfsTests
 
     private static Product P(string name, decimal price, bool active = true, int dayOffset = 0)
     {
-        var p = Product.Create(Merchant, name, Money.Of(price, "THB"), T0.AddDays(dayOffset));
+        var p = Product.Create(
+            Merchant, name, Money.Of(price, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+            T0.AddDays(dayOffset));
         if (!active) p.Deactivate();
         return p;
     }

@@ -140,7 +140,8 @@ public sealed class ReadFloorTests : IDisposable
     private async Task<Guid> SeedProductAsync(Guid merchantId, string name)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId));
-        var product = Product.Create(merchantId, name, Money.Of(10m, "THB"), DateTime.UtcNow);
+        var product = Product.Create(
+            merchantId, name, Money.Of(10m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
         await writer.SaveChangesAsync();
         return product.Id;

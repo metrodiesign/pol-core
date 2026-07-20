@@ -542,7 +542,9 @@ var createProduct = api.MapPost("/products", async (
     CancellationToken ct) =>
 {
     var id = await mediator.Send(
-        new CreateProductCommand(actor.MerchantId, body.Name, body.Price), ct);
+        new CreateProductCommand(
+            actor.MerchantId, body.Name, body.Price, body.SumInsured, body.CoverageDurationDays, body.Insurer),
+        ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
 createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)
@@ -1938,7 +1940,8 @@ internal sealed record RejectMerchantUserRequest(string? Reason);
 internal sealed record ApproveMerchantUserResponse(Guid MerchantUserId, string Status, bool AlreadyActive);
 internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string Status);
 
-internal sealed record CreateProductRequest(string Name, Money Price);
+internal sealed record CreateProductRequest(
+    string Name, Money Price, Money SumInsured, int CoverageDurationDays, string Insurer);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, Money Amount, string Method, Code Psp);
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);

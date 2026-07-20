@@ -12,7 +12,8 @@ namespace Products.Application;
 /// a redefinition of it (which would break <see cref="GetProductsHandler"/>).
 /// </summary>
 public sealed record ProductListItem(
-    Guid Id, Guid MerchantId, string Name, Money Price, bool IsActive, DateTime CreatedAt);
+    Guid Id, Guid MerchantId, string Name, Money Price, Money SumInsured, int CoverageDurationDays,
+    string Insurer, bool IsActive, DateTime CreatedAt);
 
 /// <summary>
 /// Optional strictly-validated filter surface for the product list (REQ-10). Parsed from the
