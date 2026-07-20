@@ -298,7 +298,12 @@ not require a code change or migration.
 
 - 9.1 THE SYSTEM SHALL expose, per dimension, `GET` (list) / `POST` (create) /
   `PUT /{id:guid}` (update) under
-  `/api/v1/admins/master-data/{positions|offices|levels|divisions}`.
+  `/api/v1/admins/master-data/{positions|offices|levels|divisions}`. *(Superseded —
+  the `master-data` wrapper and `/admins` parent are both gone: hierarchical-naming
+  dropped the wrapper (`/api/v1/admins/{segment}`), masterdata-split's REQ-6.1 (amended
+  2026-07-20) moved the dimensions out from under `/admins` entirely to their own
+  standalone areas `/api/v1/{positions|offices|levels|divisions}`, and the same
+  amendment added `GET /{id:guid}` + `DELETE /{id:guid}` per dimension.)*
 - 9.2 WHEN the list endpoint is called THE SYSTEM SHALL return a paged result
   (`page`/`limit`), an optional escaped substring `search` over code + name, ordered
   by name, each row `{id, code, name, isActive}`.

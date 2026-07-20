@@ -62,4 +62,21 @@ internal sealed class LevelStore : ILevelStore
             await _unitOfWork.SaveChangesAsync(ct);
             return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
         }, cancellationToken);
+
+    public async Task<LevelItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entity = await _db.Levels.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
+            ?? throw new NotFoundException("The record was not found.");
+        return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+    }
+
+    public Task<LevelItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+        _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var entity = await _db.Levels.FirstOrDefaultAsync(m => m.Id == id, ct)
+                ?? throw new NotFoundException("The record was not found.");
+            entity.Deactivate();
+            await _unitOfWork.SaveChangesAsync(ct);
+            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+        }, cancellationToken);
 }

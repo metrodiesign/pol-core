@@ -3,15 +3,16 @@ using System.Text.RegularExpressions;
 namespace Architecture.Tests;
 
 /// <summary>
-/// Static scan gate for rls-to-query-filter REQ-2.12: the design's transaction inventory (23 rows — 22 from
-/// the original v7 design + row 23, task 4's new ChangeAdminTier flow)
+/// Static scan gate for rls-to-query-filter REQ-2.12: the design's transaction inventory (24 rows — 22 from
+/// the original v7 design + row 23 (task 4's ChangeAdminTier flow) + row 24 (masterdata-full-crud's
+/// reference-list DeactivateAsync, one new call site per store))
 /// (design.md §"Transaction inventory") classifies EVERY transaction API call site in the codebase as
 /// single-context or (for exactly one, ProvisionMerchant) cross-context. A NEW call site that shows up here
 /// without a corresponding design classification is exactly the failure mode the prior review loop hit
 /// (Codex round 5: "5 MORE cross-context flows found" after the inventory was assumed complete) — this test
 /// turns "a new transaction site appeared" into a red CI run instead of a missed row.
 ///
-/// Two disjoint checks, matching how the 22 rows actually decompose in code:
+/// Two disjoint checks, matching how the 24 rows actually decompose in code:
 /// 1. Every `.ExecuteInTransactionAsync(` CALL SITE (not the interface declaration or its four
 ///    implementations' method signatures — those have no leading `.`) — this is design rows 1-21.
 /// 2. Every raw transaction primitive (`BeginTransaction[Async]`/`UseTransaction`/`TransactionScope`)
@@ -22,7 +23,8 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class TransactionInventoryTests
 {
-    // design.md rows 1-13 + 16-21 (one call site each) and rows 14-15 / 17-18 (two call sites in one file).
+    // design.md rows 1-13 + 16-23 (one call site each), rows 17-18 (two call sites in one file), and
+    // rows 14-15+24 (three call sites in one file, the four reference master-data stores).
     private static readonly Dictionary<string, int> ExpectedExecuteInTransactionAsyncSites = new()
     {
         ["src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs"] = 1, // row 21
@@ -43,10 +45,10 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Iam/Iam.Application/Roles/UpdateRole.cs"] = 1,                                   // row 13
         ["src/Modules/Iam/Iam.Application/Roles/DeleteRole.cs"] = 1,                                   // row 12
         ["src/Modules/Iam/Iam.Application/Roles/CreateRole.cs"] = 1,                                   // row 11
-        ["src/Persistence/Persistence.ControlPlane/Divisions/DivisionStore.cs"] = 2,                   // rows 14+15 (masterdata-split: typed split of the old generic store)
-        ["src/Persistence/Persistence.ControlPlane/Levels/LevelStore.cs"] = 2,                         // rows 14+15 (masterdata-split)
-        ["src/Persistence/Persistence.ControlPlane/Offices/OfficeStore.cs"] = 2,                       // rows 14+15 (masterdata-split)
-        ["src/Persistence/Persistence.ControlPlane/Positions/PositionStore.cs"] = 2,                   // rows 14+15 (masterdata-split)
+        ["src/Persistence/Persistence.ControlPlane/Divisions/DivisionStore.cs"] = 3,                   // rows 14+15+24 (masterdata-split typed split + masterdata-full-crud DeactivateAsync)
+        ["src/Persistence/Persistence.ControlPlane/Levels/LevelStore.cs"] = 3,                         // rows 14+15+24
+        ["src/Persistence/Persistence.ControlPlane/Offices/OfficeStore.cs"] = 3,                       // rows 14+15+24
+        ["src/Persistence/Persistence.ControlPlane/Positions/PositionStore.cs"] = 3,                   // rows 14+15+24
     };
 
     // The three IUnitOfWork implementations (task 8.5's "1 principal" collapse — one per runtime cluster) —

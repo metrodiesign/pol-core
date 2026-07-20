@@ -21,4 +21,11 @@ public interface ILevelStore
 
     /// <summary>Renames + toggles active on an existing level. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<LevelItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken);
+
+    /// <summary>Reads a single level by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<LevelItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Soft-deactivates (sets IsActive=false) without touching Code/Name — never a hard delete (the
+    /// <c>AdminAccount</c> FK is Restrict). Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<LevelItem> DeactivateAsync(Guid id, CancellationToken cancellationToken);
 }

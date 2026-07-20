@@ -16,12 +16,13 @@ namespace Hosts.Tests;
 // REQ-10.4's specific worry) is caught at test time rather than in production. Supersedes the old narrower
 // MerchantUserWritePermissionsTests (3 of the 7 merchant-user sites only).
 //
-// 20 gate SITES in source (REQ-4.5: admin 13 + merchant-user 7) map to more than 20 physical ROUTES at runtime
-// because Admin's master-data CRUD (positions/offices/levels/divisions) instantiates the SAME generic
-// MapMasterCrud<TStore, TItem> body four times. This inventory pins one representative segment ("positions") for that
+// 22 gate SITES in source (REQ-4.5: admin 15 + merchant-user 7) map to more than 22 physical ROUTES at runtime
+// because the reference master-data CRUD (positions/offices/levels/divisions, standalone areas since
+// 2026-07-20) instantiates the SAME generic MapMasterCrud<TStore, TItem> body four times, now 5 verbs each
+// (List/Get/Create/Update/Deactivate). This inventory pins one representative segment ("positions") for that
 // generic body — the other three segments are the identical generic instantiation, not independent gate
-// sites — landing back on exactly 20 pinned endpoints (7 + 13). PermissionParityTests.RealGateSites is the
-// source-level completeness check (10 distinct (key, policy) pairs covering all 20 call sites incl. duplicates).
+// sites — landing back on exactly 22 pinned endpoints (7 + 15). PermissionParityTests.RealGateSites is the
+// source-level completeness check (10 distinct (key, policy) pairs covering all call sites incl. duplicates).
 
 file sealed class GateFactory : WebApplicationFactory<ApiHost::Program>
 {
@@ -56,16 +57,18 @@ public sealed class PermissionGateSitesTests
         new("DELETE", "/api/v1/merchants/users/roles/{code}", "merchant-user", "roles.manage"),
         new("PUT", "/api/v1/merchants/users/{merchantUserId:guid}/roles", "merchant-user", "users.roles"),
 
-        // --- admin (13) ---
+        // --- admin (15) ---
         new("POST", "/api/v1/admins/merchants/users/{subject}/approve", "admin", "merchants.users.approve"),
         new("POST", "/api/v1/admins/merchants/users/{subject}/reject", "admin", "merchants.users.reject"),
         new("GET", "/api/v1/admins", "admin", "user.view"),
         new("GET", "/api/v1/admins/{id:guid}", "admin", "user.view"),
         new("GET", "/api/v1/admins/{id:guid}/effective-permissions", "admin", "user.view"),
         new("PUT", "/api/v1/admins/{id:guid}/profile", "admin", "user.manage"),
-        new("GET", "/api/v1/admins/positions", "admin", "user.manage"),
-        new("POST", "/api/v1/admins/positions", "admin", "user.manage"),
-        new("PUT", "/api/v1/admins/positions/{id:guid}", "admin", "user.manage"),
+        new("GET", "/api/v1/positions", "admin", "user.manage"),
+        new("GET", "/api/v1/positions/{id:guid}", "admin", "user.manage"),
+        new("POST", "/api/v1/positions", "admin", "user.manage"),
+        new("PUT", "/api/v1/positions/{id:guid}", "admin", "user.manage"),
+        new("DELETE", "/api/v1/positions/{id:guid}", "admin", "user.manage"),
         new("POST", "/api/v1/admins/roles", "admin", "user.roles"),
         new("PUT", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
         new("DELETE", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
@@ -94,7 +97,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_20_gate_sites_are_pinned() => Assert.Equal(20, Sites.Length); // REQ-4.5 count drift guard
+    public void Exactly_22_gate_sites_are_pinned() => Assert.Equal(22, Sites.Length); // REQ-4.5 count drift guard
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

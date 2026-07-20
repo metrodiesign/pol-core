@@ -193,10 +193,14 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder admin, string segment
 
 4 call sites (`MapMasterCrud<IDivisionStore, DivisionItem>(admin, "divisions", ...)`) —
 route path, verb, DTO (`MasterWriteRequest`/`MasterUpdateRequest`/`MasterResponse`),
-OpenAPI tag `"Admin Master Data"`, operation name interpolation, `.RequireAuthorization
-("admin")`, `.RequirePermission(Keys.UserManage)` คงเดิมทุกตัวอักษร. helper เดียว
-เสิร์ฟทั้ง 12 endpoint -> representative-segment pinning ของ `PermissionGateSitesTests`
-ยังถูกต้อง.
+operation name interpolation, `.RequireAuthorization("admin")`,
+`.RequirePermission(Keys.UserManage)` คงเดิมทุกตัวอักษร. helper เดียวเสิร์ฟทั้ง 12
+endpoint -> representative-segment pinning ของ `PermissionGateSitesTests` ยังถูกต้อง.
+
+OpenAPI tag: amended 2026-07-20 (REQ-6.3) — แยกต่อโมดูลแทนการรวม (`tag =
+$"{Capitalize(segment)}"` ในตัว helper เอง, ไม่มี `"Admin "` prefix เพราะเป็น reference
+list ไม่ใช่ admin-account operation, ไม่ต้องเพิ่ม parameter) เพราะรวม 4 โมดูลไว้ใต้
+`"Admin Master Data"` เดียวทำให้ Scalar UI ไม่สะท้อนว่าโมดูลแตกกันจริงแล้ว.
 
 **Write floor:** `ControlPlaneAdminWriteAuthorizer.BoundOnlyTypes` คง
 `typeof(Position), typeof(Office), typeof(Level), typeof(Division)` — identifier เดิม

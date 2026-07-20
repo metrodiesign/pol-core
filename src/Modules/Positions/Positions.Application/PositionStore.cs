@@ -21,4 +21,11 @@ public interface IPositionStore
 
     /// <summary>Renames + toggles active on an existing position. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<PositionItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken);
+
+    /// <summary>Reads a single position by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<PositionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Soft-deactivates (sets IsActive=false) without touching Code/Name — never a hard delete (the
+    /// <c>AdminAccount</c> FK is Restrict). Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<PositionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken);
 }

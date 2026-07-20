@@ -1592,41 +1592,57 @@ admin.MapPut("/{id:guid}/profile", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// --- Profile master data (Position/Office/Level/Division) ---
-// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Mapped DIRECTLY on the
-// `admin` group with no /master-data wrapper (D11 — the wrapper was a code-organisation word, not a resource;
-// each list is already its own collection) so the group's auth + AdminCsrfFilter still apply; all writes gated
-// user.manage. List/Create/Update only — masters are soft-deactivated via IsActive, never hard-deleted (the FK
-// is Restrict). One generic registration per list (delegate-parameterized since masterdata-split — the four
-// modules share no base type; the host merely notices the shapes rhyme). Safe against /admins/{id:guid}: that
-// route is guid-constrained and a literal segment beats a parameter at the same depth (design §4).
-MapMasterCrud<IPositionStore, PositionItem>(admin, "positions",
+// --- Reference master data (Position/Office/Level/Division) ---
+// Runtime CRUD for the four reference lists that back the admin org-profile FKs. Each is its own top-level API
+// area (/api/v1/{positions|offices|levels|divisions}, 2026-07-20) — moved OUT of the /admins group entirely,
+// mirroring D9's ProvisionMerchant/GetMerchant move above: every verb re-attaches CsrfFilter explicitly instead
+// of inheriting it from the /admins group, and the credentialed admin CORS policy is re-attached via
+// CorsExtensions.cs's IsAdminPlane (not here). All 5 verbs gated user.manage. DELETE is a soft-deactivate
+// (IsActive=false) — masters are never hard-deleted (the AdminAccount FK is Restrict). One generic registration
+// per list (delegate-parameterized since masterdata-split — the four modules share no base type; the host
+// merely notices the shapes rhyme).
+MapMasterCrud<IPositionStore, PositionItem>(api, "positions",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
-MapMasterCrud<IOfficeStore, OfficeItem>(admin, "offices",
+MapMasterCrud<IOfficeStore, OfficeItem>(api, "offices",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
-MapMasterCrud<ILevelStore, LevelItem>(admin, "levels",
+MapMasterCrud<ILevelStore, LevelItem>(api, "levels",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
-MapMasterCrud<IDivisionStore, DivisionItem>(admin, "divisions",
+MapMasterCrud<IDivisionStore, DivisionItem>(api, "divisions",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
 
 static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segment,
     Func<TStore, int, int, string?, CancellationToken, Task<PagedResult<TItem>>> list,
+    Func<TStore, Guid, CancellationToken, Task<TItem>> getById,
     Func<TStore, string, string, CancellationToken, Task<TItem>> create,
     Func<TStore, Guid, string, bool, CancellationToken, Task<TItem>> update,
+    Func<TStore, Guid, CancellationToken, Task<TItem>> deactivate,
     Func<TItem, MasterResponse> toWire) where TStore : class
 {
+    // Each of the 4 standalone modules (masterdata-split) gets its own Scalar group — "Positions" etc., no
+    // "Admin" prefix (these are reference lists, not admin-account operations) — instead of one shared
+    // "Admin Master Data" bucket, so the split is visible in the API surface too.
+    var tag = $"{char.ToUpperInvariant(segment[0])}{segment[1..]}";
+
     // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
     // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
     parent.MapGet($"/{segment}", async (HttpContext http, TStore store, CancellationToken ct) =>
@@ -1636,11 +1652,25 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
         return Results.Ok(new PagedResult<MasterResponse>(
             [.. result.Items.Select(toWire)],
             result.Page, result.Limit, result.Total));
-    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-        .WithTags("Admin Master Data")
+    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithTags(tag)
         .WithName($"List{segment}")
         .WithSummary($"List {segment}")
         .Produces<PagedResult<MasterResponse>>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden);
+
+    parent.MapGet($"/{segment}/{{id:guid}}", async (Guid id, TStore store, CancellationToken ct) =>
+    {
+        var item = await getById(store, id, ct);
+        return Results.Ok(toWire(item));
+    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithTags(tag)
+        .WithName($"Get{segment}")
+        .WithSummary($"Read a {segment} entry by id")
+        .WithDescription("Requires the user.manage permission. Unknown id -> 404.")
+        .Produces<MasterResponse>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -1648,9 +1678,9 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     {
         var item = await create(store, body.Code ?? "", body.Name ?? "", ct);
         var wire = toWire(item);
-        return Results.Created($"/api/v1/admins/{segment}/{wire.Id}", wire);
-    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-        .WithTags("Admin Master Data")
+        return Results.Created($"/api/v1/{segment}/{wire.Id}", wire);
+    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithTags(tag)
         .WithName($"Create{segment}")
         .WithSummary($"Create a {segment} entry")
         .WithDescription("Requires the user.manage permission. Duplicate code -> 409; code must match ^[a-z0-9_]+$ -> 400.")
@@ -1664,13 +1694,27 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     {
         var item = await update(store, id, body.Name ?? "", body.IsActive, ct);
         return Results.Ok(toWire(item));
-    }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-        .WithTags("Admin Master Data")
+    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithTags(tag)
         .WithName($"Update{segment}")
         .WithSummary($"Rename or (de)activate a {segment} entry")
         .WithDescription("Requires the user.manage permission. Code is immutable. Unknown id -> 404.")
         .Produces<MasterResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status401Unauthorized)
+        .ProducesProblem(StatusCodes.Status403Forbidden);
+
+    parent.MapDelete($"/{segment}/{{id:guid}}", async (Guid id, TStore store, CancellationToken ct) =>
+    {
+        await deactivate(store, id, ct);
+        return Results.NoContent();
+    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithTags(tag)
+        .WithName($"Deactivate{segment}")
+        .WithSummary($"Deactivate a {segment} entry")
+        .WithDescription("Requires the user.manage permission. Soft-deactivate only (sets isActive=false); existing references (FK Restrict) stay valid — never a hard delete. Unknown id -> 404.")
+        .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
