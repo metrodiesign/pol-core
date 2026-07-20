@@ -21,4 +21,11 @@ public interface IOfficeStore
 
     /// <summary>Renames + toggles active on an existing office. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<OfficeItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken);
+
+    /// <summary>Reads a single office by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<OfficeItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Soft-deactivates (sets IsActive=false) without touching Code/Name — never a hard delete (the
+    /// <c>AdminAccount</c> FK is Restrict). Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<OfficeItem> DeactivateAsync(Guid id, CancellationToken cancellationToken);
 }

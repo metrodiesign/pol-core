@@ -62,4 +62,21 @@ internal sealed class DivisionStore : IDivisionStore
             await _unitOfWork.SaveChangesAsync(ct);
             return new DivisionItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
         }, cancellationToken);
+
+    public async Task<DivisionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entity = await _db.Divisions.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
+            ?? throw new NotFoundException("The record was not found.");
+        return new DivisionItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+    }
+
+    public Task<DivisionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+        _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var entity = await _db.Divisions.FirstOrDefaultAsync(m => m.Id == id, ct)
+                ?? throw new NotFoundException("The record was not found.");
+            entity.Deactivate();
+            await _unitOfWork.SaveChangesAsync(ct);
+            return new DivisionItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+        }, cancellationToken);
 }

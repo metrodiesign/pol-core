@@ -62,4 +62,21 @@ internal sealed class PositionStore : IPositionStore
             await _unitOfWork.SaveChangesAsync(ct);
             return new PositionItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
         }, cancellationToken);
+
+    public async Task<PositionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entity = await _db.Positions.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
+            ?? throw new NotFoundException("The record was not found.");
+        return new PositionItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+    }
+
+    public Task<PositionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+        _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var entity = await _db.Positions.FirstOrDefaultAsync(m => m.Id == id, ct)
+                ?? throw new NotFoundException("The record was not found.");
+            entity.Deactivate();
+            await _unitOfWork.SaveChangesAsync(ct);
+            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+        }, cancellationToken);
 }

@@ -21,4 +21,11 @@ public interface IDivisionStore
 
     /// <summary>Renames + toggles active on an existing division. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<DivisionItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken);
+
+    /// <summary>Reads a single division by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<DivisionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Soft-deactivates (sets IsActive=false) without touching Code/Name — never a hard delete (the
+    /// <c>AdminAccount</c> FK is Restrict). Unknown id -> <see cref="NotFoundException"/> 404.</summary>
+    Task<DivisionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken);
 }

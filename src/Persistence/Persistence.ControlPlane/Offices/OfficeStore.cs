@@ -62,4 +62,21 @@ internal sealed class OfficeStore : IOfficeStore
             await _unitOfWork.SaveChangesAsync(ct);
             return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
         }, cancellationToken);
+
+    public async Task<OfficeItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entity = await _db.Offices.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
+            ?? throw new NotFoundException("The record was not found.");
+        return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+    }
+
+    public Task<OfficeItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+        _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var entity = await _db.Offices.FirstOrDefaultAsync(m => m.Id == id, ct)
+                ?? throw new NotFoundException("The record was not found.");
+            entity.Deactivate();
+            await _unitOfWork.SaveChangesAsync(ct);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+        }, cancellationToken);
 }

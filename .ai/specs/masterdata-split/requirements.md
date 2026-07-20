@@ -122,11 +122,18 @@ no client changes.
 **Acceptance Criteria (EARS):**
 - 6.1 THE SYSTEM SHALL คง endpoint เดิมทั้ง 12: path
   (`/api/v1/admins/{positions|offices|levels|divisions}` + `/{id:guid}` สำหรับ PUT),
-  verb (GET list / POST create / PUT update) และ request/response shape เดิม.
+  verb (GET list / POST create / PUT update) และ request/response shape เดิม. —
+  amended 2026-07-20: ขยายเป็น 20 endpoint (เพิ่ม `GET /{id:guid}` + `DELETE /{id:guid}`
+  ต่อ dimension, `DELETE` = soft-deactivate ผ่าน `IsActive`, ไม่ใช่ hard-delete) และย้าย
+  path ออกจาก `/api/v1/admins/` ทั้งหมด — แต่ละ dimension กลายเป็น standalone area ของ
+  ตัวเอง: `/api/v1/{positions|offices|levels|divisions}` (+ `/{id:guid}`).
 - 6.2 THE SYSTEM SHALL คง gate เดิมของทุก endpoint: `.RequireAuthorization("admin")` +
   `.RequirePermission("user.manage")` และ SHALL NOT แตะ iam catalog.
-- 6.3 THE SYSTEM SHALL คง OpenAPI tag `"Admin Master Data"` และ operation name เดิม
-  (interpolation string เดิม).
+- 6.3 THE SYSTEM SHALL คง operation name เดิม (interpolation string เดิม). OpenAPI tag
+  SHALL แยกต่อโมดูล (`"Positions"`/`"Offices"`/`"Levels"`/`"Divisions"`, ไม่มี prefix
+  `"Admin "` — เป็น reference list ไม่ใช่ admin-account operation) แทนการรวมเป็น
+  `"Admin Master Data"` เดียว — amended 2026-07-20: Scalar UI ต้องสะท้อนการแตกโมดูลจริง
+  ไม่ใช่ซ่อนไว้หลัง tag รวม.
 - 6.4 THE SYSTEM SHALL คง domain invariant เดิมในทุก entity: `Code` ตรง `^[a-z0-9_]+$`,
   trim, immutable หลังสร้าง; `Rename` แก้ได้แค่ `Name`; `Activate`/`Deactivate` toggle
   `IsActive`.
