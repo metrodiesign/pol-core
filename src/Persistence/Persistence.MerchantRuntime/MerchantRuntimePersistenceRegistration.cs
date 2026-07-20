@@ -13,6 +13,7 @@ using Persistence.MerchantRuntime.Checkouts;
 using Persistence.MerchantRuntime.Idempotency;
 using Persistence.MerchantRuntime.Merchants;
 using Persistence.MerchantRuntime.Orders;
+using Persistence.MerchantRuntime.Orders.Lines;
 using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantRuntime.Payments;
 using Persistence.MerchantRuntime.Payments.Psp;
@@ -52,6 +53,7 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<ICheckoutRepository, CheckoutRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderSummaryReader, OrderSummaryReader>();
+        services.AddScoped<IRevealAuditWriter, RevealAuditWriter>();
         services.AddScoped<IConnectionRepository, ConnectionRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<MerchantRepository>();

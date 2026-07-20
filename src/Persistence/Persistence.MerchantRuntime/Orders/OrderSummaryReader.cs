@@ -35,9 +35,27 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
             return null;
 
         var r = rows[0];
+
+        var lineRows = await db.Database
+            .SqlQueryRaw<OrderSummaryLineRow>(
+                "SELECT ProductId, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderLines WHERE OrderId = {0}",
+                r.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var lines = lineRows
+            .Select(l => new OrderSummaryLine(l.ProductId, l.InsuredFirstName, l.InsuredLastName, MaskIdNumber(l.InsuredIdNumber)))
+            .ToList();
+
         return new OrderSummary(
-            r.Id, Money.Of(r.AmountAmount, r.AmountCurrency), ((OrderStatus)r.Status).ToString(), r.PaymentSessionId, r.SummaryTokenExpiresAt);
+            r.Id, Money.Of(r.AmountAmount, r.AmountCurrency), ((OrderStatus)r.Status).ToString(), r.PaymentSessionId,
+            r.SummaryTokenExpiresAt, lines);
     }
+
+    // Local to this read model's projection, deliberately not shared with Payments' PspSecretEnvelopeFactory
+    // (design.md non-goal) or reused as a cross-file utility — see GetOrdersHandler's own copy.
+    private static string MaskIdNumber(string idNumber) =>
+        idNumber.Length <= 4 ? new string('*', idNumber.Length) : $"****{idNumber[^4..]}";
 }
 
 /// <summary>Unmapped projection for the resolver query's result set (matched to its SELECT by column name).</summary>
@@ -50,4 +68,15 @@ internal sealed class OrderSummaryRow
     public int Status { get; set; }
     public Guid? PaymentSessionId { get; set; }
     public DateTime SummaryTokenExpiresAt { get; set; }
+}
+
+/// <summary>Unmapped projection for the order-lines query — deliberately excludes InsuredDateOfBirth
+/// (never fetched for this surface, not just omitted at serialization) and merchant/premium data (out of
+/// scope for an anonymous customer link).</summary>
+internal sealed class OrderSummaryLineRow
+{
+    public Guid ProductId { get; set; }
+    public string InsuredFirstName { get; set; } = default!;
+    public string InsuredLastName { get; set; } = default!;
+    public string InsuredIdNumber { get; set; } = default!;
 }

@@ -789,12 +789,13 @@ api.MapGet("/orders/{token}/summary", async (
         return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
 
     return Results.Ok(new OrderSummaryResponse(
-        summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId));
+        summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId,
+        summary.Lines.Select(l => new OrderSummaryLineResponse(l.ProductId, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
 }).AllowAnonymous()
     .WithTags("Orders")
     .WithName("GetOrderSummary")
     .WithSummary("Order summary by link")
-    .WithDescription("Public capability link: the opaque token resolves the order summary anonymously. Unknown token -> 404, expired -> 410.")
+    .WithDescription("Public capability link: the opaque token resolves the order summary anonymously. Unknown token -> 404, expired -> 410. Each insured person's IdNumber is masked and DateOfBirth is never included.")
     .Produces<OrderSummaryResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status410Gone);
@@ -811,6 +812,37 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     .WithDescription("Rotate the order summary token and extend its TTL, returning the fresh link.")
     .Produces<ResendOrderSummaryResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Merchant-authenticated order list — every line's InsuredIdNumber masked (REQ-7.4). No reveal audit here.
+api.MapGet("/orders", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new GetOrdersQuery(actor.MerchantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user")
+    .WithTags("Orders")
+    .WithName("ListOrders")
+    .WithSummary("List the bound merchant's orders")
+    .WithDescription("Every line's InsuredIdNumber is masked (last 4 visible). Use the detail read for the full value.")
+    .Produces<OrdersListView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Merchant-authenticated single-order detail — every line's InsuredIdNumber in FULL, one RevealAudit row
+// written per line returned (REQ-7.5), fail-closed (GetOrderDetailHandler saves the audit before building
+// the response; if that save throws, the shared exception handler turns it into a 5xx with no PII returned).
+api.MapGet("/orders/{orderId:guid}", async (
+    Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(
+        new GetOrderDetailCommand(actor.MerchantId, orderId, "merchant-user", actor.UserId!.Value.ToString()), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user")
+    .WithTags("Orders")
+    .WithName("GetOrderDetail")
+    .WithSummary("Read one order in full, with an audit trail")
+    .WithDescription("Every line's InsuredIdNumber is returned in full. Writes one reveal-audit row per line returned; the read fails closed (5xx, no PII) if the audit write fails.")
+    .Produces<OrderDetailView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound);
 
 // Reconciliation report: the bound merchant's orders grouped by status + currency (count + total).
 api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -1980,8 +2012,10 @@ internal sealed record StartCheckoutInsuredPerson(
     Guid ProductId, string FirstName, string LastName, string IdNumber, DateTime DateOfBirth);
 internal sealed record StartCheckoutRequest(
     Guid CartId, string? Recipient, IReadOnlyList<StartCheckoutInsuredPerson> InsuredPersons);
+internal sealed record OrderSummaryLineResponse(
+    Guid ProductId, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
 internal sealed record OrderSummaryResponse(
-    Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId);
+    Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId, IReadOnlyList<OrderSummaryLineResponse> Lines);
 
 // Admin provisioning request body (reference 2.4): { "merchant": { ... }, "pspConnections": [ ... ] }.
 // AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.

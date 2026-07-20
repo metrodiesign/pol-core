@@ -19,10 +19,12 @@ using CheckoutSession = Checkouts.Domain.Session;
 using PaymentSession = Payments.Domain.Session;
 using OrderAggregate = Orders.Domain.Order;
 using OrderLine = Orders.Domain.Lines.Line;
+using OrderLineRevealAudit = Orders.Domain.Lines.RevealAudit;
 using CheckoutSessionLine = Checkouts.Domain.Lines.Line;
 using CheckoutSessionConfiguration = Persistence.MerchantRuntime.Checkouts.SessionConfiguration;
 using PaymentSessionConfiguration = Persistence.MerchantRuntime.Payments.SessionConfiguration;
 using OrderLineConfiguration = Persistence.MerchantRuntime.Orders.Lines.LineConfiguration;
+using OrderLineRevealAuditConfiguration = Persistence.MerchantRuntime.Orders.Lines.RevealAuditConfiguration;
 using CheckoutSessionLineConfiguration = Persistence.MerchantRuntime.Checkouts.Lines.LineConfiguration;
 // Fully-qualified (not `using`-imported) to avoid colliding with the same-named entity-OWNING namespaces
 // above (BuildingBlocks.Infrastructure.Idempotency/Outbox/Vault) — this context uses its OWN filtered
@@ -66,6 +68,7 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     public DbSet<CheckoutSessionLine> CheckoutSessionLines => Set<CheckoutSessionLine>();
     public DbSet<OrderAggregate> Orders => Set<OrderAggregate>();
     public DbSet<OrderLine> OrderLines => Set<OrderLine>();
+    public DbSet<OrderLineRevealAudit> OrderLineRevealAudits => Set<OrderLineRevealAudit>();
 
     public DbSet<PaymentSession> PaymentSessions => Set<PaymentSession>();
     public DbSet<Connection> PspConnections => Set<Connection>();
@@ -86,6 +89,7 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new CheckoutSessionLineConfiguration(this));
         modelBuilder.ApplyConfiguration(new OrderConfiguration(this));
         modelBuilder.ApplyConfiguration(new OrderLineConfiguration(this));
+        modelBuilder.ApplyConfiguration(new OrderLineRevealAuditConfiguration(this));
 
         modelBuilder.ApplyConfiguration(new PaymentSessionConfiguration(this));
         modelBuilder.ApplyConfiguration(new ConnectionConfiguration(this));

@@ -59,7 +59,26 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken ct) =>
         Task.FromResult(Reconciliation);
 
+    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Order>>(
+            _orders.Where(o => o.MerchantId == merchantId).OrderByDescending(o => o.CreatedAt).ToList());
+
     public void Add(Order order) => _orders.Add(order);
+}
+
+internal sealed class FakeRevealAuditWriter : IRevealAuditWriter
+{
+    public readonly List<Guid> Appended = [];
+    public bool ShouldThrow { get; init; }
+
+    public Task AppendAsync(Guid orderLineId, Guid merchantId, string actorType, string actorId,
+        string correlationId, CancellationToken cancellationToken)
+    {
+        if (ShouldThrow)
+            throw new InvalidOperationException("audit write failed");
+        Appended.Add(orderLineId);
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class FakeUnitOfWork : IUnitOfWork
