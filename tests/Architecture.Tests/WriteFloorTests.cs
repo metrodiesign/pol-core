@@ -166,7 +166,7 @@ public sealed class WriteFloorTests : IDisposable
 
         using (var denied = NewContext(FakeWriteAuthorizer.DenyAll))
         {
-            denied.Positions.Add(MasterData.Domain.Positions.Position.Create("pos", "Position"));
+            denied.Positions.Add(global::Positions.Domain.Position.Create("pos", "Position"));
             await Assert.ThrowsAsync<WriteGuardException>(() => denied.SaveChangesAsync());
         }
 

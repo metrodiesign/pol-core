@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Identifier gate for the hierarchical-naming rename (spec task 12, REQ-15.3/15.4/15.5).
 
-The eight retired compound identifiers must not appear as live-code TOKENS anywhere in
+The retired compound identifiers must not appear as live-code TOKENS anywhere in
 src/ or tests/:
 
     MerchantUser, PlatformUser, AdminRole, AdminPermission,
     PaymentSession, CartItem, CheckoutSession, PspConnection
+    (hierarchical-naming) plus MasterData, MasterDataItem, IMasterDataStore,
+    IMasterDataLookup, MasterItem, MasterRef (masterdata-split)
 
 Matching is word-bounded (\\bToken\\b), so longer identifiers that merely CONTAIN a
 token (`PaymentSessionId`, `AddPlatformUserSessionScheme`, `FakePlatformUserRepository`,
@@ -40,7 +42,11 @@ from pathlib import Path
 
 TOKENS = re.compile(
     r"\b(MerchantUser|PlatformUser|AdminRole|AdminPermission"
-    r"|PaymentSession|CartItem|CheckoutSession|PspConnection)\b"
+    r"|PaymentSession|CartItem|CheckoutSession|PspConnection"
+    # masterdata-split: the retired MasterData module's public surface. Word-bounded, so the survivors
+    # MapMasterCrud/MasterResponse/MasterWriteRequest/MasterUpdateRequest/MasterRefResponse/MasterRefToWire
+    # never match; string literals (OpenAPI tag "Admin Master Data") are stripped before matching.
+    r"|MasterData|MasterDataItem|IMasterDataStore|IMasterDataLookup|MasterItem|MasterRef)\b"
 )
 ALIAS_DECL = re.compile(r"^\s*using\s+(\w+)\s*=")
 

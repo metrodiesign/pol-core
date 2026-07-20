@@ -1,17 +1,19 @@
 using Admins.Application.Roles;
 using Admins.Application.Users;
 using BuildingBlocks.Application;
+using Divisions.Application;
 using Iam.Application.Roles;
-using MasterData.Application;
+using Levels.Application;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Offices.Application;
 using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.DataProtection;
 using Persistence.ControlPlane.Iam;
+using Positions.Application;
 using IamRoleStore = Persistence.ControlPlane.Iam.RoleStore;
-using ControlPlaneMasterDataStore = Persistence.ControlPlane.MasterData.MasterDataStore;
 
 namespace Persistence.ControlPlane;
 
@@ -44,7 +46,7 @@ public static class ControlPlanePersistenceRegistration
         services.AddScoped<ISessionStore>(sp => new SessionStore(
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));
         services.AddScoped<IAuthAuditWriter>(sp => new AuthAuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
-        services.AddScoped<IMasterDataLookup>(sp => new MasterDataLookup(sp.GetRequiredService<ControlPlaneDbContext>()));
+        services.AddScoped<IProfileLookup>(sp => new ProfileLookup(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<IRoleRepository>(sp => new RoleRepository(sp.GetRequiredService<ControlPlaneDbContext>()));
 
         services.AddScoped<IRoleStore>(sp => new IamRoleStore(
@@ -54,9 +56,15 @@ public static class ControlPlanePersistenceRegistration
             new ControlPlaneUnitOfWork(
                 sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));
 
-        // MasterDataStore commits through the keyed "admin" IUnitOfWork above, same discipline as every other
-        // ControlPlane write seam.
-        services.AddScoped<IMasterDataStore>(sp => new ControlPlaneMasterDataStore(
+        // The four reference-list stores commit through the keyed "admin" IUnitOfWork above, same discipline
+        // as every other ControlPlane write seam (typed split of the retired generic store, masterdata-split).
+        services.AddScoped<IPositionStore>(sp => new Positions.PositionStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredKeyedService<IUnitOfWork>("admin")));
+        services.AddScoped<IOfficeStore>(sp => new Offices.OfficeStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredKeyedService<IUnitOfWork>("admin")));
+        services.AddScoped<ILevelStore>(sp => new Levels.LevelStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredKeyedService<IUnitOfWork>("admin")));
+        services.AddScoped<IDivisionStore>(sp => new Divisions.DivisionStore(
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredKeyedService<IUnitOfWork>("admin")));
 
         services.AddScoped<IAdminRoleAssignmentCountReader>(sp =>

@@ -71,7 +71,7 @@ tests/
 - CQRS: write = `ICommand<,>`, read = `IQuery<,>`, cross-module event = `INotification` · `Handle` คืน `ValueTask<T>`
 - `AddMediator(...)` (generator สร้างให้, handler ลงทะเบียนอัตโนมัติ) · pipeline behaviors เพิ่มเอง (เช่น `IdempotencyBehavior`, validation)
 - **lifetime:** `IMediator` Singleton (perf) ได้ แต่ **handler/pipeline ที่พึ่ง `DbContext` ต้อง Scoped** (หรือ inject `IDbContextFactory`) — กัน captive dependency. เปิด `ValidateScopes=true` + มี DI validation test
-- **ไม่มี open-generic handler**: source generator ไม่สร้าง `IRequestHandler<Cmd<T>>` แบบ open-generic → CRUD ที่ symmetric N ตาราง (master/lookup) อย่าเขียน N×concrete handler (boilerplate ล้วน). ใช้ generic service (เช่น `IMasterDataStore` เรียก `_db.Set<T>()`) bypass Mediator แต่ **คง commit ผ่าน keyed UoW เดิม** (S2, ห้าม `DbContext.SaveChanges` ตรง) — code-shape ตัดสินจากข้อจำกัด generator จริง ไม่ใช่รสนิยม.
+- **ไม่มี open-generic handler**: source generator ไม่สร้าง `IRequestHandler<Cmd<T>>` แบบ open-generic → CRUD reference list ธรรมดาอย่าเขียน N×concrete handler (boilerplate ล้วน). ใช้ typed store service bypass Mediator (เช่น `IDivisionStore`/`ILevelStore` ฯลฯ ของ 4 โมดูล reference หลัง masterdata-split — generic `Set<T>()` shape เดิม retire ไปพร้อม shared base) แต่ **คง commit ผ่าน keyed UoW เดิม** (S2, ห้าม `DbContext.SaveChanges` ตรง) — code-shape ตัดสินจากข้อจำกัด generator จริง ไม่ใช่รสนิยม.
 - `IdempotencyBehavior`: unique key `(psp,eventId)` + `(psp,externalChargeId,normalizedStatus)`, atomic upsert; publish `PaymentPaid` ผ่าน **outbox** (table + dispatcher poll lock/lease + poison/DLQ + idempotent consumer)
 - ได้ diagnostic ตอน **build** ถ้า request ไม่มี handler — อย่าปิด warning นี้
 

@@ -36,8 +36,10 @@ public static class SchemaNames
     /// <summary>Framework-owned; the ONE named exception to the schema guard (REQ-1.4): DataProtectionKeys.</summary>
     public const string Dbo = "dbo";
 
-    /// <summary>Config/reference data: Positions, Offices, Levels, Divisions (MasterData module — first occupant,
-    /// masterdata-module). rf3 will add Provider/RoutingRule/GatewayConfig/FeeStructure to this same schema.
+    /// <summary>Config/reference data: Positions, Offices, Levels, Divisions — owned by the four standalone
+    /// reference modules Divisions/Levels/Offices/Positions (masterdata-split, 2026-07-19; they replace the
+    /// retired single master-data module that first occupied this schema). rf3 will add
+    /// Provider/RoutingRule/GatewayConfig/FeeStructure to this same schema.
     /// Control-plane, no RLS predicate (same rule as <see cref="Iam"/>).</summary>
     public const string Cfg = "cfg";
 }

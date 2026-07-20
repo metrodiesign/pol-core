@@ -12,8 +12,9 @@ namespace Architecture.Tests;
 /// (Tests legitimately use SqlConnection directly; they are not in scope here. <c>Persistence.Provisioning</c>
 /// is also excluded — its shared-connection UoW legitimately opens one raw connection per attempt, task 7.)
 /// <para>
-/// rls-to-query-filter REQ-11.3 (task 3): coverage extended to Admins/Iam/MasterData.Infrastructure (the
-/// requirement names these three explicitly) and the three new runtime Persistence assemblies. The exact
+/// rls-to-query-filter REQ-11.3 (task 3): coverage extended to Admins/Iam Infrastructure plus the four
+/// reference-module Infrastructure assemblies (masterdata-split — the requirement originally named the
+/// retired master-data module) and the three new runtime Persistence assemblies. The exact
 /// allowlist exception for the provisioning-integration UoW's shared-connection requirement (design.md
 /// section "Assembly split") is task 7's, once that assembly exists.
 /// </para>
@@ -31,7 +32,10 @@ public class RawConnectionTests
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
         typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
-        typeof(MasterData.Infrastructure.MasterDataModuleRegistration).Assembly,
+        typeof(global::Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
+        typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
+        typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
+        typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
         typeof(Persistence.ControlPlane.ControlPlaneDbContext).Assembly,
         typeof(Persistence.MerchantUsers.MerchantUserDbContext).Assembly,
         typeof(Persistence.MerchantRuntime.MerchantRuntimeDbContext).Assembly,

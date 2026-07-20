@@ -50,7 +50,10 @@ public sealed class EntitySchemaMappingTests : IDisposable
             typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
             typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
             typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
-            typeof(MasterData.Infrastructure.MasterDataModuleRegistration).Assembly,
+            typeof(global::Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
+            typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
+            typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
+            typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
         ]);
         _db = new PolDbContext(options, modules);
     }

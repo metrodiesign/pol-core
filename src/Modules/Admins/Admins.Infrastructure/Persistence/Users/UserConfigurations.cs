@@ -1,8 +1,8 @@
 using Admins.Domain.Users;
-using MasterData.Domain.Divisions;
-using MasterData.Domain.Levels;
-using MasterData.Domain.Offices;
-using MasterData.Domain.Positions;
+using Divisions.Domain;
+using Levels.Domain;
+using Offices.Domain;
+using Positions.Domain;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;

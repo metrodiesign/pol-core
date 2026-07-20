@@ -45,7 +45,10 @@ public sealed class ModelDisjointnessTests : IDisposable
             typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,
             typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
             typeof(global::Iam.Infrastructure.IamModuleRegistration).Assembly,
-            typeof(MasterData.Infrastructure.MasterDataModuleRegistration).Assembly,
+            typeof(global::Divisions.Infrastructure.DivisionsModuleRegistration).Assembly,
+            typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
+            typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
+            typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
         ]);
         _pol = new PolDbContext(
             new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_polConnection)
@@ -136,7 +139,7 @@ public sealed class ModelDisjointnessTests : IDisposable
 
     // Only entity types that own a physical table are comparable across contexts — owned/complex types
     // (Money) share their owner's table and report GetTableName() == null (same skip EntitySchemaMappingTests
-    // uses); a TPC abstract base (MasterDataItem) also reports null since only its concrete leaves own tables.
+    // uses). (The old TPC abstract base fell in the same bucket; gone since masterdata-split.)
     private static HashSet<Type> TableOwningTypes(DbContext context) =>
         [.. context.Model.GetEntityTypes().Where(e => e.GetTableName() is not null).Select(e => e.ClrType)];
 

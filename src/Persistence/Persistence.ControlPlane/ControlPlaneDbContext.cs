@@ -4,17 +4,19 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.DataProtection;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Provisioning;
+using Divisions.Domain;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
-using MasterData.Domain;
-using MasterData.Domain.Divisions;
-using MasterData.Domain.Levels;
-using MasterData.Domain.Offices;
-using MasterData.Domain.Positions;
+using Levels.Domain;
 using Microsoft.EntityFrameworkCore;
+using Offices.Domain;
 using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.Iam;
-using Persistence.ControlPlane.MasterData;
+using Positions.Domain;
+using Persistence.ControlPlane.Divisions;
+using Persistence.ControlPlane.Levels;
+using Persistence.ControlPlane.Offices;
+using Persistence.ControlPlane.Positions;
 
 namespace Persistence.ControlPlane;
 
@@ -68,7 +70,6 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new PermissionGroupConfiguration());
         modelBuilder.ApplyConfiguration(new PermissionConfiguration());
 
-        modelBuilder.ApplyConfiguration(new MasterDataConfiguration());
         modelBuilder.ApplyConfiguration(new PositionConfiguration());
         modelBuilder.ApplyConfiguration(new OfficeConfiguration());
         modelBuilder.ApplyConfiguration(new LevelConfiguration());

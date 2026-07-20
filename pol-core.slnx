@@ -34,20 +34,30 @@
     <Project Path="src/Modules/Checkouts/Checkouts.Domain/Checkouts.Domain.csproj" />
     <Project Path="src/Modules/Checkouts/Checkouts.Infrastructure/Checkouts.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Divisions/">
+    <Project Path="src/Modules/Divisions/Divisions.Application/Divisions.Application.csproj" />
+    <Project Path="src/Modules/Divisions/Divisions.Domain/Divisions.Domain.csproj" />
+    <Project Path="src/Modules/Divisions/Divisions.Infrastructure/Divisions.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Iam/">
     <Project Path="src/Modules/Iam/Iam.Application/Iam.Application.csproj" />
     <Project Path="src/Modules/Iam/Iam.Domain/Iam.Domain.csproj" />
     <Project Path="src/Modules/Iam/Iam.Infrastructure/Iam.Infrastructure.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/MasterData/">
-    <Project Path="src/Modules/MasterData/MasterData.Application/MasterData.Application.csproj" />
-    <Project Path="src/Modules/MasterData/MasterData.Domain/MasterData.Domain.csproj" />
-    <Project Path="src/Modules/MasterData/MasterData.Infrastructure/MasterData.Infrastructure.csproj" />
+  <Folder Name="/src/Modules/Levels/">
+    <Project Path="src/Modules/Levels/Levels.Application/Levels.Application.csproj" />
+    <Project Path="src/Modules/Levels/Levels.Domain/Levels.Domain.csproj" />
+    <Project Path="src/Modules/Levels/Levels.Infrastructure/Levels.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Merchants/">
     <Project Path="src/Modules/Merchants/Merchants.Application/Merchants.Application.csproj" />
     <Project Path="src/Modules/Merchants/Merchants.Domain/Merchants.Domain.csproj" />
     <Project Path="src/Modules/Merchants/Merchants.Infrastructure/Merchants.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Offices/">
+    <Project Path="src/Modules/Offices/Offices.Application/Offices.Application.csproj" />
+    <Project Path="src/Modules/Offices/Offices.Domain/Offices.Domain.csproj" />
+    <Project Path="src/Modules/Offices/Offices.Infrastructure/Offices.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Orders/">
     <Project Path="src/Modules/Orders/Orders.Application/Orders.Application.csproj" />
@@ -58,6 +68,11 @@
     <Project Path="src/Modules/Payments/Payments.Application/Payments.Application.csproj" />
     <Project Path="src/Modules/Payments/Payments.Domain/Payments.Domain.csproj" />
     <Project Path="src/Modules/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Positions/">
+    <Project Path="src/Modules/Positions/Positions.Application/Positions.Application.csproj" />
+    <Project Path="src/Modules/Positions/Positions.Domain/Positions.Domain.csproj" />
+    <Project Path="src/Modules/Positions/Positions.Infrastructure/Positions.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Products/">
     <Project Path="src/Modules/Products/Products.Application/Products.Application.csproj" />
@@ -70,12 +85,16 @@
     <Project Path="tests/BuildingBlocks.Tests/BuildingBlocks.Tests.csproj" />
     <Project Path="tests/Carts.Tests/Carts.Tests.csproj" />
     <Project Path="tests/Checkouts.Tests/Checkouts.Tests.csproj" />
+    <Project Path="tests/Divisions.Tests/Divisions.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
     <Project Path="tests/Iam.Tests/Iam.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
+    <Project Path="tests/Levels.Tests/Levels.Tests.csproj" />
     <Project Path="tests/Merchants.Tests/Merchants.Tests.csproj" />
+    <Project Path="tests/Offices.Tests/Offices.Tests.csproj" />
     <Project Path="tests/Orders.Tests/Orders.Tests.csproj" />
     <Project Path="tests/Payments.Tests/Payments.Tests.csproj" />
+    <Project Path="tests/Positions.Tests/Positions.Tests.csproj" />
     <Project Path="tests/Products.Tests/Products.Tests.csproj" />
     <Project Path="tests/SharedKernel.Tests/SharedKernel.Tests.csproj" />
   </Folder>

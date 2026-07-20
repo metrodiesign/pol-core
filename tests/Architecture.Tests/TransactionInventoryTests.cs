@@ -43,7 +43,10 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Iam/Iam.Application/Roles/UpdateRole.cs"] = 1,                                   // row 13
         ["src/Modules/Iam/Iam.Application/Roles/DeleteRole.cs"] = 1,                                   // row 12
         ["src/Modules/Iam/Iam.Application/Roles/CreateRole.cs"] = 1,                                   // row 11
-        ["src/Persistence/Persistence.ControlPlane/MasterData/MasterDataStore.cs"] = 2,                // rows 14+15 (task 8.5.1: moved from MasterData.Infrastructure)
+        ["src/Persistence/Persistence.ControlPlane/Divisions/DivisionStore.cs"] = 2,                   // rows 14+15 (masterdata-split: typed split of the old generic store)
+        ["src/Persistence/Persistence.ControlPlane/Levels/LevelStore.cs"] = 2,                         // rows 14+15 (masterdata-split)
+        ["src/Persistence/Persistence.ControlPlane/Offices/OfficeStore.cs"] = 2,                       // rows 14+15 (masterdata-split)
+        ["src/Persistence/Persistence.ControlPlane/Positions/PositionStore.cs"] = 2,                   // rows 14+15 (masterdata-split)
     };
 
     // The three IUnitOfWork implementations (task 8.5's "1 principal" collapse — one per runtime cluster) —

@@ -633,6 +633,33 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CheckoutSessions", "shop");
                 });
 
+            modelBuilder.Entity("Divisions.Domain.Division", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Divisions", "cfg");
+                });
+
             modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
                 {
                     b.Property<string>("Key")
@@ -749,7 +776,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("RolePermissions", "iam");
                 });
 
-            modelBuilder.Entity("MasterData.Domain.MasterDataItem", b =>
+            modelBuilder.Entity("Levels.Domain.Level", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -773,9 +800,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable((string)null);
-
-                    b.UseTpcMappingStrategy();
+                    b.ToTable("Levels", "cfg");
                 });
 
             modelBuilder.Entity("Merchants.Domain.Merchant", b =>
@@ -1182,6 +1207,33 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Users", "merch");
                 });
 
+            modelBuilder.Entity("Offices.Domain.Office", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Offices", "cfg");
+                });
+
             modelBuilder.Entity("Orders.Domain.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1363,6 +1415,33 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("PaymentSessions", "txn");
                 });
 
+            modelBuilder.Entity("Positions.Domain.Position", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Positions", "cfg");
+                });
+
             modelBuilder.Entity("Products.Domain.Product", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1408,34 +1487,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Products", "shop");
                 });
 
-            modelBuilder.Entity("MasterData.Domain.Divisions.Division", b =>
-                {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
-
-                    b.ToTable("Divisions", "cfg");
-                });
-
-            modelBuilder.Entity("MasterData.Domain.Levels.Level", b =>
-                {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
-
-                    b.ToTable("Levels", "cfg");
-                });
-
-            modelBuilder.Entity("MasterData.Domain.Offices.Office", b =>
-                {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
-
-                    b.ToTable("Offices", "cfg");
-                });
-
-            modelBuilder.Entity("MasterData.Domain.Positions.Position", b =>
-                {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
-
-                    b.ToTable("Positions", "cfg");
-                });
-
             modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
                 {
                     b.HasOne("Iam.Domain.Roles.Role", null)
@@ -1447,22 +1498,22 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Admins.Domain.Users.User", b =>
                 {
-                    b.HasOne("MasterData.Domain.Divisions.Division", null)
+                    b.HasOne("Divisions.Domain.Division", null)
                         .WithMany()
                         .HasForeignKey("DivisionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("MasterData.Domain.Levels.Level", null)
+                    b.HasOne("Levels.Domain.Level", null)
                         .WithMany()
                         .HasForeignKey("LevelId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("MasterData.Domain.Offices.Office", null)
+                    b.HasOne("Offices.Domain.Office", null)
                         .WithMany()
                         .HasForeignKey("OfficeId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("MasterData.Domain.Positions.Position", null)
+                    b.HasOne("Positions.Domain.Position", null)
                         .WithMany()
                         .HasForeignKey("PositionId")
                         .OnDelete(DeleteBehavior.Restrict);
