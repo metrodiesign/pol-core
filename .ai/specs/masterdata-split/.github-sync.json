@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "feature": "masterdata-split",
+  "repo": "metrodiesign/pol-core",
+  "epic": {
+    "issue": 113,
+    "nodeId": "I_kwDOTAp-Ws8AAAABJXMbrA",
+    "bodyHash": "sha256:11887d1d3ea159ae0e8210565dfe890d677fcaaa095e05bfa06b9457d1c9e35d"
+  },
+  "tasks": {
+    "1": {
+      "issue": 114,
+      "nodeId": "I_kwDOTAp-Ws8AAAABJXMfww",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:0841ca3ee069b46a2df65b82241adc3aa89142780ad129c175fda94a31df8684",
+      "state": "closed"
+    },
+    "2": {
+      "issue": 115,
+      "nodeId": "I_kwDOTAp-Ws8AAAABJXMj8A",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:4b9eb2b72c22caf890997178d88429ecce83453be6ebe8dbd2798e585c199b1a",
+      "state": "closed"
+    },
+    "3": {
+      "issue": 116,
+      "nodeId": "I_kwDOTAp-Ws8AAAABJXMoaQ",
+      "subIssueLinked": true,
+      "bodyHash": "sha256:074d6ef174a518cb5d3159b70226976b78d97181fa33199a7ab351a5a97ad676",
+      "state": "closed"
+    }
+  },
+  "lastSync": "2026-07-20T02:34:05Z",
+  "labelsEnsured": ["spec:masterdata-split", "spec-epic", "spec-task", "req-spine"]
+}

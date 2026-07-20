@@ -3,8 +3,6 @@ using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
-using MasterData.Application;
-using MasterData.Domain;
 using BuildingBlocks.Application;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
@@ -118,47 +116,33 @@ internal sealed class FakeAdminRoleRepository : IRoleRepository
     }
 }
 
-/// <summary>In-memory master-data store for handler tests. One flat list holds all four master types; the
-/// generic methods filter by concrete type via <c>OfType&lt;T&gt;</c> (mirrors the real per-table Set&lt;T&gt;()).
-/// Implements both the CRUD store (MasterData.Application) and Admins' lookup port (IMasterDataLookup) so one
-/// fake still stands in wherever either was injected pre-split.</summary>
-internal sealed class FakeMasterDataStore : IMasterDataStore, IMasterDataLookup
+/// <summary>In-memory profile-lookup fake for handler tests — enum-keyed rows (id/code/name/active), no
+/// reference-module types at all (masterdata-split: Admins.Tests no longer names Division/Level/Office/
+/// Position, matching Admins.Application's own zero-module-reference boundary).</summary>
+internal sealed class FakeProfileLookup : IProfileLookup
 {
-    public readonly List<MasterDataItem> Items = [];
+    public sealed record Row(Guid Id, string Code, string Name, bool IsActive);
 
-    public Task<PagedResult<MasterItem>> ListAsync<T>(int page, int limit, string? search, CancellationToken ct) where T : MasterDataItem
+    public readonly Dictionary<ProfileField, List<Row>> Items = [];
+
+    /// <summary>Seeds one row and returns its generated id (the FK the test hands to a command).</summary>
+    public Guid Add(ProfileField field, string code, string name, bool isActive = true)
     {
-        var all = Items.OfType<T>()
-            .Where(m => string.IsNullOrWhiteSpace(search) || m.Name.Contains(search!) || m.Code.Contains(search!))
-            .OrderBy(m => m.Name)
-            .Select(m => new MasterItem(m.Id, m.Code, m.Name, m.IsActive)).ToList();
-        var items = all.Skip((page - 1) * limit).Take(limit).ToList();
-        return Task.FromResult(new PagedResult<MasterItem>(items, page, limit, all.Count));
+        var row = new Row(Guid.NewGuid(), code, name, isActive);
+        if (!Items.TryGetValue(field, out var list))
+            Items[field] = list = [];
+        list.Add(row);
+        return row.Id;
     }
 
-    public Task<MasterItem> CreateAsync<T>(T entity, CancellationToken ct) where T : MasterDataItem
-    {
-        if (Items.OfType<T>().Any(m => m.Code == entity.Code))
-            throw new ConflictException($"A record with code '{entity.Code}' already exists.");
-        Items.Add(entity);
-        return Task.FromResult(new MasterItem(entity.Id, entity.Code, entity.Name, entity.IsActive));
-    }
+    public Task<bool> ExistsActiveAsync(ProfileField field, Guid id, CancellationToken ct) =>
+        Task.FromResult(Rows(field).Any(r => r.Id == id && r.IsActive));
 
-    public Task<MasterItem> UpdateAsync<T>(Guid id, string name, bool isActive, CancellationToken ct) where T : MasterDataItem
-    {
-        var e = Items.OfType<T>().FirstOrDefault(m => m.Id == id)
-            ?? throw new NotFoundException("The record was not found.");
-        e.Rename(name);
-        if (isActive) e.Activate(); else e.Deactivate();
-        return Task.FromResult(new MasterItem(e.Id, e.Code, e.Name, e.IsActive));
-    }
+    public Task<ProfileRef?> GetRefAsync(ProfileField field, Guid id, CancellationToken ct) =>
+        Task.FromResult<ProfileRef?>(Rows(field).Where(r => r.Id == id)
+            .Select(r => new ProfileRef(r.Id, r.Code, r.Name)).FirstOrDefault());
 
-    public Task<bool> ExistsActiveAsync<T>(Guid id, CancellationToken ct) where T : MasterDataItem =>
-        Task.FromResult(Items.OfType<T>().Any(m => m.Id == id && m.IsActive));
-
-    public Task<MasterRef?> GetRefAsync<T>(Guid id, CancellationToken ct) where T : MasterDataItem =>
-        Task.FromResult(Items.OfType<T>().Where(m => m.Id == id)
-            .Select(m => new MasterRef(m.Id, m.Code, m.Name)).FirstOrDefault());
+    private IEnumerable<Row> Rows(ProfileField field) => Items.TryGetValue(field, out var list) ? list : [];
 }
 
 internal sealed class FakeAdminMerchantDirectory : IAdminMerchantDirectory

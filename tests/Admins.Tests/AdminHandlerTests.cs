@@ -169,7 +169,7 @@ public sealed class AdminHandlerTests
         var admins = new FakePlatformUserRepository();
         var audit = new FakePlatformUserAuditWriter();
         var actingSuper = Guid.NewGuid();
-        var handler = new CreateScopedHandler(admins, audit, new FakeMasterDataStore(), new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateScopedHandler(admins, audit, new FakeProfileLookup(), new FakeUnitOfWork(), new FixedClock());
 
         var result = await handler.Handle(new CreateScopedCommand("scoped@org.com", actingSuper, "corr"), default);
 
@@ -188,7 +188,7 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakePlatformUserRepository();
         admins.Add(User.CreateScoped("scoped@org.com", Now));
-        var handler = new CreateScopedHandler(admins, new FakePlatformUserAuditWriter(), new FakeMasterDataStore(), new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateScopedHandler(admins, new FakePlatformUserAuditWriter(), new FakeProfileLookup(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ConflictException>(async () =>
             await handler.Handle(new CreateScopedCommand("scoped@org.com", Guid.NewGuid(), "corr"), default));

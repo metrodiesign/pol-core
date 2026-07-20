@@ -26,35 +26,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
-            modelBuilder.Entity("MasterData.Domain.MasterDataItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Code")
-                        .IsUnique();
-
-                    b.ToTable((string)null);
-
-                    b.UseTpcMappingStrategy();
-                });
-
             modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1319,30 +1290,110 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Products", "shop");
                 });
 
-            modelBuilder.Entity("MasterData.Domain.Divisions.Division", b =>
+            modelBuilder.Entity("Divisions.Domain.Division", b =>
                 {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
 
                     b.ToTable("Divisions", "cfg");
                 });
 
-            modelBuilder.Entity("MasterData.Domain.Levels.Level", b =>
+            modelBuilder.Entity("Levels.Domain.Level", b =>
                 {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
 
                     b.ToTable("Levels", "cfg");
                 });
 
-            modelBuilder.Entity("MasterData.Domain.Offices.Office", b =>
+            modelBuilder.Entity("Offices.Domain.Office", b =>
                 {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
 
                     b.ToTable("Offices", "cfg");
                 });
 
-            modelBuilder.Entity("MasterData.Domain.Positions.Position", b =>
+            modelBuilder.Entity("Positions.Domain.Position", b =>
                 {
-                    b.HasBaseType("MasterData.Domain.MasterDataItem");
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
 
                     b.ToTable("Positions", "cfg");
                 });
@@ -1358,22 +1409,22 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Admins.Domain.Users.User", b =>
                 {
-                    b.HasOne("MasterData.Domain.Divisions.Division", null)
+                    b.HasOne("Divisions.Domain.Division", null)
                         .WithMany()
                         .HasForeignKey("DivisionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("MasterData.Domain.Levels.Level", null)
+                    b.HasOne("Levels.Domain.Level", null)
                         .WithMany()
                         .HasForeignKey("LevelId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("MasterData.Domain.Offices.Office", null)
+                    b.HasOne("Offices.Domain.Office", null)
                         .WithMany()
                         .HasForeignKey("OfficeId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("MasterData.Domain.Positions.Position", null)
+                    b.HasOne("Positions.Domain.Position", null)
                         .WithMany()
                         .HasForeignKey("PositionId")
                         .OnDelete(DeleteBehavior.Restrict);

@@ -4,7 +4,7 @@
        dbo.DataProtectionKeys — rls-to-query-filter design.md "Context topology"). References the Domain
        projects of its cluster's modules + BuildingBlocks.Infrastructure (SchemaNames + the framework-owned
        DataProtectionKey type), AND each cluster module's Application project (to implement their ports —
-       IUserRepository/IRoleRepository/IMasterDataLookup etc., task 8.5.1) — never a module's Infrastructure
+       IUserRepository/IRoleRepository/IProfileLookup/the four reference-list stores etc.) — never a module's Infrastructure
        project, so this assembly still carries none of the old single-context repositories. -->
 
   <!-- FrameworkReference (not Sdk.Web) gives the ASP.NET Core Data Protection APIs (IXmlRepository) without
@@ -16,11 +16,17 @@
   <ItemGroup>
     <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Admins\Admins.Domain\Admins.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Divisions\Divisions.Domain\Divisions.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Domain\Iam.Domain.csproj" />
-    <ProjectReference Include="..\..\Modules\MasterData\MasterData.Domain\MasterData.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Levels\Levels.Domain\Levels.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Offices\Offices.Domain\Offices.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Positions\Positions.Domain\Positions.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Admins\Admins.Application\Admins.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Divisions\Divisions.Application\Divisions.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Iam\Iam.Application\Iam.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\MasterData\MasterData.Application\MasterData.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Levels\Levels.Application\Levels.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Offices\Offices.Application\Offices.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Positions\Positions.Application\Positions.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

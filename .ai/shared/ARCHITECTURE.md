@@ -171,6 +171,17 @@ Orders → Paid. จบ ไม่มี issuance.
   DB-level ตอนนี้อยู่ที่ principal เดียว `pol_app`, capability กันที่ app-layer `IWriteAuthorizer` แทน) — **rf3
   จะเติม payment config**
   (`Provider`/`RoutingRule`/`GatewayConfig`/`FeeStructure`) เข้า schema เดียวกัน. รายละเอียด: `.ai/specs/masterdata-module/`
+- Reference modules — **2026-07-19, spec `masterdata-split` (supersede bullet ก่อนหน้า)**: โมดูล `MasterData` ถูกแยกเป็น
+  **4 โมดูลอิสระ `Divisions`/`Levels`/`Offices`/`Positions`** (โมดูลละ 3 project ตาม template เดิม) แล้ว**ลบทิ้งทั้งโมดูล** —
+  ไม่มี shared base/interface ของ master data เหลือที่ใดเลย (user ปฏิเสธการ hoist ไป SharedKernel/BuildingBlocks): entity
+  standalone ต่อโมดูล (logic เดิมของ base ฝัง inline), typed store `IDivisionStore` ฯลฯ ใน `X.Application`, impl + runtime
+  config ใน `Persistence.ControlPlane` (โฟลเดอร์ต่อโมดูล, keyed `"admin"` UoW เดิม). `Admins.Application` เลิกอ้างโมดูลใดเลย —
+  port ใหม่ `IProfileLookup` enum-keyed (`ProfileField`/`ProfileRef`); `Admins.Infrastructure` เป็นชั้นเดียวที่อ้าง 4 Domain
+  (FK config `HasOne<X>()` ของ `admin.Users` -> `cfg.*`). ตาราง (`cfg.*` เดิม), route
+  (`/api/v1/admins/{positions|offices|levels|divisions}`), permission (`user.manage`), wire DTO, seed ทุกแถว — **ไม่เปลี่ยนเลย**
+  (DDL identity พิสูจน์ด้วย temp migration ว่าง). Identifier เก่า (`MasterData*`, `IMasterDataStore`, `IMasterDataLookup`,
+  `MasterItem`, `MasterRef`) เป็น retired token ใน rename gate แล้ว. Boundary บังคับด้วย
+  `Architecture.Tests/RefModulesArchitectureTests.cs` (Theory ครอบ 4 โมดูล, fail-closed). รายละเอียด: `.ai/specs/masterdata-split/`
 - Maker-checker (approve merchant, เปลี่ยน routing, แก้ allowlist) · idempotency (multi-key + outbox) · audit log (append-only + tamper-evident)
 - Provisioning = **saga** (DB กับ vault คนละ store, ไม่มี distributed tx): `PendingProvisioning` → write DB → write vault (idempotency key) → verify → activate ขั้นสุดท้าย → compensation/retry. validate (allowlist+schema) ก่อนเขียน + idempotent ด้วย merchant key. provision merchant ใหม่ = **Super-only ที่ app floor** (supersede rf1 REQ-3.7's DB-policy BLOCK — RLS ถอดแล้ว; control
 ใหม่ = `ProvisioningCoordinator`, task 7: `WITH (UPDLOCK, HOLDLOCK)` recheck ว่า caller เป็น active Super ที่

@@ -20,12 +20,10 @@ using Carts.Infrastructure;
 using Checkouts.Application;
 using Checkouts.Infrastructure;
 using Mediator;
-using MasterData.Application;
-using MasterData.Domain;
-using MasterData.Domain.Divisions;
-using MasterData.Domain.Levels;
-using MasterData.Domain.Offices;
-using MasterData.Domain.Positions;
+using Divisions.Application;
+using Levels.Application;
+using Offices.Application;
+using Positions.Application;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -1402,7 +1400,7 @@ static string SessionStatusToWire(SessionStatus s) => s switch
 };
 static AdminListItemResponse AdminToWire(UserListItem a) =>
     new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
-static MasterRefResponse? MasterRefToWire(MasterRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
+static MasterRefResponse? MasterRefToWire(ProfileRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
 static PlatformUserSessionResponse SessionToWire(SessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
         v.CreatedIp, v.UserAgent, v.IsLive);
@@ -1599,24 +1597,44 @@ admin.MapPut("/{id:guid}/profile", async (
 // `admin` group with no /master-data wrapper (D11 — the wrapper was a code-organisation word, not a resource;
 // each list is already its own collection) so the group's auth + AdminCsrfFilter still apply; all writes gated
 // user.manage. List/Create/Update only — masters are soft-deactivated via IsActive, never hard-deleted (the FK
-// is Restrict). One generic registration per list. Safe against /admins/{id:guid}: that route is
-// guid-constrained and a literal segment beats a parameter at the same depth (design §4).
-MapMasterCrud<Position>(admin, "positions", Position.Create);
-MapMasterCrud<Office>(admin, "offices", Office.Create);
-MapMasterCrud<Level>(admin, "levels", Level.Create);
-MapMasterCrud<Division>(admin, "divisions", Division.Create);
+// is Restrict). One generic registration per list (delegate-parameterized since masterdata-split — the four
+// modules share no base type; the host merely notices the shapes rhyme). Safe against /admins/{id:guid}: that
+// route is guid-constrained and a literal segment beats a parameter at the same depth (design §4).
+MapMasterCrud<IPositionStore, PositionItem>(admin, "positions",
+    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, c, n, ct) => s.CreateAsync(c, n, ct),
+    (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
+MapMasterCrud<IOfficeStore, OfficeItem>(admin, "offices",
+    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, c, n, ct) => s.CreateAsync(c, n, ct),
+    (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
+MapMasterCrud<ILevelStore, LevelItem>(admin, "levels",
+    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, c, n, ct) => s.CreateAsync(c, n, ct),
+    (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
+MapMasterCrud<IDivisionStore, DivisionItem>(admin, "divisions",
+    (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
+    (s, c, n, ct) => s.CreateAsync(c, n, ct),
+    (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
 
-static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<string, string, T> create)
-    where T : MasterDataItem
+static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segment,
+    Func<TStore, int, int, string?, CancellationToken, Task<PagedResult<TItem>>> list,
+    Func<TStore, string, string, CancellationToken, Task<TItem>> create,
+    Func<TStore, Guid, string, bool, CancellationToken, Task<TItem>> update,
+    Func<TItem, MasterResponse> toWire) where TStore : class
 {
     // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
     // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
-    parent.MapGet($"/{segment}", async (HttpContext http, IMasterDataStore store, CancellationToken ct) =>
+    parent.MapGet($"/{segment}", async (HttpContext http, TStore store, CancellationToken ct) =>
     {
         var p = SfsQueryParser.Parse(http.Request.Query);
-        var result = await store.ListAsync<T>(p.Page, p.Limit, p.Search?.Query, ct);
+        var result = await list(store, p.Page, p.Limit, p.Search?.Query, ct);
         return Results.Ok(new PagedResult<MasterResponse>(
-            [.. result.Items.Select(m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive))],
+            [.. result.Items.Select(toWire)],
             result.Page, result.Limit, result.Total));
     }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
@@ -1626,11 +1644,11 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    parent.MapPost($"/{segment}", async (MasterWriteRequest body, IMasterDataStore store, CancellationToken ct) =>
+    parent.MapPost($"/{segment}", async (MasterWriteRequest body, TStore store, CancellationToken ct) =>
     {
-        var item = await store.CreateAsync(create(body.Code ?? "", body.Name ?? ""), ct);
-        return Results.Created($"/api/v1/admins/{segment}/{item.Id}",
-            new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
+        var item = await create(store, body.Code ?? "", body.Name ?? "", ct);
+        var wire = toWire(item);
+        return Results.Created($"/api/v1/admins/{segment}/{wire.Id}", wire);
     }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"Create{segment}")
@@ -1642,10 +1660,10 @@ static void MapMasterCrud<T>(RouteGroupBuilder parent, string segment, Func<stri
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    parent.MapPut($"/{segment}/{{id:guid}}", async (Guid id, MasterUpdateRequest body, IMasterDataStore store, CancellationToken ct) =>
+    parent.MapPut($"/{segment}/{{id:guid}}", async (Guid id, MasterUpdateRequest body, TStore store, CancellationToken ct) =>
     {
-        var item = await store.UpdateAsync<T>(id, body.Name ?? "", body.IsActive, ct);
-        return Results.Ok(new MasterResponse(item.Id, item.Code, item.Name, item.IsActive));
+        var item = await update(store, id, body.Name ?? "", body.IsActive, ct);
+        return Results.Ok(toWire(item));
     }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags("Admin Master Data")
         .WithName($"Update{segment}")

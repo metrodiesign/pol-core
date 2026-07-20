@@ -1,9 +1,5 @@
 using Admins.Application.Roles;
 using Admins.Domain.Users;
-using MasterData.Domain.Divisions;
-using MasterData.Domain.Levels;
-using MasterData.Domain.Offices;
-using MasterData.Domain.Positions;
 using BuildingBlocks.Application;
 using Mediator;
 
@@ -28,9 +24,9 @@ public sealed record GetAdminByIdQuery(Guid AdminId) : IQuery<Detail?>;
 public sealed record Detail(
     Guid AdminId, string Email, Tier Tier, UserStatus Status, DateTime CreatedAt,
     bool SubjectBound, AccessibleMerchants Accessible, IReadOnlyList<string> RoleCodes,
-    MasterRef? Position, MasterRef? Office, MasterRef? Level, MasterRef? Division);
+    ProfileRef? Position, ProfileRef? Office, ProfileRef? Level, ProfileRef? Division);
 
-public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository roles, IMasterDataLookup masters)
+public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository roles, IProfileLookup masters)
     : IQueryHandler<GetAdminByIdQuery, Detail?>
 {
     public async ValueTask<Detail?> Handle(GetAdminByIdQuery query, CancellationToken ct)
@@ -44,10 +40,10 @@ public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository 
         var roleCodes = await roles.ListRoleCodesForAdminAsync(account.Id, ct);
 
         // Resolve each set org-profile FK to its display reference (null when unset).
-        var position = account.PositionId is { } pid ? await masters.GetRefAsync<Position>(pid, ct) : null;
-        var office = account.OfficeId is { } oid ? await masters.GetRefAsync<Office>(oid, ct) : null;
-        var level = account.LevelId is { } lid ? await masters.GetRefAsync<Level>(lid, ct) : null;
-        var division = account.DivisionId is { } did ? await masters.GetRefAsync<Division>(did, ct) : null;
+        var position = account.PositionId is { } pid ? await masters.GetRefAsync(ProfileField.Position, pid, ct) : null;
+        var office = account.OfficeId is { } oid ? await masters.GetRefAsync(ProfileField.Office, oid, ct) : null;
+        var level = account.LevelId is { } lid ? await masters.GetRefAsync(ProfileField.Level, lid, ct) : null;
+        var division = account.DivisionId is { } did ? await masters.GetRefAsync(ProfileField.Division, did, ct) : null;
 
         return new Detail(
             account.Id, account.Email, account.Tier, account.Status, account.CreatedAt,

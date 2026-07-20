@@ -6,10 +6,13 @@
     <!-- Iam.Domain is a published language (rf2) — this repo queries iam.Roles/iam.RolePermissions directly
          for assignment resolution; only Iam.Domain, never Iam.Application/Infrastructure. -->
     <ProjectReference Include="..\..\Iam\Iam.Domain\Iam.Domain.csproj" />
-    <!-- MasterData.Domain is a published language (masterdata-module) — this repo queries cfg.Positions/Offices/
-         Levels/Divisions directly for the profile-FK lookup port; only MasterData.Domain, never
-         MasterData.Application/Infrastructure. -->
-    <ProjectReference Include="..\..\MasterData\MasterData.Domain\MasterData.Domain.csproj" />
+    <!-- masterdata-split: the ONLY Admins layer that names the four reference entity types — the User->cfg.*
+         FK configs (HasOne<Position/Office/Level/Division>) live here. Only each module's Domain, never its
+         Application/Infrastructure. -->
+    <ProjectReference Include="..\..\Divisions\Divisions.Domain\Divisions.Domain.csproj" />
+    <ProjectReference Include="..\..\Levels\Levels.Domain\Levels.Domain.csproj" />
+    <ProjectReference Include="..\..\Offices\Offices.Domain\Offices.Domain.csproj" />
+    <ProjectReference Include="..\..\Positions\Positions.Domain\Positions.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

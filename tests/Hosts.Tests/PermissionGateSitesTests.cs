@@ -18,7 +18,7 @@ namespace Hosts.Tests;
 //
 // 20 gate SITES in source (REQ-4.5: admin 13 + merchant-user 7) map to more than 20 physical ROUTES at runtime
 // because Admin's master-data CRUD (positions/offices/levels/divisions) instantiates the SAME generic
-// MapMasterCrud<T> body four times. This inventory pins one representative segment ("positions") for that
+// MapMasterCrud<TStore, TItem> body four times. This inventory pins one representative segment ("positions") for that
 // generic body — the other three segments are the identical generic instantiation, not independent gate
 // sites — landing back on exactly 20 pinned endpoints (7 + 13). PermissionParityTests.RealGateSites is the
 // source-level completeness check (10 distinct (key, policy) pairs covering all 20 call sites incl. duplicates).
