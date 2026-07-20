@@ -24,7 +24,7 @@
 set -u
 
 ENGINE="$(cd "$(dirname "$0")/../../../.ai/bin" && pwd)/gate-task.sh"
-CLAUDE_HOOK="$(cd "$(dirname "$0")/.." && pwd)/task-gate.sh"
+CLAUDE_HOOK="$(cd "$(dirname "$0")/../../../.claude/hooks" && pwd)/task-gate.sh"
 pass=0
 fail=0
 

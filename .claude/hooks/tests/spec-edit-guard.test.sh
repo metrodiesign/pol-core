@@ -20,7 +20,7 @@
 set -u
 
 ENGINE="$(cd "$(dirname "$0")/../../../.ai/bin" && pwd)/check-spec-edit.sh"
-CLAUDE_HOOK="$(cd "$(dirname "$0")/.." && pwd)/spec-edit-guard.sh"
+CLAUDE_HOOK="$(cd "$(dirname "$0")/../../../.claude/hooks" && pwd)/spec-edit-guard.sh"
 CODEX_HOOK="$(cd "$(dirname "$0")/../../../.codex/hooks" && pwd)/spec-edit-guard.sh"
 pass=0
 fail=0
