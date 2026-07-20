@@ -14,10 +14,15 @@ GO
 
 DECLARE @fail nvarchar(max) = N'';
 
--- --- Schemas (7) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
+-- --- Schemas (6) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
 IF (SELECT COUNT(*) FROM sys.schemas s JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
-    WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'sec', N'shop', N'txn') AND dp.name = N'dbo') <> 7
-    SET @fail += N'schemas: expected 7 of {admin,cfg,iam,merch,sec,shop,txn} owned by dbo; ';
+    WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'shop', N'txn') AND dp.name = N'dbo') <> 6
+    SET @fail += N'schemas: expected 6 of {admin,cfg,iam,merch,shop,txn} owned by dbo; ';
+
+-- --- sec schema itself must not exist (DropEmptySecSchema — RlsTeardownAndOnePrincipal already
+-- tore down every object inside it; this migration drops the now-empty container) ---
+IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'sec')
+    SET @fail += N'schema sec must not exist; ';
 
 -- --- Raw table: merch.RegistrationNotices (ExcludeFromMigrations — EF never diffs/creates it) ---
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
