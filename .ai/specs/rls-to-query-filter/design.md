@@ -74,6 +74,7 @@
 | 21 | HandlePspWebhook | txn.IdempotencyRecords + txn.PaymentSessions + `MerchantRuntimeOutbox` | no | MerchantRuntime single |
 | 22 | VaultRevealAuditWriter (`BeginTransactionAsync`) | merch.VaultRevealAudits (applock + append) | no | MerchantRuntime single (R1-v7 #6 — not an `ExecuteInTransactionAsync`); task 6 adds `VaultAuditAppender` (`Persistence.MerchantRuntime/Vault`) as the app-layer `sp_getapplock` replacement for `sec.usp_vault_audit_head` — proven standalone (SQLite unit + real-SQL-Server concurrent-N-writer integration test), not yet the live `IVaultRevealAuditWriter` implementation (task 8 grants `pol_app` SELECT on the table + flips the DI registration as part of the 1-principal collapse) |
 | 23 | ChangeAdminTier (task 4, new REQ-4.11 "Tier" invalidation-matrix source — no prior handler existed) | admin.Users (Tier + AuthorizationVersion) + admin.UserAudits | no | ControlPlane single |
+| 24 | Reference-list Deactivate (Division/Level/Office/Position stores — masterdata-full-crud follow-up: typed x4, 1 tx site/store, soft-deactivate only via `IsActive`) | cfg.* | no | ControlPlane single |
 
 > **Inventory gate covers ALL transaction APIs** (R1-v7 #6), not only `ExecuteInTransactionAsync`: also
 > `BeginTransaction(Async)`, `UseTransaction`, `TransactionScope`, raw-connection transactions — a CI scan fails on any
