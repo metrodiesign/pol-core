@@ -29,6 +29,9 @@
          types resolved through the ApiHost::/WorkerHost:: aliases above. -->
     <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
+    <!-- Unaliased: MerchantRuntimeDbContext is internal, reached via the InternalsVisibleTo grant that project
+         gives Hosts.Tests directly (insurance-pivot task 0's real-write-floor proof), not via an assembly alias. -->
+    <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
   </ItemGroup>
 
 </Project>
