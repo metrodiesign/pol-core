@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Orders.Domain;
+using Orders.Domain.Lines;
 
 namespace Orders.Application;
 
@@ -34,8 +35,13 @@ public sealed class CheckoutConfirmedConsumer : INotificationHandler<CheckoutCon
         if (existing is not null)
             return; // idempotent skip
 
+        var lines = notification.Lines
+            .Select(l => new OrderLineInput(
+                l.ProductId, l.Quantity, l.UnitPrice, l.SumInsured, l.CoverageDurationDays, l.Insurer,
+                l.InsuredFirstName, l.InsuredLastName, l.InsuredIdNumber, l.InsuredDateOfBirth))
+            .ToList();
         var order = Order.Create(
-            notification.MerchantId, notification.Amount, _clock.UtcNow,
+            notification.MerchantId, notification.Amount, _clock.UtcNow, lines,
             checkoutSessionId: notification.CheckoutSessionId, notificationRecipient: notification.Recipient);
         _orders.Add(order);
 

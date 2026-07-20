@@ -19,7 +19,9 @@ public sealed class OrderPaidConsumerTests
 
     // Mirrors the production path: CheckoutConfirmedConsumer opens orders WITHOUT a payment session id.
     private static Order ProductionOrder(decimal amount = 15000m, string currency = "THB") =>
-        Order.Create(Merchant, Money.Of(amount, currency), At, checkoutSessionId: Guid.NewGuid());
+        Order.Create(
+            Merchant, Money.Of(amount, currency), At, OrderLineInputs.OneLine(Money.Of(amount, currency)),
+            checkoutSessionId: Guid.NewGuid());
 
     private static PaymentPaid PaidEvent(Order order, decimal amount = 15000m, string currency = "THB") => new(
         PaymentSessionId: Guid.NewGuid(),

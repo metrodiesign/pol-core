@@ -15,7 +15,7 @@ public sealed class OrderMarkPaidTests
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
 
     private static Order NewOrder(decimal amount = 15000m, string currency = "THB") =>
-        Order.Create(MerchantId, Money.Of(amount, currency), At);
+        Order.Create(MerchantId, Money.Of(amount, currency), At, OrderLineInputs.OneLine(Money.Of(amount, currency)));
 
     [Fact]
     public void MarkPaid_with_matching_amount_transitions_to_Paid_and_raises_event_once()

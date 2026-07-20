@@ -2,8 +2,23 @@ using BuildingBlocks.Application;
 using Mediator;
 using Orders.Application;
 using Orders.Domain;
+using Orders.Domain.Lines;
+using SharedKernel;
 
 namespace Orders.Tests;
+
+/// <summary>Shared valid <see cref="OrderLineInput"/> sample for tests that only care about Order's state
+/// machine/notification behavior, not insurance-line specifics (insurance-pivot task 3 — <c>Order.Create</c>
+/// now always requires at least one line).</summary>
+internal static class OrderLineInputs
+{
+    private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    public static IReadOnlyList<OrderLineInput> OneLine(Money unitPrice) =>
+        [new OrderLineInput(
+            Guid.NewGuid(), 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
+            "Somchai", "Jaidee", "1234567890123", Dob)];
+}
 
 internal sealed class FakeOutbox : IOutbox
 {

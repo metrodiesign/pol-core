@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Orders.Domain;
+using Orders.Domain.Lines;
 using SharedKernel;
 
 namespace Orders.Application;
@@ -10,10 +11,13 @@ namespace Orders.Application;
 /// Opens a new order awaiting payment for the active merchant. Merchant-scoped: rejected by the merchant
 /// guard if no merchant is bound to the request (PLAN decision #4). An optional notification
 /// <paramref name="Recipient"/> (the customer's email/phone, set at checkout) drives the summary-link
-/// notification; absent means no notification is enqueued.
+/// notification; absent means no notification is enqueued. <paramref name="Lines"/> is required (insurance-
+/// pivot REQ-6.2/6.7 — <see cref="Order.Create"/> now rejects an empty order for every creation path, not
+/// just the checkout one).
 /// </summary>
 public sealed record CreateOrderCommand(
-    Guid MerchantId, Money Amount, string? Recipient = null, Guid? CheckoutSessionId = null)
+    Guid MerchantId, Money Amount, IReadOnlyList<OrderLineInput> Lines, string? Recipient = null,
+    Guid? CheckoutSessionId = null)
     : ICommand<CreateOrderResult>, IMerchantScoped;
 
 /// <summary>The identity of the newly created order.</summary>
@@ -38,7 +42,7 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
 
     public async ValueTask<CreateOrderResult> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
-        var order = Order.Create(command.MerchantId, command.Amount, _clock.UtcNow,
+        var order = Order.Create(command.MerchantId, command.Amount, _clock.UtcNow, command.Lines,
             checkoutSessionId: command.CheckoutSessionId, notificationRecipient: command.Recipient);
 
         _orders.Add(order);

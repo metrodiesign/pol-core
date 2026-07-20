@@ -18,8 +18,12 @@ using CartItem = Carts.Domain.Items.Item;
 using CheckoutSession = Checkouts.Domain.Session;
 using PaymentSession = Payments.Domain.Session;
 using OrderAggregate = Orders.Domain.Order;
+using OrderLine = Orders.Domain.Lines.Line;
+using CheckoutSessionLine = Checkouts.Domain.Lines.Line;
 using CheckoutSessionConfiguration = Persistence.MerchantRuntime.Checkouts.SessionConfiguration;
 using PaymentSessionConfiguration = Persistence.MerchantRuntime.Payments.SessionConfiguration;
+using OrderLineConfiguration = Persistence.MerchantRuntime.Orders.Lines.LineConfiguration;
+using CheckoutSessionLineConfiguration = Persistence.MerchantRuntime.Checkouts.Lines.LineConfiguration;
 // Fully-qualified (not `using`-imported) to avoid colliding with the same-named entity-OWNING namespaces
 // above (BuildingBlocks.Infrastructure.Idempotency/Outbox/Vault) — this context uses its OWN filtered
 // configs for these four BuildingBlocks-owned entities, not the migration-owner's unfiltered ones.
@@ -59,7 +63,9 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     public DbSet<CartAggregate> Carts => Set<CartAggregate>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<CheckoutSession> CheckoutSessions => Set<CheckoutSession>();
+    public DbSet<CheckoutSessionLine> CheckoutSessionLines => Set<CheckoutSessionLine>();
     public DbSet<OrderAggregate> Orders => Set<OrderAggregate>();
+    public DbSet<OrderLine> OrderLines => Set<OrderLine>();
 
     public DbSet<PaymentSession> PaymentSessions => Set<PaymentSession>();
     public DbSet<Connection> PspConnections => Set<Connection>();
@@ -77,7 +83,9 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new CartConfiguration(this));
         modelBuilder.ApplyConfiguration(new ItemConfiguration(this));
         modelBuilder.ApplyConfiguration(new CheckoutSessionConfiguration(this));
+        modelBuilder.ApplyConfiguration(new CheckoutSessionLineConfiguration(this));
         modelBuilder.ApplyConfiguration(new OrderConfiguration(this));
+        modelBuilder.ApplyConfiguration(new OrderLineConfiguration(this));
 
         modelBuilder.ApplyConfiguration(new PaymentSessionConfiguration(this));
         modelBuilder.ApplyConfiguration(new ConnectionConfiguration(this));

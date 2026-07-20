@@ -14,7 +14,7 @@ public sealed class ResendOrderSummaryHandlerTests
     [Fact]
     public async Task Resend_rotates_the_token_extends_the_expiry_and_saves()
     {
-        var order = Order.Create(MerchantId, Money.Of(15000, "THB"), Created);
+        var order = Order.Create(MerchantId, Money.Of(15000, "THB"), Created, OrderLineInputs.OneLine(Money.Of(15000, "THB")));
         var oldToken = order.SummaryToken;
         var clock = new FixedClock { UtcNow = Created.AddHours(5) };
         var uow = new FakeUnitOfWork();
@@ -32,7 +32,9 @@ public sealed class ResendOrderSummaryHandlerTests
     [Fact]
     public async Task Resend_enqueues_a_notification_with_the_rotated_token_when_a_recipient_was_captured()
     {
-        var order = Order.Create(MerchantId, Money.Of(15000, "THB"), Created, notificationRecipient: "buyer@example.com");
+        var order = Order.Create(
+            MerchantId, Money.Of(15000, "THB"), Created, OrderLineInputs.OneLine(Money.Of(15000, "THB")),
+            notificationRecipient: "buyer@example.com");
         var clock = new FixedClock { UtcNow = Created.AddHours(5) };
         var outbox = new FakeOutbox();
         var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), outbox, new FakeUnitOfWork(), clock);
@@ -58,7 +60,7 @@ public sealed class ResendOrderSummaryHandlerTests
     [Fact]
     public async Task Resend_rejects_an_order_that_is_no_longer_awaiting_payment()
     {
-        var order = Order.Create(MerchantId, Money.Of(15000, "THB"), Created);
+        var order = Order.Create(MerchantId, Money.Of(15000, "THB"), Created, OrderLineInputs.OneLine(Money.Of(15000, "THB")));
         order.Cancel();
         var handler = new ResendOrderSummaryHandler(new FakeOrderRepository(order), new FakeOutbox(), new FakeUnitOfWork(), new FixedClock());
 
