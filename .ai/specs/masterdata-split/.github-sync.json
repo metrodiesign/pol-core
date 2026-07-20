@@ -12,24 +12,24 @@
       "issue": 114,
       "nodeId": "I_kwDOTAp-Ws8AAAABJXMfww",
       "subIssueLinked": true,
-      "bodyHash": "sha256:91ecc267cf5494ed5fedf259727481d28224b9e19df9bbd383f08f34886f1ec3",
-      "state": "open"
+      "bodyHash": "sha256:0841ca3ee069b46a2df65b82241adc3aa89142780ad129c175fda94a31df8684",
+      "state": "closed"
     },
     "2": {
       "issue": 115,
       "nodeId": "I_kwDOTAp-Ws8AAAABJXMj8A",
       "subIssueLinked": true,
-      "bodyHash": "sha256:a55ecb7fea2f4b24edc9c262ab1d6e9dcaa0fb1443499b45db7f315217d5dfb2",
-      "state": "open"
+      "bodyHash": "sha256:4b9eb2b72c22caf890997178d88429ecce83453be6ebe8dbd2798e585c199b1a",
+      "state": "closed"
     },
     "3": {
       "issue": 116,
       "nodeId": "I_kwDOTAp-Ws8AAAABJXMoaQ",
       "subIssueLinked": true,
-      "bodyHash": "sha256:13d13993fe9f6c5115f5f459e2768aa46002f253c6c0015d99d085879b7439a9",
-      "state": "open"
+      "bodyHash": "sha256:074d6ef174a518cb5d3159b70226976b78d97181fa33199a7ab351a5a97ad676",
+      "state": "closed"
     }
   },
-  "lastSync": "2026-07-19T15:32:20Z",
+  "lastSync": "2026-07-20T02:34:05Z",
   "labelsEnsured": ["spec:masterdata-split", "spec-epic", "spec-task", "req-spine"]
 }
