@@ -625,20 +625,25 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 **บทบาท**
 - `Product`: `Name`, ราคาเป็น `Money` (minor units + currency — สองคอลัมน์ scalar), `IsActive`
-- เป็น source ของราคาเสมอ — Cart ดึงราคาจาก catalog ตอน add item, ไม่รับราคาจาก client
+- ฟิลด์แผนประกันบน `Product` เอง (insurance-pivot, ไม่ต้องรอ `ProductVersion` เป้าหมายด้านล่าง): `SumInsured`
+  (ทุนเอาประกัน, `Money`), `CoverageDurationDays` (ระยะเวลาคุ้มครองเป็นวัน), `Insurer` (ชื่อบริษัทประกันภัย) —
+  validate ตอน `Create` (จำนวนเป็นบวก, `Insurer` ไม่ว่าง, currency ของ `SumInsured` ตรงกับ `Price`)
+- เป็น source ของราคา**และเงื่อนไขประกัน**เสมอ — ทั้ง Cart (ราคา) และ Checkout (เงื่อนไขประกัน, ดู §7) ดึงจาก
+  catalog ตอนทำรายการ, ไม่รับราคาหรือเงื่อนไขประกันจาก client
 - endpoints: `POST /products` (tenant Bearer หรือ producer + `product.create`), `GET /products` (แบ่งหน้า/กรอง/เรียงตาม [search-filter-sort.md](search-filter-sort.md))
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
-| สร้างสินค้า | `POST /products` (tenant Bearer หรือ producer + `product.create`) | มีแล้ว |
+| สร้างสินค้า | `POST /products` (tenant Bearer หรือ producer + `product.create`) — body รับ `SumInsured`/`CoverageDurationDays`/`Insurer` ด้วย | มีแล้ว |
 | ราคาเป็น `Money` + source of truth | Cart ดึงราคาจาก catalog ตอน add — ไม่รับราคาจาก client; `Price` เป็น unmapped computed (project scalar สองคอลัมน์) | มีแล้ว |
+| เงื่อนไขแผนประกันบน `Product` | `SumInsured`/`CoverageDurationDays`/`Insurer` — snapshot เข้า `OrderLine` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (insurance-pivot) |
 | List + ค้นหา/กรอง/เรียง | `GET /products` ตาม SFS convention (JSON-DSL) — implement แล้ว (`ProductSfs`) | มีแล้ว |
-| Query รายตัวภายใน | `GetProductById` ผ่าน Mediator — ผู้ใช้คือ Cart ตอน add item (ไม่มี public endpoint) | มีแล้ว |
+| Query รายตัวภายใน | `GetProductById` ผ่าน Mediator — ผู้ใช้คือ Cart/Checkout ตอน add item / เริ่ม checkout (ไม่มี public endpoint) | มีแล้ว |
 | แก้ไข/ปิดสินค้า | target: `POST /api/producer/v1/products/{productId}/activate|deactivate` — `IsActive` มี field และ permission `product.update` จองแล้ว แต่ไม่มี endpoint | ยังไม่มี (ข้อ 11) |
 | อ่านรายตัว public | target: `GET /api/producer/v1/products/{productId}` สำหรับหน้า detail ฝั่ง console | ยังไม่มี |
-| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — ครอบ field เฉพาะประกันภัยเดิม (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) | ยังไม่มี |
+| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot ใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` ไปก่อนแล้ว (ไม่มี versioning/immutability — แก้ `Product` เปลี่ยนเงื่อนไขได้ทันที, ไม่กระทบ order ที่จ่ายแล้วเพราะ snapshot เข้า `OrderLine` แล้ว) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
 
 **โมเดลเป้าหมายเชิง API**
 
@@ -655,7 +660,10 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 **ความสัมพันธ์** — `CartItem` อ้าง `ProductId`; ราคาถูก snapshot เข้า cart ตอนหยิบ
 
-**สถานะ: มีแล้ว** — ปัจจุบันเป็น generic catalog item ราคาเดียว; target ยกระดับเป็น Product/ProductVersion/ProductQuote (ยังไม่เริ่ม); ยังไม่มีเส้นทางแก้ไข/ปิดสินค้า
+**สถานะ: มีแล้ว** — ไม่ใช่ generic catalog item อีกต่อไป (insurance-pivot): มีฟิลด์เฉพาะแผนประกัน
+(`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` แล้ว; target ยกระดับเป็น
+Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ยังไม่มี versioning/immutability — ยังไม่เริ่ม);
+ยังไม่มีเส้นทางแก้ไข/ปิดสินค้า
 
 ---
 

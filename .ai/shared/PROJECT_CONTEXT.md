@@ -10,9 +10,12 @@
 
 ## Purpose
 
-**Internal Payment Orchestration Platform (captive)** — SaaS อีคอมเมิร์ซประกันภัย multi-tenant
-ที่ให้บริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) รับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
-(2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** — เรา "ใช้" PSP ไม่ใช่ "เป็น" PSP
+**Internal Insurance Sales + Payment Platform (captive)** — SaaS ขาย**แผนประกันภัย** multi-tenant
+ที่ให้บริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) ขายแผนประกัน (`Product` พก `SumInsured`/
+`CoverageDurationDays`/`Insurer` จริง ไม่ใช่ generic catalog item) ให้ลูกค้า พร้อมรับชำระเงินผ่าน PSP
+ที่ถือใบอนุญาตอยู่แล้ว (2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** —
+เรา "ใช้" PSP ไม่ใช่ "เป็น" PSP; แพลตฟอร์มเป็น sales + payment channel เท่านั้น — **ไม่ออกกรมธรรม์เอง**
+(ดู Non-Goals)
 
 ระบบคือ scope เดียวกัน มี 5 โมดูล (Products · Cart · Checkout · Orders · Payments) คุยกันผ่าน
 **Mediator (martinothamar/Mediator)** แบบ modular ไม่อ้างถึงกันตรง — โมดูลที่ build out มากสุดคือ Payments
@@ -34,6 +37,12 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 ## Key Features
 
 - **5 SaaS modules** ผ่าน Mediator — Products → Cart → Checkout → Orders → Payments (จบที่ emit `PaymentPaid`)
+- **แผนประกันเป็น field จริงบน `Product`** — `SumInsured`/`CoverageDurationDays`/`Insurer`, validate ตอน
+  `Create`, เป็น source of truth เสมอ (server-side, ไม่รับจาก client) ทั้งราคาและเงื่อนไขประกัน
+- **ผู้เอาประกันต่อ `OrderLine`** — จับข้อมูลผู้เอาประกัน (ชื่อ/เลขบัตร/วันเกิด) 1 คนต่อ 1 line ตอน checkout,
+  snapshot เงื่อนไขประกัน (`SumInsured`/`CoverageDurationDays`/`Insurer`) เข้า line ไม่อ่านจาก `Product` สดๆ
+  ภายหลัง; list/summary mask เลขบัตร (โชว์ 4 ตัวท้าย), detail read เผยเต็มพร้อมเขียน append-only reveal audit
+  ต่อ line, customer summary ไม่โชว์วันเกิดเลย
 - **2 console คนละแอป** — Tenant Console (public-facing, 3 บริษัทใช้ร่วม) + Admin Console (internal-only) บน backend/data ชุดเดียว เพื่อลด blast radius
 - **PSP adapter** 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร / PromptPay / ผ่อน), normalize เป็นสัญญาเดียว
 - **Webhook = source of truth** — verify ลายเซ็น + idempotent + fetch-to-confirm ก่อนอัปเดตสถานะ (ไม่เชื่อ browser redirect)
@@ -63,5 +72,7 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 5. **ห้ามสร้างฟังก์ชันของ PSP/acquirer เอง** — ไม่มี acquiring, card scheme, 3DS/ACS, payment processing (เราใช้ PSP ไม่ใช่เป็น)
 6. **ห้าม flow แบบ non-redirect** — ไม่ display-QR/iframe/hosted-fields บนหน้าเรา ใช้ full redirect ไปหน้า PSP เท่านั้น (คง SAQ A)
 7. **Reconciliation = reporting เท่านั้น** — ห้ามลอจิกที่เคลื่อนเงิน/ปรับยอดจริง
-
-นอกจากนี้ SaaS **ไม่มีขั้นจัดส่ง/ออกกรมธรรม์ (issuance)** — จบที่ "รับชำระเสร็จ → emit `PaymentPaid`"
+8. **ห้าม policy issuance ใดๆ** — ไม่มี policy-number generation, policy document/PDF, issuance workflow —
+   แม้มี `OrderLine` + ข้อมูลผู้เอาประกันครบแล้วก็ตาม (insurance-pivot) การเก็บข้อมูล 2 อย่างนี้ไม่ใช่การ
+   issue policy; จบที่ "รับชำระเสร็จ → emit `PaymentPaid`" เสมอ ไม่มีขั้นถัดไป — รวมถึงห้าม claims /
+   renewal / endorsement / underwriting / commission / reinsurance
