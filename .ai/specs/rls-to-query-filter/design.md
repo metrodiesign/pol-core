@@ -64,8 +64,8 @@
 | 11 | CreateRole (Iam) | iam.Roles/RolePermissions + admin.UserAudits[if admin] | no | ControlPlane single; **merchant actor → `IMerchantRoleWriter`** (§role cap) |
 | 12 | DeleteRole (Iam) | iam.* + admin.UserAudits[if admin] | no | ControlPlane single (reads assignment counts via port) |
 | 13 | UpdateRole (Iam) | iam.* + admin.UserAudits[if admin] | no | ControlPlane single; merchant actor → `IMerchantRoleWriter` |
-| 14 | MasterData.Create | cfg.* | no | ControlPlane single |
-| 15 | MasterData.Update | cfg.* | no | ControlPlane single |
+| 14 | Reference-list Create (Division/Level/Office/Position stores — masterdata-split: typed x4, 2 tx sites/store) | cfg.* | no | ControlPlane single |
+| 15 | Reference-list Update (Division/Level/Office/Position stores — masterdata-split) | cfg.* | no | ControlPlane single |
 | 16 | **ProvisionMerchant** | merch.Merchants + txn.PspConnections + merch.VaultSecrets + merch.ProvisioningAudits | **YES** (locks ControlPlane admin.Users.Tier) | **provisioning UoW** (§provisioning); task 7 adds `ProvisioningCoordinator` (`Persistence.Provisioning`, internal, behind `IProvisioningWriter`) implementing the FULL mechanism (execution-strategy retry + `admin.ProvisioningOperations` idempotency ledger + UPDLOCK/HOLDLOCK authz recheck) — proven standalone via SQLite, not yet the live `ProvisionMerchantHandler` implementation (task 8: the ledger table doesn't exist on the real DB until its migration lands) |
 | 17 | Approve (Merchants) | merch.Users (**NULL→merchant** bind) + merch.RoleAssignments + merch.RegistrationAudits (reads iam.Roles) | no | MerchantUser single, **approve write port** (§pre-bind, one-time tenant-key transition) |
 | 18 | Reject (Merchants) | merch.Users (pending) + merch.Sessions + merch.RegistrationAudits | no | MerchantUser single, **reject write port** (§pre-bind, suppressed pending lookup) |
