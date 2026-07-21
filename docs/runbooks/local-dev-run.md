@@ -182,79 +182,108 @@ dotnet run --project src/Hosts/Worker/Worker.csproj
 
 ---
 
-## 5. Google SSO (Dev)
+## 5. Provider SSO — Google + Microsoft Entra ID (Dev)
 
-มี OIDC client แยก 2 ตัว (คนละ scheme, คนละ callback — ไม่ปนกัน):
+OIDC เป็น provider-scoped ทั้งสองฝั่ง (`multi-provider-oidc`) — คนละ scheme, คนละ callback ต่อ provider,
+ไม่ปนกัน:
 
-| | section ใน `appsettings.Development.json` | scheme | callback |
-|---|---|---|---|
-| Admin | `Google:Oidc` | `Google` | `/api/v1/admins/auth/callback` |
-| Merchant-user | `MerchantUser:Oidc` | `MerchantUserGoogle` | `/api/v1/merchants/users/auth/callback` |
+| | section ใน `appsettings.Development.json` | scheme | login | callback |
+|---|---|---|---|---|
+| Admin / Google | `AdminAuth:Providers:Google` | `AdminGoogle` | `/api/v1/admins/auth/google/login` | `/api/v1/admins/auth/google/callback` |
+| Admin / Microsoft | `AdminAuth:Providers:Microsoft` | `AdminMicrosoft` | `/api/v1/admins/auth/microsoft/login` | `/api/v1/admins/auth/microsoft/callback` |
+| Merchant-user / Google | `MerchantUserAuth:Providers:Google` | `MerchantUserGoogle` | `/api/v1/merchants/auth/google/login` | `/api/v1/merchants/auth/google/callback` |
+| Merchant-user / Microsoft | `MerchantUserAuth:Providers:Microsoft` | `MerchantUserMicrosoft` | `/api/v1/merchants/auth/microsoft/login` | `/api/v1/merchants/auth/microsoft/callback` |
+
+`{provider}` ใน login route รับแค่ `google`/`microsoft` — provider ที่ไม่รู้จักหรือไม่ได้ config (`ClientId`
+ว่าง) ตอบ **404** (ไม่ใช่ 409 เหมือนเดิม). callback path ไม่ใช่ mapped endpoint — เป็น `CallbackPath` ของ OIDC
+middleware เอง.
+
+merchant-user `register`/`me` ยังอยู่ที่ `/api/v1/merchants/users/register` และ `/api/v1/merchants/users/me`
+เหมือนเดิม — ย้ายเฉพาะ auth (`login`/`callback`/`logout`/`logout-all`) ออกมาที่ `/api/v1/merchants/auth/**`.
 
 ### 5.1 ตั้งค่า Merchant-user OIDC
 
-`appsettings.Development.json` (gitignored) section `MerchantUser:Oidc` (rename จาก `Producer:Oidc`, rf1):
+`appsettings.Development.json` (gitignored) section `MerchantUserAuth:Providers:Google` (rename จาก
+`MerchantUser:Oidc`, multi-provider-oidc):
 
 ```json
-"MerchantUser": {
-  "Oidc": {
-    "ClientId": "<merchant-user-google-client-id>.apps.googleusercontent.com",
-    "ClientSecret": "<merchant-user-google-client-secret>",
-    "RegisterUrl": "http://localhost:5200/register"
-  }
+"MerchantUserAuth": {
+  "Providers": {
+    "Google": {
+      "ClientId": "<merchant-user-google-client-id>.apps.googleusercontent.com",
+      "ClientSecret": "<merchant-user-google-client-secret>"
+    },
+    "Microsoft": {
+      "ClientId": "<merchant-user-entra-client-id>",
+      "ClientSecret": "<merchant-user-entra-client-secret>"
+    }
+  },
+  "RegisterUrl": "http://localhost:5300/register"
 }
 ```
 
-`Authority`/`CallbackPath`/`HostedDomain`/`ErrorPath` มี default ที่สมเหตุสมผลอยู่แล้ว (`CallbackPath` default =
-`/api/v1/merchants/users/auth/callback`, rename จาก `/api/v1/merchant-users/auth/callback` — hierarchical-naming
-2026-07-12, **ต้องอัปเดต authorized redirect URI ใน Google Console ก่อน deploy** ดู §5.2) — override เฉพาะเมื่อ
-deploy ต่างไปจาก dev มาตรฐาน.
+`Authority`/`CallbackPath`/`HostedDomain`/`ErrorPath` มี default ที่สมเหตุสมผลอยู่แล้ว ต่อ provider —
+Google callback default = `/api/v1/merchants/auth/google/callback`, Microsoft callback default =
+`/api/v1/merchants/auth/microsoft/callback` (`Authority` merchant-Microsoft default =
+`https://login.microsoftonline.com/organizations/v2.0`, multi-tenant org). **ต้องอัปเดต authorized redirect
+URI ที่ IdP ก่อน deploy** ดู §5.2. override เฉพาะเมื่อ deploy ต่างไปจาก dev มาตรฐาน.
 
-**สำคัญ:** ถ้า `ClientId` ว่าง -> scheme `MerchantUserGoogle` (เดิม `ProducerGoogle`) จะถูก skip ทั้งตัว (REQ-14.2,
-กันไม่ให้ OIDC ที่ config ไม่ครบทำ API ล่มทั้งระบบ). ผลคือ `GET /api/v1/merchants/users/auth/login` ตอบ **409** แทน 302
-(ดู §7).
+**สำคัญ:** ถ้า provider ใดว่าง `ClientId` -> scheme ของ provider นั้น (เช่น `MerchantUserGoogle`) จะถูก skip
+ทั้งตัว (REQ-14.2, กันไม่ให้ OIDC ที่ config ไม่ครบทำ API ล่มทั้งระบบ). ผลคือ
+`GET /api/v1/merchants/auth/google/login` ตอบ **404** (provider ไม่พร้อม, ดู §7).
 
-### 5.2 Google Cloud Console
+### 5.2 IdP Console
 
-ที่ OAuth 2.0 Client ID ของ merchant-user -> **Authorized redirect URIs** ลงทะเบียน **ทั้งสอง**:
+redirect URI ลงทะเบียนตรงที่ backend (`:5100`) เท่านั้น — ไม่มี proxy `:5200` variant อีกแล้ว (login
+ไม่ผ่าน FE proxy):
+
+**Google Cloud Console** — OAuth 2.0 Client ID ของ merchant-user -> Authorized redirect URIs:
 
 ```
-http://localhost:5100/api/v1/merchants/users/auth/callback
-http://localhost:5200/api/v1/merchants/users/auth/callback
+http://localhost:5100/api/v1/merchants/auth/google/callback
 ```
 
-> **Cutover สำคัญ (hierarchical-naming, 2026-07-12 — callback path rename):** `CallbackPath` ย้ายจาก
-> `/api/v1/merchant-users/auth/callback` เป็น `/api/v1/merchants/users/auth/callback` — contract นี้อยู่
-> **นอก repo** (Google Console), CI ไม่ตรวจให้. ต้องอัปเดต Authorized redirect URIs ด้านล่างก่อน deploy
-> branch นี้ในทุก environment ไม่งั้น merchant-user Google login พังทันที (`Error 400: redirect_uri_mismatch`)
-> แม้ CI เขียว.
+Admin Google client:
 
-ทำไมต้องสองตัว: redirect_uri ที่ handler ส่งให้ Google สร้างจาก `Request.Host` ของ request.
-- ยิง backend ตรง (`:5100`) -> redirect_uri = `:5100/...`
-- ผ่าน FE proxy (`:5200/api/v1/merchants/users/auth/login`) — API ตั้ง `UseForwardedHeaders`
-  (`X-Forwarded-Host`, ดู `Program.cs`) -> **ถ้า** proxy IP อยู่ใน `ForwardedHeaders:KnownNetworks`/
-  `KnownProxies` -> `Request.Host` = `:5200` -> redirect_uri = `:5200/...`
+```
+http://localhost:5100/api/v1/admins/auth/google/callback
+```
 
-dev default ไม่ตั้ง KnownProxies -> forwarded host ถูก ignore -> ได้ `:5100`. แต่ลงทะเบียนทั้งคู่
-ครอบทั้ง 2 เส้นทาง กัน `Error 400: redirect_uri_mismatch`. (scheme/host/port/path ต้องตรงเป๊ะ,
-ไม่มี trailing slash.)
+**Microsoft Entra ID** — ต้องสร้าง **app registration ใหม่ 2 ตัว** (admin = single-tenant,
+merchant-user = multi-tenant/organizational accounts) — ไม่ share client กับ Google:
+
+```
+http://localhost:5100/api/v1/admins/auth/microsoft/callback
+http://localhost:5100/api/v1/merchants/auth/microsoft/callback
+```
+
+ทั้งสอง app registration ต้องเพิ่ม **optional claim `email`** ที่ id_token (Entra ID **ไม่ส่ง** `email` claim
+โดย default และไม่ส่ง `email_verified` เลย). subject ของ Microsoft คือ claim `oid` (ไม่ใช่ `sub`) — ค่าที่เก็บใน
+`ExternalLogins.Provider` เป็น `"google"`/`"microsoft"`.
+
+> **Cutover สำคัญ (multi-provider-oidc):** redirect URI ย้ายจากรูปแบบเดิมที่ไม่มี provider segment
+> (`/api/v1/admins/auth/callback`, `/api/v1/merchants/users/auth/callback`) เป็น provider-scoped ด้านบน —
+> contract นี้อยู่ **นอก repo** (IdP console), CI ไม่ตรวจให้. ต้องอัปเดต redirect URIs ก่อน deploy branch นี้ใน
+> ทุก environment ไม่งั้น login พังทันที (`Error 400: redirect_uri_mismatch` ฝั่ง Google, error เทียบเท่าฝั่ง
+> Entra) แม้ CI เขียว.
 
 ### 5.3 ตรวจว่าพร้อม
 
 ```
-curl -s -o /dev/null -D - "http://localhost:5100/api/v1/merchants/users/auth/login?returnTo=/register" \
+curl -s -o /dev/null -D - "http://localhost:5100/api/v1/merchants/auth/google/login?returnTo=/register" \
   | grep -iE "^HTTP|^location"
 ```
 
-ถูก = `302 Found` + `Location: https://accounts.google.com/...redirect_uri=...%2Fmerchants%2Fusers%2Fauth%2Fcallback`.
+ถูก = `302 Found` + `Location: https://accounts.google.com/...redirect_uri=...%2Fmerchants%2Fauth%2Fgoogle%2Fcallback`.
+provider `microsoft` เช็คแบบเดียวกันที่ path `/api/v1/merchants/auth/microsoft/login`.
 
 ### 5.4 Flow ที่คาดหวัง (merchant-user / ตัวแทน)
 
-`:5200/login` -> ปุ่มตัวแทน -> `/api/v1/merchants/users/auth/login` -> Google -> callback -> branch 4 ทาง
-(`ResolveLogin`):
-- **NotFound** (subject ใหม่) -> mint registration ticket -> redirect `:5200/register?ticket=...`
+`:5300/login` -> ปุ่มเลือก provider -> `/api/v1/merchants/auth/{google|microsoft}/login` -> IdP -> callback ->
+branch 4 ทาง (`ResolveLogin`):
+- **NotFound** (subject ใหม่) -> mint registration ticket -> redirect `:5300/register?ticket=...`
 - **PendingApproval** -> 403 "awaiting approval"
-- **Rejected** -> correction ticket -> `:5200/register?ticket=...`
+- **Rejected** -> correction ticket -> `:5300/register?ticket=...`
 - **Active** -> เปิด session cookie -> redirect returnTo
 
 ---
@@ -300,23 +329,21 @@ CI gate: unit + integration ต้องเขียวก่อน merge (requi
 
 ## 7. Troubleshooting (ปัญหาที่เจอจริง)
 
-### `GET /api/v1/merchants/users/auth/login` ตอบ 409 (ไม่ใช่ 302)
+### `GET /api/v1/merchants/auth/google/login` ตอบ 404 (ไม่ใช่ 302)
 
-```json
-{"title":"The operation is not allowed in the resource's current state","status":409}
-```
+**สาเหตุ:** `MerchantUserAuth:Providers:Google:ClientId` ว่าง/ไม่มี section -> scheme `MerchantUserGoogle`
+ไม่ถูก register -> route มองว่า provider นี้ไม่พร้อม/ไม่รู้จัก -> 404 (เดิมสมัย single-provider ตอบ 409 —
+provider-scoped route แยกให้ตรงตัวว่า "provider นี้" หายไป ไม่ใช่ merchant-user auth ทั้งระบบล่ม).
+**แก้:** ตั้ง `MerchantUserAuth:Providers:Google` ครบ (§5.1) แล้ว **restart API เต็ม** (config change ไม่
+hot-reload). provider `microsoft` เช็คแบบเดียวกันที่ `MerchantUserAuth:Providers:Microsoft`.
 
-**สาเหตุ:** `MerchantUser:Oidc:ClientId` ว่าง/ไม่มี section -> scheme `MerchantUserGoogle` (เดิม
-`ProducerGoogle`) ไม่ถูก register -> challenge โยน `InvalidOperationException: No authentication
-handler is registered for the scheme 'MerchantUserGoogle'` -> global handler map เป็น 409.
-**แก้:** ตั้ง `MerchantUser:Oidc` ครบ (§5.1) แล้ว **restart API เต็ม** (config change ไม่ hot-reload).
+### `Error 400: redirect_uri_mismatch` ที่หน้า Google / เทียบเท่าฝั่ง Microsoft Entra
 
-### `Error 400: redirect_uri_mismatch` ที่หน้า Google
-
-**สาเหตุ:** redirect URI ที่ backend ส่ง ไม่ตรงกับที่ลงทะเบียนใน Google client (หรือแก้คนละ client
-กับที่ `MerchantUser:Oidc:ClientId` ชี้).
-**แก้:** §5.2 — เพิ่ม `http://localhost:5100/api/v1/merchants/users/auth/callback` ที่ client ตัวที่ถูก.
-ดู client ที่ backend ใช้จริงด้วย `curl` (§5.3) เทียบ prefix ของ `client_id`.
+**สาเหตุ:** redirect URI ที่ backend ส่ง ไม่ตรงกับที่ลงทะเบียนใน IdP client (หรือแก้คนละ client กับที่
+`MerchantUserAuth:Providers:{Google|Microsoft}:ClientId` ชี้).
+**แก้:** §5.2 — เพิ่ม `http://localhost:5100/api/v1/merchants/auth/google/callback` (หรือ
+`.../microsoft/callback`) ที่ client ตัวที่ถูก. ดู client ที่ backend ใช้จริงด้วย `curl` (§5.3) เทียบ prefix ของ
+`client_id`.
 
 ### callback redirect ไป `login-error?reason=ticket-issue-failed`
 

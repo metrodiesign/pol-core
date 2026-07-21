@@ -72,7 +72,7 @@ public sealed class MerchantUserScalarSecurityTests
     [Fact]
     public async Task Anonymous_merchant_user_login_carries_no_security_requirement()
     {
-        var op = (await Document()).GetProperty("paths").GetProperty("/api/v1/merchants/users/auth/login").GetProperty("get");
+        var op = (await Document()).GetProperty("paths").GetProperty("/api/v1/merchants/auth/{provider}/login").GetProperty("get");
         Assert.False(op.TryGetProperty("security", out _)); // AllowAnonymous -> no requirement
     }
 

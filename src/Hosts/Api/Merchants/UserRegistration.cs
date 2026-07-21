@@ -55,11 +55,12 @@ public sealed class UserRegistrationOptions
     public string PhotoStoreRootPath { get; set; } = "merchant-user-photos";
 }
 
-/// <summary>The verified identity a registration ticket carries (REQ-3.1), captured ONLY from the Google id_token at
+/// <summary>The verified identity a registration ticket carries (REQ-3.1), captured ONLY from the verified id_token at
 /// the callback and returned by the client at submission. The form body can never override these. Stateless — the
 /// signed+time-limited token is self-contained (no server-side row); replay/duplicate safety is the account's unique
-/// (Subject) index at submit time.</summary>
-public sealed record UserTicketPayload(string Subject, string Email, string? HostedDomain, TicketPurpose Purpose);
+/// (Subject) index at submit time. <c>Provider</c> is the issuing IdP slug ("google"/"microsoft").</summary>
+public sealed record UserTicketPayload(
+    string Subject, string Email, string? HostedDomain, TicketPurpose Purpose, string Provider = ExternalLogin.Google);
 
 /// <summary>
 /// Signs+encrypts the registration/correction wire ticket with ASP.NET Core Data Protection under a purpose string

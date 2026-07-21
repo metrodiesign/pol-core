@@ -41,7 +41,7 @@ public sealed class MerchantUserLoginServiceTests
         var (service, ctx) = Build(LoginResult.Active(
             new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "product.create" })));
 
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "/dashboard", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "google", "/dashboard", default);
 
         var session = Assert.Single(ctx.Sessions.Added);
         Assert.Equal(UserId, session.MerchantUserId);
@@ -58,7 +58,7 @@ public sealed class MerchantUserLoginServiceTests
     {
         var (service, ctx) = Build(LoginResult.NotFound);
 
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-new", "new@org.com", "org.com", "/", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-new", "new@org.com", "org.com", "google", "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
@@ -75,7 +75,7 @@ public sealed class MerchantUserLoginServiceTests
     {
         var (service, ctx) = Build(LoginResult.Rejected);
 
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-rej", "rej@org.com", null, "/", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-rej", "rej@org.com", null, "google", "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
         Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
@@ -89,9 +89,9 @@ public sealed class MerchantUserLoginServiceTests
 
         // With no server-side ticket row, a repeated callback for the same subject is harmless: it simply mints
         // another fresh, self-expiring token and redirects to /register — no error, no "pending" state.
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "google", "/", default);
         ctx.Http.Response.Clear();
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "/", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-dup", "dup@org.com", null, "google", "/", default);
 
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.StartsWith(RegisterUrl + "?ticket=", ctx.Http.Response.Headers.Location.ToString());
@@ -104,7 +104,7 @@ public sealed class MerchantUserLoginServiceTests
     {
         var (service, ctx) = Build(LoginResult.Pending);
 
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-pend", "pend@org.com", null, "/", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-pend", "pend@org.com", null, "google", "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
@@ -117,7 +117,7 @@ public sealed class MerchantUserLoginServiceTests
     {
         var (service, ctx) = Build(LoginResult.Suspended);
 
-        await service.HandleCallbackAsync(ctx.Http, "google-sub-susp", "susp@org.com", null, "/", default);
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-susp", "susp@org.com", null, "google", "/", default);
 
         Assert.Empty(ctx.Sessions.Added);
         Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
@@ -130,7 +130,7 @@ public sealed class MerchantUserLoginServiceTests
     {
         var (service, ctx) = Build(LoginResult.NotFound);
 
-        await service.HandleCallbackAsync(ctx.Http, subject: null, email: "x@org.com", hostedDomain: null, returnTo: "/", default);
+        await service.HandleCallbackAsync(ctx.Http, subject: null, email: "x@org.com", hostedDomain: null, provider: "google", returnTo: "/", ct: default);
 
         Assert.Empty(ctx.Sessions.Added);
         Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-identity");

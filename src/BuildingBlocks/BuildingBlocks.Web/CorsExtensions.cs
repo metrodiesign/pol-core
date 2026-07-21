@@ -83,13 +83,15 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
     }
 
     // admin plane = /api/v1/admins/** + /api/v1/merchants and /api/v1/merchants/{code} (D9) — but NOT
-    // /api/v1/merchants/users/**, which is the merchant-user plane (REQ-8.2). Also the 4 standalone reference
+    // /api/v1/merchants/users/** or /api/v1/merchants/auth/**, which are the merchant-user plane (REQ-8.2; auth
+    // carries the provider-scoped login/callback/logout). Also the 4 standalone reference
     // master-data areas (2026-07-20) — they authenticate on the same AdminSession cookie despite living outside
     // /admins. Backed by a fail-closed guard (AdminCorsGuardTests) that enumerates every "admin"-policy endpoint
     // and asserts it resolves here.
     private static bool IsAdminPlane(PathString path) =>
         path.StartsWithSegments("/api/v1/admins")
-        || (path.StartsWithSegments("/api/v1/merchants", out var rest) && !rest.StartsWithSegments("/users"))
+        || (path.StartsWithSegments("/api/v1/merchants", out var rest)
+            && !rest.StartsWithSegments("/users") && !rest.StartsWithSegments("/auth"))
         || path.StartsWithSegments("/api/v1/positions")
         || path.StartsWithSegments("/api/v1/offices")
         || path.StartsWithSegments("/api/v1/levels")

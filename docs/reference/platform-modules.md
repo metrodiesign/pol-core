@@ -453,13 +453,13 @@ redirect URL ลง span attribute
 - login = **server-side OIDC BFF** (Authorization Code + PKCE, confidential client): opaque session cookie `__Host-adm_session` (DB เก็บเฉพาะ hash), rotation + reuse-detection + instant revoke, CSRF double-submit — ไม่รับ Google id-token เป็น Bearer ฝั่ง admin
 - bootstrap Super คนแรกผ่าน allowlist self-provision; เชิญ Scoped ด้วย email
 - `Scoped` เข้าถึงเฉพาะ tenant ตาม `AdminTenantAssignment`; cross-tenant read ทุกอย่างบังคับผ่าน seam เดียว `IAdminQuery` (`Super` = unrestricted)
-- endpoints: `GET /api/v1/admins/auth/login`, `POST /api/v1/admins/auth/logout[-all]`, `GET /api/v1/admins/me`, จัดการบัญชี `POST /api/v1/admins`, `POST /api/v1/admins/{id}/suspend`, assign tenant `POST/DELETE /api/v1/admins/{id}/tenants[/{tenantId}]`
+- endpoints: `GET /api/v1/admins/auth/{provider}/login` (provider-scoped, `google`/`microsoft` — multi-provider-oidc), `POST /api/v1/admins/auth/logout[-all]`, `GET /api/v1/admins/me`, จัดการบัญชี `POST /api/v1/admins`, `POST /api/v1/admins/{id}/suspend`, assign tenant `POST/DELETE /api/v1/admins/{id}/tenants[/{tenantId}]`
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
-| Google OIDC BFF login | Authorization Code + PKCE, confidential client — `GET /api/v1/admins/auth/login` | มีแล้ว |
+| OIDC BFF login (Google + Microsoft) | Authorization Code + PKCE, confidential client, provider-scoped — `GET /api/v1/admins/auth/{google\|microsoft}/login` | มีแล้ว |
 | Opaque session cookie | `__Host-adm_session`; DB เก็บเฉพาะ SHA-256 hash ของ token | มีแล้ว |
 | Session hygiene | rotation + reuse-detection + instant revoke; `POST /api/v1/admins/auth/logout` และ `logout-all` | มีแล้ว |
 | CSRF | double-submit cookie | มีแล้ว |

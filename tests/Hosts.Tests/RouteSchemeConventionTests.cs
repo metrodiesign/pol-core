@@ -100,6 +100,10 @@ public sealed class RouteSchemeConventionTests
         ("PUT", $"/producer/tenant-users/{G}/roles"),
         // OIDC callbacks — middleware, moved via CallbackPath (REQ-6.2); the old paths no longer intercept -> 404
         ("GET", "/admin/auth/callback"), ("GET", "/producer/auth/callback"),
+        // provider-scoped OIDC cutover: the provider-less auth paths (and the /merchants/users auth group) are gone
+        ("GET", "/api/v1/admins/auth/login"), ("GET", "/api/v1/admins/auth/callback"),
+        ("GET", "/api/v1/merchants/users/auth/login"), ("GET", "/api/v1/merchants/users/auth/callback"),
+        ("POST", "/api/v1/merchants/users/auth/logout"), ("POST", "/api/v1/merchants/users/auth/logout-all"),
     ];
 
     [Fact]

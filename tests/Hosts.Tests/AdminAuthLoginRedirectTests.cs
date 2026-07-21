@@ -30,8 +30,9 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("ConnectionStrings:Migrator", "");
         // ClientId/ClientSecret are read at service-registration time (AddAdminOidcAuthentication), so they must
         // be host settings, not late-layered app config.
-        builder.UseSetting("Google:Oidc:ClientId", ClientId);
-        builder.UseSetting("Google:Oidc:ClientSecret", "test-secret");
+        builder.UseSetting("AdminAuth:Providers:Google:ClientId", ClientId);
+        builder.UseSetting("AdminAuth:Providers:Google:ClientSecret", "test-secret");
+        builder.UseSetting("AdminAuth:Providers:Google:CallbackPath", "/api/v1/admins/auth/google/callback");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -50,7 +51,7 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
 
             // Static config -> the challenge builds the redirect without fetching Google's discovery document.
-            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Admins.OidcAuthentication.Scheme, options =>
+            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Admins.OidcAuthentication.SchemePrefix + "Google", options =>
                 options.Configuration = new OpenIdConnectConfiguration
                 {
                     Issuer = "https://accounts.google.com",
@@ -70,7 +71,7 @@ public sealed class AdminAuthLoginRedirectTests
         using var factory = new LoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/admins/auth/login?returnTo=/dashboard");
+        var response = await client.GetAsync("/api/v1/admins/auth/google/login?returnTo=/dashboard");
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         var location = response.Headers.Location!;
@@ -84,7 +85,25 @@ public sealed class AdminAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.False(string.IsNullOrEmpty(query["code_challenge"]));
-        Assert.EndsWith("/api/v1/admins/auth/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // REQ-6.2: challenge targets the NEW callback
+        Assert.EndsWith("/api/v1/admins/auth/google/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // provider-scoped callback
+    }
+
+    [Fact]
+    public async Task An_unknown_or_unconfigured_provider_login_404s_while_google_still_challenges()
+    {
+        using var factory = new LoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        // Unknown slug -> not in the registered provider map.
+        var unknown = await client.GetAsync("/api/v1/admins/auth/github/login");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+
+        // Configured in appsettings but with a blank ClientId (this factory sets only Google) -> scheme skipped -> 404.
+        var disabled = await client.GetAsync("/api/v1/admins/auth/microsoft/login");
+        Assert.Equal(HttpStatusCode.NotFound, disabled.StatusCode);
+
+        var google = await client.GetAsync("/api/v1/admins/auth/google/login");
+        Assert.Equal(HttpStatusCode.Found, google.StatusCode);
     }
 
     [Fact]
@@ -93,7 +112,7 @@ public sealed class AdminAuthLoginRedirectTests
         using var factory = new LoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/admins/auth/login");
+        var response = await client.GetAsync("/api/v1/admins/auth/google/login");
 
         // The OIDC handler persists state/nonce in a correlation + nonce cookie (REQ-1.2).
         Assert.Contains(response.Headers.GetValues("Set-Cookie"),

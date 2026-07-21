@@ -64,7 +64,7 @@ internal sealed class LoginService
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AdminSessionOptions _session;
-    private readonly OidcOptions _oidc;
+    private readonly AdminAuthOptions _oidc;
     private readonly ILogger<LoginService> _logger;
 
     public LoginService(
@@ -75,7 +75,7 @@ internal sealed class LoginService
         IClock clock,
         IServiceScopeFactory scopeFactory,
         IOptions<AdminSessionOptions> session,
-        IOptions<OidcOptions> oidc,
+        IOptions<AdminAuthOptions> oidc,
         ILogger<LoginService> logger)
     {
         _resolver = resolver;

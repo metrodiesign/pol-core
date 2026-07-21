@@ -106,7 +106,7 @@ public sealed class AdminLoginServiceTests
         var audit = new FakeAuthAudit();
         var cookies = new SessionCookies(Options.Create(new AdminSessionOptions()), new Env());
         var sessionOptions = Options.Create(new AdminSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"] });
-        var oidcOptions = Options.Create(new OidcOptions { ErrorPath = "/login-error" });
+        var oidcOptions = Options.Create(new AdminAuthOptions { ErrorPath = "/login-error" });
         var provider = new ServiceCollection()
             .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();

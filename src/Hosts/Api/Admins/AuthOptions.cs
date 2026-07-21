@@ -1,21 +1,20 @@
 namespace Api.Admins;
 
 /// <summary>
-/// The confidential OIDC client for the admin BFF login (REQ-1/2/8). <c>ClientSecret</c> is a real secret —
-/// injected via <c>Google__Oidc__ClientSecret</c> (env / user-secrets / Vault), never committed, never logged
-/// (REQ-8.1/8.3). The merchant-user side runs its own separate OIDC BFF (<c>MerchantUserOidcOptions</c>) —
+/// The confidential OIDC clients for the admin BFF login (REQ-1/2/8), one <see cref="OidcProviderOptions"/> per
+/// provider keyed by name ("Google"/"Microsoft"). Secrets are injected via
+/// <c>AdminAuth__Providers__{Provider}__ClientSecret</c> (env / user-secrets / Vault), never committed, never logged
+/// (REQ-8.1/8.3). The merchant-user side runs its own separate OIDC BFF (<c>UserOidcOptions</c>) —
 /// there is no shared Google id-token Bearer plumbing left (removed with T5's single-scheme session cookie).
 /// </summary>
-internal sealed class OidcOptions
+internal sealed class AdminAuthOptions
 {
-    public const string SectionName = "Google:Oidc";
+    public const string SectionName = "AdminAuth";
 
-    public string Authority { get; init; } = "https://accounts.google.com";
-    public string ClientId { get; init; } = "";
-    public string ClientSecret { get; init; } = "";
-    public string CallbackPath { get; init; } = "/api/v1/admins/auth/callback";
     /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
     public string ErrorPath { get; init; } = "/login-error";
+
+    public Dictionary<string, OidcProviderOptions> Providers { get; init; } = [];
 }
 
 /// <summary>

@@ -58,6 +58,18 @@ public sealed class SubmitRegistrationHandlerTests
     }
 
     [Fact]
+    public async Task A_microsoft_ticket_stores_the_microsoft_provider_on_the_external_login()
+    {
+        var ctx = new Ctx();
+        var cmd = RegistrationCommand() with { Provider = ExternalLogin.Microsoft };
+
+        await ctx.Handler.Handle(cmd, default);
+
+        var login = Assert.Single(ctx.Logins.Added);
+        Assert.Equal(ExternalLogin.Microsoft, login.Provider);
+    }
+
+    [Fact]
     public async Task A_photo_is_stored_and_its_key_is_set_on_the_account()
     {
         var ctx = new Ctx();

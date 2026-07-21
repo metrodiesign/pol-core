@@ -137,21 +137,13 @@ builder.Services.AddMerchantsModule();
 if (!builder.Environment.IsDevelopment())
 {
     ProvisioningGuards.RequireInjectedCredential(appConnString, "App");
-    // The admin BFF login is a confidential OIDC client: the client id + secret must be injected outside
-    // Development (the committed config ships blanks/placeholders). A blank/placeholder secret means the
-    // runtime secret was never injected — fail fast at boot rather than on the first login (REQ-8.1/8.2).
-    ProvisioningGuards.RequireConfidentialClientId(builder.Configuration["Google:Oidc:ClientId"]);
-    ProvisioningGuards.RequireConfidentialClientSecret(builder.Configuration["Google:Oidc:ClientSecret"]);
-    // The merchant-user OIDC client is a SECOND confidential client. Unlike Admin, a blank MerchantUser ClientId is allowed
-    // outside Development — the merchant-user FE is a later slice, so merchant-user login may be intentionally disabled (the
-    // scheme is then skipped, REQ-14.2). But IF a ClientId is configured, its secret MUST be injected too, and the
-    // id itself must not be a committed placeholder (REQ-14.1/14.2).
-    var merchantUserClientId = builder.Configuration["MerchantUser:Oidc:ClientId"];
-    if (!string.IsNullOrWhiteSpace(merchantUserClientId))
-    {
-        ProvisioningGuards.RequireMerchantUserClientId(merchantUserClientId);
-        ProvisioningGuards.RequireMerchantUserClientSecret(builder.Configuration["MerchantUser:Oidc:ClientSecret"]);
-    }
+    // The BFF logins are confidential OIDC clients (up to provider × side registrations). For EVERY configured
+    // provider (non-blank ClientId) the id must not be a committed placeholder and its secret MUST be injected —
+    // fail fast at boot rather than on the first login (REQ-8.1/8.2/14.1/14.2). Admin additionally requires at
+    // least ONE configured provider (an admin console with no login is a dead deploy); a merchant-user side with
+    // zero providers is allowed — that login may be intentionally disabled (the schemes are skipped, REQ-14.2).
+    ProvisioningGuards.RequireOidcProviders(builder.Configuration, "AdminAuth", requireAtLeastOne: true);
+    ProvisioningGuards.RequireOidcProviders(builder.Configuration, "MerchantUserAuth", requireAtLeastOne: false);
 }
 
 // The 3 runtime clusters + the Provisioning UoW (task 8.5.7), all on the single pol_app connection. The
@@ -187,11 +179,11 @@ builder.Services.AddMerchantsIdentity();
 // count-reader ports (AddControlPlanePersistence/AddMerchantUserPersistence) already bound.
 builder.Services.AddIamRoleManagement();
 
-// MerchantUser BFF: a SECOND confidential Google OIDC client (Authorization Code + PKCE) for the server-side merchant-user
-// login, fully isolated from the Admin one — distinct "MerchantUserGoogle" scheme + callback + cookie names (REQ-8/9/14).
-// Adds the scheme WITHOUT changing the default (JwtBearer stays for merchant); a blank ClientId skips the scheme so a
-// half-configured env (the merchant-user FE is a later slice) does not fault the whole host (REQ-14.2). The merchant-user
-// session lifetime + cookie posture come from MerchantUser:Session.
+// MerchantUser BFF: a SECOND set of confidential OIDC clients (Authorization Code + PKCE) for the server-side
+// merchant-user login, fully isolated from the Admin ones — distinct "MerchantUser{Provider}" schemes + callbacks +
+// cookie names (REQ-8/9/14). Adds the schemes WITHOUT changing the default; a blank ClientId skips that provider's
+// scheme so a half-configured env does not fault the whole host (REQ-14.2). The merchant-user session lifetime +
+// cookie posture come from MerchantUser:Session.
 builder.Services.Configure<UserOidcOptions>(builder.Configuration.GetSection(UserOidcOptions.SectionName));
 builder.Services.Configure<UserSessionOptions>(builder.Configuration.GetSection(UserSessionOptions.SectionName));
 builder.Services.AddMerchantUserOidcAuthentication(builder.Configuration, builder.Environment);
@@ -218,9 +210,9 @@ builder.Services.AddScoped<IActorContext, HttpActorContext>();
 // its policy — the default only matters for UseAuthentication's principal-population pass).
 builder.Services.AddAuthentication(UserSessionAuthenticationHandler.SchemeName);
 
-// Admin BFF: confidential Google OIDC client (Authorization Code + PKCE) for the server-side admin login.
-// Adds the "Google" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
-builder.Services.Configure<OidcOptions>(builder.Configuration.GetSection(OidcOptions.SectionName));
+// Admin BFF: confidential OIDC clients (Authorization Code + PKCE) for the server-side admin login.
+// Adds the "Admin{Provider}" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
+builder.Services.Configure<AdminAuthOptions>(builder.Configuration.GetSection(AdminAuthOptions.SectionName));
 builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Environment);
 
 // Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
@@ -865,24 +857,29 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
 var admin = api.MapGroup("/admins").AddEndpointFilter<CsrfFilter>();
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
-// allowlist, then hand off to the OIDC handler, which builds the Authorization Code + PKCE + state + nonce
-// redirect to Google. The callback (Google:Oidc:CallbackPath) is handled by the OIDC middleware itself, which
-// establishes the session via OnTicketReceived — there is no mapped callback endpoint.
-admin.MapGet("/auth/login", (HttpContext http, IOptions<AdminSessionOptions> session) =>
+// allowlist, then hand off to the {provider}'s OIDC handler, which builds the Authorization Code + PKCE + state
+// + nonce redirect to the IdP. The callback (AdminAuth:Providers:{Provider}:CallbackPath) is handled by the OIDC
+// middleware itself, which establishes the session via OnTicketReceived — there is no mapped callback endpoint.
+// An unknown or unconfigured provider slug is simply absent from the registered map -> 404.
+admin.MapGet("/auth/{provider}/login", (
+    string provider, HttpContext http, AdminOidcProviders providers, IOptions<AdminSessionOptions> session) =>
 {
+    if (!providers.TryGetValue(provider.ToLowerInvariant(), out var scheme))
+        return Results.NotFound();
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [OidcAuthentication.Scheme]);
+        [scheme]);
 })
 .AllowAnonymous()
 .RequireRateLimiting(AuthRateLimiting.PolicyName)
     .WithTags("Admin Auth")
     .WithName("AdminLogin")
     .WithSummary("Begin admin login")
-    .WithDescription("Validate returnTo against the allowlist, then redirect to Google (OIDC Authorization Code + PKCE). The callback establishes the session cookie.")
+    .WithDescription("Validate returnTo against the allowlist, then redirect to the provider (google/microsoft; OIDC Authorization Code + PKCE). The callback establishes the session cookie. Unknown or unconfigured provider -> 404.")
     .Produces(StatusCodes.Status302Found)
+    .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-6.1). The
@@ -1014,34 +1011,45 @@ api.MapGet("/merchants/{code}", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-// --- MerchantUser BFF login + registration (merchant-user-google-sso REQ-8/9/14) ---
-// The merchant-users area has TWO group refs at the same /api/v1/merchants/users prefix (REQ-3.7): this UNFILTERED ref carries
-// the anonymous pre-session entry (login + register), exactly as they were mapped top-level before the migration;
-// the filtered console group below (CSRF + bound-merchant-user) carries the authenticated surface. The area-prefix move
-// must NOT move any endpoint between tiers.
-var merchantUsersAnon = api.MapGroup("/merchants/users");
+// --- MerchantUser BFF auth (merchant-user-google-sso REQ-8/9/14) ---
+// Auth is its own /api/v1/merchants/auth group, mirroring /api/v1/admins/auth (provider-scoped OIDC): login here
+// (anonymous), logout/logout-all on the filtered ref below, and the OIDC callbacks
+// (MerchantUserAuth:Providers:{Provider}:CallbackPath) under the same prefix — while /merchants/users keeps the real
+// user resources (register + me). NOTE PolCorsPolicyProvider carves BOTH /merchants/users AND /merchants/auth out of
+// the admin plane so the merchant-user SPA's credentialed CORS applies here.
+var merchantAuthAnon = api.MapGroup("/merchants/auth");
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the merchant-user
-// allowlist, then hand off to the "MerchantUserGoogle" OIDC handler, which builds the Authorization Code + PKCE + state
-// + nonce redirect to Google. The callback (MerchantUser:Oidc:CallbackPath) is handled by the OIDC middleware itself,
-// which runs the 4-way state branch via OnTicketReceived -> MerchantUserLoginService (session cookie for an Active
-// merchant-user, a signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback.
-merchantUsersAnon.MapGet("/auth/login", (HttpContext http, IOptions<UserSessionOptions> session) =>
+// allowlist, then hand off to the {provider}'s "MerchantUser{Provider}" OIDC handler, which builds the Authorization
+// Code + PKCE + state + nonce redirect to the IdP. The callback is handled by the OIDC middleware itself, which runs
+// the 4-way state branch via OnTicketReceived -> UserLoginService (session cookie for an Active merchant-user, a
+// signed registration/correction ticket + redirect to /register otherwise) — there is no mapped callback. An unknown
+// or unconfigured provider slug is simply absent from the registered map -> 404.
+merchantAuthAnon.MapGet("/{provider}/login", (
+    string provider, HttpContext http, UserOidcProviders providers, IOptions<UserSessionOptions> session) =>
 {
+    if (!providers.TryGetValue(provider.ToLowerInvariant(), out var scheme))
+        return Results.NotFound();
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
         new AuthenticationProperties { RedirectUri = returnTo },
-        [UserOidcAuthentication.Scheme]);
+        [scheme]);
 })
 .AllowAnonymous()
 .RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("MerchantUser Auth")
     .WithName("MerchantUserLogin")
     .WithSummary("Begin merchant-user login")
-    .WithDescription("Validate returnTo against the allowlist, then redirect to Google (OIDC Authorization Code + PKCE). The callback establishes a session cookie for an Active merchant-user, or redirects an applicant to /register with a signed ticket.")
+    .WithDescription("Validate returnTo against the allowlist, then redirect to the provider (google/microsoft; OIDC Authorization Code + PKCE). The callback establishes a session cookie for an Active merchant-user, or redirects an applicant to /register with a signed ticket. Unknown or unconfigured provider -> 404.")
     .Produces(StatusCodes.Status302Found)
+    .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+// --- MerchantUser self-service registration entry (REQ-3.7) ---
+// The anonymous pre-session register endpoint stays under /merchants/users — it creates the user resource, so it is
+// resource-shaped, not auth-shaped.
+var merchantUsersAnon = api.MapGroup("/merchants/users");
 
 // --- MerchantUser self-service registration (merchant-user-google-sso REQ-3/4/5/7/13/20) ---
 // Anonymous + ticket-gated: the signed, time-limited (stateless) ticket IS the capability barrier, so no session CSRF on this
@@ -1108,7 +1116,7 @@ merchantUsersAnon.MapPost("/register", async (
 
     var result = await mediator.Send(new SubmitRegistrationCommand(
         ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
-        formModel, photoBytes, photoContentType, http.TraceIdentifier), ct);
+        formModel, photoBytes, photoContentType, http.TraceIdentifier, ticket.Provider), ct);
 
     return Results.Created($"/api/v1/merchants/users/{result.MerchantUserId}",
         new UserRegisterResponse(result.MerchantUserId, result.Status.ToString()));
@@ -1128,18 +1136,22 @@ merchantUsersAnon.MapPost("/register", async (
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // --- MerchantUser BFF authenticated surface (merchant-user-google-sso REQ-12/13/15/16/17) ---
-// One group binds the CSRF double-submit filter ONCE for the whole authenticated merchant-user surface (the credentialed
-// merchant-user CORS policy is applied to /api/v1/merchants/users/* by PolCorsPolicyProvider). Every route gates on the
-// single-scheme "merchant-user" policy (MerchantUserSession only, T11); the CSRF filter exempts safe methods, and the
-// anonymous pre-session routes (login/callback/register) are mapped OUTSIDE this group, so they are untouched by it.
-// MerchantBoundFilter then fail-closes the whole group on a BOUND merchant-user (REQ-17.2/F10).
+// TWO filtered groups bind the CSRF double-submit filter for the whole authenticated merchant-user surface (the
+// credentialed merchant-user CORS policy is applied to /api/v1/merchants/users/* AND /api/v1/merchants/auth/* by
+// PolCorsPolicyProvider): the auth group (logout/logout-all) and the users/resource group (me + roles). Every route
+// gates on the single-scheme "merchant-user" policy (MerchantUserSession only, T11); the CSRF filter exempts safe
+// methods, and the anonymous pre-session routes (login/callback/register) are mapped OUTSIDE these groups, so they
+// are untouched. MerchantBoundFilter then fail-closes both groups on a BOUND merchant-user (REQ-17.2/F10).
+var merchantAuth = api.MapGroup("/merchants/auth")
+    .AddEndpointFilter<UserCsrfFilter>()
+    .AddEndpointFilter<BoundFilter>();
 var merchantUsers = api.MapGroup("/merchants/users")
     .AddEndpointFilter<UserCsrfFilter>()
     .AddEndpointFilter<BoundFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
 // presented cookie identifies the family.
-merchantUsers.MapPost("/auth/logout", async (
+merchantAuth.MapPost("/logout", async (
     HttpContext http, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
@@ -1165,7 +1177,7 @@ merchantUsers.MapPost("/auth/logout", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // Logout-all = revoke EVERY session of this merchant-user across all devices (REQ-12.2).
-merchantUsers.MapPost("/auth/logout-all", async (
+merchantAuth.MapPost("/logout-all", async (
     HttpContext http, IUserScope scope, IMerchantSessionStore sessions, UserSessionCookies cookies,
     IMerchantAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
 {
@@ -2078,43 +2090,37 @@ internal static class ProvisioningGuards
                 $"ConnectionStrings:{name} has no password — the runtime secret was not injected. Set ConnectionStrings__{name}.");
     }
 
-    /// <summary>Fails fast when the admin OIDC confidential client id is unmapped. The admin BFF login cannot
-    /// build an authorization request without it.</summary>
-    public static void RequireConfidentialClientId(string? clientId)
+    /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "AdminAuth" /
+    /// "MerchantUserAuth"): every provider with a non-blank ClientId must not be a committed placeholder and must
+    /// have its secret injected (blank or placeholder = the runtime secret was never injected). A blank ClientId
+    /// disables that provider (its scheme is skipped, REQ-14.2); <paramref name="requireAtLeastOne"/> additionally
+    /// demands one configured provider (the admin console with no login is a dead deploy). The error never echoes
+    /// a secret value (REQ-8.3/14.3).</summary>
+    public static void RequireOidcProviders(IConfiguration configuration, string sectionName, bool requireAtLeastOne)
     {
-        if (string.IsNullOrWhiteSpace(clientId) || clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                "Google:Oidc:ClientId is required for the admin BFF login. Map it via Google__Oidc__ClientId.");
-    }
+        var anyConfigured = false;
+        foreach (var provider in configuration.GetSection($"{sectionName}:Providers").GetChildren())
+        {
+            var clientId = provider["ClientId"];
+            if (string.IsNullOrWhiteSpace(clientId))
+                continue;
+            if (clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"{sectionName}:Providers:{provider.Key}:ClientId is a placeholder. Map a real client id via " +
+                    $"{sectionName}__Providers__{provider.Key}__ClientId, or leave it blank to disable this provider.");
+            var clientSecret = provider["ClientSecret"];
+            if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"{sectionName}:Providers:{provider.Key}:ClientSecret is required when its ClientId is configured — " +
+                    $"the runtime secret was not injected. Set {sectionName}__Providers__{provider.Key}__ClientSecret " +
+                    "(environment / user-secrets / Vault).");
+            anyConfigured = true;
+        }
 
-    /// <summary>Fails fast when the admin OIDC client secret was not injected (blank or a committed placeholder).
-    /// The error never echoes the value (REQ-8.3).</summary>
-    public static void RequireConfidentialClientSecret(string? clientSecret)
-    {
-        if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
+        if (requireAtLeastOne && !anyConfigured)
             throw new InvalidOperationException(
-                "Google:Oidc:ClientSecret is required for the admin BFF login — the runtime secret was not " +
-                "injected. Set Google__Oidc__ClientSecret (environment / user-secrets / Vault).");
-    }
-
-    /// <summary>Fails fast when a CONFIGURED merchant-user OIDC client id is a committed placeholder (a blank id is
-    /// allowed — it disables the merchant-user scheme, REQ-14.2). Only called when the id is non-blank.</summary>
-    public static void RequireMerchantUserClientId(string? clientId)
-    {
-        if (clientId is not null && clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                "MerchantUser:Oidc:ClientId is a placeholder. Map a real client id via MerchantUser__Oidc__ClientId, or " +
-                "leave it blank to disable the merchant-user OIDC login scheme.");
-    }
-
-    /// <summary>Fails fast when a merchant-user OIDC client id is configured but its secret was not injected (blank or a
-    /// committed placeholder). The error never echoes the value (REQ-14.1/14.3).</summary>
-    public static void RequireMerchantUserClientSecret(string? clientSecret)
-    {
-        if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
-            throw new InvalidOperationException(
-                "MerchantUser:Oidc:ClientSecret is required when a MerchantUser:Oidc:ClientId is configured — the runtime " +
-                "secret was not injected. Set MerchantUser__Oidc__ClientSecret (environment / user-secrets / Vault).");
+                $"{sectionName}:Providers requires at least one provider with a configured ClientId — the login " +
+                $"cannot build an authorization request without one. Set {sectionName}__Providers__Google__ClientId (or Microsoft).");
     }
 }
 

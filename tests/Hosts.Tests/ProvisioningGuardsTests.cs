@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 
 namespace Hosts.Tests;
 
@@ -47,17 +48,32 @@ public sealed class ProvisioningGuardsTests
         ApiHost::ProvisioningGuards.RequireInjectedCredential(connectionString, "Admin"); // does not throw
     }
 
-    // --- Admin OIDC confidential-client boot guards (REQ-8.2) ---
+    // --- OIDC confidential-client boot guards (REQ-8.2/14.1/14.2), provider-scoped ---
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("REPLACE_WITH_ADMIN_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com")] // committed placeholder
-    public void Missing_or_placeholder_oidc_client_id_fails_fast(string? clientId)
+    private static IConfiguration Oidc(params (string Key, string? Value)[] pairs) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(pairs.ToDictionary(p => p.Key, p => p.Value))
+            .Build();
+
+    [Fact]
+    public void A_side_with_no_configured_provider_fails_fast_when_one_is_required()
     {
+        var config = Oidc(("AdminAuth:Providers:Google:ClientId", ""), ("AdminAuth:Providers:Microsoft:ClientId", ""));
         Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireConfidentialClientId(clientId));
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true));
+
+        // ...but is allowed when the side may be intentionally disabled (merchant-user, REQ-14.2).
+        ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false);
+    }
+
+    [Fact]
+    public void A_placeholder_client_id_fails_fast()
+    {
+        var config = Oidc(
+            ("AdminAuth:Providers:Google:ClientId", "REPLACE_WITH_ADMIN_CONSOLE_GOOGLE_CLIENT_ID.apps.googleusercontent.com"),
+            ("AdminAuth:Providers:Google:ClientSecret", "GOCSPX-an-injected-secret"));
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true));
     }
 
     [Theory]
@@ -65,16 +81,22 @@ public sealed class ProvisioningGuardsTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("REPLACE_WITH_ADMIN_OIDC_CLIENT_SECRET")] // committed placeholder — secret was not injected
-    public void Missing_or_placeholder_oidc_client_secret_fails_fast(string? clientSecret)
+    public void A_configured_client_id_with_a_missing_or_placeholder_secret_fails_fast(string? clientSecret)
     {
+        var config = Oidc(
+            ("MerchantUserAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ("MerchantUserAuth:Providers:Microsoft:ClientSecret", clientSecret));
         Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireConfidentialClientSecret(clientSecret));
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false));
     }
 
     [Fact]
-    public void Injected_confidential_client_passes()
+    public void Injected_confidential_clients_pass_and_blank_providers_are_skipped()
     {
-        ApiHost::ProvisioningGuards.RequireConfidentialClientId("333-admin.apps.googleusercontent.com");
-        ApiHost::ProvisioningGuards.RequireConfidentialClientSecret("GOCSPX-an-injected-secret"); // does not throw
+        var config = Oidc(
+            ("AdminAuth:Providers:Google:ClientId", "333-admin.apps.googleusercontent.com"),
+            ("AdminAuth:Providers:Google:ClientSecret", "GOCSPX-an-injected-secret"),
+            ("AdminAuth:Providers:Microsoft:ClientId", "")); // blank = disabled, not an error
+        ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true); // does not throw
     }
 }
