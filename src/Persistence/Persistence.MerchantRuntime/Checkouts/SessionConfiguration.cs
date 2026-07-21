@@ -32,5 +32,17 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
         builder.Ignore(x => x.DomainEvents);
+
+        // Composite alternate key + owned Lines collection (insurance-pivot REQ-6.5), mirrors
+        // Checkouts.Infrastructure.SessionConfiguration.
+        builder.HasAlternateKey(x => new { x.Id, x.MerchantId });
+
+        builder.HasMany(x => x.Lines)
+            .WithOne()
+            .HasForeignKey(l => new { l.SessionId, l.MerchantId })
+            .HasPrincipalKey(x => new { x.Id, x.MerchantId })
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

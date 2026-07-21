@@ -18,6 +18,7 @@ using Admins.Infrastructure;
 using Carts.Application;
 using Carts.Infrastructure;
 using Checkouts.Application;
+using Checkouts.Domain.Lines;
 using Checkouts.Infrastructure;
 using Mediator;
 using Divisions.Application;
@@ -542,7 +543,9 @@ var createProduct = api.MapPost("/products", async (
     CancellationToken ct) =>
 {
     var id = await mediator.Send(
-        new CreateProductCommand(actor.MerchantId, body.Name, body.Price), ct);
+        new CreateProductCommand(
+            actor.MerchantId, body.Name, body.Price, body.SumInsured, body.CoverageDurationDays, body.Insurer),
+        ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
 createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)
@@ -668,6 +671,9 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
 
 // Checkout. Start prices the checkout from the CART's subtotal (never a client-supplied amount), captures
 // an optional notification recipient, then Confirm emits CheckoutConfirmed -> Orders opens the order.
+// insurance-pivot REQ-6/7: the client supplies ONLY identity + insured-person PII per line — UnitPrice
+// comes from the cart, SumInsured/CoverageDurationDays/Insurer come from the server-side GetProductByIdQuery
+// (never the client, same trust boundary Price already has).
 api.MapPost("/checkouts", async (
     StartCheckoutRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
@@ -677,17 +683,42 @@ api.MapPost("/checkouts", async (
     if (cart.Subtotal is not { } subtotal)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Cannot check out an empty cart.");
 
+    // 1 insured person per line (locked decision) -> every cart line must be quantity 1.
+    if (cart.Items.Any(i => i.Quantity != 1))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Insurance items must have quantity 1.");
+
+    var cartProductIds = cart.Items.Select(i => i.ProductId).ToHashSet();
+    var insuredProductIds = body.InsuredPersons.Select(p => p.ProductId).ToList();
+    if (insuredProductIds.Count != insuredProductIds.Distinct().Count())
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Duplicate ProductId in insuredPersons.");
+    if (!cartProductIds.SetEquals(insuredProductIds))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "insuredPersons must cover every cart line exactly once.");
+
+    var lines = new List<CheckoutLineInput>();
+    foreach (var item in cart.Items)
+    {
+        var product = await mediator.Send(new GetProductByIdQuery(actor.MerchantId, item.ProductId), ct);
+        if (product is null || !product.IsActive)
+            return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart product is no longer available.");
+
+        var person = body.InsuredPersons.Single(p => p.ProductId == item.ProductId);
+        lines.Add(new CheckoutLineInput(
+            item.ProductId, item.Quantity, item.UnitPrice, product.SumInsured, product.CoverageDurationDays,
+            product.Insurer, person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth));
+    }
+
     var result = await mediator.Send(
-        new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, body.Recipient), ct);
+        new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, lines, body.Recipient), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
     .WithTags("Checkout")
     .WithName("StartCheckout")
     .WithSummary("Start checkout")
-    .WithDescription("Price a checkout from the cart subtotal (never a client amount). Unknown cart -> 404, empty cart -> 400.")
+    .WithDescription("Price a checkout from the cart subtotal (never a client amount), snapshotting insurance terms server-side. Unknown cart -> 404, empty/mismatched/qty!=1 -> 400, inactive product -> 409.")
     .Produces<StartCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
@@ -758,12 +789,13 @@ api.MapGet("/orders/{token}/summary", async (
         return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
 
     return Results.Ok(new OrderSummaryResponse(
-        summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId));
+        summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId,
+        summary.Lines.Select(l => new OrderSummaryLineResponse(l.ProductId, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
 }).AllowAnonymous()
     .WithTags("Orders")
     .WithName("GetOrderSummary")
     .WithSummary("Order summary by link")
-    .WithDescription("Public capability link: the opaque token resolves the order summary anonymously. Unknown token -> 404, expired -> 410.")
+    .WithDescription("Public capability link: the opaque token resolves the order summary anonymously. Unknown token -> 404, expired -> 410. Each insured person's IdNumber is masked and DateOfBirth is never included.")
     .Produces<OrderSummaryResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status410Gone);
@@ -780,6 +812,37 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     .WithDescription("Rotate the order summary token and extend its TTL, returning the fresh link.")
     .Produces<ResendOrderSummaryResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Merchant-authenticated order list — every line's InsuredIdNumber masked (REQ-7.4). No reveal audit here.
+api.MapGet("/orders", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new GetOrdersQuery(actor.MerchantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user")
+    .WithTags("Orders")
+    .WithName("ListOrders")
+    .WithSummary("List the bound merchant's orders")
+    .WithDescription("Every line's InsuredIdNumber is masked (last 4 visible). Use the detail read for the full value.")
+    .Produces<OrdersListView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Merchant-authenticated single-order detail — every line's InsuredIdNumber in FULL, one RevealAudit row
+// written per line returned (REQ-7.5), fail-closed (GetOrderDetailHandler saves the audit before building
+// the response; if that save throws, the shared exception handler turns it into a 5xx with no PII returned).
+api.MapGet("/orders/{orderId:guid}", async (
+    Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(
+        new GetOrderDetailCommand(actor.MerchantId, orderId, "merchant-user", actor.UserId!.Value.ToString()), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user")
+    .WithTags("Orders")
+    .WithName("GetOrderDetail")
+    .WithSummary("Read one order in full, with an audit trail")
+    .WithDescription("Every line's InsuredIdNumber is returned in full. Writes one reveal-audit row per line returned; the read fails closed (5xx, no PII) if the audit write fails.")
+    .Produces<OrderDetailView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound);
 
 // Reconciliation report: the bound merchant's orders grouped by status + currency (count + total).
 api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -1938,15 +2001,21 @@ internal sealed record RejectMerchantUserRequest(string? Reason);
 internal sealed record ApproveMerchantUserResponse(Guid MerchantUserId, string Status, bool AlreadyActive);
 internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string Status);
 
-internal sealed record CreateProductRequest(string Name, Money Price);
+internal sealed record CreateProductRequest(
+    string Name, Money Price, Money SumInsured, int CoverageDurationDays, string Insurer);
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, Money Amount, string Method, Code Psp);
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
-internal sealed record StartCheckoutRequest(Guid CartId, string? Recipient);
+internal sealed record StartCheckoutInsuredPerson(
+    Guid ProductId, string FirstName, string LastName, string IdNumber, DateTime DateOfBirth);
+internal sealed record StartCheckoutRequest(
+    Guid CartId, string? Recipient, IReadOnlyList<StartCheckoutInsuredPerson> InsuredPersons);
+internal sealed record OrderSummaryLineResponse(
+    Guid ProductId, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
 internal sealed record OrderSummaryResponse(
-    Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId);
+    Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId, IReadOnlyList<OrderSummaryLineResponse> Lines);
 
 // Admin provisioning request body (reference 2.4): { "merchant": { ... }, "pspConnections": [ ... ] }.
 // AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.

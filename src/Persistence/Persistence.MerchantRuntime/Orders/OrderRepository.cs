@@ -17,7 +17,7 @@ internal sealed class OrderRepository : IOrderRepository
     public OrderRepository(MerchantRuntimeDbContext db) => _db = db;
 
     public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
-        _db.Set<Order>().FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+        _db.Set<Order>().Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
 
     public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
         _db.Set<Order>().FirstOrDefaultAsync(o => o.CheckoutSessionId == checkoutSessionId, cancellationToken);
@@ -27,6 +27,13 @@ internal sealed class OrderRepository : IOrderRepository
             .Where(o => o.MerchantId == merchantId)
             .GroupBy(o => new { o.Status, o.Amount.Currency })
             .Select(g => new OrderStatusTotal(g.Key.Status, g.Key.Currency, g.Count(), g.Sum(o => o.Amount.Amount)))
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken cancellationToken) =>
+        await _db.Set<Order>()
+            .Where(o => o.MerchantId == merchantId)
+            .Include(o => o.Lines)
+            .OrderByDescending(o => o.CreatedAt)
             .ToListAsync(cancellationToken);
 
     public void Add(Order order) => _db.Set<Order>().Add(order);

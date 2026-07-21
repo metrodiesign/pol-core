@@ -588,6 +588,94 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CartItems", "shop");
                 });
 
+            modelBuilder.Entity("Checkouts.Domain.Lines.Line", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("CoverageDurationDays")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("InsuredDateOfBirth")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("InsuredFirstName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("InsuredIdNumber")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("InsuredLastName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Insurer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("InsurerName");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Checkouts.Domain.Lines.Line.SumInsured#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("SumInsuredAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("SumInsuredCurrency")
+                                .IsFixedLength();
+                        });
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Checkouts.Domain.Lines.Line.UnitPrice#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("UnitPriceAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("UnitPriceCurrency")
+                                .IsFixedLength();
+                        });
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId", "MerchantId");
+
+                    b.ToTable("CheckoutSessionLines", "shop");
+                });
+
             modelBuilder.Entity("Checkouts.Domain.Session", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1234,6 +1322,133 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Offices", "cfg");
                 });
 
+            modelBuilder.Entity("Orders.Domain.Lines.Line", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("CoverageDurationDays")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("InsuredDateOfBirth")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("InsuredFirstName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("InsuredIdNumber")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("InsuredLastName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Insurer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("InsurerName");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("int");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Orders.Domain.Lines.Line.SumInsured#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("SumInsuredAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("SumInsuredCurrency")
+                                .IsFixedLength();
+                        });
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Orders.Domain.Lines.Line.UnitPrice#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("UnitPriceAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("UnitPriceCurrency")
+                                .IsFixedLength();
+                        });
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderId", "MerchantId");
+
+                    b.ToTable("OrderLines", "shop");
+                });
+
+            modelBuilder.Entity("Orders.Domain.Lines.RevealAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ActorType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("OrderLineId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("RevealedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderLineId");
+
+                    b.HasIndex("MerchantId", "RevealedAt");
+
+                    b.ToTable("OrderLineRevealAudits", "shop");
+                });
+
             modelBuilder.Entity("Orders.Domain.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1448,8 +1663,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("CoverageDurationDays")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Insurer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("InsurerName");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
@@ -1477,6 +1701,24 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                                 .IsUnicode(false)
                                 .HasColumnType("char(3)")
                                 .HasColumnName("PriceCurrency")
+                                .IsFixedLength();
+                        });
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Products.Domain.Product.SumInsured#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("SumInsuredAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("SumInsuredCurrency")
                                 .IsFixedLength();
                         });
 
@@ -1529,6 +1771,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Checkouts.Domain.Lines.Line", b =>
+                {
+                    b.HasOne("Checkouts.Domain.Session", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("SessionId", "MerchantId")
+                        .HasPrincipalKey("Id", "MerchantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
                 {
                     b.HasOne("Iam.Domain.Permissions.PermissionGroup", null)
@@ -1562,14 +1814,34 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Orders.Domain.Lines.Line", b =>
+                {
+                    b.HasOne("Orders.Domain.Order", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("OrderId", "MerchantId")
+                        .HasPrincipalKey("Id", "MerchantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Carts.Domain.Cart", b =>
                 {
                     b.Navigation("Items");
                 });
 
+            modelBuilder.Entity("Checkouts.Domain.Session", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("Iam.Domain.Roles.Role", b =>
                 {
                     b.Navigation("Permissions");
+                });
+
+            modelBuilder.Entity("Orders.Domain.Order", b =>
+                {
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }

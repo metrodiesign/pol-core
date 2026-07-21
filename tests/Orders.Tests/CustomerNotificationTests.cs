@@ -1,5 +1,6 @@
 using Contracts;
 using Orders.Application;
+using Orders.Domain.Lines;
 using SharedKernel;
 
 namespace Orders.Tests;
@@ -18,7 +19,10 @@ public sealed class CustomerNotificationTests
         var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock());
 
         var result = await handler.Handle(
-            new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB"), Recipient: "buyer@example.com"), default);
+            new CreateOrderCommand(
+                MerchantId, Money.Of(15000m, "THB"), OrderLineInputs.OneLine(Money.Of(15000m, "THB")),
+                Recipient: "buyer@example.com"),
+            default);
 
         var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
         Assert.Equal(result.OrderId, note.OrderId);
@@ -32,7 +36,9 @@ public sealed class CustomerNotificationTests
         var outbox = new FakeOutbox();
         var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB")), default);
+        await handler.Handle(
+            new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB"), OrderLineInputs.OneLine(Money.Of(15000m, "THB"))),
+            default);
 
         Assert.Empty(outbox.Enqueued);
     }

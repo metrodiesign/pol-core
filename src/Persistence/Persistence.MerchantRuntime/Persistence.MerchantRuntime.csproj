@@ -33,10 +33,14 @@
        Architecture.Tests needs InternalsVisibleTo to build the model-disjointness/seal-reflection guardrail
        tests — the same pattern BuildingBlocks.Web/Api already use for Hosts.Tests. Persistence.Provisioning
        (task 7) is the ONE narrow, design-sanctioned exception (R3-v7 #4): the provisioning coordinator binds
-       this context to a shared connection/transaction alongside ControlPlaneDbContext. -->
+       this context to a shared connection/transaction alongside ControlPlaneDbContext. Hosts.Tests (insurance-pivot
+       task 0) needs its own grant to prove a write survives the REAL Worker DI graph — real WorkerWriteAuthorizer
+       (reachable there via its existing WorkerHost:: alias) driving a real MerchantRuntimeDbContext, not a fake
+       repository. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Architecture.Tests" />
     <InternalsVisibleTo Include="Persistence.Provisioning" />
+    <InternalsVisibleTo Include="Hosts.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

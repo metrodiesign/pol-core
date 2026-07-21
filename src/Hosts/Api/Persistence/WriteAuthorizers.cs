@@ -32,8 +32,11 @@ using Products.Domain;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using CheckoutSession = Checkouts.Domain.Session;
+using CheckoutSessionLine = Checkouts.Domain.Lines.Line;
 using PaymentSession = Payments.Domain.Session;
 using OrderAggregate = Orders.Domain.Order;
+using OrderLine = Orders.Domain.Lines.Line;
+using OrderLineRevealAudit = Orders.Domain.Lines.RevealAudit;
 
 namespace Api.Persistence;
 
@@ -87,7 +90,8 @@ internal sealed class MerchantRequestWriteAuthorizer : IWriteAuthorizer
         typeof(MerchantRegistrationAudit), typeof(MerchantRegistrationNotice), typeof(MerchantRoleAssignment),
         typeof(MerchantUserOutbox),
         // MerchantRuntimeDbContext
-        typeof(Product), typeof(CartAggregate), typeof(CartItem), typeof(CheckoutSession), typeof(OrderAggregate),
+        typeof(Product), typeof(CartAggregate), typeof(CartItem), typeof(CheckoutSession), typeof(CheckoutSessionLine),
+        typeof(OrderAggregate), typeof(OrderLine), typeof(OrderLineRevealAudit),
         typeof(PaymentSession), typeof(Connection), typeof(IdempotencyRecord), typeof(OutboxMessage),
         typeof(MerchantEntity), typeof(VaultSecretBlob), typeof(VaultRevealAudit), typeof(ProvisioningAudit),
     ];

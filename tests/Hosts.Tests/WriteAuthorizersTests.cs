@@ -13,6 +13,8 @@ using Persistence.MerchantUsers.Outbox;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantUser = Merchants.Domain.Users.User;
 using AdminUser = Admins.Domain.Users.User;
+using OrderLine = Orders.Domain.Lines.Line;
+using OrderLineRevealAudit = Orders.Domain.Lines.RevealAudit;
 
 namespace Hosts.Tests;
 
@@ -80,6 +82,20 @@ public sealed class WriteAuthorizersTests
         var authorizer = new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(new FakeActor(true, MerchantA));
 
         Assert.False(authorizer.CanWrite(typeof(AdminUser), WriteOperation.Insert, Guid.Empty));
+    }
+
+    // insurance-pivot task 4 — REQ-7.5's detail-read audit write and task 3's own checkout-line insert both
+    // go through this authorizer (the Api host), so both new line/audit types need an allowlist entry.
+    [Fact]
+    public void Merchant_request_allows_OrderLine_and_RevealAudit_for_own_merchant_and_denies_cross_merchant()
+    {
+        var authorizer = new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(new FakeActor(true, MerchantA));
+
+        Assert.True(authorizer.CanWrite(typeof(OrderLine), WriteOperation.Insert, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(OrderLine), WriteOperation.Insert, MerchantB));
+
+        Assert.True(authorizer.CanWrite(typeof(OrderLineRevealAudit), WriteOperation.Insert, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(OrderLineRevealAudit), WriteOperation.Insert, MerchantB));
     }
 
     // --- ProvisioningSuperWriteAuthorizer ---

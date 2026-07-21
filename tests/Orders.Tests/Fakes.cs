@@ -2,8 +2,23 @@ using BuildingBlocks.Application;
 using Mediator;
 using Orders.Application;
 using Orders.Domain;
+using Orders.Domain.Lines;
+using SharedKernel;
 
 namespace Orders.Tests;
+
+/// <summary>Shared valid <see cref="OrderLineInput"/> sample for tests that only care about Order's state
+/// machine/notification behavior, not insurance-line specifics (insurance-pivot task 3 — <c>Order.Create</c>
+/// now always requires at least one line).</summary>
+internal static class OrderLineInputs
+{
+    private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    public static IReadOnlyList<OrderLineInput> OneLine(Money unitPrice) =>
+        [new OrderLineInput(
+            Guid.NewGuid(), 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
+            "Somchai", "Jaidee", "1234567890123", Dob)];
+}
 
 internal sealed class FakeOutbox : IOutbox
 {
@@ -44,7 +59,26 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken ct) =>
         Task.FromResult(Reconciliation);
 
+    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Order>>(
+            _orders.Where(o => o.MerchantId == merchantId).OrderByDescending(o => o.CreatedAt).ToList());
+
     public void Add(Order order) => _orders.Add(order);
+}
+
+internal sealed class FakeRevealAuditWriter : IRevealAuditWriter
+{
+    public readonly List<Guid> Appended = [];
+    public bool ShouldThrow { get; init; }
+
+    public Task AppendAsync(Guid orderLineId, Guid merchantId, string actorType, string actorId,
+        string correlationId, CancellationToken cancellationToken)
+    {
+        if (ShouldThrow)
+            throw new InvalidOperationException("audit write failed");
+        Appended.Add(orderLineId);
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class FakeUnitOfWork : IUnitOfWork

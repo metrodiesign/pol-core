@@ -24,6 +24,15 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
             p.Property(m => m.Currency).HasColumnName("PriceCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
         });
 
+        // insurance-pivot REQ-1.4: SumInsured is Money, mapped the same way as Price.
+        builder.ComplexProperty(x => x.SumInsured, p =>
+        {
+            p.Property(m => m.Amount).HasColumnName("SumInsuredAmount").HasPrecision(19, 4);
+            p.Property(m => m.Currency).HasColumnName("SumInsuredCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        });
+        builder.Property(x => x.CoverageDurationDays).IsRequired();
+        builder.Property(x => x.Insurer).HasColumnName("InsurerName").HasMaxLength(200).IsRequired();
+
         builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
         builder.Property(x => x.IsActive).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();

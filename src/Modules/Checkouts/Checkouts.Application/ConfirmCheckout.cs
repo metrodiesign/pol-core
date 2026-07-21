@@ -38,9 +38,15 @@ public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutComm
             ?? throw new InvalidOperationException($"Checkout session {command.CheckoutSessionId} was not found.");
 
         session.Confirm();
+
+        var lines = session.Lines
+            .Select(l => new CheckoutConfirmedLine(
+                l.ProductId, l.Quantity, l.UnitPrice, l.SumInsured, l.CoverageDurationDays, l.Insurer,
+                l.InsuredFirstName, l.InsuredLastName, l.InsuredIdNumber, l.InsuredDateOfBirth))
+            .ToList();
         _outbox.Enqueue(new CheckoutConfirmed(
             session.MerchantId, session.Id, session.Amount,
-            session.NotificationRecipient, _clock.UtcNow));
+            session.NotificationRecipient, _clock.UtcNow, lines));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

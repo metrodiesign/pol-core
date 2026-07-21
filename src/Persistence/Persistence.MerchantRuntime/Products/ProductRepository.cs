@@ -55,7 +55,8 @@ internal sealed class ProductRepository : IProductRepository
             .Skip(skip)
             .Take(query.Limit)
             .Select(p => new ProductListItem(
-                p.Id, p.MerchantId, p.Name, p.Price, p.IsActive, p.CreatedAt))
+                p.Id, p.MerchantId, p.Name, p.Price, p.SumInsured, p.CoverageDurationDays, p.Insurer, p.IsActive,
+                p.CreatedAt))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<ProductListItem>(items, query.Page, query.Limit, total);

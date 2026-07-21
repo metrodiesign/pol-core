@@ -8,5 +8,8 @@ public sealed record ProductView(
     Guid MerchantId,
     string Name,
     Money Price,
+    Money SumInsured,
+    int CoverageDurationDays,
+    string Insurer,
     bool IsActive,
     DateTime CreatedAt);

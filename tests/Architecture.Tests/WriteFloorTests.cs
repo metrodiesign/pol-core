@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Orders.Domain.Lines;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantUsers;
@@ -46,7 +47,7 @@ public sealed class WriteFloorTests : IDisposable
         // since a freshly-attached detached entity has Original == Current) — it targets zero real rows
         // because the actual row's MerchantId is MerchantA, not MerchantB.
         using var forger = NewMerchantRuntimeContext(FakeActorContext.For(MerchantB), FakeWriteAuthorizer.AllowAll);
-        var forgedStub = Products.Domain.Product.Create(MerchantB, "renamed", Money.Of(1m, "THB"), DateTime.UtcNow);
+        var forgedStub = Products.Domain.Product.Create(MerchantB, "renamed", Money.Of(1m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         typeof(Products.Domain.Product).GetProperty(nameof(Products.Domain.Product.Id))!
             .SetValue(forgedStub, productId);
         forger.Attach(forgedStub).State = EntityState.Modified;
@@ -58,7 +59,7 @@ public sealed class WriteFloorTests : IDisposable
     public async Task Insert_with_MerchantId_Guid_Empty_is_rejected()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
-        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), DateTime.UtcNow);
+        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
         writer.Entry(product).Property("MerchantId").CurrentValue = Guid.Empty;
 
@@ -83,7 +84,7 @@ public sealed class WriteFloorTests : IDisposable
     public async Task CanWrite_denial_rejects_the_whole_save()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.DenyAll);
-        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), DateTime.UtcNow);
+        var product = Products.Domain.Product.Create(MerchantA, "a-product", Money.Of(1m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
 
         await Assert.ThrowsAsync<WriteGuardException>(() => writer.SaveChangesAsync());
@@ -108,6 +109,31 @@ public sealed class WriteFloorTests : IDisposable
         using var deleter = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
         var toDelete = await deleter.VaultRevealAudits.SingleAsync();
         deleter.VaultRevealAudits.Remove(toDelete);
+
+        var deleteEx = await Assert.ThrowsAsync<WriteGuardException>(() => deleter.SaveChangesAsync());
+        Assert.Contains("append-only", deleteEx.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // insurance-pivot task 4 (REQ-7.5) — mirrors the VaultRevealAudit guard test above exactly.
+    [Fact]
+    public async Task OrderLine_reveal_audit_accepts_insert_but_rejects_modify_and_delete()
+    {
+        using (var seed = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
+        {
+            seed.Add(RevealAudit.For(Guid.NewGuid(), MerchantA, "merchant-user", "user-1", "corr-1", DateTime.UtcNow));
+            await seed.SaveChangesAsync(); // insert must succeed — append-only bans Modified/Deleted, not Added
+        }
+
+        using var modifier = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
+        var audit = await modifier.OrderLineRevealAudits.SingleAsync();
+        modifier.Entry(audit).Property(nameof(RevealAudit.ActorId)).CurrentValue = "tampered";
+
+        var modifyEx = await Assert.ThrowsAsync<WriteGuardException>(() => modifier.SaveChangesAsync());
+        Assert.Contains("append-only", modifyEx.Message, StringComparison.OrdinalIgnoreCase);
+
+        using var deleter = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
+        var toDelete = await deleter.OrderLineRevealAudits.SingleAsync();
+        deleter.OrderLineRevealAudits.Remove(toDelete);
 
         var deleteEx = await Assert.ThrowsAsync<WriteGuardException>(() => deleter.SaveChangesAsync());
         Assert.Contains("append-only", deleteEx.Message, StringComparison.OrdinalIgnoreCase);
@@ -176,7 +202,7 @@ public sealed class WriteFloorTests : IDisposable
     private async Task<Guid> SeedProductAsync(Guid merchantId, string name)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId), FakeWriteAuthorizer.AllowAll);
-        var product = Products.Domain.Product.Create(merchantId, name, Money.Of(10m, "THB"), DateTime.UtcNow);
+        var product = Products.Domain.Product.Create(merchantId, name, Money.Of(10m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
         writer.Add(product);
         await writer.SaveChangesAsync();
         return product.Id;
