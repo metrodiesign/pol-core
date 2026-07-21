@@ -63,13 +63,25 @@ internal sealed class ControlPlaneUnitOfWork : IUnitOfWork
         Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
     {
         var strategy = _db.Database.CreateExecutionStrategy();
-        return await strategy.ExecuteAsync(async () =>
+        try
         {
-            _db.ChangeTracker.Clear(); // each retry attempt starts from a clean slate (see class summary)
-            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-            var result = await operation(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return result;
-        }).ConfigureAwait(false);
+            return await strategy.ExecuteAsync(async () =>
+            {
+                _db.ChangeTracker.Clear(); // each retry attempt starts from a clean slate (see class summary)
+                await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                var result = await operation(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return result;
+            }).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A FAILED attempt must not leak its staged entities either: this scoped context lives for the whole
+            // request, and a caller that CATCHES the failure (SelfProvisionSuperHandler's raced-bootstrap
+            // ConflictException re-read) continues using it — a later save (the login's session insert) would
+            // otherwise retry the failed attempt's duplicate inserts and fail the whole request.
+            _db.ChangeTracker.Clear();
+            throw;
+        }
     }
 }
