@@ -162,20 +162,17 @@ package:
         REGISTRY_IMAGE="$CI_REGISTRY_IMAGE" IMAGE_TAG="$IMAGE_TAG"
       docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml config -q
 
-# Manual UAT deploy on v* tags. Required CI/CD variables (protected):
+# Manual SSH deploys. Required CI/CD variables (protected; DEPLOY_* / SSH_* / REGISTRY_DEPLOY_*
+# are ENVIRONMENT-SCOPED — same names, one value per environment `uat` / `production`):
 #   SSH_PRIVATE_KEY (File), SSH_KNOWN_HOSTS (File), DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH,
 #   REGISTRY_DEPLOY_USER / REGISTRY_DEPLOY_TOKEN (deploy token, read_registry — outlives
 #   the job so the host can re-pull later; CI_JOB_TOKEN must NOT be used on the host).
 # The host keeps its own .env + ./secrets/ per docs/runbooks/deploy-self-host.md; compose
 # depends_on already enforces sql-healthy -> migrate-exit-0 -> api/worker.
-deploy-uat:
+.deploy-template:
   stage: deploy
   image: alpine:3.20
-  rules:
-    - if: '$CI_COMMIT_TAG =~ /^v/'
-      when: manual
-  environment:
-    name: uat
+  allow_failure: true # manual gate must not leave the pipeline in "blocked" state
   before_script:
     - apk add --no-cache openssh-client
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -187,8 +184,30 @@ deploy-uat:
       ssh "$DEPLOY_USER@$DEPLOY_HOST" \
         "docker login '$CI_REGISTRY' -u '$REGISTRY_DEPLOY_USER' -p '$REGISTRY_DEPLOY_TOKEN' && \
          cd '$DEPLOY_PATH' && \
-         export REGISTRY_IMAGE='$CI_REGISTRY_IMAGE' IMAGE_TAG='$CI_COMMIT_TAG' && \
+         export REGISTRY_IMAGE='$CI_REGISTRY_IMAGE' IMAGE_TAG='$DEPLOY_TAG' && \
          docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml pull migrate api worker && \
          docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml up -d --no-build && \
          docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml ps && \
          curl -fsS http://localhost:\${API_PORT:-5100}/health/ready"
+
+# UAT: any develop-branch pipeline can deploy its own commit's images (:short-sha).
+deploy-uat:
+  extends: .deploy-template
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+      when: manual
+  variables:
+    DEPLOY_TAG: $CI_COMMIT_SHORT_SHA
+  environment:
+    name: uat
+
+# Prod: v* tags only (release rule: tag + changelog; deploy after the same build passed UAT).
+deploy-prod:
+  extends: .deploy-template
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+      when: manual
+  variables:
+    DEPLOY_TAG: $CI_COMMIT_TAG
+  environment:
+    name: production
