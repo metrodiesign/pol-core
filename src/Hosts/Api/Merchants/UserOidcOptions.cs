@@ -17,9 +17,11 @@ internal sealed class UserOidcOptions
     /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
     public string ErrorPath { get; init; } = "/login-error";
 
-    /// <summary>Absolute URL of the merchant-user SPA registration page the callback redirects an applicant to,
-    /// carrying a signed ticket (REQ-9.4). Dev default = the merchant-user SPA dev origin; prod is that SPA's origin.</summary>
-    public string RegisterUrl { get; init; } = "http://localhost:5300/register";
+    /// <summary>The merchant-user SPA registration page the callback redirects an applicant to, carrying a signed
+    /// ticket (REQ-9.4). A RELATIVE path is made absolute against <c>UserSessionOptions.SpaBaseUrl</c> at redirect
+    /// time (an absolute URL is honored as-is) — a committed absolute localhost default would silently ship a
+    /// localhost redirect to production.</summary>
+    public string RegisterUrl { get; init; } = "/register";
 
     public Dictionary<string, OidcProviderOptions> Providers { get; init; } = [];
 }
@@ -44,4 +46,7 @@ internal sealed class UserSessionOptions
     public string DefaultReturnPath { get; init; } = "/";
     /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-8.3). Same-origin paths only.</summary>
     public string[] ReturnUrlAllowlist { get; init; } = [];
+    /// <summary>Absolute origin of the merchant-user SPA the callback redirects back to (e.g.
+    /// <c>http://localhost:5300</c>). Blank = keep relative. Mirrors <c>AdminSessionOptions.SpaBaseUrl</c>.</summary>
+    public string SpaBaseUrl { get; init; } = "";
 }

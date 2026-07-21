@@ -151,7 +151,28 @@ public sealed class MerchantUserLoginServiceTests
         }
     }
 
-    private static (UserLoginService, Ctx) Build(LoginResult resolve)
+    // Mirrors the admin SpaBaseUrl behavior: with the callback landing on the API origin, both the post-login
+    // returnTo and the error redirect must become absolute to the merchant-user SPA origin.
+    [Fact]
+    public async Task With_SpaBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_spa_origin()
+    {
+        var (service, ctx) = Build(LoginResult.Active(
+            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string>())), spaBaseUrl: "http://localhost:5300");
+        await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "google", "/dashboard", default);
+        Assert.Equal("http://localhost:5300/dashboard", ctx.Http.Response.Headers.Location);
+
+        var (pending, pendingCtx) = Build(LoginResult.Pending, spaBaseUrl: "http://localhost:5300");
+        await pending.HandleCallbackAsync(pendingCtx.Http, "google-sub-2", "p@org.com", null, "google", "/", default);
+        Assert.Equal("http://localhost:5300/login-error?reason=awaiting-approval", pendingCtx.Http.Response.Headers.Location);
+
+        // The committed RegisterUrl default is now RELATIVE ("/register") — the ticket redirect must go absolute
+        // too, or production would 404 the applicant on the API origin.
+        var (applicant, applicantCtx) = Build(LoginResult.NotFound, spaBaseUrl: "http://localhost:5300", registerUrl: "/register");
+        await applicant.HandleCallbackAsync(applicantCtx.Http, "google-sub-3", "new@org.com", null, "google", "/", default);
+        Assert.StartsWith("http://localhost:5300/register?ticket=", applicantCtx.Http.Response.Headers.Location.ToString());
+    }
+
+    private static (UserLoginService, Ctx) Build(LoginResult resolve, string spaBaseUrl = "", string registerUrl = RegisterUrl)
     {
         var sessions = new FakeSessionStore();
         var audit = new FakeAuthAudit();
@@ -159,8 +180,12 @@ public sealed class MerchantUserLoginServiceTests
         var registrationOptions = Options.Create(new UserRegistrationOptions());
         var ticketProtector = new UserRegistrationTickets(new EphemeralDataProtectionProvider(), registrationOptions);
         var cookies = new UserSessionCookies(Options.Create(new UserSessionOptions()), env);
-        var sessionOptions = Options.Create(new UserSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard"] });
-        var oidcOptions = Options.Create(new UserOidcOptions { ErrorPath = "/login-error", RegisterUrl = RegisterUrl });
+        var sessionOptions = Options.Create(new UserSessionOptions
+        {
+            ReturnUrlAllowlist = ["/", "/dashboard"],
+            SpaBaseUrl = spaBaseUrl,
+        });
+        var oidcOptions = Options.Create(new UserOidcOptions { ErrorPath = "/login-error", RegisterUrl = registerUrl });
         var provider = new ServiceCollection()
             .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();

@@ -98,14 +98,37 @@ public sealed class AdminLoginServiceTests
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
     }
 
+    // With the provider callback landing on the API origin (provider-scoped OIDC), a configured SpaBaseUrl makes
+    // both the post-login returnTo and the error redirect absolute to the SPA origin — the browser must never
+    // land on the API host's JSON 404.
+    [Fact]
+    public async Task With_SpaBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_spa_origin()
+    {
+        var (service, _, _, http) = Build(
+            new ResolveResult(ResolveOutcome.Resolved,
+                new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
+            spaBaseUrl: "http://localhost:5200");
+        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
+        Assert.Equal("http://localhost:5200/dashboard", http.Response.Headers.Location);
+
+        var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "http://localhost:5200");
+        await denied.EstablishSessionAsync(deniedHttp, "google-sub-2", "ops@org.com", emailVerified: true, "/", default);
+        Assert.Equal("http://localhost:5200/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
+    }
+
     // --- harness ---
 
-    private static (LoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(ResolveResult resolve)
+    private static (LoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(
+        ResolveResult resolve, string spaBaseUrl = "")
     {
         var store = new FakeSessionStore();
         var audit = new FakeAuthAudit();
         var cookies = new SessionCookies(Options.Create(new AdminSessionOptions()), new Env());
-        var sessionOptions = Options.Create(new AdminSessionOptions { ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"] });
+        var sessionOptions = Options.Create(new AdminSessionOptions
+        {
+            ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"],
+            SpaBaseUrl = spaBaseUrl,
+        });
         var oidcOptions = Options.Create(new AdminAuthOptions { ErrorPath = "/login-error" });
         var provider = new ServiceCollection()
             .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope

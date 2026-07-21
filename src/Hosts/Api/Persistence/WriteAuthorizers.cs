@@ -155,6 +155,15 @@ internal sealed class ProvisioningSuperWriteAuthorizer : IWriteAuthorizer
 /// bound-admin HTTP request (design.md R1-v7 #9 — the XmlRepository moves into this assembly, task 8.5's
 /// DI wiring).</item>
 /// </list>
+/// <para>
+/// UNBOUND carve-out (bugfix, mirrors the merchant authorizer's pre-bind branch): every write the OIDC
+/// callback makes happens BEFORE any admin scope exists — the scope binds from the session cookie on the
+/// NEXT request, and the callback is the request that CREATES the session. Gating those on
+/// <c>IsBound</c> bricked the whole admin login (bootstrap self-provision, invite-bind, session start,
+/// login-success audit — and even the denied-auth audit, so the failure was invisible in
+/// <c>admin.AuthAudits</c>). An unbound actor gets exactly the narrow (entity, operation) set the login
+/// flow needs; everything else still requires a bound scope.
+/// </para>
 /// </summary>
 internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
 {
@@ -166,6 +175,23 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         typeof(Position), typeof(Office), typeof(Level), typeof(Division),
     ];
 
+    // The callback-time login flow, and nothing else: allowlist bootstrap (User+Audit+RoleAssignment),
+    // invite-bind (User update + Audit), session start (Session), and the login-success/denied audits
+    // (AuthAudit). No unbound Delete, and no unbound access to roles/permissions/master data.
+    // The TRUST ROOTS for these writes live in the REQ-9.5 pre-bind write ports (bootstrap Subject
+    // allowlist / invited-email lookup / the verified OIDC principal itself) — this floor is the
+    // defense-in-depth layer under them, (type, op)-narrow by design, mirroring
+    // MerchantRequestWriteAuthorizer's accepted pre-bind branch above.
+    private static readonly HashSet<(Type, WriteOperation)> UnboundLoginFlowWrites =
+    [
+        (typeof(AdminUser), WriteOperation.Insert),
+        (typeof(AdminUser), WriteOperation.Update),
+        (typeof(AdminAudit), WriteOperation.Insert),
+        (typeof(AdminRoleAssignment), WriteOperation.Insert),
+        (typeof(AdminSession), WriteOperation.Insert),
+        (typeof(AdminAuthAudit), WriteOperation.Insert),
+    ];
+
     private readonly IAdminScope _scope;
 
     public ControlPlaneAdminWriteAuthorizer(IAdminScope scope) => _scope = scope;
@@ -174,6 +200,8 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
     {
         if (entityType == typeof(DataProtectionKey))
             return true;
-        return _scope.IsBound && BoundOnlyTypes.Contains(entityType);
+        if (_scope.IsBound)
+            return BoundOnlyTypes.Contains(entityType);
+        return UnboundLoginFlowWrites.Contains((entityType, operation));
     }
 }
