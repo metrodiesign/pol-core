@@ -6,18 +6,18 @@
 ภาพรวม: โค้ดหลัก + PR + merge gate อยู่ GitHub (`metrodiesign/pol-core`) เหมือนเดิม.
 GitHub Actions (`.github/workflows/mirror-gitlab.yml`) push-mirror `develop`/`main`/tag `v*`
 ไป GitLab อัตโนมัติ → GitLab pipeline (`.gitlab-ci.yml`) รัน gate เดิม + build/push image เข้า
-Container Registry → job `deploy-prod` (manual, เฉพาะ tag `v*`) SSH ไป prod host แล้ว
+Container Registry → job `deploy-uat` (manual, เฉพาะ tag `v*`) SSH ไป UAT host แล้ว
 `docker compose pull` + `up -d --no-build`.
 
 ```
-GitHub (code of record)          GitLab (CI/CD channel)              Prod host
+GitHub (code of record)          GitLab (CI/CD channel)              UAT host
   PR -> merge develop/main  --mirror-->  pipeline: verify -> dotnet
   tag vX.Y.Z                --mirror-->  -> package (push registry)
-                                         -> deploy-prod (manual)  --ssh-->  compose pull + up
+                                         -> deploy-uat (manual)  --ssh-->  compose pull + up
 ```
 
 ลำดับทำ: ฝั่ง GitLab ข้อ 1-3 ก่อน → merge PR #125 → ทดสอบ mirror + pipeline →
-ค่อยทำ GitLab ข้อ 4-5 + Prod host → ทดสอบ deploy จริงด้วย tag.
+ค่อยทำ GitLab ข้อ 4-5 + UAT host → ทดสอบ deploy จริงด้วย tag.
 
 ---
 
@@ -54,13 +54,13 @@ Settings → General → Visibility, project features, permissions:
 - toggle **Container Registry** ให้เปิด (บาง instance เปิด default — เช็คว่าเมนู
   Deploy → Container Registry โผล่ใน sidebar)
 
-### 4. Deploy token (สำหรับ prod host pull image)
+### 4. Deploy token (สำหรับ UAT host pull image)
 
 Settings → Repository → Deploy tokens → Add token:
 
 | ช่อง | ค่า |
 |---|---|
-| Name | `prod-registry-pull` (label เฉย ๆ) |
+| Name | `uat-registry-pull` (label เฉย ๆ) |
 | Expiration date | เว้นว่าง หรือตาม policy — หมดอายุแล้ว host จะ pull ไม่ได้ตอน deploy |
 | Username | เว้นว่างได้ GitLab gen ให้ (รูปแบบ `gitlab+deploy-token-<N>`) |
 | Scopes | ติ๊ก `read_registry` ตัวเดียว |
@@ -81,8 +81,8 @@ masked ตามตาราง:
 |---|---|---|---|
 | `SSH_PRIVATE_KEY` | **File** | Protected (masked ไม่ได้ — หลายบรรทัด) | เนื้อไฟล์ private key ทั้งก้อน ตั้งแต่ `-----BEGIN OPENSSH PRIVATE KEY-----` ถึง `-----END...-----` รวมบรรทัดจบ (วิธีสร้าง: ดูหัวข้อ "สร้าง SSH key" ด้านล่าง) |
 | `SSH_KNOWN_HOSTS` | **File** | Protected | ผลจาก `ssh-keyscan -H <DEPLOY_HOST>` ทั้งก้อน |
-| `DEPLOY_HOST` | Variable | Protected | hostname/IP ของ prod server |
-| `DEPLOY_USER` | Variable | Protected | user SSH บน prod server (ต้องอยู่ group `docker`) |
+| `DEPLOY_HOST` | Variable | Protected | hostname/IP ของ UAT server |
+| `DEPLOY_USER` | Variable | Protected | user SSH บน UAT server (ต้องอยู่ group `docker`) |
 | `DEPLOY_PATH` | Variable | Protected | path บน host ที่มี `.env` + `secrets/` (compose files จะถูก scp มาวางที่นี่) |
 | `REGISTRY_DEPLOY_USER` | Variable | Protected | username ของ deploy token ข้อ 4 |
 | `REGISTRY_DEPLOY_TOKEN` | Variable | Protected + Masked | ค่า deploy token ข้อ 4 |
@@ -122,7 +122,7 @@ Settings → Secrets and variables → Actions → **New repository secret**:
 push/merge อะไรเข้า `develop` หนึ่งครั้ง → GitHub Actions tab → workflow
 **Mirror to GitLab** ต้องเขียว → เปิด GitLab ดู commit เดียวกันต้องโผล่ และ pipeline
 เริ่มรันเอง (stage verify → dotnet → package รันได้โดยยังไม่ต้องมี deploy variables —
-job `deploy-prod` โผล่เฉพาะ pipeline ของ tag `v*`).
+job `deploy-uat` โผล่เฉพาะ pipeline ของ tag `v*`).
 
 ---
 
@@ -135,14 +135,14 @@ gen คู่ใหม่เฉพาะ CI:
 # 1. gen keypair ใหม่ ไม่มี passphrase
 ssh-keygen -t ed25519 -C "gitlab-ci-deploy" -f ./gitlab_ci_deploy -N ""
 
-# 2. สร้างค่า known_hosts (รันจากเครื่องที่ถึง prod host ได้)
+# 2. สร้างค่า known_hosts (รันจากเครื่องที่ถึง UAT host ได้)
 ssh-keyscan -H <DEPLOY_HOST> > ./gitlab_ci_known_hosts
 # เช็คว่าไฟล์ไม่ว่าง มีบรรทัด ssh-ed25519/ssh-rsa; กัน MITM ให้เทียบ fingerprint กับ
 # ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub ที่รันบน host ตรง ๆ
 ```
 
 - `gitlab_ci_deploy` (private) → GitLab variable `SSH_PRIVATE_KEY` (File)
-- `gitlab_ci_deploy.pub` (public) → ใส่บน prod host (หัวข้อถัดไป)
+- `gitlab_ci_deploy.pub` (public) → ใส่บน UAT host (หัวข้อถัดไป)
 - `gitlab_ci_known_hosts` → GitLab variable `SSH_KNOWN_HOSTS` (File)
 
 ใส่ค่าใน GitLab ครบแล้ว **ลบไฟล์ทิ้งจากเครื่อง**:
@@ -155,7 +155,7 @@ rm ./gitlab_ci_deploy ./gitlab_ci_deploy.pub ./gitlab_ci_known_hosts
 
 ---
 
-## ฝั่ง Prod host (ทำครั้งเดียว)
+## ฝั่ง UAT host (ทำครั้งเดียว)
 
 สมมุติ host ผ่านการ first install ตาม [deploy-self-host.md](deploy-self-host.md)
 ข้อ 0-3 แล้ว (มี Docker, clone repo, `.env`, `./secrets/`, ระบบรันอยู่).
@@ -173,7 +173,7 @@ chmod 600 /home/<DEPLOY_USER>/.ssh/authorized_keys
 ls -la <DEPLOY_PATH>/.env <DEPLOY_PATH>/secrets/
 ```
 
-สิ่งที่ job `deploy-prod` จะทำบน host (อ้างอิง — ไม่ต้องทำเอง):
+สิ่งที่ job `deploy-uat` จะทำบน host (อ้างอิง — ไม่ต้องทำเอง):
 scp `docker-compose.prod.yml` + `docker-compose.registry.yml` มาวางใน `DEPLOY_PATH`,
 `docker login` registry ด้วย deploy token, `docker compose pull migrate api worker`,
 `up -d --no-build` (ลำดับ sql-healthy → migrate-exit-0 → api/worker บังคับด้วย
@@ -196,10 +196,10 @@ repo ที่ clone ไว้ใช้แค่ first install / rollback แบ
    ```bash
    git tag v0.1.0 && git push origin v0.1.0
    ```
-   → mirror → pipeline ของ tag build image `:v0.1.0` → job `deploy-prod` ขึ้นสถานะ
+   → mirror → pipeline ของ tag build image `:v0.1.0` → job `deploy-uat` ขึ้นสถานะ
    manual → กด play → ดู log: `migrate` exit 0, `docker compose ps` healthy,
    `/health/ready` ตอบ 200
-5. rollback drill: เปิด pipeline ของ tag ก่อนหน้า → กด `deploy-prod` จากตรงนั้น →
+5. rollback drill: เปิด pipeline ของ tag ก่อนหน้า → กด `deploy-uat` จากตรงนั้น →
    ระบบกลับเวอร์ชันเก่า (image เก่ายังอยู่ใน registry)
 
 ## Troubleshooting

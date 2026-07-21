@@ -175,7 +175,7 @@ Flow release:
 1. merge เข้า develop/main บน GitHub ตามปกติ (PR + CI GitHub เป็น merge gate เดิม)
 2. tag `vX.Y.Z` + changelog (rule เดิม) แล้ว push tag — mirror ไป GitLab เอง
 3. pipeline ของ tag build image `api`/`worker`/`migrate` tag `vX.Y.Z` เข้า registry
-4. กด play job `deploy-prod` (manual gate, environment `production`) — job จะ scp
+4. กด play job `deploy-uat` (manual gate, environment `uat`) — job จะ scp
    `docker-compose.prod.yml` + `docker-compose.registry.yml` ไป host แล้ว ssh รัน
    `docker compose ... pull` + `up -d --no-build` (ลำดับ sql -> migrate -> hosts เดิมตาม depends_on)
    แล้ว verify `/health/ready`
@@ -184,7 +184,7 @@ Flow release:
 
 - ข้อ 1-3 ของ runbook นี้ (`.env`, `./secrets/`, first deploy) ยังเป็นขั้น manual บน host เหมือนเดิม —
   GitLab deploy ไม่แตะ secret ใด ๆ, ใช้สำหรับ upgrade รอบถัดไปแทนข้อ 4.2 (backup ข้อ 4.1 ยังต้องทำก่อนกดเสมอ)
-- rollback ผ่าน GitLab = กด `deploy-prod` จาก pipeline ของ tag ก่อนหน้า (image เก่ายังอยู่ใน registry);
+- rollback ผ่าน GitLab = กด `deploy-uat` จาก pipeline ของ tag ก่อนหน้า (image เก่ายังอยู่ใน registry);
   DB rollback ยังใช้ข้อ 5 เดิม
 - ตัวแปร CI/CD ที่ infra ต้องตั้งใน GitLab (protected): `SSH_PRIVATE_KEY` (File), `SSH_KNOWN_HOSTS` (File),
   `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `REGISTRY_DEPLOY_USER`/`REGISTRY_DEPLOY_TOKEN`
