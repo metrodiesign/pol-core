@@ -87,6 +87,10 @@ services:
       ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
       Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
+      # The IdP callback lands on the API origin (provider-scoped OIDC), so post-login/error/register
+      # redirects must be made absolute to each SPA's origin — same values as the CORS origins above.
+      AdminSession__SpaBaseUrl: ${ADMIN_FRONTEND_ORIGIN}
+      MerchantUser__Session__SpaBaseUrl: ${MERCHANT_USER_FRONTEND_ORIGIN}
       # Non-secret PSP operational config (Payments.Infrastructure/Psp/PspOptions.cs) — UseSandbox
       # defaults true (safe) so going live with real PSP credentials is an explicit .env opt-in. The
       # return URL/URI values are platform-wide redirect targets, required like the vars above: a

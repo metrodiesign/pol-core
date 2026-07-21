@@ -178,6 +178,10 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
     // The callback-time login flow, and nothing else: allowlist bootstrap (User+Audit+RoleAssignment),
     // invite-bind (User update + Audit), session start (Session), and the login-success/denied audits
     // (AuthAudit). No unbound Delete, and no unbound access to roles/permissions/master data.
+    // The TRUST ROOTS for these writes live in the REQ-9.5 pre-bind write ports (bootstrap Subject
+    // allowlist / invited-email lookup / the verified OIDC principal itself) — this floor is the
+    // defense-in-depth layer under them, (type, op)-narrow by design, mirroring
+    // MerchantRequestWriteAuthorizer's accepted pre-bind branch above.
     private static readonly HashSet<(Type, WriteOperation)> UnboundLoginFlowWrites =
     [
         (typeof(AdminUser), WriteOperation.Insert),
