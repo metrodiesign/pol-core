@@ -164,7 +164,36 @@ docker compose -f docker-compose.prod.yml run --rm --entrypoint sh migrate -c '
 ถ้า migration rollback เสี่ยง (data loss) -> restore จาก backup (ข้อ 4.1) แทน. ออกแบบ migration ให้
 backward-compatible (expand/contract) เพื่อให้ app เก่า+ใหม่ทำงานกับ schema เดียวกันได้ระหว่าง roll.
 
-## 6. SA password rotation (post-bootstrap)
+## 6. Deploy ผ่าน GitLab CI (ทางหลักหลังตั้งระบบครั้งแรก)
+
+โค้ดหลักอยู่ GitHub; GitLab องค์กร (`gitlab2.viriyah.co.th/central-software/central-payment-gateway`)
+เป็นช่อง CI/CD: GitHub Actions (`mirror-gitlab.yml`) push mirror `develop`/`main`/tag `v*` ให้อัตโนมัติ
+แล้ว pipeline (`.gitlab-ci.yml`) รัน gate เดิม + build/push image เข้า GitLab Container Registry.
+
+Flow release:
+
+1. merge เข้า develop/main บน GitHub ตามปกติ (PR + CI GitHub เป็น merge gate เดิม)
+2. tag `vX.Y.Z` + changelog (rule เดิม) แล้ว push tag — mirror ไป GitLab เอง
+3. pipeline ของ tag build image `api`/`worker`/`migrate` tag `vX.Y.Z` เข้า registry
+4. กด play job `deploy-prod` (manual gate, environment `production`) — job จะ scp
+   `docker-compose.prod.yml` + `docker-compose.registry.yml` ไป host แล้ว ssh รัน
+   `docker compose ... pull` + `up -d --no-build` (ลำดับ sql -> migrate -> hosts เดิมตาม depends_on)
+   แล้ว verify `/health/ready`
+
+หมายเหตุ:
+
+- ข้อ 1-3 ของ runbook นี้ (`.env`, `./secrets/`, first deploy) ยังเป็นขั้น manual บน host เหมือนเดิม —
+  GitLab deploy ไม่แตะ secret ใด ๆ, ใช้สำหรับ upgrade รอบถัดไปแทนข้อ 4.2 (backup ข้อ 4.1 ยังต้องทำก่อนกดเสมอ)
+- rollback ผ่าน GitLab = กด `deploy-prod` จาก pipeline ของ tag ก่อนหน้า (image เก่ายังอยู่ใน registry);
+  DB rollback ยังใช้ข้อ 5 เดิม
+- ตัวแปร CI/CD ที่ infra ต้องตั้งใน GitLab (protected): `SSH_PRIVATE_KEY` (File), `SSH_KNOWN_HOSTS` (File),
+  `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `REGISTRY_DEPLOY_USER`/`REGISTRY_DEPLOY_TOKEN`
+  (deploy token scope `read_registry`); optional สำหรับ job integration: `POL_SA_PASSWORD` (masked).
+  ฝั่ง GitHub ต้องมี secret `GITLAB_MIRROR_TOKEN` (project access token scope `write_repository`).
+  Runner ต้องเป็น docker executor และ job `package` ต้องมี privileged (DinD) หรือสลับเป็น kaniko.
+- host เตรียมครั้งเดียว: user SSH อยู่ group `docker` + authorize key ของ CI + `$DEPLOY_PATH` มี `.env` และ `secrets/`
+
+## 7. SA password rotation (post-bootstrap)
 
 `sa` ใช้แค่ตอน bootstrap/migrate — app ต่อด้วย pol_app/pol_worker เท่านั้น (pol_admin = dormant, ใช้โดย integration test ต่อ DB ตรง). หลัง deploy แรก
 หมุน SA ได้: `ALTER LOGIN sa WITH PASSWORD='...'` แล้วอัปเดต `MSSQL_SA_PASSWORD` ใน `.env` (ใช้รอบ migrate ถัดไป).

@@ -1,0 +1,34 @@
+# Push mirror to the corporate GitLab (CI/CD + deploy channel — see .gitlab-ci.yml).
+# GitHub stays the code of record; every push to develop/main and every v* tag is
+# force-pushed ref-for-ref to gitlab2.viriyah.co.th, which then runs its own pipeline.
+# Secret: GITLAB_MIRROR_TOKEN — GitLab project access token (Maintainer, write_repository).
+name: Mirror to GitLab
+
+on:
+  push:
+    branches: [develop, main]
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-${{ github.ref }}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push ref to GitLab
+        # --force so the mirror survives history rewrites on the GitHub side; the GitLab
+        # repo is a read-only replica, never pushed to directly. github.ref goes through
+        # an env var so a crafted tag name cannot inject into the shell line.
+        env:
+          MIRROR_REF: ${{ github.ref }}
+        run: |
+          git push --force \
+            "https://oauth2:${{ secrets.GITLAB_MIRROR_TOKEN }}@gitlab2.viriyah.co.th/central-software/central-payment-gateway.git" \
+            "$MIRROR_REF:$MIRROR_REF"
