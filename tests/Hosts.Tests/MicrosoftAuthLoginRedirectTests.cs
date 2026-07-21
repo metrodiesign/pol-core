@@ -96,7 +96,7 @@ public sealed class MicrosoftAuthLoginRedirectTests
         var query = QueryHelpers.ParseQuery(location.Query);
         Assert.Equal("code", query["response_type"]);
         Assert.Equal(clientId, query["client_id"]);
-        Assert.Equal("openid email", query["scope"].ToString());
+        Assert.Equal("openid email profile", query["scope"].ToString()); // profile is REQUIRED: oid/tid ride on it
         Assert.Equal("S256", query["code_challenge_method"]);
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));

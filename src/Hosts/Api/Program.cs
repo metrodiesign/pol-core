@@ -2091,14 +2091,18 @@ internal static class ProvisioningGuards
     }
 
     /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "AdminAuth" /
-    /// "MerchantUserAuth"): every provider with a non-blank ClientId must not be a committed placeholder and must
-    /// have its secret injected (blank or placeholder = the runtime secret was never injected). A blank ClientId
-    /// disables that provider (its scheme is skipped, REQ-14.2); <paramref name="requireAtLeastOne"/> additionally
-    /// demands one configured provider (the admin console with no login is a dead deploy). The error never echoes
-    /// a secret value (REQ-8.3/14.3).</summary>
+    /// "MerchantUserAuth"). For every provider with a non-blank ClientId: the id must not be a committed
+    /// placeholder, the secret must be injected (blank or placeholder = never injected), the Authority must be a
+    /// real https URL (the committed Microsoft Authority ships a REPLACE_WITH_TENANT_ID placeholder — booting with
+    /// it means every login dies at the metadata fetch), the CallbackPath must be set and unique within the side,
+    /// and an ADMIN Microsoft provider must pin a tenant (a tenant-specific Authority or a non-empty
+    /// AllowedTenants — never open to every Entra tenant). A blank ClientId disables that provider (its scheme is
+    /// skipped, REQ-14.2); <paramref name="requireAtLeastOne"/> additionally demands one configured provider (the
+    /// admin console with no login is a dead deploy). The error never echoes a secret value (REQ-8.3/14.3).</summary>
     public static void RequireOidcProviders(IConfiguration configuration, string sectionName, bool requireAtLeastOne)
     {
         var anyConfigured = false;
+        var callbackPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var provider in configuration.GetSection($"{sectionName}:Providers").GetChildren())
         {
             var clientId = provider["ClientId"];
@@ -2114,6 +2118,33 @@ internal static class ProvisioningGuards
                     $"{sectionName}:Providers:{provider.Key}:ClientSecret is required when its ClientId is configured — " +
                     $"the runtime secret was not injected. Set {sectionName}__Providers__{provider.Key}__ClientSecret " +
                     "(environment / user-secrets / Vault).");
+
+            var authority = provider["Authority"] ?? "";
+            if (!authority.StartsWith("https://", StringComparison.Ordinal)
+                || authority.Contains("REPLACE_WITH_", StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"{sectionName}:Providers:{provider.Key}:Authority must be a real https URL — the committed value " +
+                    $"is blank or a placeholder. Set {sectionName}__Providers__{provider.Key}__Authority.");
+
+            var callbackPath = provider["CallbackPath"];
+            if (string.IsNullOrWhiteSpace(callbackPath) || !callbackPaths.Add(callbackPath))
+                throw new InvalidOperationException(
+                    $"{sectionName}:Providers:{provider.Key}:CallbackPath must be set and unique per provider — " +
+                    "two providers sharing a callback would race the same middleware path.");
+
+            // The admin console must never accept EVERY Entra tenant: a multi-tenant Authority
+            // (common/organizations/consumers) needs an explicit AllowedTenants allowlist.
+            if (sectionName == "AdminAuth"
+                && string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)
+                && (authority.Contains("/common", StringComparison.OrdinalIgnoreCase)
+                    || authority.Contains("/organizations", StringComparison.OrdinalIgnoreCase)
+                    || authority.Contains("/consumers", StringComparison.OrdinalIgnoreCase))
+                && !provider.GetSection("AllowedTenants").GetChildren().Any(t => !string.IsNullOrWhiteSpace(t.Value)))
+                throw new InvalidOperationException(
+                    "AdminAuth:Providers:Microsoft with a multi-tenant Authority requires a non-empty AllowedTenants " +
+                    "allowlist — the admin console must not accept every Entra tenant. Pin the Authority to your " +
+                    "tenant id, or set AdminAuth__Providers__Microsoft__AllowedTenants__0.");
+
             anyConfigured = true;
         }
 

@@ -83,9 +83,11 @@ internal static class UserOidcAuthentication
         options.MapInboundClaims = false;        // keep raw claim names (sub/oid/email/hd/tid/email_verified)
         options.RequireHttpsMetadata = !environment.IsDevelopment();
 
-        options.Scope.Clear();                   // only openid+email, no offline access (REQ-8.4)
+        options.Scope.Clear();                   // minimal request, no offline access (REQ-8.4)
         options.Scope.Add("openid");
         options.Scope.Add("email");
+        if (isMicrosoft)
+            options.Scope.Add("profile");        // Entra puts oid/tid behind profile; openid alone yields only the pairwise sub
 
         options.TokenValidationParameters.ValidateIssuer = true;
         if (isMicrosoft)

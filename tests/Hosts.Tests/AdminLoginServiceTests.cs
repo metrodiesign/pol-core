@@ -49,7 +49,7 @@ public sealed class AdminLoginServiceTests
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)));
 
-        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
 
         var session = Assert.Single(store.Added);
         Assert.Equal(AdminId, session.PlatformUserId);
@@ -66,7 +66,7 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.Suspended);
 
-        await service.EstablishSessionAsync(http, "google-sub-2", "ops@org.com", "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google-sub-2", "ops@org.com", emailVerified: true, "/dashboard", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
@@ -81,7 +81,7 @@ public sealed class AdminLoginServiceTests
         // the resolver returns NotFound (not an existing admin, not invited, not allowlisted)
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, "google-sub-3", "stranger@org.com", "/", default);
+        await service.EstablishSessionAsync(http, "google-sub-3", "stranger@org.com", emailVerified: true, "/", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "not-provisioned");
@@ -92,7 +92,7 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, subject: null, email: "x@org.com", returnTo: "/", default);
+        await service.EstablishSessionAsync(http, subject: null, email: "x@org.com", emailVerified: true, returnTo: "/", ct: default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
@@ -122,7 +122,7 @@ public sealed class AdminLoginServiceTests
 
     private sealed class FakeResolver(ResolveResult result) : ICallbackResolver
     {
-        public Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken ct) =>
+        public Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, bool emailVerified, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);
     }
 

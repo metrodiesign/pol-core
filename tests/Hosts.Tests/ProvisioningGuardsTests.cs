@@ -85,9 +85,74 @@ public sealed class ProvisioningGuardsTests
     {
         var config = Oidc(
             ("MerchantUserAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
-            ("MerchantUserAuth:Providers:Microsoft:ClientSecret", clientSecret));
+            ("MerchantUserAuth:Providers:Microsoft:ClientSecret", clientSecret),
+            ("MerchantUserAuth:Providers:Microsoft:Authority", "https://login.microsoftonline.com/organizations/v2.0"),
+            ("MerchantUserAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
         Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false));
+    }
+
+    // Codex review (PR #123) Medium #3: credentials alone must not satisfy the guard — the committed Microsoft
+    // Authority ships a REPLACE_WITH_TENANT_ID placeholder, and booting with it (or plain http, or a missing/
+    // duplicated callback) fails only at the first login's metadata fetch instead of at boot.
+    [Theory]
+    [InlineData("")]                                                             // blank
+    [InlineData("https://login.microsoftonline.com/REPLACE_WITH_TENANT_ID/v2.0")] // committed placeholder
+    [InlineData("http://login.microsoftonline.com/x/v2.0")]                       // not https
+    public void A_configured_provider_with_a_bad_authority_fails_fast(string authority)
+    {
+        var config = Oidc(
+            ("MerchantUserAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ("MerchantUserAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"),
+            ("MerchantUserAuth:Providers:Microsoft:Authority", authority),
+            ("MerchantUserAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false));
+    }
+
+    [Fact]
+    public void A_missing_or_duplicated_callback_path_fails_fast()
+    {
+        var missing = Oidc(
+            ("AdminAuth:Providers:Google:ClientId", "id"), ("AdminAuth:Providers:Google:ClientSecret", "secret"),
+            ("AdminAuth:Providers:Google:Authority", "https://accounts.google.com"));
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireOidcProviders(missing, "AdminAuth", requireAtLeastOne: true));
+
+        var duplicated = Oidc(
+            ("AdminAuth:Providers:Google:ClientId", "id"), ("AdminAuth:Providers:Google:ClientSecret", "secret"),
+            ("AdminAuth:Providers:Google:Authority", "https://accounts.google.com"),
+            ("AdminAuth:Providers:Google:CallbackPath", "/api/v1/admins/auth/callback"),
+            ("AdminAuth:Providers:Microsoft:ClientId", "id2"), ("AdminAuth:Providers:Microsoft:ClientSecret", "secret2"),
+            ("AdminAuth:Providers:Microsoft:Authority", "https://login.microsoftonline.com/3f2504e0-4f89-11d3-9a0c-0305e82c3301/v2.0"),
+            ("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/callback")); // same path
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireOidcProviders(duplicated, "AdminAuth", requireAtLeastOne: true));
+    }
+
+    [Fact]
+    public void An_admin_microsoft_multi_tenant_authority_requires_an_allowed_tenants_allowlist()
+    {
+        (string, string?)[] Base(string authority, params (string, string?)[] extra) =>
+        [
+            ("AdminAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ("AdminAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"),
+            ("AdminAuth:Providers:Microsoft:Authority", authority),
+            ("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback"),
+            .. extra,
+        ];
+
+        Assert.Throws<InvalidOperationException>(() => ApiHost::ProvisioningGuards.RequireOidcProviders(
+            Oidc(Base("https://login.microsoftonline.com/organizations/v2.0")), "AdminAuth", requireAtLeastOne: true));
+
+        // ...allowed with an explicit tid allowlist, or with a tenant-pinned Authority.
+        ApiHost::ProvisioningGuards.RequireOidcProviders(
+            Oidc(Base("https://login.microsoftonline.com/organizations/v2.0",
+                ("AdminAuth:Providers:Microsoft:AllowedTenants:0", "3f2504e0-4f89-11d3-9a0c-0305e82c3301"))),
+            "AdminAuth", requireAtLeastOne: true);
+        ApiHost::ProvisioningGuards.RequireOidcProviders(
+            Oidc(Base("https://login.microsoftonline.com/3f2504e0-4f89-11d3-9a0c-0305e82c3301/v2.0")),
+            "AdminAuth", requireAtLeastOne: true);
     }
 
     [Fact]
@@ -96,7 +161,9 @@ public sealed class ProvisioningGuardsTests
         var config = Oidc(
             ("AdminAuth:Providers:Google:ClientId", "333-admin.apps.googleusercontent.com"),
             ("AdminAuth:Providers:Google:ClientSecret", "GOCSPX-an-injected-secret"),
-            ("AdminAuth:Providers:Microsoft:ClientId", "")); // blank = disabled, not an error
+            ("AdminAuth:Providers:Google:Authority", "https://accounts.google.com"),
+            ("AdminAuth:Providers:Google:CallbackPath", "/api/v1/admins/auth/google/callback"),
+            ("AdminAuth:Providers:Microsoft:ClientId", "")); // blank = disabled, not an error (placeholder Authority ignored too)
         ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true); // does not throw
     }
 }

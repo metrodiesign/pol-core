@@ -79,9 +79,11 @@ internal static class OidcAuthentication
         options.MapInboundClaims = false;        // keep raw claim names (sub/oid/email/hd/tid/email_verified)
         options.RequireHttpsMetadata = !environment.IsDevelopment();
 
-        options.Scope.Clear();                   // default is {openid, profile}; we want only openid+email
+        options.Scope.Clear();                   // default is {openid, profile}; keep the request minimal
         options.Scope.Add("openid");
         options.Scope.Add("email");
+        if (isMicrosoft)
+            options.Scope.Add("profile");        // Entra puts oid/tid behind profile; openid alone yields only the pairwise sub
 
         options.TokenValidationParameters.ValidateIssuer = true;
         if (isMicrosoft)
@@ -123,6 +125,9 @@ internal static class OidcAuthentication
                     context.HttpContext,
                     isMicrosoft ? MicrosoftOidc.Subject(principal) : principal?.FindFirst("sub")?.Value,
                     isMicrosoft ? MicrosoftOidc.Email(principal) : principal?.FindFirst("email")?.Value,
+                    // Google passed the email_verified gate above; Entra email/preferred_username are unverified,
+                    // mutable claims -> display-only, never invite-binding (see CallbackResolver).
+                    emailVerified: !isMicrosoft,
                     context.Properties?.RedirectUri,
                     context.HttpContext.RequestAborted);
                 context.HandleResponse();
