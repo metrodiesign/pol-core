@@ -1,7 +1,8 @@
-# Runbook: ตั้งค่า GitLab CI/CD channel (ครั้งแรก)
+# Runbook: ตั้งค่า GitLab CI/CD channel (จับมือทำทีละขั้น)
 
 คู่มือตั้งค่าครบทุกฝั่งสำหรับระบบ deploy ผ่าน GitLab องค์กร
 (`gitlab2.viriyah.co.th/central-software/central-payment-gateway`) ตามที่วางไว้ใน PR #125.
+เรียงตามลำดับที่ต้องทำจริง — ทำ Part A ไป F ทีละขั้น เช็คผลทุกขั้นก่อนไปต่อ.
 
 ภาพรวม: โค้ดหลัก + PR + merge gate อยู่ GitHub (`metrodiesign/pol-core`) เหมือนเดิม.
 GitHub Actions (`.github/workflows/mirror-gitlab.yml`) push-mirror `develop`/`main`/tag `v*`
@@ -20,216 +21,291 @@ GitHub (code of record)          GitLab (CI/CD channel)
                                            -> deploy-prod (manual)  --ssh-->  Prod host
 ```
 
-ลำดับทำ (ตอนนี้ตั้ง **UAT ก่อน** เพื่อทดสอบให้ครบวงจร แล้วค่อยเติม prod):
-ฝั่ง GitLab ข้อ 1-3 → merge PR #125 → ทดสอบ mirror + pipeline → GitLab ข้อ 4-5
-(scope `uat`) + เตรียม UAT host → ทดสอบ `deploy-uat` จนสมบูรณ์ → ทำซ้ำข้อ 5 + host
-ด้วย scope `production` → ทดสอบ `deploy-prod` ด้วย tag.
+ลำดับใหญ่: ตั้ง **UAT ก่อน** (Part A-F) เพื่อทดสอบให้ครบวงจร → ค่อยเปิด prod
+(Part G — วน C-E ซ้ำด้วย key/token ชุดใหม่ + scope `production`).
 
 ---
 
-## ฝั่ง GitLab (ต้องเป็น Maintainer/Owner ของ project)
+## Part A — GitLab: เตรียม project (ยังไม่ต้องมี server)
 
-### 1. Protect branch + tag
+### A1. เช็คสิทธิ์
 
-Settings → Repository:
+- เปิด `https://gitlab2.viriyah.co.th/central-software/central-payment-gateway`
+- Project information → Members → role ตัวเองต้องเป็น **Maintainer/Owner** — ถ้าไม่ใช่
+  ขอสิทธิ์ก่อน ทำต่อไม่ได้
 
-- **Protected branches**: เพิ่ม `develop` และ `main`
-- **Protected tags**: เพิ่ม wildcard `v*`
+### A2. Protect branch
 
-จำเป็นเพราะ CI/CD variables ที่ตั้ง Protected จะถูกส่งให้เฉพาะ pipeline ที่รันบน ref
-ที่ protected เท่านั้น — ไม่ protect = job deploy ไม่เห็นตัวแปร.
+- เมนูซ้าย: **Settings → Repository** → section **Protected branches** → กด Expand
+- ช่อง Branch: พิมพ์ `develop` → Allowed to merge: `Maintainers` →
+  Allowed to push and merge: `Maintainers` → กด **Protect**
+- ทำซ้ำกับ `main`
+- เช็คผล: ตารางต้องมีทั้ง `develop` และ `main`
 
-### 2. Project access token (สำหรับ mirror)
+เหตุผล: CI/CD variables ที่ติ๊ก Protected จะถูกส่งให้เฉพาะ pipeline บน ref ที่ protected —
+ไม่ protect = job deploy ไม่เห็นตัวแปร. (mirror push ด้วย token role Maintainer จึงผ่านได้.)
 
-Settings → Access tokens → Add new token:
+### A3. Protect tag
+
+- หน้าเดิม section **Protected tags** → Expand
+- ช่อง Tag: พิมพ์ `v*` (เลือก "Create wildcard v*") → Allowed to create: `Maintainers` → **Protect**
+
+### A4. Project access token (สำหรับ mirror)
+
+- **Settings → Access tokens** → **Add new token**
 
 | ช่อง | ค่า |
 |---|---|
 | Token name | `github-mirror` (label เฉย ๆ) |
-| Expiration date | เว้นว่างถ้าเลือกได้; ถ้า instance บังคับ ตั้งไกลสุด (มัก 1 ปี) แล้ว**จดวันหมดอายุ** — หมดแล้ว mirror จะ fail เงียบ ๆ ฝั่ง GitHub |
+| Expiration date | กด x ลบออกถ้าลบได้; ถ้า instance บังคับ เลือกไกลสุด (มัก 1 ปี) แล้ว**จดวันหมดอายุ** — หมดแล้ว mirror จะ fail เงียบ ๆ ฝั่ง GitHub |
 | Role | `Maintainer` — ต้องระดับนี้เพราะ mirror ต้อง force-push เข้า protected branch/tag; `Developer` โดน reject |
 | Scopes | ติ๊ก `write_repository` ตัวเดียว |
 
-กด Create → copy token ทันที (โชว์ครั้งเดียว) → เอาไปใส่ฝั่ง GitHub (ดูหัวข้อ GitHub ด้านล่าง).
-ห้าม paste token ลงไฟล์/chat/commit.
+- กด **Create project access token** → ค่า token โชว์**ครั้งเดียว** → copy ค้างไว้
+  (อย่าเพิ่งปิดแท็บ — ใช้ใน Part B1). ห้าม paste token ลงไฟล์/chat/commit.
 
-### 3. เปิด Container Registry
+### A5. เช็ค Container Registry เปิดอยู่
 
-Settings → General → Visibility, project features, permissions:
+- เมนูซ้าย: มองหา **Deploy → Container Registry** — ถ้ามี = เปิดแล้ว ข้ามไป Part B
+- ถ้าไม่มี: **Settings → General → Visibility, project features, permissions** → Expand →
+  เปิด toggle **Container Registry** → **Save changes**
 
-- toggle **Container Registry** ให้เปิด (บาง instance เปิด default — เช็คว่าเมนู
-  Deploy → Container Registry โผล่ใน sidebar)
+---
 
-### 4. Deploy token (สำหรับ host pull image — สร้างแยกต่อ environment)
+## Part B — GitHub: ใส่ secret + merge + ทดสอบ mirror
 
-Settings → Repository → Deploy tokens → Add token (ตอนนี้สร้างของ UAT ก่อน;
-ถึงรอบ prod ค่อยสร้างอีกใบชื่อ `prod-registry-pull` แบบเดียวกัน):
+### B1. ตั้ง secret
+
+- ไป `https://github.com/metrodiesign/pol-core` → **Settings → Secrets and variables → Actions**
+- กด **New repository secret**
+- Name: `GITLAB_MIRROR_TOKEN` (พิมพ์ให้ตรงเป๊ะ)
+- Secret: paste token จาก A4 → **Add secret** → ปิดแท็บ GitLab ของ A4 ได้แล้ว
+
+### B2. Merge PR #125
+
+- เปิด `https://github.com/metrodiesign/pol-core/pull/125` → รอ CI เขียว → merge ตาม flow ปกติ
+
+### B3. ทดสอบ mirror ครั้งแรก
+
+- ตัว merge ใน B2 = push เข้า develop อยู่แล้ว → แท็บ **Actions** ของ GitHub →
+  workflow run ชื่อ **Mirror to GitLab** → ต้องเขียว
+- ถ้าแดง `Invalid username or token`: token ผิด — ทำ A4 + B1 ใหม่
+- ถ้าแดง `pre-receive hook declined`: role token ไม่ถึง Maintainer หรือ protected branch
+  ตั้ง Allowed to push ไม่รวม Maintainers — เช็ค A2/A4
+- เช็คฝั่ง GitLab: หน้า Repository ต้องเห็น commit ล่าสุดตรงกับ GitHub
+
+### B4. ดู pipeline แรกบน GitLab
+
+- GitLab เมนูซ้าย: **Build → Pipelines** → ต้องมี pipeline ของ commit นั้นกำลังรัน
+- รอจน `verify`, `dotnet`, `package` เขียว (ครั้งแรกช้าสุดเพราะยังไม่มี cache — 15-30 นาที)
+- job `deploy-uat` โผล่เป็นปุ่มเล่น (manual) ท้าย pipeline — **ยังไม่ต้องกด** ยังไม่มี server
+- เช็ค image: **Deploy → Container Registry** → ต้องเห็น `api`, `worker`, `migrate`
+  มี tag เป็น short SHA
+- ถ้า `package` แดง `Cannot connect to the Docker daemon`: runner ไม่มี privileged —
+  หยุด แล้วประสานสลับ job เป็น kaniko (ดู Part A6 Runner ด้านล่าง)
+- ถ้าไม่มี runner รับ job (pending ค้าง): ติดต่อทีม infra ขอ runner ให้ project
+
+Runner requirement (ให้ทีม infra): docker executor; job `package` ต้อง `privileged = true`
+(DinD); egress ที่ต้องออกได้: `mcr.microsoft.com`, `registry-1.docker.io`, `api.nuget.org`,
+registry ของ GitLab เอง, SSH (22) ไป deploy host.
+
+**ถึงจุดนี้ CI ครบแล้ว — เหลือส่วน deploy (Part C-F)**
+
+---
+
+## Part C — สร้าง SSH key ของ UAT (ทำบนเครื่อง dev ตัวเอง)
+
+**ห้ามใช้ key ส่วนตัวที่มีอยู่** — gen คู่ใหม่เฉพาะ CI. คนละคู่ต่อ environment
+(หลุดใบเดียวไม่พังทั้งคู่).
+
+### C1. gen keypair
+
+```bash
+cd ~/Desktop
+ssh-keygen -t ed25519 -C "gitlab-ci-uat" -f ./gitlab_ci_uat -N ""
+```
+
+ได้ 2 ไฟล์: `gitlab_ci_uat` (private) + `gitlab_ci_uat.pub` (public)
+
+### C2. สร้างค่า known_hosts
+
+ต้องรู้ IP/hostname ของ UAT server ก่อน (ตัวอย่างนี้ใช้ `10.0.0.50` — แทนด้วยของจริง):
+
+```bash
+ssh-keyscan -H 10.0.0.50 > ./gitlab_ci_uat_known_hosts
+cat ./gitlab_ci_uat_known_hosts
+# ต้องมีบรรทัดขึ้นต้น |1| ตามด้วย ssh-ed25519/ssh-rsa — ห้ามว่าง
+```
+
+- ถ้าว่าง = เครื่องคุณถึง server ไม่ได้ (VPN/firewall) — รันจากเครื่องที่ถึงได้แทน
+- กัน MITM: เทียบ fingerprint กับ `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`
+  ที่รันบน server ตรง ๆ
+
+---
+
+## Part D — UAT server (ทำครั้งเดียวต่อ host)
+
+สมมุติ server ผ่าน first install ตาม [deploy-self-host.md](deploy-self-host.md) ข้อ 0-3 แล้ว
+(มี Docker, มี directory ที่มี `.env` + `secrets/`, ระบบรันอยู่) — ถ้ายัง ทำนั่นก่อน.
+ตัวอย่างใช้ user `deploy` + path `/opt/pol-core` — แทนด้วยของจริง.
+
+### D1. SSH เข้า server ด้วย user ที่จะให้ CI ใช้
+
+```bash
+ssh deploy@10.0.0.50
+```
+
+### D2. เช็ค/เพิ่ม group docker
+
+```bash
+groups              # ต้องเห็นคำว่า docker
+# ถ้าไม่มี:
+sudo usermod -aG docker $USER
+exit                # ออกแล้ว ssh เข้าใหม่ให้ group ติด
+```
+
+### D3. ใส่ public key ของ CI
+
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo 'PASTE_เนื้อไฟล์_gitlab_ci_uat.pub_ตรงนี้' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+(เนื้อไฟล์ .pub ดูจากเครื่องตัวเอง: `cat ~/Desktop/gitlab_ci_uat.pub` — บรรทัดเดียว
+ขึ้นต้น `ssh-ed25519`)
+
+### D4. เช็ค path deploy พร้อม
+
+```bash
+ls -la /opt/pol-core/.env /opt/pol-core/secrets/
+docker compose -f /opt/pol-core/docker-compose.prod.yml ps   # ระบบเดิมรันอยู่
+```
+
+### D5. ทดสอบ key จากเครื่องตัวเอง (terminal ใหม่)
+
+```bash
+ssh -i ~/Desktop/gitlab_ci_uat deploy@10.0.0.50 'docker ps'
+```
+
+ต้องเข้าได้**ไม่ถามรหัส** + เห็นรายการ container — ผ่าน = ฝั่ง server จบ.
+
+หมายเหตุ: host ไม่ต้องเข้าถึง GitHub/GitLab ทาง git อีก — image มาจาก registry;
+repo ที่ clone ไว้ใช้แค่ first install / rollback แบบ manual (runbook เดิมข้อ 4-5).
+
+---
+
+## Part E — GitLab: deploy token + variables (scope `uat`)
+
+### E1. Deploy token (สำหรับ host pull image — คนละใบต่อ environment)
+
+- **Settings → Repository → Deploy tokens** → Expand → กรอก:
 
 | ช่อง | ค่า |
 |---|---|
-| Name | `uat-registry-pull` (label เฉย ๆ) |
+| Name | `uat-registry-pull` (label เฉย ๆ; รอบ prod ค่อยสร้าง `prod-registry-pull`) |
 | Expiration date | เว้นว่าง หรือตาม policy — หมดอายุแล้ว host จะ pull ไม่ได้ตอน deploy |
 | Username | เว้นว่างได้ GitLab gen ให้ (รูปแบบ `gitlab+deploy-token-<N>`) |
 | Scopes | ติ๊ก `read_registry` ตัวเดียว |
 
-กด Create → จะโชว์ **username + token ครั้งเดียว** — copy ทั้งคู่ไปใส่ CI/CD variables ข้อ 5
-(`REGISTRY_DEPLOY_USER` = username, `REGISTRY_DEPLOY_TOKEN` = token).
+- กด **Create deploy token** → โชว์ 2 ค่า**ครั้งเดียว**: username + token → copy ทั้งคู่
+  ไว้ใช้ใน E2 (ตัวที่ 6-7)
+- deploy token ไม่มี role ให้เลือก (ต่างจาก access token A4 — คนละชนิด คนละเมนู).
+  เหตุที่ไม่ใช้ `CI_JOB_TOKEN` บน host: job token ตายพร้อม job — host ต้อง re-pull ได้ภายหลัง.
 
-หมายเหตุ: deploy token ไม่มี role ให้เลือก (ต่างจาก access token ข้อ 2 — คนละชนิด คนละเมนู).
-เหตุที่ใช้ deploy token บน host แทน `CI_JOB_TOKEN`: job token ตายพร้อม job — host ต้อง
-re-pull image ได้ภายหลังด้วย.
+### E2. CI/CD variables
 
-### 5. CI/CD variables (environment-scoped)
+**Settings → CI/CD → Variables** → Expand → **Add variable** ทีละตัว 7 รอบ.
+ทุกตัวตั้งเหมือนกัน 2 อย่าง: ติ๊ก **Protect variable** + ช่อง **Environment scope**
+เลือก/พิมพ์ `uat` (อย่าปล่อย All — รอบ prod จะ add ชื่อเดิมซ้ำด้วย scope `production`
+แล้ว GitLab เลือกค่าให้ job ตาม environment เอง):
 
-Settings → CI/CD → Variables → Add variable ทีละตัว. ทุกตัวติ๊ก **Protected**;
-masked ตามตาราง. ตัวแปร deploy ทั้งหมดใช้**ชื่อเดียวกัน**ทั้ง 2 environment แต่แยกค่าด้วย
-ช่อง **Environment scope** ตอน add: ชุดแรก scope = `uat`, ถึงรอบ prod ค่อย add ซ้ำ
-ชื่อเดิมด้วย scope = `production` (ค่าของ host prod) — job `deploy-uat`/`deploy-prod`
-จะได้ค่าตาม environment ของตัวเองอัตโนมัติ:
-
-| Key | Type | Flags | Scope | ค่า |
+| # | Key | Type | Flags เพิ่ม | Value |
 |---|---|---|---|---|
-| `SSH_PRIVATE_KEY` | **File** | Protected (masked ไม่ได้ — หลายบรรทัด) | `uat` (แล้วค่อย `production`) | เนื้อไฟล์ private key ทั้งก้อน ตั้งแต่ `-----BEGIN OPENSSH PRIVATE KEY-----` ถึง `-----END...-----` รวมบรรทัดจบ (วิธีสร้าง: ดูหัวข้อ "สร้าง SSH key" ด้านล่าง — คนละคู่ต่อ host) |
-| `SSH_KNOWN_HOSTS` | **File** | Protected | `uat` / `production` | ผลจาก `ssh-keyscan -H <DEPLOY_HOST>` ของ host นั้น |
-| `DEPLOY_HOST` | Variable | Protected | `uat` / `production` | hostname/IP ของ server นั้น |
-| `DEPLOY_USER` | Variable | Protected | `uat` / `production` | user SSH บน server นั้น (ต้องอยู่ group `docker`) |
-| `DEPLOY_PATH` | Variable | Protected | `uat` / `production` | path บน host ที่มี `.env` + `secrets/` (compose files จะถูก scp มาวางที่นี่) |
-| `REGISTRY_DEPLOY_USER` | Variable | Protected | `uat` / `production` | username ของ deploy token ข้อ 4 (ใบของ env นั้น) |
-| `REGISTRY_DEPLOY_TOKEN` | Variable | Protected + Masked | `uat` / `production` | ค่า deploy token ข้อ 4 (ใบของ env นั้น) |
-| `POL_SA_PASSWORD` | Variable | Protected + Masked | All (default) | (optional) ใช้เฉพาะจะรัน job `integration` บน GitLab |
+| 1 | `SSH_PRIVATE_KEY` | **File** | (mask ไม่ได้ — หลายบรรทัด) | ทั้งเนื้อไฟล์จาก `cat ~/Desktop/gitlab_ci_uat` — ตั้งแต่ `-----BEGIN OPENSSH PRIVATE KEY-----` ถึง `-----END OPENSSH PRIVATE KEY-----` รวม 2 บรรทัดนั้นด้วย |
+| 2 | `SSH_KNOWN_HOSTS` | **File** | | ทั้งเนื้อไฟล์จาก `cat ~/Desktop/gitlab_ci_uat_known_hosts` |
+| 3 | `DEPLOY_HOST` | Variable | | IP/hostname ของ UAT server เช่น `10.0.0.50` |
+| 4 | `DEPLOY_USER` | Variable | | user SSH เช่น `deploy` |
+| 5 | `DEPLOY_PATH` | Variable | | path deploy เช่น `/opt/pol-core` |
+| 6 | `REGISTRY_DEPLOY_USER` | Variable | | username จาก E1 |
+| 7 | `REGISTRY_DEPLOY_TOKEN` | Variable | ติ๊ก **Mask variable** | token จาก E1 |
 
-Type ของสองตัวแรกต้องเป็น **File** (dropdown ตอน add) — pipeline ได้ path ไฟล์มา
-ตรงกับที่ `.gitlab-ci.yml` ใช้ `cp "$SSH_PRIVATE_KEY" ~/.ssh/id_ed25519`.
+- Type = dropdown "Variable / File" ตอน add — ตัวที่ 1-2 ต้องเลือก **File** เท่านั้น
+  (pipeline ได้ path ไฟล์มา ตรงกับที่ `.gitlab-ci.yml` ใช้ `cp "$SSH_PRIVATE_KEY" ...`)
+- (optional) `POL_SA_PASSWORD` — Variable, Protected + Masked, scope All — ใส่เฉพาะ
+  ถ้าจะกดรัน job `integration` บน GitLab
 
-ข้อควรระวัง protected + environment: `deploy-uat` รันจาก branch `develop` — `develop`
-ต้อง protected (ข้อ 1) ไม่งั้น variable ที่ติ๊ก Protected จะไม่ถูกส่งให้ job.
-
-### 6. Runner
-
-Settings → CI/CD → Runners (หรือถามทีม infra):
-
-- ต้องมี runner แบบ **docker executor** ที่ project นี้ใช้ได้
-- job `package` ต้องการ `privileged = true` ใน config ของ runner (docker-in-docker) —
-  ถ้า policy ห้าม privileged: สลับ job `package` เป็น kaniko แทน (แก้ `.gitlab-ci.yml`)
-- egress ที่ runner ต้องออกได้: `mcr.microsoft.com`, `registry-1.docker.io`,
-  `api.nuget.org`, registry ของ GitLab instance เอง, และ SSH (22) ไป `DEPLOY_HOST`
-
----
-
-## ฝั่ง GitHub (repo `metrodiesign/pol-core`)
-
-### 1. ตั้ง secret สำหรับ mirror
-
-Settings → Secrets and variables → Actions → **New repository secret**:
-
-- Name: `GITLAB_MIRROR_TOKEN`
-- Secret: paste ค่า project access token จาก GitLab ข้อ 2
-
-### 2. Merge PR #125
-
-ไฟล์ mirror workflow + `.gitlab-ci.yml` + `docker-compose.registry.yml` + runbook
-อยู่ใน PR #125 — merge เข้า develop ตาม flow ปกติ.
-
-### 3. ทดสอบ mirror
-
-push/merge อะไรเข้า `develop` หนึ่งครั้ง → GitHub Actions tab → workflow
-**Mirror to GitLab** ต้องเขียว → เปิด GitLab ดู commit เดียวกันต้องโผล่ และ pipeline
-เริ่มรันเอง (stage verify → dotnet → package รันได้โดยยังไม่ต้องมี deploy variables —
-job `deploy-uat` จะโผล่เป็นปุ่ม manual ท้าย pipeline ของ develop; `deploy-prod`
-โผล่เฉพาะ pipeline ของ tag `v*`).
-
----
-
-## สร้าง SSH key สำหรับ deploy
-
-ทำจากเครื่องที่ปลอดภัย (เครื่อง dev ตัวเองได้). **ห้ามใช้ key ส่วนตัวที่มีอยู่** —
-gen คู่ใหม่เฉพาะ CI:
+### E3. เก็บกวาด — บนเครื่องตัวเอง
 
 ```bash
-# 1. gen keypair ใหม่ ไม่มี passphrase
-ssh-keygen -t ed25519 -C "gitlab-ci-deploy" -f ./gitlab_ci_deploy -N ""
-
-# 2. สร้างค่า known_hosts (รันจากเครื่องที่ถึง UAT host ได้)
-ssh-keyscan -H <DEPLOY_HOST> > ./gitlab_ci_known_hosts
-# เช็คว่าไฟล์ไม่ว่าง มีบรรทัด ssh-ed25519/ssh-rsa; กัน MITM ให้เทียบ fingerprint กับ
-# ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub ที่รันบน host ตรง ๆ
-```
-
-- `gitlab_ci_deploy` (private) → GitLab variable `SSH_PRIVATE_KEY` (File, scope ของ env นั้น)
-- `gitlab_ci_deploy.pub` (public) → ใส่บน host ของ env นั้น (หัวข้อถัดไป)
-- `gitlab_ci_known_hosts` → GitLab variable `SSH_KNOWN_HOSTS` (File, scope ของ env นั้น)
-
-ทำซ้ำทั้งชุดต่อ host: ตอนนี้คู่ของ UAT ก่อน ถึงรอบ prod gen คู่ใหม่แยก (ห้ามใช้ key
-ร่วมกันสอง env — หลุดใบเดียวไม่พังทั้งคู่).
-
-ใส่ค่าใน GitLab ครบแล้ว **ลบไฟล์ทิ้งจากเครื่อง**:
-
-```bash
-rm ./gitlab_ci_deploy ./gitlab_ci_deploy.pub ./gitlab_ci_known_hosts
+rm ~/Desktop/gitlab_ci_uat ~/Desktop/gitlab_ci_uat.pub ~/Desktop/gitlab_ci_uat_known_hosts
 ```
 
 ถ้า private key เคยหลุด: ลบบรรทัดนั้นใน `authorized_keys` บน host แล้ว gen คู่ใหม่ทันที.
 
 ---
 
-## ฝั่ง deploy host (ทำครั้งเดียวต่อ host — ตอนนี้ UAT ก่อน, prod ทำแบบเดียวกันทีหลัง)
+## Part F — ยิง deploy-uat จริง
 
-สมมุติ host ผ่านการ first install ตาม [deploy-self-host.md](deploy-self-host.md)
-ข้อ 0-3 แล้ว (มี Docker, clone repo, `.env`, `./secrets/`, ระบบรันอยู่).
+### F1. เปิด pipeline
 
-```bash
-# 1. user สำหรับ CI ต้องอยู่ group docker (ใช้ user เดิมที่ deploy อยู่แล้วก็ได้)
-sudo usermod -aG docker <DEPLOY_USER>
+GitLab → **Build → Pipelines** → เปิด pipeline ล่าสุดของ `develop` (ที่ `package` เขียวแล้ว)
 
-# 2. authorize public key ของ CI
-#    (paste เนื้อ gitlab_ci_deploy.pub ต่อท้าย)
-cat >> /home/<DEPLOY_USER>/.ssh/authorized_keys   # paste แล้ว Ctrl-D
-chmod 600 /home/<DEPLOY_USER>/.ssh/authorized_keys
+### F2. กดปุ่มเล่นที่ job `deploy-uat` แล้วเปิด log ดูสด
 
-# 3. เช็คว่า DEPLOY_PATH พร้อม: มี .env + secrets/ ครบตาม runbook เดิม
-ls -la <DEPLOY_PATH>/.env <DEPLOY_PATH>/secrets/
-```
+ต้องเห็นตามลำดับ:
 
-สิ่งที่ job deploy (`deploy-uat`/`deploy-prod`) จะทำบน host (อ้างอิง — ไม่ต้องทำเอง):
-scp `docker-compose.prod.yml` + `docker-compose.registry.yml` มาวางใน `DEPLOY_PATH`,
-`docker login` registry ด้วย deploy token, `docker compose pull migrate api worker`,
-`up -d --no-build` (ลำดับ sql-healthy → migrate-exit-0 → api/worker บังคับด้วย
-`depends_on` ใน compose อยู่แล้ว), แล้ว `curl /health/ready`.
+1. `apk add openssh-client` ผ่าน
+2. `scp` ไม่มี error
+3. `docker login` → `Login Succeeded`
+4. `pull` ลาก image 3 ตัว (migrate, api, worker)
+5. `up -d` → recreate `migrate`, `api`, `worker`
+6. `docker compose ps` → `api`/`worker` = `healthy` (หรือ `starting`), `migrate` = `Exited (0)`
+7. `curl /health/ready` ตอบ JSON `{"status":"healthy"}` → job เขียว
 
-หมายเหตุ: host **ไม่ต้อง** เข้าถึง GitHub/GitLab ทาง git อีก — image มาจาก registry;
-repo ที่ clone ไว้ใช้แค่ first install / rollback แบบ manual (runbook เดิมข้อ 4-5).
+### F3. เช็คของจริง
+
+- เปิด URL ของ UAT ใช้งานดู
+- บน server: `docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml ps`
+
+### F4. Rollback drill (ซ้อมเลยตอนนี้)
+
+- เปิด pipeline ของ commit **ก่อนหน้า** บน develop → กด `deploy-uat` จากตรงนั้น →
+  ระบบกลับเวอร์ชันเก่า (image เก่ายังอยู่ใน registry) → กดของ commit ล่าสุดกลับ
+
+วน F1-F3 กับทุก merge จน flow นิ่ง — จบส่วน UAT.
 
 ---
 
-## ทดสอบ end-to-end ครั้งแรก
+## Part G — เปิด prod (ทำหลัง UAT นิ่งแล้ว)
 
-1. merge PR #125 + ตั้ง `GITLAB_MIRROR_TOKEN` → push เข้า develop → mirror เขียว,
-   pipeline GitLab เขียว (verify/dotnet/package), image `api`/`worker`/`migrate`
-   tag short-SHA โผล่ใน Deploy → Container Registry
-2. เทียบผล job `verify` + `dotnet` ฝั่ง GitLab กับ GitHub run ที่ SHA เดียวกัน — ต้องตรงกัน
-3. (optional) กด play job `integration` หนึ่งครั้งเพื่อพิสูจน์ SQL service wiring
-   (ต้องตั้ง `POL_SA_PASSWORD` ก่อน)
-4. **ทดสอบ UAT**: ตั้ง variables scope `uat` + เตรียม UAT host → บน pipeline ล่าสุดของ
-   `develop` กด play `deploy-uat` → ดู log: `migrate` exit 0, `docker compose ps` healthy,
-   `/health/ready` ตอบ 200 — วนรอบนี้จน flow สมบูรณ์
-5. rollback drill (UAT): เปิด pipeline ของ commit ก่อนหน้าบน develop → กด `deploy-uat`
-   จากตรงนั้น → ระบบกลับเวอร์ชันเก่า (image เก่ายังอยู่ใน registry)
-6. **ค่อยเปิด prod**: ทำข้อ 4-5 ของฝั่ง GitLab + host ซ้ำด้วย scope `production` →
-   **backup DB ก่อน** (runbook deploy ข้อ 4.1) → tag release:
+1. วน **Part C** ใหม่: gen key คู่ใหม่ชื่อ `gitlab_ci_prod` + `ssh-keyscan` ของ prod host
+   (ห้ามใช้ key ร่วมกับ UAT)
+2. วน **Part D** บน prod host (user, group docker, authorized_keys, เช็ค `.env` + `secrets/`)
+3. วน **Part E**: deploy token ใบใหม่ `prod-registry-pull` + add variables **ชื่อเดิมทั้ง 7 ตัว**
+   อีกรอบ โดย Environment scope = `production` ค่าเป็นของ prod host
+4. Deploy: **backup DB ก่อน** (runbook deploy ข้อ 4.1) → tag release ฝั่ง GitHub
+   (rule เดิม: tag + changelog, ผ่าน UAT แล้ว):
    ```bash
    git tag v0.1.0 && git push origin v0.1.0
    ```
    → mirror → pipeline ของ tag build image `:v0.1.0` → กด play `deploy-prod` →
-   verify แบบเดียวกับข้อ 4; rollback prod = กด `deploy-prod` จาก pipeline ของ tag ก่อนหน้า
+   verify แบบเดียวกับ F2-F3
+5. Rollback prod = กด `deploy-prod` จาก pipeline ของ tag ก่อนหน้า; DB rollback ใช้
+   runbook deploy ข้อ 5 เดิม
+
+---
 
 ## Troubleshooting
 
-| อาการ | สาเหตุที่พบบ่อย |
+| อาการ | ไปแก้ที่ |
 |---|---|
-| mirror workflow แดง: `Invalid username or token` | `GITLAB_MIRROR_TOKEN` ผิด/หมดอายุ — สร้าง access token ใหม่แล้วอัปเดต secret |
-| mirror แดง: `pre-receive hook declined` / protected | token role ไม่ใช่ Maintainer หรือ branch/tag protection ไม่อนุญาต push — เช็ค GitLab ข้อ 1-2 |
-| job deploy ไม่เห็นตัวแปร (`$DEPLOY_HOST` ว่าง) | variable ติ๊ก Protected แต่ ref ไม่ protected (เช็ค Protected branches `develop` / tags `v*`) หรือ Environment scope ไม่ตรงชื่อ environment ของ job (`uat`/`production`) |
-| `Host key verification failed` | `SSH_KNOWN_HOSTS` ไม่ตรง host — รัน `ssh-keyscan` ใหม่ |
-| `Permission denied (publickey)` | public key ยังไม่อยู่ใน `authorized_keys` ของ `DEPLOY_USER` หรือ permission ไฟล์ผิด (ต้อง 600) |
-| host pull image ไม่ได้: `denied` | deploy token หมดอายุ/scope ผิด — ต้อง `read_registry` |
-| job `package` ตาย: `Cannot connect to the Docker daemon` | runner ไม่มี privileged — เปิด privileged หรือสลับเป็น kaniko |
+| mirror workflow แดง: `Invalid username or token` | A4 + B1 — `GITLAB_MIRROR_TOKEN` ผิด/หมดอายุ สร้างใหม่ |
+| mirror แดง: `pre-receive hook declined` / protected | A2/A4 — token role ไม่ใช่ Maintainer หรือ protection ไม่อนุญาต push |
+| job deploy: `$DEPLOY_HOST` ว่าง / `Could not resolve hostname` | E2 — variable ไม่ติด scope (`uat`/`production`) หรือติ๊ก Protected แต่ ref ไม่ protected (A2/A3) |
+| `Host key verification failed` | C2 — known_hosts ไม่ตรง host รัน `ssh-keyscan` ใหม่แล้วอัปเดต variable |
+| `Permission denied (publickey)` | D3 — public key ไม่อยู่ใน `authorized_keys` หรือ permission ผิด (ต้อง 600) |
+| `docker login` บน host → `denied` | E1 — deploy token หมดอายุ/scope ผิด (ต้อง `read_registry`) หรือ copy ผิดค่า |
+| บน server: `permission denied ... docker.sock` | D2 — user ไม่อยู่ group docker |
+| job `package`: `Cannot connect to the Docker daemon` | B4 — runner ไม่มี privileged เปิด privileged หรือสลับเป็น kaniko |
+| pipeline pending ค้าง ไม่มี job รัน | B4 — ไม่มี runner รับ project ติดต่อทีม infra |

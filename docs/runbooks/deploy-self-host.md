@@ -169,6 +169,7 @@ backward-compatible (expand/contract) เพื่อให้ app เก่า+
 โค้ดหลักอยู่ GitHub; GitLab องค์กร (`gitlab2.viriyah.co.th/central-software/central-payment-gateway`)
 เป็นช่อง CI/CD: GitHub Actions (`mirror-gitlab.yml`) push mirror `develop`/`main`/tag `v*` ให้อัตโนมัติ
 แล้ว pipeline (`.gitlab-ci.yml`) รัน gate เดิม + build/push image เข้า GitLab Container Registry.
+ขั้นตอนตั้งค่าครั้งแรกแบบละเอียดทีละคลิก: [gitlab-cicd-setup.md](gitlab-cicd-setup.md).
 
 Flow (2 environment, manual gate ทั้งคู่):
 
