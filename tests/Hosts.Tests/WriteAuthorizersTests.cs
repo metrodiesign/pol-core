@@ -13,6 +13,12 @@ using Persistence.MerchantUsers.Outbox;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantUser = Merchants.Domain.Users.User;
 using AdminUser = Admins.Domain.Users.User;
+using AdminAudit = Admins.Domain.Users.Audit;
+using AdminSession = Admins.Domain.Users.Session;
+using AdminAuthAudit = Admins.Domain.Users.AuthAudit;
+using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
+using MerchantAccess = Admins.Domain.Users.MerchantAccess;
+using Role = Iam.Domain.Roles.Role;
 using OrderLine = Orders.Domain.Lines.Line;
 using OrderLineRevealAudit = Orders.Domain.Lines.RevealAudit;
 
@@ -133,13 +139,42 @@ public sealed class WriteAuthorizersTests
     // --- ControlPlaneAdminWriteAuthorizer ---
 
     [Fact]
-    public void Control_plane_admin_allows_an_owned_type_only_when_bound()
+    public void Control_plane_admin_allows_an_owned_type_when_bound()
     {
         var bound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(true));
-        var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
 
         Assert.True(bound.CanWrite(typeof(AdminUser), WriteOperation.Update, Guid.Empty));
-        Assert.False(unbound.CanWrite(typeof(AdminUser), WriteOperation.Update, Guid.Empty));
+        Assert.True(bound.CanWrite(typeof(Role), WriteOperation.Insert, Guid.Empty));
+    }
+
+    // Bugfix: every write the OIDC callback makes (bootstrap self-provision, invite-bind, session start, the
+    // login-success AND denied-auth audits) happens BEFORE any admin scope exists — the scope binds from the
+    // session cookie the callback is busy creating. Gating those on IsBound bricked the whole admin login.
+    [Theory]
+    [InlineData(typeof(AdminUser), WriteOperation.Insert)]           // allowlist bootstrap
+    [InlineData(typeof(AdminUser), WriteOperation.Update)]           // invite-bind stamps the subject
+    [InlineData(typeof(AdminAudit), WriteOperation.Insert)]          // self-provision/bind audit
+    [InlineData(typeof(AdminRoleAssignment), WriteOperation.Insert)] // bootstrap platform_admin role
+    [InlineData(typeof(AdminSession), WriteOperation.Insert)]        // session start at callback
+    [InlineData(typeof(AdminAuthAudit), WriteOperation.Insert)]      // login-success/denied audit
+    public void Control_plane_admin_unbound_allows_exactly_the_callback_login_writes(Type entity, WriteOperation op)
+    {
+        var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
+
+        Assert.True(unbound.CanWrite(entity, op, Guid.Empty));
+    }
+
+    [Theory]
+    [InlineData(typeof(AdminUser), WriteOperation.Delete)]           // no unbound deletes
+    [InlineData(typeof(AdminSession), WriteOperation.Update)]        // rotation/revoke = bound requests
+    [InlineData(typeof(AdminAuthAudit), WriteOperation.Update)]      // audits are append-only pre-bind
+    [InlineData(typeof(Role), WriteOperation.Insert)]                // role catalog stays bound-only
+    [InlineData(typeof(MerchantAccess), WriteOperation.Insert)]      // assignments stay bound-only
+    public void Control_plane_admin_unbound_denies_everything_outside_the_login_flow(Type entity, WriteOperation op)
+    {
+        var unbound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(false));
+
+        Assert.False(unbound.CanWrite(entity, op, Guid.Empty));
     }
 
     [Fact]
