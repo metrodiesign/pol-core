@@ -132,10 +132,13 @@ Orders → Paid. จบ ไม่มี issuance.
 - Identity — Google SSO ทำที่ชั้น auth, **ทั้ง 2 console โมเดลเดียวกันแล้ว (rf1 — ถอด Bearer ทิ้งทั้งระบบ)**: admin console และ
   merchant-user (ตัวแทน) console ต่างมี **server-side OIDC BFF** ของตัวเอง (Authorization Code + PKCE, confidential client),
   คนละ scheme/cookie/DP-purpose แยกขาด — ไม่มี Google id-token Bearer เหลือแล้ว (เดิม tenant SPA ใช้ Bearer audience `tenant`,
-  ถอดพร้อม policy `tenant` ทั้งก้อน). Admin: scheme `Google`, opaque session cookie `__Host-adm_session` (เก็บแค่ SHA-256
-  hash), rotation + reuse-detection + instant revoke, CSRF double-submit, RBAC resolve สดต่อ request (**retire
-  id-token-as-bearer audience 2026-06-24**). Merchant-user: scheme `MerchantUserGoogle` (เดิม `ProducerGoogle`), cookie
-  `__Host-mch_session` + csrf `mch_csrf` (เดิม `__Host-prd_session`/`prd_csrf`), กลไกเดียวกัน, policy `merchant-user`
+  ถอดพร้อม policy `tenant` ทั้งก้อน). **multi-provider-oidc**: ทั้ง 2 ฝั่งรับ 2 provider — Google + Microsoft Entra
+  ID, provider-scoped login/callback (`/api/v1/{admins|merchants}/auth/{provider}/login|callback`, provider ไม่รู้จัก/
+  ไม่ได้ config -> 404). Admin: scheme `AdminGoogle`/`AdminMicrosoft` (เดิม scheme เดียว `Google`), opaque session
+  cookie `__Host-adm_session` (เก็บแค่ SHA-256 hash), rotation + reuse-detection + instant revoke, CSRF double-submit,
+  RBAC resolve สดต่อ request (**retire id-token-as-bearer audience 2026-06-24**). Merchant-user: scheme
+  `MerchantUserGoogle`/`MerchantUserMicrosoft` (เดิม `ProducerGoogle`), cookie `__Host-mch_session` + csrf `mch_csrf`
+  (เดิม `__Host-prd_session`/`prd_csrf`), กลไกเดียวกัน, policy `merchant-user`
   **single-scheme** (เดิม dual-scheme `producer` = ProducerSession OR tenant Bearer). actor = **`MerchantUser`** (เดิม
   `ProducerAccount`; ตาราง `MerchantUsers` — ดูดซับ `ProducerTenantAssignments` เดิมเป็นคอลัมน์ `MerchantId` บนตัว account
   ตรง) + `ExternalLogins`/`RegistrationAudits` (ชื่อเดิม) + session `MerchantUserSessions`/`MerchantAuthAudits` (เดิม

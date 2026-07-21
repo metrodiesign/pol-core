@@ -12,7 +12,8 @@ namespace Api.Admins;
 /// behind this interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
 internal interface ICallbackResolver
 {
-    Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken);
+    Task<ResolveResult> ResolveAtCallbackAsync(
+        string subject, string email, bool emailVerified, string correlationId, CancellationToken cancellationToken);
 }
 
 internal sealed class CallbackResolver : ICallbackResolver
@@ -26,14 +27,19 @@ internal sealed class CallbackResolver : ICallbackResolver
         _configuration = configuration;
     }
 
-    public async Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, string correlationId, CancellationToken cancellationToken)
+    public async Task<ResolveResult> ResolveAtCallbackAsync(
+        string subject, string email, bool emailVerified, string correlationId, CancellationToken cancellationToken)
     {
         var result = await _mediator.Send(new ResolveQuery(subject), cancellationToken);
         if (result.Outcome != ResolveOutcome.NotFound)
             return result;
 
-        // Invite-bind FIRST so an invited email never collides with the unique Email index via self-provision.
-        if (!string.IsNullOrEmpty(email))
+        // Invite-bind FIRST so an invited email never collides with the unique Email index via self-provision —
+        // but ONLY on a PROVIDER-VERIFIED email. Entra's email/preferred_username are mutable, unverified claims
+        // (any org user who can set their mail/UPN to an unbound invite's address would otherwise bind that admin
+        // account to their own subject — privilege escalation). Google passes its email_verified gate upstream;
+        // Microsoft invites need a (tid, oid)-based bind flow (separate spec) and fail closed here.
+        if (!string.IsNullOrEmpty(email) && emailVerified)
         {
             var bound = await _mediator.Send(new BindInvitedCommand(subject, email, correlationId), cancellationToken);
             if (bound.Outcome != ResolveOutcome.NotFound)
@@ -64,7 +70,7 @@ internal sealed class LoginService
     private readonly IClock _clock;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AdminSessionOptions _session;
-    private readonly OidcOptions _oidc;
+    private readonly AdminAuthOptions _oidc;
     private readonly ILogger<LoginService> _logger;
 
     public LoginService(
@@ -75,7 +81,7 @@ internal sealed class LoginService
         IClock clock,
         IServiceScopeFactory scopeFactory,
         IOptions<AdminSessionOptions> session,
-        IOptions<OidcOptions> oidc,
+        IOptions<AdminAuthOptions> oidc,
         ILogger<LoginService> logger)
     {
         _resolver = resolver;
@@ -95,8 +101,11 @@ internal sealed class LoginService
         TimeSpan.FromMinutes(_session.RotationMinutes),
         TimeSpan.FromSeconds(_session.GraceSeconds));
 
-    /// <summary>Establishes a session for a verified Google identity, or denies (REQ-2.5/2.6/2.7/3.1/12.1).</summary>
-    public async Task EstablishSessionAsync(HttpContext http, string? subject, string? email, string? returnTo, CancellationToken ct)
+    /// <summary>Establishes a session for a verified provider identity, or denies (REQ-2.5/2.6/2.7/3.1/12.1).
+    /// <paramref name="emailVerified"/> = the provider attested the email (Google's email_verified gate); an
+    /// unverified email (Entra) is display-only and never binds an invite.</summary>
+    public async Task EstablishSessionAsync(
+        HttpContext http, string? subject, string? email, bool emailVerified, string? returnTo, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(subject))
         {
@@ -108,7 +117,7 @@ internal sealed class LoginService
         ResolveResult result;
         try
         {
-            result = await _resolver.ResolveAtCallbackAsync(subject, email ?? string.Empty, correlationId, ct);
+            result = await _resolver.ResolveAtCallbackAsync(subject, email ?? string.Empty, emailVerified, correlationId, ct);
         }
         catch (Exception ex)
         {

@@ -33,7 +33,8 @@ public sealed record SubmitRegistrationCommand(
     RegistrationForm Form,
     byte[]? PhotoBytes,
     string? PhotoContentType,
-    string CorrelationId) : ICommand<SubmitRegistrationResult>;
+    string CorrelationId,
+    string Provider = ExternalLogin.Google) : ICommand<SubmitRegistrationResult>;
 
 public sealed record SubmitRegistrationResult(Guid MerchantUserId, UserStatus Status);
 
@@ -93,7 +94,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 // 409 (REQ-4.6/S9).
                 var account = User.Register(command.Subject, command.Email, now);
                 _accounts.Add(account);
-                _logins.Add(ExternalLogin.Create(command.Subject, account.Id));
+                _logins.Add(ExternalLogin.Create(command.Subject, account.Id, command.Provider));
 
                 ApplyForm(account, command.Form);
                 await ApplyPhotoAsync(account, command, ct);

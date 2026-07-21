@@ -13,7 +13,7 @@ using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace Hosts.Tests;
 
-// GET /api/v1/merchants/users/auth/login hands off to the "MerchantUserGoogle" OIDC handler, which redirects to
+// GET /api/v1/merchants/auth/google/login hands off to the "MerchantUserGoogle" OIDC handler, which redirects to
 // Google's authorize endpoint with the Authorization Code + PKCE + state + nonce parameters and only the
 // openid+email scope (REQ-8.1/8.4). A static OIDC Configuration is injected so the challenge builds the redirect
 // WITHOUT a network metadata fetch.
@@ -30,8 +30,9 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
         builder.UseSetting("ConnectionStrings:Migrator", "");
         // ClientId/ClientSecret are read at service-registration time (AddMerchantUserOidcAuthentication), so they
         // must be host settings, not late-layered app config.
-        builder.UseSetting("MerchantUser:Oidc:ClientId", ClientId);
-        builder.UseSetting("MerchantUser:Oidc:ClientSecret", "test-secret");
+        builder.UseSetting("MerchantUserAuth:Providers:Google:ClientId", ClientId);
+        builder.UseSetting("MerchantUserAuth:Providers:Google:ClientSecret", "test-secret");
+        builder.UseSetting("MerchantUserAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
@@ -49,7 +50,7 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
 
             // Static config -> the challenge builds the redirect without fetching Google's discovery document.
-            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Merchants.UserOidcAuthentication.Scheme, options =>
+            services.PostConfigure<OpenIdConnectOptions>(ApiHost::Api.Merchants.UserOidcAuthentication.SchemePrefix + "Google", options =>
                 options.Configuration = new OpenIdConnectConfiguration
                 {
                     Issuer = "https://accounts.google.com",
@@ -69,7 +70,7 @@ public sealed class MerchantUserAuthLoginRedirectTests
         using var factory = new MerchantUserLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/merchants/users/auth/login?returnTo=/dashboard");
+        var response = await client.GetAsync("/api/v1/merchants/auth/google/login?returnTo=/dashboard");
 
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         var location = response.Headers.Location!;
@@ -83,7 +84,24 @@ public sealed class MerchantUserAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.False(string.IsNullOrEmpty(query["code_challenge"]));
-        Assert.EndsWith("/api/v1/merchants/users/auth/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // REQ-11.7: challenge targets the moved callback
+        Assert.EndsWith("/api/v1/merchants/auth/google/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // provider-scoped callback
+    }
+
+    [Fact]
+    public async Task An_unknown_or_unconfigured_provider_login_404s_while_google_still_challenges()
+    {
+        using var factory = new MerchantUserLoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var unknown = await client.GetAsync("/api/v1/merchants/auth/github/login");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+
+        // Configured in appsettings but with a blank ClientId (this factory sets only Google) -> scheme skipped -> 404.
+        var disabled = await client.GetAsync("/api/v1/merchants/auth/microsoft/login");
+        Assert.Equal(HttpStatusCode.NotFound, disabled.StatusCode);
+
+        var google = await client.GetAsync("/api/v1/merchants/auth/google/login");
+        Assert.Equal(HttpStatusCode.Found, google.StatusCode);
     }
 
     [Fact]
@@ -92,7 +110,7 @@ public sealed class MerchantUserAuthLoginRedirectTests
         using var factory = new MerchantUserLoginFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
-        var response = await client.GetAsync("/api/v1/merchants/users/auth/login");
+        var response = await client.GetAsync("/api/v1/merchants/auth/google/login");
 
         // The OIDC handler persists state/nonce in a correlation + nonce cookie under the MerchantUserGoogle
         // scheme's own DP purpose (REQ-8.2/14.4).

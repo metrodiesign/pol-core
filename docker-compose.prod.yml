@@ -81,9 +81,9 @@ services:
       # entirely) — each its own CONFIDENTIAL client (id + secret, the secret via a mounted file secret),
       # fully isolated scheme/cookie/callback names. CORS is split: merchant-user origin + admin origin, both
       # credentialed cookie XHR.
-      MerchantUser__Oidc__ClientId: ${MERCHANT_USER_OIDC_CLIENT_ID:?set MERCHANT_USER_OIDC_CLIENT_ID in .env}
+      MerchantUserAuth__Providers__Google__ClientId: ${MERCHANT_USER_OIDC_CLIENT_ID:?set MERCHANT_USER_OIDC_CLIENT_ID in .env}
       MERCHANT_USER_OIDC_CLIENT_SECRET_FILE: /run/secrets/merchant_user_oidc_client_secret
-      Google__Oidc__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
+      AdminAuth__Providers__Google__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
       ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
       Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}

@@ -1,30 +1,27 @@
 namespace Api.Merchants;
 
 /// <summary>
-/// The confidential Google OIDC client for the merchant-user BFF login (REQ-8/9/14). Fully isolated from the Admin
-/// <c>Google:Oidc</c> client: a distinct scheme name, callback path, and cookie names (REQ-14.4) — and, because the
-/// framework derives the correlation/nonce Data Protection purposes from the scheme name, a distinct DP purpose
-/// automatically (the scheme name "MerchantUserGoogle" never shares a purpose chain with Admin's "Google"). The
-/// shared key ring (<see cref="AdminDataProtection"/>) is fine: isolation comes from the purpose, not a second app
-/// name. <c>ClientSecret</c> is a real secret, injected via <c>MerchantUser__Oidc__ClientSecret</c>, never
-/// committed/logged (REQ-14.1/14.3).
+/// The confidential OIDC clients for the merchant-user BFF login (REQ-8/9/14), one <see cref="OidcProviderOptions"/>
+/// per provider keyed by name ("Google"/"Microsoft"). Fully isolated from the Admin <c>AdminAuth</c> clients: distinct
+/// scheme names, callback paths, and cookie names (REQ-14.4) — and, because the framework derives the
+/// correlation/nonce Data Protection purposes from the scheme name, a distinct DP purpose automatically (the scheme
+/// "MerchantUserGoogle" never shares a purpose chain with Admin's "AdminGoogle"). The shared key ring
+/// (<see cref="AdminDataProtection"/>) is fine: isolation comes from the purpose, not a second app name. Secrets are
+/// injected via <c>MerchantUserAuth__Providers__{Provider}__ClientSecret</c>, never committed/logged (REQ-14.1/14.3).
 /// </summary>
-// ponytail: DUPLICATE-shaped of AdminOidcOptions (distinct section + register/hd) — deliberate.
+// ponytail: DUPLICATE-shaped of AdminAuthOptions (distinct section + register url) — deliberate.
 internal sealed class UserOidcOptions
 {
-    public const string SectionName = "MerchantUser:Oidc";
+    public const string SectionName = "MerchantUserAuth";
 
-    public string Authority { get; init; } = "https://accounts.google.com";
-    public string ClientId { get; init; } = "";
-    public string ClientSecret { get; init; } = "";
-    public string CallbackPath { get; init; } = "/api/v1/merchants/users/auth/callback";
     /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
     public string ErrorPath { get; init; } = "/login-error";
-    /// <summary>Google hosted-domain (<c>hd</c>) guard; blank = any verified Google account (REQ-9.2).</summary>
-    public string HostedDomain { get; init; } = "";
+
     /// <summary>Absolute URL of the merchant-user SPA registration page the callback redirects an applicant to,
     /// carrying a signed ticket (REQ-9.4). Dev default = the merchant-user SPA dev origin; prod is that SPA's origin.</summary>
-    public string RegisterUrl { get; init; } = "http://localhost:5200/register";
+    public string RegisterUrl { get; init; } = "http://localhost:5300/register";
+
+    public Dictionary<string, OidcProviderOptions> Providers { get; init; } = [];
 }
 
 /// <summary>

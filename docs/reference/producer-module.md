@@ -17,6 +17,15 @@
 > [`hierarchical-naming/FE-MIGRATION.md`](../../.ai/specs/hierarchical-naming/FE-MIGRATION.md) สำหรับ mapping
 > เต็ม — เนื้อหาด้านล่างของไฟล์นี้ (ที่ใช้ vocab `producer`/`tenant-user` เดิม) ไม่ได้ถูกไล่แก้ตามรอบนี้ด้วย
 > เหตุผลเดียวกับย่อหน้าบน.
+>
+> **อัปเดต (multi-provider-oidc):** มี rename รอบสามต่อจากสองรอบบน — OIDC เป็น provider-scoped ทั้งสองฝั่ง
+> (`google`/`microsoft`): login/callback ปัจจุบันคือ `/api/v1/merchants/auth/{provider}/login` +
+> `.../{provider}/callback` (auth ย้ายออกจาก `/api/v1/merchants/users/*` ไปเป็น `/api/v1/merchants/auth/*`,
+> `register`/`me` ยังอยู่ที่ `/merchants/users/*` เหมือนเดิม), config section `MerchantUser:Oidc`→
+> **`MerchantUserAuth:Providers:Google`** (+ `Providers:Microsoft` ใหม่), scheme `MerchantUserGoogle` คงชื่อเดิม
+> (+ `MerchantUserMicrosoft` ใหม่), dev `RegisterUrl` เปลี่ยนจาก `:5200/register` เป็น **`:5300/register`**. เนื้อหา
+> ด้านล่างของไฟล์นี้ (vocab `producer`/`Producer:Oidc`/`producers/auth/*`) ไม่ได้ถูกไล่แก้ตามรอบนี้ด้วยเหตุผล
+> เดียวกับสองย่อหน้าบน — ดู [`local-dev-run.md`](../runbooks/local-dev-run.md) §5 สำหรับของจริงปัจจุบัน.
 
 คู่มือฉบับสมบูรณ์ของโมดูล `producer-google-sso` (rebuild ของ Identity module เดิม). โมดูลนี้ให้
 ผู้ขาย (producer / `ProducerAccount`) ล็อกอินด้วย Google ผ่าน server-side BFF session แล้วทำงานบน tenant

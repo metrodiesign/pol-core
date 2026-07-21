@@ -35,10 +35,21 @@ callback เต็ม — ไม่ใช่ id-token bearer แบบเดิ�
 
 - `MERCHANT_USER_OIDC_CLIENT_ID` = client ของ merchant-user SPA; client **secret** ใส่เป็น secret file
   (`merchant_user_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. Authorized redirect URI ที่ Google client นั้น =
-  `https://<api-host>/api/v1/merchants/users/auth/callback`.
+  `https://<api-host>/api/v1/merchants/auth/google/callback`.
 - `ADMIN_OIDC_CLIENT_ID` = client ของ admin console; client **secret** ใส่เป็น secret file
   (`admin_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. Authorized redirect URI ที่ Google client นั้น =
-  `https://<api-host>/api/v1/admins/auth/callback`.
+  `https://<api-host>/api/v1/admins/auth/google/callback`.
+
+OIDC เป็น provider-scoped ทั้งสองฝั่งแล้ว (`multi-provider-oidc`) — Google เป็น provider บังคับ (operator var
+ด้านบนไม่เปลี่ยนชื่อ) ส่วน **Microsoft Entra ID เป็น provider เสริม** (opt-in): ถ้าเปิดใช้ ต้อง mount secret
+file เพิ่มแล้วส่ง path เข้า `ADMIN_ENTRA_CLIENT_SECRET_FILE` / `MERCHANT_USER_ENTRA_CLIENT_SECRET_FILE` ให้
+container (`docker/entrypoint.sh` map เป็น `AdminAuth__Providers__Microsoft__ClientSecret` /
+`MerchantUserAuth__Providers__Microsoft__ClientSecret` เอง) — `docker-compose.prod.yml` ที่ scaffold นี้ให้ยังไม่
+wire ตัวแปร Entra เหล่านี้ (Google-only default), ต้องเพิ่ม env + secret + `ClientId` เองถ้าจะเปิด Microsoft login.
+redirect URI ของ Entra client = `https://<api-host>/api/v1/admins/auth/microsoft/callback` (admin) /
+`https://<api-host>/api/v1/merchants/auth/microsoft/callback` (merchant-user) — ต้องสร้าง app registration
+คนละตัวต่อฝั่ง (admin single-tenant, merchant-user multi-tenant) และเพิ่ม optional claim `email` ที่ id_token
+(Entra ไม่ส่ง `email`/`email_verified` โดย default).
 
 Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`, ไม่ fail-fast แต่ blank แล้ว
 redirect พังเงียบๆ — ตั้งให้ครบ): `PSP_USE_SANDBOX` (default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง),

@@ -14,6 +14,10 @@
 >
 > ขอบเขต: เฉพาะ flow ของ admin console. tenant SPA ยังใช้ Google id-token เป็น Bearer (audience `tenant`) —
 > คนละ contract, ไม่เปลี่ยน.
+>
+> **multi-provider-oidc:** route เป็น provider-scoped แล้ว — `{provider}` ใน path ด้านล่างรับ `google` หรือ
+> `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section `AdminAuth:Providers:Microsoft`).
+> เอกสารนี้ตัวอย่างส่วนใหญ่ใช้ `google` ตาม scope เดิม — provider ที่ไม่รู้จัก/ไม่ได้ config -> 404.
 
 **Ports (dev):** API `http://localhost:5100` · Admin SPA `http://localhost:5200` · Tenant SPA `http://localhost:5120`
 
@@ -27,9 +31,9 @@ id_token, **ไม่** แนบ Bearer header. แทนที่ด้วย 
 
 Flow login:
 
-1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/login?returnTo=<path>`
+1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/google/login?returnTo=<path>`
 2. Server redirect ไป Google (Authorization Code + PKCE + state + nonce, scope `openid email`)
-3. ผู้ใช้ยืนยันกับ Google -> Google redirect กลับมาที่ `/api/v1/admins/auth/callback` (server-side, ไม่มีหน้าให้ FE)
+3. ผู้ใช้ยืนยันกับ Google -> Google redirect กลับมาที่ `/api/v1/admins/auth/google/callback` (server-side, ไม่มีหน้าให้ FE)
 4. Server แลก code เป็น token, ตรวจ `email_verified` + hosted domain, resolve/bind/self-provision admin, แล้ว
    **set cookie**: `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
 5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
@@ -71,14 +75,14 @@ Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — ba
 ## Setup ฝั่ง FE
 
 - **ไม่** ต้องขอ Google OAuth client เอง, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
-  (confidential client, ฉีดผ่าน `Google__Oidc__ClientId` / `Google__Oidc__ClientSecret`)
-- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `/api/v1/admins/auth/login?returnTo=${encodeURIComponent(path)}`
+  (confidential client, ฉีดผ่าน `AdminAuth__Providers__Google__ClientId` / `AdminAuth__Providers__Google__ClientSecret`)
+- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `/api/v1/admins/auth/google/login?returnTo=${encodeURIComponent(path)}`
   (top-level navigation — อย่าใช้ fetch; flow เด้งออกไป Google แล้วกลับมาที่ `returnTo`)
 - ทุก API call ตั้ง `credentials: 'include'` (ตรงข้ามกับโมเดลเดิม — ตอนนี้ auth = cookie)
 - admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server (เปิด `AllowCredentials` ให้เฉพาะ origin นี้)
 
 ```js
-window.location.href = '/api/v1/admins/auth/login?returnTo=' + encodeURIComponent('/dashboard')
+window.location.href = '/api/v1/admins/auth/google/login?returnTo=' + encodeURIComponent('/dashboard')
 ```
 
 ## CSRF (double-submit) — บังคับบน POST/PUT/PATCH/DELETE
@@ -140,7 +144,7 @@ Scoped ยิงโดน 403.
 
 | Method | Path | Tier | CSRF | Body | Success | Note |
 |---|---|---|---|---|---|---|
-| GET | `/api/v1/admins/auth/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>` |
+| GET | `/api/v1/admins/auth/google/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>` |
 | POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
 | POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
@@ -194,14 +198,14 @@ path นอก list — และ absolute URL — ถูก fallback เป็�
 
 | Status | ความหมาย | FE ทำอะไร |
 |---|---|---|
-| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/login` |
+| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/google/login` |
 | 403 | session valid แต่: account suspended / ไม่ active / tier ไม่พอ / **CSRF token หาย/ไม่ตรง** | "ไม่มีสิทธิ์" หรือ refresh CSRF |
 | 404 | tenant นอก scope หรือไม่มีจริง (กัน existence leak) | not-found |
 | 409 | duplicate (code / assignment ซ้ำ) | conflict |
 | 400 | body ผิด format | validation error |
 
 > callback ที่ login ไม่ผ่าน (state ผิด / `email_verified=false` / hosted-domain ไม่ตรง / ไม่ allowlist /
-> suspended) server redirect ไป `Google:Oidc:ErrorPath` พร้อม `?reason=<label>` (ไม่ใช่ JSON) — FE หน้า error
+> suspended) server redirect ไป `AdminAuth:ErrorPath` พร้อม `?reason=<label>` (ไม่ใช่ JSON) — FE หน้า error
 > อ่าน `reason` ได้.
 
 ## helper รวม (adminApi.js)
@@ -212,7 +216,7 @@ const cookie = (n) =>
   decodeURIComponent(document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)'))?.[1] ?? '')
 
 export function login(returnTo = '/dashboard') {
-  window.location.href = '/api/v1/admins/auth/login?returnTo=' + encodeURIComponent(returnTo)
+  window.location.href = '/api/v1/admins/auth/google/login?returnTo=' + encodeURIComponent(returnTo)
 }
 
 export async function adminFetch(path, opts = {}) {
@@ -241,7 +245,7 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - admin XHR **ต้อง** `credentials: 'include'` ถึงจะส่ง cookie; tenant ห้าม (ยัง Bearer เหมือนเดิม)
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
   ได้เหมือนกัน
-- backend dev ต้องใส่ OIDC client id + secret จริงที่ `Google__Oidc__ClientId` / `Google__Oidc__ClientSecret`
+- backend dev ต้องใส่ OIDC client id + secret จริงที่ `AdminAuth__Providers__Google__ClientId` / `AdminAuth__Providers__Google__ClientSecret`
   (user-secrets) ถึงจะ login จริงได้; placeholder boot ได้แต่ login ไม่ผ่าน
 - bootstrap Super admin คนแรก: backend ใส่ Google `sub` ที่ `AdminAllowlist__Subjects__0`
 - OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish

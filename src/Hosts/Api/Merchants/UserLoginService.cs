@@ -82,7 +82,8 @@ internal sealed class UserLoginService
     /// <summary>Branches the callback on the merchant user's lifecycle state (REQ-9.4). Identity is the verified
     /// id_token's (REQ-9.3); the form/request can never override it.</summary>
     public async Task HandleCallbackAsync(
-        HttpContext http, string? subject, string? email, string? hostedDomain, string? returnTo, CancellationToken ct)
+        HttpContext http, string? subject, string? email, string? hostedDomain, string provider, string? returnTo,
+        CancellationToken ct)
     {
         if (string.IsNullOrEmpty(subject) || string.IsNullOrEmpty(email))
         {
@@ -108,10 +109,10 @@ internal sealed class UserLoginService
                 await EstablishSessionAsync(http, result.Resolution!, subject, returnTo, ct);
                 break;
             case LoginOutcome.NotFound:
-                await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, TicketPurpose.Registration, ct);
+                await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, provider, TicketPurpose.Registration, ct);
                 break;
             case LoginOutcome.Rejected:
-                await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, TicketPurpose.Correction, ct);
+                await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, provider, TicketPurpose.Correction, ct);
                 break;
             case LoginOutcome.PendingApproval:
                 RespondAwaitingApproval(http);
@@ -159,12 +160,13 @@ internal sealed class UserLoginService
     /// safety is the account's unique (Subject) index at submit time (REQ-4.6). Nothing is persisted here, so a
     /// repeated callback simply mints a fresh, harmless token.</summary>
     private async Task IssueTicketAndRedirectAsync(
-        HttpContext http, string subject, string email, string? hostedDomain, TicketPurpose purpose, CancellationToken ct)
+        HttpContext http, string subject, string email, string? hostedDomain, string provider, TicketPurpose purpose,
+        CancellationToken ct)
     {
         string wireTicket;
         try
         {
-            wireTicket = _ticketProtector.Protect(new UserTicketPayload(subject, email, hostedDomain, purpose));
+            wireTicket = _ticketProtector.Protect(new UserTicketPayload(subject, email, hostedDomain, purpose, provider));
         }
         catch (Exception ex)
         {

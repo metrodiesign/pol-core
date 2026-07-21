@@ -7,15 +7,16 @@ namespace Merchants.Domain.Users;
 /// registration for the same subject is rejected. Control-plane child row (no merchant predicate).</summary>
 public sealed class ExternalLogin : Entity<Guid>
 {
-    /// <summary>The identity provider; <c>"google"</c> for this slice.</summary>
+    /// <summary>The identity provider slug: <see cref="Google"/> or <see cref="Microsoft"/>.</summary>
     public string Provider { get; private set; } = default!;
 
-    /// <summary>The provider's stable subject (Google <c>sub</c>).</summary>
+    /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>).</summary>
     public string Subject { get; private set; } = default!;
 
     public Guid MerchantUserId { get; private set; }
 
     public const string Google = "google";
+    public const string Microsoft = "microsoft";
 
     private ExternalLogin() { }
 

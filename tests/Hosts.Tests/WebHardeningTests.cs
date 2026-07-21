@@ -42,8 +42,10 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
         // validated on every request, so a blank ClientId used to 400 the WHOLE API (AddAdminOidcAuthentication /
         // AddMerchantUserOidcAuthentication now skip the scheme when blank). Forced blank — overriding any local
         // non-blank value — so this regression is caught on every platform.
-        builder.UseSetting("Google:Oidc:ClientId", "");
-        builder.UseSetting("MerchantUser:Oidc:ClientId", "");
+        builder.UseSetting("AdminAuth:Providers:Google:ClientId", "");
+        builder.UseSetting("AdminAuth:Providers:Microsoft:ClientId", "");
+        builder.UseSetting("MerchantUserAuth:Providers:Google:ClientId", "");
+        builder.UseSetting("MerchantUserAuth:Providers:Microsoft:ClientId", "");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
