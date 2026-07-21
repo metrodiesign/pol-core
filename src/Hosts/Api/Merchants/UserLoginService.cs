@@ -176,7 +176,7 @@ internal sealed class UserLoginService
         }
 
         if (!http.Response.HasStarted)
-            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.RegisterUrl, "ticket", wireTicket));
+            http.Response.Redirect(QueryHelpers.AddQueryString(ToSpa(_oidc.RegisterUrl), "ticket", wireTicket));
     }
 
     /// <summary>PendingApproval → redirect to the SPA error page with <c>reason=awaiting-approval</c>, no session
@@ -186,7 +186,7 @@ internal sealed class UserLoginService
     private void RespondAwaitingApproval(HttpContext http)
     {
         if (!http.Response.HasStarted)
-            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", "awaiting-approval"));
+            http.Response.Redirect(QueryHelpers.AddQueryString(ToSpa(_oidc.ErrorPath), "reason", "awaiting-approval"));
     }
 
     /// <summary>Records a denied/failed auth attempt (REQ-9.5/21.2) on a FRESH scope (clean context — a half-built
@@ -208,11 +208,18 @@ internal sealed class UserLoginService
         }
 
         if (!http.Response.HasStarted)
-            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", reason));
+            http.Response.Redirect(QueryHelpers.AddQueryString(ToSpa(_oidc.ErrorPath), "reason", reason));
     }
 
     private string SafeReturn(string? returnTo) =>
-        ReturnUrlPolicy.Resolve(returnTo, _session.ReturnUrlAllowlist, _session.DefaultReturnPath);
+        ToSpa(ReturnUrlPolicy.Resolve(returnTo, _session.ReturnUrlAllowlist, _session.DefaultReturnPath));
+
+    /// <summary>The callback lands on the API origin, so a relative SPA path must be made absolute against the
+    /// configured SPA origin (blank SpaBaseUrl or an already-absolute URL = unchanged). Mirrors admin LoginService.</summary>
+    private string ToSpa(string path) =>
+        path.StartsWith('/') && !string.IsNullOrEmpty(_session.SpaBaseUrl)
+            ? _session.SpaBaseUrl.TrimEnd('/') + path
+            : path;
 
     private static string? Truncate(string? value, int max) =>
         string.IsNullOrEmpty(value) ? null : value.Length <= max ? value : value[..max];

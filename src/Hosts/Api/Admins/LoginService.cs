@@ -175,11 +175,18 @@ internal sealed class LoginService
         }
 
         if (!http.Response.HasStarted)
-            http.Response.Redirect(QueryHelpers.AddQueryString(_oidc.ErrorPath, "reason", reason));
+            http.Response.Redirect(QueryHelpers.AddQueryString(ToSpa(_oidc.ErrorPath), "reason", reason));
     }
 
     private string SafeReturn(string? returnTo) =>
-        ReturnUrlPolicy.Resolve(returnTo, _session.ReturnUrlAllowlist, _session.DefaultReturnPath);
+        ToSpa(ReturnUrlPolicy.Resolve(returnTo, _session.ReturnUrlAllowlist, _session.DefaultReturnPath));
+
+    /// <summary>The callback lands on the API origin, so a relative SPA path must be made absolute against the
+    /// configured SPA origin (blank SpaBaseUrl or an already-absolute path = unchanged).</summary>
+    private string ToSpa(string path) =>
+        path.StartsWith('/') && !string.IsNullOrEmpty(_session.SpaBaseUrl)
+            ? _session.SpaBaseUrl.TrimEnd('/') + path
+            : path;
 
     private static string? Truncate(string? value, int max) =>
         string.IsNullOrEmpty(value) ? null : value.Length <= max ? value : value[..max];

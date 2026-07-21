@@ -44,4 +44,7 @@ internal sealed class UserSessionOptions
     public string DefaultReturnPath { get; init; } = "/";
     /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-8.3). Same-origin paths only.</summary>
     public string[] ReturnUrlAllowlist { get; init; } = [];
+    /// <summary>Absolute origin of the merchant-user SPA the callback redirects back to (e.g.
+    /// <c>http://localhost:5300</c>). Blank = keep relative. Mirrors <c>AdminSessionOptions.SpaBaseUrl</c>.</summary>
+    public string SpaBaseUrl { get; init; } = "";
 }
