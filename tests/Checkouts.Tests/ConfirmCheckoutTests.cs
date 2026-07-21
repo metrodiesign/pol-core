@@ -23,6 +23,8 @@ public sealed class ConfirmCheckoutTests
             Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
+    private static readonly DateTime StartAt = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
+
     [Fact]
     public async Task Start_captures_the_notification_recipient()
     {
@@ -40,6 +42,44 @@ public sealed class ConfirmCheckoutTests
     {
         Assert.Throws<ArgumentException>(() => Session.Start(
             Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), []));
+    }
+
+    // REQ-7.2 — validated at Start, not deferred to Order.Create, so a bad request never reaches a
+    // successful confirm response (Codex P1 finding, PR #122).
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Start_rejects_a_blank_insured_IdNumber(string idNumber)
+    {
+        var line = new CheckoutLineInput(
+            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+            "Somchai", "Jaidee", idNumber, Dob);
+
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+    }
+
+    [Fact]
+    public void Start_rejects_a_future_date_of_birth()
+    {
+        var line = new CheckoutLineInput(
+            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+            "Somchai", "Jaidee", "1234567890123", StartAt.AddDays(1));
+
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+    }
+
+    [Fact]
+    public void The_thrown_exception_never_echoes_the_invalid_date_of_birth_value()
+    {
+        var distinctiveFutureDob = new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc);
+        var line = new CheckoutLineInput(
+            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+            "Somchai", "Jaidee", "1234567890123", distinctiveFutureDob);
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+
+        Assert.DoesNotContain("2099", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

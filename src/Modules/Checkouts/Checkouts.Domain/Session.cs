@@ -65,7 +65,8 @@ public sealed class Session : AggregateRoot<Guid>
             session._lines.Add(new Line(
                 Guid.CreateVersion7(), session.Id, merchantId, line.ProductId, line.Quantity, line.UnitPrice,
                 line.SumInsured, line.CoverageDurationDays, line.Insurer,
-                line.InsuredFirstName, line.InsuredLastName, line.InsuredIdNumber, line.InsuredDateOfBirth));
+                line.InsuredFirstName, line.InsuredLastName, line.InsuredIdNumber, line.InsuredDateOfBirth,
+                nowUtc));
 
         return session;
     }

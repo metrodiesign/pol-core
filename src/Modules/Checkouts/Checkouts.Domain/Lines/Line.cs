@@ -6,9 +6,11 @@ namespace Checkouts.Domain.Lines;
 /// A line snapshotted onto a <see cref="Session"/> at <see cref="Session.Start"/> (insurance-pivot REQ-6.5) —
 /// freezes the commercial + insurance terms and the insured person for one purchased plan, so nothing is
 /// re-read live between checkout-start and confirm. A DIFFERENT CLR type from <c>Orders.Domain.Lines.Line</c>
-/// (no cross-module domain reference — the two modules only share data via the <c>Contracts</c> DTO); a
-/// plain snapshot holder with no validation of its own (the insured-person validation lives in
-/// <c>Orders.Domain.Lines.Line</c>'s constructor, per design.md's error-handling table).
+/// (no cross-module domain reference — the two modules only share data via the <c>Contracts</c> DTO), but
+/// validates the insured-person fields the same way that type does (REQ-7.2: "WHEN confirming checkout" —
+/// enforced here, at <see cref="Session.Start"/>, which happens strictly before confirm is even reachable,
+/// so a bad request never reaches a successful confirm response at all; the later <c>Order.Create</c>
+/// validation stays as defense in depth, same shape as the quantity==1 check being enforced at both layers).
 /// </summary>
 public sealed class Line : Entity<Guid>
 {
@@ -35,9 +37,19 @@ public sealed class Line : Entity<Guid>
     internal Line(
         Guid id, Guid sessionId, Guid merchantId, Guid productId, int quantity, Money unitPrice,
         Money sumInsured, int coverageDurationDays, string insurer,
-        string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth)
+        string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
+        DateTime nowUtc)
         : base(id)
     {
+        // REQ-7.2/7.3: same checks as Orders.Domain.Lines.Line's constructor, enforced here instead so a
+        // bad request fails at checkout-start (before confirm is even reachable); none of these messages
+        // echo the invalid value — only the field name.
+        ArgumentException.ThrowIfNullOrWhiteSpace(insuredFirstName, nameof(insuredFirstName));
+        ArgumentException.ThrowIfNullOrWhiteSpace(insuredLastName, nameof(insuredLastName));
+        ArgumentException.ThrowIfNullOrWhiteSpace(insuredIdNumber, nameof(insuredIdNumber));
+        if (insuredDateOfBirth > nowUtc)
+            throw new ArgumentException("Date of birth must not be in the future.", nameof(insuredDateOfBirth));
+
         SessionId = sessionId;
         MerchantId = merchantId;
         ProductId = productId;
@@ -45,10 +57,10 @@ public sealed class Line : Entity<Guid>
         UnitPrice = unitPrice;
         SumInsured = sumInsured;
         CoverageDurationDays = coverageDurationDays;
-        Insurer = insurer;
-        InsuredFirstName = insuredFirstName;
-        InsuredLastName = insuredLastName;
-        InsuredIdNumber = insuredIdNumber;
+        Insurer = insurer.Trim();
+        InsuredFirstName = insuredFirstName.Trim();
+        InsuredLastName = insuredLastName.Trim();
+        InsuredIdNumber = insuredIdNumber.Trim();
         InsuredDateOfBirth = insuredDateOfBirth;
     }
 }
