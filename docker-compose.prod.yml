@@ -1,5 +1,6 @@
-# Self-host production profile (PLAN deploy = Docker/on-prem, no cloud KMS).
-#   1. copy .env.prod.example -> .env and fill the non-secret values
+# Self-host production profile (PLAN deploy = Docker/on-prem App tier; the DB tier is a separate,
+# infra/DBA-provisioned host — see docs/runbooks/deploy-self-host.md).
+#   1. copy .env.prod.example -> .env and fill the non-secret values (incl. DB_SERVER/DB_PORT)
 #   2. create ./secrets/* files (see docs/runbooks/deploy-self-host.md) — they are gitignored
 #   3. docker compose -f docker-compose.prod.yml up -d --build
 # `migrate` bootstraps the pol_app principal + applies migrations and must finish before the hosts start.
@@ -10,22 +11,6 @@ name: pol-core
 x-dotnet: &dotnet "10.0"
 
 services:
-  sql:
-    image: mcr.microsoft.com/mssql/server:2025-latest
-    environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD in .env}
-      MSSQL_PID: ${MSSQL_PID:-Developer}
-    volumes:
-      - sql-data:/var/opt/mssql
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 15
-      start_period: 30s
-    restart: unless-stopped
-
   # rls-to-query-filter task 9 (REQ-13.4): the external tamper-resistant sink for the denial/authz telemetry
   # taxonomy. Set retention + alerting via the Seq UI/API after first boot (see the deploy runbook) — neither
   # is app-configurable, both live on the Seq side.
@@ -51,14 +36,13 @@ services:
       args:
         DOTNET_VERSION: *dotnet
     environment:
-      DB_SERVER: sql
+      DB_SERVER: ${DB_SERVER:?set DB_SERVER in .env}
+      DB_PORT: ${DB_PORT:-1433}
+      DB_CA_CERTIFICATE_FILE: ${DB_CA_CERTIFICATE_FILE:-}
       DB_NAME: ${DB_NAME:-VCentralPay}
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?}
       POL_APP_PASSWORD_FILE: /run/secrets/pol_app_password
-    secrets: [pol_app_password]
-    depends_on:
-      sql:
-        condition: service_healthy
+    secrets: [pol_app_password, db_ca_cert]
     restart: "no"
 
   api:
@@ -70,7 +54,9 @@ services:
         HOST_PROJECT: src/Hosts/Api/Api.csproj
         HOST_DLL: Api.dll
     environment:
-      DB_SERVER: sql
+      DB_SERVER: ${DB_SERVER:?set DB_SERVER in .env}
+      DB_PORT: ${DB_PORT:-1433}
+      DB_CA_CERTIFICATE_FILE: ${DB_CA_CERTIFICATE_FILE:-}
       DB_NAME: ${DB_NAME:-VCentralPay}
       DB_PRINCIPAL: pol_app
       DB_PASSWORD_FILE: /run/secrets/pol_app_password
@@ -102,7 +88,7 @@ services:
       # REQ-13.4: not a secret (Seq ingestion is same-network only, no public exposure) — the sink degrades
       # to log-only (never blocks a request) if Seq is unreachable, so this is safe to default.
       Seq__IngestionUrl: ${SEQ_INGESTION_URL:-http://seq:80}
-    secrets: [pol_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret]
+    secrets: [pol_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, db_ca_cert]
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
       # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
@@ -121,12 +107,14 @@ services:
     restart: unless-stopped
 
 volumes:
-  sql-data:
   seq-data:
 
-# File-based secrets — the files live under ./secrets/ (gitignored). The vault master key is the long-lived
-# crypto root; the principal password gates DB access (pol_app is the sole runtime principal). The SA
-# password is bootstrap-only and stays in .env.
+# File-based secrets — the files live under ./secrets/ (gitignored, chmod 600). The vault master key is the
+# long-lived crypto root; the principal password gates DB access (pol_app is the sole runtime principal). The
+# SA password is bootstrap-only and stays in .env. `db_ca_cert` pins the DB tier's TLS cert for `Encrypt=Strict`
+# (see docker/entrypoint.sh) — if the DB tier's cert already chains to a public CA, leave DB_CA_CERTIFICATE_FILE
+# unset in .env (the connection falls back to Encrypt=True;TrustServerCertificate=False) and this file can be
+# an empty placeholder; compose still requires the path to exist.
 secrets:
   pol_app_password:
     file: ./secrets/pol_app_password
@@ -136,3 +124,5 @@ secrets:
     file: ./secrets/admin_oidc_client_secret
   merchant_user_oidc_client_secret:
     file: ./secrets/merchant_user_oidc_client_secret
+  db_ca_cert:
+    file: ./secrets/db_ca_cert
