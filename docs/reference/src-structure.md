@@ -297,7 +297,14 @@ cross-cutting HTTP — observability, auth, cors, health, error.
 
 ## 4. Hosts — composition root
 
-2 host, reference โมดูลชุดเดียวกัน (Products/Cart/Checkout/Orders/Payments + BuildingBlocks) แต่ประกอบคนละแบบ.
+> **[`multi-tier-deployment`, 2026-07-22]** เดิมมี 2 host (Api + Worker) — **the standalone `Worker` project
+> (previously a project under `src/Hosts`) is deleted entirely**: Worker's `OutboxDispatcher` registration +
+> `WorkerActorContext`/`WorkerWriteAuthorizer` (class name เดิม) ย้ายเข้า `src/Hosts/Api/BackgroundDispatch/`
+> แทน, รันเป็น hosted service ในตัว Api process เดียวกัน (ไม่มี container/image `worker` แยกอีกต่อไป). เนื้อหา
+> section ของ Worker host เดิมด้านล่าง (ก่อนหน้านี้) ถูกลบไปแล้ว — เนื้อหาที่เหลือของเอกสารนี้ยังเป็น pre-rf1
+> vocabulary ตามหมายเหตุหัวไฟล์.
+
+1 host (Api), reference โมดูลชุดเดียวกัน (Products/Cart/Checkout/Orders/Payments + BuildingBlocks).
 
 ### Hosts/Api — HTTP host (SPA + webhook)
 
@@ -310,15 +317,10 @@ cross-cutting HTTP — observability, auth, cors, health, error.
 | `appsettings.json` | prod defaults: `ConnectionStrings:Producer` (`pol_app`, inject password runtime), `Google:Audiences`/`HostedDomain` (ตั้งต่อ env), `Cors:AllowedOrigins`, `Vault:*` (inject runtime); prod ไม่ publish OpenAPI |
 | `appsettings.Development.json` | Dev: connection localhost, `Tenant:DevTenantId`, Cors `http://localhost:5120`, dev test key (placeholder ต่อ real integration) |
 | `Properties/launchSettings.json` | profile http (5100) / https (5101); `ASPNETCORE_ENVIRONMENT=Development` |
+| `BackgroundDispatch/WorkerActorContext.cs`, `BackgroundDispatch/WorkerWriteAuthorizer.cs` | moved in from the retired standalone Worker project (class names kept) — resolved instead of `HttpActorContext`/the request-scope write authorizer whenever the current DI scope has no `HttpContext` (background-dispatcher-created scope) |
+| `BackgroundDispatch/BackgroundDispatchScope.cs` | shared `IsHttpRequest(sp)` predicate — the one discriminator both of the above factories branch on |
 
-### Hosts/Worker — background host (outbox)
-
-| ไฟล์ | บทบาท |
-|------|-------|
-| `Program.cs` | ประกอบ background: register Mediator + BuildingBlocksInfrastructure + **`OutboxDispatcher`** + `ProducerDbContext` เป็น user `pol_worker` (อ่าน outbox ข้าม tenant, write ต่อ message แบบ RLS-scoped, ไม่มี bypass) + 5 โมดูล. endpoint = HealthChecks อย่างเดียว (ไม่มี routing/auth/CORS) |
-| `WorkerTenantContext.cs` | impl `ITenantContext` (Scoped) — ไม่มี HTTP/principal; tenant = AmbientTenant ที่ dispatcher bind ต่อ message; `HasTenant=false` ตอน lease pass (SESSION_CONTEXT ไม่ตั้ง → scan outbox ข้าม tenant) |
-| `WorkerModuleAssemblies.cs` | list assembly (เท่ากับ Api) ให้ build producer model ตรง migration |
-| `appsettings.json` | `ConnectionStrings:Worker` = `pol_worker`; `Vault:*` inject runtime; ไม่มี config HTTP/auth |
+(the old Worker-host section that used to be here has been deleted — see the note above this heading)
 
 ---
 

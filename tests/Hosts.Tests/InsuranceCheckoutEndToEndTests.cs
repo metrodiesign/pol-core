@@ -1,5 +1,4 @@
 extern alias ApiHost;
-extern alias WorkerHost;
 
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
@@ -34,9 +33,9 @@ namespace Hosts.Tests;
 /// order: masked list, full+audited detail, and the anonymous customer summary. Every step calls the REAL
 /// Application handler backed by the REAL EF repository/unit-of-work on SQLite in-memory — Product/Checkout/
 /// list/detail writes run under the REAL Api-host <c>MerchantRequestWriteAuthorizer</c> (reached via the
-/// ApiHost:: alias), the CheckoutConfirmedConsumer dispatch step runs under the REAL Worker-host
-/// <c>WorkerWriteAuthorizer</c> (WorkerHost:: alias) — mirroring exactly which host performs each write in
-/// production. The `/checkouts` endpoint's own trust-boundary logic (Program.cs) is reproduced inline here
+/// ApiHost:: alias), the CheckoutConfirmedConsumer dispatch step runs under the REAL background-dispatch
+/// <c>Api.BackgroundDispatch.WorkerWriteAuthorizer</c> (same alias) — mirroring exactly which write floor
+/// each execution scope uses in production. The `/checkouts` endpoint's own trust-boundary logic (Program.cs) is reproduced inline here
 /// since that logic is a minimal-API lambda, not a separately callable unit; the outbox dispatch loop itself
 /// is bypassed the same way task 0 already justifies (SQL-Server-only lease SQL, orthogonal to what this
 /// proves) by capturing the enqueued notification and calling the consumer directly.
@@ -73,10 +72,10 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
             FakeActor.For(MerchantA), new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(FakeActor.For(MerchantA)),
             NoOpSecurityTelemetry.Instance);
 
-    // Mirrors the Worker host: WorkerWriteAuthorizer (stateless, never compares the actor).
+    // Mirrors the background-dispatch scope: WorkerWriteAuthorizer (stateless, never compares the actor).
     private MerchantRuntimeDbContext WorkerContext() =>
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
-            FakeActor.For(MerchantA), new WorkerHost::Worker.WorkerWriteAuthorizer(), NoOpSecurityTelemetry.Instance);
+            FakeActor.For(MerchantA), new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer(), NoOpSecurityTelemetry.Instance);
 
     /// <summary>Product -&gt; cart -&gt; checkout -&gt; confirm -&gt; real Worker dispatch -&gt; paid Order, one insured
     /// person, "Somchai"/"Jaidee"/"1234567890123"/<see cref="Dob"/>. Shared by every test below so each one

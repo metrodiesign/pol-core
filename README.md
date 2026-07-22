@@ -81,8 +81,7 @@ dotnet ef database update --context PolDbContext \
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
 | SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
-| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (default) + `pol_admin` (keyed, control-plane) | REST + BFF auth |
-| Worker (`src/Hosts/Worker`) | console | `pol_worker` | outbox dispatcher |
+| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (default) + `pol_admin` (keyed, control-plane) | REST + BFF auth + outbox dispatcher (Worker merge เข้ามาแล้ว, `multi-tier-deployment`) |
 | FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/merchants/*` -> `:5100` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
@@ -97,8 +96,7 @@ connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>
 
 ```bash
 docker compose up -d                                      # DB (ถ้ายังไม่ขึ้น)
-dotnet watch --project src/Hosts/Api/Api.csproj run       # API :5100 (hot reload)
-dotnet run   --project src/Hosts/Worker/Worker.csproj     # Worker (เมื่อทดสอบ outbox)
+dotnet watch --project src/Hosts/Api/Api.csproj run       # API :5100 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
 ```
 
 > config change (`appsettings.*.json`) / DI ต้อง **restart เต็ม** (hot reload ไม่จับ).

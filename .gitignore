@@ -39,3 +39,4 @@ tsconfig.tsbuildinfo
 # (see docs/runbooks/vault-key-rotation.md). The keyring reads these via Vault:Keys:<id>:KeyFile.
 *.key
 secrets/
+

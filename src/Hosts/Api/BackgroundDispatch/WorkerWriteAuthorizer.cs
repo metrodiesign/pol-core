@@ -4,29 +4,23 @@ using MerchantRegistrationNotice = Merchants.Domain.Users.RegistrationNotice;
 using OrderAggregate = Orders.Domain.Order;
 using OrderLine = Orders.Domain.Lines.Line;
 
-namespace Worker;
+namespace Api.BackgroundDispatch;
 
 /// <summary>
-/// Worker capability (rls-to-query-filter task 8.5.6): the dispatchers draining <c>MerchantRuntimeDbContext</c>'s
-/// outbox (payment/checkout events) and <c>MerchantUserDbContext</c>'s outbox (registration events) across
-/// ANY merchant — cross-merchant dispatch is inherent to draining, so unlike the Api host's merchant-request
-/// capability (<c>Api.Persistence.MerchantRequestWriteAuthorizer</c>) this one does NOT compare against a
+/// Background-dispatch write capability (multi-tier-deployment task 1 — moved in as-is from the standalone
+/// Worker host per design.md's "minimal diff" decision; class name kept). Covers the dispatchers draining
+/// <c>MerchantRuntimeDbContext</c>'s outbox (payment/checkout events) and <c>MerchantUserDbContext</c>'s
+/// outbox (registration events) across ANY merchant — cross-merchant dispatch is inherent to draining, so
+/// unlike <see cref="Api.Persistence.MerchantRequestWriteAuthorizer"/> this one does NOT compare against a
 /// single bound actor. Allows Update on the two outbox entity types (lease claim, mark-processed,
 /// mark-failed — the drain ports' own tracked EF writes) — never Delete (outbox rows are never physically
 /// removed). ALSO allows Insert on <see cref="MerchantRegistrationNotice"/>, <see cref="OrderAggregate"/> and
 /// <see cref="OrderLine"/>, and Update on <see cref="OrderAggregate"/> — writes a message HANDLER performs
 /// mid-dispatch (<c>Merchants.Application.Users.RegistrationConsumer</c> inserts a notice;
-/// <c>Orders.Application.CheckoutConfirmedConsumer</c> inserts an order + its lines (insurance-pivot REQ-6);
+/// <c>Orders.Application.CheckoutConfirmedConsumer</c> inserts an order + its lines;
 /// <c>Orders.Application.OrderPaidConsumer</c> updates the order via <c>Order.MarkPaid</c> — all invoked via
 /// <c>IPublisher.Publish</c> from inside an outbox drain cycle): none of these are themselves a drain-port
-/// write, so each needs its own explicit allowlist entry. (insurance-pivot task 0 — Order was missing from
-/// this authorizer entirely before this fix, for both operations; a pre-existing gap unrelated to insurance,
-/// surfaced while adding `OrderLine` to the same dispatch path in task 3.)
-/// <para>
-/// Lives here, not in the Api host: stateless (zero dependencies) and Worker-only, so a cross-host reference
-/// just to reach this one class would pull Worker's process dependency graph into Api's entire web surface
-/// for no reason (see <c>Api/Persistence/WriteAuthorizers.cs</c>'s matching note).
-/// </para>
+/// write, so each needs its own explicit allowlist entry.
 /// </summary>
 internal sealed class WorkerWriteAuthorizer : IWriteAuthorizer
 {

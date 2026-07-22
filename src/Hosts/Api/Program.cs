@@ -70,13 +70,16 @@ using Scope = Iam.Domain.Permissions.Scope;
 using Iam.Domain.Roles;
 using Api;
 using Api.Admins;
+using Api.BackgroundDispatch;
 using Api.Iam;
 using Api.Merchants;
 using Api.Persistence;
 using Api.Webhooks;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
+using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantUsers;
+using Persistence.MerchantUsers.Outbox;
 using Persistence.Provisioning;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
@@ -153,10 +156,21 @@ if (!builder.Environment.IsDevelopment())
 // its own context instances per attempt rather than resolving them from this container.
 builder.Services.AddControlPlanePersistence(
     appConnString, sp => new ControlPlaneAdminWriteAuthorizer(sp.GetRequiredService<IAdminScope>()));
-builder.Services.AddMerchantUserPersistence(
-    appConnString, sp => new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>()));
-builder.Services.AddMerchantRuntimePersistence(
-    appConnString, sp => new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>()));
+
+// multi-tier-deployment task 1: the outbox dispatchers (formerly the standalone Worker host's hosted
+// services, PLAN "Worker merge") now run in THIS process, draining from a background-created scope with no
+// HttpContext. Same scope-discriminated selection as IActorContext below (BackgroundDispatchScope) — an
+// HTTP request gets the ordinary merchant-request write floor, a background dispatch scope gets the
+// cross-merchant drain capability (WorkerWriteAuthorizer).
+builder.Services.AddMerchantUserPersistence(appConnString, ResolveMerchantWriteAuthorizer)
+    .AddMerchantUserOutboxDispatcher();
+builder.Services.AddMerchantRuntimePersistence(appConnString, ResolveMerchantWriteAuthorizer)
+    .AddMerchantRuntimeOutboxDispatcher();
+
+static IWriteAuthorizer ResolveMerchantWriteAuthorizer(IServiceProvider sp) =>
+    BackgroundDispatchScope.IsHttpRequest(sp)
+        ? new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>())
+        : new WorkerWriteAuthorizer();
 
 // Keyring comes from the DI singleton (options-bound, validated once) — an inline eager
 // VaultKeyringFactory.Build here reads builder.Configuration BEFORE deferred test/host config
@@ -203,7 +217,18 @@ builder.Services.Configure<AdminSessionOptions>(builder.Configuration.GetSection
 
 // Merchant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<IActorContext, HttpActorContext>();
+
+// multi-tier-deployment task 1: HTTP requests resolve HttpActorContext (unchanged); a scope the outbox
+// dispatcher creates for a background batch (no HttpContext) resolves WorkerActorContext instead — the
+// framework primitive already registered above is the discriminator, no new interface needed. This is the
+// highest-risk part of the Worker merge (see design.md) — it sits directly on the
+// GuardedRuntimeDbContext/IWriteAuthorizer security boundary, hence the dedicated composition-root tests.
+builder.Services.AddScoped<HttpActorContext>();
+builder.Services.AddScoped<WorkerActorContext>();
+builder.Services.AddScoped<IActorContext>(sp =>
+    BackgroundDispatchScope.IsHttpRequest(sp)
+        ? sp.GetRequiredService<HttpActorContext>()
+        : sp.GetRequiredService<WorkerActorContext>());
 
 // Google id-token Bearer is retired for the funnel (T11 — rf1 big-bang, no legacy audience). The
 // MerchantUserSession cookie scheme is the explicit default (each protected group still pins its own scheme via
