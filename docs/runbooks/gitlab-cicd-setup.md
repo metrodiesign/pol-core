@@ -156,8 +156,8 @@ B4 ไม่งั้น pipeline จะค้าง pending หรือ job �
   (ครั้งแรกช้าสุดเพราะยังไม่มี cache — 15-30 นาที ปกติ)
 - job `deploy-uat` โผล่เป็นปุ่มสามเหลี่ยม (manual) ท้าย pipeline — **ยังไม่ต้องกด** ยังไม่มี server
   ตั้งค่าเสร็จ (ทำใน Part F)
-- เช็ค image: **Deploy → Container Registry** → ต้องเห็น 3 repository ย่อย: `api`, `worker`,
-  `migrate` แต่ละอันมี tag เป็น short SHA ของ commit
+- เช็ค image: **Deploy → Container Registry** → ต้องเห็น 2 repository ย่อย: `api`, `migrate`
+  แต่ละอันมี tag เป็น short SHA ของ commit
 - ถ้า `package` แดง `Cannot connect to the Docker daemon`: runner ไม่มี privileged —
   หยุด แล้วประสานทีม infra ตาม **Part A6**
 - ถ้าไม่มี runner รับ job (pending ค้างไม่ขยับ): ติดต่อทีม infra ขอ runner ให้ project
@@ -379,11 +379,11 @@ GitLab → **Build → Pipelines** → เปิด pipeline ล่าสุด�
 1. `apk add openssh-client` ผ่าน (ติดตั้ง SSH client ใน container ของ job)
 2. `scp` ไม่มี error (ก็อปปี้ ไฟล์ compose/config ที่จำเป็นขึ้น host)
 3. `docker login` → ขึ้นบรรทัด `Login Succeeded` ตรงตัว (ถ้าขึ้น `denied` ดู Troubleshooting)
-4. `pull` ลาก image 3 ตัว (migrate, api, worker) — เห็น layer progress bar ของแต่ละ image
-5. `up -d` → ขึ้น `Recreating`/`Creating` ตามด้วยชื่อ container `migrate`, `api`, `worker`
-6. `docker compose ps` → คอลัมน์ State ของ `api`/`worker` ต้องเป็น `healthy` (หรือ `starting`
+4. `pull` ลาก image 2 ตัว (migrate, api) — เห็น layer progress bar ของแต่ละ image
+5. `up -d` → ขึ้น `Recreating`/`Creating` ตามด้วยชื่อ container `migrate`, `api`
+6. `docker compose ps` → คอลัมน์ State ของ `api` ต้องเป็น `healthy` (หรือ `starting`
    ระหว่างรอ healthcheck รอบแรก), `migrate` ต้องเป็น `Exited (0)` (แปลว่า migration รันจบสำเร็จ
-   แล้วออกเอง — ไม่ใช่ crash)
+   แล้วออกเอง — ไม่ใช่ crash; ถ้า DB tier ยังต่อไม่ได้ตอน retry หมด จะเป็น `Exited (1)` แทน)
 7. `curl /health/ready` ตอบ JSON `{"status":"healthy"}` → job จบด้วยสถานะเขียว
 
 ถ้า log หยุดค้างขั้นไหนเกิน 2-3 นาทีโดยไม่ขยับ (โดยเฉพาะขั้น 4 pull หรือขั้น 6 รอ healthy):
@@ -464,5 +464,5 @@ UAT ถูกลบไปแล้วตาม E3 ของรอบก่อน
 | job `package`: `Cannot connect to the Docker daemon` | A6 — runner ไม่มี privileged เปิด privileged หรือสลับเป็น kaniko |
 | pipeline pending ค้าง ไม่มี job รัน | A6 — ไม่มี runner รับ project ติดต่อทีม infra |
 | job `deploy-uat`/`deploy-prod` ค้างที่ `pull`/`up -d` นานผิดปกติ | F2 — ต่อ SSH เข้า host ตรงดู `docker compose logs -f` แบบสด เช็ค disk เต็ม (D4) หรือ image ใหญ่ผิดปกติ |
-| `docker compose ps` เห็น `api`/`worker` state `unhealthy` ค้าง | เข้า host ดู `docker compose logs api` หา exception จริง ก่อนจะ rollback (F4) |
+| `docker compose ps` เห็น `api` state `unhealthy` ค้าง | เข้า host ดู `docker compose logs api` หา exception จริง ก่อนจะ rollback (F4) |
 | deploy สำเร็จแต่ `curl /health/ready` ไม่ตอบ | เช็คว่า container `migrate` จบด้วย `Exited (0)` จริง (ไม่ใช่ exit code อื่น) — migration ค้างจะบล็อก readiness |

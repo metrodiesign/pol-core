@@ -69,7 +69,8 @@ prescriptive) — อ้าง file:line ตามโค้ดจริง เ�
 
 Database เหมือน **ตึกที่เก็บของทุกบริษัทไว้รวมกัน**. โปรแกรมจะเข้าไปหยิบ/วางข้อมูลได้ ต้องมี **คีย์การ์ด** ก่อน —
 คีย์การ์ดนั้นคือ **connection string**. **เดิมมี 3 ใบ** (`pol_app`/`pol_admin`/`pol_worker`, สิทธิ์ต่างกันที่ DB)
-**ตอนนี้เหลือใบเดียว: `pol_app`** — ทุก host (Api และ Worker) เข้าตึกด้วยบัตรใบเดียวกัน, เข้าได้ทุกห้องทางกายภาพ
+**ตอนนี้เหลือใบเดียว: `pol_app`** — Api host เดียว (Worker's background dispatch merge เข้ามาแล้ว,
+`multi-tier-deployment`) เข้าตึกด้วยบัตรใบเดียวกันทุก flow, เข้าได้ทุกห้องทางกายภาพ
 เหมือนกันหมด. สิ่งที่กันไม่ให้พนักงานหยิบของผิดห้องไม่ใช่บัตรอีกต่อไป — เป็น **พนักงานเองที่เช็คก่อนหยิบทุกครั้ง**
 (โค้ดแอป).
 
@@ -176,20 +177,20 @@ provision/ดูออเดอร์ได้"; ตัวที่กันไ�
 
 | Config key | login (`User Id=`) | isolation posture | ใช้โดย | นิยามที่ |
 |---|---|---|---|---|
-| `ConnectionStrings:App` | `pol_app` | app-layer floor เท่านั้น (query filter + write guard) | Api — ทุก `DbContext` ทุก flow | `src/Hosts/Api/appsettings.json:11` |
-| `ConnectionStrings:Worker` | `pol_app` | เดียวกัน | Worker — ทุก `DbContext` | `src/Hosts/Worker/appsettings.json:11` |
+| `ConnectionStrings:App` | `pol_app` | app-layer floor เท่านั้น (query filter + write guard) | Api — ทุก `DbContext` ทุก flow (HTTP request + background dispatcher ที่ merge เข้ามาแล้ว, `multi-tier-deployment`) | `src/Hosts/Api/appsettings.json:11` |
 | `ConnectionStrings:Migrator` | *(privileged, ไม่ commit)* | — | dev boot auto-migrate | `src/Hosts/Api/Program.cs:390` |
 | `POL_DESIGN_SQL` (env) | `sa` | — | `dotnet ef database update` (design-time DDL) | `.env:*`, `docker/migrate-entrypoint.sh` |
 
-- Password ใน committed config = **ว่าง**; ฉีดตอน runtime ผ่าน env `ConnectionStrings__App`/`__Worker`
-  (ASP.NET map `__` -> `:`). ทั้งสองเส้นมี `Database=VCentralPay;Encrypt=True`.
+- Password ใน committed config = **ว่าง**; ฉีดตอน runtime ผ่าน env `ConnectionStrings__App`
+  (ASP.NET map `__` -> `:`). มี `Database=VCentralPay;Encrypt=True` (ต่อ DB tier ระยะไกล — ดู
+  `multi-tier-deployment` spec — เป็น `Encrypt=Strict` เมื่อ pin CA cert ผ่าน `DB_CA_CERTIFICATE_FILE`,
+  ไม่งั้น `Encrypt=True;TrustServerCertificate=False` ต่อ OS trust store, ไม่มีทาง `True` ได้).
 - นอก Development ถ้า password ว่าง -> fail-fast (`ProvisioningGuards.RequireInjectedCredential`,
   `src/Hosts/Api/Program.cs:~1944`).
 - Prod: `docker-compose.prod.yml` กับ `docker/entrypoint.sh` สร้าง connection string จาก `DB_PRINCIPAL=pol_app`
-  (ทั้ง api และ worker service — เดิมมี `DB_ADMIN_PRINCIPAL`/`DB_PRINCIPAL` แยก, ตอนนี้ตัวแปรเดียว) + password
-  file secret.
-- Api/Worker's `Program.cs` แต่ละไฟล์ห่อ connection string ด้วย `SqlConnectionStringBuilder { ApplicationName =
-  "Api" | "Worker" }` ก่อนใช้ (REQ-13.3 — partial DB attribution แม้ใช้ 1 principal, ดูหัวข้อ 8).
+  (host เดียว `api` — Worker merge เข้ามาแล้ว, ไม่มี service แยกอีกต่อไป) + password file secret.
+- Api's `Program.cs` ห่อ connection string ด้วย `SqlConnectionStringBuilder { ApplicationName = "Api" }`
+  ก่อนใช้ (REQ-13.3 — partial DB attribution แม้ใช้ 1 principal, ดูหัวข้อ 8).
 
 ---
 
@@ -199,7 +200,7 @@ provision/ดูออเดอร์ได้"; ตัวที่กันไ�
 
 | login | posture | หน้าที่ |
 |---|---|---|
-| `pol_app` | ไม่มี RLS ให้ bypass, ไม่มี query filter ที่ DB — grant ครอบคลุมทุก runtime table (UNION ของสิทธิ์เดิมทุก principal) | ใช้โดยทั้ง Api และ Worker, ทุก flow |
+| `pol_app` | ไม่มี RLS ให้ bypass, ไม่มี query filter ที่ DB — grant ครอบคลุมทุก runtime table (UNION ของสิทธิ์เดิมทุก principal) | ใช้โดย Api ทุก flow (HTTP request + background dispatcher scope ที่ merge เข้ามาแล้ว, ไม่มี Worker host แยกอีกต่อไป — `multi-tier-deployment`) |
 | `sa` | — | bootstrap + DDL migration เท่านั้น; runtime login ไม่มีสิทธิ DDL; app ไม่เคยใช้ |
 
 **ถูกถอดทิ้งทั้งหมดในการ migration เดียว (task 8):** `pol_admin`, `pol_worker`, `pol_rls_bypass` role,
@@ -279,7 +280,7 @@ class ของทั้ง 3 runtime context — override `SaveChanges`/`SaveCh
 | `MerchantRequestWriteAuthorizer` | `src/Hosts/Api/Persistence/WriteAuthorizers.cs` | merchant request เขียนได้เฉพาะ `targetMerchant` ของ actor ตัวเอง |
 | `ControlPlaneAdminWriteAuthorizer` | เดียวกัน | admin เขียน control-plane entity ผ่าน `IAdminScope`/RBAC |
 | `ProvisioningSuperWriteAuthorizer` | เดียวกัน | ครอบคลุมเฉพาะ entity set ของ provisioning ภายใต้ Super lock |
-| `WorkerWriteAuthorizer` | `src/Hosts/Worker/WriteAuthorizer.cs` | outbox dispatch capability (cross-merchant drain ที่ระบุ merchant ต่อ message) |
+| `WorkerWriteAuthorizer` | `src/Hosts/Api/BackgroundDispatch/WorkerWriteAuthorizer.cs` (moved in from the retired standalone Worker host, class name kept — `multi-tier-deployment`) | outbox dispatch capability (cross-merchant drain ที่ระบุ merchant ต่อ message) |
 
 ล้มเหลวจุดไหนของ guard = `WriteGuardException`/`ConcurrencyConflictException`/`ConflictException` (แปลจาก SQL
 2627/2601/547) + `ISecurityTelemetry.Emit` (หัวข้อ 8).
@@ -380,10 +381,16 @@ HTTP + Admin session cookie (BFF)
 
 ข้อสังเกต: นี่คือ **จุดเดียวในระบบ** ที่ 2 runtime context แชร์ transaction เดียวกัน — ทุกที่อื่นแยกขาดกันเสมอ.
 
-### Flow C — Worker outbox drain
+### Flow C — Background outbox drain (in-process, merged into Api)
+
+> **[`multi-tier-deployment`, 2026-07-22]** เดิม flow นี้รันใน host `Worker` แยกต่างหาก — Worker ถูกลบทิ้ง
+> ทั้งโปรเจกต์แล้ว, dispatcher ตัวเดิมรันเป็น `IHostedService` ใน Api process เดียวกันแทน (ไม่ใช่ network
+> hop ข้าม host อีกต่อไป). ตัว discriminator ที่เลือก `WorkerActorContext`/`WorkerWriteAuthorizer` (แทน
+> `HttpActorContext`/request authorizer) คือ `IHttpContextAccessor.HttpContext` เป็น `null` หรือไม่ — scope
+> ที่ dispatcher สร้างเอง (`CreateScope()`, ไม่มี HTTP request ห่อ) ไม่มี `HttpContext` เสมอ.
 
 ```
-Worker loop [MerchantRuntimeDbContext, WorkerWriteAuthorizer], lease pass: HasActor=false
+Api's background dispatcher scope [MerchantRuntimeDbContext, WorkerWriteAuthorizer], lease pass: HasActor=false
   -> OutboxDispatcher.LeaseNextBatchAsync (escape-hatch allowlisted, ExecuteUpdate ข้าม query filter โดยธรรมชาติ)
      -> อ่านได้ทุก merchant (ตารางนี้ไม่มี IMerchantFiltered)
   -> ต่อ message: IActorScope.Begin(msg.MerchantId)
@@ -391,7 +398,8 @@ Worker loop [MerchantRuntimeDbContext, WorkerWriteAuthorizer], lease pass: HasAc
   -> consumer เขียน Orders -> ผ่าน write guard, CanWrite เช็ค WorkerWriteAuthorizer capability
 ```
 
-Worker เขียน scoped ได้เพราะ bind merchant ต่อ message ผ่าน `IActorScope`, ไม่ใช่เพราะ principal ต่างจาก Api.
+เขียน scoped ได้เพราะ bind merchant ต่อ message ผ่าน `IActorScope`, ไม่ใช่เพราะ principal ต่างกัน (principal
+เดียวกันทั้งหมด, `pol_app`) และไม่ใช่เพราะรันคนละ host อีกแล้ว — ตัวชี้คือ scope นั้นมี `HttpContext` หรือไม่.
 
 ### Flow D — Webhook (PSP callback, ไม่มี auth claim)
 
@@ -424,15 +432,14 @@ reveal secret ของ merchant X:
 
 | ชิ้นส่วน | ไฟล์ |
 |---|---|
-| connection strings (Api) | `src/Hosts/Api/appsettings.json:9-12` |
-| connection string (Worker) | `src/Hosts/Worker/appsettings.json:9-12` |
+| connection strings (Api — host เดียว, Worker merge เข้ามาแล้ว) | `src/Hosts/Api/appsettings.json:9-12` |
 | principal (1 ใบ) | `docker/bootstrap/01-principals.sql` |
 | conn build ตอน container start | `docker/entrypoint.sh`; `docker-compose.prod.yml` |
 | credential guard | `src/Hosts/Api/Program.cs` (`ProvisioningGuards.RequireInjectedCredential`) |
 | migration-owner (ไม่ runtime) | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/PolDbContext.cs` |
 | sealed write guard base class | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/GuardedRuntimeDbContext.cs` |
 | `IWriteAuthorizer` + `WriteOperation` | `src/BuildingBlocks/BuildingBlocks.Application/IWriteAuthorizer.cs` |
-| production `IWriteAuthorizer` impls | `src/Hosts/Api/Persistence/WriteAuthorizers.cs`, `src/Hosts/Worker/WriteAuthorizer.cs` |
+| production `IWriteAuthorizer` impls | `src/Hosts/Api/Persistence/WriteAuthorizers.cs`, `src/Hosts/Api/BackgroundDispatch/WorkerWriteAuthorizer.cs` |
 | 3 runtime `DbContext` + registration | `src/Persistence/Persistence.{ControlPlane,MerchantUser,MerchantRuntime}/*PersistenceRegistration.cs` |
 | cross-context provisioning UoW | `src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs` |
 | escape-hatch allowlist (enforced) | `tests/Architecture.Tests/BypassPrimitiveTests.cs` |
