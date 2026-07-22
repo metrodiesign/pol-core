@@ -12,9 +12,15 @@ set -eu
 : "${HOST_DLL:?set HOST_DLL}"
 
 DB_PW="$(cat "$DB_PASSWORD_FILE")"
-# ponytail: TrustServerCertificate=True suits a self-signed SQL cert; for real prod issue a trusted cert and
-# set it False (Encrypt stays True). Kept True so the scaffold works out of the box.
-CONN="Server=${DB_SERVER};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=True;TrustServerCertificate=True"
+: "${DB_PORT:=1433}"
+# Trust mode is not operator-configurable: a pinned CA cert (DB_CA_CERTIFICATE_FILE) gets
+# Encrypt=Strict validation against it; otherwise Encrypt=True;TrustServerCertificate=False
+# (OS trust store). No env var can produce TrustServerCertificate=True.
+if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
+    CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=Strict;Certificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
+else
+    CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=True;TrustServerCertificate=False"
+fi
 export ConnectionStrings__App="$CONN"
 unset DB_PW
 
