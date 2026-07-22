@@ -1,4 +1,4 @@
-extern alias WorkerHost;
+extern alias ApiHost;
 
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
@@ -21,8 +21,8 @@ namespace Hosts.Tests;
 /// insurance-pivot task 0/3: proves the CheckoutConfirmed -&gt; Order (+ OrderLine, task 3) write survives
 /// the REAL write floor — the actual <see cref="CheckoutConfirmedConsumer"/>, the actual EF repository/
 /// unit-of-work/outbox (Persistence.MerchantRuntime, reached here via the InternalsVisibleTo grant that
-/// project now gives Hosts.Tests), and the REAL <c>Worker.WorkerWriteAuthorizer</c> (via the WorkerHost::
-/// alias) — none of the fakes `Orders.Tests/CheckoutConfirmedConsumerTests.cs` uses. SQLite in-memory
+/// project now gives Hosts.Tests), and the REAL <c>Api.BackgroundDispatch.WorkerWriteAuthorizer</c> (via the
+/// ApiHost:: alias) — none of the fakes `Orders.Tests/CheckoutConfirmedConsumerTests.cs` uses. SQLite in-memory
 /// stands in for SQL Server, the same substitution `Architecture.Tests/WriteFloorTests.cs` already uses to
 /// prove the write-guard mechanics; the dispatcher's SQL-Server-only lease/poll loop (`OutboxDispatcher`) is
 /// orthogonal plumbing for FINDING a message, not part of what was broken, so this calls the consumer
@@ -60,7 +60,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
     // looks at it.
     private MerchantRuntimeDbContext NewContext() =>
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
-            FakeActor.For(MerchantA), new WorkerHost::Worker.WorkerWriteAuthorizer(), NoOpSecurityTelemetry.Instance);
+            FakeActor.For(MerchantA), new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer(), NoOpSecurityTelemetry.Instance);
 
     [Fact]
     public async Task CheckoutConfirmed_insert_and_subsequent_MarkPaid_update_both_survive_the_real_Worker_write_floor()

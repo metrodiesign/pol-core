@@ -1,8 +1,7 @@
 #!/bin/sh
-# Host entrypoint: build the DB connection string(s) from the mounted password secret + this host's principal,
-# then launch the app. Each host reads only the keys it needs (Api: App; Worker: Worker) — setting both
-# to the same principal connection is harmless. The password is read from a file secret and never enters the
-# image, the compose file, or `docker inspect`.
+# Host entrypoint: build the DB connection string from the mounted password secret + this host's principal,
+# then launch the app. The password is read from a file secret and never enters the image, the compose file,
+# or `docker inspect`.
 # The vault master key is NOT handled here: PR4's keyring reads it directly from Vault__Keys__<id>__KeyFile.
 set -eu
 
@@ -17,7 +16,6 @@ DB_PW="$(cat "$DB_PASSWORD_FILE")"
 # set it False (Encrypt stays True). Kept True so the scaffold works out of the box.
 CONN="Server=${DB_SERVER};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=True;TrustServerCertificate=True"
 export ConnectionStrings__App="$CONN"
-export ConnectionStrings__Worker="$CONN"
 unset DB_PW
 
 # The admin BFF login is a confidential Google OIDC client: export its client secret from the mounted file

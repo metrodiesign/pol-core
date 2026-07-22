@@ -1,7 +1,7 @@
-# Registry override for GitLab-CI-built images: swaps the three `build:` services in
+# Registry override for GitLab-CI-built images: swaps the two `build:` services in
 # docker-compose.prod.yml for images pulled from the GitLab Container Registry.
 #   REGISTRY_IMAGE=<registry>/<group>/<project> IMAGE_TAG=vX.Y.Z \
-#     docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml pull migrate api worker
+#     docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml pull migrate api
 #     docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml up -d --no-build
 # Local dev / manual `up --build` keeps using docker-compose.prod.yml alone, unchanged.
 services:
@@ -9,5 +9,3 @@ services:
     image: ${REGISTRY_IMAGE:?set REGISTRY_IMAGE}/migrate:${IMAGE_TAG:?set IMAGE_TAG}
   api:
     image: ${REGISTRY_IMAGE:?set REGISTRY_IMAGE}/api:${IMAGE_TAG:?set IMAGE_TAG}
-  worker:
-    image: ${REGISTRY_IMAGE:?set REGISTRY_IMAGE}/worker:${IMAGE_TAG:?set IMAGE_TAG}

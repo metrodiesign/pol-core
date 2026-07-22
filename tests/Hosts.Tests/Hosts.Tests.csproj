@@ -23,10 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hosts\Api\Api.csproj" Aliases="ApiHost" />
-    <ProjectReference Include="..\..\src\Hosts\Worker\Worker.csproj" Aliases="WorkerHost" />
     <!-- Unaliased: only public types are needed here (e.g. MerchantRegistrationOutboxSentinel,
-         IAdminRoleAssignmentCountReader/IMerchantRoleAssignmentCountReader), unlike the internal Api/Worker
-         types resolved through the ApiHost::/WorkerHost:: aliases above. -->
+         IAdminRoleAssignmentCountReader/IMerchantRoleAssignmentCountReader), unlike the internal Api
+         types resolved through the ApiHost:: alias above. -->
     <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
     <!-- Unaliased: MerchantRuntimeDbContext is internal, reached via the InternalsVisibleTo grant that project
