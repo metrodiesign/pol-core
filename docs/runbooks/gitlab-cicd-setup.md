@@ -166,7 +166,7 @@ sudo gitlab-runner register \
 รันแบบ interactive ก็ได้ (ไม่ใส่ flag แล้วตอบคำถามทีละอัน) — ค่าที่ตอบสำคัญคือ executor ต้อง
 เป็น `docker`
 
-**ขั้นที่ 5 — เปิด privileged (จำเป็นสำหรับ job `package` ที่ build image ด้วย DinD)**
+**ขั้นที่ 5 — เปิด privileged + mount TLS cert volume (จำเป็นสำหรับ job `package` ที่ build image ด้วย DinD)**
 
 ```bash
 sudo nano /etc/gitlab-runner/config.toml
@@ -177,7 +177,13 @@ sudo nano /etc/gitlab-runner/config.toml
 ```toml
 [runners.docker]
   privileged = true
+  volumes = ["/certs/client", "/cache"]
 ```
+
+`volumes` ต้องมี `/certs/client` ด้วย — job `package` ตั้ง `DOCKER_TLS_CERTDIR: "/certs"`
+ให้ dind daemon เปิด TLS แล้วเขียน client cert ไว้ที่ `/certs/client`; ถ้า runner mount แค่
+`/cache` (ค่า default ตอน register ใหม่) container ของ job จะมองไม่เห็น cert เชื่อม daemon
+ไม่ได้ job จะแดงด้วย error ต่อ Docker daemon/TLS ทั้งที่ privileged แล้ว
 
 เซฟแล้ว restart:
 
@@ -189,8 +195,9 @@ sudo gitlab-runner restart
 
 - **Settings → CI/CD → Runners** → runner ที่เพิ่ง register ต้องขึ้นจุด**เขียว online**
 - กลับไป pipeline ที่ค้าง → กด **Retry** job ที่แดง/pending → ต้องเห็น job เริ่มรันทันที
-- ถ้ายังติด `Cannot connect to the Docker daemon` ทั้งที่ privileged แล้ว มักเป็นเรื่อง docker
-  socket permission บนเครื่อง runner เอง ต้องดู log เพิ่มบนเครื่องนั้นตรง ๆ
+- ถ้ายังติด `Cannot connect to the Docker daemon` ทั้งที่ privileged แล้ว เช็คก่อนว่า
+  `volumes` ใน `[runners.docker]` มี `/certs/client` ครบตามขั้นที่ 5 (ลืมบ่อยสุด) — ถ้าครบแล้ว
+  ค่อยไล่เรื่อง docker socket permission บนเครื่อง runner เอง ดู log เพิ่มบนเครื่องนั้นตรง ๆ
 
 ---
 
@@ -236,8 +243,8 @@ sudo gitlab-runner restart
   ตั้งค่าเสร็จ (ทำใน Part F)
 - เช็ค image: **Deploy → Container Registry** → ต้องเห็น 3 repository ย่อย: `api`, `worker`,
   `migrate` แต่ละอันมี tag เป็น short SHA ของ commit
-- ถ้า `package` แดง `Cannot connect to the Docker daemon`: runner ไม่มี privileged —
-  หยุด แล้วประสานทีม infra ตาม **Part A6**
+- ถ้า `package` แดง `Cannot connect to the Docker daemon`: runner ไม่มี privileged หรือ
+  `volumes` ไม่มี `/certs/client` — หยุด แล้วประสานทีม infra ตาม **Part A6**
 - ถ้าไม่มี runner รับ job (pending ค้างไม่ขยับ): ติดต่อทีม infra ขอ runner ให้ project
   (ดู requirement ใน Part A6)
 
@@ -539,7 +546,7 @@ UAT ถูกลบไปแล้วตาม E3 ของรอบก่อน
 | `Permission denied (publickey)` | D3 — public key ไม่อยู่ใน `authorized_keys` หรือ permission ผิด (ต้อง 600) หรือ paste key ไม่ครบบรรทัด |
 | `docker login` บน host → `denied` | E1 — deploy token หมดอายุ/scope ผิด (ต้อง `read_registry`) หรือ copy ผิดค่า (สลับ username กับ token) |
 | บน server: `permission denied ... docker.sock` | D2 — user ไม่อยู่ group docker หรือยังไม่ได้ ssh เข้าใหม่หลัง `usermod` |
-| job `package`: `Cannot connect to the Docker daemon` | A6 — runner ไม่มี privileged เปิด privileged หรือสลับเป็น kaniko |
+| job `package`: `Cannot connect to the Docker daemon` | A6 — runner ไม่มี privileged (เปิด privileged หรือสลับเป็น kaniko) หรือ `volumes` ขาด `/certs/client` |
 | pipeline pending ค้าง ไม่มี job รัน | A6 — ไม่มี runner รับ project ติดต่อทีม infra |
 | job `deploy-uat`/`deploy-prod` ค้างที่ `pull`/`up -d` นานผิดปกติ | F2 — ต่อ SSH เข้า host ตรงดู `docker compose logs -f` แบบสด เช็ค disk เต็ม (D4) หรือ image ใหญ่ผิดปกติ |
 | `docker compose ps` เห็น `api`/`worker` state `unhealthy` ค้าง | เข้า host ดู `docker compose logs api` หา exception จริง ก่อนจะ rollback (F4) |
