@@ -188,6 +188,7 @@ package:
          docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml pull migrate api worker && \
          docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml up -d --no-build && \
          docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml ps && \
+         API_PORT=\$(grep -m1 '^API_PORT=' .env 2>/dev/null | cut -d= -f2) && \
          curl -fsS http://localhost:\${API_PORT:-5100}/health/ready"
 
 # UAT: any develop-branch pipeline can deploy its own commit's images (:short-sha).
