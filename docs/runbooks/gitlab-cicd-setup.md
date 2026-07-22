@@ -411,12 +411,26 @@ GitLab → **Build → Pipelines** → เปิด pipeline ล่าสุด�
 
 ## Part G — เปิด prod (ทำหลัง UAT นิ่งแล้ว)
 
-1. วน **Part C** ใหม่: gen key คู่ใหม่ชื่อ `gitlab_ci_prod` + `ssh-keyscan` ของ prod host
+**สำคัญ — คำสั่งใน Part C/D/E ทุกบล็อกเขียนไว้ด้วยชื่อไฟล์ของรอบ UAT ตรง ๆ**
+(`gitlab_ci_uat`, `gitlab_ci_uat.pub`, `gitlab_ci_uat_known_hosts`) — ตอนวนรอบ prod ต้อง
+**แทนที่ทุกจุด** ที่เห็นชื่อเหล่านี้ด้วยชุด prod (`gitlab_ci_prod`, `gitlab_ci_prod.pub`,
+`gitlab_ci_prod_known_hosts`) ก่อน copy-paste รัน — รวมถึงใน E2 ตอน `cat` เอาเนื้อไฟล์ไปใส่ตัวแปร
+(`cat ~/Desktop/gitlab_ci_uat` ต้องเปลี่ยนเป็น `cat ~/Desktop/gitlab_ci_prod`) และใน E3 ตอน `rm`
+เก็บกวาด. ถ้าลืมแทนที่แล้ว copy คำสั่งเดิมทั้งดุ้น จะได้ผลอย่างใดอย่างหนึ่ง: คำสั่งล้มเหลวเพราะไฟล์
+UAT ถูกลบไปแล้วตาม E3 ของรอบก่อน, หรือแย่กว่านั้นคือดัน paste **private key ของ UAT** เข้าตัวแปร
+`SSH_PRIVATE_KEY` scope `production` โดยไม่รู้ตัว (ถ้ายังไม่ได้ลบไฟล์ UAT ทิ้ง).
+
+1. วน **Part C** ใหม่ (แทน `gitlab_ci_uat` ด้วย `gitlab_ci_prod` ทุกคำสั่ง): gen key คู่ใหม่ชื่อ
+   `gitlab_ci_prod` + `ssh-keyscan` ของ prod host เก็บเป็น `gitlab_ci_prod_known_hosts`
    (ห้ามใช้ key ร่วมกับ UAT — คนละไฟล์ คนละชื่อ ป้องกันหลุดใบเดียวพังทั้งสอง environment)
-2. วน **Part D** บน prod host ทั้งหมด (D1 SSH เข้า user จริงของ prod, D2 group docker, D3
+2. วน **Part D** บน prod host ทั้งหมด (แทน `gitlab_ci_uat` ด้วย `gitlab_ci_prod` ทุกคำสั่งเช่นกัน —
+   D1 SSH เข้า user จริงของ prod, D2 group docker, D3
    authorized_keys ด้วย public key `gitlab_ci_prod.pub`, D4 เช็ค `.env` + `secrets/` ของ prod,
-   D5 ทดสอบ key จากเครื่องตัวเองก่อนไปต่อ)
-3. วน **Part E**: deploy token ใบใหม่ชื่อ `prod-registry-pull` (E1) + add variables **ชื่อเดิม
+   D5 ทดสอบ key ด้วย `ssh -i ~/Desktop/gitlab_ci_prod ...` จากเครื่องตัวเองก่อนไปต่อ)
+3. วน **Part E** (ตาราง E2 คอลัมน์ Value ที่เขียนไว้ว่า `cat ~/Desktop/gitlab_ci_uat` /
+   `cat ~/Desktop/gitlab_ci_uat_known_hosts` ต้องอ่านเป็น `gitlab_ci_prod` /
+   `gitlab_ci_prod_known_hosts` แทน): deploy token ใบใหม่ชื่อ `prod-registry-pull` (E1) +
+   add variables **ชื่อเดิม
    ทั้ง 7 ตัว** อีกรอบใน E2 โดย Environment scope พิมพ์ `production` แทน `uat`, ค่าทุกตัวเป็นของ
    prod host (private key ใหม่จากข้อ 1, known_hosts ใหม่, `DEPLOY_HOST`/`DEPLOY_USER`/
    `DEPLOY_PATH` ของ prod, deploy token username/token จากข้อนี้) — เช็คตาราง Variables รวมท้ายสุด
