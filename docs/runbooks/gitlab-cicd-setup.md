@@ -114,6 +114,91 @@ B4 ไม่งั้น pipeline จะค้าง pending หรือ job �
 - ถ้า policy องค์กรห้าม privileged runner: แจ้ง infra ให้เปลี่ยน job `package` เป็น build ด้วย
   kaniko แทน (ไม่ต้อง privileged) — เป็นการแก้ `.gitlab-ci.yml` เพิ่มเติม ไม่ครอบคลุมใน runbook นี้
 
+เช็คก่อนว่าจะเลือกทางไหน: **Settings → CI/CD → Runners** แบ่ง 2 ส่วน — **Instance runners**
+(shared runner ระดับองค์กร ถ้า admin ตั้งไว้ให้) กับ **Project runners** (runner เฉพาะ project นี้)
+
+#### เคส 1 — มี Instance runner โชว์อยู่ (สถานะ online)
+
+- เปิด toggle **"Enable instance runners for this project"** (ชื่ออาจต่างกันเล็กน้อยแล้วแต่
+  เวอร์ชัน) — Maintainer ทำเองได้เลย ไม่ต้องรอ infra
+- เช็คผล: retry job ที่ค้างอยู่ ต้องถูก pick up ภายในไม่กี่วินาที
+- ข้อจำกัด: ถ้า instance runner ไม่ได้ตั้ง privileged ไว้ (มักปิดไว้เพราะ security) job `package`
+  จะยังพังด้วย `Cannot connect to the Docker daemon` — เจอแบบนั้นข้ามไปเคส 2
+
+#### เคส 2 — ไม่มี Instance runner เลย ต้อง register project runner เอง
+
+**ขั้นที่ 1 — เตรียมเครื่อง**
+
+หาเครื่อง (VM/server) ในเครือข่ายองค์กรที่: ติดตั้ง Docker แล้ว, เข้าถึง `gitlab2.viriyah.co.th`
+ได้, egress ออกได้ตามรายการด้านบน (`mcr.microsoft.com`, `registry-1.docker.io`,
+`api.nuget.org`, registry ของ GitLab เอง, SSH ไป UAT/prod host). ใช้เครื่องเดียวกับ UAT/prod host
+ได้ถ้า resource พอ แต่แนะนำแยกเครื่อง — runner ทำงาน privileged (ขั้นที่ 5) ถ้าแชร์เครื่องกับ
+workload อื่นมีความเสี่ยง container escape
+
+**ขั้นที่ 2 — สร้าง runner บน GitLab ก่อน (เอา token)**
+
+- **Settings → CI/CD → Runners** → กด **New project runner**
+- Operating system: Linux (หรือตาม OS เครื่องจริง)
+- Tags: ใส่หรือเว้นว่างก็ได้ (ถ้า `.gitlab-ci.yml` ไม่ได้ระบุ tags บังคับ ให้ติ๊ก
+  **"Run untagged jobs"** ด้วย ไม่งั้น job จะไม่ถูก assign)
+- กด **Create runner** → หน้าจะโชว์คำสั่ง `gitlab-runner register` พร้อม authentication token
+  (ขึ้นต้น `glrt-`) — copy ไว้
+
+**ขั้นที่ 3 — ติดตั้ง gitlab-runner บนเครื่อง (SSH เข้าไปก่อน)**
+
+```bash
+curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" | sudo bash
+sudo apt-get install gitlab-runner
+```
+
+(เครื่องเป็น RHEL/CentOS ใช้ `.rpm.sh` แทน `.deb.sh` — เช็ค distro ด้วย `cat /etc/os-release`)
+
+**ขั้นที่ 4 — register runner ด้วย token จากขั้นที่ 2**
+
+```bash
+sudo gitlab-runner register \
+  --url "https://gitlab2.viriyah.co.th" \
+  --token "glrt-เนื้อtokenจากขั้นที่2" \
+  --executor "docker" \
+  --docker-image "mcr.microsoft.com/dotnet/sdk:10.0"
+```
+
+รันแบบ interactive ก็ได้ (ไม่ใส่ flag แล้วตอบคำถามทีละอัน) — ค่าที่ตอบสำคัญคือ executor ต้อง
+เป็น `docker`
+
+**ขั้นที่ 5 — เปิด privileged + mount TLS cert volume (จำเป็นสำหรับ job `package` ที่ build image ด้วย DinD)**
+
+```bash
+sudo nano /etc/gitlab-runner/config.toml
+```
+
+หา section `[runners.docker]` ของ runner ที่เพิ่ง register แล้วเพิ่ม/แก้บรรทัด:
+
+```toml
+[runners.docker]
+  privileged = true
+  volumes = ["/certs/client", "/cache"]
+```
+
+`volumes` ต้องมี `/certs/client` ด้วย — job `package` ตั้ง `DOCKER_TLS_CERTDIR: "/certs"`
+ให้ dind daemon เปิด TLS แล้วเขียน client cert ไว้ที่ `/certs/client`; ถ้า runner mount แค่
+`/cache` (ค่า default ตอน register ใหม่) container ของ job จะมองไม่เห็น cert เชื่อม daemon
+ไม่ได้ job จะแดงด้วย error ต่อ Docker daemon/TLS ทั้งที่ privileged แล้ว
+
+เซฟแล้ว restart:
+
+```bash
+sudo gitlab-runner restart
+```
+
+**ขั้นที่ 6 — เช็คผล**
+
+- **Settings → CI/CD → Runners** → runner ที่เพิ่ง register ต้องขึ้นจุด**เขียว online**
+- กลับไป pipeline ที่ค้าง → กด **Retry** job ที่แดง/pending → ต้องเห็น job เริ่มรันทันที
+- ถ้ายังติด `Cannot connect to the Docker daemon` ทั้งที่ privileged แล้ว เช็คก่อนว่า
+  `volumes` ใน `[runners.docker]` มี `/certs/client` ครบตามขั้นที่ 5 (ลืมบ่อยสุด) — ถ้าครบแล้ว
+  ค่อยไล่เรื่อง docker socket permission บนเครื่อง runner เอง ดู log เพิ่มบนเครื่องนั้นตรง ๆ
+
 ---
 
 ## Part B — GitHub: ใส่ secret + merge + ทดสอบ mirror
@@ -158,8 +243,8 @@ B4 ไม่งั้น pipeline จะค้าง pending หรือ job �
   ตั้งค่าเสร็จ (ทำใน Part F)
 - เช็ค image: **Deploy → Container Registry** → ต้องเห็น 3 repository ย่อย: `api`, `worker`,
   `migrate` แต่ละอันมี tag เป็น short SHA ของ commit
-- ถ้า `package` แดง `Cannot connect to the Docker daemon`: runner ไม่มี privileged —
-  หยุด แล้วประสานทีม infra ตาม **Part A6**
+- ถ้า `package` แดง `Cannot connect to the Docker daemon`: runner ไม่มี privileged หรือ
+  `volumes` ไม่มี `/certs/client` — หยุด แล้วประสานทีม infra ตาม **Part A6**
 - ถ้าไม่มี runner รับ job (pending ค้างไม่ขยับ): ติดต่อทีม infra ขอ runner ให้ project
   (ดู requirement ใน Part A6)
 
@@ -461,7 +546,7 @@ UAT ถูกลบไปแล้วตาม E3 ของรอบก่อน
 | `Permission denied (publickey)` | D3 — public key ไม่อยู่ใน `authorized_keys` หรือ permission ผิด (ต้อง 600) หรือ paste key ไม่ครบบรรทัด |
 | `docker login` บน host → `denied` | E1 — deploy token หมดอายุ/scope ผิด (ต้อง `read_registry`) หรือ copy ผิดค่า (สลับ username กับ token) |
 | บน server: `permission denied ... docker.sock` | D2 — user ไม่อยู่ group docker หรือยังไม่ได้ ssh เข้าใหม่หลัง `usermod` |
-| job `package`: `Cannot connect to the Docker daemon` | A6 — runner ไม่มี privileged เปิด privileged หรือสลับเป็น kaniko |
+| job `package`: `Cannot connect to the Docker daemon` | A6 — runner ไม่มี privileged (เปิด privileged หรือสลับเป็น kaniko) หรือ `volumes` ขาด `/certs/client` |
 | pipeline pending ค้าง ไม่มี job รัน | A6 — ไม่มี runner รับ project ติดต่อทีม infra |
 | job `deploy-uat`/`deploy-prod` ค้างที่ `pull`/`up -d` นานผิดปกติ | F2 — ต่อ SSH เข้า host ตรงดู `docker compose logs -f` แบบสด เช็ค disk เต็ม (D4) หรือ image ใหญ่ผิดปกติ |
 | `docker compose ps` เห็น `api`/`worker` state `unhealthy` ค้าง | เข้า host ดู `docker compose logs api` หา exception จริง ก่อนจะ rollback (F4) |
