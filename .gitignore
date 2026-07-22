@@ -39,3 +39,7 @@ tsconfig.tsbuildinfo
 # (see docs/runbooks/vault-key-rotation.md). The keyring reads these via Vault:Keys:<id>:KeyFile.
 *.key
 secrets/
+
+# DB tier CA cert — dropped here by the operator before building the `migrate` image
+# (see Dockerfile's migrate stage), never committed.
+docker/db-ca-cert/*.crt

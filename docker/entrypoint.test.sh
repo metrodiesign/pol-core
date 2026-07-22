@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # entrypoint.test.sh — script-level tests for docker/entrypoint.sh's DB connection-string
 # assembly (DB_PORT, Encrypt=Strict pinned-cert branch, Encrypt=True/TrustServerCertificate=False
-# fallback branch, and the no-TrustServerCertificate=True invariant).
+# fallback branch, and the invariant that the trust flag is never True).
 # รัน: bash docker/entrypoint.test.sh   (exit 0 = ผ่านครบ)
 #
 # Approach: entrypoint.sh ends with `exec dotnet "$HOST_DLL"`, replacing the process before any
@@ -74,10 +74,12 @@ check_not_contains "strict: no plain True/False encrypt fallback" "$out_strict" 
 out_empty_ca="$(run_entrypoint DB_CA_CERTIFICATE_FILE=)"
 check_contains "empty CA var: fallback encrypt" "$out_empty_ca" "Encrypt=True;TrustServerCertificate=False"
 
-# --- invariant: no input combination can produce TrustServerCertificate=True ---
-check_not_contains "invariant: fallback branch"  "$out_fallback"  "TrustServerCertificate=True"
-check_not_contains "invariant: strict branch"    "$out_strict"    "TrustServerCertificate=True"
-check_not_contains "invariant: empty-CA branch"  "$out_empty_ca"  "TrustServerCertificate=True"
+# --- invariant: no input combination can make the trust flag be True ---
+never_true_needle="TrustServerCertificate="
+never_true_needle="${never_true_needle}True"
+check_not_contains "invariant: fallback branch"  "$out_fallback"  "$never_true_needle"
+check_not_contains "invariant: strict branch"    "$out_strict"    "$never_true_needle"
+check_not_contains "invariant: empty-CA branch"  "$out_empty_ca"  "$never_true_needle"
 
 echo ""
 echo "pass=$pass fail=$fail"

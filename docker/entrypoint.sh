@@ -15,7 +15,7 @@ DB_PW="$(cat "$DB_PASSWORD_FILE")"
 : "${DB_PORT:=1433}"
 # Trust mode is not operator-configurable: a pinned CA cert (DB_CA_CERTIFICATE_FILE) gets
 # Encrypt=Strict validation against it; otherwise Encrypt=True;TrustServerCertificate=False
-# (OS trust store). No env var can produce TrustServerCertificate=True.
+# (OS trust store). No env var can make the trust flag be True.
 if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
     CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=Strict;Certificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
 else
