@@ -151,6 +151,7 @@ package:
       # compose files fails CI instead of being found by hand. Placeholders only —
       # nothing is run.
       export MSSQL_SA_PASSWORD=ci-placeholder \
+        DB_SERVER=ci-db.example.internal \
         MERCHANT_USER_OIDC_CLIENT_ID=ci-placeholder \
         ADMIN_OIDC_CLIENT_ID=ci-placeholder \
         MERCHANT_USER_FRONTEND_ORIGIN=https://ci.example.com \

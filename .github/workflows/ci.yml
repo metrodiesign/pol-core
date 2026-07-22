@@ -115,6 +115,7 @@ jobs:
       - name: Validate docker-compose.prod.yml renders
         env:
           MSSQL_SA_PASSWORD: ci-placeholder
+          DB_SERVER: ci-db.example.internal
           MERCHANT_USER_OIDC_CLIENT_ID: ci-placeholder
           ADMIN_OIDC_CLIENT_ID: ci-placeholder
           MERCHANT_USER_FRONTEND_ORIGIN: https://ci.example.com

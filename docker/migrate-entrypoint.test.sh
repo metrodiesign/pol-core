@@ -52,8 +52,20 @@ echo "$POL_DESIGN_SQL"
 EOF
 chmod +x "$STUB_BIN/dotnet"
 
+# Stub the OS trust-store refresh so the runtime CA-install block is observable without root.
+cat >"$STUB_BIN/update-ca-certificates" <<'EOF'
+#!/bin/sh
+echo "called" >>"$UPDATE_CA_LOG"
+EOF
+chmod +x "$STUB_BIN/update-ca-certificates"
+
 PW_FILE="$TMPDIR/app_password"
 echo "s3cret" >"$PW_FILE"
+
+CA_FILE="$TMPDIR/db_ca.pem"
+echo "FAKE-PEM-CA" >"$CA_FILE"
+CA_TRUST_DIR="$TMPDIR/ca-trust"
+mkdir -p "$CA_TRUST_DIR"
 
 pass=0
 fail=0
@@ -67,6 +79,8 @@ run_migrate() { # extra env assignments as $@
         POL_APP_PASSWORD_FILE="$PW_FILE" \
         SQLCMD_LOG="$TMPDIR/sqlcmd.log" \
         SQLCMD_PROBE_COUNT_FILE="$TMPDIR/probe_count" \
+        CA_TRUST_DIR="$CA_TRUST_DIR" \
+        UPDATE_CA_LOG="$TMPDIR/update_ca.log" \
         "$@" \
         sh "$SCRIPT"
 }
@@ -140,12 +154,21 @@ check_contains "POL_DESIGN_SQL fallback: default port"     "$out_fallback" "Serv
 check_contains "POL_DESIGN_SQL fallback: encrypt+no-trust" "$out_fallback" "Encrypt=True;TrustServerCertificate=False"
 check_not_contains "POL_DESIGN_SQL fallback: no Strict"    "$out_fallback" "Encrypt=Strict"
 
-rm -f "$TMPDIR/probe_count" "$TMPDIR/sqlcmd.log"
-out_strict="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 DB_CA_CERTIFICATE_FILE=/run/secrets/db_ca_cert DB_PORT=14330 2>&1)"
+rm -f "$TMPDIR/probe_count" "$TMPDIR/sqlcmd.log" "$TMPDIR/update_ca.log" "$CA_TRUST_DIR/db-tier-ca.crt"
+out_strict="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 DB_CA_CERTIFICATE_FILE="$CA_FILE" DB_PORT=14330 2>&1)"
 check_contains "POL_DESIGN_SQL strict: custom port"           "$out_strict" "Server=dbhost.internal,14330"
 check_contains "POL_DESIGN_SQL strict: Encrypt=Strict"        "$out_strict" "Encrypt=Strict"
-check_contains "POL_DESIGN_SQL strict: Certificate="          "$out_strict" "Certificate=/run/secrets/db_ca_cert"
+check_contains "POL_DESIGN_SQL strict: ServerCertificate="    "$out_strict" "ServerCertificate=$CA_FILE"
+check_not_contains "POL_DESIGN_SQL strict: no bare Certificate= keyword" "$out_strict" ";Certificate="
 check_contains "POL_DESIGN_SQL strict: HostNameInCertificate" "$out_strict" "HostNameInCertificate=dbhost.internal"
+
+# --- runtime CA install: strict installs the mounted CA into the trust dir, fallback doesn't ---
+check_eq "CA install: cert copied into trust dir" "$(cat "$CA_TRUST_DIR/db-tier-ca.crt" 2>/dev/null)" "FAKE-PEM-CA"
+check_contains "CA install: update-ca-certificates ran" "$(cat "$TMPDIR/update_ca.log" 2>/dev/null)" "called"
+rm -f "$TMPDIR/probe_count" "$TMPDIR/sqlcmd.log" "$TMPDIR/update_ca.log" "$CA_TRUST_DIR/db-tier-ca.crt"
+out_noca="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1)"
+check_eq "CA install: skipped when DB_CA_CERTIFICATE_FILE unset" "$([ -f "$TMPDIR/update_ca.log" ] && echo ran || echo skipped)" "skipped"
+check_eq "CA install: no cert dropped when unset" "$([ -f "$CA_TRUST_DIR/db-tier-ca.crt" ] && echo present || echo absent)" "absent"
 
 never_true_needle="TrustServerCertificate="
 never_true_needle="${never_true_needle}True"

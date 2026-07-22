@@ -46,13 +46,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/opt/mssql-tools18/bin:/root/.dotnet/tools:${PATH}"
 RUN dotnet tool install --global dotnet-ef --version 10.0.8
-# `sqlcmd` has no `Certificate=` pin (unlike Microsoft.Data.SqlClient) — a self-signed/private
-# DB CA, if present at build time in docker/db-ca-cert/*.crt (gitignored; operator drops the
-# cert there before building this image), gets installed into the OS trust store so
-# `sqlcmd -N` (no `-C` blind-trust flag) validates correctly. No-op when the directory is empty
-# (e.g. the DB tier already uses a publicly-trusted CA).
-RUN cp /src/docker/db-ca-cert/*.crt /usr/local/share/ca-certificates/ 2>/dev/null || true \
-    && update-ca-certificates
+# DB CA trust for `sqlcmd -N` is installed at RUNTIME by migrate-entrypoint.sh from the mounted
+# db_ca_cert secret — a build-time install can't work because images are built in CI where the
+# operator's CA doesn't exist, and deploy pulls with `--no-build`.
 COPY docker/migrate-entrypoint.sh /usr/local/bin/migrate-entrypoint.sh
 RUN chmod +x /usr/local/bin/migrate-entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/migrate-entrypoint.sh"]

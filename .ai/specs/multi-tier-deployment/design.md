@@ -140,7 +140,7 @@ New shape:
 ```bash
 : "${DB_PORT:=1433}"
 if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
-  CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=Strict;Certificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
+  CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
 else
   CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=True;TrustServerCertificate=False"
 fi
@@ -163,11 +163,14 @@ done
 ```
 `SQLCMDINI`/trust-store detail for `sqlcmd`'s own TLS validation (as opposed
 to the .NET connection string above) is a task-level detail — `sqlcmd`
-doesn't take a `Certificate=` pin the way `Microsoft.Data.SqlClient` does, so
-the CA cert needs installing into the `migrate` image's OS trust store at
-build time (`update-ca-certificates`, root-context `RUN` step in the
-`migrate` Dockerfile stage) so `sqlcmd -N` (encrypt, no `-C` blind-trust flag)
-validates correctly.
+doesn't take a `ServerCertificate=` pin the way `Microsoft.Data.SqlClient`
+does, so the CA cert (PEM) gets installed into the `migrate` container's OS
+trust store at RUNTIME by `migrate-entrypoint.sh` (the migrate stage runs as
+root) from the mounted `db_ca_cert` secret, so `sqlcmd -N` (encrypt, no `-C`
+blind-trust flag) validates correctly. (Amended from the original build-time
+`RUN update-ca-certificates` design during the PR #129 Codex round: images
+are built in CI where the operator's CA secret does not exist, and deploys
+pull with `--no-build`, so a build-time install can never see the cert.)
 
 ### `docker-compose.prod.yml` — service shape after this change
 
@@ -266,7 +269,7 @@ invocations in CI/compose).
   containers run as non-root (`appuser`, set in the shared `Dockerfile`);
   installing a CA cert into the OS trust store requires a root build step
   and a rebuild on every cert rotation. `Microsoft.Data.SqlClient`'s
-  `Encrypt=Strict` (TDS 8.0) + `Certificate=` connection-string parameter
+  `Encrypt=Strict` (TDS 8.0) + `ServerCertificate=` connection-string parameter
   validates against an explicitly pinned cert file mounted as a secret —
   rotates by swapping the mounted file + container restart, no image
   rebuild. **Verify in tasks phase**: confirm the `Microsoft.Data.SqlClient`
@@ -357,7 +360,7 @@ below.)
   configured attempt count actually attempted.
 - **"connection string assembly" (Data Models & Interfaces >
   entrypoint.sh) — REQ-2.2, REQ-2.3, REQ-2.4**: a script-level test asserting a
-  non-empty `DB_CA_CERTIFICATE_FILE` produces the `Encrypt=Strict;Certificate=...`
+  non-empty `DB_CA_CERTIFICATE_FILE` produces the `Encrypt=Strict;ServerCertificate=...`
   form, and the unset/empty path produces
   `Encrypt=True;TrustServerCertificate=False` — and that no input can
   produce `TrustServerCertificate=True`.

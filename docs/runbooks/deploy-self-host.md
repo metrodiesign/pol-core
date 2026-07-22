@@ -104,7 +104,10 @@ printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/admin_oidc_client
 # DB tier CA cert (pin optional) — compose mount ไฟล์นี้เสมอไม่ว่าจะ pin หรือไม่ (ต้องมีไฟล์อยู่จริง). ถ้า
 # DB tier ใช้ certificate ที่ chain ไป public CA อยู่แล้ว: ปล่อย DB_CA_CERTIFICATE_FILE ว่างใน .env แล้ว
 # เก็บไฟล์นี้เป็น placeholder เปล่า (ไม่ได้ถูกอ่านเลยเมื่อ env ว่าง). ถ้าจะ pin เอง: เอา CA/server cert ตัวจริง
-# ของ DB tier มาวาง แล้วตั้ง DB_CA_CERTIFICATE_FILE=/run/secrets/db_ca_cert ใน .env.
+# ของ DB tier มาวาง (ต้องเป็น PEM — migrate ติดตั้งเข้า OS trust store ตอน start ด้วย
+# update-ca-certificates ซึ่งรับ PEM เท่านั้น) แล้วตั้ง DB_CA_CERTIFICATE_FILE=/run/secrets/db_ca_cert ใน .env.
+# api ใช้ไฟล์เดียวกันผ่าน connection string (ServerCertificate=...) ส่วน migrate ติดตั้งเข้า trust store
+# ตอน runtime — ไม่มีขั้นตอน build-time ใด ๆ (image ถูก build บน CI ที่ไม่มี cert นี้อยู่แล้ว).
 touch secrets/db_ca_cert   # หรือ: cp /path/to/db-tier-ca.pem secrets/db_ca_cert (ถ้าจะ pin)
 
 chmod 600 secrets/*
@@ -194,7 +197,7 @@ trust-any-certificate เดิม):
 docker compose -f docker-compose.prod.yml run --rm --entrypoint sh migrate -c '
   : "${DB_PORT:=1433}";
   if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
-    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=Strict;Certificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}";
+    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}";
   else
     export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=False";
   fi;

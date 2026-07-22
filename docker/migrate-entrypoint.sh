@@ -16,6 +16,16 @@ set -eu
 
 APP_PW="$(cat "$POL_APP_PASSWORD_FILE")"
 
+# sqlcmd has no ServerCertificate= pin (unlike Microsoft.Data.SqlClient) — install the mounted
+# CA (PEM) into the OS trust store at RUNTIME so `sqlcmd -N` validates against it. Build-time
+# install can't work: images are built in CI where the operator's CA secret doesn't exist, and
+# deploy pulls with `--no-build`. This container runs as root. No-op when unset (publicly-trusted CA).
+CA_TRUST_DIR="${CA_TRUST_DIR:-/usr/local/share/ca-certificates}"
+if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
+    cp "$DB_CA_CERTIFICATE_FILE" "${CA_TRUST_DIR}/db-tier-ca.crt"
+    update-ca-certificates >/dev/null
+fi
+
 echo "[migrate] waiting for DB tier at ${DB_SERVER}:${DB_PORT} (up to ${DB_CONNECT_RETRIES} attempts, ${DB_CONNECT_RETRY_DELAY_SECONDS}s apart)..."
 i=1
 while true; do
@@ -49,7 +59,7 @@ echo "[migrate] applying EF migrations (schema + pol_app grant matrix)..."
 # Encrypt=True;TrustServerCertificate=False (OS trust store) — no input can make
 # TrustServerCertificate be True.
 if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
-    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=Strict;Certificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
+    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
 else
     export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=False"
 fi
