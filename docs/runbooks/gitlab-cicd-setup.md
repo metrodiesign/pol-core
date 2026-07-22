@@ -1,7 +1,7 @@
 # Runbook: ตั้งค่า GitLab CI/CD channel (จับมือทำทีละขั้น)
 
 คู่มือตั้งค่าครบทุกฝั่งสำหรับระบบ deploy ผ่าน GitLab องค์กร
-(`gitlab2.viriyah.co.th/central-software/central-payment-gateway`) ตามที่วางไว้ใน PR #125.
+(`gitlab2.viriyah.co.th/central-software/vcentralpayapi`) ตามที่วางไว้ใน PR #125.
 เรียงตามลำดับที่ต้องทำจริง — ทำ Part A ไป F ทีละขั้น เช็คผลทุกขั้นก่อนไปต่อ.
 
 ภาพรวม: โค้ดหลัก + PR + merge gate อยู่ GitHub (`metrodiesign/pol-core`) เหมือนเดิม.
@@ -44,7 +44,7 @@ GitHub (code of record)          GitLab (CI/CD channel)
 
 ### A1. เช็คสิทธิ์
 
-- เปิด `https://gitlab2.viriyah.co.th/central-software/central-payment-gateway`
+- เปิด `https://gitlab2.viriyah.co.th/central-software/vcentralpayapi`
 - เมนูซ้าย **Manage → Members** (หรือ **Project information → Members** แล้วแต่เวอร์ชัน UI) →
   พิมพ์ username ตัวเองในช่องค้นหาบนตาราง → ดูคอลัมน์ **Max role**
 - ต้องเป็น **Maintainer** หรือ **Owner** เท่านั้น — `Developer`/`Reporter` ทำ Part A2-A5 ไม่ได้
