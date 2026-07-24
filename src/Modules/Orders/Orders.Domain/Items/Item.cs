@@ -1,15 +1,15 @@
 using SharedKernel;
 
-namespace Orders.Domain.Lines;
+namespace Orders.Domain.Items;
 
 /// <summary>
-/// A line in an <see cref="Order"/> — one purchased insurance plan, quantity constrained to 1 for this
+/// An item in an <see cref="Order"/> — one purchased insurance plan, quantity constrained to 1 for this
 /// spec (insurance-pivot REQ-6/7). Owned by its order — never loaded or mutated on its own. Carries a
 /// purchase-time snapshot of the plan's insurance terms (<see cref="SumInsured"/>/
 /// <see cref="CoverageDurationDays"/>/<see cref="Insurer"/>, copied from <c>Product</c> at checkout-start,
-/// never re-read live) plus the insured person's data (REQ-7.1) — 1 person per line.
+/// never re-read live) plus the insured person's data (REQ-7.1) — 1 person per item.
 /// </summary>
-public sealed class Line : Entity<Guid>
+public sealed class Item : Entity<Guid>
 {
     public Guid OrderId { get; private set; }
 
@@ -19,7 +19,7 @@ public sealed class Line : Entity<Guid>
 
     public Guid ProductId { get; private set; }
 
-    /// <summary>Always 1 for this spec — one insured person per line (insurance-pivot locked decision).</summary>
+    /// <summary>Always 1 for this spec — one insured person per item (insurance-pivot locked decision).</summary>
     public int Quantity { get; private set; }
 
     /// <summary>Premium per unit, from <c>Cart.Item</c> at checkout-start (server, never client).</summary>
@@ -40,9 +40,9 @@ public sealed class Line : Entity<Guid>
     public DateTime InsuredDateOfBirth { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
-    private Line() { }
+    private Item() { }
 
-    internal Line(
+    internal Item(
         Guid id, Guid orderId, Guid merchantId, Guid productId, int quantity, Money unitPrice,
         Money sumInsured, int coverageDurationDays, string insurer,
         string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,

@@ -7,8 +7,8 @@ using SharedKernel;
 namespace Persistence.MerchantRuntime.Orders;
 
 /// <summary>
-/// Reads an order summary by its link token from <c>shop.Orders</c> directly — rls-to-query-filter
-/// task 8 dropped <c>sec.usp_resolve_order_summary</c> along with the rest of the RLS apparatus (mirrors
+/// Reads an order summary by its link token from <c>shop.Orders</c> / <c>shop.OrderItems</c> directly —
+/// rls-to-query-filter task 8 dropped <c>sec.usp_resolve_order_summary</c> along with the rest of the RLS apparatus (mirrors
 /// <c>WebhookMerchantResolver</c>). Runs in a FRESH DI scope so the anonymous request's own DbContext
 /// connection is not opened pre-bind and reused.
 /// </summary>
@@ -38,7 +38,7 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
 
         var lineRows = await db.Database
             .SqlQueryRaw<OrderSummaryLineRow>(
-                "SELECT ProductId, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderLines WHERE OrderId = {0}",
+                "SELECT ProductId, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = {0}",
                 r.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);

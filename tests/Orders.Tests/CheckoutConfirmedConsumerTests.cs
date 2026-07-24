@@ -15,8 +15,8 @@ public sealed class CheckoutConfirmedConsumerTests
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static IReadOnlyList<CheckoutConfirmedLine> OneLine() =>
-        [new CheckoutConfirmedLine(
+    private static IReadOnlyList<CheckoutConfirmedItem> OneLine() =>
+        [new CheckoutConfirmedItem(
             Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
@@ -35,7 +35,7 @@ public sealed class CheckoutConfirmedConsumerTests
         var order = Assert.Single(orders.All);
         Assert.Equal(sessionId, order.CheckoutSessionId);
         Assert.Equal(Money.Of(15000m, "THB"), order.Amount);
-        Assert.Single(order.Lines);
+        Assert.Single(order.Items);
         var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
         Assert.Equal(order.Id, note.OrderId);
     }

@@ -62,9 +62,11 @@ EXEC sp_set_session_context @key = N'MerchantId', @value = '00000000-0000-0000-0
 -- INSERT then collides on primary key. `sa` does NOT bypass this (only pol_rls_bypass
 -- role membership does — see 01-principals.sql) — that's the whole point of REQ-2.3.
 -- ============================================================================
-DELETE FROM txn.PaymentSessions   WHERE Id LIKE 'ee000000-%';
-DELETE FROM shop.Orders           WHERE Id LIKE 'ed000000-%';
-DELETE FROM shop.CheckoutSessions WHERE Id LIKE 'ec000000-%';
+DELETE FROM txn.PaymentSessions    WHERE Id LIKE 'ee000000-%';
+DELETE FROM shop.OrderItemPolicies WHERE Id LIKE 'f1000000-%';
+DELETE FROM shop.OrderItems        WHERE Id LIKE 'ef000000-%';
+DELETE FROM shop.Orders            WHERE Id LIKE 'ed000000-%';
+DELETE FROM shop.CheckoutSessions  WHERE Id LIKE 'ec000000-%';
 DELETE FROM shop.CartItems        WHERE Id LIKE 'eb000000-%';
 DELETE FROM shop.Carts            WHERE Id LIKE 'ea000000-%';
 DELETE FROM shop.Products         WHERE Id LIKE 'e9000000-%';
@@ -412,6 +414,33 @@ WHERE o.Id LIKE 'ed000000-%' AND o.Status = 1;
 -- Not seeded (REQ-6.6): txn.OutboxMessages, txn.IdempotencyRecords, and every audit/session table
 -- — those are runtime side effects, not starting data.
 
+-- shop.OrderItems + shop.OrderItemPolicies (policy-reference-record REQ-5.1/5.2): 4 items on 3
+-- EXISTING demo orders above (n=16 vprivilege/Paid, n=8 vcommerce/Paid, n=5 vcommerce/AwaitingPayment)
+-- — no new shop.Orders rows needed. Items ef…0001/0002 share one order + the same insured person AND
+-- ทะเบียนรถ to cover the "Voluntary + Compulsory, same vehicle" edge case (requirements.md Edge Cases,
+-- row 1 vs row 6). Item ef…0004 deliberately gets NO OrderItemPolicies row below — REQ-1.7/4.7's
+-- blank-external-column report case (a policy-less item, not a policy row full of nulls).
+INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, ProductId, Quantity, CoverageDurationDays, InsurerName, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, SumInsuredAmount, SumInsuredCurrency, UnitPriceAmount, UnitPriceCurrency)
+VALUES
+    -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid)
+    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, 365, N'วิริยะประกันภัย', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 1000000.0000, 'THB', 15900.0000, 'THB'),
+    -- Motor, ภาคบังคับ/พ.ร.บ. (Compulsory) — SAME order + SAME insured person + vehicle as above
+    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, 365, N'วิริยะประกันภัย', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 200000.0000, 'THB', 645.2100, 'THB'),
+    -- Non-motor (health) — order ed…0008 (vcommerce, Paid); no InsuredObjectReference on its policy
+    -- below (REQ-1.8 — field is generic to every insurance type, not just Motor)
+    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, 365, N'ทิพยประกันภัย', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 500000.0000, 'THB', 9800.0000, 'THB'),
+    -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment)
+    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, 365, N'กรุงเทพประกันภัย', N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 100000.0000, 'THB', 650.0000, 'THB');
+
+INSERT INTO shop.OrderItemPolicies (Id, OrderItemId, MerchantId, InsuranceCategory, ReferenceNumberType, ReferenceNumber, EndorsementNumber, RenewalReminderNumber, InsuredObjectReference, NetPremiumAmount, NetPremiumCurrency, GrossPremiumAmount, GrossPremiumCurrency, PremiumRemittanceStatus, DeductedAt, CreatedAt, UpdatedAt)
+VALUES
+    -- Voluntary + PolicyNumber + Endorsement, premium ตัดชำระแล้ว (Deducted, past DeductedAt)
+    ('f1000000-0000-4000-8000-000000000001', 'ef000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 0, 0, N'POL-2026-VP-000123', N'END-2026-0007', NULL, N'กข-1234 กรุงเทพมหานคร', 15000.0000, 'THB', 15900.0000, 'THB', 1, '2026-07-15', SYSUTCDATETIME(), SYSUTCDATETIME()),
+    -- Compulsory + NotificationNumber, premium ยังไม่ตัดชำระ (NotApplicable, no DeductedAt)
+    ('f1000000-0000-4000-8000-000000000002', 'ef000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 1, 1, N'NTF-2026-VP-000456', NULL, NULL, N'กข-1234 กรุงเทพมหานคร', 600.0000, 'THB', 645.2100, 'THB', 0, NULL, SYSUTCDATETIME(), SYSUTCDATETIME()),
+    -- Voluntary + PolicyNumber + RenewalReminder, Net == Gross (valid — REQ-3.7 allows equal), Deducted
+    ('f1000000-0000-4000-8000-000000000003', 'ef000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', 0, 0, N'POL-2026-VC-000789', NULL, N'REM-2026-VC-045', NULL, 18500.0000, 'THB', 18500.0000, 'THB', 1, '2026-06-30', SYSUTCDATETIME(), SYSUTCDATETIME());
+
 -- ============================================================================
 -- (จ) Self-check: every table already seeded must have its expected demo row
 -- count, or the whole seed is incomplete. T1 asserts only admin.Users; T2-T4
@@ -433,7 +462,9 @@ INSERT INTO @counts (TableName, Rows) VALUES
     (N'shop.CartItems', (SELECT COUNT(*) FROM shop.CartItems WHERE Id LIKE 'eb000000-%')),
     (N'shop.CheckoutSessions', (SELECT COUNT(*) FROM shop.CheckoutSessions WHERE Id LIKE 'ec000000-%')),
     (N'shop.Orders', (SELECT COUNT(*) FROM shop.Orders WHERE Id LIKE 'ed000000-%')),
-    (N'txn.PaymentSessions', (SELECT COUNT(*) FROM txn.PaymentSessions WHERE Id LIKE 'ee000000-%'));
+    (N'txn.PaymentSessions', (SELECT COUNT(*) FROM txn.PaymentSessions WHERE Id LIKE 'ee000000-%')),
+    (N'shop.OrderItems', (SELECT COUNT(*) FROM shop.OrderItems WHERE Id LIKE 'ef000000-%')),
+    (N'shop.OrderItemPolicies', (SELECT COUNT(*) FROM shop.OrderItemPolicies WHERE Id LIKE 'f1000000-%'));
 
 DECLARE @report nvarchar(max) = (
     SELECT STRING_AGG(TableName + N' = ' + CAST(Rows AS nvarchar(10)), CHAR(13) + CHAR(10))

@@ -46,7 +46,14 @@ TOKENS = re.compile(
     # masterdata-split: the retired MasterData module's public surface. Word-bounded, so the survivors
     # MapMasterCrud/MasterResponse/MasterWriteRequest/MasterUpdateRequest/MasterRefResponse/MasterRefToWire
     # never match; string literals (OpenAPI tag "Admin Master Data") are stripped before matching.
-    r"|MasterData|MasterDataItem|IMasterDataStore|IMasterDataLookup|MasterItem|MasterRef)\b"
+    r"|MasterData|MasterDataItem|IMasterDataStore|IMasterDataLookup|MasterItem|MasterRef"
+    # policy-reference-record task 1 (REQ-7.5): OrderLine -> OrderItem rename. `Line` bare catches the
+    # retired `Orders.Domain.Lines.Line`/`Checkouts.Domain.Lines.Line` entity name (verified word-bounded
+    # collision-free repo-wide before adding — Carts' own `LineTotal` does NOT match, no boundary before
+    # "Total"). The compounds below don't word-match as substrings of each other's replacements
+    # (`OrderItem`/`CheckoutItem`/... contain no retired token), so no exception list entry is needed.
+    r"|OrderLine|Line|OrderLineId|OrderLineInput|OrderLineListItem|OrderLineDetail"
+    r"|CheckoutSessionLine|CheckoutLineInput|CheckoutConfirmedLine)\b"
 )
 ALIAS_DECL = re.compile(r"^\s*using\s+(\w+)\s*=")
 
@@ -155,7 +162,13 @@ def tracked_cs_files() -> list[Path]:
         ["git", "ls-files", "src/**/*.cs", "tests/**/*.cs", "src/*.cs", "tests/*.cs"],
         capture_output=True, text=True, check=True,
     )
-    return [Path(p) for p in res.stdout.splitlines() if p]
+    # Historical EF migrations are frozen snapshots of a past schema shape (e.g. a CreateTable's anonymous-
+    # object column keys necessarily spell the pre-rename column name in live code, not a string literal) —
+    # already out of this check's scope per the module docstring's exception #2 (raw-SQL/migration table
+    # names are guarded by the fresh-DB gate instead). A NEW forward-rename migration only ever references
+    # the retired name inside RenameTable/RenameColumn string arguments, which the string-stripper already
+    # blanks, so this exclusion never hides a live-code violation in a migration added going forward.
+    return [Path(p) for p in res.stdout.splitlines() if p and "/Migrations/" not in p]
 
 
 def main() -> int:

@@ -16,16 +16,18 @@ public sealed class KeysTests
         "product.create", "product.update",
         "payment.create", "payment.redirect",
         "roles.view", "roles.manage", "users.roles",
+        "merchants.policies.read", "merchants.policies.write",
+        "policies.read", "policies.write",
     ];
 
     private static readonly string[] ExpectedGroups =
-        ["txn", "merchant", "user", "system", "merchants.users", "catalog", "payment", "roles"];
+        ["txn", "merchant", "user", "system", "merchants.users", "catalog", "payment", "roles", "merchants.policies", "policies"];
 
     [Fact]
-    public void All_has_exactly_20_keys_across_8_groups()
+    public void All_has_exactly_24_keys_across_10_groups()
     {
-        Assert.Equal(20, Keys.AllKeys.Count);
-        Assert.Equal(8, Keys.GroupKeys.Count);
+        Assert.Equal(24, Keys.AllKeys.Count);
+        Assert.Equal(10, Keys.GroupKeys.Count);
         Assert.Equal(ExpectedKeys.ToHashSet(StringComparer.Ordinal), Keys.AllKeys);
         Assert.Equal(ExpectedGroups.ToHashSet(StringComparer.Ordinal), Keys.GroupKeys.ToHashSet(StringComparer.Ordinal));
         Assert.All(Keys.All, p => Assert.Contains(p.GroupKey, Keys.GroupKeys));
@@ -51,6 +53,8 @@ public sealed class KeysTests
     [InlineData("catalog", Scope.Merchant)]
     [InlineData("payment", Scope.Merchant)]
     [InlineData("roles", Scope.Merchant)]
+    [InlineData("merchants.policies", Scope.Platform)]
+    [InlineData("policies", Scope.Merchant)]
     public void GroupScope_matches_the_v5_plan(string group, Scope expected) =>
         Assert.Equal(expected, Keys.GroupScope[group]);
 
@@ -63,10 +67,10 @@ public sealed class KeysTests
     }
 
     [Fact]
-    public void Platform_side_has_13_keys_and_merchant_side_has_7()
+    public void Platform_side_has_15_keys_and_merchant_side_has_9()
     {
-        Assert.Equal(13, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
-        Assert.Equal(7, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
+        Assert.Equal(15, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
+        Assert.Equal(9, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
     }
 
     // user.roles (admin) and users.roles (merchant) are near-identical literals that used to live in two separate

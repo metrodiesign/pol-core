@@ -1,10 +1,10 @@
 using SharedKernel;
 
-namespace Orders.Domain.Lines;
+namespace Orders.Domain.Items;
 
 /// <summary>
-/// Append-only fact that one <see cref="Line"/>'s full insured-person data was revealed to a merchant-user
-/// (REQ-7.5). One row per line actually revealed — a detail read of an N-line order writes N rows.
+/// Append-only fact that one <see cref="Item"/>'s full insured-person data was revealed to a merchant-user
+/// (REQ-7.5). One row per item actually revealed — a detail read of an N-item order writes N rows.
 /// Mirrors <c>Merchants.Domain.Users.RegistrationAudit</c>'s plain shape (actor/target/timestamp), NOT
 /// <c>VaultRevealAudit</c>'s SHA-256 hash chain — insured-person PII was not raised to that sensitivity
 /// tier (design.md Technology Decisions). Marked <c>AppendOnlyDescriptor</c> at the runtime EF config so
@@ -12,7 +12,7 @@ namespace Orders.Domain.Lines;
 /// </summary>
 public sealed class RevealAudit : Entity<Guid>
 {
-    public Guid OrderLineId { get; private set; }
+    public Guid OrderItemId { get; private set; }
     public Guid MerchantId { get; private set; }
 
     /// <summary>"admin" | "merchant-user" — only "merchant-user" is ever written by this spec's one
@@ -25,10 +25,10 @@ public sealed class RevealAudit : Entity<Guid>
 
     private RevealAudit() { }
 
-    private RevealAudit(Guid id, Guid orderLineId, Guid merchantId, string actorType, string actorId,
+    private RevealAudit(Guid id, Guid orderItemId, Guid merchantId, string actorType, string actorId,
         string correlationId, DateTime revealedAt) : base(id)
     {
-        OrderLineId = orderLineId;
+        OrderItemId = orderItemId;
         MerchantId = merchantId;
         ActorType = actorType;
         ActorId = actorId;
@@ -36,12 +36,12 @@ public sealed class RevealAudit : Entity<Guid>
         RevealedAt = revealedAt;
     }
 
-    public static RevealAudit For(Guid orderLineId, Guid merchantId, string actorType, string actorId,
+    public static RevealAudit For(Guid orderItemId, Guid merchantId, string actorType, string actorId,
         string correlationId, DateTime revealedAt)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actorType);
         ArgumentException.ThrowIfNullOrWhiteSpace(actorId);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
-        return new RevealAudit(Guid.NewGuid(), orderLineId, merchantId, actorType, actorId, correlationId, revealedAt);
+        return new RevealAudit(Guid.NewGuid(), orderItemId, merchantId, actorType, actorId, correlationId, revealedAt);
     }
 }

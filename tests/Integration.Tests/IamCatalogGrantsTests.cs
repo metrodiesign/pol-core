@@ -33,18 +33,19 @@ public sealed class IamCatalogGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        // 8 groups / 20 keys / 4 roles / 28 grants (REQ-2.1/2.3/10.1).
-        Assert.Equal(8, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
-        Assert.Equal(20, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
+        // 10 groups / 24 keys / 4 roles / 34 grants (REQ-2.1/2.3/10.1; policy-reference-record task 3 added
+        // merchants.policies/policies on top of the rf2 8/20/28 baseline).
+        Assert.Equal(10, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
+        Assert.Equal(24, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Roles")));
-        Assert.Equal(28, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
+        Assert.Equal(34, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
 
-        // Per-role grant counts (design matrix): platform_admin 13, platform_auditor 4, merchant_manager 7,
-        // merchant_staff 4.
-        Assert.Equal(13, await GrantCount(admin, PlatformAdminRoleId));
-        Assert.Equal(4, await GrantCount(admin, PlatformAuditorRoleId));
-        Assert.Equal(7, await GrantCount(admin, MerchantManagerRoleId));
-        Assert.Equal(4, await GrantCount(admin, MerchantStaffRoleId));
+        // Per-role grant counts (design matrix): platform_admin 15, platform_auditor 5, merchant_manager 9,
+        // merchant_staff 5.
+        Assert.Equal(15, await GrantCount(admin, PlatformAdminRoleId));
+        Assert.Equal(5, await GrantCount(admin, PlatformAuditorRoleId));
+        Assert.Equal(9, await GrantCount(admin, MerchantManagerRoleId));
+        Assert.Equal(5, await GrantCount(admin, MerchantStaffRoleId));
 
         // The two anchors are Merchant/Platform as planned; all four seed roles are shared (MerchantId NULL) and
         // Active (Status 0). Scope column: 0 = Platform, 1 = Merchant.

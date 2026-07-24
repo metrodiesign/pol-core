@@ -18,5 +18,5 @@ internal sealed class CheckoutRepository : ICheckoutRepository
     public void Add(Session session) => _db.Set<Session>().Add(session);
 
     public Task<Session?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
-        _db.Set<Session>().Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == checkoutSessionId, cancellationToken);
+        _db.Set<Session>().Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == checkoutSessionId, cancellationToken);
 }

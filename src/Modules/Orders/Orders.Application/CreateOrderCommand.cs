@@ -2,7 +2,7 @@ using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Orders.Domain;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using SharedKernel;
 
 namespace Orders.Application;
@@ -16,7 +16,7 @@ namespace Orders.Application;
 /// just the checkout one).
 /// </summary>
 public sealed record CreateOrderCommand(
-    Guid MerchantId, Money Amount, IReadOnlyList<OrderLineInput> Lines, string? Recipient = null,
+    Guid MerchantId, Money Amount, IReadOnlyList<OrderItemInput> Lines, string? Recipient = null,
     Guid? CheckoutSessionId = null)
     : ICommand<CreateOrderResult>, IMerchantScoped;
 

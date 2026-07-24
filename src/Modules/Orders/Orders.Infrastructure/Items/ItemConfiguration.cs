@@ -1,20 +1,20 @@
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using OrderLine = Orders.Domain.Lines.Line;
+using OrderItem = Orders.Domain.Items.Item;
 
-namespace Orders.Infrastructure.Lines;
+namespace Orders.Infrastructure.Items;
 
 /// <summary>
-/// Maps an order line into the <c>shop</c> schema. Mirrors <c>Carts.Infrastructure.Items.ItemConfiguration</c>
+/// Maps an order item into the <c>shop</c> schema. Mirrors <c>Carts.Infrastructure.Items.ItemConfiguration</c>
 /// exactly for shape (insurance-pivot REQ-6): <c>UnitPrice</c>/<c>SumInsured</c> are complex-type Money
 /// (decimal(19,4) + char(3)) per the EF money mapping rule.
 /// </summary>
-public sealed class LineConfiguration : IEntityTypeConfiguration<OrderLine>
+public sealed class ItemConfiguration : IEntityTypeConfiguration<OrderItem>
 {
-    public void Configure(EntityTypeBuilder<OrderLine> builder)
+    public void Configure(EntityTypeBuilder<OrderItem> builder)
     {
-        builder.ToTable("OrderLines", SchemaNames.Shop);
+        builder.ToTable("OrderItems", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.OrderId).IsRequired();

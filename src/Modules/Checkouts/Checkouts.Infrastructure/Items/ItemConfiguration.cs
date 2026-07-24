@@ -1,19 +1,19 @@
-using Checkouts.Domain.Lines;
+using Checkouts.Domain.Items;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Checkouts.Infrastructure.Lines;
+namespace Checkouts.Infrastructure.Items;
 
 /// <summary>
-/// Maps a checkout line into the <c>shop</c> schema. Mirrors <c>Carts.Infrastructure.Items.ItemConfiguration</c>
+/// Maps a checkout item into the <c>shop</c> schema. Mirrors <c>Carts.Infrastructure.Items.ItemConfiguration</c>
 /// exactly for shape (insurance-pivot REQ-6.5).
 /// </summary>
-public sealed class LineConfiguration : IEntityTypeConfiguration<Line>
+public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
 {
-    public void Configure(EntityTypeBuilder<Line> builder)
+    public void Configure(EntityTypeBuilder<Item> builder)
     {
-        builder.ToTable("CheckoutSessionLines", SchemaNames.Shop);
+        builder.ToTable("CheckoutSessionItems", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.SessionId).IsRequired();

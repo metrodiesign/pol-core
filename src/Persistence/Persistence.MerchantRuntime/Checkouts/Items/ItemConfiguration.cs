@@ -1,18 +1,18 @@
-using Checkouts.Domain.Lines;
+using Checkouts.Domain.Items;
 using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace Persistence.MerchantRuntime.Checkouts.Lines;
+namespace Persistence.MerchantRuntime.Checkouts.Items;
 
-// Runtime (scalar-only) mapping — mirrors Checkouts.Infrastructure.Lines.LineConfiguration exactly for
+// Runtime (scalar-only) mapping — mirrors Checkouts.Infrastructure.Items.ItemConfiguration exactly for
 // column/index shape. ProductId stays a bare scalar (no CLR nav to Product).
 
-internal sealed class LineConfiguration(MerchantRuntimeDbContext context) : IEntityTypeConfiguration<Line>
+internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEntityTypeConfiguration<Item>
 {
-    public void Configure(EntityTypeBuilder<Line> builder)
+    public void Configure(EntityTypeBuilder<Item> builder)
     {
-        builder.ToTable("CheckoutSessionLines", SchemaNames.Shop);
+        builder.ToTable("CheckoutSessionItems", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.SessionId).IsRequired();
@@ -20,7 +20,7 @@ internal sealed class LineConfiguration(MerchantRuntimeDbContext context) : IEnt
         builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
 
-        TenantKeyDescriptor.Require(builder.Metadata, nameof(Line.MerchantId));
+        TenantKeyDescriptor.Require(builder.Metadata, nameof(Item.MerchantId));
         builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
 
         builder.ComplexProperty(x => x.UnitPrice, p =>

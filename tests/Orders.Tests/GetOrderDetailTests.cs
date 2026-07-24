@@ -1,7 +1,7 @@
 using BuildingBlocks.Application;
 using Orders.Application;
 using Orders.Domain;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using SharedKernel;
 
 namespace Orders.Tests;
@@ -17,9 +17,9 @@ public sealed class GetOrderDetailTests
     private static Order TwoLineOrder() =>
         Order.Create(Merchant, Money.Of(30000m, "THB"), DateTime.UtcNow,
             [
-                new OrderLineInput(Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365,
+                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365,
                     "Test Insurer", "Somchai", "Jaidee", "1111111111111", Dob),
-                new OrderLineInput(Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365,
+                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365,
                     "Test Insurer", "Suda", "Meesuk", "2222222222222", Dob),
             ]);
 
@@ -44,7 +44,7 @@ public sealed class GetOrderDetailTests
         await handler.Handle(new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default);
 
         Assert.Equal(2, audits.Appended.Count);
-        Assert.Equal(order.Lines.Select(l => l.Id).ToArray(), audits.Appended);
+        Assert.Equal(order.Items.Select(i => i.Id).ToArray(), audits.Appended);
     }
 
     [Fact]

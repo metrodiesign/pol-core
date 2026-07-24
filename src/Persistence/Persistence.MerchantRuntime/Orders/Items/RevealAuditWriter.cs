@@ -1,7 +1,7 @@
 using Orders.Application;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 
-namespace Persistence.MerchantRuntime.Orders.Lines;
+namespace Persistence.MerchantRuntime.Orders.Items;
 
 /// <summary>
 /// Tracks a <see cref="RevealAudit"/> row on the request's own <see cref="MerchantRuntimeDbContext"/> —
@@ -15,10 +15,10 @@ internal sealed class RevealAuditWriter : IRevealAuditWriter
 
     public RevealAuditWriter(MerchantRuntimeDbContext db) => _db = db;
 
-    public Task AppendAsync(Guid orderLineId, Guid merchantId, string actorType, string actorId,
+    public Task AppendAsync(Guid orderItemId, Guid merchantId, string actorType, string actorId,
         string correlationId, CancellationToken cancellationToken)
     {
-        _db.Add(RevealAudit.For(orderLineId, merchantId, actorType, actorId, correlationId, DateTime.UtcNow));
+        _db.Add(RevealAudit.For(orderItemId, merchantId, actorType, actorId, correlationId, DateTime.UtcNow));
         return Task.CompletedTask;
     }
 }

@@ -1,7 +1,7 @@
 using BuildingBlocks.Application;
 using Checkouts.Application;
 using Checkouts.Domain;
-using Checkouts.Domain.Lines;
+using Checkouts.Domain.Items;
 using Contracts;
 using Mediator;
 using SharedKernel;
@@ -18,8 +18,8 @@ public sealed class ConfirmCheckoutTests
     private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static IReadOnlyList<CheckoutLineInput> OneLine() =>
-        [new CheckoutLineInput(
+    private static IReadOnlyList<CheckoutItemInput> OneLine() =>
+        [new CheckoutItemInput(
             Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
@@ -51,7 +51,7 @@ public sealed class ConfirmCheckoutTests
     [InlineData("   ")]
     public void Start_rejects_a_blank_insured_IdNumber(string idNumber)
     {
-        var line = new CheckoutLineInput(
+        var line = new CheckoutItemInput(
             Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
             "Somchai", "Jaidee", idNumber, Dob);
 
@@ -61,7 +61,7 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public void Start_rejects_a_future_date_of_birth()
     {
-        var line = new CheckoutLineInput(
+        var line = new CheckoutItemInput(
             Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", StartAt.AddDays(1));
 
@@ -72,7 +72,7 @@ public sealed class ConfirmCheckoutTests
     public void The_thrown_exception_never_echoes_the_invalid_date_of_birth_value()
     {
         var distinctiveFutureDob = new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc);
-        var line = new CheckoutLineInput(
+        var line = new CheckoutItemInput(
             Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", distinctiveFutureDob);
 
@@ -99,7 +99,7 @@ public sealed class ConfirmCheckoutTests
         Assert.Equal(session.Id, evt.CheckoutSessionId);
         Assert.Equal(Money.Of(15000m, "THB"), evt.Amount);
         Assert.Equal("buyer@example.com", evt.Recipient);
-        Assert.Single(evt.Lines);
+        Assert.Single(evt.Items);
     }
 }
 

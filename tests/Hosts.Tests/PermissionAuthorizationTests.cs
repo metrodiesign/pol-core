@@ -66,14 +66,16 @@ public sealed class PermissionAuthorizationTests
 /// separate AdminPermissionParityTests/MerchantUserPermissionParityTests (set-only, side-blind).</summary>
 public sealed class PermissionParityTests
 {
-    // The 20 real (key, policy) gate-site pairs (PermissionGateSitesTests pins the endpoint inventory itself) —
+    // The real (key, policy) gate-site pairs (PermissionGateSitesTests pins the endpoint inventory itself) —
     // every one must pass parity: catalogued, and on the side its policy implies.
     private static readonly (string Key, string? Policy)[] RealGateSites =
     [
         ("product.create", "merchant-user"), ("payment.create", "merchant-user"), ("payment.redirect", "merchant-user"),
-        ("roles.manage", "merchant-user"), ("users.roles", "merchant-user"),
+        ("roles.manage", "merchant-user"), ("users.roles", "merchant-user"), ("policies.write", "merchant-user"),
+        ("policies.read", "merchant-user"),
         ("merchants.users.approve", "admin"), ("merchants.users.reject", "admin"),
         ("user.view", "admin"), ("user.manage", "admin"), ("user.roles", "admin"),
+        ("merchants.policies.write", "admin"), ("merchants.policies.read", "admin"),
     ];
 
     [Fact]

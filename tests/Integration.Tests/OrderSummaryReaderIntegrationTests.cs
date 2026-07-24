@@ -4,7 +4,7 @@ namespace Integration.Tests;
 
 /// <summary>
 /// Proves <c>Persistence.MerchantRuntime.Orders.OrderSummaryReader</c>'s 2 raw <c>SqlQueryRaw</c> queries
-/// (<c>shop.Orders</c> by <c>SummaryToken</c>, then <c>shop.OrderLines</c> by <c>OrderId</c>) are valid,
+/// (<c>shop.Orders</c> by <c>SummaryToken</c>, then <c>shop.OrderItems</c> by <c>OrderId</c>) are valid,
 /// executable T-SQL that returns the exact columns the reader projects — this is real SQL-Server-only syntax
 /// (<c>SELECT TOP 1 ...</c>) that cannot run against the SQLite substitution the rest of the Hosts.Tests
 /// suite uses (confirmed: <c>SQLite Error 1: 'near "1": syntax error'</c>), so it is proven here instead,
@@ -34,7 +34,7 @@ public sealed class OrderSummaryReaderIntegrationTests
     private static Task InsertOrderLineAsync(SqlConnection c, Guid lineId, Guid orderId, Guid merchantId, string idNumber) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT shop.OrderLines
+            INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency,
                  SumInsuredAmount, SumInsuredCurrency, CoverageDurationDays, InsurerName,
                  InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
@@ -63,7 +63,7 @@ public sealed class OrderSummaryReaderIntegrationTests
         // Exactly the reader's second query — deliberately does NOT select InsuredDateOfBirth.
         await using var lineCmd = c.CreateCommand();
         lineCmd.CommandText =
-            "SELECT InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderLines WHERE OrderId = @orderId";
+            "SELECT InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = @orderId";
         lineCmd.Parameters.AddWithValue("@orderId", resolvedOrderId);
         await using var reader = await lineCmd.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
