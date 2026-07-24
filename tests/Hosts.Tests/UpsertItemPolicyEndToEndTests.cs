@@ -93,7 +93,7 @@ public sealed class UpsertItemPolicyEndToEndTests : IDisposable
 
         var audit = Assert.Single(await verify.OrderItemPolicyAudits.ToListAsync());
         Assert.Equal(AuditOperation.Created, audit.Operation);
-        Assert.Equal(ActorKind.MerchantUser, audit.ActorKind);
+        Assert.Equal(ActorKind.Merchant, audit.ActorKind);
         Assert.Contains(nameof(ItemPolicy.ReferenceNumber), audit.ChangeSummary);
     }
 

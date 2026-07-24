@@ -54,7 +54,7 @@ public sealed class UpsertItemPolicyHandler : ICommandHandler<UpsertItemPolicyCo
             _policies.Add(policy);
 
         _policies.AddAudit(ItemPolicyAudit.For(
-            command.OrderItemId, command.MerchantId, command.ActorId, ActorKind.MerchantUser,
+            command.OrderItemId, command.MerchantId, command.ActorId, ActorKind.Merchant,
             isNew ? AuditOperation.Created : AuditOperation.Updated,
             ChangeSummary(before, policy), CorrelationId.Current, nowUtc));
 

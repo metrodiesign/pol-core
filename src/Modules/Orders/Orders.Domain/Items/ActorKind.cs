@@ -6,5 +6,5 @@ namespace Orders.Domain.Items;
 public enum ActorKind
 {
     Admin = 0,
-    MerchantUser = 1,
+    Merchant = 1,
 }
