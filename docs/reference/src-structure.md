@@ -404,7 +404,7 @@ ForwardedHeaders → [HttpLogging (Dev)] → CorrelationId → ExceptionHandler 
 | Admin Auth | `GET /admins/auth/{provider}/login` · `POST /admins/auth/logout[-all]` · `GET /admins/me` | §5 Admin BFF (`Hosts/Api/Admins/*`, ไม่ใช่ `Modules/*`) |
 | Admin Merchants | `POST /merchants` · `GET /merchants/{code}` | §4.6 Merchants (`ProvisionMerchant`/`GetMerchant`) |
 | MerchantUser Auth | `GET /merchants/auth/{provider}/login` · `POST /merchants/users/register` · `POST /merchants/auth/logout[-all]` · `GET /merchants/users/me` | §4.6 Merchants (Users) + §5 MerchantUser BFF |
-| MerchantUser Roles | `GET /merchants/users/permissions` · `GET/POST/PUT/DELETE /merchants/users/roles[/{code}]` · `PUT /merchants/users/{merchantUserId}/roles` | §4.8 Iam (merchant-scope) |
+| MerchantUser Roles | `GET /merchants/users/permissions` · `GET/POST/PUT/DELETE /merchants/users/roles[/{code}]` · `PUT /merchants/users/{merchantUserId}/roles` | §4.8 Iam (merchant-scope; permissions + role catalog CRUD) · §4.6 Merchants (`SetRolesCommand`, assign roles to a merchant-user) |
 | Admin MerchantUsers | `POST /admins/merchants/users/{subject}/approve` · `POST /admins/merchants/users/{subject}/reject` | §4.6 Merchants (Users/ApproveReject สั่งฝั่ง admin) |
 | Admin Orders | `PUT /admins/orders/{orderId}/items/{itemId}/policy` · `GET /admins/reports/policies` | §4.4 Orders (admin cross-merchant use case) |
 | Admin Admins | `POST/GET /admins` · `GET /admins/{id}` · `GET /admins/{id}/effective-permissions` · `POST/DELETE /admins/{id}/merchants[/{merchantId}]` · `POST /admins/{id}/{suspend,reactivate,tier}` · `PUT /admins/{id}/profile` · `PUT /admins/{id}/roles` · `GET /admins/{id}/sessions` · `DELETE /admins/{id}/sessions/{sessionId}` | §4.7 Admins |
