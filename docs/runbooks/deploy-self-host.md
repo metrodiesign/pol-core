@@ -163,6 +163,28 @@ docker compose -f docker-compose.prod.yml ps     # ทุก service healthy / m
 healthy = keyring build ได้ (master key 32 byte) + DB ต่อได้. ถ้า not_ready: ดู log ของ host นั้น
 (`docker compose ... logs api`) — มักเป็น vault key file ผิด หรือ DB password ไม่ตรง.
 
+## 3.1 Seq — sink ของ denial/authz telemetry (ตั้ง retention/alerting หลัง boot แรก)
+
+compose นี้มี service `seq` (`datalust/seq`, volume `seq-data`) เป็น external tamper-resistant sink ของ
+denial/authz telemetry (REQ-13.4). `api` ผูก `depends_on: seq: condition: service_healthy` ไว้ ดังนั้น
+**seq ไม่ healthy = api ไม่ start เลย** — ไม่ใช่ container เสริมที่ข้ามได้: ถ้า `docker compose ... ps` เห็น
+`api` ค้างไม่ขึ้น ให้ดู `logs seq` ก่อนสงสัยอย่างอื่น. (ตอน runtime sink degrade เป็น log-only ถ้า Seq ล่ม
+ภายหลัง ไม่ block request — gate มีเฉพาะตอน start.) `Seq__IngestionUrl` default `http://seq:80` = ในเน็ตเวิร์ก
+compose เท่านั้น ไม่ใช่ secret ไม่ต้องตั้งใน `.env`.
+
+**retention + alerting ตั้งฝั่ง Seq เท่านั้น ไม่มี env var ฝั่ง app** — ทำครั้งเดียวหลัง boot แรกที่ Seq UI:
+Settings -> Retention policies (ตั้งอายุ log ให้พอดีดิสก์ที่ volume `seq-data` กินได้) + signal/notification
+สำหรับ alert. compose **ไม่ publish port ของ seq ออก host** (ตั้งใจ — Seq boot แรกยังไม่มี authentication)
+เข้าผ่าน SSH tunnel ไปที่ IP ของ container แทน แล้วเปิด `http://localhost:8081`:
+
+```bash
+SEQ_IP=$(ssh <deploy-user>@<app-host> "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pol-core-seq-1")
+ssh -L 8081:$SEQ_IP:80 <deploy-user>@<app-host>
+```
+
+ถ้าจะเปิดถาวรให้ทีมใช้: ตั้ง authentication ใน Seq ก่อน แล้วค่อยเพิ่ม `ports: ["127.0.0.1:5341:80"]` ที่
+service `seq` (bind loopback + หน้า reverse proxy เท่านั้น — อย่า bind `0.0.0.0`).
+
 ## 4. Upgrade deploy (มี migration ใหม่)
 
 ```bash

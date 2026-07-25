@@ -1,25 +1,22 @@
 # Admin Module — Google SSO (BFF) + FE Integration
 
-> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
-> rename ทั้งระบบ: `Tenant`→`Merchant`, `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`,
-> `Money.MinorUnits`→`DECIMAL(19,4)`) — เนื้อหาด้านล่างอาจยังอ้างชื่อ/schema เก่า. ของจริงปัจจุบันดู
-> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
-> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
-> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
-
-> Generated 2026-06-24 from `AdminOidcAuthentication.cs`, `AdminLoginService.cs`,
-> `AdminSessionAuthenticationHandler.cs`, `AdminSessionCookies.cs`, `AdminCsrfFilter.cs`, `Program.cs` (routes) +
-> `CorsExtensions.cs`. สัญญาสำหรับทีม **admin SPA frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update
-> ไฟล์นี้ตามด้วย.
+> Generated 2026-06-24, sweep ล่าสุด **2026-07-25** (post-`rf1-schema-reset` — actor rename `Tenant`→`Merchant`
+> ลงหมดแล้วในไฟล์นี้). Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes), `CorsExtensions.cs`.
+> สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
+> ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
+> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (rename map เต็ม).
 >
-> ขอบเขต: เฉพาะ flow ของ admin console. tenant SPA ยังใช้ Google id-token เป็น Bearer (audience `tenant`) —
-> คนละ contract, ไม่เปลี่ยน.
+> ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console ใช้ **OIDC BFF แบบเดียวกันเป๊ะ** แล้ว (rf1 ถอด
+> Google id-token Bearer + policy `tenant` ทิ้งทั้งระบบ) — แต่เป็น **คนละ instance แยกขาด**: prefix
+> `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
+> config `MerchantUserAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
 >
 > **multi-provider-oidc:** route เป็น provider-scoped แล้ว — `{provider}` ใน path ด้านล่างรับ `google` หรือ
 > `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section `AdminAuth:Providers:Microsoft`).
 > เอกสารนี้ตัวอย่างส่วนใหญ่ใช้ `google` ตาม scope เดิม — provider ที่ไม่รู้จัก/ไม่ได้ config -> 404.
 
-**Ports (dev):** API `http://localhost:5100` · Admin SPA `http://localhost:5200` · Tenant SPA `http://localhost:5120`
+**Ports (dev):** API `http://localhost:5100` · Admin Console `http://localhost:5200` · Merchant-user Console
+`http://localhost:5120` (`Cors:AdminOrigins` / `Cors:AllowedOrigins` ใน `appsettings.Development.json:57-64`)
 
 **โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) §3.1 โมดูล Admin (บทบาท/สถานะ as-built/target API).
 
@@ -65,7 +62,11 @@ backend redirect หลัง login = path บน origin เดียว แล�
 // next.config.js
 module.exports = {
   async rewrites() {
-    return [{ source: '/api/v1/admins/:path*', destination: 'http://localhost:5100/api/v1/admins/:path*' }]
+    return [
+      { source: '/api/v1/admins/:path*', destination: 'http://localhost:5100/api/v1/admins/:path*' },
+      // merchant provisioning ย้ายออกจาก prefix /admins แล้ว — ต้อง proxy เส้นนี้ด้วย (ดู Endpoints)
+      { source: '/api/v1/merchants/:path*', destination: 'http://localhost:5100/api/v1/merchants/:path*' },
+    ]
   },
 }
 ```
@@ -118,24 +119,34 @@ async function bootstrap() {
   const res = await api('/api/v1/admins/me');
   if (res.status === 401) return login(location.pathname);  // ไม่มี session / หมด / ถูก revoke -> re-login
   if (res.status === 403) return showNotActive();           // resolved แต่ suspended / ไม่ active
-  renderNav(await res.json());                              // ใช้ tier + accessibleTenants จัด UI
+  renderNav(await res.json());                              // ใช้ tier + accessibleMerchants + permissions จัด UI
 }
 ```
 
-Response shape (ไม่เปลี่ยนจากเดิม):
+Response shape (`AdminMeResponse`, `src/Hosts/Api/Program.cs:2320-2328`):
 
 ```jsonc
-// Super — เห็นทุก tenant
-{ "adminId": "…", "email": "a@x.com", "tier": "Super", "accessibleTenants": { "isUnrestricted": true } }
+// Super — เห็นทุก merchant; key `merchants` ถูก omit ทิ้งไปเลย (ไม่ใช่ null)
+{
+  "adminId": "…", "email": "a@x.com", "tier": "Super",
+  "accessibleMerchants": { "isUnrestricted": true },
+  "permissions": ["user.view", "user.manage", "…"]
+}
 
-// Scoped — เห็นเฉพาะ tenant ที่ถูก assign
+// Scoped — เห็นเฉพาะ merchant ที่ถูก assign
 {
   "adminId": "…", "email": "b@x.com", "tier": "Scoped",
-  "accessibleTenants": { "isUnrestricted": false, "tenants": [ { "id": "…", "code": "acme" } ] }
+  "accessibleMerchants": { "isUnrestricted": false, "merchants": [ { "id": "…", "code": "acme" } ] },
+  "permissions": ["user.view"]
 }
 ```
 
-`tier` มี 2 ค่า: `"Super"` | `"Scoped"`. ใช้ตัดสินใจซ่อน/โชว์ action ที่เป็น Super-only.
+`tier` มี 2 ค่า: `"Super"` | `"Scoped"`. ใช้ตัดสินใจซ่อน/โชว์ action ที่เป็น Super-only; `permissions` = effective
+action permission ของ role ที่ Active (admin-role-rbac REQ-9.1) — axis แยกจาก tier. `merchants[].code` เป็น
+nullable (id ที่หา code ไม่เจอ -> `null`).
+
+> `GET /api/v1/admins/{id}` (detail) ใช้ **DTO ตัวเดียวกันและ JSON key เดียวกัน** (`accessibleMerchants`) โดยตั้งใจ
+> ให้ client แชร์ renderer ตัวเดียวได้ (`Program.cs:2332-2337`).
 
 ## Endpoints
 
@@ -148,12 +159,18 @@ Scoped ยิงโดน 403.
 | POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
 | POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
-| GET | `/api/v1/admins/tenants/{code}` | any | — | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
-| POST | `/api/v1/admins/tenants` | **Super** | ต้อง | provision body | 201 | provision tenant (ดู reference 2.4); dup code -> 409 |
+| GET | `/api/v1/merchants/{code}` | any | — | — | 200 | scoped read; นอก scope/ไม่มี -> 404 |
+| POST | `/api/v1/merchants` | **Super** | ต้อง | provision body | 201 | provision merchant (ดู reference 2.4); dup code -> 409 |
 | POST | `/api/v1/admins` | **Super** | ต้อง | `{ "email": "…" }` | 201 | invite Scoped admin (bind ตอน login แรกของ invitee) |
-| POST | `/api/v1/admins/{id}/tenants` | **Super** | ต้อง | `{ "tenantId": "…" }` | 200 | assign tenant; inactive/unknown/dup -> 409 |
-| DELETE | `/api/v1/admins/{id}/tenants/{tenantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/merchants` | **Super** | ต้อง | `{ "merchantId": "…" }` | 200 | assign merchant; inactive/unknown/dup -> 409 |
+| DELETE | `/api/v1/admins/{id}/merchants/{merchantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
+
+> **สองเส้นทาง merchant provisioning อยู่นอก prefix `/api/v1/admins`** (`hierarchical-naming` task 8): map ตรงบน
+> `/api/v1/merchants` แล้ว re-attach control เองทีละ endpoint (`CsrfFilter` + policy `admin` + Super tier บน POST)
+> แทนการ inherit จาก group — admin CORS policy ผูกให้ผ่าน path table ใน `CorsExtensions.cs`
+> (`src/Hosts/Api/Program.cs:1013-1095`). FE ยังยิงผ่าน proxy เดิมได้ แต่ rewrite rule ต้องครอบ `/api/v1/merchants`
+> ด้วย ไม่ใช่แค่ `/api/v1/admins` (ดู [Proxy](#proxy--same-origin-บังคับ)).
 
 ### Account management (spec `admin-account-management`, scheme `/api/v1/admins`)
 
@@ -163,13 +180,13 @@ reads gate ด้วย permission `user.view` (single-key ไม่ใช่ ti
 | Method | Path | Gate | CSRF | Success | Note |
 |---|---|---|---|---|---|
 | GET | `/api/v1/admins` | `user.view` | — | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
-| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, accessible tenants (unrestricted ถ้า Super), role codes (รวม Inactive); unknown -> 404 |
+| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), role codes (รวม Inactive); unknown -> 404 |
 | GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | — | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/reactivate` | **Super** | ต้อง | 204 | คืน Active + revoke session ทั้งหมดของ target (fresh-login); idempotent; unknown -> 404 |
 | GET | `/api/v1/admins/{id}/sessions` | **Super** | — | 200 | sessions (ไม่มี token material) + `isLive`; unknown -> 404 |
 | DELETE | `/api/v1/admins/{id}/sessions/{sessionId}` | **Super** | ต้อง | 204 | revoke ทั้ง rotation family; unknown/ไม่ใช่เจ้าของ -> 404; idempotent |
 
-`adminId` / `id` / `tenantId` เป็น Guid. JSON body/field เป็น camelCase.
+`adminId` / `id` / `merchantId` เป็น Guid. JSON body/field เป็น camelCase.
 
 ## Logout
 
@@ -186,7 +203,8 @@ async function logout(all = false) {
 path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
 
 **committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
-- dev (`appsettings.Development.json`): `/`, `/main`, `/dashboard`, `/tenants`
+- dev (`appsettings.Development.json:44-49`): `/`, `/main`, `/dashboard`, `/tenants` — `/tenants` เป็นค่าที่
+  committed จริง (FE route ยังไม่ถูก rename ตาม `Tenant`→`Merchant`) ไม่ใช่ typo
 - staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
 
 **สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
@@ -200,7 +218,7 @@ path นอก list — และ absolute URL — ถูก fallback เป็�
 |---|---|---|
 | 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/google/login` |
 | 403 | session valid แต่: account suspended / ไม่ active / tier ไม่พอ / **CSRF token หาย/ไม่ตรง** | "ไม่มีสิทธิ์" หรือ refresh CSRF |
-| 404 | tenant นอก scope หรือไม่มีจริง (กัน existence leak) | not-found |
+| 404 | merchant นอก scope หรือไม่มีจริง (กัน existence leak) | not-found |
 | 409 | duplicate (code / assignment ซ้ำ) | conflict |
 | 400 | body ผิด format | validation error |
 
@@ -239,10 +257,11 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 
 ## Dev / CORS
 
-- API เดียว serve ทั้ง 2 SPA, **CORS แยก policy**: admin = credentialed (cookie XHR), tenant = no credentials.
-  dev origin: admin = `http://localhost:5200` (`Cors__AdminOrigins`), tenant = `http://localhost:5120`
-  (`Cors__AllowedOrigins`). prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
-- admin XHR **ต้อง** `credentials: 'include'` ถึงจะส่ง cookie; tenant ห้าม (ยัง Bearer เหมือนเดิม)
+- API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
+  merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `http://localhost:5200`), merchant-user =
+  `Cors__AllowedOrigins` (dev `http://localhost:5120`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
+  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
+- XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
   ได้เหมือนกัน
 - backend dev ต้องใส่ OIDC client id + secret จริงที่ `AdminAuth__Providers__Google__ClientId` / `AdminAuth__Providers__Google__ClientSecret`
@@ -262,12 +281,15 @@ FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'inc
 
 ## Source of truth
 
-- OIDC login + callback (challenge/establish session): `src/Hosts/Api/AdminOidcAuthentication.cs`,
-  `src/Hosts/Api/AdminLoginService.cs`
-- session auth + rotation/reuse/revocation: `src/Hosts/Api/AdminSessionAuthenticationHandler.cs`,
-  `src/Modules/Admin/Admin.Infrastructure/Persistence/AdminSessionStore.cs`
-- cookies (session + CSRF): `src/Hosts/Api/AdminSessionCookies.cs`; CSRF filter: `src/Hosts/Api/AdminCsrfFilter.cs`
-- routes (`/api/v1/admins` route group): `src/Hosts/Api/Program.cs`
-- tenant Bearer (unchanged): `src/BuildingBlocks/BuildingBlocks.Web/GoogleAuthenticationExtensions.cs`
-- CORS split: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
-- tier enum: `src/Modules/Admin/Admin.Domain/AdminTier.cs`
+ไฟล์ทั้งหมดย้ายเข้าโฟลเดอร์ `src/Hosts/Api/Admins/` แล้ว (ตัดคำนำหน้า `Admin` ออกจากชื่อไฟล์ — prefix ซ้ำกับ
+โฟลเดอร์):
+
+- OIDC login + callback (challenge/establish session): `src/Hosts/Api/Admins/OidcAuthentication.cs`,
+  `src/Hosts/Api/Admins/LoginService.cs`
+- session auth + rotation/reuse/revocation: `src/Hosts/Api/Admins/SessionAuthenticationHandler.cs`,
+  `src/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
+- cookies (session + CSRF): `src/Hosts/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Hosts/Api/Admins/CsrfFilter.cs`
+- routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Hosts/Api/Program.cs`
+- CORS split + path-based policy selection: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
+- tier enum: `src/Modules/Admins/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
+- accessible-merchants value object: `src/Modules/Admins/Admins.Application/Users/AccessibleMerchants.cs`

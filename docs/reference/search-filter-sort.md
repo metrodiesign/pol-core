@@ -1,25 +1,30 @@
 # Search / Filter / Sort — คู่มือ convention (pol-core)
 
-> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
-> rename ทั้งระบบ: `Tenant`→`Merchant`, `ITenantScoped`/`TenantGuardBehavior`→`IMerchantScoped`/`MerchantGuardBehavior`,
-> `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`) — เนื้อหาด้านล่างอาจยังอ้างชื่อ/type เก่า (convention
-> เรื่อง SFS เองยังใช้ได้อยู่ ไม่ได้ superseded). ของจริงปัจจุบันดู
-> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
-> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
-> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+> **[ปรับให้ตรง current state, 2026-07-25]** ฉบับก่อนหน้าเขียนด้วย vocabulary ก่อน `rf1-schema-reset` +
+> ก่อน `rls-to-query-filter` — §9.2 เดิมอ้างว่าโปรเจกต์ **ไม่มี** EF global query filter และใช้ SQL-native RLS
+> เป็น isolation floor ซึ่ง **กลับด้านกับของจริงตอนนี้ทุกประการ**. RLS/security policy/`SESSION_CONTEXT` ถูกถอด
+> ทิ้งทั้งระบบแล้ว (migration `20260719081817_RlsTeardownAndOnePrincipal`) และ floor ปัจจุบันคือ EF global query
+> filter + sealed write guard ที่ app layer. ชื่อ type/route ในตัวอย่างถูก sync กับโค้ดจริงแล้วเช่นกัน
+> (`ITenantScoped`/`TenantGuardBehavior` -> `IMerchantScoped`/`MerchantGuardBehavior`, `AdminRole` -> catalog
+> กลาง `Iam.Domain.Roles.Role`, `TenantId` -> `MerchantId`, minor units -> `Money` DECIMAL(19,4)).
+> อ้างอิงที่ลึกกว่าเรื่อง floor: [`db-connection-and-rls.md`](./db-connection-and-rls.md).
 
 คู่มือมาตรฐานฉบับละเอียดสำหรับทำ search / filter / sort / pagination (เรียกรวมว่า SFS) บน list endpoint
 ของ pol-core. พอร์ต *แนวคิด* มาจาก guide ต้นฉบับของโปรเจกต์ `nong-kaewta-api`
 (NestJS / TypeORM / PostgreSQL) แต่ปรับ server-side ทั้งหมดให้ตรง stack จริงของเรา:
-C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-generated CQRS) + RLS floor.
+C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-generated CQRS)
++ app-layer merchant floor (EF global query filter + sealed write guard).
 
 > สถานะ: **SFS shipped แล้วบางส่วน** (spec `.ai/specs/search-filter-sort/`, §13 as-built notes) —
-> `GET /api/v1/admins/roles` และ `GET /api/v1/products` รองรับ paging + sort + filter + search เต็มรูปแบบ
-> ตามคู่มือนี้. ที่ยังไม่ implement: `GET /api/v1/admins/permissions`, `GET /api/v1/producers/roles`,
-> `GET /api/v1/producers/permissions` — endpoint เหล่านี้ยังคืน full set, ไม่มี `OrderBy`, ไม่มี paging,
-> ไม่รับ query-string sort/filter. เอกสารนี้คือ **convention มาตรฐาน**: เมื่อเพิ่ม SFS ให้ endpoint ที่เหลือ
-> (หรือ endpoint ใหม่) ให้ทำตามรูปแบบนี้ทั้งโปรเจกต์ เพื่อให้ทุกโมดูลมี contract เดียว. Query-string contract
-> คงรูปแบบเดียวกับ `nong-kaewta-api` โดยตั้งใจ (contract เดียวข้ามโปรเจกต์).
+> endpoint ที่รองรับ paging + sort + filter + search เต็มรูปแบบตามคู่มือนี้ (ดูได้จาก `SfsQueryParamsMarker`
+> ใน `src/Hosts/Api/Program.cs`): `GET /api/v1/products`, `GET /api/v1/admins`, `GET /api/v1/admins/roles`,
+> `GET /api/v1/reports/policies`, `GET /api/v1/admins/reports/policies`.
+> ที่ยังไม่ implement: `GET /api/v1/admins/permissions`, `GET /api/v1/merchants/users/permissions`,
+> `GET /api/v1/merchants/users/roles` — endpoint เหล่านี้ยังคืน full set (role list ส่ง `Limit = int.MaxValue`
+> เข้า `ListRolesQuery` แล้ว unwrap `.Items`), ไม่รับ query-string sort/filter. เอกสารนี้คือ **convention
+> มาตรฐาน**: เมื่อเพิ่ม SFS ให้ endpoint ที่เหลือ (หรือ endpoint ใหม่) ให้ทำตามรูปแบบนี้ทั้งโปรเจกต์ เพื่อให้ทุก
+> โมดูลมี contract เดียว. Query-string contract คงรูปแบบเดียวกับ `nong-kaewta-api` โดยตั้งใจ (contract เดียว
+> ข้ามโปรเจกต์).
 
 > ข้อควรรู้ (จาก research ของ pol-core stack): (1) contract types (`PagedResult<T>` ฯลฯ) อยู่ที่
 > `BuildingBlocks.Application` — ดู §13. (2) โปรเจกต์ **ไม่มี** FluentValidation และ **ไม่มี** dynamic-LINQ
@@ -32,7 +37,8 @@ C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-
 - ต้นฉบับ (แนวคิด): `nong-kaewta-api/docs/developer-guide/SEARCH_FILTER_SORT_GUIDE.md`
 - โครงสร้าง handler/repository: `docs/reference/src-structure.md`
 - entity fields: `docs/reference/entity-fields.md`
-- RLS floor + tenant isolation: `../../.ai/shared/ARCHITECTURE.md`, `../../.ai/shared/SECURITY_RULES.md`
+- merchant isolation floor (query filter + write guard): `docs/reference/db-connection-and-rls.md`,
+  `../../.ai/shared/ARCHITECTURE.md`, `../../.ai/shared/SECURITY_RULES.md`
 
 ---
 
@@ -46,7 +52,7 @@ C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-
 6. [Search](#6-search)
 7. [Module-specific typed filter DTO](#7-module-specific-typed-filter-dto)
 8. [Whitelist implementation variants](#8-whitelist-implementation-variants)
-9. [Security + RLS interplay](#9-security--rls-interplay)
+9. [Security + merchant-floor interplay](#9-security--merchant-floor-interplay)
 10. [Common mistakes / anti-patterns](#10-common-mistakes--anti-patterns)
 11. [Testing guidance](#11-testing-guidance)
 12. [ตัวอย่าง end-to-end (C#)](#12-ตัวอย่าง-end-to-end-c)
@@ -64,21 +70,23 @@ HTTP query string  (?page=&limit=&filters=&sort=&search=)
         v
 FilterOption / SortOption / SearchOption records  (BuildingBlocks.Application)
         |  Mediator IQuery<PagedResult<T>>  ->  IQueryHandler (ValueTask<T>, method Handle)
-        |  [TenantGuardBehavior] ถ้า query : ITenantScoped และไม่มี tenant -> TenantBindingException
+        |  [MerchantGuardBehavior] ถ้า query : IMerchantScoped และไม่มี actor ผูก -> MerchantBindingException
         v
 Repository: whitelist -> EF .Where / .OrderBy / .Skip / .Take  (+ LongCountAsync)
-        |  tenant floor ครอบอยู่แล้วเสมอ (SQL Server RLS security policy + SESSION_CONTEXT
-        |  + explicit .Where(TenantId) ใน tenant repo) — SFS แคบผลลง ไม่มีทางขยาย tenant scope
+        |  merchant floor ครอบอยู่แล้วเสมอ (EF global query filter บน DbSet:
+        |  MerchantId == CurrentMerchant, deny-default + explicit .Where(MerchantId) ใน repo)
+        |  — SFS แคบผลลง ไม่มีทางขยาย merchant scope
         v
 SQL Server 2025  ->  PagedResult<T>
 ```
 
-**สถานะ pol-core:** `GET /api/v1/admins/roles` และ `GET /api/v1/products` รองรับ SFS เต็มรูปแบบ (paging,
-sort, filter, search — §13). ที่เหลืออีก 3 list endpoint (`GET /api/v1/admins/permissions`,
-`/api/v1/producers/roles`, `/api/v1/producers/permissions`) ยังคืน full set ไม่มี `Skip`/`Take` หรือรับ
-sort/filter จาก query string — permission catalog เรียงตาม `SortOrder` คงที่.
+**สถานะ pol-core:** endpoint ที่ shipped SFS เต็มรูปแบบ (paging, sort, filter, search — §13) คือ
+`GET /api/v1/products`, `/api/v1/admins`, `/api/v1/admins/roles`, `/api/v1/reports/policies`,
+`/api/v1/admins/reports/policies`. ที่เหลือ (`GET /api/v1/admins/permissions`,
+`/api/v1/merchants/users/permissions`, `/api/v1/merchants/users/roles`) ยังคืน full set ไม่รับ sort/filter
+จาก query string — permission catalog เรียงตาม `SortOrder` คงที่.
 
-**ขอบเขตเอกสารนี้:** เฉพาะ search / filter / sort / pagination + security + RLS interplay + ตัวอย่าง.
+**ขอบเขตเอกสารนี้:** เฉพาะ search / filter / sort / pagination + security + merchant-floor interplay + ตัวอย่าง.
 ไม่รวมเรื่องอื่นจาก guide ต้นฉบับ (auth, transaction, job, file management ฯลฯ) — คนละแกน.
 
 **หลักการพอร์ต:** เอา *แนวคิด* (per-field whitelist, silent-drop, escape-LIKE, default-sort, NULLS-last)
@@ -110,7 +118,7 @@ sort/filter จาก query string — permission catalog เรียงตา�
 | `search`  | JSON object      | `null`  | `{ "query", "fields": [...] }`                        |
 
 casing convention (ตรงกับต้นฉบับ, ให้ contract ข้ามโปรเจกต์เหมือนกัน): field เป็น **camelCase**
-(`createdAt`, `priceMinorUnits`); operator เป็น **snake/lower** (`eq`, `gte`, `not_in`, `is_null`);
+(`createdAt`, `priceAmount`); operator เป็น **snake/lower** (`eq`, `gte`, `not_in`, `is_null`);
 sort order เป็น literal `"ASC"` / `"DESC"`.
 
 ### 2.2 Operators (14 ตัว)
@@ -150,8 +158,8 @@ sort order เป็น literal `"ASC"` / `"DESC"`.
 ### 2.3 Contract types (BuildingBlocks.Application)
 
 records/enum วางที่ `BuildingBlocks.Application` (lib เบา ๆ ที่พึ่งแค่ `SharedKernel` + `Contracts` +
-`Mediator.Abstractions`, ไม่พึ่ง ASP.NET) — บ้านเดียวกับ `ITenantScoped`, exceptions, `TenantGuardBehavior`
-ที่ map เป็น HTTP problem อยู่แล้ว. ให้ทุกโมดูลใช้ร่วม:
+`Mediator.Abstractions`, ไม่พึ่ง ASP.NET) — บ้านเดียวกับ `IMerchantScoped`, exceptions,
+`MerchantGuardBehavior` ที่ map เป็น HTTP problem อยู่แล้ว. ให้ทุกโมดูลใช้ร่วม:
 
 ```csharp
 using System.Text.Json;
@@ -215,7 +223,7 @@ public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int Limit,
 
 > ทำไม `JsonElement?` ไม่ใช่ `object?`: ค่าจริงของ filter ขึ้นกับ field (bool/long/string/DateTime) และ
 > deserializer ไม่รู้ชนิดปลายทางตอน parse. `JsonElement` เก็บ raw JSON ไว้ให้ apply-step แปลงเป็นชนิดจริง
-> (`GetBoolean()`, `GetInt64()`, `GetString()`, `GetDateTime()`) หลังผ่าน whitelist แล้ว — type-safe และ
+> (`GetBoolean()`, `GetDecimal()`, `GetString()`, `GetDateTime()`) หลังผ่าน whitelist แล้ว — type-safe และ
 > ไม่ต้องเดาชนิดตั้งแต่ parse.
 
 ### 2.4 ตัวอย่าง query string
@@ -234,19 +242,19 @@ GET /api/v1/admins/roles?filters=[{"field":"status","operator":"eq","value":"act
 GET /api/v1/admins/roles?filters=[{"field":"code","operator":"in","values":["super_admin","support"]}]
 
 # filter ช่วงวัน (ใช้ gte + lte — สอง filter, ตรงกับ pattern ต้นฉบับ)
-GET /products?filters=[{"field":"createdAt","operator":"gte","value":"2026-01-01"},{"field":"createdAt","operator":"lte","value":"2026-12-31"}]
+GET /api/v1/products?filters=[{"field":"createdAt","operator":"gte","value":"2026-01-01"},{"field":"createdAt","operator":"lte","value":"2026-12-31"}]
 
 # filter BETWEEN (ทางเลือก — values[2])
-GET /products?filters=[{"field":"priceMinorUnits","operator":"between","values":[1000,5000]}]
+GET /api/v1/products?filters=[{"field":"priceAmount","operator":"between","values":[1000,5000]}]
 
 # search
 GET /api/v1/admins/roles?search={"query":"admin","fields":["name","description"]}
 
 # รวม SFS + pagination
-GET /products?page=1&limit=25&sort=[{"field":"createdAt","order":"DESC"}]&filters=[{"field":"isActive","operator":"eq","value":true}]&search={"query":"iphone","fields":["name"]}
+GET /api/v1/products?page=1&limit=25&sort=[{"field":"createdAt","order":"DESC"}]&filters=[{"field":"isActive","operator":"eq","value":true}]&search={"query":"iphone","fields":["name"]}
 
 # module-specific filter (ดู section 7)
-GET /products?productFilters={"minPriceMinorUnits":1000,"activeOnly":true}
+GET /api/v1/products?productFilters={"minPriceAmount":1000,"activeOnly":true}
 ```
 
 > JSON ในตัวอย่างเขียนแบบอ่านง่าย — ของจริง client ต้อง `encodeURIComponent(...)` ทั้งค่าก่อนใส่ query string.
@@ -376,8 +384,8 @@ apply ด้วย **two-gate guard** (field ต้องอยู่ใน whit
 field เข้า SQL**:
 
 ```csharp
-public static IQueryable<AdminRole> ApplyFilters(
-    this IQueryable<AdminRole> q, IReadOnlyList<FilterOption> filters)
+public static IQueryable<Role> ApplyFilters(
+    this IQueryable<Role> q, IReadOnlyList<FilterOption> filters)
 {
     foreach (var f in filters)
     {
@@ -401,12 +409,12 @@ public static IQueryable<AdminRole> ApplyFilters(
 }
 
 // wire ของ role status เป็น lowercase เสมอ (B2: host ไม่มี global string-enum converter) — parse ให้ตรง
-// ParseRoleStatus ฝั่ง write. Enum.Parse<AdminRoleStatus> ตรง ๆ จะ throw กับ "active"/"inactive"
+// ParseRoleStatus ฝั่ง write. Enum.Parse<RoleStatus> ตรง ๆ จะ throw กับ "active"/"inactive"
 // (case-sensitive + สมาชิก enum เป็น PascalCase). ParseStatus ถูก EF eval ฝั่ง client (ไม่พึ่ง r) -> เป็น constant.
-private static AdminRoleStatus ParseStatus(string? s) => s?.ToLowerInvariant() switch
+private static RoleStatus ParseStatus(string? s) => s?.ToLowerInvariant() switch
 {
-    "active"   => AdminRoleStatus.Active,
-    "inactive" => AdminRoleStatus.Inactive,
+    "active"   => RoleStatus.Active,
+    "inactive" => RoleStatus.Inactive,
     _ => throw new ArgumentException($"Invalid role status '{s}'."),   // -> 400 ProblemDetails
 };
 ```
@@ -414,9 +422,10 @@ private static AdminRoleStatus ParseStatus(string? s) => s?.ToLowerInvariant() s
 ### 4.1 Per-operator apply reference (ครบ 14 ตัว)
 
 ตัวช่วยแปลง `JsonElement` -> typed ขึ้นกับชนิดคอลัมน์ปลายทาง: `GetString()`, `GetBoolean()`,
-`GetInt64()`, `GetDateTime()`, `GetGuid()`. ด้านล่างใช้คอลัมน์ตัวแทน — `Name` (`string`),
-`PriceMinorUnits` (`long`), `IsActive` (`bool`), `CreatedAt` (`DateTime`), `Description` (`string?`) —
-เพื่อโชว์ทุก operator พร้อม SQL ที่ EF Core 10 แปลออกมา (`EscapeLike` ดู section 6):
+`GetDecimal()`, `GetDateTime()`, `GetGuid()`. ด้านล่างใช้คอลัมน์ตัวแทน — `Name` (`string`),
+`Price.Amount` (`decimal` — Money เป็น EF complex type, DECIMAL(19,4); **ไม่มี minor-unit column ในระบบนี้**),
+`IsActive` (`bool`), `CreatedAt` (`DateTime`), `Description` (`string?`) — เพื่อโชว์ทุก operator พร้อม SQL ที่
+EF Core 10 แปลออกมา (`EscapeLike` ดู section 6):
 
 ```csharp
 // ---- comparison / equality (value: scalar) ----
@@ -427,14 +436,14 @@ q.Where(x => x.Name == f.Value!.Value.GetString());
 // NotEquals ("ne") — SQL: [Name] <> @p   (NULL ถูกกรองออกตาม 3-valued logic ของ SQL — ตั้งใจ)
 q.Where(x => x.Name != f.Value!.Value.GetString());
 
-// GreaterThan ("gt") — SQL: [PriceMinorUnits] > @p
-q.Where(x => x.PriceMinorUnits > f.Value!.Value.GetInt64());
+// GreaterThan ("gt") — SQL: [PriceAmount] > @p
+q.Where(x => x.Price.Amount > f.Value!.Value.GetDecimal());
 
 // GreaterThanOrEqual ("gte") — SQL: [CreatedAt] >= @p
 q.Where(x => x.CreatedAt >= f.Value!.Value.GetDateTime());
 
-// LessThan ("lt") — SQL: [PriceMinorUnits] < @p
-q.Where(x => x.PriceMinorUnits < f.Value!.Value.GetInt64());
+// LessThan ("lt") — SQL: [PriceAmount] < @p
+q.Where(x => x.Price.Amount < f.Value!.Value.GetDecimal());
 
 // LessThanOrEqual ("lte") — SQL: [CreatedAt] <= @p
 q.Where(x => x.CreatedAt <= f.Value!.Value.GetDateTime());
@@ -471,11 +480,11 @@ q.Where(x => x.Description != null);
 
 // ---- range (values[2]) — ต้องมี >= 2 element มิฉะนั้นข้าม ----
 
-// Between ("between") — SQL: [PriceMinorUnits] >= @lo AND [PriceMinorUnits] <= @hi
+// Between ("between") — SQL: [PriceAmount] >= @lo AND [PriceAmount] <= @hi
 if (f.Values is { Length: >= 2 })
 {
-    long lo = f.Values[0].GetInt64(), hi = f.Values[1].GetInt64();
-    q = q.Where(x => x.PriceMinorUnits >= lo && x.PriceMinorUnits <= hi);
+    decimal lo = f.Values[0].GetDecimal(), hi = f.Values[1].GetDecimal();
+    q = q.Where(x => x.Price.Amount >= lo && x.Price.Amount <= hi);
 }
 ```
 
@@ -483,8 +492,8 @@ if (f.Values is { Length: >= 2 })
 > ตรง ๆ เท่านั้น — nullable flow analysis **ไม่** พา state นั้นเข้าไปใน lambda body ที่ capture `f`. ดังนั้น
 > ต้องใช้ `f.Values!` ภายใน lambda (มิฉะนั้น CS8602 -> build fail ภายใต้ `TreatWarningsAsErrors=true`).
 
-> **coercion ต้อง guard -> 400:** `f.Value!.Value.GetInt64()` / `GetDateTime()` กับค่าที่ชนิดไม่ตรง (client
-> ส่ง `priceMinorUnits eq "abc"`) จะ **throw** — `GetInt64` โยน `InvalidOperationException` (-> 409),
+> **coercion ต้อง guard -> 400:** `f.Value!.Value.GetDecimal()` / `GetDateTime()` กับค่าที่ชนิดไม่ตรง (client
+> ส่ง `priceAmount eq "abc"`) จะ **throw** — `GetDecimal` โยน `InvalidOperationException` (-> 409),
 > `GetDateTime` โยน `FormatException` (-> 500) ตาม `ProblemDetailsExceptionHandler`. ทั้งคู่ผิดสัญญา REQ-8.
 > ห่อทุก `Get*()` ด้วย try/catch หรือใช้ `TryGet*` แล้ว **re-throw `ArgumentException` (-> 400)** เสมอ
 > (แบบเดียวกับ `ParseStatus`).
@@ -493,7 +502,7 @@ if (f.Values is { Length: >= 2 })
 | ------------------- | ------------ | ------------------------------- | ------------------------------------------ |
 | `Equals`            | value        | `GetString()` / `GetBoolean()`  | `col = @p`                                  |
 | `NotEquals`         | value        | ตามชนิดคอลัมน์                    | `col <> @p`                                |
-| `GreaterThan`       | value        | `GetInt64()` / `GetDateTime()`  | `col > @p`                                  |
+| `GreaterThan`       | value        | `GetDecimal()` / `GetDateTime()` | `col > @p`                                 |
 | `GreaterThanOrEqual`| value        | ตามชนิด                          | `col >= @p`                                |
 | `LessThan`          | value        | ตามชนิด                          | `col < @p`                                 |
 | `LessThanOrEqual`   | value        | ตามชนิด                          | `col <= @p`                                |
@@ -522,18 +531,18 @@ EF Core 10 แปล `OrderBy(x => x.Col == null).ThenBy(x => x.Col)` เป็�
 `ORDER BY CASE WHEN [Col] IS NULL THEN CAST(1 AS bit) ELSE CAST(0 AS bit) END, [Col]` — verified บน
 EF Core 10 SqlServer จริง. คอลัมน์ที่ non-nullable ไม่ต้องทำขั้น NULLS-last.
 
-ตัวอย่างด้านล่าง typed กับ `AdminRole` (ใช้ตลอดทั้งเอกสาร): `Code`/`Name` เป็น **non-nullable**,
-`Description` เป็น `string?` (**nullable** — ใช้เดโม NULLS-last). `AdminRole` **ไม่มี `CreatedAt`** จึง
+ตัวอย่างด้านล่าง typed กับ `Role` (ใช้ตลอดทั้งเอกสาร): `Code`/`Name` เป็น **non-nullable**,
+`Description` เป็น `string?` (**nullable** — ใช้เดโม NULLS-last). `Role` **ไม่มี `CreatedAt`** จึง
 default-fallback ใช้ `Code`:
 
 ```csharp
 public static readonly FrozenSet<string> SortFields =
     new[] { "code", "name", "description" }.ToFrozenSet();
 
-public static IQueryable<AdminRole> ApplySort(
-    this IQueryable<AdminRole> q, IReadOnlyList<SortOption> sort)
+public static IQueryable<Role> ApplySort(
+    this IQueryable<Role> q, IReadOnlyList<SortOption> sort)
 {
-    IOrderedQueryable<AdminRole>? o = null;
+    IOrderedQueryable<Role>? o = null;
     foreach (var s in sort)
     {
         if (!SortFields.Contains(s.Field)) continue;           // silent-drop
@@ -558,7 +567,7 @@ public static IQueryable<AdminRole> ApplySort(
         };
     }
 
-    return o ?? q.OrderByDescending(r => r.Code);   // default fallback (บังคับ) — AdminRole ไม่มี CreatedAt
+    return o ?? q.OrderByDescending(r => r.Code);   // default fallback (บังคับ) — Role ไม่มี CreatedAt
 }
 ```
 
@@ -597,7 +606,7 @@ public static readonly FrozenSet<string> SearchFields =
 private static string EscapeLike(string s) => s
     .Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_").Replace("[", "\\[");
 
-public static IQueryable<AdminRole> ApplySearch(this IQueryable<AdminRole> q, SearchOption? s)
+public static IQueryable<Role> ApplySearch(this IQueryable<Role> q, SearchOption? s)
 {
     if (s is null || string.IsNullOrWhiteSpace(s.Query)) return q;
 
@@ -634,7 +643,7 @@ public static IQueryable<AdminRole> ApplySearch(this IQueryable<AdminRole> q, Se
 ร่วมกันทุก sub-predicate** มิฉะนั้น EF จะ throw:
 
 ```csharp
-public static IQueryable<AdminRole> ApplySearchDynamic(this IQueryable<AdminRole> q, SearchOption? s)
+public static IQueryable<Role> ApplySearchDynamic(this IQueryable<Role> q, SearchOption? s)
 {
     if (s is null || string.IsNullOrWhiteSpace(s.Query)) return q;
 
@@ -647,7 +656,7 @@ public static IQueryable<AdminRole> ApplySearchDynamic(this IQueryable<AdminRole
         nameof(DbFunctionsExtensions.Like),
         [typeof(DbFunctions), typeof(string), typeof(string), typeof(string)])!;
 
-    var p = Expression.Parameter(typeof(AdminRole), "r");   // parameter ตัวเดียว ใช้ร่วมทุก term
+    var p = Expression.Parameter(typeof(Role), "r");   // parameter ตัวเดียว ใช้ร่วมทุก term
     Expression? body = null;
     foreach (var field in fields)
     {
@@ -658,7 +667,7 @@ public static IQueryable<AdminRole> ApplySearchDynamic(this IQueryable<AdminRole
         body = body is null ? call : Expression.OrElse(body, call);
     }
 
-    var lambda = Expression.Lambda<Func<AdminRole, bool>>(body!, p);
+    var lambda = Expression.Lambda<Func<Role, bool>>(body!, p);
     return q.Where(lambda);
 }
 ```
@@ -722,15 +731,16 @@ using System.ComponentModel.DataAnnotations;
 // typed DTO — validate ด้วย data annotation (ไม่มี FluentValidation ในโปรเจกต์)
 public sealed record ProductFilterDto
 {
-    [Range(0, long.MaxValue)] public long? MinPriceMinorUnits { get; init; }
-    [Range(0, long.MaxValue)] public long? MaxPriceMinorUnits { get; init; }
+    [Range(0, double.MaxValue)] public decimal? MinPriceAmount { get; init; }
+    [Range(0, double.MaxValue)] public decimal? MaxPriceAmount { get; init; }
     public bool? ActiveOnly { get; init; }
 }
 
-// query record สืบทอด PagedQuery + carry typed filter (tenant data -> ITenantScoped, ดู section 9)
+// query record สืบทอด PagedQuery + carry typed filter (merchant data -> IMerchantScoped, ดู section 9)
 public sealed record ListProductsQuery : PagedQuery,
-    IQuery<PagedResult<ProductListItem>>, ITenantScoped
+    IQuery<PagedResult<ProductListItem>>, IMerchantScoped
 {
+    public required Guid MerchantId { get; init; }
     public ProductFilterDto? ProductFilters { get; init; }
 }
 ```
@@ -759,9 +769,9 @@ apply ใน repository (typed field ไม่ต้อง whitelist runtime เ
 ```csharp
 if (q.ProductFilters is { } pf)
 {
-    if (pf.MinPriceMinorUnits is { } min) src = src.Where(p => p.PriceMinorUnits >= min);
-    if (pf.MaxPriceMinorUnits is { } max) src = src.Where(p => p.PriceMinorUnits <= max);
-    if (pf.ActiveOnly == true)            src = src.Where(p => p.IsActive);
+    if (pf.MinPriceAmount is { } min) src = src.Where(p => p.Price.Amount >= min);
+    if (pf.MaxPriceAmount is { } max) src = src.Where(p => p.Price.Amount <= max);
+    if (pf.ActiveOnly == true)       src = src.Where(p => p.IsActive);
 }
 ```
 
@@ -798,14 +808,14 @@ file static class RoleQueryFields
 ### Variant 2 — `private static readonly` ใน class ของ repository
 
 ```csharp
-// ของจริง: AdminRoleRepository เป็น public sealed + ctor ปกติ, inject ProducerDbContext (DbContext เดียวใน repo)
-// bound เป็น pol_admin keyed context สำหรับ control-plane tables (AdminRole/AdminRoleAssignment/...)
-public sealed class AdminRoleRepository : IAdminRoleRepository
+// ของจริง: RoleStore (Persistence.ControlPlane/Iam/RoleStore.cs) เป็น internal sealed, inject
+// ControlPlaneDbContext — control-plane ไม่มี merchant dimension จึงไม่มี query filter บน iam.* (ดู section 9.2)
+internal sealed class RoleStore : IRoleStore
 {
-    private readonly ProducerDbContext _db;
-    public AdminRoleRepository(ProducerDbContext db) => _db = db;
+    private readonly ControlPlaneDbContext _db;
+    public RoleStore(ControlPlaneDbContext db) => _db = db;
 
-    // AdminRole ไม่มี CreatedAt -> sort whitelist ใช้ code/name (default fallback = Code)
+    // Role ไม่มี CreatedAt -> sort whitelist ใช้ code/name (default fallback = Code)
     private static readonly FrozenSet<string> SortFields =
         new[] { "code", "name" }.ToFrozenSet();
     // ... apply methods อยู่ใน class เดียวกัน เข้าถึง SortFields ได้ตรง ๆ
@@ -823,14 +833,14 @@ namespace Products.Application;
 public static class ProductQueryFields
 {
     public static readonly FrozenSet<string> Sort =
-        new[] { "name", "priceMinorUnits", "createdAt" }.ToFrozenSet();
+        new[] { "name", "priceAmount", "createdAt" }.ToFrozenSet();
 
     public static readonly FrozenDictionary<string, FilterOperator[]> Filter =
         new Dictionary<string, FilterOperator[]>
         {
-            ["isActive"]        = [FilterOperator.Equals],
-            ["priceMinorUnits"] = [FilterOperator.GreaterThanOrEqual, FilterOperator.LessThanOrEqual,
-                                   FilterOperator.Between],
+            ["isActive"]    = [FilterOperator.Equals],
+            ["priceAmount"] = [FilterOperator.GreaterThanOrEqual, FilterOperator.LessThanOrEqual,
+                               FilterOperator.Between],
         }.ToFrozenDictionary();
 }
 ```
@@ -848,7 +858,7 @@ public static class ProductQueryFields
 
 ---
 
-## 9. Security + RLS interplay
+## 9. Security + merchant-floor interplay
 
 ### 9.1 Security mapping (ต้นฉบับ TS -> pol-core)
 
@@ -869,38 +879,61 @@ whitelist ถูกข้ามเงียบ ๆ query ที่เหลื�
 และต่างจาก typed filter DTO ที่ validate ไม่ผ่าน ซึ่ง = 400 โดยเจตนา — เป็น strict surface ของ section 7.)
 ข้อยกเว้น: strict admin-tool ที่อยากให้ผู้ใช้รู้ว่าพิมพ์ผิด ค่อยเลือก throw ผ่าน typed DTO — document ให้ชัด.
 
-### 9.2 RLS non-widening (สำคัญที่สุด และเป็นจุดที่ต่างจากต้นฉบับ)
+### 9.2 Merchant-floor non-widening (สำคัญที่สุด และเป็นจุดที่ต่างจากต้นฉบับ)
 
-pol-core ไม่มี **EF Core global query filter** (`HasQueryFilter` = 0 hit ทั้ง src). tenant isolation เป็น
-**SQL-native floor 3 ชั้น** และ SFS ประกอบ **ทับบน** floor นั้นเสมอ:
+> **[แก้ 2026-07-25]** ฉบับก่อนหน้าเขียนว่าโปรเจกต์ "ไม่มี EF Core global query filter (`HasQueryFilter` =
+> 0 hit)" และ isolation เป็น SQL-native RLS 3 ชั้น — **ผิดทั้งคู่ในปัจจุบัน**. `fn_tenant_predicate`,
+> `SECURITY POLICY`, `SessionContextConnectionInterceptor`, `sp_set_session_context`, role `pol_rls_bypass`
+> ถูก **drop ทิ้งทั้งหมด** ใน migration `20260719081817_RlsTeardownAndOnePrincipal` — ไม่มีอันไหนเหลืออยู่
+> ในระบบ. อย่า copy predicate/interceptor pattern เหล่านั้นมาใช้.
 
-1. **SQL layer** — migration สร้าง `VCentralPay.fn_tenant_predicate(@TenantId)` (inline TVF, `SCHEMABINDING`)
-   ที่คืน row เฉพาะเมื่อ `@TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS uniqueidentifier)` **หรือ**
-   `IS_ROLEMEMBER(N'pol_rls_bypass') = 1`, แล้ว `CREATE SECURITY POLICY VCentralPay.TenantIsolationPolicy`
-   ADD FILTER + BLOCK PREDICATE บนทุก tenant table (Products, Carts, Orders, ...).
-2. **Connection layer** — `SessionContextConnectionInterceptor` ตั้ง `sp_set_session_context @key=N'TenantId'
-   @read_only=1` ตอน physical connection open ทุกครั้ง (SESSION_CONTEXT เป็น per-pooled-connection).
-3. **App layer** — `TenantGuardBehavior<TMessage,TResponse>` (Mediator pipeline, Scoped): ถ้า `message is
-   ITenantScoped && !_tenant.HasTenant` -> throw `TenantBindingException` (-> opaque 500) ก่อนถึง handler.
+isolation floor ปัจจุบันอยู่ที่ **app layer ทั้งหมด สองชั้น** และ SFS ประกอบ **ทับบน** floor นั้นเสมอ:
 
-filter/search/sort เป็นการ **แคบ** ผลลัพธ์ลงเท่านั้น (`.Where` เพิ่มบน `IQueryable` ที่ RLS ครอบแล้ว) —
-**ไม่มีทางขยาย tenant scope**. เงื่อนไขบังคับ:
+1. **Read floor — EF Core global query filter** (`HasQueryFilter`, ~22 call site ทั้ง src). นิยามใน
+   `OnModelCreating` ของแต่ละ `IEntityTypeConfiguration` เช่น
+   `Persistence.MerchantRuntime/Orders/OrderConfiguration.cs`, `.../Products/ProductConfiguration.cs`:
 
-- entity ที่เป็น **tenant data** (มี `TenantId`: Product, Cart, Order, PaymentSession, ...) query record ที่
-  สืบทอด `PagedQuery` ต้อง mark `ITenantScoped` ด้วย เพื่อให้ `TenantGuardBehavior` ปฏิเสธเมื่อไม่มี tenant:
+   ```csharp
+   builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+   ```
+
+   **deny-default**: `CurrentMerchant` มาจาก `IActorContext` — ไม่มี actor ผูก = throw ไม่ใช่ wildcard match,
+   query จึงเห็น **ศูนย์แถว** ไม่ใช่เห็นหมด (fail-closed). `TenantKeyDescriptor.Require(...)` mark ว่า entity
+   นั้นมี tenant key คอลัมน์ไหน และ arch test เช็คว่าทุก entity ที่ควรมี filter มีจริง (deny-by-omission = red).
+2. **Write floor — sealed write guard**. `GuardedRuntimeDbContext` override `SaveChanges`/`SaveChangesAsync`
+   แบบ `sealed` เรียก `GuardPendingChanges()` ทุกครั้ง: `IWriteAuthorizer.CanWrite(...)` (default-deny) +
+   concurrency token + tenant-key immutable-after-insert + reject `MerchantId == Guid.Empty`.
+3. **Dispatch guard** — `MerchantGuardBehavior<TMessage,TResponse>` (Mediator pipeline, Scoped): ถ้า
+   `message is IMerchantScoped && !_actor.HasActor` -> throw ก่อนถึง handler (+ ยิง `UnboundActor` telemetry).
+
+filter/search/sort เป็นการ **แคบ** ผลลัพธ์ลงเท่านั้น (`.Where` เพิ่มบน `IQueryable` ที่ query filter ครอบแล้ว)
+— **ไม่มีทางขยาย merchant scope**. เงื่อนไขบังคับ:
+
+- entity ที่เป็น **merchant data** (มี `MerchantId`: Product, Cart, Order, CheckoutSession, ItemPolicy, ...)
+  query record ที่สืบทอด `PagedQuery` ต้อง mark `IMerchantScoped` เพื่อให้ `MerchantGuardBehavior` ปฏิเสธ
+  เมื่อไม่มี actor ผูก:
 
   ```csharp
   public sealed record ListProductsQuery : PagedQuery,
-      IQuery<PagedResult<ProductListItem>>, ITenantScoped;   // tenant data -> ต้อง ITenantScoped
+      IQuery<PagedResult<ProductListItem>>, IMerchantScoped   // merchant data -> ต้อง IMerchantScoped
+  {
+      public required Guid MerchantId { get; init; }
+  }
   ```
 
-  และ tenant repository เติม explicit `.Where(p => p.TenantId == tenantId)` เป็น defence-in-depth (RLS ยัง
-  gate row อยู่ดี) — belt-and-suspenders ตาม pattern `ProductRepository.ListByTenantAsync`.
+  และ repository เติม explicit `.Where(p => p.MerchantId == query.MerchantId)` เป็น defence-in-depth
+  (query filter ยัง gate row อยู่ดี) — belt-and-suspenders ตาม `ProductRepository.ListAsync` จริง.
 
-- entity ที่เป็น **control-plane** (ไม่มี `TenantId`, ผูก `pol_admin` RLS-bypass: AdminRole,
-  AdminRoleAssignment, AdminPermission, ProducerRole) **ห้าม** mark `ITenantScoped` — มันไม่ใช่ tenant data.
-- whitelist **ห้าม** เปิด field ที่ข้าม tenant (เช่น `TenantId`, FK ไปตารางอื่น) เป็นอันขาด.
-- อย่าเขียน raw SQL ใน apply-step — จะ bypass ทั้ง RLS floor และ parameterization (ผิด SECURITY_RULES).
+- entity ที่เป็น **control-plane** (ไม่มี merchant dimension — `iam.Roles`, `iam.Permissions`,
+  `admin.Users`, ...) อยู่บน `ControlPlaneDbContext` ซึ่ง **ไม่มี query filter เลย** และ **ห้าม** mark
+  `IMerchantScoped` — มันไม่ใช่ merchant data. การจำกัดว่าใครเห็น role ไหนทำด้วย `RoleSideContext`
+  (visibility) ที่ caller apply **ก่อน** เข้า SFS pipeline ไม่ใช่ด้วย floor.
+- whitelist **ห้าม** เปิด field ที่ข้าม merchant (เช่น `merchantId`, FK ไปตารางอื่น) เป็นอันขาด —
+  `ProductSfs` มี comment ปักไว้ตรงนี้โดยตั้งใจ.
+- **ห้ามเรียก `IgnoreQueryFilters()` ใน apply-step** — มันข้าม read floor ตรง ๆ. ใช้ได้เฉพาะไฟล์ที่อยู่ใน
+  escape-hatch allowlist (`Architecture.Tests.BypassPrimitiveTests.AllowedPorts`) ซึ่ง regex-scan gate ใน CI
+  บังคับอยู่ — call site ใหม่นอก allowlist = red ทันที.
+- อย่าเขียน raw SQL ใน apply-step — จะ bypass ทั้ง floor และ parameterization (ผิด SECURITY_RULES).
 
 ---
 
@@ -929,7 +962,7 @@ q.Where(r => EF.Functions.Like(r.Name, $"%{EscapeLike(input)}%", "\\"));   // es
 // A3 — ไม่มี default-sort fallback (paging ไม่ deterministic)
 // WRONG
 return o!;                                                         // null ได้ถ้าไม่มี field valid
-// CORRECT — fallback บังคับ. AdminRole ไม่มี CreatedAt -> ใช้ Code (entity ที่มี CreatedAt เช่น Product ใช้ CreatedAt DESC)
+// CORRECT — fallback บังคับ. Role ไม่มี CreatedAt -> ใช้ Code (entity ที่มี CreatedAt เช่น Product ใช้ CreatedAt DESC)
 return o ?? q.OrderByDescending(r => r.Code);
 ```
 
@@ -1004,25 +1037,31 @@ public void Parse_clamps_nonpositive_page_to_1()
 ```
 
 **Tier 2 — Integration.Tests บน SQL Server จริง** (`IntegrationDb.cs`, `Pooling=False`, creds จาก
-`.env.integration`, tenant ผูกด้วย `sp_set_session_context @key='TenantId' @read_only=1`). ใช้พิสูจน์สิ่งที่
-เป็น SQL-Server-specific และ RLS composition — สิ่งที่ fake พิสูจน์ไม่ได้:
+`.env.integration`, merchant ผูกด้วย `IActorScope.Begin(merchantId)` — **ไม่ใช่** `sp_set_session_context`
+อีกแล้ว, SESSION_CONTEXT ถูกถอดทิ้งพร้อม RLS). ใช้พิสูจน์สิ่งที่เป็น SQL-Server-specific และ floor
+composition — สิ่งที่ fake พิสูจน์ไม่ได้:
 
 - **NULLS-last order จริง:** insert แถวที่ `Description` เป็น NULL ปน -> sort ascending/descending -> assert
   ว่าแถว NULL ไปอยู่ท้ายเสมอ (พิสูจน์ `CASE WHEN ... IS NULL` แปลถูก).
 - **escape จริง:** insert ชื่อที่มี `%`/`_`/`[` -> search ด้วย literal เดียวกัน -> assert match เฉพาะแถวที่
   ตรงจริง (ไม่ match ทุกแถวจาก wildcard ที่ไม่ escape).
-- **RLS composition (สำคัญ):** bind tenant A, query list ที่มี filter -> assert เห็นเฉพาะ row ของ tenant A;
-  SFS filter **ไม่** ทำให้เห็น row ของ tenant B. พิสูจน์ว่า `.Where` ของ SFS ประกอบทับ RLS predicate ไม่ทะลุ.
+- **floor composition (สำคัญ):** bind merchant A, query list ที่มี filter -> assert เห็นเฉพาะ row ของ
+  merchant A; SFS filter **ไม่** ทำให้เห็น row ของ merchant B. พิสูจน์ว่า `.Where` ของ SFS ประกอบทับ query
+  filter ไม่ทะลุ.
 
 ```csharp
 [Fact]
-public async Task Search_filter_does_not_widen_tenant_scope()
+public async Task Search_filter_does_not_widen_merchant_scope()
 {
-    await using var conn = await IntegrationDb.OpenAsync(IntegrationDb.AppConn, tenant: TenantA);
-    // ... seed products ทั้ง TenantA และ TenantB (ผ่าน pol_admin), แล้ว query ด้วย tenant A + filter
-    // assert: ผลลัพธ์ทุกแถว TenantId == TenantA (RLS + explicit .Where ยังกันอยู่แม้ใส่ filter)
+    using var scope = actorScope.Begin(MerchantA);
+    // ... seed products ทั้ง MerchantA และ MerchantB, แล้ว query ด้วย merchant A + filter
+    // assert: ผลลัพธ์ทุกแถว MerchantId == MerchantA (query filter + explicit .Where ยังกันอยู่แม้ใส่ filter)
 }
 ```
+
+> **จุดที่ fake/SQLite จับไม่ได้:** query filter ผูกกับ `DbContext` จริงตอน `OnModelCreating` — test ที่
+> ป้อน `IQueryable` ตรงเข้า `ApplyFilters` ข้าม floor ไปทั้งหมด. การพิสูจน์ non-widening ต้องยิงผ่าน
+> `DbContext` ที่ผูก actor จริงเสมอ.
 
 > `EF.Functions.Like` **ไม่มี in-memory implementation** — ถ้า query switch ไป client-eval จะ throw. เป็น
 > อีกเหตุผลที่ต้อง test path นี้บน SQL จริง (Tier 2) ไม่ใช่ fake.
@@ -1031,47 +1070,54 @@ public async Task Search_filter_does_not_widen_tenant_scope()
 
 ## 12. ตัวอย่าง end-to-end (C#)
 
-### 12.1 Admin roles — control-plane (ไม่ `ITenantScoped`)
+### 12.1 Admin roles — control-plane (ไม่ `IMerchantScoped`)
 
 `GET /api/v1/admins/roles` shipped SFS เต็มรูปแบบแล้ว (§13) — ตัวอย่างด้านล่างคือ worked example ตอน
-implement จริง: จากโค้ดเดิมที่ non-paginated (คืน full set, ไม่มี `OrderBy`) ไปสู่ target convention. admin role
-เป็น **control-plane** (ไม่มี `TenantId`) จึง **ไม่** mark `ITenantScoped`.
+implement จริง: จากโค้ดเดิมที่ non-paginated (คืน full set, ไม่มี `OrderBy`) ไปสู่ target convention. role
+อยู่ใน catalog กลาง `iam.*` ซึ่งเป็น **control-plane** (ไม่มี `MerchantId` dimension บน `ControlPlaneDbContext`)
+จึง **ไม่** mark `IMerchantScoped`.
 
-**ก่อน (โค้ดเดิมก่อน implement SFS)** — `Admin.Application/RoleQueries.cs`:
+**ก่อน (โค้ดเดิมก่อน implement SFS)**:
 
 ```csharp
-public sealed record ListRolesQuery : IQuery<IReadOnlyList<AdminRoleListItem>>;
+public sealed record ListRolesQuery : IQuery<IReadOnlyList<RoleListItem>>;
 
-public sealed class ListRolesHandler(IAdminRoleRepository roles)
-    : IQueryHandler<ListRolesQuery, IReadOnlyList<AdminRoleListItem>>
+public sealed class ListRolesHandler(IRoleStore roles)
+    : IQueryHandler<ListRolesQuery, IReadOnlyList<RoleListItem>>
 {
-    public async ValueTask<IReadOnlyList<AdminRoleListItem>> Handle(ListRolesQuery query, CancellationToken ct) =>
+    public async ValueTask<IReadOnlyList<RoleListItem>> Handle(ListRolesQuery query, CancellationToken ct) =>
         await roles.ListAsync(ct);   // คืน full set, ไม่มี OrderBy
 }
 ```
 
-**หลัง (target convention)** — query สืบทอด `PagedQuery`, คืน `PagedResult<T>`:
+**หลัง (target convention — ตรงกับ `Iam.Application/Roles/RoleQueries.cs` จริง)** — query สืบทอด
+`PagedQuery`, คืน `PagedResult<T>`:
 
 ```csharp
-public sealed record ListRolesQuery : PagedQuery, IQuery<PagedResult<AdminRoleListItem>>;
-// control-plane -> ไม่ ITenantScoped
-
-public sealed class ListRolesHandler(IAdminRoleRepository roles)
-    : IQueryHandler<ListRolesQuery, PagedResult<AdminRoleListItem>>
+public sealed record ListRolesQuery : PagedQuery, IQuery<PagedResult<RoleListItem>>
 {
-    public async ValueTask<PagedResult<AdminRoleListItem>> Handle(ListRolesQuery query, CancellationToken ct) =>
-        await roles.ListAsync(query, ct);
+    // visibility (admin side / merchant side / shared) resolve ก่อนเข้า SFS — ไม่ใช่ floor, ดู §9.2
+    public required RoleSideContext Context { get; init; }
+}
+// control-plane -> ไม่ IMerchantScoped
+
+public sealed class ListRolesHandler(IRoleStore roles, IRoleAssignmentCounter counter)
+    : IQueryHandler<ListRolesQuery, PagedResult<RoleListItem>>
+{
+    public async ValueTask<PagedResult<RoleListItem>> Handle(ListRolesQuery query, CancellationToken ct) =>
+        await roles.ListAsync(query.Context, query, ct);   // UserCount ประกอบทีหลังด้วย counter
 }
 ```
 
 **Endpoint** — `Hosts/Api/Program.cs`:
 
 ```csharp
-admin.MapGet("/roles", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
+admin.MapGet("/roles", async (HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct) =>
     {
         var p = SfsQueryParser.Parse(http.Request.Query);
         var result = await mediator.Send(new ListRolesQuery
         {
+            Context = RoleSideContextResolver.ForAdmin(scope),
             Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
         }, ct);
         // map item -> wire DTO: สร้าง PagedResult ใหม่ (with{} เปลี่ยน generic type ไม่ได้)
@@ -1090,16 +1136,16 @@ admin.MapGet("/roles", async (HttpContext http, IMediator mediator, Cancellation
 **Repository** — ประกอบ SFS ต่อกัน แล้ว count + page (ลำดับตาม section 3):
 
 ```csharp
-public async Task<PagedResult<AdminRoleListItem>> ListAsync(ListRolesQuery q, CancellationToken ct)
+public async Task<PagedResult<RoleListItem>> ListAsync(ListRolesQuery q, CancellationToken ct)
 {
-    IQueryable<AdminRole> src = _db.Set<AdminRole>().AsNoTracking()
+    IQueryable<Role> src = _db.Set<Role>().AsNoTracking()
         .ApplySearch(q.Search)       // section 6
         .ApplyFilters(q.Filters);    // section 4
 
     long total = await src.LongCountAsync(ct);   // นับหลัง filter/search ก่อน paging
 
     // materialize หน้านี้เป็น ENTITY ก่อน — ToListItem() และ role.PermissionKeys เป็น computed member
-    // ที่ EF แปลใน server-side .Select ไม่ได้ (hazard เดียวกับ Product.Price). offset คำนวณเป็น long กัน overflow.
+    // ที่ EF แปลใน server-side .Select ไม่ได้. offset คำนวณเป็น long กัน overflow.
     var roles = await src
         .ApplySort(q.Sort)           // section 5 (มี default fallback บังคับ)
         .Skip((int)Math.Min((long)(q.Page - 1) * q.Limit, int.MaxValue))
@@ -1109,14 +1155,14 @@ public async Task<PagedResult<AdminRoleListItem>> ListAsync(ListRolesQuery q, Ca
 
     // คง UserCount ไว้ (ห้ามหาย = REQ-12.1 regression): grouped count เฉพาะ role id ของหน้านี้
     var ids = roles.Select(r => r.Id).ToList();
-    var counts = await _db.Set<AdminRoleAssignment>().AsNoTracking()
+    var counts = await _db.Set<RoleAssignment>().AsNoTracking()
         .Where(a => ids.Contains(a.RoleId))
         .GroupBy(a => a.RoleId)
         .Select(g => new { RoleId = g.Key, Count = g.Count() })
         .ToDictionaryAsync(x => x.RoleId, x => x.Count, ct);
 
     var items = roles.Select(r => ToListItem(r, counts.GetValueOrDefault(r.Id))).ToList();  // map client-side
-    return new PagedResult<AdminRoleListItem>(items, q.Page, q.Limit, total);
+    return new PagedResult<RoleListItem>(items, q.Page, q.Limit, total);
 }
 ```
 
@@ -1133,12 +1179,12 @@ file static class RoleQueryFields
             ["status"] = [FilterOperator.Equals, FilterOperator.In],
             ["code"]   = [FilterOperator.Equals, FilterOperator.In],
         }.ToFrozenDictionary();
-    // NB: AdminRole ไม่มี CreatedAt -> default sort ใช้ Code (ดูหมายเหตุ)
+    // NB: Role ไม่มี CreatedAt -> default sort ใช้ Code (ดูหมายเหตุ)
 }
 ```
 
-> `AdminRole` **ไม่มี field `CreatedAt`** (ต่างจาก `Product`). default-sort fallback ของ role จึงใช้
-> `OrderByDescending(r => r.Code)` ไม่ใช่ `CreatedAt` — อย่าประดิษฐ์ `CreatedAt` ขึ้นมาบน AdminRole.
+> `Role` **ไม่มี field `CreatedAt`** (ต่างจาก `Product`). default-sort fallback ของ role จึงใช้
+> `OrderByDescending(r => r.Code)` ไม่ใช่ `CreatedAt` — อย่าประดิษฐ์ `CreatedAt` ขึ้นมาบน Role.
 
 **Response ที่ client ได้** (ตรงตาม `RoleResponse` — status เป็น lowercase เสมอ ตาม B2):
 
@@ -1162,25 +1208,22 @@ file static class RoleQueryFields
 }
 ```
 
-### 12.2 Products — tenant-scoped (`ITenantScoped`, RLS composes ทับ)
+### 12.2 Products — merchant-scoped (`IMerchantScoped`, query filter composes ทับ)
 
-product เป็น **tenant data** (`Product : AggregateRoot<Guid>` มี `TenantId`, `Name`, `PriceMinorUnits`,
-`PriceCurrency`, `IsActive`, `CreatedAt`). query ต้อง mark `ITenantScoped` และ repository เติม explicit
-`.Where(TenantId)` บน RLS floor.
+product เป็น **merchant data** (`Product : AggregateRoot<Guid>` มี `MerchantId`, `Name`, `Price` (Money),
+`SumInsured` (Money), `CoverageDurationDays`, `Insurer`, `IsActive`, `CreatedAt`). query ต้อง mark
+`IMerchantScoped` และ repository เติม explicit `.Where(MerchantId)` ทับ query-filter floor.
 
-> `GET /api/v1/products` shipped SFS เต็มรูปแบบแล้ว (§13, `ProductSfs`) — ตัวอย่างนี้คือ worked example
-> ตอน implement จริง.
-> หมายเหตุ: มี read model `Products.Application.ProductView(ProductId, ..., Money Price, ...)` อยู่แล้ว
-> (ใช้โดย `GetProductsHandler`). ที่นี่ใช้ **`ProductListItem` ตัวใหม่** (scalar) แทน — เป็นการเพิ่ม/เปลี่ยนที่
-> ประกาศไว้ชัด ไม่ใช่ redefine `ProductView` เดิมเงียบ ๆ (จะพัง `GetProductsHandler`).
+> `GET /api/v1/products` shipped SFS เต็มรูปแบบแล้ว (§13, `ProductSfs` ที่
+> `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs`) — ตัวอย่างนี้ตรงกับโค้ดจริง.
 
-**Query** — สืบทอด `PagedQuery` + `ITenantScoped` + carry typed filter (section 7):
+**Query** — สืบทอด `PagedQuery` + `IMerchantScoped` + carry typed filter (section 7):
 
 ```csharp
 public sealed record ListProductsQuery : PagedQuery,
-    IQuery<PagedResult<ProductListItem>>, ITenantScoped   // tenant data -> ITenantScoped
+    IQuery<PagedResult<ProductListItem>>, IMerchantScoped   // merchant data -> IMerchantScoped
 {
-    public required Guid TenantId { get; init; }
+    public required Guid MerchantId { get; init; }
     public ProductFilterDto? ProductFilters { get; init; }
 }
 
@@ -1191,94 +1234,99 @@ public sealed class ListProductsHandler(IProductRepository products)
         await products.ListAsync(query, ct);
 }
 
-// ProductListItem carry สอง scalar (PriceMinorUnits + PriceCurrency) ไม่ใช่ Money — ดูหมายเหตุใต้ repository
+// Money project ตรงได้ — Price/SumInsured เป็น EF complex type (mapped), ไม่ใช่ computed property
 public sealed record ProductListItem(
-    Guid Id, Guid TenantId, string Name, long PriceMinorUnits, string PriceCurrency, bool IsActive, DateTime CreatedAt);
+    Guid Id, Guid MerchantId, string Name, Money Price, Money SumInsured, int CoverageDurationDays,
+    string Insurer, bool IsActive, DateTime CreatedAt);
 ```
 
-**Endpoint** — tenant มาจาก `ITenantContext` (principal) ไม่ใช่จาก client:
+**Endpoint** — merchant มาจาก `IActorContext` (principal) ไม่ใช่จาก client:
 
 ```csharp
-app.MapGet("/products", async (HttpContext http, ITenantContext tenant, IMediator mediator, CancellationToken ct) =>
+api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
     {
         var p = SfsQueryParser.Parse(http.Request.Query);
         var result = await mediator.Send(new ListProductsQuery
         {
-            TenantId = tenant.TenantId,      // จาก principal เท่านั้น
+            MerchantId = actor.MerchantId,   // จาก principal เท่านั้น
             Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
-            ProductFilters = ParseProductFilters(http.Request.Query["productFilters"]),
+            ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
         }, ct);
         return Results.Ok(result);
     })
-    .RequireAuthorization("tenant")
+    .RequireAuthorization("merchant-user")
+    .WithMetadata(new SfsQueryParamsMarker())   // OpenAPI SFS params (§13)
     .WithTags("Products")
     .WithName("ListProducts")
     .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest);
 ```
 
-**Repository** — RLS floor + explicit tenant guard + SFS ประกอบทับ:
+**Repository** — query-filter floor + explicit merchant guard + SFS ประกอบทับ:
 
 ```csharp
-public async Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery q, CancellationToken ct)
+public async Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken ct)
 {
     IQueryable<Product> src = _db.Set<Product>().AsNoTracking()
-        .Where(p => p.TenantId == q.TenantId)   // defence-in-depth บน RLS floor
-        .ApplySearch(q.Search)                  // section 6
-        .ApplyFilters(q.Filters);               // section 4
+        .Where(p => p.MerchantId == query.MerchantId)   // defence-in-depth บน query-filter floor
+        .ApplySearch(query.Search)                      // section 6
+        .ApplyFilters(query.Filters, _logger);          // section 4 (+ whitelist-drop logging)
 
-    if (q.ProductFilters is { } pf)             // typed filter (section 7)
+    if (query.ProductFilters is { } pf)                 // typed filter (section 7)
     {
-        if (pf.MinPriceMinorUnits is { } min) src = src.Where(p => p.PriceMinorUnits >= min);
-        if (pf.MaxPriceMinorUnits is { } max) src = src.Where(p => p.PriceMinorUnits <= max);
-        if (pf.ActiveOnly == true)            src = src.Where(p => p.IsActive);
+        if (pf.MinPriceAmount is { } min) src = src.Where(p => p.Price.Amount >= min);
+        if (pf.MaxPriceAmount is { } max) src = src.Where(p => p.Price.Amount <= max);
+        if (pf.ActiveOnly == true)        src = src.Where(p => p.IsActive);
     }
 
     long total = await src.LongCountAsync(ct);
 
+    int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);   // overflow-safe offset
+
     var items = await src
-        .ApplySort(q.Sort)                      // default fallback = CreatedAt DESC
-        .Skip((q.Page - 1) * q.Limit)
-        .Take(q.Limit)
-        // project scalar columns เท่านั้น — ห้ามอ้าง p.Price ใน server-side projection (ดูหมายเหตุ)
+        .ApplySort(query.Sort, _logger)                 // default fallback = CreatedAt DESC, ThenBy Id
+        .Skip(skip)
+        .Take(query.Limit)
         .Select(p => new ProductListItem(
-            p.Id, p.TenantId, p.Name, p.PriceMinorUnits, p.PriceCurrency, p.IsActive, p.CreatedAt))
+            p.Id, p.MerchantId, p.Name, p.Price, p.SumInsured, p.CoverageDurationDays, p.Insurer,
+            p.IsActive, p.CreatedAt))
         .ToListAsync(ct);
 
-    return new PagedResult<ProductListItem>(items, q.Page, q.Limit, total);
+    return new PagedResult<ProductListItem>(items, query.Page, query.Limit, total);
 }
 ```
 
-> **ห้าม project `p.Price` ใน `Select` ของ IQueryable:** `Product.Price` เป็น **unmapped computed property**
-> (`public Money Price => Money.Of(PriceMinorUnits, PriceCurrency);`) และ `Money.Of` เป็น validating static
-> factory — EF Core 10 แปลใน server-side projection ไม่ได้ (`could not be translated` ตอน execute). ให้
-> project สอง scalar column (`PriceMinorUnits` + `PriceCurrency`) แล้วถ้าต้องการ `Money` ค่อย reconstitute
-> `Money.Of(view.PriceMinorUnits, view.PriceCurrency)` ฝั่ง client หลัง `ToListAsync`.
+> **`Money` project ได้ตรง ๆ (ต่างจากเอกสารฉบับก่อน):** `Product.Price`/`SumInsured` map เป็น **EF complex
+> type** (`builder.ComplexProperty(...)` -> คอลัมน์ `PriceAmount` DECIMAL(19,4) + `PriceCurrency` CHAR(3))
+> ไม่ใช่ unmapped computed property อีกแล้ว — EF Core 10 แปล projection ของมันได้ และโค้ดจริงก็ project
+> `p.Price` ตรง ๆ. ส่วนการ **filter/sort** ให้อ้าง scalar ข้างใน (`p.Price.Amount`) ตามที่ `ProductSfs` ทำ.
 
-**Whitelist** (`Product` มี `CreatedAt` -> default fallback = `CreatedAt DESC`):
+**Whitelist** (`Product` มี `CreatedAt` -> default fallback = `CreatedAt DESC` + `Id` tiebreaker):
 
 ```csharp
-file static class ProductQueryFields
-{
-    public static readonly FrozenSet<string> Sort   = new[] { "name", "priceMinorUnits", "createdAt" }.ToFrozenSet();
-    public static readonly FrozenSet<string> Search = new[] { "name" }.ToFrozenSet();
-    public static readonly FrozenDictionary<string, FilterOperator[]> Filter =
-        new Dictionary<string, FilterOperator[]>
-        {
-            ["isActive"]        = [FilterOperator.Equals],
-            ["priceMinorUnits"] = [FilterOperator.GreaterThanOrEqual, FilterOperator.LessThanOrEqual,
-                                   FilterOperator.Between],
-            ["createdAt"]       = [FilterOperator.GreaterThanOrEqual, FilterOperator.LessThanOrEqual],
-        }.ToFrozenDictionary();
-    // NB: ไม่มี "tenantId" ใน whitelist ใด ๆ — SFS ห้ามเปิด field ข้าม tenant (section 9.2)
-}
+// ของจริงเป็น internal static ProductSfs co-located ข้าง repository (ดู §13) — field name บน wire คือ camelCase
+private static readonly FrozenSet<string> SortFields =
+    new[] { "name", "priceAmount", "createdAt" }.ToFrozenSet(StringComparer.Ordinal);
+private static readonly FrozenSet<string> SearchFields =
+    new[] { "name" }.ToFrozenSet(StringComparer.Ordinal);
+private static readonly FrozenDictionary<string, FilterOperator[]> FilterFields =
+    new Dictionary<string, FilterOperator[]>(StringComparer.Ordinal)
+    {
+        ["isActive"]    = [FilterOperator.Equals],
+        ["priceAmount"] = [FilterOperator.Equals, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+                           FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
+        ["createdAt"]   = [FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+                           FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+// NB: ไม่มี "merchantId" (หรือ cross-aggregate FK) ใน whitelist ใด ๆ — SFS ห้ามขยาย merchant scope (section 9.2)
 ```
 
-**RLS composition:** ถ้า request ไม่มี tenant context, `TenantGuardBehavior` เห็น `ListProductsQuery is
-ITenantScoped && !HasTenant` -> throw `TenantBindingException` -> opaque 500 (ไม่ยืนยันสถานะ tenant).
-ถ้ามี tenant context, SQL ที่ execute จะเป็น `SELECT ... FROM VCentralPay.Products WHERE [TenantId] = @tenant
-AND <filters> AND <search> ORDER BY <sort> OFFSET/FETCH` — ประกอบทับ RLS FILTER PREDICATE ที่ SQL Server
-บังคับด้วย SESSION_CONTEXT อีกชั้น. SFS filter/search/sort ทั้งหมด **แคบผลลง** ไม่มีทางเห็น row ข้าม tenant.
+**Floor composition:** ถ้า request ไม่มี actor ผูก, `MerchantGuardBehavior` เห็น `ListProductsQuery is
+IMerchantScoped && !HasActor` -> throw ก่อนถึง handler (+ ยิง `UnboundActor` telemetry). ถ้ามี actor ผูก,
+SQL ที่ execute จะเป็น `SELECT ... FROM shop.Products WHERE [MerchantId] = @merchant AND <filters> AND
+<search> ORDER BY <sort> OFFSET/FETCH` — โดยที่ `WHERE [MerchantId] = @merchant` มาจาก **สองที่ประกอบกัน**:
+EF global query filter (`HasQueryFilter` บน `ProductConfiguration`) + explicit `.Where` ของ repository.
+SFS filter/search/sort ทั้งหมด **แคบผลลง** ไม่มีทางเห็น row ข้าม merchant.
 
 ---
 
@@ -1298,19 +1346,29 @@ SFS ถูก implement จริงแล้ว (spec `.ai/specs/search-filter-
 - **OpenAPI SFS params (REQ-13)** ประกาศผ่าน built-in `AddOperationTransformer` + metadata marker
   `SfsQueryParamsMarker` (`src/Hosts/Api/SfsOpenApi.cs`) — **ไม่ใช่ `.WithOpenApi(...)`** (§12.1/§12.2/D13):
   โปรเจกต์ใช้ .NET 10 built-in OpenAPI (document/operation transformers) ไม่ใช่ Swashbuckle.
-- **Apply pipeline ต่อโมดูล**: `AdminRoleSfs` (`Admin.Infrastructure`) + `ProductSfs` (`Products.Infrastructure`) —
-  whitelist + `ApplyFilters`/`ApplySort`/`ApplySearch` เป็น `public static` co-located ข้าง repository (แทน
-  `file static RoleQueryFields` ใน §8/§12.1). repo/port `ListAsync` ของ Admin รับ `PagedQuery` base.
+- **Apply pipeline ต่อโมดูล**: whitelist + `ApplyFilters`/`ApplySort`/`ApplySearch` เป็น `static` class
+  co-located ข้าง repository (แทน `file static RoleQueryFields` ใน §8/§12.1). ตำแหน่งปัจจุบันหลัง rf2 (iam
+  catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
+  - `RoleSfs` — `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` (ตัวที่ `RoleStore` ใช้จริง);
+    ต้นทางเดิม `src/Modules/Iam/Iam.Infrastructure/Persistence/Roles/RoleSfs.cs`
+  - `ProductSfs` — `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs`
+  - `UserSfs` — `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs`
+  - `PolicyReportSfs` — `src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs`
+
+  repo/port `ListAsync` ของฝั่ง role รับ `RoleSideContext` + `PagedQuery` base.
 - **`ProductFilterDto.Parse`** อยู่ที่ `Products.Application` (pure `System.Text.Json` + DataAnnotations) ไม่ใช่ Hosts
-  `ParseProductFilters` (§7) — testable + endpoint บาง.
-- **Coverage 14 operator แบ่งสองตัวอย่าง**: AdminRole (คอลัมน์ string/enum) = eq, ne, in, not_in, like, ilike,
+  `ParseProductFilters` (§7) — testable + endpoint บาง. field เป็น `MinPriceAmount`/`MaxPriceAmount` (`decimal?`)
+  ตามมาตรฐาน Money DECIMAL(19,4) — **ไม่มี minor-unit field**.
+- **Coverage 14 operator แบ่งสองตัวอย่าง**: Role (คอลัมน์ string/enum) = eq, ne, in, not_in, like, ilike,
   contains, is_null, is_not_null; Products (คอลัมน์ numeric/date) = eq + gt, gte, lt, lte, between. Product whitelist
   ขยายจาก §12.2 (เดิม gte/lte/between) ให้รวม gt/lt ด้วย เพื่อครบ 14 ตัวข้ามสองตัวอย่าง (+ reference §4.1).
 - **Whitelist-drop logging (REQ-8.6)** ผ่าน optional `ILogger?` บน `ApplyFilters`/`ApplySort`; repository ส่ง
   `ILogger<T>` (wire ผ่าน DI).
 - **Relational test** ใช้ in-memory SQLite (EF relational provider ที่ repo มีอยู่แล้ว) สำหรับ NULLS-last, LIKE-escape
-  (`%`/`_`), tenant-narrowing, paging. **SQL-native RLS floor** + wildcard `[` (SQL-Server-only) ยังคุมด้วย
-  Integration `RlsIsolationTests` + assertion ที่ output ของ `SfsLike.Escape` ตามลำดับ.
+  (`%`/`_`), merchant-narrowing, paging. wildcard `[` (SQL-Server-only) คุมด้วย assertion ที่ output ของ
+  `SfsLike.Escape`. ส่วน **merchant floor** ตอนนี้เป็น app-layer (EF query filter + write guard, §9.2) จึงคุม
+  ด้วย `Architecture.Tests` (`ReadFloorTests` ว่าทุก entity ที่ควรมี filter มีจริง, `BypassPrimitiveTests`
+  ว่าไม่มี `IgnoreQueryFilters()` นอก allowlist) แทน `RlsIsolationTests` เดิมที่ตายไปพร้อม RLS.
 
 ทุก snippet + โค้ดจริง warning-clean ภายใต้ `-warnaserror` + `Nullable enable`, ไม่พึ่ง dependency นอกกล่อง
 (`System.Text.Json` + EF Core LINQ เท่านั้น — REQ-11).

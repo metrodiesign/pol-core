@@ -24,5 +24,5 @@ allowed-tools: Bash, Read
 - **เลือกโหมดตาม coupling**: feature ที่ task พึ่งกัน (shared primitives/data/lib) → `all-in-one` (ทุก task ใน session เดียว) เป็น default — ถูกกว่า ~30-40% เพราะไม่ต้อง re-acquire context ต่อ session. แยก pane ต่อ task เฉพาะงานอิสระจริง หรือต้อง isolate CORE domain เพื่อ accuracy.
 - ต้องมี **iTerm2** เปิดอยู่ (script ใช้ AppleScript `current session of current window`).
 - task ids = **space-separated** (`12 13 14`) ไม่รองรับ range (`12-15`). ไม่ใส่ ids = ทำทุก task ค้าง.
-- hands-free มาจาก `settings.json` (`defaultMode: bypassPermissions`); `CLAUDE_FLAGS` default ว่าง — เพิ่ม flag เองได้ผ่าน env `CLAUDE_FLAGS=...`.
+- hands-free มาจาก **global** `~/.claude/settings.json` (`defaultMode: bypassPermissions`) — ไม่ใช่ `.claude/settings.json` ของ repo (ตัวนั้นมีแค่ `hooks`) ⇒ เครื่องใหม่ต้องตั้งเองก่อนรัน; `CLAUDE_FLAGS` default ว่าง — เพิ่ม flag เองได้ผ่าน env `CLAUDE_FLAGS=...`.
 - task ที่ `[x]` แล้วถูกข้ามอัตโนมัติ; ถ้า task ไม่ขึ้น `[x]` ใน timeout → script หยุดและ **เปิด pane ค้างไว้ให้ตรวจ**.

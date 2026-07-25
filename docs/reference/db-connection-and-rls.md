@@ -306,6 +306,8 @@ allowlist = red CI ทันที ไม่ต้องรอ code review จ�
 | `Persistence.MerchantUsers/MerchantRoleAssignmentCountReader.cs`, `MerchantRoleAssignmentReader.cs` | cross-merchant role-assignment count/read (explicit param เสมอ ไม่ใช่ ambient state) |
 | `Persistence.Provisioning/ProvisioningCoordinator.cs` | Super-recheck `UPDLOCK`/`HOLDLOCK` + idempotency-ledger raw INSERT |
 | `Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs` | admin cross-merchant read-back (`ListByTenantAsync`, `GetMerchantHandler`'s ONE caller) |
+| `Persistence.MerchantRuntime/Orders/Items/AdminItemPolicyWriter.cs` | admin cross-merchant `ItemPolicy` write (`policy-reference-record`) — `LoadAsync` ต้องอ่าน `OrderItem`/`ItemPolicy` ก่อนรู้ merchant ของ item; ตัวจำกัดขอบเขตจริงคือ `AdminItemPolicyWriteAuthorizer.CanWrite` ตอน `SaveChanges` (ชั้นนี้ข้าม **read** floor เท่านั้น). context เป็นของตัวเอง (`AddAdminItemPolicyWriter`) ไม่ใช่ ambient — ambient ผูก `MerchantRequestWriteAuthorizer` ซึ่ง deny ทุก admin write |
+| `Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs` | admin cross-merchant policy report (`policy-reference-record`) — `BuildQuery(ignoreFilters: true)` ต่อ query root ทั้ง 3 (`OrderItem`/`Order`/`ItemPolicy`); confine ด้วย `IsUnrestrictedAdmin`/`AccessibleMerchantIds` + `?merchantId=` ที่ **caller** (`AdminItemPolicyReader`) — ตัว reader เองไม่มี bypass primitive จึงไม่อยู่ใน allowlist |
 
 ทุกอันมีเหตุผลเดียวกัน: จุดที่ ambient `CurrentMerchant`/query filter **ใช้ไม่ได้โดยธรรมชาติ** (ยังไม่รู้
 merchant, หรือต้อง cross-merchant โดยตั้งใจภายใต้ capability ที่ตรวจแล้ว) — ไม่ใช่ "ขี้เกียจเขียน filter"
@@ -332,7 +334,7 @@ fallback log แทนดรอปเงียบ.
 | `EmptyOrSentinelHit` | `GuardedRuntimeDbContext` — `MerchantId == Guid.Empty` |
 | `PortCardinalityAnomaly` | session `TrySupersedeAsync` (×2), `MerchantRegistrationWriter` approve/reject — affected-row 0 |
 | `ApplockTimeout` | `VaultAuditAppender` — `sp_getapplock` timeout |
-| `AdminCrossMerchantAction` | `ConnectionRepository.ListByTenantAsync` — escape-hatch use |
+| `AdminCrossMerchantAction` | `ConnectionRepository.ListByTenantAsync`, `AdminItemPolicyReader.ListAsync`, `AdminItemPolicyWriter.LoadAsync` — escape-hatch use (emit **ครั้งเดียวต่อ call** ไม่ใช่ต่อแถว) |
 | `AdminRevalidationDenial` | `AuthorizationLease.VerifyAsync`, `ProvisioningCoordinator.VerifyCallerIsActiveSuperAsync` |
 | `RegistrationSentinelMisuse` | ไม่มี site แยก — degenerate เข้า `CanWriteDenial` |
 
@@ -364,7 +366,7 @@ HTTP + merchant-user session cookie
 
 Isolation มาจาก: EF query filter (ทุก request ผ่าน context เดียวกัน, capability แยกที่ actor ไม่ใช่ principal)
 
-### Flow B — Admin provisioning (`POST /api/v1/admins/merchants`) — cross-context (the ONE)
+### Flow B — Admin provisioning (`POST /api/v1/merchants`) — cross-context (the ONE)
 
 ```
 HTTP + Admin session cookie (BFF)
@@ -440,7 +442,7 @@ reveal secret ของ merchant X:
 | sealed write guard base class | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/GuardedRuntimeDbContext.cs` |
 | `IWriteAuthorizer` + `WriteOperation` | `src/BuildingBlocks/BuildingBlocks.Application/IWriteAuthorizer.cs` |
 | production `IWriteAuthorizer` impls | `src/Hosts/Api/Persistence/WriteAuthorizers.cs`, `src/Hosts/Api/BackgroundDispatch/WorkerWriteAuthorizer.cs` |
-| 3 runtime `DbContext` + registration | `src/Persistence/Persistence.{ControlPlane,MerchantUser,MerchantRuntime}/*PersistenceRegistration.cs` |
+| 3 runtime `DbContext` + registration | `src/Persistence/Persistence.{ControlPlane,MerchantUsers,MerchantRuntime}/*PersistenceRegistration.cs` (assembly `MerchantUsers` **พหูพจน์**; ไฟล์ข้างในเป็น `MerchantUserPersistenceRegistration.cs` เอกพจน์) |
 | cross-context provisioning UoW | `src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs` |
 | escape-hatch allowlist (enforced) | `tests/Architecture.Tests/BypassPrimitiveTests.cs` |
 | observability core (channel/dispatcher/registration) | `src/BuildingBlocks/BuildingBlocks.Infrastructure/Observability/*.cs` |
