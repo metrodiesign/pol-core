@@ -217,6 +217,25 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 
 > **การตั้งชื่อ (hierarchical naming L1-L8)**: ชื่อ type ไม่ซ้ำ prefix ของโมดูล — `Checkouts.Domain.Session`, `Payments.Domain.Session`, `Orders.Domain.Items.Item` ฯลฯ. ที่ Program.cs จึง import ด้วย alias ชัดเจนแทน blanket `using`.
 
+**หน้าที่/บทบาท + ผู้ดำเนินการต่อโมดูล** (quick reference — verify ตรงกับ `RequireAuthorization`/`RequirePermission` จริงใน `Program.cs`; รายละเอียดเชิงลึกดู [platform-modules.md](platform-modules.md)):
+
+| Module | หน้าที่ / บทบาท | ผู้ดำเนินการ (actor) |
+|---|---|---|
+| Products | แคตตาล็อกกรมธรรม์ต่อ merchant — สร้าง/list สินค้าที่ merchant-user เลือกขายให้ลูกค้า | Merchant-user |
+| Carts | ตะกร้าเก็บ line ก่อน checkout — เพิ่ม/แก้/ลบ line, คำนวณ subtotal | Merchant-user |
+| Checkouts | ล็อกราคา (จาก cart subtotal) + snapshot เงื่อนไขกรมธรรม์/ข้อมูลผู้เอาประกัน ณ เวลาซื้อ ก่อนเปิด order | Merchant-user |
+| Orders | คำสั่งซื้อ + item snapshot + policy-reference record ที่แก้ทีหลังได้ + summary link + reconciliation/policy report | Merchant-user (สร้าง/list/แก้ policy ของ merchant ตัวเอง) · Admin (cross-merchant, tag Admin Orders) · ลูกค้าปลายทาง (อ่าน summary ผ่าน capability link — anonymous) |
+| Payments | สร้าง payment session + redirect ไปหน้าจ่ายของ PSP + รับ webhook ยืนยันผลจ่าย (source of truth) | Merchant-user (สร้าง session/redirect) · PSP (webhook, server-to-server — ไม่มี human actor) |
+| Merchants | merchant (tenant) entity + merchant-user identity ทั้งวงจร (สมัคร → approve/reject → login) | Admin (provision merchant, approve/reject merchant-user) · Merchant-user เอง (สมัคร/login ตัวเอง) |
+| Admins | admin staff identity + session + ขอบเขต merchant ที่ admin คนนั้นเข้าถึงได้ | Admin เอง (login ตัวเอง) · Admin tier Super (สร้าง/จัดการบัญชี admin คนอื่น) |
+| Iam | central RBAC catalog (permission/role) ใช้ร่วมทั้ง 2 plane | Admin (จัดการ role ฝั่ง admin) · Merchant-user ที่มีสิทธิ์ `roles.manage` (จัดการ role ฝั่ง merchant ตัวเอง) |
+| Positions | reference data: รายชื่อตำแหน่งงาน (FK บน `AdminAccount`) | Admin (gate `user.manage`) |
+| Offices | reference data: รายชื่อสำนักงาน/สาขา | Admin (gate `user.manage`) |
+| Levels | reference data: รายชื่อระดับตำแหน่ง | Admin (gate `user.manage`) |
+| Divisions | reference data: รายชื่อสายงาน/ฝ่าย | Admin (gate `user.manage`) |
+
+> `MasterData` ไม่อยู่ใน 12 โมดูลนี้ — ซาก `obj/` ที่ไม่ได้ track จากก่อน masterdata-split (ดูหมายเหตุใน "โครงสร้าง top-level" ด้านบน), ไม่มี source เหลือ
+
 ### 4.1 Products — แคตตาล็อกกรมธรรม์
 
 | ไฟล์ | ชั้น | บทบาท |
