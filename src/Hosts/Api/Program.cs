@@ -294,42 +294,28 @@ builder.Services.AddOpenApi(options =>
         document.Info.Description =
             "Captive payment orchestration (redirect-only, PCI SAQ A). Merchant storefront surface + Admin BFF + MerchantUser BFF.";
 
-        // x-tagGroups: nest the 18 route tags into 4 sidebar groups mirroring the platform's actor model
-        // (selling funnel / admin console / merchant console / reference data) instead of one flat tag list.
+        // x-tagGroups: nest the 18 route tags under the 12 src/Modules/* business modules that back them
+        // (see docs/reference/src-structure.md §4 for the tag-to-module map), instead of a flat tag list.
+        // Webhooks rides on Payments and Admin Auth/MerchantUser Auth ride on the Admins/Merchants identity
+        // modules (their BFF plumbing lives in Hosts/Api/*, but the operations are that module's concern) —
+        // both have no module folder of their own, so they group under the module whose data they touch.
         document.Extensions ??= new Dictionary<string, IOpenApiExtension>();
         document.Extensions["x-tagGroups"] = new JsonNodeExtension(JsonNode.Parse("""
             [
-              { "name": "Selling Funnel", "tags": ["Products", "Cart", "Checkout", "Payments", "Orders", "Webhooks"] },
-              { "name": "Admin Console", "tags": ["Admin Auth", "Admin Admins", "Admin Merchants", "Admin MerchantUsers", "Admin Orders", "Admin Roles"] },
-              { "name": "Merchant Console", "tags": ["MerchantUser Auth", "MerchantUser Roles"] },
-              { "name": "Reference Data", "tags": ["Positions", "Offices", "Levels", "Divisions"] }
+              { "name": "Products", "tags": ["Products"] },
+              { "name": "Carts", "tags": ["Cart"] },
+              { "name": "Checkouts", "tags": ["Checkout"] },
+              { "name": "Orders", "tags": ["Orders", "Admin Orders"] },
+              { "name": "Payments", "tags": ["Payments", "Webhooks"] },
+              { "name": "Merchants", "tags": ["Admin Merchants", "MerchantUser Auth", "Admin MerchantUsers"] },
+              { "name": "Admins", "tags": ["Admin Admins", "Admin Auth"] },
+              { "name": "Iam", "tags": ["Admin Roles", "MerchantUser Roles"] },
+              { "name": "Divisions", "tags": ["Divisions"] },
+              { "name": "Levels", "tags": ["Levels"] },
+              { "name": "Offices", "tags": ["Offices"] },
+              { "name": "Positions", "tags": ["Positions"] }
             ]
             """)!);
-
-        // x-displayName: inside its own group, a tag doesn't need to repeat the group name too
-        // ("Admin Console" > "Admin Auth" -> "Admin Console" > "Auth").
-        var tagDisplayNames = new Dictionary<string, string>
-        {
-            ["Admin Auth"] = "Auth",
-            ["Admin Admins"] = "Admins",
-            ["Admin Merchants"] = "Merchants",
-            ["Admin MerchantUsers"] = "MerchantUsers",
-            ["Admin Orders"] = "Orders",
-            ["Admin Roles"] = "Roles",
-            ["MerchantUser Auth"] = "Auth",
-            ["MerchantUser Roles"] = "Roles",
-        };
-        if (document.Tags is not null)
-        {
-            foreach (var tag in document.Tags)
-            {
-                if (tag.Name is not null && tagDisplayNames.TryGetValue(tag.Name, out var displayName))
-                {
-                    tag.Extensions ??= new Dictionary<string, IOpenApiExtension>();
-                    tag.Extensions["x-displayName"] = new JsonNodeExtension(JsonNode.Parse($"\"{displayName}\"")!);
-                }
-            }
-        }
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
