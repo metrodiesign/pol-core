@@ -1,7 +1,7 @@
 # Runbook: หมุน Vault master key (self-host)
 
-Vault เก็บ secret แบบ envelope: ต่อ secret มี DEK สุ่มเข้ารหัส plaintext, แล้ว KEK ต่อ tenant
-(HKDF-SHA256 จาก master key) ห่อ DEK อีกชั้น. master key อยู่ใน "keyring" แบบมีเวอร์ชัน: แต่ละ
+Vault เก็บ secret แบบ envelope: ต่อ secret มี DEK สุ่มเข้ารหัส plaintext, แล้ว KEK ต่อ merchant
+(HKDF-SHA256 จาก master key, salt = `merchantId`) ห่อ DEK อีกชั้น. master key อยู่ใน "keyring" แบบมีเวอร์ชัน: แต่ละ
 `VaultSecretBlob.KeyId` บอกว่า DEK ของมันถูกห่อด้วย key id ไหน, secret ใหม่ห่อด้วย key ที่เป็น `ActiveKeyId`.
 การหมุน master key = เพิ่ม key ใหม่ -> ตั้งเป็น active -> re-wrap DEK ของ blob เก่าทั้งหมดให้ไปอยู่ key ใหม่
 -> ปลด key เก่าออกเมื่อไม่มี blob อ้างอิงแล้ว.
@@ -13,14 +13,17 @@ ciphertext ของ secret ไม่ถูกแตะ.
 
 - ห้ามลบ key id ออกจาก keyring ก่อน re-wrap blob ที่อ้าง id นั้นครบ. RevealAsync fail CLOSED บน key id
   ที่ไม่รู้จัก (ไม่มี fallback ไป active key) -> ปลด key เร็วไป = reveal ของ blob เก่าพังทั้งหมด (เก็บเงินไม่ได้).
-- retire-gate เป็น GLOBAL ข้ามทุก tenant. ต้องยืนยัน `COUNT(*) WHERE KeyId = <old id> == 0` ข้าม **ทุก tenant**
-  (รันด้วย principal ที่ bypass RLS เช่น `pol_admin`) ก่อนถอด key เก่า. ยืนยัน tenant เดียวแล้วถอด = strand
-  blob ของ tenant อื่น.
+- retire-gate เป็น GLOBAL ข้ามทุก merchant. ต้องยืนยัน `COUNT(*) WHERE KeyId = <old id> == 0` ข้าม **ทุก merchant**
+  ก่อนถอด key เก่า. ยืนยัน merchant เดียวแล้วถอด = strand blob ของ merchant อื่น.
+  ไม่มี RLS ที่ DB แล้ว (เหลือ principal เดียว `pol_app`, ไม่มี bypass role) — query ตรงบน DB จึงเห็นทุก
+  merchant อยู่แล้ว ไม่ต้องหา principal พิเศษ. การกรองต่อ merchant เป็น app-layer EF global query filter
+  ซึ่งไม่มีผลกับ SQL ที่ DBA รันเอง.
 - keyring build ครั้งเดียวตอน boot (Singleton). เปลี่ยน key/ไฟล์ secret = **ต้อง restart process** (ไม่มี hot reload).
-- ถ้าไฟล์ secret หาย/ว่าง/ผิดตอน boot: Api host resolve keyring ตอน start
-  -> factory throw -> host crash-loop (fail-fast). Worker build keyring แบบ lazy -> ความผิดโผล่ที่
-  `/health/ready` = not_ready (และ reveal throw). gate การ deploy ที่ `/health/ready` = healthy เสมอ
-  ไม่ใช่แค่ "process ขึ้น". mount secret ให้พร้อมก่อน start.
+- ถ้าไฟล์ secret หาย/ว่าง/ผิดตอน boot: `Api` (host เดียวของระบบ) resolve `VaultKeyring` ตอน start
+  (`src/Hosts/Api/Program.cs` — `app.Services.GetRequiredService<VaultKeyring>()`) -> factory throw ->
+  host crash-loop (fail-fast) ทันที ไม่รอให้ไปพังตอน reveal ครั้งแรก. `/health/ready` มี
+  `VaultReadinessCheck` ซ้ำอีกชั้น (active key ต้องเป็น 32 ไบต์) — gate การ deploy ที่
+  `/health/ready` = healthy เสมอ ไม่ใช่แค่ "process ขึ้น". mount secret ให้พร้อมก่อน start.
 - master key เป็น 32 ไบต์ (AES-256) base64. ห้าม commit ลง repo. ไฟล์ key ถูก `.gitignore` (`*.key`, `secrets/`).
 
 ## ขั้นตอน
@@ -56,16 +59,27 @@ curl -fsS http://<host>/health/ready    # ต้องได้ {"status":"healt
 
 หลังขั้นนี้: secret ใหม่ห่อด้วย `v2`, blob เก่ายังถือ `local-envelope-v1` และ reveal ได้ปกติ (keyring มีทั้งคู่).
 
-### 4. Re-wrap blob เก่าทุก tenant
+### 4. Re-wrap blob เก่าทุก merchant
 
-รัน `IVaultMaintenance.RewrapTenantToActiveKeyAsync(tenantId)` ต่อ tenant (จาก admin/maintenance entrypoint
-ที่ตั้ง ambient tenant ถูกต้อง ภายใต้ RLS scope ของ tenant นั้น). idempotent — ข้าม blob ที่ active อยู่แล้ว,
-คืนจำนวน blob ที่ re-wrap. วน tenant ให้ครบทุกราย.
+รัน `IVaultMaintenance.RewrapMerchantToActiveKeyAsync(merchantId, cancellationToken)` ต่อ merchant จาก
+admin/maintenance entrypoint. signature เต็ม:
 
-ตรวจหลัง re-wrap (รันด้วย `pol_admin` / bypass):
+```csharp
+Task<int> RewrapMerchantToActiveKeyAsync(Guid merchantId, CancellationToken cancellationToken);
+```
+
+entrypoint ต้องรันภายใต้ `IActorContext` ที่ผูกกับ merchant นั้น (`HasActor == true` และ
+`MerchantId == merchantId`) — `MerchantRuntimeDbContext` มี EF global query filter
+`x.MerchantId == CurrentMerchant` โดย `CurrentMerchant` มาจาก `IActorContext`; actor ที่ไม่ผูก resolve เป็น
+`Guid.Empty` แล้วจะเห็น 0 แถว = re-wrap ไม่โดนอะไรเลยแบบเงียบ ๆ. idempotent — ข้าม blob ที่ active อยู่แล้ว,
+คืนจำนวน blob ที่ re-wrap. วน merchant ให้ครบทุกราย.
+
+ตรวจหลัง re-wrap (SQL ตรงบน DB `VCentralPay`, ด้วย `pol_app` หรือ `sa` — `pol_app` มี SELECT บนตารางนี้
+และไม่มี RLS กรอง จึงเห็นทุก merchant):
 
 ```sql
-SELECT KeyId, COUNT(*) FROM VCentralPay.VaultSecrets GROUP BY KeyId;
+USE VCentralPay;
+SELECT KeyId, COUNT(*) FROM merch.VaultSecrets GROUP BY KeyId;
 -- คาดหวัง: เหลือเฉพาะ v2; ไม่มีแถว local-envelope-v1
 ```
 
@@ -74,11 +88,12 @@ SELECT KeyId, COUNT(*) FROM VCentralPay.VaultSecrets GROUP BY KeyId;
 ยืนยัน GLOBAL ก่อน:
 
 ```sql
-SELECT COUNT(*) FROM VCentralPay.VaultSecrets WHERE KeyId = 'local-envelope-v1';  -- ต้อง = 0 ข้ามทุก tenant
+USE VCentralPay;
+SELECT COUNT(*) FROM merch.VaultSecrets WHERE KeyId = 'local-envelope-v1';  -- ต้อง = 0 ข้ามทุก merchant
 ```
 
 ได้ 0 แล้วจึงถอด entry `local-envelope-v1` ออกจาก config -> restart. unmount/destroy ไฟล์ secret เก่า.
-ถ้ายังไม่ใช่ 0: ห้ามถอด — ย้อนไปข้อ 4 ทำ re-wrap tenant ที่ค้างให้ครบ.
+ถ้ายังไม่ใช่ 0: ห้ามถอด — ย้อนไปข้อ 4 ทำ re-wrap merchant ที่ค้างให้ครบ.
 
 ## Rollback
 

@@ -1,11 +1,20 @@
 # สรุปโมดูลและบทบาท — Internal Payment Orchestration Platform (captive)
 
-> **[เอกสารเก่า — pre-rf1 vocabulary, ณ 2026-07-12]** เขียนก่อน spec `rf1-schema-reset` (multi-schema + actor
-> rename ทั้งระบบ: `Tenant`→`Merchant`, `AdminAccount`→`PlatformUser`, `ProducerAccount`→`MerchantUser`,
-> `Money.MinorUnits`→`DECIMAL(19,4)`) — เนื้อหาด้านล่างอาจยังอ้างชื่อ/schema เก่า. ของจริงปัจจุบันดู
-> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) · [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
-> [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (schema/rename map เต็ม). rewrite
-> เอกสารนี้ทั้งฉบับเป็นงานของ spec ปลายทางที่เกี่ยวข้อง — ไม่ใช่ rf1.
+> **[as-built sweep 2026-07-25]** ภาค 1-7 + Naming ถูกไล่เทียบกับโค้ดจริงรอบนี้แล้ว — ชื่อ entity/table/schema,
+> route, isolation floor และสถานะ adapter อัปเดตตรงกับ `src/` ณ วันที่นี้. **สองเรื่องที่เปลี่ยนจากเวอร์ชันก่อน
+> อย่างมีนัยสำคัญ:** (1) **ไม่มี SQL Server RLS ในระบบแล้ว** — isolation floor ย้ายไป app layer ทั้งหมด
+> (EF global query filter + sealed write guard, principal เดียว `pol_app`) ตั้งแต่ spec `rls-to-query-filter`;
+> (2) actor/entity rename จาก `rf1-schema-reset` + `admin-actor-rename` มีผลแล้ว (`Tenant`→`Merchant`,
+> `AdminAccount`→`Admins.Domain.Users.User`, `ProducerAccount`→`Merchants.Domain.Users.User`,
+> `Money.MinorUnits`→`DECIMAL(19,4)`).
+>
+> canon ที่ต้องยึดเมื่อขัดกับเอกสารนี้: [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
+> [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
+> [`db-connection-and-rls.md`](db-connection-and-rls.md) (isolation floor ปัจจุบัน, current-state reference)
+>
+> **ยังคงเป็นภาษาเชิงออกแบบ (ไม่ใช่ as-built):** คำว่า "Tenant Console" ในภาค 1-7 = **Merchant Console** ของจริง
+> (แอปเดียวที่ 3 บริษัทใช้ร่วม) — prose ยังไม่ถูก rename ทั้งฉบับเพราะ `PROJECT_CONTEXT.md` เองก็ยังใช้คำเดิม;
+> ชื่อ **entity/table/route** ในเอกสารนี้เป็นชื่อจริงแล้ว.
 
 > โมเดล **captive / internal** · redirect-only · multi-tenant · ไม่ถือเงิน · ใช้ฟรีภายในเครือ
 > Tenant: **vPrivilege · vCommerce · vSouvenir** · PSP ปลายทาง: 2C2P + Omise/Opn
@@ -29,7 +38,7 @@
 - **Control plane** — การตั้งค่า/กำกับดูแล (console → backend) ไม่แตะเส้นทางเงิน
 - **Data plane** — request การจ่าย + สถานะ (ไม่ใช่ตัวเงิน เงิน settle ตรงจาก PSP เข้าบริษัท)
 
-หลักการที่บังคับทั้งระบบ: **multi-tenant isolation (RLS)**, **redirect-only (PCI SAQ A รายนิติบุคคล)**, **webhook = source of truth**, **maker-checker สำหรับ action อ่อนไหว**, **idempotency**, **credential vault security**, **แยก Tenant/Admin console เป็นคนละแอป (blast radius)**
+หลักการที่บังคับทั้งระบบ: **multi-merchant isolation ที่ app layer** (EF global query filter อ่าน + sealed write guard เขียน — **ไม่มี SQL RLS แล้ว**, ดู [db-connection-and-rls.md](db-connection-and-rls.md)), **redirect-only (PCI SAQ A รายนิติบุคคล)**, **webhook = source of truth**, **maker-checker สำหรับ action อ่อนไหว**, **idempotency**, **credential vault security**, **แยก Merchant/Admin console เป็นคนละแอป (blast radius)**
 
 ชั้นจากบนลงล่าง: ช่องทางบริษัทในเครือ → control plane (2 console) → platform core → PSP adapter → PSP (ใน PCI scope) โดยเงิน settle จาก PSP เข้าบัญชีบริษัทโดยตรง
 
@@ -44,16 +53,24 @@
 | **Products** | แผนประกัน / กรมธรรม์ (แคตตาล็อก + quote เบี้ย) | สินค้า / SKU |
 | **Cart** | ตะกร้าสินค้า — รวมแผนที่เลือก + quote (แก้ไขได้) | ตะกร้า / cart |
 | **Checkout** | หน้าสรุปคำสั่งซื้อ + ส่วนลด + ข้อมูลผู้ซื้อ + **เลือกช่องทางจ่าย 1 ช่องทาง (ล็อก)** + ตั้งค่าผู้รับแจ้งเตือน → สร้าง Order | checkout |
-| **Orders** | ข้อมูลคำสั่งซื้อ + **ลิงก์**ไปหน้าสรุป (ที่ Payments ให้บริการ) · **ส่งแจ้งเตือน + ลิงก์ให้ลูกค้าแบบ background** (ระบุผู้รับได้) · `PendingPayment` **ยังไม่แตะ PSP** · รับ `PaymentPaid` → Paid | คำสั่งซื้อ / order |
-| **Payments** | **หน้าจอสรุปคำสั่งซื้อสำหรับลูกค้า** (ดึงข้อมูลจาก Orders) · ลูกค้ากดยืนยัน → สร้าง **รายการจ่ายกับ PSP** + redirect URL (`paymentUri`) → รับชำระ redirect-only, captive | ชำระเงิน / payment |
+| **Orders** | ข้อมูลคำสั่งซื้อ + **ลิงก์**ไปหน้าสรุป (ที่ Payments ให้บริการ) · **ส่งแจ้งเตือน + ลิงก์ให้ลูกค้าแบบ background** (ระบุผู้รับได้) · `AwaitingPayment` **ยังไม่แตะ PSP** · รับ `PaymentPaid` → Paid | คำสั่งซื้อ / order |
+| **Payments** | **หน้าจอสรุปคำสั่งซื้อสำหรับลูกค้า** (ดึงข้อมูลจาก Orders) · ลูกค้ากดยืนยัน → สร้าง **รายการจ่ายกับ PSP** + redirect URL (`PspCharge.RedirectUrl`) → รับชำระ redirect-only, captive | ชำระเงิน / payment |
 
 Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Payments** · จบที่ **"รับชำระเสร็จ → emit `PaymentPaid`"** — SaaS **ไม่มีขั้นจัดส่ง/ออกกรมธรรม์ (issuance)**
 
 **ผู้เกี่ยวข้อง:** *ผู้ผลิต (Tenant Console)* = ผู้เลือกแผน/กรมธรรม์ → ตะกร้า → checkout · *ลูกค้า* = เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น)
 
-> **ลำดับสำคัญ:** สร้าง Order **ไม่ได้สร้างรายการกับ PSP** — Order อยู่ `PendingPayment` + มีลิงก์ไปหน้าสรุป · รายการกับ PSP (`paymentUri`) ถูกสร้างใน **Payments เมื่อลูกค้าเปิดหน้าสรุป (ของ Payments) แล้วกดยืนยัน** → Orders ไม่ผูกกับ PSP โดยตรง เปลี่ยน/เพิ่ม PSP ได้โดยไม่แตะ Orders
+> **ลำดับสำคัญ:** สร้าง Order **ไม่ได้สร้างรายการกับ PSP** — Order อยู่ `AwaitingPayment` + มีลิงก์ไปหน้าสรุป · รายการกับ PSP (`PspCharge.RedirectUrl`) ถูกสร้างใน **Payments เมื่อลูกค้าเปิดหน้าสรุป (ของ Payments) แล้วกดยืนยัน** → Orders ไม่ผูกกับ PSP โดยตรง เปลี่ยน/เพิ่ม PSP ได้โดยไม่แตะ Orders
 
 > **การแจ้งเตือน (background):** Orders ส่งผ่าน **Message Queue → Notification Worker** · ล้มเหลว → **retry แบบ backoff** สูงสุด N ครั้ง → ครบแล้วเข้า **DLQ** + แจ้งผู้ผลิต · **ลิงก์หน้าสรุปมี TTL** เปิดหลังหมดอายุ = error · **ส่งซ้ำ / ออกลิงก์ใหม่** = Orders ออก token ใหม่ + ต่ออายุ แล้ว enqueue รอบใหม่
+>
+> **[as-built 2026-07-25]** ไม่มี message broker แยกและ **ไม่มี DLQ** — ของจริงคือ **transactional outbox
+> ในตาราง `txn.OutboxMessages`** (`Attempts`/`Error`/`LeaseOwner`/`LeaseExpiresAt`) drain โดย
+> `IHostedService` **ใน process ของ Api เอง** (host `Worker` ถูกลบทิ้งทั้งโปรเจกต์แล้ว —
+> `multi-tier-deployment`). event คือ `Contracts.CustomerOrderNotification(MerchantId, OrderId, Recipient,
+> SummaryToken, OccurredAt)`. **TTL จริง = `Order.SummaryTokenTtl` 72 ชั่วโมง (hardcoded)**;
+> เปิดหลังหมดอายุ → **410 Gone**, token ไม่รู้จัก → 404. ส่งซ้ำ = `POST /api/v1/orders/{orderId}/summary/resend`
+> ซึ่ง **rotate token ใหม่ + ต่ออายุ 72h** (ลิงก์เดิมตายทันที)
 
 > **ช่องทางชำระเงิน:** Checkout เลือก **1 ช่องทางต่อ Order** (บัตร / PromptPay / ผ่อน อย่างใดอย่างหนึ่ง) แล้ว **ล็อก** — ลูกค้า **เลือก/เปลี่ยนเองไม่ได้** ที่หน้าสรุป · Payments สร้างรายการ PSP ตามช่องทางที่ล็อกไว้ (routing primary/fallback เป็นเรื่องภายในของช่องทางนั้น)
 
@@ -78,6 +95,7 @@ Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Paymen
 - ชนิดเงินที่ seam `PaymentPaid` — `Amount` เป็น `Money` (SharedKernel) ใช้ร่วมทุกโมดูลแล้ว — ห้ามถอยกลับไป scalar/decimal ที่ seam
 - **verify amount/currency** ตอน Orders รับ `PaymentPaid` ไม่ใช่แค่ id (กันจ่ายไม่ครบ/สกุลผิด) — ทำแล้วใน `Order.MarkPaid`
 - **correlation:** Orders จับคู่ order ด้วย **`PaymentPaid.OrderId`** (field ชั้นหนึ่งของ contract; PR #44, spec `bugfix-order-paid-link`) — `Order.PaymentSessionId` เป็น legacy ไม่มี production writer ห้ามใช้เป็น join key
+- **contract จริง:** `Contracts.PaymentPaid(PaymentSessionId, OrderId, MerchantId, Amount, PspCode, ExternalChargeId, EventId, OccurredAt)` เป็น `INotification` ส่งผ่าน **transactional outbox** (at-least-once) → `Orders.Application.OrderPaidConsumer` ซึ่ง idempotent · เป็น **integration event ข้ามโมดูลตัวเดียวที่ Payments emit**
 
 ---
 
@@ -105,7 +123,7 @@ sequenceDiagram
   end
   Pd->>Ck: สรุป + ส่วนลด + ข้อมูลผู้ซื้อ + เลือกช่องทางจ่าย (1 อย่าง)
   Ck->>O: สร้าง Order (+ ช่องทางจ่ายที่ล็อก + ผู้รับแจ้งเตือน)
-  Note over O: PendingPayment · มีลิงก์หน้าสรุป · ยังไม่แตะ PSP
+  Note over O: AwaitingPayment · มีลิงก์หน้าสรุป · ยังไม่แตะ PSP
   O-)Cu: แจ้งเตือน + ลิงก์หน้าสรุป (background · ระบุผู้รับได้)
   Cu->>Pay: เปิดหน้าสรุปคำสั่งซื้อ (จากลิงก์)
   Pay->>O: ดึงข้อมูลคำสั่งซื้อ
@@ -122,7 +140,7 @@ sequenceDiagram
   Note over Pay,PSP: PSP แตะครั้งที่ 2 = source of truth
   Pay->>Pay: verify + idempotent + fetch-to-confirm
   Pay->>O: emit PaymentPaid (Mediator)
-  O->>O: PendingPayment → Paid
+  O->>O: AwaitingPayment → Paid
   Note over O: จบ — ไม่มี issuance/จัดส่ง
 ```
 
@@ -218,16 +236,28 @@ sequenceDiagram
 - **ลำดับ:** Admin สร้าง tenant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ tenant → provision Tenant Console + พื้นที่ข้อมูลแยก → tenant พร้อมใช้
 - **บทบาท:** ทีมกลาง provision ทั้งหมดผ่าน Admin Console (ไม่ใช่ self-serve ของ tenant) เหมาะกับ captive เพราะ 3 บริษัทอยู่ในเครือ ทีมกลางถือ credential ได้
 - **ขอบเขต:** เฉพาะ vPrivilege / vCommerce / vSouvenir (allowlist) · ไม่มี billing
-- **ข้อมูลที่ provision (data model):** `Tenant` (Name/Status/EnabledChannels/Currency) → `PspConnection` ต่อ PSP (Psp, MerchantId, EnabledMethods, WebhookPath) → `VaultSecret` ต่อ connection (SecretKey/PublicKey/WebhookSecret — เก็บเป็น ciphertext เข้ารหัส) · runtime: `PaymentSession` อ้าง TenantId + ConnectionId
-- **การอ่านตอน runtime:** adapter อ่าน `PspConnection` แล้ว decrypt `VaultSecret` ที่เกี่ยว ไปเรียก 2C2P/Omise แล้วเขียน `PaymentSession`
+- **ข้อมูลที่ provision (data model, as-built):** `Merchant` → `merch.Merchants` (Code/DisplayName/LegalEntityId/Status/Country/Currency/EnabledChannels + `Metadata` json) → `Payments.Domain.Psp.Connection` → `txn.PspConnections` ต่อ PSP (MerchantId, Psp, EnabledMethods csv, **`SecretRefName`**, `Metadata` json, IsEnabled) → `VaultSecretBlob` → `merch.VaultSecrets` คีย์ด้วย (MerchantId, `Name`) เก็บ ciphertext + `Hint` (last-4, ไม่ใช่ secret) · runtime: `Payments.Domain.Session` → `txn.PaymentSessions` อ้าง **MerchantId + OrderId + Psp** (ไม่ได้อ้าง ConnectionId)
+- **`PspConnection` ไม่มีคอลัมน์ `WebhookPath`** — path/return URL ที่ admin ส่งมาเก็บลง `Metadata` json verbatim; ส่วน endpoint/return URL ที่ adapter ใช้จริงตอน runtime มาจาก config section `Psp` (appsettings/env, `PspOptions`) ซึ่งเป็น **global ต่อ deployment ไม่ใช่ต่อ connection** — ช่องว่างที่ยังไม่ปิด
+- **1 connection = 1 vault entry ไม่ใช่ 1 secret field = 1 แถว** — plaintext ที่ reveal คืน **JSON envelope camelCase** ก้อนเดียวที่รวมทุก field ของ PSP นั้น (2C2P: `{merchantId, secretKey}` · Omise: `{secretKey, publicKey?, webhookSecret?}`) — shape เป็นเจ้าของโดย `IPspSecretEnvelopeFactory` (`Payments.Application`) และ adapter ทุกตัวต้อง agree
+- **การอ่านตอน runtime:** handler อ่าน `Connection` → `IVaultSecretStore.RevealAsync(merchantId, connection.SecretRefName)` → adapter parse envelope → เรียก 2C2P/Omise → เขียน `Session`
 
 #### Config payload (admin submit)
 
 ตัวอย่าง payload เต็ม (100%) ที่ทีมกลางกรอกผ่าน Admin Console — vCommerce ใช้ทั้ง 2C2P + Omise โดยทั้ง 2 PSP เปิดครบ 3 ช่องทาง:
 
+> **[as-built 2026-07-25]** endpoint จริงคือ **`POST /api/v1/merchants`** (Super-only + CSRF filter) และ
+> **top-level key คือ `merchant` ไม่ใช่ `tenant`** (`ProvisionMerchantRequest`). ตัวที่เป็นคอลัมน์จริงมีแค่
+> `code`/`displayName`/`legalEntityId`/`country`/`currency`/`enabledChannels` — คีย์อื่นใต้ `merchant`
+> (`status`/`timezone`/`locale`/`branding`/`routing`/`session`/`createdByAdmin`/…) ถูกจับด้วย
+> `[JsonExtensionData]` แล้วเก็บลง `Merchant.Metadata` **verbatim** (รวม `status` — ค่าจริงตอนสร้างบังคับเป็น
+> `Active` เสมอ, payload เปลี่ยนไม่ได้). ในแต่ละ `pspConnections[]` เช่นกัน: `psp`/`enabledMethods`/`merchantId`/
+> `secrets` เป็น field จริง ที่เหลือทั้งหมดลง `Connection.Metadata` verbatim. `AdminSubject` + correlation id
+> **ไม่อยู่ใน body** — host อ่านจาก authenticated request. guard `RejectSecretsInConfig` ตอบ 400 ถ้าพบ
+> `secretKey`/`publicKey`/`webhookSecret` โผล่ **นอก** ก้อน `secrets`.
+
 ```json
 {
-  "tenant": {
+  "merchant": {
     "code": "vcommerce",
     "displayName": "vCommerce Co., Ltd.",
     "legalEntityId": "0105560000000",
@@ -294,42 +324,53 @@ sequenceDiagram
 ```
 
 **Field reference (ที่เพิ่มจากเวอร์ชันย่อ):**
-- `tenant.routing` — เพราะทั้ง 2 PSP ทำได้ครบ 3 ช่องทาง ต้องระบุ **primary/fallback ต่อช่องทาง** (เช่น installment → Omise ก่อน, ตกไป 2C2P) feed เข้า Method router
+- `merchant.routing` — เพราะทั้ง 2 PSP ทำได้ครบ 3 ช่องทาง ต้องระบุ **primary/fallback ต่อช่องทาง** (เช่น installment → Omise ก่อน, ตกไป 2C2P) feed เข้า Method router
+  > **[as-built 2026-07-25]** ยัง **ไม่มีโค้ดอ่านค่านี้** — เก็บลง `Merchant.Metadata` เฉย ๆ; PSP ที่ใช้จริงมาจาก
+  > `Psp` ใน request body ของ `POST /api/v1/payments/sessions` (ผู้เรียกเลือกเอง) ไม่ใช่จาก routing config
   > **[intake 2026-07-05 — superseded เชิง target]** shape `{primary, fallback}` เป็นรุ่นเดิม —
   > target routing policy เป็น resource ของตัวเอง (มี `version`, `strategy: ordered_failover`,
   > routes + priority + conditions) ดู [ภาค 8.6](#8-canonical-payment-api--target-design-normative);
   > ห้ามเปิด spec routing จาก shape นี้โดยไม่เทียบภาค 8.6 ก่อน
-- `tenant.branding` / `locale` / `timezone` — แสดงบนหน้า PSP + จัด session expiry ตามเวลาไทย
-- `tenant.session` — คุม expiry ของ redirect session + TTL ของ idempotency
+- `merchant.branding` / `locale` / `timezone` — แสดงบนหน้า PSP + จัด session expiry ตามเวลาไทย
+- `merchant.session` — คุม expiry ของ redirect session + TTL ของ idempotency
+  > **[as-built 2026-07-25]** ยังไม่มีโค้ดอ่านทั้ง `branding` และ `session` — `Session` (payment) **ไม่มีคอลัมน์
+  > `ExpiresAt`** เลย; TTL ที่มีจริงตัวเดียวคือ `Order.SummaryTokenTtl = 72h` (hardcoded ใน `Orders.Domain`)
 - `psp.environment` — `production` / `sandbox` แยก key คนละชุด
 - **2C2P:** `currencyCode` เป็นรหัสตัวเลข ISO (`764` = THB) · `installment.terms/banks` · `card.secure3ds` · แยก `frontendReturnUrl` (UX) กับ `backendReturnUrl` (truth)
 - **Omise:** `apiVersion` (Omise-Version header) · `card.via = "links_api"` (บัตรผ่าน Links API → `paymentUri` ไม่ใช่ Omise.js) · `promptpay.via = "payment_links_plus"` (PromptPay ผ่าน Payment Links+ → `transaction_url` hosted, **ไม่ใช่** source+charge ที่เป็น offline-QR) · `alternativeMethods.via = "source_charge"` (ผ่อน/e-wallet → `authorizeUri`) · `enabledSources` คือ source types จริงของ Omise (เฉพาะ method ที่ redirect ผ่าน authorize_uri — ไม่รวม promptpay)
+  > **[as-built 2026-07-25]** คีย์ `via` เหล่านี้ **ไม่มีโค้ดอ่าน** — เก็บลง `Connection.Metadata` verbatim.
+  > ของจริง `OmiseAdapter` ใช้ `POST /charges` แล้วรับ **`authorize_uri`** สำหรับบัตร (ไม่ใช่ Links API/`paymentUri`),
+  > ส่วน `payment_links_plus` และ `source_charge` ยังไม่ได้ implement (ดู §4.2)
 
-**Map ลงตาราง:**
-- `tenant.*` (รวม nested `branding`/`routing`/`session`) → `Tenant` (คอลัมน์ตรง + ส่วนยืดหยุ่นเก็บใน `Metadata` json)
-- แต่ละ `pspConnections[]` (ยกเว้น `secrets`) → `PspConnection` (config ไม่ลับ; `card`/`installment`/`enabledSources` เก็บใน json ของแถวนั้น)
-- ทุกคีย์ใน `secrets` → `VaultSecret` (เข้ารหัส, `Kind` = ชื่อ field, 1 แถวต่อ secret)
+**Map ลงตาราง (as-built):**
+- `merchant.*` (รวม nested `branding`/`routing`/`session`) → `merch.Merchants` (6 คอลัมน์ตรง + ส่วนที่เหลือทั้งหมดใน `Metadata` json)
+- แต่ละ `pspConnections[]` (ยกเว้น `secrets`) → `txn.PspConnections` (config ไม่ลับ; `card`/`installment`/`enabledSources`/return URL เก็บใน `Metadata` json — `nvarchar(max)` เพราะ payload Omise เต็มเกิน 4000 ตัวอักษรได้)
+- ทุกคีย์ใน `secrets` → รวมเป็น **envelope JSON ก้อนเดียว** แล้ว encrypt ลง `merch.VaultSecrets` **1 แถวต่อ connection** (ไม่ใช่ 1 แถวต่อ secret field, ไม่มีคอลัมน์ `Kind`) — `Connection.SecretRefName` คือชื่อที่ใช้ค้นกลับ
 
 - **กฎ secret:** ฟิลด์ใน `secrets` เป็น **write-only** — API อ่านกลับต้อง mask เสมอ (เช่น `"secretKey": "••••3a9f"`) ไม่ส่ง plaintext คืน
 - **WebhookPath / returnUri:** ต้องเอาไปตั้งใน dashboard ของ PSP ฝั่งบริษัทด้วย เพื่อให้ callback/return แยก tenant/PSP ได้
 
 #### Provisioning sequence
 
-1. Admin → Backend: submit config (JSON)
-2. Backend: validate (allowlist = vPrivilege/vCommerce/vSouvenir เท่านั้น + schema)
-3. Backend → DB: INSERT `Tenant`
-4. Backend → DB: INSERT `PspConnection` (config ไม่ลับ)
-5. Backend → Vault: encrypt → `VaultSecret` (เก็บคนละที่กับ DB)
-6. Backend → DB: provision space · status = active
-7. Backend → Admin: done (secrets masked)
-8. หลังจากนั้น: ผู้ใช้ของ tenant login เข้า Tenant Console ใช้งานได้ทันที
+as-built: `POST /api/v1/merchants` → `ProvisionMerchantCommand` → `ProvisioningCoordinator`
+(`src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs`) — **the ONE จุดในระบบที่ 2 runtime
+`DbContext` แชร์ transaction เดียวกัน**
+
+1. Admin → Backend: submit config (JSON) · host อ่าน `sub` + `TraceIdentifier` + `AuthorizationVersion` ของ caller **เอง** ไม่รับจาก body
+2. Backend: validate — `MerchantCode` allowlist (`vprivilege`/`vcommerce`/`vsouvenir`, normalize lowercase) + `RejectSecretsInConfig`
+3. เปิด connection เดียว (`pol_app`) → `BeginTransaction` → `ControlPlaneDbContext` + `MerchantRuntimeDbContext` บน tx เดียวกัน
+4. `VerifyCallerIsActiveSuperAsync` — `SELECT … WITH (UPDLOCK, HOLDLOCK)` ยืนยัน **in-transaction** ว่า caller ยังเป็น active Super ที่ `AuthorizationVersion` ที่ pin ไว้ (ล้ม → `AdminRevalidationDenial` telemetry + `WriteGuardException`)
+5. idempotency ledger: raw INSERT `admin.ProvisioningOperations` (กันกดสร้างซ้ำ)
+6. INSERT `merch.Merchants` + `txn.PspConnections` + `merch.VaultSecrets` (ciphertext) + `merch.ProvisioningAudits` — ทั้งหมดผ่าน `ProvisioningSuperWriteAuthorizer`
+7. `SaveChanges(false)` ×2 → `Commit` → `AcceptAllChanges` ×2 → ตอบ `201 Created` (`Location: /api/v1/merchants/{code}`, secrets masked)
+8. หลังจากนั้น: ผู้ใช้ของ merchant นั้น login เข้า Merchant Console ใช้งานได้ทันที
 
 #### ข้อควรทำ (สำหรับ AI agent ที่ implement)
 
-- ขั้น 3–6 (`Tenant` / `PspConnection` / `VaultSecret` / active) ต้องอยู่ใน **transaction เดียว** กัน partial provision
-- **validate ก่อนเขียน:** allowlist + schema
-- **idempotent** ด้วย tenant key กันกดสร้างซ้ำ
-- secret เข้า vault แยกจาก config และ **อ่านกลับ mask เสมอ**
+- ขั้น 4–6 อยู่ใน **transaction เดียว** อยู่แล้ว (กัน partial provision) — **ห้ามแตกออกเป็นหลาย commit**
+- **validate ก่อนเขียน:** allowlist + schema + guard ว่า secret ไม่หลุดออกนอกก้อน `secrets`
+- **idempotent** ผ่าน `ProvisioningOperations` ledger กันกดสร้างซ้ำ
+- vault อยู่ **ตาราง `merch.VaultSecrets` ใน DB เดียวกัน** (envelope encryption: DEK ต่อ secret + KEK ต่อ merchant) ไม่ใช่ store แยก — สิ่งที่แยกคือ *key custody*; อ่านกลับ **mask เสมอ** (`IVaultSecretStore.MaskedAsync`)
 
 ### 2.5 Identity & RBAC (Google SSO)
 
@@ -344,21 +385,35 @@ sequenceDiagram
 - **Roles:** Platform Owner · Operator · Risk & Compliance · Support (cross-tenant)
 - **สมมติฐานที่ต้องจริงตลอด:** ทุกบัญชี @platform.com = คนที่ให้เข้า admin ได้ (โดเมนสงวนเฉพาะทีมกลาง) ถ้าวันใดโดเมนขยายใช้ทั่วไป ต้องกลับไปใช้ allowlist รายคน
 
-#### Tenant Console (producer)
-- **Key:** `ExternalLogin(provider, sub)` — ใช้ Google `sub` (immutable) ไม่ใช่ email
-- **Register flow:** login Google → ไม่พบ ExternalLogin = ผู้สมัครใหม่ → ออก **registration ticket** (พก verified identity, short-lived + single-use, ยังไม่ใช่ session) → กรอกฟอร์ม → สร้าง `TenantUser(PendingApproval)` + ExternalLogin + Profile → แจ้ง admin
-- **Approval:** admin **เลือก tenant จาก `Tenant` ที่มีอยู่** (ทางเดียวทุกเคส รวม gmail) + กำหนด role → Active · `TenantId` resolve จากที่ admin เลือกเท่านั้น (ไม่เชื่อค่าจากฟอร์ม) + validate ว่า tenant exists/active
-- **State machine:** New → PendingApproval → Active / Rejected · Rejected → correction ticket → resubmit (→Pending) · Pending → 403 "รออนุมัติ"
-- **Roles:** Tenant Admin · Finance · Viewer (scope = tenant ตน, RLS ด้วย `TenantId`)
+#### Merchant Console (เดิมเรียก Tenant Console / producer)
+- **Key:** `ExternalLogin(provider, sub)` — ใช้ `sub` ของ IdP (immutable) ไม่ใช่ email
+- **Register flow:** login → ไม่พบ ExternalLogin = ผู้สมัครใหม่ → ออก **registration ticket** (พก verified identity, short-lived + single-use, ยังไม่ใช่ session) → `POST /api/v1/merchants/users/register` → สร้าง `merch.Users` row สถานะ `PendingApproval` (**`MerchantId` = NULL**) + `ExternalLogin` + person details → แจ้ง admin
+- **Approval:** admin เรียก `POST /api/v1/admins/merchants/users/{subject}/approve` **เลือก merchant จาก `merch.Merchants` ที่มีอยู่** (ทางเดียวทุกเคส รวม gmail) → `User.Approve(merchantId)` ตั้ง `MerchantId` + Active · ค่านี้ resolve จากที่ admin เลือกเท่านั้น (ไม่เชื่อค่าจากฟอร์ม) · reject = `.../reject`
+- **State machine:** `PendingApproval` → `Active` / `Rejected` · Rejected → resubmit (→`PendingApproval`) · `Active` → `Suspended` ได้ · Pending → 403 "รออนุมัติ"
+- **Roles:** role ต่อ merchant อยู่ที่ `merch.RoleAssignments` + catalog กลาง `iam.*` (`/api/v1/merchants/users/roles`) — scope = merchant ตน, บังคับด้วย **EF query filter ไม่ใช่ RLS**
 - **โดเมน:** บริษัท (@vprivilege/@vcommerce/@vsouvenir) ใช้ `hd` เป็น guard เสริมได้ · @gmail = personal account ไม่มี `hd`, offboarding ต้องลบแถวเอง → allowlist รายคนคือด่านเดียว
 
-#### ตาราง identity (แยก schema)
-- `AdminUser` (schema admin): `Email`/`Sub` PK · `Role` · `Status`
-- `ProducerAccount` (schema producer, control-plane): `Subject` UQ · `Status` · person details (name/id/license/phone/photo) — tenant เป็น edge แยก `ProducerTenantAssignment` (1 tenant/account), คู่กับ `ExternalLogin`; wire ticket เป็น stateless token (ไม่มีตาราง)
-- แยก 2 schema → อีเมลในตารางหนึ่งไม่ได้สิทธิอีกฝั่งโดยอัตโนมัติ (คนละ RBAC realm)
+#### ตาราง identity (แยก schema) — as-built 2026-07-25
+- `Admins.Domain.Users.User` → **`admin.Users`**: `Subject` (Google `sub`) · `Email` · `Status` · **`Tier`** (`Super`/`Scoped`) · `AuthorizationVersion` — scope ข้าม merchant ของ `Scoped` เป็น edge แยก **`admin.MerchantAccess`**; session/audit อยู่ `admin.Sessions` / `admin.AuthAudits` / `admin.UserAudits`
+- `Merchants.Domain.Users.User` → **`merch.Users`**: `Subject` UQ · `Email` · `Status` (`PendingApproval`/`Active`/`Rejected`/`Suspended`) · **`MerchantId` nullable** (1 merchant/account, ตั้งตอน admin approve — ไม่มีตาราง assignment แยก) · person details (name/PersonType/IdNumber/ProducerCode/LicenseNumber/phone/photo) — คู่กับ **`merch.ExternalLogins`**; registration ticket เป็น stateless token (ไม่มีตาราง)
+- แยก 2 schema (`admin` / `merch`) → อีเมลในตารางหนึ่งไม่ได้สิทธิอีกฝั่งโดยอัตโนมัติ (คนละ RBAC realm) · RBAC catalog เองรวมศูนย์ที่ `iam.*` (rf2)
 
-#### Enforcement (ทุก request)
-verify Google id_token (sig/`iss`/`aud`/exp/email_verified) → guard `hd` (ถ้ามี) → lookup table ของ console นั้น (ไม่พบ/disabled = 403) → scope ด้วยคอลัมน์ `TenantId` (RLS, ฝั่ง tenant) · token ข้าม domain ตกที่ `aud` ไม่ตรง
+#### Enforcement (ทุก request) — as-built
+auth เป็น **server-side OIDC BFF (session cookie)** ไม่ใช่ id-token-as-bearer อีกแล้ว และรองรับ **หลาย provider**
+(Google + Entra) ผ่าน path แยกต่อ provider:
+`/api/v1/admins/auth/{provider}/login|callback` · `/api/v1/merchants/auth/{provider}/login|callback`
+
+```
+verify id_token ที่ callback (sig/iss/aud/exp/email_verified — Entra ไม่มี email_verified, ใช้ tid-issuer + oid)
+  -> guard hd (ถ้า provider มี)
+  -> lookup table ของ console นั้น (ไม่พบ/disabled/PendingApproval = 403)
+  -> ออก session cookie (rotate ได้, revoke ได้ทันที, CSRF filter บนทุก write)
+  -> ทุก request ถัดไป: IActorContext.CurrentMerchant  ->  EF global query filter (ไม่ใช่ RLS)
+```
+
+**ไม่มี `TenantId` scoping ที่ DB แล้ว** — การกรอง row ต่อ merchant เกิดที่ EF global query filter (deny-default:
+ไม่มี actor ผูก = เห็น **ศูนย์แถว**) + sealed write guard `IWriteAuthorizer` ตอนเขียน. ดู
+[db-connection-and-rls.md](db-connection-and-rls.md) §5-6
 
 ---
 
@@ -368,24 +423,40 @@ backend + data ที่ทั้งสอง console ใช้ร่วมก�
 
 ### 3.1 Session layer
 
-> **[intake 2026-07-05 — superseded เชิง target]** ชั้นนี้คือรุ่น `PaymentSession` (fused intent+attempt)
-> ซึ่งตรงกับโค้ดปัจจุบัน — target design แยกเป็น `Payment` + `PaymentAttempt` + customer capability API
+> **[intake 2026-07-05 — superseded เชิง target]** ชั้นนี้คือรุ่น payment session (fused intent+attempt) —
+> คลาสจริงคือ **`Payments.Domain.Session`** ตาราง `txn.PaymentSessions` — target design แยกเป็น
+> `Payment` + `PaymentAttempt` + customer capability API
 > และ webhook เปลี่ยนเป็น durable inbox two-stage: ดู [ภาค 8](#8-canonical-payment-api--target-design-normative)
 > (8.2 domain model, 8.4 API surfaces, 8.8 webhook)
 
+as-built แยกเป็น **2 ขั้นไม่ใช่ 1** — สร้างแถวก่อน แล้วค่อย claim-then-charge:
+
 #### Create session
-- ออก redirect URL ให้เบราว์เซอร์ (สัญญากลาง รูปทรงเดียวทุก PSP)
+- **`POST /api/v1/payments/sessions`** (`merchant-user` policy + permission `payment.create`) → `CreateSessionCommand(OrderId, MerchantId, Amount, Method, Psp)` → เขียน `txn.PaymentSessions` สถานะ `Created` · **ยังไม่แตะ PSP** · `Psp` มาจาก body (ผู้เรียกเลือก — ไม่มี router)
+
+#### Start redirect
+- **`POST /api/v1/payments/sessions/{paymentSessionId:guid}/redirect`** (+ permission `payment.redirect`) → `StartRedirectCommand` → **claim-then-charge**: `BeginRedirect()` + save ใต้ `RowVersion` **ก่อน** เรียก PSP เสมอ ผู้แพ้ concurrency คืน URL ของผู้ชนะ ไม่สร้าง charge ที่ 2 · แล้วค่อย reveal secret → `IPspAdapter.CreateRedirectChargeAsync` → `SetPspCharge()` ครั้งเดียว
+- ผลลัพธ์เป็นสัญญากลางรูปทรงเดียวทุก PSP: `PspCharge(ExternalChargeId, RedirectUrl)`
 
 #### Return handler
 - รับ browser redirect กลับ แสดง UX — **ไม่ตัดสินสถานะการจ่าย**
+  > **[as-built 2026-07-25]** **ยังไม่มี endpoint นี้ในระบบ** — `PspOptions.TwoCTwoP.FrontendReturnUrl` /
+  > `PspOptions.Omise.ReturnUri` ชี้ออกไปยังหน้าเว็บนอก API (และเป็น config **global ต่อ deployment**
+  > ไม่ใช่ต่อ merchant/connection)
 
 #### Webhook handler
-- **แหล่งความจริง** ของสถานะ: verify ลายเซ็น + idempotent + fetch-to-confirm → อัปเดตสถานะ + แจ้งบริษัท
+- **`POST /api/v1/webhooks/{pspConnectionId:guid}`** (`AllowAnonymous` + rate limiting) — **แหล่งความจริง** ของสถานะ
+- ลำดับจริง: resolve merchant จาก **connection id ที่เชื่อถือได้** (`IWebhookMerchantResolver`, escape-hatch port; ไม่รู้จัก → 404) → `IActorScope.Begin(merchantId)` → reveal secret → `VerifyWebhook` (ไม่ผ่าน → **401**) → **ใน transaction เดียว**: parse → claim idempotency **2 คีย์** (`{psp}:{connectionId}:event:{eventId}` และ `{psp}:{connectionId}:charge:{chargeId}:{status}`) → `FetchChargeAsync` fetch-to-confirm → `MarkPaid` → enqueue `PaymentPaid` ลง outbox → commit
+- outcome 4 แบบ: `Rejected` (401) / `Processed` / `Duplicate` / `Ignored` (verified + first-seen แต่ fetch ยังไม่ยืนยันว่า Paid)
 
 ### 3.2 Engine
 
 #### Method router
-- ตัดสินช่องทาง → PSP ต่อ tenant ตาม config `enabledMethods` — ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP (ทุก cell redirect-only/SAQ A — หมวด 5)
+- ตัดสินช่องทาง → PSP ต่อ merchant ตาม config `enabledMethods` — ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP (ทุก cell redirect-only/SAQ A — หมวด 5)
+  > **[as-built 2026-07-25 — ยังไม่มีจริง]** ไม่มีคลาส router ในโค้ด. PSP ที่ใช้มาจาก `Psp` ใน request body ของ
+  > `POST /api/v1/payments/sessions`; `IPspAdapterFactory.For(Code)` แค่ resolve adapter ตามค่านั้น และ
+  > `IConnectionRepository.GetAsync(merchantId, psp)` ดึง connection ตรง ๆ. `Connection.Supports(method)`
+  > มีอยู่แต่ **ยังไม่มี call site ใน flow การจ่าย** — ยังไม่มี eligibility check, ไม่มี fallback, ไม่มี circuit
 
 > **[intake 2026-07-05 — superseded เชิง target]** target ยกระดับ router เป็น **versioned routing
 > policy** (`ordered_failover` + priority/conditions ต่อ route) + eligibility (enabled, capability,
@@ -393,33 +464,70 @@ backend + data ที่ทั้งสอง console ใช้ร่วมก�
 > ดู [ภาค 8.6](#8-canonical-payment-api--target-design-normative)
 
 #### Credential vault
-- **สินทรัพย์อ่อนไหวที่สุดของระบบ** — เก็บ PSP keys รายบริษัท (แทนที่ card tokenization ที่ไม่มีแล้วเพราะ redirect-only) ต้อง encrypt + แยก key ต่อ tenant
+- **สินทรัพย์อ่อนไหวที่สุดของระบบ** — เก็บ PSP keys รายบริษัท (แทนที่ card tokenization ที่ไม่มีแล้วเพราะ redirect-only) ต้อง encrypt + แยก key ต่อ merchant
+- as-built: `IVaultSecretStore` (seam) → `merch.VaultSecrets` envelope encryption (DEK ต่อ secret, **KEK ต่อ merchant**) · `RevealAsync` ใช้ได้เฉพาะ server-side PSP call ห้าม log/คืน client · display/audit ใช้ `MaskedAsync` (`Hint` last-4) · ทุกครั้งที่ reveal เขียน `merch.VaultRevealAudits` เป็น hash-chain ผ่าน `VaultAuditAppender` (`sp_getapplock` ต่อ merchant) · rotation แยก seam `IVaultMaintenance`
 
 #### Retry & dunning
 - จัดการตัดเบี้ยไม่ผ่าน กันกรมธรรม์/รายการขาดอายุ
+  > **[as-built 2026-07-25 — ยังไม่มีจริง]** ไม่มีโค้ด dunning/retry ของ *payment* เลย. สิ่งที่มีคือ retry ของ
+  > **outbox message** (`OutboxMessage.Attempts`/`Error`/lease) ซึ่งเป็นคนละเรื่อง — และ **ไม่มีตาราง DLQ**
 
 #### Reconciliation
 - กระทบยอดเป็น **reporting** เท่านั้น (ไม่เคลื่อนเงิน เพราะอยู่นอก funds flow)
+- as-built: `GET /api/v1/reports/reconciliation` → `GetReconciliationSummary` (`Orders.Application`) — สรุปจากฝั่ง Orders, ไม่มี discrepancy classification ตามภาค 8.17
 
 #### Idempotency store
-- กันประมวลผล webhook/รายการซ้ำ ด้วย event id → map เป็น payment_id ภายใน
+- กันประมวลผล webhook/รายการซ้ำ — as-built คือ `IIdempotencyStore.TryBeginAsync(keys[], context)` เขียน `txn.IdempotencyRecords`, claim **หลายคีย์พร้อมกัน** ในทรานแซกชันเดียวกับ business write (ดู webhook handler §3.1)
 
 ---
 
 ## 4. PSP adapter layer
 
-normalize PSP ที่ทำ redirect คนละกลไกให้เป็นสัญญาเดียว: `createPaymentSession() → {redirect_url}`, `handleReturn()`, `handleWebhook() → normalized status`
+normalize PSP ที่ทำ redirect คนละกลไกให้เป็นสัญญาเดียว — **`IPspAdapter`** (`Payments.Application/Ports`) มี 4 เมธอด:
 
-### 4.1 2C2P adapter
-- กลไก: Payment Token Request → `webPaymentUrl`; ผลจริงทาง `backendReturnUrl`; ยืนยันซ้ำด้วย Payment Inquiry API
-- ช่องทาง: บัตร · PromptPay · ผ่อนชำระ (redirect แท้ทั้งหมด → SAQ A)
+| เมธอด | คืนอะไร |
+|---|---|
+| `CreateRedirectChargeAsync(Session, secret, ct)` | `PspCharge(ExternalChargeId, RedirectUrl)` — hosted URL เท่านั้น |
+| `VerifyWebhook(rawPayload, signature, secret)` | `bool` — ไม่ผ่าน = ไม่แตะ state ใด ๆ |
+| `FetchChargeAsync(externalChargeId, secret, ct)` | `PspChargeStatus { Pending, Paid, Failed }` — fetch-to-confirm |
+| `ParseWebhook(rawPayload)` | `WebhookEvent(EventId, ExternalChargeId, Status)` |
 
-### 4.2 Omise/Opn adapter (redirect-only ทุกช่องทาง)
-- **บัตร:** Links API → สร้าง link (one-time) → `paymentUri` (หน้า hosted ของ Opn ลูกค้ากรอกบัตรที่นั่น — ไม่ใช้ Omise.js ไม่แตะหน้าเรา)
-- **PromptPay:** **Payment Links+** → `transaction_url` (หน้า hosted `linksplus.omise.co` ที่ render QR ฝั่ง Opn). **ห้ามใช้ direct source+charge** — flow นั้นคืน `scannable_code.image.download_uri` (QR ให้ merchant แสดงเอง = offline, ไม่มี redirect) → ขัด redirect-only/SAQ A
-- **ผ่อน / e-wallet (internet-banking-style):** source + charge (มี `returnUri`, สถานะ pending) → `authorizeUri` (redirect ไปหน้า bank/wallet)
-- ผลจริงทุกช่องทางทาง webhook `charge.complete`; ยืนยันด้วย `GET /charges/{id}`
-- ทุกช่องทาง redirect แท้ → SAQ A
+**ไม่มี `handleReturn()`** ในสัญญา — browser return ไม่ผ่าน adapter เลย. adapter เป็น singleton stateless
+(state ทุกอย่างอยู่ใน argument) ใช้ named `HttpClient` ต่อ PSP (timeout 30s ต่อ call). **charge-create
+ไม่ retry เด็ดขาด** (single-shot กัน timeout แล้ว double-charge) ส่วน fetch GET retry ได้.
+sandbox/production เลือกด้วย `PspOptions.UseSandbox` (**default `true`** — ต้อง opt-in ถึงจะยิง production).
+
+### 4.1 2C2P adapter (`TwoCTwoPAdapter`) — Payment Gateway v4.3
+
+- **กลไก as-built:** ทุก request/response เป็น `{"payload": <HS256-JWT>}` เซ็นด้วย merchant secret key ·
+  `POST {base}/payment/4.3/paymentToken` → `webPaymentUrl` (hosted, SAQ A) · ยืนยันด้วย
+  `POST .../paymentInquiry` → `respCode` · host: `https://sandbox-pgw.2c2p.com` / `https://pgw.2c2p.com`
+- **correlation key = `invoiceNo` ที่ derive จาก `Session.Id` (`ToString("N")`)** — ไม่ใช่ id ของ 2C2P เอง.
+  ค่านี้คือสิ่งที่เก็บลง `PspExternalChargeId`, ที่ `ParseWebhook` คืน, และที่ `FetchChargeAsync` ใช้ query →
+  webhook handler resolve session ได้เสมอ และ POST ซ้ำ (invoiceNo + `idempotencyID` เดิม) ไม่ double-charge
+- **ลายเซ็น webhook อยู่ใน body JWT** (HS256) — argument `signature` (header `X-Signature`) **ไม่ถูกใช้**สำหรับ PSP นี้
+- **ช่องทาง as-built: บัตรอย่างเดียว** — `paymentChannel` hardcode `["CC"]`; PromptPay/ผ่อนยังไม่ได้ implement
+
+### 4.2 Omise/Opn adapter (`OmiseAdapter`) — card-only ณ ตอนนี้
+
+- **บัตร (ที่ทำงานจริง):** `POST https://api.omise.co/charges` แบบ form โดย **ไม่ส่ง card/token/source** →
+  Omise คืน charge สถานะ pending พร้อม **`authorize_uri`** (หน้า hosted ที่ลูกค้ากรอกบัตร + ทำ 3DS ที่ฝั่ง Opn)
+  · auth = HTTP Basic (username = secret key) · deterministic `Idempotency-Key` ทำให้ POST ซ้ำได้ charge เดิม
+  · `ExternalChargeId` = charge id (`chrg_...`) · ยืนยันด้วย `GET /charges/{id}` (retry ได้)
+  > หมายเหตุจากโค้ด: field set ที่ Omise ต้องการจริงสำหรับ hosted-3DS charge **ยัง contract-unverified**
+  > จนกว่าจะ smoke-test กับ sandbox (ของจริงอาจบังคับ token/source) — มี `ponytail:` marker กำกับไว้ในไฟล์
+- **PromptPay (Payment Links+): DEFERRED — `throw new NotSupportedException`** เพราะ link ที่จ่ายแล้วสร้าง
+  charge ที่ **id ต่างจาก link/transaction id** → correlation create → webhook(`data.id`=charge) → fetch →
+  `GetByExternalChargeAsync` ยังทำให้ consistent ไม่ได้ถ้าไม่ยืนยัน mapping กับ API จริงก่อน. ปล่อยไปตอนนี้ =
+  **เก็บเงินลูกค้าแล้วออเดอร์ไม่ถูก fulfil**
+- **ผ่อน / e-wallet:** ยังไม่ได้ implement เลย
+- **`VerifyWebhook` ของ Omise ยังเป็นแค่ well-formedness gate ไม่ใช่การพิสูจน์ authenticity** — HMAC
+  verification ถูก defer ไว้ (`webhookSecret` ถูกเก็บใน envelope รอใช้). **ช่องโหว่ที่ยังเปิดอยู่จริง**:
+  ใครก็ตามที่รู้ `pspConnectionId` ยิง payload รูปทรงถูกได้ — สิ่งเดียวที่กันการยืนยันจ่ายปลอมคือ
+  fetch-to-confirm ที่ตามหลัง
+- **ห้ามถอยไปใช้ direct source+charge สำหรับ PromptPay** — flow นั้นคืน `scannable_code.image.download_uri`
+  (QR ให้ merchant แสดงเอง = offline ไม่มี redirect) → ขัด non-goal #6 + SAQ A. ทางเดียวคือ hosted
+  Payment Links+
 
 
 
@@ -428,10 +536,10 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 ## 5. PSP & payment methods (ใน PCI scope) + settlement
 
 ### 5.1 2C2P hosted page
-- หน้าจ่ายที่ 2C2P โฮสต์ · รับ บัตร / PromptPay / ผ่อน
+- หน้าจ่ายที่ 2C2P โฮสต์ (`webPaymentUrl`) · target รับ บัตร / PromptPay / ผ่อน — **as-built ส่งเฉพาะ `paymentChannel: ["CC"]` (บัตร)**
 
 ### 5.2 Opn hosted pages
-- **บัตร:** Links API `paymentUri` → หน้า hosted ของ Opn (`link.omise.co`) — กรอกบัตรที่ Opn
+- **บัตร (as-built):** `authorize_uri` จาก `POST /charges` → หน้า hosted ของ Opn — กรอกบัตร + 3DS ที่ Opn (ไม่ใช้ Omise.js, ไม่แตะหน้าเรา)
 - **PromptPay:** Payment Links+ `transaction_url` → หน้า hosted ของ Opn (`linksplus.omise.co`) — QR render ฝั่ง Opn (ไม่ใช่บนหน้าเรา)
 - **ผ่อน / e-wallet:** `authorizeUri` → หน้า Opn / redirect ธนาคาร
 - ทุกหน้าจ่ายอยู่ฝั่ง Opn → ไม่แตะบัตรบนหน้าเรา · SAQ A
@@ -441,18 +549,22 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 
 ### ช่องทาง × PSP (เปิดได้ทั้ง 2 PSP · redirect-only ทุก cell)
 
-ทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ tenant ผ่าน config `enabledMethods` — ทุก cell เป็น **redirect แท้ → SAQ A** (ฝั่ง Opn: Links API บัตร · **Payment Links+ PromptPay** · source/charge→`authorizeUri` ผ่อน/e-wallet)
+เป้าหมายคือทั้ง 3 ช่องทางเปิดได้ทั้ง 2 PSP ต่อ merchant ผ่าน config `enabledMethods` — ทุก cell เป็น **redirect แท้ → SAQ A**
 
-| ช่องทาง | PSP | กลไก | redirect / PCI |
-|---|---|---|---|
-| บัตร | 2C2P | hosted page (Redirect API) | redirect แท้ · SAQ A |
-| บัตร | Omise/Opn | **Links API** → `paymentUri` (หน้า hosted ของ Opn) | redirect แท้ · SAQ A |
-| PromptPay | 2C2P | hosted page (redirect) | redirect แท้ · SAQ A |
-| PromptPay | Omise/Opn | **Payment Links+** → `transaction_url` (หน้า hosted `linksplus.omise.co`, QR ฝั่ง Opn) | redirect แท้ · SAQ A |
-| ผ่อนชำระ | 2C2P | hosted page (redirect) | redirect แท้ · SAQ A |
-| ผ่อนชำระ | Omise/Opn | source+charge (`returnUri`→`authorizeUri`) | redirect แท้ · SAQ A |
+> **[as-built 2026-07-25]** คอลัมน์ "สถานะจริง" คือของที่ implement แล้วในโค้ด — **4 ใน 6 cell ยังไม่มี**
+> (ดู §4). ตารางนี้จึงเป็น target matrix ที่มีสถานะกำกับ ไม่ใช่รายการความสามารถปัจจุบัน
 
-> **Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:** บัตรใช้ **Links API** (`paymentUri` → หน้า hosted `link.omise.co`) · **PromptPay ใช้ Payment Links+** (`transaction_url` → หน้า hosted `linksplus.omise.co` ที่ render QR ฝั่ง Opn) · ผ่อน/e-wallet ใช้ source+charge ที่ได้ `authorizeUri` (redirect ไปหน้า bank/Opn) → **สอดคล้องกับ directive out-of-scope ทั้งหมด** (ไม่แตะบัตร · ไม่มี non-redirect/display-QR บนหน้าเรา · SAQ A ล้วน)
+| ช่องทาง | PSP | กลไก (target) | redirect / PCI | สถานะจริง |
+|---|---|---|---|---|
+| บัตร | 2C2P | hosted page (`paymentToken` → `webPaymentUrl`) | redirect แท้ · SAQ A | **ทำแล้ว** |
+| บัตร | Omise/Opn | `POST /charges` (ไม่ส่ง card) → `authorize_uri` (หน้า hosted + 3DS ฝั่ง Opn) | redirect แท้ · SAQ A | **ทำแล้ว** (field set ยัง contract-unverified) |
+| PromptPay | 2C2P | hosted page (redirect) | redirect แท้ · SAQ A | ยังไม่มี |
+| PromptPay | Omise/Opn | **Payment Links+** → `transaction_url` (หน้า hosted `linksplus.omise.co`, QR ฝั่ง Opn) | redirect แท้ · SAQ A | **DEFERRED** — throw (link→charge correlation ยังไม่ยืนยัน) |
+| ผ่อนชำระ | 2C2P | hosted page (redirect) | redirect แท้ · SAQ A | ยังไม่มี |
+| ผ่อนชำระ | Omise/Opn | source+charge (`returnUri`→`authorizeUri`) | redirect แท้ · SAQ A | ยังไม่มี |
+
+> **Omise/Opn เป็น redirect-only แท้ทุกช่องทาง:** บัตรใช้ `POST /charges` แบบไม่ส่ง card data แล้วรับ
+> **`authorize_uri`** (หน้า hosted + 3DS ฝั่ง Opn) · **PromptPay ใช้ Payment Links+** (`transaction_url` → หน้า hosted `linksplus.omise.co` ที่ render QR ฝั่ง Opn) · ผ่อน/e-wallet ใช้ source+charge ที่ได้ `authorizeUri` (redirect ไปหน้า bank/Opn) → **สอดคล้องกับ directive out-of-scope ทั้งหมด** (ไม่แตะบัตร · ไม่มี non-redirect/display-QR บนหน้าเรา · SAQ A ล้วน)
 >
 > **สำคัญ (PromptPay):** ห้ามใช้ Omise **direct source+charge** สำหรับ PromptPay — flow นั้นคืน `scannable_code.image.download_uri` (QR ให้ merchant แสดงเอง = offline, ไม่มี redirect/`authorizeUri`) → ขัด non-goal #6 (display-QR) + SAQ A. ต้องผ่าน **Payment Links+ hosted page** เท่านั้น. (verified: docs.omise.co/promptpay + payment-links-apis, 2026-06-21)
 
@@ -460,14 +572,20 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 
 ## 6. ประเด็นข้ามระบบ (Cross-cutting)
 
-- **Multi-tenant isolation** — ทุก query กรองคอลัมน์ `TenantId` ด้วย row-level security ที่ data layer (ไม่พึ่ง UI/app code) เพราะ backend ร่วมกัน
-- **แยก Tenant/Admin เป็น 2 แอป** — ลด blast radius; ฝั่ง tenant ไม่มี code path ไป admin; แต่ต้องแยก backend authz scope ให้ขาดด้วย
+- **Multi-merchant isolation (app-layer floor, ไม่ใช่ RLS)** — SQL Server RLS/security policy/`SESSION_CONTEXT`/`EXECUTE AS` bypass proc **ถูกถอดออกหมดแล้ว** (spec `rls-to-query-filter`). floor ปัจจุบันมีสองชั้นที่ app layer:
+  - **read** — EF global query filter `x.MerchantId == context.CurrentMerchant` ประกาศใน `OnModelCreating` ของแต่ละ `EntityTypeConfiguration`, **deny-default** (ไม่มี actor ผูก = เห็นศูนย์แถว ไม่ใช่เห็นหมด)
+  - **write** — `GuardedRuntimeDbContext.GuardPendingChanges` (override `SaveChanges` แบบ **sealed**) เรียก `IWriteAuthorizer.CanWrite(entity, operation, targetMerchant)` แบบ default-deny + concurrency token + tenant-key immutable-after-insert + reject `MerchantId == Guid.Empty`
+  - DB มี **principal เดียว `pol_app`** ไม่มีสิทธิ์แยกตาม capability อีกแล้ว — capability แยกที่ `IWriteAuthorizer` implementation (4 ตัว: merchant request / control-plane admin / provisioning Super / worker dispatch)
+  - `IgnoreQueryFilters()`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL อนุญาตเฉพาะไฟล์ใน **escape-hatch allowlist** ที่ arch test บังคับ (`Architecture.Tests.BypassPrimitiveTests`) — ฝั่ง Payments มี `WebhookMerchantResolver` (map connection id → merchant) กับ `ConnectionRepository.ListByTenantAsync` (admin cross-merchant read-back)
+  - ทุก denial ยิง `ISecurityTelemetry.Emit(DenialEvent)` → Seq (ชดเชย DB-level attribution ที่หายไปตอนยุบเหลือ 1 principal)
+  - รายละเอียดเต็ม: [db-connection-and-rls.md](db-connection-and-rls.md)
+- **แยก Merchant/Admin เป็น 2 แอป** — ลด blast radius; ฝั่ง merchant ไม่มี code path ไป admin; แต่ต้องแยก backend authz scope ให้ขาดด้วย
 - **PCI SAQ A รายนิติบุคคล** — redirect-only ไม่แตะข้อมูลบัตร
 - **Webhook = source of truth** — เชื่อ webhook ที่ลงลายเซ็น + fetch-to-confirm ไม่เชื่อ browser redirect
-- **Maker-checker** — สำหรับ action อ่อนไหว (approve tenant, เปลี่ยน routing, แก้ allowlist)
-- **Idempotency** — กันการประมวลผลซ้ำ
-- **Credential vault security** — encrypt + isolate PSP keys ต่อ tenant (สินทรัพย์อ่อนไหวหลัก)
-- **Audit log** — append-only เก็บ actor/scope/before-after/เหตุผล
+- **Maker-checker** — สำหรับ action อ่อนไหว (approve merchant, เปลี่ยน routing, แก้ allowlist) · **as-built: ยังไม่มี** — provisioning ใช้ Super-tier + in-transaction revalidation แทน ไม่ใช่ maker-checker สองคน
+- **Idempotency** — กันการประมวลผลซ้ำ (`txn.IdempotencyRecords`, multi-key claim)
+- **Credential vault security** — envelope encryption + KEK แยกต่อ **merchant** (สินทรัพย์อ่อนไหวหลัก)
+- **Audit log** — append-only เก็บ actor/scope/before-after/เหตุผล (`merch.VaultRevealAudits` hash-chain, `merch.ProvisioningAudits`, `admin.UserAudits`/`AuthAudits`) — write guard reject ทุก Update/Delete บน entity ที่ประกาศ append-only
 
 ---
 
@@ -490,6 +608,16 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 >
 > Money ทุกตัวอย่างในภาคนี้ใช้มาตรฐาน `DECIMAL(19,4)`; base path ใช้ `/api/v1/{area}` ตาม as-built ปัจจุบัน.
 > canonical status 7 ค่า ยังไม่ตรง enum จริง (gap ข้อ 19, ADR 15)
+>
+> **[2026-07-25] cross-reference numbering below may need revalidation after platform-modules.md's gap
+> registry is updated** — เลข "ข้อ N" / "ADR N" ทุกจุดในภาค 8 ชี้ไปที่ทะเบียนใน
+> [platform-modules.md](platform-modules.md) ซึ่งกำลังถูก rewrite แยกต่างหาก. **อย่าเชื่อเลขเหล่านี้จนกว่าจะ
+> ไล่เทียบกับทะเบียนใหม่** — เนื้อหา design ในภาค 8 ไม่ได้เปลี่ยน มีแต่เลขอ้างอิงที่อาจเลื่อน.
+>
+> อีกจุดที่ควรรู้เมื่ออ่านภาค 8: path ตัวอย่างในภาคนี้ (`/api/customer/v1/...`, `/api/producer/v1/...`,
+> `/api/admin/v1/...`, `/api/integration/v1/...`, `/api/webhooks/v1/{endpointKey}`) เป็น **audience-first**
+> ซึ่งขัดกับ scheme ที่ระบบใช้จริงแล้ว (`/api/v1/{area}`, version มาก่อน, audience บังคับต่อ endpoint ผ่าน
+> policy ไม่ใช่ผ่าน path). ถ้าจะเปิด spec จากภาคนี้ ให้แปลง path เป็น area-based ก่อน
 
 ### 8.1 Design goals
 
@@ -531,8 +659,10 @@ Payment คือเจตนาชำระหนึ่งรายการข
 หนึ่ง Order มี Payment หลักหนึ่งรายการใน v1 เพื่อป้องกัน duplicate business intent — partial payment
 ในอนาคตต้องเปิด ADR ใหม่เพราะเปลี่ยน invariants ของ Order
 
-> **[intake 2026-07-05]** `Status` 7 ค่าในภาคนี้ยังไม่ตรง enum จริง
-> (`PaymentStatus { Pending, Paid, Failed, Expired }` + PaymentSession 5 states) —
+> **[intake 2026-07-05, แก้ as-built 2026-07-25]** `Status` 7 ค่าในภาคนี้ยังไม่ตรง enum จริง. enum จริงมีตัวเดียว
+> คือ **`Payments.Domain.SessionStatus { Created, Redirected, Paid, Failed, Expired }`** (5 ค่า) บน
+> `Payments.Domain.Session` — **ไม่มี enum ชื่อ `PaymentStatus` ในโค้ด** (ที่ค้นเจอชื่อคล้ายคือ
+> `PolicyReportItem.PaymentStatus` ซึ่งเป็น *string label ภาษาไทย* ที่ derive จาก `OrderStatus` คนละเรื่องกัน) —
 > rename/mapping เป็นส่วนของ migration Phase 1 + ADR (platform-modules.md ข้อ 19, ADR 15)
 
 #### 8.2.3 PaymentAttempt
@@ -1358,7 +1488,7 @@ API อ่านกลับ**ห้ามคืน secret field** — แม้
 - check `Amount > 0` (`DECIMAL(19,4)`)
 - check currency format
 - check status transitions ผ่าน domain code; DB constraint เสริมเฉพาะค่าที่เป็นไปได้
-- all data-plane tables มี TenantId + RLS policy
+- all data-plane tables มี `MerchantId` + **EF global query filter + write-guard descriptor** (ไม่ใช่ RLS policy — RLS ถูกถอดออกจากระบบแล้ว, ดู §6)
 
 ห้ามให้ foreign key ข้าม module บังคับจน module แยก schema/evolve ไม่ได้โดยไม่จำเป็น —
 ใช้ contract ID + consumer validation ตาม architectural boundary
@@ -1377,8 +1507,9 @@ signature · payload too large · unknown connection key · unknown provider ref
 attempt persistence visible · out-of-order failed after succeeded · amount/currency mismatch ·
 worker crash before/after commit
 
-**Tenant isolation:** producer tenant vCommerce อ่าน IDs ของ vSouvenir ไม่ได้ · admin scoped assignment enforced
-ทั้ง query และ command · RLS context missing fails closed · webhook resolve tenant ผ่าน connection เท่านั้น
+**Merchant isolation:** merchant-user ของ vCommerce อ่าน IDs ของ vSouvenir ไม่ได้ · admin scoped assignment
+enforced ทั้ง query และ command · **unbound actor fails closed** (ไม่มี actor ผูก = เห็นศูนย์แถว ไม่ใช่เห็นหมด —
+query filter ไม่ใช่ RLS context) · webhook resolve merchant ผ่าน connection id เท่านั้น
 
 **Routing:** deterministic primary selection · disabled connection skipped · unsupported method
 skipped · circuit open behavior · policy version snapshot preserved · safe fallback เฉพาะก่อน
@@ -1453,7 +1584,7 @@ reconciliation query ที่ไม่เคลื่อนเงิน · migr
 | Parameter / local variable | camelCase | `tenantId` |
 | Private field | `_` + camelCase | `_vault` |
 | Constant / static readonly | PascalCase | `DefaultCurrency` |
-| Enum member | PascalCase | `PaymentStatus.Pending` |
+| Enum member | PascalCase | `SessionStatus.Redirected` |
 | Generic type parameter | `T` + PascalCase | `TKey` |
 | Boolean | `Is`/`Has`/`Can` นำหน้า | `IsActive`, `HasWebhookSecret` |
 | Collection | พหูพจน์ | `PspConnections` |
@@ -1466,29 +1597,57 @@ reconciliation query ที่ไม่เคลื่อนเงิน · migr
 
 | สิ่ง | แบบ | ตัวอย่าง |
 |---|---|---|
-| Entity | PascalCase เอกพจน์ | `Tenant`, `PspConnection`, `VaultSecret` |
-| DbSet | PascalCase พหูพจน์ | `Tenants`, `PspConnections` |
-| Navigation property | PascalCase | `Tenant.PspConnections`, `PspConnection.Tenant` |
-| Primary key | `{Entity}Id` | `TenantId`, `ConnectionId` |
-| Foreign key | `{Navigation}Id` | `TenantId` (บน `PspConnection`) |
-| DbContext | `{Name}DbContext` | `ProducerDbContext` |
-| Entity configuration | `{Entity}Configuration` | `TenantConfiguration : IEntityTypeConfiguration<Tenant>` |
-| Migration | PascalCase สื่อความหมาย | `AddPspConnection`, `AddTenantUserStatus` |
-| Schema | lowercase ตาม domain | `admin`, `producer` → `ToTable("PspConnection", "producer")` |
+| Entity | PascalCase เอกพจน์ | `Merchant`, `Session`, `Connection`, `VaultSecretBlob` |
+| DbSet | PascalCase พหูพจน์ | `Merchants`, `PspConnections`, `PaymentSessions` |
+| Navigation property | PascalCase | — (โมเดลนี้ใช้ FK-by-id ข้ามโมดูล ไม่ผูก navigation ข้าม module boundary) |
+| Primary key | `Id` บน `Entity<TId>`/`AggregateRoot<TId>` | `Session.Id`, `Merchant.Id` |
+| Foreign key | `{Target}Id` | `MerchantId` (บน `Connection`, `Session`, ทุก merchant-scoped entity) |
+| DbContext | `{Cluster}DbContext` | `ControlPlaneDbContext`, `MerchantUserDbContext`, `MerchantRuntimeDbContext` (+ `PolDbContext` = migration owner) |
+| Entity configuration | `{Entity}Configuration` | `SessionConfiguration : IEntityTypeConfiguration<Session>` |
+| Migration | PascalCase สื่อความหมาย | `RlsTeardownAndOnePrincipal`, `RenameOrderLinesToOrderItems` |
+| Schema | lowercase ตาม domain (บังคับ `ToTable(name, schema)` เสมอ) | `ToTable("PspConnections", SchemaNames.Txn)` |
+
+**7 schema ที่มีจริง** (`BuildingBlocks.Infrastructure/Persistence/SchemaNames.cs` — ไม่มี `HasDefaultSchema`
+fallback, entity ที่ลืมใส่ schema **fail arch test** ไม่ใช่ตกไป `dbo` เงียบ ๆ):
+
+| Schema | เก็บอะไร |
+|---|---|
+| `shop` | Products, Carts, CartItems, CheckoutSessions, Orders (+ OrderItems/ItemPolicy) |
+| `txn` | **PaymentSessions, PspConnections**, OutboxMessages, IdempotencyRecords |
+| `admin` | Users (platform admin), MerchantAccess, Sessions, AuthAudits, UserAudits, RoleAssignments, ProvisioningOperations |
+| `merch` | Merchants, Users (merchant user), ExternalLogins, Sessions, AuthAudits, Registration*, RoleAssignments, VaultSecrets, VaultRevealAudits, ProvisioningAudits |
+| `iam` | catalog กลาง: Permissions, PermissionGroups, Roles, RolePermissions (rf2) |
+| `cfg` | reference data: Positions, Offices, Levels, Divisions |
+| `dbo` | ข้อยกเว้นเดียวที่ตั้งชื่อไว้: `DataProtectionKeys` (framework-owned) |
+
+**3 runtime `DbContext` + 1 migration owner** (ดู [db-connection-and-rls.md](db-connection-and-rls.md) §4):
+
+| DbContext | คุม schema | query filter |
+|---|---|---|
+| `ControlPlaneDbContext` | `admin`, `iam`, `cfg`, `dbo` | ไม่มี (control-plane ไม่มี merchant dimension) |
+| `MerchantUserDbContext` | `merch` (identity/session) | เฉพาะ `Users` / `RoleAssignments` |
+| `MerchantRuntimeDbContext` | `shop`, `txn`, `merch` (data) | ทุก entity ที่ implement `IMerchantFiltered` — **นี่คือ isolation floor ของเส้นทางเงิน** |
+| `PolDbContext` | — | **migration owner เท่านั้น ไม่ registered ที่ runtime** (`dotnet ef migrations add` ชี้มาที่นี่) |
+
+ทั้ง 3 runtime context เป็น `internal sealed` อยู่คนละ assembly (`Persistence.{ControlPlane,MerchantUsers,MerchantRuntime}`)
+— host เห็นตรง ๆ ไม่ได้; adapter ของ port ต้องอยู่ assembly เดียวกับ context ที่มันแตะ
 
 ### SQL Server
 
 | สิ่ง | แบบ | ตัวอย่าง |
 |---|---|---|
-| Table | PascalCase เอกพจน์ (ตรงกับ entity) | `Tenant`, `PspConnection` |
-| Column | PascalCase | `TenantId`, `MerchantId` |
-| datetime (เก็บ UTC) | ลงท้าย `At` — **ไม่ใส่** suffix `Utc` | `CreatedAt`, `RotatedAt` |
-| Boolean | `bit` ชื่อ `Is...` | `IsActive` |
-| PK constraint | `PK_{Table}` | `PK_Tenant` |
-| FK constraint | `FK_{Child}_{Parent}` | `FK_PspConnection_Tenant` |
-| Index | `IX_{Table}_{Columns}` | `IX_PaymentSession_TenantId` |
-| Unique | `UQ_{Table}_{Columns}` | `UQ_ExternalLogin_Provider_Sub` |
-| Schema | ตาม domain | `admin`, `producer` |
+| Table | PascalCase **พหูพจน์** (ตาม DbSet) | `Merchants`, `PspConnections`, `PaymentSessions`, `Orders` |
+| Column | PascalCase | `MerchantId`, `SecretRefName` |
+| datetime (เก็บ UTC) | ลงท้าย `At` — **ไม่ใส่** suffix `Utc` | `CreatedAt`, `UpdatedAt` |
+| Boolean | `bit` ชื่อ `Is...` | `IsEnabled` |
+| PK constraint | `PK_{Table}` | `PK_PaymentSessions` |
+| FK constraint | `FK_{Child}_{Parent}` | `FK_PspConnections_Merchants` |
+| Index | `IX_{Table}_{Columns}` | `IX_PaymentSessions_OrderId` |
+| Unique | `UQ_{Table}_{Columns}` | `UQ_ExternalLogins_Provider_Subject` |
+| Schema | ตาม domain (7 ค่าในตารางด้านบน) | `shop`, `txn`, `admin`, `merch`, `iam`, `cfg`, `dbo` |
+
+> **ชื่อตารางเป็นพหูพจน์ ส่วน schema เป็นเอกพจน์ — ตั้งใจ ไม่ใช่ความไม่สม่ำเสมอ**: schema คือ SQL namespace
+> (`admin`, `merch`) เอกพจน์ตาม SQL convention และ rf1 ล็อกไว้แล้ว **ห้าม "แก้" ให้ตรงชื่อโมดูล**
 
 ### JSON / REST API payload & JWT claims
 
@@ -1510,14 +1669,28 @@ reconciliation query ที่ไม่เคลื่อนเงิน · migr
 
 ### ชื่อ canonical เฉพาะโปรเจกต์
 
-- **Entities:** `Tenant` · `PspConnection` · `VaultSecret` · `PaymentSession` · `ProducerAccount` (+ person details) · `ProducerTenantAssignment` · `AdminAccount` · `ExternalLogin`
-- **Enums:** `PspProvider { TwoCTwoP, Omise }` · `PaymentMethod { Card, PromptPay, Installment }` · `PaymentStatus { Pending, Paid, Failed, Expired }` · `ProducerAccountStatus { PendingApproval, Active, Rejected, Suspended }`
-- **Interfaces:** `IPspAdapter` · `ICredentialVault` · `IWebhookVerifier`
-- **Services:** `PspRouter` · `ProvisioningService` · `ReconciliationReporter`
+> **[as-built 2026-07-25]** ชื่อคลาสสั้นเพราะ namespace แบกความหมาย (naming law L1-L8 ใน
+> [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md)) — จึงมี `Session` หลายตัวคนละ namespace
+> (`Payments.Domain.Session`, `Checkouts.Domain.Session`, `Admins.Domain.Users.Session`,
+> `Merchants.Domain.Users.Session`) และเป็นคนละ entity คนละตาราง **ห้ามยุบรวม**. เวลาอ้างในเอกสาร
+> ให้เขียนแบบ fully-qualified เสมอ
 
-> **[intake 2026-07-05]** รายการข้างบน = **as-built** — `PaymentSession` และ
-> `PaymentStatus { Pending, Paid, Failed, Expired }` ยังเป็นชื่อจริงในโค้ดจนกว่า migration
-> ([ภาค 8.26](#8-canonical-payment-api--target-design-normative)); target เพิ่ม entities:
+- **Entities (ฝั่ง payment flow):** `Merchants.Domain.Merchant` → `merch.Merchants` · `Payments.Domain.Session` → `txn.PaymentSessions` · `Payments.Domain.Psp.Connection` → `txn.PspConnections` · `BuildingBlocks.Infrastructure.Vault.VaultSecretBlob` → `merch.VaultSecrets` (+ `VaultRevealAudit`) · `OutboxMessage` → `txn.OutboxMessages` · `IdempotencyRecord` → `txn.IdempotencyRecords`
+- **Entities (identity):** `Admins.Domain.Users.User` → `admin.Users` (+ `MerchantAccess`) · `Merchants.Domain.Users.User` → `merch.Users` (+ `ExternalLogin`) — **ไม่มี** `AdminAccount`/`ProducerAccount`/`ProducerTenantAssignment` แล้ว (merchant ผูกที่คอลัมน์ `User.MerchantId` ตรง ๆ)
+- **Enums:** `Payments.Domain.Psp.Code { TwoCTwoP, Omise }` (+ `Codes.ToCode()/FromCode()` ↔ `"2c2p"`/`"omise"`) · **`Payments.Domain.SessionStatus { Created, Redirected, Paid, Failed, Expired }`** · `PspChargeStatus { Pending, Paid, Failed }` · `WebhookOutcome { Rejected, Processed, Duplicate, Ignored }` · `Merchants.Domain.Users.UserStatus { PendingApproval, Active, Rejected, Suspended }` · `Admins.Domain.Users.Tier { Scoped, Super }`
+- **payment method ไม่ใช่ enum** — เก็บเป็น **string verbatim** (`"card"`/`"promptpay"`/`"installment"`) ทั้งบน `Session.Method` และใน `Connection.EnabledMethods` (csv). ไม่มี `PaymentMethod` enum ในโค้ด
+- **Interfaces:** `IPspAdapter` · `IPspAdapterFactory` · `IPspSecretEnvelopeFactory` · `ISessionRepository` · `Ports.Psp.IConnectionRepository` · **`IVaultSecretStore`** (ไม่ใช่ `ICredentialVault`) · `IVaultMaintenance` · `IIdempotencyStore` · `IOutbox` · `IWriteAuthorizer` · `IActorContext`/`IActorScope` · `ISecurityTelemetry`
+- **Services:** `PspAdapterFactory` · `TwoCTwoPAdapter` · `OmiseAdapter` · `PspSecretEnvelopeFactory` · `ProvisioningCoordinator` · `WebhookMerchantResolver` · `OrderSummaryReader` · `VaultAuditAppender` · `OutboxDispatcher`
+
+> **ชื่อที่เคยอยู่ในลิสต์นี้แต่ไม่มีอยู่จริงในโค้ด — อย่าอ้างต่อ:** `Tenant` · `PspConnection` (ชื่อคลาสจริงคือ
+> `Connection`; `PspConnections` เป็นชื่อ *ตาราง*) · `VaultSecret` (คลาสจริง `VaultSecretBlob`) ·
+> `PaymentSession` (ชื่อคลาสจริง `Payments.Domain.Session`; `PaymentSessions` เป็นชื่อตาราง) ·
+> `AdminAccount` · `ProducerAccount` · `ProducerTenantAssignment` · `PspProvider` · `PaymentMethod` ·
+> **`PaymentStatus`** · `ProducerAccountStatus` · `ICredentialVault` · `IWebhookVerifier`
+> (webhook verification เป็นเมธอดบน `IPspAdapter` ไม่ใช่ interface แยก) · `PspRouter` ·
+> `ProvisioningService` · `ReconciliationReporter`
+
+> **[intake 2026-07-05, แก้ 2026-07-25]** target เพิ่ม entities:
 > `Payment` · `PaymentAttempt` · `WebhookDelivery` + read model `Transaction` และ enums เป้าหมาย:
 > `paymentStatus` 7 ค่า (`pending`/`action_required`/`processing`/`succeeded`/`failed`/`expired`/`cancelled`),
 > attempt states (`Reserved`/`CreatingAtProvider`/`ActionRequired`/`ProviderProcessing`/`Unknown`/
@@ -1552,24 +1725,26 @@ reconciliation query ที่ไม่เคลื่อนเงิน · migr
 | Checkout | domain | หน้าสรุป + ส่วนลด + ข้อมูลผู้ซื้อ + ตั้งค่าผู้รับแจ้งเตือน → สร้าง Order |
 | Orders | domain | ข้อมูลคำสั่งซื้อ + ลิงก์หน้าสรุป (Payments) · แจ้งเตือนลูกค้า background · รับ `PaymentPaid`→Paid |
 | เก็บเบี้ย/รับชำระ | data | จุดที่ลูกค้าบริษัทในเครือจ่าย |
-| Tenant Console (SaaS) | control | แอปเดียว 3 tenant ใช้ร่วม scope ต่อราย |
-| Admin Console (SaaS) | control | แอปทีมกลาง internal-only ข้ามทุก tenant |
-| Permission model | control | RBAC scope×resource×action + maker-checker |
-| Provisioning (admin-driven) | control | admin สร้าง tenant + กรอก PSP config/credential |
-| Identity & RBAC | control | Google SSO · hd-gate default-deny · register→approve |
-| Create session | data | ออก redirect URL |
-| Return handler | data | รับ browser กลับ (UX, ไม่ตัดสิน) |
-| Webhook handler | data | แหล่งความจริง อัปเดตสถานะ |
-| Method router | data | ช่องทาง → PSP ต่อ tenant (เปิดได้ทั้ง 2 PSP) |
-| Credential vault | data | PSP keys รายบริษัท (อ่อนไหวสุด) |
-| Retry & dunning | data | กันรายการขาดอายุ |
-| Reconciliation | data | reporting (ไม่เคลื่อนเงิน) |
-| Idempotency store | data | กันประมวลผลซ้ำ |
-| 2C2P adapter | data | Redirect API · บัตร/PromptPay/ผ่อน |
-| Omise/Opn adapter | data | Links API (บัตร) + source/charge (อื่นๆ) · redirect ทุกช่องทาง |
-| 2C2P hosted page | data (PCI) | หน้าจ่าย บัตร/PromptPay/ผ่อน |
-| Opn hosted pages | data (PCI) | Links `paymentUri` (บัตร) + Links+ `transaction_url` (PromptPay) + `authorizeUri` (ผ่อน/e-wallet) · SAQ A |
+| Merchant Console (SaaS) | control | แอปเดียว 3 merchant ใช้ร่วม scope ต่อราย |
+| Admin Console (SaaS) | control | แอปทีมกลาง internal-only ข้ามทุก merchant |
+| Permission model | control | RBAC scope×resource×action (catalog กลาง `iam.*`) · **maker-checker ยังไม่มี** |
+| Provisioning (admin-driven) | control | `POST /api/v1/merchants` Super-only, cross-context tx เดียว |
+| Identity & RBAC | control | OIDC BFF session cookie · หลาย provider (Google + Entra) · register→approve |
+| Create session | data | `POST /api/v1/payments/sessions` — สร้างแถว ยังไม่แตะ PSP |
+| Start redirect | data | `POST /api/v1/payments/sessions/{id}/redirect` — claim-then-charge, คืน hosted URL |
+| Return handler | data | รับ browser กลับ (UX, ไม่ตัดสิน) — **ยังไม่มี endpoint** |
+| Webhook handler | data | `POST /api/v1/webhooks/{pspConnectionId}` — แหล่งความจริง อัปเดตสถานะ |
+| Method router | data | ช่องทาง → PSP ต่อ merchant — **ยังไม่มี** (PSP มาจาก request body) |
+| Credential vault | data | `merch.VaultSecrets` envelope encryption + KEK ต่อ merchant |
+| Retry & dunning | data | กันรายการขาดอายุ — **ยังไม่มี** (มีแค่ outbox retry ซึ่งคนละเรื่อง) |
+| Reconciliation | data | `GET /api/v1/reports/reconciliation` — reporting (ไม่เคลื่อนเงิน) |
+| Idempotency store | data | `txn.IdempotencyRecords` multi-key claim |
+| 2C2P adapter | data | PGW v4.3 JWT · `paymentToken` → `webPaymentUrl` · **บัตรอย่างเดียว** |
+| Omise/Opn adapter | data | `POST /charges` → `authorize_uri` · **บัตรอย่างเดียว** (PromptPay deferred) |
+| 2C2P hosted page | data (PCI) | หน้าจ่าย — as-built ส่งเฉพาะ `paymentChannel: ["CC"]` |
+| Opn hosted pages | data (PCI) | `authorize_uri` (บัตร + 3DS) · SAQ A |
 | Settlement | นอกระบบ | PSP → บัญชีบริษัทโดยตรง |
 
-> แถว Create session / Return handler / Webhook handler / Method router สะท้อนรุ่น as-built —
-> target design ของชั้นเหล่านี้ถูกกำหนดใหม่ใน [ภาค 8](#8-canonical-payment-api--target-design-normative)
+> คอลัมน์ "บทบาทย่อ" ข้างบนถูกไล่เทียบกับโค้ดจริง 2026-07-25 — จุดที่เขียนว่า **ยังไม่มี** คือช่องว่างจริง
+> ไม่ใช่การละไว้. target design ของชั้นเหล่านี้ถูกกำหนดใหม่ใน
+> [ภาค 8](#8-canonical-payment-api--target-design-normative)

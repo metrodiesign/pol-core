@@ -215,14 +215,18 @@ sudo gitlab-runner restart
   "Updated X ago" เป็นปกติ — GitHub ไม่มีทางดูค่าเดิมซ้ำ ถ้าพิมพ์ผิดต้อง **Update** ทับใหม่)
 - ปิดแท็บ GitLab ของ A4 ได้แล้ว
 
-### B2. Merge PR #125
+### B2. Merge PR #125 — ทำไปแล้ว (ประวัติ, ข้ามได้)
 
-- เปิด `https://github.com/metrodiesign/pol-core/pull/125` → รอ CI เขียวครบทุก required check
-  → merge ตาม flow ปกติของ repo (ห้าม push ตรง, ห้าม force push, ห้าม skip check)
+PR #125 merge เข้า `develop` ไปแล้วเมื่อ 2026-07-22 (merge commit `87bba72`) — `.gitlab-ci.yml`,
+`.github/workflows/mirror-gitlab.yml` และ `docker-compose.registry.yml` อยู่บน develop เรียบร้อย
+ไม่ต้อง merge อะไรในขั้นนี้อีก. เก็บหัวข้อนี้ไว้เป็นบันทึกว่า channel นี้เปิดมาจาก PR ไหนเท่านั้น.
+
+ทำ setup นี้ซ้ำกับ environment ใหม่ (เช่น UAT host ตัวที่สอง)? ข้ามไป B3 ได้เลย — ใช้ push/merge
+ล่าสุดบน develop เป็นตัวทดสอบ mirror แทน.
 
 ### B3. ทดสอบ mirror ครั้งแรก
 
-- ตัว merge ใน B2 = push เข้า develop อยู่แล้ว → แท็บ **Actions** ของ GitHub repo →
+- merge/push เข้า develop ครั้งล่าสุดเป็นตัว trigger อยู่แล้ว → แท็บ **Actions** ของ GitHub repo →
   เมนูซ้ายเลือก workflow ชื่อ **Mirror to GitLab** → run ล่าสุดต้องเขียว (วงกลม checkmark
   สีเขียว ไม่ใช่ X แดงหรือวงกลมเหลืองกำลังรัน)
 - คลิกเข้า run นั้น → step "Push mirror" → ขยายดู log ถ้าต้องการยืนยันว่า push ไปถึง GitLab จริง
