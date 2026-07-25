@@ -306,6 +306,31 @@ builder.Services.AddOpenApi(options =>
             ]
             """)!);
 
+        // x-displayName: inside its own group, a tag doesn't need to repeat the group name too
+        // ("Admin Console" > "Admin Auth" -> "Admin Console" > "Auth").
+        var tagDisplayNames = new Dictionary<string, string>
+        {
+            ["Admin Auth"] = "Auth",
+            ["Admin Admins"] = "Admins",
+            ["Admin Merchants"] = "Merchants",
+            ["Admin MerchantUsers"] = "MerchantUsers",
+            ["Admin Orders"] = "Orders",
+            ["Admin Roles"] = "Roles",
+            ["MerchantUser Auth"] = "Auth",
+            ["MerchantUser Roles"] = "Roles",
+        };
+        if (document.Tags is not null)
+        {
+            foreach (var tag in document.Tags)
+            {
+                if (tag.Name is not null && tagDisplayNames.TryGetValue(tag.Name, out var displayName))
+                {
+                    tag.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+                    tag.Extensions["x-displayName"] = new JsonNodeExtension(JsonNode.Parse($"\"{displayName}\"")!);
+                }
+            }
+        }
+
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
