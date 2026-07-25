@@ -17,9 +17,14 @@ C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-
 
 > สถานะ: **SFS shipped แล้วบางส่วน** (spec `.ai/specs/search-filter-sort/`, §13 as-built notes) —
 > endpoint ที่รองรับ paging + sort + filter + search เต็มรูปแบบตามคู่มือนี้ (ดูได้จาก `SfsQueryParamsMarker`
-> ใน `src/Hosts/Api/Program.cs`): `GET /api/v1/products`, `GET /api/v1/admins`, `GET /api/v1/admins/roles`,
-> `GET /api/v1/reports/policies`, `GET /api/v1/admins/reports/policies`.
-> ที่ยังไม่ implement: `GET /api/v1/admins/permissions`, `GET /api/v1/merchants/users/permissions`,
+> ใน `src/Hosts/Api/Program.cs`): `GET /api/v1/products`, `GET /api/v1/admins`, `GET /api/v1/admins/roles`.
+> รองรับแค่ **paging + filter + sort (ไม่มี search)**: `GET /api/v1/reports/policies`,
+> `GET /api/v1/admins/reports/policies` — endpoint ทั้งสองรับ query param `search` ผ่าน `SfsQueryParser.Parse`
+> และ bind เข้า `Query.Search` จริง (`Program.cs`) แต่ `PolicyReportSfs` (`Persistence.MerchantRuntime/Orders/
+> Items/PolicyReportSfs.cs`) มีแค่ `ApplyFilters`/`ApplySort` — ไม่มี `ApplySearch` เลย, ค่า `Search` ที่ bind
+> มาจึงถูกทิ้งเงียบ ๆ ไม่ error ไม่ filter (**gap ของจริงในโค้ด**, ไม่ใช่แค่เอกสารเก่า — แก้ต้องเพิ่ม
+> `ApplySearch` ใน `PolicyReportSfs` แล้วเรียกจากทั้ง `PolicyReportRepository`/`AdminItemPolicyReader`).
+> ที่ยังไม่ implement เลย: `GET /api/v1/admins/permissions`, `GET /api/v1/merchants/users/permissions`,
 > `GET /api/v1/merchants/users/roles` — endpoint เหล่านี้ยังคืน full set (role list ส่ง `Limit = int.MaxValue`
 > เข้า `ListRolesQuery` แล้ว unwrap `.Items`), ไม่รับ query-string sort/filter. เอกสารนี้คือ **convention
 > มาตรฐาน**: เมื่อเพิ่ม SFS ให้ endpoint ที่เหลือ (หรือ endpoint ใหม่) ให้ทำตามรูปแบบนี้ทั้งโปรเจกต์ เพื่อให้ทุก
@@ -81,8 +86,9 @@ SQL Server 2025  ->  PagedResult<T>
 ```
 
 **สถานะ pol-core:** endpoint ที่ shipped SFS เต็มรูปแบบ (paging, sort, filter, search — §13) คือ
-`GET /api/v1/products`, `/api/v1/admins`, `/api/v1/admins/roles`, `/api/v1/reports/policies`,
-`/api/v1/admins/reports/policies`. ที่เหลือ (`GET /api/v1/admins/permissions`,
+`GET /api/v1/products`, `/api/v1/admins`, `/api/v1/admins/roles`. `GET /api/v1/reports/policies` และ
+`/api/v1/admins/reports/policies` shipped แค่ paging/filter/sort — รับ query param `search` แต่ทิ้งเงียบ
+(`PolicyReportSfs` ไม่มี `ApplySearch`, ดูรายละเอียดตอนต้นเอกสารนี้ + §13). ที่เหลือ (`GET /api/v1/admins/permissions`,
 `/api/v1/merchants/users/permissions`, `/api/v1/merchants/users/roles`) ยังคืน full set ไม่รับ sort/filter
 จาก query string — permission catalog เรียงตาม `SortOrder` คงที่.
 
@@ -1346,14 +1352,16 @@ SFS ถูก implement จริงแล้ว (spec `.ai/specs/search-filter-
 - **OpenAPI SFS params (REQ-13)** ประกาศผ่าน built-in `AddOperationTransformer` + metadata marker
   `SfsQueryParamsMarker` (`src/Hosts/Api/SfsOpenApi.cs`) — **ไม่ใช่ `.WithOpenApi(...)`** (§12.1/§12.2/D13):
   โปรเจกต์ใช้ .NET 10 built-in OpenAPI (document/operation transformers) ไม่ใช่ Swashbuckle.
-- **Apply pipeline ต่อโมดูล**: whitelist + `ApplyFilters`/`ApplySort`/`ApplySearch` เป็น `static` class
-  co-located ข้าง repository (แทน `file static RoleQueryFields` ใน §8/§12.1). ตำแหน่งปัจจุบันหลัง rf2 (iam
-  catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
-  - `RoleSfs` — `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` (ตัวที่ `RoleStore` ใช้จริง);
-    ต้นทางเดิม `src/Modules/Iam/Iam.Infrastructure/Persistence/Roles/RoleSfs.cs`
-  - `ProductSfs` — `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs`
-  - `UserSfs` — `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs`
-  - `PolicyReportSfs` — `src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs`
+- **Apply pipeline ต่อโมดูล**: whitelist + `ApplyFilters`/`ApplySort`(+`ApplySearch` เมื่อ shipped) เป็น
+  `static` class co-located ข้าง repository (แทน `file static RoleQueryFields` ใน §8/§12.1). ตำแหน่งปัจจุบันหลัง
+  rf2 (iam catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
+  - `RoleSfs` — `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` (ตัวที่ `RoleStore` ใช้จริง; มี
+    `ApplySearch`); ต้นทางเดิม `src/Modules/Iam/Iam.Infrastructure/Persistence/Roles/RoleSfs.cs`
+  - `ProductSfs` — `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs` (มี `ApplySearch`)
+  - `UserSfs` — `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` (มี `ApplySearch`)
+  - `PolicyReportSfs` — `src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs` —
+    **มีแค่ `ApplyFilters`/`ApplySort`, ไม่มี `ApplySearch`** (ตัวเดียวในกลุ่มนี้ที่ไม่ครบ; endpoint ที่ใช้คลาสนี้
+    ยัง bind `Query.Search` จาก request แต่ไม่มีอะไรอ่านค่านั้นเลย — gap ของจริงในโค้ด ไม่ใช่แค่เอกสาร)
 
   repo/port `ListAsync` ของฝั่ง role รับ `RoleSideContext` + `PagedQuery` base.
 - **`ProductFilterDto.Parse`** อยู่ที่ `Products.Application` (pure `System.Text.Json` + DataAnnotations) ไม่ใช่ Hosts

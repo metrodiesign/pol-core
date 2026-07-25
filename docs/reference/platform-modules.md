@@ -811,7 +811,8 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 | Customer/producer/payment-method snapshot บนใบ | target: นอกจาก items แล้ว ใบสั่งซื้อควร snapshot ผู้ซื้อ/ผู้ทำรายการ/ช่องทางที่ล็อกไว้ด้วย — ปัจจุบัน `Order` มีแค่ `NotificationRecipient`; ที่เหลือรอ Checkout target (ข้อ 3) เป็นต้นน้ำ | ยังไม่มี (ข้อ 3) |
 | Cancel/หมดอายุใบสั่งซื้อ | target: state machine `AwaitingPayment -> Paid / Cancelled / Expired` + `POST /api/producer/v1/orders/{orderId}/cancel` + `OrderExpiredV1` — enum ปัจจุบันไม่มี `Expired` และ `Cancel()` ไม่มีผู้เรียก | ยังไม่มี (ข้อ 12) |
 | Retry & dunning | ติดตามรายการจ่ายไม่ผ่าน/ใกล้หมดอายุ — แจ้งเตือนซ้ำตามรอบ (target เดิมใน canon) | ยังไม่มี (เป้าหมายเดิม) |
-| List/ค้นหา order | target: `GET /api/producer/v1/orders` (merchant ตน) + `GET /api/admin/v1/orders[/{orderId}]` (ผ่าน `IAdminQuery` seam, §3.1) | ยังไม่มี |
+| List/detail order ฝั่ง merchant | `GET /api/v1/orders` (`GetOrdersQuery`, list ทั้งหมดของ merchant ตน, mask `InsuredIdNumber`) + `GET /api/v1/orders/{orderId}` (`GetOrderDetailCommand`, full value + เขียน `RevealAudit` ต่อบรรทัด) — คืน list/view ตรง ไม่ใช่ `PagedResult<T>` | มีแล้ว |
+| Search/pagination บน order list + admin cross-merchant surface | target: แปลง `GET /api/v1/orders` เป็น SFS (`PagedResult<T>`, page/limit/filter/sort/search) + เพิ่ม `GET /api/admin/v1/orders[/{orderId}]` ฝั่ง admin (ผ่าน `IAdminQuery` seam, §3.1) — ปัจจุบันไม่มี route ฝั่ง admin เลย | ยังไม่มี |
 | Timeline ต่อใบ | target: `GET /api/producer/v1/orders/{orderId}/timeline` (โยง unified audit ที่ defer, §14) | ยังไม่มี |
 | Summary token hardening | target: เก็บเฉพาะ hash ของ token, rotate แล้ว token เก่าต้องใช้ไม่ได้ — as-built มี rotate (`ReissueSummary` แทนที่ค่าเดิม) แต่เก็บ token ตรงในคอลัมน์ ไม่ใช่ hash | บางส่วน |
 
