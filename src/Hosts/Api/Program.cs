@@ -294,6 +294,29 @@ builder.Services.AddOpenApi(options =>
         document.Info.Description =
             "Captive payment orchestration (redirect-only, PCI SAQ A). Merchant storefront surface + Admin BFF + MerchantUser BFF.";
 
+        // x-tagGroups: nest the 18 route tags under the 12 src/Modules/* business modules that back them
+        // (see docs/reference/src-structure.md §4 for the tag-to-module map), instead of a flat tag list.
+        // Webhooks rides on Payments and Admin Auth/MerchantUser Auth ride on the Admins/Merchants identity
+        // modules (their BFF plumbing lives in Hosts/Api/*, but the operations are that module's concern) —
+        // both have no module folder of their own, so they group under the module whose data they touch.
+        document.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+        document.Extensions["x-tagGroups"] = new JsonNodeExtension(JsonNode.Parse("""
+            [
+              { "name": "Products", "tags": ["Products"] },
+              { "name": "Carts", "tags": ["Cart"] },
+              { "name": "Checkouts", "tags": ["Checkout"] },
+              { "name": "Orders", "tags": ["Orders", "Admin Orders"] },
+              { "name": "Payments", "tags": ["Payments", "Webhooks"] },
+              { "name": "Merchants", "tags": ["Admin Merchants", "MerchantUser Auth", "Admin MerchantUsers"] },
+              { "name": "Admins", "tags": ["Admin Admins", "Admin Auth"] },
+              { "name": "Iam", "tags": ["Admin Roles", "MerchantUser Roles"] },
+              { "name": "Divisions", "tags": ["Divisions"] },
+              { "name": "Levels", "tags": ["Levels"] },
+              { "name": "Offices", "tags": ["Offices"] },
+              { "name": "Positions", "tags": ["Positions"] }
+            ]
+            """)!);
+
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
