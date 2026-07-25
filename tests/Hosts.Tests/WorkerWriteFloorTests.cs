@@ -7,18 +7,18 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
 using Orders.Domain;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Orders;
 using Persistence.MerchantRuntime.Outbox;
 using SharedKernel;
 using OrderAggregate = Orders.Domain.Order;
-using OrderLine = Orders.Domain.Lines.Line;
+using OrderItem = Orders.Domain.Items.Item;
 
 namespace Hosts.Tests;
 
 /// <summary>
-/// insurance-pivot task 0/3: proves the CheckoutConfirmed -&gt; Order (+ OrderLine, task 3) write survives
+/// insurance-pivot task 0/3: proves the CheckoutConfirmed -&gt; Order (+ OrderItem, task 3) write survives
 /// the REAL write floor — the actual <see cref="CheckoutConfirmedConsumer"/>, the actual EF repository/
 /// unit-of-work/outbox (Persistence.MerchantRuntime, reached here via the InternalsVisibleTo grant that
 /// project now gives Hosts.Tests), and the REAL <c>Api.BackgroundDispatch.WorkerWriteAuthorizer</c> (via the
@@ -34,13 +34,13 @@ public sealed class WorkerWriteFloorTests : IDisposable
     private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static IReadOnlyList<CheckoutConfirmedLine> OneLine(Money unitPrice) =>
-        [new CheckoutConfirmedLine(
+    private static IReadOnlyList<CheckoutConfirmedItem> OneLine(Money unitPrice) =>
+        [new CheckoutConfirmedItem(
             Product, 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
-    private static IReadOnlyList<OrderLineInput> OneOrderLine(Money unitPrice) =>
-        [new OrderLineInput(
+    private static IReadOnlyList<OrderItemInput> OneOrderLine(Money unitPrice) =>
+        [new OrderItemInput(
             Product, 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
@@ -77,7 +77,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
                 MerchantA, checkoutSessionId, Money.Of(100m, "THB"), Recipient: null, DateTime.UtcNow,
                 OneLine(Money.Of(100m, "THB")));
 
-            // Insert (Order AND its OrderLine) — before task 0/3's fix, WorkerWriteAuthorizer denied these
+            // Insert (Order AND its OrderItem) — before task 0/3's fix, WorkerWriteAuthorizer denied these
             // entirely and this threw WriteGuardException.
             await consumer.Handle(notification, CancellationToken.None);
         }
@@ -92,8 +92,8 @@ public sealed class WorkerWriteFloorTests : IDisposable
         using var verify = NewContext();
         var paid = await verify.Set<OrderAggregate>().SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
         Assert.Equal(OrderStatus.Paid, paid.Status);
-        var line = await verify.Set<OrderLine>().SingleAsync(l => l.OrderId == paid.Id);
-        Assert.Equal(Product, line.ProductId);
+        var item = await verify.Set<OrderItem>().SingleAsync(i => i.OrderId == paid.Id);
+        Assert.Equal(Product, item.ProductId);
     }
 
     [Fact]

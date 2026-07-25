@@ -18,7 +18,7 @@ using Admins.Infrastructure;
 using Carts.Application;
 using Carts.Infrastructure;
 using Checkouts.Application;
-using Checkouts.Domain.Lines;
+using Checkouts.Domain.Items;
 using Checkouts.Infrastructure;
 using Mediator;
 using Divisions.Application;
@@ -32,6 +32,7 @@ using Microsoft.AspNetCore.Mvc.ApiExplorer;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
+using Orders.Domain.Items;
 using Orders.Infrastructure;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
@@ -171,6 +172,13 @@ static IWriteAuthorizer ResolveMerchantWriteAuthorizer(IServiceProvider sp) =>
     BackgroundDispatchScope.IsHttpRequest(sp)
         ? new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>())
         : new WorkerWriteAuthorizer();
+
+// policy-reference-record REQ-3.2-admin: a SEPARATE MerchantRuntimeDbContext instance, built with
+// AdminItemPolicyWriteAuthorizer(IAdminScope) instead of the ambient MerchantRequestWriteAuthorizer above —
+// an admin request has no bound merchant (HasActor=false), so the ambient write floor denies it
+// unconditionally regardless of entity type (mirror AddProvisioning's per-capability context factory).
+builder.Services.AddAdminItemPolicyWriter(
+    appConnString, sp => new AdminItemPolicyWriteAuthorizer(sp.GetRequiredService<IAdminScope>()));
 
 // Keyring comes from the DI singleton (options-bound, validated once) — an inline eager
 // VaultKeyringFactory.Build here reads builder.Configuration BEFORE deferred test/host config
@@ -711,7 +719,7 @@ api.MapPost("/checkouts", async (
     if (!cartProductIds.SetEquals(insuredProductIds))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "insuredPersons must cover every cart line exactly once.");
 
-    var lines = new List<CheckoutLineInput>();
+    var items = new List<CheckoutItemInput>();
     foreach (var item in cart.Items)
     {
         var product = await mediator.Send(new GetProductByIdQuery(actor.MerchantId, item.ProductId), ct);
@@ -719,13 +727,13 @@ api.MapPost("/checkouts", async (
             return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart product is no longer available.");
 
         var person = body.InsuredPersons.Single(p => p.ProductId == item.ProductId);
-        lines.Add(new CheckoutLineInput(
+        items.Add(new CheckoutItemInput(
             item.ProductId, item.Quantity, item.UnitPrice, product.SumInsured, product.CoverageDurationDays,
             product.Insurer, person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth));
     }
 
     var result = await mediator.Send(
-        new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, lines, body.Recipient), ct);
+        new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, items, body.Recipient), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
     .WithTags("Checkout")
@@ -861,6 +869,31 @@ api.MapGet("/orders/{orderId:guid}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound);
 
+// policy-reference-record REQ-3: merchant-plane write for one item's external insurance-reference record.
+// Not gated on Order.Status (REQ-3.4 — writable on a Cancelled order too, insurance-pivot's state machine
+// untouched). Unknown item, or an item under another merchant, both read as 404 (REQ-3.3 — no existence leak).
+api.MapPut("/orders/{orderId:guid}/items/{itemId:guid}/policy", async (
+    Guid orderId, Guid itemId, UpsertItemPolicyRequest body, IActorContext actor, IMediator mediator,
+    CancellationToken ct) =>
+{
+    var input = new ItemPolicyInput(
+        body.InsuranceCategory, body.ReferenceNumberType, body.ReferenceNumber, body.EndorsementNumber,
+        body.RenewalReminderNumber, body.InsuredObjectReference, body.NetPremium, body.GrossPremium,
+        body.PremiumRemittanceStatus, body.DeductedAt);
+    var result = await mediator.Send(
+        new UpsertItemPolicyCommand(actor.MerchantId, itemId, input, actor.UserId!.Value.ToString()), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.PoliciesWrite)
+    .WithTags("Orders")
+    .WithName("UpsertItemPolicy")
+    .WithSummary("Record an item's external insurance-policy reference")
+    .WithDescription("Create or update the external policy-reference data for one order item. Requires the merchant-user policy + policies.write. Unknown item, or one under another merchant, is 404.")
+    .Produces<UpsertItemPolicyResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status404NotFound);
+
 // Reconciliation report: the bound merchant's orders grouped by status + currency (count + total).
 api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
@@ -873,6 +906,29 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
     .WithDescription("The bound merchant's orders grouped by status and currency (count + total).")
     .Produces<ReconciliationView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// policy-reference-record REQ-4.1/4.2/4.4: merchant-plane policy report — auto-scoped to the bound merchant
+// via the ambient query filter (no whitelist exposes merchantId, mirrors /products). SFS filter/sort/paging.
+api.MapGet("/reports/policies", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+{
+    var p = SfsQueryParser.Parse(http.Request.Query);
+    var result = await mediator.Send(new ListPolicyReportQuery
+    {
+        MerchantId = actor.MerchantId,
+        Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
+    }, ct);
+    return Results.Ok(result);
+})
+    .RequireAuthorization("merchant-user").RequirePermission(Keys.PoliciesRead)
+    .WithMetadata(new SfsQueryParamsMarker())
+    .WithTags("Orders")
+    .WithName("ListPolicyReport")
+    .WithSummary("Policy reference report (own merchant)")
+    .WithDescription("Paged report of sold items' external policy references, insurance category, premium settlement, and derived payment status. Requires the merchant-user policy + policies.read. Supports SFS (page, limit, filters, sort).")
+    .Produces<PagedResult<PolicyReportItem>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
 
 // --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
 // One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
@@ -1420,6 +1476,59 @@ admin.MapPost("/merchants/users/{subject}/reject", async (
     .Produces<RejectMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// policy-reference-record REQ-3.2-admin/3.3-admin: cross-merchant escape-hatch write for one item's external
+// insurance-reference record — a Super admin may write ANY merchant's item; a Scoped admin is confined to its
+// accessible set. Both "item missing" and "item outside the admin's scope" read as 404 (no existence leak,
+// same discipline as IAdminQuery.GetMerchantByCodeAsync above).
+admin.MapPut("/orders/{orderId:guid}/items/{itemId:guid}/policy", async (
+    Guid orderId, Guid itemId, UpsertItemPolicyRequest body, IAdminScope scope, IMediator mediator,
+    CancellationToken ct) =>
+{
+    var input = new ItemPolicyInput(
+        body.InsuranceCategory, body.ReferenceNumberType, body.ReferenceNumber, body.EndorsementNumber,
+        body.RenewalReminderNumber, body.InsuredObjectReference, body.NetPremium, body.GrossPremium,
+        body.PremiumRemittanceStatus, body.DeductedAt);
+    var result = await mediator.Send(new UpsertItemPolicyAdminCommand(
+        itemId, input, scope.Current.AdminId.ToString(), scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantsPoliciesWrite)
+    .WithTags("Admin Orders")
+    .WithName("UpsertItemPolicyAdmin")
+    .WithSummary("Record an item's external insurance-policy reference (admin, cross-merchant)")
+    .WithDescription("Create or update the external policy-reference data for one order item under ANY merchant. Requires the admin policy + merchants.policies.write. A Super admin may write any merchant; a Scoped admin is confined to its accessible set. Unknown item, or one outside the admin's scope, is 404 (no existence leak).")
+    .Produces<UpsertItemPolicyAdminResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status404NotFound);
+
+// policy-reference-record REQ-4.2/4.4: admin cross-merchant policy report — IAdminItemPolicyReader escape-hatch
+// confined by IAdminScope.Accessible; optional ?merchantId= narrows further (not part of the SFS whitelist,
+// mirrors ProductSfs's own merchantId exclusion). A Scoped admin naming a merchant outside its accessible set
+// gets an empty page, never a leak.
+admin.MapGet("/reports/policies", async (HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct) =>
+{
+    var p = SfsQueryParser.Parse(http.Request.Query);
+    Guid? merchantId = Guid.TryParse(http.Request.Query["merchantId"], out var mid) ? mid : null;
+    var result = await mediator.Send(new ListPolicyReportAdminQuery
+    {
+        IsUnrestrictedAdmin = scope.Accessible.IsUnrestricted, AccessibleMerchantIds = scope.Accessible.Merchants,
+        MerchantId = merchantId,
+        Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
+    }, ct);
+    return Results.Ok(result);
+})
+    .RequireAuthorization("admin").RequirePermission(Keys.MerchantsPoliciesRead)
+    .WithMetadata(new SfsQueryParamsMarker())
+    .WithTags("Admin Orders")
+    .WithName("ListPolicyReportAdmin")
+    .WithSummary("Policy reference report (admin, cross-merchant)")
+    .WithDescription("Paged report of sold items' external policy references across merchants. Requires the admin policy + merchants.policies.read. A Super admin sees every merchant; a Scoped admin is confined to its accessible set. Optional ?merchantId= narrows further within scope. Supports SFS (page, limit, filters, sort).")
+    .Produces<PagedResult<PolicyReportItem>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -2053,6 +2162,13 @@ internal sealed record OrderSummaryLineResponse(
     Guid ProductId, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
 internal sealed record OrderSummaryResponse(
     Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId, IReadOnlyList<OrderSummaryLineResponse> Lines);
+
+// policy-reference-record REQ-1/REQ-3: field-for-field wire twin of ItemPolicyInput — a dedicated request
+// type rather than binding the domain input directly (this codebase's convention, e.g. AddItemToCartRequest).
+internal sealed record UpsertItemPolicyRequest(
+    InsuranceCategory? InsuranceCategory, ReferenceNumberType? ReferenceNumberType, string? ReferenceNumber,
+    string? EndorsementNumber, string? RenewalReminderNumber, string? InsuredObjectReference,
+    Money? NetPremium, Money? GrossPremium, PremiumRemittanceStatus PremiumRemittanceStatus, DateOnly? DeductedAt);
 
 // Admin provisioning request body (reference 2.4): { "merchant": { ... }, "pspConnections": [ ... ] }.
 // AdminSubject + correlation id are NOT in the body — the host sets them from the authenticated request.

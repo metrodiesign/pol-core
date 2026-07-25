@@ -2,7 +2,7 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantUsers;
@@ -116,7 +116,7 @@ public sealed class WriteFloorTests : IDisposable
 
     // insurance-pivot task 4 (REQ-7.5) — mirrors the VaultRevealAudit guard test above exactly.
     [Fact]
-    public async Task OrderLine_reveal_audit_accepts_insert_but_rejects_modify_and_delete()
+    public async Task OrderItem_reveal_audit_accepts_insert_but_rejects_modify_and_delete()
     {
         using (var seed = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
         {
@@ -125,15 +125,15 @@ public sealed class WriteFloorTests : IDisposable
         }
 
         using var modifier = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
-        var audit = await modifier.OrderLineRevealAudits.SingleAsync();
+        var audit = await modifier.OrderItemRevealAudits.SingleAsync();
         modifier.Entry(audit).Property(nameof(RevealAudit.ActorId)).CurrentValue = "tampered";
 
         var modifyEx = await Assert.ThrowsAsync<WriteGuardException>(() => modifier.SaveChangesAsync());
         Assert.Contains("append-only", modifyEx.Message, StringComparison.OrdinalIgnoreCase);
 
         using var deleter = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
-        var toDelete = await deleter.OrderLineRevealAudits.SingleAsync();
-        deleter.OrderLineRevealAudits.Remove(toDelete);
+        var toDelete = await deleter.OrderItemRevealAudits.SingleAsync();
+        deleter.OrderItemRevealAudits.Remove(toDelete);
 
         var deleteEx = await Assert.ThrowsAsync<WriteGuardException>(() => deleter.SaveChangesAsync());
         Assert.Contains("append-only", deleteEx.Message, StringComparison.OrdinalIgnoreCase);

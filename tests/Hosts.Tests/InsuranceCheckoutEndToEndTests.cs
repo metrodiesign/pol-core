@@ -4,7 +4,7 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using Carts.Application;
 using Checkouts.Application;
-using Checkouts.Domain.Lines;
+using Checkouts.Domain.Items;
 using Contracts;
 using Mediator;
 using Microsoft.Data.Sqlite;
@@ -16,20 +16,20 @@ using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Carts;
 using Persistence.MerchantRuntime.Checkouts;
 using Persistence.MerchantRuntime.Orders;
-using Persistence.MerchantRuntime.Orders.Lines;
+using Persistence.MerchantRuntime.Orders.Items;
 using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantRuntime.Products;
 using Products.Application;
 using SharedKernel;
 using OrderAggregate = Orders.Domain.Order;
-using OrderLineRevealAudit = Orders.Domain.Lines.RevealAudit;
+using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
 
 namespace Hosts.Tests;
 
 /// <summary>
 /// insurance-pivot task 3/4 — the full happy path design.md's Testing Strategy names: an insurance Product in
 /// a cart -&gt; start checkout with a per-line insured person (server-sourced terms) -&gt; confirm -&gt; dispatch
-/// -&gt; Order + OrderLine created -&gt; MarkPaid, THEN the 3 REQ-7.4/7.5 read surfaces on top of that same paid
+/// -&gt; Order + OrderItem created -&gt; MarkPaid, THEN the 3 REQ-7.4/7.5 read surfaces on top of that same paid
 /// order: masked list, full+audited detail, and the anonymous customer summary. Every step calls the REAL
 /// Application handler backed by the REAL EF repository/unit-of-work on SQLite in-memory — Product/Checkout/
 /// list/detail writes run under the REAL Api-host <c>MerchantRequestWriteAuthorizer</c> (reached via the
@@ -116,7 +116,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
             var product = await new GetProductByIdHandler(new ProductRepository(db, NullLogger<ProductRepository>.Instance))
                 .Handle(new GetProductByIdQuery(MerchantA, item.ProductId), CancellationToken.None);
 
-            var lines = new List<CheckoutLineInput>
+            var items = new List<CheckoutItemInput>
             {
                 new(item.ProductId, item.Quantity, item.UnitPrice, product!.SumInsured, product.CoverageDurationDays,
                     product.Insurer, "Somchai", "Jaidee", "1234567890123", Dob),
@@ -125,7 +125,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
             var handler = new StartCheckoutHandler(
                 new CheckoutRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
             var result = await handler.Handle(
-                new StartCheckoutCommand(MerchantA, cartId, cart.Subtotal!.Value, lines), CancellationToken.None);
+                new StartCheckoutCommand(MerchantA, cartId, cart.Subtotal!.Value, items), CancellationToken.None);
             checkoutSessionId = result.CheckoutSessionId;
         }
 
@@ -168,15 +168,15 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         var (productId, checkoutSessionId, _, _) = await CreatePaidOrderAsync();
 
         using var verify = WorkerContext();
-        var paid = await verify.Orders.Include(o => o.Lines).SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
+        var paid = await verify.Orders.Include(o => o.Items).SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
         Assert.Equal(OrderStatus.Paid, paid.Status);
-        var line = Assert.Single(paid.Lines);
-        Assert.Equal(productId, line.ProductId);
-        Assert.Equal(Money.Of(1_000_000m, "THB"), line.SumInsured);
-        Assert.Equal(30, line.CoverageDurationDays);
-        Assert.Equal("Muang Thai Insurance", line.Insurer);
-        Assert.Equal("Somchai", line.InsuredFirstName);
-        Assert.Equal("1234567890123", line.InsuredIdNumber);
+        var item = Assert.Single(paid.Items);
+        Assert.Equal(productId, item.ProductId);
+        Assert.Equal(Money.Of(1_000_000m, "THB"), item.SumInsured);
+        Assert.Equal(30, item.CoverageDurationDays);
+        Assert.Equal("Muang Thai Insurance", item.Insurer);
+        Assert.Equal("Somchai", item.InsuredFirstName);
+        Assert.Equal("1234567890123", item.InsuredIdNumber);
     }
 
     // REQ-7.4 — merchant-authenticated list surface: masked, no audit trail written.
@@ -192,7 +192,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal("****0123", line.MaskedInsuredIdNumber);
         Assert.Equal("Somchai", line.InsuredFirstName);
 
-        Assert.Empty(await db.OrderLineRevealAudits.ToListAsync());
+        Assert.Empty(await db.OrderItemRevealAudits.ToListAsync());
     }
 
     // REQ-7.4/7.5 — merchant-authenticated detail surface: full value, exactly one audit row per line
@@ -212,7 +212,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         }
 
         using var verify = ApiContext();
-        var audit = Assert.Single(await verify.OrderLineRevealAudits.ToListAsync());
+        var audit = Assert.Single(await verify.OrderItemRevealAudits.ToListAsync());
         Assert.Equal(MerchantA, audit.MerchantId);
         Assert.Equal("merchant-user", audit.ActorType);
         Assert.Equal("user-1", audit.ActorId);
@@ -233,7 +233,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         }
 
         using var verify = ApiContext();
-        Assert.Empty(await verify.OrderLineRevealAudits.ToListAsync());
+        Assert.Empty(await verify.OrderItemRevealAudits.ToListAsync());
     }
 
     // NOTE: OrderSummaryReader.GetByTokenAsync (the customer-summary surface) is deliberately NOT exercised

@@ -1,6 +1,6 @@
 using Contracts;
 using Orders.Application;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using SharedKernel;
 
 namespace Orders.Tests;

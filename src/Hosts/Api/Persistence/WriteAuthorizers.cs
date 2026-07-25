@@ -32,11 +32,13 @@ using Products.Domain;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using CheckoutSession = Checkouts.Domain.Session;
-using CheckoutSessionLine = Checkouts.Domain.Lines.Line;
+using CheckoutSessionItem = Checkouts.Domain.Items.Item;
 using PaymentSession = Payments.Domain.Session;
 using OrderAggregate = Orders.Domain.Order;
-using OrderLine = Orders.Domain.Lines.Line;
-using OrderLineRevealAudit = Orders.Domain.Lines.RevealAudit;
+using OrderItem = Orders.Domain.Items.Item;
+using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
+using OrderItemPolicy = Orders.Domain.Items.ItemPolicy;
+using OrderItemPolicyAudit = Orders.Domain.Items.ItemPolicyAudit;
 
 namespace Api.Persistence;
 
@@ -90,8 +92,9 @@ internal sealed class MerchantRequestWriteAuthorizer : IWriteAuthorizer
         typeof(MerchantRegistrationAudit), typeof(MerchantRegistrationNotice), typeof(MerchantRoleAssignment),
         typeof(MerchantUserOutbox),
         // MerchantRuntimeDbContext
-        typeof(Product), typeof(CartAggregate), typeof(CartItem), typeof(CheckoutSession), typeof(CheckoutSessionLine),
-        typeof(OrderAggregate), typeof(OrderLine), typeof(OrderLineRevealAudit),
+        typeof(Product), typeof(CartAggregate), typeof(CartItem), typeof(CheckoutSession), typeof(CheckoutSessionItem),
+        typeof(OrderAggregate), typeof(OrderItem), typeof(OrderItemRevealAudit),
+        typeof(OrderItemPolicy), typeof(OrderItemPolicyAudit),
         typeof(PaymentSession), typeof(Connection), typeof(IdempotencyRecord), typeof(OutboxMessage),
         typeof(MerchantEntity), typeof(VaultSecretBlob), typeof(VaultRevealAudit), typeof(ProvisioningAudit),
     ];
@@ -204,4 +207,32 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
             return BoundOnlyTypes.Contains(entityType);
         return UnboundLoginFlowWrites.Contains((entityType, operation));
     }
+}
+
+/// <summary>
+/// Admin cross-merchant write capability for <see cref="OrderItemPolicy"/>/<see cref="OrderItemPolicyAudit"/>
+/// (policy-reference-record REQ-3.2-admin/3.3-admin, design.md "Write guard registration" §Admin plane point
+/// 2) — constructed ONLY for the dedicated <c>IAdminItemPolicyWriter</c> context
+/// (<c>Persistence.MerchantRuntime.AddAdminItemPolicyWriter</c>, mirror
+/// <see cref="ProvisioningSuperWriteAuthorizer"/>'s per-capability construction). Unlike that Super-only
+/// allowlist, this one is NOT unconditional for the allowed (type, operation) pairs — it also checks the
+/// CALLER's accessible-merchant set, because a Scoped admin (not just Super) may reach this port and must be
+/// confined to its own assigned merchants. <c>AccessibleMerchants.Allows</c> already folds in the
+/// Super/unrestricted case, so no separate IsUnrestricted branch is needed here.
+/// </summary>
+internal sealed class AdminItemPolicyWriteAuthorizer : IWriteAuthorizer
+{
+    private static readonly HashSet<(Type, WriteOperation)> Allowed =
+    [
+        (typeof(OrderItemPolicy), WriteOperation.Insert),
+        (typeof(OrderItemPolicy), WriteOperation.Update),
+        (typeof(OrderItemPolicyAudit), WriteOperation.Insert),
+    ];
+
+    private readonly IAdminScope _scope;
+
+    public AdminItemPolicyWriteAuthorizer(IAdminScope scope) => _scope = scope;
+
+    public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
+        Allowed.Contains((entityType, operation)) && _scope.Accessible.Allows(targetMerchant);
 }

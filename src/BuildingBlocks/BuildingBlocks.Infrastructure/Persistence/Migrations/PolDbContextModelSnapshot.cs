@@ -588,7 +588,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CartItems", "shop");
                 });
 
-            modelBuilder.Entity("Checkouts.Domain.Lines.Line", b =>
+            modelBuilder.Entity("Checkouts.Domain.Items.Item", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -633,7 +633,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Checkouts.Domain.Lines.Line.SumInsured#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Checkouts.Domain.Items.Item.SumInsured#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -651,7 +651,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                                 .IsFixedLength();
                         });
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Checkouts.Domain.Lines.Line.UnitPrice#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Checkouts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -673,7 +673,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SessionId", "MerchantId");
 
-                    b.ToTable("CheckoutSessionLines", "shop");
+                    b.ToTable("CheckoutSessionItems", "shop");
                 });
 
             modelBuilder.Entity("Checkouts.Domain.Session", b =>
@@ -1322,7 +1322,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Offices", "cfg");
                 });
 
-            modelBuilder.Entity("Orders.Domain.Lines.Line", b =>
+            modelBuilder.Entity("Orders.Domain.Items.Item", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1367,7 +1367,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Orders.Domain.Lines.Line.SumInsured#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Orders.Domain.Items.Item.SumInsured#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -1385,7 +1385,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                                 .IsFixedLength();
                         });
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Orders.Domain.Lines.Line.UnitPrice#Money", b1 =>
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Orders.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
                             b1.IsRequired();
 
@@ -1407,10 +1407,131 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OrderId", "MerchantId");
 
-                    b.ToTable("OrderLines", "shop");
+                    b.ToTable("OrderItems", "shop");
                 });
 
-            modelBuilder.Entity("Orders.Domain.Lines.RevealAudit", b =>
+            modelBuilder.Entity("Orders.Domain.Items.ItemPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateOnly?>("DeductedAt")
+                        .HasColumnType("date");
+
+                    b.Property<string>("EndorsementNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal?>("GrossPremiumAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<string>("GrossPremiumCurrency")
+                        .HasMaxLength(3)
+                        .IsUnicode(false)
+                        .HasColumnType("char(3)")
+                        .IsFixedLength();
+
+                    b.Property<int?>("InsuranceCategory")
+                        .HasColumnType("int");
+
+                    b.Property<string>("InsuredObjectReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("NetPremiumAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("decimal(19,4)");
+
+                    b.Property<string>("NetPremiumCurrency")
+                        .HasMaxLength(3)
+                        .IsUnicode(false)
+                        .HasColumnType("char(3)")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("OrderItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("PremiumRemittanceStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ReferenceNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("ReferenceNumberType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RenewalReminderNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId");
+
+                    b.HasIndex("OrderItemId")
+                        .IsUnique();
+
+                    b.ToTable("OrderItemPolicies", "shop");
+                });
+
+            modelBuilder.Entity("Orders.Domain.Items.ItemPolicyAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActorId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("ActorKind")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ChangeSummary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Operation")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("OrderItemId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OrderItemId");
+
+                    b.HasIndex("MerchantId", "OccurredAt");
+
+                    b.ToTable("OrderItemPolicyAudits", "shop");
+                });
+
+            modelBuilder.Entity("Orders.Domain.Items.RevealAudit", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -1434,7 +1555,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("OrderLineId")
+                    b.Property<Guid>("OrderItemId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("RevealedAt")
@@ -1442,11 +1563,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OrderLineId");
+                    b.HasIndex("OrderItemId");
 
                     b.HasIndex("MerchantId", "RevealedAt");
 
-                    b.ToTable("OrderLineRevealAudits", "shop");
+                    b.ToTable("OrderItemRevealAudits", "shop");
                 });
 
             modelBuilder.Entity("Orders.Domain.Order", b =>
@@ -1771,10 +1892,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Checkouts.Domain.Lines.Line", b =>
+            modelBuilder.Entity("Checkouts.Domain.Items.Item", b =>
                 {
                     b.HasOne("Checkouts.Domain.Session", null)
-                        .WithMany("Lines")
+                        .WithMany("Items")
                         .HasForeignKey("SessionId", "MerchantId")
                         .HasPrincipalKey("Id", "MerchantId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1814,10 +1935,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Orders.Domain.Lines.Line", b =>
+            modelBuilder.Entity("Orders.Domain.Items.Item", b =>
                 {
                     b.HasOne("Orders.Domain.Order", null)
-                        .WithMany("Lines")
+                        .WithMany("Items")
                         .HasForeignKey("OrderId", "MerchantId")
                         .HasPrincipalKey("Id", "MerchantId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -1831,7 +1952,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Checkouts.Domain.Session", b =>
                 {
-                    b.Navigation("Lines");
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Iam.Domain.Roles.Role", b =>
@@ -1841,7 +1962,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Orders.Domain.Order", b =>
                 {
-                    b.Navigation("Lines");
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

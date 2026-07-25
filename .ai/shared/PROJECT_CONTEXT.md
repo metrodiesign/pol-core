@@ -39,7 +39,7 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 - **5 SaaS modules** ผ่าน Mediator — Products → Cart → Checkout → Orders → Payments (จบที่ emit `PaymentPaid`)
 - **แผนประกันเป็น field จริงบน `Product`** — `SumInsured`/`CoverageDurationDays`/`Insurer`, validate ตอน
   `Create`, เป็น source of truth เสมอ (server-side, ไม่รับจาก client) ทั้งราคาและเงื่อนไขประกัน
-- **ผู้เอาประกันต่อ `OrderLine`** — จับข้อมูลผู้เอาประกัน (ชื่อ/เลขบัตร/วันเกิด) 1 คนต่อ 1 line ตอน checkout,
+- **ผู้เอาประกันต่อ `OrderItem`** — จับข้อมูลผู้เอาประกัน (ชื่อ/เลขบัตร/วันเกิด) 1 คนต่อ 1 line ตอน checkout,
   snapshot เงื่อนไขประกัน (`SumInsured`/`CoverageDurationDays`/`Insurer`) เข้า line ไม่อ่านจาก `Product` สดๆ
   ภายหลัง; list/summary mask เลขบัตร (โชว์ 4 ตัวท้าย), detail read เผยเต็มพร้อมเขียน append-only reveal audit
   ต่อ line, customer summary ไม่โชว์วันเกิดเลย
@@ -73,6 +73,6 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 6. **ห้าม flow แบบ non-redirect** — ไม่ display-QR/iframe/hosted-fields บนหน้าเรา ใช้ full redirect ไปหน้า PSP เท่านั้น (คง SAQ A)
 7. **Reconciliation = reporting เท่านั้น** — ห้ามลอจิกที่เคลื่อนเงิน/ปรับยอดจริง
 8. **ห้าม policy issuance ใดๆ** — ไม่มี policy-number generation, policy document/PDF, issuance workflow —
-   แม้มี `OrderLine` + ข้อมูลผู้เอาประกันครบแล้วก็ตาม (insurance-pivot) การเก็บข้อมูล 2 อย่างนี้ไม่ใช่การ
+   แม้มี `OrderItem` + ข้อมูลผู้เอาประกันครบแล้วก็ตาม (insurance-pivot) การเก็บข้อมูล 2 อย่างนี้ไม่ใช่การ
    issue policy; จบที่ "รับชำระเสร็จ → emit `PaymentPaid`" เสมอ ไม่มีขั้นถัดไป — รวมถึงห้าม claims /
    renewal / endorsement / underwriting / commission / reinsurance

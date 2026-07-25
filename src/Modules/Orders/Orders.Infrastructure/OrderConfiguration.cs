@@ -40,18 +40,18 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         // Domain events are an in-memory concern; never persisted.
         builder.Ignore(x => x.DomainEvents);
 
-        // Composite alternate key + owned Lines collection (insurance-pivot REQ-6) — mirrors
+        // Composite alternate key + owned Items collection (insurance-pivot REQ-6) — mirrors
         // Carts.Infrastructure.CartConfiguration's Cart/Item relationship exactly (same-cluster,
         // aggregate-internal, so NOT stripped to scalar-only in the runtime config either).
         builder.HasAlternateKey(x => new { x.Id, x.MerchantId });
 
-        builder.HasMany(x => x.Lines)
+        builder.HasMany(x => x.Items)
             .WithOne()
-            .HasForeignKey(l => new { l.OrderId, l.MerchantId })
+            .HasForeignKey(i => new { i.OrderId, i.MerchantId })
             .HasPrincipalKey(x => new { x.Id, x.MerchantId })
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
 
         // The consumer loads by payment session; index it (filtered — it is nullable until checkout binds one).
         builder.HasIndex(x => x.PaymentSessionId)

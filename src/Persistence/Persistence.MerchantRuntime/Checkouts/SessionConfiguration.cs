@@ -33,16 +33,16 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
 
         builder.Ignore(x => x.DomainEvents);
 
-        // Composite alternate key + owned Lines collection (insurance-pivot REQ-6.5), mirrors
+        // Composite alternate key + owned Items collection (insurance-pivot REQ-6.5), mirrors
         // Checkouts.Infrastructure.SessionConfiguration.
         builder.HasAlternateKey(x => new { x.Id, x.MerchantId });
 
-        builder.HasMany(x => x.Lines)
+        builder.HasMany(x => x.Items)
             .WithOne()
-            .HasForeignKey(l => new { l.SessionId, l.MerchantId })
+            .HasForeignKey(i => new { i.SessionId, i.MerchantId })
             .HasPrincipalKey(x => new { x.Id, x.MerchantId })
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

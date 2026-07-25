@@ -51,17 +51,17 @@ internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEn
 
         builder.HasIndex(x => x.MerchantId);
 
-        // Composite alternate key + owned Lines collection (insurance-pivot REQ-6), mirrors
+        // Composite alternate key + owned Items collection (insurance-pivot REQ-6), mirrors
         // Orders.Infrastructure.OrderConfiguration and Persistence.MerchantRuntime.Carts.CartConfiguration's
         // Cart/Item relationship — same-cluster, aggregate-internal, so KEPT here (not scalar-only).
         builder.HasAlternateKey(x => new { x.Id, x.MerchantId });
 
-        builder.HasMany(x => x.Lines)
+        builder.HasMany(x => x.Items)
             .WithOne()
-            .HasForeignKey(l => new { l.OrderId, l.MerchantId })
+            .HasForeignKey(i => new { i.OrderId, i.MerchantId })
             .HasPrincipalKey(x => new { x.Id, x.MerchantId })
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

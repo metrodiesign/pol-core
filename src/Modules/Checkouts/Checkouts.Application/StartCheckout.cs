@@ -1,6 +1,6 @@
 using BuildingBlocks.Application;
 using Checkouts.Domain;
-using Checkouts.Domain.Lines;
+using Checkouts.Domain.Items;
 using Mediator;
 using SharedKernel;
 
@@ -10,7 +10,7 @@ namespace Checkouts.Application;
 /// (insurance-pivot REQ-6.5), + an optional notification recipient (the customer's email/phone, carried
 /// to the order on confirm).</summary>
 public sealed record StartCheckoutCommand(
-    Guid MerchantId, Guid CartId, Money Amount, IReadOnlyList<CheckoutLineInput> Lines, string? Recipient = null)
+    Guid MerchantId, Guid CartId, Money Amount, IReadOnlyList<CheckoutItemInput> Lines, string? Recipient = null)
     : ICommand<StartCheckoutResult>, IMerchantScoped;
 
 /// <summary>Identity of the freshly started checkout session.</summary>

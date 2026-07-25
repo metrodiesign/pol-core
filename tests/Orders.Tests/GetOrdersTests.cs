@@ -1,6 +1,6 @@
 using Orders.Application;
 using Orders.Domain;
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using SharedKernel;
 
 namespace Orders.Tests;
@@ -16,7 +16,7 @@ public sealed class GetOrdersTests
 
     private static Order OrderWithIdNumber(Guid merchantId, string idNumber) =>
         Order.Create(merchantId, Money.Of(15000m, "THB"), DateTime.UtcNow,
-            [new OrderLineInput(
+            [new OrderItemInput(
                 Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
                 "Somchai", "Jaidee", idNumber, Dob)]);
 

@@ -39,14 +39,14 @@ public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutComm
 
         session.Confirm();
 
-        var lines = session.Lines
-            .Select(l => new CheckoutConfirmedLine(
-                l.ProductId, l.Quantity, l.UnitPrice, l.SumInsured, l.CoverageDurationDays, l.Insurer,
-                l.InsuredFirstName, l.InsuredLastName, l.InsuredIdNumber, l.InsuredDateOfBirth))
+        var items = session.Items
+            .Select(i => new CheckoutConfirmedItem(
+                i.ProductId, i.Quantity, i.UnitPrice, i.SumInsured, i.CoverageDurationDays, i.Insurer,
+                i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth))
             .ToList();
         _outbox.Enqueue(new CheckoutConfirmed(
             session.MerchantId, session.Id, session.Amount,
-            session.NotificationRecipient, _clock.UtcNow, lines));
+            session.NotificationRecipient, _clock.UtcNow, items));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

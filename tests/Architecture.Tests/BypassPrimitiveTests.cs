@@ -34,6 +34,8 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantUsers/MerchantRoleAssignmentReader.cs", // task 8.5.7 cross-context role-id read for HostMerchantRoleRepository (explicit merchantId param, not ambient state)
         "src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs", // task 7 provisioning UoW: UPDLOCK/HOLDLOCK authz recheck + idempotency-ledger raw INSERT (named-index conflict detection)
         "src/Persistence/Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs", // task 8.5.8: ListByTenantAsync is GetMerchantHandler's admin cross-merchant read-back (explicit merchantId param, its only caller)
+        "src/Persistence/Persistence.MerchantRuntime/Orders/Items/AdminItemPolicyWriter.cs", // policy-reference-record task 5: admin cross-merchant ItemPolicy write escape-hatch (IAdminItemPolicyWriter) — Scoped admin confined by AdminItemPolicyWriteAuthorizer.CanWrite checking IAdminScope.Accessible, never widened here
+        "src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs", // policy-reference-record task 6: admin cross-merchant policy-report read escape-hatch (IAdminItemPolicyReader, via BuildQuery's IgnoreQueryFilters) — confined by IsUnrestrictedAdmin/AccessibleMerchantIds + optional ?merchantId=, never widened here
     ];
 
     private static readonly Regex BypassPrimitive = new(

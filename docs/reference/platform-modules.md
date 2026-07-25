@@ -638,12 +638,12 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 |---|---|---|
 | สร้างสินค้า | `POST /products` (tenant Bearer หรือ producer + `product.create`) — body รับ `SumInsured`/`CoverageDurationDays`/`Insurer` ด้วย | มีแล้ว |
 | ราคาเป็น `Money` + source of truth | Cart ดึงราคาจาก catalog ตอน add — ไม่รับราคาจาก client; `Price` เป็น unmapped computed (project scalar สองคอลัมน์) | มีแล้ว |
-| เงื่อนไขแผนประกันบน `Product` | `SumInsured`/`CoverageDurationDays`/`Insurer` — snapshot เข้า `OrderLine` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (insurance-pivot) |
+| เงื่อนไขแผนประกันบน `Product` | `SumInsured`/`CoverageDurationDays`/`Insurer` — snapshot เข้า `OrderItem` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (insurance-pivot) |
 | List + ค้นหา/กรอง/เรียง | `GET /products` ตาม SFS convention (JSON-DSL) — implement แล้ว (`ProductSfs`) | มีแล้ว |
 | Query รายตัวภายใน | `GetProductById` ผ่าน Mediator — ผู้ใช้คือ Cart/Checkout ตอน add item / เริ่ม checkout (ไม่มี public endpoint) | มีแล้ว |
 | แก้ไข/ปิดสินค้า | target: `POST /api/producer/v1/products/{productId}/activate|deactivate` — `IsActive` มี field และ permission `product.update` จองแล้ว แต่ไม่มี endpoint | ยังไม่มี (ข้อ 11) |
 | อ่านรายตัว public | target: `GET /api/producer/v1/products/{productId}` สำหรับหน้า detail ฝั่ง console | ยังไม่มี |
-| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot ใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` ไปก่อนแล้ว (ไม่มี versioning/immutability — แก้ `Product` เปลี่ยนเงื่อนไขได้ทันที, ไม่กระทบ order ที่จ่ายแล้วเพราะ snapshot เข้า `OrderLine` แล้ว) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
+| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot ใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` ไปก่อนแล้ว (ไม่มี versioning/immutability — แก้ `Product` เปลี่ยนเงื่อนไขได้ทันที, ไม่กระทบ order ที่จ่ายแล้วเพราะ snapshot เข้า `OrderItem` แล้ว) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
 
 **โมเดลเป้าหมายเชิง API**
 
@@ -778,7 +778,7 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 | Summary link แบบ capability | `SummaryToken` TTL 72 ชม.; `GET /orders/{token}/summary` anonymous; `404` ไม่รู้จัก / `410` หมดอายุ | มีแล้ว |
 | Resend ลิงก์ | `POST /orders/{orderId}/summary/resend` — rotate token + enqueue แจ้งเตือนใหม่ | มีแล้ว |
 | Reconciliation report | `GET /reports/reconciliation` — read-only สรุปยอดเหนือ Orders | มีแล้ว |
-| Order lines | target: immutable `OrderLine` snapshots + customer/producer/payment-method snapshot บนใบ (total + lines แก้ไม่ได้หลังสร้าง) — ปัจจุบันเก็บยอดเดียวทั้งใบ หน้าสรุปแสดงรายละเอียดสินค้าไม่ได้ | ยังไม่มี (ข้อ 21) |
+| Order lines | target: immutable `OrderItem` snapshots + customer/producer/payment-method snapshot บนใบ (total + lines แก้ไม่ได้หลังสร้าง) — ปัจจุบันเก็บยอดเดียวทั้งใบ หน้าสรุปแสดงรายละเอียดสินค้าไม่ได้ | ยังไม่มี (ข้อ 21) |
 | Cancel/หมดอายุใบสั่งซื้อ | target: state machine `AwaitingPayment -> Paid / Cancelled / Expired` + `POST /api/producer/v1/orders/{orderId}/cancel` + `OrderExpiredV1` — enum ปัจจุบันไม่มี `Expired` และ `Cancel()` ไม่มีผู้เรียก | ยังไม่มี (ข้อ 12) |
 | Retry & dunning | ติดตามรายการจ่ายไม่ผ่าน/ใกล้หมดอายุ — แจ้งเตือนซ้ำตามรอบ (target เดิมใน canon) | ยังไม่มี (เป้าหมายเดิม) |
 | List/ค้นหา order | target: `GET /api/producer/v1/orders` (tenant ตน) + `GET /api/admin/v1/orders[/{orderId}]` (ผ่าน `IAdminQuery`) | ยังไม่มี |
@@ -787,7 +787,7 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 
 **โมเดลเป้าหมายเชิง API**
 
-- **Owns**: Order aggregate + order number · immutable OrderLine snapshots ·
+- **Owns**: Order aggregate + order number · immutable OrderItem snapshots ·
   customer/producer/payment-method snapshot · total Money · order lifecycle · customer summary
   capability token lifecycle · payment status projection จาก trusted Payment event — **ไม่ own**:
   provider reference, redirect URL, PSP routing, notification delivery attempt
@@ -1188,7 +1188,7 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
     รับได้เฉพาะ UX metadata เช่น locale) + public payment token สำหรับ polling + return handler
     `GET /api/customer/v1/payment-returns/{attemptToken}` (ไม่เชื่อ query string, ห้าม open redirect);
     ปัจจุบัน `POST /payment-sessions` เป็นฝั่ง producer/tenant client และส่งทุก field เอง (โยงข้อ 10)
-21. **OrderLine + snapshot บน Order ยังไม่มี** — target: immutable `OrderLine` snapshots +
+21. **OrderItem + snapshot บน Order ยังไม่มี** — target: immutable `OrderItem` snapshots +
     customer/producer/payment-method snapshot บนใบ (แก้ไม่ได้หลังสร้าง) เพื่อให้หน้าสรุป/audit
     ถูกต้องย้อนหลัง; ปัจจุบัน Order เก็บยอดเดียวทั้งใบ — lines อยู่บน Cart เท่านั้น (โยงข้อ 3)
 22. **Money ต้อง migrate เป็น DECIMAL(19,4)** — มาตรฐานใหม่ (ตัดสิน 2026-07-05):
@@ -1234,7 +1234,7 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
    (ต้องผ่าน ADR 15 ก่อน)
 3. **Routing policy + provider idempotency + Unknown/inquiry recovery** — ข้อ 13 — Phase 3
 4. **Webhook durable inbox + endpointKey + Omise HMAC** — ข้อ 17 + 9 — Phase 4
-5. **OrderLine + checkout snapshot** — ข้อ 21 + 3
+5. **OrderItem + checkout snapshot** — ข้อ 21 + 3
 6. **Lifecycle/expiry jobs** (payment/checkout/cart/order terminal states) — ข้อ 12
 7. ตามด้วย: tenant API client + Integration API (ข้อ 6) · notification delivery history (ข้อ 4) ·
    maker-checker (ข้อ 14) · observability + Operations API (ข้อ 15 — health endpoints มีแล้ว) ·

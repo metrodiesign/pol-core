@@ -1,4 +1,4 @@
-using Orders.Domain.Lines;
+using Orders.Domain.Items;
 using SharedKernel;
 
 namespace Orders.Domain;
@@ -9,12 +9,12 @@ namespace Orders.Domain;
 /// money seam (PLAN decision #2), mapped as an EF complex type (rf1 — decimal(19,4) + char(3)
 /// columns). <see cref="MarkPaid"/> re-verifies the paid amount + currency before transitioning
 /// and is idempotent, so a replayed PaymentPaid never double-fulfils (PLAN decision #10).
-/// <see cref="Lines"/> records which insurance plan(s) the order is for (insurance-pivot REQ-6) —
+/// <see cref="Items"/> records which insurance plan(s) the order is for (insurance-pivot REQ-6) —
 /// added to this existing aggregate without touching the state machine above.
 /// </summary>
 public sealed class Order : AggregateRoot<Guid>
 {
-    private readonly List<Line> _lines = [];
+    private readonly List<Item> _items = [];
 
     public Guid MerchantId { get; private set; }
 
@@ -49,9 +49,9 @@ public sealed class Order : AggregateRoot<Guid>
     /// <summary>Default lifetime of a summary link (reference: links have a TTL; expired = error).</summary>
     public static readonly TimeSpan SummaryTokenTtl = TimeSpan.FromHours(72);
 
-    /// <summary>The order's lines, in insertion order — one per purchased plan (insurance-pivot REQ-6.1/6.2).
+    /// <summary>The order's items, in insertion order — one per purchased plan (insurance-pivot REQ-6.1/6.2).
     /// Mutated only by <see cref="Create"/>.</summary>
-    public IReadOnlyCollection<Line> Lines => _lines.AsReadOnly();
+    public IReadOnlyCollection<Item> Items => _items.AsReadOnly();
 
     private Order() { }
 
@@ -86,26 +86,26 @@ public sealed class Order : AggregateRoot<Guid>
 
     /// <summary>
     /// Opens a new order awaiting payment for one or more purchased plans (insurance-pivot REQ-6). Rejects
-    /// an empty <paramref name="lines"/> (REQ-6.7 — an order is never opened without at least one line), a
-    /// line whose <see cref="OrderLineInput.Quantity"/> isn't 1 (defense in depth — the checkout endpoint
-    /// already rejects this earlier), and a line-total sum that doesn't equal <paramref name="amount"/>
+    /// an empty <paramref name="items"/> (REQ-6.7 — an order is never opened without at least one item), an
+    /// item whose <see cref="OrderItemInput.Quantity"/> isn't 1 (defense in depth — the checkout endpoint
+    /// already rejects this earlier), and an item-total sum that doesn't equal <paramref name="amount"/>
     /// exactly, same currency (REQ-6.3).
     /// </summary>
-    public static Order Create(Guid merchantId, Money amount, DateTime createdAt, IReadOnlyList<OrderLineInput> lines,
+    public static Order Create(Guid merchantId, Money amount, DateTime createdAt, IReadOnlyList<OrderItemInput> items,
         Guid? paymentSessionId = null, Guid? checkoutSessionId = null, string? notificationRecipient = null)
     {
-        if (lines is null || lines.Count == 0)
-            throw new ArgumentException("An order must have at least one line.", nameof(lines));
+        if (items is null || items.Count == 0)
+            throw new ArgumentException("An order must have at least one line.", nameof(items));
 
         var total = Money.Zero(amount.Currency);
-        foreach (var line in lines)
+        foreach (var item in items)
         {
-            if (line.Quantity != 1)
-                throw new ArgumentException("Insurance lines must have quantity 1.", nameof(lines));
-            if (!line.UnitPrice.SameCurrencyAs(amount))
-                throw new ArgumentException("Line currency must match the order amount currency.", nameof(lines));
+            if (item.Quantity != 1)
+                throw new ArgumentException("Insurance lines must have quantity 1.", nameof(items));
+            if (!item.UnitPrice.SameCurrencyAs(amount))
+                throw new ArgumentException("Line currency must match the order amount currency.", nameof(items));
 
-            total = total.Add(Money.Of(line.UnitPrice.Amount * line.Quantity, line.UnitPrice.Currency));
+            total = total.Add(Money.Of(item.UnitPrice.Amount * item.Quantity, item.UnitPrice.Currency));
         }
 
         if (total.Amount != amount.Amount)
@@ -114,11 +114,11 @@ public sealed class Order : AggregateRoot<Guid>
         var order = new Order(
             Guid.NewGuid(), merchantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAt);
 
-        foreach (var line in lines)
-            order._lines.Add(new Line(
-                Guid.CreateVersion7(), order.Id, merchantId, line.ProductId, line.Quantity, line.UnitPrice,
-                line.SumInsured, line.CoverageDurationDays, line.Insurer,
-                line.InsuredFirstName, line.InsuredLastName, line.InsuredIdNumber, line.InsuredDateOfBirth,
+        foreach (var item in items)
+            order._items.Add(new Item(
+                Guid.CreateVersion7(), order.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice,
+                item.SumInsured, item.CoverageDurationDays, item.Insurer,
+                item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,
                 createdAt));
 
         return order;

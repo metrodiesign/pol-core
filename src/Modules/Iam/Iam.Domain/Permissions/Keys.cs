@@ -17,9 +17,11 @@ public enum Scope
 /// <c>iam.Permissions</c>/<c>iam.PermissionGroups</c> FROM this same vocabulary, and an integration test
 /// asserts the seeded rows equal <see cref="All"/> so code and DB never drift. The boot parity guard checks
 /// every gated key against <see cref="AllKeys"/> AND its <see cref="KeySide"/> against the endpoint's policy
-/// (REQ-5.1/5.4) without touching the database. 20 keys / 8 groups (REQ-2.1) — the old admin-only
+/// (REQ-5.1/5.4) without touching the database. 24 keys / 10 groups (REQ-2.1) — the old admin-only
 /// <c>invoice.view</c>/<c>invoice.manage</c>/<c>settlement.run</c> (group <c>finance</c>) are dropped
-/// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals).
+/// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals). policy-reference-record task 3
+/// (REQ-3.2/3.6/4.2) added <c>merchants.policies</c> (Platform)/<c>policies</c> (Merchant) on top of the
+/// original rf2 20/8 baseline.
 /// </summary>
 public static class Keys
 {
@@ -32,6 +34,8 @@ public static class Keys
     public const string GroupCatalog = "catalog";
     public const string GroupPayment = "payment";
     public const string GroupRoles = "roles";
+    public const string GroupMerchantsPolicies = "merchants.policies";
+    public const string GroupPolicies = "policies";
 
     // Permission keys — stable strings, carried over LITERAL from the two prior catalogs (REQ-1.3).
     public const string TxnView = "txn.view";
@@ -57,6 +61,12 @@ public static class Keys
     // that used to live in two separate catalogs, one per console — now side by side in one class, so the
     // names must not collide either (REQ-10.4 pins both members AND both literals against a silent swap).
     public const string UsersRoles = "users.roles";
+    // policy-reference-record (REQ-3.2/3.6/4.2): merchants.policies.* = admin cross-merchant read/write on the
+    // ItemPolicy report/write surface; policies.* = producer self-scope read/write on the same surface.
+    public const string MerchantsPoliciesRead = "merchants.policies.read";
+    public const string MerchantsPoliciesWrite = "merchants.policies.write";
+    public const string PoliciesRead = "policies.read";
+    public const string PoliciesWrite = "policies.write";
 
     /// <summary>Every group's <see cref="Scope"/> (REQ-2.1) — the single source both <see cref="KeySide"/> and
     /// the SeedData migration derive from.</summary>
@@ -70,11 +80,16 @@ public static class Keys
         [GroupCatalog] = Scope.Merchant,
         [GroupPayment] = Scope.Merchant,
         [GroupRoles] = Scope.Merchant,
+        [GroupMerchantsPolicies] = Scope.Platform,
+        [GroupPolicies] = Scope.Merchant,
     };
 
-    /// <summary>The eight group keys in display order.</summary>
+    /// <summary>The ten group keys in display order.</summary>
     public static readonly IReadOnlyList<string> GroupKeys =
-        [GroupTxn, GroupMerchant, GroupUser, GroupSystem, GroupMerchantUsers, GroupCatalog, GroupPayment, GroupRoles];
+    [
+        GroupTxn, GroupMerchant, GroupUser, GroupSystem, GroupMerchantUsers, GroupCatalog, GroupPayment, GroupRoles,
+        GroupMerchantsPolicies, GroupPolicies,
+    ];
 
     /// <summary>Every (key, group) pair in display order. The migration seed mirrors this exactly.</summary>
     public static readonly IReadOnlyList<(string Key, string GroupKey)> All =
@@ -87,6 +102,8 @@ public static class Keys
         (ProductCreate, GroupCatalog), (ProductUpdate, GroupCatalog),
         (PaymentCreate, GroupPayment), (PaymentRedirect, GroupPayment),
         (RolesView, GroupRoles), (RolesManage, GroupRoles), (UsersRoles, GroupRoles),
+        (MerchantsPoliciesRead, GroupMerchantsPolicies), (MerchantsPoliciesWrite, GroupMerchantsPolicies),
+        (PoliciesRead, GroupPolicies), (PoliciesWrite, GroupPolicies),
     ];
 
     /// <summary>All valid permission keys — the parity reference (REQ-5.1) and the role-grant catalog (REQ-2.6).</summary>
