@@ -294,6 +294,18 @@ builder.Services.AddOpenApi(options =>
         document.Info.Description =
             "Captive payment orchestration (redirect-only, PCI SAQ A). Merchant storefront surface + Admin BFF + MerchantUser BFF.";
 
+        // x-tagGroups: nest the 18 route tags into 4 sidebar groups mirroring the platform's actor model
+        // (selling funnel / admin console / merchant console / reference data) instead of one flat tag list.
+        document.Extensions ??= new Dictionary<string, IOpenApiExtension>();
+        document.Extensions["x-tagGroups"] = new JsonNodeExtension(JsonNode.Parse("""
+            [
+              { "name": "Selling Funnel", "tags": ["Products", "Cart", "Checkout", "Payments", "Orders", "Webhooks"] },
+              { "name": "Admin Console", "tags": ["Admin Auth", "Admin Admins", "Admin Merchants", "Admin MerchantUsers", "Admin Orders", "Admin Roles"] },
+              { "name": "Merchant Console", "tags": ["MerchantUser Auth", "MerchantUser Roles"] },
+              { "name": "Reference Data", "tags": ["Positions", "Offices", "Levels", "Divisions"] }
+            ]
+            """)!);
+
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
         document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
