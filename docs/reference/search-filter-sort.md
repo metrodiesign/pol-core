@@ -86,8 +86,9 @@ SQL Server 2025  ->  PagedResult<T>
 ```
 
 **สถานะ pol-core:** endpoint ที่ shipped SFS เต็มรูปแบบ (paging, sort, filter, search — §13) คือ
-`GET /api/v1/products`, `/api/v1/admins`, `/api/v1/admins/roles`, `/api/v1/reports/policies`,
-`/api/v1/admins/reports/policies`. ที่เหลือ (`GET /api/v1/admins/permissions`,
+`GET /api/v1/products`, `/api/v1/admins`, `/api/v1/admins/roles`. `GET /api/v1/reports/policies` และ
+`/api/v1/admins/reports/policies` shipped แค่ paging/filter/sort — รับ query param `search` แต่ทิ้งเงียบ
+(`PolicyReportSfs` ไม่มี `ApplySearch`, ดูรายละเอียดตอนต้นเอกสารนี้ + §13). ที่เหลือ (`GET /api/v1/admins/permissions`,
 `/api/v1/merchants/users/permissions`, `/api/v1/merchants/users/roles`) ยังคืน full set ไม่รับ sort/filter
 จาก query string — permission catalog เรียงตาม `SortOrder` คงที่.
 
@@ -1351,14 +1352,16 @@ SFS ถูก implement จริงแล้ว (spec `.ai/specs/search-filter-
 - **OpenAPI SFS params (REQ-13)** ประกาศผ่าน built-in `AddOperationTransformer` + metadata marker
   `SfsQueryParamsMarker` (`src/Hosts/Api/SfsOpenApi.cs`) — **ไม่ใช่ `.WithOpenApi(...)`** (§12.1/§12.2/D13):
   โปรเจกต์ใช้ .NET 10 built-in OpenAPI (document/operation transformers) ไม่ใช่ Swashbuckle.
-- **Apply pipeline ต่อโมดูล**: whitelist + `ApplyFilters`/`ApplySort`/`ApplySearch` เป็น `static` class
-  co-located ข้าง repository (แทน `file static RoleQueryFields` ใน §8/§12.1). ตำแหน่งปัจจุบันหลัง rf2 (iam
-  catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
-  - `RoleSfs` — `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` (ตัวที่ `RoleStore` ใช้จริง);
-    ต้นทางเดิม `src/Modules/Iam/Iam.Infrastructure/Persistence/Roles/RoleSfs.cs`
-  - `ProductSfs` — `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs`
-  - `UserSfs` — `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs`
-  - `PolicyReportSfs` — `src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs`
+- **Apply pipeline ต่อโมดูล**: whitelist + `ApplyFilters`/`ApplySort`(+`ApplySearch` เมื่อ shipped) เป็น
+  `static` class co-located ข้าง repository (แทน `file static RoleQueryFields` ใน §8/§12.1). ตำแหน่งปัจจุบันหลัง
+  rf2 (iam catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
+  - `RoleSfs` — `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` (ตัวที่ `RoleStore` ใช้จริง; มี
+    `ApplySearch`); ต้นทางเดิม `src/Modules/Iam/Iam.Infrastructure/Persistence/Roles/RoleSfs.cs`
+  - `ProductSfs` — `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs` (มี `ApplySearch`)
+  - `UserSfs` — `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` (มี `ApplySearch`)
+  - `PolicyReportSfs` — `src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs` —
+    **มีแค่ `ApplyFilters`/`ApplySort`, ไม่มี `ApplySearch`** (ตัวเดียวในกลุ่มนี้ที่ไม่ครบ; endpoint ที่ใช้คลาสนี้
+    ยัง bind `Query.Search` จาก request แต่ไม่มีอะไรอ่านค่านั้นเลย — gap ของจริงในโค้ด ไม่ใช่แค่เอกสาร)
 
   repo/port `ListAsync` ของฝั่ง role รับ `RoleSideContext` + `PagedQuery` base.
 - **`ProductFilterDto.Parse`** อยู่ที่ `Products.Application` (pure `System.Text.Json` + DataAnnotations) ไม่ใช่ Hosts
