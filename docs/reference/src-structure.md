@@ -217,6 +217,25 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 
 > **การตั้งชื่อ (hierarchical naming L1-L8)**: ชื่อ type ไม่ซ้ำ prefix ของโมดูล — `Checkouts.Domain.Session`, `Payments.Domain.Session`, `Orders.Domain.Items.Item` ฯลฯ. ที่ Program.cs จึง import ด้วย alias ชัดเจนแทน blanket `using`.
 
+**หน้าที่/บทบาท + ผู้ดำเนินการต่อโมดูล** (quick reference — verify ตรงกับ `RequireAuthorization`/`RequirePermission` จริงใน `Program.cs`; รายละเอียดเชิงลึกดู [platform-modules.md](platform-modules.md)):
+
+| Module | หน้าที่ / บทบาท | ผู้ดำเนินการ (actor) |
+|---|---|---|
+| Products | แคตตาล็อกกรมธรรม์ต่อ merchant — สร้าง/list สินค้าที่ merchant-user เลือกขายให้ลูกค้า | Merchant-user |
+| Carts | ตะกร้าเก็บ line ก่อน checkout — เพิ่ม/แก้/ลบ line, คำนวณ subtotal | Merchant-user |
+| Checkouts | ล็อกราคา (จาก cart subtotal) + snapshot เงื่อนไขกรมธรรม์/ข้อมูลผู้เอาประกัน ณ เวลาซื้อ ก่อนเปิด order | Merchant-user |
+| Orders | คำสั่งซื้อ + item snapshot + policy-reference record ที่แก้ทีหลังได้ + summary link + reconciliation/policy report | Merchant-user (สร้าง/list/แก้ policy ของ merchant ตัวเอง) · Admin (cross-merchant, tag Admin Orders) · ลูกค้าปลายทาง (อ่าน summary ผ่าน capability link — anonymous) |
+| Payments | สร้าง payment session + redirect ไปหน้าจ่ายของ PSP + รับ webhook ยืนยันผลจ่าย (source of truth) | Merchant-user (สร้าง session/redirect) · PSP (webhook, server-to-server — ไม่มี human actor) |
+| Merchants | merchant (tenant) entity + merchant-user identity ทั้งวงจร (สมัคร → approve/reject → login) | Admin (provision merchant, approve/reject merchant-user) · Merchant-user เอง (สมัคร/login ตัวเอง) |
+| Admins | admin staff identity + session + ขอบเขต merchant ที่ admin คนนั้นเข้าถึงได้ | Admin เอง (login ตัวเอง) · Admin tier Super (สร้าง/จัดการบัญชี admin คนอื่น) |
+| Iam | central RBAC catalog (permission/role) ใช้ร่วมทั้ง 2 plane | Admin (จัดการ role ฝั่ง admin) · Merchant-user ที่มีสิทธิ์ `roles.manage` (จัดการ role ฝั่ง merchant ตัวเอง) |
+| Positions | reference data: รายชื่อตำแหน่งงาน (FK บน `AdminAccount`) | Admin (gate `user.manage`) |
+| Offices | reference data: รายชื่อสำนักงาน/สาขา | Admin (gate `user.manage`) |
+| Levels | reference data: รายชื่อระดับตำแหน่ง | Admin (gate `user.manage`) |
+| Divisions | reference data: รายชื่อสายงาน/ฝ่าย | Admin (gate `user.manage`) |
+
+> `MasterData` ไม่อยู่ใน 12 โมดูลนี้ — ซาก `obj/` ที่ไม่ได้ track จากก่อน masterdata-split (ดูหมายเหตุใน "โครงสร้าง top-level" ด้านบน), ไม่มี source เหลือ
+
 ### 4.1 Products — แคตตาล็อกกรมธรรม์
 
 | ไฟล์ | ชั้น | บทบาท |
@@ -372,19 +391,30 @@ ForwardedHeaders → [HttpLogging (Dev)] → CorrelationId → ExceptionHandler 
   → MapGroup("/api/v1") → endpoints
 ```
 
-### Route surface — ทุกเส้นอยู่ใต้ `/api/v1/{area}` (version-first)
+### Route surface — จัดกลุ่มตาม API tag จริงใน Scalar (18 tag ตรงกับ `.WithTags(...)` ใน `Program.cs`, ทุกเส้นอยู่ใต้ `/api/v1`)
 
-| กลุ่ม | endpoints |
-|------|-----------|
-| webhook (anonymous, rate-limited) | `POST /api/v1/webhooks/{pspConnectionId:guid}` |
-| products | `POST /api/v1/products` · `GET /api/v1/products` (SFS) |
-| carts | `POST /carts` · `POST|DELETE|PUT /carts/{cartId}/items[/{productId}]` · `GET /carts/{cartId}` · `POST /carts/{cartId}/clear` |
-| checkouts | `POST /checkouts` · `POST /checkouts/{checkoutSessionId}/confirm` |
-| payments | `POST /payments/sessions` · `POST /payments/sessions/{paymentSessionId}/redirect` |
-| orders | `GET /orders` · `GET /orders/{orderId}` · `GET /orders/{token}/summary` (**anonymous** capability link) · `POST /orders/{orderId}/summary/resend` · `PUT /orders/{orderId}/items/{itemId}/policy` |
-| reports | `GET /reports/reconciliation` · `GET /reports/policies` |
-| admins (`MapGroup("/admins")` + CSRF filter) | `GET /admins/auth/{provider}/login` · `POST /admins/auth/logout[-all]` · CRUD `/admins` + `/{id}/{merchants,suspend,reactivate,tier,profile,roles,sessions,effective-permissions}` · `/admins/{permissions,roles}` · `POST /admins/merchants` · `GET /admins/merchants/{code}` · admin plane ของ policy + report |
-| merchants (`/merchants/auth`, `/merchants/users`) | `GET /merchants/auth/{provider}/login` · `POST /merchants/users/register` · `POST /merchants/auth/logout[-all]` · `GET /merchants/users/me` · `/merchants/users/{permissions,roles}` · `PUT /merchants/users/{merchantUserId}/roles` · `POST /merchants/users/{subject}/{approve,reject}` |
+| Tag (Scalar) | Endpoint | Module |
+|---|---|---|
+| Webhooks | `POST /webhooks/{pspConnectionId}` (anonymous, rate-limited) | §4.5 Payments (ไม่มีโมดูลของตัวเอง — ขี่อยู่บน Payments) |
+| Products | `POST /products` · `GET /products` (SFS) | §4.1 Products |
+| Cart | `POST /carts` · `GET /carts/{cartId}` · `POST/PUT/DELETE /carts/{cartId}/items[/{productId}]` · `POST /carts/{cartId}/clear` | §4.2 Carts |
+| Checkout | `POST /checkouts` · `POST /checkouts/{checkoutSessionId}/confirm` | §4.3 Checkouts |
+| Payments | `POST /payments/sessions` · `POST /payments/sessions/{paymentSessionId}/redirect` | §4.5 Payments |
+| Orders | `GET /orders` · `GET /orders/{orderId}` · `GET /orders/{token}/summary` (anonymous capability link) · `POST /orders/{orderId}/summary/resend` · `PUT /orders/{orderId}/items/{itemId}/policy` · `GET /reports/reconciliation` · `GET /reports/policies` | §4.4 Orders |
+| Admin Auth | `GET /admins/auth/{provider}/login` · `POST /admins/auth/logout[-all]` · `GET /admins/me` | §5 Admin BFF (`Hosts/Api/Admins/*`, ไม่ใช่ `Modules/*`) |
+| Admin Merchants | `POST /merchants` · `GET /merchants/{code}` | §4.6 Merchants (`ProvisionMerchant`/`GetMerchant`) |
+| MerchantUser Auth | `GET /merchants/auth/{provider}/login` · `POST /merchants/users/register` · `POST /merchants/auth/logout[-all]` · `GET /merchants/users/me` | §4.6 Merchants (Users) + §5 MerchantUser BFF |
+| MerchantUser Roles | `GET /merchants/users/permissions` · `GET/POST/PUT/DELETE /merchants/users/roles[/{code}]` · `PUT /merchants/users/{merchantUserId}/roles` | §4.8 Iam (merchant-scope; permissions + role catalog CRUD) · §4.6 Merchants (`SetRolesCommand`, assign roles to a merchant-user) |
+| Admin MerchantUsers | `POST /admins/merchants/users/{subject}/approve` · `POST /admins/merchants/users/{subject}/reject` | §4.6 Merchants (Users/ApproveReject สั่งฝั่ง admin) |
+| Admin Orders | `PUT /admins/orders/{orderId}/items/{itemId}/policy` · `GET /admins/reports/policies` | §4.4 Orders (admin cross-merchant use case) |
+| Admin Admins | `POST/GET /admins` · `GET /admins/{id}` · `GET /admins/{id}/effective-permissions` · `POST/DELETE /admins/{id}/merchants[/{merchantId}]` · `POST /admins/{id}/{suspend,reactivate,tier}` · `PUT /admins/{id}/profile` · `PUT /admins/{id}/roles` · `GET /admins/{id}/sessions` · `DELETE /admins/{id}/sessions/{sessionId}` | §4.7 Admins |
+| Admin Roles | `GET /admins/permissions` · `GET/POST/PUT/DELETE /admins/roles[/{code}]` | §4.8 Iam (admin-scope) |
+| Positions | `GET /positions[/{id}]` · `POST /positions` · `PUT/DELETE /positions/{id}` (soft-deactivate, gate `user.manage`) | §4.9-4.12 |
+| Offices | เหมือน Positions, path `/offices` | §4.9-4.12 |
+| Levels | เหมือน Positions, path `/levels` | §4.9-4.12 |
+| Divisions | เหมือน Positions, path `/divisions` | §4.9-4.12 |
+
+> `Models` ใน Scalar sidebar **ไม่ใช่ tag/module** — เป็น schema/DTO index ที่ Scalar auto-generate จาก `document.Components.Schemas` เฉย ๆ
 
 > audience บังคับ **ต่อ endpoint** ผ่าน `.RequireAuthorization("merchant-user"|"admin")` + `.RequirePermission(Keys.*)` — ไม่ใช่จาก path segment (path บอกแค่ *area*).
 
