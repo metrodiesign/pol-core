@@ -104,7 +104,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         return new WebhookEvent(eventId, invoiceNo, status);
     }
 
-    public override async Task<PspChargeStatus> FetchChargeAsync(
+    public override async Task<PspChargeConfirmation> FetchChargeAsync(
         string externalChargeId, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
@@ -119,7 +119,11 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var resp))
             throw new InvalidOperationException("2c2p paymentInquiry response failed signature verification.");
 
-        return MapRespCode(GetString(resp, "respCode"));
+        // paymentInquiry reports the collected amount in MAJOR units under the same field names the
+        // paymentToken request used (amount + currencyCode). Read from the signature-verified claims only.
+        return new PspChargeConfirmation(
+            MapRespCode(GetString(resp, "respCode")),
+            TryReadMajorUnitMoney(GetDecimal(resp, "amount"), GetString(resp, "currencyCode")));
     }
 
     /// <summary>Maps a canonical payment method to the 2C2P paymentChannel code it must be charged through.

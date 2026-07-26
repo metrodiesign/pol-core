@@ -36,8 +36,11 @@ public interface IPspAdapter
     /// <summary>Verifies a webhook signature against the raw payload using the connection's secret.</summary>
     bool VerifyWebhook(string rawPayload, string signature, string secret);
 
-    /// <summary>Server-to-server confirm of a charge's true status (fetch-to-confirm). Never trusts the webhook body alone.</summary>
-    Task<PspChargeStatus> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken);
+    /// <summary>Server-to-server confirm of a charge's true status AND the amount the PSP reports having
+    /// collected (fetch-to-confirm). Never trusts the webhook body alone. The amount is what lets the
+    /// caller check the collection against the order that backs it — see
+    /// <see cref="PspChargeConfirmation"/> for why it is nullable.</summary>
+    Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken);
 
     /// <summary>Parses a verified webhook payload into the normalized <see cref="WebhookEvent"/>.</summary>
     WebhookEvent ParseWebhook(string rawPayload);

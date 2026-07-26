@@ -124,7 +124,7 @@ public sealed class OmiseAdapter : PspAdapterBase
         return new WebhookEvent(eventId, chargeId, MapStatus(GetString(data, "status")));
     }
 
-    public override async Task<PspChargeStatus> FetchChargeAsync(
+    public override async Task<PspChargeConfirmation> FetchChargeAsync(
         string externalChargeId, string secret, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(externalChargeId);
@@ -139,7 +139,13 @@ public sealed class OmiseAdapter : PspAdapterBase
         }, cancellationToken).ConfigureAwait(false);
 
         using var doc = JsonDocument.Parse(body);
-        return MapStatus(GetString(doc.RootElement, "status"));
+        var root = doc.RootElement;
+
+        // GET /charges/{id} reports the collected amount in MINOR units (satang) alongside `currency`, the
+        // same convention the charge request uses — scale it back to major units to compare against a Money.
+        return new PspChargeConfirmation(
+            MapStatus(GetString(root, "status")),
+            TryReadMinorUnitMoney(GetDecimal(root, "amount"), GetString(root, "currency")));
     }
 
     // ---- helpers ----

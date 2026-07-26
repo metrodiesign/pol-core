@@ -80,12 +80,20 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
 
                 // Fetch-to-confirm: never trust the webhook body's status alone.
                 var confirmed = await adapter.FetchChargeAsync(evt.ExternalChargeId, secret, ct).ConfigureAwait(false);
-                if (confirmed != PspChargeStatus.Paid)
+                if (confirmed.Status != PspChargeStatus.Paid)
                     return WebhookOutcome.Ignored;
 
                 var session = await _sessions.GetByExternalChargeAsync(connection.Psp, evt.ExternalChargeId, ct).ConfigureAwait(false)
                     ?? throw new InvalidOperationException(
                         $"No PaymentSession for {pspCode} charge {evt.ExternalChargeId}.");
+
+                // REQ-8.2: what the PSP actually collected must be what the order backs. Since the session
+                // is priced from the order row, comparing here is the only place a wrong-amount collection
+                // can be caught — the Orders-side check compares the session's own amount to itself. Money
+                // is a record struct, so != covers BOTH the amount and the currency. A null Amount means the
+                // PSP reported none (REQ-8.3): confirm on status alone, exactly as before this check existed.
+                if (confirmed.Amount is { } collected && collected != session.Amount)
+                    return WebhookOutcome.Ignored;
 
                 var occurredAt = _clock.UtcNow;
                 session.MarkPaid(evt.ExternalChargeId, occurredAt);

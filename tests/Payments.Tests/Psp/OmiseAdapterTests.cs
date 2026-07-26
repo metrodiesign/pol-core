@@ -157,10 +157,47 @@ public sealed class OmiseAdapterTests
     {
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json($$"""{"id":"chrg_test_1","status":"{{status}}"}"""));
 
-        var result = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
 
-        Assert.Equal(expected, result);
+        Assert.Equal(expected, confirmed.Status);
         Assert.EndsWith("/charges/chrg_test_1", handler.Calls[0].Uri!.AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData(25009, "THB", 250.09)] // 25009 satang -> 250.09 THB
+    [InlineData(2000, "THB", 20.00)]
+    [InlineData(5000, "JPY", 5000)]    // 0-decimal currency: minor == major, no scaling
+    public async Task FetchCharge_reports_the_collected_amount_converted_back_to_major_units(
+        int minorUnits, string currency, double expected)
+    {
+        // REQ-8.1: GET /charges/{id} reports MINOR units (the same convention the charge POST uses), so the
+        // fetch must invert the conversion — comparing a satang integer against a THB Money would reject
+        // every correct payment.
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json(
+            $$"""{"id":"chrg_test_1","status":"successful","amount":{{minorUnits}},"currency":"{{currency}}"}"""));
+
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+
+        Assert.Equal(Money.Of((decimal)expected, currency), confirmed.Amount);
+    }
+
+    [Theory]
+    [InlineData("""{"id":"chrg_test_1","status":"successful"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":"25009","currency":"THB"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":25009}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","currency":"THB"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":25009,"currency":"XYZ"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":-25009,"currency":"THB"}""")]
+    public async Task FetchCharge_reports_no_amount_rather_than_throwing_when_the_response_lacks_a_usable_one(string body)
+    {
+        // REQ-8.3: status-only confirmation, never zero and never an exception — an unverified response
+        // contract must not be able to stop a real payment from being confirmed.
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json(body));
+
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+
+        Assert.Null(confirmed.Amount);
+        Assert.Equal(PspChargeStatus.Paid, confirmed.Status);
     }
 
     [Fact]

@@ -271,10 +271,52 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode }), Key)));
         var (adapter, handler) = Build((_, _) => inquiry);
 
-        var status = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
 
-        Assert.Equal(expected, status);
+        Assert.Equal(expected, confirmed.Status);
         Assert.EndsWith("/payment/4.3/paymentInquiry", handler.Calls[0].Uri!.AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData(250.09, "THB")]
+    [InlineData(5000, "JPY")] // 0-decimal currency: 2C2P reports major units either way
+    public async Task FetchCharge_reports_the_major_unit_amount_the_psp_collected(double amount, string currency)
+    {
+        // REQ-8.1: paymentInquiry carries the collected amount in MAJOR units under `amount`/`currencyCode`.
+        // It is the only value in the whole flow that comes from the PSP rather than from our own row, so it
+        // is what makes the pre-MarkPaid comparison something other than a tautology.
+        var inquiry = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { respCode = "0000", amount, currencyCode = currency }), Key)));
+        var (adapter, _) = Build((_, _) => inquiry);
+
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+
+        Assert.Equal(Money.Of((decimal)amount, currency), confirmed.Amount);
+    }
+
+    [Theory]
+    // Absent entirely — the shape of every fetch response before this feature existed.
+    [InlineData("""{"respCode":"0000"}""")]
+    // Present but not a JSON number (a string amount) — reads as "not reported", never as 0.
+    [InlineData("""{"respCode":"0000","amount":"250.09","currencyCode":"THB"}""")]
+    // Amount without a currency, and vice versa: neither half alone is comparable money.
+    [InlineData("""{"respCode":"0000","amount":250.09}""")]
+    [InlineData("""{"respCode":"0000","currencyCode":"THB"}""")]
+    // A currency outside the platform's ISO 4217 allowlist (and a non-alpha-3 code).
+    [InlineData("""{"respCode":"0000","amount":250.09,"currencyCode":"XYZ"}""")]
+    [InlineData("""{"respCode":"0000","amount":250.09,"currencyCode":"764"}""")]
+    public async Task FetchCharge_reports_no_amount_rather_than_throwing_when_the_response_lacks_a_usable_one(string claims)
+    {
+        // REQ-8.3: the amount field's contract is not sandbox-verified on every path, so an unusable value
+        // must degrade to status-only confirmation. Throwing here would abandon a real paid charge; reading
+        // it as zero would refuse one. The status must still come through intact.
+        var inquiry = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(claims, Key)));
+        var (adapter, _) = Build((_, _) => inquiry);
+
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+
+        Assert.Null(confirmed.Amount);
+        Assert.Equal(PspChargeStatus.Paid, confirmed.Status);
     }
 
     [Fact]
@@ -290,9 +332,9 @@ public sealed class TwoCTwoPAdapterTests
                     JsonSerializer.Serialize(new { respCode = "0000" }), Key)));
         });
 
-        var status = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None);
 
-        Assert.Equal(PspChargeStatus.Paid, status);
+        Assert.Equal(PspChargeStatus.Paid, confirmed.Status);
         Assert.Equal(3, handler.CallCount); // 2 transient + 1 success
     }
 

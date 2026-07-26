@@ -374,7 +374,7 @@
          REQ-6.3/6.4 เป็นเรื่องของ 2C2P `paymentChannel`; switch ของ Omise เป็น backstop ชั้นสองที่ REQ-6.2
          (create-session) กันไว้ก่อนแล้ว และมี test เดิม pin อยู่.
 
-- [ ] 6. **fetch-to-confirm พายอดกลับมาแล้วเทียบก่อน MarkPaid** — `PspChargeConfirmation(PspChargeStatus
+- [x] 6. **fetch-to-confirm พายอดกลับมาแล้วเทียบก่อน MarkPaid** — `PspChargeConfirmation(PspChargeStatus
      Status, Money? Amount)` แทน return type ของ `IPspAdapter.FetchChargeAsync`; `TwoCTwoPAdapter` อ่าน
      `amount` + `currencyCode` จาก paymentInquiry, `OmiseAdapter` อ่าน `amount` (minor units) + `currency`
      แล้วแปลงกลับ major unit ด้วย `Iso4217.MinorUnitDigits`; field หาย/ผิดชนิด -> `Amount = null`
@@ -386,6 +386,55 @@
      adapter: response มี amount -> คืนค่าถูก, ไม่มี/ผิดชนิด -> null; webhook handler: amount ตรง ->
      `Processed` + enqueue, amount ต่าง -> `Ignored` + ไม่ `MarkPaid` + ไม่ enqueue, amount null ->
      `Processed` + `dotnet test pol-core.slnx --filter "Category!=Integration"` (ไม่ถอย).
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `Build succeeded. 0 Warning(s) 0 Error(s)`
+         (64 projects). Verified it really COMPILED, not skipped, with `stat -f "%Sm %N"`: every touched
+         project's dll is strictly newer than its source (Payments.Tests.dll 23:06:50 vs
+         HandlePspWebhookHandlerTests.cs 23:06:44; Payments.Application.dll 23:04:25 vs handler 23:04:22).
+       - test: `dotnet test tests/Payments.Tests --no-build` -> **150 passed / 0 failed / 0 skipped**
+         (baseline 126 -> +24: TwoCTwoPAdapterTests +8 cases, OmiseAdapterTests +9 cases,
+         HandlePspWebhookHandlerTests 7 new).
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> `EXIT=0`, **1208 passed /
+         0 failed / 0 skipped**, all **16** `Passed!` banners present (counted per trap 30). Per project:
+         Admins 95, Architecture 223, BuildingBlocks 43, Carts 15, Checkouts 7, Divisions 6, Hosts 353,
+         Iam 62, Levels 6, Merchants 115, Offices 6, Orders 68, **Payments 150**, Positions 6, Products 7,
+         SharedKernel 46 — identical to the task-5 baseline (1184) except Payments.Tests 126 -> 150.
+       - test: RED proof A (the amount check itself) — deleted the `if (confirmed.Amount is { } collected
+         ...)` block, rebuilt, ran the new class: `Failed: 3, Passed: 4`. Red =
+         `An_amount_that_differs_from_the_session_is_ignored_and_publishes_nothing` (`Expected: Ignored /
+         Actual: Processed`), `An_amount_collected_in_a_different_currency_is_ignored`,
+         `A_redelivery_after_a_mismatch_reports_Duplicate_...`. The 4 that stayed green are the
+         unchanged-behavior regression net (status gate, null amount, scale-only difference, happy path).
+         Restored -> rebuilt -> 150 passed.
+       - test: RED proof B (the two adapter reads, mutated together) — 2C2P `Amount` hardcoded to `null`
+         + Omise using `TryReadMajorUnitMoney` instead of `TryReadMinorUnitMoney` (the realistic
+         "forgot the unit conversion" bug) -> `Failed: 4, Passed: 60`: both 2C2P
+         `FetchCharge_reports_the_major_unit_amount_the_psp_collected` cases and Omise's two **THB**
+         conversion cases. Omise's **JPY** case stayed GREEN because minor == major at 0 decimal digits —
+         a JPY-only fixture would not have caught the missing conversion, which is why the THB cases are
+         the load-bearing ones. Restored -> rebuilt -> 150 passed.
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a
+         live-code token in src/ or tests/` (run AFTER `git add`, trap 12).
+       - test: `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 42 ข้อ ถูกอ้างครบใน
+         design.md และ tasks.md, EARS lint ผ่านทุกข้อ`; `.ai/bin/check-secrets.sh --all` -> exit 0.
+       - viewports: n/a — no browser surface (adapter/port contract + one Application handler branch).
+       - deviations: (1) the comparison is written `collected != session.Amount` rather than design D8's
+         `paid.Amount == session.Amount.Amount && paid.SameCurrencyAs(session.Amount)`. `Money` is a
+         `readonly record struct`, so the generated `!=` compares BOTH the decimal amount (value-based, so
+         250.0900 == 250.09) and the currency (ordinal) — behaviourally identical to the spelled-out form
+         and it cannot drift out of sync with `Money`. Pinned by
+         `An_amount_differing_only_in_decimal_scale_still_matches` +
+         `An_amount_collected_in_a_different_currency_is_ignored`. (2) The two null-safe readers
+         (`TryReadMajorUnitMoney` / `TryReadMinorUnitMoney`) live on `PspAdapterBase` next to the
+         `FormatMajor/MinorUnitAmount` pair they invert, not inline in each adapter — both adapters need the
+         identical "never throw, null means status-only" contract and D8 states it once for both.
+         (3) NOT CHANGED, pre-existing, deliberately left alone (REQ-8.4 forbids touching the idempotency
+         keys): the multi-key claim is taken BEFORE the fetch, so a redelivery of an event whose amount
+         mismatched reports `Duplicate` even though nothing was ever marked paid. The `Ignored`-on-not-yet-
+         Paid path has behaved exactly this way since it was written — the amount check inherits the
+         property, it does not introduce it. Pinned as-is by
+         `A_redelivery_after_a_mismatch_reports_Duplicate_because_the_claim_was_already_spent`; moving the
+         claim would change replay semantics for the entire webhook path and needs its own requirement.
 
 - [ ] 7. **Provisioning vocabulary + demo seed + as-built docs** — `ProvisionMerchantHandler.cs:63`
      เปลี่ยน `Trim()` เป็น `PaymentMethods.Normalize(m)` ต่อรายการ (ค่าไม่รู้จัก -> `ArgumentException`

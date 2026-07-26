@@ -45,7 +45,7 @@ public abstract class PspAdapterBase : IPspAdapter
 
     public abstract bool VerifyWebhook(string rawPayload, string signature, string secret);
 
-    public abstract Task<PspChargeStatus> FetchChargeAsync(
+    public abstract Task<PspChargeConfirmation> FetchChargeAsync(
         string externalChargeId, string secret, CancellationToken cancellationToken);
 
     public abstract WebhookEvent ParseWebhook(string rawPayload);
@@ -83,6 +83,43 @@ public abstract class PspAdapterBase : IPspAdapter
         var scale = (decimal)Math.Pow(10, digits);
         var minorUnits = decimal.Round(amount.Amount * scale, 0, MidpointRounding.AwayFromZero);
         return minorUnits.ToString("F0", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The inverse of <see cref="FormatMajorUnitAmount"/> for a fetch response: an amount+currency
+    /// pair a PSP REPORTED, or null when it did not report a usable one. Null is the status-only confirmation
+    /// of <see cref="PspChargeConfirmation"/> (REQ-8.3) and NEVER zero, so every way the pair can be
+    /// unusable — absent, not a JSON number, a currency outside the platform's ISO 4217 allowlist, negative,
+    /// finer than 4 decimals — returns null here instead of throwing and abandoning a real confirmation.</summary>
+    protected static Money? TryReadMajorUnitMoney(decimal? amount, string? currency)
+    {
+        if (amount is not { } value || string.IsNullOrWhiteSpace(currency))
+            return null;
+
+        try
+        {
+            return Money.Of(value, currency);
+        }
+        catch (ArgumentException)
+        {
+            // Covers ArgumentOutOfRangeException (unknown currency / negative) too.
+            return null;
+        }
+    }
+
+    /// <summary>The inverse of <see cref="FormatMinorUnitAmount"/>: a PSP's minor-unit integer amount
+    /// (Omise) scaled back to major units at the currency's ISO 4217 exponent. Same null contract as
+    /// <see cref="TryReadMajorUnitMoney"/>.</summary>
+    protected static Money? TryReadMinorUnitMoney(decimal? minorUnits, string? currency)
+    {
+        if (minorUnits is not { } minor || string.IsNullOrWhiteSpace(currency))
+            return null;
+
+        var code = currency.ToUpperInvariant();
+        if (!Iso4217.IsSupported(code))
+            return null;
+
+        var scale = (decimal)Math.Pow(10, Iso4217.MinorUnitDigits(code));
+        return TryReadMajorUnitMoney(minor / scale, code);
     }
 
     /// <summary>Guards that <paramref name="amount"/> has no precision beyond its currency's ISO 4217
@@ -170,6 +207,16 @@ public abstract class PspAdapterBase : IPspAdapter
         using var doc = JsonDocument.Parse(Base64UrlDecode(parts[1]));
         return doc.RootElement.Clone();
     }
+
+    /// <summary>Reads a number-valued JSON property as a decimal, or null if it is absent, not a JSON
+    /// number, or out of decimal's range — so a PSP sending <c>"amount":"250.09"</c> as a string reads as
+    /// "not reported" rather than throwing out of the fetch.</summary>
+    protected static decimal? GetDecimal(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetDecimal(out var number)
+            ? number
+            : null;
 
     /// <summary>Reads a string-valued JSON property, or null if it is absent or not a JSON string.</summary>
     protected static string? GetString(JsonElement element, string name) =>

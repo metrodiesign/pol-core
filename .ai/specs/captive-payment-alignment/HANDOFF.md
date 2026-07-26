@@ -836,3 +836,162 @@ fixture ที่ต้องเพิ่ม amount, case ที่ field หา
    fail-closed, ห้ามแตะ idempotency key / ลำดับ transaction / สัญญา `PaymentPaid`).
 4. flip `- [x] 6.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
    commit -> append section 6.
+
+---
+
+## Section 6 — task 6 (from: Claude Opus 5 teammate, 2026-07-26)
+
+### Task Summary
+
+task 6 ของ spec `captive-payment-alignment`: fetch-to-confirm พา**ยอดที่ PSP เก็บจริง**กลับมาด้วย แล้วเทียบกับ
+`session.Amount` **ก่อน** `MarkPaid`. ปิด REQ-8 (8.1, 8.2, 8.3, 8.4) ตาม design D8 ตรงตัว. เหตุผลที่ task นี้มี
+อยู่: หลัง task 2 ปิดช่อง A แล้ว `session.Amount == order.Amount` **โดยโครงสร้าง** ทำให้การเทียบยอดใน
+`Order.MarkPaid` กลายเป็น tautology — จุดนี้เป็นที่**เดียว**ในระบบที่มีการเทียบกับยอดที่ PSP เก็บจริง.
+
+### Current Status
+
+- task 6 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 7 ยัง `- [ ]` (task สุดท้าย) — ยังไม่มี `ProvisionMerchantHandler` / `seed-demo.sql` /
+  `docs/reference/*` / `docs/runbooks/*` ถูกแก้ในงานนี้เลย.
+- **`IPspAdapter.FetchChargeAsync` เปลี่ยน return type แล้ว** เป็น `Task<PspChargeConfirmation>` — call site
+  ทั้งหมด (2 adapter + base + `HandlePspWebhookHandler` + `FakePspAdapter` + 4 จุดใน adapter tests) แก้ครบ
+  และเขียว. **ไม่มี** call site อื่นในโค้ดเบส (ยืนยันด้วย `git grep -n FetchChargeAsync -- src tests`).
+- `Session.MarkExpired` ยังไม่มี production caller (Non-Goal 4) — ไม่เปลี่ยนจาก section 3/4/5.
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Application/Ports/PspContracts.cs` — edited — `+using SharedKernel;` +
+  record ใหม่ `PspChargeConfirmation(PspChargeStatus Status, Money? Amount)` พร้อม doc ที่ระบุว่า
+  `null` = "PSP ไม่รายงานยอด -> ยืนยันด้วยสถานะเท่านั้น" **ไม่ใช่ศูนย์** (REQ-8.3). `PspCharge`/
+  `PspChargeStatus`/`WebhookEvent` ไม่ถูกแตะ.
+- `src/Modules/Payments/Payments.Application/Ports/IPspAdapter.cs` — edited — return type ของ
+  `FetchChargeAsync` + doc. member อื่นไม่แตะ.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/PspAdapterBase.cs` — edited — abstract signature ใหม่ +
+  `protected static Money? TryReadMajorUnitMoney(decimal?, string?)` และ `TryReadMinorUnitMoney(...)`
+  (วางไว้ใต้ `FormatMinorUnitAmount` ที่มันเป็นตัวผกผัน) + `protected static decimal? GetDecimal(JsonElement,
+  string)` (วางไว้ข้าง `GetString` ตาม idiom เดิม).
+- `src/Modules/Payments/Payments.Infrastructure/Psp/TwoCTwoPAdapter.cs` — edited — `FetchChargeAsync` คืน
+  `PspChargeConfirmation` โดยอ่าน `amount` (**major unit**) + `currencyCode` จาก claims ที่ **verify signature
+  แล้ว** เท่านั้น (`resp` ตัวเดิม ไม่ได้อ่านจาก body ดิบ).
+- `src/Modules/Payments/Payments.Infrastructure/Psp/OmiseAdapter.cs` — edited — `FetchChargeAsync` อ่าน
+  `amount` (**minor unit**) + `currency` แล้วแปลงกลับ major unit. `VerifyWebhook` **ไม่ถูกแตะแม้บรรทัดเดียว**
+  (Non-Goal 1).
+- `src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs` — edited —
+  **+8/-1 บรรทัด**: `confirmed != Paid` -> `confirmed.Status != Paid`, และ block เทียบยอดใหม่ **หลัง** resolve
+  session **ก่อน** `MarkPaid`. ไม่แตะ idempotency key ทั้ง 2 คีย์, ลำดับ/ขอบเขต transaction, `_outbox.Enqueue`,
+  หรือสัญญา `PaymentPaid` (REQ-8.4).
+- `tests/Payments.Tests/Fakes.cs` — edited — `FakePspAdapter`: `OnFetchCharge`
+  (`Func<string, PspChargeConfirmation>?`, null = throw เหมือนเดิม), `WebhookVerifies` (bool, **default
+  false**), `ParsedWebhook` (`WebhookEvent?`, null = throw); + class ใหม่ `FakeIdempotencyStore` (นับ
+  `Claims`) และ `FakeOutbox` (เก็บ `Enqueued`); `+using Mediator;`. **เพิ่มสมาชิกล้วน** — test 3 คลาสเดิม
+  (Create/StartRedirect/Connection) ไม่ต้องแก้แม้บรรทัดเดียว.
+- `tests/Payments.Tests/Psp/TwoCTwoPAdapterTests.cs` — edited — 2 test เดิมอ่าน `.Status` (`status` ->
+  `confirmed`), + **8 case ใหม่** (2 major-unit + 6 unusable-response).
+- `tests/Payments.Tests/Psp/OmiseAdapterTests.cs` — edited — 1 test เดิมอ่าน `.Status`, + **9 case ใหม่**
+  (3 minor->major รวม JPY + 6 unusable-response).
+- `tests/Payments.Tests/HandlePspWebhookHandlerTests.cs` — created — 7 tests (ไฟล์ test ตัวแรกของ handler นี้).
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 6 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **เทียบด้วย `collected != session.Amount` ไม่ใช่สองเงื่อนไขแยกตามตัวอักษรของ D8.** `Money` เป็น
+   `readonly record struct` -> `!=` ที่ compiler generate เทียบ **ทั้ง** `Amount` (decimal, value-based:
+   `250.0900 == 250.09` เป็นจริง) และ `Currency` (ordinal). สั้นกว่า, ไม่มีทาง drift ออกจากนิยาม equality ของ
+   `Money`, และ pin ไว้ด้วย test 2 ตัว (scale-only ต้องผ่าน / currency ต่างต้องถูกปฏิเสธ). **ถ้า task ถัดไป
+   จะเปลี่ยนไปเทียบเป็น string หรือ byte-wise จะทำให้การจ่ายที่ถูกต้องถูกปฏิเสธ** — test ตัวนั้นจับให้.
+2. **null-safe reader อยู่บน `PspAdapterBase` ไม่ใช่ inline ในแต่ละ adapter** — วางเป็นคู่ผกผันของ
+   `FormatMajorUnitAmount`/`FormatMinorUnitAmount` ที่มีอยู่แล้ว. try/catch อยู่ที่เดียว
+   (`TryReadMajorUnitMoney`) และ `TryReadMinorUnitMoney` delegate ต่อ -> ไม่มี catch ซ้ำสองที่.
+   `catch (ArgumentException)` ครอบ `ArgumentOutOfRangeException` (currency นอก allowlist / ยอดติดลบ) และ
+   `ArgumentNullException` ด้วย เพราะทั้งคู่เป็น subclass — ตรวจแล้วว่า `Money.Of` ไม่โยนอย่างอื่น.
+3. **`GetDecimal` เช็ค `ValueKind == Number` ก่อน `TryGetDecimal`** — `"amount":"250.09"` (string) จึงอ่านเป็น
+   "ไม่ได้รายงาน" ไม่ใช่ throw; ตัวเลขที่ใหญ่เกิน decimal ก็ได้ null. mirror `GetString` ที่มีอยู่เป๊ะ.
+4. **`FakePspAdapter.WebhookVerifies` default = `false`** — ถ้า default เป็น true แล้ววันหนึ่ง handler เลิก
+   verify signature จะไม่มี test ไหนแดง. test ต้อง opt in เอง.
+5. **ไม่แตะ `WebhookOutcome` enum** — `Ignored` ครอบเคส "verify แล้ว first-seen แต่ยังไม่ยืนยันว่าจ่าย" อยู่แล้ว
+   ตรงความหมาย (ตอบ 200 -> PSP ไม่ retry ไม่รู้จบ, outcome โผล่ใน response ให้ ops เห็น) และ REQ ห้ามเพิ่มค่าใหม่.
+
+### Constraints (เพิ่มจาก section 0/1/2/3/4/5 — ยังใช้ทุกข้อ)
+
+- **`FetchChargeAsync` คืน `PspChargeConfirmation` แล้ว** — adapter ใหม่ทุกตัวต้องคืนทั้งสถานะและยอด
+  (ยอดไม่มี = `null` **ห้าม** `Money.Zero`); ห้ามให้ path ใดของ fetch throw เพราะยอดอ่านไม่ได้.
+- **การเทียบยอดอยู่หลัง resolve session** — ย้ายขึ้นไปก่อนไม่ได้ (ยังไม่มี `session.Amount` ให้เทียบ) และ
+  ย้ายลงหลัง `MarkPaid` ไม่ได้ (state เปลี่ยนแล้ว). ลำดับ: status gate -> resolve session -> amount gate ->
+  `MarkPaid` -> `Enqueue` -> `SaveChanges`.
+- **idempotency claim ถูก consume ก่อน fetch (ของเดิม, ห้ามแก้ในสเปกนี้)** -> webhook ใบที่สองของ event เดิม
+  ที่ยอดไม่ตรง ตอบ `Duplicate` ทั้งที่ยังไม่เคย mark paid. พฤติกรรมนี้**เดิมมีอยู่แล้ว**กับเส้นทาง
+  `Ignored`-เพราะยัง-ไม่-Paid — task นี้แค่ inherit มา ไม่ได้สร้างขึ้นใหม่. มี test pin ไว้ตามสภาพจริง;
+  ถ้าจะแก้ = requirement ใหม่ (แตะ replay semantics ของทั้ง webhook path).
+- **`FakePspAdapter` ยังเป็น fake ตัวเดียวในโค้ดเบส** — task 7 ถ้าเปลี่ยน signature ของ `IPspAdapter` อีก
+  ต้องแก้ที่นี่ (แต่ task 7 ไม่แตะ adapter ตาม tasks.md).
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `Build succeeded. 0 Warning(s) 0 Error(s)` (64 projects);
+  ยืนยัน compile จริงด้วย `stat -f "%Sm %N"` เทียบ dll กับ source ทุก project ที่แตะ (trap 15).
+- baseline ก่อนแก้ (ยืนยันเองซ้ำ): `dotnet test pol-core.slnx --filter "Category!=Integration"` ->
+  **1184 passed / 0 failed**, 16 banners ตรงกับ section 5.
+- `dotnet test tests/Payments.Tests --no-build` -> **150 passed / 0 failed** (126 -> +24).
+- RED proof 2 รอบ (รายละเอียด + ชื่อ test ที่แดงอยู่ใน Evidence ของ tasks.md): A ลบ block เทียบยอด ->
+  `Failed: 3, Passed: 4`; B mutate การอ่านยอดของ 2 adapter -> `Failed: 4, Passed: 60`. restore -> 150 passed.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> `EXIT=0`, **1208 passed / 0 failed /
+  0 skipped**, 16 banners ครบ. **baseline ใหม่ของ task 7:** Admins 95 · Architecture 223 · BuildingBlocks 43 ·
+  Carts 15 · Checkouts 7 · Divisions 6 · Hosts 353 · Iam 62 · Levels 6 · Merchants 115 · Offices 6 ·
+  Orders 68 · Payments **150** · Positions 6 · Products 7 · SharedKernel 46. Integration.Tests = 47
+  (แยก filter, ไม่ได้รันในงานนี้ — task 6 ไม่แตะ DDL/DB/EF model เลย).
+- `bash scripts/check-rename-identifiers.sh` -> OK (หลัง `git add`, trap 12);
+  `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 42 เกณฑ์; `.ai/bin/check-secrets.sh --all`
+  -> exit 0.
+- **ไม่ได้รัน:** integration tests (ไม่มีเกณฑ์ของ task 6 แตะ DB/DDL), `docker compose config` (ไม่แตะ compose),
+  migration (ไม่มี DDL เปลี่ยน).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-32)
+
+33. **`dotnet build ... | tail -3` ใต้ rtk ซ่อนคำว่า `Build FAILED` ได้ทั้งบรรทัด แล้ว `dotnet test
+    --no-build` รอบถัดไปรัน dll เก่า = false green ที่ดูสมบูรณ์แบบ.** เคสจริงในงานนี้: mutation รอบแรกของ RED
+    proof เขียน `if (false)` -> CS0162 ซึ่ง repo escalate เป็น **error** (`TreatWarningsAsErrors` ใน
+    `Directory.Build.props` มีผลแม้ไม่ใส่ `-warnaserror` ใน command) -> build fail แต่ output ที่เห็นคือ
+    `Time Elapsed 00:00:02.48` เฉย ๆ แล้ว test ตอบ `Passed! 7/7` (รัน binary เก่า) ทำให้อ่านได้ว่า
+    "test ไม่กัด" ทั้งที่ความจริงคือ "โค้ด mutate ไม่เคยถูก compile". **วิธีจับ: redirect build ลงไฟล์
+    (`> f 2>&1`) + `echo EXIT=$?` + grep หา `error`/`Build succeeded` เสมอ; และเทียบ mtime ของ dll กับ
+    source (dll **เก่ากว่า** source = ยังไม่ได้ compile) — ไม่ใช่แค่เคส same-second ของ trap 15.**
+    **บทเรียนของ RED proof: mutation ต้อง compile ได้** (ลบ block ทิ้ง / เปลี่ยนค่าที่คืน) ห้ามใช้
+    `if (false)`, `return null;` ที่ทำ unreachable code, หรืออะไรที่ทำให้ analyzer แดง.
+34. **RED proof ที่เลือก fixture ผิดสกุลเงินจับ bug ไม่ได้เลย** — mutate Omise ให้ข้าม minor->major
+    conversion แล้ว case **JPY** ยัง**เขียว** เพราะ `MinorUnitDigits("JPY") == 0` -> minor == major.
+    ถ้าเขียน test ด้วย JPY ตัวเดียว (ซึ่งเป็นสกุลที่ fixture เดิมของ `Card_charge_converts_amount_to_minor_units`
+    ใช้อยู่) จะได้ test ที่ผ่านทั้งบนโค้ดถูกและโค้ดผิด. **currency ที่มี minor unit != 0 (THB) เป็นตัวที่
+    load-bearing เสมอสำหรับ test เรื่องการแปลงหน่วย**; JPY มีค่าเป็น boundary case เพิ่ม ไม่ใช่ตัวหลัก.
+
+### ข้อค้นพบที่ต้องให้ lead ตัดสิน / ใส่ PR body (ไม่ได้แก้ในงานนี้)
+
+- **`Ignored` เพราะยอดไม่ตรง แยกไม่ออกจาก `Ignored` เพราะ fetch ยังไม่ Paid ใน response** — ops เห็น
+  outcome เดียวกันทั้งสองเหตุ. การแยกต้องเพิ่มค่าใน `WebhookOutcome` (ซึ่ง task นี้ห้ามแตะ) หรือยิง
+  `ISecurityTelemetry.Emit` เพิ่ม. **เคสยอดไม่ตรงคือเคสที่ต้องมีคนดูจริง ๆ** (ลูกค้าถูกเก็บเงินผิดยอดที่ PSP)
+  จึงคุ้มที่จะเสนอเป็น follow-up: `DenialCategory` ใหม่ + alert. ไม่มี REQ รองรับในสเปกนี้ -> ไม่ทำ.
+- **`Session.MarkFailed` ยังทิ้ง `reason`** (ยกมาจาก section 3/4/5 — ยังเปิดอยู่, ไม่มี REQ รองรับ, task 6
+  ไม่มี migration ให้พ่วง) -> ตัดสินที่ task 7 ว่าจะบันทึกเป็น gap หรือแยกสเปก.
+- **`FakePspAdapter.ChargedConnectionId` (section 5 ฝากไว้ให้ task 6) ยังไม่มีผู้ใช้** — task 6 เทียบยอด ไม่ได้
+  เทียบ connection id ที่ charge จึงไม่ได้ใช้จริง. ยังลบได้ 3 บรรทัดโดยไม่มี test ใดพัง.
+
+### Next Recommended Agent
+
+builder ตัวใหม่ (fresh context) สำหรับ task 7 — task สุดท้าย: provisioning vocabulary (`ProvisionMerchantHandler.
+cs:63` -> `PaymentMethods.Normalize`) + `seed-demo.sql` + เอกสาร as-built 2 ไฟล์ + runbook. งานเอกสารเป็นส่วน
+ใหญ่และเป็น task ที่ REQ-5.3 บังคับให้ **คง 3 gap ที่ยังเปิดไว้พร้อมเหตุผล** — ข้อ (ค) คือของ task นี้:
+**"การเทียบยอดกรณี PSP ไม่ส่งยอดกลับมา" ยังเปิดอยู่** (REQ-8.3), next step = verify response contract ของ
+`paymentInquiry` / `GET /charges/{id}` กับ sandbox จริงแล้วจึงพิจารณา fail-closed. ห้ามเขียนว่าปิดแล้ว.
+ข้อเท็จจริงที่ task 7 ใช้ได้เลย: `FetchChargeAsync` **มี**การอ่านยอดแล้วทั้ง 2 adapter (ย่อหน้า as-built ที่ว่า
+"คืนแค่ status" ล้าสมัยแล้ว) และ `Connection.Supports`/`EnsureEligible` มี production call site 2 จุด.
+
+### Next Steps
+
+1. อ่าน `.ai/shared/*` 5 ไฟล์ -> spec 3 ไฟล์ -> HANDOFF ทั้งไฟล์ (รวม section 6 นี้).
+2. baseline: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` ต้องได้ **1208 passed / 0 failed** (Payments 150) — ถ้าไม่ตรง หยุดแล้วรายงาน.
+   รัน full suite แบบ background เขียนลงไฟล์ + นับ banner ให้ครบ 16 project (trap 30) + เช็ค `EXIT=0`.
+3. implement task 7 ตาม design D9 + REQ-5 (ปิดเฉพาะ gap ที่ปิดจริง; 3 เรื่องที่ยังเปิดต้องคงไว้พร้อมเหตุผล +
+   next step; ห้าม emoji ใน `.md`; ห้ามเขียนว่า Opn ไม่มีลายเซ็น).
+4. flip `- [x] 7.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
+   commit -> append section 7 -> รายงาน lead ว่า spec ครบทั้ง 7 task.

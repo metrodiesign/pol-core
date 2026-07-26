@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Mediator;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
@@ -47,9 +48,10 @@ internal sealed class FakeConnectionRepository : IConnectionRepository
         Task.FromResult<IReadOnlyList<Connection>>(_connections.Where(c => c.MerchantId == merchantId).ToList());
 }
 
-/// <summary>Declares a capability set without speaking to a PSP. Every charge/webhook member throws unless a
-/// test opts in through <see cref="OnCreateCharge"/>: a handler test that reaches one it did not arrange has
-/// escaped the guards it was written to prove.</summary>
+/// <summary>Declares a capability set without speaking to a PSP. Every charge/webhook member throws (or
+/// refuses) unless a test opts in through <see cref="OnCreateCharge"/>/<see cref="OnFetchCharge"/>/
+/// <see cref="ParsedWebhook"/>/<see cref="WebhookVerifies"/>: a handler test that reaches one it did not
+/// arrange has escaped the guards it was written to prove.</summary>
 internal sealed class FakePspAdapter : IPspAdapter
 {
     public FakePspAdapter(Code psp, params string[] supportedMethods)
@@ -78,14 +80,58 @@ internal sealed class FakePspAdapter : IPspAdapter
             : Task.FromResult(OnCreateCharge(session));
     }
 
-    public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
-        throw new NotSupportedException("This fake never verifies webhooks.");
+    /// <summary>Drives fetch-to-confirm: the status + amount the PSP reports for the queried charge. A null
+    /// Amount stands in for a PSP whose response carries no amount (REQ-8.3).</summary>
+    public Func<string, PspChargeConfirmation>? OnFetchCharge { get; init; }
 
-    public Task<PspChargeStatus> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("This fake never fetches charges.");
+    /// <summary>What <see cref="VerifyWebhook"/> answers. False by default so a test must opt in — a handler
+    /// that stopped verifying signatures cannot slip through on a permissive default.</summary>
+    public bool WebhookVerifies { get; init; }
+
+    /// <summary>The event <see cref="ParseWebhook"/> yields. Null (the default) throws.</summary>
+    public WebhookEvent? ParsedWebhook { get; init; }
+
+    public bool VerifyWebhook(string rawPayload, string signature, string secret) => WebhookVerifies;
+
+    public Task<PspChargeConfirmation> FetchChargeAsync(string externalChargeId, string secret, CancellationToken cancellationToken) =>
+        OnFetchCharge is null
+            ? throw new NotSupportedException("This fake never fetches charges.")
+            : Task.FromResult(OnFetchCharge(externalChargeId));
 
     public WebhookEvent ParseWebhook(string rawPayload) =>
-        throw new NotSupportedException("This fake never parses webhooks.");
+        ParsedWebhook ?? throw new NotSupportedException("This fake never parses webhooks.");
+}
+
+/// <summary>Claims each key set once, in memory. <see cref="Claims"/> exposes what was claimed so a test can
+/// tell "the transition was refused" from "the claim never happened".</summary>
+internal sealed class FakeIdempotencyStore : IIdempotencyStore
+{
+    private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
+
+    public List<string> Claims { get; } = [];
+
+    public Task<bool> TryBeginAsync(IReadOnlyCollection<string> keys, string context, CancellationToken cancellationToken)
+    {
+        if (keys.Any(k => _seen.Contains($"{context}:{k}")))
+            return Task.FromResult(false);
+
+        foreach (var key in keys)
+        {
+            _seen.Add($"{context}:{key}");
+            Claims.Add(key);
+        }
+
+        return Task.FromResult(true);
+    }
+}
+
+/// <summary>Records what a handler enqueued in its transaction — an outcome that must not publish
+/// <c>PaymentPaid</c> has to leave this empty, which asserting on the outcome alone would not prove.</summary>
+internal sealed class FakeOutbox : IOutbox
+{
+    public List<INotification> Enqueued { get; } = [];
+
+    public void Enqueue(INotification notification) => Enqueued.Add(notification);
 }
 
 internal sealed class FakePspAdapterFactory : IPspAdapterFactory
