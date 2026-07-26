@@ -60,6 +60,7 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<IAdminItemPolicyReader, AdminItemPolicyReader>();
         services.AddScoped<IConnectionRepository, ConnectionRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
+        services.AddScoped<IPayableOrderReader, PayableOrderReader>();
         services.AddScoped<MerchantRepository>();
         services.AddScoped<IMerchantRepository>(sp => sp.GetRequiredService<MerchantRepository>());
         services.AddScoped<IMerchantDirectoryReader>(sp => sp.GetRequiredService<MerchantRepository>());

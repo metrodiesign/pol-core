@@ -797,18 +797,20 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     CancellationToken ct) =>
 {
     var result = await mediator.Send(new CreateSessionCommand(
-        body.OrderId, actor.MerchantId, body.Amount, body.Method, body.Psp), ct);
+        body.OrderId, actor.MerchantId, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
 createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentCreate)
     .WithTags("การชำระเงิน")
     .WithName("CreatePaymentSession")
     .WithSummary("สร้าง payment session")
-    .WithDescription("เปิด payment session ให้คำสั่งซื้อตาม method/PSP ที่เลือก ต้องมี merchant-user policy + สิทธิ์ payment.create")
+    .WithDescription("เปิด payment session ให้คำสั่งซื้อตาม method/PSP ที่เลือก โดยยอดเงินอ่านจากแถว order ฝั่ง server เท่านั้น (ไม่รับจาก body) ต้องมี merchant-user policy + สิทธิ์ payment.create หาก method ไม่ใช่รหัส canonical (card/promptpay/installment) -> 400, ไม่พบคำสั่งซื้อ -> 404, คำสั่งซื้อไม่ได้รอชำระ/ไม่มี PSP connection/connection ปิดหรือไม่เปิด method นั้น/adapter ยังรับ method นั้นไม่ได้/มี session ที่เปิดอยู่ด้วยช่องทางอื่น -> 409 (ช่องทางเดิมคืน session ใบเดิม)")
     .Produces<CreatePaymentSessionResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict);
 
 // Claims-then-charges redirect (PLAN #11). Merchant scoping is automatic: the command is IMerchantScoped, so
 // MerchantGuardBehavior + RLS resolve the session for the authenticated merchant only. Errors flow through the
@@ -2180,8 +2182,10 @@ internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string St
 
 internal sealed record CreateProductRequest(
     string Name, Money Price, Money SumInsured, int CoverageDurationDays, string Insurer);
+// No Amount: the charge is priced from the order row server-side (a body that still sends "amount" is
+// simply ignored — the platform never mints a charge the order does not back).
 internal sealed record CreatePaymentSessionRequest(
-    Guid OrderId, Money Amount, string Method, Code Psp);
+    Guid OrderId, string Method, Code Psp);
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);

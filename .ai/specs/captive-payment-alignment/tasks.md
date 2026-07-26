@@ -77,7 +77,7 @@
          `ConnectionEligibilityTests` (ไม่ใช่ `PspConnectionTests`) เพราะ `PspConnection` เป็น retired token
          ของ rename gate (trap 1).
 
-- [ ] 2. **Create-session ตั้งราคาจาก Order + eligibility + capability + idempotent** — port
+- [x] 2. **Create-session ตั้งราคาจาก Order + eligibility + capability + idempotent** — port
      `Payments.Application/Ports/IPayableOrderReader.cs` (+ record `PayableOrder`) และ impl
      `Persistence.MerchantRuntime/Payments/PayableOrderReader.cs` (`internal sealed`, `AsNoTracking`,
      **project scalar แล้วประกอบ `Money.Of` ใน memory** ห้าม project complex `Money`) + register;
@@ -95,6 +95,39 @@
      idempotent-return + happy path amount == order.Amount) + `dotnet test tests/Hosts.Tests`
      (wire contract ใหม่ + status code) + `dotnet test pol-core.slnx --filter "Category!=Integration"`
      (ไม่ถอย) + `dotnet build pol-core.slnx -warnaserror`.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `Build succeeded. 0 Warning(s) 0 Error(s)`
+         (64 projects).
+       - test: `dotnet test tests/Payments.Tests --no-build` -> 106 passed / 0 failed / 0 skipped
+         (baseline 90 -> +16 `CreateSessionHandlerTests`: 3 method-vocabulary 400 cases, 404 order,
+         409 order-not-awaiting, 409 no-connection, 409 disabled-connection, 409 method-not-enabled,
+         409 adapter-cannot-honour, idempotent-return บน Created และบน Redirected, 409 ช่องทางต่าง
+         (method ต่าง + psp ต่าง), Failed ไม่บล็อกใบใหม่, happy-path amount+currency == order,
+         canonical method code).
+       - test: `dotnet test tests/Architecture.Tests --no-build` -> 220 passed / 0 failed
+         (baseline 215 -> +5 `PaymentPricingQueryTests`).
+       - test: `dotnet test tests/Hosts.Tests --no-build` -> 344 passed / 0 failed
+         (baseline 341 -> +3 `CreatePaymentSessionContractTests`).
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0,
+         **1152 passed / 0 failed** across 16 test projects (baseline 1128). ทุก project เท่าเดิมยกเว้น
+         Payments 90->106, Architecture 215->220, Hosts 341->344.
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a
+         live-code token in src/ or tests/` (รันหลัง `git add` ตาม trap 12).
+       - test: `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 42 ข้อ ถูกอ้างครบใน
+         design.md และ tasks.md, EARS lint ผ่านทุกข้อ`.
+       - viewports: n/a — backend only (port + handler + wire contract), ไม่มี browser surface.
+       - deviations: (1) เพิ่ม `tests/Architecture.Tests/PaymentPricingQueryTests.cs` (5 tests) นอกเหนือ
+         รายการ test ของ task — การ project scalar ของ complex type `Money` แล้วประกอบ `Money.Of` ใน memory
+         พังได้แค่ตอน EF **translate** ซึ่ง fake repository จับไม่ได้เลย; ไฟล์เดียวกันยัง pin REQ-1.2 ที่ชั้นที่
+         บังคับจริง (query filter -> null สำหรับ order ของบริษัทอื่น ไม่ใช่ 403). (2) **semantics ของ
+         `GetOpenForOrderAsync` ยังไม่ถูกพิสูจน์บน provider จริง** — `Session.RowVersion` map `IsRowVersion()`
+         ซึ่ง SQLite generate ไม่ได้ -> EF ตัดคอลัมน์ออกจาก INSERT แล้วได้ `SQLite Error 19: NOT NULL
+         constraint failed: PaymentSessions.RowVersion`, ดังนั้น harness offline insert session ไม่ได้เลย;
+         test offline พิสูจน์ได้แค่ว่า query translate + รันผ่าน (คืน null บนตารางว่าง) ส่วน
+         Created/Redirected = open และ Failed/Expired != open พิสูจน์ที่ระดับ handler + ต้องได้ proof บน SQL
+         Server จริงใน task 4 (อยู่ใน Verify ของ task 4 แล้ว). (3) Hosts wire-pin bind ผ่าน
+         `PspCodeJsonConverter` ของ host เอง (`"psp": "2c2p"`) ไม่ใช่ `JsonSerializerDefaults.Web` เปล่า ๆ
+         เพื่อให้ตรงกับ request จริง.
 
 - [ ] 3. **Redirect: ปฏิเสธก่อน claim + `MarkFailed` เมื่อ charge ล้ม (liveness)** — เรียง
      `StartRedirectHandler` ใหม่ตาม design D6: ย้าย resolve connection (`InvalidOperationException` 409

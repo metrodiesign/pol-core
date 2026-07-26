@@ -204,3 +204,180 @@ command/handler 8 ขั้น + endpoint wire contract + ไฟล์ fakes ช
 4. flip `- [x] 2.` + `Evidence:` ใน Edit เดียว (trap 2 + 13) -> `git add` -> รัน rename gate ซ้ำ (trap 12) ->
    commit -> append section 2 ท้ายไฟล์นี้.
 </content>
+
+---
+
+## Section 1b — Lead addendum (from: Opus lead, 2026-07-26, after task 1 verified)
+
+### Lead-verified independently (ไม่ใช่คำบอกเล่าของ teammate)
+
+- `dotnet build pol-core.slnx -warnaserror` -> `64 projects, 0 errors, 0 warnings`
+- `bash scripts/check-rename-identifiers.sh` -> OK
+- `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 42 เกณฑ์
+- `dotnet test tests/Payments.Tests --no-build` -> 90 passed / 0 failed
+- baseline ของ task 1 ที่ทุก task ต้องไม่ทำถอย: **1097 passed ก่อนแก้ -> 1128 หลัง task 1**
+  (Admins 95, Architecture 215, BuildingBlocks 43, Carts 15, Checkouts 7, Divisions 6, Hosts 341,
+  Iam 62, Levels 6, Merchants 115, Offices 6, Orders 68, Payments 59->90, Positions 6, Products 7,
+  SharedKernel 46)
+
+### ข้อเท็จจริงที่ lead ตรวจไว้ล่วงหน้าให้ task 5 (อย่าเสียเวลาหาซ้ำ)
+
+- `ProvisioningGuards` = `internal static class` **อยู่ใน `src/Hosts/Api/Program.cs:2235`** (ไม่ใช่ไฟล์แยก)
+  มี `RejectSecretsInConfig`, `RequireInjectedCredential(string connectionString, string name)`,
+  `RequireOidcProviders(IConfiguration, string sectionName, bool requireAtLeastOne)`.
+  มี unit test อยู่แล้วที่ `tests/Hosts.Tests/ProvisioningGuardsTests.cs` -> เพิ่ม guard ตัวใหม่ที่นี่
+  ทดสอบได้**โดยไม่ต้อง boot host**. call site = block `if (!builder.Environment.IsDevelopment())`
+  ที่ `Program.cs:141-151`.
+- `Configure<PspOptions>` อยู่ที่ `Program.cs:129`.
+- **compose render check มี 2 ที่** ที่ต้องเพิ่ม placeholder ของ env ใหม่:
+  `.github/workflows/ci.yml:118-126` (env block ของ job `docker-build`) และ
+  `.gitlab-ci.yml:150-163` (inline env ก่อน `docker compose ... config -q`; ปัจจุบันบรรทัด 159-161 ตั้ง
+  `PSP_TWOCTWOP_FRONTEND_RETURN_URL` / `PSP_TWOCTWOP_BACKEND_RETURN_URL` / `PSP_OMISE_RETURN_URI`).
+
+### ข้อเท็จจริงที่ lead ตรวจไว้ล่วงหน้าให้ task 6
+
+- ฝั่ง request ที่มีอยู่แล้วยืนยัน naming ของแต่ละ PSP: 2C2P ใช้ `amount` (decimal **major unit**) +
+  `currencyCode` (`TwoCTwoPAdapterTests.cs:64-65`); Omise ใช้ `amount` (**minor unit** integer) +
+  `currency` (`OmiseAdapterTests.cs:48-49`). ฝั่ง fetch ให้ใช้ชื่อ field ชุดเดียวกันตามเอกสารของแต่ละ PSP
+  (2C2P paymentInquiry = major unit; Omise `GET /charges/{id}` = minor unit -> แปลงกลับด้วย
+  `Iso4217.MinorUnitDigits`).
+- fixture ของ `FetchCharge` ในเทสต์วันนี้มีแค่ `respCode` / `status` -> ต้องเพิ่ม amount ลง fixture เอง
+  และต้องมี case ที่ field **ไม่มี** -> `Amount = null` (REQ-8.3) ห้าม throw.
+
+---
+
+## Section 2 — task 2 (from: Claude Opus 5 teammate, 2026-07-26)
+
+### Task Summary
+
+task 2 ของ spec `captive-payment-alignment`: create-session ตั้งราคาจาก **Order เท่านั้น** + eligibility
+ของ connection + capability ของ adapter + idempotent ต่อ order. ปิด REQ-1 (1.1, 1.2, 1.3, 1.4, 1.5, 1.7),
+REQ-2 (2.1, 2.2, 2.3), REQ-3 (3.1, 3.2, 3.3, 3.4), REQ-6 (6.2). ทำตาม design D1 + D4 ตรงตัว — ลำดับ 8 ขั้น
+ไม่สลับ เพราะลำดับคือสิ่งที่กำหนด status code ต่อ REQ.
+
+### Current Status
+
+- task 2 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 3-7 ยัง `- [ ]`. ยังไม่มี `StartRedirectHandler` / migration / config / adapter signature / docs ถูกแก้.
+- `Connection.EnsureEligible` และ `IPspAdapter.SupportedMethods` **มี production call site แล้ว 1 จุด**
+  (`CreateSessionHandler`) — task 3 จะเพิ่มจุดที่สองใน `StartRedirectHandler` (REQ-3.5).
+- `Session.MarkFailed` **ยังไม่มี production caller** (task 3) ดังนั้นวันนี้ session ที่ลูกค้าทิ้งยังค้าง
+  `Redirected` ตลอดกาล — แต่ create-session คืนใบเดิมให้ (REQ-2.1) จึงยังไม่ล็อกตาย.
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Application/Ports/IPayableOrderReader.cs` — created — `PayableOrder(Guid
+  OrderId, Money Amount, bool IsAwaitingPayment)` + `IPayableOrderReader.GetAsync`.
+- `src/Modules/Payments/Payments.Application/Ports/ISessionRepository.cs` — edited — เพิ่ม
+  `GetOpenForOrderAsync(Guid orderId, CancellationToken)`.
+- `src/Modules/Payments/Payments.Application/CreateSession/CreateSessionCommand.cs` — edited — ตัด `Amount`
+  (เหลือ `OrderId, MerchantId, Method, Psp`), ตัด `using SharedKernel`.
+- `src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs` — rewritten — 8 ขั้นตาม
+  D4, deps เพิ่มจาก 3 -> 6 (`IPayableOrderReader`, `IConnectionRepository`, `IPspAdapterFactory`,
+  `ISessionRepository`, `IUnitOfWork`, `IClock`).
+- `src/Persistence/Persistence.MerchantRuntime/Payments/PayableOrderReader.cs` — created — `internal sealed`,
+  `AsNoTracking()`, project scalar 3 ตัวแล้ว `Money.Of` ใน memory.
+- `src/Persistence/Persistence.MerchantRuntime/Payments/SessionRepository.cs` — edited — เพิ่ม
+  `GetOpenForOrderAsync` (ใช้ `||` ไม่ใช่ `is ... or` — expression tree ห้าม pattern matching).
+- `src/Persistence/Persistence.MerchantRuntime/MerchantRuntimePersistenceRegistration.cs` — edited — register
+  `IPayableOrderReader` ข้าง `ISessionRepository` (ไม่แก้ csproj — reference ครบแล้วจริง).
+- `src/Hosts/Api/Program.cs` — edited — endpoint ส่ง 4 args, `CreatePaymentSessionRequest` ตัด `Amount`,
+  `.WithDescription` ใหม่ (ไทย), `+ProducesProblem(404)` `+ProducesProblem(409)`.
+- `tests/Payments.Tests/Fakes.cs` — created — ไฟล์ fakes ชุดแรกของ project นี้ (`FakePayableOrderReader`
+  นับ `Calls`, `FakeConnectionRepository`, `FakePspAdapter` + `FakePspAdapterFactory`,
+  `FakeSessionRepository` เปิด `Added`, `FakeUnitOfWork` นับ `SaveCount`, `FixedClock`).
+- `tests/Payments.Tests/CreateSessionHandlerTests.cs` — created — 16 tests.
+- `tests/Architecture.Tests/PaymentPricingQueryTests.cs` — created — 5 tests (SQLite, real provider).
+- `tests/Hosts.Tests/CreatePaymentSessionContractTests.cs` — created — 3 tests (property-pin + stale-body
+  bind + declared status codes).
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 2 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **`FakePspAdapter` ทุก member ที่ไม่ใช่ `Psp`/`SupportedMethods` throw `NotSupportedException`** — handler
+   test ที่ไปแตะ charge/webhook ได้ = หลุด guard ที่ test นั้นมีไว้พิสูจน์ ควรแดงทันที ไม่ใช่คืนค่าปลอม.
+   **ผลต่อ task 3/5/6:** task 3 ต้องการ adapter ที่ charge ได้/throw ได้ตามสั่ง -> เพิ่ม hook (เช่น
+   `Func<...>` หรือ flag) บน `FakePspAdapter` ตัวนี้ ไม่ต้องสร้างไฟล์ fakes ใหม่; task 5 เปลี่ยน signature
+   `CreateRedirectChargeAsync` ต้องแก้ที่นี่ด้วย (เป็น fake ตัวเดียวในโค้ดเบส).
+2. **ทุก test ของเส้นทางปฏิเสธ assert `Added` ว่าง + `SaveCount == 0`** (helper `AssertNothingWasPersisted`)
+   ไม่ใช่แค่ assert exception — คำขอที่ถูกปฏิเสธห้ามทิ้ง session row ไว้ให้ unique index ของ task 4 ไปสะดุด.
+3. **idempotent-return ไม่ save เลย** (ไม่เรียก `SaveChangesAsync`) — คืน id ใบเดิมล้วน ๆ. task 4 ที่ใส่
+   unique filtered index ต้องไม่คาดหวังว่ามี write ในเส้นทางนี้.
+4. **`PayableOrder.OrderId` ถูก echo กลับจาก row ที่อ่านได้ ไม่ใช่จาก argument** — fake จึงจำลอง "order ของ
+   บริษัทอื่น" ด้วยการคืน null เมื่อ id ไม่ตรง เหมือน query filter จริง.
+5. **ไม่เพิ่ม test ที่ยิง HTTP จริงเข้า endpoint** — ไม่มี harness ที่ boot host + live DB สำหรับ
+   merchant-user session ใน `tests/Hosts.Tests` (ที่มีคือ metadata inspection + DTO binding) และการสร้างใหม่
+   อยู่นอก scope task 2. wire contract ถูก pin ด้วย property-set ของ DTO + declared status codes แทน.
+
+### Constraints (เพิ่มจาก section 0/1 — ยังใช้ทุกข้อ)
+
+- **`CreateSessionCommand` ไม่มี `Amount` แล้ว** — ทุก call site ใหม่ต้องอ่านยอดจาก order ผ่าน
+  `IPayableOrderReader` เท่านั้น. `CreateSessionHandler` เป็นที่เดียวที่บังคับ invariant นี้ (REQ-1.5)
+  ห้ามย้ายการตรวจไปที่ endpoint.
+- **ลำดับ 8 ขั้นใน `CreateSessionHandler` ห้ามสลับ** — มี test pin ว่า method ที่ไม่ใช่ vocabulary ถูก
+  ปฏิเสธ **ก่อน** อ่าน order เลย (`FakePayableOrderReader.Calls == 0`).
+- **ห้ามห่อ/แปลง exception จาก `PaymentMethods.Normalize` (400) หรือ `Connection.EnsureEligible` (409)** —
+  ตามข้อจาก section 1 ยังใช้; handler ปล่อยทะลุขึ้นไปตรง ๆ ให้ ProblemDetails map.
+- **`ConflictException` (409) สำหรับ "ช่องทางต่าง"** ไม่ใช่ `InvalidOperationException` — แยกให้ ops อ่าน
+  log แล้วรู้ว่าเป็นเคส open-session ไม่ใช่ state/config ผิด (ทั้งคู่ออก 409 เหมือนกัน).
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `Build succeeded. 0 Warning(s) 0 Error(s)` (64 projects).
+- baseline ก่อนแก้ (ยืนยันเองซ้ำ): `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0,
+  **1128 passed / 0 failed** ตรงกับ section 1/1b.
+- `dotnet test tests/Payments.Tests --no-build` -> **106 passed / 0 failed** (90 -> +16).
+- `dotnet test tests/Architecture.Tests --no-build` -> **220 passed / 0 failed** (215 -> +5).
+- `dotnet test tests/Hosts.Tests --no-build` -> **344 passed / 0 failed** (341 -> +3).
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1152 passed / 0 failed**
+  across 16 projects. **baseline ใหม่ของ task 3+:** Admins 95 · Architecture **220** · BuildingBlocks 43 ·
+  Carts 15 · Checkouts 7 · Divisions 6 · Hosts **344** · Iam 62 · Levels 6 · Merchants 115 · Offices 6 ·
+  Orders 68 · Payments **106** · Positions 6 · Products 7 · SharedKernel 46 = **1152**.
+- `bash scripts/check-rename-identifiers.sh` -> OK (รันหลัง `git add` ตาม trap 12).
+- `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 42 เกณฑ์ (รันซ้ำหลังแก้ tasks.md).
+- **ไม่ได้รัน:** integration tests (task 2 ไม่มีเกณฑ์แตะ DDL/DB จริง — index เป็นของ task 4),
+  `docker compose config` (ไม่แตะ compose), migration (ไม่มี DDL เปลี่ยน).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-14)
+
+15. **MSBuild up-to-date check แพ้ same-second race — test รันบน dll เก่าเงียบ ๆ**: `Api.dll` มี mtime
+    **เท่ากับวินาทีเดียวกัน** กับการแก้ `Program.cs` ครั้งสุดท้าย -> MSBuild ถือว่า up-to-date แล้ว **ข้าม
+    การ compile Api ทุกครั้งถัดไป** ทั้งที่ `Build succeeded` ทุกรอบ. อาการ: Hosts.Tests fail ด้วย
+    `Actual: ["OrderId", "Amount", "Method", "Psp"]` ทั้งที่ source ไม่มี `Amount` แล้ว (ยืนยันด้วย grep).
+    **วิธีจับ:** `stat -f "%m %N" <proj>/bin/Debug/net10.0/X.dll <source>.cs` แล้วเทียบ — เท่ากันคือเจอ.
+    **วิธีแก้:** `touch <source>.cs` แล้ว build ซ้ำ. **บทเรียน:** test ที่แดงแบบ "ขัดกับ source ที่เพิ่งอ่าน"
+    ให้สงสัย stale binary ก่อนสงสัย logic; และ `Build succeeded` ไม่ได้แปลว่า project นั้นถูก compile.
+16. **`IsRowVersion()` + SQLite = insert ไม่ได้เลย** — EF ตัดคอลัมน์ออกจาก INSERT (store-generated,
+    `BeforeSaveBehavior = Ignore` -> ตั้งค่าเองก็ถูกเมิน) แล้วชน `SQLite Error 19: NOT NULL constraint
+    failed: PaymentSessions.RowVersion`. **ผลต่อ task 4:** อย่าวางแผนพิสูจน์พฤติกรรมของ `Session` ที่ต้อง
+    **มีแถวจริง** บน harness SQLite ของ `Architecture.Tests` — offline proof ที่ REQ-2.6 ขอ ทำได้เฉพาะระดับ
+    **model metadata** (ชื่อ index / `IsUnique` / filter string ผ่าน `db.Model.FindEntityType(...)`) ซึ่ง
+    ตรงกับที่ design D5 เขียนไว้แล้ว; ส่วนพฤติกรรม (insert ใบที่สองแล้วได้ `ConflictException`,
+    `Failed`/`Expired` ไม่ติด filter) ต้องเป็น integration test บน SQL Server จริงที่ `:11433`.
+    ทางหนีถ้าจำเป็น: raw parameterized INSERT ใน test (BypassPrimitiveTests สแกนแค่ `src/` ไม่สแกน `tests/`).
+17. **`ProducesProblem` metadata อ่านผ่าน `IProducesResponseTypeMetadata`** (namespace
+    `Microsoft.AspNetCore.Http.Metadata`) จาก `EndpointDataSource` — ใช้ pattern factory เดียวกับ
+    `PermissionGateSitesTests`/`RouteSchemeConventionTests` (Development + in-memory config, ไม่ต้องมี DB).
+18. **DTO binding test ต้องใส่ converter ของ host เอง** — `JsonSerializerDefaults.Web` เปล่า ๆ อ่าน
+    `"psp": "2c2p"` ไม่ได้ (ได้ `JsonException` จาก `EnumConverter`); host ลงทะเบียน
+    `PspCodeJsonConverter` + `MoneyJsonConverter` ที่ `Program.cs:406-410`. ทั้งคู่ `internal` แต่
+    `Hosts.Tests` เห็น (InternalsVisibleTo).
+
+### Next Recommended Agent
+
+builder ตัวใหม่ (fresh context) สำหรับ task 3 — `StartRedirectHandler` เรียงใหม่ตาม D6. ขนาดเล็กกว่า task 2
+มาก (1 handler + tests) แต่ต้องระวังว่า test ต้องพิสูจน์ **fail-then-retry ทั้งเส้น** (เรียก
+`CreateSessionHandler` ของ order เดิมหลัง `Failed` แล้วได้ id ใหม่) ซึ่งตอนนี้ทำได้แล้วเพราะ handler ของ
+task 2 พร้อม + `FakeSessionRepository` มีอยู่แล้ว (test
+`A_terminal_session_does_not_block_a_fresh_attempt` เป็นครึ่งเส้นของกรณีนั้นอยู่แล้ว).
+
+### Next Steps
+
+1. อ่าน `.ai/shared/*` 5 ไฟล์ -> spec 3 ไฟล์ -> HANDOFF ทั้งไฟล์ (รวม section 2 นี้).
+2. baseline: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` ต้องได้ **1152 passed / 0 failed** — ถ้าไม่ตรง หยุดแล้วรายงาน.
+3. implement task 3 ตาม design D6 (ย้าย resolve connection + `EnsureEligible` ขึ้นก่อน `BeginRedirect`;
+   ครอบ `CreateRedirectChargeAsync` ด้วย try/catch ที่ `MarkFailed` + save + **rethrow**; reason ห้ามมี secret).
+4. flip `- [x] 3.` + `Evidence:` (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) -> commit ->
+   append section 3.
