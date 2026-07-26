@@ -63,7 +63,7 @@ public sealed class ProvisioningGuardsTests
             ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true));
 
         // ...but is allowed when the side may be intentionally disabled (merchant-user, REQ-14.2).
-        ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false);
+        ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantAuth", requireAtLeastOne: false);
     }
 
     [Fact]
@@ -84,12 +84,12 @@ public sealed class ProvisioningGuardsTests
     public void A_configured_client_id_with_a_missing_or_placeholder_secret_fails_fast(string? clientSecret)
     {
         var config = Oidc(
-            ("MerchantUserAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
-            ("MerchantUserAuth:Providers:Microsoft:ClientSecret", clientSecret),
-            ("MerchantUserAuth:Providers:Microsoft:Authority", "https://login.microsoftonline.com/organizations/v2.0"),
-            ("MerchantUserAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
+            ("MerchantAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ("MerchantAuth:Providers:Microsoft:ClientSecret", clientSecret),
+            ("MerchantAuth:Providers:Microsoft:Authority", "https://login.microsoftonline.com/organizations/v2.0"),
+            ("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
         Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false));
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantAuth", requireAtLeastOne: false));
     }
 
     // Codex review (PR #123) Medium #3: credentials alone must not satisfy the guard — the committed Microsoft
@@ -102,12 +102,12 @@ public sealed class ProvisioningGuardsTests
     public void A_configured_provider_with_a_bad_authority_fails_fast(string authority)
     {
         var config = Oidc(
-            ("MerchantUserAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
-            ("MerchantUserAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"),
-            ("MerchantUserAuth:Providers:Microsoft:Authority", authority),
-            ("MerchantUserAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
+            ("MerchantAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ("MerchantAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"),
+            ("MerchantAuth:Providers:Microsoft:Authority", authority),
+            ("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
         Assert.Throws<InvalidOperationException>(() =>
-            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false));
+            ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantAuth", requireAtLeastOne: false));
     }
 
     [Fact]

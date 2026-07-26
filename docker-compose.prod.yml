@@ -67,10 +67,19 @@ services:
       # entirely) — each its own CONFIDENTIAL client (id + secret, the secret via a mounted file secret),
       # fully isolated scheme/cookie/callback names. CORS is split: merchant-user origin + admin origin, both
       # credentialed cookie XHR.
-      MerchantUserAuth__Providers__Google__ClientId: ${MERCHANT_USER_OIDC_CLIENT_ID:?set MERCHANT_USER_OIDC_CLIENT_ID in .env}
+      MerchantAuth__Providers__Google__ClientId: ${MERCHANT_USER_OIDC_CLIENT_ID:?set MERCHANT_USER_OIDC_CLIENT_ID in .env}
       MERCHANT_USER_OIDC_CLIENT_SECRET_FILE: /run/secrets/merchant_user_oidc_client_secret
       AdminAuth__Providers__Google__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
       ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
+      # Microsoft Entra (opt-in): a blank ClientId skips the scheme, the host boots Google-only. Admin is
+      # single-tenant (the boot guard rejects a multi-tenant admin Authority without AllowedTenants — pinning
+      # the tenant id here satisfies it); merchant-user keeps the /organizations Authority from appsettings.json.
+      # Secret files must exist even when Entra is off (empty placeholder) — same rule as db_ca_cert below.
+      AdminAuth__Providers__Microsoft__ClientId: ${ADMIN_ENTRA_CLIENT_ID:-}
+      AdminAuth__Providers__Microsoft__Authority: https://login.microsoftonline.com/${ADMIN_ENTRA_TENANT_ID:-REPLACE_WITH_TENANT_ID}/v2.0
+      ADMIN_ENTRA_CLIENT_SECRET_FILE: /run/secrets/admin_entra_client_secret
+      MerchantAuth__Providers__Microsoft__ClientId: ${MERCHANT_ENTRA_CLIENT_ID:-}
+      MERCHANT_ENTRA_CLIENT_SECRET_FILE: /run/secrets/merchant_entra_client_secret
       Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
       # The IdP callback lands on the API origin (provider-scoped OIDC), so post-login/error/register
@@ -88,7 +97,7 @@ services:
       # REQ-13.4: not a secret (Seq ingestion is same-network only, no public exposure) — the sink degrades
       # to log-only (never blocks a request) if Seq is unreachable, so this is safe to default.
       Seq__IngestionUrl: ${SEQ_INGESTION_URL:-http://seq:80}
-    secrets: [pol_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, db_ca_cert]
+    secrets: [pol_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, db_ca_cert]
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
       # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
@@ -124,5 +133,9 @@ secrets:
     file: ./secrets/admin_oidc_client_secret
   merchant_user_oidc_client_secret:
     file: ./secrets/merchant_user_oidc_client_secret
+  admin_entra_client_secret:
+    file: ./secrets/admin_entra_client_secret
+  merchant_entra_client_secret:
+    file: ./secrets/merchant_entra_client_secret
   db_ca_cert:
     file: ./secrets/db_ca_cert

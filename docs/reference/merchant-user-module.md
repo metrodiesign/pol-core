@@ -108,7 +108,7 @@ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แน�
 | Layer | ไฟล์ / type | หน้าที่ |
 |---|---|---|
 | OIDC client | `UserOidcAuthentication.cs` | ลงทะเบียน scheme `MerchantUser{Provider}` ต่อ provider, hook 4 events, Google/Entra deltas |
-| OIDC options | `UserOidcOptions.cs` | bind `MerchantUserAuth` + `MerchantUser:Session` |
+| OIDC options | `UserOidcOptions.cs` | bind `MerchantAuth` + `MerchantUser:Session` |
 | Provider map | `UserOidcProviders` (`UserOidcAuthentication.cs`) | slug (`google`/`microsoft`) -> scheme name; ไม่มีใน map = 404 |
 | Callback brancher | `UserLoginService.cs` | 4-way state branch, ออก session / ticket / deny |
 | Login resolver | `ResolveLogin.cs` (Application) | subject -> `LoginOutcome` + `Resolution` |
@@ -137,7 +137,7 @@ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แน�
 
 ## 3. Config
 
-### `MerchantUserAuth` (`UserOidcOptions`)
+### `MerchantAuth` (`UserOidcOptions`)
 
 | key | default (committed) | หมายเหตุ |
 |---|---|---|
@@ -145,13 +145,13 @@ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แน�
 | `RegisterUrl` | `/register` | SPA register page ที่ applicant ถูกเด้งไปพร้อม `?ticket=`. **relative** โดยตั้งใจ — ถูกทำเป็น absolute ด้วย `SpaBaseUrl` ตอน redirect (default absolute localhost จะส่ง localhost ขึ้น prod เงียบ ๆ) |
 | `Providers:{Name}` | `Google` + `Microsoft` | dictionary ของ `OidcProviderOptions` (ดูตารางล่าง) |
 
-### `MerchantUserAuth:Providers:{Google|Microsoft}` (`OidcProviderOptions`)
+### `MerchantAuth:Providers:{Google|Microsoft}` (`OidcProviderOptions`)
 
 | key | default | หมายเหตุ |
 |---|---|---|
 | `Authority` | Google: `https://accounts.google.com` · Microsoft: `https://login.microsoftonline.com/organizations/v2.0` | |
 | `ClientId` | `""` | **blank = ข้าม scheme ของ provider นั้น** (login ของมัน 404) แทนที่จะพัง host ทั้งตัว |
-| `ClientSecret` | `""` | secret จริง — inject ผ่าน `MerchantUserAuth__Providers__{Provider}__ClientSecret` เท่านั้น ห้าม commit/log |
+| `ClientSecret` | `""` | secret จริง — inject ผ่าน `MerchantAuth__Providers__{Provider}__ClientSecret` เท่านั้น ห้าม commit/log |
 | `CallbackPath` | `/api/v1/merchants/auth/{google\|microsoft}/callback` | OIDC middleware handle เอง (ไม่มี mapped endpoint) |
 | `HostedDomain` | `""` | **Google only** — guard `hd` claim; blank = บัญชี Google ที่ verified ใดก็ได้ |
 | `AllowedTenants` | `[]` | **Microsoft only** — allowlist Entra `tid`; ว่าง = ทุก tenant ที่ Authority ยอม |
@@ -181,7 +181,7 @@ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แน�
 
 ### Boot guard
 
-นอก Development: `ProvisioningGuards.RequireOidcProviders(config, "MerchantUserAuth", requireAtLeastOne: false)` —
+นอก Development: `ProvisioningGuards.RequireOidcProviders(config, "MerchantAuth", requireAtLeastOne: false)` —
 ทุก provider ที่ `ClientId` ไม่ blank ต้องไม่ใช่ placeholder และ **ต้องมี secret ถูก inject** ไม่งั้น fail ตอน boot.
 ต่างจาก admin ตรงฝั่ง merchant-user **อนุญาตให้ไม่มี provider เลย** (ปิด login ฝั่งนี้ทั้งชุดได้ตั้งใจ) ส่วน admin
 บังคับอย่างน้อย 1.
@@ -818,7 +818,7 @@ schema = `merch` ทั้งหมด. รายละเอียดฟิล�
 | route prefix | `/api/v1/admins/**` (+ `/api/v1/admins/auth/{provider}/**`) | `/api/v1/merchants/auth/**` + `/api/v1/merchants/users/**` |
 | OIDC scheme | `AdminGoogle` / `AdminMicrosoft` | `MerchantUserGoogle` / `MerchantUserMicrosoft` |
 | sign-in noop scheme | `oidc-noop` | `merchant-user-oidc-noop` |
-| config section | `AdminAuth` + `AdminSession` | `MerchantUserAuth` + `MerchantUser:Session` |
+| config section | `AdminAuth` + `AdminSession` | `MerchantAuth` + `MerchantUser:Session` |
 | cookie | `__Host-adm_session` / `adm_csrf` | `__Host-mch_session` / `mch_csrf` |
 | session scheme | `AdminSession` | `MerchantUserSession` |
 | policy | `admin` | `merchant-user` |
@@ -972,9 +972,9 @@ const res = await fetch('/api/v1/merchants/users/register', { method: 'POST', bo
 2. ตั้ง config (secret ผ่าน env / user-secrets / secret manager เท่านั้น — ห้าม commit):
 
    ```
-   MerchantUserAuth__Providers__Google__ClientId=<merchant-user-client-id>
-   MerchantUserAuth__Providers__Google__ClientSecret=<secret>
-   MerchantUserAuth__RegisterUrl=/register
+   MerchantAuth__Providers__Google__ClientId=<merchant-user-client-id>
+   MerchantAuth__Providers__Google__ClientSecret=<secret>
+   MerchantAuth__RegisterUrl=/register
    MerchantUser__Session__SpaBaseUrl=http://localhost:5300
    MerchantUser__Session__ReturnUrlAllowlist__0=/
    MerchantUser__Session__ReturnUrlAllowlist__1=/dashboard

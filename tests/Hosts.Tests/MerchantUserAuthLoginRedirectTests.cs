@@ -30,9 +30,9 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
         builder.UseSetting("ConnectionStrings:Migrator", "");
         // ClientId/ClientSecret are read at service-registration time (AddMerchantUserOidcAuthentication), so they
         // must be host settings, not late-layered app config.
-        builder.UseSetting("MerchantUserAuth:Providers:Google:ClientId", ClientId);
-        builder.UseSetting("MerchantUserAuth:Providers:Google:ClientSecret", "test-secret");
-        builder.UseSetting("MerchantUserAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
+        builder.UseSetting("MerchantAuth:Providers:Google:ClientId", ClientId);
+        builder.UseSetting("MerchantAuth:Providers:Google:ClientSecret", "test-secret");
+        builder.UseSetting("MerchantAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>

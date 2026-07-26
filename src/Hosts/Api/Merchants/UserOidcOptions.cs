@@ -7,12 +7,12 @@ namespace Api.Merchants;
 /// correlation/nonce Data Protection purposes from the scheme name, a distinct DP purpose automatically (the scheme
 /// "MerchantUserGoogle" never shares a purpose chain with Admin's "AdminGoogle"). The shared key ring
 /// (<see cref="AdminDataProtection"/>) is fine: isolation comes from the purpose, not a second app name. Secrets are
-/// injected via <c>MerchantUserAuth__Providers__{Provider}__ClientSecret</c>, never committed/logged (REQ-14.1/14.3).
+/// injected via <c>MerchantAuth__Providers__{Provider}__ClientSecret</c>, never committed/logged (REQ-14.1/14.3).
 /// </summary>
 // ponytail: DUPLICATE-shaped of AdminAuthOptions (distinct section + register url) — deliberate.
 internal sealed class UserOidcOptions
 {
-    public const string SectionName = "MerchantUserAuth";
+    public const string SectionName = "MerchantAuth";
 
     /// <summary>SPA path the callback redirects to on a denied/failed auth (no session), with a non-sensitive reason.</summary>
     public string ErrorPath { get; init; } = "/login-error";
