@@ -396,23 +396,23 @@ ForwardedHeaders → [HttpLogging (Dev)] → CorrelationId → ExceptionHandler 
 | Tag (Scalar) | Endpoint | Module |
 |---|---|---|
 | Webhooks | `POST /webhooks/{pspConnectionId}` (anonymous, rate-limited) | §4.5 Payments (ไม่มีโมดูลของตัวเอง — ขี่อยู่บน Payments) |
-| Products | `POST /products` · `GET /products` (SFS) | §4.1 Products |
-| Cart | `POST /carts` · `GET /carts/{cartId}` · `POST/PUT/DELETE /carts/{cartId}/items[/{productId}]` · `POST /carts/{cartId}/clear` | §4.2 Carts |
-| Checkout | `POST /checkouts` · `POST /checkouts/{checkoutSessionId}/confirm` | §4.3 Checkouts |
-| Payments | `POST /payments/sessions` · `POST /payments/sessions/{paymentSessionId}/redirect` | §4.5 Payments |
-| Orders | `GET /orders` · `GET /orders/{orderId}` · `GET /orders/{token}/summary` (anonymous capability link) · `POST /orders/{orderId}/summary/resend` · `PUT /orders/{orderId}/items/{itemId}/policy` · `GET /reports/reconciliation` · `GET /reports/policies` | §4.4 Orders |
-| Admin Auth | `GET /admins/auth/{provider}/login` · `POST /admins/auth/logout[-all]` · `GET /admins/me` | §5 Admin BFF (`Hosts/Api/Admins/*`, ไม่ใช่ `Modules/*`) |
-| Admin Merchants | `POST /merchants` · `GET /merchants/{code}` | §4.6 Merchants (`ProvisionMerchant`/`GetMerchant`) |
-| MerchantUser Auth | `GET /merchants/auth/{provider}/login` · `POST /merchants/users/register` · `POST /merchants/auth/logout[-all]` · `GET /merchants/users/me` | §4.6 Merchants (Users) + §5 MerchantUser BFF |
-| MerchantUser Roles | `GET /merchants/users/permissions` · `GET/POST/PUT/DELETE /merchants/users/roles[/{code}]` · `PUT /merchants/users/{merchantUserId}/roles` | §4.8 Iam (merchant-scope; permissions + role catalog CRUD) · §4.6 Merchants (`SetRolesCommand`, assign roles to a merchant-user) |
-| Admin MerchantUsers | `POST /admins/merchants/users/{subject}/approve` · `POST /admins/merchants/users/{subject}/reject` | §4.6 Merchants (Users/ApproveReject สั่งฝั่ง admin) |
-| Admin Orders | `PUT /admins/orders/{orderId}/items/{itemId}/policy` · `GET /admins/reports/policies` | §4.4 Orders (admin cross-merchant use case) |
-| Admin Admins | `POST/GET /admins` · `GET /admins/{id}` · `GET /admins/{id}/effective-permissions` · `POST/DELETE /admins/{id}/merchants[/{merchantId}]` · `POST /admins/{id}/{suspend,reactivate,tier}` · `PUT /admins/{id}/profile` · `PUT /admins/{id}/roles` · `GET /admins/{id}/sessions` · `DELETE /admins/{id}/sessions/{sessionId}` | §4.7 Admins |
-| Admin Roles | `GET /admins/permissions` · `GET/POST/PUT/DELETE /admins/roles[/{code}]` | §4.8 Iam (admin-scope) |
-| Positions | `GET /positions[/{id}]` · `POST /positions` · `PUT/DELETE /positions/{id}` (soft-deactivate, gate `user.manage`) | §4.9-4.12 |
-| Offices | เหมือน Positions, path `/offices` | §4.9-4.12 |
-| Levels | เหมือน Positions, path `/levels` | §4.9-4.12 |
-| Divisions | เหมือน Positions, path `/divisions` | §4.9-4.12 |
+| ผลิตภัณฑ์ | `POST /products` · `GET /products` (SFS) | §4.1 Products |
+| ตะกร้าสินค้า | `POST /carts` · `GET /carts/{cartId}` · `POST/PUT/DELETE /carts/{cartId}/items[/{productId}]` · `POST /carts/{cartId}/clear` | §4.2 Carts |
+| เช็คเอาต์ | `POST /checkouts` · `POST /checkouts/{checkoutSessionId}/confirm` | §4.3 Checkouts |
+| การชำระเงิน | `POST /payments/sessions` · `POST /payments/sessions/{paymentSessionId}/redirect` | §4.5 Payments |
+| คำสั่งซื้อ | `GET /orders` · `GET /orders/{orderId}` · `GET /orders/{token}/summary` (anonymous capability link) · `POST /orders/{orderId}/summary/resend` · `PUT /orders/{orderId}/items/{itemId}/policy` · `GET /reports/reconciliation` · `GET /reports/policies` | §4.4 Orders |
+| การเข้าสู่ระบบ | `GET /admins/auth/{provider}/login` · `POST /admins/auth/logout[-all]` · `GET /admins/me` | §5 Admin BFF (`Hosts/Api/Admins/*`, ไม่ใช่ `Modules/*`) |
+| ร้านค้า (ผู้ดูแลระบบ) | `POST /merchants` · `GET /merchants/{code}` | §4.6 Merchants (`ProvisionMerchant`/`GetMerchant`) |
+| การเข้าสู่ระบบ (ผู้ใช้ร้านค้า) | `GET /merchants/auth/{provider}/login` · `POST /merchants/users/register` · `POST /merchants/auth/logout[-all]` · `GET /merchants/users/me` | §4.6 Merchants (Users) + §5 MerchantUser BFF |
+| บทบาท (ผู้ใช้ร้านค้า) | `GET /merchants/users/permissions` · `GET/POST/PUT/DELETE /merchants/users/roles[/{code}]` · `PUT /merchants/users/{merchantUserId}/roles` | §4.8 Iam (merchant-scope; permissions + role catalog CRUD) · §4.6 Merchants (`SetRolesCommand`, assign roles to a merchant-user) |
+| ผู้ใช้ร้านค้า (ผู้ดูแลระบบ) | `POST /admins/merchants/users/{subject}/approve` · `POST /admins/merchants/users/{subject}/reject` | §4.6 Merchants (Users/ApproveReject สั่งฝั่ง admin) |
+| คำสั่งซื้อ (ผู้ดูแลระบบ) | `PUT /admins/orders/{orderId}/items/{itemId}/policy` · `GET /admins/reports/policies` | §4.4 Orders (admin cross-merchant use case) |
+| ผู้ดูแลระบบ | `POST/GET /admins` · `GET /admins/{id}` · `GET /admins/{id}/effective-permissions` · `POST/DELETE /admins/{id}/merchants[/{merchantId}]` · `POST /admins/{id}/{suspend,reactivate,tier}` · `PUT /admins/{id}/profile` · `PUT /admins/{id}/roles` · `GET /admins/{id}/sessions` · `DELETE /admins/{id}/sessions/{sessionId}` | §4.7 Admins |
+| บทบาท (ผู้ดูแลระบบ) | `GET /admins/permissions` · `GET/POST/PUT/DELETE /admins/roles[/{code}]` | §4.8 Iam (admin-scope) |
+| ตำแหน่ง | `GET /positions[/{id}]` · `POST /positions` · `PUT/DELETE /positions/{id}` (soft-deactivate, gate `user.manage`) | §4.9-4.12 |
+| สำนักงาน | เหมือน Positions, path `/offices` | §4.9-4.12 |
+| ระดับ | เหมือน Positions, path `/levels` | §4.9-4.12 |
+| แผนก | เหมือน Positions, path `/divisions` | §4.9-4.12 |
 
 > `Models` ใน Scalar sidebar **ไม่ใช่ tag/module** — เป็น schema/DTO index ที่ Scalar auto-generate จาก `document.Components.Schemas` เฉย ๆ
 
