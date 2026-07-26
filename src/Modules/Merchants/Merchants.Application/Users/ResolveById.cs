@@ -29,10 +29,12 @@ public sealed record ByIdResult(ByIdOutcome Outcome, Resolution? Resolution, str
 
 public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdResult>
 {
-    private readonly IUserRepository _accounts;
+    private readonly IAccountResolver _accounts;
     private readonly IRoleRepository _roles;
 
-    public ResolveByIdHandler(IUserRepository accounts, IRoleRepository roles)
+    // IAccountResolver, never IUserRepository: this runs INSIDE session authentication, before the
+    // merchant_id claim exists on the request — pre-bind by construction (bugfix-merchant-prebind-wiring F6).
+    public ResolveByIdHandler(IAccountResolver accounts, IRoleRepository roles)
     {
         _accounts = accounts;
         _roles = roles;
@@ -49,7 +51,7 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
             return ByIdResult.NotActive;
         if (account.MerchantId is not { } merchantId)
             return ByIdResult.NotActive;
-        var permissions = await _roles.ListEffectivePermissionsAsync(account.Id, merchantId, cancellationToken);
-        return ByIdResult.Of(new Resolution(account.Id, account.Email, merchantId, permissions), account.Subject);
+        var permissions = await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken);
+        return ByIdResult.Of(new Resolution(account.MerchantUserId, account.Email, merchantId, permissions), account.Subject);
     }
 }

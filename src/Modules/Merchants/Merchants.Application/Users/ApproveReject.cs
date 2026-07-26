@@ -29,14 +29,17 @@ public sealed record ApproveResult(Guid MerchantUserId, UserStatus Status, bool 
 
 public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResult>
 {
-    private readonly IUserRepository _accounts;
+    private readonly IAccountStore _accounts;
     private readonly IRoleRepository _roles;
     private readonly IRegistrationAuditWriter _audit;
     private readonly IUserUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
+    // IAccountStore, never IUserRepository: an admin-plane request has no bound merchant actor, and the
+    // PendingApproval target row's MerchantId is NULL — invisible to the filtered repository either way
+    // (bugfix-merchant-prebind-wiring F3).
     public ApproveHandler(
-        IUserRepository accounts, IRoleRepository roles, IRegistrationAuditWriter audit,
+        IAccountStore accounts, IRoleRepository roles, IRegistrationAuditWriter audit,
         IUserUnitOfWork unitOfWork, IClock clock)
     {
         _accounts = accounts;
@@ -107,14 +110,15 @@ public sealed record RejectResult(Guid MerchantUserId, UserStatus Status);
 
 public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
 {
-    private readonly IUserRepository _accounts;
+    private readonly IAccountStore _accounts;
     private readonly ISessionStore _sessions;
     private readonly IRegistrationAuditWriter _audit;
     private readonly IUserUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
+    // IAccountStore for the same pre-bind reason as ApproveHandler (bugfix-merchant-prebind-wiring F4).
     public RejectHandler(
-        IUserRepository accounts, ISessionStore sessions, IRegistrationAuditWriter audit,
+        IAccountStore accounts, ISessionStore sessions, IRegistrationAuditWriter audit,
         IUserUnitOfWork unitOfWork, IClock clock)
     {
         _accounts = accounts;

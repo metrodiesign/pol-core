@@ -11,11 +11,12 @@ using MerchantUserAccount = Merchants.Domain.Users.User;
 namespace Architecture.Tests;
 
 /// <summary>
-/// Proves the rls-to-query-filter task 5 pre-bind read ports: each resolves BEFORE any actor is bound
-/// (REQ-1.4-adjacent — no <see cref="IActorContext"/> dependency at all), returns a narrow projection (not
-/// the tracked aggregate), and — for the merchant login-by-subject port specifically — the sanctioned
-/// <c>IgnoreQueryFilters()</c> genuinely defeats what would otherwise be a 100% blind read (an unbound
-/// caller's <c>CurrentMerchant</c> is <see cref="Guid.Empty"/>, which never matches any real row).
+/// Proves the pre-bind read ports: each resolves BEFORE any actor is bound (REQ-1.4-adjacent — no
+/// <see cref="IActorContext"/> dependency at all), returns a narrow projection (not the tracked aggregate),
+/// and — for the merchant account resolver specifically (<c>IAccountResolver</c>,
+/// bugfix-merchant-prebind-wiring F1/F6) — the sanctioned <c>IgnoreQueryFilters()</c> genuinely defeats what
+/// would otherwise be a 100% blind read (an unbound caller's <c>CurrentMerchant</c> is
+/// <see cref="Guid.Empty"/>, which never matches any real row).
 /// </summary>
 public sealed class PreBindReadPortTests
 {
@@ -134,11 +135,43 @@ public sealed class PreBindReadPortTests
         }
 
         using var reader = NewContext();
-        var lookup = await new MerchantResolveLoginBySubject(reader).FindBySubjectAsync("m-sub-2", CancellationToken.None);
+        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("m-sub-2", CancellationToken.None);
 
         Assert.NotNull(lookup);
         Assert.Equal("pending@example.com", lookup!.Email);
         Assert.Null(lookup.MerchantId);
+        Assert.Equal(Merchants.Domain.Users.UserStatus.PendingApproval, lookup.Status);
+    }
+
+    [Fact]
+    public async Task Merchant_account_by_id_resolves_without_any_actor_bound()
+    {
+        // The session auth handler re-resolves the caller by id DURING authentication — before the
+        // merchant_id claim exists (bugfix-merchant-prebind-wiring F6).
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        MerchantUserDbContext NewContext() =>
+            new(new DbContextOptionsBuilder<MerchantUserDbContext>().UseSqlite(connection).Options,
+                FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
+        using (var setup = NewContext())
+            await setup.Database.EnsureCreatedAsync();
+
+        Guid userId;
+        using (var writer = NewContext())
+        {
+            var user = MerchantUserAccount.Register("m-sub-4", "byid@example.com", DateTime.UtcNow);
+            user.Approve(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), DateTime.UtcNow);
+            writer.Users.Add(user);
+            await writer.SaveChangesAsync();
+            userId = user.Id;
+        }
+
+        using var reader = NewContext();
+        var lookup = await new MerchantAccountResolver(reader).FindByIdAsync(userId, CancellationToken.None);
+
+        Assert.NotNull(lookup);
+        Assert.Equal("m-sub-4", lookup!.Subject);
+        Assert.Equal(Merchants.Domain.Users.UserStatus.Active, lookup.Status);
     }
 
     [Fact]
@@ -164,7 +197,7 @@ public sealed class PreBindReadPortTests
         // A totally unbound caller (no merchant claim at all) must still resolve this — the whole point of
         // login-by-subject is DISCOVERING which merchant, before any actor is bound.
         using var reader = NewContext();
-        var lookup = await new MerchantResolveLoginBySubject(reader).FindBySubjectAsync("m-sub-3", CancellationToken.None);
+        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("m-sub-3", CancellationToken.None);
 
         Assert.NotNull(lookup);
         Assert.Equal(merchantA, lookup!.MerchantId);

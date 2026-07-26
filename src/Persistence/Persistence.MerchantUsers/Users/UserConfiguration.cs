@@ -17,8 +17,17 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
-        builder.Property(x => x.Status).HasConversion<int>().IsRequired();
-        builder.Property(x => x.MerchantId); // NULL until admin approval sets it (REQ-2.3)
+        // Status + MerchantId are concurrency tokens (bugfix-merchant-prebind-wiring, Codex P1): every tracked
+        // UPDATE carries WHERE Status = @original AND MerchantId = @original, which restores the deleted DML
+        // writers' conditional semantics (Status = PendingApproval AND MerchantId IS NULL) for EVERY lifecycle
+        // transition. Two racing approvals — or an approve racing a reject/resubmit — can both load the same
+        // pending row; without the tokens both stale snapshots would commit (last writer wins: e.g. a rejected
+        // but merchant-bound account with a stray RoleAssignment). With them the loser's whole transaction
+        // (user row + role assignment + audit) fails as DbUpdateConcurrencyException → mapped to
+        // ConcurrencyConflictException → 409 by MerchantUserUnitOfWork. Model-level only (no DB column, no
+        // migration) — PolDbContext (migration owner, never registered at runtime) is deliberately untouched.
+        builder.Property(x => x.Status).HasConversion<int>().IsConcurrencyToken().IsRequired();
+        builder.Property(x => x.MerchantId).IsConcurrencyToken(); // NULL until admin approval sets it (REQ-2.3)
 
         // Pending-approval carve-out (rls-to-query-filter REQ-11.7): MerchantId may be NULL. A NULL never
         // equals CurrentMerchant in SQL, so this filter naturally hides pending rows from every merchant

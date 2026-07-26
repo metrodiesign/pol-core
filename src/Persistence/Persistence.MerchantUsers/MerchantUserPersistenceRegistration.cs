@@ -40,6 +40,11 @@ public static class MerchantUserPersistenceRegistration
         });
 
         services.AddScoped<IUserRepository>(sp => new MerchantUserRepository(sp.GetRequiredService<MerchantUserDbContext>()));
+        // The pre-bind seams (bugfix-merchant-prebind-wiring): the task-5 escape-hatch ports, finally DI-wired.
+        // ResolveLogin/ResolveById read through IAccountResolver; SubmitRegistration/Approve/Reject load their
+        // target through IAccountStore — the filtered IUserRepository above serves BOUND in-session flows only.
+        services.AddScoped<IAccountResolver>(sp => new MerchantAccountResolver(sp.GetRequiredService<MerchantUserDbContext>()));
+        services.AddScoped<IAccountStore>(sp => new MerchantAccountStore(sp.GetRequiredService<MerchantUserDbContext>()));
         services.AddScoped<IExternalLoginRepository>(sp => new MerchantExternalLoginRepository(sp.GetRequiredService<MerchantUserDbContext>()));
         services.AddScoped<IRegistrationAuditWriter>(sp => new MerchantRegistrationAuditWriter(sp.GetRequiredService<MerchantUserDbContext>()));
         services.AddScoped<IRegistrationOutboxWriter>(sp =>

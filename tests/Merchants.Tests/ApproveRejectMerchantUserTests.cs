@@ -166,12 +166,11 @@ public sealed class ApproveRejectMerchantUserTests
 
     private sealed class FakeClock : IClock { public DateTime UtcNow => Now; }
 
-    private sealed class FakeUsers : IUserRepository
+    private sealed class FakeUsers : IAccountStore
     {
         private readonly Dictionary<string, User> _bySubject = [];
         public void Seed(User u) => _bySubject[u.Subject] = u;
         public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(_bySubject.GetValueOrDefault(subject));
-        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
         public void Add(User account) => throw new NotSupportedException();
     }
 

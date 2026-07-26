@@ -80,11 +80,14 @@ public sealed class ResolveLoginHandlerTests
         new ResolveLoginHandler(new FakeAccounts(account), roles ?? new FakeRoles())
             .Handle(new ResolveLoginQuery("google-sub"), default).AsTask();
 
-    private sealed class FakeAccounts(User? account) : IUserRepository
+    private sealed class FakeAccounts(User? account) : IAccountResolver
     {
-        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(account);
-        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => throw new NotSupportedException();
-        public void Add(User a) => throw new NotSupportedException();
+        private static AccountSnapshot? Snapshot(User? u) =>
+            u is null ? null : new AccountSnapshot(u.Id, u.Subject, u.Email, u.MerchantId, u.Status);
+        public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken ct) =>
+            Task.FromResult(Snapshot(account));
+        public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
+            Task.FromResult(Snapshot(account));
     }
 
     private sealed class FakeRoles(params string[] permissions) : IRoleRepository

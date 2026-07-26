@@ -13,11 +13,11 @@ namespace Persistence.MerchantUsers.Users;
 /// ran on the keyed pol_admin RLS-BYPASS connection and therefore saw every merchant's (and every
 /// NULL-merchant pending) row regardless of the caller — these run under this context's ordinary query filter
 /// (<c>MerchantId==CurrentMerchant</c>): a bound merchant actor sees only its own rows, same as every other
-/// entity in this context. Task 5 already built dedicated pre-bind ports
-/// (<c>MerchantResolveLoginBySubject</c>, <c>MerchantRegistrationSubmitWriter</c>,
-/// <c>MerchantRegistrationWriter</c>) for the cross-merchant / NULL-merchant reads that registration
-/// submission/correction/approve/reject need; this class is for ordinary BOUND-actor call sites only (e.g.
-/// per-request session re-resolution of the caller's own account).
+/// entity in this context. The pre-bind flows (login resolution, registration/correction submission, admin
+/// approve/reject, session re-resolution by id) run through the dedicated filter-free seams instead —
+/// <see cref="MerchantAccountResolver"/> (<c>IAccountResolver</c>) and <see cref="MerchantAccountStore"/>
+/// (<c>IAccountStore</c>), wired by bugfix-merchant-prebind-wiring; this class is for ordinary BOUND-actor
+/// call sites only (e.g. <c>SetUserRoles</c>).
 /// </summary>
 internal sealed class MerchantUserRepository : IUserRepository
 {

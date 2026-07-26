@@ -37,10 +37,13 @@ public sealed record LoginResult(LoginOutcome Outcome, Resolution? Resolution)
 
 public sealed class ResolveLoginHandler : IQueryHandler<ResolveLoginQuery, LoginResult>
 {
-    private readonly IUserRepository _accounts;
+    private readonly IAccountResolver _accounts;
     private readonly IRoleRepository _roles;
 
-    public ResolveLoginHandler(IUserRepository accounts, IRoleRepository roles)
+    // IAccountResolver, never IUserRepository: this runs at the OIDC callback with NO actor bound, and the
+    // filtered repository would hide every NULL-MerchantId (pending/rejected) row — and, for an unbound
+    // caller, every row entirely (bugfix-merchant-prebind-wiring F1).
+    public ResolveLoginHandler(IAccountResolver accounts, IRoleRepository roles)
     {
         _accounts = accounts;
         _roles = roles;
@@ -67,7 +70,7 @@ public sealed class ResolveLoginHandler : IQueryHandler<ResolveLoginQuery, Login
             return LoginResult.Suspended;
 
         return LoginResult.Active(new Resolution(
-            account.Id, account.Email, merchantId,
-            await _roles.ListEffectivePermissionsAsync(account.Id, merchantId, cancellationToken)));
+            account.MerchantUserId, account.Email, merchantId,
+            await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken)));
     }
 }

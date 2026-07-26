@@ -6,17 +6,50 @@ using Merchants.Domain.Users;
 namespace Merchants.Application.Users;
 
 /// <summary>
-/// Persistence seams for the merchant-user identity realm (registration/correction/approval). Every one binds the keyed
-/// pol_admin <see cref="PolDbContext"/> — registration writes a NULL-merchant Pending row the RLS BLOCK
-/// predicate would reject under a merchant principal (REQ-19.2). They share ONE keyed-Scoped context instance per
-/// request, so a handler that stages across several of them commits in ONE transaction.
+/// Persistence seams for the merchant-user identity realm (registration/correction/approval). They share ONE
+/// Scoped context instance per request, so a handler that stages across several of them commits in ONE transaction.
+/// <para>
+/// BOUND in-session call sites ONLY (e.g. <c>SetUserRoles</c>): the runtime adapter runs under the ordinary
+/// merchant query filter (<c>MerchantId == CurrentMerchant</c>), so a caller without a bound merchant actor —
+/// or looking at a NULL-<c>MerchantId</c> pending/rejected row — sees nothing. Pre-bind flows (login
+/// resolution, registration/correction, admin approve/reject) MUST use <see cref="IAccountResolver"/> /
+/// <see cref="IAccountStore"/> instead (bugfix-merchant-prebind-wiring F1/F2/F3/F4/F6).
+/// </para>
 /// </summary>
 public interface IUserRepository
 {
     Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
-    /// <summary>Tracked lookup by id — the per-request session re-resolution (REQ-12.4/17.1) and the admin
-    /// approve/reject target load (REQ-6) both find the account by the id the session/command carries.</summary>
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+    void Add(User account);
+}
+
+/// <summary>The narrow pre-bind projection of a merchant-user account — never the tracked aggregate.</summary>
+public sealed record AccountSnapshot(Guid MerchantUserId, string Subject, string Email, Guid? MerchantId, UserStatus Status);
+
+/// <summary>
+/// Filter-free, read-only account resolution for the flows that run BEFORE any merchant actor exists on the
+/// request: the OIDC callback's login-by-subject branch (<c>ResolveLogin</c>, F1) and the session auth
+/// handler's per-request re-resolution by id (<c>ResolveById</c>, F6 — it runs DURING authentication, before
+/// the merchant_id claim is set). Pending/Rejected rows carry a NULL <c>MerchantId</c>, so the ordinary
+/// query-filtered repository can never serve these call sites; the adapter is a sanctioned
+/// <c>IgnoreQueryFilters()</c> escape-hatch port (Architecture.Tests bypass allowlist).
+/// </summary>
+public interface IAccountResolver
+{
+    Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Filter-free TRACKED account load + add for the pre-bind WRITE flows: registration/correction submission
+/// (<c>SubmitRegistration</c>, F2 — anonymous, ticket-gated) and the admin approve/reject target load
+/// (<c>ApproveReject</c>, F3/F4 — an admin request has no merchant actor either). The handlers mutate the
+/// aggregate through its domain methods and commit via their unit of work; the write floor
+/// (<c>IWriteAuthorizer</c>) still authorizes every staged change at SaveChanges.
+/// </summary>
+public interface IAccountStore
+{
+    Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
     void Add(User account);
 }
 

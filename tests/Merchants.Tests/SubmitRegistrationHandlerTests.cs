@@ -151,15 +151,13 @@ public sealed class SubmitRegistrationHandlerTests
 
     private sealed class FakeClock(DateTime now) : IClock { public DateTime UtcNow => now; }
 
-    private sealed class FakeMerchantUsers : IUserRepository
+    private sealed class FakeMerchantUsers : IAccountStore
     {
         public List<User> Added { get; } = [];
         private readonly Dictionary<string, User> _bySubject = [];
         public void Seed(User u) => _bySubject[u.Subject] = u;
         public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
-        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) =>
-            Task.FromResult(_bySubject.Values.FirstOrDefault(u => u.Id == id));
         public void Add(User account) { Added.Add(account); _bySubject[account.Subject] = account; }
     }
 
