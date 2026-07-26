@@ -9,7 +9,7 @@
 > ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console ใช้ **OIDC BFF แบบเดียวกันเป๊ะ** แล้ว (rf1 ถอด
 > Google id-token Bearer + policy `tenant` ทิ้งทั้งระบบ) — แต่เป็น **คนละ instance แยกขาด**: prefix
 > `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
-> config `MerchantUserAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
+> config `MerchantAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
 >
 > **multi-provider-oidc:** route เป็น provider-scoped แล้ว — `{provider}` ใน path ด้านล่างรับ `google` หรือ
 > `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section `AdminAuth:Providers:Microsoft`).

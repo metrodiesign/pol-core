@@ -44,8 +44,8 @@ file sealed class HardeningFactory<TEntry> : WebApplicationFactory<TEntry>
         // non-blank value — so this regression is caught on every platform.
         builder.UseSetting("AdminAuth:Providers:Google:ClientId", "");
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientId", "");
-        builder.UseSetting("MerchantUserAuth:Providers:Google:ClientId", "");
-        builder.UseSetting("MerchantUserAuth:Providers:Microsoft:ClientId", "");
+        builder.UseSetting("MerchantAuth:Providers:Google:ClientId", "");
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", "");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>

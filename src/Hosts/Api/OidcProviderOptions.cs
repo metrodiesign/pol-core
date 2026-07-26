@@ -6,7 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 namespace Api;
 
 /// <summary>
-/// One confidential OIDC client registration (provider × app). Both BFF sides (AdminAuth / MerchantUserAuth) bind a
+/// One confidential OIDC client registration (provider × app). Both BFF sides (AdminAuth / MerchantAuth) bind a
 /// <c>Providers</c> dictionary of these; the dictionary KEY ("Google"/"Microsoft") selects the provider-specific
 /// wiring in the side's Add*OidcAuthentication. <c>ClientSecret</c> is a real secret — injected via
 /// <c>{Side}__Providers__{Provider}__ClientSecret</c>, never committed, never logged. A blank <c>ClientId</c>

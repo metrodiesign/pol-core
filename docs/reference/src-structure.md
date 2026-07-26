@@ -377,7 +377,7 @@ webhook = source of truth. Application แยกโฟลเดอร์ต่�
 | `SfsQueryParser.cs` · `SfsOpenApi.cs` | parse `page`/`limit`/`filters`/`sort`/`search` จาก query string ดิบ + ประกาศ parameter เข้า OpenAPI |
 | `Webhooks/RateLimiting.cs` | sliding-window partition by **source IP** (ไม่ใช่ connection id กัน budget exhaustion), QueueLimit=0 → 429 |
 | `DesignTimeDbContextFactories.cs` | factory ตอน `dotnet ef migrations` — connection จาก env `POL_DESIGN_SQL` |
-| `appsettings.json` | prod defaults: `ConnectionStrings:App` (password ว่าง ฉีด runtime), `AdminAuth`/`MerchantUserAuth:Providers:*`, `Cors:AllowedOrigins`, `Vault:*`, `ForwardedHeaders:*`; prod ไม่ publish OpenAPI |
+| `appsettings.json` | prod defaults: `ConnectionStrings:App` (password ว่าง ฉีด runtime), `AdminAuth`/`MerchantAuth:Providers:*`, `Cors:AllowedOrigins`, `Vault:*`, `ForwardedHeaders:*`; prod ไม่ publish OpenAPI |
 | `appsettings.Development.json.example` | template ของ dev config (ตัวจริง gitignored — มี `ConnectionStrings:Migrator` สำหรับ auto-migrate ตอน boot) |
 | `Properties/launchSettings.json` | profile http (5100) / https (5101) |
 

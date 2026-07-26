@@ -147,7 +147,7 @@ if (!builder.Environment.IsDevelopment())
     // least ONE configured provider (an admin console with no login is a dead deploy); a merchant-user side with
     // zero providers is allowed — that login may be intentionally disabled (the schemes are skipped, REQ-14.2).
     ProvisioningGuards.RequireOidcProviders(builder.Configuration, "AdminAuth", requireAtLeastOne: true);
-    ProvisioningGuards.RequireOidcProviders(builder.Configuration, "MerchantUserAuth", requireAtLeastOne: false);
+    ProvisioningGuards.RequireOidcProviders(builder.Configuration, "MerchantAuth", requireAtLeastOne: false);
 }
 
 // The 3 runtime clusters + the Provisioning UoW (task 8.5.7), all on the single pol_app connection. The
@@ -1095,7 +1095,7 @@ api.MapGet("/merchants/{code}", async (
 // --- MerchantUser BFF auth (merchant-user-google-sso REQ-8/9/14) ---
 // Auth is its own /api/v1/merchants/auth group, mirroring /api/v1/admins/auth (provider-scoped OIDC): login here
 // (anonymous), logout/logout-all on the filtered ref below, and the OIDC callbacks
-// (MerchantUserAuth:Providers:{Provider}:CallbackPath) under the same prefix — while /merchants/users keeps the real
+// (MerchantAuth:Providers:{Provider}:CallbackPath) under the same prefix — while /merchants/users keeps the real
 // user resources (register + me). NOTE PolCorsPolicyProvider carves BOTH /merchants/users AND /merchants/auth out of
 // the admin plane so the merchant-user SPA's credentialed CORS applies here.
 var merchantAuthAnon = api.MapGroup("/merchants/auth");
@@ -2232,7 +2232,7 @@ internal static class ProvisioningGuards
     }
 
     /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "AdminAuth" /
-    /// "MerchantUserAuth"). For every provider with a non-blank ClientId: the id must not be a committed
+    /// "MerchantAuth"). For every provider with a non-blank ClientId: the id must not be a committed
     /// placeholder, the secret must be injected (blank or placeholder = never injected), the Authority must be a
     /// real https URL (the committed Microsoft Authority ships a REPLACE_WITH_TENANT_ID placeholder — booting with
     /// it means every login dies at the metadata fetch), the CallbackPath must be set and unique within the side,

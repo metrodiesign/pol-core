@@ -217,8 +217,8 @@ OIDC เป็น provider-scoped ทั้งสองฝั่ง (`multi-prov
 |---|---|---|---|---|
 | Admin / Google | `AdminAuth:Providers:Google` | `AdminGoogle` | `/api/v1/admins/auth/google/login` | `/api/v1/admins/auth/google/callback` |
 | Admin / Microsoft | `AdminAuth:Providers:Microsoft` | `AdminMicrosoft` | `/api/v1/admins/auth/microsoft/login` | `/api/v1/admins/auth/microsoft/callback` |
-| Merchant-user / Google | `MerchantUserAuth:Providers:Google` | `MerchantUserGoogle` | `/api/v1/merchants/auth/google/login` | `/api/v1/merchants/auth/google/callback` |
-| Merchant-user / Microsoft | `MerchantUserAuth:Providers:Microsoft` | `MerchantUserMicrosoft` | `/api/v1/merchants/auth/microsoft/login` | `/api/v1/merchants/auth/microsoft/callback` |
+| Merchant-user / Google | `MerchantAuth:Providers:Google` | `MerchantUserGoogle` | `/api/v1/merchants/auth/google/login` | `/api/v1/merchants/auth/google/callback` |
+| Merchant-user / Microsoft | `MerchantAuth:Providers:Microsoft` | `MerchantUserMicrosoft` | `/api/v1/merchants/auth/microsoft/login` | `/api/v1/merchants/auth/microsoft/callback` |
 
 `{provider}` ใน login route รับแค่ `google`/`microsoft` — provider ที่ไม่รู้จักหรือไม่ได้ config (`ClientId`
 ว่าง) ตอบ **404** (ไม่ใช่ 409 เหมือนเดิม). callback path ไม่ใช่ mapped endpoint — เป็น `CallbackPath` ของ OIDC
@@ -229,11 +229,13 @@ merchant-user `register`/`me` ยังอยู่ที่ `/api/v1/merchants/
 
 ### 5.1 ตั้งค่า Merchant-user OIDC
 
-`appsettings.Development.json` (gitignored) section `MerchantUserAuth:Providers:Google` (rename จาก
-`MerchantUser:Oidc`, multi-provider-oidc):
+`appsettings.Development.json` (gitignored) section `MerchantAuth:Providers:Google` (rename จาก
+`MerchantUser:Oidc` -> `MerchantUserAuth` ใน multi-provider-oidc แล้ว rename ซ้ำเป็น `MerchantAuth` ใน
+PR #135 — เครื่อง dev ที่ตั้ง section `MerchantUserAuth` ไว้แล้วต้อง rename เอง ไม่งั้น provider หาย,
+login ตอบ 404):
 
 ```json
-"MerchantUserAuth": {
+"MerchantAuth": {
   "Providers": {
     "Google": {
       "ClientId": "<merchant-user-google-client-id>.apps.googleusercontent.com",
@@ -373,11 +375,11 @@ CI gate: unit + integration ต้องเขียวก่อน merge (requi
 
 ### `GET /api/v1/merchants/auth/google/login` ตอบ 404 (ไม่ใช่ 302)
 
-**สาเหตุ:** `MerchantUserAuth:Providers:Google:ClientId` ว่าง/ไม่มี section -> scheme `MerchantUserGoogle`
+**สาเหตุ:** `MerchantAuth:Providers:Google:ClientId` ว่าง/ไม่มี section -> scheme `MerchantUserGoogle`
 ไม่ถูก register -> route มองว่า provider นี้ไม่พร้อม/ไม่รู้จัก -> 404 (เดิมสมัย single-provider ตอบ 409 —
 provider-scoped route แยกให้ตรงตัวว่า "provider นี้" หายไป ไม่ใช่ merchant-user auth ทั้งระบบล่ม).
-**แก้:** ตั้ง `MerchantUserAuth:Providers:Google` ครบ (§5.1) แล้ว **restart API เต็ม** (config change ไม่
-hot-reload). provider `microsoft` เช็คแบบเดียวกันที่ `MerchantUserAuth:Providers:Microsoft`.
+**แก้:** ตั้ง `MerchantAuth:Providers:Google` ครบ (§5.1) แล้ว **restart API เต็ม** (config change ไม่
+hot-reload). provider `microsoft` เช็คแบบเดียวกันที่ `MerchantAuth:Providers:Microsoft`.
 
 ### `Error 400: redirect_uri_mismatch` ที่หน้า Google / เทียบเท่าฝั่ง Microsoft Entra
 
@@ -386,7 +388,7 @@ hot-reload). provider `microsoft` เช็คแบบเดียวกัน�
 **แก้:** เข้าผ่าน `http://localhost:5300` (merchant-user) / `http://localhost:5200` (admin) — §4.4.
 
 **สาเหตุอื่น:** ยังไม่ได้ลงทะเบียน URI ของ proxy origin, หรือแก้คนละ client กับที่
-`MerchantUserAuth:Providers:{Google|Microsoft}:ClientId` ชี้.
+`MerchantAuth:Providers:{Google|Microsoft}:ClientId` ชี้.
 **แก้:** §5.2 — เพิ่ม `http://localhost:5300/api/v1/merchants/auth/google/callback` (หรือ
 `.../microsoft/callback`; ฝั่ง admin ใช้ `http://localhost:5200/api/v1/admins/auth/{provider}/callback`)
 ที่ client ตัวที่ถูก. ดู client ที่ backend ใช้จริงด้วย `curl` (§5.3) เทียบ prefix ของ `client_id`.

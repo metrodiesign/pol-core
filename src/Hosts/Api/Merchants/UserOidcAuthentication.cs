@@ -10,7 +10,7 @@ internal sealed class UserOidcProviders : Dictionary<string, string>;
 
 /// <summary>
 /// The confidential OIDC clients for the merchant-user BFF login (REQ-8/9/14), one scheme per configured provider
-/// (MerchantUserAuth:Providers): "MerchantUserGoogle", "MerchantUserMicrosoft". The framework handler does the
+/// (MerchantAuth:Providers): "MerchantUserGoogle", "MerchantUserMicrosoft". The framework handler does the
 /// Authorization Code + PKCE + state + nonce + code-exchange + JWKS id_token validation; we only hook
 /// <c>OnTokenValidated</c> (provider-specific gates, REQ-9.2), <c>OnTicketReceived</c> (the 4-way lifecycle branch via
 /// <see cref="UserLoginService"/>, REQ-9.4), and <c>OnRemoteFailure</c>/<c>OnAccessDenied</c> (deny → error

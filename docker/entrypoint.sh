@@ -34,15 +34,15 @@ fi
 # Same for the merchant-user BFF login (its own isolated confidential OIDC client, distinct scheme/cookie names
 # from admin — see UserOidcOptions). A blank ClientId skips the scheme rather than failing boot.
 if [ -n "${MERCHANT_USER_OIDC_CLIENT_SECRET_FILE:-}" ]; then
-    export MerchantUserAuth__Providers__Google__ClientSecret="$(cat "$MERCHANT_USER_OIDC_CLIENT_SECRET_FILE")"
+    export MerchantAuth__Providers__Google__ClientSecret="$(cat "$MERCHANT_USER_OIDC_CLIENT_SECRET_FILE")"
 fi
 
 # Optional Microsoft Entra clients (provider-scoped OIDC): same mounted-file pattern per side.
 if [ -n "${ADMIN_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
     export AdminAuth__Providers__Microsoft__ClientSecret="$(cat "$ADMIN_ENTRA_CLIENT_SECRET_FILE")"
 fi
-if [ -n "${MERCHANT_USER_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
-    export MerchantUserAuth__Providers__Microsoft__ClientSecret="$(cat "$MERCHANT_USER_ENTRA_CLIENT_SECRET_FILE")"
+if [ -n "${MERCHANT_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
+    export MerchantAuth__Providers__Microsoft__ClientSecret="$(cat "$MERCHANT_ENTRA_CLIENT_SECRET_FILE")"
 fi
 
 exec dotnet "$HOST_DLL"
