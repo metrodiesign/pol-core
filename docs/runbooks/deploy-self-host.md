@@ -62,11 +62,16 @@ callback เต็ม — ไม่ใช่ id-token bearer แบบเดิ�
   `https://<api-host>/api/v1/admins/auth/google/callback`.
 
 OIDC เป็น provider-scoped ทั้งสองฝั่งแล้ว (`multi-provider-oidc`) — Google เป็น provider บังคับ (operator var
-ด้านบนไม่เปลี่ยนชื่อ) ส่วน **Microsoft Entra ID เป็น provider เสริม** (opt-in): ถ้าเปิดใช้ ต้อง mount secret
-file เพิ่มแล้วส่ง path เข้า `ADMIN_ENTRA_CLIENT_SECRET_FILE` / `MERCHANT_USER_ENTRA_CLIENT_SECRET_FILE` ให้
-container (`docker/entrypoint.sh` map เป็น `AdminAuth__Providers__Microsoft__ClientSecret` /
-`MerchantUserAuth__Providers__Microsoft__ClientSecret` เอง) — `docker-compose.prod.yml` ที่ scaffold นี้ให้ยังไม่
-wire ตัวแปร Entra เหล่านี้ (Google-only default), ต้องเพิ่ม env + secret + `ClientId` เองถ้าจะเปิด Microsoft login.
+ด้านบนไม่เปลี่ยนชื่อ) ส่วน **Microsoft Entra ID เป็น provider เสริม** (opt-in) ซึ่ง `docker-compose.prod.yml`
+wire ให้แล้ว: เปิดใช้โดยตั้งใน `.env` — `ADMIN_ENTRA_CLIENT_ID` + `ADMIN_ENTRA_TENANT_ID` (admin เป็น
+single-tenant; compose ประกอบ `AdminAuth__Providers__Microsoft__Authority` จาก tenant id ให้เอง) และ/หรือ
+`MERCHANT_USER_ENTRA_CLIENT_ID` (merchant-user ใช้ authority `/organizations` จาก appsettings.json) — แล้วใส่
+client secret จริงลง secret file `admin_entra_client_secret` / `merchant_user_entra_client_secret` ด้านล่าง
+(`docker/entrypoint.sh` map เป็น `AdminAuth__Providers__Microsoft__ClientSecret` /
+`MerchantUserAuth__Providers__Microsoft__ClientSecret` เอง). เว้น `*_ENTRA_CLIENT_ID` ว่าง = ปิด Microsoft login
+(scheme ถูก skip, boot Google-only ปกติ) แต่**ไฟล์ secret ทั้งสองต้องมีอยู่เสมอ**เป็น placeholder เปล่า —
+กติกาเดียวกับ `db_ca_cert` (compose บังคับ path); deploy ที่มีอยู่แล้ว หลัง pull ต้องสร้าง 2 ไฟล์นี้ก่อน `up`
+ไม่งั้น compose fail.
 redirect URI ของ Entra client = `https://<api-host>/api/v1/admins/auth/microsoft/callback` (admin) /
 `https://<api-host>/api/v1/merchants/auth/microsoft/callback` (merchant-user) — ต้องสร้าง app registration
 คนละตัวต่อฝั่ง (admin single-tenant, merchant-user multi-tenant) และเพิ่ม optional claim `email` ที่ id_token
@@ -100,6 +105,10 @@ printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/merchant_user_oid
 # Admin OIDC client secret — confidential client secret ของ admin console (คู่กับ ADMIN_OIDC_CLIENT_ID).
 # ไม่ใช่ random: paste ค่าจริงจาก Google Cloud Console (OAuth 2.0 Client ของ admin = Web application -> Client secret).
 printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/admin_oidc_client_secret
+
+# Entra client secrets (opt-in) — compose บังคับให้มีไฟล์เสมอ: ปิด Microsoft login = ไฟล์เปล่า placeholder,
+# เปิด = paste client secret จริงจาก Entra app registration ของฝั่งนั้น (Certificates & secrets -> Client secret).
+touch secrets/admin_entra_client_secret secrets/merchant_user_entra_client_secret
 
 # DB tier CA cert (pin optional) — compose mount ไฟล์นี้เสมอไม่ว่าจะ pin หรือไม่ (ต้องมีไฟล์อยู่จริง). ถ้า
 # DB tier ใช้ certificate ที่ chain ไป public CA อยู่แล้ว: ปล่อย DB_CA_CERTIFICATE_FILE ว่างใน .env แล้ว
