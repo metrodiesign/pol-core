@@ -148,6 +148,10 @@ if (!builder.Environment.IsDevelopment())
     // zero providers is allowed — that login may be intentionally disabled (the schemes are skipped, REQ-14.2).
     ProvisioningGuards.RequireOidcProviders(builder.Configuration, "AdminAuth", requireAtLeastOne: true);
     ProvisioningGuards.RequireOidcProviders(builder.Configuration, "MerchantAuth", requireAtLeastOne: false);
+    // The webhook URL each PSP charge calls back on is derived from this origin per connection
+    // (captive-payment-alignment REQ-4.1/4.3) — a blank value ships charges whose confirmation never
+    // reaches us, so the order stays AwaitingPayment after the customer has already paid.
+    ProvisioningGuards.RequirePublicBaseUrl(builder.Configuration);
 }
 
 // The 3 runtime clusters + the Provisioning UoW (task 8.5.7), all on the single pol_app connection. The
@@ -2264,6 +2268,26 @@ internal static class ProvisioningGuards
         if (!builder.IntegratedSecurity && string.IsNullOrEmpty(builder.Password))
             throw new InvalidOperationException(
                 $"ConnectionStrings:{name} has no password — the runtime secret was not injected. Set ConnectionStrings__{name}.");
+    }
+
+    /// <summary>Fails fast when <c>Psp:PublicBaseUrl</c> is missing or is not an absolute URI. Every
+    /// per-connection backend-notification URL handed to a PSP is derived from it
+    /// (<c>{PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}</c>), so a blank value produces a callback URL
+    /// the PSP cannot reach: the customer pays, the confirmation never arrives, and the order stays
+    /// AwaitingPayment. Development is exempt — the committed placeholder keeps the local host and the test
+    /// suite booting (captive-payment-alignment REQ-4.3/4.6).</summary>
+    public static void RequirePublicBaseUrl(IConfiguration configuration)
+    {
+        var publicBaseUrl = configuration[$"{PspOptions.SectionName}:PublicBaseUrl"];
+        // The scheme check is not pedantry: on Unix, Uri.TryCreate accepts a bare path like "/api/v1" as an
+        // absolute file:// URI, so "absolute" alone would admit a value no PSP can ever POST to.
+        if (string.IsNullOrWhiteSpace(publicBaseUrl)
+            || !Uri.TryCreate(publicBaseUrl, UriKind.Absolute, out var origin)
+            || (origin.Scheme != Uri.UriSchemeHttps && origin.Scheme != Uri.UriSchemeHttp))
+            throw new InvalidOperationException(
+                "Psp:PublicBaseUrl must be an absolute http(s) URI naming this API's public origin (e.g. " +
+                "https://api.example.com) — the per-connection PSP webhook URL is derived from it. " +
+                "Set Psp__PublicBaseUrl.");
     }
 
     /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "AdminAuth" /

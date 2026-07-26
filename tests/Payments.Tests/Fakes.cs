@@ -65,10 +65,18 @@ internal sealed class FakePspAdapter : IPspAdapter
     /// <summary>Drives the charge call: return a hosted charge, or throw to stand in for the PSP refusing.</summary>
     public Func<Session, PspCharge>? OnCreateCharge { get; init; }
 
-    public Task<PspCharge> CreateRedirectChargeAsync(Session session, string secret, CancellationToken cancellationToken) =>
-        OnCreateCharge is null
+    /// <summary>The connection id the last charge call was handed — the value a real adapter turns into the
+    /// per-connection webhook URL, so a handler that passed the wrong one (or none) is visible here.</summary>
+    public Guid ChargedConnectionId { get; private set; }
+
+    public Task<PspCharge> CreateRedirectChargeAsync(
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
+    {
+        ChargedConnectionId = pspConnectionId;
+        return OnCreateCharge is null
             ? throw new NotSupportedException("This fake never charges.")
             : Task.FromResult(OnCreateCharge(session));
+    }
 
     public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
         throw new NotSupportedException("This fake never verifies webhooks.");

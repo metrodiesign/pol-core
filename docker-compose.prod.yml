@@ -90,9 +90,14 @@ services:
       # defaults true (safe) so going live with real PSP credentials is an explicit .env opt-in. The
       # return URL/URI values are platform-wide redirect targets, required like the vars above: a
       # blank value boots fine but silently ships broken PSP redirects, so fail fast instead.
+      # PSP_PUBLIC_BASE_URL is this API's public origin; the backend-notification URL handed to a PSP is
+      # derived from it PER CONNECTION (/api/v1/webhooks/{pspConnectionId}) — it replaced the single global
+      # 2C2P backend-return URL, which could only ever be right for one connection (existing deploys: see
+      # docs/runbooks/deploy-self-host.md). The host also fails fast at boot when this is blank or not an
+      # absolute http(s) URI, so it must be set before `up`.
       Psp__UseSandbox: ${PSP_USE_SANDBOX:-true}
+      Psp__PublicBaseUrl: ${PSP_PUBLIC_BASE_URL:?set PSP_PUBLIC_BASE_URL in .env}
       Psp__TwoCTwoP__FrontendReturnUrl: ${PSP_TWOCTWOP_FRONTEND_RETURN_URL:?set PSP_TWOCTWOP_FRONTEND_RETURN_URL in .env}
-      Psp__TwoCTwoP__BackendReturnUrl: ${PSP_TWOCTWOP_BACKEND_RETURN_URL:?set PSP_TWOCTWOP_BACKEND_RETURN_URL in .env}
       Psp__Omise__ReturnUri: ${PSP_OMISE_RETURN_URI:?set PSP_OMISE_RETURN_URI in .env}
       # REQ-13.4: not a secret (Seq ingestion is same-network only, no public exposure) — the sink degrades
       # to log-only (never blocks a request) if Seq is unreachable, so this is safe to default.

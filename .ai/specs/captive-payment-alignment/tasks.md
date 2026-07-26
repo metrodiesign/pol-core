@@ -279,7 +279,7 @@
          `ModelDisjointnessTests`) — พอสำหรับ entity ที่ assert และ `EnableServiceProviderCaching(false)` กัน
          model-cache ปนกับ test class อื่นตามคอมเมนต์ที่ `MoneyColumnMappingTests` เขียนไว้แล้ว.
 
-- [ ] 5. **Webhook callback URL ต่อ connection + paymentChannel จาก method + config surface** —
+- [x] 5. **Webhook callback URL ต่อ connection + paymentChannel จาก method + config surface** —
      `PspOptions` เพิ่ม `PublicBaseUrl` และ **ลบ** `TwoCTwoPOptions.BackendReturnUrl`;
      `PspAdapterBase.WebhookUrlFor(Guid pspConnectionId)`; `IPspAdapter.CreateRedirectChargeAsync` รับ
      `Guid pspConnectionId` เพิ่ม (แก้ call site ตามรายการใน design D7 — **ไม่มี fake ให้หา**, แต่มี
@@ -299,6 +299,80 @@
      `paymentChannel`) + `dotnet test tests/Hosts.Tests` (`ProvisioningGuards` + wire pin, และนับผลว่า
      **ไม่ต่ำกว่าเดิม**) + `docker compose -f docker-compose.prod.yml config` ด้วย placeholder ชุด CI +
      `grep -rn PSP_TWOCTWOP_BACKEND_RETURN_URL` -> ไม่เหลือที่ใด + `dotnet build pol-core.slnx -warnaserror`.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+         (ยืนยัน compile จริงด้วย `stat -f "%m %Sm %N"` เทียบ dll กับ source ทั้ง 4 คู่ที่แก้ ตาม trap 15 —
+         dll ใหม่กว่าทุกคู่).
+       - test: baseline ก่อนแก้ (ยืนยันเองซ้ำ): `dotnet test pol-core.slnx --filter "Category!=Integration"` ->
+         **1168 passed / 0 failed** ตรงกับ section 4 (Payments 119, Architecture 223, Hosts 344).
+       - test: `dotnet test tests/Payments.Tests --no-build` -> **126 passed / 0 failed** (119 -> +7:
+         `charges_the_amount_the_session_carries` (REQ-1.6),
+         `points_the_backend_notification_at_the_connection_being_charged` (REQ-4.1 + REQ-4.4 pin ว่า
+         `frontendReturnUrl` ยัง global), `does_not_double_the_slash_of_a_public_base_url`,
+         `derives_the_payment_channel_from_the_session_method` (REQ-6.3),
+         `refuses_a_method_it_cannot_honour_rather_than_substituting_a_card_channel` x2 theory (REQ-6.4),
+         Omise `sends_no_callback_url_because_omise_takes_its_webhook_from_the_dashboard` (REQ-4.5)).
+       - test: `dotnet test tests/Hosts.Tests --no-build` -> **353 passed / 0 failed** (344 -> +9 =
+         6 fail-fast case + 3 pass case ของ `ProvisioningGuards.RequirePublicBaseUrl`) — **ไม่ต่ำกว่า 344**
+         คือหลักฐานว่า config guard ไม่ทำ host พัง (REQ-4.6: 17 ไฟล์ที่ boot host จริงยังเขียวทั้งหมด,
+         ทุกไฟล์ pin `UseEnvironment(Environments.Development)` — ตรวจแล้วไม่มีไฟล์ใดปล่อย default).
+       - test: **RED proof ว่า assertion ชุดใหม่กัดจริง** — mutate `TwoCTwoPAdapter` กลับเป็นพฤติกรรมก่อน task
+         (`paymentChannel = new[] { "CC" }` + `backendReturnUrl` เป็น URL คงที่แบบ global) -> build ->
+         `dotnet test tests/Payments.Tests --no-build --filter "FullyQualifiedName~TwoCTwoPAdapterTests"` ->
+         `Failed! - Failed: 4, Passed: 25, Total: 29`. 4 ที่แดง =
+         `points_the_backend_notification_at_the_connection_being_charged`,
+         `does_not_double_the_slash_of_a_public_base_url`,
+         `refuses_a_method_it_cannot_honour_rather_than_substituting_a_card_channel` (promptpay + installment)
+         -> restore ไฟล์ -> build -> 126 passed. (`derives_the_payment_channel...` เขียวทั้งสองฝั่งตามคาด
+         เพราะ card -> "CC" เหมือนกัน — มันคือ regression net ของ mapping ไม่ใช่ proof ของการเปลี่ยน.)
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1184 passed /
+         0 failed / 0 skipped** across 16 test projects. **baseline ใหม่ของ task 6+:** Admins 95 ·
+         Architecture 223 · BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts **353** ·
+         Iam 62 · Levels 6 · Merchants 115 · Offices 6 · Orders 68 · Payments **126** · Positions 6 ·
+         Products 7 · SharedKernel 46 = **1184**.
+       - test: compose render ทั้ง 2 ที่ที่ CI รัน ด้วย placeholder ชุดเดียวกับ CI เป๊ะ (trap 5) —
+         (ก) GitHub `ci.yml` job `docker-build`: `env PSP_PUBLIC_BASE_URL=https://ci-api.example.com
+         MSSQL_SA_PASSWORD=ci-placeholder DB_SERVER=ci-db.example.internal
+         MERCHANT_USER_OIDC_CLIENT_ID=ci-placeholder ADMIN_OIDC_CLIENT_ID=ci-placeholder
+         MERCHANT_USER_FRONTEND_ORIGIN=https://ci.example.com ADMIN_FRONTEND_ORIGIN=https://ci-admin.example.com
+         PSP_TWOCTWOP_FRONTEND_RETURN_URL=https://ci.example.com/return
+         PSP_OMISE_RETURN_URI=https://ci.example.com/return docker compose -f docker-compose.prod.yml config -q`
+         -> exit 0 (แบบไม่ `-q` เห็น `Psp__PublicBaseUrl: https://ci-api.example.com` และ **ไม่มี**
+         `Psp__TwoCTwoP__BackendReturnUrl` เหลือ); (ข) GitLab `.gitlab-ci.yml`: ชุด env เดียวกัน +
+         `REGISTRY_IMAGE`/`IMAGE_TAG` กับ `docker compose -f docker-compose.prod.yml -f
+         docker-compose.registry.yml config -q` -> exit 0.
+       - test: negative proof ว่า `${...:?}` ของ var ใหม่บังคับจริง — ถอด `PSP_PUBLIC_BASE_URL` ออกจากชุด
+         placeholder แล้ว render -> exit 1 พร้อม `error while interpolating
+         services.api.environment.Psp__PublicBaseUrl: required variable PSP_PUBLIC_BASE_URL is missing a
+         value: set PSP_PUBLIC_BASE_URL in .env` (ยืนยันว่า CI จะแดงถ้าลืม placeholder — ไม่ใช่ผ่านเงียบ).
+       - test: `git grep -n PSP_TWOCTWOP_BACKEND_RETURN_URL -- ':!.ai/specs' ':!docs'` -> เหลือ **1 บรรทัด**
+         คือ comment เตือน ops ใน `.env.prod.example:45` (deviation 2); ไม่มี live config/โค้ดที่ใดอ้างถึงแล้ว.
+         `git grep -n BackendReturnUrl` -> เหลือเฉพาะ spec ของงานนี้ + `.ai/specs/production-hardening/tasks.md`
+         (Evidence ประวัติศาสตร์ของ PR เก่า ห้ามแก้).
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a live-code
+         token in src/ or tests/` (รันหลัง `git add` ตาม trap 12); `.ai/bin/check-secrets.sh --all` -> exit 0
+         (รันเปล่าไม่มี env prefix ตาม trap 27); `bash scripts/spec-trace.sh captive-payment-alignment` ->
+         `OK: ... เกณฑ์ 42 ข้อ ถูกอ้างครบ ... EARS lint ผ่านทุกข้อ`.
+       - viewports: n/a — backend + config/ops surface ล้วน (adapter request claims, boot guard, compose/CI env,
+         runbook) ไม่มี browser surface ถูกแตะ.
+       - deviations: (1) **guard บังคับ scheme `http`/`https` ไม่ใช่แค่ "absolute URI" ตามตัวอักษรของ REQ-4.3** —
+         เจอตอน test แดงจริง: บน Unix `Uri.TryCreate("/api/v1", UriKind.Absolute, out _)` คืน **true** (ตีเป็น
+         `file://`) ดังนั้นเกณฑ์ "absolute" ล้วนจะปล่อยค่าที่ PSP POST กลับมาไม่ได้เลยผ่าน boot. เพิ่มเงื่อนไข
+         scheme = การ implement เจตนาของ REQ-4.3 ให้ถูก ไม่ใช่ขยาย scope (ค่าที่ REQ อยากบล็อกคือค่าที่ใช้ไม่ได้).
+         (2) **คงคำว่า `PSP_TWOCTWOP_BACKEND_RETURN_URL` ไว้ 1 จุดใน `.env.prod.example` เป็น comment** ("เลิกใช้
+         แล้ว ให้ลบบรรทัดนี้ออกจาก `.env` แล้วตั้ง `PSP_PUBLIC_BASE_URL` แทน") + ใน runbook — ไฟล์ `.env` จริงของ
+         ทุกเครื่อง/ทุก deploy เป็น gitignored blind spot (LESSONS: rename config key แล้ว CI เขียวหมดแต่ค่าเก่า
+         ค้างทุกเครื่อง) และ `.env.prod.example` คือไฟล์ที่ operator diff กับ `.env` ของตัวเอง. ลบ token ออกจาก
+         comment ของ `docker-compose.prod.yml` แล้ว (machine file — ชี้ไป runbook แทน) เพื่อให้ config surface
+         สะอาดตาม REQ-4.2. (3) เพิ่ม 2 test นอกรายการของ task: trailing-slash ของ `PublicBaseUrl` (double slash
+         ทำให้ route ไม่ match = miss เงียบแบบเดียวกับไม่มี URL เลย ซึ่งเป็นโรคที่ REQ-4 รักษา) และ Omise
+         `sends_no_callback_url...` (pin เหตุผลของ REQ-4.5 ว่าทำไม Omise ไม่ใช้ `WebhookUrlFor` — กันคนหลังเติม
+         field ที่ Omise ไม่มีแล้วเข้าใจว่าปิด gap แล้ว). (4) `FakePspAdapter` เพิ่ม `ChargedConnectionId`
+         (บันทึก id ที่ถูกส่งเข้ามา) ตอนแก้ signature — ยังไม่มี test ใดอ้าง แต่เป็น seam ที่ task 6 ใช้ได้ทันที
+         ถ้าต้องพิสูจน์ว่า handler ส่ง `connection.Id` ใบถูก; ถ้า reviewer ถือว่าเป็น dead member ลบได้ 3 บรรทัด
+         โดยไม่กระทบ test ใด. (5) ไม่แตะ `OmiseAdapter` method switch (`promptpay -> NotSupportedException`) —
+         REQ-6.3/6.4 เป็นเรื่องของ 2C2P `paymentChannel`; switch ของ Omise เป็น backstop ชั้นสองที่ REQ-6.2
+         (create-session) กันไว้ก่อนแล้ว และมี test เดิม pin อยู่.
 
 - [ ] 6. **fetch-to-confirm พายอดกลับมาแล้วเทียบก่อน MarkPaid** — `PspChargeConfirmation(PspChargeStatus
      Status, Money? Amount)` แทน return type ของ `IPspAdapter.FetchChargeAsync`; `TwoCTwoPAdapter` อ่าน

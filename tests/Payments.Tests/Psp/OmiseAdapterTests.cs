@@ -19,6 +19,11 @@ public sealed class OmiseAdapterTests
 {
     private const string CardSecret = """{"secretKey":"skey_test_abc"}""";
 
+    /// <summary>The connection being charged through. Omise takes its webhook endpoint from the dashboard,
+    /// not from the charge request, so this id must NOT appear in the request body — the per-connection
+    /// callback is an ops step in the deploy runbook instead (REQ-4.5).</summary>
+    private static readonly Guid ConnectionId = Guid.Parse("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
     private static (OmiseAdapter Adapter, StubHttpMessageHandler Handler) Build(
         Func<HttpRequestMessage, string, HttpResponseMessage> responder, bool useSandbox = true)
     {
@@ -47,7 +52,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        var charge = await adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None);
+        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
 
         Assert.Equal("chrg_test_1", charge.ExternalChargeId);
         Assert.Equal("https://omise.test/3ds", charge.RedirectUrl);
@@ -68,9 +73,25 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        await adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
 
         Assert.Contains(expected, handler.Calls[0].Body);
+    }
+
+    [Fact]
+    public async Task Card_charge_sends_no_callback_url_because_omise_takes_its_webhook_from_the_dashboard()
+    {
+        // Omise/Opn has no per-charge notification-URL field: the endpoint is registered in the merchant's
+        // Omise dashboard, so the per-connection callback is an ops step in docs/runbooks/deploy-self-host.md
+        // (REQ-4.5). Inventing a request field for it would be sent nowhere and read as "handled".
+        var session = MakeSession("card");
+        var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
+            """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
+
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
+
+        Assert.DoesNotContain(ConnectionId.ToString("D"), handler.Calls[0].Body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("webhooks", handler.Calls[0].Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -82,7 +103,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs before the non-idempotent POST
     }
 
@@ -94,7 +115,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -107,7 +128,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
         await Assert.ThrowsAsync<NotSupportedException>(
-            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -121,7 +142,7 @@ public sealed class OmiseAdapterTests
         var secret = $$"""{"secretKey":"{{secretKey}}"}""";
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => adapter.CreateRedirectChargeAsync(session, secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs BEFORE the non-idempotent POST
     }
 

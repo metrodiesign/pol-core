@@ -41,7 +41,7 @@ public abstract class PspAdapterBase : IPspAdapter
     public abstract IReadOnlySet<string> SupportedMethods { get; }
 
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, string secret, CancellationToken cancellationToken);
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
 
     public abstract bool VerifyWebhook(string rawPayload, string signature, string secret);
 
@@ -52,6 +52,15 @@ public abstract class PspAdapterBase : IPspAdapter
 
     /// <summary>A pooled, handler-rotated client for this PSP (named by its code). Cheap to create per call.</summary>
     protected HttpClient CreateClient() => _httpClientFactory.CreateClient(Psp.ToCode());
+
+    // ---- backend-notification URL ----
+
+    /// <summary>The per-connection backend-notification URL this charge must call back on:
+    /// <c>{PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}</c>. Derived, never configured per deployment —
+    /// a single global callback URL cannot carry the connection id that the webhook route (and with it the
+    /// per-company isolation) requires, so it could only ever be right for one connection (REQ-4.1).</summary>
+    protected string WebhookUrlFor(Guid pspConnectionId) =>
+        $"{Options.PublicBaseUrl.TrimEnd('/')}/api/v1/webhooks/{pspConnectionId:D}";
 
     // ---- amount ----
 

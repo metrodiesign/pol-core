@@ -77,15 +77,39 @@ redirect URI ของ Entra client = `https://<api-host>/api/v1/admins/auth/mic
 คนละตัวต่อฝั่ง (admin single-tenant, merchant-user multi-tenant) และเพิ่ม optional claim `email` ที่ id_token
 (Entra ไม่ส่ง `email`/`email_verified` โดย default).
 
-Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`, ไม่ fail-fast แต่ blank แล้ว
-redirect พังเงียบๆ — ตั้งให้ครบ): `PSP_USE_SANDBOX` (default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง),
-`PSP_TWOCTWOP_FRONTEND_RETURN_URL` (2C2P ส่ง browser ลูกค้ากลับหลัง hosted page), `PSP_TWOCTWOP_BACKEND_RETURN_URL`
-(2C2P POST callback -> route จริงคือ `POST /api/v1/webhooks/{pspConnectionId}`, **ไม่ใช่** `/webhooks` เฉยๆ —
-`{pspConnectionId}` คือ `Id` ของแถวใน `txn.PspConnections` ของคู่ merchant+2C2P นั้น ไม่ใช่ค่าคงที่ หาได้จาก DB
-หลัง provision merchant. ช่องโหว่ที่ยังไม่ปิด: ค่านี้เป็น env เดียวทั้งแพลตฟอร์ม แต่ route ต้องการ id ต่อ
-connection — ถูกต้องเฉพาะตอนมี 2C2P connection เดียวทั้งระบบ, หลาย merchant ใช้ 2C2P พร้อมกันคือของที่ยังค้าง
-ใน production-hardening PR3), `PSP_OMISE_RETURN_URI` (Omise ส่ง browser กลับหลัง hosted 3DS เท่านั้น — webhook
-ของ Omise ตั้งแยกใน Omise dashboard เอง ไม่ผ่าน env นี้).
+Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`):
+
+- `PSP_PUBLIC_BASE_URL` — **required, fail-fast**: public origin ของ API ตัวนี้ (เช่น
+  `https://api.example.com`, ไม่ต้องมี `/` ปิดท้าย). backend-notification URL ที่ส่งให้ PSP ถูกประกอบจากค่านี้
+  **ต่อ connection** เป็น `{PSP_PUBLIC_BASE_URL}/api/v1/webhooks/{pspConnectionId}` โดย `{pspConnectionId}` =
+  `Id` ของแถวใน `txn.PspConnections` ของคู่ merchant+PSP นั้น (มาจาก DB ตอน charge ไม่ใช่จาก config).
+  ค่าว่างหรือไม่ใช่ absolute URI -> host **ไม่ boot** นอก Development (`ProvisioningGuards.
+  RequirePublicBaseUrl`) พร้อมข้อความที่ระบุชื่อ key. ต้องเป็น origin ที่ PSP เข้าถึงได้จากอินเทอร์เน็ตจริง
+  (ปลายทางเดียวกับที่ reverse proxy รับ `POST /api/v1/webhooks/...` เข้ามา ไม่ใช่ hostname ภายใน docker network).
+- `PSP_USE_SANDBOX` — default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง.
+- `PSP_TWOCTWOP_FRONTEND_RETURN_URL` — 2C2P ส่ง browser ลูกค้ากลับหลัง hosted page (UX เท่านั้น, ไม่ใช่
+  แหล่งความจริงของสถานะ). ยังเป็น global ทั้งแพลตฟอร์มโดยเจตนา — Tenant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน.
+- `PSP_OMISE_RETURN_URI` — Omise ส่ง browser กลับหลัง hosted 3DS เท่านั้น (global เหมือนกัน ด้วยเหตุผลเดียวกัน).
+- **`PSP_TWOCTWOP_BACKEND_RETURN_URL` เลิกใช้แล้ว** (captive-payment-alignment REQ-4.2) — ถูกลบออกจาก
+  `PspOptions`/compose/`.env.prod.example`/CI ทั้งหมด. deploy ที่มีอยู่แล้วให้ **ลบบรรทัดนี้ออกจาก `.env`**
+  แล้วตั้ง `PSP_PUBLIC_BASE_URL` แทน (ค่าเดิมเป็น URL เดียวทั้ง deployment จึงถูกได้มากสุด 1 connection —
+  connection อื่นทั้งหมด webhook ไม่ถึง handler แล้ว order ค้าง `AwaitingPayment` ทั้งที่ลูกค้าจ่ายแล้ว).
+
+### ตั้ง webhook URL ต่อ connection ที่ฝั่ง PSP (ops step, ทำหลัง provision merchant)
+
+2C2P รับ `backendReturnUrl` มาใน request ของแต่ละ charge อยู่แล้ว (ระบบประกอบให้เอง จาก
+`PSP_PUBLIC_BASE_URL` + connection id) — **ไม่ต้องตั้งอะไรใน 2C2P dashboard**.
+
+**Omise/Opn ตั้ง webhook endpoint จาก dashboard ไม่ใช่ต่อ charge** ดังนั้นต้องตั้งด้วยมือ **ต่อ connection**:
+
+1. หา connection id: `SELECT Id, MerchantId, Psp FROM txn.PspConnections WHERE Psp = 'omise';`
+   (แถวถูกสร้างตอน provision merchant — ทำขั้นนี้ทุกครั้งที่ provision merchant ใหม่ที่ใช้ Omise).
+2. เข้า Omise dashboard ของ **บัญชี Omise ของบริษัทนั้น** (คนละบัญชีต่อบริษัท — คนละ secret key) ->
+   Settings -> Webhooks -> เพิ่ม endpoint `https://<api-host>/api/v1/webhooks/<Id ที่ได้จากข้อ 1>`.
+3. ยืนยันว่า id ที่ใส่ตรงกับ connection ของบริษัทนั้นจริง: ใส่ id ของบริษัทอื่นจะทำให้ webhook ถูก resolve
+   ไปผิด merchant แล้ว fetch-to-confirm ล้ม (secret ไม่ตรง) -> การจ่ายไม่ถูกยืนยัน.
+4. หลังปิด connection หรือ provision ใหม่ ให้ลบ/แก้ endpoint เดิมใน dashboard ด้วย — ระบบไม่ได้ (และไม่สามารถ)
+   ตั้งค่านี้ให้.
 
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 

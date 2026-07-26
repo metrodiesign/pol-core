@@ -670,3 +670,169 @@ builder ตัวใหม่ (fresh context) สำหรับ task 5 — ใ�
    สองไฟล์ ไม่งั้น compose render check แดง — trap 5).
 4. flip `- [x] 5.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
    commit -> append section 5.
+
+---
+
+## Section 5 — task 5 (from: Claude Opus 5 teammate, 2026-07-26)
+
+### Task Summary
+
+task 5 ของ spec `captive-payment-alignment`: backend-notification URL **ต่อ connection** (แทน config global
+ต่อ deployment), `paymentChannel` ของ 2C2P มาจาก `session.Method` แทน hardcode `["CC"]`, และ config surface
+ของ key ใหม่ `Psp:PublicBaseUrl` ครบทุกที่ (appsettings placeholder + boot guard non-Development + compose +
+`.env.prod.example` + CI 2 ไฟล์) พร้อม runbook ของงาน ops. ปิด REQ-1 (1.6), REQ-4 (4.1-4.6), REQ-6 (6.3, 6.4).
+
+### Current Status
+
+- task 5 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 6-7 ยัง `- [ ]`. ยังไม่มี `FetchChargeAsync`/`PspChargeConfirmation`/webhook amount compare /
+  `ProvisionMerchantHandler` / `seed-demo.sql` / `docs/reference/*` ถูกแก้.
+- **`IPspAdapter.CreateRedirectChargeAsync` signature เปลี่ยนแล้ว** เป็น `(Session, Guid pspConnectionId,
+  string secret, CancellationToken)` — call site ทั้งหมด (2 adapter + base + handler + `FakePspAdapter` +
+  13 positional call ใน adapter tests) แก้ครบและเขียว.
+- **`Psp:PublicBaseUrl` เป็น required ใน non-Development แล้ว** — deploy ที่ยังไม่ตั้งจะไม่ boot (เจตนา,
+  REQ-4.3) และ `docker compose config` จะ fail ถ้าไม่มี `PSP_PUBLIC_BASE_URL` (ยืนยันด้วย negative test).
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Infrastructure/Psp/PspOptions.cs` — edited — `PspOptions.PublicBaseUrl`
+  เข้า, `TwoCTwoPOptions.BackendReturnUrl` **ออก** (`FrontendReturnUrl` + `Omise.ReturnUri` คงเดิม, REQ-4.4).
+- `src/Modules/Payments/Payments.Application/Ports/IPspAdapter.cs` — edited — signature +
+  `Guid pspConnectionId` พร้อม doc ว่าทำไมส่ง id ไม่ใช่ `Connection` ทั้งก้อน.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/PspAdapterBase.cs` — edited — abstract signature ใหม่ +
+  `protected string WebhookUrlFor(Guid)` (section ใหม่ก่อน `---- amount ----`).
+- `src/Modules/Payments/Payments.Infrastructure/Psp/TwoCTwoPAdapter.cs` — edited — `backendReturnUrl =
+  WebhookUrlFor(pspConnectionId)`, `paymentChannel = new[] { PaymentChannelFor(session.Method) }`, +
+  private `PaymentChannelFor` (`card -> "CC"`, อื่น -> `NotSupportedException` ระบุ method).
+- `src/Modules/Payments/Payments.Infrastructure/Psp/OmiseAdapter.cs` — edited — signature เท่านั้น +
+  doc comment ว่า `pspConnectionId` ไม่ถูกใช้โดยเจตนา (Omise ตั้ง webhook ที่ dashboard).
+- `src/Modules/Payments/Payments.Application/StartRedirect/StartRedirectHandler.cs` — edited — **1 call
+  เดียว** ส่ง `connection.Id` (ลำดับขั้นไม่ถูกแตะ ตามข้อจำกัดของ section 3).
+- `src/Hosts/Api/appsettings.json` — edited — `_Psp_note` + `"Psp": { "PublicBaseUrl": "" }` placeholder.
+- `src/Hosts/Api/Program.cs` — edited — `ProvisioningGuards.RequirePublicBaseUrl` (ตัว guard + call site ใน
+  block `if (!builder.Environment.IsDevelopment())`).
+- `docker-compose.prod.yml` — edited — `Psp__PublicBaseUrl: ${PSP_PUBLIC_BASE_URL:?...}` เข้า,
+  `Psp__TwoCTwoP__BackendReturnUrl` ออก.
+- `.env.prod.example` — edited **ผ่าน git blob swap** (`hash-object -w` + `update-index --cacheinfo` +
+  `checkout-index -f`) เพราะ tool ปฏิเสธ path `.env*` (trap 6) — `PSP_PUBLIC_BASE_URL=https://api.example.com`
+  + comment block, ลบ `PSP_TWOCTWOP_BACKEND_RETURN_URL=`.
+- `.github/workflows/ci.yml` — edited — env ของ job `docker-build`: `PSP_PUBLIC_BASE_URL` เข้า, ตัวเก่าออก.
+- `.gitlab-ci.yml` — edited — inline `export` ก่อน `docker compose ... config -q` ชุดเดียวกัน.
+- `docs/runbooks/deploy-self-host.md` — edited — ย่อหน้า PSP config เขียนใหม่เป็น bullet (required/fail-fast,
+  ตัวเก่าเลิกใช้ + วิธี migrate) + section ใหม่ "ตั้ง webhook URL ต่อ connection ที่ฝั่ง PSP" (4 ขั้น: query
+  `txn.PspConnections`, ตั้งใน Omise dashboard ของบัญชีบริษัทนั้น, ยืนยัน id, ดูแลตอน provision/ปิด).
+- `tests/Payments.Tests/Fakes.cs` — edited — `FakePspAdapter` signature ใหม่ + `ChargedConnectionId`.
+- `tests/Payments.Tests/Psp/TwoCTwoPAdapterTests.cs` — edited — 7 positional call + `PublicBaseUrl`/
+  `FrontendReturnUrl`/`ConnectionId` fixture + **6 test ใหม่**.
+- `tests/Payments.Tests/Psp/OmiseAdapterTests.cs` — edited — 6 positional call + `ConnectionId` + **1 test ใหม่**.
+- `tests/Hosts.Tests/ProvisioningGuardsTests.cs` — edited — helper `Psp(...)` + **2 test (9 case)** ของ
+  `RequirePublicBaseUrl` (ไม่ boot host).
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 5 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **guard เช็ค scheme `http`/`https` ไม่ใช่แค่ `UriKind.Absolute`** — พบจาก test แดงจริง ไม่ใช่ทฤษฎี: บน Unix
+   `Uri.TryCreate("/api/v1", UriKind.Absolute, out _)` คืน **true** (parse เป็น `file://`) ดังนั้นเกณฑ์
+   "absolute" ล้วนตามตัวอักษรของ REQ-4.3 ปล่อยค่าที่ PSP callback มาไม่ถึงผ่าน boot ได้. เขียนเหตุผลไว้เป็น
+   comment ข้างเงื่อนไขในโค้ดแล้ว.
+2. **`PaymentChannelFor` normalize เอง (`Trim().ToLowerInvariant()`) แล้ว switch** — สมมาตรกับ idiom ที่
+   `OmiseAdapter.CreateRedirectChargeAsync` ใช้อยู่ (`session.Method.Trim().ToLowerInvariant()`), ไม่เรียก
+   `PaymentMethods.Normalize` เพราะตัวนั้น throw `ArgumentException` = 400 ซึ่งเป็นความหมายของ **client input
+   ผิด**; method ที่หลุดมาถึง adapter คือ **wiring bug ของเราเอง** จึงต้องเป็น `NotSupportedException`
+   (500) ที่ระบุ method ไม่ใช่ 400 โยนใส่ลูกค้า.
+3. **`WebhookUrlFor` อยู่บน base ไม่ใช่บน 2C2P** ตาม design D7 แม้วันนี้มีผู้เรียกเดียว — PSP ตัวถัดไปที่รับ
+   callback URL ต่อ charge จะได้ URL รูปเดียวกันโดยไม่ต้องประกอบ path เอง (path นี้คือ route จริงของ API
+   ห้าม drift). `TrimEnd('/')` อยู่ในนั้นที่เดียว.
+4. **ไม่แตะ `OmiseAdapter` method switch** — REQ-6.3/6.4 เป็นเรื่อง `paymentChannel` ของ 2C2P; switch ของ
+   Omise เป็น backstop ชั้นสอง (REQ-6.2 กันที่ create-session ไปแล้ว) และมี test เดิม pin ไว้
+   (`PromptPay_is_deferred_and_throws_not_supported`).
+5. **คง token `PSP_TWOCTWOP_BACKEND_RETURN_URL` ไว้เฉพาะเป็น "เลิกใช้แล้ว" note** ใน `.env.prod.example` +
+   runbook (ลบออกจาก comment ของ compose แล้ว) — deploy/เครื่อง dev ที่มีอยู่ต้องรู้ว่าให้ลบบรรทัดนั้นแล้วตั้ง
+   `PSP_PUBLIC_BASE_URL`; ไฟล์ `.env` จริงเป็น gitignored blind spot ที่ไม่มี gate ไหนจับ (LESSONS).
+
+### Constraints (เพิ่มจาก section 0/1/2/3/4 — ยังใช้ทุกข้อ)
+
+- **`CreateRedirectChargeAsync` มี 4 พารามิเตอร์แล้ว** — `pspConnectionId` เป็นตัวที่ **2** (ก่อน `secret`).
+  task 6 ที่แก้ `FetchChargeAsync` อย่าเผลอสลับลำดับของตัวนี้; `FakePspAdapter` เป็น fake ตัวเดียวในโค้ดเบส.
+- **ห้ามใส่ `Psp:PublicBaseUrl` แบบมี path ต่อท้าย** (เช่น `https://x/api`) — `WebhookUrlFor` ต่อ
+  `/api/v1/webhooks/...` เองแล้ว. guard เช็คแค่ origin-ness (scheme + absolute) ไม่ได้ห้าม path — ถ้า task
+  ถัดไปอยากบังคับก็เป็น requirement ใหม่ ไม่ใช่ของ REQ-4.3.
+- **`appsettings.json` มี section `Psp` แล้ว** (ก่อนหน้านี้ไม่มีเลย) — ถ้า task ถัดไปเพิ่ม key ใต้ `Psp`
+  ให้เติมใน section เดิม อย่าสร้างซ้ำ; `_Psp_note` เป็น convention ของไฟล์นี้ (ทุก section มี `_X_note`).
+- **compose var ใหม่ทุกตัวต้องมี placeholder ใน CI ทั้ง 2 ไฟล์** — ยืนยันแล้วว่า negative case ทำ render
+  exit 1 จริง (trap 5 ไม่ใช่คำเตือนลอย ๆ).
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+  (baseline ก่อนแก้: เหมือนกันเป๊ะ; ยืนยัน compile จริงด้วย `stat` เทียบ dll/source ตาม trap 15).
+- baseline ก่อนแก้ (ยืนยันเองซ้ำ): `dotnet test pol-core.slnx --filter "Category!=Integration"` ->
+  **1168 passed / 0 failed** ตรงกับ section 4.
+- `dotnet test tests/Payments.Tests --no-build` -> **126 passed / 0 failed** (119 -> +7).
+- `dotnet test tests/Hosts.Tests --no-build` -> **353 passed / 0 failed** (344 -> +9).
+- RED proof (mutate 2 บรรทัดของ `TwoCTwoPAdapter` กลับเป็นพฤติกรรมก่อน task) -> `Failed: 4, Passed: 25`
+  แล้ว restore -> 126 passed. รายชื่อ 4 ตัวที่แดงอยู่ใน Evidence ของ tasks.md.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1184 passed / 0 failed /
+  0 skipped** across 16 projects. **baseline ใหม่ของ task 6+:** Admins 95 · Architecture 223 ·
+  BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts **353** · Iam 62 · Levels 6 ·
+  Merchants 115 · Offices 6 · Orders 68 · Payments **126** · Positions 6 · Products 7 · SharedKernel 46.
+  Integration.Tests = 47 (แยก filter, ไม่ได้รันในงานนี้ — task 5 ไม่แตะ DDL/DB).
+- `docker compose -f docker-compose.prod.yml config -q` (ชุด placeholder ของ GitHub CI) -> exit 0;
+  `docker compose -f docker-compose.prod.yml -f docker-compose.registry.yml config -q` (ชุดของ GitLab
+  + `REGISTRY_IMAGE`/`IMAGE_TAG`) -> exit 0; ถอด `PSP_PUBLIC_BASE_URL` ออก -> exit 1 พร้อมข้อความ
+  `required variable PSP_PUBLIC_BASE_URL is missing a value`.
+- `bash scripts/check-rename-identifiers.sh` -> OK (หลัง `git add`, trap 12);
+  `.ai/bin/check-secrets.sh --all` -> exit 0; `bash scripts/spec-trace.sh captive-payment-alignment` ->
+  OK 42 เกณฑ์.
+- **ไม่ได้รัน:** integration tests (ไม่มีเกณฑ์ของ task 5 แตะ DB/DDL), migration (ไม่มี DDL เปลี่ยน),
+  `docker build` ของ image (CI ทำ; task นี้ไม่แตะ Dockerfile).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-28)
+
+29. **`Uri.TryCreate(value, UriKind.Absolute, out _)` ไม่ใช่ "เป็น URL"** — บน Unix path เปล่า ๆ อย่าง
+    `/api/v1` ผ่านเป็น `file://` (บน Windows `C:\x` ก็เช่นกัน). guard/validation ของ config ที่เป็น "URL ที่
+    ระบบอื่นต้องเรียกกลับมา" ต้องเช็ค `Scheme` ด้วยเสมอ ไม่งั้นเป็น guard ที่ผ่านค่าที่ใช้ไม่ได้. เจอเพราะ
+    เขียน test case `/api/v1` ไว้ในชุด fail แล้วมันเขียว (test จับ guard หลวมได้ก่อน review).
+30. **`dotnet test pol-core.slnx` ทั้ง solution ใช้เวลาเกิน 600s บนเครื่องนี้** (Architecture.Tests เป็นตัวท้าย
+    และช้าสุด) — foreground Bash timeout จะย้ายไป background แล้ว **process ตายกลางทาง**: ได้ output ที่มี
+    banner 15/16 project ครบสวยงามแต่ **ไม่มีบรรทัดสรุป** และไม่มี Architecture.Tests เลย. อ่านเป็น "เขียวหมด"
+    ได้ง่ายมาก (false green คลาสเดียวกับ trap ที่ผ่านมา). วิธีที่ใช้ได้: รัน `run_in_background` ตั้งแต่ต้น
+    เขียน output ลงไฟล์ แล้วนับ `Passed!` banner ให้ครบ **16** ตัว + เช็ค `EXIT=0` ก่อนเชื่อ.
+31. **`tee` ไปยัง path ที่ไม่มีไดเรกทอรีอยู่ ทำให้ pipeline ดู "เงียบ"** — scratchpad ของ session ไม่ใช่
+    โฟลเดอร์เดียวกับที่ background task เขียน output; `mkdir -p` ก่อนเสมอ หรือ redirect ตรง ๆ ไปไฟล์เดียว.
+32. **`git grep -n <pat> -- ':!path'` เป็นวิธีเดียวที่เชื่อได้ในการยืนยัน "ไม่เหลือที่ใด"** — `grep -rn` ธรรมดา
+    ไปเจอ `.env`/`.env.bak.*`/`.env.verify` ที่ gitignored (ค่าเก่ายังอยู่จริงในนั้น แต่ไม่ใช่สิ่งที่ REQ พูดถึง)
+    แล้วทำให้สรุปผิดว่างานยังไม่เสร็จ; ส่วน pathspec exclude ช่วยแยก spec/docs ที่ **ต้อง** พูดถึง token ออกจาก
+    config surface ที่ต้องสะอาด.
+
+### ข้อค้นพบที่ต้องให้ lead ตัดสิน / ใส่ PR body (ไม่ได้แก้ในงานนี้)
+
+- **ไฟล์ `.env*` ที่ gitignored ยังมี `Psp__TwoCTwoP__BackendReturnUrl` ค้าง** — `.env` (บรรทัด 30),
+  `.env.verify` (บรรทัด 7), `.env.bak.1783909750` (บรรทัด 30) บนเครื่องนี้; และไม่มีไฟล์ใดตั้ง
+  `Psp__PublicBaseUrl` เลย. **ไม่กระทบ local dev** (key ที่ binding ไม่รู้จักถูกเมินเงียบ ๆ + guard ไม่ทำงานใน
+  Development) แต่ **ต้องอยู่ใน PR body**: ทุกเครื่อง dev + ทุก deploy ต้องลบ key เก่าและตั้ง
+  `PSP_PUBLIC_BASE_URL` เอง ไม่มี gate ไหนจับให้ (LESSONS: gitignored = จุดบอดถาวรของ CI).
+- **`Session.MarkFailed` ยังทิ้ง `reason`** (ยกมาจาก section 3/4 — ยังเปิดอยู่, ไม่มี REQ รองรับ, task 5
+  ไม่มี migration ให้พ่วง) -> ตัดสินที่ task 7 ว่าจะบันทึกเป็น gap หรือแยกสเปก.
+- **`FakePspAdapter.ChargedConnectionId` ยังไม่มีผู้ใช้** — เพิ่มไว้ให้ task 6; ถ้า reviewer ไม่ชอบ dead
+  member ลบได้ 3 บรรทัดโดยไม่มี test ใดพัง.
+
+### Next Recommended Agent
+
+builder ตัวใหม่ (fresh context) สำหรับ task 6 — `PspChargeConfirmation` + `FetchChargeAsync` ทั้ง 2 adapter +
+การเทียบยอดใน `HandlePspWebhookHandler`. ข้อเท็จจริงที่ lead ตรวจไว้ให้แล้ว (ชื่อ field/หน่วยของแต่ละ PSP,
+fixture ที่ต้องเพิ่ม amount, case ที่ field หาย -> `Amount = null`) อยู่ใน **section 1b ท้ายสุด** — อ่านก่อน
+ลงมือ. `FakePspAdapter.FetchChargeAsync` ปัจจุบัน throw `NotSupportedException` ต้องเพิ่ม hook แบบเดียวกับ
+`OnCreateCharge`.
+
+### Next Steps
+
+1. อ่าน `.ai/shared/*` 5 ไฟล์ -> spec 3 ไฟล์ -> HANDOFF ทั้งไฟล์ (รวม section 5 นี้).
+2. baseline: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` ต้องได้ **1184 passed / 0 failed** (Payments 126, Hosts 353) — ถ้าไม่ตรง หยุด
+   แล้วรายงาน. รัน full suite แบบ background เขียนลงไฟล์ + นับ banner ให้ครบ 16 project (trap 30).
+3. implement task 6 ตาม design D8 (`Ignored` เมื่อยอดไม่ตรง, `Amount == null` -> status-only ห้าม
+   fail-closed, ห้ามแตะ idempotency key / ลำดับ transaction / สัญญา `PaymentPaid`).
+4. flip `- [x] 6.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
+   commit -> append section 6.

@@ -37,7 +37,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         : Options.TwoCTwoP.ProductionBaseUrl;
 
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         var invoiceNo = session.Id.ToString("N");
@@ -49,9 +49,9 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             description = $"Order {session.OrderId:N}",
             amount = decimal.Parse(FormatMajorUnitAmount(session.Amount), System.Globalization.CultureInfo.InvariantCulture),
             currencyCode = session.Amount.Currency,
-            paymentChannel = new[] { "CC" },
+            paymentChannel = new[] { PaymentChannelFor(session.Method) },
             frontendReturnUrl = Options.TwoCTwoP.FrontendReturnUrl,
-            backendReturnUrl = Options.TwoCTwoP.BackendReturnUrl,
+            backendReturnUrl = WebhookUrlFor(pspConnectionId),
             idempotencyID = invoiceNo,
         });
 
@@ -121,6 +121,18 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         return MapRespCode(GetString(resp, "respCode"));
     }
+
+    /// <summary>Maps a canonical payment method to the 2C2P paymentChannel code it must be charged through.
+    /// Card only today — the same truth <see cref="SupportedMethods"/> declares, so create-session has
+    /// already refused everything else (REQ-6.2). A method that still reaches here is a wiring bug and must
+    /// fail naming itself, never be substituted with the card channel: sending a customer who picked
+    /// PromptPay to a card page is the silent mis-routing REQ-6.3/6.4 exist to stop.</summary>
+    private static string PaymentChannelFor(string method) => method.Trim().ToLowerInvariant() switch
+    {
+        PaymentMethods.Card => "CC",
+        _ => throw new NotSupportedException(
+            $"2c2p adapter cannot honour payment method '{method}' — it declares card only."),
+    };
 
     /// <summary>Maps a 2C2P respCode to the normalized status: "0000"=Paid, in-progress codes=Pending,
     /// everything else (declines/cancels/failures)=Failed.</summary>

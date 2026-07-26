@@ -25,8 +25,13 @@ public interface IPspAdapter
     /// <summary>
     /// Creates a hosted charge for the session and returns its external id + hosted redirect URL.
     /// <paramref name="secret"/> is revealed from the vault by the caller, used here, never logged.
+    /// <paramref name="pspConnectionId"/> is the connection actually being charged through: it is what the
+    /// backend-notification URL a PSP calls back on must carry (<c>/api/v1/webhooks/{pspConnectionId}</c>),
+    /// so a confirmation reaches the handler and stays isolated to that company. Only the id is passed —
+    /// an adapter has no business seeing the connection's secret ref or enabled methods.
     /// </summary>
-    Task<PspCharge> CreateRedirectChargeAsync(Session session, string secret, CancellationToken cancellationToken);
+    Task<PspCharge> CreateRedirectChargeAsync(
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
 
     /// <summary>Verifies a webhook signature against the raw payload using the connection's secret.</summary>
     bool VerifyWebhook(string rawPayload, string signature, string secret);

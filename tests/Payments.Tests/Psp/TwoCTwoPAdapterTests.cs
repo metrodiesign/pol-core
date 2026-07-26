@@ -13,23 +13,37 @@ namespace Payments.Tests.Psp;
 /// Unit tests for the real 2C2P adapter against a stub HTTP transport (no network, no real keys).
 /// Covers: the hosted redirect happy path + the STABLE invoiceNo correlation key, major-unit amount
 /// formatting, JWT webhook verify (incl. alg-pinning + merchant binding), status mapping, and that the
-/// non-idempotent charge-create POST is single-shot while the fetch GET retries.
+/// non-idempotent charge-create POST is single-shot while the fetch GET retries. Plus the two claims the
+/// captive model turns on: backendReturnUrl derived PER CONNECTION (REQ-4.1) and paymentChannel derived
+/// from the session's method with no card substitution (REQ-6.3/6.4).
 /// </summary>
 public sealed class TwoCTwoPAdapterTests
 {
     private const string Key = "0123456789abcdef0123456789abcdef";
     private const string Secret = $$"""{"merchantId":"M123","secretKey":"{{Key}}"}""";
+    private const string PublicBaseUrl = "https://api.pol.test";
+    private const string FrontendReturnUrl = "https://console.pol.test/checkout/return";
+
+    /// <summary>The connection being charged through — the value the backend-notification URL must carry.</summary>
+    private static readonly Guid ConnectionId = Guid.Parse("7c9e6679-7425-40de-944b-e07fc1f90ae7");
 
     private static (TwoCTwoPAdapter Adapter, StubHttpMessageHandler Handler) Build(
-        Func<HttpRequestMessage, string, HttpResponseMessage> responder, bool useSandbox = true)
+        Func<HttpRequestMessage, string, HttpResponseMessage> responder,
+        bool useSandbox = true,
+        string publicBaseUrl = PublicBaseUrl)
     {
         var handler = new StubHttpMessageHandler(responder);
-        var options = Options.Create(new PspOptions { UseSandbox = useSandbox });
+        var options = Options.Create(new PspOptions
+        {
+            UseSandbox = useSandbox,
+            PublicBaseUrl = publicBaseUrl,
+            TwoCTwoP = { FrontendReturnUrl = FrontendReturnUrl },
+        });
         return (new TwoCTwoPAdapter(new FakeHttpClientFactory(handler), options), handler);
     }
 
-    private static Session MakeSession(decimal amount = 250.09m, string currency = "THB") =>
-        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), "card", Code.TwoCTwoP, DateTime.UtcNow);
+    private static Session MakeSession(decimal amount = 250.09m, string currency = "THB", string method = "card") =>
+        Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.TwoCTwoP, DateTime.UtcNow);
 
     private static HttpResponseMessage PaymentTokenOk(string webPaymentUrl) =>
         StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
@@ -51,7 +65,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession();
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        var charge = await adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None);
+        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
 
         // The durable correlation key is invoiceNo (= session.Id 'N'), NOT the per-attempt paymentToken.
         Assert.Equal(session.Id.ToString("N"), charge.ExternalChargeId);
@@ -68,7 +82,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession((decimal)amount, currency);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(expectedAmount, claims.GetProperty("amount").GetDecimal().ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -76,6 +90,97 @@ public sealed class TwoCTwoPAdapterTests
         Assert.Equal(session.Id.ToString("N"), claims.GetProperty("invoiceNo").GetString());
         // The idempotencyID rides with the invoiceNo so a PSP-side retry returns the first charge.
         Assert.Equal(session.Id.ToString("N"), claims.GetProperty("idempotencyID").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_charges_the_amount_the_session_carries()
+    {
+        // REQ-1.6: the amount the adapter puts on the wire is the session's own, which create-session reads
+        // from the order row and nowhere else — so the amount the PSP collects traces back to an order.
+        var session = MakeSession(1234.50m, "THB");
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+
+        var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
+        Assert.Equal(session.Amount.Amount, claims.GetProperty("amount").GetDecimal());
+        Assert.Equal(session.Amount.Currency, claims.GetProperty("currencyCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_points_the_backend_notification_at_the_connection_being_charged()
+    {
+        // REQ-4.1: backendReturnUrl is DERIVED per connection, so every company's webhook reaches the route
+        // (/api/v1/webhooks/{pspConnectionId}) instead of only whichever connection a global URL named.
+        // frontendReturnUrl stays the configured platform-wide value (REQ-4.4) — one shared Tenant Console.
+        var session = MakeSession();
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+
+        var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
+        Assert.Equal(
+            $"{PublicBaseUrl}/api/v1/webhooks/{ConnectionId:D}",
+            claims.GetProperty("backendReturnUrl").GetString());
+        Assert.Equal(FrontendReturnUrl, claims.GetProperty("frontendReturnUrl").GetString());
+
+        // A second connection must get a DIFFERENT callback URL — a constant would pass the assertion above.
+        var other = Guid.Parse("2f1c8d34-5b6a-4e7f-8a90-b1c2d3e4f506");
+        await adapter.CreateRedirectChargeAsync(MakeSession(), other, Secret, CancellationToken.None);
+        var secondClaims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[1].Body));
+        Assert.Equal(
+            $"{PublicBaseUrl}/api/v1/webhooks/{other:D}",
+            secondClaims.GetProperty("backendReturnUrl").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_does_not_double_the_slash_of_a_public_base_url()
+    {
+        // An operator-supplied origin with a trailing slash must not produce "...test//api/v1/webhooks/...":
+        // 2C2P would call back a path our route never matches, which is the same silent miss as no URL at all.
+        var session = MakeSession();
+        var (adapter, handler) = Build(
+            (_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"), publicBaseUrl: PublicBaseUrl + "/");
+
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+
+        var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
+        Assert.Equal(
+            $"{PublicBaseUrl}/api/v1/webhooks/{ConnectionId:D}",
+            claims.GetProperty("backendReturnUrl").GetString());
+    }
+
+    [Fact]
+    public async Task CreateRedirectCharge_derives_the_payment_channel_from_the_session_method()
+    {
+        // REQ-6.3: the channel comes from Session.Method through an explicit mapping, not the hardcoded
+        // ["CC"] this adapter used to send regardless of what the customer picked.
+        var session = MakeSession(method: PaymentMethods.Card);
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
+
+        var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
+        Assert.Equal(
+            new[] { "CC" },
+            claims.GetProperty("paymentChannel").EnumerateArray().Select(c => c.GetString()).ToArray());
+    }
+
+    [Theory]
+    [InlineData(PaymentMethods.PromptPay)]
+    [InlineData(PaymentMethods.Installment)]
+    public async Task CreateRedirectCharge_refuses_a_method_it_cannot_honour_rather_than_substituting_a_card_channel(string method)
+    {
+        // REQ-6.4: a method outside SupportedMethods must never reach the PSP at all. Before this, such a
+        // session was charged as a card — the customer picked PromptPay and landed on a card page.
+        var session = MakeSession(method: method);
+        var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        var refusal = await Assert.ThrowsAsync<NotSupportedException>(
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+
+        Assert.Contains(method, refusal.Message, StringComparison.Ordinal); // names the method, not a generic 500
+        Assert.Equal(0, handler.CallCount);
     }
 
     [Fact]
@@ -87,7 +192,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -99,7 +204,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -112,7 +217,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, _) = Build((_, _) => declined);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
     }
 
     [Fact]
@@ -198,7 +303,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, handler) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Equal(1, handler.CallCount); // single-shot: a retry could double-charge
     }
@@ -242,7 +347,7 @@ public sealed class TwoCTwoPAdapterTests
         var (adapter, _) = Build((_, _) => forged);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => adapter.CreateRedirectChargeAsync(session, Secret, CancellationToken.None));
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
     }
 
     [Fact]

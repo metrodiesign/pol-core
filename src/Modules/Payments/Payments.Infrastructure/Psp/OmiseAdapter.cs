@@ -39,8 +39,11 @@ public sealed class OmiseAdapter : PspAdapterBase
     public override IReadOnlySet<string> SupportedMethods { get; } =
         new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
 
+    /// <summary><paramref name="pspConnectionId"/> is unused here by design: Omise takes its webhook
+    /// endpoint from the dashboard, not from the charge request, so the per-connection callback URL is an ops
+    /// step in the deploy runbook rather than a request field (REQ-4.5).</summary>
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         GuardKeyEnvironment(creds.SecretKey);

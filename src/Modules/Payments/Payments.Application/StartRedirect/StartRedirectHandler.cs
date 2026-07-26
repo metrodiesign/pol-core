@@ -94,7 +94,9 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         PspCharge charge;
         try
         {
-            charge = await adapter.CreateRedirectChargeAsync(session, secret, cancellationToken).ConfigureAwait(false);
+            charge = await adapter
+                .CreateRedirectChargeAsync(session, connection.Id, secret, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception failure)
         {
