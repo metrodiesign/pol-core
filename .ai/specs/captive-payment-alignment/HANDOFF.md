@@ -381,3 +381,133 @@ task 2 พร้อม + `FakeSessionRepository` มีอยู่แล้ว 
    ครอบ `CreateRedirectChargeAsync` ด้วย try/catch ที่ `MarkFailed` + save + **rethrow**; reason ห้ามมี secret).
 4. flip `- [x] 3.` + `Evidence:` (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) -> commit ->
    append section 3.
+
+---
+
+## Section 3 — task 3 (from: Claude Opus 5 teammate, 2026-07-26)
+
+### Task Summary
+
+task 3 ของ spec `captive-payment-alignment`: liveness ของ `StartRedirectHandler` ตาม design D6 — ย้าย
+resolve connection + `EnsureEligible` ขึ้น**ก่อน** claim, และ `MarkFailed` + save + **rethrow** เมื่อ charge
+ที่ PSP ล้ม. ปิด REQ-3 (3.5), REQ-7 (7.1, 7.2, 7.3, 7.4). ไฟล์ production ที่แตะมีไฟล์เดียว
+(`StartRedirectHandler.cs`) — ที่เหลือเป็น test + fakes.
+
+### Current Status
+
+- task 3 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 4-7 ยัง `- [ ]`. ยังไม่มี index/migration / `PspOptions` / `paymentChannel` / `FetchChargeAsync` /
+  provisioning / docs ถูกแก้.
+- `Session.MarkFailed` **มี production caller แล้ว 1 จุด** (`StartRedirectHandler` ขั้น 7);
+  `Session.MarkExpired` **ยังไม่มี** (Non-Goal 4 — sweeper เป็นสเปกแยก) ถ้า audit เจอว่าเรียกจาก test
+  เท่านั้น นั่นถูกต้องตามเจตนา.
+- `Connection.EnsureEligible` มี production call site **2 จุด** ตามที่ REQ-3.6 ต้องการครบแล้ว
+  (`CreateSessionHandler` + `StartRedirectHandler`).
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Application/StartRedirect/StartRedirectHandler.cs` — edited — ย้าย block
+  resolve connection + `EnsureEligible` ขึ้นก่อน `BeginRedirect()`; ครอบ `CreateRedirectChargeAsync` ด้วย
+  try/catch ที่ `MarkFailed` -> `PersistFailureAsync()` -> `throw`; เพิ่ม private helper
+  `PersistFailureAsync()`; เติมย่อหน้าใน class XML doc ว่าลำดับขั้นเป็น contract. **ไม่แตะ** ลำดับ
+  idempotent re-entry / status guard / claim / concurrency-loser และไม่แตะ signature ใด ๆ.
+- `tests/Payments.Tests/Fakes.cs` — edited — 3 อย่าง: `FakePspAdapter.OnCreateCharge`
+  (`Func<Session, PspCharge>?`, null = throw `NotSupportedException` เหมือนเดิม), `FakeUnitOfWork.SaveFails`
+  (`Func<int, Exception?>?` รับเลข save 1-based), และ class ใหม่ `FakeVaultSecretStore` ที่นับ `Reveals`
+  (member อื่นทั้งหมด throw). **เพิ่มสมาชิกล้วน ไม่แก้พฤติกรรมเดิม** — `CreateSessionHandlerTests` 16 ตัวเดิม
+  ยังเขียวโดยไม่ต้องแก้แม้บรรทัดเดียว.
+- `tests/Payments.Tests/StartRedirectHandlerTests.cs` — created — 13 tests.
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 3 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **save ของ `MarkFailed` อยู่ใน helper `PersistFailureAsync()` ที่ใช้ `CancellationToken.None` และกลืน
+   exception ของตัวเอง.** เหตุผลสองชั้น: (ก) ต้นเหตุเดิม (PSP ปฏิเสธ) ต้องเป็นคำตอบที่ caller เห็น ไม่ใช่
+   "DB พัง" — ถ้าปล่อย exception ของ save ทะลุ status code จะเปลี่ยนและสาเหตุจริงหาย; (ข)
+   `CancellationToken.None` เพราะเคสที่ REQ-7.2 สำคัญที่สุดคือ caller ที่ยกเลิกกลางทาง (ลูกค้าปิดแท็บ) —
+   charge throw `TaskCanceledException` แล้ว save ใต้ token เดิมที่ cancel แล้วจะล้มทันที -> ได้ session ค้าง
+   `Redirected`+`RedirectUrl == null` ตรงกับสิ่งที่ห้ามเป๊ะ. **ผลข้างเคียงที่ยอมรับ:** ถ้า store ปฏิเสธ write
+   จริง ๆ session จะยังค้าง `Redirected` (นั่นคือ DB-availability incident ไม่ใช่การตัดสินใจของ handler).
+2. **catch `Exception` กว้าง ๆ (ไม่ filter ชนิด) รอบ `CreateRedirectChargeAsync`** — ทุกความล้มเหลวของการสร้าง
+   charge คือ "attempt นี้จบแล้ว" รวมถึง cancellation. เหตุผลที่ไม่กลัว double-charge: adapter คืน **hosted
+   redirect URL** และเราคืน URL ให้ลูกค้าเฉพาะตอนสำเร็จ -> charge ที่กำพร้าที่ PSP ไม่มีใครเปิดจ่ายได้.
+3. **ไม่แตะ endpoint / `ProducesProblem`** — status code ที่เป็นไปได้ของ `POST .../redirect` ไม่เปลี่ยน
+   (404/409 เดิม) แค่ย้ายจุดที่ 409 เกิดให้มาก่อน claim.
+4. **ไม่เพิ่ม test ที่ assert ตัวสตริง `reason`** — เป็นไปไม่ได้: `Session.MarkFailed` **ไม่เก็บ `reason`**
+   ไว้ที่ใดเลย (validate ว่าไม่ว่างแล้วทิ้ง). ดู "ข้อค้นพบ" ข้างล่าง.
+
+### Constraints (เพิ่มจาก section 0/1/2 — ยังใช้ทุกข้อ)
+
+- **`connection` ถูก resolve ก่อน claim แล้ว** และตัวแปรมีชีวิตยาวถึงจุดเรียก charge -> **task 5 ส่ง
+  `connection.Id` เข้า `CreateRedirectChargeAsync` ได้ทันทีโดยไม่ต้อง query ซ้ำ** (design D7 อ้าง
+  `StartRedirectHandler.cs:83` ซึ่งเป็นเลขบรรทัดเก่า — บรรทัดขยับแล้ว ให้หาที่
+  `adapter.CreateRedirectChargeAsync` ใน try block).
+- **ลำดับ 8 ขั้นใน `StartRedirectHandler` ห้ามสลับ** — มี test pin 3 ชั้น: re-entry ตอบ**ก่อน** eligibility
+  recheck (URL เดิมของลูกค้าที่อยู่หน้า PSP ต้องไม่ถูกเพิกถอนเพราะ admin ปิด connection ทีหลัง), eligibility
+  ปฏิเสธ**ก่อน** claim + ก่อน vault, charge ล้ม -> `Failed` ก่อน rethrow.
+- **`FakePspAdapter` ที่ไม่ตั้ง `OnCreateCharge` จะ throw `NotSupportedException`** — test เส้นทางปฏิเสธต้อง
+  `Assert.ThrowsAsync<InvalidOperationException>` (ระบุชนิด) ไม่ใช่ `ThrowsAnyAsync<Exception>` ไม่งั้นการที่
+  handler หลุดไปเรียก charge จะ "ผ่าน" เงียบ ๆ.
+- **task 5 ที่เปลี่ยน signature `CreateRedirectChargeAsync` และ task 6 ที่เปลี่ยน return type
+  `FetchChargeAsync` ต้องแก้ `FakePspAdapter` ด้วย** (เป็น fake ตัวเดียวในโค้ดเบส) — `OnCreateCharge` เป็น
+  `Func<Session, PspCharge>` ไม่ผูกกับ argument ใหม่ จึงไม่ต้องแก้ signature ของ hook.
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+  (baseline ก่อนแก้: เหมือนกันเป๊ะ).
+- baseline ก่อนแก้ (ยืนยันเองซ้ำ): `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0,
+  **1152 passed / 0 failed** ตรงกับ section 2.
+- `dotnet test tests/Payments.Tests` -> **119 passed / 0 failed** (106 -> +13).
+- **RED proof**: `git stash push -- src/.../StartRedirectHandler.cs` แล้วรันเฉพาะคลาสใหม่ ->
+  `Failed: 6, Passed: 7, Total: 13` (6 ที่แดง = ทุกเกณฑ์ใหม่ของ task นี้; 7 ที่เขียว = พฤติกรรมเดิมที่ห้ามถอย)
+  -> `git stash pop` -> build -> 119 passed.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1165 passed / 0 failed** across
+  16 projects. **baseline ใหม่ของ task 4+:** Admins 95 · Architecture 220 · BuildingBlocks 43 · Carts 15 ·
+  Checkouts 7 · Divisions 6 · Hosts 344 · Iam 62 · Levels 6 · Merchants 115 · Offices 6 · Orders 68 ·
+  Payments **119** · Positions 6 · Products 7 · SharedKernel 46 = **1165**.
+- `bash scripts/check-rename-identifiers.sh` -> OK (รันหลัง `git add` ตาม trap 12).
+- `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 42 เกณฑ์ (รันซ้ำหลังแก้ tasks.md).
+- **ไม่ได้รัน:** integration tests (task 3 ไม่แตะ DDL/DB — index เป็นของ task 4), `docker compose config`
+  (ไม่แตะ compose), migration (ไม่มี DDL เปลี่ยน).
+
+### ข้อค้นพบที่ต้องให้ lead ตัดสิน (ไม่ได้แก้ในงานนี้)
+
+- **`Session.MarkFailed(reason, ...)` ทิ้ง `reason` ทั้งดุ้น** (`Session.cs:157-167`): validate ว่าไม่ว่าง
+  แล้วไม่เก็บลง field/column ใดเลย. ผลดี = ข้อห้าม "reason ห้ามมี secret" ปลอดภัยโดยโครงสร้าง; ผลเสีย = ไม่มี
+  ใครอ่านได้ว่าทำไม session ล้ม (ops ต้องเดาจาก log ของ HTTP layer) และ **ไม่มีทาง unit-test ค่า reason ได้เลย**.
+  การเก็บจริงต้องเพิ่ม column + migration -> อยู่นอก scope task 3 และไม่มี REQ รองรับ. เสนอ: ตัดสินตอน task 4
+  (ที่มี migration อยู่แล้ว) หรือปล่อยเป็น gap ที่บันทึกใน task 7.
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-18)
+
+19. **test ที่พิสูจน์ "ลำดับ" เป็น false green ได้ง่ายที่สุดในสเปกนี้** — assertion ว่า "throw" อย่างเดียวผ่านทั้ง
+    บนโค้ดเก่าและใหม่ (โค้ดเก่าก็ throw เหมือนกัน แค่ throw **หลัง** claim). สิ่งที่แยกสองโลกออกจากกันคือ
+    **side effect**: `session.Status`, `RedirectUrl`, `vault.Reveals`, `SaveCount`. วิธียืนยันว่า test กัดจริง
+    ที่ถูกและถูกที่สุด: `git stash push -- <ไฟล์ production ไฟล์เดียว>` -> รันเฉพาะคลาสใหม่ -> ต้องเห็นแดง ->
+    `git stash pop` -> build -> รันซ้ำ. (ทำแล้วได้ 6 แดง/7 เขียว ซึ่งยังบอกอีกว่า 7 ตัวนั้นเป็น regression net
+    ของพฤติกรรมเดิมจริง ๆ ไม่ใช่ test ที่เขียนตามโค้ดใหม่.)
+20. **`git stash push -- <path>` ปลอดภัยกับ staged file ในงานนี้ แต่ pop ต้องตามด้วย `dotnet build`** — dll ที่
+    ค้างอยู่คือของโค้ดเก่า (RED run เพิ่ง build ไป) และ `--no-build` หลัง pop จะรัน binary เก่าเงียบ ๆ = false
+    green คลาสเดียวกับ trap 15.
+21. **`catch (Exception)` เปล่า ๆ ไม่เป็น warning ใต้ `-warnaserror`** — repo ไม่ได้เปิด CA analyzer
+    (`Directory.Build.props` มีแค่ `TreatWarningsAsErrors`), CA1031 เลย silent. ถ้าจะกลืน exception โดยตั้งใจ
+    ต้องเขียนเหตุผลใน comment เอง ไม่มี gate ไหนบังคับให้.
+
+### Next Recommended Agent
+
+builder ตัวใหม่ (fresh context) สำหรับ task 4 — DDL/migration + offline model assertion + integration test.
+ต้องมี Docker + SQL Server `:11433` พร้อมใช้ (task 1-3 ไม่ต้องพึ่งเลย task 4 พึ่งเต็มตัว) และต้องอ่าน trap 3
+(migration timestamp), 4 (`.env.integration` ใน Bash call เดียวกัน), 9 (สอง `SessionConfiguration`), 16
+(SQLite insert session ไม่ได้ -> offline proof ได้แค่ระดับ model metadata).
+
+### Next Steps
+
+1. อ่าน `.ai/shared/*` 5 ไฟล์ -> spec 3 ไฟล์ -> HANDOFF ทั้งไฟล์ (รวม section 3 นี้).
+2. baseline: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` ต้องได้ **1165 passed / 0 failed** (Payments 119) — ถ้าไม่ตรง หยุดแล้วรายงาน.
+3. implement task 4 ตาม design D5 (named filtered unique index ทั้งสองไฟล์ + migration timestamp >
+   `20260723160500` + apply กับ `:11433` จริง + `sys.indexes` output ลง Evidence).
+4. flip `- [x] 4.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
+   commit -> append section 4.

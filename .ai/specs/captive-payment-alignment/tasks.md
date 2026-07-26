@@ -129,7 +129,7 @@
          `PspCodeJsonConverter` ของ host เอง (`"psp": "2c2p"`) ไม่ใช่ `JsonSerializerDefaults.Web` เปล่า ๆ
          เพื่อให้ตรงกับ request จริง.
 
-- [ ] 3. **Redirect: ปฏิเสธก่อน claim + `MarkFailed` เมื่อ charge ล้ม (liveness)** — เรียง
+- [x] 3. **Redirect: ปฏิเสธก่อน claim + `MarkFailed` เมื่อ charge ล้ม (liveness)** — เรียง
      `StartRedirectHandler` ใหม่ตาม design D6: ย้าย resolve connection (`InvalidOperationException` 409
      ถ้าไม่มี) + `connection.EnsureEligible(session.Method)` ขึ้นมา **ก่อน** `BeginRedirect()` (แก้บั๊กที่มี
      อยู่แล้ว: วันนี้ throw หลัง claim -> session ค้าง `Redirected` + `RedirectUrl == null` -> 409 ถาวร);
@@ -143,6 +143,50 @@
      exception ทะลุออก; fail-then-retry: หลัง `Failed` เรียก `CreateSessionHandler` ของ order เดิมได้ id
      ใหม่ (พิสูจน์ทั้งเส้น ไม่ใช่ประกอบ session `Failed` ในหน่วยความจำ) + `dotnet build pol-core.slnx
      -warnaserror`.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+         (baseline ก่อนแก้: เหมือนกันเป๊ะ).
+       - test: `dotnet test tests/Payments.Tests` -> 119 passed / 0 failed / 0 skipped (baseline 106 -> +13
+         `StartRedirectHandlerTests`: unknown session 404; idempotent re-entry คืน URL เดิม; re-entry ตอบก่อน
+         eligibility recheck (connection ถูกปิดทีหลัง URL เดิมยังใช้ได้); `Failed` เริ่ม redirect ใหม่ไม่ได้;
+         ไม่มี connection / connection ปิด / method ที่ connection เลิกเปิด -> throw โดย status ยัง `Created`,
+         `RedirectUrl` null, vault `Reveals == 0`, `SaveCount == 0`; concurrency loser คืน URL ผู้ชนะ; loser ที่
+         ยังไม่มี URL -> retry-shortly; happy path bind charge ครั้งเดียว (`SaveCount == 2`, vault 1 ครั้ง);
+         charge ล้ม -> `Failed` + `SaveCount == 2` + `Assert.Same` ว่า exception เดิมทะลุออก; save ของ
+         `MarkFailed` ล้มเอง -> exception เดิมยังชนะ; fail-then-retry ทั้งเส้น create -> redirect ล้ม -> create
+         ได้ id ใหม่).
+       - test: **RED proof ว่า test ชุดใหม่กัดจริง** — `git stash push -- <StartRedirectHandler.cs>` แล้ว
+         `dotnet test tests/Payments.Tests --filter "FullyQualifiedName~StartRedirectHandlerTests"` ->
+         `Failed! - Failed: 6, Passed: 7, Total: 13`. 6 ที่แดงบนโค้ดเก่า =
+         `A_missing_connection_is_refused_before_anything_is_claimed`,
+         `A_connection_disabled_between_create_and_redirect_is_refused_before_anything_is_claimed`,
+         `A_method_the_connection_stopped_enabling_is_refused_before_anything_is_claimed`,
+         `A_charge_the_psp_refuses_fails_the_session_and_rethrows`,
+         `Failing_to_record_the_failure_does_not_hide_the_psp_refusal`,
+         `A_failed_charge_lets_the_same_order_open_a_fresh_session`. 7 ที่เขียวทั้งสองฝั่ง = พฤติกรรมเดิมที่
+         task นี้ห้ามทำถอย (404, re-entry x2, terminal status, concurrency loser x2, happy path).
+         `git stash pop` แล้ว build + รันซ้ำ -> 119 passed.
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1165 passed / 0 failed**
+         across 16 test projects (baseline 1152). ทุก project เท่าเดิมยกเว้น Payments 106->119: Admins 95 ·
+         Architecture 220 · BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts 344 · Iam 62 ·
+         Levels 6 · Merchants 115 · Offices 6 · Orders 68 · Payments 119 · Positions 6 · Products 7 ·
+         SharedKernel 46.
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a live-code
+         token in src/ or tests/` (รันหลัง `git add` ตาม trap 12).
+       - test: `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 42 ข้อ ถูกอ้างครบใน
+         design.md และ tasks.md, EARS lint ผ่านทุกข้อ`.
+       - viewports: n/a — Application handler ล้วน ไม่มี browser surface (endpoint/wire contract ไม่ถูกแตะ).
+       - deviations: (1) save ของ `MarkFailed` ใช้ `CancellationToken.None` และ **กลืน** exception ของตัวเอง
+         (helper `PersistFailureAsync`) — ต้นเหตุเดิม (PSP) ชนะเสมอตามที่ brief สั่ง; เหตุผลที่ไม่ใช้ token ของ
+         request: caller ที่ยกเลิกกลางทางคือเคสที่ REQ-7.2 สำคัญที่สุด แต่ save ใต้ token ที่ถูก cancel แล้วจะ
+         ล้มทันที -> session ค้าง `Redirected`+null พอดี. repo ไม่มี `CancellationToken.None` ที่อื่นใน `src/`
+         (ตรวจแล้ว) จึงเป็น idiom ใหม่ 1 จุด. (2) **`Session.MarkFailed` ทิ้ง `reason` ทั้งดุ้น** — ไม่มี column/
+         field เก็บ (ดู `Session.cs:157-167`) มันเป็นแค่ argument ที่ถูก validate ว่าไม่ว่าง; ผลคือข้อห้าม
+         "reason ห้ามมี secret" ปลอดภัยโดยโครงสร้าง (ไม่มีที่ให้รั่ว) แต่ก็ **ไม่มี test ที่ assert ค่า reason ได้**
+         และ ops อ่านสาเหตุที่ล้มจากที่ไหนไม่ได้เลย — surface ไว้ให้ lead, ไม่แก้ในงานนี้ (ต้องมี column +
+         migration = นอก scope task 3). (3) เพิ่ม hook 2 ตัวบน fakes ของ task 2 แทนสร้างไฟล์ใหม่ (ตามที่
+         section 2 สั่ง): `FakePspAdapter.OnCreateCharge` และ `FakeUnitOfWork.SaveFails(saveNumber)`; บวก
+         `FakeVaultSecretStore` ที่นับ `Reveals` (ยังไม่มีที่ใดใน `tests/` fake `IVaultSecretStore` เลย).
 
 - [ ] 4. **DB floor: หนึ่ง open session ต่อ order** — เพิ่ม named filtered unique index
      `builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open").IsUnique()

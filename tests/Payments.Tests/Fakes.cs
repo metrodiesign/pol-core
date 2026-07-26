@@ -47,8 +47,9 @@ internal sealed class FakeConnectionRepository : IConnectionRepository
         Task.FromResult<IReadOnlyList<Connection>>(_connections.Where(c => c.MerchantId == merchantId).ToList());
 }
 
-/// <summary>Declares a capability set without speaking to a PSP. Every charge/webhook member throws: a
-/// handler test that reaches one has escaped the guards it was written to prove.</summary>
+/// <summary>Declares a capability set without speaking to a PSP. Every charge/webhook member throws unless a
+/// test opts in through <see cref="OnCreateCharge"/>: a handler test that reaches one it did not arrange has
+/// escaped the guards it was written to prove.</summary>
 internal sealed class FakePspAdapter : IPspAdapter
 {
     public FakePspAdapter(Code psp, params string[] supportedMethods)
@@ -61,8 +62,13 @@ internal sealed class FakePspAdapter : IPspAdapter
 
     public IReadOnlySet<string> SupportedMethods { get; }
 
+    /// <summary>Drives the charge call: return a hosted charge, or throw to stand in for the PSP refusing.</summary>
+    public Func<Session, PspCharge>? OnCreateCharge { get; init; }
+
     public Task<PspCharge> CreateRedirectChargeAsync(Session session, string secret, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("This fake never charges.");
+        OnCreateCharge is null
+            ? throw new NotSupportedException("This fake never charges.")
+            : Task.FromResult(OnCreateCharge(session));
 
     public bool VerifyWebhook(string rawPayload, string signature, string secret) =>
         throw new NotSupportedException("This fake never verifies webhooks.");
@@ -114,13 +120,49 @@ internal sealed class FakeSessionRepository : ISessionRepository
             s.OrderId == orderId && s.Status is SessionStatus.Created or SessionStatus.Redirected));
 }
 
+/// <summary>Reveals a fixed plaintext and COUNTS the reveals: a request the guards should have refused must
+/// not have touched the vault at all. Every other member throws — nothing on a handler path calls them.</summary>
+internal sealed class FakeVaultSecretStore : IVaultSecretStore
+{
+    private readonly string _secret;
+
+    public FakeVaultSecretStore(string secret = "psp-test-secret") => _secret = secret;
+
+    public int Reveals { get; private set; }
+
+    public Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
+    {
+        Reveals++;
+        return Task.FromResult(_secret);
+    }
+
+    public Task StoreAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This fake never writes.");
+
+    public Task InsertAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This fake never writes.");
+
+    public Task<string?> MaskedAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This fake never masks.");
+
+    public Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This fake never probes.");
+}
+
 internal sealed class FakeUnitOfWork : IUnitOfWork
 {
     public int SaveCount { get; private set; }
 
+    /// <summary>Returns the exception the Nth save (1-based) must throw, or null to let it succeed — how the
+    /// concurrency-loser and the "recording the failure itself fails" paths are driven.</summary>
+    public Func<int, Exception?>? SaveFails { get; init; }
+
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken)
     {
         SaveCount++;
+        if (SaveFails?.Invoke(SaveCount) is { } failure)
+            throw failure;
+
         return Task.FromResult(0);
     }
 
