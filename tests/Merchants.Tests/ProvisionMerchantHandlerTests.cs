@@ -66,6 +66,45 @@ public sealed class ProvisionMerchantHandlerTests
         Assert.Empty(writer.Calls);
     }
 
+    // REQ-3.7: EnabledMethods is stored as a csv that Connection.Supports later compares ORDINALLY, so a
+    // value the vocabulary does not know must be refused at provisioning time rather than accepted and then
+    // silently refusing every payment of that merchant. A KNOWN method in the wrong case is a different
+    // case: it is normalized, not rejected — see Stores_enabled_methods_as_canonical_codes.
+    [Theory]
+    [InlineData("CC")]          // the PSP's own channel code, not our vocabulary
+    [InlineData("paypal")]      // a method this platform does not offer
+    [InlineData("")]            // blank entry in the list
+    [InlineData("   ")]
+    public async Task Rejects_an_enabled_method_outside_the_canonical_vocabulary(string method)
+    {
+        var (handler, _, writer) = NewHandler();
+        var command = ValidCommand() with
+        {
+            PspConnections = [new PspConnectionSpec("2c2p", [method], "merchant-1",
+                new Dictionary<string, string> { ["secretKey"] = "sk2c2pAAAA1234" }, null)],
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await handler.Handle(command, default));
+
+        Assert.Empty(writer.Calls);
+    }
+
+    [Fact]
+    public async Task Stores_enabled_methods_as_canonical_codes()
+    {
+        var (handler, _, writer) = NewHandler();
+        var command = ValidCommand() with
+        {
+            PspConnections = [new PspConnectionSpec("2c2p", [" CARD ", "PromptPay", "installment"], "merchant-1",
+                new Dictionary<string, string> { ["secretKey"] = "sk2c2pAAAA1234" }, null)],
+        };
+
+        await handler.Handle(command, default);
+
+        var connection = Assert.Single(Assert.Single(writer.Calls).Spec.Connections);
+        Assert.Equal("card,promptpay,installment", connection.EnabledMethods);
+    }
+
     [Fact]
     public async Task Rejects_empty_psp_connections()
     {

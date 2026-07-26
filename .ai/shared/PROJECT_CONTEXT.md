@@ -58,7 +58,10 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
   guard, ทุก query/write กรอง `MerchantId`; ไม่ใช่ SQL RLS อีกต่อไป — supersede 2026-07-19, spec
   `rls-to-query-filter`) — backend ร่วมกันแต่ข้อมูลไม่รั่ว
 - คงสถานะ **captive + ไม่ถือเงิน** → อยู่นอก funds flow เสมอ (ไม่เข้าข่ายใบอนุญาตประเภทที่ 3)
-- จ่ายไม่ผิด/ไม่ซ้ำ: idempotency + verify amount/currency ตอน Orders รับ `PaymentPaid` (ไม่ใช่แค่ `PaymentId`)
+- จ่ายไม่ผิด/ไม่ซ้ำ: idempotency + verify amount/currency — **ยอดของ payment session มาจากแถว `Order`
+  เท่านั้น** (client ส่งยอดมาไม่ได้) + เทียบกับ **ยอดที่ PSP รายงานว่าเก็บจริง** ก่อน mark paid
+  (spec `captive-payment-alignment`, 2026-07-26; การเทียบตอน Orders รับ `PaymentPaid` ยังอยู่แต่เป็น
+  defence-in-depth — เมื่อยอด session มาจาก order แล้วมันเทียบค่าเดียวกับตัวเอง)
 
 ## Non-Goals — ฟังก์ชันที่ "ห้าม implement"
 

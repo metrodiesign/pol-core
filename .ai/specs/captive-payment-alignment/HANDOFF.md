@@ -995,3 +995,172 @@ cs:63` -> `PaymentMethods.Normalize`) + `seed-demo.sql` + เอกสาร as-
    next step; ห้าม emoji ใน `.md`; ห้ามเขียนว่า Opn ไม่มีลายเซ็น).
 4. flip `- [x] 7.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
    commit -> append section 7 -> รายงาน lead ว่า spec ครบทั้ง 7 task.
+
+---
+
+## Section 7 — task 7 (from: Claude Opus 5 teammate, 2026-07-26) — CLOSING SECTION ของ spec
+
+### Task Summary
+
+task 7 (task สุดท้าย) ของ spec `captive-payment-alignment`: provisioning vocabulary + demo seed +
+as-built docs + **REQ trace ทั้ง 42 เกณฑ์**. ปิด REQ-3 (3.7), REQ-5 (5.1, 5.2, 5.3), REQ-6 (6.5).
+ไฟล์ production ที่แตะมีบรรทัดเดียว (`ProvisionMerchantHandler.cs:67`) ที่เหลือเป็น SQL seed + เอกสาร.
+
+### Current Status
+
+- task 7 **เสร็จ** — `- [x]` + `Evidence:` (รวมตาราง REQ trace 42 เกณฑ์) ใน tasks.md, commit บน
+  `feat/captive-payment-alignment`.
+- **task 1-7 ครบทั้ง spec** — ไม่มี task ค้าง. **ยังไม่ push** (lead เปิด PR เอง).
+- suite: **1213 passed / 0 failed / 0 skipped** (16 projects, `Category!=Integration`);
+  Integration.Tests = 47 (ไม่ได้รันใน task นี้ — ไม่แตะ DDL/DB schema; seed รันจริงแยก).
+
+### Files Changed
+
+- `src/Modules/Merchants/Merchants.Application/ProvisionMerchant/ProvisionMerchantHandler.cs` — edited —
+  `+using Payments.Domain;` + บรรทัด `EnabledMethods` เปลี่ยนจาก `.Select(m => m.Trim()).Where(m => m.Length > 0)`
+  เป็น `.Select(PaymentMethods.Normalize)` + คอมเมนต์ 3 บรรทัดอธิบายว่าทำไม (ordinal compare).
+  **ไม่แก้ csproj** — `Merchants.Application` reference `Payments.Application` อยู่แล้วและไฟล์นี้ใช้
+  `using Payments.Domain.Psp;` (`Code`/`Codes`) มาก่อนหน้านี้แล้ว จึงเป็นการ **ใช้ dependency ที่มีอยู่ให้
+  แคบลง** ไม่ใช่เปิดเส้นใหม่ (ดู Important Decisions ข้อ 1).
+- `docker/bootstrap/seed-demo.sql` — edited — session `Method` เปลี่ยนจาก CASE 3 ทางต่อ merchant เป็น
+  `N'card'` ล้วน + คอมเมนต์อธิบาย; **`EnabledMethods` ของ `txn.PspConnections` ไม่แตะ** (สะท้อนข้อตกลง
+  เชิงพาณิชย์ตามที่ design D9 สั่ง).
+- `docs/reference/payment-orchestration-modules.md` — edited — banner สวีปใหม่ลงวันที่ 2026-07-26 +
+  8 ย่อหน้า as-built (§3.1 create/redirect/return/webhook, §3.2 method router, ภาค 4 ตาราง `IPspAdapter`,
+  §4.1, §4.2 Omise HMAC, §5.1, 2 แถวในตารางท้ายไฟล์).
+- `docs/reference/platform-modules.md` — edited — banner refresh 2026-07-26 + §9 feature table (5 แถวแก้ +
+  1 แถวใหม่) + §9 สถานะสรุป + §11 (3 แถว + bullet) + §12 (2 bullet + 2 แถว) + **ทะเบียนช่องว่าง**:
+  ข้อ 1 ปิดบางส่วน, ข้อ 8/9/12 คงเปิดพร้อมเหตุผล+next step, ข้อ 10 ปิด (strike-through),
+  **ข้อ 23-24 ใหม่**, + ลำดับเปิด spec ข้อ 1.
+- `.ai/shared/PROJECT_CONTEXT.md` — edited — **1 bullet** ใน §Business Objectives (ดู deviations ข้อ 3).
+- `tests/Merchants.Tests/ProvisionMerchantHandlerTests.cs` — edited — +2 test (1 theory 4 case + 1 fact).
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 7 + Evidence + REQ trace 42 เกณฑ์.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **ไม่เพิ่ม ProjectReference ใหม่เพื่อใช้ `PaymentMethods`** — ตรวจ csproj ก่อนตามที่ brief สั่ง:
+   `Merchants.Application.csproj` reference `Payments.Application` อยู่แล้ว (ซึ่งพา `Payments.Domain` มา
+   แบบ transitive) และไฟล์นี้ `using Payments.Domain.Psp;` ใช้ `Codes.FromCode(spec.Psp)` มาตั้งแต่ก่อน
+   งานนี้ จึงเติมแค่ `using Payments.Domain;`. **ไม่ผิด layering** ของ ARCHITECTURE: `PaymentMethods` เป็น
+   vocabulary ล้วนใน Domain (trap 8 ระบุไว้เองว่าอยู่ Domain ได้) และการอ้าง `X.Domain` เป็น published
+   language ตาม pattern เดียวกับ `Iam.Domain`/`MasterData.Domain` ที่ canon อนุญาต — แคบกว่า
+   `Payments.Application` ที่อ้างอยู่แล้ว. **ไม่มีเหตุให้หยุดรายงาน**.
+2. **root-cause fix จุดเดียว ไม่ใช่ต่อ caller** — `git grep EnabledMethods -- src` ยืนยันว่า
+   `ProvisionMerchantHandler.cs` เป็น **ที่เดียว** ที่ประกอบค่า `EnabledMethods` จาก input ของ admin;
+   `ProvisioningCoordinator.cs:147` แค่ส่งสตริงที่ประกอบเสร็จแล้วต่อ. แก้บรรทัดเดียวจึงปิดทุก path.
+3. **blank entry เปลี่ยนพฤติกรรมเล็กน้อยโดยตั้งใจ** — เดิม `[" ", "card"]` ทิ้ง blank เงียบ ๆ ได้ `"card"`;
+   ตอนนี้ `Normalize` throw 400. fail-closed ตรงกับ REQ-3.7 ("ปฏิเสธค่าที่ไม่รู้จัก") และไม่มี test เดิมใด
+   พึ่งการทิ้ง blank (suite เขียวทั้งชุด). เช็ค "must enable at least one method" เดิมยังอยู่และยังทำงาน
+   สำหรับ list ว่าง/null.
+4. **`EnabledMethods` ของ seed คงเปิด promptpay/installment ไว้** ตาม design D9 — ไม่ใช่ข้อมูลที่ขัดกฎ
+   เพราะ REQ-6.2 ปฏิเสธชัดเจนด้วย 409 อยู่แล้ว; สิ่งที่ขัดกฎคือ **session** ที่ seed ด้วย method เหล่านั้น
+   (จ่ายจริงไม่ได้เลยหลัง task 2) จึงแก้เฉพาะ session. เขียนเหตุผลไว้ในคอมเมนต์ของ SQL ให้คนหลังไม่ "แก้คืน".
+
+### Constraints (เพิ่มจาก section 0-6 — ยังใช้ทุกข้อ)
+
+- **`ProvisionMerchantHandler` เป็น validation boundary ของ vocabulary** — ถ้าจะเพิ่ม method ใหม่
+  (`promptpay` ที่ใช้งานได้จริง ฯลฯ) ต้องเพิ่มที่ `PaymentMethods` **ที่เดียว** แล้วมันไหลไปทั้ง provisioning
+  (400), eligibility (409), adapter capability, และ seed พร้อมกัน — ห้าม inline literal method ที่อื่น.
+- **`seed-demo.sql` session Method ต้องเป็น subset ของ `SupportedMethods` ของ adapter เสมอ** — ถ้า task
+  อนาคตทำ promptpay ได้จริงแล้วอยาก seed ด้วย ต้องขยาย `SupportedMethods` ก่อน ไม่ใช่ seed ล่วงหน้า.
+- **เอกสาร 2 ไฟล์ reference ตอนนี้ลงวันที่ 2026-07-26 ที่ banner** — งานที่แก้ payment path ครั้งถัดไปต้อง
+  อัปเดต banner + ย่อหน้าที่ตัวเองทำให้ล้าสมัย ไม่ใช่ปล่อยให้วันที่ค้าง (นั่นคือโรคที่ spec นี้มารักษา).
+- **ทะเบียนช่องว่างเลขถึง 24 แล้ว** — ข้อใหม่ต่อไปเริ่มที่ 25; ห้าม reuse เลขที่ strike-through แล้ว (10, 21, 22).
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `Build succeeded. 0 Warning(s) 0 Error(s)` (64 projects) +
+  ยืนยัน compile จริงด้วย `stat` เทียบ dll/source (trap 15/33).
+- baseline ก่อนแก้ (ยืนยันเองซ้ำ): **1208 passed / 0 failed**, 16 banners, EXIT=0 — ตรงกับ section 6.
+- `dotnet test tests/Merchants.Tests --no-build` -> **120 passed / 0 failed** (115 -> +5).
+- **RED proof**: stash ไฟล์ production (คืนเป็น `Trim()`) -> build 0 error -> รันเฉพาะคลาสนั้น ->
+  `Failed: 3, Passed: 10` (แดง = `"CC"`, `"paypal"`, `Stores_enabled_methods_as_canonical_codes`);
+  **2 case (`""`, `"   "`) เขียวทั้งสองฝั่ง** เพราะเช็ค "at least one method" เดิมจับอยู่แล้ว — เก็บเป็น
+  regression net ไม่นับเป็น proof. `git stash pop` -> build -> 120 passed.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> `EXIT=0`, **1213 passed / 0 failed /
+  0 skipped**, 16 banners ครบ, `Failed!` = 0.
+- **seed รันจริง**: `bash scripts/seed-demo.sh` -> `seed-demo: OK.` exit 0, `txn.PaymentSessions = 36`;
+  query ยืนยัน `Method` = `card 36` แถวเดียว + open-session ซ้ำต่อ order = 0 แถว.
+- `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 42 เกณฑ์;
+  `bash scripts/check-rename-identifiers.sh` (หลัง `git add`) -> OK;
+  `bash .ai/bin/check-secrets.sh --all` -> exit 0.
+- emoji scan บนบรรทัด `+` ของ `*.md` ทั้งหมดที่ task นี้เพิ่ม -> 238 บรรทัด, **0 emoji**.
+- **ไม่ได้รัน:** `dotnet test tests/Integration.Tests` (task นี้ไม่แตะ DDL/EF model/DB schema — index เป็น
+  ของ task 4 และไม่ถูกแตะ), `docker compose config` (ไม่แตะ compose — ของ task 5), migration (ไม่มี DDL ใหม่).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-34)
+
+35. **emoji-scan regex ที่กว้างเกินไปให้ false positive มหาศาลในเอกสารไทย** — ช่วง `☀-➿` /
+    `←-⇿` จับ `→` `↔` `⇒` ซึ่งเป็น **ลูกศร typographic** ที่ทุกไฟล์ `.md` ของ repo นี้ใช้ทั่วทั้งฉบับ
+    (362 hit ในไฟล์ที่ยังไม่ได้แตะด้วยซ้ำ). กฎ "ห้าม emoji ใน `.md`" หมายถึง pictographic emoji ไม่ใช่
+    สัญลักษณ์คณิต/ลูกศร. **วิธีที่ถูก:** จำกัดที่ `U+1F000-U+1FAFF` + regional indicator + ชุด
+    emoji-presentation ที่ใช้จริง (`✅❌⚠` ฯลฯ) **และสแกนเฉพาะบรรทัดที่ตัวเองเพิ่ม** (`git diff` บรรทัด `+`)
+    ไม่ใช่ทั้งไฟล์ — ไม่งั้นจะไปนับหนี้ของคนอื่นแล้วเข้าใจว่าตัวเองทำผิดกฎ.
+36. **test ที่คาดว่า "ต้อง throw" อาจผิดเองเพราะไม่ได้อ่าน normalize ให้จบ** — `PaymentMethods.Normalize`
+    `ToLowerInvariant()` **ก่อน** `IsKnown` ดังนั้น `"Card"` = ค่าที่ **รู้จักแต่ผิด case** -> ถูก normalize
+    เป็น `"card"` ไม่ถูกปฏิเสธ. ผมเขียน `"Card"` ไว้ในชุด reject แล้วมันแดง — **โค้ดถูก test ผิด**.
+    บทเรียน: ก่อนใส่ InlineData ว่า "ค่านี้ต้องถูกปฏิเสธ" ให้ไล่ implementation ของ validator จริงก่อน
+    ว่าเส้นแบ่งอยู่ตรงไหน (รู้จัก-แต่ผิดรูป = normalize; ไม่รู้จัก = reject) ไม่ใช่เดาจากชื่อ test.
+37. **`sqlcmd` ที่ตามหลัง `source .env.integration` ต้องเลือกตัวแปรให้ตรง** — `scripts/seed-demo.sh` อ่าน
+    `POL_SA_PASSWORD` **ก่อน** แล้วค่อย fallback `MSSQL_SA_PASSWORD`; ผมใช้ `$MSSQL_SA_PASSWORD` ตรง ๆ ใน
+    คำสั่ง verify แล้วได้ `Login failed for user 'sa'` ทั้งที่สคริปต์เพิ่งรันผ่าน. ใช้
+    `PW="${POL_SA_PASSWORD:-$MSSQL_SA_PASSWORD}"` แบบเดียวกับสคริปต์ (และ **ห้าม echo ค่า** — trap ของ
+    LESSONS เรื่อง secret หลุดลง transcript).
+
+### ข้อค้นพบที่ต้องให้ lead ตัดสิน / ใส่ PR body (ไม่ได้แก้ในงานนี้)
+
+- **2 จุดในเอกสารที่ล้าสมัยอยู่ก่อน spec นี้** (ไม่ใช่ผลของ task 1-6 จึงไม่แก้ตาม surgical-change rule):
+  (ก) `platform-modules.md` §9 bullet `endpoints:` ยังเขียน `POST /payment-sessions` (route จริงคือ
+  `/api/v1/payments/sessions` ตั้งแต่ `api-route-scheme`) และยังพูดถึง **"tenant Bearer"** ที่ถอดทิ้งไปแล้ว
+  ตั้งแต่ rf1; (ข) `.ai/shared/SECURITY_RULES.md` §Product security อ้าง seam ชื่อ **`IWebhookVerifier`**
+  ซึ่งไม่มีในโค้ด (ของจริง = `IPspAdapter.VerifyWebhook`). ทั้งคู่เป็น doc drift ที่ควรเก็บใน housekeeping
+  รอบถัดไป — ถ้า lead อยากให้แก้ในงานนี้ บอกได้ เป็นการแก้ 2 บรรทัด.
+- **`PROJECT_CONTEXT.md` §Key Features ยังเขียนว่า "PSP adapter ... redirect-only ครบ 3 ช่องทาง"** — อ่านใน
+  บริบทเป็นคำบรรยาย **ผลิตภัณฑ์/เป้าหมาย** (ทั้ง section เป็นเช่นนั้น) ไม่ใช่คำเคลม as-built และไม่ได้ถูกทำให้
+  ล้าสมัยโดย task 1-6 (ไม่มี task ใด implement promptpay) จึง **ไม่แก้**; ถ้า lead ถือว่ากำกวมเกินไป
+  ควรเติมวงเล็บ "(target; as-built = card)" — 1 บรรทัด.
+- **`Session.MarkFailed` ยังทิ้ง `reason`** (ยกมาจาก section 3/4/5/6 — ยังเปิด): task 7 ไม่มี migration
+  ให้พ่วงและไม่มี REQ รองรับ. **บันทึกเป็นข้อจำกัดในเอกสารแล้ว** (ย่อหน้า start-redirect ของ
+  `payment-orchestration-modules.md` ระบุตรง ๆ ว่า ops อ่านสาเหตุจาก log ของ HTTP layer เท่านั้น) —
+  ถ้าจะเก็บจริงต้องเปิดสเปกที่มี column + migration.
+- **`FakePspAdapter.ChargedConnectionId` ยังไม่มีผู้ใช้** (section 5 ฝากไว้ให้ task 6, task 6 ไม่ได้ใช้,
+  task 7 ไม่แตะ adapter) — ลบได้ 3 บรรทัดโดยไม่มี test ใดพัง ถ้า reviewer ไม่ชอบ dead member.
+- **`Ignored` 2 ความหมายแยกไม่ออก** (ยอดไม่ตรง vs ยังไม่ Paid) — เสนอ follow-up `DenialCategory` +
+  alert ตาม section 6; บันทึกไว้ในเอกสารทั้ง 2 ไฟล์แล้ว.
+
+### สรุปปิด spec (สำหรับ reviewer)
+
+**เสร็จครบ 7/7 task, 42/42 เกณฑ์มีโค้ด/เทสต์รองรับจริง (0 blocker).** 8 divergence (A-H) ที่ audit พบ
+ถูกปิดทั้งหมด: **A** ยอดมาจากแถว order (ไม่ใช่ body) · **B** หนึ่ง open session ต่อ order ที่ handler +
+filtered unique index · **C** eligibility ต่อ connection บังคับจริง 2 จุด · **D** backend webhook URL
+ต่อ connection · **E** `paymentChannel` จาก method + adapter capability gate · **F** liveness
+(`MarkFailed` + ปฏิเสธก่อน claim) · **G** เทียบยอดที่ PSP รายงาน · **H** provisioning normalize vocabulary.
+
+**เปิดไว้โดยเจตนา (มีเหตุผล + next step ในทะเบียนช่องว่างของ `platform-modules.md`):** Omise webhook HMAC
+(ข้อ 9 — **Opn มีลายเซ็นจริง**, ติดที่ seam + ยังไม่ verify กับ sandbox) · promptpay/installment (ข้อ 8) ·
+PSP ไม่ส่งยอดกลับ -> status-only (ข้อ 23) · session expiry sweeper (ข้อ 12) · เปลี่ยน method/PSP กลางคัน
+(ข้อ 24) · `Merchant.EnabledChannels`/producer entitlement (ข้อ 1 ที่เหลือ).
+
+**reviewer ควรตรวจ 4 อย่างนี้ก่อนอื่น (เรียงตามความเสี่ยง):**
+1. **`HandlePspWebhookHandler` การเทียบยอด** (task 6) — เป็นด่านสุดท้ายก่อนเงินถูกนับว่าจ่ายแล้ว และ
+   `Ignored` เมื่อยอดไม่ตรงหมายถึง "ลูกค้าถูกเก็บเงินแล้วแต่ order ไม่ถูก fulfil" ซึ่ง**ต้องมีคนดู** แต่วันนี้
+   แยกจาก `Ignored` ปกติไม่ได้จาก outcome เดียว.
+2. **ลำดับ 8 ขั้นของ `CreateSessionHandler` + การตัดสิน idempotent-return (200) แทน 409** (task 2 /
+   HANDOFF section 0 decision 1) — เป็นการตัดสินที่กันไม่ให้ order "จ่ายไม่ได้ตลอดกาล" หลังใส่ unique index;
+   ถ้าไม่เห็นด้วยกับ 200 ต้องทบทวนคู่กับ index ของ task 4 พร้อมกัน ไม่ใช่แยก.
+3. **REQ-2.5 พิสูจน์ถึงระดับ SQL error 2601 + ชื่อ index ไม่ใช่ `ConflictException` ในโปรเซส** (task 4
+   deviation 1) — ต้องตัดสินว่ายอมรับหรือให้เพิ่ม `InternalsVisibleTo("Integration.Tests")`.
+4. **`Psp:PublicBaseUrl` เป็น required ใหม่ใน non-Development** (task 5) — ทุก deploy/เครื่อง dev ต้องตั้ง
+   ค่านี้และลบ `PSP_TWOCTWOP_BACKEND_RETURN_URL` เอง; ไฟล์ `.env` เป็น gitignored blind spot ที่ไม่มี gate
+   ไหนจับ **ต้องอยู่ใน PR body**.
+
+### Next Steps
+
+1. lead verify เอง: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` -> **1213 passed / 0 failed** (Merchants 120) + `bash scripts/spec-trace.sh
+   captive-payment-alignment` -> OK 42.
+2. เปิด PR เข้า `develop` — PR body ต้องมี: breaking change ของ wire contract (`amount` หายจาก
+   `POST /api/v1/payments/sessions`) สำหรับทีม FE, env ใหม่ `PSP_PUBLIC_BASE_URL` + ตัวเก่าที่ต้องลบ,
+   migration ใหม่ที่ต้อง apply, และรายการ gap ที่ยังเปิด 6 ข้อ.
+3. หลัง merge: rerun `scripts/seed-demo.sh` บนเครื่อง dev ทุกเครื่อง (session method เปลี่ยนเป็น `card`).

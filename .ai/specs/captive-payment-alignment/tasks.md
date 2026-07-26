@@ -436,7 +436,7 @@
          `A_redelivery_after_a_mismatch_reports_Duplicate_because_the_claim_was_already_spent`; moving the
          claim would change replay semantics for the entire webhook path and needs its own requirement.
 
-- [ ] 7. **Provisioning vocabulary + demo seed + as-built docs** — `ProvisionMerchantHandler.cs:63`
+- [x] 7. **Provisioning vocabulary + demo seed + as-built docs** — `ProvisionMerchantHandler.cs:63`
      เปลี่ยน `Trim()` เป็น `PaymentMethods.Normalize(m)` ต่อรายการ (ค่าไม่รู้จัก -> `ArgumentException`
      400) + test; `docker/bootstrap/seed-demo.sql` ให้ session ที่ seed ใช้ `card` เท่านั้น (`:387`)
      โดย `EnabledMethods` ของ connection คงเดิม; อัปเดต `docs/reference/payment-orchestration-modules.md`
@@ -455,5 +455,116 @@
      Satisfies: REQ-3 (3.7), REQ-5 (5.1, 5.2, 5.3), REQ-6 (6.5). Depends on: 2, 3, 4, 5, 6. Verify:
      `dotnet test tests/Merchants.Tests` (vocabulary ที่ provisioning) + `bash scripts/spec-trace.sh
      captive-payment-alignment` -> OK + อ่านทุกย่อหน้า `[as-built` ในสองไฟล์ reference ที่แตะ payment flow
-     เทียบโค้ดจริง + `dotnet test pol-core.slnx --filter "Category!=Integration"` (ไม่ถอย).
+     เทียบโค้ดจริง + `dotnet test pol-core.slnx --filter "Category!=Integration"` (ไม่ถอย)
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `Build succeeded. 0 Warning(s) 0 Error(s)`
+         (64 projects). ยืนยัน compile จริงด้วย `stat -f "%Sm %N"` (trap 15/33): `Merchants.Application.dll`
+         23:29:37 vs `ProvisionMerchantHandler.cs` 23:17:12; `Merchants.Tests.dll` 23:29:38 vs
+         `ProvisionMerchantHandlerTests.cs` 23:17:23 — dll ใหม่กว่า source ทั้งสองคู่.
+       - test: `dotnet test tests/Merchants.Tests --no-build` -> **120 passed / 0 failed / 0 skipped**
+         (baseline 115 -> +5: `Rejects_an_enabled_method_outside_the_canonical_vocabulary` 4 InlineData
+         (`"CC"`, `"paypal"`, `""`, `"   "`) + `Stores_enabled_methods_as_canonical_codes`).
+       - test: **RED proof ว่า test ชุดใหม่กัดจริง** — `git stash push -- <ProvisionMerchantHandler.cs>`
+         (คืนเป็น `Trim()` ของก่อน task, compile ผ่าน 0 error ตาม trap 33) -> build -> `dotnet test
+         tests/Merchants.Tests --no-build --filter "FullyQualifiedName~ProvisionMerchantHandlerTests"` ->
+         `Failed! - Failed: 3, Passed: 10, Total: 13`. 3 ที่แดง = `...vocabulary(method: "CC")`,
+         `...vocabulary(method: "paypal")`, `Stores_enabled_methods_as_canonical_codes`.
+         **2 InlineData ที่เขียวทั้งสองฝั่งโดยไม่ได้พิสูจน์อะไรของ task นี้** = `""` และ `"   "` —
+         โค้ดเก่า `.Where(m => m.Length > 0)` ทิ้ง blank แล้วตกไปโดนเช็ค "must enable at least one method"
+         ที่มีอยู่ก่อนแล้ว จึง throw `ArgumentException` เหมือนกัน; เก็บไว้เป็น regression net ไม่ใช่ proof.
+         `git stash pop` -> build -> 120 passed.
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> `EXIT=0`,
+         **1213 passed / 0 failed / 0 skipped**, `Passed!` banner ครบ **16** ตัว, `Failed!` banner = 0
+         (นับตาม trap 30, รัน background เขียนลงไฟล์). Per project: Admins 95 · Architecture 223 ·
+         BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts 353 · Iam 62 · Levels 6 ·
+         **Merchants 120** · Offices 6 · Orders 68 · Payments 150 · Positions 6 · Products 7 ·
+         SharedKernel 46 — เท่ากับ baseline ของ task 6 (1208) ทุก project ยกเว้น Merchants 115 -> 120.
+       - test: **demo seed รันจริงกับ SQL Server ที่ `:11433`** (ไม่ใช่แค่อ่านไฟล์): `set -a && source
+         .env.integration && set +a && bash scripts/seed-demo.sh` -> `seed-demo: OK.` + `SEED_EXIT=0`
+         (self-check ท้ายสคริปต์ THROW + `sqlcmd -b` จะ exit non-zero ถ้าไม่ผ่าน). count ที่สคริปต์พิมพ์:
+         `txn.PaymentSessions = 36` (เท่าเดิม). ยืนยันข้อมูลหลัง seed ด้วย query:
+         `SELECT Method, COUNT(*) ... WHERE Id LIKE 'ee000000-%' GROUP BY Method` -> **`card 36`** (แถวเดียว
+         ไม่มี promptpay/installment เหลือ) และ `SELECT COUNT(*) FROM (... Status IN (0,1) GROUP BY OrderId
+         HAVING COUNT(*)>1)` -> **0** (ไม่ชน unique index ของ task 4).
+       - test: `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: 'captive-payment-alignment'
+         เกณฑ์ 42 ข้อ ถูกอ้างครบใน design.md และ tasks.md, EARS lint ผ่านทุกข้อ`.
+       - test: `bash scripts/check-rename-identifiers.sh` (หลัง `git add` ตาม trap 12) -> `OK — no retired
+         identifier appears as a live-code token in src/ or tests/`; `bash .ai/bin/check-secrets.sh --all`
+         -> exit 0 (รันเปล่าไม่มี env prefix ตาม trap 27).
+       - test: **emoji gate ของ `.md`** — สแกน **บรรทัดที่ task นี้เพิ่ม** (`git diff` ของ `*.md` เฉพาะ
+         บรรทัด `+`) ด้วย python regex ครอบ `U+1F000-U+1FAFF` + regional indicator + `✅❌❤⚠⭐❗❓‼⁉️⃣`
+         -> `added md lines = 238 | emoji hits = 0`. (รอบแรกใช้ regex กว้างเกินไปจนจับ `→`/`↔`/`⇒` 362 จุด
+         ซึ่งเป็นลูกศร typographic ที่มีอยู่ทั่วทุกไฟล์เดิมของ repo ไม่ใช่ emoji — แก้ regex แล้วสแกนใหม่.)
+       - viewports: n/a — provisioning handler 1 บรรทัด + SQL seed + เอกสาร ไม่มี browser surface.
+       - **REQ trace ทั้ง 42 เกณฑ์ (ไล่ทีละข้อกับโค้ด/เทสต์จริง ไม่ใช่แค่ spec-trace ที่ตรวจการอ้างอิงในเอกสาร):**
+
+         | เกณฑ์ | โค้ด/เทสต์ที่รองรับจริง | ผล |
+         |---|---|---|
+         | 1.1 | `CreateSessionHandler.cs:88` ส่ง `order.Amount` เข้า `Session.Create`; test happy-path เทียบ amount+currency กับ order | OK |
+         | 1.2 | `CreateSessionHandler.cs:53-54` -> `NotFoundException` (404); `PaymentPricingQueryTests` พิสูจน์ query filter คืน null สำหรับ order ของ merchant อื่น (ไม่ใช่ 403) | OK |
+         | 1.3 | `CreateSessionHandler.cs:56-58` -> `InvalidOperationException` (409); test order-not-awaiting | OK |
+         | 1.4 | `CreateSessionCommand` ไม่มี token `Amount` เลย (grep = 0); `CreatePaymentSessionRequest` ตัดออก; `CreatePaymentSessionContractTests` pin property set + stale-body bind | OK |
+         | 1.5 | การตรวจทั้ง 8 ขั้นอยู่ใน `CreateSessionHandler` (Application) ไม่ใช่ endpoint; test pin ว่า method นอก vocabulary ถูกปฏิเสธก่อนอ่าน order (`FakePayableOrderReader.Calls == 0`) | OK |
+         | 1.6 | `CreatePaymentSessionContractTests` (wire) + `charges_the_amount_the_session_carries` (ยอดที่ adapter ประกอบ == ยอด session/order) | OK |
+         | 1.7 | port `Payments.Application/Ports/IPayableOrderReader.cs` + impl `Persistence.MerchantRuntime/Payments/PayableOrderReader.cs`; grep `GetOrderDetailCommand` ใน `src/Modules/Payments` = **0**; ไม่มี ProjectReference Payments->Orders | OK |
+         | 2.1 | `CreateSessionHandler.cs:77-78` คืน id ใบเดิม; test idempotent-return ทั้งบน `Created` และ `Redirected` | OK |
+         | 2.2 | `CreateSessionHandler.cs:81-82` -> `ConflictException` (409); test method ต่าง + psp ต่าง | OK |
+         | 2.3 | บังคับผ่าน 1.3 (order ที่จ่ายแล้วไม่ใช่ `AwaitingPayment`); มี test เส้นทางนั้นจริง | OK |
+         | 2.4 | index `IX_PaymentSessions_OrderId_Open` อยู่ใน **ทั้งสอง** `SessionConfiguration` + migration `20260726151538` + snapshot; apply จริงกับ `:11433` แล้ว (`sys.indexes`: `is_unique=1`, `has_filter=1`, `([Status] IN ((0),(1)))`) | OK |
+         | 2.5 | `MerchantRuntimeUnitOfWork` แปลง SQL 2627/2601 -> `ConflictException`; `OpenSessionIndexIntegrationTests` pin เลข error **และชื่อ index** ในข้อความ (ไม่ assert `ConflictException` ในโปรเซส — boundary deviation ของ task 4, บันทึกแล้ว) | OK (ดูหมายเหตุ) |
+         | 2.6 | `tests/Architecture.Tests/OpenSessionIndexTests.cs` 3 tests (owner context, runtime context, lookup index ห้ามถูก mutate) — offline ไม่พึ่ง integration job | OK |
+         | 3.1 | `Connection.EnsureEligible` -> `Supports(method)`; เรียกก่อนแตะ PSP ทั้ง 2 flow; `ConnectionEligibilityTests` | OK |
+         | 3.2 | `EnsureEligible` เช็ค `!IsEnabled` **ก่อน** `Supports` -> 409; test pin ลำดับเหตุผล | OK |
+         | 3.3 | `CreateSessionHandler.cs:60-62` -> 409 ที่ขั้น create (ไม่รอพังตอน redirect); test | OK |
+         | 3.4 | `PaymentMethods.Normalize` -> `ArgumentException` (400); `PaymentMethodsTests` (24 case) + handler test 3 case | OK |
+         | 3.5 | `StartRedirectHandler.cs:67-71` resolve connection + `EnsureEligible` **ก่อน** `BeginRedirect()`; test ยืนยัน status ยัง `Created`, `RedirectUrl` null, `vault.Reveals == 0`, `SaveCount == 0` | OK |
+         | 3.6 | logic อยู่จุดเดียวบน `Payments.Domain.Psp.Connection.EnsureEligible`; production call site = **2** (`CreateSessionHandler:66`, `StartRedirectHandler:71`) -> `Supports` มีผู้เรียกจริง | OK |
+         | 3.7 | `ProvisionMerchantHandler.cs:67` `.Select(PaymentMethods.Normalize)` (**task นี้**); 5 tests ใหม่ + RED proof 3 แดงบนโค้ดเก่า | OK |
+         | 4.1 | `PspAdapterBase.WebhookUrlFor(Guid)` -> `{PublicBaseUrl}/api/v1/webhooks/{id}`; `TwoCTwoPAdapter` ใช้ค่านี้; test `points_the_backend_notification_at_the_connection_being_charged` + trailing-slash test | OK |
+         | 4.2 | `git grep BackendReturnUrl\|PSP_TWOCTWOP_BACKEND_RETURN_URL` บน live surface (`src`, `docker-compose.prod.yml`, `.github`, `.gitlab-ci.yml`) = **0**; เหลือ 2 จุดเป็น **deprecation note สำหรับ operator** เท่านั้น (`.env.prod.example:45`, runbook) ตามที่ task 5 ตัดสินไว้ (ไฟล์ `.env` จริงเป็น gitignored blind spot) | OK (ดูหมายเหตุ) |
+         | 4.3 | `ProvisioningGuards.RequirePublicBaseUrl` เรียกใน block `if (!IsDevelopment())`; `ProvisioningGuardsTests` 9 case (บังคับ scheme http/https ด้วย — `Uri.TryCreate("/api/v1", Absolute)` คืน true บน Unix) | OK |
+         | 4.4 | `PspOptions.TwoCTwoP.FrontendReturnUrl` + `Omise.ReturnUri` ยังอยู่ครบ; adapter test pin ว่า `frontendReturnUrl` ยัง global | OK |
+         | 4.5 | `docs/runbooks/deploy-self-host.md:98` section "ตั้ง webhook URL ต่อ connection ที่ฝั่ง PSP" (4 ขั้น) + Omise test `sends_no_callback_url_because_omise_takes_its_webhook_from_the_dashboard` | OK |
+         | 4.6 | `appsettings.json` มี `"Psp": { "PublicBaseUrl": "" }` placeholder (ไม่ใช้ `ValidateOnStart`); `Hosts.Tests` 353 passed (17 ไฟล์ที่ boot host จริงยังเขียว) | OK |
+         | 5.1 | **task นี้** — `payment-orchestration-modules.md`: banner ลงวันที่ 2026-07-26 + แก้ §3.1 create/redirect/return/webhook, §3.2 method router, ภาค 4 ตาราง `IPspAdapter`, §4.1, §4.2, §5.1, ตารางท้ายไฟล์ | OK |
+         | 5.2 | **task นี้** — `platform-modules.md`: ปิดข้อ 10 (strike-through) + ปิดข้อ 1 **เฉพาะชั้น connection** + แถวใน §9/§11/§12; ไม่ปิดข้อใดที่ยังไม่ปิดจริง | OK |
+         | 5.3 | **task นี้** — 3 เรื่องที่ยังเปิดคงอยู่พร้อมเหตุผล + next step: (ก) ข้อ 9 Omise HMAC — เขียนชัดว่า **Opn มี `Omise-Signature` จริง** เหตุผลคือ seam ไม่พา header/timestamp + ยังไม่ verify กับ sandbox; (ข) ข้อ 8 promptpay/installment (Payment Links+ / SAQ A); (ค) ข้อ **23 ใหม่** PSP ไม่ส่งยอดกลับ. บวกข้อ **24 ใหม่** (เปลี่ยน method/PSP กลางคัน) + หมายเหตุในข้อ 12 (`MarkExpired` ยังไม่มีผู้เรียก) | OK |
+         | 6.1 | `IPspAdapter.SupportedMethods` (`IReadOnlySet<string>`), **abstract** บน `PspAdapterBase`, override ทั้ง 2 adapter = `{ card }`; test ต่อ adapter | OK |
+         | 6.2 | `CreateSessionHandler.cs:68-70` -> 409; test adapter-cannot-honour | OK |
+         | 6.3 | `TwoCTwoPAdapter.PaymentChannelFor(session.Method)` (`card -> "CC"`); test `derives_the_payment_channel_from_the_session_method` | OK |
+         | 6.4 | ด่านหลัก = 6.2 ที่ create-session; adapter throw `NotSupportedException` ระบุ method เป็น backstop; test theory 2 case (promptpay/installment) ว่าไม่ substitute เป็นบัตร | OK |
+         | 6.5 | **task นี้** — `seed-demo.sql` session Method = `N'card'` ล้วน (CASE ต่อ merchant ถูกถอด), `EnabledMethods` ของ connection คงเดิมโดยเจตนา; seed รันจริงผ่าน + query ยืนยัน `card 36` | OK |
+         | 7.1 | `StartRedirectHandler.cs:101-109` catch -> `MarkFailed` -> save -> **rethrow**; test `A_charge_the_psp_refuses_fails_the_session_and_rethrows` (`Assert.Same` ว่า exception เดิมทะลุออก) | OK |
+         | 7.2 | ทั้ง 7.1 (charge ล้ม) และ 7.3 (ปฏิเสธก่อน claim) ปิดสองทางที่ทำให้เกิด `Redirected`+null; test assert `RedirectUrl` null + status ยัง `Created` / `Failed` | OK |
+         | 7.3 | `StartRedirectHandler.cs:67-71` ก่อน `BeginRedirect()`; 3 tests (ไม่มี connection / connection ปิด / method ที่เลิกเปิด) assert `SaveCount == 0` | OK |
+         | 7.4 | filter ของ index ไม่รวม `Failed`(3); test `A_failed_charge_lets_the_same_order_open_a_fresh_session` เดินทั้งเส้น create -> redirect ล้ม -> create ได้ id ใหม่ (ไม่ใช่ประกอบ `Failed` ในหน่วยความจำ) + integration test ยืนยันบน SQL Server จริง | OK |
+         | 8.1 | `PspChargeConfirmation(PspChargeStatus, Money?)` ใน `PspContracts.cs:26`; 2C2P อ่าน `amount`+`currencyCode` (major), Omise อ่าน `amount`+`currency` (minor -> major ด้วย `Iso4217.MinorUnitDigits`); adapter tests + RED proof B | OK |
+         | 8.2 | `HandlePspWebhookHandler.cs:95-96` `collected != session.Amount` -> `Ignored` ก่อน `MarkPaid`; 3 tests (ยอดต่าง, สกุลต่าง, redelivery) + RED proof A | OK |
+         | 8.3 | `Amount == null` -> ไม่เข้าเงื่อนไข -> ยืนยันด้วยสถานะเดิม; test null-amount + 6 unusable-response case ต่อ adapter (ห้าม throw); **บันทึกเป็น gap ข้อ 23 ตาม REQ-5.3** | OK |
+         | 8.4 | diff ของ `HandlePspWebhookHandler` = **+8/-1** บรรทัด ไม่แตะ idempotency key ทั้ง 2 คีย์, ลำดับ/ขอบเขต transaction, `_outbox.Enqueue`, หรือ record `PaymentPaid`; `Orders.Tests` 68 เท่าเดิม | OK |
+
+         **สรุป trace: 42/42 เกณฑ์มีโค้ด/เทสต์รองรับจริง — ไม่มีเกณฑ์ใดค้าง (0 blocker).** 2 ข้อมี
+         หมายเหตุขอบเขตที่บันทึกไว้แล้วและ **ไม่ใช่** เกณฑ์ที่ไม่ผ่าน: **2.5** พิสูจน์ถึงระดับ "SQL คืน
+         2601 + ชื่อ index ถูก" ไม่ใช่ `ConflictException` ในโปรเซส (เพราะ `Integration.Tests` ตั้งใจไม่มี
+         `InternalsVisibleTo` — hop สุดท้ายเป็นโค้ดเดิมที่ไม่ถูกแตะ, ให้ lead ตัดสินว่าพอไหม) และ **4.2**
+         เหลือชื่อ env เก่าไว้ 2 จุดในฐานะ deprecation note ของ operator ไม่ใช่ config ที่ยังใช้งาน.
+       - deviations: (1) **`"Card"` ไม่ถูกปฏิเสธ แต่ถูก normalize เป็น `"card"`** — ตอนแรกเขียน test ว่าต้อง
+         throw แล้วมันแดง; อ่าน `PaymentMethods.Normalize` ซ้ำแล้วพบว่ามัน `ToLowerInvariant()` ก่อนเช็ค
+         `IsKnown` ดังนั้น method ที่ **รู้จักแต่ผิด case** คือเคสที่ต้อง normalize (นี่คือสิ่งที่ปิดช่อง
+         ordinal-compare ของ REQ-3.7 พอดี) ไม่ใช่เคสที่ต้องปฏิเสธ — **test ผิด ไม่ใช่โค้ดผิด** จึงย้าย
+         `"Card"` ออกจาก theory ที่คาด throw ไปอยู่ใต้ `Stores_enabled_methods_as_canonical_codes`
+         (` CARD ` -> `card`) แล้วเขียนเหตุผลไว้เป็นคอมเมนต์เหนือ theory. (2) **ไม่ dedupe และไม่เรียงลำดับ
+         `EnabledMethods`** — `["card","card"]` ยังเก็บเป็น `"card,card"` ได้ (พฤติกรรมเดิม, `Supports`
+         split แล้วเทียบทีละตัวจึงไม่กระทบ); REQ-3.7 ขอแค่ normalize + reject ค่าไม่รู้จัก การเพิ่ม dedupe
+         = scope creep ที่ไม่มี REQ รองรับ. (3) **แก้ `.ai/shared/PROJECT_CONTEXT.md` 1 bullet**
+         (§Business Objectives "จ่ายไม่ผิด/ไม่ซ้ำ") เพราะ task 2+6 ทำให้ข้อความเดิมที่บอกว่าแนวกันคือ
+         "verify ตอน Orders รับ `PaymentPaid`" **ล้าสมัยจริง** (หลังยอดมาจาก order การเทียบนั้นเทียบค่า
+         เดียวกับตัวเอง) — แก้น้อยที่สุดคือชี้ว่ายอดมาจากแถว order + เทียบกับยอดที่ PSP รายงาน และระบุว่า
+         การเทียบฝั่ง Orders เป็น defence-in-depth. **`.ai/shared/SECURITY_RULES.md` ตรวจแล้วยังตรงทุกข้อ
+         ไม่ต้องแก้** (webhook = source of truth + verify/idempotent/fetch-to-confirm, idempotency 2 คีย์,
+         vault, isolation floor, captive allowlist, provisioning saga — งานนี้ไม่ขัดข้อใด และไม่ได้ทำให้
+         ข้อใดล้าสมัย). (4) **ไม่แก้ 2 จุดที่ล้าสมัยอยู่ก่อนแล้ว** และไม่ใช่ผลของ task 1-6 (surgical-change
+         rule) — รายงานให้ lead แทน: `platform-modules.md` §9 บรรทัด `endpoints:` ยังเขียน route เก่า
+         `POST /payment-sessions` + "tenant Bearer" ที่ retire ไปตั้งแต่ rf1, และ `SECURITY_RULES.md`
+         อ้าง seam ชื่อ `IWebhookVerifier` ซึ่งของจริงคือ `IPspAdapter.VerifyWebhook`..
 </content>

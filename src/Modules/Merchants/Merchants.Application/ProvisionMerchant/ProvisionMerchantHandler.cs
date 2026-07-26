@@ -4,6 +4,7 @@ using Mediator;
 using Merchants.Domain;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
+using Payments.Domain;
 using Payments.Domain.Psp;
 
 namespace Merchants.Application.ProvisionMerchant;
@@ -60,7 +61,10 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
             if (!seen.Add(psp))
                 throw new ArgumentException($"Duplicate PSP '{spec.Psp}' in submission."); // REQ-3.6
 
-            var methods = string.Join(',', (spec.EnabledMethods ?? []).Select(m => m.Trim()).Where(m => m.Length > 0));
+            // REQ-3.7: normalize through the ONE canonical vocabulary rather than merely trimming. A
+            // connection provisioned as "Card"/"CC" would be accepted here and then have EVERY payment of
+            // that merchant refused, because Connection.Supports compares the stored codes ordinally.
+            var methods = string.Join(',', (spec.EnabledMethods ?? []).Select(PaymentMethods.Normalize));
             if (methods.Length == 0)
                 throw new ArgumentException($"Connection '{spec.Psp}' must enable at least one method.");
 
