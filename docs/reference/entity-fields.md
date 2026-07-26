@@ -1,6 +1,6 @@
 # Entity Field Reference (persisted model)
 
-> Generated 2026-07-25 from `PolDbContextModelSnapshot.cs` (the authoritative EF model) + the entity
+> Generated 2026-07-26 from `PolDbContextModelSnapshot.cs` (the authoritative EF model) + the entity
 > configurations under `src/Persistence/Persistence.{ControlPlane,MerchantUsers,MerchantRuntime}/**/`,
 > the domain enums, และ raw-SQL migrations (grant matrix / check constraints / seed). ครอบคลุม **42 ตาราง**
 > ใน 7 schema. แก้ entity/migration เมื่อไหร่ regenerate ไฟล์นี้ตามด้วย.
