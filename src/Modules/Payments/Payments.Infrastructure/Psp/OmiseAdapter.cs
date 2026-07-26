@@ -34,6 +34,11 @@ public sealed class OmiseAdapter : PspAdapterBase
 
     public override Code Psp => Code.Omise;
 
+    /// <summary>Card only today: PromptPay via Payment Links+ is deferred (see class summary) and
+    /// installment was never wired, so both are refused up-front rather than at the charge call.</summary>
+    public override IReadOnlySet<string> SupportedMethods { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
+
     public override async Task<PspCharge> CreateRedirectChargeAsync(
         Session session, string secret, CancellationToken cancellationToken)
     {

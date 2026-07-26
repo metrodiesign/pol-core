@@ -85,4 +85,122 @@ captive intra-group payment** (บริษัทในเครือรับ�
    และ `dotnet test pol-core.slnx --filter "Category!=Integration"` บันทึกตัวเลข -> implement task 1.
 2. flip `- [x]` + `Evidence:` ใน Edit เดียว -> commit -> append section ของตัวเองที่ท้ายไฟล์นี้.
 3. task ถัดไปตามลำดับ 2 -> 3 -> 4 -> 5 -> 6 -> 7 (dependency ตรงตาม `Depends on:` ใน tasks.md).
+
+---
+
+## Section 1 — task 1 (from: Claude Opus 5 teammate, 2026-07-26)
+
+### Task Summary
+
+task 1 ของ spec `captive-payment-alignment`: vocabulary + eligibility guard + adapter capability
+(domain/ports ล้วน ไม่แตะ handler ใด ๆ). ปิด REQ-3.6 (eligibility รวมจุดเดียวบน `Connection` และ
+`Connection.Supports` มี call site จริง) และ REQ-6.1 (adapter ประกาศ method ที่ honour ได้จริง ให้
+Application layer อ่านได้).
+
+### Current Status
+
+- task 1 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md แล้ว, commit บน `feat/captive-payment-alignment`.
+- task 2-7 ยัง `- [ ]` ทั้งหมด. ยังไม่มี handler / endpoint / migration / config / docs ถูกแก้เลย.
+- `Connection.EnsureEligible` และ `IPspAdapter.SupportedMethods` **ยังไม่มี production call site** —
+  โดยเจตนา (task 2 = create-session, task 3 = start-redirect เป็นผู้เรียก). ถ้ารัน audit ตอนนี้จะเห็นว่า
+  ทั้งคู่ถูกเรียกจาก test เท่านั้น อย่าเข้าใจผิดว่างานไม่เสร็จ.
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Domain/PaymentMethods.cs` — created — static class, const
+  `Card`/`PromptPay`/`Installment`, `IsKnown(string?)`, `Normalize(string)`.
+- `src/Modules/Payments/Payments.Domain/Psp/Connection.cs` — edited — เพิ่ม `EnsureEligible(string)`
+  (วางไว้ก่อน `Supports`); `Supports` ไม่ถูกแก้เลย (signature + Ordinal compare เดิม).
+- `src/Modules/Payments/Payments.Application/Ports/IPspAdapter.cs` — edited — เพิ่ม
+  `IReadOnlySet<string> SupportedMethods { get; }`.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/PspAdapterBase.cs` — edited — declare
+  `SupportedMethods` เป็น **abstract**.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/TwoCTwoPAdapter.cs` — edited — override
+  `SupportedMethods` = `{ PaymentMethods.Card }`.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/OmiseAdapter.cs` — edited — override เหมือนกัน.
+- `tests/Payments.Tests/PaymentMethodsTests.cs` — created — 20 tests (code literal pin + Normalize +
+  IsKnown ทุก branch).
+- `tests/Payments.Tests/ConnectionEligibilityTests.cs` — created — 9 tests.
+- `tests/Payments.Tests/Psp/TwoCTwoPAdapterTests.cs` — edited — +1 `SupportedMethods_declares_card_only`.
+- `tests/Payments.Tests/Psp/OmiseAdapterTests.cs` — edited — +1 test ชื่อเดียวกัน.
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 1 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **`SupportedMethods` = abstract บน `PspAdapterBase` + override ต่อ adapter** (design D2 เปิดให้เลือก).
+   base default `{ card }` สั้นกว่า 3 บรรทัด แต่ adapter ใหม่ที่ honour card ไม่ได้จะ inherit การเคลมว่าทำได้
+   เงียบ ๆ = silent substitution ที่ REQ-6 มีไว้กันโดยตรง; abstract ยังตรงกับที่ base ประกาศสมาชิก
+   `IPspAdapter` อื่น **ทุกตัว** เป็น abstract อยู่แล้ว. **ผลต่อ task ถัดไป: adapter ใหม่ทุกตัวถูกบังคับให้
+   ประกาศ capability เอง ไม่มี default ให้ตก.**
+2. **`Normalize` เรียก `IsKnown(code)` ต่อ** ไม่ inline vocabulary ซ้ำสองที่ (ARCHITECTURE §Anti-Patterns
+   ห้าม duplicate magic constant). ค่า vocabulary อยู่ที่ const 3 ตัวที่เดียวจริง ๆ.
+3. **`ConnectionEligibilityTests` ตั้ง `IsEnabled = false` ผ่าน reflection** (private setter) เพราะ
+   `Connection` ไม่มี `Disable()` และไม่มีที่ใดใน `src/` เขียน `IsEnabled = false` เลย (ยืนยันด้วย grep) —
+   สถานะนั้นเกิดได้ทางเดียวคือ EF materialise แถวที่ admin ปิดไว้. **ไม่** เพิ่ม `Disable()` เพราะจะเป็น
+   production method ที่ไม่มีผู้เรียก + อยู่นอก scope task 1.
+4. **`EnsureEligible` เช็ค `IsEnabled` ก่อน `Supports`** ตาม design D3 ตรงตัว และมี test pin ลำดับนี้ไว้ —
+   เพื่อให้เหตุผลที่รายงานคือ "connection ปิด" ไม่ใช่ "method ไม่อยู่ในลิสต์" สำหรับ connection ที่ปิดอยู่.
+
+### Constraints (เพิ่มจาก section 0 — ยังใช้ทุกข้อ)
+
+- **`PaymentMethods.Normalize` = 400 (`ArgumentException`), `Connection.EnsureEligible` = 409
+  (`InvalidOperationException`)** — เส้นแบ่งนี้ล็อกแล้วทั้ง code + test + doc comment. task 2/3 ที่เรียกสอง
+  ตัวนี้ห้ามห่อ/แปลง exception ใหม่ ไม่งั้น status code เพี้ยนจาก REQ-3.4 vs REQ-3.1/3.2.
+- **ห้ามแก้ `Connection.Supports`** — เป็น Ordinal compare กับ `EnabledMethods` ดิบ. ค่าที่ส่งเข้า
+  `EnsureEligible` ต้อง normalize มาก่อนจาก handler (task 2/3) ไม่ใช่ให้ `Supports` มา lower ให้;
+  มี test pin ว่า `"Card"` (ตัวใหญ่) ถูกปฏิเสธ.
+- **ห้ามตั้งชื่อ type/ไฟล์ว่า `PspConnection*`** — retired token ของ rename gate (trap 1). ใช้
+  `Connection*` หรือชื่อที่ไม่มี prefix นั้น.
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+  (baseline ก่อนแก้: เหมือนกันเป๊ะ).
+- `dotnet test tests/Payments.Tests` -> 90 passed / 0 failed / 0 skipped (จาก baseline 59).
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1128 passed / 0 failed**.
+  **baseline ที่จดไว้ก่อนแก้อะไรเลย (ตัวเลขอ้างอิงของ task 2+):** Admins.Tests 95 · Architecture.Tests 215 ·
+  BuildingBlocks.Tests 43 · Carts.Tests 15 · Checkouts.Tests 7 · Divisions.Tests 6 · Hosts.Tests 341 ·
+  Iam.Tests 62 · Levels.Tests 6 · Merchants.Tests 115 · Offices.Tests 6 · Orders.Tests 68 ·
+  Payments.Tests 59 · Positions.Tests 6 · Products.Tests 7 · SharedKernel.Tests 46 = **1097 passed /
+  0 failed / 16 projects**. หลังแก้: ทุก project เท่าเดิม ยกเว้น Payments.Tests 59 -> 90.
+  (หมายเหตุ: `tests/Integration.Tests` ไม่ถูกนับ — filter คัดออกหมด; `Identity.Tests`/`Producer.Tests`/
+  `Tenant.Tests` มีโฟลเดอร์แต่ไม่อยู่ใน `pol-core.slnx` จึงไม่มีผลลัพธ์.)
+- `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a live-code token`.
+- `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 42 ข้อ ถูกอ้างครบ ... EARS lint
+  ผ่านทุกข้อ`.
+- **ไม่ได้รัน:** integration tests (ไม่มีเกณฑ์ของ task 1 แตะ DB), `docker compose config`
+  (ไม่แตะ compose), migration (ไม่มี DDL เปลี่ยน).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-11)
+
+12. **rename gate อ่านผ่าน `git ls-files`** (`scripts/check_rename_identifiers.py:161-162`) — ไฟล์ **untracked
+    ถูกข้ามเงียบ ๆ** แล้ว gate ตอบ OK. รอบแรกที่รันตอนไฟล์ใหม่ 3 ไฟล์ยัง untracked ได้ OK แบบไม่ได้ตรวจอะไรเลย
+    (false green คลาสเดียวกับ LESSONS "gate ที่ skip แล้ว exit 0"). **ต้อง `git add` ก่อน แล้วรัน gate ซ้ำ**
+    ไม่งั้นผ่าน local แต่แดงบน CI.
+13. **task-gate hook ยืนยันตามที่ trap 2 บอก แต่โดนจริงเพราะเข้าใจผิดว่า "flip ก่อนแล้วต่อ Evidence" ได้** —
+    Edit ที่ flip `[x]` บรรทัดเดียวถูก block ทันที (PostToolUse) แม้จะตั้งใจ append Evidence ใน Edit ถัดไป.
+    **ที่แก้ไขแล้วได้ผล:** `old_string` คร่อม **ทั้งบล็อก task** (ตั้งแต่บรรทัด `- [x] 1.` ถึงบรรทัดสุดท้ายของ
+    `Verify:`) แล้ว `new_string` = บล็อกเดิม + `Evidence:` + bullets ต่อท้าย ใน Edit เดียว. หมายเหตุ: การ block
+    **ไม่ revert ไฟล์** — `[x]` ที่ flip ไปแล้วยังอยู่ ต้องแก้ต่อจากสถานะนั้น (old_string ต้องใช้ `[x]`
+    ไม่ใช่ `[ ]`).
+14. **`rtk` hook ทำให้ `grep -rn ... --include="*.cs"` fail** (`no matches found: --include=*.cs` — zsh glob
+    ตีความก่อน) และบีบ output ของ `git diff`/`dotnet build` เป็น summary. ใช้ `rtk proxy grep ...` สำหรับ
+    การค้นแบบมี flag และอย่าเชื่อว่า `dotnet build` ที่ตอบ 1 บรรทัดคือไม่ได้ build (มัน build จริง).
+
+### Next Recommended Agent
+
+builder ตัวใหม่ (fresh context) สำหรับ task 2 — เป็น task ที่ใหญ่สุดของ spec (port + repository query +
+command/handler 8 ขั้น + endpoint wire contract + ไฟล์ fakes ชุดแรกของ `tests/Payments.Tests`).
+
+### Next Steps
+
+1. อ่าน `.ai/shared/*` 5 ไฟล์ -> spec 3 ไฟล์ -> HANDOFF ทั้งไฟล์ (รวม section นี้).
+2. baseline: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` ต้องได้ 1128 passed / 0 failed (Payments.Tests 90) — ถ้าไม่ตรง หยุดแล้วรายงาน.
+3. implement task 2 ตาม design D1 + D4 (ลำดับ 8 ขั้นห้ามสลับ — ลำดับคือสิ่งที่ REQ-1.2/1.3/3.3/3.4/6.2
+   ผูกกับ status code). `PaymentMethods.Normalize` และ `connection.EnsureEligible` พร้อมใช้แล้ว ห้ามเขียน
+   เงื่อนไข eligibility ซ้ำใน handler (REQ-3.6).
+4. flip `- [x] 2.` + `Evidence:` ใน Edit เดียว (trap 2 + 13) -> `git add` -> รัน rename gate ซ้ำ (trap 12) ->
+   commit -> append section 2 ท้ายไฟล์นี้.
 </content>

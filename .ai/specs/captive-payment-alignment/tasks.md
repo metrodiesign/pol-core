@@ -39,7 +39,7 @@
 
 ---
 
-- [ ] 1. **Vocabulary + eligibility guard + adapter capability (domain/ports, isolated)** — เพิ่ม
+- [x] 1. **Vocabulary + eligibility guard + adapter capability (domain/ports, isolated)** — เพิ่ม
      `Payments.Domain.PaymentMethods` (const `Card`/`PromptPay`/`Installment` = `"card"`/`"promptpay"`/
      `"installment"`, `IsKnown`, `Normalize` ที่ trim+lower แล้ว throw `ArgumentException` ถ้าไม่รู้จัก);
      `Connection.EnsureEligible(string method)` ที่ throw **`InvalidOperationException`** (409) เมื่อ
@@ -51,6 +51,31 @@
      `Normalize` กับ `"CARD"`/`" card "`/`"paypal"`/`""`/null; `EnsureEligible` กับ connection ที่ปิด,
      method ไม่อยู่ในลิสต์, method อยู่ในลิสต์ (ผ่าน); `SupportedMethods` ของทั้ง 2 adapter.
      บวก `dotnet build pol-core.slnx -warnaserror` + `bash scripts/check-rename-identifiers.sh`.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+         (baseline before any edit: identical — 64 projects, 0 errors, 0 warnings).
+       - test: `dotnet test tests/Payments.Tests` -> 90 passed / 0 failed / 0 skipped (baseline 59 -> +31 new:
+         20 `PaymentMethodsTests`, 9 `ConnectionEligibilityTests`, 1 per adapter capability test).
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, 1128 passed / 0 failed
+         across 16 test projects. **Baseline (captured BEFORE any edit, for task 2+ to compare):** Admins 95,
+         Architecture 215, BuildingBlocks 43, Carts 15, Checkouts 7, Divisions 6, Hosts 341, Iam 62, Levels 6,
+         Merchants 115, Offices 6, Orders 68, Payments 59, Positions 6, Products 7, SharedKernel 46 = 1097
+         passed / 0 failed. After: every project identical except Payments.Tests 59 -> 90 (no regression).
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a live-code
+         token in src/ or tests/`. Rerun AFTER `git add` — the gate reads `git ls-files`, so the 3 new files were
+         invisible to the first (pre-`add`) run.
+       - test: `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 42 ข้อ ถูกอ้างครบใน
+         design.md และ tasks.md, EARS lint ผ่านทุกข้อ`.
+       - viewports: n/a — logic-only (domain vocabulary + guard + capability declaration), no browser surface.
+       - deviations: `SupportedMethods` เป็น **abstract บน `PspAdapterBase` + override ต่อ adapter** ไม่ใช่ default
+         ค่า `{ card }` บน base (design D2 ให้เลือก). base default ใหญ่กว่า 3 บรรทัดที่ประหยัดได้: adapter ใหม่ที่
+         honour card ไม่ได้จะ **inherit การเคลมว่าทำได้** เงียบ ๆ = silent substitution ที่ REQ-6 มีไว้กันโดยตรง;
+         และ abstract ตรงกับที่ base ประกาศสมาชิก `IPspAdapter` อื่นทุกตัวเป็น abstract อยู่แล้ว.
+         `ConnectionEligibilityTests` ตั้ง `IsEnabled = false` ผ่าน reflection (private setter) เพราะ `Connection`
+         ไม่มี `Disable()` — สถานะนั้นเกิดได้ทางเดียวคือ EF materialise แถวที่ admin ปิดไว้; การเพิ่ม `Disable()`
+         เป็น production method ที่ไม่มีผู้เรียกและอยู่นอก scope task นี้. ชื่อไฟล์/คลาสเป็น
+         `ConnectionEligibilityTests` (ไม่ใช่ `PspConnectionTests`) เพราะ `PspConnection` เป็น retired token
+         ของ rename gate (trap 1).
 
 - [ ] 2. **Create-session ตั้งราคาจาก Order + eligibility + capability + idempotent** — port
      `Payments.Application/Ports/IPayableOrderReader.cs` (+ record `PayableOrder`) และ impl

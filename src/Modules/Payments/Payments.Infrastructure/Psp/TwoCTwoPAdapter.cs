@@ -27,6 +27,11 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
     public override Code Psp => Code.TwoCTwoP;
 
+    /// <summary>Card only today: the paymentToken request is built with a card payment channel, so a
+    /// promptpay/installment request must be refused up-front instead of being charged as a card.</summary>
+    public override IReadOnlySet<string> SupportedMethods { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
+
     private string BaseUrl => Options.UseSandbox
         ? Options.TwoCTwoP.SandboxBaseUrl
         : Options.TwoCTwoP.ProductionBaseUrl;

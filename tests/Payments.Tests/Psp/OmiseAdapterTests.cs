@@ -31,6 +31,16 @@ public sealed class OmiseAdapterTests
         Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.Omise, DateTime.UtcNow);
 
     [Fact]
+    public void SupportedMethods_declares_card_only()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        // PromptPay is deferred and installment was never wired — the capability set must not claim
+        // either, so create-session refuses them instead of the charge call throwing NotSupported (500).
+        Assert.Equal(new[] { PaymentMethods.Card }, adapter.SupportedMethods);
+    }
+
+    [Fact]
     public async Task Card_charge_returns_hosted_authorize_uri_with_idempotency_key_and_minor_unit_amount()
     {
         var session = MakeSession("card");

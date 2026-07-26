@@ -36,6 +36,16 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "0000", webPaymentUrl, paymentToken = "tok_per_attempt" }), Key)));
 
     [Fact]
+    public void SupportedMethods_declares_card_only()
+    {
+        var (adapter, _) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
+
+        // paymentChannel is built for a card charge, so claiming promptpay/installment here would let
+        // create-session admit a method this adapter silently charges as a card instead.
+        Assert.Equal(new[] { PaymentMethods.Card }, adapter.SupportedMethods);
+    }
+
+    [Fact]
     public async Task CreateRedirectCharge_returns_hosted_url_and_stable_invoiceNo_key()
     {
         var session = MakeSession();

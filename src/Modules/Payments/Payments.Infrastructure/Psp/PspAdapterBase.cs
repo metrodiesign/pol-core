@@ -35,6 +35,11 @@ public abstract class PspAdapterBase : IPspAdapter
 
     public abstract Code Psp { get; }
 
+    /// <summary>Abstract, not a shared default: a base default would hand its capability set to a future
+    /// adapter that cannot honour those methods, which is the exact silent-substitution this declaration
+    /// exists to prevent. Every adapter states its own truth next to the code that implements it.</summary>
+    public abstract IReadOnlySet<string> SupportedMethods { get; }
+
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
         Session session, string secret, CancellationToken cancellationToken);
 
