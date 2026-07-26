@@ -479,7 +479,7 @@ envelope encryption ต่อ secret. PK = (MerchantId, Name). secret write-only
 | EncryptedSecret | varbinary(max) | N | | `0x8c14fa…` | ciphertext (เข้ารหัสด้วย DEK) — envelope JSON ของ PSP ที่ adapter parse ตอน reveal |
 | EncryptedDek | varbinary(max) | N | | `0x3ab902…` | DEK ห่อด้วย per-merchant KEK |
 | KeyId | nvarchar(64) | N | | `local-envelope-v1` (dev) / `vault-key-2026q3` | key id+version ที่ใช้ห่อ DEK — rotate master key ได้โดยไม่ต้องเข้ารหัส secret ใหม่ทั้งหมด |
-| Hint | nvarchar(16) | N | | `••••3a9f` (4 ตัวท้าย) | mask hint (ไม่ใช่ตัว secret); ค่าที่สั้นเกินไปถูก mask ทั้งตัว |
+| Hint | nvarchar(16) | N | | `3a9f` | 4 ตัวท้ายของค่าที่เข้ารหัส **ดิบๆ ไม่มี prefix mask** (`LastFour`) — ค่ายาว <= 4 ตัวเก็บเป็น `*` เท่าจำนวนตัวอักษรแทน. ฝั่ง provisioning เอา 4 ตัวท้ายของ **envelope JSON ทั้งก้อน** ไม่ใช่ของ secret เดี่ยว. ตัว `••••`/`****` ที่เห็นบนหน้าจอถูกเติมตอนแสดงผล ไม่ได้อยู่ในคอลัมน์นี้ |
 | CreatedAt | datetime2 | N | | `2026-07-26T08:15:00Z` | ตอน provision |
 | UpdatedAt | datetime2 | N | | `2026-07-26T08:15:00Z` (= CreatedAt จนกว่าจะ rotate) | ขยับตอน `Rotate` |
 
@@ -494,7 +494,7 @@ chain hash ต่อ merchant (`Seq` + `Hash`/`PrevHash`). หลัง 1-princi
 | Id | bigint (identity) | N | PK | `1` | identity ของ SQL Server (ต่อเนื่องข้าม merchant) |
 | MerchantId | uniqueidentifier | N | IX | `e1000000-…-0001` | index `(MerchantId, Id)` — ใช้หา head ของ chain |
 | Seq | bigint | N | UQ | `1` (แถวแรกของ merchant นั้น) | unique `(MerchantId, Seq)` — ลำดับต่อ merchant เริ่มที่ 1 ไม่ใช่ต่อทั้งตาราง |
-| Hash | varbinary(32) | N | | `0x7d21e9…` (SHA-256) | hash ของ entry นี้ = H(PrevHash, MerchantId, SecretName, Seq, RevealedAt) |
+| Hash | varbinary(32) | N | | `0x7d21e9…` (SHA-256) | hash ของ entry นี้ = SHA-256 ของ buffer ที่ต่อกันตามลำดับนี้เป๊ะ (`VaultRevealAudit.ComputeHash`): `PrevHash` 32 bytes ++ `MerchantId` GUID 16 bytes (`Guid.TryWriteBytes`) ++ ความยาวชื่อ int32 little-endian 4 bytes ++ `SecretName` UTF-8 ++ `RevealedAt.Ticks` int64 little-endian ++ `Seq` int64 little-endian. **RevealedAt มาก่อน Seq** และชื่อถูก length-prefix ไว้กันความกำกวมของการต่อ string |
 | PrevHash | varbinary(32) | N | | `0x0000…00` (32 zero bytes ที่ Seq=1) | hash ของ entry ก่อนหน้า (chain) — genesis ของทุก merchant คือศูนย์ 32 bytes |
 | SecretName | nvarchar(128) | N | | `psp/vprivilege/2c2p` | ชื่อ secret ที่ถูกเปิดอ่าน (ไม่ใช่ค่าที่อ่านได้) |
 | RevealedAt | datetime2 | N | | `2026-07-26T08:15:00Z` | เวลาที่ reveal — เป็น input ของ hash ด้วย จึงแก้ย้อนหลังไม่ได้แบบเงียบ |
@@ -755,9 +755,9 @@ webhook resolve merchant จากตารางนี้ตรงๆ (proc `us
 | Id | uniqueidentifier | N | PK | `e8000000-…-0001` | id นี้ถูกใส่ในทั้ง webhook URL และ idempotency key |
 | MerchantId | uniqueidentifier | N | UQ | `e1000000-…-0001` | unique `(MerchantId, Psp)` — 1 merchant มีได้ 1 connection ต่อ PSP |
 | Psp | int | N | UQ | `0` (2C2P) | `Code` — wire code เป็น `"2c2p"`/`"omise"` |
-| EnabledMethods | nvarchar(256) | N | | `card,promptpay,installment` | CSV ของ method — ต้องเป็น subset ของ `merch.Merchants.EnabledChannels` |
+| EnabledMethods | nvarchar(256) | N | | `card,promptpay,installment` | CSV ของ method. runtime บังคับแค่ว่า **ต้องไม่ว่าง** (`ProvisionMerchantHandler` + `Connection.Create`) — ไม่มีที่ไหนเทียบกับ `merch.Merchants.EnabledChannels` เลย ค่านอก channel จึงบันทึกลงได้; ที่ seed ทำให้เป็น subset เป็นคุณสมบัติของ `seed-demo.sql` ไม่ใช่ invariant ของ model |
 | SecretRefName | nvarchar(128) | N | | `psp/vprivilege/2c2p` | -> `merch.VaultSecrets.Name` (write-only secret). seed ตั้งชื่อไว้เฉยๆ โดยไม่มี secret จริงหนุนหลัง |
-| Metadata | nvarchar(max) | Y | | `NULL` / `{"Config":{…},"MerchantId":"…","SecretHints":{"secretKey":"****3a9f"}}` | non-secret PSP config verbatim + masked hint สำหรับอ่านกลับ |
+| Metadata | nvarchar(max) | Y | | `NULL` / `{"Config":{…},"MerchantId":"…","SecretHints":{"secretKey":"3a9f"}}` | non-secret PSP config verbatim + hint สำหรับอ่านกลับ. `SecretHints` เก็บ **4 ตัวท้ายดิบๆ** เหมือน `merch.VaultSecrets.Hint` — prefix `****` ถูกเติมตอนประกอบ response ไม่ได้ลง DB |
 | IsEnabled | bit | N | | `1` | ปิดชั่วคราวด้วย 0 โดยไม่ต้องลบ config |
 | CreatedAt | datetime2 | N | | `2026-07-26T08:15:00Z` | ตอน provision |
 
