@@ -340,6 +340,66 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         }
     }
 
+    // ---------------------------------------------------------------- Codex P1: stale pre-bind transitions must not interleave
+
+    [Fact]
+    public async Task A_stale_reject_loses_to_a_committed_approve_and_rolls_back_whole()
+    {
+        // Two admin requests load the SAME pending subject concurrently. The reject's snapshot is stale by
+        // the time it saves (the approve committed first) — the Status/MerchantId concurrency tokens must
+        // fail its WHOLE transaction, never let it stamp Rejected over an Active, merchant-bound account.
+        await SeedViaSubmitAsync("lc-race-reject");
+
+        using var staleScope = AdminPlaneScope();
+        var stale = await staleScope.Store.FindBySubjectAsync("lc-race-reject", CancellationToken.None);
+
+        using (var winner = AdminPlaneScope())
+            await winner.ApproveHandler().Handle(
+                new ApproveCommand("lc-race-reject", MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
+                CancellationToken.None);
+
+        stale!.Reject(DateTime.UtcNow);
+        staleScope.Audits.Append(RegistrationAudit.For(
+            RegistrationAuditAction.Rejected, "lc-race-reject", "corr-l", DateTime.UtcNow, actorSubject: "admin-2"));
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => staleScope.UnitOfWork.SaveChangesAsync(CancellationToken.None));
+
+        var row = await LoadAsync("lc-race-reject");
+        Assert.Equal(UserStatus.Active, row.Status);
+        Assert.Equal(MerchantA, row.MerchantId);
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        Assert.False(await db.RegistrationAudits.AnyAsync(
+            a => a.TargetSubject == "lc-race-reject" && a.Action == RegistrationAuditAction.Rejected));
+    }
+
+    [Fact]
+    public async Task A_stale_second_approve_cannot_double_bind_merchants()
+    {
+        await SeedViaSubmitAsync("lc-race-approve");
+
+        using var staleScope = AdminPlaneScope();
+        var stale = await staleScope.Store.FindBySubjectAsync("lc-race-approve", CancellationToken.None);
+
+        using (var winner = AdminPlaneScope())
+            await winner.ApproveHandler().Handle(
+                new ApproveCommand("lc-race-approve", MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
+                CancellationToken.None);
+
+        // A DIFFERENT role id than the winner's: the (MerchantUserId, RoleId) unique index therefore cannot
+        // catch this race — only the Status/MerchantId concurrency tokens can (same-role races already die on
+        // the unique index as a 409).
+        var otherRoleId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        stale!.Approve(MerchantB, DateTime.UtcNow);
+        staleScope.Roles.AddAssignment(RoleAssignment.Create(stale.Id, otherRoleId, MerchantB, ActingAdminId, DateTime.UtcNow));
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(
+            () => staleScope.UnitOfWork.SaveChangesAsync(CancellationToken.None));
+
+        var row = await LoadAsync("lc-race-approve");
+        Assert.Equal(MerchantA, row.MerchantId); // the committed merchant, never overwritten to B
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        Assert.Equal(1, await db.RoleAssignments.IgnoreQueryFilters().CountAsync(a => a.MerchantUserId == row.Id));
+    }
+
     // ---------------------------------------------------------------- pin: WHY the seam split exists (green today)
 
     [Fact]
