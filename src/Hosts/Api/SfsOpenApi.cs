@@ -17,14 +17,14 @@ internal static class SfsOpenApi
     public static void AddQueryParameters(OpenApiOperation operation)
     {
         operation.Parameters ??= [];
-        operation.Parameters.Add(Param("page", JsonSchemaType.Integer, "1-based page number (default 1; clamped to >= 1)."));
-        operation.Parameters.Add(Param("limit", JsonSchemaType.Integer, "Page size (default 25; clamped to 1..100)."));
+        operation.Parameters.Add(Param("page", JsonSchemaType.Integer, "เลขหน้าแบบเริ่มที่ 1 (ค่าเริ่มต้น 1; clamp ไม่ให้ต่ำกว่า 1)"));
+        operation.Parameters.Add(Param("limit", JsonSchemaType.Integer, "จำนวนรายการต่อหน้า (ค่าเริ่มต้น 25; clamp ในช่วง 1 ถึง 100)"));
         operation.Parameters.Add(Param("filters", JsonSchemaType.String,
-            "URL-encoded JSON array of filter clauses: [{\"field\",\"operator\",\"value\"|\"values\"}]."));
+            "JSON array ของเงื่อนไข filter แบบ URL-encoded: [{\"field\",\"operator\",\"value\"|\"values\"}]"));
         operation.Parameters.Add(Param("sort", JsonSchemaType.String,
-            "URL-encoded JSON array of sort clauses: [{\"field\",\"order\":\"ASC\"|\"DESC\"}]."));
+            "JSON array ของเงื่อนไข sort แบบ URL-encoded: [{\"field\",\"order\":\"ASC\"|\"DESC\"}]"));
         operation.Parameters.Add(Param("search", JsonSchemaType.String,
-            "URL-encoded JSON search object: {\"query\",\"fields\":[...]}."));
+            "JSON object สำหรับค้นหาแบบ URL-encoded: {\"query\",\"fields\":[...]}"));
     }
 
     private static OpenApiParameter Param(string name, JsonSchemaType type, string description) => new()

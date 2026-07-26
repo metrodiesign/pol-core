@@ -292,28 +292,30 @@ builder.Services.AddOpenApi(options =>
         document.Info.Title = "pol-core API";
         document.Info.Version = "v1";
         document.Info.Description =
-            "Captive payment orchestration (redirect-only, PCI SAQ A). Merchant storefront surface + Admin BFF + MerchantUser BFF.";
+            "ระบบจัดการการชำระเงินแบบ captive (redirect-only, PCI SAQ A) ประกอบด้วยหน้าร้านฝั่ง Merchant, Admin BFF และ MerchantUser BFF";
 
         // x-tagGroups: nest the 18 route tags under the 12 src/Modules/* business modules that back them
         // (see docs/reference/src-structure.md §4 for the tag-to-module map), instead of a flat tag list.
-        // Webhooks rides on Payments and Admin Auth/MerchantUser Auth ride on the Admins/Merchants identity
+        // Webhooks rides on Payments and Auth/MerchantUser Auth ride on the Admins/Merchants identity
         // modules (their BFF plumbing lives in Hosts/Api/*, but the operations are that module's concern) —
         // both have no module folder of their own, so they group under the module whose data they touch.
+        // Group/tag display names are Thai (Scalar sidebar content); "Webhooks" and "Iam" stay English —
+        // established protocol/security acronyms, not translated business content.
         document.Extensions ??= new Dictionary<string, IOpenApiExtension>();
         document.Extensions["x-tagGroups"] = new JsonNodeExtension(JsonNode.Parse("""
             [
-              { "name": "Products", "tags": ["Products"] },
-              { "name": "Carts", "tags": ["Cart"] },
-              { "name": "Checkouts", "tags": ["Checkout"] },
-              { "name": "Orders", "tags": ["Orders", "Admin Orders"] },
-              { "name": "Payments", "tags": ["Payments", "Webhooks"] },
-              { "name": "Merchants", "tags": ["Admin Merchants", "MerchantUser Auth", "Admin MerchantUsers"] },
-              { "name": "Admins", "tags": ["Admin Admins", "Admin Auth"] },
-              { "name": "Iam", "tags": ["Admin Roles", "MerchantUser Roles"] },
-              { "name": "Divisions", "tags": ["Divisions"] },
-              { "name": "Levels", "tags": ["Levels"] },
-              { "name": "Offices", "tags": ["Offices"] },
-              { "name": "Positions", "tags": ["Positions"] }
+              { "name": "ผลิตภัณฑ์", "tags": ["ผลิตภัณฑ์"] },
+              { "name": "ตะกร้าสินค้า", "tags": ["ตะกร้าสินค้า"] },
+              { "name": "เช็คเอาต์", "tags": ["เช็คเอาต์"] },
+              { "name": "คำสั่งซื้อ", "tags": ["คำสั่งซื้อ", "คำสั่งซื้อ (ผู้ดูแลระบบ)"] },
+              { "name": "การชำระเงิน", "tags": ["การชำระเงิน", "Webhooks"] },
+              { "name": "ร้านค้า", "tags": ["ร้านค้า (ผู้ดูแลระบบ)", "การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)", "ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)"] },
+              { "name": "ผู้ดูแลระบบ", "tags": ["ผู้ดูแลระบบ", "การเข้าสู่ระบบ"] },
+              { "name": "Iam", "tags": ["บทบาท (ผู้ดูแลระบบ)", "บทบาท (ผู้ใช้ร้านค้า)"] },
+              { "name": "แผนก", "tags": ["แผนก"] },
+              { "name": "ระดับ", "tags": ["ระดับ"] },
+              { "name": "สำนักงาน", "tags": ["สำนักงาน"] },
+              { "name": "ตำแหน่ง", "tags": ["ตำแหน่ง"] }
             ]
             """)!);
 
@@ -327,17 +329,17 @@ builder.Services.AddOpenApi(options =>
             // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
             // see the cookie they actually have.
             Name = SessionCookies.SessionCookieNameDevHttp,
-            Description = "Admin BFF session cookie issued by the OIDC login flow (GET /api/v1/admins/auth/login). "
-                + "Set automatically in the browser. Production (HTTPS) uses the `__Host-adm_session` name.",
+            Description = "คุกกี้ session ของ Admin BFF ที่ออกโดย OIDC login flow (GET /api/v1/admins/auth/login) "
+                + "ตั้งค่าให้อัตโนมัติในเบราว์เซอร์ บน production (HTTPS) จะใช้ชื่อคุกกี้ `__Host-adm_session`",
         };
         document.Components.SecuritySchemes["MerchantUserSession"] = new OpenApiSecurityScheme
         {
             Type = SecuritySchemeType.ApiKey,
             In = ParameterLocation.Cookie,
             Name = UserSessionCookies.SessionCookieNameDevHttp,
-            Description = "Merchant-user BFF session cookie issued by the OIDC login flow (GET /api/v1/merchants/users/auth/login). "
-                + "Set automatically in the browser. Production (HTTPS) uses the `__Host-mch_session` name (T11 — "
-                + "single-scheme, the legacy Bearer fallback is retired).",
+            Description = "คุกกี้ session ของ MerchantUser BFF ที่ออกโดย OIDC login flow (GET /api/v1/merchants/users/auth/login) "
+                + "ตั้งค่าให้อัตโนมัติในเบราว์เซอร์ บน production (HTTPS) จะใช้ชื่อคุกกี้ `__Host-mch_session` (T11 — "
+                + "single-scheme แล้ว ของเดิมที่ fallback เป็น Bearer ถูก retired ไปแล้ว)",
         };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
@@ -572,8 +574,8 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
 }).RequireRateLimiting(RateLimiting.PolicyName)
     .WithTags("Webhooks")
     .WithName("HandlePspWebhook")
-    .WithSummary("PSP webhook callback")
-    .WithDescription("Verify the PSP signature, claim idempotency, confirm the payment and emit PaymentPaid. Routed by the trusted connection id; unknown id -> 404, bad signature -> 401.")
+    .WithSummary("Webhook callback จาก PSP")
+    .WithDescription("ตรวจสอบลายเซ็นของ PSP, claim idempotency, ยืนยันการชำระเงิน แล้ว emit event PaymentPaid โดย route ตาม trusted connection id หากไม่พบ id -> 404, ลายเซ็นไม่ถูกต้อง -> 401")
     .Produces<WebhookResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -597,10 +599,10 @@ var createProduct = api.MapPost("/products", async (
     return TypedResults.Ok(new CreateProductResponse(id));
 });
 createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)
-    .WithTags("Products")
+    .WithTags("ผลิตภัณฑ์")
     .WithName("CreateProduct")
-    .WithSummary("Create a product")
-    .WithDescription("Create a catalog product for the authenticated merchant. Requires the merchant-user policy + product.create.")
+    .WithSummary("สร้างผลิตภัณฑ์")
+    .WithDescription("สร้างผลิตภัณฑ์ในแคตตาล็อกให้กับร้านค้าที่ยืนยันตัวตนแล้ว ต้องมี merchant-user policy + สิทธิ์ product.create")
     .Produces<CreateProductResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -621,10 +623,10 @@ api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator 
 })
     .RequireAuthorization("merchant-user")
     .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("Products")
+    .WithTags("ผลิตภัณฑ์")
     .WithName("ListProducts")
-    .WithSummary("List products")
-    .WithDescription("Paged catalog for the authenticated merchant. Supports SFS (page, limit, filters, sort, search) plus a typed productFilters object.")
+    .WithSummary("รายการผลิตภัณฑ์")
+    .WithDescription("แคตตาล็อกแบบแบ่งหน้าของร้านค้าที่ยืนยันตัวตนแล้ว รองรับ SFS (page, limit, filters, sort, search) บวก productFilters object ที่มี type กำกับ")
     .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -636,10 +638,10 @@ api.MapPost("/carts", async (IActorContext actor, IMediator mediator, Cancellati
     var id = await mediator.Send(new CreateCartCommand(actor.MerchantId), ct);
     return TypedResults.Ok(new CreateCartResponse(id));
 }).RequireAuthorization("merchant-user")
-    .WithTags("Cart")
+    .WithTags("ตะกร้าสินค้า")
     .WithName("CreateCart")
-    .WithSummary("Open a cart")
-    .WithDescription("Open a new empty cart for the authenticated merchant.")
+    .WithSummary("เปิดตะกร้าสินค้า")
+    .WithDescription("เปิดตะกร้าสินค้าเปล่าใหม่ให้กับร้านค้าที่ยืนยันตัวตนแล้ว")
     .Produces<CreateCartResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -656,10 +658,10 @@ api.MapPost("/carts/{cartId:guid}/items", async (
         cartId, actor.MerchantId, body.ProductId, body.Quantity, product.Price), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Cart")
+    .WithTags("ตะกร้าสินค้า")
     .WithName("AddCartItem")
-    .WithSummary("Add an item to a cart")
-    .WithDescription("Add a catalog product line to the cart, priced from the catalog. Unknown or inactive product -> 400.")
+    .WithSummary("เพิ่มรายการสินค้าในตะกร้า")
+    .WithDescription("เพิ่ม product line จากแคตตาล็อกเข้าตะกร้า โดยตั้งราคาตามแคตตาล็อก หากไม่พบผลิตภัณฑ์หรือไม่ active -> 400")
     .Produces<AddItemResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -670,10 +672,10 @@ api.MapGet("/carts/{cartId:guid}", async (
     var view = await mediator.Send(new GetCartQuery(cartId, actor.MerchantId), ct);
     return view is null ? Results.NotFound() : Results.Ok(view);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Cart")
+    .WithTags("ตะกร้าสินค้า")
     .WithName("GetCart")
-    .WithSummary("Review a cart")
-    .WithDescription("Return the cart with its lines and quoted subtotal. Unknown cart -> 404.")
+    .WithSummary("ดูตะกร้าสินค้า")
+    .WithDescription("คืนตะกร้าพร้อม line ทั้งหมดและ subtotal ที่คำนวณราคาแล้ว หากไม่พบตะกร้า -> 404")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -684,10 +686,10 @@ api.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
     var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, actor.MerchantId, productId), ct);
     return TypedResults.Ok(view);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Cart")
+    .WithTags("ตะกร้าสินค้า")
     .WithName("RemoveCartItem")
-    .WithSummary("Remove a cart line")
-    .WithDescription("Remove a product line from the cart and return the updated cart.")
+    .WithSummary("ลบรายการในตะกร้า")
+    .WithDescription("ลบ product line ออกจากตะกร้า แล้วคืนตะกร้าที่อัปเดตแล้ว")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -697,10 +699,10 @@ api.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
     var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, actor.MerchantId, productId, body.Quantity), ct);
     return TypedResults.Ok(view);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Cart")
+    .WithTags("ตะกร้าสินค้า")
     .WithName("SetCartItemQuantity")
-    .WithSummary("Set a cart line quantity")
-    .WithDescription("Adjust the quantity of a product line and return the updated cart.")
+    .WithSummary("ปรับจำนวนรายการในตะกร้า")
+    .WithDescription("ปรับจำนวนของ product line แล้วคืนตะกร้าที่อัปเดตแล้ว")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -710,10 +712,10 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
     var view = await mediator.Send(new ClearCartCommand(cartId, actor.MerchantId), ct);
     return TypedResults.Ok(view);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Cart")
+    .WithTags("ตะกร้าสินค้า")
     .WithName("ClearCart")
-    .WithSummary("Clear a cart")
-    .WithDescription("Remove every line from the cart and return the emptied cart.")
+    .WithSummary("ล้างตะกร้าสินค้า")
+    .WithDescription("ลบทุก line ออกจากตะกร้า แล้วคืนตะกร้าที่ว่างแล้ว")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -759,10 +761,10 @@ api.MapPost("/checkouts", async (
         new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, items, body.Recipient), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Checkout")
+    .WithTags("เช็คเอาต์")
     .WithName("StartCheckout")
-    .WithSummary("Start checkout")
-    .WithDescription("Price a checkout from the cart subtotal (never a client amount), snapshotting insurance terms server-side. Unknown cart -> 404, empty/mismatched/qty!=1 -> 400, inactive product -> 409.")
+    .WithSummary("เริ่มเช็คเอาต์")
+    .WithDescription("คำนวณราคาเช็คเอาต์จาก subtotal ของตะกร้า (ไม่ใช้จำนวนเงินจาก client) พร้อม snapshot เงื่อนไขประกันฝั่ง server หากไม่พบตะกร้า -> 404, ตะกร้าว่าง/ไม่ตรงกัน/qty!=1 -> 400, ผลิตภัณฑ์ไม่ active -> 409")
     .Produces<StartCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -775,10 +777,10 @@ api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
     var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, actor.MerchantId), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Checkout")
+    .WithTags("เช็คเอาต์")
     .WithName("ConfirmCheckout")
-    .WithSummary("Confirm checkout")
-    .WithDescription("Confirm the checkout session, emitting CheckoutConfirmed so Orders opens the order.")
+    .WithSummary("ยืนยันเช็คเอาต์")
+    .WithDescription("ยืนยัน checkout session แล้ว emit event CheckoutConfirmed เพื่อให้ Orders เปิดคำสั่งซื้อ")
     .Produces<ConfirmCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -793,10 +795,10 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
 createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentCreate)
-    .WithTags("Payments")
+    .WithTags("การชำระเงิน")
     .WithName("CreatePaymentSession")
-    .WithSummary("Create a payment session")
-    .WithDescription("Open a payment session for an order against the chosen method/PSP. Requires the merchant-user policy + payment.create.")
+    .WithSummary("สร้าง payment session")
+    .WithDescription("เปิด payment session ให้คำสั่งซื้อตาม method/PSP ที่เลือก ต้องมี merchant-user policy + สิทธิ์ payment.create")
     .Produces<CreatePaymentSessionResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -814,10 +816,10 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 });
 startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentRedirect)
-    .WithTags("Payments")
+    .WithTags("การชำระเงิน")
     .WithName("StartPaymentRedirect")
-    .WithSummary("Start the PSP redirect")
-    .WithDescription("Claim then charge: return the PSP redirect URL for the payment session. Requires the merchant-user policy + payment.redirect. Not found -> 404, illegal/concurrent state -> 409.")
+    .WithSummary("เริ่ม redirect ไปยัง PSP")
+    .WithDescription("claim แล้ว charge: คืน URL redirect ของ PSP สำหรับ payment session ต้องมี merchant-user policy + สิทธิ์ payment.redirect หากไม่พบ -> 404, สถานะไม่ถูกต้อง/ชนกัน -> 409")
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -840,10 +842,10 @@ api.MapGet("/orders/{token}/summary", async (
         summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId,
         summary.Lines.Select(l => new OrderSummaryLineResponse(l.ProductId, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
 }).AllowAnonymous()
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("GetOrderSummary")
-    .WithSummary("Order summary by link")
-    .WithDescription("Public capability link: the opaque token resolves the order summary anonymously. Unknown token -> 404, expired -> 410. Each insured person's IdNumber is masked and DateOfBirth is never included.")
+    .WithSummary("สรุปคำสั่งซื้อผ่านลิงก์")
+    .WithDescription("capability link แบบสาธารณะ: opaque token จะ resolve สรุปคำสั่งซื้อแบบไม่ระบุตัวตนได้ หากไม่พบ token -> 404, หมดอายุ -> 410 เลข IdNumber ของผู้เอาประกันแต่ละคนจะถูก mask และไม่ส่ง DateOfBirth กลับมาเลย")
     .Produces<OrderSummaryResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status410Gone);
@@ -854,10 +856,10 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, actor.MerchantId), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("ResendOrderSummary")
-    .WithSummary("Resend the order summary link")
-    .WithDescription("Rotate the order summary token and extend its TTL, returning the fresh link.")
+    .WithSummary("ส่งลิงก์สรุปคำสั่งซื้อซ้ำ")
+    .WithDescription("หมุน token ของสรุปคำสั่งซื้อและต่ออายุ TTL แล้วคืนลิงก์ใหม่")
     .Produces<ResendOrderSummaryResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -867,10 +869,10 @@ api.MapGet("/orders", async (IActorContext actor, IMediator mediator, Cancellati
     var result = await mediator.Send(new GetOrdersQuery(actor.MerchantId), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("ListOrders")
-    .WithSummary("List the bound merchant's orders")
-    .WithDescription("Every line's InsuredIdNumber is masked (last 4 visible). Use the detail read for the full value.")
+    .WithSummary("รายการคำสั่งซื้อของร้านค้าที่ผูกอยู่")
+    .WithDescription("InsuredIdNumber ของทุก line จะถูก mask (เห็นแค่ 4 ตัวท้าย) ใช้ endpoint อ่านรายละเอียดถ้าต้องการค่าเต็ม")
     .Produces<OrdersListView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -884,10 +886,10 @@ api.MapGet("/orders/{orderId:guid}", async (
         new GetOrderDetailCommand(actor.MerchantId, orderId, "merchant-user", actor.UserId!.Value.ToString()), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("GetOrderDetail")
-    .WithSummary("Read one order in full, with an audit trail")
-    .WithDescription("Every line's InsuredIdNumber is returned in full. Writes one reveal-audit row per line returned; the read fails closed (5xx, no PII) if the audit write fails.")
+    .WithSummary("อ่านคำสั่งซื้อแบบเต็มพร้อม audit trail")
+    .WithDescription("InsuredIdNumber ของทุก line จะคืนค่าเต็ม เขียน reveal-audit หนึ่งแถวต่อหนึ่ง line ที่คืนค่า ถ้าเขียน audit ไม่สำเร็จ จะ fail closed (5xx, ไม่คืนข้อมูล PII)")
     .Produces<OrderDetailView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound);
@@ -907,10 +909,10 @@ api.MapPut("/orders/{orderId:guid}/items/{itemId:guid}/policy", async (
         new UpsertItemPolicyCommand(actor.MerchantId, itemId, input, actor.UserId!.Value.ToString()), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user").RequirePermission(Keys.PoliciesWrite)
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("UpsertItemPolicy")
-    .WithSummary("Record an item's external insurance-policy reference")
-    .WithDescription("Create or update the external policy-reference data for one order item. Requires the merchant-user policy + policies.write. Unknown item, or one under another merchant, is 404.")
+    .WithSummary("บันทึกเลขอ้างอิงกรมธรรม์ภายนอกของ item")
+    .WithDescription("สร้างหรืออัปเดตข้อมูล policy-reference ภายนอกของหนึ่ง order item ต้องมี merchant-user policy + สิทธิ์ policies.write หากไม่พบ item หรือ item อยู่ร้านค้าอื่น -> 404")
     .Produces<UpsertItemPolicyResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -923,10 +925,10 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
     var view = await mediator.Send(new GetReconciliationSummaryQuery(actor.MerchantId), ct);
     return TypedResults.Ok(view);
 }).RequireAuthorization("merchant-user")
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("GetReconciliationReport")
-    .WithSummary("Reconciliation report")
-    .WithDescription("The bound merchant's orders grouped by status and currency (count + total).")
+    .WithSummary("รายงาน reconciliation")
+    .WithDescription("คำสั่งซื้อของร้านค้าที่ผูกอยู่ จัดกลุ่มตามสถานะและสกุลเงิน (จำนวน + ยอดรวม)")
     .Produces<ReconciliationView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -944,10 +946,10 @@ api.MapGet("/reports/policies", async (HttpContext http, IActorContext actor, IM
 })
     .RequireAuthorization("merchant-user").RequirePermission(Keys.PoliciesRead)
     .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("Orders")
+    .WithTags("คำสั่งซื้อ")
     .WithName("ListPolicyReport")
-    .WithSummary("Policy reference report (own merchant)")
-    .WithDescription("Paged report of sold items' external policy references, insurance category, premium settlement, and derived payment status. Requires the merchant-user policy + policies.read. Supports SFS (page, limit, filters, sort).")
+    .WithSummary("รายงานเลขอ้างอิงกรมธรรม์ (ร้านค้าตัวเอง)")
+    .WithDescription("รายงานแบบแบ่งหน้าของ external policy reference, insurance category, การเคลียร์เบี้ยประกัน และสถานะการชำระเงินที่คำนวณได้ ของ item ที่ขายแล้ว ต้องมี merchant-user policy + สิทธิ์ policies.read รองรับ SFS (page, limit, filters, sort)")
     .Produces<PagedResult<PolicyReportItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -978,10 +980,10 @@ admin.MapGet("/auth/{provider}/login", (
 })
 .AllowAnonymous()
 .RequireRateLimiting(AuthRateLimiting.PolicyName)
-    .WithTags("Admin Auth")
+    .WithTags("การเข้าสู่ระบบ")
     .WithName("AdminLogin")
-    .WithSummary("Begin admin login")
-    .WithDescription("Validate returnTo against the allowlist, then redirect to the provider (google/microsoft; OIDC Authorization Code + PKCE). The callback establishes the session cookie. Unknown or unconfigured provider -> 404.")
+    .WithSummary("เริ่มเข้าสู่ระบบผู้ดูแลระบบ")
+    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง provider (google/microsoft; OIDC Authorization Code + PKCE) callback จะเป็นตัวสร้าง session cookie หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
     .Produces(StatusCodes.Status302Found)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
@@ -1007,10 +1009,10 @@ admin.MapPost("/auth/logout", async (
     cookies.Clear(http);
     return Results.NoContent();
 }).RequireAuthorization("admin")
-    .WithTags("Admin Auth")
+    .WithTags("การเข้าสู่ระบบ")
     .WithName("AdminLogout")
-    .WithSummary("Log out this device")
-    .WithDescription("Revoke the current session family (this device only) and clear the cookie.")
+    .WithSummary("ออกจากระบบเครื่องนี้")
+    .WithDescription("เพิกถอน session family ปัจจุบัน (เฉพาะเครื่องนี้) แล้วล้างคุกกี้")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1026,10 +1028,10 @@ admin.MapPost("/auth/logout-all", async (
     cookies.Clear(http);
     return Results.NoContent();
 }).RequireAuthorization("admin")
-    .WithTags("Admin Auth")
+    .WithTags("การเข้าสู่ระบบ")
     .WithName("AdminLogoutAll")
-    .WithSummary("Log out all devices")
-    .WithDescription("Revoke every session of this admin across all devices and clear the cookie.")
+    .WithSummary("ออกจากระบบทุกเครื่อง")
+    .WithDescription("เพิกถอนทุก session ของผู้ดูแลระบบคนนี้ในทุกเครื่อง แล้วล้างคุกกี้")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1084,10 +1086,10 @@ api.MapPost("/merchants", async (
 })
     .AddEndpointFilter<CsrfFilter>() // re-attached explicitly — no longer inherited from the /admins group (REQ-7.1)
     .RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super) // provisioning is Super-only (REQ-8.4)
-    .WithTags("Admin Merchants")
+    .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("ProvisionMerchant")
-    .WithSummary("Provision a merchant")
-    .WithDescription("Super-only. Create a merchant with its PSP connections (secrets vaulted, config stored verbatim). Duplicate code -> 409, bad input -> 400.")
+    .WithSummary("Provision ร้านค้าใหม่")
+    .WithDescription("เฉพาะ Super สร้างร้านค้าพร้อม PSP connection (secret เก็บใน vault, config เก็บตามที่ส่งมา) รหัสซ้ำ -> 409, input ไม่ถูกต้อง -> 400")
     .Produces<ProvisionMerchantResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1107,10 +1109,10 @@ api.MapGet("/merchants/{code}", async (
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
 }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin") // GET is CSRF-exempt by design; attached for REQ-7.1
-    .WithTags("Admin Merchants")
+    .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("GetMerchant")
-    .WithSummary("Read a merchant by code")
-    .WithDescription("Scoped admins see only assigned merchants; Super is unrestricted. Out-of-scope or unknown -> 404 (no existence leak).")
+    .WithSummary("อ่านข้อมูลร้านค้าตามรหัส")
+    .WithDescription("admin แบบ Scoped เห็นเฉพาะร้านค้าที่ถูก assign ให้; Super เห็นได้ไม่จำกัด นอก scope หรือไม่พบ -> 404 (ไม่รั่วว่ามีอยู่จริงหรือไม่)")
     .Produces<MerchantView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -1142,10 +1144,10 @@ merchantAuthAnon.MapGet("/{provider}/login", (
 })
 .AllowAnonymous()
 .RequireRateLimiting(UserAuthRateLimiting.PolicyName)
-    .WithTags("MerchantUser Auth")
+    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserLogin")
-    .WithSummary("Begin merchant-user login")
-    .WithDescription("Validate returnTo against the allowlist, then redirect to the provider (google/microsoft; OIDC Authorization Code + PKCE). The callback establishes a session cookie for an Active merchant-user, or redirects an applicant to /register with a signed ticket. Unknown or unconfigured provider -> 404.")
+    .WithSummary("เริ่มเข้าสู่ระบบผู้ใช้ร้านค้า")
+    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง provider (google/microsoft; OIDC Authorization Code + PKCE) callback จะสร้าง session cookie ให้ merchant-user ที่ Active หรือ redirect ผู้สมัครไป /register พร้อม ticket ที่เซ็นแล้ว หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
     .Produces(StatusCodes.Status302Found)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
@@ -1228,10 +1230,10 @@ merchantUsersAnon.MapPost("/register", async (
     .AllowAnonymous()
     .DisableAntiforgery()
     .RequireRateLimiting(UserAuthRateLimiting.PolicyName)
-    .WithTags("MerchantUser Auth")
+    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserRegister")
-    .WithSummary("Submit a merchant-user registration")
-    .WithDescription("Anonymous, ticket-gated multipart submission (form + optional photo). Creates a PendingApproval MerchantUser and enqueues a registration event. Invalid/expired ticket -> 400; duplicate/replay (unique Subject index) -> 409; oversize -> 413.")
+    .WithSummary("ส่งคำขอลงทะเบียนผู้ใช้ร้านค้า")
+    .WithDescription("ส่งข้อมูลแบบ multipart โดยไม่ต้องยืนยันตัวตน แต่ต้องมี ticket กำกับ (form + รูปถ่าย ไม่บังคับ) สร้าง MerchantUser สถานะ PendingApproval แล้ว enqueue registration event หาก ticket ไม่ถูกต้อง/หมดอายุ -> 400; ส่งซ้ำ/replay (unique Subject index) -> 409; ไฟล์ใหญ่เกินไป -> 413")
     .Accepts<IFormFile>("multipart/form-data")
     .Produces<UserRegisterResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -1273,10 +1275,10 @@ merchantAuth.MapPost("/logout", async (
     cookies.Clear(http);
     return Results.NoContent();
 }).RequireAuthorization("merchant-user")
-    .WithTags("MerchantUser Auth")
+    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserLogout")
-    .WithSummary("Log out this device")
-    .WithDescription("Revoke the current merchant-user session family (this device only) and clear the cookie.")
+    .WithSummary("ออกจากระบบเครื่องนี้")
+    .WithDescription("เพิกถอน session family ปัจจุบันของผู้ใช้ร้านค้า (เฉพาะเครื่องนี้) แล้วล้างคุกกี้")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1292,10 +1294,10 @@ merchantAuth.MapPost("/logout-all", async (
     cookies.Clear(http);
     return Results.NoContent();
 }).RequireAuthorization("merchant-user")
-    .WithTags("MerchantUser Auth")
+    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserLogoutAll")
-    .WithSummary("Log out all devices")
-    .WithDescription("Revoke every session of this merchant-user across all devices and clear the cookie.")
+    .WithSummary("ออกจากระบบทุกเครื่อง")
+    .WithDescription("เพิกถอนทุก session ของผู้ใช้ร้านค้าคนนี้ในทุกเครื่อง แล้วล้างคุกกี้")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1309,10 +1311,10 @@ merchantUsers.MapGet("/me", async (IUserScope scope, IMerchantRoleRepository rol
     var roleCodes = await roles.ListActiveRoleCodesForUserAsync(me.MerchantUserId, me.MerchantId, ct);
     return Results.Ok(new MerchantUserMeResponse(me.MerchantUserId, me.Email, me.MerchantId, roleCodes, me.Permissions));
 }).RequireAuthorization("merchant-user")
-    .WithTags("MerchantUser Auth")
+    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("GetMerchantUserMe")
-    .WithSummary("Resolve the current merchant-user")
-    .WithDescription("The SPA reads its own identity: merchant, active role codes, and effective permissions. Not bound (merchant-Bearer) -> 403.")
+    .WithSummary("อ่านข้อมูลผู้ใช้ร้านค้าปัจจุบัน")
+    .WithDescription("ให้ SPA อ่านตัวตนของตัวเอง: ร้านค้า, active role code, และสิทธิ์ที่มีผลจริง (effective permissions) หากยังไม่ผูก (merchant-Bearer) -> 403")
     .Produces<MerchantUserMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -1342,10 +1344,10 @@ merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToke
         catalog.Groups.Select(g => new MerchantUserPermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
         catalog.Permissions.Select(p => new MerchantUserPermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
 }).RequireAuthorization("merchant-user")
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("ListMerchantUserPermissions")
-    .WithSummary("MerchantUser permission catalog")
-    .WithDescription("The permission/group catalog backing the merchant-user role matrix (resource = the permission's group key).")
+    .WithSummary("แคตตาล็อกสิทธิ์ของ MerchantUser")
+    .WithDescription("แคตตาล็อกสิทธิ์/กลุ่มที่ใช้เป็นฐานของ role matrix ฝั่งผู้ใช้ร้านค้า (resource = group key ของสิทธิ์)")
     .Produces<MerchantUserPermissionCatalogResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1356,10 +1358,10 @@ merchantUsers.MapGet("/roles", async (IUserScope scope, IMediator mediator, Canc
     return Results.Ok(result.Items.Select(MerchantUserRoleToWire));
 })
     .RequireAuthorization("merchant-user")
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("ListMerchantUserRoles")
-    .WithSummary("List merchant-user roles")
-    .WithDescription("All merchant-user roles (shared + this merchant's own) with their permissions and bound-user counts.")
+    .WithSummary("รายการบทบาทผู้ใช้ร้านค้า")
+    .WithDescription("บทบาทผู้ใช้ร้านค้าทั้งหมด (ที่แชร์ + ของร้านค้าตัวเอง) พร้อมสิทธิ์และจำนวนผู้ใช้ที่ผูกอยู่")
     .Produces<IEnumerable<MerchantUserRoleResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1369,10 +1371,10 @@ merchantUsers.MapGet("/roles/{code}", async (string code, IUserScope scope, IMed
     var role = await mediator.Send(new GetRoleQuery(context, code), ct);
     return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(MerchantUserRoleToWire(role));
 }).RequireAuthorization("merchant-user")
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("GetMerchantUserRole")
-    .WithSummary("Read a merchant-user role by code")
-    .WithDescription("Return a single merchant-user role with its permissions. Unknown or not visible to this merchant -> 404.")
+    .WithSummary("อ่านบทบาทผู้ใช้ร้านค้าตามรหัส")
+    .WithDescription("คืนบทบาทผู้ใช้ร้านค้าหนึ่งรายการพร้อมสิทธิ์ หากไม่พบหรือร้านค้านี้มองไม่เห็น -> 404")
     .Produces<MerchantUserRoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -1386,10 +1388,10 @@ merchantUsers.MapPost("/roles", async (
         body.Permissions ?? [], http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/merchants/users/roles/{result.Code}", MerchantUserRoleToWire(result));
 }).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesManage)
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("CreateMerchantUserRole")
-    .WithSummary("Create a merchant-user role")
-    .WithDescription("Requires roles.manage. Duplicate code (incl. a shared code) -> 409; permission key outside the catalog or from the Platform side -> 400.")
+    .WithSummary("สร้างบทบาทผู้ใช้ร้านค้า")
+    .WithDescription("ต้องมีสิทธิ์ roles.manage รหัสซ้ำ (รวมรหัสที่แชร์อยู่) -> 409; permission key ที่ไม่อยู่ในแคตตาล็อกหรือมาจากฝั่ง Platform -> 400")
     .Produces<MerchantUserRoleResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1405,10 +1407,10 @@ merchantUsers.MapPut("/roles/{code}", async (
         body.Permissions ?? [], http.TraceIdentifier), ct);
     return Results.Ok(MerchantUserRoleToWire(result));
 }).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesManage)
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("UpdateMerchantUserRole")
-    .WithSummary("Update a merchant-user role")
-    .WithDescription("Requires roles.manage. Code is immutable (from the route); a role not owned by this merchant (incl. a shared seed) -> 409; deactivating merchant_manager -> 409.")
+    .WithSummary("แก้ไขบทบาทผู้ใช้ร้านค้า")
+    .WithDescription("ต้องมีสิทธิ์ roles.manage รหัส (code จาก route) แก้ไขไม่ได้; บทบาทที่ไม่ใช่ของร้านค้านี้ (รวม shared seed) -> 409; ปิดใช้งาน merchant_manager -> 409")
     .Produces<MerchantUserRoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1422,10 +1424,10 @@ merchantUsers.MapDelete("/roles/{code}", async (
     await mediator.Send(new DeleteRoleCommand(context, code, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesManage)
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("DeleteMerchantUserRole")
-    .WithSummary("Delete a merchant-user role")
-    .WithDescription("Requires roles.manage. A role not owned by this merchant (incl. a shared seed) -> 409; merchant_manager is undeletable -> 409; a role with bound users -> 409.")
+    .WithSummary("ลบบทบาทผู้ใช้ร้านค้า")
+    .WithDescription("ต้องมีสิทธิ์ roles.manage บทบาทที่ไม่ใช่ของร้านค้านี้ (รวม shared seed) -> 409; merchant_manager ลบไม่ได้ -> 409; บทบาทที่ยังมีผู้ใช้ผูกอยู่ -> 409")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1440,10 +1442,10 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
     await mediator.Send(new MerchantSetRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.MerchantUserId), ct);
     return Results.NoContent();
 }).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersRoles)
-    .WithTags("MerchantUser Roles")
+    .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("SetMerchantUserUserRoles")
-    .WithSummary("Set a merchant-user's roles")
-    .WithDescription("Requires merchant-user.user.roles. Replace a merchant-user's roles with exactly the given set, scoped to your merchant. Unknown role code -> 400; target not in your merchant -> 404.")
+    .WithSummary("กำหนดบทบาทของผู้ใช้ร้านค้า")
+    .WithDescription("ต้องมีสิทธิ์ merchant-user.user.roles แทนที่บทบาทของผู้ใช้ร้านค้าด้วยชุดที่ระบุมาทั้งหมด จำกัดเฉพาะร้านค้าของคุณ หากไม่รู้จัก role code -> 400; เป้าหมายไม่อยู่ร้านค้าคุณ -> 404")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1474,10 +1476,10 @@ admin.MapPost("/merchants/users/{subject}/approve", async (
         http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(new ApproveMerchantUserResponse(result.MerchantUserId, result.Status.ToString(), result.AlreadyActive));
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserApprove)
-    .WithTags("Admin MerchantUsers")
+    .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("ApproveMerchantUser")
-    .WithSummary("Approve a merchant-user onto a merchant")
-    .WithDescription("Requires merchant-user.approve. Binds the merchant-user to a merchant in the admin's accessible set + assigns roles + activates, in one transaction. Already-Active -> idempotent 200; unknown target -> 404; inactive/out-of-scope merchant -> 409/404; unknown/inactive role or non-Pending target -> 409.")
+    .WithSummary("อนุมัติผู้ใช้ร้านค้าเข้าร้านค้าหนึ่ง")
+    .WithDescription("ต้องมีสิทธิ์ merchant-user.approve ผูกผู้ใช้ร้านค้าเข้ากับร้านค้าที่อยู่ใน accessible set ของ admin + กำหนดบทบาท + เปิดใช้งาน ในทรานแซกชันเดียว หาก Active อยู่แล้ว -> idempotent 200; ไม่พบเป้าหมาย -> 404; ร้านค้าไม่ active/นอก scope -> 409/404; role ไม่รู้จัก/ไม่ active หรือเป้าหมายไม่ใช่ Pending -> 409")
     .Produces<ApproveMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1492,10 +1494,10 @@ admin.MapPost("/merchants/users/{subject}/reject", async (
         subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
     return Results.Ok(new RejectMerchantUserResponse(result.MerchantUserId, result.Status.ToString()));
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserReject)
-    .WithTags("Admin MerchantUsers")
+    .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("RejectMerchantUser")
-    .WithSummary("Reject a pending merchant-user")
-    .WithDescription("Requires merchant-user.reject. Sets the merchant-user Rejected and revokes any live sessions. Unknown target -> 404; a non-Pending target -> 409.")
+    .WithSummary("ปฏิเสธผู้ใช้ร้านค้าที่รอดำเนินการ")
+    .WithDescription("ต้องมีสิทธิ์ merchant-user.reject ตั้งสถานะผู้ใช้ร้านค้าเป็น Rejected และเพิกถอน session ที่ยัง live อยู่ ไม่พบเป้าหมาย -> 404; เป้าหมายไม่ใช่ Pending -> 409")
     .Produces<RejectMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1518,10 +1520,10 @@ admin.MapPut("/orders/{orderId:guid}/items/{itemId:guid}/policy", async (
         itemId, input, scope.Current.AdminId.ToString(), scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
     return Results.Ok(result);
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantsPoliciesWrite)
-    .WithTags("Admin Orders")
+    .WithTags("คำสั่งซื้อ (ผู้ดูแลระบบ)")
     .WithName("UpsertItemPolicyAdmin")
-    .WithSummary("Record an item's external insurance-policy reference (admin, cross-merchant)")
-    .WithDescription("Create or update the external policy-reference data for one order item under ANY merchant. Requires the admin policy + merchants.policies.write. A Super admin may write any merchant; a Scoped admin is confined to its accessible set. Unknown item, or one outside the admin's scope, is 404 (no existence leak).")
+    .WithSummary("บันทึกเลขอ้างอิงกรมธรรม์ภายนอกของ item (ผู้ดูแลระบบ ข้ามร้านค้า)")
+    .WithDescription("สร้างหรืออัปเดตข้อมูล policy-reference ภายนอกของหนึ่ง order item ของร้านค้าใดก็ได้ ต้องมี admin policy + สิทธิ์ merchants.policies.write admin แบบ Super เขียนร้านค้าไหนก็ได้; admin แบบ Scoped จำกัดเฉพาะ accessible set หากไม่พบ item หรือ item อยู่นอก scope ของ admin -> 404 (ไม่รั่วว่ามีอยู่จริงหรือไม่)")
     .Produces<UpsertItemPolicyAdminResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1546,10 +1548,10 @@ admin.MapGet("/reports/policies", async (HttpContext http, IAdminScope scope, IM
 })
     .RequireAuthorization("admin").RequirePermission(Keys.MerchantsPoliciesRead)
     .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("Admin Orders")
+    .WithTags("คำสั่งซื้อ (ผู้ดูแลระบบ)")
     .WithName("ListPolicyReportAdmin")
-    .WithSummary("Policy reference report (admin, cross-merchant)")
-    .WithDescription("Paged report of sold items' external policy references across merchants. Requires the admin policy + merchants.policies.read. A Super admin sees every merchant; a Scoped admin is confined to its accessible set. Optional ?merchantId= narrows further within scope. Supports SFS (page, limit, filters, sort).")
+    .WithSummary("รายงานเลขอ้างอิงกรมธรรม์ (ผู้ดูแลระบบ ข้ามร้านค้า)")
+    .WithDescription("รายงานแบบแบ่งหน้าของ external policy reference ของ item ที่ขายแล้วข้ามร้านค้า ต้องมี admin policy + สิทธิ์ merchants.policies.read admin แบบ Super เห็นทุกร้านค้า; admin แบบ Scoped จำกัดเฉพาะ accessible set ใส่ ?merchantId= เพื่อกรองเพิ่มภายใน scope ได้ รองรับ SFS (page, limit, filters, sort)")
     .Produces<PagedResult<PolicyReportItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1583,10 +1585,10 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminMerchantDirectory merchants,
     // permissions = effective action permissions (admin-role-rbac REQ-9.1)
     return Results.Ok(new AdminMeResponse(me.AdminId, me.Email, me.Tier.ToString(), accessible, me.Permissions));
 }).RequireAuthorization("admin")
-    .WithTags("Admin Auth")
+    .WithTags("การเข้าสู่ระบบ")
     .WithName("GetAdminMe")
-    .WithSummary("Resolve the current admin")
-    .WithDescription("The SPA reads its own identity: tier, accessible merchants (or unrestricted), and effective permissions. Inactive account -> 403.")
+    .WithSummary("อ่านข้อมูลผู้ดูแลระบบปัจจุบัน")
+    .WithDescription("ให้ SPA อ่านตัวตนของตัวเอง: tier, ร้านค้าที่เข้าถึงได้ (หรือไม่จำกัด) และสิทธิ์ที่มีผลจริง (effective permissions) หากบัญชีถูกปิดใช้งาน -> 403")
     .Produces<AdminMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -1604,10 +1606,10 @@ api.MapPost("/admins", async (
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
 }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("CreateScopedAdmin")
-    .WithSummary("Invite a scoped admin")
-    .WithDescription("Super-only. Invite a Scoped admin by verified email; the subject binds on their first login. Missing email -> 400.")
+    .WithSummary("เชิญ Scoped admin")
+    .WithDescription("เฉพาะ Super เชิญ Scoped admin ด้วยอีเมลที่ยืนยันแล้ว subject จะผูกตอน login ครั้งแรก ไม่มีอีเมล -> 400")
     .Produces<CreateScopedResult>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1654,10 +1656,10 @@ api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationT
     .RequireAuthorization("admin")
     .RequirePermission(Keys.UserView)
     .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("ListAdmins")
-    .WithSummary("List admin accounts")
-    .WithDescription("Requires the user.view permission. Paged admin directory. Supports SFS: page, limit, filters (email/tier/status), sort (email/createdAt), search (email). tier/status filter values are the lowercase wire forms; an out-of-domain value -> 400.")
+    .WithSummary("รายการบัญชีผู้ดูแลระบบ")
+    .WithDescription("ต้องมีสิทธิ์ user.view ทำเนียบผู้ดูแลระบบแบบแบ่งหน้า รองรับ SFS: page, limit, filters (email/tier/status), sort (email/createdAt), search (email) ค่า filter tier/status เป็น wire form ตัวพิมพ์เล็ก ค่านอกโดเมน -> 400")
     .Produces<PagedResult<AdminListItemResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1691,10 +1693,10 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
         MasterRefToWire(detail.Position), MasterRefToWire(detail.Office),
         MasterRefToWire(detail.Level), MasterRefToWire(detail.Division)));
 }).RequireAuthorization("admin").RequirePermission(Keys.UserView)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("GetAdmin")
-    .WithSummary("Read an admin account")
-    .WithDescription("Requires the user.view permission. Returns the account's tier, status, accessible merchants (unrestricted for a Super), and all assigned role codes. Unknown id -> 404.")
+    .WithSummary("อ่านบัญชีผู้ดูแลระบบ")
+    .WithDescription("ต้องมีสิทธิ์ user.view คืน tier, status, ร้านค้าที่เข้าถึงได้ (ไม่จำกัดสำหรับ Super) และ role code ที่กำหนดให้ทั้งหมด หากไม่พบ id -> 404")
     .Produces<AdminDetailResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1706,10 +1708,10 @@ admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator media
     var permissions = await mediator.Send(new GetEffectivePermissionsQuery(id), ct);
     return permissions is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(permissions);
 }).RequireAuthorization("admin").RequirePermission(Keys.UserView)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("GetAdminEffectivePermissions")
-    .WithSummary("Read an admin's effective permissions")
-    .WithDescription("Requires the user.view permission. The distinct, ordinal-sorted union of permission keys from the admin's ACTIVE roles (same rule as /me). Works for a suspended admin. Unknown id -> 404.")
+    .WithSummary("อ่านสิทธิ์ที่มีผลจริงของผู้ดูแลระบบ")
+    .WithDescription("ต้องมีสิทธิ์ user.view union แบบไม่ซ้ำ เรียงตาม ordinal ของ permission key จากบทบาทที่ ACTIVE ของผู้ดูแลระบบ (กฎเดียวกับ /me) ใช้ได้แม้บัญชีถูก suspend หากไม่พบ id -> 404")
     .Produces<IReadOnlyList<string>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1722,10 +1724,10 @@ admin.MapPost("/{id:guid}/merchants", async (
     var result = await mediator.Send(new AssignMerchantCommand(id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(result);
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("AssignMerchantToAdmin")
-    .WithSummary("Assign a merchant to an admin")
-    .WithDescription("Super-only. Grant a Scoped admin access to a merchant. Inactive/unknown merchant or duplicate -> 409.")
+    .WithSummary("มอบสิทธิ์ร้านค้าให้ผู้ดูแลระบบ")
+    .WithDescription("เฉพาะ Super ให้สิทธิ์ Scoped admin เข้าถึงร้านค้าหนึ่ง ร้านค้าไม่ active/ไม่รู้จัก หรือซ้ำ -> 409")
     .Produces<AssignMerchantResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1738,10 +1740,10 @@ admin.MapDelete("/{id:guid}/merchants/{merchantId:guid}", async (
     await mediator.Send(new UnassignMerchantCommand(id, merchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("UnassignMerchantFromAdmin")
-    .WithSummary("Unassign a merchant from an admin")
-    .WithDescription("Super-only. Hard-delete the merchant assignment row. Unknown assignment -> 404.")
+    .WithSummary("ถอนสิทธิ์ร้านค้าจากผู้ดูแลระบบ")
+    .WithDescription("เฉพาะ Super ลบแถว merchant assignment แบบถาวร ไม่พบ assignment -> 404")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1756,10 +1758,10 @@ admin.MapPost("/{id:guid}/suspend", async (
     await mediator.Send(new SuspendCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("SuspendAdmin")
-    .WithSummary("Suspend an admin")
-    .WithDescription("Super-only. Suspend another admin; suspending your own account is rejected (403) so oversight is never locked out.")
+    .WithSummary("ระงับใช้งานผู้ดูแลระบบ")
+    .WithDescription("เฉพาะ Super ระงับใช้งานผู้ดูแลระบบคนอื่น ระงับบัญชีตัวเองไม่ได้ (403) เพื่อไม่ให้ oversight ถูกล็อกออก")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -1772,10 +1774,10 @@ admin.MapPost("/{id:guid}/reactivate", async (
     await mediator.Send(new ReactivateCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("ReactivateAdmin")
-    .WithSummary("Reactivate a suspended admin")
-    .WithDescription("Super-only. Restore a suspended admin to Active and revoke its existing sessions (a fresh login is required). Idempotent when already Active. Unknown id -> 404.")
+    .WithSummary("เปิดใช้งานผู้ดูแลระบบที่ถูกระงับ")
+    .WithDescription("เฉพาะ Super คืนสถานะผู้ดูแลระบบที่ถูกระงับกลับเป็น Active และเพิกถอน session เดิม (ต้อง login ใหม่) idempotent ถ้า Active อยู่แล้ว หากไม่พบ id -> 404")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1793,10 +1795,10 @@ admin.MapPost("/{id:guid}/tier", async (
     var result = await mediator.Send(new ChangeAdminTierCommand(id, newTier, scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.Ok(result);
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("ChangeAdminTier")
-    .WithSummary("Promote or demote an admin's tier")
-    .WithDescription("Super-only. Changes an admin between scoped and super; changing your own tier is rejected (403) so oversight is never stranded. Idempotent when already at the requested tier. Unknown id -> 404.")
+    .WithSummary("เลื่อนหรือลด tier ของผู้ดูแลระบบ")
+    .WithDescription("เฉพาะ Super เปลี่ยน tier ผู้ดูแลระบบระหว่าง scoped กับ super เปลี่ยน tier ตัวเองไม่ได้ (403) เพื่อไม่ให้ oversight ค้าง idempotent ถ้า tier ตรงกับที่ขออยู่แล้ว หากไม่พบ id -> 404")
     .Produces<ChangeAdminTierResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1814,10 +1816,10 @@ admin.MapPut("/{id:guid}/profile", async (
         scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("UpdateAdminProfile")
-    .WithSummary("Edit an admin's org profile")
-    .WithDescription("Requires the user.manage permission. Sets Position/Office/Level/Division by master id (null clears). Unknown admin -> 404; unknown or inactive master -> 400.")
+    .WithSummary("แก้ไขข้อมูลองค์กรของผู้ดูแลระบบ")
+    .WithDescription("ต้องมีสิทธิ์ user.manage ตั้งค่า Position/Office/Level/Division ด้วย master id (null คือล้างค่า) หากไม่พบผู้ดูแลระบบ -> 404; master ไม่รู้จักหรือไม่ active -> 400")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1833,28 +1835,28 @@ admin.MapPut("/{id:guid}/profile", async (
 // (IsActive=false) — masters are never hard-deleted (the AdminAccount FK is Restrict). One generic registration
 // per list (delegate-parameterized since masterdata-split — the four modules share no base type; the host
 // merely notices the shapes rhyme).
-MapMasterCrud<IPositionStore, PositionItem>(api, "positions",
+MapMasterCrud<IPositionStore, PositionItem>(api, "positions", "ตำแหน่ง",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
     (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
-MapMasterCrud<IOfficeStore, OfficeItem>(api, "offices",
+MapMasterCrud<IOfficeStore, OfficeItem>(api, "offices", "สำนักงาน",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
     (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
-MapMasterCrud<ILevelStore, LevelItem>(api, "levels",
+MapMasterCrud<ILevelStore, LevelItem>(api, "levels", "ระดับ",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
     (s, id, n, a, ct) => s.UpdateAsync(id, n, a, ct),
     (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
-MapMasterCrud<IDivisionStore, DivisionItem>(api, "divisions",
+MapMasterCrud<IDivisionStore, DivisionItem>(api, "divisions", "แผนก",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
@@ -1862,7 +1864,7 @@ MapMasterCrud<IDivisionStore, DivisionItem>(api, "divisions",
     (s, id, ct) => s.DeactivateAsync(id, ct),
     m => new MasterResponse(m.Id, m.Code, m.Name, m.IsActive));
 
-static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segment,
+static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segment, string thaiLabel,
     Func<TStore, int, int, string?, CancellationToken, Task<PagedResult<TItem>>> list,
     Func<TStore, Guid, CancellationToken, Task<TItem>> getById,
     Func<TStore, string, string, CancellationToken, Task<TItem>> create,
@@ -1870,10 +1872,10 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     Func<TStore, Guid, CancellationToken, Task<TItem>> deactivate,
     Func<TItem, MasterResponse> toWire) where TStore : class
 {
-    // Each of the 4 standalone modules (masterdata-split) gets its own Scalar group — "Positions" etc., no
-    // "Admin" prefix (these are reference lists, not admin-account operations) — instead of one shared
+    // Each of the 4 standalone modules (masterdata-split) gets its own Scalar group — its own Thai noun, no
+    // "ผู้ดูแลระบบ" suffix (these are reference lists, not admin-account operations) — instead of one shared
     // "Admin Master Data" bucket, so the split is visible in the API surface too.
-    var tag = $"{char.ToUpperInvariant(segment[0])}{segment[1..]}";
+    var tag = thaiLabel;
 
     // Map the root endpoints DIRECTLY with an explicit "/{segment}" path (not a nested MapGroup + empty-string
     // root, which renders the forbidden trailing-slash canonical path — REQ-1.4; see the /api/v1 note above).
@@ -1887,7 +1889,7 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"List{segment}")
-        .WithSummary($"List {segment}")
+        .WithSummary($"รายการ{thaiLabel}ทั้งหมด")
         .Produces<PagedResult<MasterResponse>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1899,8 +1901,8 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Get{segment}")
-        .WithSummary($"Read a {segment} entry by id")
-        .WithDescription("Requires the user.manage permission. Unknown id -> 404.")
+        .WithSummary($"อ่านข้อมูล{thaiLabel}ตาม id")
+        .WithDescription("ต้องมีสิทธิ์ user.manage หากไม่พบ id -> 404")
         .Produces<MasterResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1914,8 +1916,8 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Create{segment}")
-        .WithSummary($"Create a {segment} entry")
-        .WithDescription("Requires the user.manage permission. Duplicate code -> 409; code must match ^[a-z0-9_]+$ -> 400.")
+        .WithSummary($"สร้าง{thaiLabel}ใหม่")
+        .WithDescription("ต้องมีสิทธิ์ user.manage รหัสซ้ำ -> 409; รหัสต้องตรงกับ ^[a-z0-9_]+$ -> 400")
         .Produces<MasterResponse>(StatusCodes.Status201Created)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1929,8 +1931,8 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Update{segment}")
-        .WithSummary($"Rename or (de)activate a {segment} entry")
-        .WithDescription("Requires the user.manage permission. Code is immutable. Unknown id -> 404.")
+        .WithSummary($"เปลี่ยนชื่อหรือเปิด/ปิดการใช้งาน{thaiLabel}")
+        .WithDescription("ต้องมีสิทธิ์ user.manage รหัส (code) แก้ไขไม่ได้ หากไม่พบ id -> 404")
         .Produces<MasterResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1944,8 +1946,8 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Deactivate{segment}")
-        .WithSummary($"Deactivate a {segment} entry")
-        .WithDescription("Requires the user.manage permission. Soft-deactivate only (sets isActive=false); existing references (FK Restrict) stay valid — never a hard delete. Unknown id -> 404.")
+        .WithSummary($"ปิดการใช้งาน{thaiLabel}")
+        .WithDescription("ต้องมีสิทธิ์ user.manage เป็นการปิดการใช้งานแบบ soft เท่านั้น (ตั้ง isActive=false) ข้อมูลที่ถูกอ้างอิงอยู่ (FK Restrict) ยังใช้ได้ ไม่ใช่การลบถาวร หากไม่พบ id -> 404")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1961,10 +1963,10 @@ admin.MapGet("/{id:guid}/sessions", async (Guid id, IMediator mediator, Cancella
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(sessions.Select(SessionToWire).ToArray());
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("ListPlatformUserSessions")
-    .WithSummary("List an admin's sessions")
-    .WithDescription("Super-only. The admin's sessions, newest first, with a read-time isLive flag. Token material is never returned. Unknown admin -> 404.")
+    .WithSummary("รายการ session ของผู้ดูแลระบบ")
+    .WithDescription("เฉพาะ Super session ของผู้ดูแลระบบ เรียงใหม่สุดก่อน พร้อม flag isLive ที่คำนวณตอนอ่าน ไม่คืนค่า token จริง หากไม่พบผู้ดูแลระบบ -> 404")
     .Produces<IReadOnlyList<PlatformUserSessionResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -1984,10 +1986,10 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
         result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("RevokePlatformUserSession")
-    .WithSummary("Revoke an admin's session")
-    .WithDescription("Super-only. Revoke the session's entire rotation family. Unknown session, or a session owned by a different admin -> 404. Idempotent (already-revoked -> 204).")
+    .WithSummary("เพิกถอน session ของผู้ดูแลระบบ")
+    .WithDescription("เฉพาะ Super เพิกถอนทั้ง rotation family ของ session ไม่พบ session หรือ session เป็นของผู้ดูแลระบบคนอื่น -> 404 idempotent (เพิกถอนไปแล้ว -> 204)")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -2019,10 +2021,10 @@ admin.MapGet("/permissions", async (IMediator mediator, CancellationToken ct) =>
         catalog.Groups.Select(g => new PermissionGroupResponse(g.Key, g.LabelTh)).ToArray(),
         catalog.Permissions.Select(p => new PermissionItemResponse(p.Key, p.LabelTh, p.Resource)).ToArray()));
 }).RequireAuthorization("admin")
-    .WithTags("Admin Roles")
+    .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("ListPermissions")
-    .WithSummary("Permission catalog")
-    .WithDescription("The permission/group catalog backing the role matrix (resource = the permission's group key).")
+    .WithSummary("แคตตาล็อกสิทธิ์")
+    .WithDescription("แคตตาล็อกสิทธิ์/กลุ่มที่ใช้เป็นฐานของ role matrix (resource = group key ของสิทธิ์)")
     .Produces<PermissionCatalogResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -2040,10 +2042,10 @@ admin.MapGet("/roles", async (HttpContext http, IAdminScope scope, IMediator med
 })
     .RequireAuthorization("admin")
     .WithMetadata(new SfsQueryParamsMarker())
-    .WithTags("Admin Roles")
+    .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("ListRoles")
-    .WithSummary("List roles")
-    .WithDescription("Paged admin roles with permissions and bound-user counts. Supports SFS: page, limit, filters, sort, search.")
+    .WithSummary("รายการบทบาท")
+    .WithDescription("บทบาทผู้ดูแลระบบแบบแบ่งหน้า พร้อมสิทธิ์และจำนวนผู้ใช้ที่ผูกอยู่ รองรับ SFS: page, limit, filters, sort, search")
     .Produces<PagedResult<RoleResponse>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -2053,10 +2055,10 @@ admin.MapGet("/roles/{code}", async (string code, IAdminScope scope, IMediator m
     var role = await mediator.Send(new GetRoleQuery(RoleSideContextResolver.ForAdmin(scope), code), ct);
     return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(RoleToWire(role));
 }).RequireAuthorization("admin")
-    .WithTags("Admin Roles")
+    .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("GetRole")
-    .WithSummary("Read a role by code")
-    .WithDescription("Return a single role with its permissions. Unknown code -> 404.")
+    .WithSummary("อ่านบทบาทตามรหัส")
+    .WithDescription("คืนบทบาทหนึ่งรายการพร้อมสิทธิ์ หากไม่พบรหัส -> 404")
     .Produces<RoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -2070,10 +2072,10 @@ admin.MapPost("/roles", async (
         ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier), ct);
     return Results.Created($"/api/v1/admins/roles/{result.Code}", RoleToWire(result));
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithTags("Admin Roles")
+    .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("CreateRole")
-    .WithSummary("Create a role")
-    .WithDescription("Requires the user.roles permission. Duplicate code -> 409; permission key outside the catalog -> 400.")
+    .WithSummary("สร้างบทบาท")
+    .WithDescription("ต้องมีสิทธิ์ user.roles รหัสซ้ำ -> 409; permission key ที่ไม่อยู่ในแคตตาล็อก -> 400")
     .Produces<RoleResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -2089,10 +2091,10 @@ admin.MapPut("/roles/{code}", async (
         ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier), ct);
     return Results.Ok(RoleToWire(result));
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithTags("Admin Roles")
+    .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("UpdateRole")
-    .WithSummary("Update a role")
-    .WithDescription("Requires the user.roles permission. Code is immutable (from the route); deactivating platform_admin -> 409.")
+    .WithSummary("แก้ไขบทบาท")
+    .WithDescription("ต้องมีสิทธิ์ user.roles รหัส (code จาก route) แก้ไขไม่ได้; ปิดใช้งาน platform_admin -> 409")
     .Produces<RoleResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -2106,10 +2108,10 @@ admin.MapDelete("/roles/{code}", async (
     await mediator.Send(new DeleteRoleCommand(RoleSideContextResolver.ForAdmin(scope), code, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithTags("Admin Roles")
+    .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("DeleteRole")
-    .WithSummary("Delete a role")
-    .WithDescription("Requires the user.roles permission. A role with bound users is undeletable -> 409.")
+    .WithSummary("ลบบทบาท")
+    .WithDescription("ต้องมีสิทธิ์ user.roles บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -2122,10 +2124,10 @@ admin.MapPut("/{id:guid}/roles", async (
     await mediator.Send(new SetRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
-    .WithTags("Admin Admins")
+    .WithTags("ผู้ดูแลระบบ")
     .WithName("SetAdminRoles")
-    .WithSummary("Set an admin's roles")
-    .WithDescription("Requires the user.roles permission. Replace an admin's roles with exactly the given set. Unknown role code -> 400; unknown admin -> 404.")
+    .WithSummary("กำหนดบทบาทของผู้ดูแลระบบ")
+    .WithDescription("ต้องมีสิทธิ์ user.roles แทนที่บทบาทของผู้ดูแลระบบด้วยชุดที่ระบุมาทั้งหมด หากไม่รู้จัก role code -> 400; ไม่พบผู้ดูแลระบบ -> 404")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
