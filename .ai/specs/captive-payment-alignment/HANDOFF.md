@@ -511,3 +511,162 @@ builder ตัวใหม่ (fresh context) สำหรับ task 4 — DDL/
    `20260723160500` + apply กับ `:11433` จริง + `sys.indexes` output ลง Evidence).
 4. flip `- [x] 4.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
    commit -> append section 4.
+
+---
+
+## Section 4 — task 4 (from: Claude Opus 5 teammate, 2026-07-26)
+
+### Task Summary
+
+task 4 ของ spec `captive-payment-alignment`: DB floor "หนึ่ง open session ต่อ order" — named filtered unique
+index ในทั้งสองไฟล์ `SessionConfiguration` + migration + apply กับ SQL Server จริง + offline model assertion +
+integration test. ปิด REQ-2 (2.4, 2.5, 2.6). ไม่แตะ handler / adapter / config / docs เลย.
+
+### Current Status
+
+- task 4 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 5-7 ยัง `- [ ]`. ยังไม่มี `PspOptions` / `WebhookUrlFor` / `paymentChannel` / `FetchChargeAsync` /
+  provisioning / seed / docs ถูกแก้.
+- **dev DB `:11433` ถูก migrate ไปข้างหน้าแล้ว** — head = `20260726151538_OneOpenPaymentSessionPerOrder`.
+  ใครก็ตามที่ pull branch นี้แล้วใช้ DB ตัวเก่าอยู่ต้อง apply migration ก่อน ไม่งั้น integration test ใหม่แดง
+  (และ `has-pending-model-changes` จะยังบอกว่าไม่มี diff เพราะมันเทียบ model กับ snapshot ไม่ใช่กับ DB).
+- แถว `txn.PaymentSessions` ที่ integration test insert **ค้างอยู่ใน dev DB** (ลบไม่ได้ ดู trap 25) —
+  ไม่กระทบ gate ใด แต่ถ้านับแถวด้วยมือแล้วเห็นเกิน 36 นั่นคือสาเหตุ.
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Infrastructure/Persistence/SessionConfiguration.cs` — edited — เพิ่ม
+  `HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open").IsUnique().HasFilter("[Status] IN (0, 1)")`
+  ต่อท้าย `HasIndex(x => x.OrderId)` เดิม (ไฟล์ของ PolDbContext = migration owner).
+- `src/Persistence/Persistence.MerchantRuntime/Payments/SessionConfiguration.cs` — edited — index ใบเดียวกัน
+  เป๊ะ (runtime context).
+- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260726151538_OneOpenPaymentSessionPerOrder.cs`
+  — created (generated) — `CreateIndex`/`DropIndex` เท่านั้น + คอมเมนต์อธิบายว่าทำไม 0/1 อยู่ในตัวกรองและ
+  2601/2627 -> 409 อยู่แล้ว.
+- `...Migrations/20260726151538_OneOpenPaymentSessionPerOrder.Designer.cs` — created (generated).
+- `...Migrations/PolDbContextModelSnapshot.cs` — edited (generated) — +4 บรรทัด.
+- `tests/Architecture.Tests/OpenSessionIndexTests.cs` — created — 3 tests (offline model proof, REQ-2.6).
+- `tests/Integration.Tests/OpenSessionIndexIntegrationTests.cs` — created — 3 tests
+  (`[Trait("Category","Integration")]`, raw SQL).
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 4 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **ไม่เพิ่ม `InternalsVisibleTo("Integration.Tests")` เพื่อ assert `ConflictException` ตรง ๆ.**
+   `Persistence.MerchantRuntime.csproj` ให้ grant แบบ**ระบุราย consumer พร้อมเหตุผล** และเขียนไว้ว่า
+   `Persistence.Provisioning` คือ "the ONE narrow, design-sanctioned exception"; คอมเมนต์ที่
+   `VaultAuditAppender.cs:29` ระบุตรง ๆ ว่า Integration.Tests **จงใจ** ไม่มี grant นั้น (สวีตนี้ขับ raw
+   connection ล้วน). แทนที่จะเปิด boundary ที่ไม่มี REQ ข้อใดขอ integration test pin **เลข SQL error ที่
+   translator ผูกอยู่จริง** (2627/2601) + **ชื่อ index ในข้อความ error** (กันไม่ให้ unique index อีกใบบน
+   ตารางเดียวกันถูกนับเป็นผ่าน). hop สุดท้าย -> `ConflictException` -> 409 เป็นโค้ดเดิมที่ไม่ถูกแตะ.
+   **นี่คือ deviation ข้อเดียวที่ต้องให้ lead ตัดสิน** (บันทึกใน Evidence deviations ข้อ 1 ด้วย).
+2. **offline proof มี 3 fact ไม่ใช่ 2** — เพิ่ม `The_plain_OrderId_lookup_index_survives_in_both_contexts`
+   เพราะกับดัก "named overload" มี failure mode ที่ต่างจาก "ใส่ไฟล์เดียว": ถ้าใช้ overload ผิด index ใหม่จะ
+   **ไม่เกิดใบใหม่** แต่ไป**แปลง lookup index เดิมให้ unique** ซึ่ง assertion ที่มองแค่ index ชื่อใหม่จับไม่ได้เลย.
+   พิสูจน์แล้วว่าเกิดจริง (RED proof ข้อ ข).
+3. **catalog assertion ใช้ `SaConn`** — `filter_definition` อ่านกลับเป็น NULL สำหรับ `pol_app` (trap 23).
+   assertion นี้ถามว่า "DDL ที่ apply แล้วหน้าตาอย่างไร" ไม่ใช่ "runtime principal เห็นอะไร".
+4. **ไม่ reset dev DB** — ตรวจก่อนว่าไม่มี order ใดถือ open session ซ้ำ (`GROUP BY OrderId HAVING
+   COUNT(*) > 1` -> 0 rows) จึงไม่เข้าเงื่อนไข Risk 3 ของ design; `docker compose down -v` จะเป็นการทำลาย
+   state ที่ไม่จำเป็น.
+
+### Constraints (เพิ่มจาก section 0/1/2/3 — ยังใช้ทุกข้อ)
+
+- **ห้ามเพิ่ม `HasIndex(x => x.OrderId)` (ไม่มีชื่อ) ในไฟล์ใดของ `Session` อีก** — จะไป mutate ทั้ง lookup
+  index เดิมหรือชนกับ index ใหม่. index ใหม่ทุกใบบน property-set นี้ต้องใช้ overload ที่มีชื่อ.
+- **สองไฟล์ `SessionConfiguration` ต้องเหมือนกันเรื่อง index เสมอ** — `OpenSessionIndexTests` บังคับเฉพาะ
+  index ของ task นี้; ถ้า task ถัดไปเพิ่ม index/คอลัมน์ ต้องใส่ทั้งสองไฟล์เองเหมือนกัน (ไม่มี gate ทั่วไป
+  ที่เทียบสองไฟล์นี้ทั้งใบ).
+- **migration head ขยับแล้ว** — migration ใบถัดไป (ถ้ามี) ต้อง timestamp > `20260726151538` ไม่ใช่
+  `20260723160500` อีกต่อไป.
+- **ห้ามลบ/ย่อ filter `[Status] IN (0, 1)`** — `Paid`(2)/`Failed`(3)/`Expired`(4) ต้องอยู่นอกตัวกรอง ไม่งั้น
+  REQ-7.4 (retry) ตาย และ order ที่จ่ายสำเร็จแล้วจะบล็อกตัวเอง.
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+  (ยืนยัน compile จริงด้วย `stat -f "%m %N"` เทียบ dll กับ source ตาม trap 15).
+- baseline ก่อนแก้: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> **1165 passed / 0 failed**
+  ตรงกับ section 3.
+- `dotnet test tests/Architecture.Tests` -> **223 passed / 0 failed** (220 -> +3).
+- RED proof 2 ทาง (stash ไฟล์ runtime -> 1 แดง; เปลี่ยนเป็น unnamed overload -> 2 แดง รวม lookup-index test)
+  — รายละเอียดใน Evidence ของ tasks.md.
+- `source .env.integration && dotnet test pol-core.slnx --filter "Category=Integration"` ->
+  **47 passed / 0 failed** (44 -> +3). ใบที่สองที่ยัง open ถูกปฏิเสธด้วย **SQL 2601** พร้อมชื่อ index.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1168 passed / 0 failed** across
+  16 projects. **baseline ใหม่ของ task 5+:** Admins 95 · Architecture **223** · BuildingBlocks 43 · Carts 15 ·
+  Checkouts 7 · Divisions 6 · Hosts 344 · Iam 62 · Levels 6 · Merchants 115 · Offices 6 · Orders 68 ·
+  Payments 119 · Positions 6 · Products 7 · SharedKernel 46 = **1168**. Integration.Tests = **47** (แยก filter).
+- `dotnet ef migrations has-pending-model-changes --context PolDbContext` -> ไม่มี diff.
+- `bash scripts/check-migration-lineage.sh` -> OK (ต้องมี DB + `POL_DESIGN_SQL`).
+- `bash scripts/check-rename-identifiers.sh` -> OK (หลัง `git add`, trap 12);
+  `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 42 เกณฑ์; loop ทุก spec -> ไม่มีแดง;
+  `SECRET_GUARD_SKIP='' .ai/bin/check-secrets.sh --all` -> exit 0.
+- **ไม่ได้รัน:** `docker compose config` (ไม่แตะ compose — เป็นของ task 5).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps 1-21)
+
+22. **`HasIndex(x => x.OrderId)` ครั้งที่สอง mutate index เดิมจริง — ยืนยันด้วยการทดลอง ไม่ใช่ทฤษฎี**: แทน
+    named overload ด้วย unnamed แล้วรัน -> `The_plain_OrderId_lookup_index_survives_in_both_contexts` แดงด้วย
+    `Assert.False() Failure` (lookup index กลายเป็น `IsUnique == true` + มี filter) และ **ไม่มี** index ชื่อ
+    `IX_PaymentSessions_OrderId_Open` เกิดขึ้นเลย. ผลลัพธ์ที่ร้ายกว่าคือ DDL จะ "ทำงาน" แต่ทุก read ธรรมดา
+    ตาม order วิ่งบน unique+filtered index แทน. **assertion ที่มองแค่ index ใบใหม่จับเคสนี้ไม่ได้** — ต้อง
+    assert ใบเดิมด้วย.
+23. **`sys.indexes.filter_definition` ถูก mask จาก `pol_app`** — SQL Server metadata-visibility ปิด
+    definition column ให้ principal ที่มีแค่ SELECT/INSERT/UPDATE: อ่านกลับ **NULL** (ได้
+    `SqlNullValueException: Data is Null` ในรอบแรกจริง) ขณะที่ `is_unique`/`has_filter` ผ่านปกติ. งานตรวจ
+    DDL-level ใน Integration.Tests ให้ใช้ `IntegrationDb.SaConn`; งานตรวจ runtime behaviour ใช้ `AppConn`.
+24. **EF ตั้ง migration timestamp เป็น UTC ไม่ใช่เวลาเครื่อง** — local 2026-07-26 22:15 ICT ออกมาเป็น
+    `20260726151538`. ถ้าคาดชื่อไฟล์จากเวลาท้องถิ่นจะหาไฟล์ไม่เจอ และถ้ารันช่วงหัวค่ำใกล้เที่ยงคืน UTC
+    วันที่ในชื่อไฟล์จะเป็น "เมื่อวาน" ของเวลาไทย — กติกา "timestamp ต้อง > X" ยังผ่านอยู่ แต่ต้องอ่านค่าจริงจาก
+    `ls` ไม่ใช่เดา.
+25. **`pol_app` ไม่มี grant `DELETE` บน `txn.PaymentSessions`** (มีแค่ SELECT/INSERT/UPDATE — ตรวจจาก
+    `sys.database_permissions`) -> integration test ที่ insert แถวไว้ **cleanup เองไม่ได้**. ใช้
+    `Guid.NewGuid()` ต่อรอบแล้วปล่อยแถวค้าง (pattern เดียวกับ `OrderSummaryReaderIntegrationTests`);
+    `assert-fresh-db.sql` ไม่นับแถวของตารางนี้จึงไม่แตก. ถ้า task ถัดไปต้องลบจริงต้องใช้ `SaConn`.
+26. **zsh: `status` เป็น read-only variable** — ก็อป loop จาก `ci.yml` (`status=0; ... || status=1`) มารัน
+    local จะได้ `(eval):1: read-only variable: status` แล้ว **ทั้งคำสั่งตาย** โดยที่ผลของคำสั่งก่อนหน้าใน
+    บรรทัดเดียวกันดูเหมือน exit 1 (ผมอ่านเป็น "secret scan แดง" ไปหนึ่งรอบ ทั้งที่มันเขียว). ใช้ชื่ออื่น
+    (`bad`, `rc`) เมื่อรัน CI snippet ใน zsh.
+27. **`hook-bypass-guard.sh` block คำสั่งที่มี `SECRET_GUARD_SKIP` แม้ตั้งเป็นค่าว่าง** ซึ่งเป็นรูปแบบที่
+    `ci.yml` ใช้เองเพื่อ **force-clear** ตัวแปร (`env: SECRET_GUARD_SKIP: ''`). ก็อปคำสั่งจาก CI มารัน local
+    จะโดน block แล้ว **ทั้ง compound command ตาย** (LESSONS: PreToolUse block ฆ่าทั้งก้อน — `git add` ที่มัด
+    มาในก้อนเดียวกันไม่รัน). รัน `.ai/bin/check-secrets.sh --all` เปล่า ๆ พอ.
+28. **`grep --include=...` ยัง fail ใต้ zsh แม้ผ่าน `rtk proxy`** (trap 14 ครอบแค่บางเคส) — `rtk proxy grep
+    -rn ... --include=*.cs` ให้ `no matches found: --include=*.cs` เพราะ zsh ขยาย glob ก่อน. ใส่ quote
+    (`--include="*.cs"`) หรือเลี่ยง flag นี้ไปเลย (`grep -rn pat dir | grep -v obj`).
+
+### ข้อค้นพบที่ต้องให้ lead ตัดสิน (ไม่ได้แก้ในงานนี้)
+
+- **REQ-2.5 ถูกพิสูจน์ถึงระดับ "SQL คืน 2601 + ชื่อ index ถูกต้อง" ไม่ใช่ "ได้ `ConflictException` จริง"** —
+  เหตุผลเชิง boundary อยู่ใน Important Decisions ข้อ 1. ถ้า lead ต้องการ end-to-end จริง งานคือ: เพิ่ม
+  `ProjectReference` + `InternalsVisibleTo("Integration.Tests")` เข้า `Persistence.MerchantRuntime` แล้ว
+  ประกอบ `MerchantRuntimeDbContext` + `MerchantRuntimeUnitOfWork` ใน Integration.Tests ด้วย fake ของ
+  `IActorContext`/`IWriteAuthorizer`/`ISecurityTelemetry` (Architecture.Tests มี `FakeActorContext`/
+  `FakeWriteAuthorizer` ให้ลอก) — ประมาณ 1 ไฟล์ fakes + 1 test, แต่เป็นการเปิด boundary ที่ csproj เขียนว่า
+  sanction ราย consumer.
+- **`Session.MarkFailed` ยังทิ้ง `reason`** (ข้อค้นพบของ section 3) — task 4 มี migration อยู่ในมือแล้วแต่
+  **ไม่ได้เพิ่ม column** ให้ เพราะไม่มี REQ รองรับ และ migration ของ task นี้ต้องเป็น DDL ใบเดียวที่ trace
+  กลับไป REQ-2.4 ได้ (การพ่วง column ที่ไม่มี REQ = scope creep ที่ตรวจสอบย้อนกลับไม่ได้). ยังเปิดอยู่ ->
+  task 7 บันทึกเป็น gap หรือสเปกแยก.
+
+### Next Recommended Agent
+
+builder ตัวใหม่ (fresh context) สำหรับ task 5 — ใหญ่สุดที่เหลือ: `PspOptions`/`WebhookUrlFor`/signature ของ
+`CreateRedirectChargeAsync` (13 positional call ใน adapter tests) + `paymentChannel` mapping + config surface
+4 ที่ (`appsettings.json`, `ProvisioningGuards`, `docker-compose.prod.yml`, `.env.prod.example`) + env ของ CI
+**สองไฟล์** (`.github/workflows/ci.yml:118-126` และ `.gitlab-ci.yml:150-163`). ข้อเท็จจริงที่ lead ตรวจไว้ให้
+แล้วอยู่ใน section 1b — อย่าหาซ้ำ. `FakePspAdapter` ใน `tests/Payments.Tests/Fakes.cs` เป็น fake ตัวเดียวใน
+โค้ดเบสที่ต้องแก้ตาม signature ใหม่.
+
+### Next Steps
+
+1. อ่าน `.ai/shared/*` 5 ไฟล์ -> spec 3 ไฟล์ -> HANDOFF ทั้งไฟล์ (รวม section 4 นี้).
+2. baseline: `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --filter
+   "Category!=Integration"` ต้องได้ **1168 passed / 0 failed** (Architecture 223) — ถ้าไม่ตรง หยุดแล้วรายงาน.
+3. implement task 5 ตาม design D7 (ห้าม `ValidateOnStart`; placeholder ใน `appsettings.json` +
+   `ProvisioningGuards` เฉพาะ non-Development; ลบ `PSP_TWOCTWOP_BACKEND_RETURN_URL` ให้ครบทุกที่ รวม CI
+   สองไฟล์ ไม่งั้น compose render check แดง — trap 5).
+4. flip `- [x] 5.` + `Evidence:` ใน Edit เดียว (trap 2/13) -> `git add` -> rename gate ซ้ำ (trap 12) ->
+   commit -> append section 5.

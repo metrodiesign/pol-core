@@ -44,5 +44,14 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
             .HasFilter("[PspExternalChargeId] IS NOT NULL");
 
         builder.HasIndex(x => x.OrderId);
+
+        // One chargeable session per order, enforced at the DB floor (captive-payment-alignment REQ-2.4):
+        // the handler's open-session pre-check loses a race, this does not. Status 0/1 = Created/Redirected;
+        // Failed/Expired/Paid fall outside the filter so a failed attempt can still be retried (REQ-7.4).
+        // NAMED overload deliberately — HasIndex(x => x.OrderId) a second time would MUTATE the plain
+        // lookup index above (EF keys unnamed indexes by property set), not add a second one.
+        builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open")
+            .IsUnique()
+            .HasFilter("[Status] IN (0, 1)");
     }
 }

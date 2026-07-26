@@ -188,7 +188,7 @@
          section 2 สั่ง): `FakePspAdapter.OnCreateCharge` และ `FakeUnitOfWork.SaveFails(saveNumber)`; บวก
          `FakeVaultSecretStore` ที่นับ `Reveals` (ยังไม่มีที่ใดใน `tests/` fake `IVaultSecretStore` เลย).
 
-- [ ] 4. **DB floor: หนึ่ง open session ต่อ order** — เพิ่ม named filtered unique index
+- [x] 4. **DB floor: หนึ่ง open session ต่อ order** — เพิ่ม named filtered unique index
      `builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open").IsUnique()
      .HasFilter("[Status] IN (0, 1)")` ใน **ทั้งสองไฟล์** `SessionConfiguration` (trap 9) — ต้องใช้
      overload ที่ตั้งชื่อ ไม่ใช่ `HasIndex(x => x.OrderId)` ซ้ำ (EF จะไป mutate index เดิมแล้ว lookup index
@@ -202,6 +202,82 @@
      Satisfies: REQ-2 (2.4, 2.5, 2.6). Depends on: 3. Verify: `dotnet test tests/Architecture.Tests` +
      `source .env.integration && dotnet test tests/Integration.Tests --filter Category=Integration` +
      `dotnet ef migrations has-pending-model-changes` -> ไม่มี diff + output `sys.indexes` จริงใน Evidence.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+         (dll mtime > source mtime ยืนยันว่า compile จริง ไม่ใช่ up-to-date skip ตาม trap 15).
+       - migration: `20260726151538_OneOpenPaymentSessionPerOrder` (EF ตั้ง timestamp เป็น **UTC** — local
+         22:15 ICT = 15:15 UTC; `20260726151538` > `20260723160500` ตาม trap 3). `Up` มีแค่ `CreateIndex`
+         ใบเดียว, snapshot diff = **4 บรรทัด** (`git diff --stat` -> `1 file changed, 4 insertions(+)`) และ
+         `b.HasIndex("OrderId")` เดิมยังอยู่เหนือมันในไฟล์เดียวกัน.
+       - test: apply ด้วย target ที่ระบุชัด (ห้าม update เปล่า ตาม trap 3):
+         `dotnet ef database update 20260726151538_OneOpenPaymentSessionPerOrder --context PolDbContext` ->
+         `Applying migration '20260726151538_OneOpenPaymentSessionPerOrder'. Done.` (dev DB `:11433` container
+         `pol-db`, head ก่อนหน้า = `20260723160500_GrantOrderItemPolicyTables`). ตรวจก่อน apply ว่าไม่มี order
+         ที่มี open session ซ้ำ (`GROUP BY OrderId HAVING COUNT(*) > 1` -> 0 rows จาก 36 session) จึง **ไม่ต้อง**
+         `docker compose down -v` (Risk 3 ของ design ไม่เกิด).
+       - test: `sys.indexes` + `sys.index_columns` จริงหลัง apply (sqlcmd, `-W -s" | "`) —
+         `IX_PaymentSessions_OrderId | 0 | 0 | NULL | OrderId | 0`;
+         `IX_PaymentSessions_OrderId_Open | 1 | 1 | ([Status] IN ((0), (1))) | OrderId | 0`;
+         `IX_PaymentSessions_Psp_PspExternalChargeId | 1 | 1 | ([PspExternalChargeId] IS NOT NULL) | Psp | 0`
+         + `... | PspExternalChargeId | 0`; `PK_PaymentSessions | 1 | 0 | NULL | Id | 0`.
+         (คอลัมน์ = `is_unique`, `has_filter`, `filter_definition`, `key_column`, `is_included_column`.)
+         SQL Server รับ predicate `[Status] IN (0, 1)` จริงและ normalize เก็บเป็น `([Status] IN ((0), (1)))` —
+         ไม่ต้อง rewrite. lookup index ธรรมดายังอยู่ครบ (`is_unique = 0`, ไม่มี filter).
+       - test: `dotnet ef migrations has-pending-model-changes --context PolDbContext` ->
+         `No changes have been made to the model since the last migration.` (exit 0) — Designer/snapshot ตรง.
+       - test: `bash scripts/check-migration-lineage.sh` -> `Migration lineage gate OK — all 4 existing
+         migration IDs discoverable via PolDbContext.`
+       - test: `dotnet test tests/Architecture.Tests --filter "FullyQualifiedName~OpenSessionIndexTests"` ->
+         3 passed / 0 failed (offline model proof, REQ-2.6: owner context, runtime context, และ lookup index
+         ที่ห้ามถูก mutate); `dotnet test tests/Architecture.Tests` -> **223 passed / 0 failed** (baseline 220).
+       - test: **RED proof ว่า offline assertion กัดจริง 2 ทาง** — (ก) `git stash push -- <runtime
+         SessionConfiguration.cs>` -> build -> รันเฉพาะคลาสใหม่ -> `Failed: 1, Passed: 2` (ตัวที่แดง =
+         `The_runtime_context_declares_the_identical_index`, `Single()` ไม่เจอ index) -> `git stash pop`.
+         (ข) แทน named overload ในไฟล์ owner ด้วย `HasIndex(x => x.OrderId)` เปล่า -> build -> `Failed: 2,
+         Passed: 1` โดยตัวที่แดงคือ `The_plain_OrderId_lookup_index_survives_in_both_contexts`
+         (`Assert.False() Failure` = lookup index กลายเป็น unique จริง) + owner assertion —
+         **ยืนยันว่ากับดัก "mutate index เดิม" ของ trap 9 เป็นเรื่องจริง ไม่ใช่ข้อสันนิษฐาน** แล้ว restore ไฟล์.
+       - test: `source .env.integration && dotnet test tests/Integration.Tests --filter
+         "FullyQualifiedName~OpenSessionIndexIntegrationTests"` -> 3 passed / 0 failed (Bash call เดียวกัน
+         ตาม trap 4). ใบที่สองที่ยัง open (`Created` แล้วต่อด้วย `Redirected` ของ order เดิม) ถูกปฏิเสธด้วย
+         **SQL 2601** พร้อมข้อความที่ระบุชื่อ `IX_PaymentSessions_OrderId_Open`; `Failed`+`Expired`+`Paid`
+         ของ order เดียวกันอยู่ร่วมกันได้แล้วยังเปิด `Created` ใบใหม่ได้ (REQ-7.4).
+       - test: `source .env.integration && dotnet test pol-core.slnx --filter "Category=Integration"` ->
+         **47 passed / 0 failed** (Integration.Tests; baseline 44 -> +3).
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1168 passed /
+         0 failed** across 16 test projects (baseline 1165). ทุก project เท่าเดิมยกเว้น Architecture 220->223:
+         Admins 95 · Architecture 223 · BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts 344 ·
+         Iam 62 · Levels 6 · Merchants 115 · Offices 6 · Orders 68 · Payments 119 · Positions 6 · Products 7 ·
+         SharedKernel 46.
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a live-code
+         token in src/ or tests/` (รันหลัง `git add` ตาม trap 12); `bash scripts/spec-trace.sh
+         captive-payment-alignment` -> OK 42 เกณฑ์; loop spec-trace ทุก spec ใต้ `.ai/specs/` -> ไม่มี spec ใดแดง;
+         `.ai/bin/check-secrets.sh --all` -> exit 0 (รันแบบไม่มี env prefix — `hook-bypass-guard.sh` block
+         คำสั่งที่มี `SECRET_GUARD_SKIP` แม้ตั้งเป็นค่าว่างแบบที่ CI ทำ).
+       - viewports: n/a — DDL + model metadata + live-SQL assertions ล้วน ไม่มี browser surface.
+       - deviations: (1) **integration test ไม่ assert `ConflictException` ในโปรเซส** — `MerchantRuntimeUnitOfWork`
+         เป็น `internal sealed` และ `Persistence.MerchantRuntime.csproj` ให้ `InternalsVisibleTo` แบบระบุราย
+         consumer พร้อมเหตุผล (Architecture.Tests / Persistence.Provisioning / Hosts.Tests — "the ONE narrow,
+         design-sanctioned exception") โดย **Integration.Tests ตั้งใจไม่มี** (ระบุไว้ในคอมเมนต์ของ
+         `VaultAuditAppender.cs:29` และ csproj ของ Integration.Tests เอง: สวีตนี้ขับ raw connection ล้วน).
+         การเพิ่ม grant ใบที่ 4 = แก้ boundary ที่ design sanction ไว้ ซึ่งไม่มี REQ ข้อใดขอ. แทนที่จะทำอย่างนั้น
+         test pin **เลข error ที่ translator ผูกอยู่จริง** (`ex.Number is 2627 or 2601` =
+         `MerchantRuntimeUnitOfWork.IsUniqueViolation`) **บวกชื่อ index ในข้อความ error** เพื่อไม่ให้ unique index
+         อีกใบบนตารางเดียวกัน (`Psp`,`PspExternalChargeId`) ถูกนับเป็นผ่าน; hop สุดท้าย 2627/2601 ->
+         `ConflictException` -> 409 เป็นโค้ดเดิมที่ task นี้ไม่ได้แตะ. **ให้ lead ตัดสินว่าพอไหม** ถ้าต้องการ
+         end-to-end จริงต้องเพิ่ม `InternalsVisibleTo` + fakes ของ 3 dependency ใน Integration.Tests.
+         (2) test catalog-level (`filter_definition`) ต่อด้วย `IntegrationDb.SaConn` ไม่ใช่ `AppConn` —
+         metadata-visibility ของ SQL Server mask `sys.indexes.filter_definition` (definition column) จาก
+         principal ที่มีแค่ SELECT/INSERT/UPDATE: อ่านกลับเป็น NULL (`SqlNullValueException` ในรอบแรกจริง) ขณะที่
+         `is_unique`/`has_filter` ผ่านปกติ. assertion นี้เป็นเรื่อง DDL ที่ apply แล้ว ไม่ใช่สิทธิ์ของ runtime
+         principal จึงใช้ identity ของ DDL (เหตุผลเดียวกับที่ vault-audit applock tests ใช้ `sa`).
+         (3) แถวที่ integration test insert **ค้างอยู่ใน dev DB** — `pol_app` ไม่มี grant `DELETE` บน
+         `txn.PaymentSessions` (มีแค่ SELECT/INSERT/UPDATE) จึง cleanup ไม่ได้; ใช้ `Guid.NewGuid()` ต่อรอบ
+         (pattern เดียวกับ `OrderSummaryReaderIntegrationTests`) และ `assert-fresh-db.sql` ไม่นับจำนวนแถวของ
+         ตารางนี้เลย จึงไม่กระทบ gate ใด. (4) offline test สร้าง `PolDbContext` ด้วย `ModuleAssemblies` ที่มี
+         **แค่ `Payments.Infrastructure`** (ไม่ใช่ 5-12 assembly เหมือน `MoneyColumnMappingTests`/
+         `ModelDisjointnessTests`) — พอสำหรับ entity ที่ assert และ `EnableServiceProviderCaching(false)` กัน
+         model-cache ปนกับ test class อื่นตามคอมเมนต์ที่ `MoneyColumnMappingTests` เขียนไว้แล้ว.
 
 - [ ] 5. **Webhook callback URL ต่อ connection + paymentChannel จาก method + config surface** —
      `PspOptions` เพิ่ม `PublicBaseUrl` และ **ลบ** `TwoCTwoPOptions.BackendReturnUrl`;
