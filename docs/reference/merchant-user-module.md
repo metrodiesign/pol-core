@@ -761,15 +761,17 @@ AddPolicy("merchant-user", p => p
 | เรื่อง | ของจริงปัจจุบัน |
 |---|---|
 | connection | `appConnString` (login `pol_app`, `Application Name=Api`) — เดียวกันทุก cluster |
-| write floor | `MerchantRequestWriteAuthorizer(IActorContext)` สำหรับ HTTP request; `WorkerWriteAuthorizer()` สำหรับ background dispatch scope (เลือกด้วย `BackgroundDispatchScope.IsHttpRequest`) |
+| write floor | `HttpMerchantWriteAuthorizer(IAdminScope, IActorContext)` สำหรับ HTTP request — เลือกต่อ write: admin scope bound -> `AdminApprovalWriteAuthorizer` (ชุด approve/reject เท่านั้น, confine ตาม accessible set), ไม่ bound -> `MerchantRequestWriteAuthorizer(IActorContext)`; `WorkerWriteAuthorizer()` สำหรับ background dispatch scope (เลือกด้วย `BackgroundDispatchScope.IsHttpRequest`) — spec `bugfix-merchant-prebind-wiring` |
 | query filter | **เฉพาะ `merch.Users` และ `merch.RoleAssignments`** — `x.MerchantId == context.CurrentMerchant`. อีก 5 entity ใน cluster (Sessions / ExternalLogins / AuthAudits / RegistrationAudits / RegistrationNotices) **ไม่มี** filter |
-| pending carve-out | `User.MerchantId` เป็น nullable; NULL ไม่มีวันเท่า `CurrentMerchant` ใน SQL -> pending row ถูกซ่อนจาก merchant actor โดยอัตโนมัติ เห็นได้เฉพาะผ่าน write port ที่ suppress filter ชัดเจน (approve) |
+| pending carve-out | `User.MerchantId` เป็น nullable; NULL ไม่มีวันเท่า `CurrentMerchant` ใน SQL -> pending row ถูกซ่อนจาก merchant actor โดยอัตโนมัติ เห็นได้เฉพาะผ่าน pre-bind seam ที่ suppress filter ชัดเจน: `IAccountResolver` (login/by-id read) + `IAccountStore` (tracked load ของ registration/correction/approve/reject) |
 | migration owner | `PolDbContext` เท่านั้น — cluster นี้ไม่ประกาศ migration เอง |
 
 ports ที่ `AddMerchantUserPersistence` bind (ทั้งหมดอยู่บน `MerchantUserDbContext` เดียวกัน scope เดียวกัน ->
 handler ที่ stage ข้ามหลาย port commit เป็น **tx เดียว**):
 
-`IUserRepository`, `IExternalLoginRepository`, `IRegistrationAuditWriter`, `IRegistrationOutboxWriter`,
+`IUserRepository` (bound in-session เท่านั้น — ติด query filter), `IAccountResolver` + `IAccountStore`
+(pre-bind seams, filter-free — login resolve / session re-resolve / registration / correction / approve /
+reject), `IExternalLoginRepository`, `IRegistrationAuditWriter`, `IRegistrationOutboxWriter`,
 `IRegistrationUnitOfWork`, `IUserUnitOfWork`, `ISessionStore`, `IAuthAuditWriter`, `IRegistrationNoticeWriter`,
 `IRoleRepository` (keyed `"merchantUserPartial"`), `IMerchantRoleAssignmentReader`,
 `IMerchantRoleAssignmentCountReader`, `IMerchantUserOutboxDrain`.

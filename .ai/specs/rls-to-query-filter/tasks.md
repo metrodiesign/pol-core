@@ -297,6 +297,15 @@
          transaction-orchestration layer, task 8's wiring job, through their own already-established ports
          (`IRoleRepository`/`IRegistrationAuditWriter`/`ISessionStore`/`IRegistrationOutboxWriter`) — not
          reimplemented here.
+         **[Superseded 2026-07-26 — bugfix-merchant-prebind-wiring]** task 8 never actually performed the
+         merchant-user DI flip: the handlers stayed on the FILTERED `IUserRepository`, so every pre-bind
+         identity flow (login resolve, correction resubmit, admin approve/reject) was runtime-broken on
+         production config. The 4 merchant-user scaffolding ports were replaced by two DI-wired
+         application-layer seams — `IAccountResolver`/`MerchantAccountResolver` (reads) and
+         `IAccountStore`/`MerchantAccountStore` (tracked pre-bind loads; the write floor still authorizes
+         every staged change via the new `AdminApprovalWriteAuthorizer`/`HttpMerchantWriteAuthorizer`
+         selection) — and the DML writers `MerchantRegistrationSubmitWriter`/`MerchantRegistrationWriter`
+         were deleted. See `.ai/specs/bugfix-merchant-prebind-wiring/`.
 - [x] 6. **Vault reveal-audit serialization (replace EXECUTE-AS proc)**
      Applock-based serialization (`sp_getapplock` Exclusive, transaction-owned, check return code) inside a single
      transaction via a narrow per-operation port, replacing `usp_vault_audit_head`; keep unique `(MerchantId, Seq)`

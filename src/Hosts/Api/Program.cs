@@ -168,9 +168,15 @@ builder.Services.AddMerchantUserPersistence(appConnString, ResolveMerchantWriteA
 builder.Services.AddMerchantRuntimePersistence(appConnString, ResolveMerchantWriteAuthorizer)
     .AddMerchantRuntimeOutboxDispatcher();
 
+// Three-way selection (bugfix-merchant-prebind-wiring F3): background dispatch scope → the cross-merchant
+// drain capability; HTTP with a bound admin scope → the narrow admin approval capability (approve/reject
+// write set only — an admin request has no bound merchant actor, so the ordinary merchant floor would deny
+// the approve write unconditionally); any other HTTP request → the ordinary merchant-request floor. The
+// admin-vs-merchant split is decided per write inside HttpMerchantWriteAuthorizer, not at context
+// construction (the context may be constructed before authentication binds the scope).
 static IWriteAuthorizer ResolveMerchantWriteAuthorizer(IServiceProvider sp) =>
     BackgroundDispatchScope.IsHttpRequest(sp)
-        ? new MerchantRequestWriteAuthorizer(sp.GetRequiredService<IActorContext>())
+        ? new HttpMerchantWriteAuthorizer(sp.GetRequiredService<IAdminScope>(), sp.GetRequiredService<IActorContext>())
         : new WorkerWriteAuthorizer();
 
 // policy-reference-record REQ-3.2-admin: a SEPARATE MerchantRuntimeDbContext instance, built with

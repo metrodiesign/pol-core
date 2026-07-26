@@ -18,36 +18,46 @@ namespace Api;
 /// </summary>
 public sealed class HttpActorContext : IActorContext
 {
+    private readonly IHttpContextAccessor _accessor;
+    private readonly IConfiguration _configuration;
     private readonly AmbientActor _ambient;
-    private readonly Guid? _claimMerchantId;
-    private readonly Guid? _claimUserId;
 
     public HttpActorContext(IHttpContextAccessor accessor, IConfiguration configuration, AmbientActor ambient)
     {
+        _accessor = accessor;
+        _configuration = configuration;
         _ambient = ambient;
+    }
 
-        var merchantClaim = accessor.HttpContext?.User.FindFirstValue("merchant_id");
-        if (Guid.TryParse(merchantClaim, out var fromClaim))
+    // Claims are read lazily PER ACCESS, never snapshotted at construction: this Scoped service gets
+    // constructed DURING session authentication (auth handler ctor → ISessionStore → MerchantUserDbContext →
+    // IActorContext) — BEFORE the handler sets the authenticated principal, so a constructor snapshot froze
+    // CurrentMerchant at Guid.Empty for the whole request (bugfix-merchant-prebind-wiring F5, defect D3).
+    private Guid? ClaimMerchantId
+    {
+        get
         {
-            _claimMerchantId = fromClaim;
-        }
-        else if (Guid.TryParse(configuration["Merchant:DevMerchantId"], out var devMerchant))
-        {
+            var merchantClaim = _accessor.HttpContext?.User.FindFirstValue("merchant_id");
+            if (Guid.TryParse(merchantClaim, out var fromClaim))
+                return fromClaim;
             // ponytail: dev fallback merchant — production must carry a verified merchant_id claim and
             // this configured fallback should be removed (or left empty) outside Development.
-            _claimMerchantId = devMerchant;
+            if (Guid.TryParse(_configuration["Merchant:DevMerchantId"], out var devMerchant))
+                return devMerchant;
+            return null;
         }
-
-        var userClaim = accessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (Guid.TryParse(userClaim, out var fromUserClaim))
-            _claimUserId = fromUserClaim;
     }
+
+    private Guid? ClaimUserId =>
+        Guid.TryParse(_accessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier), out var fromUserClaim)
+            ? fromUserClaim
+            : null;
 
     public Guid MerchantId =>
         _ambient.IsBound ? _ambient.MerchantId
-        : _claimMerchantId ?? throw new InvalidOperationException("No actor is bound to the current request.");
+        : ClaimMerchantId ?? throw new InvalidOperationException("No actor is bound to the current request.");
 
-    public Guid? UserId => _ambient.IsBound ? _ambient.UserId : _claimUserId;
+    public Guid? UserId => _ambient.IsBound ? _ambient.UserId : ClaimUserId;
 
-    public bool HasActor => _ambient.IsBound || _claimMerchantId.HasValue;
+    public bool HasActor => _ambient.IsBound || ClaimMerchantId.HasValue;
 }

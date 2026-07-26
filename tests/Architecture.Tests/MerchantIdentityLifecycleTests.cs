@@ -1,0 +1,367 @@
+using BuildingBlocks.Application;
+using Merchants.Application.Users;
+using Merchants.Application.Users.Roles;
+using Merchants.Domain.Users;
+using Merchants.Domain.Users.Roles;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Persistence.MerchantUsers;
+using Persistence.MerchantUsers.Outbox;
+using Persistence.MerchantUsers.Users;
+using MerchantUserAccount = Merchants.Domain.Users.User;
+
+namespace Architecture.Tests;
+
+/// <summary>
+/// bugfix-merchant-prebind-wiring T1: the reject → resubmit → approve lifecycle driven through the REAL
+/// handlers + the REAL <c>Persistence.MerchantUsers</c> adapters that <c>MerchantUserPersistenceRegistration</c>
+/// registers, on SQLite (which evaluates the EF global query filter), with the actor UNBOUND — exactly the
+/// production shape of the OIDC callback, the anonymous register endpoint, and the admin plane. The write
+/// floor is <see cref="GuardedRuntimeDbContext"/> itself; its <see cref="IWriteAuthorizer"/> is a mirror of
+/// the Api host's composition (<c>Program.cs ResolveMerchantWriteAuthorizer</c>) because the real authorizer
+/// classes are Api-internal and only visible to Hosts.Tests — the real classes are unit-tested there; this
+/// file proves the flows END TO END (F1/F2/F3/F4/F6 of bugfix.md).
+/// </summary>
+public sealed class MerchantIdentityLifecycleTests : IDisposable
+{
+    private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    private static readonly Guid MerchantB = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    private static readonly Guid ManagerRoleId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+    private static readonly Guid ActingAdminId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+
+    private readonly SqliteConnection _connection;
+
+    public MerchantIdentityLifecycleTests()
+    {
+        _connection = new SqliteConnection("DataSource=:memory:");
+        _connection.Open();
+        using var setup = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        setup.Database.EnsureCreated();
+    }
+
+    public void Dispose() => _connection.Dispose();
+
+    // ---------------------------------------------------------------- composition
+
+    /// <summary>Mirror of the write floor an unbound HTTP request gets today
+    /// (<c>Api.Persistence.MerchantRequestWriteAuthorizer</c> via <c>Program.cs ResolveMerchantWriteAuthorizer</c>):
+    /// NULL/Empty tenant key allowed, the registration-outbox sentinel allowed, any other target requires a
+    /// matching bound merchant actor.</summary>
+    private sealed class HttpRequestFloor(IActorContext actor) : IWriteAuthorizer
+    {
+        public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
+            targetMerchant == Guid.Empty
+            || targetMerchant == MerchantRegistrationOutboxSentinel.MerchantId
+            || (actor.HasActor && targetMerchant == actor.MerchantId);
+    }
+
+    /// <summary>The floor a self-service (anonymous registration/correction) request runs under.</summary>
+    private static IWriteAuthorizer SelfServiceFloor(IActorContext actor) => new HttpRequestFloor(actor);
+
+    /// <summary>Mirror of the floor an admin-plane approve/reject request runs under since T3
+    /// (<c>Api.Persistence.AdminApprovalWriteAuthorizer</c> selected per call by
+    /// <c>HttpMerchantWriteAuthorizer</c> when <c>IAdminScope.IsBound</c>): exactly the approve/reject write
+    /// set, here for an unrestricted admin — the Scoped-admin accessible-set confinement matrix is
+    /// unit-tested against the REAL class in Hosts.Tests.</summary>
+    private sealed class AdminApprovalFloor : IWriteAuthorizer
+    {
+        public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
+            (entityType == typeof(MerchantUserAccount) && operation == WriteOperation.Update)
+            || (entityType == typeof(RoleAssignment) && operation == WriteOperation.Insert)
+            || (entityType == typeof(RegistrationAudit) && operation == WriteOperation.Insert);
+    }
+
+    private static IWriteAuthorizer AdminPlaneFloor(IActorContext actor) => new AdminApprovalFloor();
+
+    private MerchantUserDbContext NewContext(IActorContext actor, IWriteAuthorizer authorizer) =>
+        new(new DbContextOptionsBuilder<MerchantUserDbContext>().UseSqlite(_connection).Options,
+            actor, authorizer, NoOpSecurityTelemetry.Instance);
+
+    private sealed class FixedClock : IClock
+    {
+        public DateTime UtcNow { get; } = new(2026, 07, 26, 12, 0, 0, DateTimeKind.Utc);
+    }
+
+    private sealed class NullPhotoStore : IPhotoStore
+    {
+        public Task<string> PutAsync(byte[] bytes, string contentType, CancellationToken cancellationToken) =>
+            Task.FromResult("photo-key");
+        public Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken cancellationToken) =>
+            Task.FromResult<(byte[], string)?>(null);
+    }
+
+    /// <summary>Mirror of <c>Api.Merchants.HostMerchantRoleRepository</c>: the 5 assignment members delegate
+    /// to the REAL <see cref="MerchantUserRoleRepository"/>; the 4 iam-catalog members (a different runtime
+    /// context) are stubbed the way the host composes them from <c>Persistence.ControlPlane</c>.</summary>
+    private sealed class TestHostRoleRepository(MerchantUserDbContext db) : IRoleRepository
+    {
+        private readonly MerchantUserRoleRepository _partial = new(db);
+
+        public void AddAssignment(RoleAssignment assignment) => _partial.AddAssignment(assignment);
+        public void RemoveAssignment(RoleAssignment assignment) => _partial.RemoveAssignment(assignment);
+        public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) =>
+            _partial.ListRoleIdsForUserAsync(merchantUserId, ct);
+        public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) =>
+            _partial.GetAssignmentAsync(merchantUserId, roleId, ct);
+        public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) =>
+            _partial.AssignmentExistsAsync(merchantUserId, roleId, ct);
+
+        public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(
+            Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) =>
+            GetActiveRoleIdsByCodesAsync(merchantId, codes, ct);
+
+        public Task<IReadOnlyDictionary<string, Guid>> GetActiveRoleIdsByCodesAsync(
+            Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyDictionary<string, Guid>>(
+                codes.Where(c => c == "merchant_manager").ToDictionary(c => c, _ => ManagerRoleId));
+
+        public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(
+            Guid merchantUserId, Guid merchantId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
+
+        public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(
+            Guid merchantUserId, Guid merchantId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+    }
+
+    /// <summary>One "request": a fresh context + the REAL adapters over it, composed exactly the way
+    /// <c>MerchantUserPersistenceRegistration.AddMerchantUserPersistence</c> + <c>HostWiring</c> do.</summary>
+    private sealed class Scope : IDisposable
+    {
+        public MerchantUserDbContext Db { get; }
+        public IAccountResolver Resolver { get; }
+        public IAccountStore Store { get; }
+        public IRoleRepository Roles { get; }
+        public MerchantUserUnitOfWork UnitOfWork { get; }
+        public MerchantRegistrationAuditWriter Audits { get; }
+
+        public Scope(MerchantUserDbContext db)
+        {
+            Db = db;
+            Resolver = new MerchantAccountResolver(db);
+            Store = new MerchantAccountStore(db);
+            Roles = new TestHostRoleRepository(db);
+            UnitOfWork = new MerchantUserUnitOfWork(db, NoOpSecurityTelemetry.Instance);
+            Audits = new MerchantRegistrationAuditWriter(db);
+        }
+
+        public SubmitRegistrationHandler SubmitHandler() => new(
+            Store, new MerchantExternalLoginRepository(Db), Audits,
+            new MerchantRegistrationOutboxWriter(Db, new FixedClock()), UnitOfWork,
+            new NullPhotoStore(), new FixedClock());
+
+        public ResolveLoginHandler ResolveLoginHandler() => new(Resolver, Roles);
+        public ResolveByIdHandler ResolveByIdHandler() => new(Resolver, Roles);
+        public ApproveHandler ApproveHandler() => new(Store, Roles, Audits, UnitOfWork, new FixedClock());
+        public RejectHandler RejectHandler() => new(
+            Store, new MerchantUserSessionStore(Db, NoOpSecurityTelemetry.Instance), Audits, UnitOfWork, new FixedClock());
+
+        public void Dispose() => Db.Dispose();
+    }
+
+    private Scope SelfServiceScope() =>
+        new(NewContext(FakeActorContext.Unbound, SelfServiceFloor(FakeActorContext.Unbound)));
+
+    private Scope AdminPlaneScope() =>
+        new(NewContext(FakeActorContext.Unbound, AdminPlaneFloor(FakeActorContext.Unbound)));
+
+    // ---------------------------------------------------------------- helpers
+
+    private static SubmitRegistrationCommand Submission(string subject, TicketPurpose purpose) => new(
+        subject, $"{subject}@example.com", HostedDomain: null, purpose,
+        new RegistrationForm("First", purpose == TicketPurpose.Registration ? "Version" : "Corrected"),
+        PhotoBytes: null, PhotoContentType: null, CorrelationId: $"corr-{subject}-{purpose}");
+
+    private async Task<Guid> SeedViaSubmitAsync(string subject)
+    {
+        using var scope = SelfServiceScope();
+        var result = await scope.SubmitHandler().Handle(Submission(subject, TicketPurpose.Registration), CancellationToken.None);
+        return result.MerchantUserId;
+    }
+
+    /// <summary>Direct state seeding for tests that must not depend on the handlers under test — uses the
+    /// domain methods on an AllowAll context (fixture setup, not a production path).</summary>
+    private async Task MutateSeededAsync(string subject, Action<MerchantUserAccount> mutate)
+    {
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        var account = await db.Users.IgnoreQueryFilters().SingleAsync(u => u.Subject == subject);
+        mutate(account);
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<MerchantUserAccount> LoadAsync(string subject)
+    {
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        return await db.Users.IgnoreQueryFilters().AsNoTracking().SingleAsync(u => u.Subject == subject);
+    }
+
+    // ---------------------------------------------------------------- F1: pre-bind resolve sees the truth
+
+    [Fact]
+    public async Task Resolve_login_sees_a_pending_registration_before_any_actor_is_bound()
+    {
+        await SeedViaSubmitAsync("lc-pending");
+
+        using var scope = SelfServiceScope();
+        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-pending"), CancellationToken.None);
+
+        Assert.Equal(LoginOutcome.PendingApproval, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Resolve_login_reports_rejected_so_the_host_can_mint_a_correction_ticket()
+    {
+        await SeedViaSubmitAsync("lc-rejected");
+        await MutateSeededAsync("lc-rejected", a => a.Reject(DateTime.UtcNow));
+
+        using var scope = SelfServiceScope();
+        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-rejected"), CancellationToken.None);
+
+        Assert.Equal(LoginOutcome.Rejected, result.Outcome);
+    }
+
+    // ---------------------------------------------------------------- F2: correction resubmits the SAME row
+
+    [Fact]
+    public async Task A_correction_resubmission_flips_the_same_rejected_row_back_to_pending()
+    {
+        var id = await SeedViaSubmitAsync("lc-correct");
+        await MutateSeededAsync("lc-correct", a => a.Reject(DateTime.UtcNow));
+
+        using var scope = SelfServiceScope();
+        var result = await scope.SubmitHandler().Handle(Submission("lc-correct", TicketPurpose.Correction), CancellationToken.None);
+
+        Assert.Equal(id, result.MerchantUserId); // same row, never a second account
+        var row = await LoadAsync("lc-correct");
+        Assert.Equal(UserStatus.PendingApproval, row.Status);
+        Assert.Equal("Corrected", row.LastName); // the corrected form values landed
+
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        Assert.Equal(1, await db.Users.IgnoreQueryFilters().CountAsync(u => u.Subject == "lc-correct"));
+        Assert.True(await db.RegistrationAudits.AnyAsync(
+            a => a.TargetSubject == "lc-correct" && a.Action == RegistrationAuditAction.Resubmitted));
+    }
+
+    // ---------------------------------------------------------------- F4: admin reject finds its target
+
+    [Fact]
+    public async Task An_admin_reject_finds_the_pending_target_and_records_the_reason()
+    {
+        await SeedViaSubmitAsync("lc-adm-reject");
+
+        using var scope = AdminPlaneScope();
+        var result = await scope.RejectHandler().Handle(
+            new RejectCommand("lc-adm-reject", "incomplete documents", "admin-sub", "corr-reject"), CancellationToken.None);
+
+        Assert.Equal(UserStatus.Rejected, result.Status);
+        var row = await LoadAsync("lc-adm-reject");
+        Assert.Equal(UserStatus.Rejected, row.Status);
+
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        Assert.True(await db.RegistrationAudits.AnyAsync(
+            a => a.TargetSubject == "lc-adm-reject"
+                 && a.Action == RegistrationAuditAction.Rejected && a.Reason == "incomplete documents"));
+    }
+
+    // ---------------------------------------------------------------- F3: admin approve completes under the floor
+
+    [Fact]
+    public async Task An_admin_approve_activates_binds_the_merchant_and_assigns_the_role()
+    {
+        await SeedViaSubmitAsync("lc-adm-approve");
+
+        using var scope = AdminPlaneScope();
+        var result = await scope.ApproveHandler().Handle(
+            new ApproveCommand("lc-adm-approve", MerchantA, ["merchant_manager"], "admin-sub", ActingAdminId, "corr-approve"),
+            CancellationToken.None);
+
+        Assert.Equal(UserStatus.Active, result.Status);
+        var row = await LoadAsync("lc-adm-approve");
+        Assert.Equal(UserStatus.Active, row.Status);
+        Assert.Equal(MerchantA, row.MerchantId);
+
+        using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
+        Assert.Equal(1, await db.RoleAssignments.IgnoreQueryFilters()
+            .CountAsync(a => a.MerchantUserId == row.Id && a.RoleId == ManagerRoleId));
+    }
+
+    // ---------------------------------------------------------------- F6: session re-resolution by id
+
+    [Fact]
+    public async Task Session_re_resolution_by_id_finds_the_callers_active_account_before_binding()
+    {
+        var id = await SeedViaSubmitAsync("lc-by-id");
+        await MutateSeededAsync("lc-by-id", a => a.Approve(MerchantA, DateTime.UtcNow));
+
+        using var scope = SelfServiceScope(); // the auth handler runs BEFORE any claim/actor exists
+        var result = await scope.ResolveByIdHandler().Handle(new ResolveByIdQuery(id), CancellationToken.None);
+
+        Assert.Equal(ByIdOutcome.Resolved, result.Outcome);
+        Assert.Equal(MerchantA, result.Resolution!.MerchantId);
+    }
+
+    // ---------------------------------------------------------------- the full loop (bugfix.md repro)
+
+    [Fact]
+    public async Task Full_lifecycle_register_reject_resubmit_approve_ends_active()
+    {
+        using (var s = SelfServiceScope())
+            await s.SubmitHandler().Handle(Submission("lc-full", TicketPurpose.Registration), CancellationToken.None);
+
+        using (var s = SelfServiceScope())
+            Assert.Equal(LoginOutcome.PendingApproval,
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None)).Outcome);
+
+        using (var s = AdminPlaneScope())
+            await s.RejectHandler().Handle(
+                new RejectCommand("lc-full", "photo unreadable", "admin-sub", "corr-1"), CancellationToken.None);
+
+        using (var s = SelfServiceScope())
+            Assert.Equal(LoginOutcome.Rejected,
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None)).Outcome);
+
+        using (var s = SelfServiceScope())
+            await s.SubmitHandler().Handle(Submission("lc-full", TicketPurpose.Correction), CancellationToken.None);
+
+        using (var s = SelfServiceScope())
+            Assert.Equal(LoginOutcome.PendingApproval,
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None)).Outcome);
+
+        using (var s = AdminPlaneScope())
+            await s.ApproveHandler().Handle(
+                new ApproveCommand("lc-full", MerchantB, ["merchant_manager"], "admin-sub", ActingAdminId, "corr-2"),
+                CancellationToken.None);
+
+        using (var s = SelfServiceScope())
+        {
+            var final = await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None);
+            Assert.Equal(LoginOutcome.Active, final.Outcome);
+            Assert.Equal(MerchantB, final.Resolution!.MerchantId);
+        }
+    }
+
+    // ---------------------------------------------------------------- pin: WHY the seam split exists (green today)
+
+    [Fact]
+    public async Task The_filtered_repository_hides_null_merchant_rows_from_every_actor_by_design()
+    {
+        await SeedViaSubmitAsync("lc-pin-pending");
+
+        // Unbound (CurrentMerchant == Guid.Empty) and bound both miss a NULL-MerchantId row: this is the
+        // deny-default read floor working as specified — which is exactly why pre-bind flows need their own
+        // filter-free seam instead of IUserRepository.
+        using (var unbound = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll))
+            Assert.Null(await new MerchantUserRepository(unbound).FindBySubjectAsync("lc-pin-pending", CancellationToken.None));
+        using (var bound = NewContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
+            Assert.Null(await new MerchantUserRepository(bound).FindBySubjectAsync("lc-pin-pending", CancellationToken.None));
+
+        // B2: a bound in-session actor sees its OWN merchant's rows and nobody else's.
+        await SeedViaSubmitAsync("lc-pin-active");
+        await MutateSeededAsync("lc-pin-active", a => a.Approve(MerchantA, DateTime.UtcNow));
+
+        using (var own = NewContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
+            Assert.NotNull(await new MerchantUserRepository(own).FindBySubjectAsync("lc-pin-active", CancellationToken.None));
+        using (var other = NewContext(FakeActorContext.For(MerchantB), FakeWriteAuthorizer.AllowAll))
+            Assert.Null(await new MerchantUserRepository(other).FindBySubjectAsync("lc-pin-active", CancellationToken.None));
+    }
+}

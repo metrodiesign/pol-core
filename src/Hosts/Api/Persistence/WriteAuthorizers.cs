@@ -116,6 +116,62 @@ internal sealed class MerchantRequestWriteAuthorizer : IWriteAuthorizer
 }
 
 /// <summary>
+/// Admin approval capability over <c>MerchantUserDbContext</c> (bugfix-merchant-prebind-wiring F3/F4): an
+/// admin-plane request has no bound merchant actor, so <see cref="MerchantRequestWriteAuthorizer"/> denies
+/// the approve write set unconditionally — the exact failure class PR #124 fixed on the control plane and
+/// <c>AdminItemPolicyWriteAuthorizer</c> already solves for ItemPolicy. Allows ONLY what approve/reject stage:
+/// the target user row's update (approve performs the one-time NULL→merchant tenant-key transition; reject
+/// leaves it NULL → <c>targetMerchant == Guid.Empty</c>), the approval's role-assignment insert, and the
+/// registration-audit append. A non-Empty target must sit inside the admin's accessible-merchant set — Scoped
+/// admins stay confined (same accessible-set floor as the host's pre-dispatch check), Supers are unrestricted.
+/// </summary>
+internal sealed class AdminApprovalWriteAuthorizer : IWriteAuthorizer
+{
+    private static readonly HashSet<(Type, WriteOperation)> Allowed =
+    [
+        (typeof(MerchantUser), WriteOperation.Update),
+        (typeof(MerchantRoleAssignment), WriteOperation.Insert),
+        (typeof(MerchantRegistrationAudit), WriteOperation.Insert),
+    ];
+
+    private readonly IAdminScope _scope;
+
+    public AdminApprovalWriteAuthorizer(IAdminScope scope) => _scope = scope;
+
+    public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
+        Allowed.Contains((entityType, operation))
+        && (targetMerchant == Guid.Empty || _scope.Accessible.Allows(targetMerchant));
+}
+
+/// <summary>
+/// The per-call HTTP selection between the two request-plane capabilities above
+/// (bugfix-merchant-prebind-wiring F3): an admin-bound request (admin session auth ran → <c>IAdminScope</c>
+/// bound) gets <see cref="AdminApprovalWriteAuthorizer"/>; every other HTTP request keeps the ordinary
+/// <see cref="MerchantRequestWriteAuthorizer"/>. Decided PER WRITE, not at context construction — a
+/// scoped <c>MerchantUserDbContext</c> may be constructed before authentication finishes binding the scope
+/// (the same construction-order hazard as <c>HttpActorContext</c>, defect D3), so the selection must read
+/// <c>IAdminScope.IsBound</c> at CanWrite time.
+/// </summary>
+internal sealed class HttpMerchantWriteAuthorizer : IWriteAuthorizer
+{
+    private readonly IAdminScope _adminScope;
+    private readonly AdminApprovalWriteAuthorizer _admin;
+    private readonly MerchantRequestWriteAuthorizer _merchant;
+
+    public HttpMerchantWriteAuthorizer(IAdminScope adminScope, IActorContext actor)
+    {
+        _adminScope = adminScope;
+        _admin = new AdminApprovalWriteAuthorizer(adminScope);
+        _merchant = new MerchantRequestWriteAuthorizer(actor);
+    }
+
+    public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
+        _adminScope.IsBound
+            ? _admin.CanWrite(entityType, operation, targetMerchant)
+            : _merchant.CanWrite(entityType, operation, targetMerchant);
+}
+
+/// <summary>
 /// Provisioning-Super capability: constructed ONLY inside <c>ProvisioningCoordinator</c>'s two context
 /// factories (design.md "Provisioning UoW"). A narrow, hardcoded (entityType, operation) allowlist — NOT
 /// actor-based, because the coordinator has already verified the caller is an active Super admin at the

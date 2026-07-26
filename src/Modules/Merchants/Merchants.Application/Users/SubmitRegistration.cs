@@ -49,7 +49,7 @@ public sealed record SubmitRegistrationResult(Guid MerchantUserId, UserStatus St
 /// </summary>
 public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrationCommand, SubmitRegistrationResult>
 {
-    private readonly IUserRepository _accounts;
+    private readonly IAccountStore _accounts;
     private readonly IExternalLoginRepository _logins;
     private readonly IRegistrationAuditWriter _audits;
     private readonly IRegistrationOutboxWriter _outbox;
@@ -57,8 +57,11 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
     private readonly IPhotoStore _photos;
     private readonly IClock _clock;
 
+    // IAccountStore, never IUserRepository: this endpoint is anonymous (ticket-gated) — no actor is bound, and
+    // the Correction branch's target row has a NULL MerchantId the filtered repository would hide
+    // (bugfix-merchant-prebind-wiring F2).
     public SubmitRegistrationHandler(
-        IUserRepository accounts,
+        IAccountStore accounts,
         IExternalLoginRepository logins,
         IRegistrationAuditWriter audits,
         IRegistrationOutboxWriter outbox,
