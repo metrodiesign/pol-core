@@ -52,9 +52,10 @@ public sealed class OmiseAdapter : PspAdapterBase
         return method switch
         {
             "card" => await CreateCardChargeAsync(session, creds, cancellationToken).ConfigureAwait(false),
-            "promptpay" => throw new NotSupportedException(
+            // Rejected, not ambiguous: both refusals happen before any request is sent (REQ-7.5).
+            "promptpay" => throw new PspRejectedException(
                 "Omise PromptPay (Payment Links+) is deferred pending sandbox-verified link->charge correlation."),
-            _ => throw new NotSupportedException($"Omise adapter does not support method '{session.Method}'."),
+            _ => throw new PspRejectedException($"Omise adapter does not support method '{session.Method}'."),
         };
     }
 
@@ -150,20 +151,32 @@ public sealed class OmiseAdapter : PspAdapterBase
 
     // ---- helpers ----
 
+    /// <summary>Rejected, not ambiguous: an unusable secret envelope stops us before any request is sent
+    /// (REQ-7.5). The message never echoes the envelope.</summary>
     private static OmiseSecret ParseSecret(string secret)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(secret);
-        return JsonSerializer.Deserialize<OmiseSecret>(secret, Json)
-            ?? throw new InvalidOperationException("Omise secret envelope could not be parsed.");
+        if (string.IsNullOrWhiteSpace(secret))
+            throw new PspRejectedException("Omise secret is empty.");
+
+        try
+        {
+            return JsonSerializer.Deserialize<OmiseSecret>(secret, Json)
+                ?? throw new PspRejectedException("Omise secret envelope could not be parsed.");
+        }
+        catch (JsonException)
+        {
+            throw new PspRejectedException("Omise secret envelope could not be parsed.");
+        }
     }
 
     /// <summary>Fails fast if the key's test/live prefix disagrees with UseSandbox — a sandbox config with
-    /// a live key (or vice versa) is a latent double-charge/auth bug. Names the mismatch, never the key.</summary>
+    /// a live key (or vice versa) is a latent double-charge/auth bug. Names the mismatch, never the key.
+    /// Rejected, not ambiguous: it runs before the request goes out (REQ-7.5).</summary>
     private void GuardKeyEnvironment(string secretKey)
     {
         var isTestKey = secretKey.StartsWith("skey_test_", StringComparison.Ordinal);
         if (isTestKey != Options.UseSandbox)
-            throw new InvalidOperationException(
+            throw new PspRejectedException(
                 $"Omise key environment mismatch: UseSandbox={Options.UseSandbox} but the secret key is {(isTestKey ? "test" : "live")}.");
     }
 

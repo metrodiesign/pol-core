@@ -573,7 +573,7 @@
 
 ## Codex review round 1 (#4782168269, reviewed `ec7f4b174f`) — 3x P1, all verified REAL by lead
 
-- [ ] 8. **แยก definitive จาก ambiguous ใน StartRedirect + สะสาง claim ที่ค้าง** — แก้ 2 P1 ที่เกี่ยวกัน
+- [x] 8. **แยก definitive จาก ambiguous ใน StartRedirect + สะสาง claim ที่ค้าง** — แก้ 2 P1 ที่เกี่ยวกัน
      (design **D6a**). (ก) `catch (Exception)` ที่ `StartRedirectHandler.cs:101` `MarkFailed` ทุกกรณี รวม
      timeout/cancel/transport/parse ที่ PSP **อาจรับ charge ไปแล้ว** -> create-session เปิดใบใหม่ ->
      `Session.Id` ใหม่ = idempotency key ใหม่ที่ PSP = **จ่ายซ้ำ** + charge แรกไม่มี session ผูก
@@ -593,6 +593,56 @@
      `PspRejectedException`/4xx/vault throw -> `Failed`; re-entry ของ `Redirected`+null URL -> เรียก adapter
      ซ้ำ **ครั้งเดียว** แล้วผูก charge (fake นับ call = 1 ต่อการเรียกซ้ำ, ไม่ `BeginRedirect` ซ้ำ);
      fail-then-retry เดิม (definitive) ยังผ่าน + `dotnet build pol-core.slnx -warnaserror`.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`.
+       - test: `dotnet test tests/Payments.Tests` -> **161 passed / 0 failed / 0 skipped** (baseline 150 -> +11:
+         6 handler tests ใหม่ + 5 case ของ Theory `CreateRedirectCharge_separates_an_outright_refusal_from_an_
+         unknown_outcome`). handler tests ใหม่: ambiguous 4 แบบ (`TaskCanceledException`,
+         `HttpRequestException`, 5xx, signature-verify fail) -> status ยัง `Redirected` + `RedirectUrl` null +
+         `SaveCount == 1` (claim เท่านั้น ไม่มี Failed transition); vault throw บนเส้น claim -> `Failed` +
+         `SaveCount == 2`; settle ของ `Redirected`+null URL -> เรียก adapter **1 ครั้ง** ผูก
+         `PspExternalChargeId` + `SaveCount == 1` (ไม่ claim ซ้ำ — `BeginRedirect` ซ้ำจะ throw ทันที);
+         settle ผ่านแม้ connection ถูกปิดทีหลัง; settle ที่ถูก `PspRejectedException` และ settle ที่ vault ล้ม ->
+         **ไม่** `Failed`, `SaveCount == 0`.
+       - test: **RED proof** — `git stash push` 4 ไฟล์ src (`StartRedirectHandler`, `PspAdapterBase`,
+         `TwoCTwoPAdapter`, `OmiseAdapter`) แล้ว `dotnet test tests/Payments.Tests` ->
+         `Failed! - Failed: 17, Passed: 144, Total: 161`. ที่แดงครบทุกเกณฑ์ใหม่: 6 handler tests
+         (`An_ambiguous_charge_failure_keeps_the_claim...`, `A_vault_that_cannot_reveal_the_secret_fails...`,
+         `A_claim_with_no_url_settles_by_calling_the_psp_again...`, `..._still_settles_when_the_connection_was_
+         disabled_meanwhile`, `A_settling_call_that_is_refused_still_never_fails...`, +vault settle) และทุกจุด
+         classification (2 case 4xx ของ Theory, declined respCode, amount ไม่ representable x2 PSP,
+         method ที่ adapter ไม่รองรับ x2 PSP, Omise key-environment mismatch). `git stash pop` -> build ->
+         161 passed.
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1224 passed / 0 failed**
+         across 16 projects (baseline 1213 -> +11). Payments 150->161, project อื่นเท่าเดิม: Admins 95 ·
+         Architecture 223 · BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts 353 · Iam 62 ·
+         Levels 6 · Merchants 120 · Offices 6 · Orders 68 · Positions 6 · Products 7 · SharedKernel 46.
+       - test: `bash scripts/check-rename-identifiers.sh` -> `OK — no retired identifier appears as a live-code
+         token in src/ or tests/` (รันหลัง `git add`).
+       - test: `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 45 ข้อ ถูกอ้างครบใน
+         design.md และ tasks.md, EARS lint ผ่านทุกข้อ`.
+       - viewports: n/a — Application handler + adapter classification, ไม่มี browser surface.
+       - deviations: (1) `PspRejectedException : InvalidOperationException` (ไม่ใช่ `: Exception`) เพื่อคง
+         mapping 409 เดิมของ `ProblemDetailsExceptionHandler` — ไม่ต้องแตะ BuildingBlocks และไม่มีเส้นทางใดกลาย
+         เป็น 500 ใหม่; ผลพ่วงที่ยอมรับ: amount ที่ไม่ representable เปลี่ยนจาก 400 -> 409 และ method ที่ adapter
+         ไม่รองรับจาก 500 -> 409 (ทั้งคู่เป็นสถานะ/config ฝั่ง server จริง ๆ ตามเส้นแบ่งของ design D3).
+         (2) **classify throw site เพิ่มจากรายการใน D6a 3 จุด** เพราะทั้งสามเป็น "ไม่มีทางสำเร็จถ้าลองใหม่" ->
+         ถ้าปล่อยเป็น ambiguous session จะค้าง claim ตลอดกาล (ละเมิด REQ-7.2 โดยโครงสร้าง): 2C2P
+         `respCode != "0000"` (decline ที่ verify ลายเซ็นแล้ว = PSP ปฏิเสธเด็ดขาด), secret envelope ที่ parse
+         ไม่ได้/ว่าง (ทั้ง 2 adapter, เกิดก่อนส่ง), และ `JsonException` จาก envelope นั้น. **ไม่** classify:
+         signature-verify fail, `missing webPaymentUrl`/`missing id`/`missing authorize_uri`, JSON ของ response —
+         ยัง ambiguous ตาม D6a. (3) **settle path ไม่เรียก `connection.EnsureEligible`** — REQ-3.5 ผูกกับ
+         "ก่อน claim" และ D6a สั่งเดินแค่ขั้น 6-8; ถ้าเช็ค eligibility ที่นี่ claim ที่มี charge ค้างอยู่ที่ PSP
+         จะสะสางไม่ได้เลยเมื่อ admin ปิด connection = สภาพที่ REQ-7.6 ตั้งใจแก้ (มี test pin ไว้).
+         (4) **`MarkFailed` ถูกกันทั้งก้อนบน settle path** (ผ่าน exception filter `when (!settlingClaim)`) ไม่ใช่
+         แค่กรณี ambiguous — เพราะการเรียกซ้ำที่ถูกปฏิเสธไม่ได้พิสูจน์ว่า **ความพยายามครั้งแรก** ไม่ได้สร้าง charge.
+         ผลที่ยอมรับและต้องบันทึก: config ที่พังถาวร (เช่น secret rotate ผิด) ทำให้ session ค้าง `Redirected`
+         และ order นั้นเปิดใบใหม่ไม่ได้จนคนเข้าไปสะสาง — ทางออกของ ops คือ escape hatch ของ task 9 (expire
+         ใบที่ไม่มี charge). (5) เจอ **กับดักสภาพแวดล้อม** ระหว่างรัน DoD: `dotnet test pol-core.slnx` ค้าง >10
+         นาทีเพราะ `Architecture.Tests.CompileNegativeReferenceTests` spawn `dotnet build` ซ้อนแล้วชนกับ MSBuild
+         node ของ run แม่ (Architecture.Tests รันเดี่ยว = 223 passed / 3.2 วินาที). แก้ด้วย
+         `dotnet build-server shutdown` + `MSBUILDDISABLENODEREUSE=1` แล้วชุดเต็มจบปกติ — ไม่ใช่ test hang และ
+         ไม่เกี่ยวกับโค้ดของ task นี้.
 
 - [ ] 9. **migration สะสางแถวซ้ำก่อนสร้าง unique index** — `CreateIndex` เปล่าใน
      `20260726151538_OneOpenPaymentSessionPerOrder` จะ **fail กลาง migration chain** บนฐานข้อมูลที่มี open

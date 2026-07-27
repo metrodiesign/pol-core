@@ -54,10 +54,11 @@ public sealed class StartRedirectHandlerTests
         Session? session = null,
         Connection[]? connections = null,
         Func<Session, PspCharge>? onCharge = null,
-        Func<int, Exception?>? saveFails = null)
+        Func<int, Exception?>? saveFails = null,
+        Exception? vaultFails = null)
     {
         var target = session ?? CreatedSession();
-        var vault = new FakeVaultSecretStore();
+        var vault = new FakeVaultSecretStore { RevealFails = vaultFails };
         var unitOfWork = new FakeUnitOfWork { SaveFails = saveFails };
 
         var handler = new StartRedirectHandler(
@@ -235,10 +236,10 @@ public sealed class StartRedirectHandlerTests
     [Fact]
     public async Task A_charge_the_psp_refuses_fails_the_session_and_rethrows()
     {
-        var refusal = new InvalidOperationException("2c2p returned HTTP 502.");
+        var refusal = new PspRejectedException("2c2p paymentToken declined (respCode 4009).");
         var harness = NewHarness(onCharge: _ => throw refusal);
 
-        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(async () => await harness.Start());
+        var thrown = await Assert.ThrowsAsync<PspRejectedException>(async () => await harness.Start());
 
         Assert.Same(refusal, thrown); // rethrown as-is: never swallowed, never re-wrapped into another status
         Assert.Equal(SessionStatus.Failed, harness.Session.Status);
@@ -249,12 +250,12 @@ public sealed class StartRedirectHandlerTests
     [Fact]
     public async Task Failing_to_record_the_failure_does_not_hide_the_psp_refusal()
     {
-        var refusal = new InvalidOperationException("2c2p returned HTTP 402.");
+        var refusal = new PspRejectedException("2c2p returned HTTP 402.");
         var harness = NewHarness(
             onCharge: _ => throw refusal,
             saveFails: save => save == 2 ? new InvalidOperationException("the store is unavailable.") : null);
 
-        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(async () => await harness.Start());
+        var thrown = await Assert.ThrowsAsync<PspRejectedException>(async () => await harness.Start());
 
         // The caller must be told the PSP declined, not that the database broke while noting it down.
         Assert.Same(refusal, thrown);
@@ -272,7 +273,7 @@ public sealed class StartRedirectHandlerTests
         var adapters = new FakePspAdapterFactory(
             new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card)
             {
-                OnCreateCharge = _ => throw new InvalidOperationException("2c2p returned HTTP 402."),
+                OnCreateCharge = _ => throw new PspRejectedException("2c2p returned HTTP 402."),
             });
         var unitOfWork = new FakeUnitOfWork();
         var clock = new FixedClock { UtcNow = Now };
@@ -290,7 +291,7 @@ public sealed class StartRedirectHandlerTests
         var command = new CreateSessionCommand(OrderId, MerchantId, PaymentMethods.Card, Code.TwoCTwoP);
         var first = await create.Handle(command, default);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        await Assert.ThrowsAsync<PspRejectedException>(async () =>
             await redirect.Handle(new StartRedirectCommand(first.PaymentSessionId), default));
 
         var second = await create.Handle(command, default);
@@ -300,5 +301,127 @@ public sealed class StartRedirectHandlerTests
         Assert.Equal(SessionStatus.Failed, sessions.Added[0].Status);
         Assert.Equal(SessionStatus.Created, sessions.Added[1].Status);
         Assert.Equal(OrderAmount, sessions.Added[1].Amount); // the retry is still priced from the order
+    }
+
+    // --- definitive vs ambiguous, and settling a claim (REQ-7.5 / REQ-7.6) ---
+
+    [Fact]
+    public async Task An_ambiguous_charge_failure_keeps_the_claim_instead_of_failing_the_session()
+    {
+        // Every one of these can happen AFTER the PSP accepted the charge: we simply never learned the answer.
+        // Failing the session would let the order open a replacement whose id is a NEW idempotency key at the
+        // PSP — a second charge against the same customer.
+        Exception[] ambiguous =
+        [
+            new TaskCanceledException("The request was canceled due to a timeout."),
+            new HttpRequestException("Connection reset by peer."),
+            new InvalidOperationException("2c2p returned HTTP 503."),
+            new InvalidOperationException("2c2p paymentToken response failed signature verification."),
+        ];
+
+        foreach (var failure in ambiguous)
+        {
+            var harness = NewHarness(onCharge: _ => throw failure);
+
+            var thrown = await Assert.ThrowsAnyAsync<Exception>(async () => await harness.Start());
+
+            Assert.Same(failure, thrown);
+            Assert.Equal(SessionStatus.Redirected, harness.Session.Status); // claim intact, NOT Failed
+            Assert.Null(harness.Session.RedirectUrl);
+            Assert.Equal(1, harness.UnitOfWork.SaveCount); // the claim only — no Failed transition was written
+        }
+    }
+
+    [Fact]
+    public async Task A_vault_that_cannot_reveal_the_secret_fails_the_session()
+    {
+        // Definitive by position: nothing has been sent to the PSP, so the claim must not survive — with the
+        // one-open-session index in place a surviving claim with no URL makes the order unpayable.
+        var outage = new InvalidOperationException("Vault secret psp/secret-ref/merchant-1 is unavailable.");
+        var harness = NewHarness(vaultFails: outage);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(async () => await harness.Start());
+
+        Assert.Same(outage, thrown);
+        Assert.Equal(SessionStatus.Failed, harness.Session.Status);
+        Assert.Equal(2, harness.UnitOfWork.SaveCount); // the claim, then the Failed transition
+    }
+
+    [Fact]
+    public async Task A_claim_with_no_url_settles_by_calling_the_psp_again_under_the_same_key()
+    {
+        // The state an ambiguous attempt leaves behind. Re-calling with the session's own idempotency key
+        // returns the ORIGINAL charge (both adapters derive the key from Session.Id), so binding it here is
+        // what lets its webhook correlate — instead of 409 forever with an untracked charge at the PSP.
+        var session = CreatedSession();
+        session.BeginRedirect(Now);
+        var charges = 0;
+        var harness = NewHarness(
+            session: session,
+            onCharge: _ =>
+            {
+                charges++;
+                return new PspCharge("chg_settled", "https://psp.example/hosted/settled");
+            });
+
+        var result = await harness.Start();
+
+        Assert.Equal("https://psp.example/hosted/settled", result.RedirectUrl);
+        Assert.Equal(1, charges);
+        Assert.Equal("chg_settled", harness.Session.PspExternalChargeId);
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
+        Assert.Equal(1, harness.Vault.Reveals);
+        // One save: the binding. A second BeginRedirect would have thrown outright, and a re-claim would have
+        // saved twice.
+        Assert.Equal(1, harness.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task A_claim_with_no_url_still_settles_when_the_connection_was_disabled_meanwhile()
+    {
+        // The eligibility recheck gates NEW claims (REQ-3.5). Applying it here would strand a claim whose
+        // charge may already exist at the PSP — exactly what REQ-7.6 exists to prevent.
+        var session = CreatedSession();
+        session.BeginRedirect(Now);
+        var harness = NewHarness(
+            session: session,
+            connections: [Disabled(NewConnection())],
+            onCharge: _ => new PspCharge("chg_settled", "https://psp.example/hosted/settled"));
+
+        var result = await harness.Start();
+
+        Assert.Equal("https://psp.example/hosted/settled", result.RedirectUrl);
+    }
+
+    [Fact]
+    public async Task A_settling_call_that_is_refused_still_never_fails_the_session()
+    {
+        // Even an outright refusal of the RE-call proves nothing about the first attempt, which may have left a
+        // charge at the PSP. The claim stays; a human (or a later successful settle) resolves it.
+        var session = CreatedSession();
+        session.BeginRedirect(Now);
+        var harness = NewHarness(
+            session: session,
+            onCharge: _ => throw new PspRejectedException("2c2p returned HTTP 400."));
+
+        await Assert.ThrowsAsync<PspRejectedException>(async () => await harness.Start());
+
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
+        Assert.Equal(0, harness.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task A_settling_call_whose_vault_read_fails_still_never_fails_the_session()
+    {
+        var session = CreatedSession();
+        session.BeginRedirect(Now);
+        var harness = NewHarness(
+            session: session,
+            vaultFails: new InvalidOperationException("Vault secret psp/secret-ref/merchant-1 is unavailable."));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await harness.Start());
+
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
+        Assert.Equal(0, harness.UnitOfWork.SaveCount);
     }
 }

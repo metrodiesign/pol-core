@@ -1164,3 +1164,128 @@ PSP ไม่ส่งยอดกลับ -> status-only (ข้อ 23) · ses
    `POST /api/v1/payments/sessions`) สำหรับทีม FE, env ใหม่ `PSP_PUBLIC_BASE_URL` + ตัวเก่าที่ต้องลบ,
    migration ใหม่ที่ต้อง apply, และรายการ gap ที่ยังเปิด 6 ข้อ.
 3. หลัง merge: rerun `scripts/seed-demo.sh` บนเครื่อง dev ทุกเครื่อง (session method เปลี่ยนเป็น `card`).
+
+---
+
+## Section 8 — task 8 (from: Claude Opus 5 teammate, 2026-07-27)
+
+### Task Summary
+
+task 8 = แก้ Codex P1 x2 บน PR #140 ตาม design **D6a**: (ก) แยก **definitive** (พิสูจน์ได้ว่าไม่มี charge)
+จาก **ambiguous** (charge อาจเกิดแล้ว) — เฉพาะ definitive ถึง `MarkFailed` ได้; (ข) `RevealAsync` ย้ายเข้า
+เส้นทาง failure และ re-entry ของ `Redirected` + `RedirectUrl == null` **สะสาง claim** โดยเรียก PSP ซ้ำด้วย
+idempotency key เดิม (ไม่ `BeginRedirect` ซ้ำ). ปิด REQ-7 (7.5, 7.6).
+
+### Current Status
+
+- task 8 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 9 (migration สะสางแถวซ้ำ, REQ-2.7) ยัง `- [ ]` — เป็นงานของ teammate อื่น ไม่ถูกแตะที่นี่.
+- suite: **1224 passed / 0 failed** (baseline 1213). Payments.Tests 150 -> 161.
+
+### Files Changed
+
+- `src/Modules/Payments/Payments.Application/Ports/PspRejectedException.cs` — created —
+  `sealed class PspRejectedException : InvalidOperationException` (คง mapping 409).
+- `src/Modules/Payments/Payments.Application/StartRedirect/StartRedirectHandler.cs` — edited — เพิ่ม
+  `settlingClaim` (= เข้ามาตอน status `Redirected` ซึ่ง ณ จุดนั้นแปลว่า `RedirectUrl == null` เพราะ branch
+  re-entry ที่มี URL คืนค่าไปแล้ว); ย้าย `EnsureEligible` + `BeginRedirect` + save เข้า `if (!settlingClaim)`;
+  ห่อ `RevealAsync` ด้วย `catch (Exception) when (!settlingClaim)` -> `FailSessionAsync`; เปลี่ยน catch ของ
+  charge เป็น `catch (PspRejectedException) when (!settlingClaim)`; `PersistFailureAsync` ยุบรวมเป็น
+  `FailSessionAsync(session, failure)`.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/PspAdapterBase.cs` — edited — `StatusFailure(HttpStatusCode)`
+  ตัวเดียวที่ทั้ง `SendOnceAsync` และ `SendWithRetryAsync` ใช้ (4xx ยกเว้น 408/429 -> `PspRejectedException`,
+  ที่เหลือ -> `InvalidOperationException`); `RequireRepresentableDigits` โยน `PspRejectedException`.
+- `src/Modules/Payments/Payments.Infrastructure/Psp/TwoCTwoPAdapter.cs` — edited — `respCode != "0000"`,
+  `PaymentChannelFor` fallback, `ParseSecret` (ว่าง / null / `JsonException`) -> `PspRejectedException`.
+  **ไม่แตะ**: signature-verify fail, `missing webPaymentUrl` (ยัง ambiguous).
+- `src/Modules/Payments/Payments.Infrastructure/Psp/OmiseAdapter.cs` — edited — `GuardKeyEnvironment`,
+  promptpay/unknown method, `ParseSecret` -> `PspRejectedException`. **ไม่แตะ**: `missing id`,
+  `missing authorize_uri`, JSON parse ของ response (ยัง ambiguous).
+- `tests/Payments.Tests/Fakes.cs` — edited — `FakeVaultSecretStore.RevealFails` (นับ `Reveals` ก่อน throw).
+- `tests/Payments.Tests/StartRedirectHandlerTests.cs` — edited — +6 tests, และ 3 test เดิมของ task 3 เปลี่ยน
+  exception ที่ใช้เป็น `PspRejectedException` (เพราะ "2c2p returned HTTP 502" กลายเป็น ambiguous ตามกฎใหม่).
+- `tests/Payments.Tests/Psp/TwoCTwoPAdapterTests.cs` — edited — 4 assertion retype + Theory ใหม่ 5 case
+  (BadRequest/Unauthorized -> rejected; RequestTimeout/TooManyRequests/ServiceUnavailable -> ambiguous).
+- `tests/Payments.Tests/Psp/OmiseAdapterTests.cs` — edited — 4 assertion retype (+rename test promptpay).
+- `.ai/specs/captive-payment-alignment/tasks.md` / `HANDOFF.md` — edited.
+
+### Important Decisions
+
+1. **`PspRejectedException : InvalidOperationException`** — คง 409 เดิมของทุกเส้นทางที่เคยเป็น
+   `InvalidOperationException` โดยไม่ต้องแตะ `ProblemDetailsExceptionHandler` (BuildingBlocks) เลย.
+   ผลพ่วง: amount ไม่ representable 400 -> 409, method ที่ adapter ไม่รองรับ 500 -> 409 (ทั้งคู่เป็น
+   server-state ตามเส้นแบ่ง design D3 อยู่แล้ว).
+2. **หลักที่ใช้ตัดสิน definitive ไม่ใช่ "ก่อน/หลัง HTTP" เพียว ๆ แต่คือ "ลองใหม่แล้วมีโอกาสสำเร็จไหม"** —
+   ทุก throw ที่เกิดก่อนส่ง request ของ session นั้นจะ **ล้มเหมือนเดิมทุกครั้ง** (amount/method/secret/key-env
+   ตายตัวบน session) ดังนั้นถ้าไม่ classify เป็น definitive session จะค้าง claim ตลอดกาล = ละเมิด REQ-7.2
+   โดยโครงสร้าง. นี่คือเหตุผลที่ classify เพิ่ม 3 จุดจากรายการใน D6a (respCode decline ที่ verify แล้ว,
+   secret envelope ว่าง/parse ไม่ได้, `JsonException` ของ envelope).
+3. **`MarkFailed` ถูกปิดทั้งหมดบน settle path** — ไม่ใช่แค่ ambiguous. การเรียกซ้ำที่ถูกปฏิเสธ **ไม่**
+   พิสูจน์ว่าความพยายามครั้งแรกไม่ได้สร้าง charge (เช่น 2C2P ตอบ duplicate-invoice). ยอมให้ค้างดีกว่าเปิดทาง
+   ให้เกิด charge ใบที่สอง.
+4. **settle path ไม่เรียก `EnsureEligible`** — REQ-3.5 ผูกกับ "ก่อน claim"; ถ้าเช็คที่นี่ admin ที่ปิด
+   connection จะทำให้ claim ที่มี charge ค้างอยู่ที่ PSP สะสางไม่ได้เลย (มี test pin ทั้งเคสนี้และเคส
+   re-entry ที่มี URL อยู่แล้ว).
+
+### Constraints (เพิ่มจาก section ก่อน ๆ — ยังใช้ทุกข้อ)
+
+- **`MarkFailed` เรียกได้เฉพาะเมื่อพิสูจน์ได้ว่าไม่มี charge** — เงื่อนไขจริงในโค้ดคือ
+  `catch (PspRejectedException) when (!settlingClaim)` + `catch (Exception) when (!settlingClaim)` ของ vault.
+  ใครเพิ่ม catch ใหม่รอบ `CreateRedirectChargeAsync` ต้องรักษาสองเงื่อนไขนี้ ไม่งั้นเปิดช่องจ่ายซ้ำกลับมา.
+- **throw ใหม่ใน adapter ต้องเลือก type ให้ถูก**: เกิดก่อนส่ง หรือ PSP ปฏิเสธเด็ดขาด (4xx/decline ที่ verify
+  ลายเซ็นแล้ว) -> `PspRejectedException`; อ่าน/verify response ไม่ได้, 5xx/408/429, transport, timeout ->
+  `InvalidOperationException` หรือ exception เดิม (ambiguous).
+- **`SendWithRetryAsync` ก็ใช้ `StatusFailure` เหมือนกัน** — fetch path จึงคืน `PspRejectedException` บน 4xx
+  ด้วย; วันนี้ไม่มีใคร classify ผลของ fetch (webhook handler ดูแต่ status) แต่ task ที่แตะ webhook ต้องรู้ไว้.
+- **session ที่ค้าง `Redirected` + `RedirectUrl == null` ไม่ใช่ dead end อีกแล้ว** — เรียก
+  `POST /api/v1/payments/sessions/{id}/redirect` ซ้ำคือวิธีสะสาง (ไม่ต้องมี job/sweeper — Non-Goal 4 ยังอยู่).
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `64 projects, 0 errors, 0 warnings`.
+- `dotnet test tests/Payments.Tests` -> **161 passed / 0 failed** (150 -> +11).
+- **RED proof**: `git stash push` 4 ไฟล์ src -> `Failed: 17, Passed: 144, Total: 161` (แดงครบทุกเกณฑ์ใหม่ +
+  ทุกจุด classification) -> `git stash pop` -> build -> 161 passed.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1224 passed / 0 failed** / 16
+  projects. per-project: Admins 95 · Architecture 223 · BuildingBlocks 43 · Carts 15 · Checkouts 7 ·
+  Divisions 6 · Hosts 353 · Iam 62 · Levels 6 · Merchants 120 · Offices 6 · Orders 68 · Payments **161** ·
+  Positions 6 · Products 7 · SharedKernel 46.
+- `bash scripts/check-rename-identifiers.sh` -> OK (หลัง `git add`).
+- `bash scripts/spec-trace.sh captive-payment-alignment` -> OK **45 เกณฑ์**.
+- **ไม่ได้รัน**: integration tests / migration / `docker compose config` — task 8 ไม่แตะ DDL, compose, config.
+
+### กับดักใหม่ที่เจอ
+
+22. **`dotnet test pol-core.slnx` ค้างเกิน 10 นาทีได้ โดยไม่มี test ไหนพัง** —
+    `Architecture.Tests.CompileNegativeReferenceTests` spawn `dotnet build` ซ้อนข้างใน แล้วชนกับ MSBuild node
+    ของ run แม่ (node reuse). อาการ: ไม่มี output ของ Architecture.Tests เลย, `ps` เห็น testhost ค้าง,
+    จบด้วย `MSBUILD : error MSB4166: Child node exited prematurely` ตอนถูกฆ่า. **พิสูจน์ว่าไม่ใช่ test hang:**
+    รัน `dotnet test tests/Architecture.Tests --no-build` เดี่ยว -> 223 passed / 3.2 วินาที.
+    **ทางแก้ที่ใช้ได้:** `dotnet build-server shutdown` แล้วรันชุดเต็มด้วย `MSBUILDDISABLENODEREUSE=1`.
+23. **`Assert.ThrowsAsync<T>` ของ xUnit match ชนิด "ตรงตัว"** — สร้าง exception ลูก
+    (`PspRejectedException : InvalidOperationException`) แล้ว assertion เดิมที่เขียน
+    `Assert.ThrowsAsync<InvalidOperationException>` จะ **แดง** ทั้งที่ status code ปลายทางไม่เปลี่ยน; ใช้
+    `Assert.ThrowsAnyAsync<T>` เมื่อจะยอมรับลูก (Theory ใหม่ใช้แบบนั้นแล้วเช็ค `thrown is PspRejectedException`).
+24. **`TheoryData<Exception>` ห้ามใช้** — xUnit analyzer เตือน type ที่ serialize ไม่ได้ และ repo เปิด
+    `TreatWarningsAsErrors` = build แดง. ใช้ `[Fact]` ที่ loop array ของ exception ใน test เดียวแทน
+    (ทำแบบนั้นใน `An_ambiguous_charge_failure_keeps_the_claim_instead_of_failing_the_session`).
+
+### ข้อจำกัดที่ยอมรับ (ต้องอยู่ใน PR body / gap register)
+
+- **config ที่พังถาวรทำให้ claim ค้างได้** — ถ้า secret ของ connection ใช้ไม่ได้จริง ๆ (rotate ผิด / key-env
+  mismatch) หลังจาก claim ผ่านไปแล้ว, session จะค้าง `Redirected` + `RedirectUrl == null` และ index ของ
+  task 4 บล็อกการเปิดใบใหม่ -> order นั้นจ่ายไม่ได้จนคนแก้ config แล้วเรียก redirect ซ้ำ (หรือใช้ escape
+  hatch expire-ใบที่ไม่มี-charge ของ task 9). เจตนา: ปลอดภัยกว่าการเปิด session ใบใหม่ที่ได้ idempotency key
+  ใหม่ (= charge ใบที่สอง).
+- **`Session.MarkFailed(reason)` ยังทิ้ง `reason`** (finding เดิมจาก section 3) — reason ที่ประกอบจาก
+  `{type}: {message}` จึงยังไม่มีใครอ่านได้; ยิ่งสำคัญขึ้นหลัง task นี้เพราะเส้น ambiguous ไม่เขียนอะไรลง DB เลย
+  (ไม่มีร่องรอยว่าเคยล้มเพราะอะไร นอกจาก log ของ HTTP layer).
+
+### Next Steps
+
+1. lead verify เอง: `dotnet build-server shutdown && MSBUILDDISABLENODEREUSE=1 dotnet test pol-core.slnx
+   --filter "Category!=Integration"` -> **1224 passed / 0 failed** + `bash scripts/spec-trace.sh
+   captive-payment-alignment` -> OK 45 + `bash scripts/check-rename-identifiers.sh` -> OK.
+2. push แล้วตอบ Codex 2 P1 ด้วย commit hash ของ task นี้ (finding 1 = definitive/ambiguous split,
+   finding 2 = vault เข้า failure path + settle claim).
+3. task 9 (migration สะสางแถวซ้ำ) ยังเปิดอยู่ — teammate คนถัดไป.

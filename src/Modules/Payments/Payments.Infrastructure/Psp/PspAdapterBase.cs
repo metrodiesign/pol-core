@@ -67,7 +67,7 @@ public abstract class PspAdapterBase : IPspAdapter
     /// <summary>Renders <see cref="Money"/> as a major-unit decimal string (e.g. THB 250.09 -> "250.09",
     /// JPY 5000 -> "5000") at the currency's ISO 4217 minor-unit scale. Invariant culture so the decimal
     /// separator is always '.'.</summary>
-    /// <exception cref="ArgumentException">See <see cref="RequireRepresentableDigits"/>.</exception>
+    /// <exception cref="PspRejectedException">See <see cref="RequireRepresentableDigits"/>.</exception>
     protected static string FormatMajorUnitAmount(Money amount)
     {
         var digits = RequireRepresentableDigits(amount);
@@ -76,7 +76,7 @@ public abstract class PspAdapterBase : IPspAdapter
 
     /// <summary>Renders <see cref="Money"/> as a minor-unit integer string (e.g. THB 250.09 -> "25009",
     /// JPY 5000 -> "5000") for PSPs (Omise) whose API takes the smallest currency unit.</summary>
-    /// <exception cref="ArgumentException">See <see cref="RequireRepresentableDigits"/>.</exception>
+    /// <exception cref="PspRejectedException">See <see cref="RequireRepresentableDigits"/>.</exception>
     protected static string FormatMinorUnitAmount(Money amount)
     {
         var digits = RequireRepresentableDigits(amount);
@@ -126,14 +126,14 @@ public abstract class PspAdapterBase : IPspAdapter
     /// minor-unit scale. <see cref="Money"/> allows up to 4 decimal places, which can exceed what a PSP's
     /// wire format (or a zero-decimal currency like JPY) can represent — silently rounding here would
     /// charge the PSP a different amount than the unrounded one stored on the session/order (Codex review
-    /// #79, pullrequestreview-4678411626).</summary>
+    /// #79, pullrequestreview-4678411626). Rejected, not ambiguous: this runs before anything is sent, and
+    /// the amount is fixed on the session, so no retry of THIS session could ever get past it (REQ-7.5).</summary>
     private static int RequireRepresentableDigits(Money amount)
     {
         var digits = Iso4217.MinorUnitDigits(amount.Currency);
         if (amount.Amount != decimal.Round(amount.Amount, digits))
-            throw new ArgumentException(
-                $"{amount.Currency} amount {amount.Amount} is not representable at its {digits}-decimal minor unit.",
-                nameof(amount));
+            throw new PspRejectedException(
+                $"{amount.Currency} amount {amount.Amount} is not representable at its {digits}-decimal minor unit.");
         return digits;
     }
 
@@ -256,8 +256,21 @@ public abstract class PspAdapterBase : IPspAdapter
         using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"{Psp.ToCode()} returned HTTP {(int)response.StatusCode}.");
+            throw StatusFailure(response.StatusCode);
         return body;
+    }
+
+    /// <summary>Classifies a failing status by what it proves about the charge: a 4xx other than the
+    /// retry-me pair (408/429) is the PSP refusing outright, so no charge exists and the caller may fail the
+    /// session; a 5xx/408/429 leaves us unable to tell, so it stays ambiguous and the claim must survive
+    /// (REQ-7.5). The message names the PSP and the status only — never the request that carried the secret.</summary>
+    private Exception StatusFailure(HttpStatusCode status)
+    {
+        var message = $"{Psp.ToCode()} returned HTTP {(int)status}.";
+        return (int)status is >= 400 and < 500
+            && status is not (HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests)
+                ? new PspRejectedException(message)
+                : new InvalidOperationException(message);
     }
 
     /// <summary>Sends an IDEMPOTENT request (the fetch-to-confirm GET) with bounded retry on transient
@@ -281,7 +294,7 @@ public abstract class PspAdapterBase : IPspAdapter
 
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException($"{Psp.ToCode()} returned HTTP {(int)response.StatusCode}.");
+                    throw StatusFailure(response.StatusCode);
                 return body;
             }
             catch (HttpRequestException) when (attempt < maxRetries && !cancellationToken.IsCancellationRequested)

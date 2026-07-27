@@ -61,7 +61,10 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         var respCode = GetString(resp, "respCode");
         if (respCode != "0000")
-            throw new InvalidOperationException($"2c2p paymentToken declined (respCode {respCode}).");
+            // A signature-verified decline is the PSP naming its own refusal: no payment token was issued, so
+            // no charge exists and this session may be failed (REQ-7.5). The signature check above is what
+            // makes that safe to trust; an UNVERIFIABLE response stays ambiguous.
+            throw new PspRejectedException($"2c2p paymentToken declined (respCode {respCode}).");
 
         var webPaymentUrl = GetString(resp, "webPaymentUrl")
             ?? throw new InvalidOperationException("2c2p paymentToken response missing webPaymentUrl.");
@@ -134,7 +137,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
     private static string PaymentChannelFor(string method) => method.Trim().ToLowerInvariant() switch
     {
         PaymentMethods.Card => "CC",
-        _ => throw new NotSupportedException(
+        _ => throw new PspRejectedException(
             $"2c2p adapter cannot honour payment method '{method}' — it declares card only."),
     };
 
@@ -149,11 +152,22 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
     // ---- helpers ----
 
+    /// <summary>Rejected, not ambiguous: an unusable secret envelope stops us before any request is sent
+    /// (REQ-7.5). The message never echoes the envelope.</summary>
     private static TwoCTwoPSecret ParseSecret(string secret)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(secret);
-        return JsonSerializer.Deserialize<TwoCTwoPSecret>(secret, Json)
-            ?? throw new InvalidOperationException("2c2p secret envelope could not be parsed.");
+        if (string.IsNullOrWhiteSpace(secret))
+            throw new PspRejectedException("2c2p secret is empty.");
+
+        try
+        {
+            return JsonSerializer.Deserialize<TwoCTwoPSecret>(secret, Json)
+                ?? throw new PspRejectedException("2c2p secret envelope could not be parsed.");
+        }
+        catch (JsonException)
+        {
+            throw new PspRejectedException("2c2p secret envelope could not be parsed.");
+        }
     }
 
     /// <summary>POSTs {"payload": jwt(claims)} to a v4.3 endpoint ONCE (charge-create is non-idempotent)

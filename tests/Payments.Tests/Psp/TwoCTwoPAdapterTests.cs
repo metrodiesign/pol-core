@@ -176,7 +176,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession(method: method);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        var refusal = await Assert.ThrowsAsync<NotSupportedException>(
+        var refusal = await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Contains(method, refusal.Message, StringComparison.Ordinal); // names the method, not a generic 500
@@ -191,7 +191,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession(10.0050m, "THB");
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
@@ -203,7 +203,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession(10.5m, "JPY");
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
@@ -216,7 +216,7 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "4009", respDesc = "declined" }), Key)));
         var (adapter, _) = Build((_, _) => declined);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
     }
 
@@ -348,6 +348,26 @@ public sealed class TwoCTwoPAdapterTests
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Equal(1, handler.CallCount); // single-shot: a retry could double-charge
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, true)]          // the PSP refused it: no charge exists
+    [InlineData(HttpStatusCode.Unauthorized, true)]
+    [InlineData(HttpStatusCode.RequestTimeout, false)]     // retry-me statuses say nothing about the charge
+    [InlineData(HttpStatusCode.TooManyRequests, false)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, false)]
+    public async Task CreateRedirectCharge_separates_an_outright_refusal_from_an_unknown_outcome(
+        HttpStatusCode status, bool refused)
+    {
+        // The exception TYPE is what tells the handler whether it may fail the session: get this wrong for a
+        // 5xx/408/429 and a charge the PSP is holding gets a second, differently-keyed sibling (REQ-7.5).
+        var session = MakeSession();
+        var (adapter, _) = Build((_, _) => new HttpResponseMessage(status));
+
+        var thrown = await Assert.ThrowsAnyAsync<InvalidOperationException>(
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
+
+        Assert.Equal(refused, thrown is PspRejectedException);
     }
 
     [Fact]

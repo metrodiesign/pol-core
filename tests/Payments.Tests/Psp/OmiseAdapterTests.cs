@@ -102,7 +102,7 @@ public sealed class OmiseAdapterTests
         var session = MakeSession("card", 10.0050m, "THB");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs before the non-idempotent POST
     }
@@ -114,20 +114,20 @@ public sealed class OmiseAdapterTests
         var session = MakeSession("card", 10.5m, "JPY");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        await Assert.ThrowsAsync<ArgumentException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
     [Fact]
-    public async Task PromptPay_is_deferred_and_throws_not_supported()
+    public async Task PromptPay_is_deferred_and_is_refused_outright()
     {
         // Correlation (link id vs webhook/fetch charge id) cannot be made consistent without a sandbox —
         // PromptPay is deferred rather than shipped broken. No PSP call is made on the deferred path.
         var session = MakeSession("promptpay");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        await Assert.ThrowsAsync<NotSupportedException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
@@ -141,7 +141,7 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"), useSandbox);
         var secret = $$"""{"secretKey":"{{secretKey}}"}""";
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<PspRejectedException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs BEFORE the non-idempotent POST
     }

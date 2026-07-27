@@ -184,10 +184,13 @@ internal sealed class FakeVaultSecretStore : IVaultSecretStore
 
     public int Reveals { get; private set; }
 
+    /// <summary>Set to stand in for a vault that cannot hand back the secret (down, or the ref is gone).</summary>
+    public Exception? RevealFails { get; init; }
+
     public Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
         Reveals++;
-        return Task.FromResult(_secret);
+        return RevealFails is null ? Task.FromResult(_secret) : throw RevealFails;
     }
 
     public Task StoreAsync(Guid merchantId, string name, string plaintextSecret, CancellationToken cancellationToken) =>
