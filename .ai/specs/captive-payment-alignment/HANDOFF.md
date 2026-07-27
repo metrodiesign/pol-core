@@ -1289,3 +1289,103 @@ idempotency key เดิม (ไม่ `BeginRedirect` ซ้ำ). ปิด RE
 2. push แล้วตอบ Codex 2 P1 ด้วย commit hash ของ task นี้ (finding 1 = definitive/ambiguous split,
    finding 2 = vault เข้า failure path + settle claim).
 3. task 9 (migration สะสางแถวซ้ำ) ยังเปิดอยู่ — teammate คนถัดไป.
+
+---
+
+## Section 9 — task 9 (from: Claude Opus 5 teammate, 2026-07-27)
+
+### Task Summary
+
+task 9: ปิด Codex P1 (review #4782168269) ที่ migration `20260726151538_OneOpenPaymentSessionPerOrder` —
+`CreateIndex` เปล่าจะ abort migration chain บน DB ที่มี open session ซ้ำต่อ order. เพิ่ม `migrationBuilder.Sql`
+2 ก้อนนำหน้า `CreateIndex` ตาม design **D5a**: สะสางผู้แพ้ที่ไม่มี charge -> `Expired`, แล้ว `RAISERROR` ระบุ
+`OrderId` ถ้ายังเหลือใบผูก charge หลายใบ. ปิด REQ-2 (2.7). **ไฟล์เดียว** — ไม่มีโค้ด production/test อื่นถูกแตะ.
+
+### Current Status
+
+- task 9 **เสร็จ** — `- [x]` + `Evidence:` ใน tasks.md, commit บน `feat/captive-payment-alignment`.
+- task 1-9 ครบทั้งหมดแล้ว. spec นี้ไม่มี task เปิดค้าง.
+- dev DB `:11433` **อยู่ในสภาพดี**: head = `20260726151538_OneOpenPaymentSessionPerOrder`, index ครบทั้ง 2 ใบ,
+  `OrdersWithDuplicateOpenSessions = 0` (ผมโยก migration ขึ้น-ลง 4 ครั้งระหว่าง verify แล้วปิดที่สถานะ applied).
+- แถว probe `AA000001-*` (2 ใบ) และ `BB000002-*` (2 ใบ) **ค้างอยู่ใน `txn.PaymentSessions`** ในสถานะ terminal —
+  สะสางด้วย status transition ไม่ใช่ `DELETE` (ตามข้อห้าม). ถ้าใครนับแถวด้วยมือแล้วเห็นเกิน 36+4 นั่นคือสาเหตุ
+  (บวกแถวของ integration test ที่ task 4 ทิ้งไว้).
+
+### Files Changed
+
+- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260726151538_OneOpenPaymentSessionPerOrder.cs`
+  — edited — `Up` เพิ่ม `Sql` 2 ก้อน (updatable CTE + `ROW_NUMBER()` สำหรับสะสาง, แล้ว `STRING_AGG` +
+  `RAISERROR` เป็น guard) นำหน้า `CreateIndex` เดิม; `Down` เพิ่มคอมเมนต์ว่าทำไมไม่ย้อน `Expired`.
+  **ไม่แตะ** `.Designer.cs` / `PolDbContextModelSnapshot.cs` (ไม่มี model change).
+- `.ai/specs/captive-payment-alignment/tasks.md` — edited — flip task 9 + Evidence.
+- `.ai/specs/captive-payment-alignment/HANDOFF.md` — edited — section นี้.
+
+### Important Decisions
+
+1. **updatable CTE + `ROW_NUMBER()` ก้อนเดียว** ไม่ใช่ temp table / cursor / loop — SQL Server รับ `UPDATE
+   <cte>` บน CTE ที่อ้าง base table เดียวได้ ทำให้ทั้งการเลือกผู้ชนะและการ expire ผู้แพ้เป็น statement เดียว
+   ที่อ่านออกและ atomic โดยตัวมันเอง.
+2. **`RAISERROR(@msg, 16, 1)` โดยประกอบข้อความใส่ตัวแปร ไม่ใช้ `%s`** — substitution parameter ของ RAISERROR
+   รับ `nvarchar(max)` ไม่ได้ (และรายชื่อ `OrderId` ยาวไม่จำกัด) จึง `STRING_AGG` ลง `nvarchar(max)` แล้ว
+   `LEFT(@ids, 1500)` ใส่ `nvarchar(2048)`. severity 16 -> `SqlException` -> EF abort + rollback ทั้ง migration
+   (พิสูจน์แล้ว: index ไม่ถูกสร้าง, แถวไม่ถูกแตะ, `__EFMigrationsHistory` ไม่ถูกบันทึก -> re-run ได้).
+3. **ข้อความ error เขียนให้ operator อ่านแล้วทำต่อได้จริง** — บอกว่าทำไมสะสางอัตโนมัติไม่ได้ (charge ผูกอยู่ ->
+   webhook `MarkPaid` จะ throw ตลอดไป), สั่งให้แก้ด้วยมือแล้ว re-run, และ **ระบุ `OrderId`**. ตรวจแล้วว่า
+   ข้อความโผล่ใน output ของ `dotnet ef database update` จริง ไม่ถูกกลืน.
+4. **ไม่เขียน automated test ของ SQL ก้อนนี้** — จะต้องมี harness ที่ roll back/forward migration chain ต่อ
+   test ซึ่งไม่มีในสวีตนี้ และ migration รันครั้งเดียวต่อ DB. แทนด้วยการเพาะสถานการณ์จริงบน SQL Server แล้ว
+   apply migration จริงทั้ง 2 เคส (Evidence มี output ดิบ).
+
+### Constraints (เพิ่มจาก section ก่อน ๆ — ยังใช้ทุกข้อ)
+
+- **ห้ามแตะ `Up` ของ migration ใบนี้อีกถ้ามันขึ้น environment ใดแล้ว** — วันนี้แก้ได้เพราะยังไม่เคยขึ้น prod
+  (มีแต่ dev `:11433` ที่ผม roll back/forward เองได้). หลังจาก merge/deploy การแก้ต้องเป็น migration ใบใหม่.
+- **`Down` ไม่ย้อน `Expired`** — ถ้าใครต้องการ reversible cleanup ต้องเก็บสถานะเดิมไว้ที่ไหนก่อน (วันนี้ไม่มี
+  คอลัมน์ให้เก็บ) ไม่ใช่เดาใน `Down`.
+- **ห้าม `DELETE` แถว session ทุกกรณี** (migration, test, การสะสางด้วยมือ) — ใช้ status transition เท่านั้น.
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`.
+- เคส (ก) แถวซ้ำไม่มี charge -> migration apply ผ่าน, ใบเก่ากว่าเป็น `Status 4` + `UpdatedAt` ใหม่, ใบใหม่กว่า
+  ยัง `Status 1` `UpdatedAt` เดิม, index ถูกสร้าง.
+- เคส (ข) แถวซ้ำมี charge ทั้งคู่ -> `Error Number:50000,State:1,Class:16` + `OrderIds:
+  BB000002-0000-4000-8000-0000000000BB`, index ไม่ถูกสร้าง, แถวไม่ถูกแตะ, head ยังเป็น `20260723160500`.
+  (output ดิบทั้งสองเคส + SQL ที่ใช้เพาะอยู่ใน Evidence ของ tasks.md)
+- `dotnet ef migrations has-pending-model-changes` -> ไม่มี diff · `bash scripts/check-migration-lineage.sh` -> OK.
+- `source .env.integration && dotnet test tests/Integration.Tests --filter Category=Integration` ->
+  **47 passed / 0 failed**.
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1224 passed / 0 failed**
+  (ตรงกับ baseline ที่ lead verify ที่ `dff40ff`; Architecture.Tests ใช้เวลา **15 นาที 3 วินาที** เพียงตัวเดียว
+  -> ทั้ง suite เกิน 10 นาที ต้องรัน background).
+- `bash scripts/check-rename-identifiers.sh` -> OK (หลัง `git add`) · `bash scripts/spec-trace.sh
+  captive-payment-alignment` -> OK **45 เกณฑ์** (เพิ่มจาก 42 หลัง REQ-2.7 + amend ของ task 8).
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps ก่อนหน้า)
+
+- **`sqlcmd` ต้องใส่ `-I` (QUOTED_IDENTIFIER ON) เวลา INSERT/UPDATE `txn.PaymentSessions`** — ตารางนี้มี
+  filtered index อยู่ก่อนแล้ว (`IX_PaymentSessions_Psp_PspExternalChargeId`) และ SQL Server ปฏิเสธ DML บน
+  ตารางที่มี filtered index เมื่อ session ตั้ง `QUOTED_IDENTIFIER OFF` ซึ่งเป็น **ค่า default ของ sqlcmd**:
+  `Msg 1934 ... INSERT failed because the following SET options have incorrect settings: 'QUOTED_IDENTIFIER'`.
+  ข้อความไม่ได้ชี้ว่าเป็นเรื่อง sqlcmd flag เลย เสียเวลาไล่ผิดทางได้ง่าย. (EF/SqlClient ตั้ง ON ให้เองอยู่แล้ว
+  จึงไม่เคยเจอจาก app.)
+- **`dotnet ef database update <migration ก่อนหน้า>` = วิธี drop index ที่ปลอดภัยที่สุดสำหรับ verify** — รัน
+  `Down` ของใบเดียวจริง ๆ (ไม่ต้อง `DROP INDEX` ด้วยมือ ไม่ต้อง `down -v`) และพิสูจน์ `Down` ไปด้วยในตัว.
+  ตรวจ `SELECT TOP 1 MigrationId FROM dbo.__EFMigrationsHistory ORDER BY MigrationId DESC` ทุกครั้งเพื่อรู้ว่า
+  ตอนนี้อยู่ใบไหนจริง.
+- **migration ที่ล้มไม่ทิ้งร่องรอยใน `__EFMigrationsHistory`** — ยืนยันแล้วว่า EF ห่อ migration ใน transaction
+  จริง (แถวที่ statement แรกแก้ก็ rollback ด้วย) ดังนั้น "re-run หลังคนสะสาง" ที่ข้อความ error สั่งเป็นไปได้จริง
+  ไม่ต้องแก้ history ด้วยมือ.
+- **`dotnet test pol-core.slnx` ทั้ง suite เกิน timeout 600s ของ Bash tool** — Architecture.Tests ตัวเดียว
+  15 นาที. ต้อง `run_in_background: true` แล้วรอด้วย `until ! pgrep -f "dotnet test pol-core.slnx"; do sleep
+  10; done` (ห้าม `sleep N && tail` — hook block chained sleep). และถ้า pipe ผลผ่าน `awk` ที่ sum ตอนจบ
+  ไฟล์ output จะ **ว่างเปล่าจนจบงาน** — ดูความคืบหน้าไม่ได้เลย ถ้าต้องการเห็นระหว่างทางให้ปล่อย output ดิบ.
+
+### Next Steps
+
+1. lead verify: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> **1224 passed / 0 failed** +
+   `source .env.integration && dotnet test tests/Integration.Tests --filter Category=Integration` -> 47 +
+   `bash scripts/spec-trace.sh captive-payment-alignment` -> OK 45 + `bash scripts/check-rename-identifiers.sh`.
+2. อ่าน `Up` ของ migration แล้วยืนยันด้วยตาว่าลำดับคือ สะสาง -> guard -> `CreateIndex` (ลำดับคือทั้งหมดของ
+   REQ-2.7; สลับแล้วยังผ่าน test เดิมได้เพราะ dev DB ไม่มีแถวซ้ำอยู่แล้ว).
+3. push แล้วตอบ Codex finding P1 นี้ด้วย commit hash ของ task 9.

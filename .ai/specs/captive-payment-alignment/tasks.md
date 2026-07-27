@@ -644,7 +644,7 @@
          `dotnet build-server shutdown` + `MSBUILDDISABLENODEREUSE=1` แล้วชุดเต็มจบปกติ — ไม่ใช่ test hang และ
          ไม่เกี่ยวกับโค้ดของ task นี้.
 
-- [ ] 9. **migration สะสางแถวซ้ำก่อนสร้าง unique index** — `CreateIndex` เปล่าใน
+- [x] 9. **migration สะสางแถวซ้ำก่อนสร้าง unique index** — `CreateIndex` เปล่าใน
      `20260726151538_OneOpenPaymentSessionPerOrder` จะ **fail กลาง migration chain** บนฐานข้อมูลที่มี open
      session ซ้ำต่อ order อยู่ก่อน (สภาพที่ create-session เวอร์ชันก่อนหน้าอนุญาต; Risk 3 ของ design ยอมรับ
      เองแต่สั่งแค่ reset ด้วยมือ). เพิ่ม `migrationBuilder.Sql` นำหน้า `CreateIndex` ตาม design **D5a**:
@@ -661,3 +661,62 @@
      `OrderId` ในข้อความ + index ไม่ถูกสร้าง; แปะ SQL + output จริงทั้งสองเคสลง Evidence. บวก
      `dotnet ef migrations has-pending-model-changes` -> ไม่มี diff และ `dotnet test pol-core.slnx --filter
      "Category!=Integration"` ไม่ถอย.
+     Evidence:
+       - test: `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`.
+       - **เคส (ก) แถวซ้ำที่ไม่มี charge -> สะสางเองแล้วผ่าน.** เพาะบน `pol-db` `:11433` หลัง
+         `dotnet ef database update 20260723160500_GrantOrderItemPolicyTables` (รัน `Down` = DropIndex,
+         ยืนยัน `OpenIndexPresent = 0`):
+         `INSERT txn.PaymentSessions (...) VALUES ('aa000001-...-000000000001', 'a0000000-...-0000000000a1',
+         'aa000001-...-0000000000aa', N'card', 0, 0, NULL, NULL, '2026-07-27T01:00:00', ..., 15000, 'THB'),
+         ('aa000001-...-000000000002', ..., same OrderId, ..., 1, NULL, NULL, '2026-07-27T02:00:00', ...)` ->
+         `OrdersWithDuplicateOpenSessions = 1`. แล้ว
+         `dotnet ef database update 20260726151538_OneOpenPaymentSessionPerOrder` ->
+         `Applying migration '20260726151538_OneOpenPaymentSessionPerOrder'. Done.` ผลจริงหลัง apply:
+         `AA000001-...-000000000001 | Status 4 | CreatedAt 2026-07-27 01:00:00 | UpdatedAt 2026-07-27
+         03:00:19.9636617` (ผู้แพ้ = ใบเก่ากว่า ถูก Expire + UpdatedAt ใหม่) และ
+         `AA000001-...-000000000002 | Status 1 | UpdatedAt 2026-07-27 02:00:00` (ผู้ชนะ = ใบใหม่กว่า **ไม่ถูก
+         แตะเลย** UpdatedAt เดิม); `IX_PaymentSessions_OrderId_Open | 1 | 1 | ([Status] IN ((0), (1)))`;
+         `OrdersWithDuplicateOpenSessions = 0`.
+       - **เคส (ข) แถวซ้ำที่ผูก charge ทั้งคู่ -> migration หยุด ระบุ `OrderId`.** roll back อีกครั้งแล้วเพาะ
+         `('bb000002-...-000000000001', ..., 'bb000002-...-0000000000bb', N'card', 0, 1,
+         N'task9_probe_charge_a', N'https://probe.local/a', '2026-07-27T01:00:00', ...)` และใบที่สอง
+         `..._b`/`02:00:00` (charge id ต่างกันเพราะ unique index `(Psp, PspExternalChargeId)` เดิม). apply ->
+         **ล้มตามเจตนา** `Error Number:50000,State:1,Class:16` ข้อความจริง: `OneOpenPaymentSessionPerOrder:
+         cannot create IX_PaymentSessions_OrderId_Open. These orders still have more than one open payment
+         session and every one of them has a PSP charge attached, so none can be expired automatically.
+         Resolve by hand, then re-run the migration. OrderIds: BB000002-0000-4000-8000-0000000000BB`.
+         หลังล้ม: `OpenIndexPresent = 0` (index **ไม่ถูกสร้าง**), ทั้งสองใบยัง `Status 1` + `UpdatedAt` เดิม
+         (**ไม่ถูกแตะ** — EF ห่อ migration ใน transaction จึง rollback ทั้งก้อน), และ
+         `SELECT TOP 1 MigrationId ... ORDER BY MigrationId DESC` = `20260723160500_GrantOrderItemPolicyTables`
+         (ไม่ถูกบันทึกว่า apply แล้ว -> re-run ได้จริงหลังคนสะสาง).
+       - test: สะสางเคส (ข) ด้วยมือแบบที่ข้อความสั่ง (**status transition ไม่ใช่ `DELETE`**):
+         `UPDATE txn.PaymentSessions SET Status = 4, UpdatedAt = SYSUTCDATETIME() WHERE Id =
+         'bb000002-...-000000000001' AND OrderId = 'bb000002-...-0000000000bb' AND Status IN (0,1);` ->
+         `RowsExpiredByHand = 1`; re-apply -> `Applying migration ... Done.`; สภาพจบงาน:
+         `IX_PaymentSessions_OrderId | 0 | 0 | NULL` + `IX_PaymentSessions_OrderId_Open | 1 | 1 | ([Status] IN
+         ((0), (1)))`, `OrdersWithDuplicateOpenSessions = 0`, head = `20260726151538_OneOpenPaymentSessionPerOrder`.
+       - test: `dotnet ef migrations has-pending-model-changes --context PolDbContext` ->
+         `No changes have been made to the model since the last migration.` (แก้แค่ raw SQL ใน `Up` ไม่แตะ model
+         จึงไม่ต้อง regenerate Designer/snapshot).
+       - test: `bash scripts/check-migration-lineage.sh` -> `Migration lineage gate OK — all 4 existing
+         migration IDs discoverable via PolDbContext.`
+       - test: `source .env.integration && dotnet test tests/Integration.Tests --filter Category=Integration` ->
+         **47 passed / 0 failed** (ไม่ถอย; Bash call เดียวกันตาม trap 4).
+       - test: `dotnet test pol-core.slnx --filter "Category!=Integration"` -> exit 0, **1224 passed /
+         0 failed** across 16 test projects (ตรงกับ baseline ที่ lead verify ที่ `dff40ff`): Admins 95 ·
+         Architecture 223 · BuildingBlocks 43 · Carts 15 · Checkouts 7 · Divisions 6 · Hosts 353 · Iam 62 ·
+         Levels 6 · Merchants 120 · Offices 6 · Orders 68 · Payments 161 · Positions 6 · Products 7 ·
+         SharedKernel 46.
+       - test: `bash scripts/check-rename-identifiers.sh` -> OK (หลัง `git add`);
+         `bash scripts/spec-trace.sh captive-payment-alignment` -> `OK: ... เกณฑ์ 45 ข้อ ถูกอ้างครบ ... EARS
+         lint ผ่านทุกข้อ`.
+       - viewports: n/a — raw SQL ใน migration ล้วน ไม่มี browser surface.
+       - deviations: (1) **ไม่มี automated test ของ SQL ก้อนนี้** — พิสูจน์ด้วยการเพาะสถานการณ์จริงบน SQL Server
+         แล้ว apply migration จริงทั้งสองเคสตามที่ Verify สั่ง; การจับ migration ใส่ integration test ต้องมี
+         harness ที่ roll back/forward chain ต่อ test (ไม่มีในสวีตนี้ และ migration ใบนี้รันครั้งเดียวต่อ DB).
+         (2) เลือก `RAISERROR(@msg, 16, 1)` โดยประกอบข้อความใส่ตัวแปรก่อน **ไม่ใช้ `%s` substitution** —
+         RAISERROR รับ argument ที่เป็น `nvarchar(max)` ไม่ได้ และรายชื่อ `OrderId` ยาวเท่าไรก็ได้; ตัดด้วย
+         `LEFT(@ids, 1500)` ให้พอดี `nvarchar(2048)`. severity 16 -> `SqlException` -> EF abort + rollback
+         (พิสูจน์แล้วในเคส ข). (3) แถว probe `AA000001-*`/`BB000002-*` **ค้างอยู่ใน dev DB** ในสถานะ terminal
+         (`Expired`) — สะสางด้วย status transition ตามข้อห้าม "ห้าม `DELETE` แถว session"; ไม่กระทบ gate ใด
+         (`assert-fresh-db.sql` ไม่นับแถวของตารางนี้) และไม่มี order จริงผูกอยู่.
