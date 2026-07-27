@@ -168,6 +168,24 @@ builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open")
   index ชื่อ `IX_PaymentSessions_OrderId_Open`, `IsUnique == true`, filter ตรงตัว — เพราะ CI ข้าม job
   integration เมื่อไม่มี secret (`ci.yml:128-143`).
 
+### D5a — amended 2026-07-27 (Codex review #4782168269 P1): migration ต้องสะสางแถวซ้ำก่อนสร้าง index
+
+`CreateIndex` เปล่าจะ **fail กลาง migration chain** บนฐานข้อมูลใดก็ตามที่ create-session เวอร์ชันก่อน
+หน้าเคยรัน (Risk 3 ของ design นี้ยอมรับสภาพนั้นเองแต่สั่งแค่ให้ reset ด้วยมือ = ไม่ใช่ remediation ที่ ship).
+migration ต้องมี `migrationBuilder.Sql` นำหน้า `CreateIndex` ที่ทำตามลำดับนี้ (REQ-2.7):
+
+1. เลือกผู้ชนะต่อ `OrderId` จากแถวที่ `Status IN (0,1)` — เรียงโดยให้ `PspExternalChargeId IS NOT NULL`
+   มาก่อน (ใบที่ลูกค้าอาจกำลังจ่ายอยู่จริง) แล้วจึง `CreatedAt DESC`, tiebreak `Id`.
+2. `UPDATE` แถวที่แพ้ **และ `PspExternalChargeId IS NULL`** ให้เป็น `Status = 4` (`Expired`) + `UpdatedAt`
+   ปัจจุบัน. แถวที่แพ้แต่ **มี** charge ผูกไว้ **ห้ามแตะ**.
+3. ถ้ายังเหลือ `OrderId` ที่มีแถว `Status IN (0,1)` มากกว่าหนึ่ง (แปลว่ามีใบผูก charge หลายใบ) ->
+   `RAISERROR` ที่ระบุ `OrderId` เหล่านั้นแล้วหยุด. เหตุผล: expire ใบที่มี charge จริงจะทำให้ webhook
+   `MarkPaid` throw ตลอดไป (poison) — เป็นการตัดสินใจของคน ไม่ใช่ของ migration.
+4. `CreateIndex` ตามเดิม.
+
+`Down` คง `DropIndex` เดิม (ไม่ย้อน `Expired` — ข้อมูลสถานะที่สะสางแล้วไม่มีค่าเดิมให้กู้อย่างปลอดภัย
+และ `Down` ของ index ไม่ควรเดา business state; บันทึกไว้ในคอมเมนต์ของ migration).
+
 ### D6 — liveness: ปฏิเสธก่อน claim + `MarkFailed` เมื่อ charge ล้ม
 
 `StartRedirectHandler.Handle` เรียงใหม่:
@@ -189,6 +207,38 @@ builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open")
 - reason ที่ส่งเข้า `MarkFailed` ต้องไม่มี secret (ใช้ `ex.GetType().Name` + ข้อความของ adapter ที่ระบุแค่
   PSP + HTTP status ตามที่ `PspAdapterBase.SendOnceAsync` โยนอยู่แล้ว).
 - **ไม่** catch แล้วกลืน — rethrow เสมอ ให้ ProblemDetails handler จัดการ.
+
+### D6a — amended 2026-07-27 (Codex review #4782168269 P1 x2): definitive vs ambiguous
+
+D6 เวอร์ชันแรก catch `Exception` ทั้งก้อนแล้ว `MarkFailed` ซึ่ง **สร้างช่องจ่ายซ้ำ**: timeout/cancel/
+transport/parse หลัง PSP รับ charge ไปแล้ว จะถูกนับเป็น fail -> create-session เปิดใบใหม่ -> `Session.Id`
+ใหม่ -> idempotency key ใหม่ที่ PSP -> charge ใบที่สอง; และ charge ใบแรกไม่มี session ที่ผูก
+`PspExternalChargeId` ไว้ ทำให้ `GetByExternalChargeAsync` คืน null และ webhook handler throw = poison.
+อีกช่องหนึ่งคือ `_vault.RevealAsync` ที่อยู่ **หลัง** claim commit แต่ **นอก** try -> session ค้าง
+`Redirected` + `RedirectUrl == null` ซึ่งคือสภาพที่ REQ-7.2 ห้ามไว้ตรง ๆ.
+
+**เส้นแบ่ง:** ผลลัพธ์เป็น **definitive** (พิสูจน์ได้ว่า request ยังไม่ถึง PSP หรือ PSP ปฏิเสธเด็ดขาด) หรือ
+**ambiguous** (charge อาจเกิดขึ้นแล้ว). เฉพาะ definitive จึง `MarkFailed` ได้; ambiguous ต้องคง claim ไว้
+แล้วสะสางด้วยการเรียกซ้ำ.
+
+- adapter layer เป็นชั้นเดียวที่รู้ว่าได้ส่ง request ออกไปหรือยัง -> ให้ adapter สื่อด้วย **exception type**:
+  `PspRejectedException` (definitive: PSP ปฏิเสธ / ยังไม่ได้ส่ง) และ exception อื่นทั้งหมด = ambiguous.
+  `PspAdapterBase.SendOnceAsync` map **4xx ยกเว้น 408/429** -> definitive; 5xx/408/429/transport/timeout ->
+  ambiguous. throw ที่เกิด **ก่อน** ส่ง HTTP (amount ไม่ representable, method ที่ adapter ไม่รองรับ,
+  key-environment mismatch) = definitive. response ที่ verify signature ไม่ผ่าน / อ่าน field ไม่ได้ =
+  **ambiguous** (charge อาจถูกสร้างแล้ว).
+- `_vault.RevealAsync` ย้ายเข้าไปในเส้นทาง failure ที่ถือว่า **definitive** (ยังไม่มี request ไป PSP เลย)
+  -> `MarkFailed` ได้อย่างปลอดภัย.
+- **สะสาง claim ที่ค้าง (REQ-7.6):** เปลี่ยนเงื่อนไข re-entry ที่หัว handler จาก
+  `Redirected && RedirectUrl != null -> คืน URL` เป็น 2 ทาง — มี URL แล้วคืน URL (เหมือนเดิม);
+  `Redirected` + `RedirectUrl == null` -> **เดินขั้น 6-8 ซ้ำ** (reveal secret, เรียก
+  `CreateRedirectChargeAsync` อีกครั้ง, `SetPspCharge`) โดย **ไม่** `BeginRedirect` ใหม่.
+  ปลอดภัยเพราะ key ของทั้งสอง adapter derive จาก `Session.Id` (2C2P `invoiceNo` + `idempotencyID`,
+  Omise `Idempotency-Key`) — doc comment ของ adapter เองระบุว่า POST ซ้ำคืน charge เดิมไม่สร้างใบใหม่.
+  ผลคือ charge เดิมถูกผูกกลับเข้า session -> webhook correlate ได้ -> ไม่ต้องมี reconciliation job ใหม่
+  (Non-Goal 4 ยังคงอยู่).
+- concurrency ของ re-entry: ผู้เรียกสองคนพร้อมกันจะได้ charge เดียวกันจาก PSP; คนที่ save ทีหลังโดน
+  `SetPspCharge` throw หรือ concurrency conflict = 409 ให้ผู้แพ้ ซึ่งยอมรับได้ (ไม่มี charge ที่สอง).
 
 ### D7 — backend webhook URL ต่อ connection
 
@@ -308,6 +358,7 @@ RBAC keys (`payment.create`/`payment.redirect` เดิมพอ), route paths,
 | REQ-2 | 2.4 | D5 (named filtered unique index ทั้งสองไฟล์ + migration) |
 | REQ-2 | 2.5 | D5 (`MerchantRuntimeUnitOfWork` 2627/2601 -> `ConflictException`) |
 | REQ-2 | 2.6 | D5 (offline model assertion ใน `Architecture.Tests`) |
+| REQ-2 | 2.7 | D5a (สะสางแถวซ้ำใน migration ก่อน `CreateIndex`, หยุดพร้อม `OrderId` ถ้าเหลือใบผูก charge หลายใบ) |
 | REQ-3 | 3.1, 3.2, 3.6 | D3 (`EnsureEligible`, guard จุดเดียว, `Supports` มี call site) |
 | REQ-3 | 3.3 | D4 ขั้น 4 |
 | REQ-3 | 3.4 | D2 (`PaymentMethods.Normalize`) + D4 ขั้น 1 |
@@ -326,6 +377,8 @@ RBAC keys (`payment.create`/`payment.redirect` เดิมพอ), route paths,
 | REQ-7 | 7.1, 7.2 | D6 ขั้น 7 (`MarkFailed` + save + rethrow) |
 | REQ-7 | 7.3 | D6 ขั้น 4 |
 | REQ-7 | 7.4 | D6 + D5 (filter ของ index ไม่รวม `Failed`) + test fail-then-retry |
+| REQ-7 | 7.5 | D6a (definitive vs ambiguous; ambiguous คง claim ไม่ `MarkFailed`) |
+| REQ-7 | 7.6 | D6a (re-entry ของ `Redirected` + `RedirectUrl == null` เรียก PSP ซ้ำด้วย key เดิม) |
 | REQ-8 | 8.1 | D8 (`PspChargeConfirmation` + 2 adapter) |
 | REQ-8 | 8.2 | D8 (เทียบก่อน `MarkPaid`, mismatch -> `Ignored`) |
 | REQ-8 | 8.3 | D8 (`Amount = null` -> status-only) |

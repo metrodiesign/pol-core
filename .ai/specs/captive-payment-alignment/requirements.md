@@ -108,6 +108,13 @@ is possible.
 - 2.6 THE SYSTEM SHALL พิสูจน์ index ตาม 2.4 ด้วย assertion ชั้น **offline** ด้วย (ชื่อ index, `IsUnique`,
   filter ตรงตัว, ครบทั้งสองไฟล์ `SessionConfiguration`) ไม่ใช่ integration test เพียงอย่างเดียว เพราะ CI
   ข้าม job integration เมื่อไม่มี secret (`ci.yml:128-143`).
+- 2.7 WHEN migration ของ 2.4 ถูก apply กับฐานข้อมูลที่ **มี open session ซ้ำต่อ order อยู่ก่อน** (สภาพที่
+  create-session เวอร์ชันก่อนหน้าอนุญาต) THEN THE SYSTEM SHALL สะสางแถวซ้ำแบบ deterministic ใน migration
+  นั้นเอง ก่อนสร้าง index — เก็บใบที่มี `PspExternalChargeId` ผูกอยู่ (ใบที่ลูกค้าอาจกำลังจ่าย) เป็นอันดับแรก
+  ที่เหลือเลือกใบใหม่สุด แล้วผลักใบที่ **ไม่มี** charge ผูกไปสถานะ `Expired`; IF ยังเหลือ order ที่มีใบซึ่ง
+  **ผูก charge ไว้** มากกว่าหนึ่งใบ THEN THE SYSTEM SHALL หยุด migration พร้อมข้อความที่ระบุ `OrderId`
+  เหล่านั้น (การ expire ใบที่มี charge จริงจะทำให้ webhook `MarkPaid` throw = poison ตลอดไป จึงต้องให้คน
+  ตัดสิน) — ห้ามปล่อยให้ `CREATE UNIQUE INDEX` ล้มกลาง deployment chain โดยไม่มีทางสะสาง.
 
 ## REQ-3: บังคับ eligibility ของ PSP connection ต่อบริษัท (channel enforcement)
 
@@ -197,8 +204,12 @@ choosing PromptPay never silently sends me to a card page.
 attempt, so a failed attempt does not kill the order permanently.
 
 **Acceptance Criteria (EARS):**
-- 7.1 WHEN การสร้าง charge ที่ PSP ล้มเหลว THEN THE SYSTEM SHALL เปลี่ยน session เป็น `Failed` แล้วบันทึก
-  ก่อนส่ง error ออกไป — ห้ามปล่อยให้ session ค้างในสถานะที่เดินต่อไม่ได้.
+- 7.1 WHEN การสร้าง charge ล้มเหลวด้วยเหตุที่พิสูจน์ได้ว่า **ยังไม่มี request ไปถึง PSP หรือ PSP ปฏิเสธ
+  อย่างเด็ดขาด** THEN THE SYSTEM SHALL เปลี่ยน session เป็น `Failed` แล้วบันทึกก่อนส่ง error ออกไป —
+  ห้ามปล่อยให้ session ค้างในสถานะที่เดินต่อไม่ได้.
+  (amended 2026-07-27, Codex review #4782168269 P1: ถ้อยคำเดิม "WHEN การสร้าง charge ที่ PSP ล้มเหลว"
+  ครอบ **ทุก** exception ซึ่งรวม timeout/cancel/transport/parse ที่ PSP อาจรับ charge ไปแล้ว — แล้วการ
+  เปิด session ใหม่จะได้ `Session.Id` ใหม่ = idempotency key ใหม่ที่ PSP = **charge ที่สอง**.)
 - 7.2 THE SYSTEM SHALL NOT ปล่อยให้มี session ที่สถานะ `Redirected` แต่ `RedirectUrl` เป็น null หลังจบ
   request ใด ๆ.
 - 7.3 THE SYSTEM SHALL ปฏิเสธคำขอ redirect ที่ผิด eligibility/ไม่มี connection **ก่อน** claim
@@ -206,6 +217,15 @@ attempt, so a failed attempt does not kill the order permanently.
 - 7.4 WHERE session ของ order เป็น `Failed` THE SYSTEM SHALL อนุญาตให้เปิด session ใหม่ของ order เดิมได้
   และต้องมี test ที่พิสูจน์เส้นทาง fail-then-retry ทั้งเส้น ไม่ใช่แค่ประกอบ session สถานะ `Failed` ขึ้นมา
   ในหน่วยความจำ.
+- 7.5 IF ผลลัพธ์จาก PSP **กำกวม** (timeout / cancellation / transport fault / 5xx / อ่าน-หรือ-verify
+  response ไม่ได้) THEN THE SYSTEM SHALL **คงสถานะ claim ของ session ใบเดิมไว้** ห้ามเปลี่ยนเป็น `Failed`
+  และห้ามเปิดทางให้ order เดิมสร้าง session ใบใหม่ — เพราะ charge ที่ PSP อาจเกิดขึ้นแล้วและ session ใหม่จะ
+  ได้ idempotency key ใหม่ = จ่ายซ้ำ.
+- 7.6 WHERE session อยู่สถานะ `Redirected` แต่ยังไม่มี `RedirectUrl` (ผลกำกวมตาม 7.5 หรือ claim ที่ยัง
+  สะสางไม่จบ) THE SYSTEM SHALL ให้คำขอ redirect ครั้งถัดไป **สะสาง claim นั้นโดยเรียก PSP ซ้ำด้วย
+  idempotency key เดิมของ session** แล้วผูกผลที่ได้ — ห้ามตอบ 409 ตายตัว และห้ามสร้าง charge ใบที่สอง
+  (adapter ทั้งสองตัว derive key จาก `Session.Id` อยู่แล้ว: 2C2P `invoiceNo`+`idempotencyID`, Omise
+  `Idempotency-Key` — การเรียกซ้ำจึงคืน charge เดิม ไม่ใช่ใบใหม่ และทำให้ webhook correlate ได้อีกครั้ง).
 
 ## REQ-8: ยอดที่ PSP ยืนยันต้องถูกเทียบก่อนบันทึกว่าจ่ายแล้ว
 

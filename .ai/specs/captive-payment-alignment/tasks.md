@@ -568,3 +568,46 @@
          `POST /payment-sessions` + "tenant Bearer" ที่ retire ไปตั้งแต่ rf1, และ `SECURITY_RULES.md`
          อ้าง seam ชื่อ `IWebhookVerifier` ซึ่งของจริงคือ `IPspAdapter.VerifyWebhook`..
 </content>
+
+---
+
+## Codex review round 1 (#4782168269, reviewed `ec7f4b174f`) — 3x P1, all verified REAL by lead
+
+- [ ] 8. **แยก definitive จาก ambiguous ใน StartRedirect + สะสาง claim ที่ค้าง** — แก้ 2 P1 ที่เกี่ยวกัน
+     (design **D6a**). (ก) `catch (Exception)` ที่ `StartRedirectHandler.cs:101` `MarkFailed` ทุกกรณี รวม
+     timeout/cancel/transport/parse ที่ PSP **อาจรับ charge ไปแล้ว** -> create-session เปิดใบใหม่ ->
+     `Session.Id` ใหม่ = idempotency key ใหม่ที่ PSP = **จ่ายซ้ำ** + charge แรกไม่มี session ผูก
+     `PspExternalChargeId` -> `GetByExternalChargeAsync` คืน null -> webhook throw = poison. (ข)
+     `_vault.RevealAsync` (`:91`) อยู่หลัง claim commit แต่ **นอก** try -> vault ล่ม = session ค้าง
+     `Redirected` + `RedirectUrl == null` = 409 ถาวร (สภาพที่ REQ-7.2 ห้าม) และตอนนี้ index ของ task 4
+     บล็อกการเปิดใบแทนด้วย.
+     ต้องทำ: exception ใหม่ `PspRejectedException` (definitive) ใน `Payments.Application/Ports`;
+     `PspAdapterBase.SendOnceAsync` map 4xx ยกเว้น 408/429 -> definitive, ที่เหลือ -> ambiguous; throw ที่เกิด
+     ก่อนส่ง HTTP (amount ไม่ representable / method ที่ adapter ไม่รองรับ / key-environment mismatch) ->
+     definitive; signature-verify ไม่ผ่าน หรืออ่าน field ไม่ได้ -> **ambiguous**; ย้าย `RevealAsync` เข้า
+     เส้นทาง definitive; เปลี่ยน re-entry ที่หัว handler ให้ `Redirected` + `RedirectUrl == null` เดินขั้น
+     reveal->create->bind **ซ้ำ** โดยไม่ `BeginRedirect` ใหม่. **Done** = ผลกำกวมไม่เคยกลายเป็น `Failed`,
+     และ claim ที่ค้างสะสางได้เองด้วย idempotency key เดิม ไม่มี charge ใบที่สอง.
+     Satisfies: REQ-7 (7.5, 7.6). Depends on: 3, 4, 5. Verify: `dotnet test tests/Payments.Tests` — case:
+     `TaskCanceledException`/`HttpRequestException`/5xx/parse-fail -> status ยัง `Redirected`, **ไม่** `Failed`;
+     `PspRejectedException`/4xx/vault throw -> `Failed`; re-entry ของ `Redirected`+null URL -> เรียก adapter
+     ซ้ำ **ครั้งเดียว** แล้วผูก charge (fake นับ call = 1 ต่อการเรียกซ้ำ, ไม่ `BeginRedirect` ซ้ำ);
+     fail-then-retry เดิม (definitive) ยังผ่าน + `dotnet build pol-core.slnx -warnaserror`.
+
+- [ ] 9. **migration สะสางแถวซ้ำก่อนสร้าง unique index** — `CreateIndex` เปล่าใน
+     `20260726151538_OneOpenPaymentSessionPerOrder` จะ **fail กลาง migration chain** บนฐานข้อมูลที่มี open
+     session ซ้ำต่อ order อยู่ก่อน (สภาพที่ create-session เวอร์ชันก่อนหน้าอนุญาต; Risk 3 ของ design ยอมรับ
+     เองแต่สั่งแค่ reset ด้วยมือ). เพิ่ม `migrationBuilder.Sql` นำหน้า `CreateIndex` ตาม design **D5a**:
+     เลือกผู้ชนะต่อ `OrderId` (ให้ `PspExternalChargeId IS NOT NULL` มาก่อน แล้ว `CreatedAt DESC`, tiebreak
+     `Id`) -> `UPDATE` ผู้แพ้ที่ `PspExternalChargeId IS NULL` เป็น `Status = 4` (`Expired`) + `UpdatedAt` ->
+     ถ้ายังเหลือ `OrderId` ที่มีหลายใบ (แปลว่ามีใบผูก charge หลายใบ) `RAISERROR` ระบุ `OrderId` แล้วหยุด
+     (expire ใบที่มี charge จริงทำให้ webhook `MarkPaid` throw ตลอดไป = ต้องให้คนตัดสิน) -> `CreateIndex`.
+     ห้ามแตะแถวที่มี charge ผูกไว้. `Down` คง `DropIndex` เดิมพร้อมคอมเมนต์ว่าทำไมไม่ย้อน `Expired`.
+     **Done** = migration รันผ่านบน DB ที่มีแถวซ้ำแบบไม่มี charge, และหยุดพร้อมข้อความที่ใช้งานได้จริงบน DB
+     ที่มีแถวซ้ำแบบมี charge.
+     Satisfies: REQ-2 (2.7). Depends on: 4. Verify: สร้างสถานการณ์จริงบน `pol-db` `:11433` — (ก) เพาะ 2 open
+     session (ไม่มี charge) ของ order เดียว แล้ว re-apply migration -> ผ่าน + ใบที่แพ้เป็น `Expired` + index
+     ถูกสร้าง; (ข) เพาะ 2 open session ที่ **มี** `PspExternalChargeId` ทั้งคู่ -> migration หยุดพร้อม
+     `OrderId` ในข้อความ + index ไม่ถูกสร้าง; แปะ SQL + output จริงทั้งสองเคสลง Evidence. บวก
+     `dotnet ef migrations has-pending-model-changes` -> ไม่มี diff และ `dotnet test pol-core.slnx --filter
+     "Category!=Integration"` ไม่ถอย.
