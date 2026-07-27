@@ -102,8 +102,10 @@ Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`):
 
 **Omise/Opn ตั้ง webhook endpoint จาก dashboard ไม่ใช่ต่อ charge** ดังนั้นต้องตั้งด้วยมือ **ต่อ connection**:
 
-1. หา connection id: `SELECT Id, MerchantId, Psp FROM txn.PspConnections WHERE Psp = 'omise';`
-   (แถวถูกสร้างตอน provision merchant — ทำขั้นนี้ทุกครั้งที่ provision merchant ใหม่ที่ใช้ Omise).
+1. หา connection id: `SELECT Id, MerchantId, IsEnabled FROM txn.PspConnections WHERE Psp = 1;`
+   (`Psp` เก็บเป็น **int** ไม่ใช่ code string — `2c2p = 0`, `omise = 1` ตาม `Payments.Domain/Psp/Code.cs`;
+   ใส่ `'omise'` จะได้ `Conversion failed when converting the nvarchar value 'omise' to data type int`).
+   แถวถูกสร้างตอน provision merchant — ทำขั้นนี้ทุกครั้งที่ provision merchant ใหม่ที่ใช้ Omise.
 2. เข้า Omise dashboard ของ **บัญชี Omise ของบริษัทนั้น** (คนละบัญชีต่อบริษัท — คนละ secret key) ->
    Settings -> Webhooks -> เพิ่ม endpoint `https://<api-host>/api/v1/webhooks/<Id ที่ได้จากข้อ 1>`.
 3. ยืนยันว่า id ที่ใส่ตรงกับ connection ของบริษัทนั้นจริง: ใส่ id ของบริษัทอื่นจะทำให้ webhook ถูก resolve

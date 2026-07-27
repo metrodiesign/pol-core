@@ -16,7 +16,7 @@
 > เอกสารนี้ตัวอย่างส่วนใหญ่ใช้ `google` ตาม scope เดิม — provider ที่ไม่รู้จัก/ไม่ได้ config -> 404.
 
 **Ports (dev):** API `http://localhost:5100` · Admin Console `http://localhost:5200` · Merchant-user Console
-`http://localhost:5120` (`Cors:AdminOrigins` / `Cors:AllowedOrigins` ใน `appsettings.Development.json:57-64`)
+`http://localhost:5300` (`Cors:AdminOrigins` / `Cors:AllowedOrigins` ใน `appsettings.Development.json`)
 
 **โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) §3.1 โมดูล Admin (บทบาท/สถานะ as-built/target API).
 
@@ -259,7 +259,7 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 
 - API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
   merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `http://localhost:5200`), merchant-user =
-  `Cors__AllowedOrigins` (dev `http://localhost:5120`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
+  `Cors__AllowedOrigins` (dev `http://localhost:5300`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
   `PolCorsPolicyProvider` ไม่ใช่ตาม origin. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
 - XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
