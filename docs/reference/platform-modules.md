@@ -18,9 +18,10 @@
 >
 > **refresh เพิ่ม 2026-07-26 (เส้นทางการจ่าย, spec `captive-payment-alignment`)** — §9 (Payment),
 > §11 (PSP), §12 (Webhooks) และ **ทะเบียนช่องว่าง**: ปิดข้อ 10, ปิดข้อ 1 เฉพาะชั้น connection,
-> เพิ่มข้อ 23-24 (เปิดโดยรู้ตัว). **ข้อที่ยังเปิดและห้ามอ่านเป็นปิดแล้ว:** 1 (ชั้น merchant/producer),
-> 8 (promptpay/installment), 9 (Omise HMAC), 12 (expiry sweeper), 23 (PSP ไม่ส่งยอดกลับ),
-> 24 (เปลี่ยนช่องทางกลางคัน) — แต่ละข้อมีเหตุผล + next step กำกับในทะเบียน
+> เพิ่มข้อ 23-24 (เปิดโดยรู้ตัว) และ **ข้อ 25 เพิ่ม 2026-07-27** (Codex review #4782168269 P1).
+> **ข้อที่ยังเปิดและห้ามอ่านเป็นปิดแล้ว:** 1 (ชั้น merchant/producer), 8 (promptpay/installment),
+> 9 (Omise HMAC), 12 (expiry sweeper), 23 (PSP ไม่ส่งยอดกลับ), 24 (เปลี่ยนช่องทางกลางคัน),
+> 25 (claim สะสางไม่จบเมื่อเหตุขัดข้องถาวร) — แต่ละข้อมีเหตุผล + next step กำกับในทะเบียน
 
 > เอกสารนี้คือ module map ระดับแพลตฟอร์ม: **บริบท (ทำไมต้องมี) + บทบาท (ทำอะไร/ไม่ทำอะไร)
 > + ฟีเจอร์ละเอียด (โมเดลเป้าหมายรายข้อ เทียบ as-built) + โมเดลเป้าหมายเชิง API (normative target)**
@@ -910,7 +911,8 @@ validate order + ล็อกยอดฝั่ง server ตอนสร้า�
 connection (ข้อ 1 ปิดบางส่วน), หนึ่ง open session ต่อ order ที่ชั้น DB, liveness ของ session ที่ charge ล้ม
 (`MarkFailed` มีผู้เรียกแล้ว), backend webhook URL ต่อ connection, เทียบยอดที่ PSP รายงานก่อน `MarkPaid`.
 **จุดที่ยังไม่ปิด:** `Merchant.EnabledChannels`/ระดับ producer (ข้อ 1 ที่เหลือ), routing policy (ข้อ 13),
-auto-expire (ข้อ 12), เทียบยอดเมื่อ PSP ไม่ส่งยอดกลับ (ข้อ 23), เปลี่ยน method/PSP หลัง redirect เริ่มแล้ว (ข้อ 24)
+auto-expire (ข้อ 12), เทียบยอดเมื่อ PSP ไม่ส่งยอดกลับ (ข้อ 23), เปลี่ยน method/PSP หลัง redirect เริ่มแล้ว (ข้อ 24),
+claim ที่สะสางไม่จบเมื่อเหตุขัดข้องเป็นแบบถาวร (ข้อ 25)
 
 ---
 
@@ -1339,6 +1341,21 @@ route/permission/ตารางเดิมทั้งหมด
     (`Failed` → เปิดใบใหม่ได้). **ทำไมไม่ทำในสเปกนั้น:** การยกเลิก charge ที่ PSP = การแตะ funds flow ซึ่ง
     ต้องพิจารณาสถานะ captive/ใบอนุญาตก่อน. **next step:** ADR ว่าจะรองรับ void/cancel หรือไม่ (โยง ADR
     ข้อ 11 refund/void) ก่อนออกแบบ "เปลี่ยนช่องทางกลางคัน"
+
+25. **claim ที่สะสางไม่จบยังค้างได้ ถ้าเหตุขัดข้องเป็นแบบถาวร** (เปิดโดยรู้ตัว 2026-07-27, Codex review
+    #4782168269 P1 ของ spec `captive-payment-alignment`): `StartRedirectHandler` แยก **definitive**
+    (พิสูจน์ได้ว่าไม่มี charge ที่ PSP → `MarkFailed` ได้) จาก **ambiguous** (charge อาจเกิดแล้ว → คง claim
+    ไว้ ห้าม `MarkFailed` เพราะ session ใบใหม่จะได้ idempotency key ใหม่ = จ่ายซ้ำ). session ที่ค้าง
+    `Redirected` + `RedirectUrl == null` สะสางได้ด้วยการเรียก redirect ซ้ำ (PSP คืน charge เดิมด้วย key เดิม
+    แล้วผูกกลับเข้า session — REQ-7.6) **แต่** บน settle path ระบบจะไม่ `MarkFailed` เลยแม้เจอ
+    `PspRejectedException`. ผลคือถ้าเหตุขัดข้องเป็นแบบ **ถาวร** (secret ของ connection ใช้ไม่ได้, key
+    environment mismatch, PSP ปฏิเสธ invoiceNo เดิมตายตัว) claim นั้นจะสะสางไม่จบและ order เปิดใบใหม่ไม่ได้
+    เพราะ `IX_PaymentSessions_OrderId_Open` กันไว้. **ทำไมเลือกทางนี้:** ทางเลือกอีกทางคือ `MarkFailed` บน
+    settle path ซึ่งเปิดช่อง **double-charge** จริง — ยอมให้ order ค้างชั่วคราว (ops แก้ config แล้วเรียกซ้ำได้)
+    ดีกว่าเก็บเงินลูกค้าสองรอบ. **สิ่งที่ยังไม่มี:** inquiry ฝั่งเราที่ถาม PSP ว่า charge ของ session นี้มีจริงไหม
+    (2C2P ทำได้เพราะ `invoiceNo` derive จาก `Session.Id`; **Omise ทำไม่ได้** เพราะรู้ charge id จาก response
+    ของ create เท่านั้น). **next step:** spec แยกที่เพิ่ม inquiry ต่อ PSP + สถานะ "ต้องสะสางด้วยมือ" ที่ ops
+    เห็นได้ (โยงข้อ 12 auto-expire — sweeper ต้องใช้ inquiry เดียวกัน)
 
 ---
 
