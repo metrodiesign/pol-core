@@ -44,7 +44,8 @@ public sealed class HandlePspWebhookHandlerTests
     /// <paramref name="confirmedAmount"/> says the PSP collected.</summary>
     private static Harness NewHarness(
         Money? confirmedAmount,
-        PspChargeStatus fetchedStatus = PspChargeStatus.Paid)
+        PspChargeStatus fetchedStatus = PspChargeStatus.Paid,
+        Func<string, PspChargeConfirmation>? onFetchCharge = null)
     {
         var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Now);
 
@@ -63,7 +64,7 @@ public sealed class HandlePspWebhookHandlerTests
             {
                 WebhookVerifies = true,
                 ParsedWebhook = new WebhookEvent(EventId, ChargeId, PspChargeStatus.Paid),
-                OnFetchCharge = _ => new PspChargeConfirmation(fetchedStatus, confirmedAmount),
+                OnFetchCharge = onFetchCharge ?? (_ => new PspChargeConfirmation(fetchedStatus, confirmedAmount)),
             }),
             new FakeVaultSecretStore(),
             idempotency,
@@ -166,18 +167,39 @@ public sealed class HandlePspWebhookHandlerTests
     }
 
     [Fact]
-    public async Task A_redelivery_after_a_mismatch_reports_Duplicate_because_the_claim_was_already_spent()
+    public async Task A_redelivery_after_a_mismatch_is_still_Ignored_because_no_claim_was_spent()
     {
-        // PRE-EXISTING, DELIBERATELY UNCHANGED (REQ-8.4 forbids touching the idempotency keys): the claim is
-        // taken before the fetch, so the second delivery of the same event is a duplicate even though nothing
-        // was ever marked paid. The Ignored-on-Pending path has behaved this way since it was written; the
-        // amount check inherits it rather than introducing it. Changing the claim's position would change
-        // replay semantics for the whole webhook path and needs its own requirement.
+        // REQ-8.5 (reverses the behavior this test used to pin): an Ignored outcome must not consume the
+        // idempotency claim. The claim is taken only in the same transaction as the transition, so a
+        // notification that confirmed nothing leaves the door open for the one that will.
         var harness = NewHarness(Money.Of(100.00m, "THB"));
 
         Assert.Equal(WebhookOutcome.Ignored, await harness.Deliver());
-        Assert.Equal(WebhookOutcome.Duplicate, await harness.Deliver());
+        Assert.Equal(WebhookOutcome.Ignored, await harness.Deliver());
 
         AssertNotPaid(harness);
+        Assert.Empty(harness.Idempotency.Claims);
+    }
+
+    [Fact]
+    public async Task A_notification_arriving_before_the_charge_settles_does_not_block_the_real_one()
+    {
+        // Live-sandbox repro (2026-07-28): a "paid" notification landed while paymentInquiry still said
+        // Pending. The old claim-before-fetch order burned charge:{invoice}:Paid on that Ignored, so the
+        // genuine post-payment notification was refused as Duplicate forever and the session stayed
+        // Redirected after the customer had paid. The claim must only be spent with the transition (REQ-8.5).
+        var fetched = PspChargeStatus.Pending;
+        var harness = NewHarness(SessionAmount, onFetchCharge: _ => new PspChargeConfirmation(fetched, SessionAmount));
+
+        Assert.Equal(WebhookOutcome.Ignored, await harness.Deliver());
+
+        fetched = PspChargeStatus.Paid;
+        Assert.Equal(WebhookOutcome.Processed, await harness.Deliver());
+
+        Assert.Equal(SessionStatus.Paid, harness.Session.Status);
+        Assert.Single(harness.Outbox.Enqueued);
+
+        // And a further redelivery of the settled event is the duplicate now.
+        Assert.Equal(WebhookOutcome.Duplicate, await harness.Deliver());
     }
 }

@@ -241,4 +241,10 @@ the order's amount before the order is marked paid, so a wrong-amount collection
   (ห้าม fail-closed บน contract ที่ยังไม่ได้ verify กับ sandbox) และ gap นี้ต้องถูกบันทึกตาม REQ-5.3.
 - 8.4 THE SYSTEM SHALL NOT เปลี่ยน idempotency key, ลำดับ transaction, หรือสัญญา `PaymentPaid` จากการ
   เพิ่มการตรวจนี้.
+- 8.5 WHEN การ ingest webhook จบโดยไม่เกิดการเปลี่ยนสถานะ (fetch-to-confirm ไม่ยืนยัน `Paid` หรือยอดไม่ตรง
+  ตาม 8.2) THEN THE SYSTEM SHALL ไม่บริโภค idempotency claim ของ event/charge นั้น — claim ต้องถูก commit
+  เฉพาะแบบ atomic คู่กับการเปลี่ยนสถานะเท่านั้น เพื่อให้ notification เดิมที่ถูกส่งซ้ำ **หลัง** การชำระเงิน
+  สำเร็จจริง ยังจบเป็น `Processed` ได้. (พิสูจน์จาก sandbox จริง 2026-07-28: notification "paid" ที่มาถึง
+  ก่อน inquiry เห็นสถานะจ่าย เผา key `charge:{invoice}:Paid` ทิ้งตอนผล `Ignored` แล้วทำให้ webhook แท้
+  ที่ตามมากลายเป็น `Duplicate` ตลอดกาล — session ค้าง `Redirected` ทั้งที่ลูกค้าจ่ายเงินแล้ว.)
 </content>

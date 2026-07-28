@@ -555,7 +555,7 @@ var api = app.MapGroup("/api/v1");
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT merchant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
-// to the handler, which verifies -> claims idempotency -> fetches-to-confirm -> transitions -> enqueues
+// to the handler, which verifies -> fetches-to-confirm -> claims idempotency -> transitions -> enqueues
 // PaymentPaid, all inside one transaction.
 api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     Guid pspConnectionId,

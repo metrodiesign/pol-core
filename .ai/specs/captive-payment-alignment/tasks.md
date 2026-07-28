@@ -382,7 +382,8 @@
      ไม่ตรง -> `WebhookOutcome.Ignored` (ไม่เปลี่ยน state ไม่ enqueue ตอบ 200), `Amount == null` ->
      ยืนยันด้วยสถานะเหมือนเดิม. ห้ามเปลี่ยน idempotency key / ลำดับ transaction / สัญญา `PaymentPaid`.
      **Done** = ยอดที่ PSP รายงานถูกเทียบเมื่อมี และพฤติกรรมเดิมไม่เปลี่ยนเมื่อไม่มี.
-     Satisfies: REQ-8 (8.1, 8.2, 8.3, 8.4). Depends on: 5. Verify: `dotnet test tests/Payments.Tests` —
+     Satisfies: REQ-8 (8.1, 8.2, 8.3, 8.4, 8.5 — amended 2026-07-28, ดูข้อ (3) ของ Evidence). Depends on: 5.
+     Verify: `dotnet test tests/Payments.Tests` —
      adapter: response มี amount -> คืนค่าถูก, ไม่มี/ผิดชนิด -> null; webhook handler: amount ตรง ->
      `Processed` + enqueue, amount ต่าง -> `Ignored` + ไม่ `MarkPaid` + ไม่ enqueue, amount null ->
      `Processed` + `dotnet test pol-core.slnx --filter "Category!=Integration"` (ไม่ถอย).
@@ -428,13 +429,20 @@
          (`TryReadMajorUnitMoney` / `TryReadMinorUnitMoney`) live on `PspAdapterBase` next to the
          `FormatMajor/MinorUnitAmount` pair they invert, not inline in each adapter — both adapters need the
          identical "never throw, null means status-only" contract and D8 states it once for both.
-         (3) NOT CHANGED, pre-existing, deliberately left alone (REQ-8.4 forbids touching the idempotency
-         keys): the multi-key claim is taken BEFORE the fetch, so a redelivery of an event whose amount
-         mismatched reports `Duplicate` even though nothing was ever marked paid. The `Ignored`-on-not-yet-
-         Paid path has behaved exactly this way since it was written — the amount check inherits the
-         property, it does not introduce it. Pinned as-is by
-         `A_redelivery_after_a_mismatch_reports_Duplicate_because_the_claim_was_already_spent`; moving the
-         claim would change replay semantics for the entire webhook path and needs its own requirement.
+         (3) AMENDED 2026-07-28 (REQ-8.5 — the "needs its own requirement" this note used to end on): the
+         original round left the claim-before-fetch order alone and pinned it via
+         `A_redelivery_after_a_mismatch_reports_Duplicate_because_the_claim_was_already_spent`. A live
+         sandbox E2E then proved the property bricks a paid order: a "paid" notification arriving while
+         paymentInquiry still said Pending burned `charge:{invoice}:Paid` on the `Ignored` outcome
+         (`TryBeginAsync` saves inside the ambient transaction, which commits on every normal return), so
+         the genuine post-payment redelivery was refused as `Duplicate` forever and the session stayed
+         `Redirected` after real money moved. The claim is now spent LAST — after fetch-to-confirm and the
+         amount check, atomically with `MarkPaid` — pinned by
+         `A_redelivery_after_a_mismatch_is_still_Ignored_because_no_claim_was_spent` and
+         `A_notification_arriving_before_the_charge_settles_does_not_block_the_real_one`; a settled event's
+         redelivery still reports `Duplicate`. Concurrency is unchanged: the unique-key insert inside the
+         transition transaction remains the arbiter, so two racing paid deliveries still produce exactly one
+         `Processed`.
 
 - [x] 7. **Provisioning vocabulary + demo seed + as-built docs** — `ProvisionMerchantHandler.cs:63`
      เปลี่ยน `Trim()` เป็น `PaymentMethods.Normalize(m)` ต่อรายการ (ค่าไม่รู้จัก -> `ArgumentException`
