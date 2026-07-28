@@ -64,12 +64,19 @@ internal sealed class VaultAuditAppender(MerchantRuntimeDbContext db, ISecurityT
     // shape, same Exclusive/Transaction/15s-timeout arguments) so the two are interchangeable serialization-wise.
     private async Task AcquireChainLockAsync(Guid merchantId, CancellationToken cancellationToken)
     {
-        var lockResult = await db.Database.SqlQueryRaw<int>(
+        // ToListAsync, never SingleAsync: Single/First COMPOSE a TOP(2) wrapper around the raw SQL, and a
+        // multi-statement DECLARE/EXEC batch is not composable — EF throws "'FromSql' or 'SqlQuery' was called
+        // with non-composable SQL" while GENERATING the query, so the lock is never even attempted and every
+        // vault reveal fails on SQL Server. The integration suite cannot catch it: this port is internal, so
+        // VaultAuditAppenderIntegrationTests drives the identical SQL through raw ADO instead of through EF.
+        // Same materialization ProvisioningCoordinator already uses for its own raw probe.
+        var lockResults = await db.Database.SqlQueryRaw<int>(
             """
             DECLARE @lock int;
             EXEC @lock = sp_getapplock @Resource = {0}, @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 15000;
             SELECT @lock AS Value;
-            """, LockResource(merchantId)).SingleAsync(cancellationToken);
+            """, LockResource(merchantId)).ToListAsync(cancellationToken);
+        var lockResult = lockResults.Single();
 
         if (lockResult < 0)
         {
