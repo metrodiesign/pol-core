@@ -64,8 +64,14 @@ internal sealed class OutboxDispatcher : BackgroundService
 
     private async Task DispatchBatchAsync(CancellationToken cancellationToken)
     {
-        // Lease in a no-actor scope: the OutboxMessages table carries only a BLOCK-after-insert RLS
-        // predicate (no FILTER), so the worker principal sees and leases rows across every merchant.
+        // Lease in a no-actor scope: the raw lease SQL sees every merchant's rows, and the read-back below
+        // MUST bypass the merchant query filter explicitly — an unbound actor resolves CurrentMerchant to
+        // Guid.Empty, so the filtered read matches ZERO of the just-leased rows and every message silently
+        // burns a lease per minute until it poisons at MaxAttempts, with no error and no delivery. (The old
+        // comment here still described the RLS era, where the table had a BLOCK-only predicate and no read
+        // filter — rls-to-query-filter added the EF filter and this dispatcher's read-back was missed; the
+        // MerchantUsers drain got IgnoreQueryFilters from day one.) This file is already on the
+        // bypass-primitive allowlist as the outbox lease port.
         List<(Guid Id, Guid MerchantId)> leased;
         using (var leaseScope = _scopeFactory.CreateScope())
         {
@@ -92,6 +98,7 @@ internal sealed class OutboxDispatcher : BackgroundService
                 return;
 
             var rows = await db.OutboxMessages
+                .IgnoreQueryFilters()
                 .Where(m => leasedIds.Contains(m.Id))
                 .Select(m => new { m.Id, m.MerchantId })
                 .ToListAsync(cancellationToken)
