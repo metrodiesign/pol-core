@@ -160,6 +160,22 @@ comment ในตัว `.csproj` ของ `.Web` อธิบายเหต�
 
 **ไฟล์อื่นที่น่ารู้**: `PolDbContext` (migration-owner ตัวเดียวของทั้งระบบ ไม่ registered runtime), `SchemaNames` (constant ชื่อ schema ที่ทุก `IEntityTypeConfiguration` ต้องใช้), `Vault/` (envelope encryption AES-256-GCM สำหรับ secret ของ PSP), `Outbox/`+`Idempotency/` (entity รองรับกลไก §2), `Observability/` (ส่ง denial event ไป Seq), และฝั่ง `.Web`: `ProblemDetailsExceptionHandler` (จุดเดียวทั้งระบบที่แปลง exception type → HTTP status ตาม RFC7807 — `Detail` เป็น string คงที่เสมอ ไม่ใช่ `exception.Message` กัน leak ข้อมูล merchant/SQL ออกไปกับ response).
 
+**โปรเจกต์ในวงนี้ทำอะไรบ้าง (project ต่อ project)**: ทำไมต้องแยกเป็น 3 project แทนที่จะรวมเป็นก้อนเดียว —
+เพราะ `.Application` คือสิ่งที่ Domain (§1) ได้รับอนุญาตให้ reference (เป็นแค่ port ล้วน ไม่มี implementation) ถ้า
+รวม EF/HTTP เข้าไปในโปรเจกต์เดียวกัน Domain จะมีทางลัด reference เข้า framework โดยไม่ตั้งใจทันทีที่วันหนึ่งมีคน
+เผลอ `using Microsoft.EntityFrameworkCore` ใน `.Application` แล้ว build ผ่าน — การแยก project เป็นการบังคับด้วย
+compiler ไม่ใช่แค่ convention:
+- `BuildingBlocks.Application` — framework-agnostic แท้ (reference แค่ `SharedKernel`/`Contracts`/
+  `Mediator.Abstractions`) — ถ้าเห็นไฟล์ในนี้ import อะไรนอกเหนือจากนี้คือสัญญาณว่าโครงสร้างเพี้ยนแล้ว
+- `BuildingBlocks.Infrastructure` — จุดเดียวที่มี `PolDbContext` (migration-owner) แต่ **ไม่ registered ที่ runtime
+  เลย** — คนใหม่มักงงว่าทำไม `dotnet ef migrations add` ใช้ context คนละตัวกับที่ API รันจริง (`ControlPlaneDbContext`/
+  `MerchantRuntimeDbContext`/`MerchantUserDbContext` ใน §4) — เหตุผลคือต้องมี context กลางตัวเดียวที่เห็น
+  `IEntityTypeConfiguration` ของทุกโมดูลพร้อมกันตอน generate migration แต่ runtime แยก context ตาม transactional
+  cluster เพื่อคุม isolation floor (§4)
+- `BuildingBlocks.Web` — เฉพาะ cross-cutting ที่ผูกกับ ASP.NET Core ตรงๆ (`ProblemDetailsExceptionHandler` ฯลฯ)
+  แยกออกมาเพื่อไม่ให้ `.Infrastructure` (ที่ EF/crypto ใช้ได้แม้ไม่มี HTTP context เช่นตอนรัน migration หรือ
+  background dispatch) ต้องพ่วง `FrameworkReference` ของ ASP.NET Core ไปด้วยทั้งที่ไม่จำเป็น
+
 **ทำงานยังไง (เดินเส้นทางเดียวให้เห็นภาพ)**: request เข้ามา → `HttpActorContext` (ประกาศที่ Host) resolve merchant จาก principal ที่ authenticate ผ่านแล้ว → Mediator ส่ง command เข้า `MerchantGuardBehavior` ก่อนถึง handler จริง (เช็ค actor ผูกหรือยัง) → handler เรียก repository ซึ่งเขียนผ่าน DbContext ที่ inherit `GuardedRuntimeDbContext` (เช็ค write authorize) → ถ้าจุดไหน deny exception จะโยนขึ้นไปโดน `ProblemDetailsExceptionHandler` แปลงเป็น response กลับไปหา client.
 
 **consumer**: ทุกโมดูล `.Application` และ `.Infrastructure` reference BuildingBlocks (30 `.csproj`) — ยกเว้น `.Domain` ไม่แตะเลยแม้แต่ตัวเดียว (สอดคล้องกับกฎ §1 ว่า Domain พึ่งได้แค่ SharedKernel).
@@ -176,6 +192,23 @@ comment ในตัว `.csproj` ของ `.Web` อธิบายเหต�
 - **`Persistence.MerchantUsers`** → `MerchantUserDbContext` — คุม schema `merch` เฉพาะส่วน identity/session
 - **`Persistence.MerchantRuntime`** → `MerchantRuntimeDbContext` — คุม schema `shop`/`txn`/`merch` (ส่วนข้อมูล) — **นี่คือ isolation floor จริงของระบบ**: ทุก entity มี query filter `MerchantId == CurrentMerchant`
 - **`Persistence.Provisioning`** → `ProvisioningCoordinator` — จุดเดียวในทั้งระบบที่ 2 context ข้างบนแชร์ connection/transaction เดียวกัน (ใช้ตอน super-admin provision merchant ใหม่: เขียน ledger ฝั่ง control plane + เขียน merchant/PSP connection/vault secret ฝั่ง merchant runtime แบบ atomic)
+
+**ทำไมต้องแยกเป็น assembly ที่ 4 แทนที่จะฝัง `ProvisioningCoordinator` ไว้ใน `ControlPlane` หรือ `MerchantRuntime`
+เลย**: เพราะฝังที่ไหนก็ตาม assembly นั้นจะต้อง `ProjectReference` กลับไปหาอีก assembly หนึ่ง (ต้องเห็นทั้ง
+`ControlPlaneDbContext` และ `MerchantRuntimeDbContext` พร้อมกันเพื่อแชร์ transaction) ซึ่งทำลายกติกา "1 assembly
+= 1 transactional cluster" ที่ทั้ง section นี้ยืนอยู่บน — escape-hatch allowlist ที่ CI บังคับก็ผูกกับเส้นแบ่งนี้
+เช่นกัน แยกเป็น assembly ที่ 4 (ไม่ใช่ของฝ่ายไหน) จึงเป็นทางเดียวที่ reference เข้าทั้งคู่ได้โดยไม่ทำให้ 2
+assembly หลักต้องรู้จักกัน
+
+**เพิ่ม EF entity ใหม่ในโมดูลที่มีอยู่แล้ว ต้องแตะไฟล์ไหนบ้างถึงจะครบ** (พลาดจุดใดจุดหนึ่งคือ migration ผ่านแต่
+runtime ใช้งานไม่ได้ หรือ query ได้แต่เขียนไม่ได้):
+1. `IEntityTypeConfiguration` ของ entity ใหม่ — วาง namespace ให้ `PolDbContext` (`BuildingBlocks.Infrastructure`,
+   migration-owner) discover เจอตอน `dotnet ef migrations add`
+2. runtime `DbContext` ที่ตรง schema จริง (1 ใน `ControlPlaneDbContext`/`MerchantRuntimeDbContext`/
+   `MerchantUserDbContext` ตามที่ตารางด้านบนแบ่งไว้) ต้อง `Set<TEntity>()` ให้ตรงตัว ไม่งั้น repository จริงมองไม่
+   เห็น entity เลยแม้ migration จะสร้างตารางไปแล้ว
+3. migration SQL ต้อง `GRANT` สิทธิ์ตารางใหม่ให้ `pol_app` เสมอ (ไม่มี default grant) — จุดนี้ SQLite unit test
+   จับไม่ได้เพราะไม่มี concept ของ SQL principal จะรู้ตัวก็ตอน deploy จริงหรือ integration test เท่านั้น
 
 **บทบาท**: แทนที่ SQL RLS เดิมด้วย 2 ชั้นที่ทำงานที่ app layer ทั้งคู่ — read floor = EF global query filter (deny-by-default: ถ้า actor ไม่ผูก merchant, `CurrentMerchant` จะเป็น `Guid.Empty` และ query filter จะคืน 0 แถวเสมอ ไม่ใช่ error), write floor = `GuardedRuntimeDbContext` (§3) ผสมกับ `IWriteAuthorizer` ที่ implement จริงอยู่ที่ Host.
 
@@ -236,11 +269,433 @@ Server RLS ที่ตัว database เป็นคนกันแทน พ�
 
 **ทำงานร่วมกับ layer อื่นตรงไหน**: handler ในทุก use-case ข้างบน (`CreateProductHandler`, `ConfirmCheckoutHandler`, `HandlePspWebhookHandler` ฯลฯ) คือจุดที่ port จาก BuildingBlocks/Contracts มาบรรจบกับ entity ของ Domain เอง — เดินตัวอย่างเต็มดูที่ **B1-B6** ทั้งหมดด้านล่าง ซึ่งล้วนเริ่ม/จบที่ handler ของ Modules
 
+### ลงรายละเอียดทีละโมดูล (12 โมดูล x 3 project)
+
+ตารางด้านบนบอกแค่ "โมดูลนี้ทำอะไร" ทางธุรกิจ — ส่วนนี้ลงลึกระดับ project จริง (`.Domain`/`.Application`/
+`.Infrastructure` ของแต่ละโมดูล) โฟกัสที่ "ทำไม" และ trap จริงจากโค้ด ไม่ใช่ตาราง "ไฟล์ | หน้าที่" ซ้ำกับ
+[`src-structure.md`](src-structure.md) — ไฟล์นั้นคือที่ที่ควรไปดูถ้าต้องการรู้ว่าไฟล์ไหนอยู่ตรงไหน
+
+#### 1. Products
+
+**Domain**: `Product.cs` (81 บรรทัด) บน `Products.Domain.Product` — CRUD ธรรมดา ไม่มี state machine และไม่มี
+concurrency token (ไม่มี `RowVersion` ทั้งใน aggregate และใน `ProductConfiguration`) invariant เด่นบังคับผ่าน
+static factory `Create` เท่านั้น (ctor `private`, ตัว parameterless เปิดไว้ให้ EF materialize อย่างเดียว):
+`SumInsured` ต้องมากกว่าศูนย์และ currency ตรงกับ `Price` เป๊ะ (`SameCurrencyAs`, ตามที่ B1 อธิบายไว้แล้ว),
+`CoverageDurationDays` ต้องมากกว่าศูนย์, `MerchantId`/`Name`/`Insurer` ต้องไม่ว่าง — ผิดข้อใดข้อหนึ่ง throw
+`ArgumentException` ทันทีตอน construct ไม่ปล่อยให้เป็น invalid state ค้างใน DB. หลังสร้างแล้วมีแค่ 2 mutation
+คือ `Rename`/`Deactivate` (soft-delete แบบ flag `IsActive`, ไม่ hard delete)
+
+**Application**: CQRS เต็มรูปแบบ — `CreateProductCommand`/`GetProductByIdQuery`/`GetProductsQuery`/
+`ListProductsQuery` แยก handler ต่อ use-case ตรงไปตรงมา, port หลักคือ `IProductRepository` เดียว, ไม่มี
+cross-module `.Domain` reference (`Products.Application.csproj` reference แค่ `Products.Domain`,
+`Contracts`, `BuildingBlocks.Application` — ไม่แตะ `.Domain` โมดูลอื่นเลย). ที่น่าสนคือ `ListProductsQuery`
+เป็น SFS exemplar ของทั้งระบบ (REQ-2/REQ-7 ใน `docs/reference/search-filter-sort.md`) — คู่กับ
+`ProductFilterDto` ที่ deserialize+DataAnnotations-validate เอง จาก `productFilters` JSON query param แล้ว
+throw `ArgumentException` (map เป็น 400) ถ้า JSON เพี้ยนหรือ validation ไม่ผ่าน แทนที่จะ silent-drop filter
+นั้นทิ้งเงียบๆ; ผลลัพธ์ไป `ProductListItem` ซึ่งตั้งใจแยกเป็น read model ใหม่ ไม่ redefine `ProductView` เดิม
+(comment ในโค้ดบอกตรงๆ ว่าจะไปพัง `GetProductsHandler` ถ้าทำแบบนั้น)
+
+**Infrastructure**: `ProductsModuleRegistration.cs` -> `=> services` เปล่า แต่เปล่าด้วยเหตุผลที่ต่างจากโมดูล
+reference-data ทั่วไป — comment บอกตรงๆ ว่า `IProductRepository` ตัวจริงย้ายไปอยู่ที่
+`Persistence.MerchantRuntime` (`AddMerchantRuntimePersistence`, task 8.5.3) ไม่ใช่ที่นี่เลย สิ่งเดียวที่
+project นี้มีคือ `ProductConfiguration` (EF mapping ของ `Product` — `Money` ถูก map เป็น complex type 2 ชุด
+แยกกัน คือ `Price` และ `SumInsured`) ที่ host discover ผ่าน `HostModuleAssemblies.All` ตอน model-build
+
+**จุดสังเกต**: คนใหม่ grep หา implementation ของ `IProductRepository` ใน `Products.Infrastructure` จะไม่เจอ —
+ต้องรู้ว่ามันย้ายออกไปอยู่ `Persistence.MerchantRuntime` ทั้งก้อนแล้ว (ต่างจาก pattern ทั่วไปที่ Infrastructure
+project ของโมดูลธุรกิจมักมี repository implementation ของตัวเอง)
+
+#### 2. Carts
+
+**Domain**: `Cart.cs` (122 บรรทัด) — aggregate root บน `AggregateRoot<Guid>` ที่ถือ `Item` (ใน
+`Carts.Domain.Items`) เป็น owned collection ผ่าน field `_items`. State machine มีแค่ 2 states (Open →
+CheckedOut) ทางเดียว และไม่สมมาตร: 4 เมธอด mutate (`AddItem`/`RemoveItem`/`SetItemQuantity`/`Clear`) guard
+ด้วย `Status != CartStatus.Open` ทุกตัว แต่ `MarkCheckedOut()` เป็น one-liner ไม่มี guard เลย (เรียกซ้ำได้โดย
+ไม่ throw) — รวม throw ในไฟล์นี้ 8 จุด (guard สถานะ, guard quantity ≤ 0, currency mismatch ใน
+`EnsureCurrencyMatches`, product-not-found ใน `SetItemQuantity`) ถือว่าเป็น state guard ระดับปานกลาง ไม่มี
+concurrency token (ไม่มี `RowVersion` หรือ field พิเศษใดๆ กัน race). Invariant เด่นอีกจุดคือ `AddItem` merge
+quantity เข้า line เดิมเฉพาะเมื่อ `productId` และ `unitPrice.Amount` ตรงกันเป๊ะ (สินค้าเดียวกันคนละราคา = คนละ
+line) และ `Subtotal` เป็น computed property คืน `null` เมื่อ cart ว่าง (ไม่มี currency ให้ denominate ศูนย์).
+`Item` เองไม่มี navigation กลับไปหา `Cart` — มี `MerchantId` ของตัวเอง denormalize มาจาก parent ตอนสร้าง เพื่อ
+เป็น tenant key ของ read floor (ตาม rls-to-query-filter REQ-6) และปิด drift ด้วย composite FK ที่ฝั่ง
+Infrastructure
+
+**Application**: CQRS เต็มรูปแบบ — `CreateCartCommand`, `AddItemToCartCommand`, `GetCartQuery` แยกไฟล์ต่อ
+use-case ส่วน `RemoveItemFromCartCommand`/`SetCartItemQuantityCommand`/`ClearCartCommand` อยู่รวมไฟล์เดียว
+(`CartEdits.cs`) แต่ยังแยก command/handler class ชัดเจนต่อ use-case ไม่ใช่ god handler ทุก command เป็น
+`IMerchantScoped`. Port หลักมีตัวเดียวคือ `ICartRepository` (`Add` + `GetAsync`, ไม่มี save method เพราะปล่อย
+ให้ `IUnitOfWork` flush) ไม่มี cross-module `.Domain` reference (`Carts.Application.csproj` reference แค่
+`Carts.Domain`, `Contracts`, `BuildingBlocks.Application`). `CartEdits.cs` มี helper ภายใน
+`CartLoad.RequireAsync` ให้ 3 handler (Remove/SetQuantity/Clear) เรียกร่วมกัน — คอมเมนต์บอกตรงๆ ว่า RLS กรอง
+cross-merchant row อยู่แล้วเป็นชั้นแรก ตัว check `cart.MerchantId != merchantId` เป็น belt-and-braces ชั้นสอง
+เท่านั้น และตั้งใจยุบ "not found"/"wrong merchant" ให้เป็นข้อความเดียว (`"was not found"`) ไม่ leak การมีอยู่ของ
+cart ข้าม merchant — แต่ `AddItemToCartHandler` (เขียนก่อน) ยังไม่ได้ใช้ `CartLoad`, ใช้ inline check ของตัวเอง
+ที่ throw ข้อความต่างกันระหว่างสองกรณี (`"was not found"` vs `"does not belong to the requesting merchant"`)
+
+**Infrastructure**: มี body จริง 2 ไฟล์ — `CartConfiguration.cs` และ `Items/ItemConfiguration.cs` (ทั้งคู่เป็น
+`IEntityTypeConfiguration`) map เข้า schema `shop` ที่ใช้ร่วมกับโมดูลอื่น ไม่ใช่ schema เฉพาะโมดูล; `Cart` มี
+alternate key `(Id, MerchantId)` และ `Item` มี composite FK ไปที่ key นั้น (ปิด denormalization drift ตามที่
+comment ใน Domain อ้างถึง, ระบุ REQ-6.5 + Codex-R1 #8 ตรงๆ ในโค้ด); `UnitPrice` แมปเป็น `ComplexProperty`
+(`decimal(19,4)` + `char(3)`) ตาม EF money mapping rule; `Subtotal`/`LineTotal`/`DomainEvents` ทั้งหมด
+`Ignore()` เพราะเป็น computed ส่วน `CartModuleRegistration.cs` เองเป็น `=> services` เปล่าจริง — comment บอก
+เหตุผลตรงๆ ว่า repository ย้ายไปอยู่ `Persistence.MerchantRuntime` (task 8.5.3) แล้ว การมีไฟล์นี้อยู่มีไว้แค่ให้
+assembly เข้า `HostModuleAssemblies.All` เพื่อให้ `PolDbContext` discover `CartConfiguration`/`ItemConfiguration`
+ตอน model-build เท่านั้น
+
+**จุดสังเกต**: `ICartRepository` ตัวจริงไม่ได้ bind อยู่ใน `Carts.Infrastructure` เลยแม้แต่บรรทัดเดียว —
+implementation จริงอยู่ที่ `Persistence.MerchantRuntime/Carts/CartRepository.cs` และผูกผ่าน
+`AddMerchantRuntimePersistence(...)` ที่ `Program.cs` เรียกแยกจาก `AddCartModule()` คนละบรรทัด — ต่างจาก
+`Divisions` ตรงที่ `AddCartModule()` ยังถูกเรียกจริงใน `Program.cs` (ไม่ได้หายไปเฉยๆ) แต่มันแค่คืน `services`
+เปล่าไม่ทำอะไร ดังนั้นคนใหม่ที่ grep หา DI registration ของ `ICartRepository` ใน `Carts.Infrastructure` จะไม่
+เจอ ต้องรู้ว่า cart repository ถูกจัดกลุ่มรวมกับ repository ของโมดูลอื่นใน merchant runtime plane แทน
+
+#### 3. Checkouts
+
+**Domain**: `Session.cs` (91 บรรทัด) — aggregate root ชื่อ `Checkouts.Domain.Session` (ระวังสับสนกับ
+`Payments.Domain.Session` คนละ CLR type คนละโมดูล ชื่อชนกันเฉยๆ) มี state machine 3 states เดินทางเดียว
+`Started → Confirmed` หรือ `Started → Abandoned` (ทั้งคู่ throw `InvalidOperationException` ถ้าเรียกซ้ำหรือเรียก
+จาก state อื่นที่ไม่ใช่ `Started`) — **ไม่มี concurrency token** แบบ `RowVersion` ที่ `Payments.Domain.Session`
+มี invariant เด่นคือ `Items` ถูก snapshot ทั้งก้อนตอน `Start` (insurance-pivot REQ-6.5) ไม่อ่านสดซ้ำระหว่าง start
+กับ confirm, `Start` reject cart ว่าง (defense in depth ซ้อนกับที่ endpoint เช็คไปแล้วชั้นหนึ่ง) และ nested
+entity `Item` เช็ค invariant ของ insured person (ชื่อ/นามสกุล/เลขบัตรห้ามว่าง, วันเกิดห้ามเป็นอนาคต) ที่ระดับนี้
+เอง ไม่รอไปเช็คตอนสร้าง Order — comment ในโค้ดยืนยันตรงๆ ว่าจงใจ enforce ที่นี่เพราะเกิดก่อนจุดที่ confirm จะ
+reachable ได้เสมอ ทำให้ request ที่ผิดไม่มีทางไปถึง successful confirm ได้เลย (defense-in-depth ชั้นที่สองยังคง
+อยู่ที่ `Order.Create` เหมือนเดิม)
+
+**Application**: CQRS เต็มรูปแบบ — `StartCheckoutCommand`/`ConfirmCheckoutCommand` แยก handler ต่อ use-case,
+port หลักมีแค่ `ICheckoutRepository` ตัวเดียว (ไม่มี external-provider port แบบ `IPspAdapter` ของ Payments) —
+**ไม่มี cross-module `.Domain` reference** (`Checkouts.Application.csproj` reference แค่ `Checkouts.Domain`,
+`Contracts`, `BuildingBlocks.Application`) และเป็นการตัดสินใจตั้งใจ ไม่ใช่ช่องว่าง: comment ใน `Item.cs` ยืนยัน
+ตรงๆ ว่า `Checkouts.Domain.Items.Item` เป็นคนละ CLR type จาก `Orders.Domain.Items.Item` โดยเจตนา สองโมดูลคุย
+กันผ่าน `Contracts.CheckoutConfirmed` DTO เท่านั้น — `ConfirmCheckoutHandler` เรียก `session.Confirm()` แล้ว
+enqueue `CheckoutConfirmed` (พร้อม items snapshot) ผ่าน `IOutbox` ในหน่วย unit of work เดียวกัน (transactional
+outbox) เพื่อให้ Orders เปิด order แบบ out-of-band โดยไม่ผูก Checkout เข้ากับ Orders ตรงๆ
+
+**Infrastructure**: `CheckoutModuleRegistration.AddCheckoutModule()` เป็น `=> services` เปล่า เหมือน Divisions
+— แต่คนละเหตุผลกัน: comment บอกตรงๆ ว่า repository ย้ายไปอยู่ `Persistence.MerchantRuntime` แล้ว (task 8.5.3)
+bind ผ่าน `AddMerchantRuntimePersistence` แทน (ยืนยันแล้วว่า `CheckoutRepository` ตัวจริงอยู่ที่
+`Persistence/Persistence.MerchantRuntime/Checkouts/CheckoutRepository.cs`) โปรเจกต์นี้จึงเหลือหน้าที่เดียวคือ
+ให้ EF Core scan เจอ `SessionConfiguration`/`ItemConfiguration` (map `Session.Amount` เป็น complex type ตาม
+Money mapping rule + composite alternate key `(Id, MerchantId)` ผูก owned `Items` collection)
+
+**จุดสังเกต**: คนใหม่ที่ grep หา implementation ของ `ICheckoutRepository` ใน `Checkouts.Infrastructure` จะหา
+ไม่เจอเลย เพราะ registration ในโมดูลว่างเปล่าจริง — ตัวจริงอยู่ข้ามโปรเจกต์คนละที่ (`Persistence.MerchantRuntime`)
+ต้องรู้ pattern นี้ก่อนถึงจะตามเจอ
+
+#### 4. Orders
+
+**Domain**: `Order.cs` (176 บรรทัด) — aggregate root กับ state machine 3 states (`AwaitingPayment` →
+`Paid`/`Cancelled`) บน `OrderStatus`, ทางเดียวออกจาก terminal state เสมอ ไม่มี concurrency token เลย (ต่างจาก
+`Payments.Domain.Session` ที่มี `RowVersion`) invariant การเงินเด่นสุดอยู่ที่ `Order.Create`: sum ของ
+`OrderItemInput.UnitPrice * Quantity` ทุก line ต้องเท่ากับ `amount` ที่ส่งเข้ามาเป๊ะ (ArgumentException ถ้าไม่เท่า)
+และทุก line ต้องอยู่ currency เดียวกับ order เท่านั้น `MarkPaid` idempotent — เรียกซ้ำตอน Status เป็น Paid อยู่แล้ว
+คือ no-op (return false ไม่ throw) แต่ throw ถ้า order ถูก Cancel ไปแล้ว และก่อน mark ทุกครั้ง re-verify ทั้ง amount
+กับ currency กับยอดของ order เอง ไม่เชื่อแค่ id จาก event เพียงอย่างเดียว (ดู B3 — `OrderPaidConsumer` consume
+`PaymentPaid` แล้วเรียก `MarkPaid` ซ้ำได้อย่างปลอดภัยเมื่อ event replay) โมดูลนี้ยังมี sub-entity ใน `Items/`:
+`Item` (order line, insert-only, snapshot ราคา+ข้อมูลผู้เอาประกัน ณ ตอนซื้อ) กับ `ItemPolicy` (1:1 mutable แยกออกจาก
+`Item` โดยเจตนา เพราะถูกกรอกโดย operator หลังขาย คนละช่วงเวลากับตอนขาย — พ่วง audit trail ของตัวเอง
+`ItemPolicyAudit`/`RevealAudit` ทั้งคู่ append-only)
+
+**Application**: CQRS เต็มรูปแบบ ไม่ bypass Mediator เลย — `CreateOrderCommand`/`ResendOrderSummaryCommand`/
+`UpsertItemPolicyCommand` (พร้อม admin escape-hatch twin `UpsertItemPolicyAdminCommand`) แยก handler ต่อ use-case
+ปกติ รวมถึง `GetOrderDetailCommand` ที่ถูกโมเดลเป็น command ทั้งที่เป็น read เพราะมี side-effect เขียน `RevealAudit`
+ก่อน build response แบบ fail-closed (throw ถ้า save ไม่ผ่าน ไม่ยอมส่งข้อมูลที่ audit ไม่สำเร็จออกไป) มี consumer สอง
+handler รับ integration event ข้ามโมดูล: `CheckoutConfirmedConsumer` (B2 — เปิด order จาก checkout, idempotent ผ่าน
+filtered unique index บน `CheckoutSessionId`) กับ `OrderPaidConsumer` (B3 — consume `PaymentPaid` แล้ว re-verify
+amount/currency ผ่าน `MarkPaid` ก่อน mark, join ด้วย `OrderId` จาก event ไม่ใช่ `PaymentSessionId` — ดู "จุดสังเกต")
+port หลักคือ `IOrderRepository`/`IItemPolicyRepository` (merchant-scoped ปกติ) กับ `IAdminItemPolicyWriter` (admin
+cross-merchant escape-hatch, bind คนละ `MerchantRuntimeDbContext` instance แยกจาก context ฝั่ง merchant-scoped) —
+**ไม่มี cross-module `.Domain` reference เลย**: `Orders.Application.csproj` reference แค่ `Orders.Domain`/
+`Contracts`/`BuildingBlocks.Application` เท่านั้น แม้จะมี admin escape-hatch ก็ส่ง accessible-merchant decision
+เป็น plain data (`IsUnrestrictedAdmin`/`AccessibleMerchantIds`) แทนที่จะ reference `Admins.Application` ตรงๆ —
+คอมเมนต์ในโค้ด (`UpsertItemPolicyAdminCommand.cs`) เขียนไว้ว่าไม่มีโมดูลไหนในเรโปนี้ reference Application project
+ของโมดูลอื่นเลย แต่คำกล่าวนั้นตกหล่นจริง: `Merchants.Application` reference `Payments.Application` ตรงๆ อยู่ (ข้อยกเว้น
+เดียวในระบบ — ดู #6) กฎเคร่งครัดนี้ยึดจริงแค่ฝั่ง Orders.Application เอง ไม่ใช่ภาพรวมทั้งระบบ
+
+**Infrastructure**: `OrdersModuleRegistration.cs` เป็น `=> services` เปล่าจริง — Mediator handler ถูก
+auto-discover โดย source generator ที่ host อยู่แล้ว ส่วน repository/summary reader ตัวจริงย้ายไปขึ้นทะเบียนที่
+`Persistence.MerchantRuntime` (`AddMerchantRuntimePersistence`) แทน ไฟล์ที่มี body จริงในโปรเจกต์นี้คือ EF config
+(`OrderConfiguration` + อีก 4 ไฟล์ใน `Items/`) แต่เป็นแค่ "migration-owner" — กำหนด column/index/schema (`shop`)
+เท่านั้น ส่วน tenant-key/query-filter/append-only wiring ตัวจริงอยู่ใน runtime twin คนละไฟล์ที่
+`Persistence.MerchantRuntime.Orders.Items.*` (dual-config pattern เดียวกับที่ใช้ทั้งเรโป)
+
+**จุดสังเกต**: `Order.PaymentSessionId`/`AttachPaymentSession` เป็น legacy link ที่ "ไม่มี production writer" —
+คอมเมนต์ในโค้ดบอกตรงๆ ว่า `OrderPaidConsumer` resolve order ด้วย `OrderId` จาก event เท่านั้น ไม่เคยใช้ field นี้
+เป็น join key จริง (bugfix-order-paid-link F2) คนใหม่ที่เห็น field แล้วคิดว่าเป็น join path หลักของการ fulfil order
+จะหลงทาง — และแม้ `OrdersModuleRegistration.cs` จะ `=> services` เปล่าเหมือน `Divisions`/`Iam` แต่คนละเหตุผล:
+Orders ไม่ใช่ reference-data module เลย เป็น core business aggregate จริง แค่ persistence wiring ถูกรวมศูนย์ไปอยู่
+`Persistence.MerchantRuntime` แทนที่จะอยู่ในโมดูลของตัวเอง
+
+#### 5. Payments
+
+**Domain**: `Session.cs` (179 บรรทัด) — aggregate root กับ state machine 5 states ทางเดียวเข้า terminal state
+เสมอ (`Created → Redirected → Paid`/`Failed`/`Expired` บน `SessionStatus`; `MarkFailed`/`MarkExpired` throw ถ้า
+Status เป็น terminal อยู่แล้ว) ใช้ SQL Server `RowVersion` เป็น optimistic-concurrency token — comment ในโค้ด
+ระบุเหตุผลตรงๆ ว่ามีไว้ serialise การ "claim the redirect": `BeginRedirect` (Created→Redirected) ต้อง save
+สำเร็จก่อนเสมอถึงจะไปสร้าง PSP charge ได้ ฝั่งที่แพ้ concurrency check ไม่มีทางเรียก PSP เลย กัน 2 request สร้าง
+charge ซ้อนกัน (ดู B4 เต็มๆ) invariant เด่นอีกจุดคือทุก field (merchant/order/amount/method/psp) ผูกตั้งแต่
+`Create` ครั้งเดียว ไม่มี "attach-race" ภายหลัง และ `SetPspCharge` bind PSP charge id ได้ครั้งเดียวเท่านั้น
+(throw ถ้ามี `PspExternalChargeId` ผูกอยู่แล้ว) `MarkPaid` idempotent พร้อมเช็ค charge-id: เรียกซ้ำด้วย charge-id
+เดิมตอน Paid อยู่แล้วคือ no-op แต่ถ้า charge-id ไม่ตรงกับที่ mark ไว้ก่อนหน้า throw ทันที ไม่ให้ paid event ของ
+charge อื่นมา mark session ผิดตัว
+
+**Application**: CQRS เต็มรูปแบบ — `CreateSessionCommand`/`StartRedirectCommand`/`HandlePspWebhookCommand`/
+`GetSessionQuery` แยก handler ต่อ use-case ไม่ bypass `CreateSessionHandler` เด่นสุด: ลำดับการเช็คใน handler
+เป็น contract ตรงๆ ตามคอมเมนต์ในโค้ด (400 malformed method, 404 order ไม่พบหรือเป็นของ merchant อื่นภายใต้ query
+filter — สองกรณีนี้ตั้งใจให้แยกไม่ออกจากภายนอก, 409 ทุกกรณี server-state refuse) ห้ามสลับลำดับเพราะ status code
+ที่ caller เห็นขึ้นกับลำดับนี้ตรงๆ และ dedupe open session ต่อ order ด้วย `GetOpenForOrderAsync` ที่คืน entity
+ไม่ใช่ bool เพราะต้องเทียบ method+PSP: ช่องทางเดิมคืน session เดิมให้ resume ได้ ช่องทางอื่น 409 เพราะไม่มี void ที่
+PSP ให้ swap channel กลางทาง port หลักคือ `IPayableOrderReader`/`IConnectionRepository`/`IPspAdapterFactory`/
+`ISessionRepository` บวก `IPspSecretEnvelopeFactory` — ไม่มี cross-module `.Domain` reference
+(`Payments.Application.csproj` reference แค่ `Payments.Domain`/`Contracts`/`BuildingBlocks.Application`)
+`IPayableOrderReader` เจาะจงคืนแค่ amount+awaiting-payment flag เท่านั้น (ไม่มี line/PII) — comment ยืนยันตรงๆ
+ว่าเจตนาไม่ให้ merchant-facing order-detail read (ที่เขียน reveal audit) มาปนกับ payment path
+
+**Infrastructure**: 1 ใน 2 โมดูลที่ `PaymentsModuleRegistration.cs` มี body จริง (ไม่ใช่ `=> services` เปล่า —
+อีกโมดูลคือ Merchants, ดู #6) — register named pooled `HttpClient` ต่อ PSP connection (`TwoCTwoP`/`Omise`,
+timeout 30 วินาทีต่อ call, ไม่ retry ตอน create-charge เพราะเสี่ยง double-charge — retry เก็บไว้แค่ฝั่ง fetch GET),
+`IPspAdapter` 2 ตัว + `IPspAdapterFactory` (registered เป็น singleton เพราะ adapter stateless — state ทั้งหมดอยู่
+ใน method args) เพราะต้อง resolve adapter ให้ตรง PSP ของแต่ละ merchant connection ตอน runtime ไม่ใช่ DI แบบ
+static เดียว บวก `IPspSecretEnvelopeFactory` (singleton เช่นกัน ใช้ตอน merchant provisioning)
+
+**จุดสังเกต**: เป็นโมดูลเดียวที่มี test subfolder เฉพาะ external-provider (`tests/Payments.Tests/Psp/` —
+`TwoCTwoPAdapterTests`/`OmiseAdapterTests`/`PspTestHttp`; โมดูลอื่นทั้งหมดมีแค่ `obj`/`bin` ใต้ test project) —
+สะท้อนว่าเป็นจุดที่ระบบพึ่งพา third-party contract มากที่สุด ต้อง mock/replay เยอะกว่าโมดูลอื่น
+
+#### 6. Merchants
+
+**Domain**: ดูตัวอย่างเดินเต็ม vertical slice ของโมดูลนี้ด้านบนในหัวข้อนี้แล้ว (`Merchant.cs` factory) —
+ไม่ขอย้ำซ้ำ
+
+**Application**: ดูตัวอย่างด้านบนเช่นกัน (`ProvisionMerchantCommand`/`Handler`) — เสริมจุดที่ตัวอย่างเดิม
+ยังไม่พูดตรงๆ: `Merchants.Application.csproj` reference `Payments.Application.csproj` ตรงๆ (ไม่ใช่แค่
+`.Domain`) ซึ่งเป็นข้อยกเว้นเดียวในระบบที่เปิดให้ Application project หนึ่งอ้างอิง Application project ของอีก
+โมดูลตรงๆ (คนละแกนกับกฎ published-language ที่สงวนไว้เฉพาะ `Iam.Domain` — ดู #8) — `ProvisionMerchantHandler`
+ต้องสร้าง PSP connection ของ Payments ตรงจุดเดียวตอน provision merchant ใหม่
+
+**Infrastructure**: มี body จริง (ไม่ใช่ `=> services` เปล่า) — `AddMerchantsModule()`
+(`MerchantsModuleRegistration`) register `IPhotoStore` default (`LocalPhotoStore`, เขียนไฟล์ลง temp
+directory ด้วย opaque key กัน path traversal) ให้ worker/local ใช้; Api override ด้วย adapter ที่อ่าน path
+จาก config เอง (ตามคอมเมนต์ในไฟล์ registration)
+
+**จุดสังเกต**: Domain มีจริง 3 aggregate ไม่ใช่แค่ `Merchant` ที่เดินตัวอย่างด้านบน (`User`/`Session` — merchant-user
+identity + BFF session — แยกเต็ม) และ Application มี 2 คู่ port หน้าตาคล้ายกันแต่ใช้คนละที่โดยเจตนา:
+`IUserRepository` (bound, ผ่าน merchant query filter ปกติ) กับ `IAccountResolver`/`IAccountStore` (filter-free,
+สำหรับ flow ที่ยังไม่มี merchant actor ผูกกับ request เช่น login/registration/approve-reject) — สลับใช้คู่ผิด
+แล้วแถวที่ `MerchantId` เป็น NULL (pending/rejected) จะหายไปเงียบๆ จาก query
+
+#### 7. Admins
+
+**Domain**: `User.cs` (146 บรรทัด) เป็น aggregate หลักของโมดูล — ไม่มี state machine เชิง sequence แบบ Payments'
+`Session` แต่ปกครองด้วยสอง enum คู่กัน: `Tier` (Scoped/Super) กับ `UserStatus` (Active/Suspended เท่านั้น —
+ตั้งใจไม่มี `PendingApproval` เพราะ admin ถูก bootstrap จาก allowlist หรือสร้างโดย Super เท่านั้น ไม่ผ่าน
+self-approve แบบ merchant-user flow). Concurrency token คือ `AuthorizationVersion` (long counter ที่ bump เอง
+ผ่าน `BumpAuthorizationVersion()`) ไม่ใช่ SQL Server `RowVersion` อัตโนมัติแบบ Payments — เป็น "authorization
+lease" pattern จาก rls-to-query-filter REQ-4.11: ทุก write ที่กระทบ effective authorization ของ admin คนนั้น
+(Status/Tier/Session/MerchantAccess/RoleAssignment/RolePermission) ต้อง bump version ในทรานแซกชันเดียวกัน
+เพื่อให้ caller ที่ถือ version เก่าหลุดจาก in-tx authorization lease ที่ฝั่งอื่นเช็ค invariant เด่นอื่น:
+`Suspend`/`ChangeTier` ปฏิเสธ self-target เสมอ (กัน Super คนเดียวลด tier ตัวเองจนไม่เหลือใคร oversight หรือ
+suspend ตัวเองจนล็อกตัวเองออก) และ `BindSubject` เป็น one-shot — rebind ถูก reject เพราะ `Subject` (Google
+`sub`) unique ทันทีที่ bind แล้ว ส่วน `Email` คือ invite key ก่อนหน้านั้น
+
+`Session.cs` เป็นอีก aggregate แยกต่างหาก (ไม่ใช่ child ของ `User`) — family-based rotation state machine 3
+states (Active/Superseded/Revoked), เก็บแค่ SHA-256 hash ของ cookie ไม่เก็บ token ดิบ; `Rotate` ออก successor
+ใน family เดิมพร้อม mark ตัวเองเป็น Superseded และลิงก์ไป successor เพื่อให้ replay ของ token ที่ไม่ใช่
+predecessor ตัวล่าสุดตรวจจับได้ว่าเป็น theft — แต่ transition จริงทำผ่าน atomic set-based UPDATE ที่ store
+(`TrySupersedeAsync`) ไม่ใช่ mutate entity ที่ tracked เพราะ rotate/revoke แข่งกันได้ ยังมี `MerchantAccess`
+(soft reference ไป Merchant ไม่มี DB FK — เป็น lookup table ของ RLS predicate ฝั่ง platform) กับ
+`RoleAssignment` (mirror `MerchantAccess` เป๊ะ unique บน (PlatformUserId, RoleId)) และ audit สองตัวที่แยกกัน
+จงใจ: `Audit` (ต้องมี actor เสมอ) กับ `AuthAudit` (actor เป็น optional เพราะ auth event บางอันเกิดก่อน resolve
+admin ได้ เช่น allowlist denial)
+
+**Application**: CQRS เต็มรูปแบบผ่าน Mediator (`ICommand`/`ICommandHandler`, `IQuery`/`IQueryHandler` แยกไฟล์
+ต่อ use-case เหมือน Payments) — command เช่น `SelfProvisionSuperCommand`/`CreateScopedCommand`/
+`ChangeAdminTierCommand`/`SetAdminRolesCommand`, query เช่น `ResolveQuery`/`ListAdminsQuery`/
+`GetAdminByIdQuery`. Port หลัก: `IUserRepository` (bind ไป pol_admin bypass connection เพราะ resolve/provision
+ข้าม merchant ได้), `ISessionStore` (atomic set-based transition), `IRoleRepository` ("resolution repository"
+ที่อ่าน `iam.Roles` ตรงผ่าน `Iam.Domain` type — catalog CRUD ย้ายไป `Iam.Application` แล้วตาม rf2),
+`IAuditWriter`/`IAuthAuditWriter`, `IAdminScope` (per-request resolved-admin holder ที่ host เขียนใน
+middleware), และ `IAdminMerchantDirectory` (host implement เหนือ pol_admin connection กัน
+Admins.Application ไม่ต้อง reference โมดูล Merchant ตรงๆ — mirror pattern ของ Identity เดิม)
+
+Cross-module `.Domain` reference: อ้าง `Iam.Domain` ตรงๆ (เช่น `SelfProvisionSuperHandler` ใช้
+`Iam.Domain.Roles.Role.PlatformAdminCode` ตอน bootstrap ผูก role ให้ account แรก) — คอมเมนต์ใน `.csproj`
+ระบุเหตุผลตรงๆ ว่า `Iam.Domain` เป็น "published language" (rf2, design.md) จึงอ้างได้เหมือน `SharedKernel`
+แต่ห้ามแตะ `Iam.Application`/`Iam.Infrastructure` เด็ดขาด ที่น่าสังเกตคือ Application กลับ "ไม่" reference
+4 โมดูล reference-data (Divisions/Levels/Offices/Positions) เลยแม้แต่ `.Domain` — พอร์ต `IProfileLookup`
+ออกแบบเป็น enum-keyed (`ProfileField.Position/Office/Level/Division`) แทนการอ้าง type ตรงๆ ตามคอมเมนต์
+masterdata-split design.md ที่บอกตรงๆ ว่า "Admins.Application references no reference-data module at all"
+
+**Infrastructure**: `AdminModuleRegistration.cs` เป็น `=> services` เปล่าเหมือนส่วนใหญ่ของระบบ — มีไว้บังคับ
+assembly นี้ให้โหลดเพื่อให้ EF configuration (`Users`/`MerchantAccess`/`UserAudits`/`RoleAssignments`) ถูก
+discover ตอน model-build ผ่าน `HostModuleAssemblies.All` เท่านั้น คอมเมนต์บอกตรงๆ ว่า "NO repositories are
+registered here" เพราะทุก seam ของ admin ผูกกับ keyed pol_admin `DbContext` ที่ host รู้จักเท่านั้น
+(resolve/provision ข้าม merchant ได้ — reuse keyed `"admin"` scope เดียวกับที่สร้างไว้ให้ Merchant
+provisioning) แต่ตัว `.csproj` กลับเป็นจุดที่กว้างที่สุดในระบบ: reference `Iam.Domain` +
+`Divisions.Domain` + `Levels.Domain` + `Offices.Domain` + `Positions.Domain` พร้อมกันทั้ง 5 โมดูล (ไม่มี
+โมดูลอื่นอ้าง `.Domain` ข้ามมากเท่านี้) เพราะ `UserConfiguration.Configure` ต้อง `HasOne<Position/Office/
+Level/Division>()` ผูก FK ของ 4 org-profile field ตรงๆ — คอมเมนต์ในไฟล์ยืนยันว่าเป็น "the ONLY Admins layer
+that names the four reference entity types" — บวก `RoleAssignmentConfiguration` ที่ต้อง `HasOne<Role>()`
+ผูกไป `iam.Roles`
+
+**จุดสังเกต**: XML doc บน `User.AuthorizationVersion` (Domain) ยังเขียนไว้ว่า "Not yet a real column (task
+8's migration adds it) … setting it today is a safe no-op" แต่ `UserConfiguration` (Infrastructure) ที่
+mark `.IsConcurrencyToken()` ให้มันกลับระบุตรงๆ ว่า "rls-to-query-filter REQ-4.9/4.11 (task 8): real column"
+— คอมเมนต์สองไฟล์ไม่ sync กัน (ตกค้างจากตอนฟีเจอร์ landed เป็นสองช่วง) คนใหม่ที่อ่านแค่ Domain อาจเข้าใจผิดว่า
+concurrency token ยังไม่ทำงานจริงทั้งที่ Infrastructure ผูกมันเป็น real column แล้ว นอกจากนี้คอมเมนต์เดียวกัน
+ยังบอกว่า config นี้ "mirrors Persistence.ControlPlane's own `UserConfiguration`" — คือมี EF config ของ
+`User` อยู่คู่ขนานนอกโมดูลนี้อีกชุด (คนละ `DbContext`) ต้องแก้ทั้งสองที่เวลาผัง schema เปลี่ยน ไม่ใช่แก้จุด
+เดียวแล้วจบ
+
+#### 8. Iam
+
+**Domain**: `Role.cs` (164 บรรทัด) — aggregate เดียวของโมดูล ไม่มี state machine เชิงลำดับ มีแค่ `RoleStatus`
+toggle อิสระผ่าน `Activate`/`Deactivate` (ไม่ใช่ transition ที่มีทิศทางบังคับ) และไม่มี concurrency token
+Invariant เด่นสุดคือ `SetPermissions`: permission key ที่ grant ต้องอยู่ใน catalog (`Keys.KeySide`) **และ**
+ต้องอยู่ scope เดียวกับตัว role เอง (Platform/Merchant) ไม่งั้น `ArgumentException` — ปิดช่องทาง cross-side
+grant ด้วยโครงสร้าง ไม่ใช่ convention. `Code` เป็น identity immutable ผ่าน regex `^[a-z0-9_]+$`, `Scope`
+immutable ตั้งแต่ `Create`, และ Platform-scope role ห้ามมี `MerchantId` — enforce ซ้อน 2 ชั้น (domain
+constructor + DB `CHECK` constraint `CK_Roles_ScopeMerchant`). สอง seed anchor กู้ระบบ (`platform_admin`/
+`merchant_manager`, `IsSeedAnchor`) ห้าม deactivate/delete ตลอดไป และ anchor ต่อ "แถวที่ seed จริง"
+(`MerchantId` null + code ตรง) ไม่ใช่ต่อ code เฉยๆ — merchant สร้าง role ชื่อ `merchant_manager` ของตัวเองซ้ำ
+ได้ (unique index bucket ด้วย `MerchantId`) แล้ว role นั้น deactivate/delete ได้ปกติ. `RolePermission` เป็น
+child entity สร้างได้เฉพาะผ่าน aggregate (constructor `internal`), ส่วน `Permission`/`PermissionGroup` เป็น
+reference-data class เปล่า (seed จาก migration, ไม่มี invariant) และ `RoleVisibility.For` คือ predicate
+เดียวที่นิยาม "ใครเห็น role แถวไหน" ไว้ที่นี่ที่เดียว ให้ทั้ง `Iam.Infrastructure` เองและ
+`Admins`/`Merchants.Infrastructure` ที่ query `iam.Roles` ตรงก็ใช้ตัวเดียวกัน
+
+**Application**: CQRS เต็มรูปแบบผ่าน Mediator ปกติ — `CreateRoleCommand`/`UpdateRoleCommand`/`DeleteRoleCommand`
++ `ListRolesQuery`/`GetRoleQuery`/`GetPermissionCatalogQuery` แยก handler ต่อ use-case (ไม่ bypass). Port หลัก
+คือ `IRoleStore` (persistence ที่ scope ด้วย `RoleSideContext` ทุก read — ไม่มี "get by code" แบบไม่ scope
+หลงเหลือเลย) บวกกับ port เชื่อมข้ามโมดูลอีก 2 ตัวที่มีอยู่เพราะกฎ module-reference: `IRoleAssignmentCounter`
+(นับแถว assignment ทั้งฝั่ง admin/merchant, comment ในโค้ดบอกตรงๆ ว่า "mirrors `IRoleAuditSink`'s bridge
+pattern") และ `IRoleAuditSink` (default เป็น no-op `NullRoleAuditSink`) — ทั้งคู่มีเพราะ `Iam.Application`
+ห้าม reference `Admins.Application`/`Domain` หรือ `Merchants.Application`/`Domain` ตรงๆ ผลคือ
+`Iam.Application.csproj` ไม่มี `ProjectReference` ไปโมดูลธุรกิจอื่นเลย (มีแค่ `Iam.Domain` +
+`BuildingBlocks.Application`) — สวนทางกับทิศทางอื่น: `Iam.Domain` เองถูก `Admins.Application`/
+`Admins.Infrastructure`/`Merchants.Infrastructure`/`Persistence.ControlPlane`/`Persistence.MerchantUsers`
+reference ตรงในฐานะ published language (ตามกฎ module-reference ที่คอมเมนต์ในโค้ดระบุตรงๆ ว่า "only
+`Iam.Domain` is a published language" — ไม่มีโมดูลอื่นใดในระบบถือสถานะนี้) ทั้ง 2 bridge port ต้อง implement
+ที่ host (`Hosts/Api/Iam/RoleHostWiring.cs`) ซึ่งเป็นจุดเดียวที่เห็นทั้ง `IAdminScope`/`IUserScope` พร้อมกัน —
+จุดเดียวกันนี้เองที่ derive `RoleSideContext` (record `Scope`+ `MerchantId?`) ให้ทุก command/query รับจาก
+caller ตรงๆ แทนที่จะ derive เอง กัน client สวม scope ผ่าน wire body
+
+**Infrastructure**: `IamModuleRegistration.AddIamModule()` เป็น `=> services` เปล่าเหมือน
+`Divisions`/`Levels`/`Offices`/`Positions` — comment ในโค้ดบอกเหตุผลตรงๆ ว่ามีไว้ "forces this assembly to
+load so its EF configurations (Permissions, PermissionGroups, Roles, RolePermissions) are discovered at
+model-build time via `HostModuleAssemblies.All`" เท่านั้น ไม่ได้ register repository ใดๆ ในนี้เลย โปรเจกต์นี้
+มีแค่ `IEntityTypeConfiguration` 4 ตัว (`RoleConfiguration`/`RolePermissionConfiguration`/
+`PermissionConfiguration`/`PermissionGroupConfiguration`) กับ SFS pipeline (`RoleSfs.cs`) — `IRoleStore`
+ตัวจริง (`RoleStore.cs`) ไม่ได้อยู่ใน `Iam.Infrastructure` ด้วยซ้ำ อยู่ที่ `Persistence.ControlPlane` และ bind
+แบบ unkeyed ผ่าน `AddControlPlanePersistence` แทน
+
+**จุดสังเกต**: ไม่ถูกเรียกผ่าน `Add{Module}Module()` ใน `Program.cs` เลย (เหมือน `Divisions`/`Levels`/
+`Offices`/`Positions`) — wiring จริงที่ `Program.cs` เรียกคือ `AddIamRoleManagement()` (จาก
+`Api.Iam.RoleHostWiring`) ซึ่ง register แค่ `IRoleAssignmentCounter`/`IRoleAuditSink` สองตัวเท่านั้น (comment
+ในไฟล์เดียวกันบอกด้วยว่า "`IRoleStore` is no longer registered here: `AddControlPlanePersistence` already
+registers it unkeyed, shared by both hosts"). คนใหม่ที่ grep หา `AddIamModule` ใน `Program.cs` จะไม่เจอเลย
+ต้องรู้ว่า EF discovery มาจาก assembly-scan ของ `HostModuleAssemblies.All` ไม่ใช่จาก DI call ตรงๆ และต้องรู้
+เพิ่มว่า business logic หลักของโมดูล (`IRoleStore`) ไปโผล่อยู่ที่ `Persistence.ControlPlane` ไม่ใช่
+`Iam.Infrastructure`
+
+#### 9. Divisions
+
+**Domain**: `Division.cs` (48 บรรทัด, เหมือน `Level`/`Office`/`Position` เป๊ะ) — ไม่มี state machine, invariant
+เดียวคือ `Code` ต้องผ่าน `^[a-z0-9_]+$` แล้ว immutable หลังสร้าง (identity), `IsActive` toggle ได้อิสระ
+
+**Application**: **bypass Mediator ทั้งหมด** — มีแค่ `IDivisionStore` interface เดียว (ไม่มี Command/Handler
+แยกไฟล์แบบโมดูลธุรกิจ) คอมเมนต์ในโค้ดให้เหตุผลตรงๆ ว่าเป็น "reference data ธรรมดา จึงตั้งใจ bypass Mediator"
+แต่ยังคอมมิตผ่าน keyed `"admin"` `IUnitOfWork` เดิม ไม่ใช่ทางลัดที่ข้าม transaction boundary
+
+**Infrastructure**: `=> services` เปล่า (เหมือน `Iam.Infrastructure`) — `IDivisionStore` ตัวจริง bind อยู่ที่
+`Persistence.ControlPlane.ControlPlanePersistenceRegistration.AddControlPlanePersistence` แทน ไม่ใช่ที่นี่
+
+**จุดสังเกต**: ไม่ถูกเรียกใน `Program.cs` ผ่าน `Add{Module}Module()` เลย (เหมือน `Levels`/`Offices`/`Positions`/
+`Iam`) — คนใหม่ที่ grep หา wiring ใน `Program.cs` จะหาไม่เจอ ต้องรู้ว่า wiring จริงมาทาง
+`HostModuleAssemblies.All` + `AddControlPlanePersistence` นอกจากนี้ (เหมือนกับ `Levels`/`Offices`/`Positions`
+ทุกโมดูลในตระกูลนี้ — รายละเอียดเต็มดู #10) `DivisionConfiguration` มี 2 คลาสคนละ namespace ผูกกับคนละ
+`DbContext` (`Divisions.Infrastructure.Persistence.DivisionConfiguration` กับ
+`Persistence.ControlPlane.Divisions.DivisionConfiguration`) mapping เหมือนกันทุก field ที่ต้อง sync มือ —
+คอมเมนต์ในโค้ดเตือนตรงๆ ว่า "must stay in lockstep"
+
+#### 10. Levels
+
+**Domain**: `Level.cs` (48 บรรทัด, เหมือน `Division`/`Office`/`Position` เป๊ะ) — ไม่มี state machine ไม่มี
+concurrency token, invariant เดียวคือ `Code` ต้องผ่าน `^[a-z0-9_]+$` แล้ว immutable หลังสร้าง (identity) ส่วน
+`Name`/`IsActive` แก้ได้อิสระผ่าน `Rename`/`Activate`/`Deactivate` — คอมเมนต์ในโค้ดยืนยันว่าเป็น "standalone
+aggregate since masterdata-split — the retired shared base logic lives inline, verbatim"
+
+**Application**: bypass Mediator ทั้งหมด เหมือน Divisions — มีแค่ interface `ILevelStore` ตัวเดียว (ไม่มี
+Command/Handler แยกไฟล์) คอมเมนต์ในโค้ดให้เหตุผลตรงๆ คำต่อคำเดียวกับ Divisions ว่า "Simple control-plane
+reference data, so it deliberately bypasses Mediator" แต่ยังคอมมิตผ่านกฎเดิมของ keyed `"admin"` `IUnitOfWork`
+csproj อ้างอิงแค่ `Levels.Domain` + `BuildingBlocks.Application` ไม่มี cross-module `.Domain` reference ใดๆ
+
+**Infrastructure**: `AddLevelsModule()` คืน `=> services` เปล่า (เหมือน Divisions/Iam) — `ILevelStore` ตัวจริง
+bind อยู่ที่ `Persistence.ControlPlane.ControlPlanePersistenceRegistration.AddControlPlanePersistence` แทน
+(implementation class `Persistence.ControlPlane.Levels.LevelStore` คอมมิตผ่าน `ControlPlaneUnitOfWork` จริง
+พร้อม pre-check ก่อน `ConflictException` 409 เผื่อ unique-index race)
+
+**จุดสังเกต**: ไม่ถูกเรียกใน `Program.cs` ผ่าน `Add{Module}Module()` เลย (เหมือน `Divisions`/`Offices`/
+`Positions`/`Iam`) — wiring จริงมาทาง `HostModuleAssemblies.All` (ให้ `PolDbContext` เจอ `LevelConfiguration`
+ผ่าน `ApplyConfigurationsFromAssembly`) + `AddControlPlanePersistence` (bind `ILevelStore` จริง) — เหมือนกับ
+`Divisions`/`Offices`/`Positions` ทั้ง 3 โมดูล ไม่ใช่จุดเด่นเฉพาะ `Levels`. `LevelConfiguration` มี 2 คลาสคนละ
+namespace ผูกกับคนละ `DbContext` จริง — `Levels.Infrastructure.Persistence.LevelConfiguration` (apply เข้า
+`PolDbContext` ผ่านการสแกน assembly) กับ `Persistence.ControlPlane.Levels.LevelConfiguration` (apply ตรงใน
+`ControlPlaneDbContext.OnModelCreating`) mapping เหมือนกันทุก field แต่เป็นคนละไฟล์ที่ต้อง sync มือ — คอมเมนต์
+บอกตรงๆ ว่า "must stay in lockstep" แก้ field ที่ไฟล์เดียวแล้วลืมอีกไฟล์คือ schema drift เงียบข้าม migration
+ความเสี่ยงนี้เกิดกับทั้ง 4 โมดูลอ้างอิงเท่ากัน
+
+#### 11. Offices
+
+**Domain**: `Office.cs` (48 บรรทัด, เหมือน `Division`/`Level`/`Position` เป๊ะ) — ไม่มี state machine, invariant
+เดียวคือ `Code` ต้องผ่าน `^[a-z0-9_]+$` แล้ว immutable หลังสร้าง (identity), `IsActive` toggle ได้อิสระผ่าน
+`Activate`/`Deactivate`
+
+**Application**: **bypass Mediator ทั้งหมด** — มีแค่ `IOfficeStore` interface เดียว (ไม่มี Command/Handler
+แยกไฟล์แบบโมดูลธุรกิจ) คอมเมนต์ในโค้ดให้เหตุผลตรงๆ ว่าเป็น "control-plane reference data ธรรมดา" จึงตั้งใจ
+bypass Mediator แต่ยังคอมมิตผ่าน keyed `"admin"` `IUnitOfWork` เดิม ไม่ใช่ทางลัดที่ข้าม transaction boundary;
+ไม่มี cross-module `.Domain` reference (แค่ `SharedKernel` + `BuildingBlocks.Application`) — คอมเมนต์เตือน
+เพิ่มด้วยว่า existence/lookup สำหรับ admin-profile FK ไม่ได้อยู่ที่นี่ นั่นเป็น port ของฝั่ง caller เอง
+(`Admins.Application.Users.IProfileLookup`)
+
+**Infrastructure**: `=> services` เปล่า (เหมือน `Divisions`/`Levels`/`Iam`) — มีไว้บังคับให้ assembly นี้ถูกโหลด
+เพื่อให้ EF config ของ `cfg.Offices` ถูก discover ตอน model-build ผ่าน `HostModuleAssemblies.All`; `IOfficeStore`
+ตัวจริง bind อยู่ที่ `Persistence.ControlPlane.ControlPlanePersistenceRegistration.AddControlPlanePersistence`
+แทน ไม่ใช่ที่นี่
+
+**จุดสังเกต**: ไม่ถูกเรียกใน `Program.cs` ผ่าน `Add{Module}Module()` เลย (เหมือน `Divisions`/`Levels`/
+`Positions`/`Iam`) — grep หา `AddOfficesModule` ใน `Program.cs` จะหาไม่เจอ เจอแค่ reference ไปที่ assembly
+เฉยๆ ใน `DesignTimeDbContextFactories.cs`; ต้องรู้ว่า wiring จริงมาทาง `HostModuleAssemblies.All` +
+`AddControlPlanePersistence` เช่นเดียวกับ `Divisions`/`Levels`/`Positions` — `OfficeConfiguration` ก็มี 2
+คลาสคนละ namespace ผูกกับคนละ `DbContext` ที่ต้อง sync มือเหมือนกัน (รายละเอียดเต็มดู #10)
+
+#### 12. Positions
+
+**Domain**: `Position.cs` (48 บรรทัด, เหมือน `Division`/`Level`/`Office` เป๊ะ แม้แต่ตัวเลขบรรทัด) — ไม่มี state
+machine, invariant เดียวคือ `Code` ต้องผ่าน `^[a-z0-9_]+$` แล้ว immutable หลังสร้าง (identity), `IsActive`
+toggle ได้อิสระ ไม่มี cross-module `.Domain` reference (`Positions.Domain.csproj` reference แค่ `SharedKernel`)
+
+**Application**: **bypass Mediator ทั้งหมด** — มีแค่ `IPositionStore` interface เดียว คอมเมนต์ในโค้ดให้เหตุผล
+ตรงๆ ว่าเป็น "control-plane reference data ธรรมดา จึงตั้งใจ bypass Mediator" แต่ยังคอมมิตผ่าน keyed `"admin"`
+`IUnitOfWork` เดิม ไม่ใช่ทางลัดที่ข้าม transaction boundary — และย้ำชัดว่า lookup สำหรับ admin-profile FK ไม่ได้
+อยู่ที่นี่ (เป็นของ `Admins.Application.Users.IProfileLookup` แทน เพราะเป็น caller need ไม่ใช่ use case ของ
+โมดูลนี้)
+
+**Infrastructure**: `=> services` เปล่า (เหมือน `Iam.Infrastructure`) — `IPositionStore` ตัวจริง bind อยู่ที่
+`Persistence.ControlPlane.ControlPlanePersistenceRegistration.AddControlPlanePersistence` แทน มีไว้แค่บังคับ
+ให้ assembly นี้ถูก load เพื่อให้ EF config ของ `cfg.Positions` ถูก discover ตอน model-build ผ่าน
+`HostModuleAssemblies.All`
+
+**จุดสังเกต**: เหมือน `Divisions` ทุกประการ ต่างกันแค่ชื่อ — รวมถึงไม่ถูกเรียกใน `Program.cs` ผ่าน
+`AddPositionsModule()` เลย (เหมือน `Divisions`/`Levels`/`Offices`/`Iam`) wiring จริงมาทาง
+`HostModuleAssemblies.All` + `AddControlPlanePersistence` เท่านั้น รวมถึง `PositionConfiguration` 2 คลาสคนละ
+namespace/`DbContext` ที่ต้อง sync มือแบบเดียวกัน (ดู #10)
+
 ---
 
 ## 6. Hosts — จุดเดียวที่ประกอบทุกอย่างเข้าด้วยกันแล้วรันจริง
 
-**คืออะไร**: composition root — host เดียวในทั้งระบบคือ `Hosts/Api` (`Api.csproj`). เดิมมี host `Worker` แยกไว้รัน background job แต่ถูก retire ไปแล้วทั้งตัว (spec `multi-tier-deployment`, 2026-07-22) — โค้ดที่เคยอยู่ใน Worker ถูกย้ายเข้ามาเป็น `IHostedService` ในโปรเซส `Api` เดียวกัน วันนี้เหลือแค่ 2 deploy image: `api` กับ `migrate` (ไม่มี `worker`).
+**คืออะไร**: composition root — host เดียวในทั้งระบบคือ `Hosts/Api` (`Api.csproj`). เดิมมี host `Worker` แยกไว้รัน background job แต่ถูก retire ไปแล้วทั้งตัว (spec `multi-tier-deployment`, 2026-07-22) — โค้ดที่เคยอยู่ใน Worker ถูกย้ายเข้ามาเป็น `IHostedService` ในโปรเซส `Api` เดียวกัน วันนี้เหลือแค่ 2 deploy image: `api` กับ `migrate` (ไม่มี `worker`). ถ้าเจอโฟลเดอร์ `src/Hosts/Worker` บนเครื่อง dev อย่าตกใจ — `git ls-files src/Hosts/Worker` คืนค่าว่างเปล่าเสมอ (ไม่มีไฟล์ track ใน git แล้ว) นั่นคือซาก `bin/`/`obj/` จาก local build เก่าก่อน retire เท่านั้น ลบทิ้งได้ปลอดภัย ไม่ใช่โปรเจกต์ที่ยังใช้งานจริง.
 
 **บทบาท**: จุดเดียวในทั้งระบบที่ reference ได้ **ทุกอย่างพร้อมกัน** — `Contracts`, ทั้ง 3 project ของ `BuildingBlocks`, ทั้ง 12 โมดูล (`.Application`+`.Infrastructure`), ทั้ง 4 `Persistence.*`. เป็นที่เดียวที่ผูก concrete implementation เข้ากับ port/interface ที่ทุก layer อื่นประกาศไว้ล่วงหน้า — โมดูลไม่รู้จัก EF Core, EF Core (Persistence) ไม่รู้จัก HTTP, Host คือที่เดียวที่รู้จักทุกฝ่ายแล้วผูกให้.
 
