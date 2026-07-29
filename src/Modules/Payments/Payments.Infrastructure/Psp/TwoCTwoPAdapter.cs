@@ -27,12 +27,17 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
     public override Code Psp => Code.TwoCTwoP;
 
+    /// <summary>Card only today: the paymentToken request is built with a card payment channel, so a
+    /// promptpay/installment request must be refused up-front instead of being charged as a card.</summary>
+    public override IReadOnlySet<string> SupportedMethods { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
+
     private string BaseUrl => Options.UseSandbox
         ? Options.TwoCTwoP.SandboxBaseUrl
         : Options.TwoCTwoP.ProductionBaseUrl;
 
     public override async Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, string secret, CancellationToken cancellationToken)
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
         var invoiceNo = session.Id.ToString("N");
@@ -44,9 +49,9 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             description = $"Order {session.OrderId:N}",
             amount = decimal.Parse(FormatMajorUnitAmount(session.Amount), System.Globalization.CultureInfo.InvariantCulture),
             currencyCode = session.Amount.Currency,
-            paymentChannel = new[] { "CC" },
+            paymentChannel = new[] { PaymentChannelFor(session.Method) },
             frontendReturnUrl = Options.TwoCTwoP.FrontendReturnUrl,
-            backendReturnUrl = Options.TwoCTwoP.BackendReturnUrl,
+            backendReturnUrl = WebhookUrlFor(pspConnectionId),
             idempotencyID = invoiceNo,
         });
 
@@ -56,7 +61,10 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         var respCode = GetString(resp, "respCode");
         if (respCode != "0000")
-            throw new InvalidOperationException($"2c2p paymentToken declined (respCode {respCode}).");
+            // A signature-verified decline is the PSP naming its own refusal: no payment token was issued, so
+            // no charge exists and this session may be failed (REQ-7.5). The signature check above is what
+            // makes that safe to trust; an UNVERIFIABLE response stays ambiguous.
+            throw new PspRejectedException($"2c2p paymentToken declined (respCode {respCode}).");
 
         var webPaymentUrl = GetString(resp, "webPaymentUrl")
             ?? throw new InvalidOperationException("2c2p paymentToken response missing webPaymentUrl.");
@@ -99,7 +107,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         return new WebhookEvent(eventId, invoiceNo, status);
     }
 
-    public override async Task<PspChargeStatus> FetchChargeAsync(
+    public override async Task<PspChargeConfirmation> FetchChargeAsync(
         string externalChargeId, string secret, CancellationToken cancellationToken)
     {
         var creds = ParseSecret(secret);
@@ -114,8 +122,24 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var resp))
             throw new InvalidOperationException("2c2p paymentInquiry response failed signature verification.");
 
-        return MapRespCode(GetString(resp, "respCode"));
+        // paymentInquiry reports the collected amount in MAJOR units under the same field names the
+        // paymentToken request used (amount + currencyCode). Read from the signature-verified claims only.
+        return new PspChargeConfirmation(
+            MapRespCode(GetString(resp, "respCode")),
+            TryReadMajorUnitMoney(GetDecimal(resp, "amount"), GetString(resp, "currencyCode")));
     }
+
+    /// <summary>Maps a canonical payment method to the 2C2P paymentChannel code it must be charged through.
+    /// Card only today — the same truth <see cref="SupportedMethods"/> declares, so create-session has
+    /// already refused everything else (REQ-6.2). A method that still reaches here is a wiring bug and must
+    /// fail naming itself, never be substituted with the card channel: sending a customer who picked
+    /// PromptPay to a card page is the silent mis-routing REQ-6.3/6.4 exist to stop.</summary>
+    private static string PaymentChannelFor(string method) => method.Trim().ToLowerInvariant() switch
+    {
+        PaymentMethods.Card => "CC",
+        _ => throw new PspRejectedException(
+            $"2c2p adapter cannot honour payment method '{method}' — it declares card only."),
+    };
 
     /// <summary>Maps a 2C2P respCode to the normalized status: "0000"=Paid, in-progress codes=Pending,
     /// everything else (declines/cancels/failures)=Failed.</summary>
@@ -128,11 +152,22 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
     // ---- helpers ----
 
+    /// <summary>Rejected, not ambiguous: an unusable secret envelope stops us before any request is sent
+    /// (REQ-7.5). The message never echoes the envelope.</summary>
     private static TwoCTwoPSecret ParseSecret(string secret)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(secret);
-        return JsonSerializer.Deserialize<TwoCTwoPSecret>(secret, Json)
-            ?? throw new InvalidOperationException("2c2p secret envelope could not be parsed.");
+        if (string.IsNullOrWhiteSpace(secret))
+            throw new PspRejectedException("2c2p secret is empty.");
+
+        try
+        {
+            return JsonSerializer.Deserialize<TwoCTwoPSecret>(secret, Json)
+                ?? throw new PspRejectedException("2c2p secret envelope could not be parsed.");
+        }
+        catch (JsonException)
+        {
+            throw new PspRejectedException("2c2p secret envelope could not be parsed.");
+        }
     }
 
     /// <summary>POSTs {"payload": jwt(claims)} to a v4.3 endpoint ONCE (charge-create is non-idempotent)

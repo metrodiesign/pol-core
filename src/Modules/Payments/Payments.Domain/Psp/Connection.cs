@@ -68,6 +68,25 @@ public sealed class Connection : Entity<Guid>
             Guid.NewGuid(), merchantId, psp, enabledMethods.Trim(), secretRefName.Trim(), metadata, createdAt);
     }
 
+    /// <summary>
+    /// Throws unless this connection may charge <paramref name="method"/> right now: it must be enabled
+    /// and the method must be in its enabled list. The single eligibility gate — both the create-session
+    /// and the start-redirect paths call it, so a connection disabled (or re-scoped) between the two
+    /// cannot still reach the PSP. <see cref="InvalidOperationException"/> (409) rather than
+    /// <see cref="ArgumentException"/> (400): a disabled connection, or a method the company never
+    /// enabled, is SERVER state — not malformed client input. The message names only the connection id,
+    /// never <see cref="SecretRefName"/> or any secret.
+    /// </summary>
+    public void EnsureEligible(string method)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+
+        if (!IsEnabled)
+            throw new InvalidOperationException($"PSP connection {Id} is disabled.");
+        if (!Supports(method))
+            throw new InvalidOperationException($"PSP connection {Id} does not enable method '{method}'.");
+    }
+
     /// <summary>True when <paramref name="method"/> appears in this connection's enabled method list.</summary>
     public bool Supports(string method)
     {

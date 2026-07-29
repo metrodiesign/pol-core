@@ -43,5 +43,12 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
             .HasFilter("[PspExternalChargeId] IS NOT NULL");
 
         builder.HasIndex(x => x.OrderId);
+
+        // Mirrors the migration owner's one-open-session-per-order floor (REQ-2.4). Must stay identical in
+        // both files: only the owner's copy reaches the DDL, only this copy is what runtime saves are
+        // validated against, and a divergence is invisible to the unit suite (REQ-2.6 asserts both).
+        builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open")
+            .IsUnique()
+            .HasFilter("[Status] IN (0, 1)");
     }
 }

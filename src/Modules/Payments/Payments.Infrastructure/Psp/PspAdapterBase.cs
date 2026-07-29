@@ -35,12 +35,17 @@ public abstract class PspAdapterBase : IPspAdapter
 
     public abstract Code Psp { get; }
 
+    /// <summary>Abstract, not a shared default: a base default would hand its capability set to a future
+    /// adapter that cannot honour those methods, which is the exact silent-substitution this declaration
+    /// exists to prevent. Every adapter states its own truth next to the code that implements it.</summary>
+    public abstract IReadOnlySet<string> SupportedMethods { get; }
+
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
-        Session session, string secret, CancellationToken cancellationToken);
+        Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
 
     public abstract bool VerifyWebhook(string rawPayload, string signature, string secret);
 
-    public abstract Task<PspChargeStatus> FetchChargeAsync(
+    public abstract Task<PspChargeConfirmation> FetchChargeAsync(
         string externalChargeId, string secret, CancellationToken cancellationToken);
 
     public abstract WebhookEvent ParseWebhook(string rawPayload);
@@ -48,12 +53,21 @@ public abstract class PspAdapterBase : IPspAdapter
     /// <summary>A pooled, handler-rotated client for this PSP (named by its code). Cheap to create per call.</summary>
     protected HttpClient CreateClient() => _httpClientFactory.CreateClient(Psp.ToCode());
 
+    // ---- backend-notification URL ----
+
+    /// <summary>The per-connection backend-notification URL this charge must call back on:
+    /// <c>{PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}</c>. Derived, never configured per deployment —
+    /// a single global callback URL cannot carry the connection id that the webhook route (and with it the
+    /// per-company isolation) requires, so it could only ever be right for one connection (REQ-4.1).</summary>
+    protected string WebhookUrlFor(Guid pspConnectionId) =>
+        $"{Options.PublicBaseUrl.TrimEnd('/')}/api/v1/webhooks/{pspConnectionId:D}";
+
     // ---- amount ----
 
     /// <summary>Renders <see cref="Money"/> as a major-unit decimal string (e.g. THB 250.09 -> "250.09",
     /// JPY 5000 -> "5000") at the currency's ISO 4217 minor-unit scale. Invariant culture so the decimal
     /// separator is always '.'.</summary>
-    /// <exception cref="ArgumentException">See <see cref="RequireRepresentableDigits"/>.</exception>
+    /// <exception cref="PspRejectedException">See <see cref="RequireRepresentableDigits"/>.</exception>
     protected static string FormatMajorUnitAmount(Money amount)
     {
         var digits = RequireRepresentableDigits(amount);
@@ -62,7 +76,7 @@ public abstract class PspAdapterBase : IPspAdapter
 
     /// <summary>Renders <see cref="Money"/> as a minor-unit integer string (e.g. THB 250.09 -> "25009",
     /// JPY 5000 -> "5000") for PSPs (Omise) whose API takes the smallest currency unit.</summary>
-    /// <exception cref="ArgumentException">See <see cref="RequireRepresentableDigits"/>.</exception>
+    /// <exception cref="PspRejectedException">See <see cref="RequireRepresentableDigits"/>.</exception>
     protected static string FormatMinorUnitAmount(Money amount)
     {
         var digits = RequireRepresentableDigits(amount);
@@ -71,18 +85,55 @@ public abstract class PspAdapterBase : IPspAdapter
         return minorUnits.ToString("F0", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>The inverse of <see cref="FormatMajorUnitAmount"/> for a fetch response: an amount+currency
+    /// pair a PSP REPORTED, or null when it did not report a usable one. Null is the status-only confirmation
+    /// of <see cref="PspChargeConfirmation"/> (REQ-8.3) and NEVER zero, so every way the pair can be
+    /// unusable — absent, not a JSON number, a currency outside the platform's ISO 4217 allowlist, negative,
+    /// finer than 4 decimals — returns null here instead of throwing and abandoning a real confirmation.</summary>
+    protected static Money? TryReadMajorUnitMoney(decimal? amount, string? currency)
+    {
+        if (amount is not { } value || string.IsNullOrWhiteSpace(currency))
+            return null;
+
+        try
+        {
+            return Money.Of(value, currency);
+        }
+        catch (ArgumentException)
+        {
+            // Covers ArgumentOutOfRangeException (unknown currency / negative) too.
+            return null;
+        }
+    }
+
+    /// <summary>The inverse of <see cref="FormatMinorUnitAmount"/>: a PSP's minor-unit integer amount
+    /// (Omise) scaled back to major units at the currency's ISO 4217 exponent. Same null contract as
+    /// <see cref="TryReadMajorUnitMoney"/>.</summary>
+    protected static Money? TryReadMinorUnitMoney(decimal? minorUnits, string? currency)
+    {
+        if (minorUnits is not { } minor || string.IsNullOrWhiteSpace(currency))
+            return null;
+
+        var code = currency.ToUpperInvariant();
+        if (!Iso4217.IsSupported(code))
+            return null;
+
+        var scale = (decimal)Math.Pow(10, Iso4217.MinorUnitDigits(code));
+        return TryReadMajorUnitMoney(minor / scale, code);
+    }
+
     /// <summary>Guards that <paramref name="amount"/> has no precision beyond its currency's ISO 4217
     /// minor-unit scale. <see cref="Money"/> allows up to 4 decimal places, which can exceed what a PSP's
     /// wire format (or a zero-decimal currency like JPY) can represent — silently rounding here would
     /// charge the PSP a different amount than the unrounded one stored on the session/order (Codex review
-    /// #79, pullrequestreview-4678411626).</summary>
+    /// #79, pullrequestreview-4678411626). Rejected, not ambiguous: this runs before anything is sent, and
+    /// the amount is fixed on the session, so no retry of THIS session could ever get past it (REQ-7.5).</summary>
     private static int RequireRepresentableDigits(Money amount)
     {
         var digits = Iso4217.MinorUnitDigits(amount.Currency);
         if (amount.Amount != decimal.Round(amount.Amount, digits))
-            throw new ArgumentException(
-                $"{amount.Currency} amount {amount.Amount} is not representable at its {digits}-decimal minor unit.",
-                nameof(amount));
+            throw new PspRejectedException(
+                $"{amount.Currency} amount {amount.Amount} is not representable at its {digits}-decimal minor unit.");
         return digits;
     }
 
@@ -157,6 +208,16 @@ public abstract class PspAdapterBase : IPspAdapter
         return doc.RootElement.Clone();
     }
 
+    /// <summary>Reads a number-valued JSON property as a decimal, or null if it is absent, not a JSON
+    /// number, or out of decimal's range — so a PSP sending <c>"amount":"250.09"</c> as a string reads as
+    /// "not reported" rather than throwing out of the fetch.</summary>
+    protected static decimal? GetDecimal(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value)
+        && value.ValueKind == JsonValueKind.Number
+        && value.TryGetDecimal(out var number)
+            ? number
+            : null;
+
     /// <summary>Reads a string-valued JSON property, or null if it is absent or not a JSON string.</summary>
     protected static string? GetString(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
@@ -195,8 +256,21 @@ public abstract class PspAdapterBase : IPspAdapter
         using var response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"{Psp.ToCode()} returned HTTP {(int)response.StatusCode}.");
+            throw StatusFailure(response.StatusCode);
         return body;
+    }
+
+    /// <summary>Classifies a failing status by what it proves about the charge: a 4xx other than the
+    /// retry-me pair (408/429) is the PSP refusing outright, so no charge exists and the caller may fail the
+    /// session; a 5xx/408/429 leaves us unable to tell, so it stays ambiguous and the claim must survive
+    /// (REQ-7.5). The message names the PSP and the status only — never the request that carried the secret.</summary>
+    private Exception StatusFailure(HttpStatusCode status)
+    {
+        var message = $"{Psp.ToCode()} returned HTTP {(int)status}.";
+        return (int)status is >= 400 and < 500
+            && status is not (HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests)
+                ? new PspRejectedException(message)
+                : new InvalidOperationException(message);
     }
 
     /// <summary>Sends an IDEMPOTENT request (the fetch-to-confirm GET) with bounded retry on transient
@@ -220,7 +294,7 @@ public abstract class PspAdapterBase : IPspAdapter
 
                 var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException($"{Psp.ToCode()} returned HTTP {(int)response.StatusCode}.");
+                    throw StatusFailure(response.StatusCode);
                 return body;
             }
             catch (HttpRequestException) when (attempt < maxRetries && !cancellationToken.IsCancellationRequested)

@@ -13,6 +13,14 @@ public sealed class PspOptions
     /// <summary>When true, adapters target each PSP's sandbox/test surface. Default true (safe).</summary>
     public bool UseSandbox { get; set; } = true;
 
+    /// <summary>This API's public origin (e.g. <c>https://api.example.com</c>), the base every
+    /// per-connection backend-notification URL is derived from:
+    /// <c>{PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}</c>. It replaces the old per-deployment
+    /// callback URL, which could only ever be correct for ONE connection — every other company's webhook
+    /// missed the route and its orders stayed AwaitingPayment after the customer had paid. Required
+    /// outside Development (boot guard); blank here so the committed defaults still boot locally.</summary>
+    public string PublicBaseUrl { get; set; } = "";
+
     public TwoCTwoPOptions TwoCTwoP { get; set; } = new();
 
     public OmiseOptions Omise { get; set; } = new();
@@ -25,11 +33,11 @@ public sealed class TwoCTwoPOptions
 
     public string ProductionBaseUrl { get; set; } = "https://pgw.2c2p.com";
 
-    /// <summary>Where 2C2P sends the customer's browser back after the hosted page (UX only).</summary>
+    /// <summary>Where 2C2P sends the customer's browser back after the hosted page (UX only). Stays
+    /// platform-wide: the Tenant Console is one app shared by all three companies. The backend
+    /// notification URL is NOT here — it is derived per connection from
+    /// <see cref="PspOptions.PublicBaseUrl"/>.</summary>
     public string FrontendReturnUrl { get; set; } = "";
-
-    /// <summary>Where 2C2P POSTs the backend notification (our /webhooks endpoint).</summary>
-    public string BackendReturnUrl { get; set; } = "";
 }
 
 /// <summary>Omise uses one host regardless of environment; the secret key's prefix decides test vs live.</summary>

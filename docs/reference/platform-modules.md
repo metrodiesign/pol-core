@@ -15,6 +15,13 @@
 > order items + policy-reference record (`insurance-pivot` + `policy-reference-record`) ·
 > จำนวน/รายชื่อโมดูล (12 โมดูล รวม §15 ที่เพิ่มใหม่) · Money (`DECIMAL(19,4)` ตั้งแต่ rf1) ·
 > **§3 (Admin) + §4 (Producer/merchant-user): ชื่อคลาส/ตาราง/route/permission key**
+>
+> **refresh เพิ่ม 2026-07-26 (เส้นทางการจ่าย, spec `captive-payment-alignment`)** — §9 (Payment),
+> §11 (PSP), §12 (Webhooks) และ **ทะเบียนช่องว่าง**: ปิดข้อ 10, ปิดข้อ 1 เฉพาะชั้น connection,
+> เพิ่มข้อ 23-24 (เปิดโดยรู้ตัว) และ **ข้อ 25 เพิ่ม 2026-07-27** (Codex review #4782168269 P1).
+> **ข้อที่ยังเปิดและห้ามอ่านเป็นปิดแล้ว:** 1 (ชั้น merchant/producer), 8 (promptpay/installment),
+> 9 (Omise HMAC), 12 (expiry sweeper), 23 (PSP ไม่ส่งยอดกลับ), 24 (เปลี่ยนช่องทางกลางคัน),
+> 25 (claim สะสางไม่จบเมื่อเหตุขัดข้องถาวร) — แต่ละข้อมีเหตุผล + next step กำกับในทะเบียน
 
 > เอกสารนี้คือ module map ระดับแพลตฟอร์ม: **บริบท (ทำไมต้องมี) + บทบาท (ทำอะไร/ไม่ทำอะไร)
 > + ฟีเจอร์ละเอียด (โมเดลเป้าหมายรายข้อ เทียบ as-built) + โมเดลเป้าหมายเชิง API (normative target)**
@@ -863,12 +870,13 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 | Claims-then-charges | claim สิทธิ์ redirect ด้วย SQL `rowversion` ก่อนเรียก PSP — กัน double-charge จากกดซ้ำ/แข่งกัน | มีแล้ว |
 | Redirect ไป hosted page | `POST /payment-sessions/{id}/redirect` ขอ `RedirectUrl` จาก adapter ตามช่องทาง/PSP ของ session | มีแล้ว |
 | Return = UX เท่านั้น | browser return จาก PSP ไม่ตัดสินสถานะ — สถานะจริงรอ webhook | มีแล้ว |
-| Validate order ตอนสร้าง session | target preconditions ([payment-orchestration-modules.md](payment-orchestration-modules.md) ภาค 8.5): Order `awaiting_payment` + ไม่หมดอายุ/ยกเลิก/จ่ายแล้ว + tenant `active` + ไม่มี Payment `Succeeded`/active attempt ค้าง — ปัจจุบัน handler ไม่แตะ Orders เลย (สร้าง session ให้ order ที่ไม่มีจริง/จ่ายแล้วได้) | ยังไม่มี (ข้อ 10) |
-| ล็อกยอด/สกุล/method จาก Order ฝั่ง server | target: server-authoritative ทั้งหมด — client ไม่ส่ง amount/currency/method/psp (`POST .../payments` ไม่มี body ที่เชื่อได้ นอกจาก locale); ปัจจุบัน client ส่งเองทั้งหมด แนวกันปลายทางเดียวคือ `Order.MarkPaid` verify | ยังไม่มี (ข้อ 10) |
-| Enforce channel enablement | ตัดสิทธิ์ `Method` จาก effective method rule (`Tenant ∩ Producer ∩ Routing` — `Supports()` มีอยู่แต่ไม่มีผู้เรียก) | ยังไม่มี (ข้อ 1) |
+| Validate order ตอนสร้าง session | Order ต้องมีจริงใต้ merchant ที่ผูกอยู่ (**404** ถ้าไม่พบ — ไม่เปิดเผยว่าอยู่บริษัทอื่น) และต้องเป็น `AwaitingPayment` (**409**) — บังคับที่ handler ผ่าน port `IPayableOrderReader`. **ยังไม่ครบ target ภาค 8.5:** ยังไม่เช็ค merchant `active` และไม่มีแนวคิด Payment `Succeeded`/active attempt (ต้องรอ Payment/Attempt split) | **มีแล้ว** (2026-07-26) |
+| ล็อกยอด/สกุล/method จาก Order ฝั่ง server | ยอด+สกุลเงินอ่านจากแถว `Order` เท่านั้น — `Amount` ถูกถอดออกจาก wire contract และ `CreateSessionCommand` (breaking change ที่ตั้งใจ, pre-prod). **ยังไม่ครบ target:** `method`/`psp` ยังมาจาก client (ล็อก method ตั้งแต่ checkout + router เป็นงานของข้อ 3/13) | **มีแล้ว** (ยอด/สกุล, 2026-07-26) |
+| Enforce channel enablement | eligibility 2 ชั้นที่ create-session **และ** recheck ก่อน claim ตอน redirect: `Connection.EnsureEligible` (`IsEnabled` + `Supports(method)`, 409) + `IPspAdapter.SupportedMethods` (adapter honour ได้จริง, 409); vocabulary เดียว `PaymentMethods` บังคับตั้งแต่ provisioning. **ยังไม่ครบ target `Tenant ∩ Producer ∩ Routing`:** `Merchant.EnabledChannels` ยังไม่มีผู้บังคับ และระดับ producer ยังไม่มีแนวคิดในโค้ด | **มีแล้ว** (ชั้น connection + adapter, 2026-07-26); ส่วนที่เหลือ = ข้อ 1 |
 | Method routing primary/fallback | target: versioned routing policy (`ordered_failover`) + eligibility + decision snapshot + safe fallback rules — ปัจจุบัน client เลือก `psp` เอง | ยังไม่มี (ข้อ 13) |
-| Session/Payment expiry | target: payment TTL + expiry job (inquiry active/unknown attempt ก่อน expire, PSP ยืนยัน paid → succeed) — `MarkExpired` มีใน domain แต่ไม่มีผู้เรียก | ยังไม่มี (ข้อ 12) |
-| นโยบาย attempt ซ้อน | target formalize: active attempt ต่อ Payment ไม่เกิน 1 บังคับด้วย filtered unique index + reuse active attempt เดิมเมื่อยังใช้ได้ (ตอนนี้สร้างกี่ session ก็ได้) | ยังไม่มี (ข้อ 16) |
+| Session/Payment expiry | target: payment TTL + expiry job (inquiry active/unknown attempt ก่อน expire, PSP ยืนยัน paid → succeed) — `MarkExpired` มีใน domain แต่**ไม่มีผู้เรียกเลย** (แม้ใน test) | ยังไม่มี (ข้อ 12) |
+| นโยบาย attempt ซ้อน | หนึ่ง order มี session ที่ chargeable ได้ครั้งละใบเดียว — บังคับที่ handler (ช่องทางเดิม = คืนใบเดิม 200 idempotent, ช่องทางต่าง = 409) **และที่ DB** ด้วย filtered unique index `IX_PaymentSessions_OrderId_Open` (`OrderId` เมื่อ `Status IN (0,1)`); race → 409 ไม่ใช่ 500. **ยังไม่ครบ target:** ไม่มี attempt number/reuse policy ต่อ Payment (ต้องรอ split) | **มีแล้ว** (2026-07-26); ส่วนที่เหลือ = ข้อ 16 |
+| กันจ่ายผิดยอด (fetch-to-confirm เทียบยอด) | `FetchChargeAsync` คืน `PspChargeConfirmation(Status, Money? Amount)` — ยอดที่ PSP รายงานถูกเทียบกับ `Session.Amount` **ก่อน** `MarkPaid`, ไม่ตรง → `Ignored` (ไม่เปลี่ยน state ไม่ enqueue). **`Amount == null` (PSP ไม่ส่งยอดกลับ) = ยืนยันด้วยสถานะอย่างเดียว — ยังเป็น gap ที่เปิดอยู่** | **มีแล้ว** (เมื่อ PSP ส่งยอด, 2026-07-26); เคส null = ข้อ 23 |
 | Customer capability payment API | target: `POST /api/customer/v1/order-summaries/{token}/payments` (Idempotency-Key; ตอบ `nextAction.redirect`) + `GET /api/customer/v1/payments/{publicPaymentToken}` (polling) + return handler `GET /api/customer/v1/payment-returns/{attemptToken}` (ไม่เชื่อ query string, ห้าม open redirect) | ยังไม่มี (ข้อ 20) |
 | Idempotency-Key ขาเข้า + record | target: claim → `processing`/`completed`/`failed_replayable`; key เดิม+payload เดิม = replay, payload ต่าง = `409 idempotency.key_reused`; concurrent duplicate ห้ามเรียก PSP สองครั้ง + unique `Payment(OrderId)` กันซ้ำระดับ business | ยังไม่มี (ข้อ 18) |
 | 2-transaction boundary | target ยกระดับ claims-then-charges เป็น: TX A reserve attempt + commit → เรียก PSP → TX B persist ผลด้วย optimistic concurrency; timeout หลังเรียก PSP → attempt `Unknown` ห้าม fallback จน inquiry ตัดสิน | ยังไม่มี (ข้อ 16) |
@@ -898,7 +906,13 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 
 **ความสัมพันธ์** — อ้าง `OrderId`; ใช้ `PspConnection` + vault + `IPspAdapter` (§11); ถูก `MarkPaid` โดย webhook handler แล้ว emit `PaymentPaid` ให้ Orders
 
-**สถานะ: มีแล้ว** — แกน session/claim/redirect ครบ; จุดที่ยังไม่ปิด: การ validate order + ล็อกยอดฝั่ง server ตอนสร้าง session (ข้อ 10), channel enforcement (ข้อ 1), auto-expire (ข้อ 12)
+**สถานะ: มีแล้ว** — แกน session/claim/redirect ครบ; **ปิดเพิ่ม 2026-07-26** (spec `captive-payment-alignment`):
+validate order + ล็อกยอดฝั่ง server ตอนสร้าง session (ข้อ 10 ปิด), channel/adapter eligibility ที่ชั้น
+connection (ข้อ 1 ปิดบางส่วน), หนึ่ง open session ต่อ order ที่ชั้น DB, liveness ของ session ที่ charge ล้ม
+(`MarkFailed` มีผู้เรียกแล้ว), backend webhook URL ต่อ connection, เทียบยอดที่ PSP รายงานก่อน `MarkPaid`.
+**จุดที่ยังไม่ปิด:** `Merchant.EnabledChannels`/ระดับ producer (ข้อ 1 ที่เหลือ), routing policy (ข้อ 13),
+auto-expire (ข้อ 12), เทียบยอดเมื่อ PSP ไม่ส่งยอดกลับ (ข้อ 23), เปลี่ยน method/PSP หลัง redirect เริ่มแล้ว (ข้อ 24),
+claim ที่สะสางไม่จบเมื่อเหตุขัดข้องเป็นแบบถาวร (ข้อ 25)
 
 ---
 
@@ -956,11 +970,14 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 **บทบาท**
 - `PspCode` enum: `TwoCTwoP`, `Omise` (code string เสถียร `"2c2p"` / `"omise"`)
 - `PspConnection` ต่อ (tenant, PSP): `EnabledMethods` (ช่องทางที่เปิดต่อ connection), `SecretRefName` (ชี้ secret ใน vault — **credential ไม่อยู่ใน DB**, envelope encryption + reveal ถูก audit), `IsEnabled`, `Metadata` (display-only)
-- adapter ต่อ PSP normalize เป็นสัญญาเดียว `IPspAdapter`: `CreateRedirectChargeAsync` / `VerifyWebhook` / `ParseWebhook` / `FetchChargeAsync` — ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ (เช่น Omise `authorize_uri`, event `charge.complete`)
+- adapter ต่อ PSP normalize เป็นสัญญาเดียว `IPspAdapter`: `CreateRedirectChargeAsync` / `VerifyWebhook` / `ParseWebhook` / `FetchChargeAsync` + `SupportedMethods` — ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ (เช่น Omise `authorize_uri`, event `charge.complete`)
 - เป้าหมาย: ทั้ง 3 ช่องทาง (`card`/`promptpay`/`installment`) เปิดได้บนทั้ง 2 PSP แบบ redirect-only —
-  **as-built รองรับจริงเฉพาะ `card`**: `OmiseAdapter` throw `NotSupportedException` สำหรับ
-  `promptpay`/`installment` และ `TwoCTwoPAdapter` ส่ง `paymentChannel = ["CC"]` คงที่โดยไม่อิง
-  `PaymentSession.Method` (ดู [ช่องว่าง](#ช่องว่างเทียบเป้าหมาย-as-built-gaps) ข้อ 8)
+  **as-built รองรับจริงเฉพาะ `card`** (ทั้ง 2 adapter ประกาศ `SupportedMethods = { card }`):
+  `OmiseAdapter` throw `NotSupportedException` สำหรับ `promptpay`/`installment`. ตั้งแต่ 2026-07-26
+  `TwoCTwoPAdapter` **derive `paymentChannel` จาก `Session.Method`** แล้ว (ไม่ใช่ค่าคงที่ `["CC"]`) และ
+  method ที่ honour ไม่ได้ถูกปฏิเสธ **409 ที่ create-session** ไม่ถูก substitute เป็นบัตรเงียบ ๆ —
+  แต่ **การ implement 2 ช่องทางที่เหลือยังเป็นช่องว่างอยู่**
+  (ดู [ช่องว่าง](#ช่องว่างเทียบเป้าหมาย-as-built-gaps) ข้อ 8)
 
 **ฟีเจอร์ละเอียด**
 
@@ -968,12 +985,12 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 |---|---|---|
 | `PspConnection` ต่อ (tenant, PSP) | `EnabledMethods`, `SecretRefName`, `IsEnabled`, `Metadata` — สร้างพร้อม provisioning | มีแล้ว |
 | Credential ใน vault | envelope encryption, write-only + อ่านกลับ mask, reveal ลง audit hash-chain | มีแล้ว |
-| สัญญากลาง `IPspAdapter` | `CreateRedirectChargeAsync` / `VerifyWebhook` / `ParseWebhook` / `FetchChargeAsync` — ค่าจาก PSP คงรูปเดิม | มีแล้ว |
-| 2C2P: card | hosted page (Redirect API) — ปัจจุบันส่ง `paymentChannel = ["CC"]` คงที่ | มีแล้ว |
+| สัญญากลาง `IPspAdapter` | `CreateRedirectChargeAsync(Session, pspConnectionId, secret, ct)` / `VerifyWebhook` / `ParseWebhook` / `FetchChargeAsync` → `PspChargeConfirmation(Status, Money? Amount)` / `SupportedMethods` — ค่าจาก PSP คงรูปเดิม | มีแล้ว |
+| 2C2P: card | hosted page (Redirect API) — `paymentChannel` derive จาก `Session.Method` (`card -> "CC"`); `backendReturnUrl` = `{Psp:PublicBaseUrl}/api/v1/webhooks/{pspConnectionId}` ต่อ connection | มีแล้ว |
 | Omise: card | Links API → `paymentUri` (หน้า hosted ของ Opn) | มีแล้ว |
 | PromptPay ทั้ง 2 PSP | 2C2P hosted page · Omise ต้องผ่าน **Payment Links+** (`transaction_url`, QR render ฝั่ง Opn) เท่านั้น — direct source+charge เป็น offline QR ขัด redirect-only/SAQ A | ยังไม่มี (ข้อ 8) |
 | Installment ทั้ง 2 PSP | 2C2P hosted page (terms/banks ตาม config) · Omise source+charge → `authorize_uri` (source types ตาม `enabledSources`) | ยังไม่มี (ข้อ 8) |
-| Enforce `EnabledMethods` | ใช้ตัดสิทธิ์ตอนสร้าง payment (`Supports()` ไม่มีผู้เรียก); target: enabled method ต้องรองรับจริงใน adapter capability matrix ด้วย (โยงข้อ 8) | ยังไม่มี (ข้อ 1) |
+| Enforce `EnabledMethods` | ใช้ตัดสิทธิ์ตอนสร้าง payment **และ** recheck ก่อน claim ตอน redirect ผ่าน `Connection.EnsureEligible` (`Supports()` มีผู้เรียกจริง 2 จุดแล้ว); intersect กับ adapter capability matrix (`SupportedMethods`) ตาม target แล้วด้วย — ค่าที่ provision ถูก normalize ผ่าน `PaymentMethods` vocabulary เดียวกัน | **มีแล้ว** (2026-07-26) |
 | แยก environment sandbox/production | target invariant: connection unique ตาม tenant + provider + environment + merchant account; production/sandbox credential ห้ามใช้ข้ามกัน — entity จริงยังไม่มี field `environment` | ยังไม่มี |
 | จัดการ connection หลัง provision | target: `PATCH /api/admin/v1/psp-connections/{connectionId}` + `If-Match`, `POST .../enable\|disable`, `POST .../rotate-secret` (secret versioning: current + previous grace; disabled connection ห้ามถูก route ใหม่) | ยังไม่มี |
 | ทดสอบการเชื่อมต่อ | target: `POST /api/admin/v1/psp-connections/{connectionId}/test` | ยังไม่มี |
@@ -1009,11 +1026,13 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 
 **บทบาท**
 - endpoint เดียว: `POST /webhooks/{pspConnectionId}` (anonymous + rate-limited) — route ด้วย connection id ที่ trust ได้ ไม่ parse tenant/PSP จาก URL ก่อน verify
-- pipeline ใน **transaction เดียว**: verify signature (secret จาก vault; ไม่ผ่าน → 401 ไม่มี transition) → claim **multi-key idempotency** (`{psp}:{connId}:event:{id}` และ `{psp}:{connId}:charge:{id}:{status}`) → **fetch-to-confirm** สถานะจริงกับ PSP (ไม่เชื่อ body ของ webhook) → transition `PaymentSession` → enqueue `PaymentPaid` ผ่าน outbox → commit
+- pipeline ใน **transaction เดียว**: verify signature (secret จาก vault; ไม่ผ่าน → 401 ไม่มี transition) → **fetch-to-confirm** สถานะจริงกับ PSP (ไม่เชื่อ body ของ webhook) → **เทียบยอดที่ PSP รายงานกับ `Session.Amount`** (ไม่ตรง → `Ignored`) → claim **multi-key idempotency** (`{psp}:{connId}:event:{id}` และ `{psp}:{connId}:charge:{id}:{status}`) → transition `PaymentSession` → enqueue `PaymentPaid` ผ่าน outbox → commit. claim อยู่ **ท้ายสุด atomic คู่ transition** (แก้ 2026-07-28 หลังพิสูจน์สดบน 2C2P sandbox ว่าลำดับเดิม claim-ก่อน-fetch เผา key ทิ้งตอน `Ignored` ทำให้ notification จริงหลังจ่ายเงินกลาย `Duplicate` ถาวร — captive-payment-alignment REQ-8.5)
 - ระดับ verify signature ต่อ PSP (as-built): **2C2P ตรวจจริง** (verify JWT HS256 ที่ฝังใน body);
-  **Omise ยังเป็น well-formedness check เท่านั้น** (HMAC deferred โดยเจตนา — comment ใน adapter ระบุ)
+  **Omise ยังเป็น well-formedness check เท่านั้น** (HMAC deferred โดยเจตนา — comment ใน adapter ระบุ;
+  **Omise/Opn มีลายเซ็น `Omise-Signature` จริง** เหตุผลที่ deferred คือ seam ไม่พา header/timestamp +
+  ยังไม่ verify กับ sandbox — ไม่ใช่ว่า PSP นี้ไม่มีลายเซ็น)
   โดย **fetch-to-confirm เป็น authority ของสถานะเสมอ** (event ปลอมที่ฟอร์มถูกไม่ทำให้ Paid ได้
-  เพราะสถานะจริงถูก fetch จาก PSP) + webhook rate limiter จำกัดการ probe
+  เพราะสถานะจริงถูก fetch จาก PSP **และยอดต้องตรงกับ session**) + webhook rate limiter จำกัดการ probe
   (ดู [ช่องว่าง](#ช่องว่างเทียบเป้าหมาย-as-built-gaps) ข้อ 9)
 - ผลลัพธ์จำแนก `Processed` / `Duplicate` / `Ignored` / `Rejected`
 - "ส่งซ้ำได้": ขาเข้า — PSP redeliver กี่ครั้งก็ปลอดภัยด้วย idempotency store; ขาออก — event ภายในกระจายผ่าน outbox + background dispatcher (in-process ใน Api) พร้อม retry/backoff จนถึง DLQ
@@ -1023,10 +1042,11 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | Endpoint เดียว route ด้วย connection id | `POST /webhooks/{pspConnectionId}` anonymous + rate-limited — ไม่ parse tenant/PSP จาก URL ก่อน verify; target เปลี่ยน addressing เป็น `POST /api/webhooks/v1/{endpointKey}` (opaque, random, rotate ได้ — ไม่ใช้ id ตรง) | มีแล้ว (addressing เปลี่ยนใน target — ข้อ 17) |
-| Pipeline ใน transaction เดียว | verify → multi-key idempotency claim → fetch-to-confirm → transition `PaymentSession` → outbox → commit — target แยกเป็น two-stage: ingress (durable insert + ตอบเร็ว) / async processor (fetch-to-confirm + transition) | มีแล้ว (target ยกระดับ — ข้อ 17) |
+| Pipeline ใน transaction เดียว | verify → fetch-to-confirm → **เทียบยอด** → multi-key idempotency claim (ท้ายสุด, atomic คู่ transition) → transition `PaymentSession` → outbox → commit — target แยกเป็น two-stage: ingress (durable insert + ตอบเร็ว) / async processor (fetch-to-confirm + transition) | มีแล้ว (target ยกระดับ — ข้อ 17) |
+| เทียบยอดที่ PSP เก็บจริงก่อน mark paid | `FetchChargeAsync` คืน `PspChargeConfirmation(Status, Money? Amount)`; `Amount` มีค่าและไม่ตรง `Session.Amount` (ยอดหรือสกุลเงิน) → `Ignored` ไม่ transition ไม่ enqueue. เป็น**ที่เดียว**ที่เทียบกับยอดของ PSP จริง (ฝั่ง Orders เทียบยอด session กับตัวเอง). `Amount == null` → status-only ตามเดิม | **มีแล้ว** (2026-07-26); เคส null = ข้อ 23 |
 | จำแนกผลลัพธ์ | `Processed` / `Duplicate` / `Ignored` / `Rejected` — target ขยาย: `accepted`/`duplicate`/`rejected`/`processed`/`ignored`/`failed_retryable`/`dead_lettered` | มีแล้ว |
 | 2C2P signature verify | ตรวจ JWT HS256 ที่ฝังใน body จริง | มีแล้ว |
-| Omise HMAC verify | ปัจจุบัน well-formedness check เท่านั้น (deferred โดยเจตนา) — ป้องกันจริงด้วย fetch-to-confirm + rate limiter; target ingress validation เข้มกว่า: content-type allowlist, body size limit, header limit, verify ด้วย secret version active + grace ระหว่าง rotation, clock skew/replay window | ยังไม่มี (ข้อ 9) |
+| Omise HMAC verify | ปัจจุบัน well-formedness check เท่านั้น (deferred โดยเจตนา — **ไม่ใช่เพราะ Opn ไม่มีลายเซ็น**: มี `Omise-Signature` HMAC-SHA256 จริง, secret แยกจาก API key) — ป้องกันจริงด้วย fetch-to-confirm + rate limiter; target ingress validation เข้มกว่า: content-type allowlist, body size limit, header limit, verify ด้วย secret version active + grace ระหว่าง rotation, clock skew/replay window | ยังไม่มี (ข้อ 9) |
 | Redeliver ปลอดภัยทั้งสองขา | ขาเข้า: idempotency store · ขาออก: outbox + retry/backoff → DLQ | มีแล้ว |
 | Durable webhook inbox | target: `WebhookDelivery` entity (provider event ID, dedupe keys, signature outcome, encrypted/redacted payload ref, processing state/attempts/last error, linked attempt) + reprocess (`POST /api/operations/v1/webhook-deliveries/{deliveryId}/reprocess`) — ปัจจุบันร่องรอยเดียวคือ `IdempotencyRecord` | ยังไม่มี (ข้อ 17) |
 | Event log ตรวจย้อนหลัง | target: `GET /api/admin/v1/webhook-deliveries[/{deliveryId}]` เหนือ inbox | ยังไม่มี (ข้อ 17) |
@@ -1188,30 +1208,71 @@ route/permission/ตารางเดิมทั้งหมด
 
 > รวมจุดที่โมเดลเป้าหมายกับโค้ดจริงยังไม่ตรงกัน — บันทึกเพื่อการรับรู้; การแก้แต่ละข้อต้องเปิด spec ของตัวเอง
 
-1. **Channel enablement ยังไม่ enforce** — `Tenant.EnabledChannels` และ `PspConnection.EnabledMethods` ถูกเก็บ verbatim (จงใจ defer ตอน provisioning spec) แต่ตอนสร้าง payment session ไม่มีการ validate `Method` กับค่าใดเลย (`PspConnection.Supports()` ไม่มีผู้เรียก) — เปิดช่องสร้าง session ด้วยช่องทางที่ไม่ได้เปิดใช้; ระดับ producer (อันดับ 3) ยังไม่มีแนวคิดในโค้ด
+1. **Channel enablement — enforce แล้วที่ชั้น connection, ยังเหลือชั้น merchant + producer** (แก้
+   2026-07-26, spec `captive-payment-alignment` REQ-3/REQ-6): **ที่ปิดแล้ว** — `Connection.EnabledMethods`
+   ถูก enforce จริงผ่าน `Connection.EnsureEligible(method)` (`IsEnabled` + `Supports`, 409) ที่
+   `CreateSessionHandler` **และ** recheck ก่อน claim ที่ `StartRedirectHandler`, intersect กับ
+   `IPspAdapter.SupportedMethods` (adapter capability), และ `ProvisionMerchantHandler` normalize ค่าที่
+   admin ส่งมาผ่าน vocabulary เดียวกัน (`PaymentMethods`) จึงไม่มี `"Card"`/`"CC"` เข้าไปนอนใน DB ให้
+   ordinal compare ปฏิเสธภายหลัง. **ที่ยังเปิด:** `Merchant.EnabledChannels` ยัง**ไม่มีผู้บังคับเลย**
+   (เขียนตอน provision + อ่านกลับเพื่อแสดงเท่านั้น — ยืนยันด้วย grep call site) และ entitlement ระดับ
+   producer (อันดับ 3 ของ effective method rule `Merchant ∩ Producer ∩ Routing`) ยังไม่มีแนวคิดในโค้ด.
+   **next step:** ตัดสิน ADR ข้อ 8 (precedence ระหว่าง merchant/producer entitlement) ก่อน แล้วจึงเปิดสเปก
+   เติมสองชั้นที่เหลือ — ชั้น connection ที่ปิดแล้วเป็น floor ที่แคบที่สุดและกันเงินผิดช่องได้จริงอยู่แล้ว
 2. **Order ↔ PaymentSession link housekeeping ค้าง** — resolve ผ่าน `PaymentPaid.OrderId` แล้ว (spec `bugfix-order-paid-link`; mismatch/cancelled ล้มดังเข้า DLQ); เหลือ housekeeping: ลบ `AttachPaymentSession` + column `PaymentSessionId` ที่เป็น legacy ไม่มี writer
 3. **Checkout ขาด field ตามเป้าหมาย** — ผู้ทำรายการ (producer), ข้อมูลลูกค้า, ผู้รับแจ้งเตือนหลายรายการ (ลูกค้า + กำหนดเอง, อีเมล/SMS), การล็อกช่องทางจ่ายตั้งแต่ checkout, หมายเหตุ
 4. **Notifications ยังเป็น stub** — ไม่มี email/SMS provider จริง (defer โดย spec), ไม่มีตารางประวัติการส่ง, ผู้รับ 1 ค่าต่อ order
 5. **Transaction view ยังไม่มี** — ถ้าต้องการหน้า "รายการชำระเงิน" ให้ทำเป็น read model เหนือ `PaymentSession` (ห้ามสร้าง money ledger — non-goal)
 6. **API client ระดับ tenant ยังไม่มี entity** — สิทธิ์ `apikey.manage` จองชื่อไว้ในแคตตาล็อกแล้วแต่ยังไม่ implement
 7. **`src/Modules/Identity` เป็นโฟลเดอร์ค้าง** จากโมดูลที่ถูกลบ (ถูกแทนด้วย Producer) — ควรเก็บกวาดใน housekeeping ถัดไป
-8. **PSP adapter รองรับจริงเฉพาะ `card`** — `OmiseAdapter.CreateRedirectChargeAsync` throw
-   `NotSupportedException` สำหรับ `promptpay`/`installment`; `TwoCTwoPAdapter` ส่ง
-   `paymentChannel = ["CC"]` คงที่ไม่อิง `PaymentSession.Method` (เลือก method อื่นจะได้ flow บัตรแทน) —
-   เป้าหมาย 3 ช่องทาง × 2 PSP ยังไม่ถึง
-9. **Omise webhook ยังไม่ verify HMAC** — `OmiseAdapter.VerifyWebhook` เป็น well-formedness check
-   (deferred โดยเจตนา, comment ใน adapter ระบุ); การป้องกันจริงคือ fetch-to-confirm (ไม่เชื่อ body)
-   + webhook rate limiter — ฝั่ง 2C2P verify JWT HS256 จริงแล้ว
-10. **`POST /payment-sessions` ไม่ validate order และไม่ล็อกยอดฝั่ง server** —
-    `CreatePaymentSessionHandler` ไม่แตะ Orders เลย: client ส่ง `orderId`/`amount`/`currency`/`method`/`psp`
-    เองทั้งหมด → สร้าง session ให้ order ที่ไม่มีจริง/จ่ายแล้ว/ยอดผิดได้; แนวกันปลายทางเดียวคือ
-    `Order.MarkPaid` verify amount+currency ตอนรับ `PaymentPaid` (จ่ายยอดผิดจะล้มดังเข้า DLQ แทนที่จะกันตั้งแต่ต้นทาง)
+8. **PSP adapter รองรับจริงเฉพาะ `card` — ยังเปิดอยู่** (ทบทวน 2026-07-26): ทั้ง 2 adapter ประกาศ
+   `SupportedMethods = { card }`; `OmiseAdapter.CreateRedirectChargeAsync` ยัง throw
+   `NotSupportedException` สำหรับ `promptpay`/`installment`. **ที่เปลี่ยนแล้ว (ไม่ใช่การปิด gap นี้):**
+   `TwoCTwoPAdapter` derive `paymentChannel` จาก `Session.Method` แทนค่าคงที่ `["CC"]` และ method ที่
+   adapter honour ไม่ได้ถูกปฏิเสธ **409 ที่ create-session** — อาการ "เลือก PromptPay แล้วถูกส่งไปจ่ายด้วย
+   บัตรเงียบ ๆ" หมดไป แต่**ความสามารถยังไม่มี** เป้าหมาย 3 ช่องทาง × 2 PSP จึงยังไม่ถึง.
+   **ทำไมยังไม่ทำ:** ต้อง sandbox-verify ก่อน — Omise PromptPay ต้องผ่าน **Payment Links+ hosted page**
+   เท่านั้น (direct source+charge คืน `scannable_code.image.download_uri` = QR offline ที่เราต้องแสดงเอง
+   ขัด redirect-only/SAQ A) และ link→charge correlation (`data.id` เป็น charge id ที่ต่างจาก link id)
+   ยังไม่ยืนยันกับ API จริง — ปล่อยผ่านโดยไม่ยืนยัน = เก็บเงินลูกค้าแล้ว order ไม่ถูก fulfil.
+   **next step:** สเปกแยกต่อช่องทาง เริ่มจาก verify mapping กับ sandbox แล้วจึงขยาย `SupportedMethods`
+9. **Omise webhook ยังไม่ verify HMAC — ยังเปิดอยู่** (ทบทวน 2026-07-26): `OmiseAdapter.VerifyWebhook`
+   เป็น well-formedness check (deferred โดยเจตนา, comment ใน adapter ระบุ); การป้องกันจริงคือ
+   fetch-to-confirm (ไม่เชื่อ body, **บวกการเทียบยอดตั้งแต่ 2026-07-26**) + webhook rate limiter —
+   ฝั่ง 2C2P verify JWT HS256 จริงแล้ว.
+   **เหตุผลที่ถูกต้อง (ห้ามเขียนว่า Opn ไม่มีลายเซ็น — ข้อมูลนั้นผิด):** Omise/Opn **มี** ลายเซ็น webhook
+   จริง — header `Omise-Signature` (HMAC-SHA256 ด้วย webhook signing secret ที่**แยกจาก API key**,
+   รองรับหลายลายเซ็นช่วง rotation) และ envelope ในโค้ดเตรียมช่องไว้แล้ว (`OmiseSecret.WebhookSecret`).
+   สิ่งที่ขวางคือ **seam ไม่พาข้อมูลที่ต้องใช้**: endpoint อ่านเฉพาะ header `X-Signature` และ
+   `VerifyWebhook(rawPayload, signature, secret)` ไม่มีช่อง timestamp/หลายลายเซ็น — ทำ fail-closed ด้วย
+   scheme ที่ยังไม่ verify กับ sandbox = หยุดการยืนยันการจ่ายทั้งหมดของ Omise.
+   **next step:** สเปกแยกที่ (ก) ขยาย seam ให้พา header ทั้งชุด + timestamp, (ข) verify กับ sandbox จริง,
+   (ค) รองรับ secret version active + grace ระหว่าง rotation แล้วจึงเปิด fail-closed
+10. ~~**`POST /payment-sessions` ไม่ validate order และไม่ล็อกยอดฝั่ง server**~~ — **ปิดแล้ว 2026-07-26**
+    (spec `captive-payment-alignment` REQ-1/REQ-2): `Amount` ถูกถอดออกจาก wire contract และ
+    `CreateSessionCommand`; ยอด+สกุลเงินอ่านจากแถว `Order` ผ่าน port `IPayableOrderReader` (ใต้ merchant
+    query filter → order ของบริษัทอื่นอ่านไม่เจอ = **404** ไม่ leak existence), order ที่ไม่ใช่
+    `AwaitingPayment` → **409**, และหนึ่ง order มี open session ได้ครั้งละใบผ่าน filtered unique index
+    `IX_PaymentSessions_OrderId_Open` (race → 409). การเทียบใน `Order.MarkPaid` จึงไม่ใช่แนวกันเดียวอีก
+    ต่อไป — และเพราะยอด session มาจาก order แล้ว การเทียบนั้นกลายเป็น tautology จึงมีการเทียบกับ**ยอดที่
+    PSP เก็บจริง**ที่ webhook เพิ่มเข้ามา (ดู §12). **ที่ยังเหลือของ target ภาค 8.5** (ติดตามที่ข้อ 3/13
+    ไม่ใช่ข้อนี้): `method`/`psp` ยังมาจาก client (ต้องล็อกตั้งแต่ checkout + router), และยังไม่เช็ค
+    merchant `active`
 11. **`product.update` จองสิทธิ์ไว้แต่ไม่มี endpoint** — permission อยู่ใน Producer RBAC catalog แล้ว
     แต่ไม่มีเส้นทางแก้ไข/ปิดสินค้า (`IsActive` ไม่มี writer หลังสร้าง) — pattern เดียวกับ `apikey.manage` (ข้อ 6)
-12. **สถานะปลายทางมีใน domain แต่ไม่มี trigger ใน production** — `PaymentSession.MarkExpired`,
-    `CheckoutSession.Abandon`, `Order.Cancel` ไม่มีผู้เรียกนอก test (ตรวจ 2026-07-04):
-    ไม่มี job auto-expire payment session (target payload มี `session.expiryMinutes`), ไม่มีนโยบาย abandon
-    checkout ค้าง, ไม่มีเส้นทาง cancel/หมดอายุ order — รายการที่ไม่ถูกจ่ายจะค้าง `AwaitingPayment` ตลอดไป
+12. **สถานะปลายทางมีใน domain แต่ไม่มี trigger ใน production — ยังเปิดอยู่** (ทบทวน 2026-07-26):
+    `Session.MarkExpired`, `CheckoutSession.Abandon`, `Order.Cancel` ไม่มีผู้เรียกนอก test
+    (`MarkExpired` วันนี้ไม่มีผู้เรียกเลยแม้ใน test): ไม่มี job auto-expire payment session (target payload
+    มี `session.expiryMinutes`), ไม่มีนโยบาย abandon checkout ค้าง, ไม่มีเส้นทาง cancel/หมดอายุ order —
+    รายการที่ไม่ถูกจ่ายจะค้าง `AwaitingPayment` ตลอดไป.
+    **หมายเหตุ 2026-07-26:** `Session.MarkFailed` **มีผู้เรียกใน production แล้ว** (`StartRedirectHandler`
+    เมื่อ charge ที่ PSP ล้ม) จึงไม่อยู่ในรายการนี้อีก แต่ `MarkExpired` ถูก **defer โดยรู้ตัว**
+    (Non-Goal 4 ของ spec `captive-payment-alignment`) เพราะ session ที่ลูกค้าทิ้งหน้า PSP **ไม่ใช่
+    deadlock**: create-session คืน session ใบเดิมให้ (idempotent) และ `StartRedirect` คืน hosted URL เดิม
+    โดยไม่สร้าง charge ที่สอง จึงยังจ่ายต่อได้. sweeper จึงเป็นงาน hygiene/reporting ไม่ใช่ liveness fix.
+    **next step:** สเปก lifecycle/expiry jobs (ลำดับข้อ 6 ด้านล่าง) — ต้องมาพร้อมนโยบาย inquiry ก่อน expire
+    (PSP ยืนยัน paid ทีหลัง → ต้อง succeed ไม่ใช่ expire) และต้องไม่ชนกับ filtered unique index
+    (`Expired` อยู่นอกตัวกรองอยู่แล้ว)
 13. **Method routing (primary/fallback ต่อช่องทาง) ยังไม่มี** — target มี Method router + `tenant.routing`
     payload (เช่น installment → Omise ก่อน ตกไป 2C2P) แต่ปัจจุบัน client เป็นผู้เลือก `psp` เองตอนสร้าง session;
     ยังไม่มีที่เก็บ/ผู้ใช้ routing config
@@ -1261,6 +1322,40 @@ route/permission/ตารางเดิมทั้งหมด
     `decimal Amount` + `string Currency`, persistence เป็น `decimal(19,4)` + `char(3)`;
     `MinorUnits` ไม่เหลืออยู่ในโค้ดเลย. ที่ยังค้างคือ **ADR ข้อ 16 เฉพาะ wire carrier** (JSON string vs
     number) กับ rounding rules — ไม่ใช่ migration ของ storage อีกต่อไป
+23. **เทียบยอดได้เฉพาะเมื่อ PSP ส่งยอดกลับมา** (เปิดโดยรู้ตัว 2026-07-26, spec
+    `captive-payment-alignment` REQ-8.3): `FetchChargeAsync` คืน `PspChargeConfirmation(Status,
+    Money? Amount)` และ webhook handler เทียบยอดก่อน `MarkPaid` — แต่เมื่อ response ของ PSP **ไม่มี**
+    ยอด (field หาย/ผิดชนิด/ตัวเลขเกินช่วง `decimal`) ค่าเป็น `null` แล้วระบบ **ยืนยันด้วยสถานะอย่างเดียว
+    ตามพฤติกรรมเดิม**. `null` หมายถึง "PSP ไม่รายงานยอด" **ไม่ใช่ศูนย์** และตั้งใจ**ไม่** fail-closed:
+    contract ของ field เหล่านี้ (`paymentInquiry` ของ 2C2P, `GET /charges/{id}` ของ Omise) ยังไม่ได้
+    verify กับ sandbox จริง — fail-closed บนสิ่งที่ยังไม่ยืนยัน = หยุดการยืนยันการจ่ายที่ถูกต้องทั้งหมด.
+    ผลที่ยอมรับไว้: การจ่ายผิดยอดที่ PSP ไม่รายงานยอดจะยังผ่าน. **next step:** smoke-test response จริงของ
+    ทั้งสอง PSP กับ sandbox → ถ้ายืนยันได้ว่า field มาเสมอ ให้เปลี่ยนเป็น fail-closed (ยอดหาย = ปฏิเสธ)
+    เป็นสเปกแยก. ผลพ่วงที่บันทึกไว้ด้วย: `Ignored` เพราะยอดไม่ตรง **แยกจาก** `Ignored` เพราะ fetch ยังไม่
+    Paid ไม่ได้จาก outcome — เคสยอดไม่ตรงเป็นเคสที่ต้องมีคนดู จึงควรเพิ่ม `DenialCategory`/alert แยก
+24. **เปลี่ยน method/PSP หลัง redirect เริ่มแล้วไม่ได้** (เปิดโดยรู้ตัว 2026-07-26, Non-Goal 4 ของ spec
+    `captive-payment-alignment`): เมื่อ order มี open session (`Created`/`Redirected`) อยู่ การขอสร้าง
+    session ด้วย `(Method, Psp)` **ต่างจากใบเดิม** ถูกปฏิเสธด้วย **409** — เพราะยังไม่มี void/cancel ที่ PSP
+    การปล่อยให้เปิดใบที่สองคือการเปิดช่อง double-charge (ใบเดิมยังจ่ายได้อยู่ที่หน้า hosted ของ PSP).
+    ทางออกที่ลูกค้ามีวันนี้: จ่ายช่องทางเดิมต่อ (URL เดิมยังใช้ได้) หรือรอให้ attempt ล้มเอง
+    (`Failed` → เปิดใบใหม่ได้). **ทำไมไม่ทำในสเปกนั้น:** การยกเลิก charge ที่ PSP = การแตะ funds flow ซึ่ง
+    ต้องพิจารณาสถานะ captive/ใบอนุญาตก่อน. **next step:** ADR ว่าจะรองรับ void/cancel หรือไม่ (โยง ADR
+    ข้อ 11 refund/void) ก่อนออกแบบ "เปลี่ยนช่องทางกลางคัน"
+
+25. **claim ที่สะสางไม่จบยังค้างได้ ถ้าเหตุขัดข้องเป็นแบบถาวร** (เปิดโดยรู้ตัว 2026-07-27, Codex review
+    #4782168269 P1 ของ spec `captive-payment-alignment`): `StartRedirectHandler` แยก **definitive**
+    (พิสูจน์ได้ว่าไม่มี charge ที่ PSP → `MarkFailed` ได้) จาก **ambiguous** (charge อาจเกิดแล้ว → คง claim
+    ไว้ ห้าม `MarkFailed` เพราะ session ใบใหม่จะได้ idempotency key ใหม่ = จ่ายซ้ำ). session ที่ค้าง
+    `Redirected` + `RedirectUrl == null` สะสางได้ด้วยการเรียก redirect ซ้ำ (PSP คืน charge เดิมด้วย key เดิม
+    แล้วผูกกลับเข้า session — REQ-7.6) **แต่** บน settle path ระบบจะไม่ `MarkFailed` เลยแม้เจอ
+    `PspRejectedException`. ผลคือถ้าเหตุขัดข้องเป็นแบบ **ถาวร** (secret ของ connection ใช้ไม่ได้, key
+    environment mismatch, PSP ปฏิเสธ invoiceNo เดิมตายตัว) claim นั้นจะสะสางไม่จบและ order เปิดใบใหม่ไม่ได้
+    เพราะ `IX_PaymentSessions_OrderId_Open` กันไว้. **ทำไมเลือกทางนี้:** ทางเลือกอีกทางคือ `MarkFailed` บน
+    settle path ซึ่งเปิดช่อง **double-charge** จริง — ยอมให้ order ค้างชั่วคราว (ops แก้ config แล้วเรียกซ้ำได้)
+    ดีกว่าเก็บเงินลูกค้าสองรอบ. **สิ่งที่ยังไม่มี:** inquiry ฝั่งเราที่ถาม PSP ว่า charge ของ session นี้มีจริงไหม
+    (2C2P ทำได้เพราะ `invoiceNo` derive จาก `Session.Id`; **Omise ทำไม่ได้** เพราะรู้ charge id จาก response
+    ของ create เท่านั้น). **next step:** spec แยกที่เพิ่ม inquiry ต่อ PSP + สถานะ "ต้องสะสางด้วยมือ" ที่ ops
+    เห็นได้ (โยงข้อ 12 auto-expire — sweeper ต้องใช้ inquiry เดียวกัน)
 
 ---
 
@@ -1292,9 +1387,12 @@ route/permission/ตารางเดิมทั้งหมด
 
 ### ลำดับเปิด spec แนะนำ (design priorities × gaps × migration phases)
 
-1. **Payment-create hardening** — ข้อ 10 + 1: validate order, server-derive
-   amount/currency/method, enforce effective methods, unique Order→Payment — migration Phase 1,
-   ลดความเสี่ยงสูงสุดต่อเงินจริง
+1. ~~**Payment-create hardening**~~ — **ทำไปแล้วเป็นส่วนใหญ่ 2026-07-26** (spec
+   `captive-payment-alignment`): validate order, server-derive amount/currency, enforce
+   connection+adapter eligibility, หนึ่ง open session ต่อ order (filtered unique index) — ข้อ 10 ปิด,
+   ข้อ 1 ปิดชั้น connection. **ที่เหลือของหัวข้อนี้:** server-derive `method`/`psp` (ต้องล็อกตั้งแต่
+   checkout — ข้อ 3 — และต้องมี router — ข้อ 13), enforce `Merchant.EnabledChannels`/producer entitlement
+   (ข้อ 1 ที่เหลือ, รอ ADR ข้อ 8), unique `Payment(OrderId)` ระดับ business (มาพร้อม Payment/Attempt split)
 2. **Payment/PaymentAttempt split + canonical status** — ข้อ 16 + 19 — migration Phase 2
    (ต้องผ่าน ADR 15 ก่อน)
 3. **Routing policy + provider idempotency + Unknown/inquiry recovery** — ข้อ 13 — Phase 3

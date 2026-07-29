@@ -19,6 +19,11 @@ public sealed class OmiseAdapterTests
 {
     private const string CardSecret = """{"secretKey":"skey_test_abc"}""";
 
+    /// <summary>The connection being charged through. Omise takes its webhook endpoint from the dashboard,
+    /// not from the charge request, so this id must NOT appear in the request body — the per-connection
+    /// callback is an ops step in the deploy runbook instead (REQ-4.5).</summary>
+    private static readonly Guid ConnectionId = Guid.Parse("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+
     private static (OmiseAdapter Adapter, StubHttpMessageHandler Handler) Build(
         Func<HttpRequestMessage, string, HttpResponseMessage> responder, bool useSandbox = true)
     {
@@ -31,13 +36,23 @@ public sealed class OmiseAdapterTests
         Session.Create(Guid.NewGuid(), Guid.NewGuid(), Money.Of(amount, currency), method, Code.Omise, DateTime.UtcNow);
 
     [Fact]
+    public void SupportedMethods_declares_card_only()
+    {
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
+
+        // PromptPay is deferred and installment was never wired — the capability set must not claim
+        // either, so create-session refuses them instead of the charge call throwing NotSupported (500).
+        Assert.Equal(new[] { PaymentMethods.Card }, adapter.SupportedMethods);
+    }
+
+    [Fact]
     public async Task Card_charge_returns_hosted_authorize_uri_with_idempotency_key_and_minor_unit_amount()
     {
         var session = MakeSession("card");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        var charge = await adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None);
+        var charge = await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
 
         Assert.Equal("chrg_test_1", charge.ExternalChargeId);
         Assert.Equal("https://omise.test/3ds", charge.RedirectUrl);
@@ -58,9 +73,25 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
             """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
 
-        await adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None);
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
 
         Assert.Contains(expected, handler.Calls[0].Body);
+    }
+
+    [Fact]
+    public async Task Card_charge_sends_no_callback_url_because_omise_takes_its_webhook_from_the_dashboard()
+    {
+        // Omise/Opn has no per-charge notification-URL field: the endpoint is registered in the merchant's
+        // Omise dashboard, so the per-connection callback is an ops step in docs/runbooks/deploy-self-host.md
+        // (REQ-4.5). Inventing a request field for it would be sent nowhere and read as "handled".
+        var session = MakeSession("card");
+        var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json(
+            """{"id":"chrg_test_1","authorize_uri":"https://omise.test/3ds","status":"pending"}"""));
+
+        await adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None);
+
+        Assert.DoesNotContain(ConnectionId.ToString("D"), handler.Calls[0].Body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("webhooks", handler.Calls[0].Body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -71,8 +102,8 @@ public sealed class OmiseAdapterTests
         var session = MakeSession("card", 10.0050m, "THB");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+        await Assert.ThrowsAsync<PspRejectedException>(
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs before the non-idempotent POST
     }
 
@@ -83,21 +114,21 @@ public sealed class OmiseAdapterTests
         var session = MakeSession("card", 10.5m, "JPY");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+        await Assert.ThrowsAsync<PspRejectedException>(
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
     [Fact]
-    public async Task PromptPay_is_deferred_and_throws_not_supported()
+    public async Task PromptPay_is_deferred_and_is_refused_outright()
     {
         // Correlation (link id vs webhook/fetch charge id) cannot be made consistent without a sandbox —
         // PromptPay is deferred rather than shipped broken. No PSP call is made on the deferred path.
         var session = MakeSession("promptpay");
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"));
 
-        await Assert.ThrowsAsync<NotSupportedException>(
-            () => adapter.CreateRedirectChargeAsync(session, CardSecret, CancellationToken.None));
+        await Assert.ThrowsAsync<PspRejectedException>(
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, CardSecret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount);
     }
 
@@ -110,8 +141,8 @@ public sealed class OmiseAdapterTests
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json("{}"), useSandbox);
         var secret = $$"""{"secretKey":"{{secretKey}}"}""";
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => adapter.CreateRedirectChargeAsync(session, secret, CancellationToken.None));
+        await Assert.ThrowsAsync<PspRejectedException>(
+            () => adapter.CreateRedirectChargeAsync(session, ConnectionId, secret, CancellationToken.None));
         Assert.Equal(0, handler.CallCount); // guard runs BEFORE the non-idempotent POST
     }
 
@@ -126,10 +157,47 @@ public sealed class OmiseAdapterTests
     {
         var (adapter, handler) = Build((_, _) => StubHttpMessageHandler.Json($$"""{"id":"chrg_test_1","status":"{{status}}"}"""));
 
-        var result = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
 
-        Assert.Equal(expected, result);
+        Assert.Equal(expected, confirmed.Status);
         Assert.EndsWith("/charges/chrg_test_1", handler.Calls[0].Uri!.AbsolutePath);
+    }
+
+    [Theory]
+    [InlineData(25009, "THB", 250.09)] // 25009 satang -> 250.09 THB
+    [InlineData(2000, "THB", 20.00)]
+    [InlineData(5000, "JPY", 5000)]    // 0-decimal currency: minor == major, no scaling
+    public async Task FetchCharge_reports_the_collected_amount_converted_back_to_major_units(
+        int minorUnits, string currency, double expected)
+    {
+        // REQ-8.1: GET /charges/{id} reports MINOR units (the same convention the charge POST uses), so the
+        // fetch must invert the conversion — comparing a satang integer against a THB Money would reject
+        // every correct payment.
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json(
+            $$"""{"id":"chrg_test_1","status":"successful","amount":{{minorUnits}},"currency":"{{currency}}"}"""));
+
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+
+        Assert.Equal(Money.Of((decimal)expected, currency), confirmed.Amount);
+    }
+
+    [Theory]
+    [InlineData("""{"id":"chrg_test_1","status":"successful"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":"25009","currency":"THB"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":25009}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","currency":"THB"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":25009,"currency":"XYZ"}""")]
+    [InlineData("""{"id":"chrg_test_1","status":"successful","amount":-25009,"currency":"THB"}""")]
+    public async Task FetchCharge_reports_no_amount_rather_than_throwing_when_the_response_lacks_a_usable_one(string body)
+    {
+        // REQ-8.3: status-only confirmation, never zero and never an exception — an unverified response
+        // contract must not be able to stop a real payment from being confirmed.
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json(body));
+
+        var confirmed = await adapter.FetchChargeAsync("chrg_test_1", CardSecret, CancellationToken.None);
+
+        Assert.Null(confirmed.Amount);
+        Assert.Equal(PspChargeStatus.Paid, confirmed.Status);
     }
 
     [Fact]

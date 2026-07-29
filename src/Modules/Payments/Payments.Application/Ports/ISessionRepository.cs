@@ -16,4 +16,13 @@ public interface ISessionRepository
 
     /// <summary>Looks a session up by the (PSP, external charge id) pair the webhook path resolves on.</summary>
     Task<Session?> GetByExternalChargeAsync(Code psp, string externalChargeId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The order's still-chargeable session — <see cref="SessionStatus.Created"/> or
+    /// <see cref="SessionStatus.Redirected"/> — or null when the order has none. Returns the entity, not a
+    /// bool, because create-session compares its method+PSP to decide between returning it (same channel,
+    /// idempotent) and refusing (a different channel cannot be swapped in mid-flight). Terminal sessions
+    /// (Paid/Failed/Expired) are deliberately excluded, so a failed attempt can be retried.
+    /// </summary>
+    Task<Session?> GetOpenForOrderAsync(Guid orderId, CancellationToken cancellationToken);
 }

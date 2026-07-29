@@ -7,7 +7,9 @@ namespace Hosts.Tests;
 /// <summary>
 /// Admin-provisioning guards (Codex re-review): a secret-looking field captured as readable config must be
 /// rejected (P1 — never persist/echo plaintext outside the vault), and a blank-password admin connection
-/// must fail fast (P2 — the runtime secret was not injected). Both are DB-free.
+/// must fail fast (P2 — the runtime secret was not injected). Plus the boot guards a deploy cannot be
+/// allowed past: the OIDC confidential clients, and the public origin every per-connection PSP webhook URL
+/// is derived from. All DB-free, and none of them boots a host.
 /// </summary>
 public sealed class ProvisioningGuardsTests
 {
@@ -46,6 +48,40 @@ public sealed class ProvisioningGuardsTests
     public void Usable_connection_passes(string connectionString)
     {
         ApiHost::ProvisioningGuards.RequireInjectedCredential(connectionString, "Admin"); // does not throw
+    }
+
+    // --- Psp:PublicBaseUrl boot guard (captive-payment-alignment REQ-4.3/4.6) ---
+
+    private static IConfiguration Psp(string? publicBaseUrl) =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Psp:PublicBaseUrl"] = publicBaseUrl })
+            .Build();
+
+    [Theory]
+    [InlineData(null)]                      // key absent entirely
+    [InlineData("")]                        // the committed appsettings.json placeholder
+    [InlineData("   ")]
+    [InlineData("api.example.com")]         // no scheme — not an absolute URI
+    [InlineData("/api/v1")]                 // a bare path: absolute-as-file:// on Unix, unreachable for a PSP
+    [InlineData("ftp://api.example.com")]   // absolute, but not a scheme a PSP can POST a callback to
+    public void A_public_base_url_a_psp_could_not_call_back_on_fails_fast(string? publicBaseUrl)
+    {
+        // Every PSP callback URL is derived from this origin per connection, so a blank value ships charges
+        // whose confirmation never arrives: the customer pays and the order stays AwaitingPayment.
+        var config = Psp(publicBaseUrl);
+
+        var failure = Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequirePublicBaseUrl(config));
+        Assert.Contains("Psp:PublicBaseUrl", failure.Message, StringComparison.Ordinal); // names the key (REQ-4.3)
+    }
+
+    [Theory]
+    [InlineData("https://api.example.com")]
+    [InlineData("https://api.example.com/")]   // trailing slash is the adapter's problem, not the guard's
+    [InlineData("http://localhost:5100")]      // a non-prod deploy behind a plain-http proxy still boots
+    public void An_absolute_public_base_url_passes(string publicBaseUrl)
+    {
+        ApiHost::ProvisioningGuards.RequirePublicBaseUrl(Psp(publicBaseUrl));
     }
 
     // --- OIDC confidential-client boot guards (REQ-8.2/14.1/14.2), provider-scoped ---

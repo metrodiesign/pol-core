@@ -26,4 +26,12 @@ internal sealed class SessionRepository : ISessionRepository
             .FirstOrDefaultAsync(
                 x => x.Psp == psp && x.PspExternalChargeId == externalChargeId,
                 cancellationToken);
+
+    // `||` rather than an `is ... or` pattern: an expression tree cannot contain pattern matching.
+    public Task<Session?> GetOpenForOrderAsync(Guid orderId, CancellationToken cancellationToken) =>
+        _db.Set<Session>()
+            .FirstOrDefaultAsync(
+                x => x.OrderId == orderId
+                    && (x.Status == SessionStatus.Created || x.Status == SessionStatus.Redirected),
+                cancellationToken);
 }

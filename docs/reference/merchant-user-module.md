@@ -862,9 +862,10 @@ module.exports = {
 Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — backend honor แล้ว (`UseForwardedHeaders`) ไม่ต้องทำเพิ่ม.
 
 > ถ้า SPA เรียก API ข้าม origin จริง ๆ origin ของ SPA ต้องอยู่ใน `Cors:AllowedOrigins` (default policy —
-> `AllowCredentials` เปิดอยู่). **หมายเหตุ dev config:** `appsettings.Development.json` ตั้ง
+> `AllowCredentials` เปิดอยู่). **หมายเหตุ dev config:** `appsettings.Development.json.example` เคยตั้ง
 > `Cors:AllowedOrigins = ["http://localhost:5120"]` ซึ่งเป็นพอร์ตยุค tenant SPA เดิม ไม่ใช่ `:5300` ของ
-> merchant-user console — ใช้ proxy same-origin จึงไม่กระทบ แต่ถ้าจะยิงข้าม origin ต้องแก้ค่านี้ก่อน.
+> merchant-user console — template แก้เป็น `:5300` แล้ว แต่ `appsettings.Development.json` ของเครื่องที่
+> copy ไปก่อนหน้านั้นยังค้างค่าเก่าอยู่. ใช้ proxy same-origin จึงไม่กระทบ แต่ถ้าจะยิงข้าม origin ต้องแก้ก่อน.
 
 ### Setup ฝั่ง FE
 

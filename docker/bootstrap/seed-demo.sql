@@ -376,18 +376,18 @@ FROM @OrderSeed;
 -- no PSP attempt at all — matches the real flow where an order can exist before payment starts
 -- (25 Paid + 5 Cancelled + 6 of the 10 AwaitingPayment = 36). MerchantId/AmountAmount/AmountCurrency
 -- always copied from the parent order (REQ-6.4). Every Paid order's session is Status=2/Paid
--- (REQ-6.5). Method is always in the merchant's PSP EnabledMethods (Psp=0/2C2P, enabled for all 3
--- merchants). RowVersion is NOT listed — it's a `rowversion` column, SQL Server generates it.
+-- (REQ-6.5). RowVersion is NOT listed — it's a `rowversion` column, SQL Server generates it.
+-- Method is always 'card' (captive-payment-alignment REQ-6.5, 2026-07-26): a session must be
+-- payable under the rules the code now enforces, and 'card' is the only method the adapters honour
+-- today (2C2P and Omise both declare SupportedMethods = { card }). The seeded connections above
+-- deliberately still enable promptpay/installment — that is the commercial arrangement, and
+-- create-session refuses those methods with a 409 rather than silently routing them to a card page.
 INSERT INTO txn.PaymentSessions (Id, MerchantId, OrderId, Method, Psp, Status, PspExternalChargeId, RedirectUrl, CreatedAt, UpdatedAt, AmountAmount, AmountCurrency)
 SELECT
     CONVERT(uniqueidentifier, CONCAT('ee000000-0000-4000-8000-', RIGHT('000000000000' + CONVERT(varchar(12), s.n), 12))),
     s.MerchantId,
     s.Id,
-    CASE s.MerchantId
-        WHEN 'e1000000-0000-4000-8000-000000000001' THEN CASE s.n % 3 WHEN 0 THEN N'card' WHEN 1 THEN N'promptpay' ELSE N'installment' END
-        WHEN 'e1000000-0000-4000-8000-000000000002' THEN CASE s.n % 2 WHEN 0 THEN N'card' ELSE N'promptpay' END
-        ELSE N'card'
-    END,
+    N'card',
     0,
     ss.SessionStatus,
     CASE WHEN ss.SessionStatus IN (2,3) THEN CONCAT(N'demo_chrg_', s.n) END,

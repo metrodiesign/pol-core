@@ -48,14 +48,16 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 ```bash
 # 1) env — copy template, ใส่ค่า LOCAL (ห้าม secret จริง). .env เป็น gitignored.
 cp .env.example .env
-#    แก้: MSSQL_SA_PASSWORD, POL_{APP,ADMIN,WORKER}_PASSWORD (ห้ามมีชื่อ login อยู่ในรหัส),
-#    ConnectionStrings__*, POL_DESIGN_SQL (sa), Vault__MasterKeyBase64 (head -c 32 /dev/urandom | base64)
+#    แก้: MSSQL_SA_PASSWORD + POL_SA_PASSWORD (ค่าเดียวกัน), POL_APP_PASSWORD (ห้ามมีชื่อ login อยู่ในรหัส
+#    — มีรหัส DB แค่ 2 ตัว, pol_admin/pol_worker ถูกยุบเข้า pol_app แล้ว), ConnectionStrings__App,
+#    ConnectionStrings__Migrator (sa), POL_DESIGN_SQL (sa), Vault__MasterKeyBase64
+#    (head -c 32 /dev/urandom | base64), Psp__PublicBaseUrl
 
 # 2) git hooks (enforcement floor)
 git config core.hooksPath .githooks
 
-# 3) ยก DB + สร้าง principals (idempotent): สร้าง DB VCentralPay +
-#    logins pol_app / pol_admin / pol_worker + role pol_rls_bypass
+# 3) ยก DB + สร้าง principal (idempotent): สร้าง DB VCentralPay + login/user pol_app ตัวเดียว
+#    (rls-to-query-filter task 8 ยุบ pol_admin/pol_worker/pol_resolver/pol_vault_auditor + pol_rls_bypass ทิ้ง)
 docker compose up -d
 docker compose ps pol-db      # รอจนขึ้น (healthy) ก่อนค่อยไปต่อ — ดูหมายเหตุด้านล่าง
 ```
