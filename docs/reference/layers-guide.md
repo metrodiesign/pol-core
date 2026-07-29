@@ -7,6 +7,19 @@
 > ถ้าต้องการกลไก isolation floor เต็ม (query filter/write guard/escape-hatch) อ่าน [`db-connection-and-rls.md`](db-connection-and-rls.md).
 > canonical target architecture: [`.ai/shared/ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md).
 
+## สรุปด่วน: 6 layer ในบรรทัดเดียว
+
+อ่านตารางนี้ก่อนถ้าต้องการสแกนเร็ว — รายละเอียดเต็มอยู่ใน §1-§6 ด้านล่าง
+
+| Layer | หน้าที่ 1 บรรทัด | ถ้าไม่มีชั้นนี้ จะพังแบบไหน |
+|---|---|---|
+| 1. SharedKernel | นิยาม `Money`/`Entity` กลางที่ทุกโมดูลต้องใช้เหมือนกัน | แต่ละโมดูลคิดเลขเงินเอง ปัดทศนิยมไม่ตรงกัน เงินหมุนข้ามโมดูลผิดจำนวน |
+| 2. Contracts | event กลางที่โมดูลใช้บอกกันว่า "เกิดอะไรขึ้น" โดยไม่ต้องรู้จักกันตรง ๆ | โมดูลต้อง reference กันตรง ๆ เพื่อคุยกัน ผูกกันแน่นจนแก้โมดูลหนึ่งกระทบอีกโมดูลทันที |
+| 3. BuildingBlocks | เช็ค actor/merchant ก่อนทุก request + guard การเขียนก่อนทุก commit | ไม่มีจุดกลางเช็คสิทธิ์ ต้องเขียน auth check ซ้ำทุก handler เสี่ยงลืมจุดใดจุดหนึ่ง |
+| 4. Persistence | isolation floor จริง (query filter + write guard) หลัง RLS ถูกถอด | merchant หนึ่งอาจอ่าน/เขียนข้อมูลของอีก merchant ได้ตรง ๆ ผ่าน SQL |
+| 5. Modules | business logic ของแต่ละโดเมน แยก isolate กันด้วย published language | logic ธุรกิจกระจัดกระจายปนกับ infra เปลี่ยนกฎธุรกิจจุดเดียวกระทบทั้งระบบ |
+| 6. Hosts | composition root จุดเดียวที่ผูกทุกอย่างเข้าด้วยกันแล้วรันจริง | ไม่มีจุดผูก policy จริง (เช่น `IWriteAuthorizer`) ระบบ boot ไม่ได้เลย |
+
 ## ภาพรวม: ใครขึ้นกับใคร
 
 pol-core เป็น **Modular Monolith** ตามแนว **Clean Architecture + CQRS** — 1 codebase, 46 `.csproj`, deploy เป็น host เดียว (`Api`). กฎ dependency ข้อเดียวที่คุมทุกอย่าง: **ลูกศรชี้เข้าหา Domain เสมอ**
@@ -25,6 +38,49 @@ Domain ไม่รู้จักใครนอกจาก SharedKernel. Appl
 
 6 layer ที่ตามมาเรียงจาก **ในสุด (primitive ที่ไม่พึ่งใคร) ไปนอกสุด (composition root ที่พึ่งทุกคน)** — อ่านตามลำดับนี้จะเห็นว่าแต่ละชั้นเอาชั้นก่อนหน้าไปต่อยอดยังไง
 
+มองจากอีกมุม — "ในสุด" อยู่ตรงกลาง "นอกสุด" อยู่วงนอกสุด (ทิศทางเดียวกับลูกศรด้านบน แค่มองเป็นวงเข้าหาแกนกลาง):
+
+```
+[ 6. Hosts (Api) — composition root, เห็นทุกชั้นพร้อมกัน, ผูกทุกอย่างเข้าด้วยกันแล้วรันจริง
+   [ 5. Modules — business logic ต่อโดเมน (Products/Carts/Checkouts/Orders/Payments/Merchants/...)
+      [ 4. Persistence — isolation floor จริง (query filter อ่าน + write guard เขียน)
+         [ 3. BuildingBlocks — actor/merchant context, mediator pipeline, port กลาง
+            [ 2. Contracts — event กลางข้ามโมดูล (published language)
+               [ 1. SharedKernel — Money / Entity — พึ่งใครไม่ได้เลยสักตัว ]
+            ]
+         ]
+      ]
+   ]
+]
+```
+
+อ่านจากในสุด (1) ไปนอกสุด (6): วงนอกอ้างถึงวงในได้เสมอ วงในอ้างถึงวงนอกไม่ได้เลย — กฎเดียวกับ
+"ลูกศรชี้เข้าหา Domain เสมอ" ด้านบน แค่เปลี่ยนมุมมองจากเส้นตรงเป็นวงซ้อน. SharedKernel วงในสุด ≠ สำคัญน้อยสุด
+— คือ primitive ที่ทุกวงข้างนอกต้องพึ่ง (เป็นจุดเดียวที่ dependency ออกเป็นศูนย์จริง ๆ ดู §1)
+
+---
+
+## อธิบายแบบเข้าใจง่าย (ตึกให้เช่า)
+
+เอกสาร [`db-connection-and-rls.md`](db-connection-and-rls.md#อธิบายแบบเข้าใจง่าย-ตึกให้เช่า) เปรียบ isolation
+floor เป็น **ตึกให้เช่าที่มีหลายบริษัทมาเช่าห้อง** (Database = ตัวตึก, Merchant = บริษัทผู้เช่า, พนักงานตรวจบัตร
+= EF query filter + write guard) — หน้านี้ต่อยอด analogy เดียวกันให้ครอบคลุมทั้ง 6 layer แทนที่จะพูดถึงแค่ชั้น
+เก็บของ เพื่อให้ผู้อ่านมี mental model เดียวกันข้ามเอกสารทั้งชุด ไม่ต้องเรียนภาพใหม่ทุกครั้งที่เปลี่ยนไฟล์.
+
+ถ้า Persistence (§4) คือ "ห้องเก็บเอกสาร/คลังของอาคาร ที่มีพนักงานตรวจบัตรทุกครั้งก่อนเข้า-ออก" ตามที่อธิบายไว้
+เต็มแล้วในเอกสารนั้น อีก 5 layer ที่เหลือก็มีบทบาทของตัวเองในตึกเดียวกัน:
+
+| Layer | เทียบตึกให้เช่า | อธิบายสั้น |
+|---|---|---|
+| 1. SharedKernel | มาตรฐานกลางที่นิติบุคคลอาคารกำหนดตายตัว | สัญญาเช่าทุกห้องต้องคิดค่าเช่าเป็นหน่วยเดียวกัน ทศนิยม 4 ตำแหน่งเป๊ะ ห้ามห้องไหนคิดเลขเอง |
+| 2. Contracts | บอร์ดประกาศส่วนกลางของอาคาร | ห้องหนึ่งมีเรื่องเกิดขึ้น ติดประกาศไว้ ห้องอื่นที่สนใจมาอ่านเอง ไม่ต้องเดินไปบอกทีละห้อง |
+| 3. BuildingBlocks | ทีมงานส่วนกลางของอาคาร | รปภ.ตรวจบัตรทุกคนก่อนเข้า (actor/merchant check), ช่างเทคนิคดูแลระบบท่อ-ไฟฟ้ากลางที่ทุกห้องใช้ร่วมกัน |
+| 4. Persistence | ห้องเก็บเอกสาร/คลังของอาคาร | มีพนักงานตรวจบัตรทุกครั้งก่อนเข้า-ออก — รายละเอียดเต็มอยู่ที่ [`db-connection-and-rls.md`](db-connection-and-rls.md#อธิบายแบบเข้าใจง่าย-ตึกให้เช่า) แล้ว ไม่ขอย้ำซ้ำที่นี่ |
+| 5. Modules | ห้องเช่าของผู้เช่าแต่ละราย | แต่ละห้องทำธุรกิจของตัวเอง เดินเข้าห้องอื่นตรง ๆ ไม่ได้ ต้องผ่านบอร์ดประกาศกลาง (แถวที่ 2) เท่านั้น |
+| 6. Hosts | สำนักงานนิติบุคคลอาคารชุด | จุดเดียวที่รู้จักทุกห้อง ทุกทีมงาน ผูกทุกอย่างเข้าด้วยกัน กำหนดว่าใครเข้าห้องไหนได้บ้าง แล้วเปิดตึกให้ทำการจริง |
+
+ตารางนี้ให้แค่ภาพตั้งต้น — รายละเอียดจริงของแต่ละ layer (โค้ดจริง, ไฟล์จริง, จุดอ่อนจริง) อยู่ใน §1-§6 ถัดจากนี้.
+
 ---
 
 ## 1. SharedKernel — พื้นล่างสุด ไม่มีใครให้พึ่ง
@@ -32,6 +88,11 @@ Domain ไม่รู้จักใครนอกจาก SharedKernel. Appl
 **คืออะไร**: project เดียว (`SharedKernel.csproj`) ที่ไม่มี `ProjectReference` ออกไปหาใครเลย — เป็นจุดต่ำสุดของทั้ง dependency graph. มีแค่ 4 ไฟล์ ไม่มี subfolder: `Entity.cs`, `Money.cs`, `Iso4217.cs`, `MoneyJsonConverter.cs`.
 
 **บทบาท**: เป็นจุดเดียวที่นิยาม domain primitive ที่ต้อง "เหมือนกันทุกที่" ข้ามทั้ง 12 โมดูล — จะได้ไม่มีโมดูลไหนคิด `Money` เองแล้วเงินหมุนข้าม seam ผิดรูปแบบ. โดยเฉพาะกฎที่ user ตัดสินไว้ตั้งแต่ 2026-07-05 (as-built ตรงตามนี้แล้วตั้งแต่ rf1): **ห้าม float/double ที่ไหนก็ตามที่แทนเงิน**.
+
+**ถ้าไม่มีชั้นนี้**: แต่ละโมดูลจะประกาศ `Money`/เงินของตัวเองแยกกัน (บางที่อาจใช้ `decimal` ดิบ บางที่อาจพลาด
+ใช้ `double`) แล้วพอเงินข้าม seam ระหว่างโมดูล (เช่น `PaymentPaid.Amount` ไปเข้า `Orders`) จะไม่มีอะไรการันตี
+ว่าทั้งสองฝั่งปัดทศนิยม/validate currency แบบเดียวกัน — เสี่ยงเงินหายหรือเกินจากการปัดเศษไม่ตรงกัน ซึ่งเป็น
+ความเสี่ยงที่ user ตัดสินห้ามไว้ตรง ๆ ตั้งแต่ 2026-07-05 (ห้าม float/double แทนเงินที่ไหนก็ตาม).
 
 **หน้าที่แต่ละไฟล์**:
 - `Entity<TId>` — base class DDD ที่เทียบ "ตัวตน" ด้วย runtime type + Id (ไม่ใช่เทียบ field ทีละตัว) — constructor ว่างเป็น `protected` ไว้ให้ EF Core materialize เท่านั้น
@@ -51,6 +112,11 @@ Domain ไม่รู้จักใครนอกจาก SharedKernel. Appl
 **คืออะไร**: project เดียว (`Contracts.csproj`) reference แค่ `SharedKernel` + package `Mediator.Abstractions`. เก็บ record 4 ตัว: `PaymentPaid`, `CheckoutConfirmed`, `CustomerOrderNotification`, `MerchantUserRegistrationSubmitted` — **ไม่ใช่** API request/response DTO (พวกนั้นไม่มีบ้านแยก ประกาศ inline อยู่ที่ `Hosts/Api` ตรงจุด map endpoint). Contracts คือ payload ของ **event ข้ามโมดูลใน process เดียวกัน** เท่านั้น.
 
 **บทบาท**: เป็น "ภาษากลาง" (published language) ที่โมดูลหนึ่งใช้บอกอีกโมดูลว่าเกิดอะไรขึ้น โดยไม่ต้อง reference โมดูลปลายทางตรง ๆ เลย — เช่น `Checkouts.Application` ไม่รู้จัก `Orders.Application` เลยแม้แต่นิดเดียว แค่ publish `CheckoutConfirmed` ไปเข้า outbox แล้วปล่อยให้ `Orders` ไปสมัคร consumer ของตัวเองมารับ.
+
+**ถ้าไม่มีชั้นนี้**: `Checkouts.Application` ต้อง reference `Orders.Application` ตรง ๆ เพื่อบอกว่า checkout
+confirm แล้ว — โมดูลทั้ง 12 จะผูกกันแน่นเป็นใยแมงมุม แก้ business rule ในโมดูลหนึ่งกระทบโมดูลอื่นทันทีโดยไม่
+ตั้งใจ และกฎที่ `Architecture.Tests` บังคับ (ห้าม peer-module reference กันตรง ๆ ยกเว้น `Merchants.Application
+→ Payments.Application` ที่ตั้งใจเปิดไว้) จะไม่มีทางบังคับได้เลยถ้าไม่มีภาษากลางแบบนี้ให้เลือกใช้แทน.
 
 **convention ที่ทุก record ตามเหมือนกันหมด**: เป็น `sealed record ... : INotification`, มี `public const string SchemaVersion = "v1"` (versioning เป็น constant field ไม่ใช่แยก type/namespace ต่อ version — วันนี้มีแค่ v1 ทุกตัว ยังไม่เคยต้องขึ้น v2 จริง), และ `Money` ข้าม seam เป็น value object เสมอ ไม่ใช่ raw scalar.
 
@@ -75,6 +141,11 @@ Domain ไม่รู้จักใครนอกจาก SharedKernel. Appl
 comment ในตัว `.csproj` ของ `.Web` อธิบายเหตุผลไว้ตรง ๆ ว่า: cross-cutting HTTP concern ต้องมีที่เดียวแล้วให้ทุก host ยืมใช้ ไม่ใช่เขียนซ้ำ.
 
 **บทบาท**: เป็น "platform core" ที่ทุกโมดูลใช้ร่วมกัน แต่ตัวมันเองไม่รู้จัก business state ของ Product/Order/Payment เลย — สิ่งที่มัน own คือ: actor/merchant execution context, mediator pipeline behavior, transactional outbox/idempotency primitive, write-guard, common API middleware, health check contract. สิ่งที่มัน **ไม่** own คือ authorization policy เฉพาะของแต่ละ domain หรือ provider-specific payload (เช่น PSP).
+
+**ถ้าไม่มีชั้นนี้**: ทุก handler ในทุกโมดูลต้องเขียนเช็ค actor/merchant เองซ้ำทุกจุด (ไม่มี `MerchantGuardBehavior`
+กลางคอยกันตั้งแต่ก่อนเข้า handler) — ลืมเช็คจุดเดียวในโมดูลใดโมดูลหนึ่งก็เท่ากับรูรั่วให้ merchant หนึ่งเห็นข้อมูล
+ของอีก merchant ได้ ตัวอย่างจริงว่าทำไม "จุดบังคับกลาง" สำคัญคือ B6 — write-guard ที่ต้องพึ่ง 3 จุดตรงกันเป๊ะ
+(ไม่ใช่แค่จุดเดียว) ยังเคยพังเงียบ ๆ มาแล้วครั้งหนึ่งจริง ๆ.
 
 **หน้าที่ตัวอย่างสำคัญที่สุด 2 กลไก**:
 
@@ -101,6 +172,12 @@ comment ในตัว `.csproj` ของ `.Web` อธิบายเหต�
 - **`Persistence.Provisioning`** → `ProvisioningCoordinator` — จุดเดียวในทั้งระบบที่ 2 context ข้างบนแชร์ connection/transaction เดียวกัน (ใช้ตอน super-admin provision merchant ใหม่: เขียน ledger ฝั่ง control plane + เขียน merchant/PSP connection/vault secret ฝั่ง merchant runtime แบบ atomic)
 
 **บทบาท**: แทนที่ SQL RLS เดิมด้วย 2 ชั้นที่ทำงานที่ app layer ทั้งคู่ — read floor = EF global query filter (deny-by-default: ถ้า actor ไม่ผูก merchant, `CurrentMerchant` จะเป็น `Guid.Empty` และ query filter จะคืน 0 แถวเสมอ ไม่ใช่ error), write floor = `GuardedRuntimeDbContext` (§3) ผสมกับ `IWriteAuthorizer` ที่ implement จริงอยู่ที่ Host.
+
+**ถ้าไม่มีชั้นนี้**: ไม่มี query filter/write guard ที่ app layer แปลว่าไม่มีอะไรกันเลยระหว่าง merchant กับ
+merchant ในระดับ SQL — นี่ไม่ใช่สถานการณ์สมมติ: ก่อน spec `rls-to-query-filter` (2026-07-19) ระบบเคยพึ่ง SQL
+Server RLS ที่ตัว database เป็นคนกันแทน พอถอด RLS ออก ถ้าไม่มี Persistence layer นี้มารับช่วงต่อ merchant หนึ่ง
+จะ query ข้ามเห็นข้อมูลของอีก merchant ได้ตรง ๆ ผ่าน connection เดียว (`pol_app`) ที่เข้าได้ทุก schema ทางกายภาพ
+อยู่แล้ว.
 
 **ทำงานยังไง**: ทั้ง 3 runtime context เป็น `internal sealed` — Host เห็น **type ตรง ๆ ไม่ได้เลย** ต้องผ่าน DI extension method ของแต่ละ assembly เท่านั้น (`AddControlPlanePersistence`, `AddMerchantUserPersistence`, `AddMerchantRuntimePersistence`, `AddProvisioning`) ซึ่งเป็น "seam สาธารณะ" จุดเดียวที่แต่ละ assembly เปิดออกมา. `MerchantRuntimeDbContext.CurrentMerchant` คำนวณ **ต่อ query ต่อ instance** จาก `IActorContext` (ไม่ bake ค่าเข้า cached EF model) ทำให้ query filter ตรวจสอบใหม่ทุกครั้งไม่ใช่ตรวจครั้งเดียวตอน boot.
 
@@ -136,6 +213,11 @@ comment ในตัว `.csproj` ของ `.Web` อธิบายเหต�
 
 **ข้อยกเว้นเดียวที่ตั้งใจไว้**: `Merchants.Application.csproj` reference `Payments.Application.csproj` ตรง ๆ (ไม่ใช่แค่ `.Domain`) — `MerchantsArchitectureTests.cs` เขียนไว้ชัดว่า Merchants เป็น "PROVISIONING / composition module" ที่ยืนอยู่ *เหนือ* 5 โมดูลธุรกิจ เป็นจุดเดียวที่อนุญาตให้แตะ `Application` ของอีกโมดูลได้ตรง ๆ เพราะ `ProvisionMerchantHandler` ต้องสร้าง `PspConnection` + secret envelope ของ Payments ตอน provision merchant ใหม่ — จึงถูกกันออกจาก peer-ban set ของ `ArchitectureBoundaryTests` โดยเจตนา ไม่ใช่รูรั่วที่หลุดผ่าน CI
 
+**ถ้าไม่มีชั้นนี้**: business logic ของ Products/Orders/Payments ฯลฯ จะกระจายไปปนอยู่กับ HTTP handler ที่ Host
+หรือปนกับโค้ด EF ที่ Persistence โดยตรง — ทดสอบยากขึ้นมาก (ต้องบูต HTTP/DB จริงถึงจะทดสอบ business rule ได้)
+และไม่มีเส้นแบ่งชัดว่าใครเป็นเจ้าของ invariant ไหน เช่น `Product.SumInsured` ต้อง currency เดียวกับ `Price`
+จะกลายเป็นเช็คกระจัดกระจายหลายที่แทนที่จะอยู่ที่ `Product.Create` จุดเดียว.
+
 **ทำงานยังไง** (เดินตัวอย่าง `Merchants` module ครบ vertical slice):
 1. `Merchant.cs` (Domain) — aggregate มี constructor เป็น `private`, สร้างได้ผ่าน static factory `Create`/`CreateWithId` เท่านั้น ซึ่ง validate ข้างในทันที: code ต้องอยู่ใน allowlist, currency ต้องผ่าน `Iso4217.IsSupported` จริง (ตรวจกับ registry) — แต่ `country` เช็คแค่ **รูปแบบ 2 ตัวอักษรหลัง normalize** (`normalizedCountry.Length != 2`) เท่านั้น **ไม่ได้เช็คกับ ISO 3166 registry จริง** เหมือนที่ currency ทำ ดังนั้น `"ZZ"` (2 ตัวอักษร แต่ไม่มีในทะเบียนจริง) ผ่านการสร้างได้ — ห้ามอ่านว่า `Merchant` ที่สร้างสำเร็จแปลว่า country ถูกต้องตามมาตรฐาน ISO เสมอไป แปลได้แค่ "รูปแบบ 2 ตัวอักษร" เท่านั้น
 2. `ProvisionMerchantCommand.cs` (Application) — `record : ICommand<ProvisionMerchantResult>` พก field ที่ handler ต้องใช้ทั้งหมด (spec ของ merchant, PSP connection, ใครเป็นคนสั่ง)
@@ -155,6 +237,12 @@ comment ในตัว `.csproj` ของ `.Web` อธิบายเหต�
 **คืออะไร**: composition root — host เดียวในทั้งระบบคือ `Hosts/Api` (`Api.csproj`). เดิมมี host `Worker` แยกไว้รัน background job แต่ถูก retire ไปแล้วทั้งตัว (spec `multi-tier-deployment`, 2026-07-22) — โค้ดที่เคยอยู่ใน Worker ถูกย้ายเข้ามาเป็น `IHostedService` ในโปรเซส `Api` เดียวกัน วันนี้เหลือแค่ 2 deploy image: `api` กับ `migrate` (ไม่มี `worker`).
 
 **บทบาท**: จุดเดียวในทั้งระบบที่ reference ได้ **ทุกอย่างพร้อมกัน** — `Contracts`, ทั้ง 3 project ของ `BuildingBlocks`, ทั้ง 12 โมดูล (`.Application`+`.Infrastructure`), ทั้ง 4 `Persistence.*`. เป็นที่เดียวที่ผูก concrete implementation เข้ากับ port/interface ที่ทุก layer อื่นประกาศไว้ล่วงหน้า — โมดูลไม่รู้จัก EF Core, EF Core (Persistence) ไม่รู้จัก HTTP, Host คือที่เดียวที่รู้จักทุกฝ่ายแล้วผูกให้.
+
+**ถ้าไม่มีชั้นนี้**: ไม่มีที่ไหนผูก concrete implementation เข้ากับ port ที่ Modules/BuildingBlocks ประกาศไว้ —
+ระบบ compile ผ่านได้เพราะ interface ครบ แต่ boot ไม่ได้จริงเพราะไม่มีใคร register `IWriteAuthorizer`/
+`IActorContext` ให้ DI container เห็น ตัวอย่างจริงว่าจุดผูกนี้ critical แค่ไหนคือ B6 — บั๊กเกิดเพราะจุดผูกใน
+`WriteAuthorizers.cs`/`HttpActorContext.cs` (ทั้งคู่อยู่ที่ Hosts) ไม่ตรงกัน ทำให้ login flow พังเงียบ ๆ โดยไม่มี
+error ให้เห็นตรง ๆ.
 
 **ทำงานยังไง — เดินลำดับการประกอบใน `Program.cs`**:
 
@@ -191,7 +279,7 @@ merchant id มาจาก `IActorContext` (resolve จาก principal) เส
 
 ครบ 5 layer ในคำขอเดียว:
 
-**1. Hosts** (`Program.cs:595-606`) map endpoint, ดึง merchant จาก `IActorContext` ไม่ใช่จาก body:
+**1. Hosts** (`Program.cs:599-610`) map endpoint, ดึง merchant จาก `IActorContext` ไม่ใช่จาก body:
 ```csharp
 var createProduct = api.MapPost("/products", async (
     CreateProductRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -342,7 +430,7 @@ await _unitOfWork.SaveChangesAsync(cancellationToken);
 
 ### B5. cross-context transaction — super-admin provision merchant ใหม่
 
-จุดเดียวในระบบที่ `ControlPlaneDbContext` กับ `MerchantRuntimeDbContext` ใช้ connection/transaction เดียวกัน — `ProvisioningCoordinator` (`Persistence.Provisioning`, verify แล้วว่า wired จริงผ่าน `AddProvisioning(...)` ที่ `Program.cs:192` ไม่ใช่แค่ scaffolding ตามที่ doc-comment เก่าในไฟล์บอกไว้):
+จุดเดียวในระบบที่ `ControlPlaneDbContext` กับ `MerchantRuntimeDbContext` ใช้ connection/transaction เดียวกัน — `ProvisioningCoordinator` (`Persistence.Provisioning`, verify แล้วว่า wired จริงผ่าน `AddProvisioning(...)` ที่ `Program.cs:196` ไม่ใช่แค่ scaffolding ตามที่ doc-comment เก่าในไฟล์บอกไว้):
 
 ```csharp
 await using var connection = await _openConnectionAsync(cancellationToken);
@@ -400,6 +488,52 @@ public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerch
 ```
 
 ทั้ง 3 จุดคือ Hosts ที่ผูก policy จริงให้พอร์ต `IWriteAuthorizer` (ประกาศใน BuildingBlocks §3) แล้ว `GuardedRuntimeDbContext` (BuildingBlocks) เรียกใช้ทุกครั้งที่ Persistence จะ `SaveChanges` — สามชั้นนี้ต้องตรงกันเป๊ะ ไม่งั้นได้ผลลัพธ์แบบที่เคยเกิดจริง: reject → resubmit → approve พังเงียบ ๆ โดยไม่มี error ให้เห็นตรง ๆ (เพราะ deny แบบ opaque ตามที่ §3 อธิบายไว้)
+
+---
+
+## คำถามที่พบบ่อย
+
+**ทำไม Domain reference ได้แค่ SharedKernel เท่านั้น (แม้แต่ BuildingBlocks ก็ห้าม)?**
+เพราะ Domain ต้องทดสอบได้โดยไม่ต้องพึ่ง framework ใด ๆ เลย (`Architecture.Tests` บังคับว่า `*.Domain` ห้ามพึ่ง
+`Microsoft.EntityFrameworkCore` หรือ framework อื่น — ดู §1) — ถ้า Domain อ้าง `BuildingBlocks.Application`
+ได้ (แม้จะเป็นแค่ port/interface ไม่มี implementation จริง) ก็เปิดช่องให้ค่อย ๆ ดึง infrastructure concern เข้า
+มาปนกับ business rule ทีละนิด เช่น aggregate เริ่ม inject `IClock`/`IOutbox` เข้ามาตรง ๆ แทนที่จะให้ Application
+layer เป็นคนประสาน. SharedKernel ผ่านเกณฑ์นี้เพราะไม่มี dependency ออกไปหาใครเลยสักตัว.
+
+**ทำไม `Money` ต้อง serialize เป็น JSON string ("1500.0000") ไม่ใช่ number?**
+เพราะ IEEE754 double-precision (ที่ JSON number มาตรฐานใช้ตอน parse) ปัดเศษทศนิยมผิดได้ในบางค่า —
+`MoneyJsonConverter` (§1) เลยบังคับ field `amount` เป็น string เท่านั้น ปฏิเสธถ้าเจอเป็น number ตั้งแต่
+deserialize แล้วเขียนกลับ fix 4 ตำแหน่งเสมอ พร้อมเรียก `Money.Of()` ซ้ำทุกครั้งตอนอ่านกลับ (re-validate ไม่ใช่
+trust ตรง ๆ) — ทั้งหมดนี้เพื่อรักษากฎห้าม float/double แทนเงินให้ครอบคลุมถึงจุดที่เงินออกไปนอกระบบ (wire
+format) ด้วย ไม่ใช่แค่ในหน่วยความจำ.
+
+**ทำไม merchant id ต้องมาจาก `IActorContext` เท่านั้น ห้ามรับจาก request body หรือ URL?**
+เพราะถ้ารับจาก body/URL เท่ากับให้ client เป็นคนบอกเองว่าตัวเองเป็น merchant ไหน — ปลอมง่ายมาก (แก้ JSON body
+หรือ URL param ก็สวมรอยเป็น merchant อื่นได้ทันที). `IActorContext.CurrentMerchant` มาจาก authenticated
+principal ที่ผ่านการ authenticate แล้วเท่านั้น (§3, §6) แล้วยังโดนเช็คซ้ำอีกชั้นที่ `MerchantGuardBehavior` ก่อน
+เข้า handler กับ query filter ตอนอ่าน/เขียนจริงที่ Persistence (§4) — ดู B1 ที่ endpoint จริงไม่รับ `merchantId`
+จาก `CreateProductRequest` เลยสักฟิลด์.
+
+**เพิ่ม dependency ข้ามชั้น/ข้ามโมดูลที่ยังไม่มีอยู่ ทำไมยาก?**
+เพราะกฎ layering ไม่ได้เป็นแค่ convention ในเอกสาร — `Architecture.Tests` (NetArchTest) บังคับจริงและ fail CI
+ทันทีถ้าผิด และ user เคยตัดสินใจไว้ตรง ๆ แล้วว่าจะไม่ hoist code ที่ดูซ้ำ pattern กันระหว่างโมดูลขึ้นไปเป็น
+shared base class (ตอน spec `masterdata-split`) เพราะยอมรับความซ้ำเพื่อแลกกับความ isolate ของแต่ละโมดูล —
+ทางที่เปิดไว้จริงมีทางเดียวคือผ่าน `Contracts` (event, §2) หรือ reference แค่ `.Domain` ของโมดูลอื่น (published
+language, §5) ไม่ใช่การเพิ่ม `ProjectReference` ไปมาตรง ๆ.
+
+**Outbox เป็น at-least-once (มีโอกาสส่งเหตุการณ์ซ้ำ) แล้วปลอดภัยได้ยังไงว่าจะไม่สร้าง order/รับเงินซ้ำ?**
+เพราะความรับผิดชอบ "กันซ้ำ" ถูกย้ายไปให้ฝั่งรับ (consumer) แทนที่จะพึ่ง exactly-once จากตัว outbox เอง (§2) —
+เห็นรูปธรรมที่ B2 (`if (existing is not null) return;` เป็นด่านแรก, filtered UNIQUE index เป็น backstop ด่าน
+สอง) และหนักกว่านั้นที่ B3 ซึ่งมี idempotency key เช็คก่อน บวกกับ fetch-to-confirm ที่ไม่เชื่อ payload เดิมซ้ำ
+บวกกับ consumer ฝั่ง Orders ที่ re-verify amount/currency อีกรอบก่อนเรียก `MarkPaid` — สามชั้นซ้อนกันเพื่อชดเชย
+ว่า outbox เองรับประกันได้แค่ "ส่งอย่างน้อยหนึ่งครั้ง" ไม่ใช่ "ส่งพอดีหนึ่งครั้ง".
+
+**ทำไม `Merchants.Application` reference `Payments.Application` ได้ตรง ๆ ทั้งที่กฎบอกห้าม cross-module?**
+เพราะเป็นข้อยกเว้นที่ตั้งใจเปิดไว้ ไม่ใช่รูรั่วที่หลุดผ่าน CI (§5) — `Merchants` ถูกนิยามไว้เป็น
+"PROVISIONING/composition module" ที่ยืนเหนือ 5 โมดูลธุรกิจ เพราะ `ProvisionMerchantHandler` ต้องสร้าง
+`PspConnection` + secret envelope ของ Payments ตอน provision merchant ใหม่จริง ๆ (เห็นเต็ม flow ที่ B5) —
+`MerchantsArchitectureTests.cs` เขียนกันเคสนี้ออกจาก peer-ban set ของ `ArchitectureBoundaryTests` โดยเจตนา
+ไม่ใช่ทุกโมดูลจะได้สิทธิ์แบบนี้ มีแค่ Merchants เจ้าเดียว.
 
 ---
 
