@@ -42,8 +42,8 @@ Domain ไม่รู้จักใครนอกจาก SharedKernel. Appl
 
 ```
 [ 6. Hosts (Api) — composition root, เห็นทุกชั้นพร้อมกัน, ผูกทุกอย่างเข้าด้วยกันแล้วรันจริง
-   [ 5. Modules — business logic ต่อโดเมน (Products/Carts/Checkouts/Orders/Payments/Merchants/...)
-      [ 4. Persistence — isolation floor จริง (query filter อ่าน + write guard เขียน)
+   [ 4. Persistence — isolation floor จริง (query filter อ่าน + write guard เขียน)
+      [ 5. Modules — business logic ต่อโดเมน (Products/Carts/Checkouts/Orders/Payments/Merchants/...)
          [ 3. BuildingBlocks — actor/merchant context, mediator pipeline, port กลาง
             [ 2. Contracts — event กลางข้ามโมดูล (published language)
                [ 1. SharedKernel — Money / Entity — พึ่งใครไม่ได้เลยสักตัว ]
@@ -53,6 +53,12 @@ Domain ไม่รู้จักใครนอกจาก SharedKernel. Appl
    ]
 ]
 ```
+
+Persistence อยู่วงนอกของ Modules ไม่ใช่วงใน — ตรวจกับ `.csproj` จริงแล้ว: `Persistence.MerchantRuntime.csproj`
+reference เข้า `Products.Domain`/`Products.Application` ฯลฯ ตรง ๆ (§4) ในขณะที่ไม่มี Module ไหน reference กลับ
+เข้า `Persistence.*` เลยสักตัว — ทิศทางเดียวกับ arrow diagram ด้านบนที่วาง Persistence ไว้เหนือ Application/Domain
+อยู่แล้ว. เพราะงั้นเลขหัวข้อ §4/§5 ในวงนี้จึงไม่เรียงจากในสุดไปนอกสุดแบบเป๊ะ ๆ ตามลำดับที่อ่านเอกสาร — เลขหัวข้อ
+ตามลำดับการอ่าน (reading order) ส่วนตำแหน่งวงตามทิศทาง dependency จริง (dependency order) สองอย่างนี้ต่างกัน.
 
 อ่านจากในสุด (1) ไปนอกสุด (6): วงนอกอ้างถึงวงในได้เสมอ วงในอ้างถึงวงนอกไม่ได้เลย — กฎเดียวกับ
 "ลูกศรชี้เข้าหา Domain เสมอ" ด้านบน แค่เปลี่ยนมุมมองจากเส้นตรงเป็นวงซ้อน. SharedKernel วงในสุด ≠ สำคัญน้อยสุด
@@ -101,7 +107,7 @@ floor เป็น **ตึกให้เช่าที่มีหลาย�
 - `Iso4217` — registry สกุลเงินขั้นต่ำ (THB/USD/JPY วันนี้), บอกจำนวนทศนิยมต่อสกุล
 - `MoneyJsonConverter` — บังคับ JSON field `amount` ต้องเป็น **string** เท่านั้น (ปฏิเสธถ้าเจอเป็น number กัน IEEE754 double precision loss ตอน parse), เขียนกลับ fix 4 ตำแหน่งเสมอ, และตอนอ่านกลับก็เรียก `Money.Of()` ซ้ำ — เท่ากับ re-validate ทุกครั้งที่ deserialize ไม่ใช่ trust JSON เฉย ๆ
 
-**ทำงานยังไง**: ทุกโมดูลใน `src/Modules/*.Domain` และ `*.Application` reference `SharedKernel` ได้ (21 `.csproj` อ้างถึงจริง) — แต่ `SharedKernel` เองไม่ reference กลับไปหาใคร. กติกานี้ไม่ใช่แค่คำแนะนำในเอกสาร — `Architecture.Tests` (NetArchTest) เช็คจริงว่า `*.Domain` ห้ามพึ่ง `Microsoft.EntityFrameworkCore` หรือ framework ใด ๆ เลย ซึ่งเป็นไปได้เพราะ Domain มีแค่ `SharedKernel` ให้พึ่งเท่านั้น. `Contracts.csproj` (§2) ก็ reference `SharedKernel` เช่นกัน เพื่อให้ event ข้ามโมดูลพก `Money` แบบ value object ได้ตรง ๆ (เช่น `PaymentPaid.Amount: Money`) แทนที่จะต้องแปลงเป็น `decimal`/`long` ดิบตรง seam.
+**ทำงานยังไง**: ทุกโมดูลใน `src/Modules/*.Domain` และ `*.Application` reference `SharedKernel` ได้ (21 `.csproj` อ้างถึงจริง) — แต่ `SharedKernel` เองไม่ reference กลับไปหาใคร. กติกานี้ไม่ใช่แค่คำแนะนำในเอกสาร — `Architecture.Tests` (NetArchTest) เช็คจริงว่า `*.Domain` ห้ามพึ่ง `Microsoft.EntityFrameworkCore` โดยเฉพาะ และห้ามพึ่ง namespace `*.Infrastructure` ใด ๆ เลย (ของตัวเองหรือโมดูลอื่น) — **ไม่ใช่ guard แบบ "ห้ามพึ่ง framework ใด ๆ เลย" กว้าง ๆ** ถ้า Domain วันหนึ่งไป reference ASP.NET Core หรือ Mediator ตรง ๆ (ไม่ผ่าน EF Core/`*.Infrastructure` namespace) จะไม่ถูก guard ปัจจุบันจับ. ที่ยังไม่พังทุกวันนี้เพราะ Domain มีแค่ `SharedKernel` ให้พึ่งเท่านั้น. `Contracts.csproj` (§2) ก็ reference `SharedKernel` เช่นกัน เพื่อให้ event ข้ามโมดูลพก `Money` แบบ value object ได้ตรง ๆ (เช่น `PaymentPaid.Amount: Money`) แทนที่จะต้องแปลงเป็น `decimal`/`long` ดิบตรง seam.
 
 **ทำงานร่วมกับ layer อื่นตรงไหน**: ทุก aggregate ในทั้ง 12 โมดูล (`Product`, `Merchant`, `Order`, `Payments.Session` ฯลฯ) สืบทอด `AggregateRoot<TId>` จากที่นี่ และเก็บฟิลด์เงินเป็น `Money` เสมอ — เห็นตัวจริงที่ตัวอย่าง **B1 (สร้างสินค้า)** ด้านล่าง ที่ `Product.Price`/`Product.SumInsured` เป็น `Money` ตั้งแต่ domain ยัน wire response.
 
@@ -494,8 +500,10 @@ public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerch
 ## คำถามที่พบบ่อย
 
 **ทำไม Domain reference ได้แค่ SharedKernel เท่านั้น (แม้แต่ BuildingBlocks ก็ห้าม)?**
-เพราะ Domain ต้องทดสอบได้โดยไม่ต้องพึ่ง framework ใด ๆ เลย (`Architecture.Tests` บังคับว่า `*.Domain` ห้ามพึ่ง
-`Microsoft.EntityFrameworkCore` หรือ framework อื่น — ดู §1) — ถ้า Domain อ้าง `BuildingBlocks.Application`
+เพราะ Domain ต้องทดสอบได้โดยไม่ต้องพึ่ง framework ใด ๆ เลย — เป็นหลักการออกแบบที่ตั้งใจไว้ แต่ **`Architecture.Tests`
+วันนี้บังคับแค่ 2 เคสเจาะจง** (ดู §1): ห้ามพึ่ง `Microsoft.EntityFrameworkCore` โดยตรง กับห้ามพึ่ง namespace
+`*.Infrastructure` ใด ๆ — ไม่ใช่ guard กว้างที่ครอบทุก framework (Domain อ้าง ASP.NET Core หรือ Mediator ตรง ๆ
+จะไม่ถูก guard ปัจจุบันจับ) — ถ้า Domain อ้าง `BuildingBlocks.Application`
 ได้ (แม้จะเป็นแค่ port/interface ไม่มี implementation จริง) ก็เปิดช่องให้ค่อย ๆ ดึง infrastructure concern เข้า
 มาปนกับ business rule ทีละนิด เช่น aggregate เริ่ม inject `IClock`/`IOutbox` เข้ามาตรง ๆ แทนที่จะให้ Application
 layer เป็นคนประสาน. SharedKernel ผ่านเกณฑ์นี้เพราะไม่มี dependency ออกไปหาใครเลยสักตัว.
@@ -508,11 +516,19 @@ trust ตรง ๆ) — ทั้งหมดนี้เพื่อรัก�
 format) ด้วย ไม่ใช่แค่ในหน่วยความจำ.
 
 **ทำไม merchant id ต้องมาจาก `IActorContext` เท่านั้น ห้ามรับจาก request body หรือ URL?**
-เพราะถ้ารับจาก body/URL เท่ากับให้ client เป็นคนบอกเองว่าตัวเองเป็น merchant ไหน — ปลอมง่ายมาก (แก้ JSON body
-หรือ URL param ก็สวมรอยเป็น merchant อื่นได้ทันที). `IActorContext.CurrentMerchant` มาจาก authenticated
-principal ที่ผ่านการ authenticate แล้วเท่านั้น (§3, §6) แล้วยังโดนเช็คซ้ำอีกชั้นที่ `MerchantGuardBehavior` ก่อน
-เข้า handler กับ query filter ตอนอ่าน/เขียนจริงที่ Persistence (§4) — ดู B1 ที่ endpoint จริงไม่รับ `merchantId`
-จาก `CreateProductRequest` เลยสักฟิลด์.
+กฎนี้คือกฎของ **merchant-facing tenant-scoped command** เท่านั้น (คำสั่งที่ implement `IMerchantScoped` แบบ
+`CreateProductCommand` — ดู B1) — ถ้ารับ merchant target จาก body/URL ของคำสั่งกลุ่มนี้เท่ากับให้ client เป็น
+คนบอกเองว่าตัวเองเป็น merchant ไหน ปลอมง่ายมาก (แก้ JSON body หรือ URL param ก็สวมรอยเป็น merchant อื่นได้ทันที).
+`IActorContext.CurrentMerchant` มาจาก authenticated principal ที่ผ่านการ authenticate แล้วเท่านั้น (§3, §6)
+แล้วยังโดนเช็คซ้ำอีกชั้นที่ `MerchantGuardBehavior` ก่อนเข้า handler กับ query filter ตอนอ่าน/เขียนจริงที่
+Persistence (§4) — ดู B1 ที่ endpoint จริงไม่รับ `merchantId` จาก `CreateProductRequest` เลยสักฟิลด์.
+
+กฎนี้ **ไม่ใช้กับ control-plane/admin endpoint** ที่ตั้งใจให้ admin ระบุ merchant เป้าหมายผ่าน body/path/query
+ตรง ๆ เช่น `AssignMerchantRequest.MerchantId` ใน `POST /{id}/merchants`, `DELETE /{id}/merchants/{merchantId}`,
+หรือ `?merchantId=` ใน admin policy report — endpoint กลุ่มนี้ authorize ผ่านคนละแกนคือ `IAdminScope`
+(`scope.Current`/`scope.Accessible`) ไม่ใช่ `IActorContext.CurrentMerchant` เพราะ admin (โดยเฉพาะ Super)
+มีสิทธิ์ทำงานข้าม merchant ได้โดยดีไซน์ — ถ้า Scoped admin ระบุ merchant นอก accessible set จะได้หน้าว่าง
+(empty page) ไม่ใช่เห็นข้อมูลรั่ว.
 
 **เพิ่ม dependency ข้ามชั้น/ข้ามโมดูลที่ยังไม่มีอยู่ ทำไมยาก?**
 เพราะกฎ layering ไม่ได้เป็นแค่ convention ในเอกสาร — `Architecture.Tests` (NetArchTest) บังคับจริงและ fail CI
