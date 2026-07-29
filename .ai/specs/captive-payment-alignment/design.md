@@ -1,7 +1,8 @@
 # Design: Captive Intra-Group Payment Alignment
 
 > Status: approved-for-implementation 2026-07-26 (delegated autonomous run — PENDING HUMAN REVIEW
-> 2026-07-27; see requirements.md "Gate note")
+> 2026-07-27; see requirements.md "Gate note"); amended 2026-07-28 with D8a after a live 2C2P sandbox
+> E2E found a real money-path bug in the pre-existing webhook claim order (REQ-8.5)
 
 ## Guiding constraint
 
@@ -315,6 +316,24 @@ if (confirmed.Amount is { } paid && !(paid.Amount == session.Amount.Amount && pa
 `Ignored` เพราะ: ไม่เปลี่ยน state, ไม่ enqueue, ตอบ 200 (PSP ไม่ retry ไม่รู้จบ), และ outcome ปรากฏใน
 response ให้ ops เห็น. **ไม่** เปลี่ยน idempotency key / ลำดับ transaction / สัญญา `PaymentPaid` — REQ-8.4.
 
+### D8a — amended 2026-07-28 (live 2C2P sandbox E2E): claim ต้อง atomic กับ transition ไม่ใช่ก่อน fetch
+
+D10 เดิมยืนยัน "webhook ingest order (resolve -> verify -> **idempotency** -> fetch)" เป็นสิ่งที่ **ไม่แตะ**
+(pre-existing, out of scope). พิสูจน์สดบน 2C2P sandbox วันนี้ (จ่ายจริง 20 THB) จับได้ว่าลำดับนั้นเป็นบั๊ก
+money-path จริง ไม่ใช่แค่ debt: `TryBeginAsync` `SaveChangesAsync` ภายใน transaction เดียวกับทั้ง handler
+ซึ่ง **commit ทุก return ปกติ** (รวม `Ignored`) — ดังนั้น notification ที่มาถึง**ก่อน** `FetchChargeAsync`
+เห็นสถานะจ่ายจริง (เช่น PSP ยังไม่อัปเดต paymentInquiry ทัน หรือ 2C2P portal กด resend) จะเผา key
+`charge:{invoice}:Paid` ทิ้งบน `Ignored` แล้วทำให้ notification ที่ตามมา**หลัง**จ่ายจริงกลายเป็น `Duplicate`
+ตลอดกาล — session ค้าง `Redirected` ทั้งที่ลูกค้าจ่ายเงินแล้ว ไม่มีทางสะสางเองได้ (ต่างจาก gap 25 ใน
+`docs/reference/platform-modules.md` ซึ่งเป็นเรื่อง `StartRedirectHandler`/settle path คนละ handler).
+
+**แก้:** ย้าย claim (`_idempotency.TryBeginAsync`) ไปท้ายสุดของ transaction — **หลัง** status gate และ amount
+check, **atomic คู่กับ** `session.MarkPaid` + `_outbox.Enqueue`. ลำดับใหม่: resolve -> verify -> fetch-to-
+confirm -> เทียบยอด -> **idempotency claim** -> `MarkPaid` -> enqueue -> commit. ผลคือ `Ignored` ไม่เผา key
+อีกต่อไป — concurrency ไม่เปลี่ยน (unique-key insert ยังเป็นตัวตัดสิน two racing `Paid` deliveries เหลือ
+`Processed` เดียว), เคส `Duplicate` ของ event ที่ settle แล้วยังทำงานถูกต้อง. นี่คือ **REQ-8.5** (ใหม่);
+D10 ด้านล่างถูกแก้ลำดับให้ตรงตาม.
+
 ### D9 — provisioning vocabulary + seed
 
 - `ProvisionMerchantHandler.cs:63` เปลี่ยนจาก `Trim()` เป็น `PaymentMethods.Normalize(m)` ต่อรายการ
@@ -325,8 +344,9 @@ response ให้ ops เห็น. **ไม่** เปลี่ยน idempot
 
 ### D10 — ไม่แตะ (ยืนยันเชิงบวก)
 
-`SessionStatus` (ค่าเดิม 5 ค่า), webhook ingest order (resolve -> verify -> idempotency -> fetch),
-idempotency keys, outbox/dispatcher, `Order`/`OrderStatus`/`OrderPaidConsumer`, vault + reveal audit,
+`SessionStatus` (ค่าเดิม 5 ค่า), webhook ingest order **นอกเหนือจากตำแหน่ง claim** (resolve -> verify ->
+fetch -> เทียบยอด -> **idempotency** -> transition — ดู D8a สำหรับการย้าย claim), idempotency keys,
+outbox/dispatcher, `Order`/`OrderStatus`/`OrderPaidConsumer`, vault + reveal audit,
 RBAC keys (`payment.create`/`payment.redirect` เดิมพอ), route paths, `OmiseAdapter.VerifyWebhook`
 (Non-Goal 1), frontend return URLs (REQ-4.4), rate limiter.
 

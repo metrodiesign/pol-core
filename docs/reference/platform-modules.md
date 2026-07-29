@@ -1026,7 +1026,7 @@ claim ที่สะสางไม่จบเมื่อเหตุขั�
 
 **บทบาท**
 - endpoint เดียว: `POST /webhooks/{pspConnectionId}` (anonymous + rate-limited) — route ด้วย connection id ที่ trust ได้ ไม่ parse tenant/PSP จาก URL ก่อน verify
-- pipeline ใน **transaction เดียว**: verify signature (secret จาก vault; ไม่ผ่าน → 401 ไม่มี transition) → claim **multi-key idempotency** (`{psp}:{connId}:event:{id}` และ `{psp}:{connId}:charge:{id}:{status}`) → **fetch-to-confirm** สถานะจริงกับ PSP (ไม่เชื่อ body ของ webhook) → **เทียบยอดที่ PSP รายงานกับ `Session.Amount`** (ไม่ตรง → `Ignored`) → transition `PaymentSession` → enqueue `PaymentPaid` ผ่าน outbox → commit
+- pipeline ใน **transaction เดียว**: verify signature (secret จาก vault; ไม่ผ่าน → 401 ไม่มี transition) → **fetch-to-confirm** สถานะจริงกับ PSP (ไม่เชื่อ body ของ webhook) → **เทียบยอดที่ PSP รายงานกับ `Session.Amount`** (ไม่ตรง → `Ignored`) → claim **multi-key idempotency** (`{psp}:{connId}:event:{id}` และ `{psp}:{connId}:charge:{id}:{status}`) → transition `PaymentSession` → enqueue `PaymentPaid` ผ่าน outbox → commit. claim อยู่ **ท้ายสุด atomic คู่ transition** (แก้ 2026-07-28 หลังพิสูจน์สดบน 2C2P sandbox ว่าลำดับเดิม claim-ก่อน-fetch เผา key ทิ้งตอน `Ignored` ทำให้ notification จริงหลังจ่ายเงินกลาย `Duplicate` ถาวร — captive-payment-alignment REQ-8.5)
 - ระดับ verify signature ต่อ PSP (as-built): **2C2P ตรวจจริง** (verify JWT HS256 ที่ฝังใน body);
   **Omise ยังเป็น well-formedness check เท่านั้น** (HMAC deferred โดยเจตนา — comment ใน adapter ระบุ;
   **Omise/Opn มีลายเซ็น `Omise-Signature` จริง** เหตุผลที่ deferred คือ seam ไม่พา header/timestamp +
@@ -1042,7 +1042,7 @@ claim ที่สะสางไม่จบเมื่อเหตุขั�
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | Endpoint เดียว route ด้วย connection id | `POST /webhooks/{pspConnectionId}` anonymous + rate-limited — ไม่ parse tenant/PSP จาก URL ก่อน verify; target เปลี่ยน addressing เป็น `POST /api/webhooks/v1/{endpointKey}` (opaque, random, rotate ได้ — ไม่ใช้ id ตรง) | มีแล้ว (addressing เปลี่ยนใน target — ข้อ 17) |
-| Pipeline ใน transaction เดียว | verify → multi-key idempotency claim → fetch-to-confirm → **เทียบยอด** → transition `PaymentSession` → outbox → commit — target แยกเป็น two-stage: ingress (durable insert + ตอบเร็ว) / async processor (fetch-to-confirm + transition) | มีแล้ว (target ยกระดับ — ข้อ 17) |
+| Pipeline ใน transaction เดียว | verify → fetch-to-confirm → **เทียบยอด** → multi-key idempotency claim (ท้ายสุด, atomic คู่ transition) → transition `PaymentSession` → outbox → commit — target แยกเป็น two-stage: ingress (durable insert + ตอบเร็ว) / async processor (fetch-to-confirm + transition) | มีแล้ว (target ยกระดับ — ข้อ 17) |
 | เทียบยอดที่ PSP เก็บจริงก่อน mark paid | `FetchChargeAsync` คืน `PspChargeConfirmation(Status, Money? Amount)`; `Amount` มีค่าและไม่ตรง `Session.Amount` (ยอดหรือสกุลเงิน) → `Ignored` ไม่ transition ไม่ enqueue. เป็น**ที่เดียว**ที่เทียบกับยอดของ PSP จริง (ฝั่ง Orders เทียบยอด session กับตัวเอง). `Amount == null` → status-only ตามเดิม | **มีแล้ว** (2026-07-26); เคส null = ข้อ 23 |
 | จำแนกผลลัพธ์ | `Processed` / `Duplicate` / `Ignored` / `Rejected` — target ขยาย: `accepted`/`duplicate`/`rejected`/`processed`/`ignored`/`failed_retryable`/`dead_lettered` | มีแล้ว |
 | 2C2P signature verify | ตรวจ JWT HS256 ที่ฝังใน body จริง | มีแล้ว |

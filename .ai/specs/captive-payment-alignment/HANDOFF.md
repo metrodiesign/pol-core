@@ -1389,3 +1389,124 @@ task 9: ปิด Codex P1 (review #4782168269) ที่ migration `20260726151
 2. อ่าน `Up` ของ migration แล้วยืนยันด้วยตาว่าลำดับคือ สะสาง -> guard -> `CreateIndex` (ลำดับคือทั้งหมดของ
    REQ-2.7; สลับแล้วยังผ่าน test เดิมได้เพราะ dev DB ไม่มีแถวซ้ำอยู่แล้ว).
 3. push แล้วตอบ Codex finding P1 นี้ด้วย commit hash ของ task 9.
+
+---
+
+## Section 10 — Live 2C2P sandbox E2E + 2 real bugs found and fixed (from: Claude Fable 5, 2026-07-28)
+
+### Task Summary
+
+ไม่มี task เดิมค้างในสวีตนี้ (task 1-9 ปิดหมด, spec-trace 45/45 ที่ section 9). งานคือ "ทำให้ทดสอบระบบ
+payment 2C2P ได้จริง" ตามคำขอ user — ไล่จาก boot local stack จนถึง**จ่ายเงินจริงบน 2C2P sandbox ผ่าน
+browser (Playwright)** แล้วปิด loop กลับมาที่ order `Paid`. ระหว่างทางเจอ 2 บั๊กจริงที่บล็อกการทดสอบ/
+ทำให้ order จ่ายไม่ได้จริง แก้ทั้งคู่แบบ root-cause + regression test.
+
+### Bug 1 — `OutboxDispatcher` merchant query filter (นอกขอบเขต spec นี้, defect เก่าจาก `rls-to-query-filter`)
+
+`src/Persistence/Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs` lease แล้ว read-back เพื่อรู้
+`MerchantId` ของแถวที่ lease ได้ วิ่งใต้ scope ที่**ไม่ผูก actor** — merchant query filter
+(`MerchantId == CurrentMerchant`) resolve `CurrentMerchant` เป็น `Guid.Empty` จับได้ 0 แถวเสมอ ทุก
+message จึงเผา lease ทิ้งเงียบ ๆ (ไม่มี error, ไม่มี log) จนครบ `MaxAttempts` แล้ว poison — ไม่มีทาง delivery
+เลย. `rls-to-query-filter` (PR #112) เพิ่ม query filter ตัวนี้แล้วพลาดจุดนี้ไป (`MerchantUserOutboxDispatcher`
+คู่แฝดได้ `IgnoreQueryFilters` ตั้งแต่แรก จุดนี้ไม่ได้). Fix = เติม `.IgnoreQueryFilters()` บน read-back
+(ไฟล์นี้อยู่ใน `Architecture.Tests` bypass-primitive allowlist อยู่แล้วในฐานะ outbox lease port) —
+commit `28336b4`. Evidence: `outbox.Attempts` ก่อนแก้ = 5 (poison ใกล้ `MaxAttempts=8`) ของ order เก่าที่
+ทดสอบไว้ตอนเช้า, หลังแก้ order ทดสอบใหม่ delivery สำเร็จที่ `Attempts = 1` (ดูข้อ Tests Run ด้านล่าง).
+
+ไม่ได้เปิด REQ ใหม่ในสวีตนี้เพราะเป็น pure implementation bug ของ code ที่ merge ไปแล้วใน spec อื่น ไม่ใช่
+scope gap ของ captive-payment-alignment — บันทึกไว้ที่นี่ + commit message เท่านั้น.
+
+### Bug 2 — webhook idempotency claim เผา key ตอน `Ignored` (REQ-8.5, ใหม่ในสวีตนี้)
+
+ดูรายละเอียดเต็มที่ `design.md` D8a. สรุป: `TryBeginAsync` claim **ก่อน** `FetchChargeAsync` แล้ว save
+ภายใน transaction เดียวกับทั้ง handler ที่ commit ทุก return ปกติ — notification ที่มาถึงก่อน
+paymentInquiry เห็นสถานะจ่ายจริง เผา key `charge:{invoice}:Paid` ทิ้งตอนตอบ `Ignored` แล้ว notification
+จริงที่ตามมาหลังจ่ายเงินกลาย `Duplicate` ตลอดกาล. **พิสูจน์สดจริง** ระหว่างทดสอบวันนี้ (ไม่ใช่แค่ทฤษฎี):
+replay webhook ก่อนลูกค้าจ่าย → `Ignored` (ถูกต้องตามพฤติกรรมเดิม) แต่ทำให้ key ถูกเผา ต้อง `DELETE` แถว
+`txn.IdempotencyRecords` ด้วยมือก่อน replay รอบจริงถึงจะได้ `Processed`.
+
+พฤติกรรมนี้เคย**ถูก test pin ไว้โดยเจตนา**ใน task 6
+(`A_redelivery_after_a_mismatch_reports_Duplicate_because_the_claim_was_already_spent`) พร้อม comment
+บอกตรง ๆ ว่า "moving the claim would ... need its own requirement". วันนี้ได้ evidence สดแล้วจึงเปิด
+**REQ-8.5** (`requirements.md`) + แก้ handler ย้าย claim ไปท้ายสุด atomic คู่ `MarkPaid` + แทนที่ test เดิม
+ด้วย `A_redelivery_after_a_mismatch_is_still_Ignored_because_no_claim_was_spent` +
+`A_notification_arriving_before_the_charge_settles_does_not_block_the_real_one` — commit `262303b`.
+`tasks.md` task 6 evidence ข้อ (3) amend ให้ตรง (ห้ามอ่าน task 6 ว่าปิดตาม evidence เดิมอีกต่อไป — อ่านที่
+amend แทน). `docs/reference/platform-modules.md` §12 Webhooks (narrative + ตาราง) แก้ pipeline order ให้
+ตรงของจริงแล้ว.
+
+### เครื่องมือใหม่: `scripts/dev-2c2p-webhook.sh` (commit `98203e2`)
+
+2C2P sandbox ยิง `backendReturnUrl` เข้า `localhost` ไม่ได้ (มันเป็น public internet) — dev/test local
+เลย**ไม่มีทางได้ webhook จริง**หลังจ่ายบน sandbox page แม้ payment สำเร็จจริง. script นี้ decrypt ไม่ได้
+(ไม่แตะ vault) แต่ **mint notification HS256-signed แบบเดียวกับที่ 2C2P จะส่งจริง** ด้วย
+`TWOCTWOP_MERCHANT_ID`/`TWOCTWOP_SECRET_KEY` ที่ operator ต้อง export เอง (ไม่ commit ที่ไหน) แล้ว POST
+เข้า `/api/v1/webhooks/{connectionId}`. ปลอดภัยโดยสร้าง — handler ยัง fetch-to-confirm กับ 2C2P จริงก่อน
+transition เสมอ: replay ตอนยังไม่จ่าย → `Ignored`, replay ซ้ำของ event ที่ settle แล้ว → `Duplicate`.
+
+### Dev test rig ที่นั่งอยู่ใน dev DB (ไม่ commit, สำหรับ manual test ต่อ)
+
+`merch.Users` id `d0000000-…-0001` Subject `115307079748731734469` (Google sub ของ
+metrodiesign@gmail.com) + `ExternalLogins` + `RoleAssignments` role `merchant_manager` ผูกกับ merchant
+`vprivilege (dev)` (`025642A0-E1FB-4E71-A6F3-194AE8F18A1B`, connection 2C2P
+`C582F741-AAD5-4E58-8BE7-A871D747DA6F`) — ทำให้ login console `:5300` ด้วย Google จริงได้ทันที ไม่ต้อง
+register/approve ใหม่. curl ตรงก็ได้โดย insert `merch.Sessions` เอง (`TokenHash = SHA256(token)`,
+cookie ชื่อ **`mch_session`** บน dev-http ไม่ใช่ `__Host-mch_session`, ต้องคู่กับ `mch_csrf` cookie +
+header `X-CSRF-Token` ค่าเดียวกัน — ดู `UserSessionCookies.cs`/`UserCsrfFilter.cs`).
+
+### Live E2E ที่พิสูจน์สด (browser จริงผ่าน 2C2P sandbox, ไม่ใช่ mock)
+
+order `11111111-…` (20 THB) → create session → redirect (ได้ `webPaymentUrl` จริง) → เปิดหน้า 2C2P จริง
+กรอกบัตร `4111 1111 1111 1111` + ผ่าน EMV 3DS challenge (OTP simulator `123456`) → 2C2P รับชำระจริง →
+`dev-2c2p-webhook.sh` replay → `Processed` → session `Paid`, order `Paid` (13:01:36), outbox `PaymentPaid`
+ส่งสำเร็จที่ **`Attempts = 1`** (พิสูจน์ bug 1 แก้จริง — เทียบกับ `Attempts = 5` ของ order ที่ทดสอบไว้ตอนเช้า
+ก่อนแก้) → replay ซ้ำ → `Duplicate` ถูกต้อง.
+
+### Tests Run
+
+- `dotnet build pol-core.slnx -warnaserror` → `0 Warning(s) 0 Error(s)` (ทั้ง 2 รอบแก้).
+- `dotnet test tests/Architecture.Tests --filter FullyQualifiedName~BypassPrimitive` → 2/2 (outbox fix
+  ยังอยู่ใน allowlist เดิม ไม่ต้องเพิ่ม entry).
+- `dotnet test tests/Payments.Tests` → **162/162** (แดง 2 ตัวหลังเขียน test ใหม่ก่อนแก้ handler → เขียว
+  หลังย้าย claim).
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` (background, ~15 นาทีเพราะ
+  Architecture.Tests) → **exit 0**, breakdown: BuildingBlocks 43 · Payments 162 · Products 7 ·
+  Merchants 120 · Iam 62 · Orders 68 · Admins 95 · Hosts 353 · Architecture 224 (223 baseline section 9
+  +1 จาก `RawSqlCompositionTests.cs` ที่ commit `15dd12c` เพิ่มไว้ — ไม่มี test ใหม่ของ section นี้เอง).
+- `source .env.integration && dotnet test tests/Integration.Tests --filter Category=Integration` →
+  **47/47** (ไม่ถอย).
+- `bash scripts/spec-trace.sh captive-payment-alignment` → **OK 46 เกณฑ์** (เพิ่มจาก 45 — REQ-8.5).
+- `bash scripts/check-rename-identifiers.sh` → OK.
+
+### กับดักใหม่ที่เจอ (เพิ่มจาก traps ก่อนหน้า)
+
+- **background `dotnet` process ที่ spawn แบบ `run_in_background: true` ของ agent tool โดนฆ่าเมื่อ agent
+  turn จบ/ถูก interrupt** — API host ที่รันไว้ทดสอบหายไปเงียบ ๆ ระหว่าง session (2 ครั้ง). แก้ด้วย
+  `nohup ... &` แบบ shell-level detach (ไม่ใช้ `run_in_background` ของ tool) ให้ process เป็นลูกของ shell
+  ไม่ใช่ของ tool — รอดข้าม turn.
+- **`cd` ใน background Bash call เดียวที่มี `&` ท้ายสุด เปลี่ยน cwd ของ session ต่อจริง** (ไม่ใช่แค่ของ
+  background process) เพราะ cwd persist ข้าม call แต่ shell state ไม่ — ทำให้ path-relative command
+  ถัดไปพังเงียบ ๆ (เช่น `.ai/specs/...` หาไม่เจอทั้งที่มีจริง). ต้อง `cd` กลับ repo root explicit ก่อนใช้ path
+  สัมพัทธ์ต่อ หรือใช้ absolute path ตั้งแต่แรกเวลาต้อง `cd` เข้าโฟลเดอร์ลึกเพื่อรัน binary.
+- **`sqlcmd -h -1` กับ `-y 0`/`-W` ชนกัน** (`mutually exclusive`) — export ผลเป็น hex ยาว (เช่น
+  vault ciphertext) ให้ใช้ `-y 0` เฉย ๆ ไม่ใส่ `-h`.
+- **decrypt vault envelope ด้วยมือ (dev only, ไม่มี CLI ให้)**: ต้องใช้ `cryptography` package ของ python
+  ซึ่งไม่มีในระบบเปล่า ๆ — สร้าง venv ใน scratchpad ชั่วคราว (`python3 -m venv` + `pip install
+  cryptography`), HKDF salt = `merchantId.ToByteArray()` (**little-endian GUID bytes**,
+  `uuid.bytes_le` ของ python ไม่ใช่ `.bytes`), info = `pol-core/vault/kek/v1`, AES-GCM nonce 12 bytes
+  นำหน้า ciphertext+tag ต่อท้าย. ลบไฟล์ที่มี key/plaintext ออกจาก scratchpad ทันทีหลังใช้เสร็จทุกครั้ง
+  (ไม่ commit ที่ไหนเด็ดขาด).
+- **2C2P sandbox หน้าจ่ายจริงมี EMV 3DS challenge (`demo-emvacs.2c2p.com`)** — ไม่ใช่แค่กรอกบัตรจบ ต้องผ่าน
+  OTP simulator ด้วย (ค่า default `123456` ที่หน้านั้นบอกไว้ตรง ๆ) ก่อนจะ redirect กลับมาที่
+  `sandbox-pgw-ui.2c2p.com/.../info/...`.
+
+### Next Steps
+
+1. ไม่มี task ค้างในสวีตนี้ — spec-trace 46/46, ทุก commit push แล้ว (`28336b4`, `98203e2`, `262303b`)
+   บน `feat/captive-payment-alignment`, PR #140 ยัง OPEN รอ human review.
+2. lead/user verify เอง: login console `:5300` ด้วย Google (rig ด้านบนพร้อมอยู่แล้ว) → สร้าง session จริง
+   → จ่ายบน 2C2P sandbox → `./scripts/dev-2c2p-webhook.sh <connId> <sessionId>` (ต้อง export
+   `TWOCTWOP_MERCHANT_ID`/`TWOCTWOP_SECRET_KEY` เอง — ไม่มีในไฟล์ไหน).
+3. gap 25 ของ `platform-modules.md` (claim สะสางไม่จบบน `StartRedirectHandler` settle path เมื่อเหตุ
+   ขัดข้องถาวร) **ยังเปิดอยู่เหมือนเดิม** — คนละบั๊กคนละ handler กับที่แก้วันนี้ (webhook ingest), ห้าม
+   อ่านว่าปิดไปด้วย.
