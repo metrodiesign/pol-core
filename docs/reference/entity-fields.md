@@ -926,7 +926,7 @@ resolve เป็น `Guid.Empty` ซึ่งไม่มี row จริง�
 > `*PremiumAmount`/`StampAmount`/`TaxVatAmount` ถูก rename ให้ตรงชื่อ §5.2
 
 > ตัวอย่าง: migration `20260730072057` (6 แถวตัวอย่าง) + `seed-demo.sql`
-> (100 rows `e9000000-…` — เติมทุกฟิลด์เอกสารครบตามชนิดเอกสาร, `PAID` 13 แถว / `UNPAID` 87 แถว)
+> (500 rows `e9000000-…` — เติมทุกฟิลด์เอกสารครบตามชนิดเอกสาร, `PAID` 71 แถว / `UNPAID` 429 แถว)
 
 > `shop.Products` เป็น **แคตตาล็อกกลาง** — ไม่มีคอลัมน์ `MerchantId` ไม่มี query filter ต่อ merchant
 > (ต่างจากทุกตารางอื่นใน context นี้) ขอบเขตต่อ request มาจาก `SaleCode` ที่บังคับใน `productFilters`

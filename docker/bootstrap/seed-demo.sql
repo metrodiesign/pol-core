@@ -180,18 +180,18 @@ VALUES
     ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
     ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
 
--- shop.Products (REQ-5.4): 100 rows total. A Product is a document in the CENTRAL catalogue - it has no
+-- shop.Products (REQ-5.4): 500 rows total. A Product is a document in the CENTRAL catalogue - it has no
 -- MerchantId of its own, every merchant sells from the same pool and a request is scoped by SaleCode
 -- instead. A Product is a sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
 -- hand-written flagship documents below; shop.CartItems references them by id, so their ids are
--- load-bearing and must not move. The remaining 76 (ids ...19-...64 hex) are generated right after.
+-- load-bearing and must not move. The remaining 476 (ids ...19-...1f4 hex) are generated right after.
 -- 1 already-sold document per hand-written block plus every 7th generated row carries
 -- PaymentStatus = 'PAID' + a PaidDate, so both sides of the sellability gate are represented:
 -- cart add-item / checkout accept UNPAID only (products-sp-53-alignment REQ-2.1/2.4 — this used to
 -- be the IsActive = 0 axis, which no longer exists as a column).
 -- DocumentNo is globally unique (IX_Products_DocumentNo). The two INSERTs below
 -- carry only the load-bearing columns; the single UPDATE after them fills every remaining
--- document field for all 100 rows at once (see the comment on that block).
+-- document field for all 500 rows at once (see the comment on that block).
 -- TotalPremium is decimal(19,2) — Product.Create rejects a 3rd decimal place, it does not round.
 INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
                            TotalPremium, PaymentStatus, PaidDate)
@@ -221,15 +221,15 @@ VALUES
     ('e9000000-0000-4000-8000-000000000017', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900023',     'S001',  2100.00,  'UNPAID', NULL),
     ('e9000000-0000-4000-8000-000000000018', 'MISC', 'POLICY',      N'S001-69900/บต/900024',     'S001',  48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
 
--- The remaining 76 documents (ids ...19-...64 hex), taking the catalogue to 100. Deterministic
+-- The remaining 476 documents (ids ...19-...1f4 hex), taking the catalogue to 500. Deterministic
 -- throughout - the id is the row number rendered as hex (offset by the 24 above) and DocumentNo
--- embeds the same sequence, so a re-run reproduces the exact same 76 rows and the
+-- embeds the same sequence, so a re-run reproduces the exact same 476 rows and the
 -- DELETE ... LIKE 'e9000000-%' in step (ค) still reclaims every one of them. ProductGroup rotates
 -- through all four values; DocumentType rotates POLICY/RENEWAL/ENDORSEMENT only (CMI never pairs
 -- with APPLICATION per the SP guide's support matrix, and this generator keeps the invariant by
 -- simply never emitting APPLICATION).
 ;WITH seq AS (
-    SELECT TOP (76) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
+    SELECT TOP (476) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
     FROM sys.all_objects
 )
 INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
@@ -247,7 +247,7 @@ SELECT
     CASE WHEN Seq % 7 = 0 THEN DATEADD(day, -Seq, SYSUTCDATETIME()) END
 FROM seq;
 
--- Fill the remaining document fields for all 100 seeded products in one pass. Doing it here rather
+-- Fill the remaining document fields for all 500 seeded products in one pass. Doing it here rather
 -- than inside the two INSERTs keeps the rules in a single readable place and avoids hand-computing
 -- 96 premium components. Everything is derived from the row itself, so a re-run is deterministic.
 --
@@ -583,10 +583,10 @@ DECLARE @visible int = (
             AND EndDate < DATEADD(month, 2, CAST(SYSUTCDATETIME() AS date)))
         OR (DocumentType <> 'RENEWAL'
             AND StartDate >= DATEADD(month, -6, CAST(SYSUTCDATETIME() AS date)))));
-IF @visible <> 100
+IF @visible <> 500
 BEGIN
     DECLARE @windowMsg nvarchar(200) = CONCAT(
-        N'seed-demo: only ', @visible, N'/100 products fall inside the GET /products search window.');
+        N'seed-demo: only ', @visible, N'/500 products fall inside the GET /products search window.');
     THROW 51000, @windowMsg, 1;
 END
 

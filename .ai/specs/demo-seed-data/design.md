@@ -91,7 +91,7 @@ COMMIT;
 | `e6000000` | `merch.ExternalLogins` | 12 |
 | `e7000000` | `merch.RoleAssignments` | 6 |
 | `e8000000` | `txn.PspConnections` | 6 |
-| `e9000000` | `shop.Products` | 100 |
+| `e9000000` | `shop.Products` | 500 |
 | `ea000000` | `shop.Carts` | 6 |
 | `eb000000` | `shop.CartItems` | 14 |
 | `ec000000` | `shop.CheckoutSessions` | 4 |
@@ -160,7 +160,7 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 → คนแรก `merchant_manager` (`aaaaaaaa-…`), คนที่สอง `merchant_staff` (`bbbbbbbb-…`). `MerchantId` = ของ user,
 `AssignedById` = merchant user คนแรกของ merchant นั้น.
 
-**shop.Products (REQ-5.4/5.5)** — **100 แถว** ในแคตตาล็อกกลาง (ไม่มี `MerchantId` — ทุก merchant ขายจาก pool เดียวกัน, ขอบเขตต่อ request มาจาก `SaleCode`), สองชั้น:
+**shop.Products (REQ-5.4/5.5)** — **500 แถว** ในแคตตาล็อกกลาง (ไม่มี `MerchantId` — ทุก merchant ขายจาก pool เดียวกัน, ขอบเขตต่อ request มาจาก `SaleCode`), สองชั้น:
 
 > **[อัปเดต 2026-07-30]** ข้อ 1/2 ด้านล่างเขียนใหม่ตามของจริง — `Product` เป็น **เอกสารประกัน** แล้ว
 > (insurance-pivot + products-sp-53-alignment) ไม่มี `Name`/`PriceAmount`/`IsActive` อีก; คำบรรยาย
@@ -175,12 +175,12 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
    (`DocumentNo` แบบ `77001-69900/กธ/900001-10`, `S001-69900/อค/900003`, `69900/ปช/900006`; `ProductGroup`
    ครบทั้ง 4 ค่า, `DocumentType` ครบทั้ง 4 ค่า; `ShowName` เติมใน `UPDATE` ข้อ 3 ไม่ใช่ใน INSERT).
    **id ของ 24 แถวนี้ load-bearing** — `shop.CartItems` อ้างถึงตรง ๆ ห้ามขยับ
-2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก `ROW_NUMBER()` ตัวเดียว:
-   `Seq` 1-76, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
+2. **476 แถวที่เหลือ generate** (id `e9…0019`–`e9…01f4` hex) จาก `ROW_NUMBER()` ตัวเดียว:
+   `Seq` 1-476, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
    `POLICY`/`RENEWAL`/`ENDORSEMENT` ด้วย `Seq % 3` (**ไม่เคย emit `APPLICATION`** จึงไม่ชนกฎ `CMI` + `APPLICATION`),
    `DocumentNo` = `77001-69900/กธ/<910000+Seq>-10`, `TotalPremium` = `CAST(500 + Seq * 137.25 AS decimal(19,2))`.
    id = row number เรนเดอร์เป็น hex + offset 24 → deterministic, รันซ้ำได้แถวเดิมเป๊ะ และ
-   `DELETE … LIKE 'e9000000-%'` ใน (ค) ยังกวาดคืนครบทั้ง 100
+   `DELETE … LIKE 'e9000000-%'` ใน (ค) ยังกวาดคืนครบทั้ง 500
 
 `TotalPremium` DECIMAL(19,2) (ทศนิยมไม่เกิน 2 ตำแหน่ง). `PaymentStatus = 'PAID'` + `PaidDate` = 13 แถว
 (1 แถวท้ายของแต่ละ block ที่เขียนมือ + ทุกแถวที่ 7 ของชุด generate) ที่เหลือ 87 แถวเป็น `'UNPAID'`
@@ -197,7 +197,7 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
      ตัวแทนผู้ขาย (บุคคลเสมอ), `BrokerName` = บริษัทนายหน้า (คู่กับ `BrokerCode` เสมอ) — ชื่อสมมติทั้งหมด
      ห้ามใส่ชื่อบริษัทที่มีอยู่จริงลง demo data. โมดูลัสของ pool ต้อง coprime กับ 4 (7 และ 5) เพราะแถว
      generate เลือก `ProductGroup` ด้วย `Seq % 4` — pool ขนาด 4/8 จะทำให้ทุกแถว VMI ได้ชื่อเดียวกัน.
-     `ShowName` ย้ายมาเติมที่นี่ (ไม่อยู่ใน INSERT อีก) เพื่อให้ pool ของ 24 แถวมือกับ 76 แถว generate
+     `ShowName` ย้ายมาเติมที่นี่ (ไม่อยู่ใน INSERT อีก) เพื่อให้ pool ของ 24 แถวมือกับ 476 แถว generate
      เป็นชุดเดียวกัน
    - `Yr` = `'68'` ถ้า `DocumentNo` มี `68100` มิฉะนั้น `'69'` → ใช้กับ `PolicyYear`/`ReferenceYear`
      และประกอบ `PolicyNumber`/`ApplicationNumber`/`PreviousPolicyNumber`
@@ -295,8 +295,8 @@ demo ไม่แตะ `iam.*`/`cfg.*` จึงไม่กระทบ).
 | 5.1 | INSERT `merch.Users` 12 แถว ครบ 4 status + 2 PersonType (§4 merch.Users) |
 | 5.2 | INSERT `merch.ExternalLogins` 12 แถว, Subject `demo-mch-*` (§4 merch.ExternalLogins) |
 | 5.3 | INSERT `merch.RoleAssignments` 6 แถว (§4 merch.RoleAssignments) |
-| 5.4 | INSERT `shop.Products` 100 แถว แคตตาล็อกกลาง (§4 shop.Products) |
-| 5.5 | 24 แถวแรกเขียนมือ (id คงที่, CartItems อ้างถึง) + 76 แถว generate จาก plan-line x tier (§4 shop.Products) |
+| 5.4 | INSERT `shop.Products` 500 แถว แคตตาล็อกกลาง (§4 shop.Products) |
+| 5.5 | 24 แถวแรกเขียนมือ (id คงที่, CartItems อ้างถึง) + 476 แถว generate จาก plan-line x tier (§4 shop.Products) |
 | 5.6 | `UPDATE` ก้อนเดียวเติม 23 คอลัมน์ + assertion ฟิลด์ครบ/ยอดบวกกลับตรง (§4 shop.Products ข้อ 3) |
 | 5.7 | วันที่อิง `SYSUTCDATETIME()` ให้ตก search window + assertion นับ 100/100 (§4 shop.Products ข้อ 3) |
 | 6.1 | INSERT `shop.Carts` 6 + `shop.CartItems` 14 (§4 shop.Carts + CartItems) |

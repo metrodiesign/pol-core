@@ -97,7 +97,7 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
 - 5.3 THE SYSTEM SHALL seed `merch.RoleAssignments` ผูก merchant user ที่ `Status = 1` (Active) ไปยัง
   role ที่ migration seed ไว้ (`merchant_manager` = `aaaaaaaa-…`, `merchant_staff` = `bbbbbbbb-…`)
   พร้อม `MerchantId` ของ user นั้น.
-- 5.4 THE SYSTEM SHALL seed `shop.Products` 100 แถว ในแคตตาล็อกกลาง (ไม่มีคอลัมน์ `MerchantId`) เป็นเอกสารประกันที่อ่านแล้ว
+- 5.4 THE SYSTEM SHALL seed `shop.Products` 500 แถว ในแคตตาล็อกกลาง (ไม่มีคอลัมน์ `MerchantId`) เป็นเอกสารประกันที่อ่านแล้ว
   เข้าใจว่าเป็นข้อมูลจริงของธุรกิจ, `DocumentNo` ไม่ซ้ำทั้งระบบ, `TotalPremium` เป็น
   `DECIMAL(19,2)` (ทศนิยมไม่เกิน 2 ตำแหน่ง — `Product.Create` throw ไม่ปัดให้) และมีทั้งเอกสารที่ยัง
   ขายได้ (`PaymentStatus = 'UNPAID'`) และเอกสารที่ขายไม่ได้แล้ว (`PaymentStatus = 'PAID'` + `PaidDate`
@@ -106,7 +106,7 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
 - 5.5 WHERE จำนวนสินค้ามากเกินกว่าจะเขียนมือทีละแถว THE SYSTEM SHALL generate ส่วนที่เหลือแบบ
   deterministic (plan-line x tier cross join + row number -> id) — id ของ 24 แถวแรกที่ `shop.CartItems`
   อ้างถึงต้องไม่ขยับ.
-- 5.6 THE SYSTEM SHALL เติมฟิลด์เอกสารของทั้ง 100 แถวให้ครบตามชนิดเอกสาร — ฟิลด์อ้างอิง
+- 5.6 THE SYSTEM SHALL เติมฟิลด์เอกสารของทั้ง 500 แถวให้ครบตามชนิดเอกสาร — ฟิลด์อ้างอิง
   (`PolicyYear`/`ReferenceYear`/`ReferenceBranch`/`PolicySequenceNo`/`ReferenceNo`), ฝ่ายขาย/นายหน้า/สาขา
   (`SaleFullName`/`BrokerCode`/`BrokerName`/`PolicyBranch`), ชื่อผู้เอาประกัน (`ShowName`) และยอดเงินย่อย
   (`NetPremium`/`Stamp`/`TaxVat`/`CommissionPercent`/`CommissionAmount`) ต้องมีค่าทุกแถว; ที่เหลือ
@@ -119,7 +119,7 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
   ประกันที่มีอยู่จริง. ค่าคีย์อื่นในเอกสาร (`SaleCode`, รหัสสาขา, `BrokerCode`, `PolicyType`, ตัวย่อ
   ใน `DocumentNo`) ต้องเป็นค่าสมมติเช่นกัน — ห้ามคัดลอกค่าที่ใช้จริงในระบบต้นทาง `motordb`
   ลงมาใน seed แม้จะทำให้ demo ดูเหมือน prod มากขึ้นก็ตาม; เลียนได้แค่รูปแบบ.
-- 5.7 THE SYSTEM SHALL ตั้ง `StartDate`/`EndDate` ของทั้ง 100 แถวให้ตกใน search window ของ
+- 5.7 THE SYSTEM SHALL ตั้ง `StartDate`/`EndDate` ของทั้ง 500 แถวให้ตกใน search window ของ
   `ProductRepository.SearchAsync` (RENEWAL -> `EndDate` ใน 2 เดือนข้างหน้า, ที่เหลือ -> `StartDate`
   ภายใน 6 เดือนย้อนหลัง) โดยอิง `SYSUTCDATETIME()` ณ เวลา seed — วันที่ NULL หรือ hardcode ไว้
   ทำให้ `GET /products` คืน 0 แถวไม่ว่าจะส่ง filter อะไร.
