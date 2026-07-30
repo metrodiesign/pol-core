@@ -168,7 +168,7 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 
 1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex) — เอกสารตัวอย่างที่อ่านแล้วเป็นข้อมูลจริง
    (`DocumentNo` แบบ `00098-69100/กธ/900001-10`, `S001-69100/อค/900003`, `69100/สล/900006`; `ProductGroup`
-   ครบทั้ง 4 ค่า, `DocumentType` ครบทั้ง 4 ค่า, `ShowName` = ชื่อผู้เอาประกันตัวอย่าง).
+   ครบทั้ง 4 ค่า, `DocumentType` ครบทั้ง 4 ค่า; `ShowName` เติมใน `UPDATE` ข้อ 3 ไม่ใช่ใน INSERT).
    **id ของ 24 แถวนี้ load-bearing** — `shop.CartItems` อ้างถึงตรง ๆ ห้ามขยับ
 2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก `ROW_NUMBER()` ตัวเดียว:
    `Seq` 1-76, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
@@ -186,7 +186,14 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
    ไว้ที่เดียว ไม่ต้องแก้ literal 24 แถว x 23 ค่า และไม่ต้องคำนวณยอดเงินด้วยมือ. ทุกค่า derive จาก
    ตัวแถวเองผ่าน `CROSS APPLY` จึง deterministic:
    - `Seq` = เลขท้าย `DocumentNo` (ตัดหลัง `/` ตัวสุดท้าย แล้ว `REPLACE('-10','')`) ใช้หมุน pool
-     ชื่อผู้ขาย 6 / นายหน้า 4 / สาขา 6 / ตัวอักษรทะเบียน 6 → ค่าหลากหลายต่อแถว
+     ผู้เอาประกัน 7+7 / ชื่อผู้ขาย 6 / นายหน้า 5 / สาขา 6 / ตัวอักษรทะเบียน 6 → ค่าหลากหลายต่อแถว
+   - **สามชื่อมาจากคนละ pool** เพราะเป็นคนละฝ่าย: `ShowName` = ผู้เอาประกัน (CMI/VMI เป็นบุคคลธรรมดา
+     ให้เข้าคู่กับ `LicensePlateNumber`, FIRE/MISC เป็นนิติบุคคลตามลักษณะธุรกิจจริง), `SaleFullName` =
+     ตัวแทนผู้ขาย (บุคคลเสมอ), `BrokerName` = บริษัทนายหน้า (คู่กับ `BrokerCode` เสมอ) — ชื่อสมมติทั้งหมด
+     ห้ามใส่ชื่อบริษัทที่มีอยู่จริงลง demo data. โมดูลัสของ pool ต้อง coprime กับ 4 (7 และ 5) เพราะแถว
+     generate เลือก `ProductGroup` ด้วย `Seq % 4` — pool ขนาด 4/8 จะทำให้ทุกแถว VMI ได้ชื่อเดียวกัน.
+     `ShowName` ย้ายมาเติมที่นี่ (ไม่อยู่ใน INSERT อีก) เพื่อให้ pool ของ 24 แถวมือกับ 76 แถว generate
+     เป็นชุดเดียวกัน
    - `Yr` = `'68'` ถ้า `DocumentNo` มี `68100` มิฉะนั้น `'69'` → ใช้กับ `PolicyYear`/`ReferenceYear`
      และประกอบ `PolicyNumber`/`ApplicationNumber`/`PreviousPolicyNumber`
    - `ReferencePre` = `'100'` เฉพาะ ENDORSEMENT (บน SP จริง ReferencePre เป็นรหัสสาขาของเลขอ้างอิง

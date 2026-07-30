@@ -108,11 +108,15 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
   อ้างถึงต้องไม่ขยับ.
 - 5.6 THE SYSTEM SHALL เติมฟิลด์เอกสารของทั้ง 100 แถวให้ครบตามชนิดเอกสาร — ฟิลด์อ้างอิง
   (`PolicyYear`/`ReferenceYear`/`ReferenceBranch`/`PolicySequenceNo`/`ReferenceNo`), ฝ่ายขาย/นายหน้า/สาขา
-  (`SaleFullName`/`BrokerCode`/`BrokerName`/`PolicyBranch`) และยอดเงินย่อย
+  (`SaleFullName`/`BrokerCode`/`BrokerName`/`PolicyBranch`), ชื่อผู้เอาประกัน (`ShowName`) และยอดเงินย่อย
   (`NetPremium`/`Stamp`/`TaxVat`/`CommissionPercent`/`CommissionAmount`) ต้องมีค่าทุกแถว; ที่เหลือ
   (`ReferencePre`, `PolicyType`, `LicensePlateNumber`, `PolicyNumber`/`ApplicationNumber`/
   `PreviousPolicyNumber`/`EndorsementNumber`) เป็น NULL ได้เฉพาะตามชนิดเอกสาร/ProductGroup.
   `NetPremium + Stamp + TaxVat` ต้องเท่ากับ `TotalPremium` พอดี.
+  `ShowName`/`SaleFullName`/`BrokerName` เป็นคนละฝ่ายกัน (ผู้เอาประกัน / ตัวแทนผู้ขาย / บริษัทนายหน้า)
+  จึงต้องมาจากคนละ pool และเป็นชื่อที่สมจริงแบบธุรกิจประกันภัยไทย — เอกสารรถ (`CMI`/`VMI`) ผู้เอาประกัน
+  เป็นบุคคลธรรมดา, `FIRE`/`MISC` เป็นนิติบุคคล; ทุกชื่อเป็นชื่อสมมติ ห้ามใช้ชื่อบริษัทนายหน้า/ผู้รับ
+  ประกันที่มีอยู่จริง.
 - 5.7 THE SYSTEM SHALL ตั้ง `StartDate`/`EndDate` ของทั้ง 100 แถวให้ตกใน search window ของ
   `ProductRepository.SearchAsync` (RENEWAL -> `EndDate` ใน 2 เดือนข้างหน้า, ที่เหลือ -> `StartDate`
   ภายใน 6 เดือนย้อนหลัง) โดยอิง `SYSUTCDATETIME()` ณ เวลา seed — วันที่ NULL หรือ hardcode ไว้
