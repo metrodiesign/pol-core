@@ -26,7 +26,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T2 | Domain: `Product.cs`, `ProductInput.cs` | เสร็จ |
 | T3 | Application: read model, `ProductFilterDto`, query, ลบ dead code | เสร็จ |
 | T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | เสร็จ |
-| T5 | EF config ×2 + migration ใหม่ + snapshot | รอ |
+| T5 | EF config ×2 + migration ใหม่ + snapshot | เสร็จ |
 | T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | รอ |
 | T7 | cap 25 ทั้ง repo + SFS docs/spec | รอ |
 | T8 | tests ทั้งชุด → build+test เขียว | รอ |
@@ -584,3 +584,127 @@ internal sealed record CreateProductRequest(
    **ไม่เข้า** — ถ้าเจ้าของ SP บอกว่าต้อง inclusive ให้เปลี่ยนเป็น `<=` บรรทัดเดียว
 
 commit ของ T4: `3bf4e11`
+
+---
+
+## T5 — EF + migration (เสร็จ)
+
+แตะ 5 ไฟล์: `src/Modules/Products/Products.Infrastructure/ProductConfiguration.cs`,
+`src/Persistence/Persistence.MerchantRuntime/Products/ProductConfiguration.cs`,
+migration ใหม่ + designer + `PolDbContextModelSnapshot.cs`
+
+### migration
+
+`src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260730113459_ProductsSp52Alignment.cs`
+(+ `.Designer.cs`) — timestamp `20260730113459` ใหม่กว่า `20260730081227_CheckoutChainDocumentFields`
+
+`Up()` ตามลำดับจริงในไฟล์:
+
+1. `DropIndex IX_Products_MerchantId_IsActive`
+2. `DropColumn` x8: `BranchCode`, `IsActive`, `CreatedAt`, `TotalPremiumCurrency`,
+   `NetPremiumCurrency`, `StampCurrency`, `TaxVatCurrency`, `CommissionCurrency`
+3. `RenameColumn` x4: `TotalPremiumAmount`->`TotalPremium`, `NetPremiumAmount`->`NetPremium`,
+   `StampAmount`->`Stamp`, `TaxVatAmount`->`TaxVat`
+4. `AlterColumn` `decimal(19,4)` -> `decimal(19,2)` x5: 4 ตัวที่ rename (`TotalPremium` non-null,
+   อีก 3 ตัว nullable) + `CommissionAmount` (**ไม่ rename** ชื่อคอลัมน์ตรง §5.2 อยู่แล้ว)
+
+`CommissionPercent` `decimal(19,6)` ไม่ถูกแตะเลย; **ไม่มี `DropTable`** ⇒ ไม่ต้อง re-GRANT
+(ยืนยันหลัง fresh replay: `pol_app` ยังมี `SELECT,INSERT,UPDATE,DELETE` บน `shop.Products`)
+
+`Down()`: `RenameColumn` กลับ 4 -> `AlterColumn` กลับ `(19,4)` x5 -> `AddColumn` x8 (default
+`''`/`0`/`0001-01-01` ตามที่ scaffolder ให้) -> `CreateIndex IX_Products_MerchantId_IsActive`
+
+### EF config ทั้ง 2 ไฟล์ — mapping ค่าเงินสุดท้าย
+
+```csharp
+builder.Property(x => x.TotalPremium).HasPrecision(19, 2).IsRequired();
+builder.Property(x => x.NetPremium).HasPrecision(19, 2);
+builder.Property(x => x.Stamp).HasPrecision(19, 2);
+builder.Property(x => x.TaxVat).HasPrecision(19, 2);
+builder.Property(x => x.CommissionAmount).HasPrecision(19, 2);
+builder.Property(x => x.CommissionPercent).HasPrecision(19, 6);
+builder.Ignore(x => x.InsuranceType);
+```
+
+- **ไม่มี `HasColumnName` เหลือเลย** — ชื่อ CLR = ชื่อคอลัมน์ทั้ง 5 ตัวหลัง T2 (รวม `CommissionAmount`)
+- `builder.Ignore` เหลือแค่ `InsuranceType` ตัวเดียว (computed Money 4 ตัวหายไปพร้อม T2)
+- `ComplexProperty` หายทั้งสองไฟล์ ⇒ ไม่มี Money complex type บน `Product` แล้ว
+  (`MoneyColumnMappingTests` ของ T8 ต้องเลิกนับ `Product` เป็น Money owner)
+- `diff` บรรทัด `Property|HasIndex|Ignore` ระหว่างสองไฟล์: ต่างแค่ comment เรื่อง named `HasIndex`
+  ⇒ mirror ตรงกันเป๊ะ
+
+### ผลลัพธ์คอลัมน์จริง (fresh replay จาก DB เปล่า)
+
+`docker compose down -v && docker compose up -d` (bootstrap `01-principals.sql` สร้าง `VCentralPay`
++ `pol_app` ให้) แล้ว `dotnet ef database update` -> apply migration ทั้ง 27 ตัวผ่าน
+
+`INFORMATION_SCHEMA.COLUMNS` บน `shop.Products` = **33 คอลัมน์**:
+`Id`, `MerchantId`, `ProductGroup varchar(10)`, `DocumentType varchar(20)`, `DocumentNo nvarchar(150)`,
+`PolicyYear`, `ReferenceBranch`, `ReferencePre`, `PolicySequenceNo`, `ReferenceYear`, `ReferenceNo`,
+`SaleCode varchar(20) NOT NULL`, `SaleFullName`, `BrokerCode`, `BrokerName`, `PolicyBranch`,
+`PolicyType`, `PolicyNumber`, `ApplicationNumber`, `PreviousPolicyNumber`, `EndorsementNumber`,
+`StartDate datetime2`, `EndDate datetime2`, `ShowName`, `LicensePlateNumber`,
+`TotalPremium decimal(19,2) NOT NULL`, `NetPremium decimal(19,2) NULL`, `Stamp decimal(19,2) NULL`,
+`TaxVat decimal(19,2) NULL`, `CommissionAmount decimal(19,2) NULL`,
+`CommissionPercent decimal(19,6) NULL`, `PaymentStatus varchar(10) NOT NULL`, `PaidDate datetime2 NULL`
+
+- คอลัมน์ที่ต้องหาย 8 + ชื่อเก่า 4 (`*Amount`): query `WHERE COLUMN_NAME IN (...)` คืน `none`
+- index เหลือ 3: `PK_Products`, `IX_Products_MerchantId_PaymentStatus`,
+  unique `IX_Products_MerchantId_DocumentNo` (ตัวที่ทำให้ `OrderBy(DocumentNo)` ของ T4 index-backed)
+- EF seed 6 แถวใน `20260730072057` รันก่อน migration นี้จึงไม่พัง — ยืนยันด้วยการ replay จริง
+  ไม่ใช่แค่ build
+
+### round-trip Down/Up (REQ-10.3)
+
+`dotnet ef database update 20260730081227_CheckoutChainDocumentFields` -> `Reverting...Done`,
+คอลัมน์กลับเป็น **41 ตัว** คืนครบ 12 (8 ที่ drop + 4 ชื่อเก่า) + `IX_Products_MerchantId_IsActive`
+กลับมา; แล้ว `dotnet ef database update` อีกครั้ง -> กลับสภาพ 33 คอลัมน์ `SUM(TotalPremium)` เท่าเดิม
+
+**ข้อจำกัดที่ยอมรับ**: `Down()` คืนรูปร่างครบ แต่ **ค่า** ใน 8 คอลัมน์ที่ drop คืนไม่ได้
+(`BranchCode`=`''`, `IsActive`=`0`, `CreatedAt`=`0001-01-01`, currency=`''`/NULL) — ธรรมชาติของ
+rollback หลัง `DROP COLUMN` ไม่ใช่ข้อบกพร่องของ migration
+
+### gate / build
+
+- `bash scripts/check-migration-lineage.sh` -> `Migration lineage gate OK — all 4 existing migration
+  IDs discoverable via PolDbContext.`
+- `dotnet ef migrations has-pending-model-changes` -> `No changes have been made to the model since
+  the last migration.`
+- `rtk proxy dotnet build src/Hosts/Api` -> `Build succeeded.` 0 error 0 warning
+- `rtk proxy dotnet build pol-core.slnx` -> **`src/` 0 error**; ที่เหลือ 192 error อยู่ใน `tests/`
+  ทั้งหมด (ของ T8):
+
+| ไฟล์ | error |
+|---|---|
+| `tests/Products.Tests/ProductTests.cs` | 68 |
+| `tests/Architecture.Tests/ProductSfsTests.cs` | 42 |
+| `tests/Architecture.Tests/ProductRepositoryListTests.cs` | 24 |
+| `tests/Hosts.Tests/InsuranceCheckoutEndToEndTests.cs` | 16 |
+| `tests/Hosts.Tests/WorkerWriteFloorTests.cs` | 12 |
+| `tests/Hosts.Tests/ProductInsuranceFieldsRoundTripTests.cs` | 12 |
+| `tests/Products.Tests/DocumentPaidOnOrderPaidConsumerTests.cs` | 8 |
+| `tests/Architecture.Tests/WriteFloorTests.cs` | 4 |
+| `tests/Architecture.Tests/ReadFloorTests.cs` | 4 |
+| `tests/Products.Tests/ProductFilterDtoTests.cs` | 2 |
+
+หมายเหตุให้ T8: `tests/Hosts.Tests/WorkerWriteFloorTests.cs` **ไม่อยู่ในรายการที่ T2 คาดไว้**
+(เพิ่งโผล่ตอน tests เริ่ม compile ได้) และ `tests/Architecture.Tests/MoneyColumnMappingTests.cs`
+กลับ **ไม่มี** error ตอน compile — แต่มันตรวจ Money mapping ตอน runtime จึงน่าจะแดงตอนรัน
+เพราะ `Product` เลิกเป็น Money owner แล้ว
+
+### กับดักที่เจอ
+
+1. **scaffolder ไม่เดา rename ให้** — `dotnet ef migrations add` emit `DropColumn` + `AddColumn`
+   สำหรับ 4 คอลัมน์ที่ต้อง rename (ข้อมูล premium จะหายทั้งตาราง) ⇒ ต้องแก้ `Up()`/`Down()`
+   ของ migration **ใหม่** เป็น `RenameColumn` ด้วยมือ (แก้ไฟล์ใหม่ได้ ห้ามแตะไฟล์เก่า) แล้ว
+   ปล่อย designer/snapshot เป็นของ `dotnet ef` ทั้งหมด — ตรวจว่าได้ผลด้วย
+   `SUM(TotalPremium)` ก่อน/หลัง apply บน DB ที่มีข้อมูลจริง (37339.71 เท่ากัน) ไม่ใช่แค่ดู build
+2. **ลำดับใน `Down()` ต้อง rename กลับ *ก่อน* `AlterColumn`** — `AlterColumn` อ้างชื่อคอลัมน์
+   ที่มีอยู่ ณ ขณะนั้น ถ้าสลับลำดับจะพังตอน rollback (ต้องรัน `database update <ตัวก่อนหน้า>`
+   จริงเพื่อยืนยัน ไม่มีทางรู้จาก build)
+3. **`.env` อ่านด้วย Read/`cat` ไม่ได้ แต่ `set -a && . ./.env && set +a` ใน Bash call เดียวกับ
+   `dotnet ef` ทำงานได้** — ต้องอยู่ call เดียวกันเพราะ shell state ไม่ข้าม call
+4. `dotnet ef database update` ที่ไม่ระบุ target ใช้ connection จาก `POL_DESIGN_SQL` (`sa`) —
+   `pol_app` ไม่มีสิทธิ์ DDL
+5. **dev DB ตอนนี้เป็น DB สดที่ยังไม่ seed-demo** (T5 ทำ `down -v` เพื่อ replay ตามบรีฟ) ⇒
+   T6 ต้องรัน `docker/bootstrap/seed-demo.sql` เองบน DB ตัวนี้; ใครที่พึ่ง demo data ก็เช่นกัน

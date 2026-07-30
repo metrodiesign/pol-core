@@ -31,7 +31,6 @@ internal sealed class ProductConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.ReferenceYear).HasMaxLength(2).IsUnicode(false);
         builder.Property(x => x.ReferenceNo).HasMaxLength(30).IsUnicode(false);
 
-        builder.Property(x => x.BranchCode).HasMaxLength(3).IsUnicode(false).IsRequired();
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false).IsRequired();
         builder.Property(x => x.SaleFullName).HasMaxLength(500);
         builder.Property(x => x.BrokerCode).HasMaxLength(20).IsUnicode(false);
@@ -49,34 +48,17 @@ internal sealed class ProductConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.ShowName).HasMaxLength(500);
         builder.Property(x => x.LicensePlateNumber).HasMaxLength(100);
 
-        builder.ComplexProperty(x => x.TotalPremium, p =>
-        {
-            p.Property(m => m.Amount).HasColumnName("TotalPremiumAmount").HasPrecision(19, 4);
-            p.Property(m => m.Currency).HasColumnName("TotalPremiumCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        });
-
-        builder.Property(x => x.NetPremiumAmount).HasPrecision(19, 4);
-        builder.Property(x => x.NetPremiumCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.StampAmount).HasPrecision(19, 4);
-        builder.Property(x => x.StampCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.TaxVatAmount).HasPrecision(19, 4);
-        builder.Property(x => x.TaxVatCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.CommissionAmountAmount).HasColumnName("CommissionAmount").HasPrecision(19, 4);
-        builder.Property(x => x.CommissionAmountCurrency).HasColumnName("CommissionCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        builder.Property(x => x.TotalPremium).HasPrecision(19, 2).IsRequired();
+        builder.Property(x => x.NetPremium).HasPrecision(19, 2);
+        builder.Property(x => x.Stamp).HasPrecision(19, 2);
+        builder.Property(x => x.TaxVat).HasPrecision(19, 2);
+        builder.Property(x => x.CommissionAmount).HasPrecision(19, 2);
         builder.Property(x => x.CommissionPercent).HasPrecision(19, 6);
-        builder.Ignore(x => x.NetPremium);
-        builder.Ignore(x => x.Stamp);
-        builder.Ignore(x => x.TaxVat);
-        builder.Ignore(x => x.CommissionAmount);
         builder.Ignore(x => x.InsuranceType);
 
         builder.Property(x => x.PaymentStatus).HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.PaidDate).HasPrecision(0);
 
-        builder.Property(x => x.IsActive).IsRequired();
-        builder.Property(x => x.CreatedAt).IsRequired();
-
-        builder.HasIndex(x => new { x.MerchantId, x.IsActive }, "IX_Products_MerchantId_IsActive");
         builder.HasIndex(x => new { x.MerchantId, x.PaymentStatus }, "IX_Products_MerchantId_PaymentStatus");
         builder.HasIndex(x => new { x.MerchantId, x.DocumentNo }, "IX_Products_MerchantId_DocumentNo").IsUnique();
     }
