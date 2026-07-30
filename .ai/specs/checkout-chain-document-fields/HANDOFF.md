@@ -139,3 +139,26 @@ Rolling handoff — teammate ทุกคน **append หัวข้อให�
 2. **spec-trace ของ spec นี้ไม่ได้ตรวจจริง**: `spec_trace.py` ต้องการหัวข้อ `## REQ-N:` แต่ `requirements.md` เขียนเป็น `### REQ-N —` จึงเข้า branch "ข้ามการตรวจ" แล้ว exit 0. ทำให้ traceability ของ spec นี้ **ไม่เคยถูก verify แบบ deterministic**. ไม่แก้เองเพราะการทำให้ตรวจจริงต้อง (ก) เปลี่ยน heading เป็น `## REQ-N: <title>` และ (ข) reword criteria 3.3/5.3/6.1/6.2/6.3 ที่ไม่มี `THE SYSTEM SHALL`/WHEN/WHILE/WHERE/IF-THEN ให้ผ่าน EARS lint — เป็นการแก้เนื้อหา spec ที่อนุมัติแล้ว ต้องให้ lead ตัดสิน
 
 **สถานะปิดงาน**: Task 1-5 เสร็จครบ, working tree สะอาด, branch push แล้ว, PR #143 body อัปเดตเพิ่มหัวข้อ "Chain rework (ถอด bridge)" และลบหมายเหตุเดิมที่บอกว่า `ProductView` ยังคง bridge ไว้ — **ไม่ merge** ตามคำสั่ง
+
+## chain-t6 — Task 6: Mark เอกสารเป็น PAID เมื่อ order paid (Codex F2) (2026-07-30)
+
+**สิ่งที่ทำ**: wire `Product.MarkPaid` ให้ถูกเรียกจริงตอน order จ่ายสำเร็จ ผ่าน chained outbox event ตาม Option A — order paid -> `OrderPaidConsumer` enqueue `Contracts.OrderPaid` -> Products' `DocumentPaidOnOrderPaidConsumer` mark แต่ละ product PAID + inactive
+
+**ไฟล์ที่แตะ** (10):
+- `src/Contracts/OrderPaid.cs` (ใหม่) — `sealed record OrderPaid(Guid MerchantId, IReadOnlyList<Guid> ProductIds, DateTime OccurredAt) : INotification` + `SchemaVersion`
+- `src/Modules/Orders/Orders.Application/OrderPaidConsumer.cs` — inject `IOutbox`; หลัง `MarkPaid` true enqueue `Contracts.OrderPaid(order.MerchantId, order.Items.Select(i => i.ProductId).ToList(), notification.OccurredAt)` ก่อน SaveChanges
+- `src/Modules/Products/Products.Application/DocumentPaidOnOrderPaidConsumer.cs` (ใหม่, consumer ตัวแรกของ module) — loop ProductIds -> `GetAsync` -> skip ถ้า null/merchant อื่น -> `MarkPaid` -> SaveChanges ครั้งเดียว (defensive at-least-once, idempotent)
+- `src/Persistence/Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs` — add `[nameof(Contracts.OrderPaid)] = typeof(Contracts.OrderPaid)`
+- `src/Hosts/Api/BackgroundDispatch/WorkerWriteAuthorizer.cs` — allow Update บน `Product` + allow Insert บน `OutboxMessage` (ดูกับดัก 2)
+- tests: `Orders.Tests/OrderPaidConsumerTests.cs` (ctor +IOutbox ทุกจุด + assert enqueue/no-enqueue), `Hosts.Tests/WorkerWriteAuthorizerTests.cs`, `Hosts.Tests/WorkerWriteFloorTests.cs`, `Hosts.Tests/InsuranceCheckoutEndToEndTests.cs`, `Products.Tests/DocumentPaidOnOrderPaidConsumerTests.cs` (ใหม่)
+
+**สถานะ build/test**: `dotnet build pol-core.slnx -warnaserror` 64/0/0; Orders 76, Products 36, Payments 162, Hosts 358, Architecture 229, Integration 47 — เขียวหมด; spec-trace = **real pass 21 เกณฑ์** (ไม่ใช่ skip แล้ว — lead แก้ heading `## REQ-N:` ตามที่ chain-t5 ฝากไว้)
+
+**ผลเรื่อง GetAsync include Items**: `OrderRepository.GetAsync` (Persistence.MerchantRuntime/Orders/OrderRepository.cs:20) มี `.Include(o => o.Items)` อยู่แล้ว — ProductIds ไม่ว่าง **ไม่ต้องแก้ repository** และไม่กระทบ caller อื่น (มี caller เดียวคือ OrderPaidConsumer; ListAsync ก็ include อยู่แล้ว)
+
+**กับดักที่เจอจริง**:
+1. **name collision `OrderPaid`**: มี `Orders.Domain.OrderPaid` (domain event) อยู่ก่อนแล้ว — ไฟล์ที่ import ทั้ง `Contracts` + `Orders.Domain` (`OrderPaidConsumerTests`, `WorkerWriteFloorTests`, `InsuranceCheckoutEndToEndTests`) จะ ambiguous ทันทีที่เพิ่ม `Contracts.OrderPaid`; ต้อง fully-qualify `Contracts.OrderPaid` / `Orders.Domain.OrderPaid` ทุกจุด (ใน production consumer ก็ qualify `Contracts.OrderPaid` กันพลาด)
+2. **root cause เพิ่มที่ design ไม่ได้ระบุ — `OutboxMessage` Insert โดน worker floor block**: `OrderPaidConsumer` รัน mid-drain (dispatch จาก outbox) แล้ว enqueue event ใหม่ = **Insert `OutboxMessage` ใต้ `WorkerWriteAuthorizer`** ซึ่งเดิม allow แค่ Update -> `WriteGuardException`. นี่คือ **latent bug ที่มีอยู่ก่อนแล้ว**: `CheckoutConfirmedConsumer` recipient path enqueue `CustomerOrderNotification` mid-drain แบบเดียวกัน แต่ไม่เคยมี test คลุม (E2E ใช้ `Recipient: null` ตลอด) จึงไม่เคยถูกจับ. แก้ที่ root: allow Insert `OutboxMessage` (chained enqueue ยัง merchant-scoped ผ่าน EfOutbox ที่ stamp merchant ของ message ที่กำลัง drain — ไม่เพิ่ม cross-merchant exposure); Delete ยัง deny; `MerchantUserOutbox` insert ยัง deny (ไม่มี chained enqueue). อัปเดต test `Worker_denies_insert_and_delete_on_the_outbox` -> `Worker_allows_insert_but_denies_delete_on_the_runtime_outbox` + เพิ่มเคส MerchantUserOutbox
+3. `dotnet test a b c` ใน call เดียว = MSB1008 — วนทีละ suite (ยืนยันกับดักเดิม)
+
+**สิ่งที่คนถัดไปต้องรู้**: chain outbox pattern ตอนนี้พิสูจน์ครบ 3 ชั้น (unit consumer + real worker floor + E2E). ถ้าเพิ่ม consumer ที่ enqueue event ใหม่ mid-drain อีก ให้เช็คว่า entity ที่มัน insert/update อยู่ใน allowlist ของ `WorkerWriteAuthorizer` แล้ว (OutboxMessage Insert เปิดแล้ว ครอบ chained event ทุกตัวในอนาคต)

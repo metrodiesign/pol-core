@@ -22,11 +22,13 @@ namespace Orders.Application;
 public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
 {
     private readonly IOrderRepository _orders;
+    private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
 
-    public OrderPaidConsumer(IOrderRepository orders, IUnitOfWork unitOfWork)
+    public OrderPaidConsumer(IOrderRepository orders, IOutbox outbox, IUnitOfWork unitOfWork)
     {
         _orders = orders;
+        _outbox = outbox;
         _unitOfWork = unitOfWork;
     }
 
@@ -51,6 +53,14 @@ public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
         // ponytail: replay (already Paid) is a deliberate skip — see logging note above.
         if (!transitioned)
             return;
+
+        // Enqueue OrderPaid in the SAME unit of work as MarkPaid (transactional outbox), so the Products
+        // module can retire each sold document out-of-band. Only on a real transition, so a replayed
+        // PaymentPaid never re-enqueues. Fully qualified: Orders.Domain also has an OrderPaid domain event.
+        _outbox.Enqueue(new Contracts.OrderPaid(
+            order.MerchantId,
+            order.Items.Select(i => i.ProductId).ToList(),
+            notification.OccurredAt));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

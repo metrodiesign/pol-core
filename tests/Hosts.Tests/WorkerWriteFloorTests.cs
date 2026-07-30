@@ -5,15 +5,20 @@ using BuildingBlocks.Infrastructure;
 using Contracts;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application;
 using Orders.Domain;
 using Orders.Domain.Items;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Orders;
 using Persistence.MerchantRuntime.Outbox;
+using Persistence.MerchantRuntime.Products;
+using Products.Application;
+using Products.Domain;
 using SharedKernel;
 using OrderAggregate = Orders.Domain.Order;
 using OrderItem = Orders.Domain.Items.Item;
+using ProductAggregate = Products.Domain.Product;
 
 namespace Hosts.Tests;
 
@@ -62,6 +67,13 @@ public sealed class WorkerWriteFloorTests : IDisposable
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
             FakeActor.For(MerchantA), new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer(), NoOpSecurityTelemetry.Instance);
 
+    // Api-request floor (allows the bound merchant's Insert) — used only to SEED a Product row before the
+    // Worker floor's Update is exercised; the Worker floor denies Product Insert on purpose.
+    private MerchantRuntimeDbContext ApiContext() =>
+        new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
+            FakeActor.For(MerchantA), new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(FakeActor.For(MerchantA)),
+            NoOpSecurityTelemetry.Instance);
+
     [Fact]
     public async Task CheckoutConfirmed_insert_and_subsequent_MarkPaid_update_both_survive_the_real_Worker_write_floor()
     {
@@ -94,6 +106,34 @@ public sealed class WorkerWriteFloorTests : IDisposable
         Assert.Equal(OrderStatus.Paid, paid.Status);
         var item = await verify.Set<OrderItem>().SingleAsync(i => i.OrderId == paid.Id);
         Assert.Equal(Product, item.ProductId);
+    }
+
+    [Fact] // REQ-7.2/7.3 — DocumentPaidOnOrderPaidConsumer's Product.MarkPaid update survives the real Worker floor.
+    public async Task OrderPaid_marks_the_product_PAID_through_the_real_Worker_write_floor()
+    {
+        Guid productId;
+        using (var db = ApiContext())
+        {
+            productId = await new CreateProductHandler(
+                    new ProductRepository(db, NullLogger<ProductRepository>.Instance),
+                    new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock())
+                .Handle(new CreateProductCommand(new ProductInput(
+                    MerchantA, ProductGroup.VMI, DocumentType.POLICY,
+                    "00098-69100/กธ/900001-10", "100", "00098", Money.Of(2500m, "THB"))), CancellationToken.None);
+        }
+
+        using (var db = NewContext())
+        {
+            var consumer = new DocumentPaidOnOrderPaidConsumer(
+                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+            await consumer.Handle(new Contracts.OrderPaid(MerchantA, [productId], DateTime.UtcNow), CancellationToken.None);
+        }
+
+        using var verify = NewContext();
+        var product = await verify.Set<ProductAggregate>().SingleAsync(p => p.Id == productId);
+        Assert.Equal(PaymentStatus.PAID, product.PaymentStatus);
+        Assert.False(product.IsActive);
     }
 
     [Fact]

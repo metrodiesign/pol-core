@@ -155,13 +155,29 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
 
         Guid orderId;
         string summaryToken;
+        Contracts.OrderPaid orderPaid;
         using (var db = WorkerContext())
         {
-            var order = await db.Set<OrderAggregate>().SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
-            order.MarkPaid(order.Amount, DateTime.UtcNow);
-            await db.SaveChangesAsync();
+            var order = await db.Set<OrderAggregate>().Include(o => o.Items).SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
+            var outbox = new CapturingOutbox(new EfOutbox(db, new SystemClock(), FakeActor.For(MerchantA)));
+            var consumer = new OrderPaidConsumer(
+                new OrderRepository(db), outbox, new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+            // Real PaymentPaid -> OrderPaidConsumer path (REQ-7.1): MarkPaid + enqueue OrderPaid in one UoW.
+            var paymentPaid = new PaymentPaid(
+                Guid.NewGuid(), order.Id, MerchantA, order.Amount, "2c2p", "chg_e2e", "evt_e2e", DateTime.UtcNow);
+            await consumer.Handle(paymentPaid, CancellationToken.None);
             orderId = order.Id;
             summaryToken = order.SummaryToken;
+            orderPaid = Assert.IsType<Contracts.OrderPaid>(outbox.Captured);
+        }
+
+        // Products consumer retires each sold document (REQ-7.2), same drain scope / real Worker write floor.
+        using (var db = WorkerContext())
+        {
+            var consumer = new DocumentPaidOnOrderPaidConsumer(
+                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+            await consumer.Handle(orderPaid, CancellationToken.None);
         }
 
         return (productId, checkoutSessionId, orderId, summaryToken);
@@ -186,6 +202,18 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal(new DateTime(2026, 7, 31), item.EndDate);
         Assert.Equal("Somchai", item.InsuredFirstName);
         Assert.Equal("1234567890123", item.InsuredIdNumber);
+    }
+
+    // REQ-7.2 — a paid order retires each sold document: PAID + inactive, out of the sellable catalog.
+    [Fact]
+    public async Task Paid_order_marks_the_product_PAID_and_inactive()
+    {
+        var (productId, _, _, _) = await CreatePaidOrderAsync();
+
+        using var db = ApiContext();
+        var product = await db.Set<Products.Domain.Product>().SingleAsync(p => p.Id == productId);
+        Assert.Equal(Products.Domain.PaymentStatus.PAID, product.PaymentStatus);
+        Assert.False(product.IsActive);
     }
 
     // REQ-7.4 — merchant-authenticated list surface: masked, no audit trail written.

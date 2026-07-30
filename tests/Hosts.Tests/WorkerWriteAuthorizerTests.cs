@@ -6,6 +6,7 @@ using Merchants.Domain;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantRegistrationNotice = Merchants.Domain.Users.RegistrationNotice;
 using OrderAggregate = Orders.Domain.Order;
+using ProductAggregate = Products.Domain.Product;
 
 namespace Hosts.Tests;
 
@@ -30,13 +31,26 @@ public sealed class WorkerWriteAuthorizerTests
         Assert.True(authorizer.CanWrite(outboxType, WriteOperation.Update, MerchantB));
     }
 
+    // A mid-dispatch handler may enqueue a follow-on integration event (CustomerOrderNotification, OrderPaid),
+    // which is an OutboxMessage insert into the drained message's own merchant — allowed. Delete never is.
     [Fact]
-    public void Worker_denies_insert_and_delete_on_the_outbox()
+    public void Worker_allows_insert_but_denies_delete_on_the_runtime_outbox()
     {
         var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
 
-        Assert.False(authorizer.CanWrite(typeof(OutboxMessage), WriteOperation.Insert, MerchantA));
+        Assert.True(authorizer.CanWrite(typeof(OutboxMessage), WriteOperation.Insert, MerchantA));
+        Assert.True(authorizer.CanWrite(typeof(OutboxMessage), WriteOperation.Insert, Guid.Empty));
         Assert.False(authorizer.CanWrite(typeof(OutboxMessage), WriteOperation.Delete, MerchantA));
+    }
+
+    // The MerchantUser outbox has no mid-drain chained enqueue — its insert stays denied.
+    [Fact]
+    public void Worker_denies_insert_and_delete_on_the_merchant_user_outbox()
+    {
+        var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
+
+        Assert.False(authorizer.CanWrite(typeof(MerchantUserOutbox), WriteOperation.Insert, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(MerchantUserOutbox), WriteOperation.Delete, MerchantA));
     }
 
     [Fact]
@@ -94,5 +108,25 @@ public sealed class WorkerWriteAuthorizerTests
         var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
 
         Assert.False(authorizer.CanWrite(typeof(OrderAggregate), WriteOperation.Delete, MerchantA));
+    }
+
+    /// <summary>REQ-7.3 — DocumentPaidOnOrderPaidConsumer updates each sold Product via Product.MarkPaid while
+    /// dispatched inside the outbox drain; without this the write floor would block the mark-paid.</summary>
+    [Fact]
+    public void Worker_allows_update_on_product_across_any_merchant()
+    {
+        var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
+
+        Assert.True(authorizer.CanWrite(typeof(ProductAggregate), WriteOperation.Update, MerchantA));
+        Assert.True(authorizer.CanWrite(typeof(ProductAggregate), WriteOperation.Update, Guid.Empty));
+    }
+
+    [Fact]
+    public void Worker_denies_insert_and_delete_on_product()
+    {
+        var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
+
+        Assert.False(authorizer.CanWrite(typeof(ProductAggregate), WriteOperation.Insert, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(ProductAggregate), WriteOperation.Delete, MerchantA));
     }
 }
