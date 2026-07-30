@@ -8,8 +8,6 @@ namespace Products.Tests;
 /// </summary>
 public sealed class ProductTests
 {
-    private static readonly Guid MerchantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
-
     private static ProductInput NewInput(
         ProductGroup productGroup = ProductGroup.VMI,
         DocumentType documentType = DocumentType.POLICY,
@@ -19,7 +17,7 @@ public sealed class ProductTests
         DateTime? startDate = null,
         DateTime? endDate = null,
         decimal? netPremium = null) =>
-        new(MerchantId, productGroup, documentType, documentNo, saleCode, totalPremium,
+        new(productGroup, documentType, documentNo, saleCode, totalPremium,
             StartDate: startDate, EndDate: endDate, NetPremium: netPremium);
 
     [Fact]
@@ -42,11 +40,6 @@ public sealed class ProductTests
     [InlineData(ProductGroup.MISC, InsuranceType.NonMotor)]
     public void InsuranceType_is_derived_from_ProductGroup(ProductGroup group, InsuranceType expected) =>
         Assert.Equal(expected, Product.Create(NewInput(productGroup: group)).InsuranceType);
-
-    [Fact]
-    public void Create_rejects_an_empty_MerchantId() =>
-        Assert.Throws<ArgumentException>(() =>
-            Product.Create(NewInput() with { MerchantId = Guid.Empty }));
 
     [Fact]
     public void Create_rejects_a_blank_SaleCode() =>

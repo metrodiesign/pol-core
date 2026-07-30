@@ -20,6 +20,7 @@ call site เอง (**build จะแดงระหว่าง T2-T4 เป�
 |---|---|---|
 | `string BranchCode` | ลบ | `BranchCode` DROP |
 | `bool IsActive` | ลบ | `IsActive` DROP + `IX_Products_MerchantId_IsActive` DROP |
+| `Guid MerchantId` | ลบ (แคตตาล็อกกลาง — ตัดสินเพิ่มระหว่าง PR) | `MerchantId` DROP + `IX_Products_MerchantId_PaymentStatus`/`IX_Products_MerchantId_DocumentNo` DROP -> `IX_Products_SaleCode_PaymentStatus` + unique `IX_Products_DocumentNo` (migration `20260730143112_ProductsCentralCatalogue`) |
 | `DateTime CreatedAt` | ลบ | `CreatedAt` DROP |
 | `Money TotalPremium` (ComplexProperty) | `decimal TotalPremium` | `TotalPremiumAmount` -> RENAME `TotalPremium` `decimal(19,2)`; `TotalPremiumCurrency` DROP |
 | `decimal? NetPremiumAmount` + `string? NetPremiumCurrency` + computed `Money? NetPremium` | `decimal? NetPremium` | `NetPremiumAmount` -> RENAME `NetPremium` `decimal(19,2)`; `NetPremiumCurrency` DROP |
@@ -51,7 +52,7 @@ field §5.2 ที่ **ไม่เปลี่ยน**: `SourceSystem`(= `Prod
   sync `IsActive` กับ `PaymentStatus` ล็อกกันอยู่แล้ว (`Deactivate()` ไม่มี prod caller) — แกน PAID
   จึงครอบ production ครบ 100% แหล่งเดียวที่ไม่ sync คือ seed demo (จัดการที่ REQ-2.4/10.5)
 - **ทำไม order เป็น `DocumentNo`**: `CreatedAt` ถูกลบ ต้องมี order ที่ deterministic — unique index
-  `IX_Products_MerchantId_DocumentNo` หนุนอยู่แล้ว จึงไม่ต้องมี tie-breaker
+  `IX_Products_DocumentNo` (unique ทั้งระบบ) หนุนอยู่แล้ว จึงไม่ต้องมี tie-breaker
 - **ทำไม `paymentStatus` เป็น `string?` ไม่ใช่ `PaymentStatus?`**: ต้องแทน 3 สถานะ (`UNPAID`/`PAID`/`ALL`)
   ซึ่ง `PaymentStatus?` ทำไม่ได้ และ spec `checkout-chain-document-fields` ล็อกว่า enum ห้ามมีสมาชิก `ALL`
 - **ทำไม Motor gate เป็น per-row**: ถ้า client ไม่ส่ง `productGroup` request เดียวมีทั้ง Motor/Non-Motor

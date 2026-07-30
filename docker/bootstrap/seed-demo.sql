@@ -180,48 +180,46 @@ VALUES
     ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
     ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
 
--- shop.Products (REQ-5.4): 100 rows total, 34/33/33 across the three merchants. A Product is now a
--- sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
+-- shop.Products (REQ-5.4): 100 rows total. A Product is a document in the CENTRAL catalogue - it has no
+-- MerchantId of its own, every merchant sells from the same pool and a request is scoped by SaleCode
+-- instead. A Product is a sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
 -- hand-written flagship documents below; shop.CartItems references them by id, so their ids are
 -- load-bearing and must not move. The remaining 76 (ids ...19-...64 hex) are generated right after.
 -- 1 already-sold document per hand-written block plus every 7th generated row carries
 -- PaymentStatus = 'PAID' + a PaidDate, so both sides of the sellability gate are represented:
 -- cart add-item / checkout accept UNPAID only (products-sp-53-alignment REQ-2.1/2.4 — this used to
 -- be the IsActive = 0 axis, which no longer exists as a column).
--- DocumentNo is unique per merchant (IX_Products_MerchantId_DocumentNo). The two INSERTs below
+-- DocumentNo is globally unique (IX_Products_DocumentNo). The two INSERTs below
 -- carry only the load-bearing columns; the single UPDATE after them fills every remaining
 -- document field for all 100 rows at once (see the comment on that block).
 -- TotalPremium is decimal(19,2) — Product.Create rejects a 3rd decimal place, it does not round.
-INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, SaleCode,
+INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
                            ShowName, TotalPremium, PaymentStatus, PaidDate)
 VALUES
-    -- vprivilege
-    ('e9000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'00098-69100/กธ/900001-10', '00098', N'ผู้เอาประกันตัวอย่าง 01', 1200.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 'CMI',  'POLICY',      N'00098-69100/กธ/900002-10', '00098', N'ผู้เอาประกันตัวอย่าง 02', 1850.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', 'FIRE', 'POLICY',      N'S001-69100/อค/900003',     'S001',  N'ผู้เอาประกันตัวอย่าง 03', 18500.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000001', 'MISC', 'APPLICATION', N'S001-69100/บต/900004',     'S001',  N'ผู้เอาประกันตัวอย่าง 04', 32000.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000001', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900005-10', '00098', N'ผู้เอาประกันตัวอย่าง 05', 24500.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000001', 'CMI',  'ENDORSEMENT', N'69100/สล/900006',          '00098', N'ผู้เอาประกันตัวอย่าง 06', 15900.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000007', 'e1000000-0000-4000-8000-000000000001', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900007',     'S001',  N'ผู้เอาประกันตัวอย่าง 07', 3500.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000001', 'MISC', 'POLICY',      N'S001-69100/บต/900008',     'S001',  N'ผู้เอาประกันตัวอย่าง 08', 350.00,   'PAID',   DATEADD(day, -7, SYSUTCDATETIME())),
-    -- vcommerce
-    ('e9000000-0000-4000-8000-000000000009', 'e1000000-0000-4000-8000-000000000002', 'VMI',  'POLICY',      N'00098-69100/กธ/900009-10', '00098', N'ผู้เอาประกันตัวอย่าง 09', 650.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000a', 'e1000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'00098-69100/กธ/900010-10', '00098', N'ผู้เอาประกันตัวอย่าง 10', 450.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000b', 'e1000000-0000-4000-8000-000000000002', 'FIRE', 'POLICY',      N'S001-69100/อค/900011',     'S001',  N'ผู้เอาประกันตัวอย่าง 11', 9800.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000c', 'e1000000-0000-4000-8000-000000000002', 'MISC', 'APPLICATION', N'S001-69100/บต/900012',     'S001',  N'ผู้เอาประกันตัวอย่าง 12', 12800.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000d', 'e1000000-0000-4000-8000-000000000002', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900013-10', '00098', N'ผู้เอาประกันตัวอย่าง 13', 8900.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000e', 'e1000000-0000-4000-8000-000000000002', 'CMI',  'ENDORSEMENT', N'69100/สล/900014',          '00098', N'ผู้เอาประกันตัวอย่าง 14', 6200.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000f', 'e1000000-0000-4000-8000-000000000002', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900015',     'S001',  N'ผู้เอาประกันตัวอย่าง 15', 4100.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000010', 'e1000000-0000-4000-8000-000000000002', 'MISC', 'POLICY',      N'S001-69100/บต/900016',     'S001',  N'ผู้เอาประกันตัวอย่าง 16', 990.00,   'PAID',   DATEADD(day, -5, SYSUTCDATETIME())),
-    -- vsouvenir
-    ('e9000000-0000-4000-8000-000000000011', 'e1000000-0000-4000-8000-000000000003', 'VMI',  'POLICY',      N'00098-69100/กธ/900017-10', '00098', N'ผู้เอาประกันตัวอย่าง 17', 390.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000012', 'e1000000-0000-4000-8000-000000000003', 'CMI',  'POLICY',      N'00098-69100/กธ/900018-10', '00098', N'ผู้เอาประกันตัวอย่าง 18', 590.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000013', 'e1000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69100/อค/900019',     'S001',  N'ผู้เอาประกันตัวอย่าง 19', 450.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000014', 'e1000000-0000-4000-8000-000000000003', 'MISC', 'APPLICATION', N'S001-69100/บต/900020',     'S001',  N'ผู้เอาประกันตัวอย่าง 20', 550.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000015', 'e1000000-0000-4000-8000-000000000003', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900021-10', '00098', N'ผู้เอาประกันตัวอย่าง 21', 480.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000003', 'CMI',  'ENDORSEMENT', N'69100/สล/900022',          '00098', N'ผู้เอาประกันตัวอย่าง 22', 720.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900023',     'S001',  N'ผู้เอาประกันตัวอย่าง 23', 2100.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', 'MISC', 'POLICY',      N'S001-69100/บต/900024',     'S001',  N'ผู้เอาประกันตัวอย่าง 24', 48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
+    ('e9000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'00098-69100/กธ/900001-10', '00098', N'ผู้เอาประกันตัวอย่าง 01', 1200.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'00098-69100/กธ/900002-10', '00098', N'ผู้เอาประกันตัวอย่าง 02', 1850.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69100/อค/900003',     'S001',  N'ผู้เอาประกันตัวอย่าง 03', 18500.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000004', 'MISC', 'APPLICATION', N'S001-69100/บต/900004',     'S001',  N'ผู้เอาประกันตัวอย่าง 04', 32000.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000005', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900005-10', '00098', N'ผู้เอาประกันตัวอย่าง 05', 24500.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000006', 'CMI',  'ENDORSEMENT', N'69100/สล/900006',          '00098', N'ผู้เอาประกันตัวอย่าง 06', 15900.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000007', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900007',     'S001',  N'ผู้เอาประกันตัวอย่าง 07', 3500.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000008', 'MISC', 'POLICY',      N'S001-69100/บต/900008',     'S001',  N'ผู้เอาประกันตัวอย่าง 08', 350.00,   'PAID',   DATEADD(day, -7, SYSUTCDATETIME())),
+    ('e9000000-0000-4000-8000-000000000009', 'VMI',  'POLICY',      N'00098-69100/กธ/900009-10', '00098', N'ผู้เอาประกันตัวอย่าง 09', 650.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000a', 'CMI',  'POLICY',      N'00098-69100/กธ/900010-10', '00098', N'ผู้เอาประกันตัวอย่าง 10', 450.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000b', 'FIRE', 'POLICY',      N'S001-69100/อค/900011',     'S001',  N'ผู้เอาประกันตัวอย่าง 11', 9800.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000c', 'MISC', 'APPLICATION', N'S001-69100/บต/900012',     'S001',  N'ผู้เอาประกันตัวอย่าง 12', 12800.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000d', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900013-10', '00098', N'ผู้เอาประกันตัวอย่าง 13', 8900.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000e', 'CMI',  'ENDORSEMENT', N'69100/สล/900014',          '00098', N'ผู้เอาประกันตัวอย่าง 14', 6200.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000f', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900015',     'S001',  N'ผู้เอาประกันตัวอย่าง 15', 4100.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000010', 'MISC', 'POLICY',      N'S001-69100/บต/900016',     'S001',  N'ผู้เอาประกันตัวอย่าง 16', 990.00,   'PAID',   DATEADD(day, -5, SYSUTCDATETIME())),
+    ('e9000000-0000-4000-8000-000000000011', 'VMI',  'POLICY',      N'00098-69100/กธ/900017-10', '00098', N'ผู้เอาประกันตัวอย่าง 17', 390.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000012', 'CMI',  'POLICY',      N'00098-69100/กธ/900018-10', '00098', N'ผู้เอาประกันตัวอย่าง 18', 590.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000013', 'FIRE', 'POLICY',      N'S001-69100/อค/900019',     'S001',  N'ผู้เอาประกันตัวอย่าง 19', 450.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000014', 'MISC', 'APPLICATION', N'S001-69100/บต/900020',     'S001',  N'ผู้เอาประกันตัวอย่าง 20', 550.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000015', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900021-10', '00098', N'ผู้เอาประกันตัวอย่าง 21', 480.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000016', 'CMI',  'ENDORSEMENT', N'69100/สล/900022',          '00098', N'ผู้เอาประกันตัวอย่าง 22', 720.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000017', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900023',     'S001',  N'ผู้เอาประกันตัวอย่าง 23', 2100.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000018', 'MISC', 'POLICY',      N'S001-69100/บต/900024',     'S001',  N'ผู้เอาประกันตัวอย่าง 24', 48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
 
 -- The remaining 76 documents (ids ...19-...64 hex), taking the catalogue to 100. Deterministic
 -- throughout - the id is the row number rendered as hex (offset by the 24 above) and DocumentNo
@@ -234,15 +232,12 @@ VALUES
     SELECT TOP (76) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
     FROM sys.all_objects
 )
-INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, SaleCode,
+INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
                            ShowName, TotalPremium, PaymentStatus, PaidDate)
 SELECT
     CONVERT(uniqueidentifier, 'e9000000-0000-4000-8000-'
         + RIGHT('000000000000'
             + LOWER(CONVERT(varchar(20), CONVERT(varbinary(4), 24 + Seq), 2)), 12)),
-    CONVERT(uniqueidentifier, 'e1000000-0000-4000-8000-'
-        + RIGHT('000000000000'
-            + CONVERT(varchar(12), CASE WHEN Seq <= 26 THEN 1 WHEN Seq <= 51 THEN 2 ELSE 3 END), 12)),
     CASE Seq % 4 WHEN 0 THEN 'CMI' WHEN 1 THEN 'VMI' WHEN 2 THEN 'FIRE' ELSE 'MISC' END,
     CASE Seq % 3 WHEN 0 THEN 'POLICY' WHEN 1 THEN 'RENEWAL' ELSE 'ENDORSEMENT' END,
     CONCAT(N'00098-69100/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),

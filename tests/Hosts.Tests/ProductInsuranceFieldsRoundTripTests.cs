@@ -56,7 +56,7 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
 
             productId = await handler.Handle(
                 new CreateProductCommand(new Products.Domain.ProductInput(
-                    MerchantA, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                    Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
                     "00098-69100/กธ/037674-10", "00098", totalPremium,
                     PolicyYear: "69", PolicyNumber: "00098-68100/037674",
                     StartDate: start, EndDate: end, ShowName: "สมชาย ใจดี",
@@ -69,7 +69,6 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
             var listed = await new ListProductsHandler(NewRepository(db)).Handle(
                 new ListProductsQuery
                 {
-                    MerchantId = MerchantA,
                     ProductFilters = new ProductFilterDto { SaleCode = "00098" },
                     Page = 1,
                     Limit = 10,
@@ -90,7 +89,7 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
         using (var db = NewContext())
         {
             var view = await new GetProductByIdHandler(NewRepository(db))
-                .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
+                .Handle(new GetProductByIdQuery(productId), CancellationToken.None);
 
             Assert.NotNull(view);
             Assert.Equal("00098-69100/กธ/037674-10", view!.DocumentNo);

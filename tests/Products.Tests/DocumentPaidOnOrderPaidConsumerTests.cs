@@ -6,24 +6,25 @@ namespace Products.Tests;
 
 /// <summary>
 /// OrderPaid -> document retirement (REQ-7.2): the consumer marks every matching product PAID in
-/// one save, and is defensive against at-least-once delivery — an unknown product id or one scoped to
-/// another merchant is skipped, never thrown, and does not trigger an empty save.
+/// one save, and is defensive against at-least-once delivery — an unknown product id is skipped,
+/// never thrown, and does not trigger an empty save. The catalogue is central, so there is no
+/// per-merchant skip to assert.
 /// </summary>
 public sealed class DocumentPaidOnOrderPaidConsumerTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly DateTime PaidAt = new(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
 
-    private static Product NewProduct(Guid merchantId) =>
+    private static Product NewProduct() =>
         Product.Create(
-            new ProductInput(merchantId, ProductGroup.VMI, DocumentType.POLICY,
+            new ProductInput(ProductGroup.VMI, DocumentType.POLICY,
                 "00098-69100/กธ/037674-10", "00098", 2500m));
 
     [Fact]
     public async Task It_marks_matching_products_PAID_and_saves_once()
     {
-        var a = NewProduct(Merchant);
-        var b = NewProduct(Merchant);
+        var a = NewProduct();
+        var b = NewProduct();
         var repo = new FakeProductRepository(a, b);
         var uow = new FakeUnitOfWork();
 
@@ -34,21 +35,6 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
         Assert.Equal(PaidAt, a.PaidDate);
         Assert.Equal(PaymentStatus.PAID, b.PaymentStatus);
         Assert.Equal(1, uow.SaveCount);
-    }
-
-    [Fact]
-    public async Task It_skips_a_product_belonging_to_another_merchant()
-    {
-        var foreign = NewProduct(Guid.NewGuid());
-        var repo = new FakeProductRepository(foreign);
-        var uow = new FakeUnitOfWork();
-
-        await new DocumentPaidOnOrderPaidConsumer(repo, uow)
-            .Handle(new Contracts.OrderPaid(Merchant, [foreign.Id], PaidAt), default);
-
-        Assert.Equal(PaymentStatus.UNPAID, foreign.PaymentStatus);
-        Assert.Null(foreign.PaidDate);
-        Assert.Equal(0, uow.SaveCount);
     }
 
     [Fact]

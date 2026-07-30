@@ -93,7 +93,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
             productId = await handler.Handle(
                 new CreateProductCommand(new Products.Domain.ProductInput(
-                    MerchantA, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                    Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
                     "00098-69100/กธ/037674-10", "00098", 2500m,
                     StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
                     ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
@@ -104,7 +104,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         using (var db = ApiContext())
         {
             var product = await new GetProductByIdHandler(NewProductRepository(db))
-                .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
+                .Handle(new GetProductByIdQuery(productId), CancellationToken.None);
 
             var cart = new Carts.Domain.Cart(Guid.CreateVersion7(), MerchantA, DateTime.UtcNow);
             // The currency is minted at this boundary, exactly as Program.cs's cart add-item does (REQ-8.4).
@@ -121,7 +121,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 .Handle(new GetCartQuery(cartId, MerchantA), CancellationToken.None);
             var item = Assert.Single(cart!.Items);
             var product = await new GetProductByIdHandler(NewProductRepository(db))
-                .Handle(new GetProductByIdQuery(MerchantA, item.ProductId), CancellationToken.None);
+                .Handle(new GetProductByIdQuery(item.ProductId), CancellationToken.None);
 
             var items = new List<CheckoutItemInput>
             {
@@ -223,7 +223,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
 
         // What the gates see: the read used by both of them reports a non-UNPAID document.
         var read = await new GetProductByIdHandler(NewProductRepository(db))
-            .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
+            .Handle(new GetProductByIdQuery(productId), CancellationToken.None);
         Assert.NotNull(read);
         Assert.NotEqual(Products.Domain.PaymentStatus.UNPAID, read!.PaymentStatus);
 
@@ -231,7 +231,6 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         var listed = await new ListProductsHandler(NewProductRepository(db)).Handle(
             new ListProductsQuery
             {
-                MerchantId = MerchantA,
                 ProductFilters = new ProductFilterDto { SaleCode = "00098" },
             },
             CancellationToken.None);

@@ -926,23 +926,24 @@ resolve เป็น `Guid.Empty` ซึ่งไม่มี row จริง�
 > `*PremiumAmount`/`StampAmount`/`TaxVatAmount` ถูก rename ให้ตรงชื่อ §5.2
 
 > ตัวอย่าง: migration `20260730072057` (6 แถวตัวอย่าง) + `seed-demo.sql`
-> (100 rows `e9000000-…` — กรอก `DocumentNo`/`SaleCode`/`ShowName`/`TotalPremium`/`PaymentStatus`/`PaidDate`,
-> `PAID` 13 แถว / `UNPAID` 87 แถว)
+> (100 rows `e9000000-…` — เติมทุกฟิลด์เอกสารครบตามชนิดเอกสาร, `PAID` 13 แถว / `UNPAID` 87 แถว)
+
+> `shop.Products` เป็น **แคตตาล็อกกลาง** — ไม่มีคอลัมน์ `MerchantId` ไม่มี query filter ต่อ merchant
+> (ต่างจากทุกตารางอื่นใน context นี้) ขอบเขตต่อ request มาจาก `SaleCode` ที่บังคับใน `productFilters`
 
 | Field | Type | Null | Key | ตัวอย่าง | หมายเหตุ |
 |---|---|---|---|---|---|
 | Id | uniqueidentifier | N | PK | `e9000000-…-0006` | app assign |
-| MerchantId | uniqueidentifier | N | IX | `e1000000-…-0001` | index `(MerchantId, PaymentStatus)` + unique `(MerchantId, DocumentNo)`. **ไม่มี DB FK** ไป `merch.Merchants` — เป็นแค่ค่าที่ query filter ใช้ |
 | ProductGroup | varchar(10) | N | | `CMI` (`VMI`/`FIRE`/`MISC`) | = `SourceSystem` ของ §5.2; `CMI`/`VMI` = Motor |
 | DocumentType | varchar(20) | N | | `POLICY` (`APPLICATION`/`RENEWAL`/`ENDORSEMENT`) | `CMI` + `APPLICATION` ไม่รองรับ (throw ตอน `Create`) |
-| DocumentNo | nvarchar(150) | N | UQ | `S001-69100/บต/900008` | unique ต่อ merchant + เป็น order key ของ `GET /products` |
+| DocumentNo | nvarchar(150) | N | UQ | `S001-69100/บต/900008` | unique **ทั้งระบบ** (`IX_Products_DocumentNo`) + เป็น order key ของ `GET /products` |
 | PolicyYear | varchar(2) | Y | | `69` | ปี พ.ศ. 2 หลัก |
 | ReferenceBranch | varchar(3) | Y | | `001` | รหัสสาขาของเลขอ้างอิง (**ไม่ใช่** `@BranchCode` ของ §2 — ยังไม่ยืนยันว่า field เดียวกัน) |
 | ReferencePre | varchar(20) | Y | | `บต` | prefix เลขอ้างอิง |
 | PolicySequenceNo | varchar(30) | Y | | `900008` | ลำดับที่ในเล่ม |
 | ReferenceYear | varchar(2) | Y | | `69` | ปีของเลขอ้างอิง |
 | ReferenceNo | varchar(30) | Y | | `910007-10` | เลขอ้างอิง |
-| SaleCode | varchar(20) | N | | `S001` | รหัสผู้ขาย — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
+| SaleCode | varchar(20) | N | IX | `S001` | รหัสผู้ขาย — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
 | SaleFullName | nvarchar(500) | Y | | `สมชาย ใจดี` | ชื่อผู้ขาย |
 | BrokerCode | varchar(20) | Y | | `BRK001` | รหัสนายหน้า |
 | BrokerName | nvarchar(500) | Y | | `บริษัทนายหน้า จำกัด` | ชื่อนายหน้า |

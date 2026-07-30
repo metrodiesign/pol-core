@@ -8,7 +8,6 @@ namespace Products.Domain;
 /// (document items); premium values are plain THB decimals with at most 2 decimal places.
 /// </summary>
 public sealed record ProductInput(
-    Guid MerchantId,
     ProductGroup ProductGroup,
     DocumentType DocumentType,
     string DocumentNo,

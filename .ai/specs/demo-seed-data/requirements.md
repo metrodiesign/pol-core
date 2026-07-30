@@ -97,8 +97,8 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
 - 5.3 THE SYSTEM SHALL seed `merch.RoleAssignments` ผูก merchant user ที่ `Status = 1` (Active) ไปยัง
   role ที่ migration seed ไว้ (`merchant_manager` = `aaaaaaaa-…`, `merchant_staff` = `bbbbbbbb-…`)
   พร้อม `MerchantId` ของ user นั้น.
-- 5.4 THE SYSTEM SHALL seed `shop.Products` 100 แถว (34 / 33 / 33 ต่อ merchant) เป็นเอกสารประกันที่อ่านแล้ว
-  เข้าใจว่าเป็นข้อมูลจริงของธุรกิจ, `DocumentNo` ไม่ซ้ำต่อ merchant, `TotalPremium` เป็น
+- 5.4 THE SYSTEM SHALL seed `shop.Products` 100 แถว ในแคตตาล็อกกลาง (ไม่มีคอลัมน์ `MerchantId`) เป็นเอกสารประกันที่อ่านแล้ว
+  เข้าใจว่าเป็นข้อมูลจริงของธุรกิจ, `DocumentNo` ไม่ซ้ำทั้งระบบ, `TotalPremium` เป็น
   `DECIMAL(19,2)` (ทศนิยมไม่เกิน 2 ตำแหน่ง — `Product.Create` throw ไม่ปัดให้) และมีทั้งเอกสารที่ยัง
   ขายได้ (`PaymentStatus = 'UNPAID'`) และเอกสารที่ขายไม่ได้แล้ว (`PaymentStatus = 'PAID'` + `PaidDate`
   มีค่า) — แกน "ขายได้/ขายไม่ได้" คือ `PaymentStatus` ไม่ใช่ `IsActive` ที่ถูกลบไปแล้ว

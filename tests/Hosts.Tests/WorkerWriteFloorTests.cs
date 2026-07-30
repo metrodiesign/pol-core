@@ -117,8 +117,8 @@ public sealed class WorkerWriteFloorTests : IDisposable
             productId = await new CreateProductHandler(
                     new ProductRepository(db, new FixedClock(DateTime.UtcNow)),
                     new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
-                .Handle(new CreateProductCommand(new ProductInput(
-                    MerchantA, ProductGroup.VMI, DocumentType.POLICY,
+                .Handle(new CreateProductCommand(new Products.Domain.ProductInput(
+                    ProductGroup.VMI, DocumentType.POLICY,
                     "00098-69100/กธ/900001-10", "00098", 2500m)), CancellationToken.None);
         }
 

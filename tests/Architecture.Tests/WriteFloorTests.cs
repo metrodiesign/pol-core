@@ -37,25 +37,30 @@ public sealed class WriteFloorTests : IDisposable
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options, actor, authorizer,
             NoOpSecurityTelemetry.Instance);
 
-    private static Products.Domain.Product NewProduct(Guid merchantId, string documentNo) =>
+    // Product is the catalogue — central, no tenant key — so the tenant-key cases below run on Cart, which
+    // is merchant-owned. Product still stands in for the plain CanWrite path, which needs no tenant key.
+    private static Products.Domain.Product NewProduct(string documentNo) =>
         Products.Domain.Product.Create(
             new Products.Domain.ProductInput(
-                merchantId, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
                 documentNo, "00098", 10m));
+
+    private static Carts.Domain.Cart NewCart(Guid merchantId) =>
+        new(Guid.NewGuid(), merchantId, DateTime.UtcNow);
 
     [Fact]
     public async Task Forged_detached_write_is_closed_by_the_concurrency_token()
     {
-        var productId = await SeedProductAsync(MerchantA, "a-product");
+        var cartId = await SeedCartAsync(MerchantA);
 
         // Simulates an attacker (or a bug) crafting a detached stub for a row it does not own and attaching
         // it as Modified: the WHERE clause EF emits carries the FORGED MerchantId (its "original" value,
         // since a freshly-attached detached entity has Original == Current) — it targets zero real rows
         // because the actual row's MerchantId is MerchantA, not MerchantB.
         using var forger = NewMerchantRuntimeContext(FakeActorContext.For(MerchantB), FakeWriteAuthorizer.AllowAll);
-        var forgedStub = NewProduct(MerchantB, "forged-doc");
-        typeof(Products.Domain.Product).GetProperty(nameof(Products.Domain.Product.Id))!
-            .SetValue(forgedStub, productId);
+        var forgedStub = NewCart(MerchantB);
+        typeof(Carts.Domain.Cart).GetProperty(nameof(Carts.Domain.Cart.Id))!
+            .SetValue(forgedStub, cartId);
         forger.Attach(forgedStub).State = EntityState.Modified;
 
         await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => forger.SaveChangesAsync());
@@ -65,9 +70,9 @@ public sealed class WriteFloorTests : IDisposable
     public async Task Insert_with_MerchantId_Guid_Empty_is_rejected()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
-        var product = NewProduct(MerchantA, "empty-merchant-doc");
-        writer.Add(product);
-        writer.Entry(product).Property("MerchantId").CurrentValue = Guid.Empty;
+        var cart = NewCart(MerchantA);
+        writer.Add(cart);
+        writer.Entry(cart).Property("MerchantId").CurrentValue = Guid.Empty;
 
         var ex = await Assert.ThrowsAsync<WriteGuardException>(() => writer.SaveChangesAsync());
         Assert.Contains("Guid.Empty", ex.Message);
@@ -76,11 +81,19 @@ public sealed class WriteFloorTests : IDisposable
     [Fact]
     public async Task Tenant_key_is_immutable_after_insert()
     {
-        var productId = await SeedProductAsync(MerchantA, "a-product");
+        // On IdempotencyRecord rather than Cart: Cart.MerchantId participates in a key, so EF blocks the
+        // mutation before SaveChanges — the guard would never be reached and the test would prove nothing.
+        const string key = "immutable-key";
+        using (var seed = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
+        {
+            seed.Add(new BuildingBlocks.Infrastructure.Idempotency.IdempotencyRecord(
+                key, MerchantA, "webhook", DateTime.UtcNow));
+            await seed.SaveChangesAsync();
+        }
 
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll);
-        var product = await writer.Products.SingleAsync(p => p.Id == productId);
-        writer.Entry(product).Property("MerchantId").CurrentValue = MerchantB;
+        var record = await writer.IdempotencyRecords.SingleAsync(r => r.Key == key);
+        writer.Entry(record).Property("MerchantId").CurrentValue = MerchantB;
 
         var ex = await Assert.ThrowsAsync<WriteGuardException>(() => writer.SaveChangesAsync());
         Assert.Contains("immutable", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -90,7 +103,7 @@ public sealed class WriteFloorTests : IDisposable
     public async Task CanWrite_denial_rejects_the_whole_save()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.DenyAll);
-        var product = NewProduct(MerchantA, "denied-doc");
+        var product = NewProduct("denied-doc");
         writer.Add(product);
 
         await Assert.ThrowsAsync<WriteGuardException>(() => writer.SaveChangesAsync());
@@ -205,13 +218,13 @@ public sealed class WriteFloorTests : IDisposable
         connection.Dispose();
     }
 
-    private async Task<Guid> SeedProductAsync(Guid merchantId, string documentNo)
+    private async Task<Guid> SeedCartAsync(Guid merchantId)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId), FakeWriteAuthorizer.AllowAll);
-        var product = NewProduct(merchantId, documentNo);
-        writer.Add(product);
+        var cart = NewCart(merchantId);
+        writer.Add(cart);
         await writer.SaveChangesAsync();
-        return product.Id;
+        return cart.Id;
     }
 
     private static SqliteConnection OpenMerchantUserSqlite()

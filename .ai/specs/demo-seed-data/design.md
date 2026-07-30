@@ -160,18 +160,18 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 → คนแรก `merchant_manager` (`aaaaaaaa-…`), คนที่สอง `merchant_staff` (`bbbbbbbb-…`). `MerchantId` = ของ user,
 `AssignedById` = merchant user คนแรกของ merchant นั้น.
 
-**shop.Products (REQ-5.4/5.5)** — **100 แถว** แบ่ง 34 / 33 / 33 ต่อ merchant, สองชั้น:
+**shop.Products (REQ-5.4/5.5)** — **100 แถว** ในแคตตาล็อกกลาง (ไม่มี `MerchantId` — ทุก merchant ขายจาก pool เดียวกัน, ขอบเขตต่อ request มาจาก `SaleCode`), สองชั้น:
 
 > **[อัปเดต 2026-07-30]** ข้อ 1/2 ด้านล่างเขียนใหม่ตามของจริง — `Product` เป็น **เอกสารประกัน** แล้ว
 > (insurance-pivot + products-sp-53-alignment) ไม่มี `Name`/`PriceAmount`/`IsActive` อีก; คำบรรยาย
 > "plan-line x tier" เดิมค้างมาตั้งแต่ยุค generic catalog
 
-1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex, 8 ต่อ merchant) — เอกสารตัวอย่างที่อ่านแล้วเป็นข้อมูลจริง
+1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex) — เอกสารตัวอย่างที่อ่านแล้วเป็นข้อมูลจริง
    (`DocumentNo` แบบ `00098-69100/กธ/900001-10`, `S001-69100/อค/900003`, `69100/สล/900006`; `ProductGroup`
    ครบทั้ง 4 ค่า, `DocumentType` ครบทั้ง 4 ค่า, `ShowName` = ชื่อผู้เอาประกันตัวอย่าง).
    **id ของ 24 แถวนี้ load-bearing** — `shop.CartItems` อ้างถึงตรง ๆ ห้ามขยับ
 2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก `ROW_NUMBER()` ตัวเดียว:
-   `Seq` 1-76 แบ่ง merchant ที่ 26 / 25 / 25, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
+   `Seq` 1-76, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
    `POLICY`/`RENEWAL`/`ENDORSEMENT` ด้วย `Seq % 3` (**ไม่เคย emit `APPLICATION`** จึงไม่ชนกฎ `CMI` + `APPLICATION`),
    `DocumentNo` = `00098-69100/กธ/<910000+Seq>-10`, `TotalPremium` = `CAST(500 + Seq * 137.25 AS decimal(19,2))`.
    id = row number เรนเดอร์เป็น hex + offset 24 → deterministic, รันซ้ำได้แถวเดิมเป๊ะ และ
@@ -283,8 +283,10 @@ demo ไม่แตะ `iam.*`/`cfg.*` จึงไม่กระทบ).
 | 5.1 | INSERT `merch.Users` 12 แถว ครบ 4 status + 2 PersonType (§4 merch.Users) |
 | 5.2 | INSERT `merch.ExternalLogins` 12 แถว, Subject `demo-mch-*` (§4 merch.ExternalLogins) |
 | 5.3 | INSERT `merch.RoleAssignments` 6 แถว (§4 merch.RoleAssignments) |
-| 5.4 | INSERT `shop.Products` 100 แถว, 34/33/33 (§4 shop.Products) |
+| 5.4 | INSERT `shop.Products` 100 แถว แคตตาล็อกกลาง (§4 shop.Products) |
 | 5.5 | 24 แถวแรกเขียนมือ (id คงที่, CartItems อ้างถึง) + 76 แถว generate จาก plan-line x tier (§4 shop.Products) |
+| 5.6 | `UPDATE` ก้อนเดียวเติม 23 คอลัมน์ + assertion ฟิลด์ครบ/ยอดบวกกลับตรง (§4 shop.Products ข้อ 3) |
+| 5.7 | วันที่อิง `SYSUTCDATETIME()` ให้ตก search window + assertion นับ 100/100 (§4 shop.Products ข้อ 3) |
 | 6.1 | INSERT `shop.Carts` 6 + `shop.CartItems` 14 (§4 shop.Carts + CartItems) |
 | 6.2 | INSERT `shop.CheckoutSessions` 4 (§4 shop.CheckoutSessions) |
 | 6.3 | INSERT `shop.Orders` 40 (§4 shop.Orders) |

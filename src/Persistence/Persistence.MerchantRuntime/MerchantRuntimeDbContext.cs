@@ -88,7 +88,8 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.ApplyConfiguration(new ProductConfiguration(this));
+        // No context argument: the product catalogue is central, so it has no per-merchant query filter.
+        modelBuilder.ApplyConfiguration(new ProductConfiguration());
         modelBuilder.ApplyConfiguration(new CartConfiguration(this));
         modelBuilder.ApplyConfiguration(new ItemConfiguration(this));
         modelBuilder.ApplyConfiguration(new CheckoutSessionConfiguration(this));

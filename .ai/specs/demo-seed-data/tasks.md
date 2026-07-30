@@ -585,3 +585,40 @@ seed-demo: no host sqlcmd — using the one inside the pol-db container.
 ```
 
 `bash -n scripts/seed-demo.sh` ผ่าน. README อัปเดตทั้งสองข้อแล้ว.
+
+---
+
+## - [x] T7 — เติมฟิลด์เอกสารของ shop.Products ให้ครบ + แคตตาล็อกกลาง
+
+Depends on: T5
+
+Satisfies: 5.6, 5.7
+
+เพิ่มตามคำสั่ง user (2026-07-30) หลังเห็นว่า 23 คอลัมน์ของทั้ง 100 แถวเป็น `NULL` และ
+`GET /products` คืน 0 แถวบน demo เพราะ `StartDate`/`EndDate` ว่าง จึงหลุด search window ของ
+`ProductRepository.SearchAsync`.
+
+Scope:
+1. เก็บ `INSERT` ทั้งสองก้อนไว้เหมือนเดิม แล้วเพิ่ม `UPDATE shop.Products ... WHERE Id LIKE 'e9000000-%'`
+   ก้อนเดียวต่อท้าย เติม 23 คอลัมน์พร้อมกันทั้ง 100 แถว — ทุกค่า derive จากตัวแถวเองผ่าน `CROSS APPLY`
+   (`Seq` = เลขท้าย `DocumentNo`, `Yr` = 68/69) จึง deterministic
+2. วันที่อิง `SYSUTCDATETIME()`: RENEWAL -> `EndDate` = today + (`Seq % 50` + 3) วัน;
+   ที่เหลือ -> `StartDate` = today - (`Seq % 150` + 1) วัน — ตก search window เสมอไม่ว่ารัน seed วันไหน
+3. ยอดเงิน derive ย้อนจาก `TotalPremium` (ห้ามขยับ): `Net = ROUND(Total / 1.07428, 2)`,
+   `Stamp = ROUND(Net * 0.004, 2)`, `TaxVat` = residual, `CommissionPercent` วน 10/12/15
+4. ตัดคอลัมน์ `MerchantId` ออกจากทั้งสอง `INSERT` — `shop.Products` เป็นแคตตาล็อกกลาง
+   (products-sp-53-alignment, migration `20260730143112_ProductsCentralCatalogue`)
+5. เพิ่ม assertion 2 ตัวในบล็อกตรวจท้ายไฟล์: (ก) ไม่มีแถวที่ฟิลด์บังคับเป็น NULL หรือ
+   `Net + Stamp + TaxVat <> TotalPremium`; (ข) นับแถวที่ตก search window แบบเดียวกับ repository ต้องได้ 100
+
+Verify:
+- `./scripts/seed-demo.sh` -> `seed-demo: OK.` (assertion ใหม่ throw ถ้าเติมไม่ครบ) และรันซ้ำได้ผลเดิม
+- `SELECT` ตรวจตาราง: NULL เหลือเฉพาะที่ตั้งใจตามชนิดเอกสาร (`ReferencePre`, `PolicyType`,
+  `LicensePlateNumber`, 4 คอลัมน์ `*Number`) และ `PaidDate` ของแถว UNPAID
+
+### Evidence (2026-07-30)
+
+`./scripts/seed-demo.sh` -> `shop.Products = 100 ... seed-demo: OK.` สองรอบติดกัน (idempotent).
+ตรวจแถวจริง: RENEWAL `00098-68100/ตอ/900005-10` -> `StartDate 2025-08-07 / EndDate 2026-08-07`,
+POLICY `00098-69100/กธ/900001-10` -> `2026-07-28 / 2027-07-28`; ยอดเงินบวกกลับได้ `TotalPremium` เป๊ะ
+ทุกแถว (assertion (ก) ผ่าน) และ assertion (ข) นับได้ 100/100.

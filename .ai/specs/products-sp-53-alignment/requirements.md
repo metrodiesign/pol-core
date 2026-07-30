@@ -116,7 +116,8 @@ user ตัดสินแล้วว่า **field ที่ไม่ตรง
 ## Deviation ที่จงใจคง (ตัดสินแล้ว ห้าม re-litigate)
 
 - **precision**: `Product` ใช้ `decimal(19,2)` ตาม §5.2 แต่ `Money` ที่เหลือทั้งระบบยังเป็น `DECIMAL(19,4)` ตาม standing decision -> ค่าที่มี 3-4 ตำแหน่งถูกปฏิเสธที่ `Product.Create` (REQ-1.5) ไม่ใช่ปัดเงียบ
-- **`SaleCode` รับจาก client** ขัด §1.1 ข้อ 1 + กรอบสิทธิ์หน้า 2 ที่ระบุว่าควรมาจาก server-side authorization context (user ยืนยันแล้ว) -> merchant คนหนึ่งยังเห็นทุก sale code ของตัวเองได้ (floor จริง = `MerchantId`)
-- **`DocumentNo`/`PaymentStatus`/`SaleCode` เอกสารให้ NULL ได้ แต่ repo คง NOT NULL** — เอกสารเป็น read model ของระบบต้นทาง; repo นี้เป็นเจ้าของข้อมูล และ `DocumentNo` เป็น unique key ต่อ merchant
+- **`SaleCode` รับจาก client** ขัด §1.1 ข้อ 1 + กรอบสิทธิ์หน้า 2 ที่ระบุว่าควรมาจาก server-side authorization context (user ยืนยันแล้ว)
+- **`shop.Products` เป็นแคตตาล็อกกลาง ไม่มีคอลัมน์ `MerchantId`** (user ตัดสิน 2026-07-30 ระหว่าง PR #144 หลังเห็น blast radius) — §5.2 ไม่มี field นี้ และทุก merchant ขายจาก pool เดียวกัน ผลที่ตามมาโดยตั้งใจ: ไม่มี tenant key/query filter บน `Product` (เอนทิตีเดียวใน `MerchantRuntimeDbContext` ที่ไม่มี), `DocumentNo` unique ทั้งระบบแทน unique ต่อ merchant, ขอบเขตต่อ request = `SaleCode` ที่บังคับใน `productFilters` เท่านั้น, และ merchant หนึ่งเห็น/ซื้อเอกสารของ sale code ใดก็ได้ที่ส่งมา ⇒ การกลับไปใส่ tenant key ต้องเป็นการตัดสินใจใหม่ ไม่ใช่ regression fix
+- **`DocumentNo`/`PaymentStatus`/`SaleCode` เอกสารให้ NULL ได้ แต่ repo คง NOT NULL** — เอกสารเป็น read model ของระบบต้นทาง; repo นี้เป็นเจ้าของข้อมูล และ `DocumentNo` เป็น unique key ทั้งระบบ
 - **`@PolicyNo`/`@ApplicationNo` จำกัด 30 ตาม §2 แต่คอลัมน์ §5.2 เป็น 150** -> ค่าที่ยาวกว่า 30 ค้นไม่ได้; เอกสารไม่สอดคล้องกันเอง ทำตาม §2
 - **ไม่มี endpoint activate/deactivate เอกสารอีกต่อไป** (`Deactivate()` ถูกลบ, permission `product.update` ยังจองไว้)

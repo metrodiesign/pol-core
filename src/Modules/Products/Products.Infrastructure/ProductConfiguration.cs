@@ -20,8 +20,6 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.ToTable("Products", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
 
-        builder.Property(x => x.MerchantId).IsRequired();
-
         builder.Property(x => x.ProductGroup).HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.DocumentType).HasConversion<string>().HasMaxLength(20).IsUnicode(false).IsRequired();
         builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
@@ -62,7 +60,7 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.PaidDate).HasPrecision(0);
 
         // Named HasIndex overloads on purpose — a repeated anonymous HasIndex mutates instead of adds.
-        builder.HasIndex(x => new { x.MerchantId, x.PaymentStatus }, "IX_Products_MerchantId_PaymentStatus");
-        builder.HasIndex(x => new { x.MerchantId, x.DocumentNo }, "IX_Products_MerchantId_DocumentNo").IsUnique();
+        builder.HasIndex(x => new { x.SaleCode, x.PaymentStatus }, "IX_Products_SaleCode_PaymentStatus");
+        builder.HasIndex(x => x.DocumentNo, "IX_Products_DocumentNo").IsUnique();
     }
 }

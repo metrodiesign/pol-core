@@ -3,7 +3,7 @@ using SharedKernel;
 namespace Products.Domain;
 
 /// <summary>
-/// A merchant-owned sellable insurance document
+/// A sellable insurance document in the central catalogue
 /// (<c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> §2/§5.2) — one row per
 /// APPLICATION / POLICY / RENEWAL / ENDORSEMENT awaiting payment. <see cref="TotalPremium"/> is the
 /// selling price; it and the optional premium breakdown are plain <c>decimal(19,2)</c> columns, not
@@ -13,8 +13,6 @@ namespace Products.Domain;
 /// </summary>
 public sealed class Product : AggregateRoot<Guid>
 {
-    public Guid MerchantId { get; private set; }
-
     public ProductGroup ProductGroup { get; private set; }
 
     public DocumentType DocumentType { get; private set; }
@@ -80,13 +78,10 @@ public sealed class Product : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Product() { }
 
-    /// <summary>Creates a new unpaid insurance document for a merchant.</summary>
+    /// <summary>Creates a new unpaid insurance document in the catalogue.</summary>
     public static Product Create(ProductInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
-
-        if (input.MerchantId == Guid.Empty)
-            throw new ArgumentException("MerchantId is required.", nameof(input));
 
         var saleCode = Required(input.SaleCode, 20, nameof(input.SaleCode));
         var documentNo = Required(input.DocumentNo, 150, nameof(input.DocumentNo));
@@ -110,7 +105,6 @@ public sealed class Product : AggregateRoot<Guid>
         return new Product
         {
             Id = Guid.NewGuid(),
-            MerchantId = input.MerchantId,
             ProductGroup = input.ProductGroup,
             DocumentType = input.DocumentType,
             DocumentNo = documentNo,

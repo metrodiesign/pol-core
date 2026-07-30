@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantUsers;
+using Carts.Domain;
 using Products.Domain;
 using SharedKernel;
 using MerchantUserAccount = Merchants.Domain.Users.User;
@@ -15,7 +16,9 @@ namespace Architecture.Tests;
 /// return zero rows, a by-id load of another merchant's row is IDOR-closed (null, not an exception), an
 /// unbound actor sees nothing, and the filter genuinely re-evaluates per DbContext INSTANCE (not baked into
 /// the shared/cached compiled model) — proven both by differing query RESULTS and by inspecting the
-/// generated SQL's parameter placeholder.
+/// generated SQL's parameter placeholder. <see cref="Cart"/> stands in for the filtered entities here;
+/// <see cref="Product"/> is deliberately NOT one of them (central catalogue, no MerchantId column) and gets
+/// its own test below so that exemption stays a decision rather than a regression.
 /// </summary>
 public sealed class ReadFloorTests : IDisposable
 {
@@ -37,25 +40,41 @@ public sealed class ReadFloorTests : IDisposable
             FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
 
     [Fact]
-    public async Task Merchant_A_never_reads_merchant_B_products()
+    public async Task Merchant_A_never_reads_merchant_B_carts()
     {
-        await SeedProductAsync(MerchantA, "a-product");
-        await SeedProductAsync(MerchantB, "b-product");
+        var a = await SeedCartAsync(MerchantA);
+        await SeedCartAsync(MerchantB);
 
         using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
-        var visible = await asA.Products.ToListAsync();
+        var visible = await asA.Carts.ToListAsync();
 
         Assert.Single(visible);
-        Assert.Equal("a-product", visible[0].DocumentNo);
+        Assert.Equal(a, visible[0].Id);
+    }
+
+    [Fact]
+    public async Task The_product_catalogue_is_central_and_visible_to_every_merchant()
+    {
+        // Product carries no MerchantId and no query filter on purpose: the catalogue is shared and a
+        // request is scoped by the mandatory SaleCode filter instead. Locked here so re-adding a tenant
+        // key stays a deliberate change.
+        await SeedProductAsync("a-product");
+        await SeedProductAsync("b-product");
+
+        using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
+        using var unbound = NewMerchantRuntimeContext(FakeActorContext.Unbound);
+
+        Assert.Equal(2, await asA.Products.CountAsync());
+        Assert.Equal(2, await unbound.Products.CountAsync());
     }
 
     [Fact]
     public async Task By_id_load_of_another_merchants_row_is_IDOR_closed()
     {
-        var otherMerchantProductId = await SeedProductAsync(MerchantB, "b-product");
+        var otherMerchantCartId = await SeedCartAsync(MerchantB);
 
         using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
-        var found = await asA.Products.FirstOrDefaultAsync(p => p.Id == otherMerchantProductId);
+        var found = await asA.Carts.FirstOrDefaultAsync(c => c.Id == otherMerchantCartId);
 
         Assert.Null(found);
     }
@@ -63,11 +82,11 @@ public sealed class ReadFloorTests : IDisposable
     [Fact]
     public async Task Unbound_actor_reads_zero_rows()
     {
-        await SeedProductAsync(MerchantA, "a-product");
-        await SeedProductAsync(MerchantB, "b-product");
+        await SeedCartAsync(MerchantA);
+        await SeedCartAsync(MerchantB);
 
         using var unbound = NewMerchantRuntimeContext(FakeActorContext.Unbound);
-        var visible = await unbound.Products.ToListAsync();
+        var visible = await unbound.Carts.ToListAsync();
 
         Assert.Empty(visible);
     }
@@ -79,17 +98,17 @@ public sealed class ReadFloorTests : IDisposable
         // caching, unlike the anti-flake Sqlite tests elsewhere) so the compiled MODEL can be shared/cached
         // across instances — proving the filter is an INSTANCE member re-evaluated per query, not a value
         // baked into that shared cached model at first build.
-        await SeedProductAsync(MerchantA, "a-product");
-        await SeedProductAsync(MerchantB, "b-product");
+        var a = await SeedCartAsync(MerchantA);
+        var b = await SeedCartAsync(MerchantB);
 
         using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
         using var asB = NewMerchantRuntimeContext(FakeActorContext.For(MerchantB));
 
-        var seenByA = await asA.Products.Select(p => p.DocumentNo).ToListAsync();
-        var seenByB = await asB.Products.Select(p => p.DocumentNo).ToListAsync();
+        var seenByA = await asA.Carts.Select(c => c.Id).ToListAsync();
+        var seenByB = await asB.Carts.Select(c => c.Id).ToListAsync();
 
-        Assert.Equal(["a-product"], seenByA);
-        Assert.Equal(["b-product"], seenByB);
+        Assert.Equal([a], seenByA);
+        Assert.Equal([b], seenByB);
     }
 
     [Fact]
@@ -100,7 +119,7 @@ public sealed class ReadFloorTests : IDisposable
         // references the parameter NAME (which embeds the captured "context.CurrentMerchant" instance
         // member, per EF's parameter-naming convention), not the raw GUID inlined as a literal.
         using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
-        var sql = asA.Products.ToQueryString();
+        var sql = asA.Carts.ToQueryString();
         var whereLine = sql.Split('\n').Single(l => l.Contains("WHERE", StringComparison.Ordinal));
 
         // EF names a query-filter-captured instance member's parameter "@ef_filter__<MemberName>" — the name
@@ -137,15 +156,21 @@ public sealed class ReadFloorTests : IDisposable
         connection.Dispose();
     }
 
-    private async Task<Guid> SeedProductAsync(Guid merchantId, string documentNo)
+    private async Task<Guid> SeedCartAsync(Guid merchantId)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId));
-        var product = Product.Create(
-            new ProductInput(
-                merchantId, ProductGroup.VMI, DocumentType.POLICY, documentNo, "00098", 10m));
-        writer.Add(product);
+        var cart = new Cart(Guid.NewGuid(), merchantId, DateTime.UtcNow);
+        writer.Add(cart);
         await writer.SaveChangesAsync();
-        return product.Id;
+        return cart.Id;
+    }
+
+    private async Task SeedProductAsync(string documentNo)
+    {
+        using var writer = NewMerchantRuntimeContext(FakeActorContext.Unbound);
+        writer.Add(Product.Create(
+            new ProductInput(ProductGroup.VMI, DocumentType.POLICY, documentNo, "00098", 10m)));
+        await writer.SaveChangesAsync();
     }
 
     public void Dispose() => _connection.Dispose();

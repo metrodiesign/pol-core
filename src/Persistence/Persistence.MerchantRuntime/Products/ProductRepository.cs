@@ -35,9 +35,10 @@ internal sealed class ProductRepository : IProductRepository
     {
         var pf = query.ProductFilters;
 
+        // The catalogue is central (no MerchantId column), so SaleCode is the only scoping axis — hence
+        // it is mandatory in §2 and rejected at the boundary when absent (REQ-3.3).
         IQueryable<Product> src = _db.Set<Product>().AsNoTracking()
-            .Where(p => p.MerchantId == query.MerchantId)   // defence-in-depth on the query-filter floor (REQ-7.1)
-            .Where(p => p.SaleCode == pf.SaleCode);         // §2 @SaleCode — required (REQ-3.3)
+            .Where(p => p.SaleCode == pf.SaleCode);
 
         // §3 RENEWAL is read as forward-looking: EndDate (= period_to) within [today, today + 2 months) means
         // "about to expire, ready to renew". The document only says "window 2 เดือนตาม period_to / p_to"
@@ -90,7 +91,7 @@ internal sealed class ProductRepository : IProductRepository
         int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);   // overflow-safe offset (REQ-2.6)
 
         var items = await src
-            .OrderBy(p => p.DocumentNo)   // unique per merchant -> stable paging without a tie-breaker (REQ-7.2)
+            .OrderBy(p => p.DocumentNo)   // globally unique -> stable paging without a tie-breaker (REQ-7.2)
             .Skip(skip)
             .Take(query.Limit)
             .Select(p => new ProductListItem(

@@ -13,7 +13,8 @@ namespace Architecture.Tests;
 /// <see cref="ProductRepository.ListAsync"/> over <see cref="MerchantRuntimeDbContext"/> backed by in-memory
 /// SQLite (the class is internal, so only a project with InternalsVisibleTo can construct it directly).
 /// Proves the §2 input surface of <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> as built: the
-/// merchant floor plus required <c>@SaleCode</c> narrowing (REQ-3.3), <c>@PaymentStatus</c> defaulting to
+/// required <c>@SaleCode</c> narrowing — the catalogue is central, so SaleCode is the ONLY scoping axis
+/// (REQ-3.3) — <c>@PaymentStatus</c> defaulting to
 /// UNPAID with <c>ALL</c> meaning "do not filter" (REQ-3.1/3.2), the search window (REQ-6.1/6.2) driven by an
 /// injected <see cref="IClock"/> so the result does not depend on the wall clock, the per-row Motor gate on
 /// the licence plate (REQ-5.1/5.2), <c>OrderBy(DocumentNo)</c> (REQ-7.2), total-after-filter paging, and the
@@ -21,9 +22,6 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class ProductRepositoryListTests : IDisposable
 {
-    private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
-    private static readonly Guid MerchantB = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
-
     /// <summary>Frozen "today" for every window assertion — matches the table in the spec's HANDOFF.</summary>
     private static readonly DateTime Today = new(2026, 7, 30, 0, 0, 0, DateTimeKind.Utc);
 
@@ -37,11 +35,13 @@ public sealed class ProductRepositoryListTests : IDisposable
         setup.Database.EnsureCreated();
     }
 
-    // The caller passes MerchantId explicitly in the query; bind an arbitrary actor so the ambient read floor
-    // does not also filter these rows out from under the explicit query.
+    // Products have no query filter (central catalogue), so the bound actor is irrelevant to these reads —
+    // any merchant will do; it only satisfies the other entities' filters on the shared context.
+    private static readonly Guid AnyMerchant = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
+
     private MerchantRuntimeDbContext NewContext() =>
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
-            FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
+            FakeActorContext.For(AnyMerchant), FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
 
     private ProductRepository Repo() => new(NewContext(), new FixedClock(Today.AddHours(9)));
 
@@ -54,42 +54,30 @@ public sealed class ProductRepositoryListTests : IDisposable
 
     /// <summary>A document that is inside the default 6-month window unless the caller says otherwise.</summary>
     private static Product Prod(
-        Guid merchant, string documentNo, decimal totalPremium = 100m, string saleCode = "00098",
+        string documentNo, decimal totalPremium = 100m, string saleCode = "00098",
         ProductGroup group = ProductGroup.VMI, DocumentType type = DocumentType.POLICY,
         DateTime? startDate = null, DateTime? endDate = null, string? showName = null, string? plate = null) =>
         Product.Create(new ProductInput(
-            merchant, group, type, documentNo, saleCode, totalPremium,
+            group, type, documentNo, saleCode, totalPremium,
             StartDate: startDate ?? Today.AddDays(-1), EndDate: endDate,
             ShowName: showName, LicensePlateNumber: plate));
 
     private static ListProductsQuery Query(
-        ProductFilterDto? filters = null, Guid? merchantId = null, int page = 1, int limit = 25) =>
+        ProductFilterDto? filters = null, int page = 1, int limit = 25) =>
         new()
         {
-            MerchantId = merchantId ?? MerchantA,
             ProductFilters = filters ?? new ProductFilterDto { SaleCode = "00098" },
             Page = page,
             Limit = limit,
         };
 
     [Fact]
-    public async Task Lists_only_the_bound_merchants_documents()
-    {
-        Seed(Prod(MerchantA, "a1"), Prod(MerchantA, "a2"), Prod(MerchantB, "b1"));
-
-        var page = await Repo().ListAsync(Query(), CancellationToken.None);
-
-        Assert.Equal(2, page.Total);                              // merchant B's row is never counted
-        Assert.Equal(new[] { "a1", "a2" }, page.Items.Select(i => i.DocumentNo));
-    }
-
-    [Fact]
     public async Task SaleCode_narrows_the_result_exactly()
     {
         Seed(
-            Prod(MerchantA, "mine-1", saleCode: "00098"),
-            Prod(MerchantA, "mine-2", saleCode: "00098"),
-            Prod(MerchantA, "theirs", saleCode: "00099"));
+            Prod("mine-1", saleCode: "00098"),
+            Prod("mine-2", saleCode: "00098"),
+            Prod("theirs", saleCode: "00099"));
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00099" }), CancellationToken.None);
@@ -100,9 +88,9 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task An_absent_paymentStatus_returns_only_UNPAID_documents()
     {
-        var paid = Prod(MerchantA, "paid-doc");
+        var paid = Prod("paid-doc");
         paid.MarkPaid(Today);
-        Seed(Prod(MerchantA, "unpaid-doc"), paid);
+        Seed(Prod("unpaid-doc"), paid);
 
         var page = await Repo().ListAsync(Query(), CancellationToken.None);
 
@@ -112,9 +100,9 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task ALL_returns_both_paid_and_unpaid_documents()
     {
-        var paid = Prod(MerchantA, "paid-doc");
+        var paid = Prod("paid-doc");
         paid.MarkPaid(Today);
-        Seed(Prod(MerchantA, "unpaid-doc"), paid);
+        Seed(Prod("unpaid-doc"), paid);
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", PaymentStatus = "ALL" }), CancellationToken.None);
@@ -125,9 +113,9 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task PAID_returns_only_paid_documents()
     {
-        var paid = Prod(MerchantA, "paid-doc");
+        var paid = Prod("paid-doc");
         paid.MarkPaid(Today);
-        Seed(Prod(MerchantA, "unpaid-doc"), paid);
+        Seed(Prod("unpaid-doc"), paid);
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", PaymentStatus = "PAID" }), CancellationToken.None);
@@ -156,7 +144,7 @@ public sealed class ProductRepositoryListTests : IDisposable
         // Built without the Prod helper: these cases need a genuinely NULL StartDate/EndDate, which the
         // helper's in-window default would mask.
         Seed(Product.Create(new ProductInput(
-            MerchantA, ProductGroup.VMI, type, label, "00098", 100m,
+            ProductGroup.VMI, type, label, "00098", 100m,
             StartDate: Day(startDate), EndDate: Day(endDate))));
 
         var page = await Repo().ListAsync(Query(), CancellationToken.None);
@@ -167,7 +155,7 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task The_window_applies_even_when_the_client_filters_on_something_else()
     {
-        Seed(Prod(MerchantA, "too-old", startDate: new DateTime(2025, 1, 1)));
+        Seed(Prod("too-old", startDate: new DateTime(2025, 1, 1)));
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", PaymentStatus = "ALL", ProductGroup = ProductGroup.VMI }),
@@ -184,7 +172,7 @@ public sealed class ProductRepositoryListTests : IDisposable
     [InlineData(ProductGroup.MISC, false)]
     public async Task A_licence_plate_is_searchable_on_Motor_rows_only(ProductGroup group, bool expectedMatch)
     {
-        Seed(Prod(MerchantA, $"doc-{group}", group: group, plate: "กข 1234"));
+        Seed(Prod($"doc-{group}", group: group, plate: "กข 1234"));
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", SearchText = "กข 1234" }), CancellationToken.None);
@@ -195,7 +183,7 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task Search_also_matches_the_document_and_policy_numbers_on_non_Motor_rows()
     {
-        Seed(Prod(MerchantA, "FIRE-77", group: ProductGroup.FIRE));
+        Seed(Prod("FIRE-77", group: ProductGroup.FIRE));
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", SearchText = "FIRE-77" }), CancellationToken.None);
@@ -206,7 +194,7 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task Search_escapes_wildcards()
     {
-        Seed(Prod(MerchantA, "50% off"), Prod(MerchantA, "500 baht"));
+        Seed(Prod("50% off"), Prod("500 baht"));
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", SearchText = "50%" }), CancellationToken.None);
@@ -219,9 +207,9 @@ public sealed class ProductRepositoryListTests : IDisposable
     public async Task Insured_name_matches_partially()
     {
         Seed(
-            Prod(MerchantA, "d1", showName: "สมชาย ใจดี"),
-            Prod(MerchantA, "d2", showName: "สมหญิง รักดี"),
-            Prod(MerchantA, "d3"));   // ShowName null -> never matches
+            Prod("d1", showName: "สมชาย ใจดี"),
+            Prod("d2", showName: "สมหญิง รักดี"),
+            Prod("d3"));   // ShowName null -> never matches
 
         var page = await Repo().ListAsync(
             Query(new ProductFilterDto { SaleCode = "00098", InsuredName = "สมชาย" }), CancellationToken.None);
@@ -232,11 +220,11 @@ public sealed class ProductRepositoryListTests : IDisposable
     [Fact]
     public async Task Returns_a_paged_slice_ordered_by_DocumentNo_with_the_total_after_filtering()
     {
-        var paid = Prod(MerchantA, "p0");
+        var paid = Prod("p0");
         paid.MarkPaid(Today);
         Seed(
-            Prod(MerchantA, "p3"), Prod(MerchantA, "p1"), Prod(MerchantA, "p5"),
-            Prod(MerchantA, "p2"), Prod(MerchantA, "p4"), paid);
+            Prod("p3"), Prod("p1"), Prod("p5"),
+            Prod("p2"), Prod("p4"), paid);
 
         var page = await Repo().ListAsync(Query(page: 1, limit: 2), CancellationToken.None);
 
@@ -254,7 +242,7 @@ public sealed class ProductRepositoryListTests : IDisposable
         var start = new DateTime(2026, 7, 1);
         var end = new DateTime(2027, 6, 30);
         Seed(Product.Create(new ProductInput(
-            MerchantA, ProductGroup.CMI, DocumentType.POLICY, "full-1", "00098", 15900m,
+            ProductGroup.CMI, DocumentType.POLICY, "full-1", "00098", 15900m,
             PolicyYear: "69", ReferenceBranch: "100", ReferencePre: "pre", PolicySequenceNo: "seq",
             ReferenceYear: "69", ReferenceNo: "ref", PolicyBranch: "branch", PolicyType: "type",
             SaleFullName: "สมชาย ขาย", BrokerCode: "BK", BrokerName: "โบรก", PolicyNumber: "POL-1",

@@ -17,7 +17,7 @@ namespace Products.Application;
 /// <c>DocumentNo</c>/<c>SaleCode</c>/<c>TotalPremium</c>/<c>PaymentStatus</c> stay non-nullable because
 /// this repo owns the data (§5.2 is a read model of the upstream system); <c>ProductGroup</c>,
 /// <c>DocumentType</c> and <c>PaymentStatus</c> stay CLR enums whose <c>ToString()</c> is the wire value.
-/// <c>MerchantId</c> is not carried: it is not a §5.2 field and the caller already knows the merchant.
+/// <c>MerchantId</c> is not carried: the catalogue is central and §5.2 has no such field.
 /// </para>
 /// </summary>
 public sealed record ProductListItem(
@@ -174,17 +174,16 @@ public sealed record ProductFilterDto
 }
 
 /// <summary>
-/// Lists a merchant's insurance documents (§2 input surface). Merchant data -> <see cref="IMerchantScoped"/>,
-/// so <c>MerchantGuardBehavior</c> rejects a request with no merchant context. <see cref="MerchantId"/> is
-/// bound from the authenticated principal by the endpoint, never supplied by the client.
+/// Lists insurance documents from the central catalogue (§2 input surface). Not <see cref="IMerchantScoped"/>:
+/// the catalogue carries no merchant, so <c>SaleCode</c> — mandatory in <see cref="ProductFilterDto"/> — is
+/// the only scoping axis, and the endpoint's authorization is the access gate.
 /// <para>
 /// Deliberately does NOT inherit <see cref="PagedQuery"/>: §2 has no filter/sort/search concept, and
 /// inheriting would leave settable <c>Filters</c>/<c>Sort</c>/<c>Search</c> that nothing reads.
 /// </para>
 /// </summary>
-public sealed record ListProductsQuery : IQuery<PagedResult<ProductListItem>>, IMerchantScoped
+public sealed record ListProductsQuery : IQuery<PagedResult<ProductListItem>>
 {
-    public required Guid MerchantId { get; init; }
     public required ProductFilterDto ProductFilters { get; init; }
 
     /// <summary>§2 <c>@PageNo</c>; clamped to >= 1 at the Hosts layer.</summary>
