@@ -805,4 +805,4 @@ query ยืนยัน (stamp `sp_set_session_context` UserId/MerchantId ก�
    `Name`/`PriceAmount`** ซึ่งค้างมาตั้งแต่ insurance-pivot (ก่อน spec นี้) — นอกขอบเขต T6, ถ้า T7
    จะเก็บ docs drift ให้ครบก็เป็นจุดที่ควรกวาด
 
-commit ของ T6: `cb29344` (+ amend hash ในบรรทัดนี้)
+commit ของ T6: `9ee82ab` (hash ถูกเติมใน commit เล็กถัดจากนั้น)
