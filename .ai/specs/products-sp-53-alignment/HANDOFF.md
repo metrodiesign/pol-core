@@ -30,7 +30,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | เสร็จ |
 | T7 | cap 25 ทั้ง repo + SFS docs/spec | เสร็จ |
 | T8 | tests ทั้งชุด → build+test เขียว | เสร็จ |
-| T9 | gate เต็ม + PR | รอ |
+| T9 | gate เต็ม + fresh-DB replay + E2E + PR | เสร็จ |
 
 ---
 
@@ -1025,3 +1025,174 @@ commit ของ T7: `871c351`
 5. `git rm` ก่อนรัน rename gate (ดูหัวข้อ "ไฟล์ที่ลบ")
 
 commit ของ T8: `ad52c3f`
+
+---
+
+## T9 — gate + PR (เสร็จ)
+
+แตะ 3 ไฟล์: `docs/reference/layers-guide.md` (residue ที่เจอ), `tasks.md` (flip task 9 + Evidence),
+`HANDOFF.md` (section นี้) — ไม่แตะ `src/` เชิงพฤติกรรม, ไม่แตะ `tests/`, `docker/`, migration
+
+### ผล gate ทุกตัวที่ CI รัน (อ่านจาก `.github/workflows/ci.yml` จริง ไม่เดา)
+
+| job / step | คำสั่งที่รัน | ผล |
+|---|---|---|
+| verify: guard regression | ทุกไฟล์ `.claude/hooks/tests/*.test.sh` (6 ไฟล์) | **288 pass / 0 fail** (codex-adapters 7, destructive-guard 132, gate-task 23, hook-bypass-guard 84, secrets-guard 29, spec-edit-guard 13) |
+| verify: secret scan | `SECRET_GUARD_SKIP='' .ai/bin/check-secrets.sh --all` | exit 0, ไม่มี finding |
+| verify: rename gate | `scripts/check-rename-identifiers.sh` | `OK — no retired identifier appears as a live-code token in src/ or tests/` |
+| verify: spec-trace | loop ทุก dir ใต้ `.ai/specs/` ที่มี `requirements.md` | **25 spec เห็นบรรทัด `OK:` จริงทุกตัว** (ไม่ใช่ exit 0 เดี่ยว ๆ) |
+| dotnet: build | `dotnet build pol-core.slnx -warnaserror` (ตามตัวอักษร REQ-12.1) | `Build succeeded. 0 Warning(s) 0 Error(s)` |
+| dotnet: test | `dotnet test pol-core.slnx --filter "Category!=Integration"` | **1296 passed / 0 failed / 0 skipped** (16 project) |
+| dotnet-integration | `. ./.env.integration` + `--filter "Category=Integration"` | **47 / 0 / 0** |
+| dotnet-integration: lineage | `scripts/check-migration-lineage.sh` | `Migration lineage gate OK` |
+| dotnet-integration: assert-fresh-db | `docker/bootstrap/assert-fresh-db.sql` | `OK — schemas, RegistrationNotices, no legacy RLS object/principal survives, pol_app grant floor, iam RBAC catalog + master-data seed counts all verified` |
+| docker-build | build target `final` (api) + `migrate` | สำเร็จทั้งคู่ exit 0 |
+| docker-build: render | `docker compose -f docker-compose.prod.yml config` (placeholder env 9 ตัว) | exit 0 |
+
+spec-trace 5 ตัวที่ T7 แตะ: `products-sp-53-alignment` 53 ข้อ, `search-filter-sort` 59,
+`checkout-chain-document-fields` 21, `insurance-pivot` 31, `demo-seed-data` 33 — `OK:` ครบ
+
+จำนวน test ต่อ project (offline): Hosts 362, Architecture 225, Payments 162, Merchants 120,
+Admins 95, Orders 76, Iam 62, Products 53, SharedKernel 46, BuildingBlocks 43, Carts 15,
+Checkouts 13, Divisions/Levels/Offices/Positions 6 ตัวละ
+
+### REQ-12.5 fresh-DB replay (ทำจริงจาก volume เปล่า)
+
+`docker compose down -v` -> `docker compose up -d` (`pol-db-init` exit 0, bootstrap `01-principals.sql`
+สร้าง `VCentralPay` + `pol_app`) -> `dotnet ef database update` apply ครบ **27 migration** ->
+`./scripts/seed-demo.sh` -> `seed-demo: OK.`
+
+`INFORMATION_SCHEMA.COLUMNS` บน `shop.Products` = **33 คอลัมน์ตรง §5.2** (ลำดับ ordinal ตรงตาราง T5)
+โดย `TotalPremium` `decimal(19,2) NOT NULL`, `NetPremium`/`Stamp`/`TaxVat`/`CommissionAmount`
+`decimal(19,2) NULL`, `CommissionPercent` `decimal(19,6) NULL`, `PaymentStatus varchar(10) NOT NULL`,
+`PaidDate datetime2 NULL`
+
+- 8 คอลัมน์ที่ DROP + 4 ชื่อเก่า `*Amount` -> query `COLUMN_NAME IN (...)` คืน **`none`**
+- index เหลือ **3** ตัว: `PK_Products`, `IX_Products_MerchantId_PaymentStatus`,
+  unique `IX_Products_MerchantId_DocumentNo` — `IX_Products_MerchantId_IsActive` หายแล้ว
+- นับแถวหลัง replay = **106** = demo 100 (34/33/33 ต่อ merchant) + EF seed 6 แถว
+  (merchant `E5000000-…-0000`) — `seed-demo.sh` รายงาน 100 เพราะไม่นับ EF seed
+
+### REQ-12.6 E2E ยิงจริงบน API host
+
+**วิธี auth ที่ใช้ (ใช้ซ้ำได้ ไม่ต้องเดิน OIDC)**: `/api/v1/products|carts|checkouts` ใช้ policy
+`merchant-user` = opaque session cookie เท่านั้น (Bearer ถูกถอดไปแล้วตั้งแต่ T11) ⇒ mint session เอง:
+`INSERT INTO merch.Sessions (Id, FamilyId, TokenHash, MerchantUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt, …)`
+โดย `TokenHash` = `SHA256(utf8(token))` (`UserTokens.Hash`), `Status = 0` (Active), `IssuedAt = SYSUTCDATETIME()`
+(สำคัญ — ถ้าเก่ากว่า rotation age จะถูก rotate) แล้วส่ง header `Cookie: mch_session=<token>`
+**ชื่อ cookie บน dev http = `mch_session` ไม่ใช่ `__Host-mch_session`** (`UserSessionCookies.SessionName`
+สลับตาม `IsDevHttp`); ไม่ต้องมี CSRF token เพราะ `CsrfFilter`/`UserCsrfFilter` ผูกแค่ group
+`/admins` และ `/merchants/users` ไม่ใช่ data plane. user ที่ใช้ = `somchai.p@demo.pol.local`
+(`E5000000-…-0001`, merchant `E1000000-…-0001`, `UserStatus.Active = 1`, role `merchant_manager`
+ซึ่งมี `product.create`)
+
+**host**: `dotnet run --project src/Hosts/Api --no-build --no-launch-profile --urls http://localhost:5177`
+— ต้องใส่ `--no-launch-profile` ไม่งั้น `launchSettings.json` บังคับ :5100 ทับ `ASPNETCORE_URLS`
+(รันบน **:5177 ไม่ใช่ :5100** เพราะมี process `Api` ของคนอื่นถือ :5100 อยู่ — ไม่ kill ของคนอื่น)
+
+| เคส | คาดหวัง | ผลจริง |
+|---|---|---|
+| gate 1: add-to-cart เอกสาร `PaymentStatus = PAID` | 400 `"Unknown or inactive product."` | **ผ่าน** ตรงตัวอักษร |
+| gate 2: checkout start ที่มี cart line กลายเป็น PAID | 409 `"A cart product is no longer available."` | **ผ่าน** ตรงตัวอักษร |
+| control: checkout start ที่ทุก line ยัง UNPAID | 200 | **ผ่าน** (คืน `checkoutSessionId`) |
+| control: add-to-cart เอกสาร UNPAID | 200 | **ทำไม่ได้** — cart write path พัง (ดูข้อ 2 ข้างล่าง) |
+| `POST /products` premium ตัวเลขเปล่า | 201/200 | **ผ่าน** 200 (สร้าง 8 เอกสาร) |
+| `POST /products` premium 3 ตำแหน่ง (`100.005`) | 400 | **ผ่าน** (guard REQ-1.5) |
+| `POST /products` premium เป็น object แบบเดิม | 400 | **ปฏิเสธจริง แต่ได้ 500** (ดูข้อ 1) |
+| `GET /products` ไม่ส่ง `productFilters` | 400 | **ผ่าน** |
+| `saleCode` เว้นวรรค | 400 (50005) | **ผ่าน** |
+| `paymentStatus:"XXX"` / `"unpaid"` | 400 (50007, case-sensitive) | **ผ่าน** ทั้งคู่ |
+| default (ไม่ส่ง `paymentStatus`) | UNPAID + window 6 เดือน + เรียง `DocumentNo` | **ผ่าน** (`001,003,004,006` — `002` StartDate 2026-01-29 หลุด, `003` ขอบล่าง 2026-01-30 เข้า) |
+| `paymentStatus:"ALL"` | UNPAID + PAID | **ผ่าน** (5 แถวรวม PAID) |
+| `paymentStatus:"PAID"` | PAID เท่านั้น | **ผ่าน** (1 แถว) |
+| `documentType:"RENEWAL"` | คัดด้วย `EndDate` window 2 เดือน | **ผ่าน** (`EndDate` 2026-08-15 เข้า, 2026-07-29 หลุด) |
+| `searchText` = ทะเบียนรถ | match VMI, ไม่ match MISC ที่ทะเบียนเดียวกัน | **ผ่าน** (Motor gate per-row) |
+| `branchCode` ใน JSON | ถูก ignore เงียบ ๆ ไม่ใช่ 400 | **ผ่าน** |
+| `limit=1000` / `limit=50` | response `limit` = 25 | **ผ่าน** ทั้งคู่ (`limit=2&page=2` ยังแบ่งหน้าถูก) |
+| `filters=` / `sort=` | ไม่มีผล + ไม่โผล่ใน OpenAPI | **ผ่าน** (`/openapi/v1.json` ประกาศเฉพาะ `page`/`limit`/`productFilters`) |
+| shape ของ item | 32 field §5.2 + `Id` | **ผ่าน** 33 key + `insuranceType` computed = `Motor`; ไม่มี `isActive`/`createdAt`/`branchCode`/`merchantId` |
+
+fixture ที่สร้าง (`T9-DOC-001` ถึง `008`) ถูกลบทิ้งหลังทดสอบเสร็จ (`t9_left = 0`) พร้อม session row
+
+### ปัญหาที่เจอและ **ไม่ได้แก้** (ทั้งคู่เป็นของเดิม ไม่ใช่ของ branch นี้) — follow-up
+
+1. **malformed request body -> 500 ไม่ใช่ 400 ทั้ง repo**
+   `ProblemDetailsExceptionHandler.Map` ไม่ได้ map `BadHttpRequestException` (ที่ minimal-API โยนเมื่อ
+   bind body ไม่ได้) จึงตกลง `_ => 500`. ยืนยันว่าเป็นปัญหาข้ามทุก endpoint ไม่ใช่แค่ `POST /products`:
+   `POST /carts/{id}/items` ที่ส่ง `"quantity":"not-a-number"` ก็ 500 เหมือนกัน. **ผลต่อสเปกนี้**:
+   breaking change ของ premium wire เกิดจริง (request แบบเก่าถูกปฏิเสธ) แต่ status code ที่ client เห็น
+   คือ 500 ⇒ ถ้าจะประกาศ contract ว่า 400 ต้องเปิด bugfix spec เพิ่มบรรทัดเดียวใน `Map`
+   (`BadHttpRequestException => 400`) + test — จงใจไม่ทำในนี้เพราะกระทบทุก endpoint และไม่มี REQ รองรับ
+2. **cart write path พังบน SQL Server จริง**
+   `POST /carts/{id}/items` โยน `DbUpdateConcurrencyException` ("expected to affect 1 row(s), but
+   actually affected 0") -> `ConcurrencyConflictException` -> 409 **ทุกครั้ง** ทั้งกับ cart ที่เพิ่งสร้าง
+   และเมื่อ retry (3 ครั้งติด). `shop.Carts` ไม่มีคอลัมน์ `RowVersion` เลย. เป็น bug เดิมที่บันทึกไว้แล้ว
+   ตั้งแต่ `rls-to-query-filter` (PR #112) และถูก flag ค้างไว้ตอน `insurance-pivot` ว่าควรเปิด bugfix spec แยก —
+   **ไม่มีไฟล์ของโมดูล Carts ใน diff ของ branch นี้เลย** จึงเป็นไปไม่ได้ที่จะเป็น regression ของ T1-T8.
+   ทดแทนด้วย checkout-start 200 ที่เดินผ่าน gate เดียวกัน (`PaymentStatus != UNPAID`) เพื่อพิสูจน์ฝั่ง UNPAID
+3. **seed demo ไม่ใส่ `StartDate`/`EndDate`** (NULL ทั้ง 100 แถว) ⇒ ทุกแถว demo หลุด search window
+   ของ REQ-6 ทำให้ `GET /products` บน demo data ล้วน ๆ คืน **0 แถว** ทุก saleCode.
+   E2E จึงต้องสร้างเอกสารมีวันที่เองผ่าน `POST /products`. เป็นช่องว่างของ spec `demo-seed-data`
+   (column list ที่ T6 เขียนไม่มี 2 คอลัมน์นี้) — ควรตามเก็บแยก ไม่ใช่ของ REQ ในสเปกนี้
+
+### residue ที่เจอและแก้
+
+`docs/reference/layers-guide.md` §1 Products — เป็นเอกสาร reference ที่ยัง **ยืนยันข้อเท็จจริงผิด**
+เกี่ยวกับ `Product` ปัจจุบัน (REQ-11.3 ครอบ): บรรยาย invariant เป็น `SumInsured`/`Price`/`CoverageDurationDays`,
+บอกว่า mutation คือ `Rename`/`Deactivate` + soft-delete `IsActive`, ลิสต์ `GetProductsQuery`,
+อ้าง `ListProductsQuery` เป็น SFS exemplar, อ้าง `ProductView`, และบอกว่า `ProductConfiguration`
+map `Money` เป็น complex type 2 ชุด (`Price` + `SumInsured`) — เขียนใหม่ 3 ย่อหน้าให้ตรงของจริง
+(เอกสารประกัน mirror §5.2, guard `decimal(19,2)`, mutation เดียว `MarkPaid`, §2 input contract,
+`ProductListItem` 32 field + `Id`, ไม่มี Money complex type). ส่วน `SumInsured`/`Price` นั้น stale มา
+ตั้งแต่ `insurance-pivot`/PR #143 อยู่แล้ว จึงกวาดพร้อมกันในย่อหน้าเดียวกัน
+
+### residue ที่เจอและ **ตัดสินใจไม่แก้** (พร้อมเหตุผล)
+
+- **comment `mirrors ProductSfs` 6 จุดใน 3 ไฟล์ต่างโมดูล** — `PolicyReportSfs.cs:20,75,122,169`,
+  `ListPolicyReportAdminQuery.cs:12`, `Program.cs:1570` (สองจุดแรกอ้างถึง `ProductSfs.cs:32` ที่ไม่มีอยู่แล้ว)
+  เป็น comment เชิงประวัติ/เหตุผลของ pattern ไม่กระทบพฤติกรรมหรือ build และอยู่นอกขอบเขต Products
+  ⇒ ไม่แก้เพื่อไม่ขยาย diff เข้าโมดูล Orders/Persistence ที่ไม่เกี่ยว (ยกให้ lead ตัดสินว่าจะกวาดแยก)
+- **`entity-fields.md` ตาราง `shop.CheckoutSessionItems` / `shop.OrderItems`** ที่ T7 flag ไว้ (กับดัก T7 ข้อ 4)
+  — ยัง stale จาก PR #143 จริง แต่ไม่ใช่ field ของ `shop.Products` และ REQ-11.3 ไม่ครอบ
+  ⇒ คง follow-up แยกตามที่ T7 เสนอ
+- `entity-fields.md:1150` `NetPremiumAmount decimal(19,4)` — ตรวจแล้วเป็นตาราง `shop.OrderItemPolicies`
+  ซึ่ง `ItemPolicy` ยังใช้ Money pair จริง **ไม่ใช่ residue**
+
+grep ยืนยันไม่มี residue ของสเปกนี้เหลือใน `src/` เชิงโค้ด: `Deactivate()`/`IsActive`/`BranchCode`/
+`ProductView`/`ProductSfs`/`GetProductsQuery`/`ListByTenantAsync`/`ComplexProperty` ที่เหลือทั้งหมด
+เป็นของ entity อื่นที่มีของจริง (Divisions/Offices/Positions/Levels/Iam `Role`, `ConnectionRepository`,
+Money complex type ของ Cart/Checkout/Order/Payment) หรือเป็นไฟล์ migration/designer เก่าที่ห้ามแก้
+
+### ความสะอาดของ diff
+
+`git diff develop...HEAD --stat` = 54 ไฟล์ (+4907/-1145) ก่อน commit ของ T9 — อ่านครบทุกไฟล์:
+ไม่มีไฟล์นอกขอบเขต, ไม่มี `.only`/`.skip`/`Skip =` ที่เพิ่มใหม่, ไม่มี `TODO`/`FIXME`/`HACK`/
+`Console.WriteLine`/`Debug.` ที่เพิ่มใหม่, ไม่มี emoji ในไฟล์ `.md` ที่แก้, ไม่มี secret
+(secret scan ทั้ง tree ผ่าน)
+
+### สภาพ dev DB ตอนนี้ (สำหรับคนถัดไป)
+
+`:11433` = fresh replay + seed-demo (ตามข้อ REQ-12.5) **แต่ E2E ทำให้ demo state ขยับ 3 อย่าง**:
+cart `EA000000-…-0001` กลายเป็น `CheckedOut` (เดิม `Open`) + quantity ของ 3 line ถูกตั้งเป็น 1
+(เดิมมี line quantity 2) + มี `CheckoutSession` ใหม่ 1 แถวจาก control test
+⇒ ใครต้องการ demo state สะอาดให้ `docker compose down -v` แล้ว replay ใหม่ (ขั้นตอนอยู่ในหัวข้อ REQ-12.5)
+
+### กับดักที่เจอ
+
+1. **`launchSettings.json` ทับ `ASPNETCORE_URLS`** — `dotnet run` ที่ตั้ง env var เฉย ๆ ยังไปผูก :5100
+   แล้ว crash `AddressInUseException` ⇒ ต้อง `--no-launch-profile --urls <url>` (และตั้ง
+   `ASPNETCORE_ENVIRONMENT=Development` เองเพราะไม่ได้อ่าน profile แล้ว)
+2. **`dotnet run` ตอน boot dev จะ `MigrateAsync` ให้เอง** ("Applied pending EF migrations
+   (Development, Migrator connection)") — ไม่ใช่ปัญหาตอนนี้ แต่หมายความว่าการ boot host บน DB
+   ที่ยังไม่ migrate จะแก้ schema ให้เงียบ ๆ
+3. **`rtk` ไม่ปล่อย output ถ้าโดน background/timeout** — `dotnet test` ที่ถูก move ไป background
+   เขียนไฟล์ผลลัพธ์ขนาด 0 byte (process ตาย) ⇒ งาน test ยาวให้ redirect เข้าไฟล์เองด้วย
+   `> <log> 2>&1` + `run_in_background` แล้วอ่านไฟล์ ไม่พึ่ง buffer ของ rtk
+4. **zsh ไม่มี `shopt` และ `status` เป็น read-only** — step ของ CI ที่ copy มารันตรง ๆ ต้องห่อ
+   `bash -c '...'` ก่อน ไม่งั้นได้ `command not found: shopt` / `read-only variable: status`
+5. **`Key` เป็น reserved word ของ T-SQL** — `iam.Permissions` ต้องเขียน `p.[Key]`; และ
+   `iam.RolePermissions` ผูกด้วย `PermissionKey` (string) ไม่ใช่ `PermissionId`
+6. **`sp_set_session_context` ยังต้อง stamp ก่อน query `shop.*`** เวลา verify ด้วย sqlcmd (กับดักเดิม T6
+   ข้อ 4 ยังจริง) — และ `sa` เห็นทุก merchant จึงต้องใส่ `WHERE MerchantId = …` เองเวลานับแถวต่อ merchant
+
+commit ของ T9: เติมหลัง commit (ดู PR)

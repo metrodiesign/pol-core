@@ -277,29 +277,35 @@ Server RLS ที่ตัว database เป็นคนกันแทน พ�
 
 #### 1. Products
 
-**Domain**: `Product.cs` (81 บรรทัด) บน `Products.Domain.Product` — CRUD ธรรมดา ไม่มี state machine และไม่มี
-concurrency token (ไม่มี `RowVersion` ทั้งใน aggregate และใน `ProductConfiguration`) invariant เด่นบังคับผ่าน
-static factory `Create` เท่านั้น (ctor `private`, ตัว parameterless เปิดไว้ให้ EF materialize อย่างเดียว):
-`SumInsured` ต้องมากกว่าศูนย์และ currency ตรงกับ `Price` เป๊ะ (`SameCurrencyAs`, ตามที่ B1 อธิบายไว้แล้ว),
-`CoverageDurationDays` ต้องมากกว่าศูนย์, `MerchantId`/`Name`/`Insurer` ต้องไม่ว่าง — ผิดข้อใดข้อหนึ่ง throw
-`ArgumentException` ทันทีตอน construct ไม่ปล่อยให้เป็น invalid state ค้างใน DB. หลังสร้างแล้วมีแค่ 2 mutation
-คือ `Rename`/`Deactivate` (soft-delete แบบ flag `IsActive`, ไม่ hard delete)
+**Domain**: `Product.cs` (186 บรรทัด) บน `Products.Domain.Product` — ไม่ใช่ "สินค้า" แต่เป็น **เอกสารประกัน**
+ที่ขายได้ (mirror ของ §5.2 ใน [`vcentralpay-sp-quick-reference.pdf`](vcentralpay-sp-quick-reference.pdf))
+ไม่มี state machine เต็มรูปและไม่มี concurrency token (ไม่มี `RowVersion` ทั้งใน aggregate และใน
+`ProductConfiguration`) invariant เด่นบังคับผ่าน static factory `Create(ProductInput)` เท่านั้น
+(ctor `private`, ตัว parameterless เปิดไว้ให้ EF materialize อย่างเดียว): `TotalPremium` ต้องมากกว่าศูนย์
+และมีทศนิยมไม่เกิน 2 ตำแหน่ง (`decimal(19,2)` ตาม §5.2 — ค่าที่ละเอียดกว่านั้นถูก **ปฏิเสธ** ไม่ใช่ปัดเงียบ),
+`StartDate` ต้องไม่หลัง `EndDate`, `ProductGroup`/`DocumentType` ต้องเป็นสมาชิก enum จริง (`Enum.IsDefined`),
+CMI ห้ามคู่กับ `APPLICATION`, `MerchantId`/`DocumentNo`/`SaleCode` ต้องไม่ว่าง — ผิดข้อใดข้อหนึ่ง throw
+`ArgumentException` ทันทีตอน construct ไม่ปล่อยให้เป็น invalid state ค้างใน DB. หลังสร้างแล้วมี mutation
+**ตัวเดียว** คือ `MarkPaid(paidDate)` (set `PaymentStatus = PAID` + `PaidDate`) — แกน "ขายได้/ขายไม่ได้"
+คือ `PaymentStatus` ไม่ใช่ soft-delete flag (`IsActive`/`Deactivate()` ถูกลบใน `products-sp-53-alignment`)
 
-**Application**: CQRS เต็มรูปแบบ — `CreateProductCommand`/`GetProductByIdQuery`/`GetProductsQuery`/
-`ListProductsQuery` แยก handler ต่อ use-case ตรงไปตรงมา, port หลักคือ `IProductRepository` เดียว, ไม่มี
-cross-module `.Domain` reference (`Products.Application.csproj` reference แค่ `Products.Domain`,
-`Contracts`, `BuildingBlocks.Application` — ไม่แตะ `.Domain` โมดูลอื่นเลย). ที่น่าสนคือ `ListProductsQuery`
-เป็น SFS exemplar ของทั้งระบบ (REQ-2/REQ-7 ใน `docs/reference/search-filter-sort.md`) — คู่กับ
-`ProductFilterDto` ที่ deserialize+DataAnnotations-validate เอง จาก `productFilters` JSON query param แล้ว
-throw `ArgumentException` (map เป็น 400) ถ้า JSON เพี้ยนหรือ validation ไม่ผ่าน แทนที่จะ silent-drop filter
-นั้นทิ้งเงียบๆ; ผลลัพธ์ไป `ProductListItem` ซึ่งตั้งใจแยกเป็น read model ใหม่ ไม่ redefine `ProductView` เดิม
-(comment ในโค้ดบอกตรงๆ ว่าจะไปพัง `GetProductsHandler` ถ้าทำแบบนั้น)
+**Application**: CQRS เต็มรูปแบบ — `CreateProductCommand`/`GetProductByIdQuery`/`ListProductsQuery` แยก
+handler ต่อ use-case ตรงไปตรงมา (+ `DocumentPaidOnOrderPaidConsumer` ที่ mark เอกสารเป็น PAID เมื่อ order
+ถูกจ่าย), port หลักคือ `IProductRepository` เดียว, ไม่มี cross-module `.Domain` reference
+(`Products.Application.csproj` reference แค่ `Products.Domain`, `Contracts`, `BuildingBlocks.Application`
+— ไม่แตะ `.Domain` โมดูลอื่นเลย). `ListProductsQuery` **เลิกเป็น SFS exemplar แล้ว**: products ยึด input
+contract ของ §2 ตรง ๆ (`page`/`limit` + `productFilters` typed DTO เท่านั้น, ไม่รับ `filters`/`sort`/`search`)
+— คู่กับ `ProductFilterDto` ที่ deserialize+DataAnnotations-validate เอง จาก `productFilters` JSON query param
+แล้ว throw `ArgumentException` (map เป็น 400) ถ้า JSON เพี้ยนหรือ validation ไม่ผ่าน แทนที่จะ silent-drop
+filter นั้นทิ้งเงียบๆ; `productFilters` เป็น **required** และ `saleCode` ข้างในบังคับ (SP error 50005)
+ผลลัพธ์ไป `ProductListItem` = 32 field ของ §5.2 + `Id` (`ProductView`/`GetProductsQuery` ถูกลบทั้งคู่)
 
 **Infrastructure**: `ProductsModuleRegistration.cs` -> `=> services` เปล่า แต่เปล่าด้วยเหตุผลที่ต่างจากโมดูล
 reference-data ทั่วไป — comment บอกตรงๆ ว่า `IProductRepository` ตัวจริงย้ายไปอยู่ที่
 `Persistence.MerchantRuntime` (`AddMerchantRuntimePersistence`, task 8.5.3) ไม่ใช่ที่นี่เลย สิ่งเดียวที่
-project นี้มีคือ `ProductConfiguration` (EF mapping ของ `Product` — `Money` ถูก map เป็น complex type 2 ชุด
-แยกกัน คือ `Price` และ `SumInsured`) ที่ host discover ผ่าน `HostModuleAssemblies.All` ตอน model-build
+project นี้มีคือ `ProductConfiguration` (EF mapping ของ `Product` — **ไม่มี** `Money` complex type แล้ว:
+ค่าเบี้ยทุกตัวเป็น `decimal(19,2)` scalar ตาม §5.2 และ currency ถูก mint เป็น THB ที่ cart boundary
+จุดเดียว) ที่ host discover ผ่าน `HostModuleAssemblies.All` ตอน model-build
 
 **จุดสังเกต**: คนใหม่ grep หา implementation ของ `IProductRepository` ใน `Products.Infrastructure` จะไม่เจอ —
 ต้องรู้ว่ามันย้ายออกไปอยู่ `Persistence.MerchantRuntime` ทั้งก้อนแล้ว (ต่างจาก pattern ทั่วไปที่ Infrastructure
