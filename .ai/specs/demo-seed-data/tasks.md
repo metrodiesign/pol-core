@@ -232,7 +232,7 @@ Scope (design §4):
    migration seed ไว้ (`merchant_manager` = `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa`,
    `merchant_staff` = `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb`); `MerchantId` = ของ user นั้น
 4. `INSERT shop.Products` 24 แถว (8 ต่อ merchant) — ชื่อเป็นแผนประกันที่อ่านแล้วสมจริง (ภาษาไทย),
-   `PriceCurrency = 'THB'`, `PriceAmount` `DECIMAL(19,4)`, มีทั้ง `IsActive = 1` และ `= 0`
+   `TotalPremium` `DECIMAL(19,2)`, มีทั้ง `PaymentStatus = 'UNPAID'` และ `= 'PAID'` (+ `PaidDate`)
 5. เติม 4 ตารางนี้เข้า assert list ของขั้น (จ)
 
 Verify:
@@ -250,7 +250,8 @@ Verify:
 (4 ต่อ merchant, ครบ 4 `UserStatus` + ทั้ง 2 `PersonType`, `Subject` = `demo-mch-<n>`), `INSERT
 merch.ExternalLogins` 12 แถว (1:1, `Provider = 'google'`, `Subject` ตรงกับ user), `INSERT
 merch.RoleAssignments` 6 แถว (เฉพาะ user ที่ `Status = 1`), `INSERT shop.Products` 24 แถว (8 ต่อ
-merchant, แผนประกันภาษาไทย, 1 แถว `IsActive = 0` ต่อ merchant). เติม 4 ตารางนี้เข้า `@counts` ในโซน (จ).
+merchant, แผนประกันภาษาไทย, 1 แถวขายไม่ได้ต่อ merchant — ตอนนั้นคือ `IsActive = 0`, ตอนนี้คือ
+`PaymentStatus = 'PAID'`). เติม 4 ตารางนี้เข้า `@counts` ในโซน (จ).
 
 **GOTCHA ที่เจอ (ไม่ใช่ bug แต่ทำให้เกือบวิ่งผิดทาง):** `merch.Users` / `merch.ExternalLogins` /
 `merch.RoleAssignments` **ไม่มี RLS predicate เลย** — เช็คจาก `SecurityObjects.cs`'s `MerchantTables`
@@ -300,14 +301,18 @@ WHERE u.Status <> 1;
 SELECT COUNT(*) FROM iam.Roles;  -- 4
 ```
 
-**6. REQ-5.4 — IsActive ครบทั้ง 2 ค่า (ต้อง stamp session context ก่อน query เพราะ shop.Products มี RLS,
-ดู GOTCHA ด้านบน):**
+**6. REQ-5.4 — ครบทั้ง 2 ค่าของแกนขายได้/ขายไม่ได้ (ต้อง stamp session context ก่อน query เพราะ
+shop.Products มี RLS, ดู GOTCHA ด้านบน):**
 ```sql
 EXEC sp_set_session_context @key = N'UserId',     @value = 'e2000000-0000-4000-8000-000000000001';
 EXEC sp_set_session_context @key = N'MerchantId', @value = '00000000-0000-0000-0000-000000000000';
-SELECT COUNT(DISTINCT IsActive) FROM shop.Products WHERE Id LIKE 'e9000000-%';  -- 2
-SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%';                  -- 24
+SELECT COUNT(DISTINCT PaymentStatus) FROM shop.Products WHERE Id LIKE 'e9000000-%';  -- 2
+SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%';                       -- 24
 ```
+> อัปเดต 2026-07-30 (products-sp-53-alignment T6): ตอนรัน T3 จริงเมื่อ 2026-07-13 คอลัมน์ยังเป็น
+> `IsActive` และ query ที่รันคือ `COUNT(DISTINCT IsActive)`; `IsActive` ถูก DROP ไปแล้ว จึงเขียน query
+> ข้างบนเป็นแกนใหม่ `PaymentStatus` เพื่อให้ยังรันซ้ำได้ (ยอด `shop.Products` ตอนนี้เป็น 100 ตาม T3.5/T4
+> ไม่ใช่ 24 อีกแล้ว).
 
 **7. `git status` — เฉพาะไฟล์ที่แก้:**
 ```
@@ -320,8 +325,8 @@ SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%';                  
 
 **ส่งต่อ T4:** สินค้าทั้ง 24 ตัวอยู่ใต้ merchant ผ่าน `MerchantId` ตรง ๆ (แบ่งเป็น 3 บล็อก ๆ ละ 8 —
 `e9…0001`-`0008` = vprivilege, `e9…0009`-`0010` = vcommerce, `e9…0011`-`0018` = vsouvenir; ใน hex, `0010`
-= 16 ทศนิยม), ราคาช่วง 350.0000–48,000.0000 THB, แต่ละ merchant มี 1 แถวสุดท้าย `IsActive = 0` (ตัวที่ 8
-ของบล็อก). `merch.Users` ที่ `Status = 1` (Active, ใช้เป็นเจ้าของ cart/checkout ได้สมเหตุสมผล) คือ
+= 16 ทศนิยม), ราคาช่วง 350.00–48,000.00 THB, แต่ละ merchant มี 1 แถวสุดท้ายที่ขายไม่ได้ (ตัวที่ 8
+ของบล็อก — ตอนนั้น `IsActive = 0`, ตอนนี้ `PaymentStatus = 'PAID'` + `PaidDate`). `merch.Users` ที่ `Status = 1` (Active, ใช้เป็นเจ้าของ cart/checkout ได้สมเหตุสมผล) คือ
 `e5…0001/0002` (vprivilege), `e5…0005/0006` (vcommerce), `e5…0009/000a` (vsouvenir) — ตรงกับ 6 แถว
 `merch.RoleAssignments`. T4 ไม่ต้อง stamp session context เพิ่ม (T1 stamp ไว้ตลอดทั้ง transaction แล้ว)
 แต่ต้อง stamp เองเวลา query ตาราง merchant-scoped (`shop.*`, `txn.*`) นอกสคริปต์เพื่อ debug/verify
@@ -580,3 +585,40 @@ seed-demo: no host sqlcmd — using the one inside the pol-db container.
 ```
 
 `bash -n scripts/seed-demo.sh` ผ่าน. README อัปเดตทั้งสองข้อแล้ว.
+
+---
+
+## - [x] T7 — เติมฟิลด์เอกสารของ shop.Products ให้ครบ + แคตตาล็อกกลาง
+
+Depends on: T5
+
+Satisfies: 5.6, 5.7
+
+เพิ่มตามคำสั่ง user (2026-07-30) หลังเห็นว่า 23 คอลัมน์ของทั้ง 100 แถวเป็น `NULL` และ
+`GET /products` คืน 0 แถวบน demo เพราะ `StartDate`/`EndDate` ว่าง จึงหลุด search window ของ
+`ProductRepository.SearchAsync`.
+
+Scope:
+1. เก็บ `INSERT` ทั้งสองก้อนไว้เหมือนเดิม แล้วเพิ่ม `UPDATE shop.Products ... WHERE Id LIKE 'e9000000-%'`
+   ก้อนเดียวต่อท้าย เติม 23 คอลัมน์พร้อมกันทั้ง 100 แถว — ทุกค่า derive จากตัวแถวเองผ่าน `CROSS APPLY`
+   (`Seq` = เลขท้าย `DocumentNo`, `Yr` = 68/69) จึง deterministic
+2. วันที่อิง `SYSUTCDATETIME()`: RENEWAL -> `EndDate` = today + (`Seq % 50` + 3) วัน;
+   ที่เหลือ -> `StartDate` = today - (`Seq % 150` + 1) วัน — ตก search window เสมอไม่ว่ารัน seed วันไหน
+3. ยอดเงิน derive ย้อนจาก `TotalPremium` (ห้ามขยับ): `Net = ROUND(Total / 1.07428, 2)`,
+   `Stamp = ROUND(Net * 0.004, 2)`, `TaxVat` = residual, `CommissionPercent` วน 10/12/15
+4. ตัดคอลัมน์ `MerchantId` ออกจากทั้งสอง `INSERT` — `shop.Products` เป็นแคตตาล็อกกลาง
+   (products-sp-53-alignment, migration `20260730143112_ProductsCentralCatalogue`)
+5. เพิ่ม assertion 2 ตัวในบล็อกตรวจท้ายไฟล์: (ก) ไม่มีแถวที่ฟิลด์บังคับเป็น NULL หรือ
+   `Net + Stamp + TaxVat <> TotalPremium`; (ข) นับแถวที่ตก search window แบบเดียวกับ repository ต้องได้ 100
+
+Verify:
+- `./scripts/seed-demo.sh` -> `seed-demo: OK.` (assertion ใหม่ throw ถ้าเติมไม่ครบ) และรันซ้ำได้ผลเดิม
+- `SELECT` ตรวจตาราง: NULL เหลือเฉพาะที่ตั้งใจตามชนิดเอกสาร (`ReferencePre`, `PolicyType`,
+  `LicensePlateNumber`, 4 คอลัมน์ `*Number`) และ `PaidDate` ของแถว UNPAID
+
+### Evidence (2026-07-30)
+
+`./scripts/seed-demo.sh` -> `shop.Products = 100 ... seed-demo: OK.` สองรอบติดกัน (idempotent).
+ตรวจแถวจริง: RENEWAL `00098-68100/ตอ/900005-10` -> `StartDate 2025-08-07 / EndDate 2026-08-07`,
+POLICY `00098-69100/กธ/900001-10` -> `2026-07-28 / 2027-07-28`; ยอดเงินบวกกลับได้ `TotalPremium` เป๊ะ
+ทุกแถว (assertion (ก) ผ่าน) และ assertion (ข) นับได้ 100/100.

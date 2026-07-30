@@ -50,8 +50,7 @@ public sealed class PermissionGateSitesTests
 
     private static readonly Site[] Sites =
     [
-        // --- merchant-user (7) ---
-        new("POST", "/api/v1/products", "merchant-user", "product.create"),
+        // --- merchant-user (6) ---
         new("POST", "/api/v1/payments/sessions", "merchant-user", "payment.create"),
         new("POST", "/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "merchant-user", "payment.redirect"),
         new("POST", "/api/v1/merchants/users/roles", "merchant-user", "roles.manage"),
@@ -103,7 +102,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_26_gate_sites_are_pinned() => Assert.Equal(26, Sites.Length); // REQ-4.5 count drift guard, +2 policy-reference-record write (task 5) +2 policy-reference-record report read (task 6)
+    public void Exactly_25_gate_sites_are_pinned() => Assert.Equal(25, Sites.Length); // REQ-4.5 count drift guard, +2 policy-reference-record write (task 5) +2 policy-reference-record report read (task 6), -1 POST /products retired (catalogue is read-only over HTTP)
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

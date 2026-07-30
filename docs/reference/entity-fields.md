@@ -8,7 +8,7 @@
 > ไฟล์นี้ตามด้วย.
 >
 > ขอบเขต: เฉพาะ entity ที่ persist ลง DB. Value object ที่ไม่มีตารางของตัวเอง (`Money` = `Amount:decimal` +
-> `Currency:string`) ถูก map เป็นคอลัมน์คู่ของ entity เจ้าของ (เช่น `PriceAmount`/`PriceCurrency`).
+> `Currency:string`) ถูก map เป็นคอลัมน์คู่ของ entity เจ้าของ (เช่น `UnitPriceAmount`/`UnitPriceCurrency`).
 >
 > **เพิ่มเมื่อ 2026-07-30**: เติมชั้นคำอธิบายเชิงลึก (deep-dive) ให้ครบทุกตาราง — ย่อหน้า
 > "ภาพรวมสำหรับคนที่ไม่ใช่ developer" ก่อนเข้าเนื้อหา, ER diagram ต่อ schema, block 4 หัวข้อ
@@ -914,30 +914,65 @@ flowchart LR
 resolve เป็น `Guid.Empty` ซึ่งไม่มี row จริงถืออยู่ → เห็นศูนย์แถวทุกตาราง.
 
 ### Product -> `shop.Products`
-สินค้าประกัน. `Price`/`SumInsured` เป็น `Money` complex property (แตกเป็น 2 คอลัมน์ต่อชุด).
+**เอกสารประกัน** (ไม่ใช่ "แผนประกัน" อีกแล้ว) — mirror ของ result set §5.2 ใน
+[`vcentralpay-sp-quick-reference.pdf`](./vcentralpay-sp-quick-reference.pdf) ตรง ๆ.
+ค่าเงินเป็น `decimal(19,2)` เปล่า **ไม่มีคอลัมน์ currency และไม่มี `Money` complex property**
+(currency ถูก mint เป็น `Money.Of(TotalPremium, "THB")` ที่ boundary เดียว = cart add-item)
 
-> ตัวอย่าง: migration `20260720165648_InsuranceProductSeed` (4 แผนตัวอย่าง กรอกครบทุก field) +
-> `seed-demo.sql` (100 rows `e9000000-…` ที่กรอกเฉพาะราคา — field ประกันตกไปที่ default ของ migration
-> `InsuranceProductFields`: `0`/`""`).
+> **[อัปเดต 2026-07-30 — spec `products-sp-53-alignment`]** ตารางนี้เคยมี `Name`, `InsurerName`,
+> `CoverageDurationDays`, `PriceAmount`/`PriceCurrency`, `SumInsuredAmount`/`SumInsuredCurrency`,
+> `BranchCode`, `IsActive`, `CreatedAt` — **ทั้งหมดถูกลบ** (`IsActive` -> gate ใช้ `PaymentStatus == UNPAID`
+> แทน, `Deactivate()` ถูกลบ, permission `product.update` ยังจองไว้แต่ไม่มี endpoint) และ 4 คอลัมน์
+> `*PremiumAmount`/`StampAmount`/`TaxVatAmount` ถูก rename ให้ตรงชื่อ §5.2
+
+> ตัวอย่าง: migration `20260730072057` (6 แถวตัวอย่าง) + `seed-demo.sql`
+> (500 rows `e9000000-…` — เติมทุกฟิลด์เอกสารครบตามชนิดเอกสาร, `PAID` 71 แถว / `UNPAID` 429 แถว)
+
+> `shop.Products` เป็น **แคตตาล็อกกลาง** — ไม่มีคอลัมน์ `MerchantId` ไม่มี query filter ต่อ merchant
+> (ต่างจากทุกตารางอื่นใน context นี้) ขอบเขตต่อ request มาจาก `SaleCode` ที่บังคับใน `productFilters`
 
 | Field | Type | Null | Key | ตัวอย่าง | หมายเหตุ |
 |---|---|---|---|---|---|
 | Id | uniqueidentifier | N | PK | `e9000000-…-0006` | app assign |
-| MerchantId | uniqueidentifier | N | IX | `e1000000-…-0001` | index `(MerchantId, IsActive)`. **ไม่มี DB FK** ไป `merch.Merchants` — เป็นแค่ค่าที่ query filter ใช้ |
-| Name | nvarchar(200) | N | | `ประกันรถยนต์ชั้น 1 Motor First Class` | ชื่อแผนที่ขาย |
-| InsurerName | nvarchar(200) | N | | `Viriyah Insurance` (default `""` ถ้าไม่กรอก) | property ชื่อ `Insurer` — บริษัทผู้รับประกัน |
-| CoverageDurationDays | int | N | | `365` (เดินทางสั้น = `14`) | ระยะคุ้มครอง (default `0`) |
-| PriceAmount | decimal(19,4) | N | | `15900.0000` | `Money.Amount` — เบี้ยที่ลูกค้าจ่าย |
-| PriceCurrency | char(3) | N | | `THB` | `Money.Currency` (ISO 4217, fixed-length) |
-| SumInsuredAmount | decimal(19,4) | N | | `800000.0000` | ทุนประกัน (default `0`) |
-| SumInsuredCurrency | char(3) | N | | `THB` | สกุลของทุนประกัน |
-| IsActive | bit | N | IX | `1` (`0` = เลิกขาย) | ปิดการขายด้วย 0 แทนการลบ — order เก่ายังอ้าง product นี้อยู่ |
-| CreatedAt | datetime2 | N | | `2026-07-26T08:15:00Z` | เวลาที่สร้างสินค้า |
+| ProductGroup | varchar(10) | N | | `CMI` (`VMI`/`FIRE`/`MISC`) | = `SourceSystem` ของ §5.2; `CMI`/`VMI` = Motor |
+| DocumentType | varchar(20) | N | | `POLICY` (`APPLICATION`/`RENEWAL`/`ENDORSEMENT`) | `CMI` + `APPLICATION` ไม่รองรับ (throw ตอน `Create`) |
+| DocumentNo | nvarchar(150) | N | UQ | `S001-69900/บต/900008` | unique **ทั้งระบบ** (`IX_Products_DocumentNo`) + เป็น order key ของ `GET /products` |
+| PolicyYear | varchar(2) | Y | | `69` | ปี พ.ศ. 2 หลัก |
+| ReferenceBranch | varchar(3) | Y | | `001` | รหัสสาขาของเลขอ้างอิง (**ไม่ใช่** `@BranchCode` ของ §2 — ยังไม่ยืนยันว่า field เดียวกัน) |
+| ReferencePre | varchar(20) | Y | | `บต` | prefix เลขอ้างอิง |
+| PolicySequenceNo | varchar(30) | Y | | `900008` | ลำดับที่ในเล่ม |
+| ReferenceYear | varchar(2) | Y | | `69` | ปีของเลขอ้างอิง |
+| ReferenceNo | varchar(30) | Y | | `910007-10` | เลขอ้างอิง |
+| SaleCode | varchar(20) | N | IX | `S001` | รหัสผู้ขาย — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
+| SaleFullName | nvarchar(500) | Y | | `สมชาย ใจดี` | ชื่อผู้ขาย |
+| BrokerCode | varchar(20) | Y | | `BRK001` | รหัสนายหน้า |
+| BrokerName | nvarchar(500) | Y | | `บริษัทนายหน้า จำกัด` | ชื่อนายหน้า |
+| PolicyBranch | nvarchar(250) | Y | | `สาขาสีลม` | สาขาที่ออกกรมธรรม์ |
+| PolicyType | nvarchar(250) | Y | | `ประกันภัยรถยนต์ภาคบังคับ` | ชนิดกรมธรรม์ |
+| PolicyNumber | varchar(150) | Y | | `P-2569-000123` | เลขกรมธรรม์ (§2 `@PolicyNo` ค้นได้แค่ 30 ตัวแรกตามเอกสาร) |
+| ApplicationNumber | varchar(150) | Y | | `A-2569-000123` | เลขใบคำขอ |
+| PreviousPolicyNumber | varchar(150) | Y | | `P-2568-000123` | เลขกรมธรรม์เดิม (ใช้ตอนต่ออายุ) |
+| EndorsementNumber | varchar(150) | Y | | `E-2569-0001` | เลขสลักหลัง |
+| StartDate | datetime2(0) | Y | | `2026-07-01T00:00:00` | วันเริ่มคุ้มครอง; window ทั่วไป = ย้อนหลังไม่เกิน 6 เดือน |
+| EndDate | datetime2(0) | Y | | `2027-06-30T00:00:00` | วันสิ้นสุด; `RENEWAL` ใช้ window 2 เดือนข้างหน้าบนคอลัมน์นี้. `Create` throw ถ้า `StartDate > EndDate` |
+| ShowName | nvarchar(500) | Y | | `นางสาวสมหญิง รักดี` | ชื่อที่แสดงบนเอกสาร |
+| LicensePlateNumber | nvarchar(100) | Y | | `กก 1234 กรุงเทพมหานคร` | ทะเบียนรถ — เข้า smart search **เฉพาะแถว `CMI`/`VMI`** |
+| TotalPremium | decimal(19,2) | N | | `1200.00` | เบี้ยรวมที่ลูกค้าจ่าย; `Create` throw ถ้า <= 0 หรือทศนิยม > 2 ตำแหน่ง |
+| NetPremium | decimal(19,2) | Y | | `1100.00` | เบี้ยสุทธิ |
+| Stamp | decimal(19,2) | Y | | `5.00` | อากรแสตมป์ |
+| TaxVat | decimal(19,2) | Y | | `95.00` | ภาษีมูลค่าเพิ่ม |
+| CommissionAmount | decimal(19,2) | Y | | `132.00` | ค่าคอมมิชชันเป็นจำนวนเงิน |
+| CommissionPercent | decimal(19,6) | Y | | `12.000000` | ค่าคอมมิชชันเป็นเปอร์เซ็นต์ |
+| PaymentStatus | varchar(10) | N | IX | `UNPAID` (`PAID`) | **แกนขายได้/ขายไม่ได้** — cart/checkout รับเฉพาะ `UNPAID` |
+| PaidDate | datetime2(0) | Y | | `2026-07-23T09:00:00` | ตั้งคู่กับ `PaymentStatus = PAID` เสมอ (`MarkPaid`) |
 
-**คืออะไร**: รายการ "แผนประกัน" ที่ merchant เปิดขาย เหมือนป้ายราคาบนชั้นวางในร้าน — บอกชื่อแผน บริษัทประกันที่รับ ระยะเวลาคุ้มครอง เบี้ยที่ต้องจ่าย และทุนประกันที่จะได้ถ้าเคลม
-**บทบาท**: เป็นจุดเริ่มต้นของทุก flow ขาย — ราคา/เงื่อนไขของทุกจุดปลายทาง (CartItems, CheckoutSessionItems, OrderItems) เป็นการ "snapshot" มาจากตารางนี้ตอนหยิบใส่ตะกร้า ไม่มีจุดไหนอ่านราคาสดจาก Products อีกเลยหลัง snapshot แล้ว รายละเอียดธุรกิจของสินค้าประกันดู [`platform-modules.md`](platform-modules.md)
-**ถ้าไม่มีตารางนี้จะพังยังไง**: ไม่มีที่มาของราคา/เงื่อนไขให้ snapshot — ตัวแทนขายต้องพิมพ์ราคาเองทุกครั้ง (เสี่ยงพิมพ์ผิดหรือขายราคาไม่ตรงที่ตกลงกับบริษัทประกัน) และไม่มีทาง "ปิดขาย" แผนที่เลิกขายแล้ว เพราะ gate ที่กันไม่ให้เพิ่มสินค้า inactive เข้าตะกร้า (Program.cs:664) จะไม่มีอะไรให้เช็ค
-**ทำงานยังไง**: `Product.Create` (Products.Domain/Product.cs:52-70) enforce ว่า `SumInsured` ต้องเป็นสกุลเดียวกับ `Price` จริง (บรรทัด 61-62, throw ถ้าไม่ตรง) และ `SumInsured`/`CoverageDurationDays` ต้อง > 0 — เปลี่ยนชื่อได้ผ่าน `Rename` (บรรทัด 73-77) แต่ไม่มี setter ราคาแยก มีแค่ `Deactivate()` (บรรทัด 80) ซึ่งเป็นทางเดียว (grep ทั้ง repo ไม่มี `Activate`/`Reactivate` — ปิดแล้วต้องสร้างแถวใหม่เท่านั้น) endpoint `POST /carts/{cartId}/items` (Program.cs:661-668) ดึงราคาจาก catalog ตรงนี้เสมอก่อนส่งต่อเป็น `UnitPrice` ให้ `AddItemToCartCommand` — comment ในโค้ดเขียนตรงๆ ว่า "the unit price is the catalog's, NEVER the client's"
+`InsuranceType` (`Motor`/`NonMotor`) เป็น computed property บน entity (`builder.Ignore`) **ไม่มีคอลัมน์** —
+คำนวณจาก `ProductGroup is CMI or VMI`
+
+**คืออะไร**: รายการ "เอกสารประกัน" (กรมธรรม์/ใบคำขอ/สลักหลัง/ใบต่ออายุ) ที่ merchant มีอยู่และรอเก็บเงิน — เหมือนแฟ้มใบแจ้งหนี้ที่ยังไม่ชำระ ไม่ใช่ป้ายราคาบนชั้นวาง
+**บทบาท**: เป็นจุดเริ่มต้นของทุก flow ขาย — เบี้ยและ field เอกสารของทุกจุดปลายทาง (CartItems, CheckoutSessionItems, OrderItems) เป็นการ "snapshot" มาจากตารางนี้ตอนหยิบใส่ตะกร้า ไม่มีจุดไหนอ่านราคาสดจาก Products อีกเลยหลัง snapshot แล้ว รายละเอียดธุรกิจดู [`platform-modules.md`](platform-modules.md)
+**ถ้าไม่มีตารางนี้จะพังยังไง**: ไม่มีที่มาของเบี้ย/เลขเอกสารให้ snapshot — ตัวแทนขายต้องพิมพ์เองทุกครั้ง (เสี่ยงพิมพ์ผิดหรือเก็บเงินไม่ตรงกรมธรรม์) และไม่มีทางกันการขายเอกสารเดิมซ้ำ เพราะ gate ที่กันเอกสาร `PAID` เข้าตะกร้าจะไม่มีอะไรให้เช็ค
+**ทำงานยังไง**: `Product.Create(ProductInput)` (Products.Domain/Product.cs) enforce `TotalPremium > 0`, ค่าเงินทุกตัวห้ามติดลบและห้ามมีทศนิยมเกิน 2 ตำแหน่ง (throw `ArgumentException` — ไม่ปล่อยให้ DB ปัดเงียบ ๆ), `StartDate <= EndDate`, `Enum.IsDefined` ของ `ProductGroup`/`DocumentType` และกฎ `CMI` + `APPLICATION` ไม่รองรับ. หลังสร้างแล้ว state ที่เปลี่ยนได้มีทางเดียวคือ `MarkPaid(paidDate)` (set `PaymentStatus = PAID` + `PaidDate`) ซึ่งถูกเรียกโดย `DocumentPaidOnOrderPaidConsumer` ตอน order จ่ายสำเร็จ — **ไม่มี** `Rename`/`Deactivate`/`Activate` และไม่มี endpoint แก้ไข. endpoint `POST /carts/{cartId}/items` ดึงเบี้ยจาก catalog ตรงนี้เสมอแล้ว mint `Money.Of(product.TotalPremium, "THB")` ก่อนส่งต่อเป็น `UnitPrice` ให้ `AddItemToCartCommand` — comment ในโค้ดเขียนตรง ๆ ว่า "the unit price is the catalog's, NEVER the client's"
 
 ### Cart -> `shop.Carts`
 ตะกร้าของผู้ซื้อ 1 ใบ. อายุสั้นตามเจตนาการออกแบบ — มี method `MarkCheckedOut()` ที่ freeze การแก้ไข แต่ grep ทั้ง repo แล้วไม่มีจุดไหนใน production code เรียกมันเลย (เจอแค่ 1 caller ใน unit test) ปัจจุบัน cart จึงยังเป็น `Open` ต่อไปเรื่อยๆ แก้ไขได้แม้ checkout เริ่มไปแล้วก็ตาม.

@@ -1,31 +1,29 @@
-using System.Text.Json;
+using System.Globalization;
 using BuildingBlocks.Application;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Products;
 using Products.Application;
 using Products.Domain;
-using SharedKernel;
-using SearchOption = BuildingBlocks.Application.SearchOption;
 
 namespace Architecture.Tests;
 
 /// <summary>
-/// The SFS-paged <see cref="ProductRepository.ListAsync"/> over <see cref="MerchantRuntimeDbContext"/> backed
-/// by in-memory SQLite (the class is internal, so only a project with InternalsVisibleTo can construct it
-/// directly). Proves: the merchant guard confines every row to the bound merchant so SFS cannot surface
-/// another merchant's data (REQ-7.1 — the app-layer belt; the read floor itself is covered by
-/// ReadFloorTests), a paged slice with total-after-filter (REQ-2.4/2.5), the typed
-/// <see cref="ProductFilterDto"/> narrowing (SP guide §2), and the scalar projection + escaped LIKE search
-/// over a real provider.
+/// <see cref="ProductRepository.ListAsync"/> over <see cref="MerchantRuntimeDbContext"/> backed by in-memory
+/// SQLite (the class is internal, so only a project with InternalsVisibleTo can construct it directly).
+/// Proves the §2 input surface of <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> as built: the
+/// required <c>@SaleCode</c> narrowing — the catalogue is central, so SaleCode is the ONLY scoping axis
+/// (REQ-3.3) — <c>@PaymentStatus</c> defaulting to
+/// UNPAID with <c>ALL</c> meaning "do not filter" (REQ-3.1/3.2), the search window (REQ-6.1/6.2) driven by an
+/// injected <see cref="IClock"/> so the result does not depend on the wall clock, the per-row Motor gate on
+/// the licence plate (REQ-5.1/5.2), <c>OrderBy(DocumentNo)</c> (REQ-7.2), total-after-filter paging, and the
+/// full 32-field projection (REQ-8.1).
 /// </summary>
 public sealed class ProductRepositoryListTests : IDisposable
 {
-    private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
-    private static readonly Guid MerchantB = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
-    private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    /// <summary>Frozen "today" for every window assertion — matches the table in the spec's HANDOFF.</summary>
+    private static readonly DateTime Today = new(2026, 7, 30, 0, 0, 0, DateTimeKind.Utc);
 
     private readonly SqliteConnection _connection;
 
@@ -37,14 +35,15 @@ public sealed class ProductRepositoryListTests : IDisposable
         setup.Database.EnsureCreated();
     }
 
-    // ListAsync's SFS query is not merchant-guarded by the repository itself (the caller passes MerchantId
-    // explicitly in the query, same as before the read-floor's query filter existed) — bind an arbitrary
-    // actor so the ambient read floor does not also filter these rows out from under the explicit query.
+    // Products have no query filter (central catalogue), so the bound actor is irrelevant to these reads —
+    // any merchant will do; it only satisfies the other entities' filters on the shared context.
+    private static readonly Guid AnyMerchant = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
+
     private MerchantRuntimeDbContext NewContext() =>
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
-            FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
+            FakeActorContext.For(AnyMerchant), FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
 
-    private ProductRepository Repo() => new(NewContext(), NullLogger<ProductRepository>.Instance);
+    private ProductRepository Repo() => new(NewContext(), new FixedClock(Today.AddHours(9)));
 
     private void Seed(params Product[] products)
     {
@@ -53,107 +52,248 @@ public sealed class ProductRepositoryListTests : IDisposable
         seed.SaveChanges();
     }
 
+    /// <summary>A document that is inside the default 6-month window unless the caller says otherwise.</summary>
     private static Product Prod(
-        Guid merchant, string documentNo, decimal totalPremium, bool active = true, int dayOffset = 0,
-        ProductGroup group = ProductGroup.VMI, DocumentType type = DocumentType.POLICY, string? showName = null)
-    {
-        var p = Product.Create(
-            new ProductInput(
-                merchant, group, type, documentNo, "100", "00098", Money.Of(totalPremium, "THB"),
-                ShowName: showName),
-            T0.AddDays(dayOffset));
-        if (!active) p.Deactivate();
-        return p;
-    }
+        string documentNo, decimal totalPremium = 100m, string saleCode = "00098",
+        ProductGroup group = ProductGroup.VMI, DocumentType type = DocumentType.POLICY,
+        DateTime? startDate = null, DateTime? endDate = null, string? showName = null, string? plate = null) =>
+        Product.Create(new ProductInput(
+            group, type, documentNo, saleCode, totalPremium,
+            StartDate: startDate ?? Today.AddDays(-1), EndDate: endDate,
+            ShowName: showName, LicensePlateNumber: plate));
 
-    private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
-
-    [Fact]
-    public async Task Lists_only_the_bound_tenants_products_even_with_a_filter()
-    {
-        Seed(Prod(MerchantA, "a1", 100), Prod(MerchantA, "a2", 200), Prod(MerchantB, "b1", 150));
-
-        var page = await Repo().ListAsync(new ListProductsQuery
+    private static ListProductsQuery Query(
+        ProductFilterDto? filters = null, int page = 1, int limit = 25) =>
+        new()
         {
-            MerchantId = MerchantA,
-            Filters = [new FilterOption("totalPremiumAmount", FilterOperator.GreaterThanOrEqual, J("0"))],
-        }, CancellationToken.None);
-
-        Assert.Equal(2, page.Total);                              // merchant B's row is never counted
-        Assert.All(page.Items, i => Assert.Equal(MerchantA, i.MerchantId));
-    }
+            ProductFilters = filters ?? new ProductFilterDto { SaleCode = "00098" },
+            Page = page,
+            Limit = limit,
+        };
 
     [Fact]
-    public async Task Returns_a_paged_slice_with_total()
+    public async Task SaleCode_narrows_the_result_exactly()
     {
         Seed(
-            Prod(MerchantA, "p1", 100), Prod(MerchantA, "p2", 100), Prod(MerchantA, "p3", 100),
-            Prod(MerchantA, "p4", 100), Prod(MerchantA, "p5", 100));
+            Prod("mine-1", saleCode: "00098"),
+            Prod("mine-2", saleCode: "00098"),
+            Prod("theirs", saleCode: "00099"));
 
         var page = await Repo().ListAsync(
-            new ListProductsQuery { MerchantId = MerchantA, Page = 1, Limit = 2, Sort = [new SortOption("documentNo")] },
+            Query(new ProductFilterDto { SaleCode = "00099" }), CancellationToken.None);
+
+        Assert.Equal("theirs", Assert.Single(page.Items).DocumentNo);
+    }
+
+    [Fact]
+    public async Task An_absent_paymentStatus_returns_only_UNPAID_documents()
+    {
+        var paid = Prod("paid-doc");
+        paid.MarkPaid(Today);
+        Seed(Prod("unpaid-doc"), paid);
+
+        var page = await Repo().ListAsync(Query(), CancellationToken.None);
+
+        Assert.Equal("unpaid-doc", Assert.Single(page.Items).DocumentNo);
+    }
+
+    [Fact]
+    public async Task ALL_returns_both_paid_and_unpaid_documents()
+    {
+        var paid = Prod("paid-doc");
+        paid.MarkPaid(Today);
+        Seed(Prod("unpaid-doc"), paid);
+
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", PaymentStatus = "ALL" }), CancellationToken.None);
+
+        Assert.Equal(new[] { "paid-doc", "unpaid-doc" }, page.Items.Select(i => i.DocumentNo));
+    }
+
+    [Fact]
+    public async Task PAID_returns_only_paid_documents()
+    {
+        var paid = Prod("paid-doc");
+        paid.MarkPaid(Today);
+        Seed(Prod("unpaid-doc"), paid);
+
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", PaymentStatus = "PAID" }), CancellationToken.None);
+
+        Assert.Equal("paid-doc", Assert.Single(page.Items).DocumentNo);
+    }
+
+    // Cases A-K of the search-window table in the spec's HANDOFF (today = 2026-07-30). A general document is
+    // filtered on StartDate looking back 6 months with no upper bound; a RENEWAL is filtered on EndDate over
+    // the half-open [today, today + 2 months). NULL never matches either side.
+    [Theory]
+    [InlineData("A", DocumentType.POLICY, "2026-07-01", null, true)]
+    [InlineData("B", DocumentType.POLICY, "2026-01-30", null, true)]     // lower bound inclusive
+    [InlineData("C", DocumentType.POLICY, "2026-01-29", null, false)]    // older than 6 months
+    [InlineData("D", DocumentType.POLICY, "2027-01-01", null, true)]     // no upper bound
+    [InlineData("E", DocumentType.POLICY, null, null, false)]           // NULL StartDate
+    [InlineData("F", DocumentType.RENEWAL, "2020-01-01", "2026-07-30", true)]   // lower bound = today
+    [InlineData("G", DocumentType.RENEWAL, "2020-01-01", "2026-09-29", true)]
+    [InlineData("H", DocumentType.RENEWAL, "2020-01-01", "2026-09-30", false)]  // upper bound half-open
+    [InlineData("I", DocumentType.RENEWAL, "2020-01-01", "2026-07-29", false)]  // already expired
+    [InlineData("J", DocumentType.RENEWAL, "2026-01-01", "2026-08-15", true)]   // StartDate is irrelevant
+    [InlineData("K", DocumentType.RENEWAL, "2026-07-01", null, false)]          // NULL EndDate
+    public async Task The_search_window_admits_only_documents_in_range(
+        string label, DocumentType type, string? startDate, string? endDate, bool expectedInWindow)
+    {
+        // Built without the Prod helper: these cases need a genuinely NULL StartDate/EndDate, which the
+        // helper's in-window default would mask.
+        Seed(Product.Create(new ProductInput(
+            ProductGroup.VMI, type, label, "00098", 100m,
+            StartDate: Day(startDate), EndDate: Day(endDate))));
+
+        var page = await Repo().ListAsync(Query(), CancellationToken.None);
+
+        Assert.Equal(expectedInWindow ? 1 : 0, page.Total);
+    }
+
+    [Fact]
+    public async Task The_window_applies_even_when_the_client_filters_on_something_else()
+    {
+        Seed(Prod("too-old", startDate: new DateTime(2025, 1, 1)));
+
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", PaymentStatus = "ALL", ProductGroup = ProductGroup.VMI }),
             CancellationToken.None);
 
-        Assert.Equal(5, page.Total);
-        Assert.Equal(3, page.TotalPages);
-        Assert.Equal(new[] { "p1", "p2" }, page.Items.Select(i => i.DocumentNo));
+        Assert.Empty(page.Items);
+    }
+
+    // REQ-5.1/5.2: the licence plate joins the search predicate only on CMI/VMI rows.
+    [Theory]
+    [InlineData(ProductGroup.CMI, true)]
+    [InlineData(ProductGroup.VMI, true)]
+    [InlineData(ProductGroup.FIRE, false)]
+    [InlineData(ProductGroup.MISC, false)]
+    public async Task A_licence_plate_is_searchable_on_Motor_rows_only(ProductGroup group, bool expectedMatch)
+    {
+        Seed(Prod($"doc-{group}", group: group, plate: "กข 1234"));
+
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", SearchText = "กข 1234" }), CancellationToken.None);
+
+        Assert.Equal(expectedMatch ? 1 : 0, page.Total);
     }
 
     [Fact]
-    public async Task Typed_product_filters_narrow_by_group_and_payment_status()
+    public async Task Search_also_matches_the_document_and_policy_numbers_on_non_Motor_rows()
     {
-        var paid = Prod(MerchantA, "paid-doc", 200);
-        paid.MarkPaid(T0.AddDays(1));
-        Seed(
-            Prod(MerchantA, "unpaid-vmi", 100),
-            Prod(MerchantA, "unpaid-fire", 200, group: ProductGroup.FIRE),
-            paid);
+        Seed(Prod("FIRE-77", group: ProductGroup.FIRE));
 
-        var page = await Repo().ListAsync(new ListProductsQuery
-        {
-            MerchantId = MerchantA,
-            ProductFilters = new ProductFilterDto
-            {
-                ProductGroup = ProductGroup.VMI,
-                PaymentStatus = PaymentStatus.UNPAID,
-            },
-            Sort = [new SortOption("documentNo")],
-        }, CancellationToken.None);
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", SearchText = "FIRE-77" }), CancellationToken.None);
 
-        Assert.Equal("unpaid-vmi", Assert.Single(page.Items).DocumentNo);
+        Assert.Equal("FIRE-77", Assert.Single(page.Items).DocumentNo);
     }
 
     [Fact]
-    public async Task Typed_insured_name_filter_matches_partially()
+    public async Task Search_escapes_wildcards()
+    {
+        Seed(Prod("50% off"), Prod("500 baht"));
+
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", SearchText = "50%" }), CancellationToken.None);
+
+        // "%" is a literal, so "500 baht" does not match.
+        Assert.Equal("50% off", Assert.Single(page.Items).DocumentNo);
+    }
+
+    [Fact]
+    public async Task Insured_name_matches_partially()
     {
         Seed(
-            Prod(MerchantA, "d1", 100, showName: "สมชาย ใจดี"),
-            Prod(MerchantA, "d2", 100, showName: "สมหญิง รักดี"),
-            Prod(MerchantA, "d3", 100));   // ShowName null -> never matches
+            Prod("d1", showName: "สมชาย ใจดี"),
+            Prod("d2", showName: "สมหญิง รักดี"),
+            Prod("d3"));   // ShowName null -> never matches
 
-        var page = await Repo().ListAsync(new ListProductsQuery
-        {
-            MerchantId = MerchantA,
-            ProductFilters = new ProductFilterDto { InsuredName = "สมชาย" },
-        }, CancellationToken.None);
+        var page = await Repo().ListAsync(
+            Query(new ProductFilterDto { SaleCode = "00098", InsuredName = "สมชาย" }), CancellationToken.None);
 
         Assert.Equal("d1", Assert.Single(page.Items).DocumentNo);
     }
 
     [Fact]
-    public async Task Search_escapes_wildcards_and_projects_scalar_premium()
+    public async Task Returns_a_paged_slice_ordered_by_DocumentNo_with_the_total_after_filtering()
     {
-        Seed(Prod(MerchantA, "50% off", 500), Prod(MerchantA, "500 baht", 100));
+        var paid = Prod("p0");
+        paid.MarkPaid(Today);
+        Seed(
+            Prod("p3"), Prod("p1"), Prod("p5"),
+            Prod("p2"), Prod("p4"), paid);
 
-        var page = await Repo().ListAsync(
-            new ListProductsQuery { MerchantId = MerchantA, Search = new SearchOption("50%", ["documentNo"]) },
-            CancellationToken.None);
+        var page = await Repo().ListAsync(Query(page: 1, limit: 2), CancellationToken.None);
 
-        var item = Assert.Single(page.Items);        // "%" is literal, so "500 baht" does not match
-        Assert.Equal("50% off", item.DocumentNo);
-        Assert.Equal(500m, item.TotalPremium.Amount);
-        Assert.Equal("THB", item.TotalPremium.Currency);
+        Assert.Equal(5, page.Total);                 // the PAID row is filtered out before counting
+        Assert.Equal(3, page.TotalPages);
+        Assert.Equal(new[] { "p1", "p2" }, page.Items.Select(i => i.DocumentNo));
+
+        var second = await Repo().ListAsync(Query(page: 2, limit: 2), CancellationToken.None);
+        Assert.Equal(new[] { "p3", "p4" }, second.Items.Select(i => i.DocumentNo));
     }
 
+    [Fact]
+    public async Task Projects_every_field_of_the_result_set()
+    {
+        var start = new DateTime(2026, 7, 1);
+        var end = new DateTime(2027, 6, 30);
+        Seed(Product.Create(new ProductInput(
+            ProductGroup.CMI, DocumentType.POLICY, "full-1", "00098", 15900m,
+            PolicyYear: "69", ReferenceBranch: "100", ReferencePre: "pre", PolicySequenceNo: "seq",
+            ReferenceYear: "69", ReferenceNo: "ref", PolicyBranch: "branch", PolicyType: "type",
+            SaleFullName: "สมชาย ขาย", BrokerCode: "BK", BrokerName: "โบรก", PolicyNumber: "POL-1",
+            ApplicationNumber: "APP-1", PreviousPolicyNumber: "POL-0", EndorsementNumber: "END-1",
+            StartDate: start, EndDate: end, ShowName: "ผู้เอาประกัน", LicensePlateNumber: "กข 1234",
+            NetPremium: 14000m, Stamp: 10m, TaxVat: 980m, CommissionAmount: 500m, CommissionPercent: 12.5m)));
+
+        var item = Assert.Single((await Repo().ListAsync(Query(), CancellationToken.None)).Items);
+
+        Assert.NotEqual(Guid.Empty, item.Id);
+        Assert.Equal(ProductGroup.CMI, item.ProductGroup);
+        Assert.Equal(DocumentType.POLICY, item.DocumentType);
+        Assert.Equal("full-1", item.DocumentNo);
+        Assert.Equal("69", item.PolicyYear);
+        Assert.Equal("100", item.ReferenceBranch);
+        Assert.Equal("pre", item.ReferencePre);
+        Assert.Equal("seq", item.PolicySequenceNo);
+        Assert.Equal("69", item.ReferenceYear);
+        Assert.Equal("ref", item.ReferenceNo);
+        Assert.Equal("branch", item.PolicyBranch);
+        Assert.Equal("type", item.PolicyType);
+        Assert.Equal("00098", item.SaleCode);
+        Assert.Equal("สมชาย ขาย", item.SaleFullName);
+        Assert.Equal("BK", item.BrokerCode);
+        Assert.Equal("โบรก", item.BrokerName);
+        Assert.Equal("POL-1", item.PolicyNumber);
+        Assert.Equal("APP-1", item.ApplicationNumber);
+        Assert.Equal("POL-0", item.PreviousPolicyNumber);
+        Assert.Equal("END-1", item.EndorsementNumber);
+        Assert.Equal(start, item.StartDate);
+        Assert.Equal(end, item.EndDate);
+        Assert.Equal("ผู้เอาประกัน", item.ShowName);
+        Assert.Equal(14000m, item.NetPremium);
+        Assert.Equal(10m, item.Stamp);
+        Assert.Equal(980m, item.TaxVat);
+        Assert.Equal(15900m, item.TotalPremium);
+        Assert.Equal(12.5m, item.CommissionPercent);
+        Assert.Equal(500m, item.CommissionAmount);
+        Assert.Null(item.PaidDate);
+        Assert.Equal("กข 1234", item.LicensePlateNumber);
+        Assert.Equal(PaymentStatus.UNPAID, item.PaymentStatus);
+        Assert.Equal(InsuranceType.Motor, item.InsuranceType);   // computed, never projected
+    }
+
+    private static DateTime? Day(string? isoDate) =>
+        isoDate is null ? null : DateTime.Parse(isoDate, CultureInfo.InvariantCulture);
+
     public void Dispose() => _connection.Dispose();
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
+    }
 }

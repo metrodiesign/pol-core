@@ -322,7 +322,9 @@ internal sealed record StartCheckoutRequest(
 3. calls `GetProductByIdQuery(merchantId, productId)` (the existing internal query `Cart` already uses at
    add-item time — reused here unchanged) to fetch `SumInsured`/`CoverageDurationDays`/`Insurer` — server
    -side, from the SAME source of truth `Price` already comes from
-4. if the `Product` is missing or `IsActive == false` at this point -> 404/409 (a product removed/deactivated
+4. if the `Product` is missing or `IsActive == false` at this point -> 404/409 [note 2026-07-30: superseded by
+   spec `products-sp-53-alignment` (§5.2 field parity) — `IsActive` was dropped; the gate is now
+   `PaymentStatus != UNPAID`, same 404/409 statuses] (a product removed/deactivated
    between add-to-cart and checkout-start; the existing system already accepts a smaller version of this
    staleness window for `Price` itself — see Technology Decisions)
 5. builds one `StartCheckoutCommand` line per cart item: `UnitPrice` from `cart.Items`, insurance terms

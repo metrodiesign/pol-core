@@ -9,6 +9,18 @@
 > กลาง `Iam.Domain.Roles.Role`, `TenantId` -> `MerchantId`, minor units -> `Money` DECIMAL(19,4)).
 > อ้างอิงที่ลึกกว่าเรื่อง floor: [`db-connection-and-rls.md`](./db-connection-and-rls.md).
 
+> **[ปรับให้ตรง current state, 2026-07-30 — spec `products-sp-53-alignment`]** สองเรื่องที่เปลี่ยนไปจาก
+> ข้อความส่วนที่เหลือของเอกสารนี้:
+> 1. **เพดาน `limit` = 25 ไม่ใช่ 100** (SP quick reference §2 `@PageSize` + §5.1) — `SfsQueryParser.ParsePaging`
+>    clamp `[1..25]` และ `Parse` เรียกต่อ ⇒ มีผลกับ **ทุก** list endpoint ของ repo.
+> 2. **`GET /api/v1/products` ไม่มี SFS surface อีกแล้ว** — เลิกรับ `filters`/`sort`/`search`, รับแค่
+>    `page`/`limit` + typed `productFilters` (บังคับ, ต้องมี `saleCode`), order คงที่ด้วย `DocumentNo`,
+>    `ProductSfs.cs` ถูกลบ. `Product` ก็ **ไม่มี** `IsActive`/`CreatedAt`/`Price`/`SumInsured`/`Name` แล้ว
+>    (mirror ของ §5.2 result set) ⇒ ทุกตัวอย่างในเอกสารนี้ที่ใช้ `Product`/`priceAmount`/`activeOnly` เป็น
+>    **ตัวอย่างเชิงสมมติเพื่ออธิบาย convention เท่านั้น ไม่ใช่โค้ดที่มีอยู่จริง**. ผู้ใช้ SFS จริงที่เหลือ =
+>    `GET /api/v1/admins`, `GET /api/v1/admins/roles`, `GET /api/v1/reports/policies`,
+>    `GET /api/v1/admins/reports/policies`.
+
 คู่มือมาตรฐานฉบับละเอียดสำหรับทำ search / filter / sort / pagination (เรียกรวมว่า SFS) บน list endpoint
 ของ pol-core. พอร์ต *แนวคิด* มาจาก guide ต้นฉบับของโปรเจกต์ `nong-kaewta-api`
 (NestJS / TypeORM / PostgreSQL) แต่ปรับ server-side ทั้งหมดให้ตรง stack จริงของเรา:
@@ -17,7 +29,8 @@ C# 14 / .NET 10 / EF Core 10 / SQL Server 2025 / martinothamar Mediator (source-
 
 > สถานะ: **SFS shipped แล้วบางส่วน** (spec `.ai/specs/search-filter-sort/`, §13 as-built notes) —
 > endpoint ที่รองรับ paging + sort + filter + search เต็มรูปแบบตามคู่มือนี้ (ดูได้จาก `SfsQueryParamsMarker`
-> ใน `src/Hosts/Api/Program.cs`): `GET /api/v1/products`, `GET /api/v1/admins`, `GET /api/v1/admins/roles`.
+> ใน `src/Hosts/Api/Program.cs`): `GET /api/v1/admins`, `GET /api/v1/admins/roles`
+> (`GET /api/v1/products` **เคย** อยู่ในรายการนี้ — ถูกถอด SFS ออกใน `products-sp-53-alignment`, ดูหมายเหตุ 2026-07-30 ด้านบน).
 > รองรับแค่ **paging + filter + sort (ไม่มี search)**: `GET /api/v1/reports/policies`,
 > `GET /api/v1/admins/reports/policies` — endpoint ทั้งสองรับ query param `search` ผ่าน `SfsQueryParser.Parse`
 > และ bind เข้า `Query.Search` จริง (`Program.cs`) แต่ `PolicyReportSfs` (`Persistence.MerchantRuntime/Orders/
@@ -118,7 +131,7 @@ SQL Server 2025  ->  PagedResult<T>
 | Param     | ชนิด             | Default | หมายเหตุ                                              |
 | --------- | ---------------- | ------- | ---------------------------------------------------- |
 | `page`    | int              | `1`     | หน้า เริ่มที่ 1, clamp `>= 1` (ดู section 3)          |
-| `limit`   | int              | `25`    | ขนาดหน้า clamp `[1..100]` (ดู section 3)              |
+| `limit`   | int              | `25`    | ขนาดหน้า clamp `[1..25]` (ดู section 3)               |
 | `filters` | JSON array       | `[]`    | `[{ "field", "operator", "value" \| "values" }]`      |
 | `sort`    | JSON array       | `[]`    | `[{ "field", "order": "ASC" \| "DESC" }]` เรียงตามลำดับ |
 | `search`  | JSON object      | `null`  | `{ "query", "fields": [...] }`                        |
@@ -284,7 +297,7 @@ internal static class SfsQueryParser
                    IReadOnlyList<SortOption> Sort, SearchOption? Search) Parse(IQueryCollection q)
         => (
             Page:    Math.Max(TryInt(q["page"], 1), 1),            // clamp page >= 1 กัน OFFSET ติดลบ
-            Limit:   Math.Clamp(TryInt(q["limit"], 25), 1, 100),   // clamp = safety, ไม่ 400
+            Limit:   Math.Clamp(TryInt(q["limit"], 25), 1, 25),    // clamp = safety, ไม่ 400 (เพดาน SP §2)
             Filters: Deserialize<List<FilterOption>>(q["filters"]) ?? [],
             Sort:    Deserialize<List<SortOption>>(q["sort"]) ?? [],
             Search:  Deserialize<SearchOption>(q["search"])
@@ -317,7 +330,7 @@ internal static class SfsQueryParser
 | JSON ใน `filters`/`sort`/`search` พัง         | **400 ProblemDetails** (โยน `ArgumentException` -> 400 bucket ของ `ProblemDetailsExceptionHandler`) |
 | field / operator / sort-field ไม่อยู่ใน whitelist | **silent-drop** (ข้ามเงียบ ๆ, query ที่เหลือทำงานต่อ — ดู section 9) |
 | typed filter DTO validate ไม่ผ่าน (ถ้าโมดูลมี) | **400 ProblemDetails** (ดู section 7)                              |
-| `limit` เกิน `[1..100]` / `page` < 1          | **clamp เงียบ ๆ** (ไม่ 400)                                        |
+| `limit` เกิน `[1..25]` / `page` < 1           | **clamp เงียบ ๆ** (ไม่ 400)                                        |
 
 > **ทำไมต้อง `ArgumentException` ไม่ใช่ `BadHttpRequestException`:** `ProblemDetailsExceptionHandler.Map`
 > เลือก status ตาม type ด้วย `switch` และมี arm `ArgumentException => 400` (ทั้ง repo ใช้ pattern นี้ เช่น
@@ -335,7 +348,8 @@ internal static class SfsQueryParser
 
 - `page` เริ่มที่ 1, **clamp `>= 1` ที่ parser** — กัน `page` = 0/ติดลบ ทำ `Skip((page-1)*limit)` เป็นค่าลบ
   -> SQL Server `OFFSET` ติดลบ -> opaque 500 (client-triggerable DoS).
-- `limit` default 25, **clamp `[1..100]`** — กัน `limit` มหาศาลลาก DB ล่ม.
+- `limit` default 25, **clamp `[1..25]`** — เพดาน 25 มาจาก SP quick reference §2 `@PageSize` (ย้ำใน §5.1)
+  และกัน `limit` มหาศาลลาก DB ล่ม.
 - `PagedResult<T>` ห่อผลลัพธ์ + metadata (`Page`, `Limit`, `Total`, `TotalPages`).
 - ลำดับใน repository สำคัญ: **count หลัง filter/search แต่ก่อน paging**.
 
@@ -582,7 +596,7 @@ public static IQueryable<Role> ApplySort(
 - **multi-field** = field แรกใช้ `OrderBy`/`OrderByDescending` (reset ordering), field ถัด ๆ ไปใช้
   `ThenBy`/`ThenByDescending` (สะสม). ตามลำดับที่ client ส่งใน `sort` array.
 - **default-sort fallback** (`o ?? ...`) ทำงานเมื่อไม่มี field ใด survive whitelist — บังคับต้องมีเสมอ.
-  entity ที่มี `CreatedAt` (เช่น `Product`) ควร fallback เป็น `OrderByDescending(x => x.CreatedAt)`.
+  entity ที่มี `CreatedAt` (เช่น `Admins.Domain.Users.User`) ควร fallback เป็น `OrderByDescending(x => x.CreatedAt)`.
 
 > **caveat helper generic `OrderByNullsLast<T,TKey>`:** ถ้าจะทำ helper generic ต้องสร้าง expression
 > `x => key(x) == null` เอง และ **guard ให้ทำ NULLS-last เฉพาะคอลัมน์ nullable** (reference type หรือ
@@ -935,7 +949,7 @@ filter/search/sort เป็นการ **แคบ** ผลลัพธ์ล�
   `IMerchantScoped` — มันไม่ใช่ merchant data. การจำกัดว่าใครเห็น role ไหนทำด้วย `RoleSideContext`
   (visibility) ที่ caller apply **ก่อน** เข้า SFS pipeline ไม่ใช่ด้วย floor.
 - whitelist **ห้าม** เปิด field ที่ข้าม merchant (เช่น `merchantId`, FK ไปตารางอื่น) เป็นอันขาด —
-  `ProductSfs` มี comment ปักไว้ตรงนี้โดยตั้งใจ.
+  `UserSfs`/`PolicyReportSfs` มี comment ปักไว้ตรงนี้โดยตั้งใจ.
 - **ห้ามเรียก `IgnoreQueryFilters()` ใน apply-step** — มันข้าม read floor ตรง ๆ. ใช้ได้เฉพาะไฟล์ที่อยู่ใน
   escape-hatch allowlist (`Architecture.Tests.BypassPrimitiveTests.AllowedPorts`) ซึ่ง regex-scan gate ใน CI
   บังคับอยู่ — call site ใหม่นอก allowlist = red ทันที.
@@ -968,7 +982,7 @@ q.Where(r => EF.Functions.Like(r.Name, $"%{EscapeLike(input)}%", "\\"));   // es
 // A3 — ไม่มี default-sort fallback (paging ไม่ deterministic)
 // WRONG
 return o!;                                                         // null ได้ถ้าไม่มี field valid
-// CORRECT — fallback บังคับ. Role ไม่มี CreatedAt -> ใช้ Code (entity ที่มี CreatedAt เช่น Product ใช้ CreatedAt DESC)
+// CORRECT — fallback บังคับ. Role ไม่มี CreatedAt -> ใช้ Code (entity ที่มี CreatedAt เช่น admin User ใช้ CreatedAt DESC)
 return o ?? q.OrderByDescending(r => r.Code);
 ```
 
@@ -1019,18 +1033,18 @@ pol-core มี test 2 tier (xUnit, ไม่มี mocking library, ไม่�
 - **silent-drop:** ส่ง `FilterOption` ที่ field/operator นอก whitelist -> assert ว่า fake ได้รับ query ที่
   ไม่มี predicate นั้น (หรือผลลัพธ์เท่ากับไม่ส่ง filter). ส่ง sort-field นอก whitelist -> assert ว่า order
   ตกไปที่ default fallback.
-- **clamp / paging boundary:** `limit=0` -> clamp เป็น 1; `limit=1000` -> clamp เป็น 100; `page=0`/ติดลบ
+- **clamp / paging boundary:** `limit=0` -> clamp เป็น 1; `limit=1000` -> clamp เป็น 25; `page=0`/ติดลบ
   -> clamp เป็น 1 (กัน OFFSET ติดลบ); `page=1` -> `Skip(0)`. test `SfsQueryParser.Parse` โดยตรง.
 - **JSON พัง -> 400:** ส่ง `filters=` ที่ไม่ใช่ JSON -> assert `ArgumentException` (ซึ่ง handler map เป็น 400).
 - **PagedResult metadata:** `TotalPages` = `ceil(Total/Limit)`; `Total=5, Limit=25` -> `TotalPages=1`.
 
 ```csharp
 [Fact]
-public void Parse_clamps_limit_to_100()
+public void Parse_clamps_limit_to_25()
 {
     var q = new QueryCollection(new() { ["limit"] = "1000" });
     var (_, limit, _, _, _) = SfsQueryParser.Parse(q);
-    Assert.Equal(100, limit);
+    Assert.Equal(25, limit);
 }
 
 [Fact]
@@ -1189,7 +1203,7 @@ file static class RoleQueryFields
 }
 ```
 
-> `Role` **ไม่มี field `CreatedAt`** (ต่างจาก `Product`). default-sort fallback ของ role จึงใช้
+> `Role` **ไม่มี field `CreatedAt`** (ต่างจาก `Admins.Domain.Users.User`). default-sort fallback ของ role จึงใช้
 > `OrderByDescending(r => r.Code)` ไม่ใช่ `CreatedAt` — อย่าประดิษฐ์ `CreatedAt` ขึ้นมาบน Role.
 
 **Response ที่ client ได้** (ตรงตาม `RoleResponse` — status เป็น lowercase เสมอ ตาม B2):
@@ -1216,12 +1230,17 @@ file static class RoleQueryFields
 
 ### 12.2 Products — merchant-scoped (`IMerchantScoped`, query filter composes ทับ)
 
-product เป็น **merchant data** (`Product : AggregateRoot<Guid>` มี `MerchantId`, `Name`, `Price` (Money),
-`SumInsured` (Money), `CoverageDurationDays`, `Insurer`, `IsActive`, `CreatedAt`). query ต้อง mark
-`IMerchantScoped` และ repository เติม explicit `.Where(MerchantId)` ทับ query-filter floor.
+product เป็น **merchant data** — query ต้อง mark `IMerchantScoped` และ repository เติม explicit
+`.Where(MerchantId)` ทับ query-filter floor. ส่วนที่เหลือของหัวข้อนี้อธิบาย pattern ของ entity ที่ merchant-scoped
+โดยทั่วไป ยกมาใช้กับ entity อื่นได้ตรง ๆ.
 
-> `GET /api/v1/products` shipped SFS เต็มรูปแบบแล้ว (§13, `ProductSfs` ที่
-> `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs`) — ตัวอย่างนี้ตรงกับโค้ดจริง.
+> **[ปรับให้ตรง current state, 2026-07-30 — `products-sp-53-alignment`]** ตัวอย่างในหัวข้อนี้ **ไม่ตรงกับ
+> `Product` ของจริงอีกแล้ว** และคงไว้ในฐานะ **ตัวอย่างเชิงสมมติของ pattern** เท่านั้น: `ProductSfs.cs` ถูกลบ,
+> `GET /api/v1/products` เลิกรับ `filters`/`sort`/`search` (รับแค่ `page`/`limit` + typed `productFilters`
+> ที่บังคับมี `saleCode`), order คงที่ = `OrderBy(DocumentNo)` ไม่ใช่ `CreatedAt DESC`, `ListProductsQuery`
+> เลิกสืบทอด `PagedQuery`, และ `Product` ไม่มี `Name`/`Price`/`SumInsured`/`CoverageDurationDays`/`Insurer`/
+> `IsActive`/`CreatedAt` แล้ว (premium เป็น `decimal(19,2)` เปล่า ไม่ใช่ `Money`). ตัวอย่างที่ยังตรงกับโค้ดจริง
+> ให้ดู §12.1 (admins/roles) และ `PolicyReportSfs`.
 
 **Query** — สืบทอด `PagedQuery` + `IMerchantScoped` + carry typed filter (section 7):
 
@@ -1304,13 +1323,14 @@ public async Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery quer
 
 > **`Money` project ได้ตรง ๆ (ต่างจากเอกสารฉบับก่อน):** `Product.Price`/`SumInsured` map เป็น **EF complex
 > type** (`builder.ComplexProperty(...)` -> คอลัมน์ `PriceAmount` DECIMAL(19,4) + `PriceCurrency` CHAR(3))
-> ไม่ใช่ unmapped computed property อีกแล้ว — EF Core 10 แปล projection ของมันได้ และโค้ดจริงก็ project
-> `p.Price` ตรง ๆ. ส่วนการ **filter/sort** ให้อ้าง scalar ข้างใน (`p.Price.Amount`) ตามที่ `ProductSfs` ทำ.
+> ไม่ใช่ unmapped computed property อีกแล้ว — EF Core 10 แปล projection ของมันได้ จึง project ค่า `Money`
+> ตรง ๆ ได้. ส่วนการ **filter/sort** ให้อ้าง scalar ข้างใน (`p.Price.Amount`).
+> (`Product` เองเลิกใช้ `Money` แล้วตามหมายเหตุต้นหัวข้อ; ที่ยังเป็น Money owner จริงคือ Cart/Order/PaymentSession)
 
-**Whitelist** (`Product` มี `CreatedAt` -> default fallback = `CreatedAt DESC` + `Id` tiebreaker):
+**Whitelist** (entity ที่มี `CreatedAt` -> default fallback = `CreatedAt DESC` + `Id` tiebreaker):
 
 ```csharp
-// ของจริงเป็น internal static ProductSfs co-located ข้าง repository (ดู §13) — field name บน wire คือ camelCase
+// pattern = internal static {Module}Sfs co-located ข้าง repository (ดู §13) — field name บน wire คือ camelCase
 private static readonly FrozenSet<string> SortFields =
     new[] { "name", "priceAmount", "createdAt" }.ToFrozenSet(StringComparer.Ordinal);
 private static readonly FrozenSet<string> SearchFields =
@@ -1357,7 +1377,8 @@ SFS ถูก implement จริงแล้ว (spec `.ai/specs/search-filter-
   rf2 (iam catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
   - `RoleSfs` — `src/Persistence/Persistence.ControlPlane/Iam/RoleSfs.cs` (ตัวที่ `RoleStore` ใช้จริง; มี
     `ApplySearch`); ต้นทางเดิม `src/Modules/Iam/Iam.Infrastructure/Persistence/Roles/RoleSfs.cs`
-  - `ProductSfs` — `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs` (มี `ApplySearch`)
+  - ~~`ProductSfs`~~ — **ถูกลบแล้ว** (`products-sp-53-alignment`): products ไม่มี SFS surface อีกต่อไป,
+    `ProductRepository.ListAsync` กรองด้วย typed `ProductFilterDto` + order `DocumentNo` ตรง ๆ
   - `UserSfs` — `src/Persistence/Persistence.ControlPlane/Admins/UserSfs.cs` (มี `ApplySearch`)
   - `PolicyReportSfs` — `src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs` —
     **มีแค่ `ApplyFilters`/`ApplySort`, ไม่มี `ApplySearch`** (ตัวเดียวในกลุ่มนี้ที่ไม่ครบ; endpoint ที่ใช้คลาสนี้

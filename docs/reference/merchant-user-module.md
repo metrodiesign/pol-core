@@ -616,7 +616,6 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 
 | Method | Path | Permission |
 |---|---|---|
-| POST | `/api/v1/products` | `product.create` |
 | GET | `/api/v1/products` | — |
 | POST · GET · PUT · DELETE | `/api/v1/carts`, `/api/v1/carts/{cartId}`, `/api/v1/carts/{cartId}/items[/{productId}]`, `/api/v1/carts/{cartId}/clear` | — |
 | POST | `/api/v1/checkouts`, `/api/v1/checkouts/{checkoutSessionId}/confirm` | — |

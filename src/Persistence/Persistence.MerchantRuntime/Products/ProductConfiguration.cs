@@ -8,17 +8,18 @@ namespace Persistence.MerchantRuntime.Products;
 // Runtime (scalar-only) mapping — mirrors Products.Infrastructure.ProductConfiguration exactly for
 // column/index shape (rls-to-query-filter design.md "Runtime EF config is scalar-only, separate from
 // the migration-owner's relationship config"). No HasOne here — Product has none to begin with.
+//
+// Unlike every other entity in this context, Product carries NO tenant key and NO query filter: the
+// document catalogue is central (§5.2 has no merchant field), shared by every merchant, and scoped
+// per request by the mandatory SaleCode filter instead. Writes therefore reach IWriteAuthorizer with
+// targetMerchant = Guid.Empty, which MerchantRequestWriteAuthorizer allows for its owned types.
 
-internal sealed class ProductConfiguration(MerchantRuntimeDbContext context) : IEntityTypeConfiguration<Product>
+internal sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
 {
     public void Configure(EntityTypeBuilder<Product> builder)
     {
         builder.ToTable("Products", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
-        TenantKeyDescriptor.Require(builder.Metadata, nameof(Product.MerchantId));
-        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
-
-        builder.Property(x => x.MerchantId).IsRequired();
 
         builder.Property(x => x.ProductGroup).HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.DocumentType).HasConversion<string>().HasMaxLength(20).IsUnicode(false).IsRequired();
@@ -31,7 +32,6 @@ internal sealed class ProductConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.ReferenceYear).HasMaxLength(2).IsUnicode(false);
         builder.Property(x => x.ReferenceNo).HasMaxLength(30).IsUnicode(false);
 
-        builder.Property(x => x.BranchCode).HasMaxLength(3).IsUnicode(false).IsRequired();
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false).IsRequired();
         builder.Property(x => x.SaleFullName).HasMaxLength(500);
         builder.Property(x => x.BrokerCode).HasMaxLength(20).IsUnicode(false);
@@ -49,35 +49,18 @@ internal sealed class ProductConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.ShowName).HasMaxLength(500);
         builder.Property(x => x.LicensePlateNumber).HasMaxLength(100);
 
-        builder.ComplexProperty(x => x.TotalPremium, p =>
-        {
-            p.Property(m => m.Amount).HasColumnName("TotalPremiumAmount").HasPrecision(19, 4);
-            p.Property(m => m.Currency).HasColumnName("TotalPremiumCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        });
-
-        builder.Property(x => x.NetPremiumAmount).HasPrecision(19, 4);
-        builder.Property(x => x.NetPremiumCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.StampAmount).HasPrecision(19, 4);
-        builder.Property(x => x.StampCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.TaxVatAmount).HasPrecision(19, 4);
-        builder.Property(x => x.TaxVatCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.CommissionAmountAmount).HasColumnName("CommissionAmount").HasPrecision(19, 4);
-        builder.Property(x => x.CommissionAmountCurrency).HasColumnName("CommissionCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        builder.Property(x => x.TotalPremium).HasPrecision(19, 2).IsRequired();
+        builder.Property(x => x.NetPremium).HasPrecision(19, 2);
+        builder.Property(x => x.Stamp).HasPrecision(19, 2);
+        builder.Property(x => x.TaxVat).HasPrecision(19, 2);
+        builder.Property(x => x.CommissionAmount).HasPrecision(19, 2);
         builder.Property(x => x.CommissionPercent).HasPrecision(19, 6);
-        builder.Ignore(x => x.NetPremium);
-        builder.Ignore(x => x.Stamp);
-        builder.Ignore(x => x.TaxVat);
-        builder.Ignore(x => x.CommissionAmount);
         builder.Ignore(x => x.InsuranceType);
 
         builder.Property(x => x.PaymentStatus).HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.PaidDate).HasPrecision(0);
 
-        builder.Property(x => x.IsActive).IsRequired();
-        builder.Property(x => x.CreatedAt).IsRequired();
-
-        builder.HasIndex(x => new { x.MerchantId, x.IsActive }, "IX_Products_MerchantId_IsActive");
-        builder.HasIndex(x => new { x.MerchantId, x.PaymentStatus }, "IX_Products_MerchantId_PaymentStatus");
-        builder.HasIndex(x => new { x.MerchantId, x.DocumentNo }, "IX_Products_MerchantId_DocumentNo").IsUnique();
+        builder.HasIndex(x => new { x.SaleCode, x.PaymentStatus }, "IX_Products_SaleCode_PaymentStatus");
+        builder.HasIndex(x => x.DocumentNo, "IX_Products_DocumentNo").IsUnique();
     }
 }

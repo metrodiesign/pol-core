@@ -47,7 +47,7 @@ PR #143 เปลี่ยน `Product` เป็นเอกสารประ�
 ## REQ-7: mark เอกสารเป็น PAID เมื่อ order จ่ายสำเร็จ (เพิ่มจาก Codex F2)
 
 - 7.1 WHEN order transition -> Paid สำเร็จ, THE SYSTEM SHALL enqueue integration event `OrderPaid` (พก `MerchantId`, ProductIds, `OccurredAt`) ในทรานแซกชันเดียวกับการ save order
-- 7.2 WHEN `OrderPaid` ถูก consume, THE SYSTEM SHALL mark แต่ละ product เป็น PAID + `IsActive=false` (`Product.MarkPaid`), idempotent ต่อ replay
+- 7.2 WHEN `OrderPaid` ถูก consume, THE SYSTEM SHALL mark แต่ละ product เป็น PAID + `IsActive=false` (`Product.MarkPaid`), idempotent ต่อ replay [หมายเหตุ 2026-07-30: ส่วน `IsActive=false` ถูก supersede โดย spec `products-sp-53-alignment` (§5.2 field parity) — คอลัมน์ `IsActive` ถูกลบ, `MarkPaid` เหลือ `PaymentStatus = PAID` + `PaidDate` และ gate การขายย้ายไป `PaymentStatus == UNPAID`]
 - 7.3 WHILE consumer รันใน background-dispatch scope, THE SYSTEM SHALL อนุญาต `Update` บน `Product` ผ่าน `WorkerWriteAuthorizer`
 - 7.4 THE SYSTEM SHALL ลงทะเบียน `OrderPaid` ใน `OutboxDispatcher` event-type dictionary
 

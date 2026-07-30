@@ -144,6 +144,10 @@ data-plane ที่ **ไม่ผูก cluster ใด cluster หนึ่ง
 | `20260720175721_RevealAudits` | reveal audit ของ PII ผู้เอาประกัน |
 | `20260723122929_RenameOrderLinesToOrderItems` | rename OrderLine → OrderItem (code + DB) |
 | `20260723150000_SeedPolicyPermissions` · `20260723160000_OrderItemPolicies` · `20260723160500_GrantOrderItemPolicyTables` | policy-reference-record: permission + ตาราง `ItemPolicy`/`ItemPolicyAudit` + GRANT |
+| `20260726151538_OneOpenPaymentSessionPerOrder` | filtered unique index: 1 payment session ที่ยังเปิดอยู่ต่อ order |
+| `20260730072057_ProductsInsuranceDocument` | pivot `Product` เป็นเอกสารประกัน (recreate `shop.Products` + seed 6 แถว) |
+| `20260730081227_CheckoutChainDocumentFields` | snapshot chain Cart -> Checkout -> Order ใช้ field เอกสารแทน field แผนประกัน |
+| `20260730113459_ProductsSp52Alignment` | products-sp-53-alignment: DROP 8 คอลัมน์ (`BranchCode`/`IsActive`/`CreatedAt` + currency ×5), rename ×4 ให้ตรง §5.2, `decimal(19,2)` |
 
 > **กับดัก**: ตารางใหม่ทุกตารางต้องมี `GRANT` ให้ `pol_app` เป็น statement แยก — SQLite unit test จับ grant ที่หายไปไม่ได้.
 
@@ -236,15 +240,17 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 
 > `MasterData` ไม่อยู่ใน 12 โมดูลนี้ — ซาก `obj/` ที่ไม่ได้ track จากก่อน masterdata-split (ดูหมายเหตุใน "โครงสร้าง top-level" ด้านบน), ไม่มี source เหลือ
 
-### 4.1 Products — แคตตาล็อกกรมธรรม์
+### 4.1 Products — แคตตาล็อกเอกสารประกัน
 
 | ไฟล์ | ชั้น | บทบาท |
 |------|------|-------|
-| `Product.cs` | Domain | aggregate: MerchantId/Name/**Price:Money**/**SumInsured:Money**/**CoverageDurationDays:int**/**Insurer:string**/IsActive/CreatedAt; `Create`, `Rename`, `Deactivate` (3 field กลางคือ insurance-pivot) |
+| `Product.cs` | Domain | aggregate = mirror ของ §5.2 ใน `docs/reference/vcentralpay-sp-quick-reference.pdf`: MerchantId/DocumentNo/ProductGroup/DocumentType/SaleCode/เลขเอกสาร/ช่วงคุ้มครอง/**TotalPremium:decimal(19,2)** + breakdown 5 ตัว/PaymentStatus/PaidDate; `Create(ProductInput)`, `MarkPaid` เท่านั้น (ไม่มี `Rename`/`Deactivate` — ถูกลบใน products-sp-53-alignment) |
+| `ProductInput.cs` / `ProductGroup.cs` / `DocumentType.cs` / `PaymentStatus.cs` / `InsuranceType.cs` | Domain | input record + enum ทั้งชุด (`InsuranceType` = computed `Motor`/`NonMotor`, ไม่มีคอลัมน์) |
 | `CreateProductCommand.cs` | App | `ICommand<Guid>, IMerchantScoped` + handler |
-| `ListProducts.cs` | App | SFS exemplar — `ListProductsQuery` (page/limit/filters/sort/search + `ProductFilterDto`) → `PagedResult<ProductListItem>` |
-| `GetProductById.cs` / `GetProductsQuery.cs` / `ProductView.cs` | App | lookup ต่อ id (ใช้ตอน price cart line ฝั่ง server) + read model |
-| `IProductRepository.cs` | App | port |
+| `ListProducts.cs` | App | `ListProductsQuery` (page/limit + `required ProductFilterDto ProductFilters`) → `PagedResult<ProductListItem>` (32 field §5.2 + `Id`) — **ไม่มี SFS** แล้ว (`ProductSfs` ถูกลบ, เลิก inherit `PagedQuery`) |
+| `GetProductById.cs` | App | lookup ต่อ id (ใช้ตอนตั้งราคา cart line ฝั่ง server) — คืน `ProductListItem` ตัวเดียวกัน (`ProductView`/`GetProductsQuery` ถูกลบ) |
+| `DocumentPaidOnOrderPaidConsumer.cs` | App | consume `OrderPaid` -> `Product.MarkPaid` (idempotent ต่อ replay) |
+| `IProductRepository.cs` | App | port (`Add`/`ListAsync`/`GetAsync`) |
 | `ProductConfiguration.cs` / `ProductsModuleRegistration.cs` | Infra | EF config + `AddProductsModule()` |
 
 ### 4.2 Carts — ตะกร้า
@@ -263,7 +269,7 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 | ไฟล์ | ชั้น | บทบาท |
 |------|------|-------|
 | `Session.cs` | Domain | aggregate: MerchantId/CartId/**Amount:Money**/Status/CreatedAt/**NotificationRecipient?**; `Start`, `Confirm`, `Abandon` (throw ถ้าไม่ใช่ `Started`) |
-| `Items/Item.cs` | Domain | **1 ผู้เอาประกันต่อ line**: ProductId/Quantity/UnitPrice + snapshot เงื่อนไข (`SumInsured`/`CoverageDurationDays`/`Insurer`) + PII ผู้เอาประกัน (ชื่อ/สกุล/เลขบัตร/วันเกิด) ณ เวลาซื้อ |
+| `Items/Item.cs` | Domain | **1 ผู้เอาประกันต่อ line**: ProductId/Quantity/UnitPrice + snapshot field เอกสาร (`DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` — เดิมเป็น `SumInsured`/`CoverageDurationDays`/`Insurer` ก่อน checkout-chain-document-fields) + PII ผู้เอาประกัน (ชื่อ/สกุล/เลขบัตร/วันเกิด) ณ เวลาซื้อ |
 | `Items/CheckoutItemInput.cs` | Domain | input DTO ของ line (ต้องอยู่ใน `*.Domain` ไม่ใช่ `*.Application`) |
 | `SessionStatus.cs` | Domain | `Started=0`, `Confirmed=1`, `Abandoned=2` |
 | `StartCheckout.cs` / `ConfirmCheckout.cs` | App | Start ตั้งราคาจาก **cart subtotal** (ไม่เชื่อ client); Confirm emit `CheckoutConfirmed` → Orders เปิด order |
@@ -396,7 +402,7 @@ ForwardedHeaders → [HttpLogging (Dev)] → CorrelationId → ExceptionHandler 
 | Tag (Scalar) | Endpoint | Module |
 |---|---|---|
 | Webhooks | `POST /webhooks/{pspConnectionId}` (anonymous, rate-limited) | §4.5 Payments (ไม่มีโมดูลของตัวเอง — ขี่อยู่บน Payments) |
-| ผลิตภัณฑ์ | `POST /products` · `GET /products` (SFS) | §4.1 Products |
+| ผลิตภัณฑ์ | `GET /products` (อ่านอย่างเดียว — ไม่มี POST) | §4.1 Products |
 | ตะกร้าสินค้า | `POST /carts` · `GET /carts/{cartId}` · `POST/PUT/DELETE /carts/{cartId}/items[/{productId}]` · `POST /carts/{cartId}/clear` | §4.2 Carts |
 | เช็คเอาต์ | `POST /checkouts` · `POST /checkouts/{checkoutSessionId}/confirm` | §4.3 Checkouts |
 | การชำระเงิน | `POST /payments/sessions` · `POST /payments/sessions/{paymentSessionId}/redirect` | §4.5 Payments |

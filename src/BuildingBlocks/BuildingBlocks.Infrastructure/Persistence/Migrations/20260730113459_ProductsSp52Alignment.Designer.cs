@@ -5,6 +5,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -12,9 +13,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    partial class PolDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260730113459_ProductsSp52Alignment")]
+    partial class ProductsSp52Alignment
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1840,6 +1843,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<decimal?>("NetPremium")
                         .HasPrecision(19, 2)
                         .HasColumnType("decimal(19,2)");
@@ -1940,10 +1946,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex(new[] { "DocumentNo" }, "IX_Products_DocumentNo")
+                    b.HasIndex(new[] { "MerchantId", "DocumentNo" }, "IX_Products_MerchantId_DocumentNo")
                         .IsUnique();
 
-                    b.HasIndex(new[] { "SaleCode", "PaymentStatus" }, "IX_Products_SaleCode_PaymentStatus");
+                    b.HasIndex(new[] { "MerchantId", "PaymentStatus" }, "IX_Products_MerchantId_PaymentStatus");
 
                     b.ToTable("Products", "shop");
                 });

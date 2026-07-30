@@ -6,13 +6,12 @@ using Products.Domain;
 namespace Products.Infrastructure;
 
 /// <summary>
-/// EF mapping for <see cref="Product"/> (an insurance document, VCentralPay SP guide §5.2). Per the
-/// Money mapping rule, <see cref="Product.TotalPremium"/> is a complex type onto two scalar columns
-/// (decimal(19,4) + char(3)); the optional premium breakdown uses nullable Amount+Currency scalar
-/// pairs (the <c>ItemPolicy</c> pattern — sidesteps the EF Core 10 optional-complex-type bug), with
-/// the computed Money? properties explicitly ignored. Enum columns store the uppercase wire values
-/// via string conversion. Discovered at model-build time by <c>PolDbContext</c> via
-/// <c>HostModuleAssemblies.All</c>.
+/// EF mapping for <see cref="Product"/> (an insurance document,
+/// <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> §5.2). Premium columns are plain
+/// <c>decimal(19,2)</c> scalars, not <c>Money</c> — §5.2 carries no currency column (the source
+/// system is THB-only), so currency is minted once at the cart boundary. Enum columns store the
+/// uppercase wire values via string conversion. Discovered at model-build time by
+/// <c>PolDbContext</c> via <c>HostModuleAssemblies.All</c>.
 /// </summary>
 public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
 {
@@ -20,8 +19,6 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
     {
         builder.ToTable("Products", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
-
-        builder.Property(x => x.MerchantId).IsRequired();
 
         builder.Property(x => x.ProductGroup).HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.DocumentType).HasConversion<string>().HasMaxLength(20).IsUnicode(false).IsRequired();
@@ -34,7 +31,6 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.ReferenceYear).HasMaxLength(2).IsUnicode(false);
         builder.Property(x => x.ReferenceNo).HasMaxLength(30).IsUnicode(false);
 
-        builder.Property(x => x.BranchCode).HasMaxLength(3).IsUnicode(false).IsRequired();
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false).IsRequired();
         builder.Property(x => x.SaleFullName).HasMaxLength(500);
         builder.Property(x => x.BrokerCode).HasMaxLength(20).IsUnicode(false);
@@ -52,36 +48,19 @@ public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
         builder.Property(x => x.ShowName).HasMaxLength(500);
         builder.Property(x => x.LicensePlateNumber).HasMaxLength(100);
 
-        builder.ComplexProperty(x => x.TotalPremium, p =>
-        {
-            p.Property(m => m.Amount).HasColumnName("TotalPremiumAmount").HasPrecision(19, 4);
-            p.Property(m => m.Currency).HasColumnName("TotalPremiumCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        });
-
-        builder.Property(x => x.NetPremiumAmount).HasPrecision(19, 4);
-        builder.Property(x => x.NetPremiumCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.StampAmount).HasPrecision(19, 4);
-        builder.Property(x => x.StampCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.TaxVatAmount).HasPrecision(19, 4);
-        builder.Property(x => x.TaxVatCurrency).HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        builder.Property(x => x.CommissionAmountAmount).HasColumnName("CommissionAmount").HasPrecision(19, 4);
-        builder.Property(x => x.CommissionAmountCurrency).HasColumnName("CommissionCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        builder.Property(x => x.TotalPremium).HasPrecision(19, 2).IsRequired();
+        builder.Property(x => x.NetPremium).HasPrecision(19, 2);
+        builder.Property(x => x.Stamp).HasPrecision(19, 2);
+        builder.Property(x => x.TaxVat).HasPrecision(19, 2);
+        builder.Property(x => x.CommissionAmount).HasPrecision(19, 2);
         builder.Property(x => x.CommissionPercent).HasPrecision(19, 6);
-        builder.Ignore(x => x.NetPremium);
-        builder.Ignore(x => x.Stamp);
-        builder.Ignore(x => x.TaxVat);
-        builder.Ignore(x => x.CommissionAmount);
         builder.Ignore(x => x.InsuranceType);
 
         builder.Property(x => x.PaymentStatus).HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.PaidDate).HasPrecision(0);
 
-        builder.Property(x => x.IsActive).IsRequired();
-        builder.Property(x => x.CreatedAt).IsRequired();
-
         // Named HasIndex overloads on purpose — a repeated anonymous HasIndex mutates instead of adds.
-        builder.HasIndex(x => new { x.MerchantId, x.IsActive }, "IX_Products_MerchantId_IsActive");
-        builder.HasIndex(x => new { x.MerchantId, x.PaymentStatus }, "IX_Products_MerchantId_PaymentStatus");
-        builder.HasIndex(x => new { x.MerchantId, x.DocumentNo }, "IX_Products_MerchantId_DocumentNo").IsUnique();
+        builder.HasIndex(x => new { x.SaleCode, x.PaymentStatus }, "IX_Products_SaleCode_PaymentStatus");
+        builder.HasIndex(x => x.DocumentNo, "IX_Products_DocumentNo").IsUnique();
     }
 }

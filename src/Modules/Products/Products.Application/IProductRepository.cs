@@ -13,12 +13,9 @@ public interface IProductRepository
     /// <summary>Stages a new product for insertion; persisted by the unit of work's SaveChanges.</summary>
     void Add(Product product);
 
-    /// <summary>Lists a merchant's products, newest first.</summary>
-    Task<IReadOnlyList<Product>> ListByTenantAsync(Guid merchantId, CancellationToken cancellationToken);
-
-    /// <summary>The SFS-paged product list (REQ-2, REQ-7): merchant-scoped filter/search/sort over the RLS floor,
-    /// projected to scalar <see cref="ProductListItem"/>s, with <c>Total</c> counted after filter/search but
-    /// before paging.</summary>
+    /// <summary>The paged document list (§2 input surface): merchant-scoped filtering over the query-filter
+    /// floor, ordered by <c>DocumentNo</c> and projected to <see cref="ProductListItem"/>s, with
+    /// <c>Total</c> counted after filtering but before paging.</summary>
     Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken cancellationToken);
 
     /// <summary>Loads one product by id (RLS scopes it to the bound merchant), or null if absent.</summary>

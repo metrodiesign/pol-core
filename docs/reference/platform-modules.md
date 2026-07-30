@@ -652,29 +652,39 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 ## 5. Product
 
-**บริบท** — สินค้าที่ขายบนแพลตฟอร์ม = แผน/กรมธรรม์ประกันภัยที่ producer เลือกให้ลูกค้า; catalog แยกต่อ tenant
+**บริบท** — สิ่งที่ขายบนแพลตฟอร์ม = **เอกสารประกัน** (กรมธรรม์/ใบคำขอ/สลักหลัง/ใบต่ออายุ) ที่รอเก็บเงิน;
+catalog แยกต่อ merchant. `Product` เป็น mirror ของ result set §5.2 ใน
+[`vcentralpay-sp-quick-reference.pdf`](./vcentralpay-sp-quick-reference.pdf) ตรง ๆ (spec `products-sp-53-alignment`)
 
 **บทบาท**
-- `Product`: `Name`, ราคาเป็น `Money` (minor units + currency — สองคอลัมน์ scalar), `IsActive`
-- ฟิลด์แผนประกันบน `Product` เอง (insurance-pivot, ไม่ต้องรอ `ProductVersion` เป้าหมายด้านล่าง): `SumInsured`
-  (ทุนเอาประกัน, `Money`), `CoverageDurationDays` (ระยะเวลาคุ้มครองเป็นวัน), `Insurer` (ชื่อบริษัทประกันภัย) —
-  validate ตอน `Create` (จำนวนเป็นบวก, `Insurer` ไม่ว่าง, currency ของ `SumInsured` ตรงกับ `Price`)
-- เป็น source ของราคา**และเงื่อนไขประกัน**เสมอ — ทั้ง Cart (ราคา) และ Checkout (เงื่อนไขประกัน, ดู §7) ดึงจาก
-  catalog ตอนทำรายการ, ไม่รับราคาหรือเงื่อนไขประกันจาก client
-- endpoints: `POST /products` (tenant Bearer หรือ producer + `product.create`), `GET /products` (แบ่งหน้า/กรอง/เรียงตาม [search-filter-sort.md](search-filter-sort.md))
+- `Product`: `DocumentNo` (unique ต่อ merchant), `ProductGroup` (`CMI`/`VMI`/`FIRE`/`MISC`), `DocumentType`
+  (`POLICY`/`APPLICATION`/`RENEWAL`/`ENDORSEMENT`), `SaleCode`, เลขเอกสาร 4 ชุด, ช่วงคุ้มครอง
+  (`StartDate`/`EndDate`), `LicensePlateNumber`, `ShowName` และ **`PaymentStatus` (`UNPAID`/`PAID`) + `PaidDate`**
+  ซึ่งเป็นแกนขายได้/ขายไม่ได้ (ไม่มี `IsActive` แล้ว)
+- ค่าเงินเป็น `decimal(19,2)` เปล่า **ไม่ใช่ `Money`**: `TotalPremium` (บังคับ) + breakdown
+  `NetPremium`/`Stamp`/`TaxVat`/`CommissionAmount`/`CommissionPercent` — `Create` throw ถ้า `TotalPremium <= 0`,
+  ค่าติดลบ, ทศนิยมเกิน 2 ตำแหน่ง, `StartDate > EndDate` หรือ `CMI` + `APPLICATION`; currency (`THB`) ถูก mint
+  ที่ boundary เดียวคือ cart add-item
+- เป็น source ของเบี้ย**และ field เอกสาร**เสมอ — ทั้ง Cart (เบี้ย) และ Checkout (field เอกสาร, ดู §7) ดึงจาก
+  catalog ตอนทำรายการ, ไม่รับค่าเหล่านี้จาก client
+- endpoints: `GET /products` **ตัวเดียว** — แคตตาล็อกเป็น read-only ผ่าน HTTP (เอกสารมาจากระบบกรมธรรม์ต้นทาง
+  ไม่ได้เกิดจาก merchant กรอกฟอร์ม); write seam คือ `CreateProductCommand` ที่ไม่ถูก map เป็น route
+  (**ไม่มี SFS** — รับแค่ `page`/`limit` + typed `productFilters` ที่บังคับมี `saleCode`, order คงที่ด้วย
+  `DocumentNo`, search window 6 เดือน / `RENEWAL` 2 เดือน)
 
 **ฟีเจอร์ละเอียด**
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
-| สร้างสินค้า | `POST /products` (tenant Bearer หรือ producer + `product.create`) — body รับ `SumInsured`/`CoverageDurationDays`/`Insurer` ด้วย | มีแล้ว |
-| ราคาเป็น `Money` + source of truth | Cart ดึงราคาจาก catalog ตอน add — ไม่รับราคาจาก client; `Price` เป็น unmapped computed (project scalar สองคอลัมน์) | มีแล้ว |
-| เงื่อนไขแผนประกันบน `Product` | `SumInsured`/`CoverageDurationDays`/`Insurer` — snapshot เข้า `OrderItem` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (insurance-pivot) |
-| List + ค้นหา/กรอง/เรียง | `GET /products` ตาม SFS convention (JSON-DSL) — implement แล้ว (`ProductSfs`) | มีแล้ว |
+| สร้างเอกสาร | ไม่มี HTTP endpoint — `POST /products` ถูกถอดออก (แคตตาล็อก read-only, เอกสารมาจากระบบต้นทาง); เข้าถึงได้ผ่าน `CreateProductCommand` ภายในเท่านั้น | ถอดออกแล้ว |
+| เบี้ยเป็น source of truth | Cart ดึงเบี้ยจาก catalog ตอน add แล้ว mint `Money.Of(TotalPremium, "THB")` — ไม่รับเบี้ยจาก client | มีแล้ว |
+| field เอกสารบน `Product` | `DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` — snapshot เข้า `OrderItem` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (checkout-chain-document-fields) |
+| List ตาม §2 input contract | `GET /products` — `page`/`limit` (cap 25) + typed `productFilters` (`saleCode` บังคับ, `paymentStatus` default `UNPAID`, smart search รวมทะเบียนรถเฉพาะแถว Motor, search window 6 เดือน / `RENEWAL` 2 เดือน); **ไม่มี** `filters`/`sort`/`search` (`ProductSfs` ถูกลบ) | มีแล้ว (products-sp-53-alignment) |
 | Query รายตัวภายใน | `GetProductById` ผ่าน Mediator — ผู้ใช้คือ Cart/Checkout ตอน add item / เริ่ม checkout (ไม่มี public endpoint) | มีแล้ว |
-| แก้ไข/ปิดสินค้า | target: `POST /api/producer/v1/products/{productId}/activate|deactivate` — `IsActive` มี field และ permission `product.update` จองแล้ว แต่ไม่มี endpoint | ยังไม่มี (ข้อ 11) |
+| mark เอกสารเป็น PAID | `Product.MarkPaid` ผ่าน `DocumentPaidOnOrderPaidConsumer` ตอน order จ่ายสำเร็จ — เป็นทางเดียวที่ทำให้เอกสารขายซ้ำไม่ได้ | มีแล้ว |
+| แก้ไข/ถอนเอกสารจากการขาย | ไม่มี endpoint และ **ไม่มี `Deactivate()`** อีกแล้ว (ถูกลบใน products-sp-53-alignment) — แกน "ขายไม่ได้" เหลือทางเดียวคือขายจบแล้วเป็น `PAID`; permission `product.update` ยังจองไว้ | ยังไม่มี (ข้อ 11) |
 | อ่านรายตัว public | target: `GET /api/producer/v1/products/{productId}` สำหรับหน้า detail ฝั่ง console | ยังไม่มี |
-| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot ใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` ไปก่อนแล้ว (ไม่มี versioning/immutability — แก้ `Product` เปลี่ยนเงื่อนไขได้ทันที, ไม่กระทบ order ที่จ่ายแล้วเพราะ snapshot เข้า `OrderItem` แล้ว) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
+| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot เคยใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` แต่ **ถูกลบไปแล้ว** ใน products-sp-53-alignment (`Product` = mirror §5.2 เท่านั้น, immutable หลังสร้างยกเว้น `MarkPaid`) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
 
 **โมเดลเป้าหมายเชิง API**
 
@@ -691,10 +701,11 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 **ความสัมพันธ์** — `CartItem` อ้าง `ProductId`; ราคาถูก snapshot เข้า cart ตอนหยิบ
 
-**สถานะ: มีแล้ว** — ไม่ใช่ generic catalog item อีกต่อไป (insurance-pivot): มีฟิลด์เฉพาะแผนประกัน
-(`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` แล้ว; target ยกระดับเป็น
-Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ยังไม่มี versioning/immutability — ยังไม่เริ่ม);
-ยังไม่มีเส้นทางแก้ไข/ปิดสินค้า
+**สถานะ: มีแล้ว** — ไม่ใช่ generic catalog item อีกต่อไป: `Product` เป็น **เอกสารประกัน** ที่ mirror §5.2
+ของ SP quick reference ตรง ๆ (products-sp-53-alignment) — field แผนประกันชุด insurance-pivot
+(`SumInsured`/`CoverageDurationDays`/`Insurer`) และ `Name`/`Price`/`IsActive`/`CreatedAt` **ถูกลบทั้งหมด**;
+target ยกระดับเป็น Product/ProductVersion/ProductQuote ยังไม่เริ่ม; ยังไม่มีเส้นทางแก้ไขเอกสาร
+(ตัว SP adapter จริง motordb/centerdb เป็นเฟสถัดไป)
 
 ---
 
@@ -810,7 +821,7 @@ Product/ProductVersion/ProductQuote (มี field เพิ่ม แต่ย�
 | Summary link แบบ capability | `SummaryToken` TTL 72 ชม.; `GET /orders/{token}/summary` anonymous; `404` ไม่รู้จัก / `410` หมดอายุ | มีแล้ว |
 | Resend ลิงก์ | `POST /orders/{orderId}/summary/resend` — rotate token + enqueue แจ้งเตือนใหม่ | มีแล้ว |
 | Reconciliation report | `GET /reports/reconciliation` — read-only สรุปยอดเหนือ Orders | มีแล้ว |
-| Order items (รายการต่อใบ) | `Order.Items` = `IReadOnlyCollection<Item>` immutable snapshot ต่อแผนที่ซื้อ (1 ผู้เอาประกัน/1 item, `Quantity` ต้อง = 1) — `Order.Create(..., IReadOnlyList<OrderItemInput> items, ...)` บังคับ ≥ 1 item, currency ตรงกับใบ, และผลรวม item total **ต้องเท่ากับ** `Amount` เป๊ะ; item snapshot ทั้ง commercial (`ProductId`/`UnitPrice`) และเงื่อนไขประกัน (`SumInsured`/`CoverageDurationDays`/`Insurer`) + ผู้เอาประกัน (`InsuredFirstName`/`InsuredLastName`/`InsuredIdNumber`/`InsuredDateOfBirth`) ณ เวลาซื้อ; `Item` เป็น **INSERT-only** (ไม่มี mutator) | มีแล้ว (insurance-pivot) |
+| Order items (รายการต่อใบ) | `Order.Items` = `IReadOnlyCollection<Item>` immutable snapshot ต่อแผนที่ซื้อ (1 ผู้เอาประกัน/1 item, `Quantity` ต้อง = 1) — `Order.Create(..., IReadOnlyList<OrderItemInput> items, ...)` บังคับ ≥ 1 item, currency ตรงกับใบ, และผลรวม item total **ต้องเท่ากับ** `Amount` เป๊ะ; item snapshot ทั้ง commercial (`ProductId`/`UnitPrice`) และ field เอกสาร (`DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` — เดิมเป็น `SumInsured`/`CoverageDurationDays`/`Insurer` ก่อน checkout-chain-document-fields) + ผู้เอาประกัน (`InsuredFirstName`/`InsuredLastName`/`InsuredIdNumber`/`InsuredDateOfBirth`) ณ เวลาซื้อ; `Item` เป็น **INSERT-only** (ไม่มี mutator) | มีแล้ว (insurance-pivot) |
 | Policy-reference record ต่อ item | `ItemPolicy` — aggregate ใหม่ **1:1 กับ `Item`, mutable**, กรอกโดย operator **หลังการขาย** (แพลตฟอร์มไม่เคยออกเลขกรมธรรม์เอง): `InsuranceCategory` (`Voluntary`/`Compulsory`), `ReferenceNumberType` (`PolicyNumber`/`NotificationNumber`) + `ReferenceNumber`, `EndorsementNumber` (สลักหลัง), `RenewalReminderNumber` (ใบเตือนต่ออายุ), `InsuredObjectReference`, `NetPremium`/`GrossPremium`, `PremiumRemittanceStatus` (`NotApplicable`/`Deducted`) + `DeductedAt`. ทุก field เริ่มต้นเป็น null = "ยังไม่กรอก" (ไม่มี enum ค่า "unset"); invariant ทั้งหมดบังคับใน `ItemPolicy.Apply` (type↔value จับคู่สองทาง · endorsement/renewal ต้องมี base reference ก่อน · net/gross both-or-neither + currency THB + net ≤ gross · `Deducted` ⇔ `DeductedAt` และห้ามเป็นอนาคตตามวันที่ไทย) — reject ทุกกรณีเป็น `ArgumentException` (→ 400). แยกเป็น aggregate ของตัวเองแทนที่จะเป็น field บน `Item` เพราะ `Item` เป็น INSERT-only snapshot ส่วนนี้ mutable คนละ actor คนละ permission และมี audit trail ของตัวเอง | มีแล้ว (policy-reference-record, PR #130 2026-07-25) |
 | Audit ของ policy record | `ItemPolicyAudit` — 1 แถวต่อการเขียน: `ActorId` + `ActorKind` (`Admin`/`Merchant`), `Operation`, `ChangeSummary`, `CorrelationId`, `OccurredAt` | มีแล้ว (policy-reference-record) |
 | เขียน policy record (2 ระนาบ) | merchant plane: `PUT /api/v1/orders/{orderId}/items/{itemId}/policy` (policy `merchant-user` + permission `policies.write`) · admin cross-merchant: `PUT /api/v1/admins/orders/{orderId}/items/{itemId}/policy` (policy `admin` + `merchants.policies.write`) — ฝั่ง admin ใช้ **escape-hatch writer** ที่คุมด้วย `IAdminScope.Accessible` (Super เขียนได้ทุก merchant, Scoped จำกัดใน accessible set) ไม่ใช่ Super-only allowlist; ทั้งสองเส้น "ไม่พบ item" กับ "item อยู่นอก scope" ตอบ **404 เหมือนกัน** (ไม่ leak การมีอยู่). เขียนได้แม้ order เป็น `Cancelled` (ไม่ผูกกับ state machine ของ Order) | มีแล้ว (policy-reference-record) |
@@ -1259,7 +1270,8 @@ route/permission/ตารางเดิมทั้งหมด
     ไม่ใช่ข้อนี้): `method`/`psp` ยังมาจาก client (ต้องล็อกตั้งแต่ checkout + router), และยังไม่เช็ค
     merchant `active`
 11. **`product.update` จองสิทธิ์ไว้แต่ไม่มี endpoint** — permission อยู่ใน Producer RBAC catalog แล้ว
-    แต่ไม่มีเส้นทางแก้ไข/ปิดสินค้า (`IsActive` ไม่มี writer หลังสร้าง) — pattern เดียวกับ `apikey.manage` (ข้อ 6)
+    แต่ไม่มีเส้นทางแก้ไขเอกสารเลย — `IsActive`/`Deactivate()` ถูกลบใน products-sp-53-alignment, state ที่เปลี่ยนได้
+    หลังสร้างเหลือทางเดียวคือ `MarkPaid` (ผ่าน outbox consumer ไม่ใช่ endpoint) — pattern เดียวกับ `apikey.manage` (ข้อ 6)
 12. **สถานะปลายทางมีใน domain แต่ไม่มี trigger ใน production — ยังเปิดอยู่** (ทบทวน 2026-07-26):
     `Session.MarkExpired`, `CheckoutSession.Abandon`, `Order.Cancel` ไม่มีผู้เรียกนอก test
     (`MarkExpired` วันนี้ไม่มีผู้เรียกเลยแม้ใน test): ไม่มี job auto-expire payment session (target payload

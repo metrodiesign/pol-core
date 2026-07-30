@@ -180,75 +180,185 @@ VALUES
     ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
     ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
 
--- shop.Products (REQ-5.4): 100 rows total, 34/33/33 across the three merchants. A Product is now a
--- sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
+-- shop.Products (REQ-5.4): 500 rows total. A Product is a document in the CENTRAL catalogue - it has no
+-- MerchantId of its own, every merchant sells from the same pool and a request is scoped by SaleCode
+-- instead. A Product is a sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
 -- hand-written flagship documents below; shop.CartItems references them by id, so their ids are
--- load-bearing and must not move. The remaining 76 (ids ...19-...64 hex) are generated right after.
--- 1 inactive per hand-written block plus every 7th generated row, so IsActive covers both values.
--- DocumentNo is unique per merchant (IX_Products_MerchantId_DocumentNo). Optional document fields
--- stay NULL here - the EF migration seed ('e6000000-%') carries the fully-populated samples.
-INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, BranchCode, SaleCode,
-                           ShowName, TotalPremiumAmount, TotalPremiumCurrency, PaymentStatus, IsActive, CreatedAt)
+-- load-bearing and must not move. The remaining 476 (ids ...19-...1f4 hex) are generated right after.
+-- 1 already-sold document per hand-written block plus every 7th generated row carries
+-- PaymentStatus = 'PAID' + a PaidDate, so both sides of the sellability gate are represented:
+-- cart add-item / checkout accept UNPAID only (products-sp-53-alignment REQ-2.1/2.4 — this used to
+-- be the IsActive = 0 axis, which no longer exists as a column).
+-- DocumentNo is globally unique (IX_Products_DocumentNo). The two INSERTs below
+-- carry only the load-bearing columns; the single UPDATE after them fills every remaining
+-- document field for all 500 rows at once (see the comment on that block).
+-- TotalPremium is decimal(19,2) — Product.Create rejects a 3rd decimal place, it does not round.
+INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
+                           TotalPremium, PaymentStatus, PaidDate)
 VALUES
-    -- vprivilege
-    ('e9000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'00098-69100/กธ/900001-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 01', 1200.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 'CMI',  'POLICY',      N'00098-69100/กธ/900002-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 02', 1850.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', 'FIRE', 'POLICY',      N'S001-69100/อค/900003',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 03', 18500.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000001', 'MISC', 'APPLICATION', N'S001-69100/บต/900004',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 04', 32000.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000001', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900005-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 05', 24500.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000001', 'CMI',  'ENDORSEMENT', N'69100/สล/900006',          '100', '00098', N'ผู้เอาประกันตัวอย่าง 06', 15900.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000007', 'e1000000-0000-4000-8000-000000000001', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900007',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 07', 3500.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000001', 'MISC', 'POLICY',      N'S001-69100/บต/900008',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 08', 350.0000,   'THB', 'UNPAID', 0, SYSUTCDATETIME()),
-    -- vcommerce
-    ('e9000000-0000-4000-8000-000000000009', 'e1000000-0000-4000-8000-000000000002', 'VMI',  'POLICY',      N'00098-69100/กธ/900009-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 09', 650.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-00000000000a', 'e1000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'00098-69100/กธ/900010-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 10', 450.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-00000000000b', 'e1000000-0000-4000-8000-000000000002', 'FIRE', 'POLICY',      N'S001-69100/อค/900011',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 11', 9800.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-00000000000c', 'e1000000-0000-4000-8000-000000000002', 'MISC', 'APPLICATION', N'S001-69100/บต/900012',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 12', 12800.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-00000000000d', 'e1000000-0000-4000-8000-000000000002', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900013-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 13', 8900.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-00000000000e', 'e1000000-0000-4000-8000-000000000002', 'CMI',  'ENDORSEMENT', N'69100/สล/900014',          '100', '00098', N'ผู้เอาประกันตัวอย่าง 14', 6200.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-00000000000f', 'e1000000-0000-4000-8000-000000000002', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900015',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 15', 4100.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000010', 'e1000000-0000-4000-8000-000000000002', 'MISC', 'POLICY',      N'S001-69100/บต/900016',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 16', 990.0000,   'THB', 'UNPAID', 0, SYSUTCDATETIME()),
-    -- vsouvenir
-    ('e9000000-0000-4000-8000-000000000011', 'e1000000-0000-4000-8000-000000000003', 'VMI',  'POLICY',      N'00098-69100/กธ/900017-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 17', 390.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000012', 'e1000000-0000-4000-8000-000000000003', 'CMI',  'POLICY',      N'00098-69100/กธ/900018-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 18', 590.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000013', 'e1000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69100/อค/900019',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 19', 450.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000014', 'e1000000-0000-4000-8000-000000000003', 'MISC', 'APPLICATION', N'S001-69100/บต/900020',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 20', 550.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000015', 'e1000000-0000-4000-8000-000000000003', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900021-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 21', 480.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000003', 'CMI',  'ENDORSEMENT', N'69100/สล/900022',          '100', '00098', N'ผู้เอาประกันตัวอย่าง 22', 720.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900023',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 23', 2100.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
-    ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', 'MISC', 'POLICY',      N'S001-69100/บต/900024',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 24', 48000.0000, 'THB', 'UNPAID', 0, SYSUTCDATETIME());
+    ('e9000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'77001-69900/กธ/900001-10', '77001', 1200.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'77001-69900/กธ/900002-10', '77001', 1850.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69900/อค/900003',     'S001',  18500.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000004', 'MISC', 'APPLICATION', N'S001-69900/บต/900004',     'S001',  32000.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000005', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900005-10', '77001', 24500.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000006', 'CMI',  'ENDORSEMENT', N'69900/ปช/900006',          '77001', 15900.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000007', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900007',     'S001',  3500.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000008', 'MISC', 'POLICY',      N'S001-69900/บต/900008',     'S001',  350.00,   'PAID',   DATEADD(day, -7, SYSUTCDATETIME())),
+    ('e9000000-0000-4000-8000-000000000009', 'VMI',  'POLICY',      N'77001-69900/กธ/900009-10', '77001', 650.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000a', 'CMI',  'POLICY',      N'77001-69900/กธ/900010-10', '77001', 450.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000b', 'FIRE', 'POLICY',      N'S001-69900/อค/900011',     'S001',  9800.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000c', 'MISC', 'APPLICATION', N'S001-69900/บต/900012',     'S001',  12800.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000d', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900013-10', '77001', 8900.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000e', 'CMI',  'ENDORSEMENT', N'69900/ปช/900014',          '77001', 6200.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000f', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900015',     'S001',  4100.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000010', 'MISC', 'POLICY',      N'S001-69900/บต/900016',     'S001',  990.00,   'PAID',   DATEADD(day, -5, SYSUTCDATETIME())),
+    ('e9000000-0000-4000-8000-000000000011', 'VMI',  'POLICY',      N'77001-69900/กธ/900017-10', '77001', 390.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000012', 'CMI',  'POLICY',      N'77001-69900/กธ/900018-10', '77001', 590.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000013', 'FIRE', 'POLICY',      N'S001-69900/อค/900019',     'S001',  450.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000014', 'MISC', 'APPLICATION', N'S001-69900/บต/900020',     'S001',  550.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000015', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900021-10', '77001', 480.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000016', 'CMI',  'ENDORSEMENT', N'69900/ปช/900022',          '77001', 720.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000017', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900023',     'S001',  2100.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000018', 'MISC', 'POLICY',      N'S001-69900/บต/900024',     'S001',  48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
 
--- The remaining 76 documents (ids ...19-...64 hex), taking the catalogue to 100. Deterministic
+-- The remaining 476 documents (ids ...19-...1f4 hex), taking the catalogue to 500. Deterministic
 -- throughout - the id is the row number rendered as hex (offset by the 24 above) and DocumentNo
--- embeds the same sequence, so a re-run reproduces the exact same 76 rows and the
+-- embeds the same sequence, so a re-run reproduces the exact same 476 rows and the
 -- DELETE ... LIKE 'e9000000-%' in step (ค) still reclaims every one of them. ProductGroup rotates
 -- through all four values; DocumentType rotates POLICY/RENEWAL/ENDORSEMENT only (CMI never pairs
 -- with APPLICATION per the SP guide's support matrix, and this generator keeps the invariant by
 -- simply never emitting APPLICATION).
 ;WITH seq AS (
-    SELECT TOP (76) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
+    SELECT TOP (476) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
     FROM sys.all_objects
 )
-INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, BranchCode, SaleCode,
-                           ShowName, TotalPremiumAmount, TotalPremiumCurrency, PaymentStatus, IsActive, CreatedAt)
+INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
+                           TotalPremium, PaymentStatus, PaidDate)
 SELECT
     CONVERT(uniqueidentifier, 'e9000000-0000-4000-8000-'
         + RIGHT('000000000000'
             + LOWER(CONVERT(varchar(20), CONVERT(varbinary(4), 24 + Seq), 2)), 12)),
-    CONVERT(uniqueidentifier, 'e1000000-0000-4000-8000-'
-        + RIGHT('000000000000'
-            + CONVERT(varchar(12), CASE WHEN Seq <= 26 THEN 1 WHEN Seq <= 51 THEN 2 ELSE 3 END), 12)),
     CASE Seq % 4 WHEN 0 THEN 'CMI' WHEN 1 THEN 'VMI' WHEN 2 THEN 'FIRE' ELSE 'MISC' END,
     CASE Seq % 3 WHEN 0 THEN 'POLICY' WHEN 1 THEN 'RENEWAL' ELSE 'ENDORSEMENT' END,
-    CONCAT(N'00098-69100/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),
-    '100', '00098',
-    CONCAT(N'ผู้เอาประกันตัวอย่าง ', 24 + Seq),
-    CAST(500 + Seq * 137.25 AS decimal(19,4)),
-    'THB',
-    'UNPAID',
-    CASE WHEN Seq % 7 = 0 THEN 0 ELSE 1 END,
-    SYSUTCDATETIME()
+    CONCAT(N'77001-69900/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),
+    '77001',
+    CAST(500 + Seq * 137.25 AS decimal(19,2)),
+    CASE WHEN Seq % 7 = 0 THEN 'PAID' ELSE 'UNPAID' END,
+    CASE WHEN Seq % 7 = 0 THEN DATEADD(day, -Seq, SYSUTCDATETIME()) END
 FROM seq;
+
+-- Fill the remaining document fields for all 500 seeded products in one pass. Doing it here rather
+-- than inside the two INSERTs keeps the rules in a single readable place and avoids hand-computing
+-- 96 premium components. Everything is derived from the row itself, so a re-run is deterministic.
+--
+-- Dates are anchored on SYSUTCDATETIME() on purpose: ProductRepository.SearchAsync hard-filters
+-- every query to a search window (RENEWAL -> EndDate within the next 2 months, everything else ->
+-- StartDate within the last 6 months) and NULL/stale dates make the predicate UNKNOWN, so the whole
+-- catalogue silently disappears from GET /products. The offsets below (+3..+53 days / -1..-150 days)
+-- stay inside those windows no matter which day the seed runs.
+--
+-- Premium components are derived backwards from the existing TotalPremium (which must not move —
+-- cart/order seed rows carry matching totals): net + 0.4% stamp duty + 7% VAT. TaxVat is the
+-- residual so the three always add up to TotalPremium exactly. Everything is rounded to 2 decimals
+-- because Product.Create rejects a 3rd decimal place instead of rounding.
+UPDATE p
+SET PolicyYear           = v.Yr,
+    ReferenceYear        = v.Yr,
+    ReferenceBranch      = '900',
+    -- On real SP output ReferencePre is a branch code that only appears on endorsements — it is NOT
+    -- the Thai abbreviation inside DocumentNo.
+    ReferencePre         = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN '900' END,
+    PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
+    ReferenceNo          = CONVERT(varchar(30), v.Seq),
+    -- ShowName is the insured party printed on the document, SaleFullName the agent who sold it and
+    -- BrokerName the broking house behind the agent — three different people/firms, so they draw
+    -- from three separate pools. Motor documents (CMI/VMI) are insured by individuals here so the
+    -- name lines up with LicensePlateNumber; fire/miscellaneous documents are insured by juristic
+    -- persons, which is what those lines of business actually look like. Every name is invented —
+    -- do not put a real broker or insurer in demo data.
+    -- The moduli below are coprime with 4 on purpose: the generated rows pick ProductGroup with
+    -- Seq % 4, so a pool sized 4 or 8 would hand every VMI row the same name.
+    ShowName             = CASE WHEN p.ProductGroup IN ('CMI', 'VMI') THEN
+                                    CASE v.Seq % 7
+                                        WHEN 0 THEN N'นายสมชาย ใจดีมงคล'
+                                        WHEN 1 THEN N'นางสาวปรียานุช แสงทองดี'
+                                        WHEN 2 THEN N'นายวีรพงษ์ ตันติเจริญ'
+                                        WHEN 3 THEN N'นางอรพรรณ ศรีสุขเกษม'
+                                        WHEN 4 THEN N'นายธนกฤต พงษ์พิพัฒน์'
+                                        WHEN 5 THEN N'นางสาวชนิสรา บุญมาก'
+                                        ELSE        N'นางสาวพิมพ์ชนก เลิศวัฒนา' END
+                                ELSE
+                                    CASE v.Seq % 7
+                                        WHEN 0 THEN N'บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด'
+                                        WHEN 1 THEN N'บริษัท ไทยรุ่งเรือง โลจิสติกส์ จำกัด'
+                                        WHEN 2 THEN N'ห้างหุ้นส่วนจำกัด สหมิตรการช่าง'
+                                        WHEN 3 THEN N'บริษัท บูรพา อุตสาหกรรมอาหาร จำกัด'
+                                        WHEN 4 THEN N'บริษัท ศรีนครินทร์ เรียลเอสเตท จำกัด'
+                                        WHEN 5 THEN N'บริษัท พนาไพร รีสอร์ท จำกัด'
+                                        ELSE        N'บริษัท อุดมโชค เท็กซ์ไทล์ จำกัด' END
+                           END,
+    SaleFullName         = CASE v.Seq % 6
+                               WHEN 0 THEN N'นายกิตติพงศ์ อารีย์วงศ์'
+                               WHEN 1 THEN N'นางสาวสุนิสา วงศ์สว่าง'
+                               WHEN 2 THEN N'นายเอกรัตน์ ธีรวุฒิ'
+                               WHEN 3 THEN N'นางสาวจิราพร คงเจริญ'
+                               WHEN 4 THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
+                               ELSE        N'นางเบญจวรรณ ทองอยู่' END,
+    BrokerCode           = CASE v.Seq % 5
+                               WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
+                               WHEN 3 THEN '704' ELSE '705' END,
+    BrokerName           = CASE v.Seq % 5
+                               WHEN 0 THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN 1 THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
+                               WHEN 2 THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN 3 THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
+                               ELSE        N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด' END,
+    PolicyBranch         = CASE v.Seq % 6
+                               WHEN 0 THEN N'สำนักงานใหญ่'
+                               WHEN 1 THEN N'สาขาสีลม'
+                               WHEN 2 THEN N'สาขาเชียงใหม่'
+                               WHEN 3 THEN N'สาขาหาดใหญ่'
+                               WHEN 4 THEN N'สาขาขอนแก่น'
+                               ELSE        N'สาขาพระราม 9' END,
+    PolicyType           = CASE WHEN p.ProductGroup = 'VMI' THEN '90' END,
+    PolicyNumber         = CASE WHEN p.DocumentType <> 'APPLICATION'
+                                THEN CONCAT(p.SaleCode, '-', v.Yr, '900/', v.Seq) END,
+    ApplicationNumber    = CASE WHEN p.DocumentType = 'APPLICATION'
+                                THEN CONCAT(p.SaleCode, '-', v.Yr, '900/', v.Seq) END,
+    PreviousPolicyNumber = CASE WHEN p.DocumentType IN ('RENEWAL', 'ENDORSEMENT')
+                                THEN CONCAT(p.SaleCode, '-', CONVERT(int, v.Yr) - 1, '900/', v.Seq - 1) END,
+    EndorsementNumber    = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', v.Seq) END,
+    -- Motor only: ProductRepository only searches the plate for CMI/VMI rows.
+    LicensePlateNumber   = CASE WHEN p.ProductGroup IN ('CMI', 'VMI')
+                                THEN CONCAT(v.Seq % 9 + 1,
+                                            CASE v.Seq % 6
+                                                WHEN 0 THEN N'กก' WHEN 1 THEN N'ขข' WHEN 2 THEN N'คค'
+                                                WHEN 3 THEN N'งง' WHEN 4 THEN N'จจ' ELSE N'ฉฉ' END,
+                                            N' ', RIGHT('0000' + CONVERT(varchar(4), 1000 + v.Seq % 9000), 4)) END,
+    StartDate            = CASE WHEN p.DocumentType = 'RENEWAL'
+                                THEN DATEADD(year, -1, DATEADD(day, v.Seq % 50 + 3, v.Today))
+                                ELSE DATEADD(day, -(v.Seq % 150 + 1), v.Today) END,
+    EndDate              = CASE WHEN p.DocumentType = 'RENEWAL'
+                                THEN DATEADD(day, v.Seq % 50 + 3, v.Today)
+                                ELSE DATEADD(year, 1, DATEADD(day, -(v.Seq % 150 + 1), v.Today)) END,
+    NetPremium           = m.Net,
+    Stamp                = m.Stamp,
+    TaxVat               = p.TotalPremium - m.Net - m.Stamp,
+    CommissionPercent    = m.Pct,
+    CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
+FROM shop.Products p
+CROSS APPLY (
+    SELECT CAST(REPLACE(RIGHT(p.DocumentNo, CHARINDEX(N'/', REVERSE(p.DocumentNo)) - 1), N'-10', N'') AS int) AS Seq,
+           CASE WHEN p.DocumentNo LIKE N'%68900%' THEN '68' ELSE '69' END AS Yr,
+           CAST(SYSUTCDATETIME() AS date) AS Today
+) v
+CROSS APPLY (SELECT ROUND(p.TotalPremium / 1.07428, 2) AS Net) n
+CROSS APPLY (
+    SELECT n.Net AS Net,
+           ROUND(n.Net * 0.004, 2) AS Stamp,
+           CAST(CASE v.Seq % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
+) m
+WHERE p.Id LIKE 'e9000000-%';
 
 -- shop.Carts (REQ-6.1): 2 per merchant, string Status ('Open'/'CheckedOut' — CartConfiguration
 -- uses HasConversion<string>() into nvarchar(16); an int here would violate the column mapping).
@@ -391,14 +501,14 @@ WHERE o.Id LIKE 'ed000000-%' AND o.Status = 1;
 INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, ProductId, Quantity, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, UnitPriceAmount, UnitPriceCurrency)
 VALUES
     -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid); product e9…0006
-    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69100/สล/900006', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
+    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69900/ปช/900006', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
     -- Motor, ภาคบังคับ/พ.ร.บ. (Compulsory) — SAME order + SAME insured person + vehicle as above
-    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69100/สล/900006', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
+    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69900/ปช/900006', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
     -- Non-motor (health) — order ed…0008 (vcommerce, Paid); no InsuredObjectReference on its policy
     -- below (REQ-1.8 — field is generic to every insurance type, not just Motor); product e9…000b
-    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, N'S001-69100/อค/900011', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
+    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, N'S001-69900/อค/900011', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
     -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment); product e9…0009
-    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, N'00098-69100/กธ/900009-10', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
+    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, N'77001-69900/กธ/900009-10', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
 
 INSERT INTO shop.OrderItemPolicies (Id, OrderItemId, MerchantId, InsuranceCategory, ReferenceNumberType, ReferenceNumber, EndorsementNumber, RenewalReminderNumber, InsuredObjectReference, NetPremiumAmount, NetPremiumCurrency, GrossPremiumAmount, GrossPremiumCurrency, PremiumRemittanceStatus, DeductedAt, CreatedAt, UpdatedAt)
 VALUES
@@ -444,6 +554,40 @@ BEGIN
     DECLARE @failMsg nvarchar(2048) = N'seed-demo: some target table got 0 rows — seed is incomplete: ' +
         (SELECT STRING_AGG(TableName, N', ') FROM @counts WHERE Rows = 0);
     THROW 51000, @failMsg, 1;
+END
+
+-- Every seeded product must carry a complete document (the fields that are NULL by document type —
+-- ReferencePre / PolicyType / LicensePlateNumber / the four *Number columns / PaidDate — are excluded)
+-- and the premium components must still add up to TotalPremium exactly.
+DECLARE @incomplete int = (
+    SELECT COUNT(*) FROM shop.Products
+    WHERE Id LIKE 'e9000000-%'
+      AND (PolicyYear IS NULL OR ReferenceYear IS NULL OR ReferenceBranch IS NULL
+           OR PolicySequenceNo IS NULL OR ReferenceNo IS NULL
+           OR ShowName IS NULL OR SaleFullName IS NULL
+           OR BrokerCode IS NULL OR BrokerName IS NULL OR PolicyBranch IS NULL
+           OR StartDate IS NULL OR EndDate IS NULL OR StartDate > EndDate
+           OR NetPremium IS NULL OR Stamp IS NULL OR TaxVat IS NULL
+           OR CommissionPercent IS NULL OR CommissionAmount IS NULL
+           OR NetPremium + Stamp + TaxVat <> TotalPremium));
+IF @incomplete > 0
+    THROW 51000, N'seed-demo: seeded products with missing/inconsistent document fields.', 1;
+
+-- Same window ProductRepository.SearchAsync applies — if a seeded row falls outside it, the demo
+-- catalogue is invisible through GET /products no matter what filters the caller sends.
+DECLARE @visible int = (
+    SELECT COUNT(*) FROM shop.Products
+    WHERE Id LIKE 'e9000000-%'
+      AND ((DocumentType = 'RENEWAL'
+            AND EndDate >= CAST(SYSUTCDATETIME() AS date)
+            AND EndDate < DATEADD(month, 2, CAST(SYSUTCDATETIME() AS date)))
+        OR (DocumentType <> 'RENEWAL'
+            AND StartDate >= DATEADD(month, -6, CAST(SYSUTCDATETIME() AS date)))));
+IF @visible <> 500
+BEGIN
+    DECLARE @windowMsg nvarchar(200) = CONCAT(
+        N'seed-demo: only ', @visible, N'/500 products fall inside the GET /products search window.');
+    THROW 51000, @windowMsg, 1;
 END
 
 COMMIT;

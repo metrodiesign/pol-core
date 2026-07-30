@@ -16,17 +16,30 @@ namespace Api;
 internal static class SfsQueryParser
 {
     // Query-cost caps (REQ-6.6): bound expression/SQL size and stay under SQL Server's ~2100 parameter limit.
+    // Page-size ceiling (REQ-4.1): SP §2 @PageSize caps at 25 and §5.1 restates it.
+    private const int MaxLimit = 25;
+
     private const int MaxFilters = 50;
     private const int MaxSortKeys = 10;
     private const int MaxValues = 200;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
+    /// <summary>Parses just the paging pair, for endpoints that have a typed filter surface of their own and
+    /// no SFS surface at all (products, whose §2 input contract has no filter/sort/search — REQ-7.1).</summary>
+    public static (int Page, int Limit) ParsePaging(IQueryCollection query)
+    {
+        // Cap 25 = the SP contract's @PageSize ceiling (docs/reference/vcentralpay-sp-quick-reference.pdf §2,
+        // restated in §5.1). Applies repo-wide: Parse() below delegates here, so every list endpoint shares it.
+        var limit = Math.Clamp(TryInt(query["limit"], 25), 1, MaxLimit);   // clamp = safety, not a 400 (REQ-2.2)
+        var page = ClampPage(TryInt(query["page"], 1), limit);        // >= 1 + offset ceiling (REQ-2.3, REQ-2.6)
+        return (page, limit);
+    }
+
     public static (int Page, int Limit, IReadOnlyList<FilterOption> Filters,
                    IReadOnlyList<SortOption> Sort, SearchOption? Search) Parse(IQueryCollection query)
     {
-        var limit = Math.Clamp(TryInt(query["limit"], 25), 1, 100);   // clamp = safety, not a 400 (REQ-2.2)
-        var page = ClampPage(TryInt(query["page"], 1), limit);        // >= 1 + offset ceiling (REQ-2.3, REQ-2.6)
+        var (page, limit) = ParsePaging(query);
 
         var filters = Deserialize<List<FilterOption>>(query["filters"]) ?? [];
         if (filters.Count > MaxFilters)
