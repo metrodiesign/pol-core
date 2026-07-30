@@ -936,7 +936,7 @@ resolve เป็น `Guid.Empty` ซึ่งไม่มี row จริง�
 | Id | uniqueidentifier | N | PK | `e9000000-…-0006` | app assign |
 | ProductGroup | varchar(10) | N | | `CMI` (`VMI`/`FIRE`/`MISC`) | = `SourceSystem` ของ §5.2; `CMI`/`VMI` = Motor |
 | DocumentType | varchar(20) | N | | `POLICY` (`APPLICATION`/`RENEWAL`/`ENDORSEMENT`) | `CMI` + `APPLICATION` ไม่รองรับ (throw ตอน `Create`) |
-| DocumentNo | nvarchar(150) | N | UQ | `S001-69100/บต/900008` | unique **ทั้งระบบ** (`IX_Products_DocumentNo`) + เป็น order key ของ `GET /products` |
+| DocumentNo | nvarchar(150) | N | UQ | `S001-69900/บต/900008` | unique **ทั้งระบบ** (`IX_Products_DocumentNo`) + เป็น order key ของ `GET /products` |
 | PolicyYear | varchar(2) | Y | | `69` | ปี พ.ศ. 2 หลัก |
 | ReferenceBranch | varchar(3) | Y | | `001` | รหัสสาขาของเลขอ้างอิง (**ไม่ใช่** `@BranchCode` ของ §2 — ยังไม่ยืนยันว่า field เดียวกัน) |
 | ReferencePre | varchar(20) | Y | | `บต` | prefix เลขอ้างอิง |

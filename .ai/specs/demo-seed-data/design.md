@@ -166,14 +166,19 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 > (insurance-pivot + products-sp-53-alignment) ไม่มี `Name`/`PriceAmount`/`IsActive` อีก; คำบรรยาย
 > "plan-line x tier" เดิมค้างมาตั้งแต่ยุค generic catalog
 
+> **ห้ามคัดลอกค่าจากระบบจริง (`motordb` / `usp_Motor_SearchDocument`) ลง seed** — เลียนได้แค่ *รูปแบบ*
+> เท่านั้น ค่าจริงห้าม: `SaleCode` demo = `77001`/`S001`, สาขา = `900`, `BrokerCode` = `701`–`705`,
+> `PolicyType` = `90`, ตัวย่อ endorsement = `ปช` ล้วนเป็นค่าสมมติที่จงใจไม่ตรงกับ prod
+> (`00098` / `100` / `013` / `10` / `สล`) demo data ไม่ใช่ที่เก็บข้อมูลลูกค้าหรือคู่ค้าจริง
+
 1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex) — เอกสารตัวอย่างที่อ่านแล้วเป็นข้อมูลจริง
-   (`DocumentNo` แบบ `00098-69100/กธ/900001-10`, `S001-69100/อค/900003`, `69100/สล/900006`; `ProductGroup`
+   (`DocumentNo` แบบ `77001-69900/กธ/900001-10`, `S001-69900/อค/900003`, `69900/ปช/900006`; `ProductGroup`
    ครบทั้ง 4 ค่า, `DocumentType` ครบทั้ง 4 ค่า; `ShowName` เติมใน `UPDATE` ข้อ 3 ไม่ใช่ใน INSERT).
    **id ของ 24 แถวนี้ load-bearing** — `shop.CartItems` อ้างถึงตรง ๆ ห้ามขยับ
 2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก `ROW_NUMBER()` ตัวเดียว:
    `Seq` 1-76, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
    `POLICY`/`RENEWAL`/`ENDORSEMENT` ด้วย `Seq % 3` (**ไม่เคย emit `APPLICATION`** จึงไม่ชนกฎ `CMI` + `APPLICATION`),
-   `DocumentNo` = `00098-69100/กธ/<910000+Seq>-10`, `TotalPremium` = `CAST(500 + Seq * 137.25 AS decimal(19,2))`.
+   `DocumentNo` = `77001-69900/กธ/<910000+Seq>-10`, `TotalPremium` = `CAST(500 + Seq * 137.25 AS decimal(19,2))`.
    id = row number เรนเดอร์เป็น hex + offset 24 → deterministic, รันซ้ำได้แถวเดิมเป๊ะ และ
    `DELETE … LIKE 'e9000000-%'` ใน (ค) ยังกวาดคืนครบทั้ง 100
 

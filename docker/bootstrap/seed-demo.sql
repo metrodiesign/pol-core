@@ -196,30 +196,30 @@ VALUES
 INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
                            TotalPremium, PaymentStatus, PaidDate)
 VALUES
-    ('e9000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'00098-69100/กธ/900001-10', '00098', 1200.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'00098-69100/กธ/900002-10', '00098', 1850.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69100/อค/900003',     'S001',  18500.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000004', 'MISC', 'APPLICATION', N'S001-69100/บต/900004',     'S001',  32000.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000005', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900005-10', '00098', 24500.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000006', 'CMI',  'ENDORSEMENT', N'69100/สล/900006',          '00098', 15900.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000007', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900007',     'S001',  3500.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000008', 'MISC', 'POLICY',      N'S001-69100/บต/900008',     'S001',  350.00,   'PAID',   DATEADD(day, -7, SYSUTCDATETIME())),
-    ('e9000000-0000-4000-8000-000000000009', 'VMI',  'POLICY',      N'00098-69100/กธ/900009-10', '00098', 650.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000a', 'CMI',  'POLICY',      N'00098-69100/กธ/900010-10', '00098', 450.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000b', 'FIRE', 'POLICY',      N'S001-69100/อค/900011',     'S001',  9800.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000c', 'MISC', 'APPLICATION', N'S001-69100/บต/900012',     'S001',  12800.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000d', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900013-10', '00098', 8900.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000e', 'CMI',  'ENDORSEMENT', N'69100/สล/900014',          '00098', 6200.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000f', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900015',     'S001',  4100.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000010', 'MISC', 'POLICY',      N'S001-69100/บต/900016',     'S001',  990.00,   'PAID',   DATEADD(day, -5, SYSUTCDATETIME())),
-    ('e9000000-0000-4000-8000-000000000011', 'VMI',  'POLICY',      N'00098-69100/กธ/900017-10', '00098', 390.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000012', 'CMI',  'POLICY',      N'00098-69100/กธ/900018-10', '00098', 590.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000013', 'FIRE', 'POLICY',      N'S001-69100/อค/900019',     'S001',  450.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000014', 'MISC', 'APPLICATION', N'S001-69100/บต/900020',     'S001',  550.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000015', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900021-10', '00098', 480.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000016', 'CMI',  'ENDORSEMENT', N'69100/สล/900022',          '00098', 720.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000017', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900023',     'S001',  2100.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000018', 'MISC', 'POLICY',      N'S001-69100/บต/900024',     'S001',  48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
+    ('e9000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'77001-69900/กธ/900001-10', '77001', 1200.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'77001-69900/กธ/900002-10', '77001', 1850.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69900/อค/900003',     'S001',  18500.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000004', 'MISC', 'APPLICATION', N'S001-69900/บต/900004',     'S001',  32000.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000005', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900005-10', '77001', 24500.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000006', 'CMI',  'ENDORSEMENT', N'69900/ปช/900006',          '77001', 15900.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000007', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900007',     'S001',  3500.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000008', 'MISC', 'POLICY',      N'S001-69900/บต/900008',     'S001',  350.00,   'PAID',   DATEADD(day, -7, SYSUTCDATETIME())),
+    ('e9000000-0000-4000-8000-000000000009', 'VMI',  'POLICY',      N'77001-69900/กธ/900009-10', '77001', 650.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000a', 'CMI',  'POLICY',      N'77001-69900/กธ/900010-10', '77001', 450.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000b', 'FIRE', 'POLICY',      N'S001-69900/อค/900011',     'S001',  9800.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000c', 'MISC', 'APPLICATION', N'S001-69900/บต/900012',     'S001',  12800.00, 'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000d', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900013-10', '77001', 8900.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000e', 'CMI',  'ENDORSEMENT', N'69900/ปช/900014',          '77001', 6200.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-00000000000f', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900015',     'S001',  4100.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000010', 'MISC', 'POLICY',      N'S001-69900/บต/900016',     'S001',  990.00,   'PAID',   DATEADD(day, -5, SYSUTCDATETIME())),
+    ('e9000000-0000-4000-8000-000000000011', 'VMI',  'POLICY',      N'77001-69900/กธ/900017-10', '77001', 390.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000012', 'CMI',  'POLICY',      N'77001-69900/กธ/900018-10', '77001', 590.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000013', 'FIRE', 'POLICY',      N'S001-69900/อค/900019',     'S001',  450.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000014', 'MISC', 'APPLICATION', N'S001-69900/บต/900020',     'S001',  550.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000015', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900021-10', '77001', 480.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000016', 'CMI',  'ENDORSEMENT', N'69900/ปช/900022',          '77001', 720.00,   'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000017', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900023',     'S001',  2100.00,  'UNPAID', NULL),
+    ('e9000000-0000-4000-8000-000000000018', 'MISC', 'POLICY',      N'S001-69900/บต/900024',     'S001',  48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
 
 -- The remaining 76 documents (ids ...19-...64 hex), taking the catalogue to 100. Deterministic
 -- throughout - the id is the row number rendered as hex (offset by the 24 above) and DocumentNo
@@ -240,8 +240,8 @@ SELECT
             + LOWER(CONVERT(varchar(20), CONVERT(varbinary(4), 24 + Seq), 2)), 12)),
     CASE Seq % 4 WHEN 0 THEN 'CMI' WHEN 1 THEN 'VMI' WHEN 2 THEN 'FIRE' ELSE 'MISC' END,
     CASE Seq % 3 WHEN 0 THEN 'POLICY' WHEN 1 THEN 'RENEWAL' ELSE 'ENDORSEMENT' END,
-    CONCAT(N'00098-69100/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),
-    '00098',
+    CONCAT(N'77001-69900/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),
+    '77001',
     CAST(500 + Seq * 137.25 AS decimal(19,2)),
     CASE WHEN Seq % 7 = 0 THEN 'PAID' ELSE 'UNPAID' END,
     CASE WHEN Seq % 7 = 0 THEN DATEADD(day, -Seq, SYSUTCDATETIME()) END
@@ -264,10 +264,10 @@ FROM seq;
 UPDATE p
 SET PolicyYear           = v.Yr,
     ReferenceYear        = v.Yr,
-    ReferenceBranch      = '100',
+    ReferenceBranch      = '900',
     -- On real SP output ReferencePre is a branch code that only appears on endorsements — it is NOT
     -- the Thai abbreviation inside DocumentNo.
-    ReferencePre         = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN '100' END,
+    ReferencePre         = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN '900' END,
     PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
     ReferenceNo          = CONVERT(varchar(30), v.Seq),
     -- ShowName is the insured party printed on the document, SaleFullName the agent who sold it and
@@ -305,8 +305,8 @@ SET PolicyYear           = v.Yr,
                                WHEN 4 THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
                                ELSE        N'นางเบญจวรรณ ทองอยู่' END,
     BrokerCode           = CASE v.Seq % 5
-                               WHEN 0 THEN '013' WHEN 1 THEN '027' WHEN 2 THEN '045'
-                               WHEN 3 THEN '108' ELSE '211' END,
+                               WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
+                               WHEN 3 THEN '704' ELSE '705' END,
     BrokerName           = CASE v.Seq % 5
                                WHEN 0 THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
                                WHEN 1 THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
@@ -320,13 +320,13 @@ SET PolicyYear           = v.Yr,
                                WHEN 3 THEN N'สาขาหาดใหญ่'
                                WHEN 4 THEN N'สาขาขอนแก่น'
                                ELSE        N'สาขาพระราม 9' END,
-    PolicyType           = CASE WHEN p.ProductGroup = 'VMI' THEN '10' END,
+    PolicyType           = CASE WHEN p.ProductGroup = 'VMI' THEN '90' END,
     PolicyNumber         = CASE WHEN p.DocumentType <> 'APPLICATION'
-                                THEN CONCAT(p.SaleCode, '-', v.Yr, '100/', v.Seq) END,
+                                THEN CONCAT(p.SaleCode, '-', v.Yr, '900/', v.Seq) END,
     ApplicationNumber    = CASE WHEN p.DocumentType = 'APPLICATION'
-                                THEN CONCAT(p.SaleCode, '-', v.Yr, '100/', v.Seq) END,
+                                THEN CONCAT(p.SaleCode, '-', v.Yr, '900/', v.Seq) END,
     PreviousPolicyNumber = CASE WHEN p.DocumentType IN ('RENEWAL', 'ENDORSEMENT')
-                                THEN CONCAT(p.SaleCode, '-', CONVERT(int, v.Yr) - 1, '100/', v.Seq - 1) END,
+                                THEN CONCAT(p.SaleCode, '-', CONVERT(int, v.Yr) - 1, '900/', v.Seq - 1) END,
     EndorsementNumber    = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', v.Seq) END,
     -- Motor only: ProductRepository only searches the plate for CMI/VMI rows.
     LicensePlateNumber   = CASE WHEN p.ProductGroup IN ('CMI', 'VMI')
@@ -349,7 +349,7 @@ SET PolicyYear           = v.Yr,
 FROM shop.Products p
 CROSS APPLY (
     SELECT CAST(REPLACE(RIGHT(p.DocumentNo, CHARINDEX(N'/', REVERSE(p.DocumentNo)) - 1), N'-10', N'') AS int) AS Seq,
-           CASE WHEN p.DocumentNo LIKE N'%68100%' THEN '68' ELSE '69' END AS Yr,
+           CASE WHEN p.DocumentNo LIKE N'%68900%' THEN '68' ELSE '69' END AS Yr,
            CAST(SYSUTCDATETIME() AS date) AS Today
 ) v
 CROSS APPLY (SELECT ROUND(p.TotalPremium / 1.07428, 2) AS Net) n
@@ -501,14 +501,14 @@ WHERE o.Id LIKE 'ed000000-%' AND o.Status = 1;
 INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, ProductId, Quantity, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, UnitPriceAmount, UnitPriceCurrency)
 VALUES
     -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid); product e9…0006
-    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69100/สล/900006', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
+    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69900/ปช/900006', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
     -- Motor, ภาคบังคับ/พ.ร.บ. (Compulsory) — SAME order + SAME insured person + vehicle as above
-    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69100/สล/900006', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
+    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69900/ปช/900006', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
     -- Non-motor (health) — order ed…0008 (vcommerce, Paid); no InsuredObjectReference on its policy
     -- below (REQ-1.8 — field is generic to every insurance type, not just Motor); product e9…000b
-    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, N'S001-69100/อค/900011', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
+    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, N'S001-69900/อค/900011', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
     -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment); product e9…0009
-    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, N'00098-69100/กธ/900009-10', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
+    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, N'77001-69900/กธ/900009-10', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
 
 INSERT INTO shop.OrderItemPolicies (Id, OrderItemId, MerchantId, InsuranceCategory, ReferenceNumberType, ReferenceNumber, EndorsementNumber, RenewalReminderNumber, InsuredObjectReference, NetPremiumAmount, NetPremiumCurrency, GrossPremiumAmount, GrossPremiumCurrency, PremiumRemittanceStatus, DeductedAt, CreatedAt, UpdatedAt)
 VALUES
