@@ -252,4 +252,4 @@ snapshot ให้ regen ด้วย `dotnet ef` (T5, REQ-10.4)
 5. `rtk` ย่อ output ของ `dotnet build` เหลือบรรทัดเดียว — ตอนต้องอ่าน error CS จริงต้องใช้
    `rtk proxy dotnet build ...`
 
-commit ของ T2: `__T2_COMMIT__`
+commit ของ T2: `5159286`
