@@ -24,7 +24,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 |---|---|---|
 | T1 | spec artifacts (requirements/design/tasks) + PDF pointer | เสร็จ |
 | T2 | Domain: `Product.cs`, `ProductInput.cs` | เสร็จ |
-| T3 | Application: read model, `ProductFilterDto`, query, ลบ dead code | รอ |
+| T3 | Application: read model, `ProductFilterDto`, query, ลบ dead code | เสร็จ |
 | T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | รอ |
 | T5 | EF config ×2 + migration ใหม่ + snapshot | รอ |
 | T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | รอ |
@@ -253,3 +253,185 @@ snapshot ให้ regen ด้วย `dotnet ef` (T5, REQ-10.4)
    `rtk proxy dotnet build ...`
 
 commit ของ T2: `5159286`
+
+---
+
+## T3 — Application (เสร็จ)
+
+แตะ 4 ไฟล์ + ลบ 2 ไฟล์ ใน `src/Modules/Products/Products.Application/` เท่านั้น:
+แก้ `ListProducts.cs`, `GetProductById.cs`, `IProductRepository.cs`, `CreateProductCommand.cs`;
+ลบ `ProductView.cs`, `GetProductsQuery.cs`
+
+### `ProductListItem` — field list สุดท้าย (T4 เขียน projection ตามลำดับนี้เป๊ะ)
+
+ลำดับ = ลำดับตาราง §5.2 หน้า 6-7 ตรง ๆ โดยแทรก `Id` ไว้หน้าสุด และ **ไม่มี** `InsuranceType`
+ใน constructor (เป็น computed) ⇒ ctor มี 32 parameter
+
+| # | parameter | type | หมายเหตุ |
+|---|---|---|---|
+| 1 | `Id` | `Guid` | technical key (นอก §5.2) |
+| 2 | `ProductGroup` | `ProductGroup` | = §5.2 `SourceSystem` (คงชื่อ §2 `@ProductGroup`) |
+| 3 | `DocumentType` | `DocumentType` | enum |
+| 4 | `DocumentNo` | `string` | non-null (repo เป็นเจ้าของข้อมูล) |
+| 5 | `PolicyYear` | `string?` | |
+| 6 | `ReferenceBranch` | `string?` | |
+| 7 | `ReferencePre` | `string?` | |
+| 8 | `PolicySequenceNo` | `string?` | |
+| 9 | `ReferenceYear` | `string?` | |
+| 10 | `ReferenceNo` | `string?` | |
+| 11 | `PolicyBranch` | `string?` | |
+| 12 | `PolicyType` | `string?` | |
+| 13 | `SaleCode` | `string` | non-null |
+| 14 | `SaleFullName` | `string?` | |
+| 15 | `BrokerCode` | `string?` | |
+| 16 | `BrokerName` | `string?` | |
+| 17 | `PolicyNumber` | `string?` | |
+| 18 | `ApplicationNumber` | `string?` | |
+| 19 | `PreviousPolicyNumber` | `string?` | §5.2 เขียน `previousPolicyNumber` (p เล็ก) — CLR ใช้ PascalCase |
+| 20 | `EndorsementNumber` | `string?` | |
+| 21 | `StartDate` | `DateTime?` | |
+| 22 | `EndDate` | `DateTime?` | |
+| 23 | `ShowName` | `string?` | |
+| 24 | `NetPremium` | `decimal?` | |
+| 25 | `Stamp` | `decimal?` | |
+| 26 | `TaxVat` | `decimal?` | |
+| 27 | `TotalPremium` | `decimal` | non-null (entity เป็น non-null) |
+| 28 | `CommissionPercent` | `decimal?` | |
+| 29 | `CommissionAmount` | `decimal?` | |
+| 30 | `PaidDate` | `DateTime?` | |
+| 31 | `LicensePlateNumber` | `string?` | |
+| 32 | `PaymentStatus` | `PaymentStatus` | enum, non-null |
+
+**`InsuranceType` — ตัดสินให้เป็น computed property บน record** (ไม่ให้ repository project):
+`ProductGroup is CMI or VMI ? Motor : NonMotor` เหมือน `Product.InsuranceType` เป๊ะ
+เหตุผล: `InsuranceType` เป็น `builder.Ignore` แปลเป็น SQL ไม่ได้ ถ้าเป็น ctor param จะบังคับให้
+projection ต้องคำนวณใน expression tree เอง (ซ้ำ logic 3 ที่) ⇒ **T4 ไม่ต้องส่งค่านี้**
+(ยังคืนให้ client ตาม §5.2 เพราะ System.Text.Json serialize computed property ให้อยู่แล้ว)
+
+**`MerchantId` ไม่มีใน `ProductListItem` แล้ว** (เดิมเป็น parameter ที่ 2) — ไม่ใช่ field §5.2
+และไม่มี consumer จริง (grep แล้ว: มีแต่ `ProductRepository.ListAsync` projection กับ
+`Program.cs:655` `.Produces<>`); ตัว filter merchant คือ query filter + `GetProductByIdHandler`
+⇒ **T4 ต้องลบ argument นี้ออกจาก projection**
+
+มี factory `ProductListItem.From(Product p)` แทน `ProductView.From` — `GetProductByIdHandler` ใช้ตัวนี้
+
+### `IProductRepository` — signature สุดท้าย
+
+```csharp
+void Add(Product product);
+Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken cancellationToken);
+Task<Product?> GetAsync(Guid productId, CancellationToken cancellationToken);
+```
+
+`ListByTenantAsync` ถูกลบ (implementation ที่ `ProductRepository.cs:26-29` เป็นของ T4;
+fake ใน `tests/Products.Tests/DocumentPaidOnOrderPaidConsumerTests.cs:76` เป็นของ T8)
+`ListAsync` signature **ไม่เปลี่ยน** แต่ XML doc เลิกพูดถึง SFS/RLS แล้ว
+
+### `ListProductsQuery` — signature สุดท้าย
+
+```csharp
+public sealed record ListProductsQuery : IQuery<PagedResult<ProductListItem>>, IMerchantScoped
+{
+    public required Guid MerchantId { get; init; }
+    public required ProductFilterDto ProductFilters { get; init; }   // required + non-nullable
+    public int Page { get; init; } = 1;
+    public int Limit { get; init; } = 25;
+}
+```
+
+เลิก inherit `PagedQuery` ⇒ `Filters`/`Sort`/`Search` **หายไปจาก type นี้** (T4 ต้องเลิกอ่าน 3 ตัวนี้
+ใน `ProductRepository`) และ `ProductFilters` เป็น `required` ⇒ ทุก object initializer ต้องส่งค่า
+
+### `ProductFilterDto` — พฤติกรรมครบทุก path (T8 เขียน test ตามนี้ได้ตรง ๆ)
+
+property: `SaleCode` (`[Required][MaxLength(20)]`, `string?` ใน declaration แต่ `Parse` การันตีว่า
+มีค่า trim แล้วไม่ว่าง), `SearchText`(100), `InsuredName`(200), `PolicyNo`(30), `ApplicationNo`(30),
+`DocumentType?`, `ProductGroup?`, **`PaymentStatus` เป็น `string?`**, `CoverageStartFrom/To`,
+`CoverageEndFrom/To` (`DateOnly?`), `PaidDateFrom/To` (`DateTime?`)
+
+`Parse(string? raw)` เปลี่ยน return type จาก `ProductFilterDto?` -> **`ProductFilterDto`** (non-nullable)
+ลำดับการตรวจใน `Parse`:
+
+1. `raw` null/blank -> `ArgumentException` อ้าง 50005 (เดิม `return null`) — **breaking**: T4 เลิกจัดการ null ได้
+2. deserialize ล้ม -> `ArgumentException("Malformed productFilters.")`
+3. `dto is null` (literal `null` ใน JSON) -> `ArgumentException` อ้าง 50005
+4. `SaleCode?.Trim()` ว่าง/หาย -> `ArgumentException("SaleCode is required (SP error 50005).")`
+   **ต้องมาก่อน `Validator`** ไม่งั้น `[Required]` ยิงข้อความ generic ทับ ทำให้ไม่อ้าง 50005;
+   แล้ว `dto = dto with { SaleCode = saleCode }` ⇒ ค่าที่ไปถึง repository ถูก trim แล้ว
+5. `_ = dto.PaymentStatusFilter;` — บังคับอ่านเพื่อให้ 50007 เกิดที่ boundary ไม่ใช่กลาง query
+6. `Validator.TryValidateObject(validateAllProperties: true)` -> `ArgumentException("Invalid productFilters.")`
+   (ครอบ `MaxLength` ทุกตัว รวม `SaleCode` > 20)
+7. cross-field เดิม 3 ข้อ: 50003 (`PaidDateFrom > PaidDateTo`), 50008 (coverage start), 50009 (coverage end)
+
+`PaymentStatusFilter` (computed, `Products.Domain.PaymentStatus?`) — **T4 ต้องใช้ตัวนี้ ห้ามใช้
+`PaymentStatus` ตรง ๆ**:
+
+| wire `paymentStatus` | `PaymentStatusFilter` | ความหมาย |
+|---|---|---|
+| absent (`null`) | `UNPAID` | §2 default (เดิม absent = ALL) |
+| `"UNPAID"` | `UNPAID` | |
+| `"PAID"` | `PAID` | |
+| `"ALL"` | `null` | ไม่กรอง |
+| `"unpaid"` / `"NOPE"` / `""` | throw 50007 | case-sensitive (`ignoreCase: false`) |
+
+`@BranchCode` **ไม่มี property** — ถ้า client ส่ง `"branchCode": "001"` มาใน JSON จะถูก **ignore เงียบ ๆ**
+(`JsonSerializerDefaults.Web` ไม่ error กับ unknown member; ยืนยันด้วย harness แล้ว) ไม่ใช่ 400
+ถ้าภายหลังต้องการให้ 400 ต้องตั้ง `UnmappedMemberHandling.Disallow` — จงใจไม่ทำในสเปกนี้
+
+error ทุกตัวเป็น `ArgumentException` -> `ProblemDetailsExceptionHandler` = 400
+**ห้ามเปลี่ยนเป็น `BadHttpRequestException`** (inherit `IOException` -> กลายเป็น 500)
+
+### `CreateProductCommand.cs`
+
+`Product.Create(command.Input)` (ตัด `_clock.UtcNow`) และ **ถอน `IClock` ออกจาก
+`CreateProductHandler` ทั้ง field + ctor parameter** — DI ยัง register `IClock` ให้โมดูลอื่นอยู่
+ไม่ต้องแก้ registration
+
+### XML doc ที่แก้ (ตามกับดัก T1 ข้อ 6)
+
+- `ProductListItem`: เลิกเขียน "Deliberately a slim subset" -> ระบุว่าเป็น mirror §5.2 32 field + `Id`
+  พร้อมรายการ deviation ของ type (non-null 4 ตัว, enum vs string, `SourceSystem` = `ProductGroup`,
+  ไม่มี `MerchantId`)
+- `ProductFilterDto`: เลิกเขียน "Optional" (บังคับแล้ว) และเลิกอ้างว่า BranchCode/SaleCode
+  "are an authorization scope — never client input" -> เขียนกำกับตรง ๆ ว่า `@SaleCode` รับจาก client
+  **ขัด §1.1 ของเอกสารโดยรู้ตัว** (user ตัดสิน, floor จริงคือ `MerchantId`) และ `@BranchCode` ไม่รองรับ
+- `ListProductsQuery`: ระบุเหตุผลที่ **ไม่** inherit `PagedQuery`
+
+### build ที่ยังแดง (คาดไว้ ห้ามดับด้วยการแก้ไฟล์นอก task)
+
+`dotnet build src/Modules/Products/Products.Application` -> **0 error / 0 warning** (5 projects)
+
+`dotnet build pol-core.slnx` -> 126 error CS ใน 4 ไฟล์ (tests ยังไม่ได้ compile จึงยังไม่นับ):
+
+| ไฟล์ | จำนวน | สาเหตุ | เจ้าของ |
+|---|---|---|---|
+| `Persistence.MerchantRuntime/Products/ProductSfs.cs` | 46 | อ้าง field ที่ถูกลบทั้งไฟล์ | T4 (ลบไฟล์นี้ทิ้ง) |
+| `Persistence.MerchantRuntime/Products/ProductConfiguration.cs` | 32 | `BranchCode`/`IsActive`/`CreatedAt`/`*Amount`/`*Currency`/`ComplexProperty` | T5 |
+| `Products.Infrastructure/ProductConfiguration.cs` | 32 | เหมือนกันเป๊ะ (mirror) | T5 |
+| `Persistence.MerchantRuntime/Products/ProductRepository.cs` | 16 | `ListByTenantAsync` + `CreatedAt`, `query.Search/Filters/Sort` ไม่มีแล้ว, `p.PaymentStatus == query.ProductFilters.PaymentStatus` (CS0019: enum == string) ต้องเป็น `PaymentStatusFilter`, `new ProductListItem(...)` ขาด argument (CS7036) | T4 |
+
+`src/Hosts/Api` ยังไม่ถูก compile (Persistence ล้มก่อน) — ที่แน่นอนว่าจะแดง/ต้องแก้ (T4):
+gate `!product.IsActive` ที่ `Program.cs:679` + `:776`, `Money.Of(product.TotalPremium, "THB")` ที่ `:683`,
+`ProductFilterDto.Parse` ที่เลิกคืน null, `ListProductsQuery` ที่ต้องส่ง `ProductFilters` (required),
+`CreateProductRequest` (`:2204-2234`); tests เป็นของ T8 (รายการเดิมใน section T2 ยังใช้ได้)
+
+### กับดักที่เจอ
+
+1. **`PaymentStatus` เป็นชื่อ property แล้วชนชื่อ type** — ใน record ที่มี `public string? PaymentStatus`
+   คำว่า `PaymentStatus` ใน body จะ resolve เป็น property ไม่ใช่ enum ⇒ ใส่
+   `using DomainPaymentStatus = Products.Domain.PaymentStatus;` แล้วใช้ alias ทุกจุด
+   (`DocumentType`/`ProductGroup` ที่ชื่อชนกันแบบเดียวกันรอดเพราะใช้แค่ในบรรทัด declaration)
+2. **`[Required]` ยิงก่อนแล้วกลืนเลข error** — ต้องเช็ค `SaleCode` เอง **ก่อน** `Validator` ไม่งั้น
+   REQ-9.1 (ต้องอ้าง 50005) ไม่ผ่าน; `[Required]` ยังเก็บไว้ในฐานะ backstop + เอกสาร
+3. **`Parse` คืน non-nullable แล้ว** — caller ที่เคยเขียน `?? new ProductFilterDto()` หรือเช็ค null
+   จะเป็น dead code / warning ตอน T4 แก้ `Program.cs`
+4. **task gate ยิงซ้ำรอบที่ 3** — flip `[ ]` -> `[x]` ก่อนแล้วเติม Evidence ทีหลังถูก block จริง
+   (แต่ Edit แรกเขียนไฟล์สำเร็จไปแล้ว ต้องรีบเติม Evidence ใน Edit ถัดไป) — T4-T9 ทำ
+   flip + Evidence ใน Edit เดียวตั้งแต่แรก
+5. **`tests/` อยู่นอกขอบเขต** แต่ Done clause ของ task 3 สั่งรัน `ProductFilterDtoTests.cs` —
+   บันทึกเป็น deviation แล้วตรวจด้วย console harness ชั่วคราวใน scratchpad (referencing
+   `Products.Application.csproj`) 15 เคสผ่านหมด: 50005 x4, 50007 x3, 50003/50008/50009,
+   MaxLength 21 ตัวอักษร, absent=UNPAID, ALL=null, PAID=PAID, trim `"  S1  "` -> `"S1"`,
+   `branchCode` ถูก ignore — **T8 ยกเคสชุดนี้ไปเขียนเป็น xunit ได้ตรง ๆ**
+
+commit ของ T3: `10e63ee`
