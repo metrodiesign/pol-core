@@ -64,8 +64,26 @@
 | REQ-4 (4.1, 4.2) | จุดแก้ชั้น 3 (read models `GetOrderDetail`/`GetOrders` — คง reveal-audit/masking) |
 | REQ-5 (5.1, 5.2, 5.3) | จุดแก้ชั้น 4 (EF dual-config 4 ไฟล์), ชั้น 6 (migration), ชั้น 7 (seed) |
 | REQ-6 (6.1, 6.2, 6.3) | หัวข้อ Traps + เกณฑ์ Done ของ tasks.md task 3/5 (full gate) |
+| REQ-7 (7.1, 7.2, 7.3, 7.4) | หัวข้อ "REQ-7: mark เอกสารเป็น PAID" (task 6) |
+
+## REQ-7: mark เอกสารเป็น PAID เมื่อ order จ่ายสำเร็จ (task 6 — เพิ่มจาก Codex F2)
+
+Codex review PR #143 F2 (P1): `Product.MarkPaid` ไม่มี production caller — order จ่ายแล้วเอกสารค้าง `UNPAID`/active ขายซ้ำได้ (double-sell). User ยืนยันให้ทำต่อใน PR นี้
+
+- 7.1 WHEN order transition -> Paid สำเร็จ (`Order.MarkPaid` คืน true ใน `OrderPaidConsumer`), THE SYSTEM SHALL enqueue integration event `Contracts.OrderPaid` (พก `MerchantId`, `ProductIds` ของทุก order line, `OccurredAt`) ในทรานแซกชันเดียวกับการ save order (pattern `CheckoutConfirmedConsumer` -> `IOutbox.Enqueue`)
+- 7.2 WHEN `OrderPaid` ถูก consume โดย Products, THE SYSTEM SHALL โหลดแต่ละ product แล้วเรียก `Product.MarkPaid(OccurredAt)` (set `PAID` + `IsActive=false`) แล้ว save — idempotent ต่อ replay (MarkPaid set state ทับได้)
+- 7.3 THE SYSTEM SHALL อนุญาต `Update` บน `Product` ใน background-dispatch scope (`WorkerWriteAuthorizer`) — มิฉะนั้น consumer โดน write floor block
+- 7.4 THE SYSTEM SHALL ลงทะเบียน `OrderPaid` ใน `OutboxDispatcher` event-type dictionary (มิฉะนั้น dispatch throw "No outbox publisher registered")
+
+Design (Option A — ตรง outbox pattern ที่ repo ใช้):
+- `src/Contracts/OrderPaid.cs` — `sealed record OrderPaid(Guid MerchantId, IReadOnlyList<Guid> ProductIds, DateTime OccurredAt) : INotification` (+ `SchemaVersion`)
+- `Orders.Application/OrderPaidConsumer.cs` — inject `IOutbox` เพิ่ม; หลัง `MarkPaid` true, enqueue `OrderPaid(order.MerchantId, order.Items.Select(i => i.ProductId).ToList(), notification.OccurredAt)` ก่อน `SaveChangesAsync`. **ตรวจ `OrderRepository.GetAsync` ว่า `.Include(o => o.Items)` — ถ้าไม่ include ProductIds จะว่าง; ถ้าต้อง add Include ให้เช็ค caller อื่นก่อน (perf)**
+- Products consumer ใหม่ (ตัวแรกของ module) — `Products.Application/DocumentPaidOnOrderPaidConsumer.cs` (ชื่อเลี่ยงชนกับ `Orders.Application.OrderPaidConsumer`): `INotificationHandler<Contracts.OrderPaid>`, inject `IProductRepository`+`IUnitOfWork`, loop `GetAsync` -> `MarkPaid` -> `SaveChangesAsync`; product ที่หาไม่เจอ/merchant อื่น = skip (defensive, at-least-once). `Products.Application.csproj` อ้าง Contracts อยู่แล้ว ไม่ต้องแก้ csproj/registration (Mediator auto-discover)
+- `Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs` — add `[nameof(Contracts.OrderPaid)] = typeof(Contracts.OrderPaid)` ใน EventTypes
+- `Hosts/Api/BackgroundDispatch/WorkerWriteAuthorizer.cs` — ให้ `Update` ครอบ `Product` (เหมือนที่ครอบ `Order`)
+
+Traps เพิ่ม: (a) ชื่อ consumer ห้ามชนกับ `Orders.Application.OrderPaidConsumer`; (b) idempotent — Orders' consumer ยิง `OrderPaid` เฉพาะตอน `MarkPaid` คืน true อยู่แล้ว (replay = no-op) จึงไม่ยิงซ้ำ; (c) E2E `InsuranceCheckoutEndToEndTests.CreatePaidOrderAsync` ปัจจุบัน mark paid โดยเรียก `order.MarkPaid` ตรง (ข้าม consumer) — ต้องปรับให้ผ่าน consumer จริง หรือเพิ่ม step ยิง Products consumer + assert `Product.PaymentStatus == PAID` && `!IsActive`
 
 ## Follow-up ที่บันทึกไว้ (ไม่ทำในงานนี้)
 
-- wire `Product.MarkPaid` + `Deactivate` เมื่อ order paid (ตอนนี้เอกสารขายแล้วยัง UNPAID/active อยู่ใน catalog — liveness gap แบบเดียวกับ MarkFailed ใน PR #140)
 - SP adapter (motordb/centerdb) เฟสถัดไป
