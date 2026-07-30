@@ -162,12 +162,18 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 
 **shop.Products (REQ-5.4/5.5)** — **100 แถว** แบ่ง 34 / 33 / 33 ต่อ merchant, สองชั้น:
 
-1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex, 8 ต่อ merchant) — แผนเรือธงที่อ่านแล้วเป็นข้อมูลจริง
-   ("ประกันอุบัติเหตุส่วนบุคคล PA Plus", "ประกันเดินทางต่างประเทศ Travel Gold", "ประกันสุขภาพ Health Care 1M").
+> **[อัปเดต 2026-07-30]** ข้อ 1/2 ด้านล่างเขียนใหม่ตามของจริง — `Product` เป็น **เอกสารประกัน** แล้ว
+> (insurance-pivot + products-sp-53-alignment) ไม่มี `Name`/`PriceAmount`/`IsActive` อีก; คำบรรยาย
+> "plan-line x tier" เดิมค้างมาตั้งแต่ยุค generic catalog
+
+1. **24 แถวแรกเขียนมือ** (id `e9…0001`–`e9…0018` hex, 8 ต่อ merchant) — เอกสารตัวอย่างที่อ่านแล้วเป็นข้อมูลจริง
+   (`DocumentNo` แบบ `00098-69100/กธ/900001-10`, `S001-69100/อค/900003`, `69100/สล/900006`; `ProductGroup`
+   ครบทั้ง 4 ค่า, `DocumentType` ครบทั้ง 4 ค่า, `ShowName` = ชื่อผู้เอาประกันตัวอย่าง).
    **id ของ 24 แถวนี้ load-bearing** — `shop.CartItems` อ้างถึงตรง ๆ ห้ามขยับ
-2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก cross join **plan-line x tier**:
-   9 plan line ต่อ merchant x 3 tier (`Silver` 1.00 / `Gold` 1.35 / `Platinum` 1.80) = 27 candidate ต่อ merchant
-   แล้วหยิบ 26 / 25 / 25. `Name` = `<plan line> <tier>` (ไม่ซ้ำกัน), `PriceAmount` = base x multiplier.
+2. **76 แถวที่เหลือ generate** (id `e9…0019`–`e9…0064` hex) จาก `ROW_NUMBER()` ตัวเดียว:
+   `Seq` 1-76 แบ่ง merchant ที่ 26 / 25 / 25, `ProductGroup` วน 4 ค่าด้วย `Seq % 4`, `DocumentType` วน
+   `POLICY`/`RENEWAL`/`ENDORSEMENT` ด้วย `Seq % 3` (**ไม่เคย emit `APPLICATION`** จึงไม่ชนกฎ `CMI` + `APPLICATION`),
+   `DocumentNo` = `00098-69100/กธ/<910000+Seq>-10`, `TotalPremium` = `CAST(500 + Seq * 137.25 AS decimal(19,2))`.
    id = row number เรนเดอร์เป็น hex + offset 24 → deterministic, รันซ้ำได้แถวเดิมเป๊ะ และ
    `DELETE … LIKE 'e9000000-%'` ใน (ค) ยังกวาดคืนครบทั้ง 100
 

@@ -46,7 +46,7 @@ internal static class SfsOpenApi
     {
         var parameters = operation.Parameters ??= [];
         parameters.Add(Param("page", JsonSchemaType.Integer, "เลขหน้าแบบเริ่มที่ 1 (ค่าเริ่มต้น 1; clamp ไม่ให้ต่ำกว่า 1)"));
-        parameters.Add(Param("limit", JsonSchemaType.Integer, "จำนวนรายการต่อหน้า (ค่าเริ่มต้น 25; clamp ในช่วง 1 ถึง 100)"));
+        parameters.Add(Param("limit", JsonSchemaType.Integer, "จำนวนรายการต่อหน้า (ค่าเริ่มต้น 25; clamp ในช่วง 1 ถึง 25)"));
         return parameters;
     }
 

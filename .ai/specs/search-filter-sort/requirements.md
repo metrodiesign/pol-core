@@ -39,7 +39,7 @@ navigable.
 
 **Acceptance Criteria (EARS):**
 - 2.1 THE SYSTEM SHALL default `page` to 1 and `limit` to 25 when absent.
-- 2.2 THE SYSTEM SHALL clamp `limit` into `[1..100]`.
+- 2.2 THE SYSTEM SHALL clamp `limit` into `[1..25]` (เพดาน 25 = `@PageSize` ของ SP quick reference §2 ย้ำใน §5.1; supersede `[1..100]` เดิมโดย spec `products-sp-53-alignment` REQ-4).
 - 2.3 THE SYSTEM SHALL clamp `page` to `>= 1` (a non-positive page becomes 1) so the computed offset is never
   negative.
 - 2.4 THE SYSTEM SHALL return results as `PagedResult<T>` carrying `Items`, `Page`, `Limit`, and `Total`.

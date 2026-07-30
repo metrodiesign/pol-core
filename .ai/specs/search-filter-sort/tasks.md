@@ -21,7 +21,8 @@
 
 - [x] 2. `SfsQueryParser` in `Hosts/Api` + parser unit tests — static parser returning the named tuple
      `(Page, Limit, Filters, Sort, Search)`: `page` clamp `>=1` (`Math.Max`) AND clamp to an offset ceiling so
-     `(long)(page-1)*limit` never overflows `int` (REQ-2.6), `limit` clamp `[1..100]` (`Math.Clamp`); reject
+     `(long)(page-1)*limit` never overflows `int` (REQ-2.6), `limit` clamp `[1..100]` (`Math.Clamp`)
+     [หมายเหตุ 2026-07-30: เพดานถูก supersede เป็น `[1..25]` โดย spec `products-sp-53-alignment` REQ-4]; reject
      with `ArgumentException` (->400) when `filters` > 50 / `sort` > 10 / any `values[]` > 200 (REQ-6.6);
      deserialize `filters`/`sort`/`search` with `JsonSerializerDefaults.Web`; malformed JSON ->
      `throw new ArgumentException(...)` (NOT `BadHttpRequestException`). Ref: doc 2.5, 3.
@@ -78,7 +79,14 @@
        - viewports: n/a — logic-only
        - deviations: (1) repo/port `ListAsync` takes the `PagedQuery` base, not the concrete `ListRolesQuery` (doc 12.1) — decouples the port from the query type; handler passes the query (is-a PagedQuery). (2) SFS OpenAPI params declared via the project's built-in `AddOperationTransformer` + a `SfsQueryParamsMarker` metadata marker, NOT `.WithOpenApi(...)` (doc 12.1) — `WithOpenApi` targets the Swashbuckle-era generator; this project uses the .NET 10 built-in OpenAPI (transformers). (3) Wired `ILogger<AdminRoleRepository>` into the repo (DI factory updated) so REQ-8.6 whitelist-drop logging is live at runtime. (4) Removed the now-orphaned non-paged `ListAsync(ct)` (its only caller was the migrated handler) and updated `FakeAdminRoleRepository`. (5) "malformed filters -> 400" + "status lowercase" are covered by `SfsQueryParser` (task 2: ArgumentException -> ProblemDetails 400) + the existing `RoleToWire` projection; the paged/filtered/userCount behaviour is proven at the repository level on SQLite (the real `AdminRoleRepository.ListAsync` over `ProducerDbContext`). The authenticated end-to-end HTTP path (admin session cookie + live DB) was not exercised in-session; each constituent (parser->400, repo ListAsync, RoleToWire, OpenAPI params) is tested.
 
-- [x] 5. Tenant-scoped exemplar `GET /products` + typed filter DTO + RLS non-widening — introduce a **new**
+- [x] 5. Tenant-scoped exemplar `GET /products` + typed filter DTO + RLS non-widening
+     **[หมายเหตุ 2026-07-30 — บันทึกประวัติ, ถูก supersede โดย spec `products-sp-53-alignment` (§5.2 field parity
+     + REQ-7 SFS teardown)]**: ณ ตอนทำ task นี้ `Product` ยังมี `Name`/`Price`/`IsActive`/`CreatedAt` และ
+     `GET /products` ยังเป็น SFS exemplar. ปัจจุบัน `Product` ไม่มี `IsActive`/`CreatedAt` แล้ว (gate ย้ายไป
+     `PaymentStatus == UNPAID`), `ProductSfs.cs` ถูกลบ, `ListProductsQuery` เลิกสืบทอด `PagedQuery`, และ
+     `ProductListItem` เป็น mirror ของ SP §5.2 (32 field + `Id`) ไม่ใช่ shape ที่เขียนไว้ข้างล่างนี้ —
+     ข้อความเดิมคงไว้ตามที่เคยส่งมอบ อย่าใช้เป็นสเปกปัจจุบัน. exemplar ที่ยังตรงกับโค้ดจริง = admins/roles
+     — introduce a **new**
      read model `ProductListItem(Guid Id, Guid TenantId, string Name, long PriceMinorUnits, string
      PriceCurrency, bool IsActive, DateTime CreatedAt)` (do NOT reuse/redefine the existing
      `Products.Application.ProductView(ProductId, ..., Money Price, ...)` — redefining it breaks

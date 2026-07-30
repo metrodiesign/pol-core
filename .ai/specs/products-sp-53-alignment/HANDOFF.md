@@ -28,7 +28,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | เสร็จ |
 | T5 | EF config ×2 + migration ใหม่ + snapshot | เสร็จ |
 | T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | เสร็จ |
-| T7 | cap 25 ทั้ง repo + SFS docs/spec | รอ |
+| T7 | cap 25 ทั้ง repo + SFS docs/spec | เสร็จ |
 | T8 | tests ทั้งชุด → build+test เขียว | รอ |
 | T9 | gate เต็ม + PR | รอ |
 
@@ -806,3 +806,108 @@ query ยืนยัน (stamp `sp_set_session_context` UserId/MerchantId ก�
    จะเก็บ docs drift ให้ครบก็เป็นจุดที่ควรกวาด
 
 commit ของ T6: `9ee82ab` (hash ถูกเติมใน commit เล็กถัดจากนั้น)
+
+---
+
+## T7 — cap 25 + docs (เสร็จ)
+
+แตะ 12 ไฟล์: `src/Hosts/Api/{SfsQueryParser.cs,SfsOpenApi.cs}`,
+`docs/reference/{search-filter-sort.md,entity-fields.md,platform-modules.md,src-structure.md}`,
+`.ai/specs/search-filter-sort/{requirements.md,design.md,tasks.md}`,
+`.ai/specs/checkout-chain-document-fields/{requirements.md,design.md,tasks.md}`,
+`.ai/specs/insurance-pivot/design.md`, `.ai/specs/demo-seed-data/design.md`
+(+ `tasks.md`/`HANDOFF.md` ของ spec นี้) — **ไม่แตะ `tests/`, `docker/`, `src/` นอก 2 ไฟล์**
+
+### cap 25 — จุดที่แก้ครบทุกจุด
+
+| จุด | เดิม | ใหม่ |
+|---|---|---|
+| `SfsQueryParser.cs` const ใหม่ | — | `private const int MaxLimit = 25;` (comment อ้าง §2 `@PageSize` + §5.1) |
+| `SfsQueryParser.ParsePaging` | `Math.Clamp(TryInt(query["limit"], 25), 1, 100)` | `..., 1, MaxLimit` |
+| `SfsOpenApi.AddPagingParameters` | `"clamp ในช่วง 1 ถึง 100"` | `"clamp ในช่วง 1 ถึง 25"` |
+
+**บรีฟบอกว่า `SfsOpenApi` มี 2 ที่ — ของจริงมีที่เดียว**: T4 refactor เป็น helper `AddPagingParameters`
+(private) ที่ทั้ง `AddQueryParameters` (marker เดิม) และ `AddProductQueryParameters` เรียกร่วมกันแล้ว
+⇒ แก้บรรทัดเดียวมีผลทั้งสอง marker. เช่นเดียวกับ `ParsePaging` ที่ `Parse` เรียกต่อ
+⇒ **cap 25 มีผลทั้ง 7 endpoint จากการแก้ 2 บรรทัด**
+
+`rtk proxy dotnet build src/Hosts/Api` -> `Build succeeded. 0 Warning(s) 0 Error(s)`
+
+### ผล grep residue
+
+`grep -rn "1, 100\|1 ถึง 100\|\[1\.\.100\]" src/ docs/ .ai/` -> **ไม่เหลือ residue เชิงพฤติกรรมใน
+`src/` และ `docs/` เลย**; ที่เหลือ 6 hit เป็นข้อความที่ตั้งใจคงไว้ทั้งหมด:
+
+- ประโยคที่บรรยายการเปลี่ยนแปลงเอง — `products-sp-53-alignment/requirements.md:48` ("แทน clamp เดิมที่ `[1, 100]`"),
+  `search-filter-sort/requirements.md:42` + `design.md:147` (เขียนค่าใหม่ 25 พร้อมระบุว่า supersede `[1..100]`)
+- บันทึกประวัติ — `search-filter-sort/tasks.md:24`, `products-sp-53-alignment/tasks.md:28` (Evidence ของ T4),
+  `HANDOFF.md:519` (section T4)
+
+### docs/spec ที่แก้ + วิธีที่เลือก
+
+**แก้ข้อความตรง ๆ** (เป็นข้อมูลผิดที่ทำให้คนเขียนโค้ด/SQL ผิดได้):
+
+| ไฟล์ | ที่แก้ |
+|---|---|
+| `docs/reference/search-filter-sort.md` | เพดาน 6 จุด (`:121` ตาราง param, `:287` snippet parser, `:320` ตาราง error, `:338` §3, `:1022` testing guidance, `:1029-1033` test ตัวอย่าง — rename `Parse_clamps_limit_to_100` -> `_to_25`); ตัวอย่าง default-sort fallback เปลี่ยน `Product.CreatedAt` -> `Admins.Domain.Users.User` 3 จุด (`:585`, `:971`, `:1192` — verify แล้วว่า `User.CreatedAt` + `UserSfs` `"createdAt"` มีจริง); ลบ `ProductSfs` ออกจากรายการ as-built §13 + แก้ประโยค §9.2 ที่อ้าง `ProductSfs` comment; แก้รายการ endpoint ที่รองรับ SFS ที่หัวไฟล์ (ถอด `GET /api/v1/products`) |
+| `docs/reference/entity-fields.md` | เขียนตาราง `shop.Products` **ใหม่ทั้งตาราง** เป็น 33 คอลัมน์จริง (ยึดผล `INFORMATION_SCHEMA.COLUMNS` ของ T5 + type/length จาก `ProductConfiguration`) + block 4 หัวข้อ (คืออะไร/บทบาท/พังยังไง/ทำงานยังไง) + หมายเหตุว่าคอลัมน์เดิมชุดไหนถูกลบ; `:11` ตัวอย่าง Money pair `PriceAmount` -> `UnitPriceAmount` |
+| `docs/reference/platform-modules.md` | §5 บทบาท/ตารางฟีเจอร์/ย่อหน้าสถานะ เขียนใหม่เป็น "เอกสารประกัน" (เพิ่มแถว `MarkPaid`, แก้แถว List เป็น §2 contract, แก้แถว "แก้ไข/ปิดสินค้า" ว่า `Deactivate()` ถูกลบ); ข้อ 11 ใน gap list; §8 order item snapshot (`SumInsured…` -> field เอกสาร) |
+| `docs/reference/src-structure.md` | §4.1 ตารางไฟล์ Products ใหม่ทั้งตาราง (เพิ่ม `DocumentPaidOnOrderPaidConsumer.cs`/enum ไฟล์, ถอด `GetProductsQuery.cs`/`ProductView.cs`); `Items/Item.cs` snapshot 2 จุด; ตาราง migration lineage เติม 4 ตัวล่าสุด (`OneOpenPaymentSessionPerOrder`, `ProductsInsuranceDocument`, `CheckoutChainDocumentFields`, `ProductsSp52Alignment`) |
+| `.ai/specs/search-filter-sort/requirements.md:42` | REQ-2.2 เปลี่ยนค่าเป็น `[1..25]` + ระบุว่า supersede — คงรูป `- 2.2 ` + `THE SYSTEM SHALL` ⇒ gate ยังผ่าน |
+| `.ai/specs/search-filter-sort/design.md:147` | D8 เปลี่ยนเป็น `[1..25]` |
+| `.ai/specs/demo-seed-data/design.md:165-172` | generator เลิกเป็น "plan-line x tier + `Name`/`PriceAmount`" -> เขียนตามของจริง (`ROW_NUMBER` + `Seq % 4`/`Seq % 3` + `DocumentNo` + `TotalPremium = 500 + Seq * 137.25`) — จุดที่ T6 flag ไว้ |
+
+**กำกับหมายเหตุแทนการเขียนย้อนอดีต** (spec ปิดแล้ว = บันทึกประวัติ, ทุกจุดใส่วันที่ 2026-07-30 +
+ชื่อ spec ที่ supersede):
+
+- `.ai/specs/checkout-chain-document-fields/requirements.md:50` (REQ-7.2 `IsActive=false`),
+  `design.md:74`, `design.md:85` (assert ของ E2E), `tasks.md:34` (Done clause)
+- `.ai/specs/insurance-pivot/design.md:325` (gate `IsActive == false` -> `PaymentStatus != UNPAID`)
+- `.ai/specs/search-filter-sort/tasks.md:24` (เพดานเดิม) และ **`tasks.md:83` task 5** — เติมบล็อก
+  หมายเหตุไว้ **หน้า** เนื้อ task เพราะบรรทัดนั้นนิยาม `ProductListItem(… bool IsActive, DateTime CreatedAt)`
+  ตรง ๆ ซึ่งอ่านแล้วเข้าใจผิดว่าเป็นสเปกปัจจุบัน (แต่ไม่ลบข้อความเดิม)
+- `docs/reference/search-filter-sort.md` — banner ใหม่ที่หัวไฟล์ (cap 25 + products ไม่มี SFS แล้ว +
+  ประกาศว่าตัวอย่างที่ใช้ `Product`/`priceAmount`/`activeOnly` เป็นตัวอย่างเชิงสมมติ) และ note ที่หัว §12.2
+  — **ตัดสินใจไม่ rewrite worked example ทั้งก้อน** เพราะมันยังสอน pattern merchant-scoped ได้ถูกต้อง
+  และ rewrite ทั้งหัวข้อ = diff ใหญ่กว่าคุณค่าที่ได้ (ถ้าจะทำให้ครบจริงควรเป็น spec docs แยก)
+
+### ผล spec-trace (เห็นคำว่า `OK:` จริงทั้ง 5 ตัว ไม่ใช่แค่ exit 0)
+
+| spec | ผล |
+|---|---|
+| `products-sp-53-alignment` | `OK: … เกณฑ์ 53 ข้อ ถูกอ้างครบ…` |
+| `search-filter-sort` | `OK: … เกณฑ์ 59 ข้อ ถูกอ้างครบ…` |
+| `checkout-chain-document-fields` | `OK: … เกณฑ์ 21 ข้อ ถูกอ้างครบ…` |
+| `insurance-pivot` | `OK: … เกณฑ์ 31 ข้อ ถูกอ้างครบ…` |
+| `demo-seed-data` | `OK: … เกณฑ์ 33 ข้อ ถูกอ้างครบ…` |
+
+### test ที่จะแดงเพราะ T7 (ให้ T8)
+
+`tests/Hosts.Tests/SfsQueryParserTests.cs` — **ที่เดียว**:
+
+- theory `Limit_is_clamped_into_1_to_100` (`:50`) -> rename เป็น `Limit_is_clamped_into_1_to_25`
+- เคสที่ expected ต้องเปลี่ยนเป็น `25`: `[InlineData("1000", 100)]`, `[InlineData("100", 100)]`,
+  `[InlineData("50", 50)]` (comment `// above ceiling -> 100` ก็ต้องแก้)
+- เคสที่ **ไม่กระทบ**: `("1", 1)`, `("0", 1)`, `("-5", 1)`, `("abc", 25)`
+- `A_huge_page_cannot_overflow_the_offset` (`:67`) ส่ง `limit=25` อยู่แล้ว -> ไม่กระทบ
+
+`tests/Hosts.Tests/SfsOpenApiTests.cs` **ไม่แดง** — assert แค่ชื่อ parameter (`Assert.Contains("limit", names)`)
+ไม่ assert description string (ตรวจแล้วทั้งไฟล์ `:52`, `:76`); ถ้า T8 อยากล็อกข้อความ 25 ก็เพิ่มได้แต่ไม่บังคับ
+
+### กับดักที่เจอ
+
+1. **บรีฟบอก 2 จุดใน `SfsOpenApi.cs` แต่ของจริง 1 จุด** — T4 dedupe ไปแล้ว. อ่านไฟล์ก่อนเชื่อเลขบรรทัด/จำนวนจุดในบรีฟ
+   (เลขบรรทัดในบรีฟ `SfsQueryParser.cs:28`/`SfsOpenApi.cs:21` ก็เลื่อนไปแล้วทั้งคู่)
+2. **task-gate ยิงเป็นครั้งที่ 4** — flip `[ ]` -> `[x]` ก่อนแล้วเติม Evidence ทีหลังถูก block จริง
+   (ไฟล์ถูกเขียนไปแล้วตอน block ⇒ ต้องรีบเติม Evidence ใน Edit ถัดไป). ทำ flip + Evidence ใน Edit เดียวเถอะ
+3. **`docs/reference/search-filter-sort.md` stale หนักกว่าที่บรีฟระบุ** — ไม่ใช่แค่เพดาน 100 กับ
+   `Product.CreatedAt`: ทั้ง §7 (typed filter DTO) และ §12.2 (worked example) ยังเป็น `Product` ยุคก่อน
+   insurance-pivot (`Name`/`Price`/`SumInsured`/`activeOnly`) และ §13 ยังลิสต์ `ProductSfs.cs` ว่ามีอยู่
+   ⇒ เลือกวิธี "banner + note ต่อหัวข้อ" ไม่ rewrite ตัวอย่าง
+4. **`entity-fields.md` ตาราง `shop.CheckoutSessionItems` (`:1050-1055`) และ `shop.OrderItems` (`:1111-1116`)
+   ยังลิสต์คอลัมน์ `SumInsuredAmount`/`SumInsuredCurrency`/`InsurerName`/`CoverageDurationDays`** ซึ่ง
+   `checkout-chain-document-fields` (PR #143) เปลี่ยนไปแล้ว — **ไม่ใช่ drift ของ spec นี้** และไม่ใช่ field
+   ที่ REQ-11.3 ระบุ ⇒ ไม่แก้ (ต้องยืนยันคอลัมน์จริงจาก EF config ของ 2 ตารางนั้นก่อน) — **ยกให้ T9/lead ตัดสิน
+   ว่าจะเก็บในสเปกนี้หรือแยก**
+5. `.ai/specs/search-filter-sort/` มี gate ของตัวเอง — แก้ข้อความ REQ-2.2 ได้เพราะ spec-trace แมตช์ด้วยเลข
+   `N.M` + คำ EARS ไม่ใช่เนื้อความ; แต่ต้องคงรูป `- 2.2 ` (มีจุดเกิน = silent-skip) และห้ามแตะเลขข้อ

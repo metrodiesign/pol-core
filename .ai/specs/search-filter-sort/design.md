@@ -144,7 +144,8 @@ sequenceDiagram
   filter `like`/`ilike`/`contains` and search. Closes the TS source's unescaped filter-LIKE latent bug.
   (REQ-5.4, REQ-6.4, doc 2.2/6)
 - **D8 — `page`/`limit` clamped, not rejected.** `page>=1` (avoids negative OFFSET -> 500 DoS), `limit` in
-  `[1..100]`. Count after filter/search, before paging. (REQ-2)
+  `[1..25]` (เพดาน 25 หลัง `products-sp-53-alignment` REQ-4; เดิม `[1..100]`). Count after filter/search,
+  before paging. (REQ-2)
 - **D9 — Contract types in BuildingBlocks.Application, parser in Hosts.** Keeps the domain-shared types free
   of ASP.NET; only Hosts touches `HttpContext`. (REQ-9.1)
 - **D10 — Wrong-typed filter value is a 400, not 409/500.** Every `JsonElement.Get*()` in the apply path is

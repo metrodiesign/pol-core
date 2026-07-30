@@ -71,7 +71,7 @@
 Codex review PR #143 F2 (P1): `Product.MarkPaid` ไม่มี production caller — order จ่ายแล้วเอกสารค้าง `UNPAID`/active ขายซ้ำได้ (double-sell). User ยืนยันให้ทำต่อใน PR นี้
 
 - 7.1 WHEN order transition -> Paid สำเร็จ (`Order.MarkPaid` คืน true ใน `OrderPaidConsumer`), THE SYSTEM SHALL enqueue integration event `Contracts.OrderPaid` (พก `MerchantId`, `ProductIds` ของทุก order line, `OccurredAt`) ในทรานแซกชันเดียวกับการ save order (pattern `CheckoutConfirmedConsumer` -> `IOutbox.Enqueue`)
-- 7.2 WHEN `OrderPaid` ถูก consume โดย Products, THE SYSTEM SHALL โหลดแต่ละ product แล้วเรียก `Product.MarkPaid(OccurredAt)` (set `PAID` + `IsActive=false`) แล้ว save — idempotent ต่อ replay (MarkPaid set state ทับได้)
+- 7.2 WHEN `OrderPaid` ถูก consume โดย Products, THE SYSTEM SHALL โหลดแต่ละ product แล้วเรียก `Product.MarkPaid(OccurredAt)` (set `PAID` + `IsActive=false`) แล้ว save — idempotent ต่อ replay (MarkPaid set state ทับได้) [หมายเหตุ 2026-07-30: `IsActive` ถูกลบโดย spec `products-sp-53-alignment` (§5.2 field parity); `MarkPaid` เหลือ `PaymentStatus = PAID` + `PaidDate`, gate ย้ายไป `PaymentStatus == UNPAID`]
 - 7.3 THE SYSTEM SHALL อนุญาต `Update` บน `Product` ใน background-dispatch scope (`WorkerWriteAuthorizer`) — มิฉะนั้น consumer โดน write floor block
 - 7.4 THE SYSTEM SHALL ลงทะเบียน `OrderPaid` ใน `OutboxDispatcher` event-type dictionary (มิฉะนั้น dispatch throw "No outbox publisher registered")
 
@@ -82,7 +82,7 @@ Design (Option A — ตรง outbox pattern ที่ repo ใช้):
 - `Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs` — add `[nameof(Contracts.OrderPaid)] = typeof(Contracts.OrderPaid)` ใน EventTypes
 - `Hosts/Api/BackgroundDispatch/WorkerWriteAuthorizer.cs` — ให้ `Update` ครอบ `Product` (เหมือนที่ครอบ `Order`)
 
-Traps เพิ่ม: (a) ชื่อ consumer ห้ามชนกับ `Orders.Application.OrderPaidConsumer`; (b) idempotent — Orders' consumer ยิง `OrderPaid` เฉพาะตอน `MarkPaid` คืน true อยู่แล้ว (replay = no-op) จึงไม่ยิงซ้ำ; (c) E2E `InsuranceCheckoutEndToEndTests.CreatePaidOrderAsync` ปัจจุบัน mark paid โดยเรียก `order.MarkPaid` ตรง (ข้าม consumer) — ต้องปรับให้ผ่าน consumer จริง หรือเพิ่ม step ยิง Products consumer + assert `Product.PaymentStatus == PAID` && `!IsActive`
+Traps เพิ่ม: (a) ชื่อ consumer ห้ามชนกับ `Orders.Application.OrderPaidConsumer`; (b) idempotent — Orders' consumer ยิง `OrderPaid` เฉพาะตอน `MarkPaid` คืน true อยู่แล้ว (replay = no-op) จึงไม่ยิงซ้ำ; (c) E2E `InsuranceCheckoutEndToEndTests.CreatePaidOrderAsync` ปัจจุบัน mark paid โดยเรียก `order.MarkPaid` ตรง (ข้าม consumer) — ต้องปรับให้ผ่าน consumer จริง หรือเพิ่ม step ยิง Products consumer + assert `Product.PaymentStatus == PAID` && `!IsActive` (หลัง `products-sp-53-alignment`: assert แค่ `PaymentStatus == PAID` — `IsActive` ไม่มีแล้ว)
 
 ## Follow-up ที่บันทึกไว้ (ไม่ทำในงานนี้)
 
