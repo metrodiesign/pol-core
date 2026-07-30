@@ -45,20 +45,6 @@ public sealed record ProductView(
     public InsuranceType InsuranceType =>
         ProductGroup is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;
 
-    /// <summary>Selling price — the total premium. Kept under the old name for the cart flow.</summary>
-    public Money Price => TotalPremium;
-
-    // ponytail: bridge — the SP contract carries no sum-insured; replaced for real when the
-    // checkout snapshot chain is reworked to document fields.
-    public Money SumInsured => TotalPremium;
-
-    // ponytail: bridge for the legacy checkout snapshot — derived from the coverage window.
-    public int CoverageDurationDays =>
-        StartDate is { } start && EndDate is { } end && (end - start).Days > 0 ? (end - start).Days : 1;
-
-    // ponytail: bridge for the legacy checkout snapshot — best available issuer-ish label.
-    public string Insurer => BrokerName ?? ProductGroup.ToString();
-
     public static ProductView From(Product p) => new(
         p.Id, p.MerchantId, p.ProductGroup, p.DocumentType, p.DocumentNo, p.PolicyYear,
         p.ReferenceBranch, p.ReferencePre, p.PolicySequenceNo, p.ReferenceYear, p.ReferenceNo,

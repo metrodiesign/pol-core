@@ -36,12 +36,12 @@ public sealed class WorkerWriteFloorTests : IDisposable
 
     private static IReadOnlyList<CheckoutConfirmedItem> OneLine(Money unitPrice) =>
         [new CheckoutConfirmedItem(
-            Product, 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
+            Product, 1, unitPrice, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
     private static IReadOnlyList<OrderItemInput> OneOrderLine(Money unitPrice) =>
         [new OrderItemInput(
-            Product, 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
+            Product, 1, unitPrice, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
     private readonly SqliteConnection _connection;

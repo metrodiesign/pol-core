@@ -677,7 +677,7 @@ api.MapPost("/carts/{cartId:guid}/items", async (
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown or inactive product.");
 
     var result = await mediator.Send(new AddItemToCartCommand(
-        cartId, actor.MerchantId, body.ProductId, body.Quantity, product.Price), ct);
+        cartId, actor.MerchantId, body.ProductId, body.Quantity, product.TotalPremium), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
     .WithTags("ตะกร้าสินค้า")
@@ -775,8 +775,10 @@ api.MapPost("/checkouts", async (
 
         var person = body.InsuredPersons.Single(p => p.ProductId == item.ProductId);
         items.Add(new CheckoutItemInput(
-            item.ProductId, item.Quantity, item.UnitPrice, product.SumInsured, product.CoverageDurationDays,
-            product.Insurer, person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth));
+            item.ProductId, item.Quantity, item.UnitPrice,
+            product.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
+            product.PolicyNumber, product.StartDate, product.EndDate,
+            person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth));
     }
 
     var result = await mediator.Send(

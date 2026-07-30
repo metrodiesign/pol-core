@@ -40,7 +40,8 @@ public sealed class OrderItemsTests : IDisposable
     private static Order NewOrderWithOneLine() =>
         Order.Create(MerchantA, Money.Of(15000m, "THB"), At,
             [new OrderItemInput(
-                ProductA, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+                ProductA, 1, Money.Of(15000m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY",
+                "P-900001", At.Date, At.Date.AddYears(1),
                 "Somchai", "Jaidee", "1234567890123", Dob)]);
 
     [Fact]
@@ -61,9 +62,12 @@ public sealed class OrderItemsTests : IDisposable
         Assert.Equal(order.Id, item.OrderId);
         Assert.Equal(MerchantA, item.MerchantId);
         Assert.Equal(Money.Of(15000m, "THB"), item.UnitPrice);
-        Assert.Equal(Money.Of(1_000_000m, "THB"), item.SumInsured);
-        Assert.Equal(365, item.CoverageDurationDays);
-        Assert.Equal("Test Insurer", item.Insurer);
+        Assert.Equal("00098-69100/กธ/900001-10", item.DocumentNo);
+        Assert.Equal("VMI", item.ProductGroup);
+        Assert.Equal("POLICY", item.DocumentType);
+        Assert.Equal("P-900001", item.PolicyNumber);
+        Assert.Equal(At.Date, item.StartDate);
+        Assert.Equal(At.Date.AddYears(1), item.EndDate);
         Assert.Equal("Somchai", item.InsuredFirstName);
         Assert.Equal("Jaidee", item.InsuredLastName);
         Assert.Equal("1234567890123", item.InsuredIdNumber);

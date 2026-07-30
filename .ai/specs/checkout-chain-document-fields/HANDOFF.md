@@ -69,3 +69,30 @@ Rolling handoff — teammate ทุกคน **append หัวข้อให�
 - read model ที่ FE/test อ่าน: `OrderItemDetail` และ `OrderItemListItem` ลำดับ field = `ProductId, [Quantity,] UnitPrice, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, ...` (list ไม่มี `Quantity` ตามเดิม, list ใช้ `MaskedInsuredIdNumber`)
 - ยังไม่มี migration — model กับ DB ตอนนี้ไม่ตรงกัน (task 4); ดังนั้นเทสต์ใด ๆ ที่ต่อ DB จริงจะพังจนกว่า task 4 จะเสร็จ ไม่ใช่ regression จาก task 2/3
 - ค่าตัวอย่างที่ใช้ใน Orders.Tests: `DocumentNo = "00098-69100/กธ/900001-10"`, `ProductGroup = "VMI"`, `DocumentType = "POLICY"` — ใช้ชุดเดียวกันได้ใน seed/tests อื่นเพื่อความสอดคล้อง
+
+## chain-t3 — Task 3: Host wiring + ถอด bridge (2026-07-30)
+
+**สิ่งที่ทำ**: ต่อปลายเส้น snapshot ที่ host (POST /checkouts snapshot field เอกสารจาก `ProductView` ตรง ๆ, cart ใช้ `TotalPremium`) แล้วลบ bridge properties 4 ตัวบน `ProductView` ทิ้ง — ทั้ง solution compile 0 error เป็นครั้งแรกตั้งแต่ task 1
+
+**ไฟล์ที่แตะ** (9):
+- `src/Hosts/Api/Program.cs` — checkout snapshot ชุดใหม่ (`product.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(), product.PolicyNumber, product.StartDate, product.EndDate`) + cart `product.Price` -> `product.TotalPremium`
+- `src/Modules/Products/Products.Application/ProductView.cs` — ลบ `Price`/`SumInsured`/`CoverageDurationDays`/`Insurer` + `ponytail:` comments (คง `InsuranceType` computed ไว้)
+- `tests/Hosts.Tests/InsuranceCheckoutEndToEndTests.cs` — cart price, `CheckoutItemInput` ชุดใหม่, assert 6 จุดเป็น field เอกสารจริงตามที่ product ถูกสร้างใน test
+- `tests/Hosts.Tests/WorkerWriteFloorTests.cs` — ctor args 2 จุด (`CheckoutConfirmedItem` + `OrderItemInput`)
+- `tests/Hosts.Tests/{ListPolicyReportEndToEndTests,UpsertItemPolicyEndToEndTests,UpsertItemPolicyAdminEndToEndTests}.cs` — ctor args อย่างเดียว (**ไม่ได้อยู่ในรายการของ task** — compiler พาไปเจอ)
+- `tests/Architecture.Tests/OrderItemsTests.cs` — ctor + assert 6 จุด
+- `tests/Architecture.Tests/PaymentPricingQueryTests.cs` — ctor args
+
+**สถานะ build/test**: `dotnet build` ทั้ง solution `64 projects, 0 errors, 0 warnings`; Architecture.Tests 229/229; Products.Tests 31/31; Hosts.Tests 352/353 — แดง 1 เคสคือ `ModelConsistencyTests.Model_has_no_pending_changes_against_the_migration_snapshot`
+
+**กับดักที่เจอจริง**:
+1. ยืนยันกับดัก task gate อีกรอบ: flip `[x]` แยกจาก Evidence โดน block **หลังเขียนลงไฟล์แล้ว** — ต่อ Evidence ทันทีในขั้นถัดไป
+2. call site `OrderItemInput` มีอีก 3 ไฟล์ที่ tasks.md ไม่ได้ระบุ (policy-report / upsert-item-policy E2E) — อย่าไว้ใจรายการไฟล์ใน task ให้ `dotnet build` ทั้ง solution เป็นตัวชี้
+3. `perl -0pi -e 's/\Q...\E/'` กับ pattern ข้ามบรรทัดใช้ไม่ได้ (`\Q` quote `\n` เป็น backslash-n) — ใช้ Edit tool หรือ python แทน
+4. `git stash` แล้วรัน test เพื่อพิสูจน์ว่า fail มาก่อนไม่ได้ผลใน task นี้ — HEAD ยัง build ไม่ผ่าน (task 3 คือชิ้นที่ปิด compile)
+
+**สิ่งที่ chain-t4 (Migration + seed + integration) ต้องรู้**:
+- **`ModelConsistencyTests` แดงอยู่ = งานของ task 4 โดยตรง** — model กับ `PolDbContextModelSnapshot` ไม่ตรงตั้งแต่ task 1/2 แก้ EF config; task 3 ไม่แตะ config/snapshot เลย พอ `dotnet ef migrations add CheckoutChainDocumentFields` เสร็จ snapshot จะถูก regen แล้วเคสนี้ควรเขียวเอง ถ้ายังแดงหลัง gen แปลว่า config 4 ไฟล์ไม่ identical จริง
+- ค่าตัวอย่างที่ใช้ทั่ว tests ตอนนี้ (ใช้ชุดเดียวกันใน seed ได้เลย): `DocumentNo = '00098-69100/กธ/900001-10'`, `ProductGroup = 'VMI'`, `DocumentType = 'POLICY'`; nullable 3 ตัวส่วนใหญ่เป็น NULL ยกเว้น `Architecture.Tests/OrderItemsTests` ที่ใส่ `PolicyNumber = "P-900001"` + Start/End เพื่อ prove round-trip ของ column nullable
+- Integration.Tests ที่ยังต้องแก้ (task 4): `OrderSummaryReaderIntegrationTests.cs:39` INSERT column list ยังเป็น `SumInsuredAmount, SumInsuredCurrency, CoverageDurationDays, InsurerName` — task 3 ไม่แตะตามขอบเขต
+- `ProductView` ไม่มี `Price` แล้ว — โค้ด/test ใหม่ใด ๆ ที่อยากได้ราคาให้ใช้ `TotalPremium`

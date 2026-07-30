@@ -104,7 +104,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
 
             var cart = new Carts.Domain.Cart(Guid.CreateVersion7(), MerchantA, DateTime.UtcNow);
-            cart.AddItem(productId, 1, product!.Price);
+            cart.AddItem(productId, 1, product!.TotalPremium);
             db.Add(cart);
             await db.SaveChangesAsync();
             cartId = cart.Id;
@@ -121,8 +121,10 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
 
             var items = new List<CheckoutItemInput>
             {
-                new(item.ProductId, item.Quantity, item.UnitPrice, product!.SumInsured, product.CoverageDurationDays,
-                    product.Insurer, "Somchai", "Jaidee", "1234567890123", Dob),
+                new(item.ProductId, item.Quantity, item.UnitPrice,
+                    product!.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
+                    product.PolicyNumber, product.StartDate, product.EndDate,
+                    "Somchai", "Jaidee", "1234567890123", Dob),
             };
 
             var handler = new StartCheckoutHandler(
@@ -175,11 +177,13 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal(OrderStatus.Paid, paid.Status);
         var item = Assert.Single(paid.Items);
         Assert.Equal(productId, item.ProductId);
-        // ponytail: bridge semantics — SumInsured snapshots ProductView.SumInsured, which is TotalPremium
-        // until the checkout chain is reworked to document fields.
-        Assert.Equal(Money.Of(2500m, "THB"), item.SumInsured);
-        Assert.Equal(30, item.CoverageDurationDays);
-        Assert.Equal("Muang Thai Insurance", item.Insurer);
+        // The line snapshots the document itself, exactly as the Product was created above.
+        Assert.Equal("00098-69100/กธ/037674-10", item.DocumentNo);
+        Assert.Equal("VMI", item.ProductGroup);
+        Assert.Equal("POLICY", item.DocumentType);
+        Assert.Null(item.PolicyNumber);
+        Assert.Equal(new DateTime(2026, 7, 1), item.StartDate);
+        Assert.Equal(new DateTime(2026, 7, 31), item.EndDate);
         Assert.Equal("Somchai", item.InsuredFirstName);
         Assert.Equal("1234567890123", item.InsuredIdNumber);
     }
