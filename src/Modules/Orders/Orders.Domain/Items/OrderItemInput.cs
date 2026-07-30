@@ -11,5 +11,7 @@ namespace Orders.Domain.Items;
 /// and never should); this is the same primitive-input shape, just placed where it can actually compile.
 /// </summary>
 public sealed record OrderItemInput(
-    Guid ProductId, int Quantity, Money UnitPrice, Money SumInsured, int CoverageDurationDays, string Insurer,
+    Guid ProductId, int Quantity, Money UnitPrice,
+    string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
+    DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth);

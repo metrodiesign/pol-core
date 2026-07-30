@@ -27,13 +27,12 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             p.Property(m => m.Currency).HasColumnName("UnitPriceCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
         });
 
-        builder.ComplexProperty(x => x.SumInsured, p =>
-        {
-            p.Property(m => m.Amount).HasColumnName("SumInsuredAmount").HasPrecision(19, 4);
-            p.Property(m => m.Currency).HasColumnName("SumInsuredCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
-        });
-        builder.Property(x => x.CoverageDurationDays).IsRequired();
-        builder.Property(x => x.Insurer).HasColumnName("InsurerName").HasMaxLength(200).IsRequired();
+        builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
+        builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
+        builder.Property(x => x.DocumentType).HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.PolicyNumber).HasMaxLength(150).IsUnicode(false);
+        builder.Property(x => x.StartDate).HasPrecision(0);
+        builder.Property(x => x.EndDate).HasPrecision(0);
 
         builder.Property(x => x.InsuredFirstName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.InsuredLastName).HasMaxLength(200).IsRequired();

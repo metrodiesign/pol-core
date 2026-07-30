@@ -18,10 +18,18 @@ public sealed class ConfirmCheckoutTests
     private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static IReadOnlyList<CheckoutItemInput> OneLine() =>
-        [new CheckoutItemInput(
-            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
-            "Somchai", "Jaidee", "1234567890123", Dob)];
+    private static readonly DateTime CoverFrom = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime CoverTo = new(2027, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    private static CheckoutItemInput ItemInput(
+        string documentNo = "00098-69100/AB/900001-10", string productGroup = "VMI", string documentType = "POLICY",
+        DateTime? startDate = null, DateTime? endDate = null,
+        string idNumber = "1234567890123", DateTime? dob = null) =>
+        new(Product, 1, Money.Of(15000m, "THB"),
+            documentNo, productGroup, documentType, "POL-0001", startDate ?? CoverFrom, endDate ?? CoverTo,
+            "Somchai", "Jaidee", idNumber, dob ?? Dob);
+
+    private static IReadOnlyList<CheckoutItemInput> OneLine() => [ItemInput()];
 
     private static readonly DateTime StartAt = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
@@ -51,19 +59,50 @@ public sealed class ConfirmCheckoutTests
     [InlineData("   ")]
     public void Start_rejects_a_blank_insured_IdNumber(string idNumber)
     {
-        var line = new CheckoutItemInput(
-            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
-            "Somchai", "Jaidee", idNumber, Dob);
+        var line = ItemInput(idNumber: idNumber);
+
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+    }
+
+    // REQ-1.4 — the document snapshot is required and the coverage window must be ordered.
+    [Theory]
+    [InlineData("", "VMI", "POLICY")]
+    [InlineData("   ", "VMI", "POLICY")]
+    [InlineData("DOC-1", "", "POLICY")]
+    [InlineData("DOC-1", "VMI", "  ")]
+    public void Start_rejects_a_blank_document_field(string documentNo, string productGroup, string documentType)
+    {
+        var line = ItemInput(documentNo, productGroup, documentType);
 
         Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
     }
 
     [Fact]
+    public void Start_rejects_a_start_date_after_the_end_date()
+    {
+        var line = ItemInput(startDate: CoverTo, endDate: CoverFrom);
+
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+    }
+
+    [Fact]
+    public void Start_trims_and_snapshots_the_document_fields()
+    {
+        var session = Session.Start(
+            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [ItemInput(documentNo: "  DOC-1  ")]);
+
+        var item = Assert.Single(session.Items);
+        Assert.Equal("DOC-1", item.DocumentNo);
+        Assert.Equal("VMI", item.ProductGroup);
+        Assert.Equal("POLICY", item.DocumentType);
+        Assert.Equal(CoverFrom, item.StartDate);
+        Assert.Equal(CoverTo, item.EndDate);
+    }
+
+    [Fact]
     public void Start_rejects_a_future_date_of_birth()
     {
-        var line = new CheckoutItemInput(
-            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
-            "Somchai", "Jaidee", "1234567890123", StartAt.AddDays(1));
+        var line = ItemInput(dob: StartAt.AddDays(1));
 
         Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
     }
@@ -71,10 +110,7 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public void The_thrown_exception_never_echoes_the_invalid_date_of_birth_value()
     {
-        var distinctiveFutureDob = new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc);
-        var line = new CheckoutItemInput(
-            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
-            "Somchai", "Jaidee", "1234567890123", distinctiveFutureDob);
+        var line = ItemInput(dob: new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc));
 
         var ex = Assert.Throws<ArgumentException>(
             () => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));

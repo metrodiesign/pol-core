@@ -89,8 +89,11 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 new ProductRepository(db, NullLogger<ProductRepository>.Instance),
                 new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
             productId = await handler.Handle(
-                new CreateProductCommand(
-                    MerchantA, "Travel Plan", Money.Of(2500m, "THB"), Money.Of(1_000_000m, "THB"), 30, "Muang Thai Insurance"),
+                new CreateProductCommand(new Products.Domain.ProductInput(
+                    MerchantA, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                    "00098-69100/กธ/037674-10", "100", "00098", Money.Of(2500m, "THB"),
+                    StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
+                    ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
                 CancellationToken.None);
         }
 
@@ -101,7 +104,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
 
             var cart = new Carts.Domain.Cart(Guid.CreateVersion7(), MerchantA, DateTime.UtcNow);
-            cart.AddItem(productId, 1, product!.Price);
+            cart.AddItem(productId, 1, product!.TotalPremium);
             db.Add(cart);
             await db.SaveChangesAsync();
             cartId = cart.Id;
@@ -118,8 +121,10 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
 
             var items = new List<CheckoutItemInput>
             {
-                new(item.ProductId, item.Quantity, item.UnitPrice, product!.SumInsured, product.CoverageDurationDays,
-                    product.Insurer, "Somchai", "Jaidee", "1234567890123", Dob),
+                new(item.ProductId, item.Quantity, item.UnitPrice,
+                    product!.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
+                    product.PolicyNumber, product.StartDate, product.EndDate,
+                    "Somchai", "Jaidee", "1234567890123", Dob),
             };
 
             var handler = new StartCheckoutHandler(
@@ -150,13 +155,29 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
 
         Guid orderId;
         string summaryToken;
+        Contracts.OrderPaid orderPaid;
         using (var db = WorkerContext())
         {
-            var order = await db.Set<OrderAggregate>().SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
-            order.MarkPaid(order.Amount, DateTime.UtcNow);
-            await db.SaveChangesAsync();
+            var order = await db.Set<OrderAggregate>().Include(o => o.Items).SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
+            var outbox = new CapturingOutbox(new EfOutbox(db, new SystemClock(), FakeActor.For(MerchantA)));
+            var consumer = new OrderPaidConsumer(
+                new OrderRepository(db), outbox, new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+            // Real PaymentPaid -> OrderPaidConsumer path (REQ-7.1): MarkPaid + enqueue OrderPaid in one UoW.
+            var paymentPaid = new PaymentPaid(
+                Guid.NewGuid(), order.Id, MerchantA, order.Amount, "2c2p", "chg_e2e", "evt_e2e", DateTime.UtcNow);
+            await consumer.Handle(paymentPaid, CancellationToken.None);
             orderId = order.Id;
             summaryToken = order.SummaryToken;
+            orderPaid = Assert.IsType<Contracts.OrderPaid>(outbox.Captured);
+        }
+
+        // Products consumer retires each sold document (REQ-7.2), same drain scope / real Worker write floor.
+        using (var db = WorkerContext())
+        {
+            var consumer = new DocumentPaidOnOrderPaidConsumer(
+                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+            await consumer.Handle(orderPaid, CancellationToken.None);
         }
 
         return (productId, checkoutSessionId, orderId, summaryToken);
@@ -172,11 +193,27 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal(OrderStatus.Paid, paid.Status);
         var item = Assert.Single(paid.Items);
         Assert.Equal(productId, item.ProductId);
-        Assert.Equal(Money.Of(1_000_000m, "THB"), item.SumInsured);
-        Assert.Equal(30, item.CoverageDurationDays);
-        Assert.Equal("Muang Thai Insurance", item.Insurer);
+        // The line snapshots the document itself, exactly as the Product was created above.
+        Assert.Equal("00098-69100/กธ/037674-10", item.DocumentNo);
+        Assert.Equal("VMI", item.ProductGroup);
+        Assert.Equal("POLICY", item.DocumentType);
+        Assert.Null(item.PolicyNumber);
+        Assert.Equal(new DateTime(2026, 7, 1), item.StartDate);
+        Assert.Equal(new DateTime(2026, 7, 31), item.EndDate);
         Assert.Equal("Somchai", item.InsuredFirstName);
         Assert.Equal("1234567890123", item.InsuredIdNumber);
+    }
+
+    // REQ-7.2 — a paid order retires each sold document: PAID + inactive, out of the sellable catalog.
+    [Fact]
+    public async Task Paid_order_marks_the_product_PAID_and_inactive()
+    {
+        var (productId, _, _, _) = await CreatePaidOrderAsync();
+
+        using var db = ApiContext();
+        var product = await db.Set<Products.Domain.Product>().SingleAsync(p => p.Id == productId);
+        Assert.Equal(Products.Domain.PaymentStatus.PAID, product.PaymentStatus);
+        Assert.False(product.IsActive);
     }
 
     // REQ-7.4 — merchant-authenticated list surface: masked, no audit trail written.

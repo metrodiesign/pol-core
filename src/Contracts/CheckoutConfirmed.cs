@@ -4,9 +4,13 @@ using SharedKernel;
 namespace Contracts;
 
 /// <summary>One purchased item of a confirmed checkout (insurance-pivot REQ-6/7) — the commercial +
-/// insurance-term snapshot plus the insured person, frozen at checkout-start.</summary>
+/// insurance-document snapshot plus the insured person, frozen at checkout-start. <c>ProductGroup</c> and
+/// <c>DocumentType</c> carry the wire value of the Products enums as plain strings (no cross-module
+/// reference to <c>Products.Domain</c>).</summary>
 public sealed record CheckoutConfirmedItem(
-    Guid ProductId, int Quantity, Money UnitPrice, Money SumInsured, int CoverageDurationDays, string Insurer,
+    Guid ProductId, int Quantity, Money UnitPrice,
+    string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
+    DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth);
 
 /// <summary>

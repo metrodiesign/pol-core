@@ -14,10 +14,13 @@ public sealed class CheckoutConfirmedConsumerTests
     private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime Start = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+    private static readonly DateTime End = new(2027, 7, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static IReadOnlyList<CheckoutConfirmedItem> OneLine() =>
         [new CheckoutConfirmedItem(
-            Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+            Product, 1, Money.Of(15000m, "THB"),
+            "00098-69100/กธ/900001-10", "VMI", "POLICY", "POL-1", Start, End,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
     [Fact]
@@ -38,6 +41,25 @@ public sealed class CheckoutConfirmedConsumerTests
         Assert.Single(order.Items);
         var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
         Assert.Equal(order.Id, note.OrderId);
+    }
+
+    // checkout-chain-document-fields REQ-2.2 — the document snapshot maps 1:1, no transform.
+    [Fact]
+    public async Task The_document_snapshot_is_carried_onto_the_order_line_unchanged()
+    {
+        var orders = new FakeOrderRepository();
+        var consumer = new CheckoutConfirmedConsumer(orders, new FakeOutbox(), new FakeUnitOfWork(), new FixedClock());
+
+        await consumer.Handle(
+            new CheckoutConfirmed(Merchant, Guid.NewGuid(), Money.Of(15000m, "THB"), null, At, OneLine()), default);
+
+        var line = Assert.Single(Assert.Single(orders.All).Items);
+        Assert.Equal("00098-69100/กธ/900001-10", line.DocumentNo);
+        Assert.Equal("VMI", line.ProductGroup);
+        Assert.Equal("POLICY", line.DocumentType);
+        Assert.Equal("POL-1", line.PolicyNumber);
+        Assert.Equal(Start, line.StartDate);
+        Assert.Equal(End, line.EndDate);
     }
 
     [Fact]

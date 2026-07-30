@@ -5,6 +5,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -12,9 +13,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    partial class PolDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260730072057_ProductsInsuranceDocument")]
+    partial class ProductsInsuranceDocument
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -594,20 +597,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("DocumentNo")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<DateTime?>("EndDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
+                    b.Property<int>("CoverageDurationDays")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("InsuredDateOfBirth")
                         .HasColumnType("datetime2");
@@ -627,19 +618,14 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("Insurer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("InsurerName");
+
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("PolicyNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("ProductGroup")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uniqueidentifier");
@@ -650,9 +636,23 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("SessionId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime?>("StartDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Checkouts.Domain.Items.Item.SumInsured#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("SumInsuredAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("SumInsuredCurrency")
+                                .IsFixedLength();
+                        });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Checkouts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
@@ -1331,20 +1331,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("DocumentNo")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<DateTime?>("EndDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
+                    b.Property<int>("CoverageDurationDays")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("InsuredDateOfBirth")
                         .HasColumnType("datetime2");
@@ -1364,22 +1352,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("Insurer")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("InsurerName");
+
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("PolicyNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("ProductGroup")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uniqueidentifier");
@@ -1387,9 +1370,23 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
-                    b.Property<DateTime?>("StartDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "SumInsured", "Orders.Domain.Items.Item.SumInsured#Money", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("decimal(19,4)")
+                                .HasColumnName("SumInsuredAmount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .IsUnicode(false)
+                                .HasColumnType("char(3)")
+                                .HasColumnName("SumInsuredCurrency")
+                                .IsFixedLength();
+                        });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Orders.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {

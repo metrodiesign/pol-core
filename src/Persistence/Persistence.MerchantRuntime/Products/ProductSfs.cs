@@ -9,33 +9,43 @@ using SearchOption = BuildingBlocks.Application.SearchOption;   // disambiguate 
 namespace Persistence.MerchantRuntime.Products;
 
 /// <summary>
-/// The SFS apply pipeline for the merchant-scoped Product list. Moved from
-/// <c>Products.Infrastructure.ProductSfs</c> (task 8.5.3, unchanged) — its only consumer,
-/// <see cref="ProductRepository"/>, now lives here since <c>MerchantRuntimeDbContext</c> is internal to this
-/// assembly. This exemplar exercises the range/numeric operators (gt, gte, lt, lte, between on
-/// <c>priceAmount</c>/<c>createdAt</c>) plus eq on the bool <c>isActive</c>. No whitelist exposes
-/// <c>merchantId</c> or any cross-aggregate key, so SFS can only narrow within the merchant floor, never widen
-/// it (REQ-7.3). Filter values are coerced from <see cref="JsonElement"/> eagerly and guarded, so a type
-/// mismatch is a 400 (<see cref="ArgumentException"/>), never a 409/500. (REQ-3..6, REQ-8.5, REQ-8.6)
+/// The SFS apply pipeline for the merchant-scoped insurance-document list. Whitelists follow the
+/// VCentralPay SP guide §2 vocabulary. No whitelist exposes <c>merchantId</c> or any cross-aggregate
+/// key, so SFS can only narrow within the merchant floor, never widen it (REQ-7.3). Filter values are
+/// coerced from <see cref="JsonElement"/> eagerly and guarded, so a type mismatch is a 400
+/// (<see cref="ArgumentException"/>), never a 409/500.
 /// </summary>
 internal static class ProductSfs
 {
+    private static readonly FilterOperator[] RangeOperators =
+        [FilterOperator.Equals, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+         FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between];
+
+    private static readonly FilterOperator[] DateOperators =
+        [FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
+         FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between];
+
     private static readonly FrozenDictionary<string, FilterOperator[]> FilterFields =
         new Dictionary<string, FilterOperator[]>(StringComparer.Ordinal)
         {
             ["isActive"] = [FilterOperator.Equals],
-            ["priceAmount"] = [FilterOperator.Equals, FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
-                               FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
-            ["createdAt"] = [FilterOperator.GreaterThan, FilterOperator.GreaterThanOrEqual,
-                             FilterOperator.LessThan, FilterOperator.LessThanOrEqual, FilterOperator.Between],
+            ["paymentStatus"] = [FilterOperator.Equals],
+            ["documentType"] = [FilterOperator.Equals],
+            ["productGroup"] = [FilterOperator.Equals],
+            ["totalPremiumAmount"] = RangeOperators,
+            ["startDate"] = DateOperators,
+            ["endDate"] = DateOperators,
+            ["paidDate"] = DateOperators,
+            ["createdAt"] = DateOperators,
         }.ToFrozenDictionary(StringComparer.Ordinal);
     // NB: no "merchantId" (or any cross-aggregate FK) in any whitelist — SFS must never widen merchant scope (REQ-7.3).
 
     private static readonly FrozenSet<string> SortFields =
-        new[] { "name", "priceAmount", "createdAt" }.ToFrozenSet(StringComparer.Ordinal);
+        new[] { "documentNo", "totalPremiumAmount", "startDate", "paidDate", "createdAt" }.ToFrozenSet(StringComparer.Ordinal);
 
     private static readonly FrozenSet<string> SearchFields =
-        new[] { "name" }.ToFrozenSet(StringComparer.Ordinal);
+        new[] { "documentNo", "showName", "policyNumber", "applicationNumber", "licensePlateNumber" }
+            .ToFrozenSet(StringComparer.Ordinal);
 
     public static IQueryable<Product> ApplyFilters(
         this IQueryable<Product> query, IReadOnlyList<FilterOption> filters, ILogger? logger = null)
@@ -62,14 +72,38 @@ internal static class ProductSfs
         switch (f.Field, f.Operator)
         {
             case ("isActive", FilterOperator.Equals): { var b = Bool(f.Value); return q.Where(p => p.IsActive == b); }
+            case ("paymentStatus", FilterOperator.Equals): { var v = Enum<PaymentStatus>(f.Value); return q.Where(p => p.PaymentStatus == v); }
+            case ("documentType", FilterOperator.Equals): { var v = Enum<DocumentType>(f.Value); return q.Where(p => p.DocumentType == v); }
+            case ("productGroup", FilterOperator.Equals): { var v = Enum<ProductGroup>(f.Value); return q.Where(p => p.ProductGroup == v); }
 
-            case ("priceAmount", FilterOperator.Equals): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount == v); }
-            case ("priceAmount", FilterOperator.GreaterThan): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount > v); }
-            case ("priceAmount", FilterOperator.GreaterThanOrEqual): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount >= v); }
-            case ("priceAmount", FilterOperator.LessThan): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount < v); }
-            case ("priceAmount", FilterOperator.LessThanOrEqual): { var v = Decimal(f.Value); return q.Where(p => p.Price.Amount <= v); }
-            case ("priceAmount", FilterOperator.Between) when f.Values is { Length: >= 2 }:
-            { var lo = Decimal(f.Values[0]); var hi = Decimal(f.Values[1]); return q.Where(p => p.Price.Amount >= lo && p.Price.Amount <= hi); }
+            case ("totalPremiumAmount", FilterOperator.Equals): { var v = Decimal(f.Value); return q.Where(p => p.TotalPremium.Amount == v); }
+            case ("totalPremiumAmount", FilterOperator.GreaterThan): { var v = Decimal(f.Value); return q.Where(p => p.TotalPremium.Amount > v); }
+            case ("totalPremiumAmount", FilterOperator.GreaterThanOrEqual): { var v = Decimal(f.Value); return q.Where(p => p.TotalPremium.Amount >= v); }
+            case ("totalPremiumAmount", FilterOperator.LessThan): { var v = Decimal(f.Value); return q.Where(p => p.TotalPremium.Amount < v); }
+            case ("totalPremiumAmount", FilterOperator.LessThanOrEqual): { var v = Decimal(f.Value); return q.Where(p => p.TotalPremium.Amount <= v); }
+            case ("totalPremiumAmount", FilterOperator.Between) when f.Values is { Length: >= 2 }:
+            { var lo = Decimal(f.Values[0]); var hi = Decimal(f.Values[1]); return q.Where(p => p.TotalPremium.Amount >= lo && p.TotalPremium.Amount <= hi); }
+
+            case ("startDate", FilterOperator.GreaterThan): { var v = Date(f.Value); return q.Where(p => p.StartDate > v); }
+            case ("startDate", FilterOperator.GreaterThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.StartDate >= v); }
+            case ("startDate", FilterOperator.LessThan): { var v = Date(f.Value); return q.Where(p => p.StartDate < v); }
+            case ("startDate", FilterOperator.LessThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.StartDate <= v); }
+            case ("startDate", FilterOperator.Between) when f.Values is { Length: >= 2 }:
+            { var lo = Date(f.Values[0]); var hi = Date(f.Values[1]); return q.Where(p => p.StartDate >= lo && p.StartDate <= hi); }
+
+            case ("endDate", FilterOperator.GreaterThan): { var v = Date(f.Value); return q.Where(p => p.EndDate > v); }
+            case ("endDate", FilterOperator.GreaterThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.EndDate >= v); }
+            case ("endDate", FilterOperator.LessThan): { var v = Date(f.Value); return q.Where(p => p.EndDate < v); }
+            case ("endDate", FilterOperator.LessThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.EndDate <= v); }
+            case ("endDate", FilterOperator.Between) when f.Values is { Length: >= 2 }:
+            { var lo = Date(f.Values[0]); var hi = Date(f.Values[1]); return q.Where(p => p.EndDate >= lo && p.EndDate <= hi); }
+
+            case ("paidDate", FilterOperator.GreaterThan): { var v = Date(f.Value); return q.Where(p => p.PaidDate > v); }
+            case ("paidDate", FilterOperator.GreaterThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.PaidDate >= v); }
+            case ("paidDate", FilterOperator.LessThan): { var v = Date(f.Value); return q.Where(p => p.PaidDate < v); }
+            case ("paidDate", FilterOperator.LessThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.PaidDate <= v); }
+            case ("paidDate", FilterOperator.Between) when f.Values is { Length: >= 2 }:
+            { var lo = Date(f.Values[0]); var hi = Date(f.Values[1]); return q.Where(p => p.PaidDate >= lo && p.PaidDate <= hi); }
 
             case ("createdAt", FilterOperator.GreaterThan): { var v = Date(f.Value); return q.Where(p => p.CreatedAt > v); }
             case ("createdAt", FilterOperator.GreaterThanOrEqual): { var v = Date(f.Value); return q.Where(p => p.CreatedAt >= v); }
@@ -97,17 +131,20 @@ internal static class ProductSfs
             bool asc = s.Order == SortDirection.Asc;
             o = (s.Field, first: o is null) switch
             {
-                // All three sort columns are non-nullable -> plain ordering (no NULLS-last step needed).
-                ("name", true) => asc ? query.OrderBy(p => p.Name) : query.OrderByDescending(p => p.Name),
-                ("name", false) => asc ? o!.ThenBy(p => p.Name) : o!.ThenByDescending(p => p.Name),
-                ("priceAmount", true) => asc ? query.OrderBy(p => p.Price.Amount) : query.OrderByDescending(p => p.Price.Amount),
-                ("priceAmount", false) => asc ? o!.ThenBy(p => p.Price.Amount) : o!.ThenByDescending(p => p.Price.Amount),
+                ("documentNo", true) => asc ? query.OrderBy(p => p.DocumentNo) : query.OrderByDescending(p => p.DocumentNo),
+                ("documentNo", false) => asc ? o!.ThenBy(p => p.DocumentNo) : o!.ThenByDescending(p => p.DocumentNo),
+                ("totalPremiumAmount", true) => asc ? query.OrderBy(p => p.TotalPremium.Amount) : query.OrderByDescending(p => p.TotalPremium.Amount),
+                ("totalPremiumAmount", false) => asc ? o!.ThenBy(p => p.TotalPremium.Amount) : o!.ThenByDescending(p => p.TotalPremium.Amount),
+                ("startDate", true) => asc ? query.OrderBy(p => p.StartDate) : query.OrderByDescending(p => p.StartDate),
+                ("startDate", false) => asc ? o!.ThenBy(p => p.StartDate) : o!.ThenByDescending(p => p.StartDate),
+                ("paidDate", true) => asc ? query.OrderBy(p => p.PaidDate) : query.OrderByDescending(p => p.PaidDate),
+                ("paidDate", false) => asc ? o!.ThenBy(p => p.PaidDate) : o!.ThenByDescending(p => p.PaidDate),
                 ("createdAt", true) => asc ? query.OrderBy(p => p.CreatedAt) : query.OrderByDescending(p => p.CreatedAt),
                 ("createdAt", false) => asc ? o!.ThenBy(p => p.CreatedAt) : o!.ThenByDescending(p => p.CreatedAt),
                 _ => o,
             };
         }
-        // Default fallback (REQ-4.5). CreatedAt is not unique (bulk/seed ties), so append the unique Id as a
+        // Default fallback. CreatedAt is not unique (bulk/seed ties), so append the unique Id as a
         // tie-breaker — without it, tied timestamps let SQL Server order rows arbitrarily and paging can
         // duplicate/skip items across pages.
         return o ?? query.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id);
@@ -119,10 +156,21 @@ internal static class ProductSfs
 
         var fields = (search.Fields is { Length: > 0 } requested ? requested : SearchFields.ToArray())
             .Where(SearchFields.Contains).ToArray();
-        if (fields.Length == 0) return query;   // only "name" is searchable; a request for anything else drops out
+        if (fields.Length == 0) return query;
 
         var pattern = $"%{SfsLike.Escape(search.Query.Trim())}%";
-        return query.Where(p => EF.Functions.Like(p.Name, pattern, "\\"));
+        bool inDocumentNo = fields.Contains("documentNo");
+        bool inShowName = fields.Contains("showName");
+        bool inPolicyNumber = fields.Contains("policyNumber");
+        bool inApplicationNumber = fields.Contains("applicationNumber");
+        bool inLicensePlateNumber = fields.Contains("licensePlateNumber");
+
+        return query.Where(p =>
+            (inDocumentNo && EF.Functions.Like(p.DocumentNo, pattern, "\\"))
+            || (inShowName && p.ShowName != null && EF.Functions.Like(p.ShowName, pattern, "\\"))
+            || (inPolicyNumber && p.PolicyNumber != null && EF.Functions.Like(p.PolicyNumber, pattern, "\\"))
+            || (inApplicationNumber && p.ApplicationNumber != null && EF.Functions.Like(p.ApplicationNumber, pattern, "\\"))
+            || (inLicensePlateNumber && p.LicensePlateNumber != null && EF.Functions.Like(p.LicensePlateNumber, pattern, "\\")));
     }
 
     private static decimal Decimal(JsonElement? value)
@@ -141,5 +189,13 @@ internal static class ProductSfs
     {
         if (value is { ValueKind: JsonValueKind.True or JsonValueKind.False } element) return element.GetBoolean();
         throw new ArgumentException("Filter value must be a boolean.");
+    }
+
+    private static TEnum Enum<TEnum>(JsonElement? value) where TEnum : struct, System.Enum
+    {
+        if (value is { ValueKind: JsonValueKind.String } element
+            && System.Enum.TryParse<TEnum>(element.GetString(), ignoreCase: true, out var parsed))
+            return parsed;
+        throw new ArgumentException($"Filter value must be one of: {string.Join(", ", System.Enum.GetNames<TEnum>())}.");
     }
 }

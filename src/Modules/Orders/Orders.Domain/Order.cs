@@ -117,7 +117,8 @@ public sealed class Order : AggregateRoot<Guid>
         foreach (var item in items)
             order._items.Add(new Item(
                 Guid.CreateVersion7(), order.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice,
-                item.SumInsured, item.CoverageDurationDays, item.Insurer,
+                item.DocumentNo, item.ProductGroup, item.DocumentType, item.PolicyNumber,
+                item.StartDate, item.EndDate,
                 item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,
                 createdAt));
 

@@ -17,10 +17,10 @@ public sealed class GetOrderDetailTests
     private static Order TwoLineOrder() =>
         Order.Create(Merchant, Money.Of(30000m, "THB"), DateTime.UtcNow,
             [
-                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365,
-                    "Test Insurer", "Somchai", "Jaidee", "1111111111111", Dob),
-                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365,
-                    "Test Insurer", "Suda", "Meesuk", "2222222222222", Dob),
+                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"),
+                    "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Somchai", "Jaidee", "1111111111111", Dob),
+                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"),
+                    "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Suda", "Meesuk", "2222222222222", Dob),
             ]);
 
     [Fact]
