@@ -9,7 +9,6 @@ using Contracts;
 using Mediator;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application;
 using Orders.Domain;
 using Persistence.MerchantRuntime;
@@ -56,6 +55,10 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
     private static readonly Guid MerchantA = Guid.NewGuid();
     private static readonly DateTime Dob = new(1985, 5, 20, 0, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>Frozen "today" for the ProductRepository search window (REQ-6.1) so the document created below
+    /// stays inside it whatever the wall clock says.</summary>
+    private static readonly DateTime Today = new(2026, 7, 30, 9, 0, 0, DateTimeKind.Utc);
+
     private readonly SqliteConnection _connection;
 
     public InsuranceCheckoutEndToEndTests()
@@ -86,12 +89,12 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         using (var db = ApiContext())
         {
             var handler = new CreateProductHandler(
-                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
+                NewProductRepository(db),
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
             productId = await handler.Handle(
                 new CreateProductCommand(new Products.Domain.ProductInput(
                     MerchantA, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
-                    "00098-69100/กธ/037674-10", "100", "00098", Money.Of(2500m, "THB"),
+                    "00098-69100/กธ/037674-10", "00098", 2500m,
                     StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
                     ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
                 CancellationToken.None);
@@ -100,11 +103,12 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Guid cartId;
         using (var db = ApiContext())
         {
-            var product = await new GetProductByIdHandler(new ProductRepository(db, NullLogger<ProductRepository>.Instance))
+            var product = await new GetProductByIdHandler(NewProductRepository(db))
                 .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
 
             var cart = new Carts.Domain.Cart(Guid.CreateVersion7(), MerchantA, DateTime.UtcNow);
-            cart.AddItem(productId, 1, product!.TotalPremium);
+            // The currency is minted at this boundary, exactly as Program.cs's cart add-item does (REQ-8.4).
+            cart.AddItem(productId, 1, Money.Of(product!.TotalPremium, "THB"));
             db.Add(cart);
             await db.SaveChangesAsync();
             cartId = cart.Id;
@@ -116,7 +120,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
             var cart = await new GetCartHandler(new CartRepository(db))
                 .Handle(new GetCartQuery(cartId, MerchantA), CancellationToken.None);
             var item = Assert.Single(cart!.Items);
-            var product = await new GetProductByIdHandler(new ProductRepository(db, NullLogger<ProductRepository>.Instance))
+            var product = await new GetProductByIdHandler(NewProductRepository(db))
                 .Handle(new GetProductByIdQuery(MerchantA, item.ProductId), CancellationToken.None);
 
             var items = new List<CheckoutItemInput>
@@ -175,7 +179,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         using (var db = WorkerContext())
         {
             var consumer = new DocumentPaidOnOrderPaidConsumer(
-                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
+                NewProductRepository(db),
                 new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
             await consumer.Handle(orderPaid, CancellationToken.None);
         }
@@ -204,16 +208,34 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal("1234567890123", item.InsuredIdNumber);
     }
 
-    // REQ-7.2 — a paid order retires each sold document: PAID + inactive, out of the sellable catalog.
+    // REQ-2.1/7.2 — a paid order retires each sold document: PAID is the whole "not sellable" axis now that
+    // IsActive is gone, and PaymentStatus is exactly the value both host gates read (cart add-item -> 400,
+    // checkout start -> 409). The HTTP status codes themselves live in minimal-API lambdas and are proven by
+    // the dev-DB E2E of REQ-12.6, not here.
     [Fact]
-    public async Task Paid_order_marks_the_product_PAID_and_inactive()
+    public async Task Paid_order_marks_the_product_PAID_so_it_can_no_longer_be_sold()
     {
         var (productId, _, _, _) = await CreatePaidOrderAsync();
 
         using var db = ApiContext();
         var product = await db.Set<Products.Domain.Product>().SingleAsync(p => p.Id == productId);
         Assert.Equal(Products.Domain.PaymentStatus.PAID, product.PaymentStatus);
-        Assert.False(product.IsActive);
+
+        // What the gates see: the read used by both of them reports a non-UNPAID document.
+        var read = await new GetProductByIdHandler(NewProductRepository(db))
+            .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
+        Assert.NotNull(read);
+        Assert.NotEqual(Products.Domain.PaymentStatus.UNPAID, read!.PaymentStatus);
+
+        // ...and it has left the default (UNPAID-only) list surface (REQ-3.1).
+        var listed = await new ListProductsHandler(NewProductRepository(db)).Handle(
+            new ListProductsQuery
+            {
+                MerchantId = MerchantA,
+                ProductFilters = new ProductFilterDto { SaleCode = "00098" },
+            },
+            CancellationToken.None);
+        Assert.Empty(listed.Items);
     }
 
     // REQ-7.4 — merchant-authenticated list surface: masked, no audit trail written.
@@ -278,6 +300,14 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
     // that predates this task and does not run against SQLite (`SQLite Error 1: 'near "1": syntax error'`,
     // confirmed by trying). Its masking behavior is proven at Integration.Tests level instead — see
     // OrderSummaryReaderIntegrationTests.cs, run against the real pol-db container.
+
+    private static ProductRepository NewProductRepository(MerchantRuntimeDbContext db) =>
+        new(db, new FixedClock(Today));
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
+    }
 
     private sealed class CapturingOutbox(IOutbox inner) : IOutbox
     {

@@ -142,9 +142,7 @@ public sealed class ReadFloorTests : IDisposable
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId));
         var product = Product.Create(
             new ProductInput(
-                merchantId, ProductGroup.VMI, DocumentType.POLICY, documentNo, "100", "00098",
-                Money.Of(10m, "THB")),
-            DateTime.UtcNow);
+                merchantId, ProductGroup.VMI, DocumentType.POLICY, documentNo, "00098", 10m));
         writer.Add(product);
         await writer.SaveChangesAsync();
         return product.Id;

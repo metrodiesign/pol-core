@@ -2,11 +2,9 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Products;
 using Products.Application;
-using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -23,6 +21,9 @@ namespace Hosts.Tests;
 public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
 {
     private static readonly Guid MerchantA = Guid.NewGuid();
+
+    /// <summary>Frozen so the repository's 6-month search window (REQ-6.1) cannot drift with the wall clock.</summary>
+    private static readonly DateTime Today = new(2026, 7, 30, 9, 0, 0, DateTimeKind.Utc);
 
     private readonly SqliteConnection _connection;
 
@@ -41,8 +42,8 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
     [Fact]
     public async Task Created_document_fields_survive_list_and_get_by_id()
     {
-        var totalPremium = Money.Of(15900m, "THB");
-        var netPremium = Money.Of(14800m, "THB");
+        const decimal totalPremium = 15900m;
+        const decimal netPremium = 14800m;
         var start = new DateTime(2026, 7, 1);
         var end = new DateTime(2027, 7, 1);
 
@@ -50,13 +51,13 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
         using (var db = NewContext())
         {
             var handler = new CreateProductHandler(
-                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
+                NewRepository(db),
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
 
             productId = await handler.Handle(
                 new CreateProductCommand(new Products.Domain.ProductInput(
                     MerchantA, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
-                    "00098-69100/กธ/037674-10", "100", "00098", totalPremium,
+                    "00098-69100/กธ/037674-10", "00098", totalPremium,
                     PolicyYear: "69", PolicyNumber: "00098-68100/037674",
                     StartDate: start, EndDate: end, ShowName: "สมชาย ใจดี",
                     LicensePlateNumber: "1กก 1234", NetPremium: netPremium, CommissionPercent: 12m)),
@@ -65,8 +66,15 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
 
         using (var db = NewContext())
         {
-            var listed = await new ListProductsHandler(new ProductRepository(db, NullLogger<ProductRepository>.Instance))
-                .Handle(new ListProductsQuery { MerchantId = MerchantA, Page = 1, Limit = 10 }, CancellationToken.None);
+            var listed = await new ListProductsHandler(NewRepository(db)).Handle(
+                new ListProductsQuery
+                {
+                    MerchantId = MerchantA,
+                    ProductFilters = new ProductFilterDto { SaleCode = "00098" },
+                    Page = 1,
+                    Limit = 10,
+                },
+                CancellationToken.None);
 
             var item = Assert.Single(listed.Items);
             Assert.Equal("00098-69100/กธ/037674-10", item.DocumentNo);
@@ -81,7 +89,7 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
 
         using (var db = NewContext())
         {
-            var view = await new GetProductByIdHandler(new ProductRepository(db, NullLogger<ProductRepository>.Instance))
+            var view = await new GetProductByIdHandler(NewRepository(db))
                 .Handle(new GetProductByIdQuery(MerchantA, productId), CancellationToken.None);
 
             Assert.NotNull(view);
@@ -94,6 +102,14 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
             Assert.Equal(12m, view.CommissionPercent);
             Assert.Equal(Products.Domain.InsuranceType.Motor, view.InsuranceType);
         }
+    }
+
+    private static ProductRepository NewRepository(MerchantRuntimeDbContext db) =>
+        new(db, new FixedClock(Today));
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
     }
 
     private sealed class FakeActor(bool hasActor, Guid merchantId = default) : IActorContext

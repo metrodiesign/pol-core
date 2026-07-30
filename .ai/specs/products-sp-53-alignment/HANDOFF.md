@@ -29,7 +29,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T5 | EF config ×2 + migration ใหม่ + snapshot | เสร็จ |
 | T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | เสร็จ |
 | T7 | cap 25 ทั้ง repo + SFS docs/spec | เสร็จ |
-| T8 | tests ทั้งชุด → build+test เขียว | รอ |
+| T8 | tests ทั้งชุด → build+test เขียว | เสร็จ |
 | T9 | gate เต็ม + PR | รอ |
 
 ---
@@ -913,3 +913,115 @@ commit ของ T6: `9ee82ab` (hash ถูกเติมใน commit เล�
    `N.M` + คำ EARS ไม่ใช่เนื้อความ; แต่ต้องคงรูป `- 2.2 ` (มีจุดเกิน = silent-skip) และห้ามแตะเลขข้อ
 
 commit ของ T7: `871c351`
+
+---
+
+## T8 — tests (เสร็จ)
+
+แตะ 11 ไฟล์ใน `tests/` + ลบ 1 ไฟล์ — ไม่แตะ `src/`, `docker/`, `docs/`, spec อื่นเลย
+
+### จำนวน test ต่อ project
+
+"ก่อน" = ก่อน T8 ทั้ง 3 project **compile ไม่ได้** (192 error CS จาก T5) จึงรัน/นับไม่ได้เลย —
+ตัวเลขในวงเล็บคือจำนวนเคสที่นับจากไฟล์ต้นทางเดิม (`[Fact]` + แต่ละ `[InlineData]`)
+
+| project | ก่อน (นับจากไฟล์, รันไม่ได้) | หลัง (รันจริง) |
+|---|---|---|
+| `tests/Products.Tests` | ~40 | **53 passed / 0 failed / 0 skipped** |
+| `tests/Hosts.Tests` | ~352 | **362 / 0 / 0** |
+| `tests/Architecture.Tests` | ~232 (รวม `ProductSfsTests` 12 เคสที่ถูกลบ) | **225 / 0 / 0** (เต็มชุด ใช้เวลาจริง ~2 วินาที ไม่ถึง 9 นาทีตามที่ design.md เตือน) |
+
+### ผลรัน `dotnet test` จริง (ทุก suite)
+
+| suite | ผล |
+|---|---|
+| `Products.Tests` | 53 / 0 / 0 |
+| `Hosts.Tests` | 362 / 0 / 0 |
+| `Architecture.Tests` | 225 / 0 / 0 |
+| `Integration.Tests` (`. ./.env.integration` ใน Bash call เดียวกัน, dev DB :11433) | **47 / 0 / 0** |
+| Admins / BuildingBlocks / Carts / Checkouts / Divisions / Iam / Levels / Merchants / Offices / Orders / Payments / Positions / SharedKernel | 95 / 43 / 15 / 13 / 6 / 62 / 6 / 120 / 6 / 76 / 162 / 6 / 46 — ทุกตัว 0 failed, 0 skipped |
+
+`rtk proxy dotnet build pol-core.slnx` -> `Build succeeded. 0 Error(s)` (0 warning);
+`bash scripts/check-rename-identifiers.sh` -> `OK`
+
+`tests/{Identity,Producer,Tenant}.Tests/` มีแต่ `bin/`+`obj/` ค้าง ไม่มี `.csproj` — ไม่ใช่ suite ที่หายไป
+
+### ไฟล์ที่ลบ
+
+`tests/Architecture.Tests/ProductSfsTests.cs` (`git rm`) — ไฟล์ที่มันทดสอบ (`ProductSfs.cs`) ถูก T4 ลบไปแล้ว
+
+**กับดัก**: `scripts/check-rename-identifiers.sh` อ่าน **รายชื่อไฟล์จาก git index** แล้วเปิดไฟล์จริง
+⇒ ถ้าลบไฟล์ด้วย `rm` แต่ยังไม่ `git rm` gate จะ crash ด้วย `FileNotFoundError` (ไม่ใช่ข้อความ gate ปกติ)
+ต้อง stage การลบก่อนรัน gate
+
+### เคสใหม่ที่เพิ่ม (ไล่ตาม REQ)
+
+| REQ | เคส | ที่ไหน |
+|---|---|---|
+| 1.5 | `100.005`/`100.001` throw; `100.5`/`100.50`/`100` ผ่าน; breakdown ติดลบ + `TotalPremium` ติดลบ throw | `ProductTests` |
+| 1.6 | คงครบ: `TotalPremium <= 0`, `StartDate > EndDate` (+ เท่ากันผ่าน), `Enum.IsDefined` x2, CMI+APPLICATION, MISC+APPLICATION ผ่าน, trim/normalise, `SaleCode` > 20 (ใหม่) | `ProductTests` |
+| 2.1 / 2.3 | `MarkPaid` set PAID + `PaidDate` (เลิก assert `IsActive`); เอกสารที่ขายแล้วให้ค่าที่ gate อ่าน != UNPAID และหลุดจาก default list | `ProductTests`, `DocumentPaidOnOrderPaidConsumerTests`, `WorkerWriteFloorTests`, `InsuranceCheckoutEndToEndTests` |
+| 3.1 / 3.2 | absent -> UNPAID, `ALL` -> ไม่กรอง, `PAID`/`UNPAID` ตรงตัว (ทั้งระดับ DTO และระดับ query จริงบน SQLite) | `ProductFilterDtoTests`, `ProductRepositoryListTests` |
+| 3.3 | `saleCode` required + trim + MaxLength 20 (21 ตัวอักษร throw, 20 ผ่าน) + narrowing จริงใน `ListAsync` | `ProductFilterDtoTests`, `ProductRepositoryListTests` |
+| 3.4 | `"branchCode": "001"` ถูก ignore เงียบ ๆ ไม่ใช่ 400 | `ProductFilterDtoTests` |
+| 3.5 / 9.1 | `productFilters` absent / blank / whitespace / literal `null` -> throw (4 เคส) | `ProductFilterDtoTests` |
+| 9.2 | `"unpaid"` (case-sensitive) / `"NOPE"` / `""` -> throw | `ProductFilterDtoTests` |
+| 9.3 | 50003 / 50008 / 50009 + `From == To` ผ่าน | `ProductFilterDtoTests` |
+| 4.1 | `limit` 1000/100/50/25 -> 25; 1/0/-5 -> 1; `abc` -> 25 | `SfsQueryParserTests` |
+| 5.1 / 5.2 | ทะเบียนเดียวกัน: CMI/VMI match, FIRE/MISC ไม่ match (4 เคส) + non-Motor ยังค้น `DocumentNo` ได้ | `ProductRepositoryListTests` |
+| 6.1 / 6.2 / 6.3 | **11 เคส A-K** ของตาราง window (fake `IClock` ตรึง today = 2026-07-30) + window ยัง AND แม้ client กรองอย่างอื่น | `ProductRepositoryListTests` |
+| 7.2 | `OrderBy(DocumentNo)` + paging หน้า 1/2 + total หลัง filter | `ProductRepositoryListTests` |
+| 7.4 | products declares เฉพาะ `page`/`limit`/`productFilters`; 4 endpoint ที่ถือ `SfsQueryParamsMarker` ยังครบ 5 ตัว | `SfsOpenApiTests` |
+| 8.1 | projection 32 field ครบทุกช่อง + `InsuranceType` computed | `ProductRepositoryListTests` |
+| 8.4 | mint `Money.Of(TotalPremium, "THB")` ที่ cart boundary | `InsuranceCheckoutEndToEndTests` |
+| 1.2 / 10.1 | `Product` **ไม่เป็น** Money owner: `GetComplexProperties()` ว่าง + `TotalPremium` = คอลัมน์ `decimal(19,2)` | `MoneyColumnMappingTests` |
+
+`MoneyColumnMappingTests` ไม่ได้ "ลบเคสให้ผ่าน" — เคสเดิม (`Product_TotalPremium_maps_to_decimal_19_4_and_char3`)
+ถูก **แทน** ด้วยเคสกลับด้านที่จับ regression ถ้าใครเอา `ComplexProperty`/`decimal(19,4)` กลับมา
+
+### สิ่งที่ยังไม่ได้ verify — เหลือให้ T9
+
+1. **HTTP status code ของ gate ทั้งสอง** (cart add-item 400 `"Unknown or inactive product."`,
+   checkout start 409 `"A cart product is no longer available."`) — gate อยู่ใน minimal-API lambda ของ
+   `Program.cs` เรียกเป็น unit ไม่ได้ และ harness `WebApplicationFactory` ที่มีอยู่ boot host แบบ
+   "no live DB" (ใช้ได้แค่ตรวจ metadata/OpenAPI) ⇒ ต้องยิงจริงบน dev :11433 ตาม REQ-12.6
+   ที่ทำแทนไว้: assert **ค่าที่ gate อ่าน** (`GetProductByIdQuery` คืน `PaymentStatus != UNPAID`
+   หลัง `OrderPaid`) + เอกสารหลุดจาก default list
+2. `POST /api/v1/products` บน wire (premium เป็นตัวเลขเปล่า) — **ไม่มีเทสไหนใน repo ยิง endpoint นี้จริง**
+   (grep `api/v1/products` ใน `tests/Hosts.Tests` เจอแต่ permission-site/route-scheme ที่ดู metadata)
+   ⇒ breaking change ของ wire ยังไม่มี test ปิด, ต้องยิงมือตอน E2E
+3. `docker compose down -v` + migrate + seed แล้วตรวจ `INFORMATION_SCHEMA.COLUMNS` (REQ-12.5) — T8 ใช้ DB
+   ที่ T5/T6 เตรียมไว้ ไม่ได้ recreate ใหม่
+4. `dotnet build -warnaserror` แบบระบุ flag ตรง ๆ — T8 รัน `dotnet build pol-core.slnx` ซึ่ง repo
+   ตั้ง `-warnaserror` ใน props อยู่แล้ว (ผล 0 warning) แต่ REQ-12.1 เขียน flag ไว้ชัด ⇒ T9 รันตามตัวอักษร
+
+### พบปัญหาใน src ที่ไม่ได้แก้
+
+ไม่พบ bug ใน `src/` ที่ทำให้เทสแดง — ทุก error CS เป็นเทสที่ตามสเปกใหม่ไม่ทัน
+ข้อสังเกต 2 ข้อที่ไม่ใช่ bug แต่ควรรู้ (commit ที่เกี่ยวข้อง: `871c351` = HEAD ก่อน T8):
+
+1. **`ProductRepository.ListAsync` ทำให้ผลลัพธ์ขึ้นกับเวลาจริง** — เทสเดิมหลายตัวสร้างเอกสารด้วยวันที่
+   hard-code (`2026-07-01`) แล้วใช้ `SystemClock`; พอมี search window เอกสารพวกนี้จะหลุด window เอง
+   หลังผ่านไป 6 เดือน (เทสจะแดงเองในอนาคตโดยไม่มีใครแก้โค้ด) ⇒ T8 เปลี่ยน 3 ไฟล์ใน `Hosts.Tests`/
+   `Architecture.Tests` ให้ inject fixed clock ทุกจุดที่สร้าง `ProductRepository`. **ใครเพิ่มเทสใหม่ที่
+   แตะ `ProductRepository` ต้องส่ง fixed clock ห้ามใช้ `SystemClock`**
+2. **HANDOFF T4 เขียนว่า "6 endpoint ที่ใช้ `SfsQueryParamsMarker`" — ของจริงในโค้ดมี 4**
+   (`grep -n "SfsQueryParamsMarker" src/Hosts/Api/Program.cs` -> บรรทัด 983, 1585, 1693, 2079 =
+   `/api/v1/reports/policies`, `/api/v1/admins/reports/policies`, `/api/v1/admins`, `/api/v1/admins/roles`)
+   ⇒ `SfsOpenApiTests` theory ล็อกไว้ 4 ตัวตามของจริง ถ้าใครเชื่อเลข 6 จะไปหาที่ไม่มีอยู่
+
+### กับดักที่เจอ
+
+1. **task-gate ยิงเป็นครั้งที่ 5** — flip `[ ]` -> `[x]` ก่อนแล้วเติม Evidence ทีหลังถูก block จริง
+   (ไฟล์ถูกเขียนไปแล้วตอน block) ⇒ ทำ flip + Evidence ใน Edit เดียวเถอะ (คำเตือน T1-T7 จริงทุกตัวอักษร)
+2. **xUnit1025 เป็น error ไม่ใช่ warning** — `[InlineData(100.5)]` กับ `[InlineData(100.50)]` เป็น
+   duplicate ในระดับ attribute (literal เป็น `double` เหมือนกัน) ⇒ เคส trailing-zero ต้องเขียนเป็น `[Fact]`
+   ที่ assert ทั้ง `100.5m`/`100.50m`/`100m` ในตัวเดียว
+3. **helper ที่มี default ค่า "ให้ผ่าน window" กลืนเคส NULL** — `Prod(startDate: null)` ที่ default เป็น
+   `Today.AddDays(-1)` ทำให้เคส E/K (NULL semantics) กลายเป็นเคสปกติเงียบ ๆ ⇒ 11 เคส window สร้าง
+   `Product.Create` ตรง ๆ ไม่ผ่าน helper
+4. **`Assert.Equal` ของ `decimal` ไม่สน scale** (`100.50m == 100.5m`) ⇒ เคส trailing zero ยืนยันได้แค่ว่า
+   guard ไม่ปฏิเสธ ไม่ได้ยืนยันว่าเก็บ scale ไว้ — scale จริงถูกล็อกที่ `MoneyColumnMappingTests` (19,2) แทน
+5. `git rm` ก่อนรัน rename gate (ดูหัวข้อ "ไฟล์ที่ลบ")
+
+commit ของ T8: `<เติมหลัง commit>`

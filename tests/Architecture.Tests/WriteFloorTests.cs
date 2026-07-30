@@ -41,8 +41,7 @@ public sealed class WriteFloorTests : IDisposable
         Products.Domain.Product.Create(
             new Products.Domain.ProductInput(
                 merchantId, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
-                documentNo, "100", "00098", Money.Of(10m, "THB")),
-            DateTime.UtcNow);
+                documentNo, "00098", 10m));
 
     [Fact]
     public async Task Forged_detached_write_is_closed_by_the_concurrency_token()

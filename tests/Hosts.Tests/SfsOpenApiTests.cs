@@ -33,8 +33,7 @@ file sealed class SfsOpenApiFactory : WebApplicationFactory<ApiHost::Program>
 
 public sealed class SfsOpenApiTests
 {
-    [Fact]
-    public async Task Admin_roles_get_declares_the_sfs_query_parameters()
+    private static async Task<HashSet<string?>> QueryParameterNamesAsync(string path)
     {
         using var factory = new SfsOpenApiFactory();
         using var client = factory.CreateClient();
@@ -43,10 +42,20 @@ public sealed class SfsOpenApiTests
         response.EnsureSuccessStatusCode();
         var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
 
-        var op = root.GetProperty("paths").GetProperty("/api/v1/admins/roles").GetProperty("get");
-        var names = op.GetProperty("parameters").EnumerateArray()
-            .Select(p => p.GetProperty("name").GetString())
-            .ToHashSet();
+        var op = root.GetProperty("paths").GetProperty(path).GetProperty("get");
+        return [.. op.GetProperty("parameters").EnumerateArray().Select(p => p.GetProperty("name").GetString())];
+    }
+
+    // Every endpoint carrying the SfsQueryParamsMarker must declare all five SFS parameters (REQ-13;
+    // admin-account-management REQ-7.6/F2 for the admin directory). These are the four in the host today.
+    [Theory]
+    [InlineData("/api/v1/admins/roles")]
+    [InlineData("/api/v1/admins")]
+    [InlineData("/api/v1/reports/policies")]
+    [InlineData("/api/v1/admins/reports/policies")]
+    public async Task An_sfs_endpoint_declares_the_sfs_query_parameters(string path)
+    {
+        var names = await QueryParameterNamesAsync(path);
 
         Assert.Contains("page", names);
         Assert.Contains("limit", names);
@@ -55,27 +64,16 @@ public sealed class SfsOpenApiTests
         Assert.Contains("search", names);
     }
 
-    // admin-account-management REQ-7.6/F2: the admin directory list carries the SfsQueryParamsMarker, so its SFS
-    // query parameters must appear in the OpenAPI document just like the roles list.
+    // REQ-7.4: the document list left the SFS surface — it declares page/limit/productFilters and must not
+    // advertise filters/sort/search, which it no longer reads.
     [Fact]
-    public async Task Admin_directory_get_declares_the_sfs_query_parameters()
+    public async Task Products_get_declares_only_the_paging_and_productFilters_parameters()
     {
-        using var factory = new SfsOpenApiFactory();
-        using var client = factory.CreateClient();
+        var names = await QueryParameterNamesAsync("/api/v1/products");
 
-        var response = await client.GetAsync("/openapi/v1.json");
-        response.EnsureSuccessStatusCode();
-        var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-
-        var op = root.GetProperty("paths").GetProperty("/api/v1/admins").GetProperty("get");
-        var names = op.GetProperty("parameters").EnumerateArray()
-            .Select(p => p.GetProperty("name").GetString())
-            .ToHashSet();
-
-        Assert.Contains("page", names);
-        Assert.Contains("limit", names);
-        Assert.Contains("filters", names);
-        Assert.Contains("sort", names);
-        Assert.Contains("search", names);
+        Assert.Equal(["limit", "page", "productFilters"], names.OrderBy(n => n, StringComparer.Ordinal));
+        Assert.DoesNotContain("filters", names);
+        Assert.DoesNotContain("sort", names);
+        Assert.DoesNotContain("search", names);
     }
 }

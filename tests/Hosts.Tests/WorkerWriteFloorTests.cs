@@ -115,17 +115,17 @@ public sealed class WorkerWriteFloorTests : IDisposable
         using (var db = ApiContext())
         {
             productId = await new CreateProductHandler(
-                    new ProductRepository(db, NullLogger<ProductRepository>.Instance),
-                    new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock())
+                    new ProductRepository(db, new FixedClock(DateTime.UtcNow)),
+                    new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
                 .Handle(new CreateProductCommand(new ProductInput(
                     MerchantA, ProductGroup.VMI, DocumentType.POLICY,
-                    "00098-69100/กธ/900001-10", "100", "00098", Money.Of(2500m, "THB"))), CancellationToken.None);
+                    "00098-69100/กธ/900001-10", "00098", 2500m)), CancellationToken.None);
         }
 
         using (var db = NewContext())
         {
             var consumer = new DocumentPaidOnOrderPaidConsumer(
-                new ProductRepository(db, NullLogger<ProductRepository>.Instance),
+                new ProductRepository(db, new FixedClock(DateTime.UtcNow)),
                 new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
             await consumer.Handle(new Contracts.OrderPaid(MerchantA, [productId], DateTime.UtcNow), CancellationToken.None);
         }
@@ -133,7 +133,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
         using var verify = NewContext();
         var product = await verify.Set<ProductAggregate>().SingleAsync(p => p.Id == productId);
         Assert.Equal(PaymentStatus.PAID, product.PaymentStatus);
-        Assert.False(product.IsActive);
+        Assert.NotNull(product.PaidDate);
     }
 
     [Fact]
@@ -146,6 +146,11 @@ public sealed class WorkerWriteFloorTests : IDisposable
 
         db.Remove(order);
         await Assert.ThrowsAsync<WriteGuardException>(() => db.SaveChangesAsync());
+    }
+
+    private sealed class FixedClock(DateTime utcNow) : IClock
+    {
+        public DateTime UtcNow { get; } = utcNow;
     }
 
     private sealed class FakeActor(bool hasActor, Guid merchantId = default) : IActorContext

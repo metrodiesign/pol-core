@@ -40,14 +40,15 @@ public sealed class SfsQueryParserTests
     }
 
     [Theory]
-    [InlineData("1000", 100)]   // above ceiling -> 100
-    [InlineData("100", 100)]
-    [InlineData("50", 50)]
+    [InlineData("1000", 25)]    // above ceiling -> 25 (§2 @PageSize, REQ-4.1)
+    [InlineData("100", 25)]
+    [InlineData("50", 25)]
+    [InlineData("25", 25)]
     [InlineData("1", 1)]
     [InlineData("0", 1)]        // below floor -> 1
     [InlineData("-5", 1)]
     [InlineData("abc", 25)]     // unparseable -> default
-    public void Limit_is_clamped_into_1_to_100(string limit, int expected)
+    public void Limit_is_clamped_into_1_to_25(string limit, int expected)
     {
         Assert.Equal(expected, Parse(("limit", limit)).Limit);
     }

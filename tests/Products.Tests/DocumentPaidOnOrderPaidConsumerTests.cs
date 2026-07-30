@@ -1,12 +1,11 @@
 using BuildingBlocks.Application;
 using Products.Application;
 using Products.Domain;
-using SharedKernel;
 
 namespace Products.Tests;
 
 /// <summary>
-/// OrderPaid -> document retirement (REQ-7.2): the consumer marks every matching product PAID + inactive in
+/// OrderPaid -> document retirement (REQ-7.2): the consumer marks every matching product PAID in
 /// one save, and is defensive against at-least-once delivery — an unknown product id or one scoped to
 /// another merchant is skipped, never thrown, and does not trigger an empty save.
 /// </summary>
@@ -18,8 +17,7 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
     private static Product NewProduct(Guid merchantId) =>
         Product.Create(
             new ProductInput(merchantId, ProductGroup.VMI, DocumentType.POLICY,
-                "00098-69100/กธ/037674-10", "100", "00098", Money.Of(2500m, "THB")),
-            new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc));
+                "00098-69100/กธ/037674-10", "00098", 2500m));
 
     [Fact]
     public async Task It_marks_matching_products_PAID_and_saves_once()
@@ -33,7 +31,6 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
             .Handle(new Contracts.OrderPaid(Merchant, [a.Id, b.Id], PaidAt), default);
 
         Assert.Equal(PaymentStatus.PAID, a.PaymentStatus);
-        Assert.False(a.IsActive);
         Assert.Equal(PaidAt, a.PaidDate);
         Assert.Equal(PaymentStatus.PAID, b.PaymentStatus);
         Assert.Equal(1, uow.SaveCount);
@@ -50,7 +47,7 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
             .Handle(new Contracts.OrderPaid(Merchant, [foreign.Id], PaidAt), default);
 
         Assert.Equal(PaymentStatus.UNPAID, foreign.PaymentStatus);
-        Assert.True(foreign.IsActive);
+        Assert.Null(foreign.PaidDate);
         Assert.Equal(0, uow.SaveCount);
     }
 
@@ -73,8 +70,6 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
             Task.FromResult(_products.FirstOrDefault(p => p.Id == productId));
 
         public void Add(Product product) => throw new NotSupportedException();
-        public Task<IReadOnlyList<Product>> ListByTenantAsync(Guid merchantId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
         public Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
