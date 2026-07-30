@@ -25,7 +25,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T1 | spec artifacts (requirements/design/tasks) + PDF pointer | เสร็จ |
 | T2 | Domain: `Product.cs`, `ProductInput.cs` | เสร็จ |
 | T3 | Application: read model, `ProductFilterDto`, query, ลบ dead code | เสร็จ |
-| T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | รอ |
+| T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | เสร็จ |
 | T5 | EF config ×2 + migration ใหม่ + snapshot | รอ |
 | T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | รอ |
 | T7 | cap 25 ทั้ง repo + SFS docs/spec | รอ |
@@ -435,3 +435,152 @@ gate `!product.IsActive` ที่ `Program.cs:679` + `:776`, `Money.Of(product.
    `branchCode` ถูก ignore — **T8 ยกเคสชุดนี้ไปเขียนเป็น xunit ได้ตรง ๆ**
 
 commit ของ T3: `10e63ee`
+
+---
+
+## T4 — Hosts + Repository (เสร็จ)
+
+แตะ 4 ไฟล์ + ลบ 1 ไฟล์:
+`src/Hosts/Api/{Program.cs,SfsQueryParser.cs,SfsOpenApi.cs}`,
+`src/Persistence/Persistence.MerchantRuntime/Products/ProductRepository.cs`;
+ลบ `src/Persistence/Persistence.MerchantRuntime/Products/ProductSfs.cs`
+
+### `ProductRepository.ListAsync` — ลำดับ clause สุดท้าย (T8 เขียน test ตามนี้ได้ตรง ๆ)
+
+```csharp
+var pf = query.ProductFilters;                       // non-nullable แล้ว ไม่มี if null
+
+src = _db.Set<Product>().AsNoTracking()
+    .Where(p => p.MerchantId == query.MerchantId)     // floor (defence-in-depth)
+    .Where(p => p.SaleCode == pf.SaleCode);           // exact match, ค่าที่ Parse trim มาแล้ว
+
+var today = _clock.UtcNow.Date;                       // IClock injected
+src = src.Where(p =>
+    (p.DocumentType == DocumentType.RENEWAL
+        && p.EndDate >= today && p.EndDate < today.AddMonths(2))
+    || (p.DocumentType != DocumentType.RENEWAL
+        && p.StartDate >= today.AddMonths(-6)));
+
+if (pf.PaymentStatusFilter is { } paymentStatus)      // null (wire ALL) = ไม่กรอง
+    src = src.Where(p => p.PaymentStatus == paymentStatus);
+// ... SearchText / InsuredName / PolicyNo / ApplicationNo / DocumentType / ProductGroup
+// ... coverage 4 + PaidDate 2 (ตรรกะเดิมทั้งหมด ไม่เปลี่ยน)
+
+long total = await src.LongCountAsync(ct);            // หลัง filter ก่อน paging
+int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);
+var items = await src.OrderBy(p => p.DocumentNo).Skip(skip).Take(query.Limit)
+    .Select(p => new ProductListItem(/* 32 arg */)).ToListAsync(ct);
+```
+
+ค่าคงที่ 2 ตัวเป็น `private const int` บน class: `SearchWindowMonths = 6`, `RenewalWindowMonths = 2`
+(REQ-6.4 — กลับทิศ RENEWAL ได้ด้วยการแก้ clause เดียว)
+
+### search window — แถวไหนเข้า/ไม่เข้า (สมมติ `today` = 2026-07-30)
+
+| แถว | `DocumentType` | `StartDate` | `EndDate` | เข้า? | เหตุผล |
+|---|---|---|---|---|---|
+| A | `POLICY` | 2026-07-01 | any | เข้า | `StartDate >= 2026-01-30` |
+| B | `POLICY` | 2026-01-30 | any | เข้า | ขอบล่าง inclusive (`>=` วันพอดี) |
+| C | `POLICY` | 2026-01-29 | any | ไม่เข้า | เก่ากว่า 6 เดือน |
+| D | `POLICY` | 2027-01-01 | any | เข้า | **ไม่มีขอบบน** — rule ทั่วไปกำหนดแค่ "ย้อนหลังไม่เกิน 6 เดือน" |
+| E | `POLICY` | NULL | any | ไม่เข้า | `NULL >= x` = UNKNOWN (ผลข้างเคียงที่ยอมรับ) |
+| F | `RENEWAL` | any | 2026-07-30 | เข้า | ขอบล่าง = today inclusive |
+| G | `RENEWAL` | any | 2026-09-29 | เข้า | < today+2 เดือน |
+| H | `RENEWAL` | any | 2026-09-30 | ไม่เข้า | ขอบบน half-open (`today.AddMonths(2)` = 2026-09-30) |
+| I | `RENEWAL` | any | 2026-07-29 | ไม่เข้า | หมดอายุแล้ว (window มองไปข้างหน้า) |
+| J | `RENEWAL` | 2026-01-01 (เก่า) | 2026-08-15 | เข้า | RENEWAL ไม่สน `StartDate` เลย |
+| K | `RENEWAL` | any | NULL | ไม่เข้า | NULL semantics |
+
+หมายเหตุ: window ถูก AND **เสมอ** ไม่ว่า client ส่ง filter อะไรมา — เป็น floor ไม่ใช่ option
+`today` = `_clock.UtcNow.Date` (เวลา 00:00:00) เทียบกับคอลัมน์ `datetime2(0)`
+
+### Motor gate ของทะเบียนรถ (REQ-5)
+
+`LicensePlateNumber` เป็น **term ที่ 5** ใน `||` chain ของ `SearchText` โดยครอบด้วย per-row gate:
+
+```csharp
+|| ((p.ProductGroup == ProductGroup.CMI || p.ProductGroup == ProductGroup.VMI)
+    && p.LicensePlateNumber != null && EF.Functions.Like(p.LicensePlateNumber, pattern, "\\"))
+```
+
+term ที่ 1-4 (`DocumentNo`, `PolicyNumber`, `ApplicationNumber`, `EndorsementNumber`) **ไม่มี gate**
+= §3 กับ §4 ตรงกันในสี่ตัวนี้ (เลขกรมธรรม์/ใบคำขอ/สลักหลัง/ใบเตือน)
+ตัดสิน: gate เป็น per-row เพราะ `InsuranceType` เป็น `builder.Ignore` แปลเป็น SQL ไม่ได้ และ per-request
+(อ่าน `pf.ProductGroup`) จะผิดตอน client ไม่ส่ง `productGroup` — แถว FIRE/MISC จะ match ทะเบียนรถได้
+พฤติกรรมที่ T8 เขียน test: `searchText` = ทะเบียนของแถว `FIRE`/`MISC` -> ไม่ match;
+ทะเบียนเดียวกันบนแถว `CMI`/`VMI` -> match
+
+### Hosts
+
+- gate 2 จุด -> `product.PaymentStatus != PaymentStatus.UNPAID` (ข้อความ + status code เดิมเป๊ะ:
+  cart 400 `"Unknown or inactive product."`, checkout 409 `"A cart product is no longer available."`)
+- currency boundary จุดเดียว: `Money.Of(product.TotalPremium, "THB")` ใน `AddItemToCartCommand`
+- `SfsQueryParser.ParsePaging(IQueryCollection query)` -> `(int Page, int Limit)` `public static`
+  **`Parse` เรียก `ParsePaging` ต่อ** ⇒ logic clamp อยู่ที่เดียว; T7 แก้ `Math.Clamp(..., 1, 100)`
+  บรรทัดเดียวใน `ParsePaging` ก็มีผลทั้ง 7 endpoint
+- OpenAPI marker ใหม่ = **`ProductQueryParamsMarker`** (`SfsOpenApi.cs`, ข้าง `SfsQueryParamsMarker` เดิม)
+  + `SfsOpenApi.AddProductQueryParameters(operation)` ประกาศ `page`/`limit`/`productFilters`
+  transformer ที่ `Program.cs` เป็น `if` ก้อนที่สอง แยกจากก้อนเดิม ⇒ 6 endpoint ที่ใช้
+  `SfsQueryParamsMarker` ไม่เปลี่ยนพฤติกรรมเลย
+  refactor เล็ก: `AddPagingParameters` (private) คืน `IList<IOpenApiParameter>` ให้ทั้งสอง public method
+  ใช้ร่วม — คืน list เพราะ compiler ไม่ propagate `??= []` ข้าม method (CS8602)
+- `GET /products` `.WithDescription` เลิกโฆษณา SFS แล้ว
+- **ไม่มี endpoint `GET /products/{id}`** ในโค้ด (`GetProductByIdQuery` ถูกเรียกจาก cart/checkout ภายใน
+  เท่านั้น) ⇒ ไม่มี `.Produces<ProductView>` ให้แก้ (ข้อ 9 ของบรีฟเป็น no-op)
+
+### `CreateProductRequest` — ลำดับ field สุดท้าย
+
+ตรงกับ `ProductInput` ทุกตัว **ยกเว้นตัวแรก** (`MerchantId` มาจาก `actor` ไม่ใช่ body):
+
+```csharp
+internal sealed record CreateProductRequest(
+    ProductGroup ProductGroup, DocumentType DocumentType, string DocumentNo, string SaleCode,
+    decimal TotalPremium, string? PolicyYear = null, string? ReferenceBranch = null,
+    string? ReferencePre = null, string? PolicySequenceNo = null, string? ReferenceYear = null,
+    string? ReferenceNo = null, string? PolicyBranch = null, string? PolicyType = null,
+    string? SaleFullName = null, string? BrokerCode = null, string? BrokerName = null,
+    string? PolicyNumber = null, string? ApplicationNumber = null, string? PreviousPolicyNumber = null,
+    string? EndorsementNumber = null, DateTime? StartDate = null, DateTime? EndDate = null,
+    string? ShowName = null, string? LicensePlateNumber = null, decimal? NetPremium = null,
+    decimal? Stamp = null, decimal? TaxVat = null, decimal? CommissionAmount = null,
+    decimal? CommissionPercent = null);
+```
+
+(wire ของ premium เปลี่ยนจาก object `{"amount":..,"currency":".."}` เป็นตัวเลขเปล่า — breaking
+สำหรับ client ที่เรียก `POST /products`; T8 ต้องแก้ payload ใน `ProductInsuranceFieldsRoundTripTests`)
+
+### DI ที่เปลี่ยน
+
+`ProductRepository` ctor = `(MerchantRuntimeDbContext db, IClock clock)` — **`ILogger` ถูกถอนออก**
+(เหลือผู้ใช้เดียวคือ SFS silent-drop log ที่หายไปพร้อม `ProductSfs`) ไม่ต้องแก้ registration
+(`MerchantRuntimePersistenceRegistration.cs:52` `AddScoped` เดิม + `IClock`/`SystemClock` singleton
+ลงทะเบียนอยู่แล้ว) — T8 ที่สร้าง `ProductRepository` ตรง ๆ ในเทสต้องส่ง fake `IClock` แทน logger
+
+### build ที่ยังแดง
+
+`rtk proxy dotnet build pol-core.slnx` -> 64 error ใน **2 ไฟล์เท่านั้น** (ทั้งคู่เป็นของ T5):
+
+| ไฟล์ | จำนวน | เจ้าของ |
+|---|---|---|
+| `src/Modules/Products/Products.Infrastructure/ProductConfiguration.cs` | 32 | T5 |
+| `src/Persistence/Persistence.MerchantRuntime/Products/ProductConfiguration.cs` | 32 | T5 |
+
+ไม่มี error ในไฟล์อื่นของ `src/` แล้ว; `tests/` ยังไม่ถูก compile (Persistence ล้มก่อน) — T8
+
+### กับดักที่เจอ
+
+1. **`dotnet build src/Hosts/Api` ยืนยัน Program.cs ไม่ได้ตรง ๆ** เพราะ Persistence ล้มก่อน ⇒ วิธีที่ใช้:
+   patch ชั่วคราว (comment) ที่ `ProductConfiguration.cs` 2 ไฟล์ให้ compile ผ่าน -> build -> `git checkout --`
+   คืนทั้งสองไฟล์ทันที (ยืนยันด้วย `git status` ว่า diff ของ T4 ไม่มีสองไฟล์นั้น). T5 ทำอยู่ตอนนี้ก็
+   ระวังเรื่องนี้: ถ้า T5 เริ่มไปแล้วห้ามใช้วิธีนี้ (จะทับงานเขา)
+2. **`operation.Parameters ??= []` ไม่ propagate ข้าม method** — helper ที่ set null-forgiving ให้แล้ว
+   caller ยัง CS8602 ⇒ ให้ helper คืน list ที่ set แล้วออกมา (ที่ `-warnaserror` นี่คือ error ไม่ใช่ warning)
+3. **`SfsLike` ไม่ได้อยู่ใน `ProductSfs.cs`** — อยู่ `src/BuildingBlocks/BuildingBlocks.Application/SfsLike.cs`
+   ⇒ ลบ `ProductSfs.cs` แล้ว `SfsLike.Escape` ใน `ProductRepository` ยังใช้ได้ (ยังต้อง
+   `using BuildingBlocks.Application;`)
+4. **ลำดับ clause ของ window มาก่อน `PaymentStatusFilter`** โดยเจตนา (window เป็น floor) — ผลลัพธ์
+   เหมือนกันเพราะเป็น AND ทั้งหมด แต่ SQL ที่ generate จะอ่านง่ายกว่าเวลา debug
+5. `p.EndDate < today.AddMonths(2)` เป็น half-open ⇒ วันที่ 2026-09-30 (เมื่อ today = 2026-07-30)
+   **ไม่เข้า** — ถ้าเจ้าของ SP บอกว่าต้อง inclusive ให้เปลี่ยนเป็น `<=` บรรทัดเดียว
+
+commit ของ T4: `c265620`

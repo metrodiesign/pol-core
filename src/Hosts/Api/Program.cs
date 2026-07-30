@@ -295,6 +295,9 @@ builder.Services.AddOpenApi(options =>
     {
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<SfsQueryParamsMarker>().Any())
             SfsOpenApi.AddQueryParameters(operation);
+        // Products reads only page/limit + its own typed productFilters — no SFS surface to advertise (REQ-7.4).
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<ProductQueryParamsMarker>().Any())
+            SfsOpenApi.AddProductQueryParameters(operation);
         return Task.CompletedTask;
     });
 
@@ -613,7 +616,7 @@ var createProduct = api.MapPost("/products", async (
 {
     var id = await mediator.Send(
         new CreateProductCommand(new ProductInput(
-            actor.MerchantId, body.ProductGroup, body.DocumentType, body.DocumentNo, body.BranchCode,
+            actor.MerchantId, body.ProductGroup, body.DocumentType, body.DocumentNo,
             body.SaleCode, body.TotalPremium, body.PolicyYear, body.ReferenceBranch, body.ReferencePre,
             body.PolicySequenceNo, body.ReferenceYear, body.ReferenceNo, body.PolicyBranch, body.PolicyType,
             body.SaleFullName, body.BrokerCode, body.BrokerName, body.PolicyNumber, body.ApplicationNumber,
@@ -632,26 +635,26 @@ createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.Produ
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-// GET /products — the merchant-scoped SFS exemplar. Merchant comes from the principal (IActorContext), NEVER the
-// client; the query is IMerchantScoped so the merchant guard + RLS floor confine every row to the bound merchant, and
-// SFS can only narrow within it (no whitelist exposes merchantId). productFilters is the optional typed surface.
+// GET /products — the merchant-scoped document list. Merchant comes from the principal (IActorContext), NEVER the
+// client; the query is IMerchantScoped so the merchant guard + query-filter floor confine every row to the bound
+// merchant. The input surface is exactly SP guide §2: paging plus the mandatory typed productFilters (REQ-7.1).
 api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var p = SfsQueryParser.Parse(http.Request.Query);
+    var p = SfsQueryParser.ParsePaging(http.Request.Query);
     var result = await mediator.Send(new ListProductsQuery
     {
         MerchantId = actor.MerchantId,
-        Page = p.Page, Limit = p.Limit, Filters = p.Filters, Sort = p.Sort, Search = p.Search,
+        Page = p.Page, Limit = p.Limit,
         ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
     }, ct);
     return Results.Ok(result);
 })
     .RequireAuthorization("merchant-user")
-    .WithMetadata(new SfsQueryParamsMarker())
+    .WithMetadata(new ProductQueryParamsMarker())
     .WithTags("ผลิตภัณฑ์")
     .WithName("ListProducts")
     .WithSummary("รายการผลิตภัณฑ์")
-    .WithDescription("แคตตาล็อกแบบแบ่งหน้าของร้านค้าที่ยืนยันตัวตนแล้ว รองรับ SFS (page, limit, filters, sort, search) บวก productFilters object ที่มี type กำกับ")
+    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้าของร้านค้าที่ยืนยันตัวตนแล้ว รับ page, limit และ productFilters (บังคับ — ต้องมี saleCode) ตาม §2 ของเอกสาร SP; ไม่รองรับ filters/sort/search")
     .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -674,13 +677,16 @@ api.MapPost("/carts/{cartId:guid}/items", async (
     Guid cartId, AddItemToCartRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
     // The unit price is the catalog's, NEVER the client's: look the product up first and price the line
-    // from it (the cart is "selected plans + quote", reference 2.4). Unknown/inactive product -> 400.
+    // from it (the cart is "selected plans + quote", reference 2.4). A document that is not UNPAID is already
+    // sold, so it cannot be added -> 400 (REQ-2.1).
     var product = await mediator.Send(new GetProductByIdQuery(actor.MerchantId, body.ProductId), ct);
-    if (product is null || !product.IsActive)
+    if (product is null || product.PaymentStatus != PaymentStatus.UNPAID)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown or inactive product.");
 
+    // The single currency boundary: Product carries a bare decimal (§5.2), while Cart/Checkout/Order/
+    // PaymentSession stay Money{Amount,Currency}, so THB is minted here and nowhere else (REQ-8.4).
     var result = await mediator.Send(new AddItemToCartCommand(
-        cartId, actor.MerchantId, body.ProductId, body.Quantity, product.TotalPremium), ct);
+        cartId, actor.MerchantId, body.ProductId, body.Quantity, Money.Of(product.TotalPremium, "THB")), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
     .WithTags("ตะกร้าสินค้า")
@@ -773,7 +779,7 @@ api.MapPost("/checkouts", async (
     foreach (var item in cart.Items)
     {
         var product = await mediator.Send(new GetProductByIdQuery(actor.MerchantId, item.ProductId), ct);
-        if (product is null || !product.IsActive)
+        if (product is null || product.PaymentStatus != PaymentStatus.UNPAID)   // already sold -> 409 (REQ-2.1)
             return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart product is no longer available.");
 
         var person = body.InsuredPersons.Single(p => p.ProductId == item.ProductId);
@@ -2205,9 +2211,8 @@ internal sealed record CreateProductRequest(
     ProductGroup ProductGroup,
     DocumentType DocumentType,
     string DocumentNo,
-    string BranchCode,
     string SaleCode,
-    Money TotalPremium,
+    decimal TotalPremium,
     string? PolicyYear = null,
     string? ReferenceBranch = null,
     string? ReferencePre = null,
@@ -2227,10 +2232,10 @@ internal sealed record CreateProductRequest(
     DateTime? EndDate = null,
     string? ShowName = null,
     string? LicensePlateNumber = null,
-    Money? NetPremium = null,
-    Money? Stamp = null,
-    Money? TaxVat = null,
-    Money? CommissionAmount = null,
+    decimal? NetPremium = null,
+    decimal? Stamp = null,
+    decimal? TaxVat = null,
+    decimal? CommissionAmount = null,
     decimal? CommissionPercent = null);
 // No Amount: the charge is priced from the order row server-side (a body that still sends "amount" is
 // simply ignored — the platform never mints a charge the order does not back).

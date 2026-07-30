@@ -22,11 +22,19 @@ internal static class SfsQueryParser
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public static (int Page, int Limit, IReadOnlyList<FilterOption> Filters,
-                   IReadOnlyList<SortOption> Sort, SearchOption? Search) Parse(IQueryCollection query)
+    /// <summary>Parses just the paging pair, for endpoints that have a typed filter surface of their own and
+    /// no SFS surface at all (products, whose §2 input contract has no filter/sort/search — REQ-7.1).</summary>
+    public static (int Page, int Limit) ParsePaging(IQueryCollection query)
     {
         var limit = Math.Clamp(TryInt(query["limit"], 25), 1, 100);   // clamp = safety, not a 400 (REQ-2.2)
         var page = ClampPage(TryInt(query["page"], 1), limit);        // >= 1 + offset ceiling (REQ-2.3, REQ-2.6)
+        return (page, limit);
+    }
+
+    public static (int Page, int Limit, IReadOnlyList<FilterOption> Filters,
+                   IReadOnlyList<SortOption> Sort, SearchOption? Search) Parse(IQueryCollection query)
+    {
+        var (page, limit) = ParsePaging(query);
 
         var filters = Deserialize<List<FilterOption>>(query["filters"]) ?? [];
         if (filters.Count > MaxFilters)
