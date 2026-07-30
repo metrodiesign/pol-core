@@ -1024,4 +1024,4 @@ commit ของ T7: `871c351`
    guard ไม่ปฏิเสธ ไม่ได้ยืนยันว่าเก็บ scale ไว้ — scale จริงถูกล็อกที่ `MoneyColumnMappingTests` (19,2) แทน
 5. `git rm` ก่อนรัน rename gate (ดูหัวข้อ "ไฟล์ที่ลบ")
 
-commit ของ T8: `<เติมหลัง commit>`
+commit ของ T8: `ad52c3f`
