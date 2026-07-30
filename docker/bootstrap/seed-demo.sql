@@ -180,109 +180,75 @@ VALUES
     ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
     ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
 
--- shop.Products (REQ-5.4): 100 rows total, 34/33/33 across the three merchants. The first 24
--- (ids ...01-...18 hex) are the hand-written flagship plans below — shop.CartItems references
--- them by id, so their ids are load-bearing and must not move. The remaining 76 (ids ...19-...64
--- hex) are generated right after from a plan-line x tier cross join. 1 inactive per hand-written
--- block plus every 7th generated row, so IsActive covers both values. Policy-protected table (in
--- MerchantTables) — relies on the (ข) session-context stamp already in place.
-INSERT INTO shop.Products (Id, MerchantId, Name, IsActive, CreatedAt, PriceAmount, PriceCurrency)
+-- shop.Products (REQ-5.4): 100 rows total, 34/33/33 across the three merchants. A Product is now a
+-- sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
+-- hand-written flagship documents below; shop.CartItems references them by id, so their ids are
+-- load-bearing and must not move. The remaining 76 (ids ...19-...64 hex) are generated right after.
+-- 1 inactive per hand-written block plus every 7th generated row, so IsActive covers both values.
+-- DocumentNo is unique per merchant (IX_Products_MerchantId_DocumentNo). Optional document fields
+-- stay NULL here - the EF migration seed ('e6000000-%') carries the fully-populated samples.
+INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, BranchCode, SaleCode,
+                           ShowName, TotalPremiumAmount, TotalPremiumCurrency, PaymentStatus, IsActive, CreatedAt)
 VALUES
     -- vprivilege
-    ('e9000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', N'ประกันอุบัติเหตุส่วนบุคคล PA Plus',        1, SYSUTCDATETIME(),   1200.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', N'ประกันเดินทางต่างประเทศ Travel Gold',      1, SYSUTCDATETIME(),   1850.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', N'ประกันสุขภาพ Health Care 1M',              1, SYSUTCDATETIME(),  18500.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000001', N'ประกันชีวิตคุ้มครองสินเชื่อ MRTA Premium', 1, SYSUTCDATETIME(),  32000.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000001', N'ประกันโรคร้ายแรง Critical Illness Care',   1, SYSUTCDATETIME(),  24500.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000001', N'ประกันรถยนต์ชั้น 1 Motor First Class',     1, SYSUTCDATETIME(),  15900.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000007', 'e1000000-0000-4000-8000-000000000001', N'ประกันบ้าน Home Protect Standard',         1, SYSUTCDATETIME(),   3500.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000001', N'ประกันอุบัติเหตุนักเรียน Student PA (เลิกขาย)', 0, SYSUTCDATETIME(),  350.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'00098-69100/กธ/900001-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 01', 1200.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 'CMI',  'POLICY',      N'00098-69100/กธ/900002-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 02', 1850.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', 'FIRE', 'POLICY',      N'S001-69100/อค/900003',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 03', 18500.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000001', 'MISC', 'APPLICATION', N'S001-69100/บต/900004',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 04', 32000.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000001', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900005-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 05', 24500.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000001', 'CMI',  'ENDORSEMENT', N'69100/สล/900006',          '100', '00098', N'ผู้เอาประกันตัวอย่าง 06', 15900.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000007', 'e1000000-0000-4000-8000-000000000001', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900007',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 07', 3500.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000001', 'MISC', 'POLICY',      N'S001-69100/บต/900008',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 08', 350.0000,   'THB', 'UNPAID', 0, SYSUTCDATETIME()),
     -- vcommerce
-    ('e9000000-0000-4000-8000-000000000009', 'e1000000-0000-4000-8000-000000000002', N'ประกันอุบัติเหตุส่วนบุคคล PA Basic',       1, SYSUTCDATETIME(),    650.0000, 'THB'),
-    ('e9000000-0000-4000-8000-00000000000a', 'e1000000-0000-4000-8000-000000000002', N'ประกันเดินทางในประเทศ Travel Domestic',    1, SYSUTCDATETIME(),    450.0000, 'THB'),
-    ('e9000000-0000-4000-8000-00000000000b', 'e1000000-0000-4000-8000-000000000002', N'ประกันสุขภาพ Health Care 500K',            1, SYSUTCDATETIME(),   9800.0000, 'THB'),
-    ('e9000000-0000-4000-8000-00000000000c', 'e1000000-0000-4000-8000-000000000002', N'ประกันมะเร็ง Cancer Care Plus',            1, SYSUTCDATETIME(),  12800.0000, 'THB'),
-    ('e9000000-0000-4000-8000-00000000000d', 'e1000000-0000-4000-8000-000000000002', N'ประกันรถยนต์ชั้น 2+ Motor Class 2 Plus',   1, SYSUTCDATETIME(),   8900.0000, 'THB'),
-    ('e9000000-0000-4000-8000-00000000000e', 'e1000000-0000-4000-8000-000000000002', N'ประกันร้านค้า Shop Owner Protect',         1, SYSUTCDATETIME(),   6200.0000, 'THB'),
-    ('e9000000-0000-4000-8000-00000000000f', 'e1000000-0000-4000-8000-000000000002', N'ประกันขนส่งสินค้า Cargo Transit Cover',    1, SYSUTCDATETIME(),   4100.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000010', 'e1000000-0000-4000-8000-000000000002', N'ประกันสัตว์เลี้ยง Pet Care (เลิกขาย)',     0, SYSUTCDATETIME(),    990.0000, 'THB'),
+    ('e9000000-0000-4000-8000-000000000009', 'e1000000-0000-4000-8000-000000000002', 'VMI',  'POLICY',      N'00098-69100/กธ/900009-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 09', 650.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-00000000000a', 'e1000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'00098-69100/กธ/900010-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 10', 450.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-00000000000b', 'e1000000-0000-4000-8000-000000000002', 'FIRE', 'POLICY',      N'S001-69100/อค/900011',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 11', 9800.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-00000000000c', 'e1000000-0000-4000-8000-000000000002', 'MISC', 'APPLICATION', N'S001-69100/บต/900012',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 12', 12800.0000, 'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-00000000000d', 'e1000000-0000-4000-8000-000000000002', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900013-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 13', 8900.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-00000000000e', 'e1000000-0000-4000-8000-000000000002', 'CMI',  'ENDORSEMENT', N'69100/สล/900014',          '100', '00098', N'ผู้เอาประกันตัวอย่าง 14', 6200.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-00000000000f', 'e1000000-0000-4000-8000-000000000002', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900015',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 15', 4100.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000010', 'e1000000-0000-4000-8000-000000000002', 'MISC', 'POLICY',      N'S001-69100/บต/900016',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 16', 990.0000,   'THB', 'UNPAID', 0, SYSUTCDATETIME()),
     -- vsouvenir
-    ('e9000000-0000-4000-8000-000000000011', 'e1000000-0000-4000-8000-000000000003', N'ประกันอุบัติเหตุนักท่องเที่ยว Tourist PA', 1, SYSUTCDATETIME(),    390.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000012', 'e1000000-0000-4000-8000-000000000003', N'ประกันเดินทางระยะสั้น Travel Mini',        1, SYSUTCDATETIME(),    590.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000013', 'e1000000-0000-4000-8000-000000000003', N'ประกันของที่ระลึกชำรุด Souvenir Protect',  1, SYSUTCDATETIME(),    450.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000014', 'e1000000-0000-4000-8000-000000000003', N'ประกันสัมภาระเดินทาง Baggage Guard',       1, SYSUTCDATETIME(),    550.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000015', 'e1000000-0000-4000-8000-000000000003', N'ประกันเที่ยวบินล่าช้า Flight Delay Cover', 1, SYSUTCDATETIME(),    480.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000003', N'ประกันอุบัติเหตุกลุ่มทัวร์ Group Tour PA', 1, SYSUTCDATETIME(),    720.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', N'ประกันร้านขายของฝาก Souvenir Shop Cover',  1, SYSUTCDATETIME(),   2100.0000, 'THB'),
-    ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', N'ประกันสินค้าที่ระลึกพิเศษ Limited Edition (เลิกขาย)', 0, SYSUTCDATETIME(), 48000.0000, 'THB');
+    ('e9000000-0000-4000-8000-000000000011', 'e1000000-0000-4000-8000-000000000003', 'VMI',  'POLICY',      N'00098-69100/กธ/900017-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 17', 390.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000012', 'e1000000-0000-4000-8000-000000000003', 'CMI',  'POLICY',      N'00098-69100/กธ/900018-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 18', 590.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000013', 'e1000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69100/อค/900019',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 19', 450.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000014', 'e1000000-0000-4000-8000-000000000003', 'MISC', 'APPLICATION', N'S001-69100/บต/900020',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 20', 550.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000015', 'e1000000-0000-4000-8000-000000000003', 'VMI',  'RENEWAL',     N'00098-68100/ตอ/900021-10', '100', '00098', N'ผู้เอาประกันตัวอย่าง 21', 480.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000003', 'CMI',  'ENDORSEMENT', N'69100/สล/900022',          '100', '00098', N'ผู้เอาประกันตัวอย่าง 22', 720.0000,   'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000017', 'e1000000-0000-4000-8000-000000000003', 'FIRE', 'RENEWAL',     N'S001-68100/อค/900023',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 23', 2100.0000,  'THB', 'UNPAID', 1, SYSUTCDATETIME()),
+    ('e9000000-0000-4000-8000-000000000018', 'e1000000-0000-4000-8000-000000000003', 'MISC', 'POLICY',      N'S001-69100/บต/900024',     '100', 'S001',  N'ผู้เอาประกันตัวอย่าง 24', 48000.0000, 'THB', 'UNPAID', 0, SYSUTCDATETIME());
 
--- The remaining 76 products (ids ...19-...64 hex), taking the catalogue to 100. Built from a
--- plan-line x tier cross join rather than 76 hand-typed rows: 9 lines x 3 tiers = 27 candidates per
--- merchant, of which 26/25/25 are taken. Deterministic throughout — the id is the row number
--- rendered as hex (offset by the 24 above), so a re-run reproduces the exact same 76 rows and the
--- DELETE ... LIKE 'e9000000-%' in step (ค) still reclaims every one of them.
-DECLARE @PlanLine TABLE (MerchantIdx tinyint, LineIdx tinyint, LineName nvarchar(120), BasePrice decimal(19,4));
-INSERT INTO @PlanLine (MerchantIdx, LineIdx, LineName, BasePrice) VALUES
-    (1, 1, N'ประกันสุขภาพเหมาจ่าย Health Lumpsum',        22000.0000),
-    (1, 2, N'ประกันชีวิตตลอดชีพ Whole Life',              38000.0000),
-    (1, 3, N'ประกันโรคร้ายแรงเจอจ่ายจบ CI Lumpsum',       26500.0000),
-    (1, 4, N'ประกันอุบัติเหตุครอบครัว Family PA',          4200.0000),
-    (1, 5, N'ประกันรถยนต์ชั้น 1 ซ่อมห้าง Motor Premium',  19800.0000),
-    (1, 6, N'ประกันบ้านและทรัพย์สิน Home All Risk',        7400.0000),
-    (1, 7, N'ประกันการเดินทางรายปี Travel Annual',         5600.0000),
-    (1, 8, N'ประกันบำนาญ Retirement Saver',               41000.0000),
-    (1, 9, N'ประกันสุขภาพเด็ก Kids Health',                9600.0000),
-    (2, 1, N'ประกันร้านค้าออนไลน์ E-Shop Cover',            5200.0000),
-    (2, 2, N'ประกันความรับผิดต่อบุคคลภายนอก Public Liability', 8800.0000),
-    (2, 3, N'ประกันขนส่งพัสดุ Parcel Transit',              3300.0000),
-    (2, 4, N'ประกันสินค้าคงคลัง Inventory Protect',         6900.0000),
-    (2, 5, N'ประกันภัยไซเบอร์ Cyber Shield',              14500.0000),
-    (2, 6, N'ประกันหยุดชะงักธุรกิจ Business Interruption', 21000.0000),
-    (2, 7, N'ประกันอุบัติเหตุพนักงาน Staff Group PA',       2800.0000),
-    (2, 8, N'ประกันสุขภาพกลุ่ม Group Health',             16400.0000),
-    (2, 9, N'ประกันรถขนส่งเชิงพาณิชย์ Commercial Fleet',  27500.0000),
-    (3, 1, N'ประกันทริปในประเทศ Domestic Trip',              520.0000),
-    (3, 2, N'ประกันของฝากเสียหาย Gift Damage Cover',         480.0000),
-    (3, 3, N'ประกันอุบัติเหตุรายวัน Daily PA',               390.0000),
-    (3, 4, N'ประกันกล้องและอุปกรณ์ Gadget Guard',           1150.0000),
-    (3, 5, N'ประกันยกเลิกทริป Trip Cancellation',            860.0000),
-    (3, 6, N'ประกันรถเช่าท่องเที่ยว Rental Car Cover',      1450.0000),
-    (3, 7, N'ประกันกิจกรรมผจญภัย Adventure Sports',         1780.0000),
-    (3, 8, N'ประกันร้านของฝากรายปี Souvenir Shop Annual',   2600.0000),
-    (3, 9, N'ประกันคณะทัวร์ Tour Group Cover',              3400.0000);
-
-DECLARE @Tier TABLE (TierNo tinyint, TierName nvarchar(16), Multiplier decimal(5,2));
-INSERT INTO @Tier (TierNo, TierName, Multiplier) VALUES
-    (1, N'Silver', 1.00), (2, N'Gold', 1.35), (3, N'Platinum', 1.80);
-
--- 26 for vprivilege, 25 each for vcommerce/vsouvenir = 76. Ordered by (merchant, line, tier) so the
--- row number -> id mapping is stable across runs.
-;WITH candidate AS (
-    SELECT  l.MerchantIdx,
-            CONCAT(l.LineName, N' ', t.TierName)                       AS Name,
-            CAST(l.BasePrice * t.Multiplier AS decimal(19,4))          AS PriceAmount,
-            ROW_NUMBER() OVER (PARTITION BY l.MerchantIdx ORDER BY l.LineIdx, t.TierNo) AS RankInMerchant
-    FROM @PlanLine l CROSS JOIN @Tier t
-),
-taken AS (
-    SELECT  MerchantIdx, Name, PriceAmount,
-            ROW_NUMBER() OVER (ORDER BY MerchantIdx, RankInMerchant)   AS Seq
-    FROM candidate
-    WHERE RankInMerchant <= CASE MerchantIdx WHEN 1 THEN 26 ELSE 25 END
+-- The remaining 76 documents (ids ...19-...64 hex), taking the catalogue to 100. Deterministic
+-- throughout - the id is the row number rendered as hex (offset by the 24 above) and DocumentNo
+-- embeds the same sequence, so a re-run reproduces the exact same 76 rows and the
+-- DELETE ... LIKE 'e9000000-%' in step (ค) still reclaims every one of them. ProductGroup rotates
+-- through all four values; DocumentType rotates POLICY/RENEWAL/ENDORSEMENT only (CMI never pairs
+-- with APPLICATION per the SP guide's support matrix, and this generator keeps the invariant by
+-- simply never emitting APPLICATION).
+;WITH seq AS (
+    SELECT TOP (76) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
+    FROM sys.all_objects
 )
-INSERT INTO shop.Products (Id, MerchantId, Name, IsActive, CreatedAt, PriceAmount, PriceCurrency)
+INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, BranchCode, SaleCode,
+                           ShowName, TotalPremiumAmount, TotalPremiumCurrency, PaymentStatus, IsActive, CreatedAt)
 SELECT
     CONVERT(uniqueidentifier, 'e9000000-0000-4000-8000-'
         + RIGHT('000000000000'
             + LOWER(CONVERT(varchar(20), CONVERT(varbinary(4), 24 + Seq), 2)), 12)),
     CONVERT(uniqueidentifier, 'e1000000-0000-4000-8000-'
-        + RIGHT('000000000000' + CONVERT(varchar(12), MerchantIdx), 12)),
-    Name,
+        + RIGHT('000000000000'
+            + CONVERT(varchar(12), CASE WHEN Seq <= 26 THEN 1 WHEN Seq <= 51 THEN 2 ELSE 3 END), 12)),
+    CASE Seq % 4 WHEN 0 THEN 'CMI' WHEN 1 THEN 'VMI' WHEN 2 THEN 'FIRE' ELSE 'MISC' END,
+    CASE Seq % 3 WHEN 0 THEN 'POLICY' WHEN 1 THEN 'RENEWAL' ELSE 'ENDORSEMENT' END,
+    CONCAT(N'00098-69100/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),
+    '100', '00098',
+    CONCAT(N'ผู้เอาประกันตัวอย่าง ', 24 + Seq),
+    CAST(500 + Seq * 137.25 AS decimal(19,4)),
+    'THB',
+    'UNPAID',
     CASE WHEN Seq % 7 = 0 THEN 0 ELSE 1 END,
-    SYSUTCDATETIME(),
-    PriceAmount,
-    'THB'
-FROM taken;
+    SYSUTCDATETIME()
+FROM seq;
 
 -- shop.Carts (REQ-6.1): 2 per merchant, string Status ('Open'/'CheckedOut' — CartConfiguration
 -- uses HasConversion<string>() into nvarchar(16); an int here would violate the column mapping).

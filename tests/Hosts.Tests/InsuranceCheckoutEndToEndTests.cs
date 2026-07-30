@@ -89,8 +89,11 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 new ProductRepository(db, NullLogger<ProductRepository>.Instance),
                 new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
             productId = await handler.Handle(
-                new CreateProductCommand(
-                    MerchantA, "Travel Plan", Money.Of(2500m, "THB"), Money.Of(1_000_000m, "THB"), 30, "Muang Thai Insurance"),
+                new CreateProductCommand(new Products.Domain.ProductInput(
+                    MerchantA, Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                    "00098-69100/กธ/037674-10", "100", "00098", Money.Of(2500m, "THB"),
+                    StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
+                    ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
                 CancellationToken.None);
         }
 
@@ -172,7 +175,9 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal(OrderStatus.Paid, paid.Status);
         var item = Assert.Single(paid.Items);
         Assert.Equal(productId, item.ProductId);
-        Assert.Equal(Money.Of(1_000_000m, "THB"), item.SumInsured);
+        // ponytail: bridge semantics — SumInsured snapshots ProductView.SumInsured, which is TotalPremium
+        // until the checkout chain is reworked to document fields.
+        Assert.Equal(Money.Of(2500m, "THB"), item.SumInsured);
         Assert.Equal(30, item.CoverageDurationDays);
         Assert.Equal("Muang Thai Insurance", item.Insurer);
         Assert.Equal("Somchai", item.InsuredFirstName);

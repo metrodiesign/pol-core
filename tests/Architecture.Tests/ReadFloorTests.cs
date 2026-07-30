@@ -46,7 +46,7 @@ public sealed class ReadFloorTests : IDisposable
         var visible = await asA.Products.ToListAsync();
 
         Assert.Single(visible);
-        Assert.Equal("a-product", visible[0].Name);
+        Assert.Equal("a-product", visible[0].DocumentNo);
     }
 
     [Fact]
@@ -85,8 +85,8 @@ public sealed class ReadFloorTests : IDisposable
         using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
         using var asB = NewMerchantRuntimeContext(FakeActorContext.For(MerchantB));
 
-        var seenByA = await asA.Products.Select(p => p.Name).ToListAsync();
-        var seenByB = await asB.Products.Select(p => p.Name).ToListAsync();
+        var seenByA = await asA.Products.Select(p => p.DocumentNo).ToListAsync();
+        var seenByB = await asB.Products.Select(p => p.DocumentNo).ToListAsync();
 
         Assert.Equal(["a-product"], seenByA);
         Assert.Equal(["b-product"], seenByB);
@@ -137,11 +137,14 @@ public sealed class ReadFloorTests : IDisposable
         connection.Dispose();
     }
 
-    private async Task<Guid> SeedProductAsync(Guid merchantId, string name)
+    private async Task<Guid> SeedProductAsync(Guid merchantId, string documentNo)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId));
         var product = Product.Create(
-            merchantId, name, Money.Of(10m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer", DateTime.UtcNow);
+            new ProductInput(
+                merchantId, ProductGroup.VMI, DocumentType.POLICY, documentNo, "100", "00098",
+                Money.Of(10m, "THB")),
+            DateTime.UtcNow);
         writer.Add(product);
         await writer.SaveChangesAsync();
         return product.Id;

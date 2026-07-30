@@ -18,8 +18,6 @@ public sealed class GetProductByIdHandler : IQueryHandler<GetProductByIdQuery, P
         var product = await _repository.GetAsync(query.ProductId, cancellationToken);
         return product is null || product.MerchantId != query.MerchantId
             ? null
-            : new ProductView(
-                product.Id, product.MerchantId, product.Name, product.Price, product.SumInsured,
-                product.CoverageDurationDays, product.Insurer, product.IsActive, product.CreatedAt);
+            : ProductView.From(product);
     }
 }

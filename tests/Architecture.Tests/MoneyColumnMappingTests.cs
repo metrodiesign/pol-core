@@ -64,8 +64,8 @@ public sealed class MoneyColumnMappingTests : IDisposable
     }
 
     [Fact]
-    public void Product_Price_maps_to_decimal_19_4_and_char3() =>
-        AssertMoneyColumns(typeof(Product), nameof(Product.Price), "PriceAmount", "PriceCurrency");
+    public void Product_TotalPremium_maps_to_decimal_19_4_and_char3() =>
+        AssertMoneyColumns(typeof(Product), nameof(Product.TotalPremium), "TotalPremiumAmount", "TotalPremiumCurrency");
 
     [Fact]
     public void CartItem_UnitPrice_maps_to_decimal_19_4_and_char3() =>

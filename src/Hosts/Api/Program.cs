@@ -44,7 +44,10 @@ using Merchants.Application;
 using Merchants.Domain;
 using Merchants.Infrastructure;
 using Products.Application;
+using Products.Domain;
 using Products.Infrastructure;
+// Scalar.AspNetCore also has a DocumentType — the wire enum below is the domain's.
+using DocumentType = Products.Domain.DocumentType;
 using Merchants.Application.GetMerchant;
 using Merchants.Application.ProvisionMerchant;
 // L6 (hierarchical-naming): Admins.*.Users/.Roles and Merchants.*.Users/.Roles now share bare names (User,
@@ -411,6 +414,9 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 {
     o.SerializerOptions.Converters.Add(new PspCodeJsonConverter());
     o.SerializerOptions.Converters.Add(new MoneyJsonConverter());
+    // Product document enums (ProductGroup/DocumentType/PaymentStatus) cross the wire as their uppercase
+    // member names (the VCentralPay SP contract values). PspCode keeps its dedicated converter above.
+    o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
 
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
@@ -603,8 +609,14 @@ var createProduct = api.MapPost("/products", async (
     CancellationToken ct) =>
 {
     var id = await mediator.Send(
-        new CreateProductCommand(
-            actor.MerchantId, body.Name, body.Price, body.SumInsured, body.CoverageDurationDays, body.Insurer),
+        new CreateProductCommand(new ProductInput(
+            actor.MerchantId, body.ProductGroup, body.DocumentType, body.DocumentNo, body.BranchCode,
+            body.SaleCode, body.TotalPremium, body.PolicyYear, body.ReferenceBranch, body.ReferencePre,
+            body.PolicySequenceNo, body.ReferenceYear, body.ReferenceNo, body.PolicyBranch, body.PolicyType,
+            body.SaleFullName, body.BrokerCode, body.BrokerName, body.PolicyNumber, body.ApplicationNumber,
+            body.PreviousPolicyNumber, body.EndorsementNumber, body.StartDate, body.EndDate, body.ShowName,
+            body.LicensePlateNumber, body.NetPremium, body.Stamp, body.TaxVat, body.CommissionAmount,
+            body.CommissionPercent)),
         ct);
     return TypedResults.Ok(new CreateProductResponse(id));
 });
@@ -2185,7 +2197,36 @@ internal sealed record ApproveMerchantUserResponse(Guid MerchantUserId, string S
 internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string Status);
 
 internal sealed record CreateProductRequest(
-    string Name, Money Price, Money SumInsured, int CoverageDurationDays, string Insurer);
+    ProductGroup ProductGroup,
+    DocumentType DocumentType,
+    string DocumentNo,
+    string BranchCode,
+    string SaleCode,
+    Money TotalPremium,
+    string? PolicyYear = null,
+    string? ReferenceBranch = null,
+    string? ReferencePre = null,
+    string? PolicySequenceNo = null,
+    string? ReferenceYear = null,
+    string? ReferenceNo = null,
+    string? PolicyBranch = null,
+    string? PolicyType = null,
+    string? SaleFullName = null,
+    string? BrokerCode = null,
+    string? BrokerName = null,
+    string? PolicyNumber = null,
+    string? ApplicationNumber = null,
+    string? PreviousPolicyNumber = null,
+    string? EndorsementNumber = null,
+    DateTime? StartDate = null,
+    DateTime? EndDate = null,
+    string? ShowName = null,
+    string? LicensePlateNumber = null,
+    Money? NetPremium = null,
+    Money? Stamp = null,
+    Money? TaxVat = null,
+    Money? CommissionAmount = null,
+    decimal? CommissionPercent = null);
 // No Amount: the charge is priced from the order row server-side (a body that still sends "amount" is
 // simply ignored — the platform never mints a charge the order does not back).
 internal sealed record CreatePaymentSessionRequest(
