@@ -583,4 +583,4 @@ internal sealed record CreateProductRequest(
 5. `p.EndDate < today.AddMonths(2)` เป็น half-open ⇒ วันที่ 2026-09-30 (เมื่อ today = 2026-07-30)
    **ไม่เข้า** — ถ้าเจ้าของ SP บอกว่าต้อง inclusive ให้เปลี่ยนเป็น `<=` บรรทัดเดียว
 
-commit ของ T4: `c265620`
+commit ของ T4: `3bf4e11`
