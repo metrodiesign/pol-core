@@ -12,7 +12,9 @@ public sealed record GetOrdersQuery(Guid MerchantId) : IQuery<OrdersListView>, I
 /// <see cref="InsuredDateOfBirth"/> as-is, <see cref="MaskedInsuredIdNumber"/> always masked (REQ-7.4).
 /// No reveal audit on this surface — nothing full-value is disclosed here.</summary>
 public sealed record OrderItemListItem(
-    Guid ProductId, Money UnitPrice, Money SumInsured, int CoverageDurationDays, string Insurer,
+    Guid ProductId, Money UnitPrice,
+    string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
+    DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string MaskedInsuredIdNumber, DateTime InsuredDateOfBirth);
 
 public sealed record OrderListItem(
@@ -33,7 +35,8 @@ public sealed class GetOrdersHandler : IQueryHandler<GetOrdersQuery, OrdersListV
         var items = orders.Select(o => new OrderListItem(
             o.Id, o.Status.ToString(), o.Amount, o.CreatedAt,
             o.Items.Select(i => new OrderItemListItem(
-                i.ProductId, i.UnitPrice, i.SumInsured, i.CoverageDurationDays, i.Insurer,
+                i.ProductId, i.UnitPrice,
+                i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
                 i.InsuredFirstName, i.InsuredLastName, MaskIdNumber(i.InsuredIdNumber), i.InsuredDateOfBirth))
                 .ToList()))
             .ToList();

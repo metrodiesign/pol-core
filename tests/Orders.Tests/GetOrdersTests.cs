@@ -17,7 +17,8 @@ public sealed class GetOrdersTests
     private static Order OrderWithIdNumber(Guid merchantId, string idNumber) =>
         Order.Create(merchantId, Money.Of(15000m, "THB"), DateTime.UtcNow,
             [new OrderItemInput(
-                Product, 1, Money.Of(15000m, "THB"), Money.Of(1_000_000m, "THB"), 365, "Test Insurer",
+                Product, 1, Money.Of(15000m, "THB"),
+                "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
                 "Somchai", "Jaidee", idNumber, Dob)]);
 
     [Theory]

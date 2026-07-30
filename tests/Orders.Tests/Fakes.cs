@@ -16,7 +16,8 @@ internal static class OrderLineInputs
 
     public static IReadOnlyList<OrderItemInput> OneLine(Money unitPrice) =>
         [new OrderItemInput(
-            Guid.NewGuid(), 1, unitPrice, Money.Of(1_000_000m, unitPrice.Currency), 365, "Test Insurer",
+            Guid.NewGuid(), 1, unitPrice,
+            "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 }
 

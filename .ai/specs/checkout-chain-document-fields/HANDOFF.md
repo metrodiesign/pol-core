@@ -40,3 +40,32 @@ Rolling handoff — teammate ทุกคน **append หัวข้อให�
   `DocumentNo` `.HasMaxLength(150).IsRequired()` / `ProductGroup` `.HasMaxLength(10).IsUnicode(false).IsRequired()` / `DocumentType` `.HasMaxLength(20).IsUnicode(false).IsRequired()` / `PolicyNumber` `.HasMaxLength(150).IsUnicode(false)` / `StartDate`+`EndDate` `.HasPrecision(0)` — ลบทั้ง `ComplexProperty(x => x.SumInsured, ...)`, `CoverageDurationDays`, `Insurer` (column `InsurerName`)
 - error ที่ chain-t2 จะเห็นตอนเริ่ม: `CheckoutConfirmedConsumer.cs(40,57/71/95)` CS1061 x3 — คาดไว้แล้ว
 - test helper pattern ที่ใช้ใน Checkouts.Tests: static `Line(...)` มี default param ทุกตัว แล้ว test แต่ละอันส่งเฉพาะ field ที่สนใจ — ลดการแก้ literal ซ้ำ ๆ ตอน signature เปลี่ยน (แนะนำทำแบบเดียวกันใน Orders.Tests)
+
+## chain-t2 — Task 2: Orders (2026-07-30)
+
+**สิ่งที่ทำ**: ต่อเส้น snapshot จาก `CheckoutConfirmedItem` เข้า Orders ครบ — `Orders.Item` ใช้ชุด field เอกสาร 6 ตัวตามลำดับ param กลางเดียวกับ Checkouts, invariant เดียวกัน (defense in depth), read models 2 ตัวเปลี่ยน field ตาม, EF dual-config 2 ไฟล์ identical
+
+**ไฟล์ที่แตะ** (11):
+- `src/Modules/Orders/Orders.Domain/Items/Item.cs` — property + ctor + invariant + doc comment
+- `src/Modules/Orders/Orders.Domain/Items/OrderItemInput.cs`
+- `src/Modules/Orders/Orders.Domain/Order.cs` — ส่งผ่านเข้า `Item` ctor (invariant `Order.Create` เดิมไม่แตะ)
+- `src/Modules/Orders/Orders.Application/CheckoutConfirmedConsumer.cs` — map event -> `OrderItemInput` 1:1
+- `src/Modules/Orders/Orders.Application/GetOrderDetail.cs` — `OrderItemDetail` (reveal-audit เดิมไม่แตะ)
+- `src/Modules/Orders/Orders.Application/GetOrders.cs` — `OrderItemListItem` (`MaskIdNumber` เดิมไม่แตะ)
+- `src/Modules/Orders/Orders.Infrastructure/Items/ItemConfiguration.cs`
+- `src/Persistence/Persistence.MerchantRuntime/Orders/Items/ItemConfiguration.cs` (block เดียวกันเป๊ะ)
+- `tests/Orders.Tests/{OrderItemsTests,GetOrderDetailTests,GetOrdersTests,CheckoutConfirmedConsumerTests,Fakes}.cs`
+
+**สถานะ build/test**: `dotnet test tests/Orders.Tests` 75/75 เขียว; `Orders.Domain`/`Orders.Application`/`Orders.Infrastructure`/`Persistence.MerchantRuntime` build 0 error 0 warning ทุกตัว (error `CheckoutConfirmedConsumer.cs:40` ที่ chain-t1 ทิ้งไว้หายแล้ว); `grep` residue ใน `src/Modules/Orders src/Modules/Checkouts src/Contracts` (ยกเว้น `ItemPolicy*`) ว่าง
+
+**กับดักที่เจอจริง**:
+1. ยืนยันกับดัก task gate ของ chain-t1 ซ้ำ: flip `[x]` ใน Edit แยกโดน block **หลังจากเขียนลงไฟล์แล้ว** (ไฟล์ค้างสถานะ `[x]` ไม่มี Evidence) — ต้อง Edit เติม Evidence ทันทีเป็น step ถัดไป; ทางที่ปลอดภัยกว่าคือเขียน Evidence ก่อนแล้วค่อย flip
+2. `GetOrderDetailTests` มี `OrderItemInput` 2 ตัวที่ต่างกันแค่ชื่อ/idNumber — `replace_all` จับได้แค่ตัวแรกเพราะ prefix ต่างกัน ต้องแก้ตัวที่สองแยก
+3. doc comment ของ `Orders.Infrastructure/Items/ItemConfiguration.cs` อ้าง `<c>SumInsured</c>` เป็น complex-type Money ด้วย — ถ้าไม่แก้ grep residue จะไม่ว่าง (comment ก็ติด grep)
+
+**สิ่งที่ chain-t3 (Host wiring + ถอด bridge) ต้องรู้**:
+- ชั้น Contracts/Checkouts/Orders ครบแล้วทั้งเส้น — error ที่เหลือทั้งหมดควรอยู่ใน `src/Hosts/Api/Program.cs` + tests ของ Hosts/Architecture เท่านั้น
+- `Orders.Item` ตอนนี้มี `DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` และ throw `ArgumentException` ถ้า 3 ตัวแรกว่าง/whitespace หรือ `StartDate > EndDate` — Hosts.Tests ที่สร้าง order line ต้องส่งค่าไม่ว่าง ไม่งั้นพังตอน `Order.Create` ไม่ใช่ตอน assert
+- read model ที่ FE/test อ่าน: `OrderItemDetail` และ `OrderItemListItem` ลำดับ field = `ProductId, [Quantity,] UnitPrice, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, ...` (list ไม่มี `Quantity` ตามเดิม, list ใช้ `MaskedInsuredIdNumber`)
+- ยังไม่มี migration — model กับ DB ตอนนี้ไม่ตรงกัน (task 4); ดังนั้นเทสต์ใด ๆ ที่ต่อ DB จริงจะพังจนกว่า task 4 จะเสร็จ ไม่ใช่ regression จาก task 2/3
+- ค่าตัวอย่างที่ใช้ใน Orders.Tests: `DocumentNo = "00098-69100/กธ/900001-10"`, `ProductGroup = "VMI"`, `DocumentType = "POLICY"` — ใช้ชุดเดียวกันได้ใน seed/tests อื่นเพื่อความสอดคล้อง
