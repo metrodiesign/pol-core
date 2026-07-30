@@ -708,3 +708,5 @@ rollback หลัง `DROP COLUMN` ไม่ใช่ข้อบกพร่�
    `pol_app` ไม่มีสิทธิ์ DDL
 5. **dev DB ตอนนี้เป็น DB สดที่ยังไม่ seed-demo** (T5 ทำ `down -v` เพื่อ replay ตามบรีฟ) ⇒
    T6 ต้องรัน `docker/bootstrap/seed-demo.sql` เองบน DB ตัวนี้; ใครที่พึ่ง demo data ก็เช่นกัน
+
+commit ของ T5: `45d6e50`
