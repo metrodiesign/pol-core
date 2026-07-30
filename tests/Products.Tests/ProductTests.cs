@@ -125,6 +125,14 @@ public sealed class ProductTests
             NewInput(productGroup: ProductGroup.CMI, documentType: DocumentType.APPLICATION), At));
 
     [Fact]
+    public void Create_rejects_an_undefined_ProductGroup() =>
+        Assert.Throws<ArgumentException>(() => Product.Create(NewInput(productGroup: (ProductGroup)99), At));
+
+    [Fact]
+    public void Create_rejects_an_undefined_DocumentType() =>
+        Assert.Throws<ArgumentException>(() => Product.Create(NewInput(documentType: (DocumentType)99), At));
+
+    [Fact]
     public void Create_allows_a_MISC_APPLICATION_document() =>
         Assert.Equal(DocumentType.APPLICATION, Product.Create(
             NewInput(productGroup: ProductGroup.MISC, documentType: DocumentType.APPLICATION), At).DocumentType);

@@ -41,7 +41,9 @@ public sealed record ProductFilterDto
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+        // allowIntegerValues:false — a numeric enum token in productFilters is a 400, not a silent
+        // out-of-contract value (matches the host-level converter).
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false) },
     };
 
     /// <summary>Deserializes then validates the <c>productFilters</c> value. Absent -> null;

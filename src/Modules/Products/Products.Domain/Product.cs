@@ -122,6 +122,13 @@ public sealed class Product : AggregateRoot<Guid>
         if (input.StartDate is { } start && input.EndDate is { } end && start > end)
             throw new ArgumentException("StartDate must not be after EndDate.", nameof(input));
 
+        // Defence-in-depth for non-HTTP callers: the enum-to-string EF conversion would otherwise persist
+        // an undefined value (e.g. (ProductGroup)99 -> "99"), outside the uppercase wire contract.
+        if (!Enum.IsDefined(input.ProductGroup))
+            throw new ArgumentException("Unknown ProductGroup.", nameof(input));
+        if (!Enum.IsDefined(input.DocumentType))
+            throw new ArgumentException("Unknown DocumentType.", nameof(input));
+
         if (input.ProductGroup == ProductGroup.CMI && input.DocumentType == DocumentType.APPLICATION)
             throw new ArgumentException("Motor/CMI does not support APPLICATION documents.", nameof(input));
 

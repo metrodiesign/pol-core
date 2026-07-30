@@ -416,7 +416,10 @@ builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new MoneyJsonConverter());
     // Product document enums (ProductGroup/DocumentType/PaymentStatus) cross the wire as their uppercase
     // member names (the VCentralPay SP contract values). PspCode keeps its dedicated converter above.
-    o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    // allowIntegerValues:false rejects numeric tokens like {"productGroup":99} at bind time (400) so a
+    // caller cannot smuggle an out-of-contract enum value past the string contract.
+    o.SerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
 });
 
 // Cross-cutting HTTP hardening: RFC7807 errors, split liveness/readiness probes, webhook flood protection.
