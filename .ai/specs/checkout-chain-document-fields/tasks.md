@@ -5,10 +5,10 @@
 > Branch: `feat/products-insurance-document` (PR #143). ห้าม push develop, ห้าม force push
 > Traps ทั้งหมดอยู่ใน design.md หัวข้อ "Traps" — อ่านก่อนเริ่มทุก task
 
-- [ ] 1. **Checkouts + Contracts** — เปลี่ยน `CheckoutConfirmedItem` (`src/Contracts/CheckoutConfirmed.cs`), `CheckoutItemInput`, `Checkouts.Domain/Items/Item.cs` (property/ctor/invariant ใหม่ตาม design ลำดับ param กลาง), `Session.cs` ส่งผ่าน, `ConfirmCheckout.cs` mapper, dual config Checkouts 2 ไฟล์, แก้ `tests/Checkouts.Tests/ConfirmCheckoutTests.cs`
+- [x] 1. **Checkouts + Contracts** — เปลี่ยน `CheckoutConfirmedItem` (`src/Contracts/CheckoutConfirmed.cs`), `CheckoutItemInput`, `Checkouts.Domain/Items/Item.cs` (property/ctor/invariant ใหม่ตาม design ลำดับ param กลาง), `Session.cs` ส่งผ่าน, `ConfirmCheckout.cs` mapper, dual config Checkouts 2 ไฟล์, แก้ `tests/Checkouts.Tests/ConfirmCheckoutTests.cs`
      **Done** = `dotnet build src/Modules/Checkouts/Checkouts.Infrastructure src/Contracts src/Persistence/Persistence.MerchantRuntime` อาจยังแดงที่โปรเจกต์อื่น (Orders/Hosts รอ task 2-3) แต่ Checkouts.Domain/Application/Infrastructure + Contracts ต้อง compile; `dotnet test tests/Checkouts.Tests` เขียว
      Satisfies: REQ-1 (1.1-1.4), REQ-2 (2.1), REQ-5 (5.3 ฝั่ง Checkouts)
-     Evidence:
+     Evidence: `dotnet build src/Contracts` -> `ok dotnet build: 2 projects, 0 errors, 0 warnings`; `dotnet build src/Modules/Checkouts/Checkouts.Infrastructure` -> `ok dotnet build: 7 projects, 0 errors, 0 warnings`; `dotnet build src/Persistence/Persistence.MerchantRuntime` -> error เฉพาะ `Orders.Application/CheckoutConfirmedConsumer.cs(40,*)` (SumInsured/CoverageDurationDays/Insurer) = นอกขอบเขต task 1 รอ task 2 — ไม่มี error ในไฟล์ Persistence/Checkouts เอง (`dotnet build ... | grep error | grep -v Orders` ว่าง); `dotnet test tests/Checkouts.Tests` -> `Passed! - Failed: 0, Passed: 13, Skipped: 0, Total: 13`. Viewports 375/768/1440: n/a (ไม่มี UI). Deviations: ไม่มี
 
 - [ ] 2. **Orders** — `Orders.Domain/Items/{Item,OrderItemInput}.cs`, `Order.cs` ส่งผ่าน, `CheckoutConfirmedConsumer.cs` map 1:1, read models `GetOrderDetail.cs`/`GetOrders.cs` field ชุดใหม่ (คง reveal-audit/masking เดิม), dual config Orders 2 ไฟล์, แก้ tests `Orders.Tests/{OrderItemsTests,GetOrderDetailTests,GetOrdersTests,CheckoutConfirmedConsumerTests,Fakes}.cs`
      **Done** = `dotnet test tests/Orders.Tests` เขียว; Orders.* ทุกโปรเจกต์ compile

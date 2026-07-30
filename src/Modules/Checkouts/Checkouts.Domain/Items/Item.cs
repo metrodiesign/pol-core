@@ -22,9 +22,12 @@ public sealed class Item : Entity<Guid>
     public Guid ProductId { get; private set; }
     public int Quantity { get; private set; }
     public Money UnitPrice { get; private set; }
-    public Money SumInsured { get; private set; }
-    public int CoverageDurationDays { get; private set; }
-    public string Insurer { get; private set; } = default!;
+    public string DocumentNo { get; private set; } = default!;
+    public string ProductGroup { get; private set; } = default!;
+    public string DocumentType { get; private set; } = default!;
+    public string? PolicyNumber { get; private set; }
+    public DateTime? StartDate { get; private set; }
+    public DateTime? EndDate { get; private set; }
 
     public string InsuredFirstName { get; private set; } = default!;
     public string InsuredLastName { get; private set; } = default!;
@@ -36,11 +39,18 @@ public sealed class Item : Entity<Guid>
 
     internal Item(
         Guid id, Guid sessionId, Guid merchantId, Guid productId, int quantity, Money unitPrice,
-        Money sumInsured, int coverageDurationDays, string insurer,
+        string documentNo, string productGroup, string documentType, string? policyNumber,
+        DateTime? startDate, DateTime? endDate,
         string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
         DateTime nowUtc)
         : base(id)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(documentNo, nameof(documentNo));
+        ArgumentException.ThrowIfNullOrWhiteSpace(productGroup, nameof(productGroup));
+        ArgumentException.ThrowIfNullOrWhiteSpace(documentType, nameof(documentType));
+        if (startDate is not null && endDate is not null && startDate > endDate)
+            throw new ArgumentException("Start date must not be after the end date.", nameof(startDate));
+
         // REQ-7.2/7.3: same checks as Orders.Domain.Items.Item's constructor, enforced here instead so a
         // bad request fails at checkout-start (before confirm is even reachable); none of these messages
         // echo the invalid value — only the field name.
@@ -55,9 +65,12 @@ public sealed class Item : Entity<Guid>
         ProductId = productId;
         Quantity = quantity;
         UnitPrice = unitPrice;
-        SumInsured = sumInsured;
-        CoverageDurationDays = coverageDurationDays;
-        Insurer = insurer.Trim();
+        DocumentNo = documentNo.Trim();
+        ProductGroup = productGroup.Trim();
+        DocumentType = documentType.Trim();
+        PolicyNumber = policyNumber;
+        StartDate = startDate;
+        EndDate = endDate;
         InsuredFirstName = insuredFirstName.Trim();
         InsuredLastName = insuredLastName.Trim();
         InsuredIdNumber = insuredIdNumber.Trim();
