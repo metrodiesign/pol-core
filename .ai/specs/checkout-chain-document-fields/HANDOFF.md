@@ -96,3 +96,28 @@ Rolling handoff — teammate ทุกคน **append หัวข้อให�
 - ค่าตัวอย่างที่ใช้ทั่ว tests ตอนนี้ (ใช้ชุดเดียวกันใน seed ได้เลย): `DocumentNo = '00098-69100/กธ/900001-10'`, `ProductGroup = 'VMI'`, `DocumentType = 'POLICY'`; nullable 3 ตัวส่วนใหญ่เป็น NULL ยกเว้น `Architecture.Tests/OrderItemsTests` ที่ใส่ `PolicyNumber = "P-900001"` + Start/End เพื่อ prove round-trip ของ column nullable
 - Integration.Tests ที่ยังต้องแก้ (task 4): `OrderSummaryReaderIntegrationTests.cs:39` INSERT column list ยังเป็น `SumInsuredAmount, SumInsuredCurrency, CoverageDurationDays, InsurerName` — task 3 ไม่แตะตามขอบเขต
 - `ProductView` ไม่มี `Price` แล้ว — โค้ด/test ใหม่ใด ๆ ที่อยากได้ราคาให้ใช้ `TotalPremium`
+
+## chain-t4 — Task 4: Migration + seed + integration (2026-07-30)
+
+**สิ่งที่ทำ**: gen migration `20260730081227_CheckoutChainDocumentFields` (alter 2 ตาราง ตาม REQ-5.1 ไม่มี DropTable จึงไม่ re-GRANT), apply จริงบน :11433, อัปเดต seed-demo INSERT `shop.OrderItems` + raw-SQL INSERT ใน Integration.Tests 2 ไฟล์ ให้เป็น column ชุดใหม่
+
+**ไฟล์ที่แตะ** (6):
+- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260730081227_CheckoutChainDocumentFields.cs` (ใหม่)
+- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260730081227_CheckoutChainDocumentFields.Designer.cs` (ใหม่)
+- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs` (regen อัตโนมัติ ไม่แก้มือ)
+- `docker/bootstrap/seed-demo.sql` — INSERT `shop.OrderItems` column list ใหม่ + comment 1 บรรทัดอธิบายว่า snapshot copy มาจาก product แถวที่อ้าง
+- `tests/Integration.Tests/OrderSummaryReaderIntegrationTests.cs`
+- `tests/Integration.Tests/OrderItemPolicyGrantsTests.cs`
+
+**สถานะ build/test**: `dotnet ef database update` ผ่าน; seed-demo `shop.OrderItems = 4` + `seed-demo: OK.`; `Integration.Tests` 47/47 เขียว; `Hosts.Tests --filter ModelConsistencyTests` 1/1 เขียว (drift ที่ chain-t3 ทิ้งไว้ปิดแล้ว)
+
+**กับดักที่เจอจริง**:
+1. ยืนยันกับดัก task gate ครั้งที่ 4: flip `[x]` ใน Edit แยกโดน block **หลังเขียนลงไฟล์แล้ว** — ต่อ Evidence ทันทีเป็นขั้นถัดไป กลับมาเขียวเอง
+2. seed-demo assert `merch.Merchants = 0` ยัง raise `Msg 51000` ทุกครั้ง = สภาพ local เดิม ไม่เกี่ยวงานนี้ (lead บันทึกไว้แล้ว) — **อย่าไปแก้ seed เพราะเห็น error นี้**; ตัวชี้วัดจริงของ task นี้คือบรรทัด `shop.OrderItems = 4`
+3. scaffold ออกมาตรงกับ design เป๊ะไม่มีของแถม แปลว่า EF config 4 ไฟล์ของ chain-t1/t2 identical จริง — ถ้าใครแก้ config เพิ่มภายหลังต้องแก้ทั้ง 4 ไฟล์แล้ว gen migration ใหม่ ห้าม `ef migrations remove` ทับตัวนี้ (apply ลง DB ไปแล้ว)
+
+**สิ่งที่ chain-t5 (full gate + PR) ต้องรู้**:
+- ค่า snapshot ใน seed ผูกกับ product ที่ order อ้างจริง: item `ef…0001`/`0002` -> product `e9…0006` (`69100/สล/900006`, CMI/ENDORSEMENT), item `0003` -> `e9…000b` (`S001-69100/อค/900011`, FIRE/POLICY), item `0004` -> `e9…0009` (`00098-69100/กธ/900009-10`, VMI/POLICY) — ถ้าแก้ seed products ต้องตามมาแก้ตรงนี้ด้วย
+- DB :11433 ตอนนี้ apply migration ล่าสุด + re-seed แล้ว — Integration.Tests รันซ้ำได้เลย ไม่ต้อง reset
+- ยังไม่ได้รัน gate เต็มในรอบนี้ (`-warnaserror`, rename-identifiers, spec-trace, suite อื่นทั้งหมด) — งานของ task 5 ล้วน; เท่าที่รันในรอบนี้ทุกอย่างเขียว
+- migration นี้ให้ `defaultValue: ""` กับ 3 column NOT NULL (แถว dev เก่า) — ตามที่ design ยอมรับไว้ (pre-prod) ถ้า reviewer ทัก ตอบด้วย design.md ข้อ 6

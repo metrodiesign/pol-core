@@ -386,17 +386,19 @@ WHERE o.Id LIKE 'ed000000-%' AND o.Status = 1;
 -- ทะเบียนรถ to cover the "Voluntary + Compulsory, same vehicle" edge case (requirements.md Edge Cases,
 -- row 1 vs row 6). Item ef…0004 deliberately gets NO OrderItemPolicies row below — REQ-1.7/4.7's
 -- blank-external-column report case (a policy-less item, not a policy row full of nulls).
-INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, ProductId, Quantity, CoverageDurationDays, InsurerName, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, SumInsuredAmount, SumInsuredCurrency, UnitPriceAmount, UnitPriceCurrency)
+-- The document snapshot columns (DocumentNo/ProductGroup/DocumentType/PolicyNumber/StartDate/EndDate)
+-- are frozen copies of the shop.Products row each item references, taken at purchase time.
+INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, ProductId, Quantity, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, UnitPriceAmount, UnitPriceCurrency)
 VALUES
-    -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid)
-    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, 365, N'วิริยะประกันภัย', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 1000000.0000, 'THB', 15900.0000, 'THB'),
+    -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid); product e9…0006
+    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69100/สล/900006', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
     -- Motor, ภาคบังคับ/พ.ร.บ. (Compulsory) — SAME order + SAME insured person + vehicle as above
-    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, 365, N'วิริยะประกันภัย', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 200000.0000, 'THB', 645.2100, 'THB'),
+    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69100/สล/900006', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
     -- Non-motor (health) — order ed…0008 (vcommerce, Paid); no InsuredObjectReference on its policy
-    -- below (REQ-1.8 — field is generic to every insurance type, not just Motor)
-    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, 365, N'ทิพยประกันภัย', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 500000.0000, 'THB', 9800.0000, 'THB'),
-    -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment)
-    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, 365, N'กรุงเทพประกันภัย', N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 100000.0000, 'THB', 650.0000, 'THB');
+    -- below (REQ-1.8 — field is generic to every insurance type, not just Motor); product e9…000b
+    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, N'S001-69100/อค/900011', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
+    -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment); product e9…0009
+    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, N'00098-69100/กธ/900009-10', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
 
 INSERT INTO shop.OrderItemPolicies (Id, OrderItemId, MerchantId, InsuranceCategory, ReferenceNumberType, ReferenceNumber, EndorsementNumber, RenewalReminderNumber, InsuredObjectReference, NetPremiumAmount, NetPremiumCurrency, GrossPremiumAmount, GrossPremiumCurrency, PremiumRemittanceStatus, DeductedAt, CreatedAt, UpdatedAt)
 VALUES

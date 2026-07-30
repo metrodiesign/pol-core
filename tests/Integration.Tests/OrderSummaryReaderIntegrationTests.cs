@@ -36,9 +36,10 @@ public sealed class OrderSummaryReaderIntegrationTests
             """
             INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency,
-                 SumInsuredAmount, SumInsuredCurrency, CoverageDurationDays, InsurerName,
+                 DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate,
                  InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
-            VALUES (@id, @orderId, @m, @productId, 1, 15000, N'THB', 1000000, N'THB', 30, N'Muang Thai Insurance',
+            VALUES (@id, @orderId, @m, @productId, 1, 15000, N'THB',
+                    N'00098-69100/กธ/900001-10', 'VMI', 'POLICY', NULL, NULL, NULL,
                     N'Somchai', N'Jaidee', @idNumber, '1990-01-01');
             """,
             ("@id", lineId), ("@orderId", orderId), ("@m", merchantId), ("@productId", Guid.NewGuid()), ("@idNumber", idNumber));

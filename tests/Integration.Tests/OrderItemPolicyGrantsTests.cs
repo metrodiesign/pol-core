@@ -29,9 +29,10 @@ public sealed class OrderItemPolicyGrantsTests
             """
             INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency,
-                 SumInsuredAmount, SumInsuredCurrency, CoverageDurationDays, InsurerName,
+                 DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate,
                  InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
-            VALUES (@id, @orderId, @m, @productId, 1, 2500, N'THB', 1000000, N'THB', 30, N'Muang Thai Insurance',
+            VALUES (@id, @orderId, @m, @productId, 1, 2500, N'THB',
+                    N'00098-69100/กธ/900001-10', 'VMI', 'POLICY', NULL, NULL, NULL,
                     N'Somchai', N'Jaidee', N'1234567890123', '1985-05-20');
             """,
             ("@id", itemId), ("@orderId", orderId), ("@m", merchantId), ("@productId", Guid.NewGuid()));
