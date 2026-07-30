@@ -171,8 +171,10 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
    id = row number เรนเดอร์เป็น hex + offset 24 → deterministic, รันซ้ำได้แถวเดิมเป๊ะ และ
    `DELETE … LIKE 'e9000000-%'` ใน (ค) ยังกวาดคืนครบทั้ง 100
 
-`PriceCurrency = 'THB'`, `PriceAmount` DECIMAL(19,4) ช่วง 350.0000–73,800.0000. `IsActive = 0` = 13 แถว
-(1 แถวท้ายของแต่ละ block ที่เขียนมือ + ทุกแถวที่ 7 ของชุด generate) — ครบทั้งสองค่า.
+`TotalPremium` DECIMAL(19,2) (ทศนิยมไม่เกิน 2 ตำแหน่ง). `PaymentStatus = 'PAID'` + `PaidDate` = 13 แถว
+(1 แถวท้ายของแต่ละ block ที่เขียนมือ + ทุกแถวที่ 7 ของชุด generate) ที่เหลือ 87 แถวเป็น `'UNPAID'`
+— ครบทั้งสองฝั่งของ gate cart/checkout. แถวที่ `PaymentStatus = 'PAID'` ต้องไม่ถูกอ้างจาก `shop.CartItems`
+ของ cart ที่ยัง `Open` (ไม่งั้น checkout ของ cart นั้นจะ 409 ตลอด).
 
 ข้อควรระวังตอนเขียน: **`LINENO` เป็น reserved keyword ของ T-SQL** — ตั้งชื่อคอลัมน์ table variable ว่า
 `LineNo` จะได้ `Msg 156 Incorrect syntax near the keyword 'LineNo'` (ใช้ `LineIdx`).

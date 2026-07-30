@@ -27,7 +27,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T3 | Application: read model, `ProductFilterDto`, query, ลบ dead code | เสร็จ |
 | T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | เสร็จ |
 | T5 | EF config ×2 + migration ใหม่ + snapshot | เสร็จ |
-| T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | รอ |
+| T6 | seed-demo.sql + spec demo-seed-data REQ-5.4 | เสร็จ |
 | T7 | cap 25 ทั้ง repo + SFS docs/spec | รอ |
 | T8 | tests ทั้งชุด → build+test เขียว | รอ |
 | T9 | gate เต็ม + PR | รอ |
@@ -710,3 +710,99 @@ rollback หลัง `DROP COLUMN` ไม่ใช่ข้อบกพร่�
    T6 ต้องรัน `docker/bootstrap/seed-demo.sql` เองบน DB ตัวนี้; ใครที่พึ่ง demo data ก็เช่นกัน
 
 commit ของ T5: `45d6e50`
+
+---
+
+## T6 — seed demo (เสร็จ)
+
+แตะ 4 ไฟล์: `docker/bootstrap/seed-demo.sql`,
+`.ai/specs/demo-seed-data/{requirements.md,design.md,tasks.md}` — ไม่แตะ `src/` และ `tests/` เลย
+
+### `INSERT INTO shop.Products` — column list สุดท้าย (เหมือนกันทั้ง 2 ก้อน)
+
+```
+(Id, MerchantId, ProductGroup, DocumentType, DocumentNo, SaleCode, ShowName,
+ TotalPremium, PaymentStatus, PaidDate)
+```
+
+หายไป: `BranchCode`, `IsActive`, `CreatedAt`, `TotalPremiumCurrency` (currency column เดียวที่ seed
+เคยเขียน — อีก 4 ตัวไม่เคยอยู่ใน seed); rename `TotalPremiumAmount` -> `TotalPremium`;
+**เพิ่มใหม่ `PaidDate`** (จำเป็นเพราะแถว PAID ต้องมีวันที่)
+
+ค่าเงินเขียนเป็น 2 ตำแหน่งทุกตัว (`1200.00` แทน `1200.0000`) และ generator เปลี่ยน
+`CAST(500 + Seq * 137.25 AS decimal(19,4))` -> `decimal(19,2)` (`Seq * 137.25` ให้ 2 ตำแหน่งอยู่แล้ว
+จึงไม่มีค่าใดถูกปัด)
+
+### แกนขายได้/ขายไม่ได้ ย้ายมาที่ `PaymentStatus` (REQ-2.4)
+
+| เดิม | ใหม่ |
+|---|---|
+| hand-written `IsActive = 0` 3 แถว | `PaymentStatus = 'PAID'` + `PaidDate` = `DATEADD(day, -7/-5/-3, SYSUTCDATETIME())` |
+| `CASE WHEN Seq % 7 = 0 THEN 0 ELSE 1 END` | `CASE WHEN Seq % 7 = 0 THEN 'PAID' ELSE 'UNPAID' END` + `PaidDate` = `DATEADD(day, -Seq, SYSUTCDATETIME())` |
+
+`DocumentNo` ของ 13 แถวที่เป็น PAID:
+
+- hand-written 3: `S001-69100/บต/900008` (vprivilege, `e9…0008`), `S001-69100/บต/900016`
+  (vcommerce, `e9…0010`), `S001-69100/บต/900024` (vsouvenir, `e9…0018`)
+- generated 10 (`Seq` = 7,14,21,28,35,42,49,56,63,70): `00098-69100/กธ/910007-10`,
+  `…910014-10`, `…910021-10`, `…910028-10`, `…910035-10`, `…910042-10`, `…910049-10`,
+  `…910056-10`, `…910063-10`, `…910070-10`
+
+### ผล seed จริงบน dev DB `:11433`
+
+`set -a && . ./.env && set +a && ./scripts/seed-demo.sh` -> `seed-demo: OK.` exit 0
+(`shop.Products = 100`, ตารางอื่นเท่าเดิมทุกตัว: admin.Users 6, merch.Merchants 3,
+txn.PspConnections 6, admin.MerchantAccess 4, admin.RoleAssignments 6, merch.Users 12,
+merch.ExternalLogins 12, merch.RoleAssignments 6, shop.Carts 6, shop.CartItems 14,
+shop.CheckoutSessions 4, shop.Orders 40, txn.PaymentSessions 36, shop.OrderItems 4,
+shop.OrderItemPolicies 3) — รันซ้ำครั้งที่ 2 ผลเดิม exit 0 (idempotent ยังใช้ได้)
+
+query ยืนยัน (stamp `sp_set_session_context` UserId/MerchantId ก่อนทุกครั้ง เพราะ `shop.Products` มี RLS
+ไม่งั้นได้ 0 แถวเงียบ ๆ):
+
+| query | ผล |
+|---|---|
+| `COUNT(*)` | 100 |
+| `PaymentStatus = 'PAID'` | **13** (PaidDate NULL 0 แถว) |
+| `PaymentStatus = 'UNPAID'` | **87** (PaidDate NULL 87 แถว = ครบ) |
+| `COUNT(DISTINCT PaymentStatus)` | 2 |
+| `WHERE TotalPremium <> ROUND(TotalPremium, 2)` | **0 แถว** |
+| PAID ที่ถูกอ้างจาก `CartItems` ของ cart `Open` | **0 แถว** |
+
+### สภาพ dev DB ตอนนี้
+
+`:11433` (`pol-db`) = migrate ครบ 27 ตัว (T5) + **seed-demo แล้ว** (รัน 2 ครั้ง) ⇒ T7/T8/T9 ใช้ได้เลย
+ไม่ต้อง seed ซ้ำ ถ้าไม่ `down -v` อีก
+
+### spec `demo-seed-data`
+
+- `requirements.md` REQ-5.4 เขียนใหม่: `TotalPremium DECIMAL(19,2)` (ทศนิยม <= 2, `Product.Create`
+  throw ไม่ปัด) + มีทั้ง `'UNPAID'` (ขายได้) และ `'PAID'` + `PaidDate` (ขายไม่ได้) แทน `IsActive` 2 ค่า
+- `design.md:174-175` (นอกบรีฟ แต่ระบุ `IsActive = 0` = 13 แถว จะค้างผิดถ้าไม่แก้) -> `PaymentStatus = 'PAID'`
+  13 / `'UNPAID'` 87 + เพิ่มกฎว่าแถว PAID ห้ามถูกอ้างจาก cart ที่ยัง `Open`
+- `tasks.md`: scope T3 ข้อ 4, verify query ข้อ 6 (`COUNT(DISTINCT IsActive)` -> `COUNT(DISTINCT PaymentStatus)`),
+  ประโยค evidence 2 จุด
+- `bash scripts/spec-trace.sh demo-seed-data` -> `OK: 'demo-seed-data' เกณฑ์ 33 ข้อ ถูกอ้างครบใน
+  design.md และ tasks.md, EARS lint ผ่านทุกข้อ` (real pass ไม่ใช่ skip)
+- `docker/bootstrap/assert-fresh-db.sql` **ไม่ต้องแก้** — grep `Products`/`IsActive` ไม่พบเลย (ยืนยันจากการอ่าน)
+
+### กับดักที่เจอ / ที่คนถัดไปต้องรู้
+
+1. **แค่ลบคอลัมน์ `IsActive` ไม่พอ** — ต้องเพิ่ม `PaidDate` เข้า column list ด้วย ไม่งั้นแถว PAID
+   จะเป็น "จ่ายแล้วแต่ไม่รู้จ่ายเมื่อไหร่" (`Product.MarkPaid` set สองค่านี้คู่กันเสมอ)
+2. **ต้องเช็คว่าแถวที่เปลี่ยนเป็น PAID ไม่ถูกอ้างจาก `shop.CartItems`** — 3 แถว hand-written ที่เคย
+   `IsActive = 0` (`e9…0008/0010/0018`) โชคดีที่ไม่มีใน cart ใด ๆ (cart อ้าง `e9…0001-0005`,
+   `0009-000e`, `0011-0014`) ถ้าเลือกแถวอื่นเป็น PAID demo `POST /checkouts` จะ 409 ตลอดตาม gate ใหม่ของ T4
+   — query ตรวจอยู่ใน Evidence ของ task 6 ใช้ซ้ำได้
+3. `shop.OrderItems` demo อ้าง product `e9…0006/000b/0009` ซึ่งยังเป็น `'UNPAID'` (เอกสารถูกสั่งซื้อแล้ว
+   แต่ยังไม่ mark paid) — **จงใจไม่แตะ**: การ mark PAID ตอน order paid เป็นงานของ outbox consumer
+   (`DocumentPaidOnOrderPaidConsumer`) ไม่ใช่ของ seed; ถ้า T8/T9 อยากได้ demo ที่สอดคล้องกว่านี้ต้องคุยแยก
+4. **`sp_set_session_context` ก่อน query `shop.*`/`txn.*` เสมอ** เวลา verify นอกสคริปต์ — RLS ซ่อนแถว
+   เงียบ ๆ ไม่ error (gotcha เดิมของ spec `demo-seed-data` T3 ยังจริงอยู่)
+5. `.env` อ่านด้วย Read/`cat` ไม่ได้ แต่ `set -a && . ./.env && set +a && ./scripts/seed-demo.sh`
+   ใน Bash call เดียวใช้ได้ (ยืนยันซ้ำจากกับดัก T5 ข้อ 3)
+6. **`design.md:165-172` ของ spec `demo-seed-data` ยังบรรยาย generator เป็น plan-line x tier +
+   `Name`/`PriceAmount`** ซึ่งค้างมาตั้งแต่ insurance-pivot (ก่อน spec นี้) — นอกขอบเขต T6, ถ้า T7
+   จะเก็บ docs drift ให้ครบก็เป็นจุดที่ควรกวาด
+
+commit ของ T6: `cb29344` (+ amend hash ในบรรทัดนี้)

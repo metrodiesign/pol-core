@@ -97,9 +97,12 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
 - 5.3 THE SYSTEM SHALL seed `merch.RoleAssignments` ผูก merchant user ที่ `Status = 1` (Active) ไปยัง
   role ที่ migration seed ไว้ (`merchant_manager` = `aaaaaaaa-…`, `merchant_staff` = `bbbbbbbb-…`)
   พร้อม `MerchantId` ของ user นั้น.
-- 5.4 THE SYSTEM SHALL seed `shop.Products` 100 แถว (34 / 33 / 33 ต่อ merchant) เป็นแผนประกันที่อ่านแล้ว
-  เข้าใจว่าเป็นข้อมูลจริงของธุรกิจ, ชื่อไม่ซ้ำกัน, `PriceCurrency = 'THB'`, `PriceAmount` เป็น
-  `DECIMAL(19,4)` และมีทั้ง `IsActive = 1` และ `IsActive = 0`.
+- 5.4 THE SYSTEM SHALL seed `shop.Products` 100 แถว (34 / 33 / 33 ต่อ merchant) เป็นเอกสารประกันที่อ่านแล้ว
+  เข้าใจว่าเป็นข้อมูลจริงของธุรกิจ, `DocumentNo` ไม่ซ้ำต่อ merchant, `TotalPremium` เป็น
+  `DECIMAL(19,2)` (ทศนิยมไม่เกิน 2 ตำแหน่ง — `Product.Create` throw ไม่ปัดให้) และมีทั้งเอกสารที่ยัง
+  ขายได้ (`PaymentStatus = 'UNPAID'`) และเอกสารที่ขายไม่ได้แล้ว (`PaymentStatus = 'PAID'` + `PaidDate`
+  มีค่า) — แกน "ขายได้/ขายไม่ได้" คือ `PaymentStatus` ไม่ใช่ `IsActive` ที่ถูกลบไปแล้ว
+  (products-sp-53-alignment REQ-2.1/2.4).
 - 5.5 WHERE จำนวนสินค้ามากเกินกว่าจะเขียนมือทีละแถว THE SYSTEM SHALL generate ส่วนที่เหลือแบบ
   deterministic (plan-line x tier cross join + row number -> id) — id ของ 24 แถวแรกที่ `shop.CartItems`
   อ้างถึงต้องไม่ขยับ.
