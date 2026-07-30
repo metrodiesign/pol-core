@@ -17,18 +17,16 @@ public sealed class CreateProductHandler : ICommandHandler<CreateProductCommand,
 {
     private readonly IProductRepository _repository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IClock _clock;
 
-    public CreateProductHandler(IProductRepository repository, IUnitOfWork unitOfWork, IClock clock)
+    public CreateProductHandler(IProductRepository repository, IUnitOfWork unitOfWork)
     {
         _repository = repository;
         _unitOfWork = unitOfWork;
-        _clock = clock;
     }
 
     public async ValueTask<Guid> Handle(CreateProductCommand command, CancellationToken cancellationToken)
     {
-        var product = Product.Create(command.Input, _clock.UtcNow);
+        var product = Product.Create(command.Input);
 
         _repository.Add(product);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
