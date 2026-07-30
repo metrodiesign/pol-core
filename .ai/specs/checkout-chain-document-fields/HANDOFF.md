@@ -121,3 +121,21 @@ Rolling handoff — teammate ทุกคน **append หัวข้อให�
 - DB :11433 ตอนนี้ apply migration ล่าสุด + re-seed แล้ว — Integration.Tests รันซ้ำได้เลย ไม่ต้อง reset
 - ยังไม่ได้รัน gate เต็มในรอบนี้ (`-warnaserror`, rename-identifiers, spec-trace, suite อื่นทั้งหมด) — งานของ task 5 ล้วน; เท่าที่รันในรอบนี้ทุกอย่างเขียว
 - migration นี้ให้ `defaultValue: ""` กับ 3 column NOT NULL (แถว dev เก่า) — ตามที่ design ยอมรับไว้ (pre-prod) ถ้า reviewer ทัก ตอบด้วย design.md ข้อ 6
+
+## chain-t5 — Task 5: Full gate + PR (2026-07-30)
+
+**สิ่งที่ทำ**: รัน gate เต็มทั้งชุดบน branch `feat/products-insurance-document`, แก้ 1 gate ที่แดง (rename-identifier), อัปเดต PR #143 body
+
+**ผล gate ทุกตัว**:
+- `dotnet build pol-core.slnx -warnaserror` -> `ok dotnet build: 64 projects, 0 errors, 0 warnings`
+- non-integration suites (`dotnet test tests/<X>.Tests --no-build -v q`) เขียวทั้งหมด รวม **1268 passed / 0 failed / 0 skipped**: Products 31, Checkouts 13, Orders 75, Carts 15, Hosts 353, Architecture 229, Payments 162, Admins 95, Merchants 120, Iam 62, SharedKernel 46, BuildingBlocks 43, Divisions 6, Levels 6, Offices 6, Positions 6
+- `source .env.integration && dotnet test tests/Integration.Tests` -> 47/47 เขียว (DB :11433 ที่ chain-t4 migrate+seed ไว้ ใช้ต่อได้เลย ไม่ต้อง reset)
+- `bash scripts/check-rename-identifiers.sh` -> **แดงรอบแรก** แล้วแก้จนเขียว (ดูกับดัก 1)
+- `bash scripts/spec-trace.sh checkout-chain-document-fields` -> exit 0 แต่เป็น **skip ไม่ใช่ pass** (ดูกับดัก 2)
+- `grep -rn "ponytail: bridge" src/` -> ว่าง; `grep -rn "SumInsured\|CoverageDurationDays\|InsurerName" src/Modules/Checkouts src/Modules/Orders src/Contracts | grep -v ItemPolicy` -> ว่าง
+
+**กับดักที่เจอจริง**:
+1. **rename-identifier gate จับหนี้ของ task 1**: helper ใน `tests/Checkouts.Tests/ConfirmCheckoutTests.cs` ชื่อ `Line(` ชน retired token `Line` (มาจาก OrderLine->OrderItem rename ของ policy-reference-record) — gate นี้สแกน `tests/` ด้วย ไม่ใช่แค่ `src/` และ task 1-4 ไม่ได้รันมัน จึงหลุดมาถึง task 5. แก้ = rename helper -> `ItemInput(` 8 จุด (regex `(?<![A-Za-z0-9_])Line\(` — `OneLine()` ไม่โดนเพราะ word boundary), Checkouts.Tests ยัง 13/13. **บทเรียน: ตั้งชื่อ local/test helper ห้ามใช้คำว่า `Line` เดี่ยว ๆ ในรีโปนี้**
+2. **spec-trace ของ spec นี้ไม่ได้ตรวจจริง**: `spec_trace.py` ต้องการหัวข้อ `## REQ-N:` แต่ `requirements.md` เขียนเป็น `### REQ-N —` จึงเข้า branch "ข้ามการตรวจ" แล้ว exit 0. ทำให้ traceability ของ spec นี้ **ไม่เคยถูก verify แบบ deterministic**. ไม่แก้เองเพราะการทำให้ตรวจจริงต้อง (ก) เปลี่ยน heading เป็น `## REQ-N: <title>` และ (ข) reword criteria 3.3/5.3/6.1/6.2/6.3 ที่ไม่มี `THE SYSTEM SHALL`/WHEN/WHILE/WHERE/IF-THEN ให้ผ่าน EARS lint — เป็นการแก้เนื้อหา spec ที่อนุมัติแล้ว ต้องให้ lead ตัดสิน
+
+**สถานะปิดงาน**: Task 1-5 เสร็จครบ, working tree สะอาด, branch push แล้ว, PR #143 body อัปเดตเพิ่มหัวข้อ "Chain rework (ถอด bridge)" และลบหมายเหตุเดิมที่บอกว่า `ProductView` ยังคง bridge ไว้ — **ไม่ merge** ตามคำสั่ง

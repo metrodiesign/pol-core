@@ -21,7 +21,7 @@ public sealed class ConfirmCheckoutTests
     private static readonly DateTime CoverFrom = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime CoverTo = new(2027, 7, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static CheckoutItemInput Line(
+    private static CheckoutItemInput ItemInput(
         string documentNo = "00098-69100/AB/900001-10", string productGroup = "VMI", string documentType = "POLICY",
         DateTime? startDate = null, DateTime? endDate = null,
         string idNumber = "1234567890123", DateTime? dob = null) =>
@@ -29,7 +29,7 @@ public sealed class ConfirmCheckoutTests
             documentNo, productGroup, documentType, "POL-0001", startDate ?? CoverFrom, endDate ?? CoverTo,
             "Somchai", "Jaidee", idNumber, dob ?? Dob);
 
-    private static IReadOnlyList<CheckoutItemInput> OneLine() => [Line()];
+    private static IReadOnlyList<CheckoutItemInput> OneLine() => [ItemInput()];
 
     private static readonly DateTime StartAt = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
@@ -59,7 +59,7 @@ public sealed class ConfirmCheckoutTests
     [InlineData("   ")]
     public void Start_rejects_a_blank_insured_IdNumber(string idNumber)
     {
-        var line = Line(idNumber: idNumber);
+        var line = ItemInput(idNumber: idNumber);
 
         Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
     }
@@ -72,7 +72,7 @@ public sealed class ConfirmCheckoutTests
     [InlineData("DOC-1", "VMI", "  ")]
     public void Start_rejects_a_blank_document_field(string documentNo, string productGroup, string documentType)
     {
-        var line = Line(documentNo, productGroup, documentType);
+        var line = ItemInput(documentNo, productGroup, documentType);
 
         Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
     }
@@ -80,7 +80,7 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public void Start_rejects_a_start_date_after_the_end_date()
     {
-        var line = Line(startDate: CoverTo, endDate: CoverFrom);
+        var line = ItemInput(startDate: CoverTo, endDate: CoverFrom);
 
         Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
     }
@@ -89,7 +89,7 @@ public sealed class ConfirmCheckoutTests
     public void Start_trims_and_snapshots_the_document_fields()
     {
         var session = Session.Start(
-            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [Line(documentNo: "  DOC-1  ")]);
+            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [ItemInput(documentNo: "  DOC-1  ")]);
 
         var item = Assert.Single(session.Items);
         Assert.Equal("DOC-1", item.DocumentNo);
@@ -102,7 +102,7 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public void Start_rejects_a_future_date_of_birth()
     {
-        var line = Line(dob: StartAt.AddDays(1));
+        var line = ItemInput(dob: StartAt.AddDays(1));
 
         Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
     }
@@ -110,7 +110,7 @@ public sealed class ConfirmCheckoutTests
     [Fact]
     public void The_thrown_exception_never_echoes_the_invalid_date_of_birth_value()
     {
-        var line = Line(dob: new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc));
+        var line = ItemInput(dob: new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc));
 
         var ex = Assert.Throws<ArgumentException>(
             () => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
