@@ -1195,4 +1195,4 @@ cart `EA000000-…-0001` กลายเป็น `CheckedOut` (เดิม `Op
 6. **`sp_set_session_context` ยังต้อง stamp ก่อน query `shop.*`** เวลา verify ด้วย sqlcmd (กับดักเดิม T6
    ข้อ 4 ยังจริง) — และ `sa` เห็นทุก merchant จึงต้องใส่ `WHERE MerchantId = …` เองเวลานับแถวต่อ merchant
 
-commit ของ T9: เติมหลัง commit (ดู PR)
+commit ของ T9: `3e97e2c` — PR #144 https://github.com/metrodiesign/pol-core/pull/144 (เปิดเข้า develop, ยังไม่ merge)
