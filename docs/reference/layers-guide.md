@@ -721,18 +721,27 @@ error ให้เห็นตรง ๆ.
 6. Middleware pipeline (เรียงลำดับนี้เสมอ): `ForwardedHeaders → CorrelationId → ExceptionHandler → StatusCodePages → Cors → RateLimiter → Authentication → Authorization → HealthChecks(/health/live, /health/ready — อยู่นอก /api/v1) → MapGroup("/api/v1") → endpoint ทั้งหมด`
 7. Route surface: ทุกเส้นทางอยู่ใต้ `/api/v1/{area}` — **version มาก่อนเสมอ area มาทีหลัง** (global version segment เดียว ไม่แยก version ต่อโมดูล), audience (admin/merchant-user) ไม่เคยเข้ารหัสอยู่ใน path — บังคับผ่าน `.RequireAuthorization(...)`/`.RequirePermission(Keys.*)` ต่อ endpoint เท่านั้น
 
-**ตัวอย่าง endpoint จริง** (`POST /products`, ย่อจาก `Program.cs`):
+**ตัวอย่าง endpoint จริง** (`GET /products`, ย่อจาก `Program.cs`):
 
 ```csharp
-var createProduct = api.MapPost("/products", async (CreateProductRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+api.MapGet("/products", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var id = await mediator.Send(new CreateProductCommand(actor.MerchantId, body.Name, body.Price, ...), ct);
-    return TypedResults.Ok(new CreateProductResponse(id));
-});
-createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)...
+    var p = SfsQueryParser.ParsePaging(http.Request.Query);
+    var result = await mediator.Send(new ListProductsQuery
+    {
+        Page = p.Page, Limit = p.Limit,
+        ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
+    }, ct);
+    return Results.Ok(result);
+})
+    .RequireAuthorization("merchant-user")...
 ```
 
-merchant id มาจาก `IActorContext` (resolve จาก principal) เสมอ ไม่เคยรับมาจาก request body หรือ URL — นี่คือกฎเดียวกับ §3 ที่ถูกบังคับใช้จริงตรงจุด mapping endpoint.
+แคตตาล็อกเอกสารเป็น **read-only ผ่าน HTTP** — `GET /products` คือ endpoint เดียวของ Products (เอกสารมาจาก
+ระบบกรมธรรม์ต้นทาง ไม่ได้เกิดจาก merchant กรอกฟอร์ม) และเป็นตารางเดียวที่ไม่มี `MerchantId` ขอบเขตต่อ request
+จึงมาจาก `saleCode` ที่บังคับใน `productFilters` แทน tenant key. เทียบกับ endpoint กลุ่ม merchant-scoped
+(เช่น cart/checkout) ที่ merchant id มาจาก `IActorContext` เสมอ ไม่เคยรับจาก request body หรือ URL —
+กฎเดียวกับ §3 ที่ถูกบังคับใช้จริงตรงจุด mapping endpoint.
 
 **ทำงานร่วมกับ layer อื่นตรงไหน**: `WriteAuthorizers.cs` และ `BackgroundDispatchScope.cs` ในหัวข้อนี้คือจุดที่ Hosts ผูก policy จริงให้ BuildingBlocks/Persistence ใช้ — ตัวอย่างที่เห็นผลชัดสุดคือ **B6** ซึ่งเป็นบั๊กจริงที่เกิดจากจุดผูกตรงนี้พังแล้วเพิ่งแก้ไปในบรานช์เดียวกับที่กำลังอ่านคู่มือนี้
 
@@ -742,50 +751,53 @@ merchant id มาจาก `IActorContext` (resolve จาก principal) เส
 
 เดินโค้ดจริงทีละ layer 6 เคส ตั้งแต่ endpoint ง่ายสุดไปจนถึงบั๊กจริงที่เพิ่งเกิดบน repo นี้ — โค้ดทุกก้อนคัดมาจากไฟล์จริงตรง ๆ (ตัดคอมเมนต์ยาว/บาง statement ออกด้วย `...` เพื่อความอ่านง่าย ไม่ได้แก้ logic).
 
-### B1. flow ง่ายสุด — สร้างสินค้า (`POST /products`)
+### B1. flow ง่ายสุด — อ่านแคตตาล็อกเอกสาร (`GET /products`)
 
 ครบ 5 layer ในคำขอเดียว:
 
-**1. Hosts** (`Program.cs:599-610`) map endpoint, ดึง merchant จาก `IActorContext` ไม่ใช่จาก body:
+**1. Hosts** (`Program.cs`) map endpoint, แปลง query string เป็น query object ไม่มี logic ของตัวเอง:
 ```csharp
-var createProduct = api.MapPost("/products", async (
-    CreateProductRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+api.MapGet("/products", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var id = await mediator.Send(
-        new CreateProductCommand(
-            actor.MerchantId, body.Name, body.Price, body.SumInsured, body.CoverageDurationDays, body.Insurer),
-        ct);
-    return TypedResults.Ok(new CreateProductResponse(id));
-});
-createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)...
-```
-
-**2. BuildingBlocks** — ก่อน handler จะรัน `MerchantGuardBehavior<,>` (§3) เช็คก่อนว่า `CreateProductCommand` (implement `IMerchantScoped`) มี actor ผูกไหม ถ้าไม่มี throw `MerchantBindingException` ทันที ไม่ถึง handler เลย
-
-**3. Modules** (`Products.Application/CreateProductCommand.cs`) — handler สร้าง aggregate ผ่าน domain factory แล้วสั่งเก็บ:
-```csharp
-public sealed record CreateProductCommand(
-    Guid MerchantId, string Name, Money Price, Money SumInsured, int CoverageDurationDays, string Insurer)
-    : ICommand<Guid>, IMerchantScoped;
-
-public sealed class CreateProductHandler : ICommandHandler<CreateProductCommand, Guid>
-{
-    public async ValueTask<Guid> Handle(CreateProductCommand command, CancellationToken cancellationToken)
+    var p = SfsQueryParser.ParsePaging(http.Request.Query);
+    var result = await mediator.Send(new ListProductsQuery
     {
-        var product = Product.Create(
-            command.MerchantId, command.Name, command.Price, command.SumInsured, command.CoverageDurationDays,
-            command.Insurer, _clock.UtcNow);
-        _repository.Add(product);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-        return product.Id;
-    }
-}
+        Page = p.Page, Limit = p.Limit,
+        ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
+    }, ct);
+    return Results.Ok(result);
+})
+    .RequireAuthorization("merchant-user")...
 ```
-`Product.Create` (Domain) validate invariant ก่อนคืน object กลับมา — เช่น `SumInsured` ต้อง currency เดียวกับ `Price` (`sumInsured.SameCurrencyAs(price)`) ถ้าไม่ผ่านคือ `ArgumentException` ตั้งแต่ในโดเมนเลย ไม่ต้องรอถึงชั้น DB
 
-**4. Persistence** (`Persistence.MerchantRuntime/Products/ProductRepository.cs`) — `_repository.Add` แค่ track entity เข้า `MerchantRuntimeDbContext.Set<Product>()`, ยังไม่เขียนจริงจนกว่า `_unitOfWork.SaveChangesAsync` จะเรียก `GuardedRuntimeDbContext.SaveChanges` (§3) ซึ่งเช็ค `IWriteAuthorizer.CanWrite(typeof(Product), Insert, command.MerchantId)` ก่อนปล่อยให้ EF commit จริง
+**2. BuildingBlocks** — `SfsQueryParser.ParsePaging` clamp `limit` ให้อยู่ใน 1-25 ทุกกรณี (ค่าพัง เช่น `abc`
+กลายเป็น default ไม่ใช่ 400) ส่วน pipeline ของ Mediator ยังทำงานตามปกติ แต่ `ListProductsQuery` **ไม่** implement
+`IMerchantScoped` เพราะแคตตาล็อกเป็นของกลาง — `MerchantGuardBehavior` จึงไม่ใช่ด่านของ endpoint นี้ ด่านจริงคือ
+`RequireAuthorization("merchant-user")` + `saleCode` ที่บังคับ
 
-**5. SharedKernel** — `Money` เดินทางไปกับ `Product` ตั้งแต่ domain (`Product.Price: Money`) ผ่าน DB (EF complex type `decimal(19,4)` + `char(3)`) จนถึง `CreateProductResponse` กลับไปหา client (serialize ผ่าน `MoneyJsonConverter` เป็น `{"amount":"1500.0000","currency":"THB"}`)
+**3. Modules** (`Products.Application/ListProducts.cs`) — `ProductFilterDto.Parse` เป็นตัว validate ขอบเขต:
+`productFilters` ที่หาย/ว่าง/JSON พัง หรือไม่มี `saleCode` = `ArgumentException` -> 400 ไม่ใช่การเงียบแล้วคืนทั้ง
+แคตตาล็อก; `paymentStatus` แปลด้วยการเทียบชื่อ ไม่ใช่ `Enum.TryParse` (ซึ่งรับ `"0"`/`"1"` ด้วย) และค่าที่ไม่ส่งมา
+default เป็น `UNPAID`
+
+**4. Persistence** (`Persistence.MerchantRuntime/Products/ProductRepository.cs`) — `SaleCode` เป็นแกนขอบเขตเดียว
+แล้วบังคับ search window ทับเสมอ ไม่ว่า client จะกรองอะไรมา:
+```csharp
+IQueryable<Product> src = _db.Set<Product>().AsNoTracking()
+    .Where(p => p.SaleCode == pf.SaleCode);
+
+var today = _clock.UtcNow.Date;
+src = src.Where(p =>
+    (p.DocumentType == DocumentType.RENEWAL
+        && p.EndDate >= today && p.EndDate < today.AddMonths(RenewalWindowMonths))
+    || (p.DocumentType != DocumentType.RENEWAL
+        && p.StartDate >= today.AddMonths(-SearchWindowMonths)));
+```
+`_clock` เป็น `IClock` ไม่ใช่ `DateTime.UtcNow` — ทดสอบ window ได้โดยไม่ต้องรอเวลาจริง
+
+**5. SharedKernel** — ผลลัพธ์ห่อด้วย `PagedResult<ProductListItem>` และ `ProductListItem` เป็น mirror ของ §5.2
+ครบ 32 field; เบี้ยเป็น `decimal` เปล่า ไม่ใช่ `Money` (Product เป็น entity เดียวที่ไม่ถือ `Money` — currency
+ถูก mint ที่ cart add-item แทน)
 
 ### B2. flow ข้ามโมดูลผ่าน event — checkout confirm เปิด order เอง
 
@@ -978,11 +990,11 @@ format) ด้วย ไม่ใช่แค่ในหน่วยควา�
 
 **ทำไม merchant id ต้องมาจาก `IActorContext` เท่านั้น ห้ามรับจาก request body หรือ URL?**
 กฎนี้คือกฎของ **merchant-facing tenant-scoped command** เท่านั้น (คำสั่งที่ implement `IMerchantScoped` แบบ
-`CreateProductCommand` — ดู B1) — ถ้ารับ merchant target จาก body/URL ของคำสั่งกลุ่มนี้เท่ากับให้ client เป็น
+`AddItemToCartCommand`) — ถ้ารับ merchant target จาก body/URL ของคำสั่งกลุ่มนี้เท่ากับให้ client เป็น
 คนบอกเองว่าตัวเองเป็น merchant ไหน ปลอมง่ายมาก (แก้ JSON body หรือ URL param ก็สวมรอยเป็น merchant อื่นได้ทันที).
 `IActorContext.CurrentMerchant` มาจาก authenticated principal ที่ผ่านการ authenticate แล้วเท่านั้น (§3, §6)
 แล้วยังโดนเช็คซ้ำอีกชั้นที่ `MerchantGuardBehavior` ก่อนเข้า handler กับ query filter ตอนอ่าน/เขียนจริงที่
-Persistence (§4) — ดู B1 ที่ endpoint จริงไม่รับ `merchantId` จาก `CreateProductRequest` เลยสักฟิลด์.
+Persistence (§4) — endpoint merchant-facing จริงในโค้ดไม่มีตัวไหนรับ `merchantId` จาก request body เลยสักฟิลด์.
 
 กฎนี้ **ไม่ใช้กับ control-plane/admin endpoint** ที่ตั้งใจให้ admin ระบุ merchant เป้าหมายผ่าน body/path/query
 ตรง ๆ เช่น `AssignMerchantRequest.MerchantId` ใน `POST /{id}/merchants`, `DELETE /{id}/merchants/{merchantId}`,

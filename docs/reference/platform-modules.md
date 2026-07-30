@@ -667,7 +667,8 @@ catalog แยกต่อ merchant. `Product` เป็น mirror ของ res
   ที่ boundary เดียวคือ cart add-item
 - เป็น source ของเบี้ย**และ field เอกสาร**เสมอ — ทั้ง Cart (เบี้ย) และ Checkout (field เอกสาร, ดู §7) ดึงจาก
   catalog ตอนทำรายการ, ไม่รับค่าเหล่านี้จาก client
-- endpoints: `POST /products` (merchant Bearer หรือ admin + `product.create`), `GET /products`
+- endpoints: `GET /products` **ตัวเดียว** — แคตตาล็อกเป็น read-only ผ่าน HTTP (เอกสารมาจากระบบกรมธรรม์ต้นทาง
+  ไม่ได้เกิดจาก merchant กรอกฟอร์ม); write seam คือ `CreateProductCommand` ที่ไม่ถูก map เป็น route
   (**ไม่มี SFS** — รับแค่ `page`/`limit` + typed `productFilters` ที่บังคับมี `saleCode`, order คงที่ด้วย
   `DocumentNo`, search window 6 เดือน / `RENEWAL` 2 เดือน)
 
@@ -675,7 +676,7 @@ catalog แยกต่อ merchant. `Product` เป็น mirror ของ res
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
-| สร้างเอกสาร | `POST /products` (merchant Bearer หรือ admin + `product.create`) — body = field §5.2 ครบชุด, เบี้ยเป็นตัวเลขเปล่า (ไม่ใช่ object `{amount,currency}`) | มีแล้ว |
+| สร้างเอกสาร | ไม่มี HTTP endpoint — `POST /products` ถูกถอดออก (แคตตาล็อก read-only, เอกสารมาจากระบบต้นทาง); เข้าถึงได้ผ่าน `CreateProductCommand` ภายในเท่านั้น | ถอดออกแล้ว |
 | เบี้ยเป็น source of truth | Cart ดึงเบี้ยจาก catalog ตอน add แล้ว mint `Money.Of(TotalPremium, "THB")` — ไม่รับเบี้ยจาก client | มีแล้ว |
 | field เอกสารบน `Product` | `DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` — snapshot เข้า `OrderItem` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (checkout-chain-document-fields) |
 | List ตาม §2 input contract | `GET /products` — `page`/`limit` (cap 25) + typed `productFilters` (`saleCode` บังคับ, `paymentStatus` default `UNPAID`, smart search รวมทะเบียนรถเฉพาะแถว Motor, search window 6 เดือน / `RENEWAL` 2 เดือน); **ไม่มี** `filters`/`sort`/`search` (`ProductSfs` ถูกลบ) | มีแล้ว (products-sp-53-alignment) |

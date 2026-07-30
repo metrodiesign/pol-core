@@ -402,7 +402,7 @@ ForwardedHeaders → [HttpLogging (Dev)] → CorrelationId → ExceptionHandler 
 | Tag (Scalar) | Endpoint | Module |
 |---|---|---|
 | Webhooks | `POST /webhooks/{pspConnectionId}` (anonymous, rate-limited) | §4.5 Payments (ไม่มีโมดูลของตัวเอง — ขี่อยู่บน Payments) |
-| ผลิตภัณฑ์ | `POST /products` · `GET /products` (SFS) | §4.1 Products |
+| ผลิตภัณฑ์ | `GET /products` (อ่านอย่างเดียว — ไม่มี POST) | §4.1 Products |
 | ตะกร้าสินค้า | `POST /carts` · `GET /carts/{cartId}` · `POST/PUT/DELETE /carts/{cartId}/items[/{productId}]` · `POST /carts/{cartId}/clear` | §4.2 Carts |
 | เช็คเอาต์ | `POST /checkouts` · `POST /checkouts/{checkoutSessionId}/confirm` | §4.3 Checkouts |
 | การชำระเงิน | `POST /payments/sessions` · `POST /payments/sessions/{paymentSessionId}/redirect` | §4.5 Payments |

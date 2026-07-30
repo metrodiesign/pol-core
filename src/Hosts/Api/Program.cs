@@ -607,36 +607,12 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
 // "merchant-user" policy + its permission unconditionally — the former MerchantUser:EnforcePermissionsOnWrites
 // toggle (a transitional un-gated Bearer state) no longer has a Bearer path to fall back to, so it is deleted.
 
-// Merchant-facing convenience endpoints (merchant comes from the authenticated principal via IActorContext).
-var createProduct = api.MapPost("/products", async (
-    CreateProductRequest body,
-    IMediator mediator,
-    CancellationToken ct) =>
-{
-    var id = await mediator.Send(
-        new CreateProductCommand(new ProductInput(
-            body.ProductGroup, body.DocumentType, body.DocumentNo,
-            body.SaleCode, body.TotalPremium, body.PolicyYear, body.ReferenceBranch, body.ReferencePre,
-            body.PolicySequenceNo, body.ReferenceYear, body.ReferenceNo, body.PolicyBranch, body.PolicyType,
-            body.SaleFullName, body.BrokerCode, body.BrokerName, body.PolicyNumber, body.ApplicationNumber,
-            body.PreviousPolicyNumber, body.EndorsementNumber, body.StartDate, body.EndDate, body.ShowName,
-            body.LicensePlateNumber, body.NetPremium, body.Stamp, body.TaxVat, body.CommissionAmount,
-            body.CommissionPercent)),
-        ct);
-    return TypedResults.Ok(new CreateProductResponse(id));
-});
-createProduct.RequireAuthorization("merchant-user").RequirePermission(Keys.ProductCreate)
-    .WithTags("ผลิตภัณฑ์")
-    .WithName("CreateProduct")
-    .WithSummary("สร้างผลิตภัณฑ์")
-    .WithDescription("สร้างเอกสารประกันในแคตตาล็อกกลาง ต้องมี merchant-user policy + สิทธิ์ product.create")
-    .Produces<CreateProductResponse>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
-
-// GET /products — the central document catalogue. It carries no merchant of its own, so the request is scoped by
-// the mandatory saleCode inside productFilters and gated by the merchant-user policy; the input surface is exactly
-// SP guide §2: paging plus the typed productFilters (REQ-7.1).
+// GET /products — the central document catalogue, and the ONLY product endpoint: the catalogue is read-only over
+// HTTP because the documents originate in the upstream policy system, not from a merchant filling in a form. The
+// write seam is CreateProductCommand, reachable from an importer/tests but deliberately not mapped to a route.
+// It carries no merchant of its own, so the request is scoped by the mandatory saleCode inside productFilters and
+// gated by the merchant-user policy; the input surface is exactly SP guide §2: paging plus the typed
+// productFilters (REQ-7.1).
 api.MapGet("/products", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var p = SfsQueryParser.ParsePaging(http.Request.Query);
@@ -2205,36 +2181,6 @@ internal sealed record RejectMerchantUserRequest(string? Reason);
 internal sealed record ApproveMerchantUserResponse(Guid MerchantUserId, string Status, bool AlreadyActive);
 internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string Status);
 
-internal sealed record CreateProductRequest(
-    ProductGroup ProductGroup,
-    DocumentType DocumentType,
-    string DocumentNo,
-    string SaleCode,
-    decimal TotalPremium,
-    string? PolicyYear = null,
-    string? ReferenceBranch = null,
-    string? ReferencePre = null,
-    string? PolicySequenceNo = null,
-    string? ReferenceYear = null,
-    string? ReferenceNo = null,
-    string? PolicyBranch = null,
-    string? PolicyType = null,
-    string? SaleFullName = null,
-    string? BrokerCode = null,
-    string? BrokerName = null,
-    string? PolicyNumber = null,
-    string? ApplicationNumber = null,
-    string? PreviousPolicyNumber = null,
-    string? EndorsementNumber = null,
-    DateTime? StartDate = null,
-    DateTime? EndDate = null,
-    string? ShowName = null,
-    string? LicensePlateNumber = null,
-    decimal? NetPremium = null,
-    decimal? Stamp = null,
-    decimal? TaxVat = null,
-    decimal? CommissionAmount = null,
-    decimal? CommissionPercent = null);
 // No Amount: the charge is priced from the order row server-side (a body that still sends "amount" is
 // simply ignored — the platform never mints a charge the order does not back).
 internal sealed record CreatePaymentSessionRequest(
@@ -2418,7 +2364,6 @@ internal sealed record MasterUpdateRequest(string? Name, bool IsActive);
 internal sealed record MasterResponse(Guid Id, string Code, string Name, bool IsActive);
 internal sealed record MasterRefResponse(Guid Id, string Code, string Name);
 
-internal sealed record CreateProductResponse(Guid ProductId);
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
 internal sealed record StartRedirectResponse(string RedirectUrl);
 internal sealed record WebhookResponse(string Outcome);
