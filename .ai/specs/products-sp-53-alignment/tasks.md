@@ -1,0 +1,45 @@
+# Implementation Tasks: products-sp-53-alignment
+
+> Status: approved-for-implementation 2026-07-30
+> อ่าน `requirements.md` + `design.md` + `HANDOFF.md` ก่อนเริ่มทุกครั้ง. Traps ทั้งหมดอยู่ใน design.md หัวข้อ "Traps"
+> Branch: `feat/products-sp-53-alignment`. ห้าม push develop, ห้าม force push, ห้าม merge
+> ลำดับ task ตรงกับ T1-T9 ใน `HANDOFF.md` หนึ่งต่อหนึ่ง
+> **task gate**: ตอน flip `- [ ]` -> `- [x]` ต้องเติม `Evidence:` ใน Edit เดียวกัน และบรรทัด `Evidence:` ห้ามมี `-` นำหน้า
+> **build จะแดงระหว่าง T2-T4** (ตัดคอลัมน์แล้ว consumer ยังไม่ตาม) — ปกติ ห้ามแก้ไฟล์นอก task ตัวเองเพื่อดับแดง
+
+- [x] 1. **T1 — spec artifacts + เอกสารต้นเรื่องเข้า repo** — สร้าง `.ai/specs/products-sp-53-alignment/{requirements,design,tasks}.md`; `git add docs/reference/vcentralpay-sp-quick-reference.pdf`; แก้ XML doc comment ที่อ้าง "VCentralPay SP guide" ให้ชี้ path จริงใน `src/Modules/Products/Products.Domain/{DocumentType.cs,PaymentStatus.cs,ProductGroup.cs,Product.cs}` (แก้แค่ comment ห้ามแตะโค้ด); ต่อท้าย section T1 ใน `HANDOFF.md` + อัปเดตตารางลำดับ task
+     **Done** = `bash scripts/spec-trace.sh products-sp-53-alignment` พิมพ์บรรทัดขึ้นต้น `OK:`; `dotnet build src/Modules/Products/Products.Domain` 0 error (comment-only edit); commit ครบทั้ง 3 spec + PDF + HANDOFF + 4 comment fix
+     Satisfies: REQ-11 (11.1, 11.2)
+     Evidence: `bash scripts/spec-trace.sh products-sp-53-alignment` -> `OK: 'products-sp-53-alignment' เกณฑ์ 53 ข้อ ถูกอ้างครบใน design.md และ tasks.md, EARS lint ผ่านทุกข้อ` (exit 0 — real pass ไม่ใช่ silent-skip เพราะ heading เป็น `## REQ-N:` ทุกข้อ); `dotnet build src/Modules/Products/Products.Domain` -> `ok dotnet build: 2 projects, 0 errors, 0 warnings`; comment fix 4 ไฟล์ (`DocumentType.cs`, `PaymentStatus.cs`, `ProductGroup.cs`, `Product.cs` 2 จุด: class summary + `ShowName`) แตะเฉพาะ XML doc ไม่มีบรรทัดโค้ดเปลี่ยน (`git diff --stat` = 4 ไฟล์ comment-only); `docs/reference/vcentralpay-sp-quick-reference.pdf` เข้า git แล้ว. Viewports 375/768/1440: n/a (ไม่มี UI). Deviations: (1) แก้ comment ใน `Product.cs` 2 จุด (class summary บรรทัด 6 + `ShowName` บรรทัด 52) ไม่ใช่จุดเดียวตาม brief — ทั้งสองจุดอ้างเอกสารแบบลอย ๆ เหมือนกัน; (2) comment ใน `Product.cs` ที่เขียนว่า `TotalPremium` เป็น EF complex type decimal(19,4) + char(3) ยังคงเดิม (จะผิดหลัง T2) — เป็นของ T2 ไม่ใช่ comment-only fix
+
+- [ ] 2. **T2 — Domain** — `Products.Domain/Product.cs`: ลบ `BranchCode`/`IsActive`/`CreatedAt`/`Deactivate()`/computed `Money?` 4 ตัว/`RequireThb` + call; `TotalPremium` -> `decimal`, breakdown 4 ตัว -> `decimal?`; `Create(ProductInput)` ตัด param `createdAt`; `MarkPaid` เหลือ `PaymentStatus` + `PaidDate`; เพิ่ม guard scale <= 2 ตำแหน่งกับค่าเงินทุกตัว; `ProductInput.cs` ตัด `BranchCode` + premium เป็น decimal
+     **Done** = `dotnet build src/Modules/Products/Products.Domain` 0 error/0 warning; `dotnet test tests/Products.Tests --filter FullyQualifiedName~ProductTests` เขียวหลังปรับเคสที่กระทบ (เคสอื่นและโปรเจกต์อื่นยังแดงได้ ให้บันทึกว่าอะไรแดง)
+     Satisfies: REQ-1 (1.1-1.7), REQ-2 (2.2, 2.3)
+
+- [ ] 3. **T3 — Application** — `ListProducts.cs`: `ProductListItem` = §5.2 32 field + `Id`, `ProductFilterDto` เพิ่ม `[Required][MaxLength(20)] SaleCode` (trim ห้ามว่าง -> throw อ้าง 50005) + `PaymentStatus` เป็น `string?` + computed `PaymentStatusFilter` (`ALL` -> null, ค่าอื่น -> throw อ้าง 50007) + `Parse(null/blank)` throw, `ListProductsQuery` เลิก inherit `PagedQuery` ประกาศ `Page`/`Limit` + `required ProductFilters`, แก้ XML doc; `GetProductById.cs` คืน `ProductListItem`; ลบ `ProductView.cs`, `GetProductsQuery.cs`, `IProductRepository.ListByTenantAsync`
+     **Done** = `dotnet build src/Modules/Products/Products.Application` 0 error; `dotnet test tests/Products.Tests/ProductFilterDtoTests.cs` (เคส 50005/50007/absent/ALL) เขียว; Hosts/Persistence ยังแดงได้
+     Satisfies: REQ-3 (3.1, 3.2, 3.3, 3.4, 3.5, 3.6), REQ-7 (7.5), REQ-8 (8.1, 8.2, 8.3), REQ-9 (9.1, 9.2, 9.3, 9.4)
+
+- [ ] 4. **T4 — Hosts + Repository** — `Program.cs`: gate x2 (`:679` cart 400, `:776` checkout 409) เป็น `PaymentStatus != UNPAID`, currency boundary `:683` `Money.Of(product.TotalPremium, "THB")`, `CreateProductRequest` ตัด `BranchCode` + premium decimal, `GET /products` ใช้ `SfsQueryParser.ParsePaging` + marker OpenAPI ใหม่ (page/limit/productFilters) + แก้ `.WithDescription`; `ProductRepository.ListAsync` ลบการเรียก SFS + `OrderBy(DocumentNo)` + `SaleCode` filter + `PaymentStatusFilter` + per-row Motor gate ของทะเบียนรถ + window ผ่าน `IClock`; ลบ `ProductSfs.cs` ทั้งไฟล์
+     **Done** = `dotnet build pol-core.slnx` 0 error (ยกเว้น tests ที่รอ T8 — ระบุให้ชัดว่าไฟล์ไหน); ไม่มีการแตะ SFS machinery ที่โมดูลอื่นใช้ (`grep` ยืนยันผู้ใช้ 6 รายเดิมยังอยู่)
+     Satisfies: REQ-2 (2.1), REQ-3 (3.4), REQ-5 (5.1, 5.2), REQ-6 (6.1, 6.2, 6.3, 6.4), REQ-7 (7.1, 7.2, 7.3, 7.4), REQ-8 (8.4)
+
+- [ ] 5. **T5 — EF config x2 + migration + snapshot** — `ProductConfiguration.cs` ทั้ง 2 ไฟล์ (`Products.Infrastructure/`, `Persistence.MerchantRuntime/Products/`): ลบ mapping 8 คอลัมน์, เลิก `ComplexProperty` + `Ignore` ของ computed Money, `HasPrecision(19, 2)`, rename 4 คอลัมน์, ลบ `IX_Products_MerchantId_IsActive`; `dotnet ef migrations add ProductsSp52Alignment` แล้วตรวจ scaffold (DropIndex + DropColumn x8 + RenameColumn x4 + AlterColumn, ไม่มี DropTable) + `Down()` คืนได้ครบ; regen snapshot ด้วย `dotnet ef` เท่านั้น
+     **Done** = `dotnet ef database update` ผ่านบน :11433; `dotnet test tests/Hosts.Tests --filter FullyQualifiedName~ModelConsistencyTests` เขียว; `bash scripts/check-migration-lineage.sh` ผ่าน
+     Satisfies: REQ-10 (10.1, 10.2, 10.3, 10.4)
+
+- [ ] 6. **T6 — seed demo + spec demo-seed-data** — `docker/bootstrap/seed-demo.sql:186-250`: ลบคอลัมน์ที่หายไปจาก INSERT ทั้ง 2 ก้อน, ลบ `CASE WHEN Seq % 7 = 0`, แถวที่เคย `IsActive = 0` เปลี่ยนเป็น `PaymentStatus = 'PAID'` + `PaidDate` มีค่า; แก้ `.ai/specs/demo-seed-data/requirements.md` REQ-5.4 + `tasks.md` (รวม verify query `COUNT(DISTINCT IsActive)` -> `PaymentStatus`)
+     **Done** = รัน seed-demo ทั้งไฟล์ผ่านบน dev DB (`shop.Products = 100`) + query ยืนยันมีทั้งแถว UNPAID และ PAID; `bash scripts/spec-trace.sh demo-seed-data` ยังผ่าน
+     Satisfies: REQ-2 (2.4), REQ-10 (10.5, 10.6)
+
+- [ ] 7. **T7 — cap 25 ทั้ง repo + SFS docs/spec + docs ที่อ้าง field ที่หายไป** — `SfsQueryParser.cs:28` clamp `[1, 25]`; `SfsOpenApi.cs:21` ข้อความ 100 -> 25; `docs/reference/search-filter-sort.md` (บรรทัด 121, 287, 320, 338, 1022, 1029-1033 = เพดาน; 585, 971, 1192, 1310 = ตัวอย่าง `Product.CreatedAt`); `.ai/specs/search-filter-sort/{requirements.md:42,tasks.md:83}`; `.ai/specs/checkout-chain-document-fields/*`, `.ai/specs/insurance-pivot/design.md:325`, `docs/reference/{entity-fields.md:934-935,platform-modules.md:658,675,src-structure.md:243}`
+     **Done** = `grep -rn "IsActive\|CreatedAt" docs/reference .ai/specs` ไม่เหลือจุดที่อ้าง `Product` (allowlist master data/admin ที่มี `IsActive` จริงได้); `bash scripts/spec-trace.sh` ผ่านทุก spec ที่แก้; `dotnet test tests/Hosts.Tests --filter FullyQualifiedName~SfsQueryParserTests` เขียว
+     Satisfies: REQ-4 (4.1, 4.2), REQ-11 (11.3)
+
+- [ ] 8. **T8 — tests ทั้งชุด -> build + test เขียว** — แก้/เขียนใหม่ตามตาราง "Tests" ใน design.md: ลบ `Architecture.Tests/ProductSfsTests.cs` + เคส `Product_TotalPremium_...` ใน `MoneyColumnMappingTests.cs`, เขียนใหม่ `ProductRepositoryListTests.cs` (fake `IClock`: SaleCode narrowing, default UNPAID, ทะเบียนรถไม่ match FIRE/MISC, window 6 เดือน, RENEWAL `EndDate` 2 เดือน, order `DocumentNo`), `Products.Tests/{ProductTests,ProductFilterDtoTests,DocumentPaidOnOrderPaidConsumerTests}.cs`, `Hosts.Tests/{InsuranceCheckoutEndToEndTests,WorkerWriteFloorTests,ProductInsuranceFieldsRoundTripTests,SfsQueryParserTests,SfsOpenApiTests}.cs` + ทุกเทสที่ยิง `GET /api/v1/products` ต้องส่ง `productFilters` ที่มี `saleCode`
+     **Done** = `dotnet build pol-core.slnx -warnaserror` 0/0; `dotnet test` ทุก non-integration suite เขียว; ไม่มี `.only`/`.skip` ค้าง
+     Satisfies: REQ-12 (12.2)
+
+- [ ] 9. **T9 — full gate + PR** — `dotnet build pol-core.slnx -warnaserror`; `dotnet test` ทุก suite + `source .env.integration && dotnet test tests/Integration.Tests`; `bash scripts/check-rename-identifiers.sh`; `bash scripts/check-migration-lineage.sh`; `bash scripts/spec-trace.sh products-sp-53-alignment`; `docker compose down -v && up` -> migrate + seed แล้วตรวจ `INFORMATION_SCHEMA.COLUMNS` ของ `shop.Products`; E2E ตามหัวข้อ Verification ข้อ 6 บน dev :11433; `unset GH_TOKEN` แล้ว push branch + เปิด PR เข้า `develop` (ห้าม merge)
+     **Done** = ทุก gate เขียว + PR เปิดแล้ว + PR body สรุปขอบเขต §5.2/§2/§6 + deviation ที่จงใจคง
+     Satisfies: REQ-12 (12.1, 12.3, 12.4, 12.5, 12.6)

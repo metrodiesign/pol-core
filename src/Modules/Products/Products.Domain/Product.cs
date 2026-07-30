@@ -3,7 +3,8 @@ using SharedKernel;
 namespace Products.Domain;
 
 /// <summary>
-/// A merchant-owned sellable insurance document (VCentralPay SP guide §2/§5.2) — one row per
+/// A merchant-owned sellable insurance document
+/// (<c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> §2/§5.2) — one row per
 /// APPLICATION / POLICY / RENEWAL / ENDORSEMENT awaiting payment. <see cref="TotalPremium"/> is the
 /// selling price, mapped as an EF complex type (decimal(19,4) + char(3) columns, per the Money rule);
 /// the optional premium breakdown uses the nullable Amount+Currency pair pattern (see
@@ -49,7 +50,8 @@ public sealed class Product : AggregateRoot<Guid>
     /// <summary>Coverage end — datetime2(0), no timezone in the source contract (naive).</summary>
     public DateTime? EndDate { get; private set; }
 
-    /// <summary>Insured display name (SP guide §5.2 <c>ShowName</c>; searched via <c>@InsuredName</c>).</summary>
+    /// <summary>Insured display name (<c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> §5.2
+    /// <c>ShowName</c>; searched via <c>@InsuredName</c>).</summary>
     public string? ShowName { get; private set; }
 
     /// <summary>Motor documents only; always null for Non-Motor.</summary>

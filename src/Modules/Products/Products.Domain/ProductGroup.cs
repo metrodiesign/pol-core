@@ -1,7 +1,8 @@
 namespace Products.Domain;
 
-/// <summary>Product group / source system of an insurance document (VCentralPay SP guide §2
-/// <c>@ProductGroup</c>, §5.2 <c>SourceSystem</c>). Members are uppercase on purpose so the EF
+/// <summary>Product group / source system of an insurance document
+/// (<c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> §2 <c>@ProductGroup</c>, §5.2
+/// <c>SourceSystem</c>). Members are uppercase on purpose so the EF
 /// enum-to-string conversion emits the exact wire values of the SP contract.</summary>
 public enum ProductGroup
 {
