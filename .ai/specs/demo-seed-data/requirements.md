@@ -106,6 +106,17 @@ Locked decisions (user ตัดสิน 2026-07-13 — ห้าม re-litigat
 - 5.5 WHERE จำนวนสินค้ามากเกินกว่าจะเขียนมือทีละแถว THE SYSTEM SHALL generate ส่วนที่เหลือแบบ
   deterministic (plan-line x tier cross join + row number -> id) — id ของ 24 แถวแรกที่ `shop.CartItems`
   อ้างถึงต้องไม่ขยับ.
+- 5.6 THE SYSTEM SHALL เติมฟิลด์เอกสารของทั้ง 100 แถวให้ครบตามชนิดเอกสาร — ฟิลด์อ้างอิง
+  (`PolicyYear`/`ReferenceYear`/`ReferenceBranch`/`PolicySequenceNo`/`ReferenceNo`), ฝ่ายขาย/นายหน้า/สาขา
+  (`SaleFullName`/`BrokerCode`/`BrokerName`/`PolicyBranch`) และยอดเงินย่อย
+  (`NetPremium`/`Stamp`/`TaxVat`/`CommissionPercent`/`CommissionAmount`) ต้องมีค่าทุกแถว; ที่เหลือ
+  (`ReferencePre`, `PolicyType`, `LicensePlateNumber`, `PolicyNumber`/`ApplicationNumber`/
+  `PreviousPolicyNumber`/`EndorsementNumber`) เป็น NULL ได้เฉพาะตามชนิดเอกสาร/ProductGroup.
+  `NetPremium + Stamp + TaxVat` ต้องเท่ากับ `TotalPremium` พอดี.
+- 5.7 THE SYSTEM SHALL ตั้ง `StartDate`/`EndDate` ของทั้ง 100 แถวให้ตกใน search window ของ
+  `ProductRepository.SearchAsync` (RENEWAL -> `EndDate` ใน 2 เดือนข้างหน้า, ที่เหลือ -> `StartDate`
+  ภายใน 6 เดือนย้อนหลัง) โดยอิง `SYSUTCDATETIME()` ณ เวลา seed — วันที่ NULL หรือ hardcode ไว้
+  ทำให้ `GET /products` คืน 0 แถวไม่ว่าจะส่ง filter อะไร.
 
 ## REQ-6: Funnel เชิงธุรกรรม
 

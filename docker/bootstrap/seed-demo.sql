@@ -188,8 +188,9 @@ VALUES
 -- PaymentStatus = 'PAID' + a PaidDate, so both sides of the sellability gate are represented:
 -- cart add-item / checkout accept UNPAID only (products-sp-53-alignment REQ-2.1/2.4 — this used to
 -- be the IsActive = 0 axis, which no longer exists as a column).
--- DocumentNo is unique per merchant (IX_Products_MerchantId_DocumentNo). Optional document fields
--- stay NULL here - the EF migration seed ('e6000000-%') carries the fully-populated samples.
+-- DocumentNo is unique per merchant (IX_Products_MerchantId_DocumentNo). The two INSERTs below
+-- carry only the load-bearing columns; the single UPDATE after them fills every remaining
+-- document field for all 100 rows at once (see the comment on that block).
 -- TotalPremium is decimal(19,2) — Product.Create rejects a 3rd decimal place, it does not round.
 INSERT INTO shop.Products (Id, MerchantId, ProductGroup, DocumentType, DocumentNo, SaleCode,
                            ShowName, TotalPremium, PaymentStatus, PaidDate)
@@ -251,6 +252,89 @@ SELECT
     CASE WHEN Seq % 7 = 0 THEN 'PAID' ELSE 'UNPAID' END,
     CASE WHEN Seq % 7 = 0 THEN DATEADD(day, -Seq, SYSUTCDATETIME()) END
 FROM seq;
+
+-- Fill the remaining document fields for all 100 seeded products in one pass. Doing it here rather
+-- than inside the two INSERTs keeps the rules in a single readable place and avoids hand-computing
+-- 96 premium components. Everything is derived from the row itself, so a re-run is deterministic.
+--
+-- Dates are anchored on SYSUTCDATETIME() on purpose: ProductRepository.SearchAsync hard-filters
+-- every query to a search window (RENEWAL -> EndDate within the next 2 months, everything else ->
+-- StartDate within the last 6 months) and NULL/stale dates make the predicate UNKNOWN, so the whole
+-- catalogue silently disappears from GET /products. The offsets below (+3..+53 days / -1..-150 days)
+-- stay inside those windows no matter which day the seed runs.
+--
+-- Premium components are derived backwards from the existing TotalPremium (which must not move —
+-- cart/order seed rows carry matching totals): net + 0.4% stamp duty + 7% VAT. TaxVat is the
+-- residual so the three always add up to TotalPremium exactly. Everything is rounded to 2 decimals
+-- because Product.Create rejects a 3rd decimal place instead of rounding.
+UPDATE p
+SET PolicyYear           = v.Yr,
+    ReferenceYear        = v.Yr,
+    ReferenceBranch      = '100',
+    -- On real SP output ReferencePre is a branch code that only appears on endorsements — it is NOT
+    -- the Thai abbreviation inside DocumentNo.
+    ReferencePre         = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN '100' END,
+    PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
+    ReferenceNo          = CONVERT(varchar(30), v.Seq),
+    SaleFullName         = CASE v.Seq % 6
+                               WHEN 0 THEN N'บริษัท มาร์ช พีบี จำกัด (ประเทศไทย)'
+                               WHEN 1 THEN N'บริษัท ไทยประกันภัยนายหน้า จำกัด'
+                               WHEN 2 THEN N'สมชาย ใจดี'
+                               WHEN 3 THEN N'บริษัท เอเชีย โบรกเกอร์ จำกัด'
+                               WHEN 4 THEN N'สุนิสา วงศ์สว่าง'
+                               ELSE        N'บริษัท สยาม อินชัวรันส์ เซอร์วิส จำกัด' END,
+    BrokerCode           = CASE v.Seq % 4 WHEN 0 THEN '013' WHEN 1 THEN '027' WHEN 2 THEN '045' ELSE '108' END,
+    BrokerName           = CASE v.Seq % 4
+                               WHEN 0 THEN N'บริษัท มาร์ช พีบี จำกัด'
+                               WHEN 1 THEN N'บริษัท กรุงเทพ โบรกเกอร์ จำกัด'
+                               WHEN 2 THEN N'บริษัท ที คิว เอ็ม จำกัด'
+                               ELSE        N'บริษัท ศรีอยุธยา แคปปิตอล จำกัด' END,
+    PolicyBranch         = CASE v.Seq % 6
+                               WHEN 0 THEN N'สำนักงานใหญ่'
+                               WHEN 1 THEN N'สาขาสีลม'
+                               WHEN 2 THEN N'สาขาเชียงใหม่'
+                               WHEN 3 THEN N'สาขาหาดใหญ่'
+                               WHEN 4 THEN N'สาขาขอนแก่น'
+                               ELSE        N'สาขาพระราม 9' END,
+    PolicyType           = CASE WHEN p.ProductGroup = 'VMI' THEN '10' END,
+    PolicyNumber         = CASE WHEN p.DocumentType <> 'APPLICATION'
+                                THEN CONCAT(p.SaleCode, '-', v.Yr, '100/', v.Seq) END,
+    ApplicationNumber    = CASE WHEN p.DocumentType = 'APPLICATION'
+                                THEN CONCAT(p.SaleCode, '-', v.Yr, '100/', v.Seq) END,
+    PreviousPolicyNumber = CASE WHEN p.DocumentType IN ('RENEWAL', 'ENDORSEMENT')
+                                THEN CONCAT(p.SaleCode, '-', CONVERT(int, v.Yr) - 1, '100/', v.Seq - 1) END,
+    EndorsementNumber    = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', v.Seq) END,
+    -- Motor only: ProductRepository only searches the plate for CMI/VMI rows.
+    LicensePlateNumber   = CASE WHEN p.ProductGroup IN ('CMI', 'VMI')
+                                THEN CONCAT(v.Seq % 9 + 1,
+                                            CASE v.Seq % 6
+                                                WHEN 0 THEN N'กก' WHEN 1 THEN N'ขข' WHEN 2 THEN N'คค'
+                                                WHEN 3 THEN N'งง' WHEN 4 THEN N'จจ' ELSE N'ฉฉ' END,
+                                            N' ', RIGHT('0000' + CONVERT(varchar(4), 1000 + v.Seq % 9000), 4)) END,
+    StartDate            = CASE WHEN p.DocumentType = 'RENEWAL'
+                                THEN DATEADD(year, -1, DATEADD(day, v.Seq % 50 + 3, v.Today))
+                                ELSE DATEADD(day, -(v.Seq % 150 + 1), v.Today) END,
+    EndDate              = CASE WHEN p.DocumentType = 'RENEWAL'
+                                THEN DATEADD(day, v.Seq % 50 + 3, v.Today)
+                                ELSE DATEADD(year, 1, DATEADD(day, -(v.Seq % 150 + 1), v.Today)) END,
+    NetPremium           = m.Net,
+    Stamp                = m.Stamp,
+    TaxVat               = p.TotalPremium - m.Net - m.Stamp,
+    CommissionPercent    = m.Pct,
+    CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
+FROM shop.Products p
+CROSS APPLY (
+    SELECT CAST(REPLACE(RIGHT(p.DocumentNo, CHARINDEX(N'/', REVERSE(p.DocumentNo)) - 1), N'-10', N'') AS int) AS Seq,
+           CASE WHEN p.DocumentNo LIKE N'%68100%' THEN '68' ELSE '69' END AS Yr,
+           CAST(SYSUTCDATETIME() AS date) AS Today
+) v
+CROSS APPLY (SELECT ROUND(p.TotalPremium / 1.07428, 2) AS Net) n
+CROSS APPLY (
+    SELECT n.Net AS Net,
+           ROUND(n.Net * 0.004, 2) AS Stamp,
+           CAST(CASE v.Seq % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
+) m
+WHERE p.Id LIKE 'e9000000-%';
 
 -- shop.Carts (REQ-6.1): 2 per merchant, string Status ('Open'/'CheckedOut' — CartConfiguration
 -- uses HasConversion<string>() into nvarchar(16); an int here would violate the column mapping).
@@ -446,6 +530,39 @@ BEGIN
     DECLARE @failMsg nvarchar(2048) = N'seed-demo: some target table got 0 rows — seed is incomplete: ' +
         (SELECT STRING_AGG(TableName, N', ') FROM @counts WHERE Rows = 0);
     THROW 51000, @failMsg, 1;
+END
+
+-- Every seeded product must carry a complete document (the fields that are NULL by document type —
+-- ReferencePre / PolicyType / LicensePlateNumber / the four *Number columns / PaidDate — are excluded)
+-- and the premium components must still add up to TotalPremium exactly.
+DECLARE @incomplete int = (
+    SELECT COUNT(*) FROM shop.Products
+    WHERE Id LIKE 'e9000000-%'
+      AND (PolicyYear IS NULL OR ReferenceYear IS NULL OR ReferenceBranch IS NULL
+           OR PolicySequenceNo IS NULL OR ReferenceNo IS NULL
+           OR SaleFullName IS NULL OR BrokerCode IS NULL OR BrokerName IS NULL OR PolicyBranch IS NULL
+           OR StartDate IS NULL OR EndDate IS NULL OR StartDate > EndDate
+           OR NetPremium IS NULL OR Stamp IS NULL OR TaxVat IS NULL
+           OR CommissionPercent IS NULL OR CommissionAmount IS NULL
+           OR NetPremium + Stamp + TaxVat <> TotalPremium));
+IF @incomplete > 0
+    THROW 51000, N'seed-demo: seeded products with missing/inconsistent document fields.', 1;
+
+-- Same window ProductRepository.SearchAsync applies — if a seeded row falls outside it, the demo
+-- catalogue is invisible through GET /products no matter what filters the caller sends.
+DECLARE @visible int = (
+    SELECT COUNT(*) FROM shop.Products
+    WHERE Id LIKE 'e9000000-%'
+      AND ((DocumentType = 'RENEWAL'
+            AND EndDate >= CAST(SYSUTCDATETIME() AS date)
+            AND EndDate < DATEADD(month, 2, CAST(SYSUTCDATETIME() AS date)))
+        OR (DocumentType <> 'RENEWAL'
+            AND StartDate >= DATEADD(month, -6, CAST(SYSUTCDATETIME() AS date)))));
+IF @visible <> 100
+BEGIN
+    DECLARE @windowMsg nvarchar(200) = CONCAT(
+        N'seed-demo: only ', @visible, N'/100 products fall inside the GET /products search window.');
+    THROW 51000, @windowMsg, 1;
 END
 
 COMMIT;

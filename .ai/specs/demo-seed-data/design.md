@@ -182,6 +182,31 @@ Suspended สลับกันต่อ merchant). `PersonType` มีทั้
 — ครบทั้งสองฝั่งของ gate cart/checkout. แถวที่ `PaymentStatus = 'PAID'` ต้องไม่ถูกอ้างจาก `shop.CartItems`
 ของ cart ที่ยัง `Open` (ไม่งั้น checkout ของ cart นั้นจะ 409 ตลอด).
 
+3. **ฟิลด์เอกสารที่เหลือเติมด้วย `UPDATE` ก้อนเดียวหลัง INSERT ทั้งสองก้อน (REQ-5.6/5.7)** — คุมกติกา
+   ไว้ที่เดียว ไม่ต้องแก้ literal 24 แถว x 23 ค่า และไม่ต้องคำนวณยอดเงินด้วยมือ. ทุกค่า derive จาก
+   ตัวแถวเองผ่าน `CROSS APPLY` จึง deterministic:
+   - `Seq` = เลขท้าย `DocumentNo` (ตัดหลัง `/` ตัวสุดท้าย แล้ว `REPLACE('-10','')`) ใช้หมุน pool
+     ชื่อผู้ขาย 6 / นายหน้า 4 / สาขา 6 / ตัวอักษรทะเบียน 6 → ค่าหลากหลายต่อแถว
+   - `Yr` = `'68'` ถ้า `DocumentNo` มี `68100` มิฉะนั้น `'69'` → ใช้กับ `PolicyYear`/`ReferenceYear`
+     และประกอบ `PolicyNumber`/`ApplicationNumber`/`PreviousPolicyNumber`
+   - `ReferencePre` = `'100'` เฉพาะ ENDORSEMENT (บน SP จริง ReferencePre เป็นรหัสสาขาของเลขอ้างอิง
+     **ไม่ใช่** ตัวย่อภาษาไทยใน `DocumentNo`), `PolicyType` = `'10'` เฉพาะ VMI,
+     `LicensePlateNumber` เฉพาะ CMI/VMI (repository ค้นทะเบียนเฉพาะสองกลุ่มนี้)
+   - **วันที่อิง `SYSUTCDATETIME()`**: RENEWAL → `EndDate = today + (Seq % 50 + 3)` วัน (อยู่ใน
+     window 2 เดือนเสมอ เพราะ 2 เดือนสั้นสุด = 59 วัน), `StartDate = EndDate - 1 ปี`; ที่เหลือ →
+     `StartDate = today - (Seq % 150 + 1)` วัน (อยู่ใน window 6 เดือนเสมอ เพราะ 6 เดือนสั้นสุด =
+     181 วัน), `EndDate = StartDate + 1 ปี`. hardcode วันที่ไว้จะหมดอายุเงียบ ๆ แล้ว
+     `GET /products` กลับไปคืน 0 แถว
+   - **ยอดเงิน derive ย้อนกลับจาก `TotalPremium`** (ห้ามขยับ — cart/order seed ถือยอดที่ตรงกันอยู่):
+     `Net = ROUND(Total / 1.07428, 2)`, `Stamp = ROUND(Net * 0.004, 2)`,
+     `TaxVat = Total - Net - Stamp` (residual จึงบวกกลับได้ยอดเดิมเป๊ะ),
+     `CommissionPercent` วน 10/12/15 ด้วย `Seq % 3`, `CommissionAmount = ROUND(Net * Pct / 100, 2)`.
+     ต้อง `ROUND` ทุกตัว — `Product.Create` ปฏิเสธทศนิยมตำแหน่งที่ 3 ไม่ปัดให้
+
+บล็อกตรวจท้ายไฟล์มี assertion สองตัวคุมข้อนี้: (1) ไม่มีแถวไหนที่ฟิลด์บังคับเป็น NULL หรือ
+`Net + Stamp + TaxVat <> TotalPremium`, (2) นับแถวที่ตก search window แบบเดียวกับ repository
+แล้วต้องได้ 100 พอดี — ไม่งั้น `THROW` ตั้งแต่ตอน seed
+
 ข้อควรระวังตอนเขียน: **`LINENO` เป็น reserved keyword ของ T-SQL** — ตั้งชื่อคอลัมน์ table variable ว่า
 `LineNo` จะได้ `Msg 156 Incorrect syntax near the keyword 'LineNo'` (ใช้ `LineIdx`).
 
