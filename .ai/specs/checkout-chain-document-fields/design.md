@@ -54,6 +54,17 @@
 8. `.env*` ไฟล์: Read/Edit และ Bash file utils โดน deny — ใช้ `git` subcommand หรือ `source .env` ใน Bash เท่านั้น
 9. Program.cs มี using alias `DocumentType = Products.Domain.DocumentType` อยู่แล้ว (กัน Scalar.AspNetCore ชน) — อย่าลบ
 
+## Requirement Traceability
+
+| เกณฑ์ | จุดใน design |
+|---|---|
+| REQ-1 (1.1, 1.2, 1.3, 1.4) | ตาราง Field mapping + ลำดับ param กลาง + invariant (หัวข้อ "Field mapping") และจุดแก้ชั้น 1-3, 5 |
+| REQ-2 (2.1, 2.2) | จุดแก้ชั้น 1 (Contracts) + ชั้น 3 (`CheckoutConfirmedConsumer` map 1:1) |
+| REQ-3 (3.1, 3.2, 3.3) | จุดแก้ชั้น 5 (Host: ถอด bridge บน `ProductView`, cart ใช้ `TotalPremium`) |
+| REQ-4 (4.1, 4.2) | จุดแก้ชั้น 3 (read models `GetOrderDetail`/`GetOrders` — คง reveal-audit/masking) |
+| REQ-5 (5.1, 5.2, 5.3) | จุดแก้ชั้น 4 (EF dual-config 4 ไฟล์), ชั้น 6 (migration), ชั้น 7 (seed) |
+| REQ-6 (6.1, 6.2, 6.3) | หัวข้อ Traps + เกณฑ์ Done ของ tasks.md task 3/5 (full gate) |
+
 ## Follow-up ที่บันทึกไว้ (ไม่ทำในงานนี้)
 
 - wire `Product.MarkPaid` + `Deactivate` เมื่อ order paid (ตอนนี้เอกสารขายแล้วยัง UNPAID/active อยู่ใน catalog — liveness gap แบบเดียวกับ MarkFailed ใน PR #140)
