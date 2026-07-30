@@ -23,7 +23,7 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
 | T | ขอบเขต | สถานะ |
 |---|---|---|
 | T1 | spec artifacts (requirements/design/tasks) + PDF pointer | เสร็จ |
-| T2 | Domain: `Product.cs`, `ProductInput.cs` | รอ |
+| T2 | Domain: `Product.cs`, `ProductInput.cs` | เสร็จ |
 | T3 | Application: read model, `ProductFilterDto`, query, ลบ dead code | รอ |
 | T4 | Hosts + Repository: gate, currency boundary, ListAsync, ลบ `ProductSfs.cs` | รอ |
 | T5 | EF config ×2 + migration ใหม่ + snapshot | รอ |
@@ -98,3 +98,158 @@ Rolling handoff. teammate แต่ละคน **อ่านไฟล์นี
    §5.1/§5.2 หน้า 6-7, §6 หน้า 8
 
 commit ของ T1: `6849f28` (spec 3 ไฟล์ + HANDOFF + PDF + comment fix 4 ไฟล์ อยู่ใน commit นี้ทั้งหมด)
+
+---
+
+## T2 — Domain (เสร็จ)
+
+แตะ 2 ไฟล์เท่านั้น: `src/Modules/Products/Products.Domain/{Product.cs,ProductInput.cs}`
+
+### signature สุดท้าย
+
+`Product.Create(ProductInput input)` — param `createdAt` หายไปแล้ว (คนเรียกเดิม
+`Product.Create(input, clock.UtcNow)` ต้องตัด argument ที่สอง)
+
+`ProductInput` ลำดับ parameter ครบ (T4/`CreateProductRequest` ใช้ลำดับนี้):
+
+```csharp
+public sealed record ProductInput(
+    Guid MerchantId,
+    ProductGroup ProductGroup,
+    DocumentType DocumentType,
+    string DocumentNo,
+    string SaleCode,
+    decimal TotalPremium,
+    string? PolicyYear = null,
+    string? ReferenceBranch = null,
+    string? ReferencePre = null,
+    string? PolicySequenceNo = null,
+    string? ReferenceYear = null,
+    string? ReferenceNo = null,
+    string? PolicyBranch = null,
+    string? PolicyType = null,
+    string? SaleFullName = null,
+    string? BrokerCode = null,
+    string? BrokerName = null,
+    string? PolicyNumber = null,
+    string? ApplicationNumber = null,
+    string? PreviousPolicyNumber = null,
+    string? EndorsementNumber = null,
+    DateTime? StartDate = null,
+    DateTime? EndDate = null,
+    string? ShowName = null,
+    string? LicensePlateNumber = null,
+    decimal? NetPremium = null,
+    decimal? Stamp = null,
+    decimal? TaxVat = null,
+    decimal? CommissionAmount = null,
+    decimal? CommissionPercent = null);
+```
+
+ตำแหน่งที่ 5 เดิมคือ `string BranchCode` — ถูกตัดออก ทำให้ทุก positional argument
+ตั้งแต่ตัวที่ 5 เลื่อนซ้ายหนึ่งช่อง (เงียบ ๆ ไม่ error ถ้าเผอิญ type ตรง) ระวังจุดนี้ตอนแก้ caller
+
+`Product.MarkPaid(DateTime paidDate)` — เหลือ `PaymentStatus = PAID` + `PaidDate` (ไม่แตะอะไรอีก)
+
+### ชื่อ property สุดท้ายบน `Product` ที่เปลี่ยน
+
+| เดิม | ใหม่ |
+|---|---|
+| `Money TotalPremium` | `decimal TotalPremium` |
+| `decimal? NetPremiumAmount` + `string? NetPremiumCurrency` + computed `Money? NetPremium` | `decimal? NetPremium` |
+| `decimal? StampAmount` + `string? StampCurrency` + computed `Money? Stamp` | `decimal? Stamp` |
+| `decimal? TaxVatAmount` + `string? TaxVatCurrency` + computed `Money? TaxVat` | `decimal? TaxVat` |
+| `decimal? CommissionAmountAmount` + `string? CommissionAmountCurrency` + computed `Money? CommissionAmount` | `decimal? CommissionAmount` |
+| `string BranchCode`, `bool IsActive`, `DateTime CreatedAt` | ลบทิ้ง |
+| `Deactivate()`, `RequireThb(Money?, string)` | ลบทิ้ง |
+
+คงเดิม: `decimal? CommissionPercent`, `PaymentStatus`, `DateTime? PaidDate`,
+computed `InsuranceType` (ยัง `builder.Ignore`), `Id`, `MerchantId` และ field string/date อื่นทั้งหมด
+
+### วิธีตรวจ scale (REQ-1.5)
+
+helper ใหม่แทนที่ `RequireThb` (สองตัว overload กัน — nullable ส่งต่อให้ตัว non-nullable, `null` ผ่าน):
+
+```csharp
+private static decimal RequireMoney(decimal value, string name)
+{
+    if (value < 0)
+        throw new ArgumentException($"{name} must not be negative.", name);
+    if (decimal.Round(value, 2) != value)
+        throw new ArgumentException($"{name} must not have more than 2 decimal places.", name);
+    return value;
+}
+
+private static decimal? RequireMoney(decimal? value, string name) =>
+    value is { } v ? RequireMoney(v, name) : null;
+```
+
+เรียกใน object initializer ของ `Create` ทั้ง 5 ค่า (`TotalPremium` + breakdown 4 ตัว) —
+ไม่ใช้ float/double เลย. พฤติกรรมที่ T8 เขียน test ได้ตรง ๆ:
+
+- `100.5m`, `100.50m`, `100m` ผ่าน (`==` ของ decimal ไม่สนใจ trailing zero: `1.50m == 1.5m`)
+- `100.005m`, `100.001m` throw (`ArgumentException`, paramName = ชื่อ field)
+- ค่าติดลบของ breakdown throw (เดิม `Money.Of` กันให้); `TotalPremium <= 0` ยัง throw ก่อนถึง guard นี้
+  ด้วยข้อความเดิม `"TotalPremium must be greater than zero."`
+
+invariant ที่คงไว้ครบ: `TotalPremium <= 0`, `StartDate > EndDate`, `Enum.IsDefined` ทั้ง
+`ProductGroup`/`DocumentType`, กฎ CMI + APPLICATION, `Required`/`Optional` length trim ทุกตัว
+(`Required(input.BranchCode, 3, ...)` หายไปพร้อม field)
+
+### comment ที่แก้เนื้อ (ต่อจาก T1 กับดักข้อ 5)
+
+- class doc ของ `Product`: เลิกพูดถึง EF complex type / `decimal(19,4)` / "nullable Amount+Currency
+  pair pattern" -> ระบุว่าเป็น `decimal(19,2)` ไม่มีคอลัมน์ currency, currency mint ที่ cart boundary,
+  และ check ของ `Money.Of` ย้ายมาอยู่ใน `Create`
+- doc ของ `TotalPremium`: "decimal(19,2) THB"
+- `ProductInput` class doc: ชี้ path PDF จริง (เดิมเขียน "VCentralPay SP guide" ลอย ๆ) + ระบุว่า premium
+  เป็น THB decimal ไม่เกิน 2 ตำแหน่ง
+- ลบ `using SharedKernel;` ออกจาก `ProductInput.cs` (ไม่ใช้ `Money` แล้ว) — `Product.cs` ยังต้องมี
+  เพราะ `AggregateRoot<Guid>` อยู่ `src/SharedKernel`
+
+### build ที่แดงอยู่ตอนนี้ (คาดไว้ ห้ามดับด้วยการแก้ไฟล์นอก task)
+
+`dotnet build src/Modules/Products/Products.Domain` -> **0 error / 0 warning** (2 projects)
+
+`dotnet build pol-core.slnx` หยุดที่ `Products.Application` (18 error) — โปรเจกต์ถัดจากนั้นยังไม่ได้ compile
+จึงยังไม่รู้ error จริงทั้งหมด รายการที่ยืนยันแล้ว:
+
+| ไฟล์ | error | สาเหตุ | เจ้าของ |
+|---|---|---|---|
+| `Products.Application/ProductView.cs:51` | CS1061 | `Product.BranchCode` ไม่มีแล้ว | T3 (ไฟล์นี้ถูกลบทั้งไฟล์ตาม REQ-8.2) |
+| `Products.Application/ProductView.cs:54` | CS1503 x5 (arg 27-32) | `decimal`/`decimal?` -> `Money`/`Money?` | T3 |
+| `Products.Application/ProductView.cs:55` | CS1061 x2 | `Product.IsActive`, `Product.CreatedAt` ไม่มีแล้ว | T3 |
+| `Products.Application/CreateProductCommand.cs:31` | CS1501 | เรียก `Product.Create` ด้วย 2 argument | T3 |
+
+ที่ยังไม่ compile แต่แน่นอนว่าจะแดง (จาก grep — เตรียมไว้ให้ T4/T5/T8):
+
+- `src/Hosts/Api/Program.cs` — cart boundary + gate `IsActive` (T4) และเป็นจุด mint `Money.Of(product.TotalPremium, "THB")`
+  ซึ่งตอนนี้ compile ผ่าน type ได้แล้ว (`decimal` -> `Money.Of`) แต่ gate ยังอ้าง `IsActive`
+- `src/.../Persistence.MerchantRuntime/Products/{ProductSfs.cs,ProductConfiguration.cs,ProductRepository.cs}` (T4/T5)
+- `src/.../Products.Infrastructure/.../ProductConfiguration.cs` (T5)
+- `src/.../Products.Application/ListProducts.cs` (T3)
+- tests: `tests/Products.Tests/{ProductTests.cs (25 จุด),DocumentPaidOnOrderPaidConsumerTests.cs}`,
+  `tests/Architecture.Tests/{ProductSfsTests.cs,ProductRepositoryListTests.cs,MoneyColumnMappingTests.cs,WriteFloorTests.cs,ReadFloorTests.cs}`,
+  `tests/Hosts.Tests/{ProductInsuranceFieldsRoundTripTests.cs,InsuranceCheckoutEndToEndTests.cs}` (T8)
+
+หมายเหตุ: `PolDbContextModelSnapshot.cs` + designer เก่า ๆ ยังอ้างชื่อคอลัมน์เดิม — **ห้ามแก้ designer เก่า**
+snapshot ให้ regen ด้วย `dotnet ef` (T5, REQ-10.4)
+
+### กับดักที่เจอ
+
+1. **task-gate ยิงจริงตามที่ T1 เตือน** — flip `[ ]` -> `[x]` ก่อนแล้วเติม `Evidence:` ทีหลังโดน block
+   ("ขาด Evidence (per-task)"); ที่รอดคือ Edit ถัดไปที่เติม `Evidence:` ต่อท้ายบรรทัด `Satisfies:`
+   ในบล็อกเดียวกัน — ทางที่ปลอดภัยกว่าคือทำ flip + Evidence ใน Edit เดียวตั้งแต่แรก
+2. **`Done` clause ของ task 2 ใน `tasks.md` สั่งรัน `tests/Products.Tests`** ซึ่งขัดกับขอบเขต T2
+   (2 ไฟล์ domain) และกับตาราง `HANDOFF.md` ที่ยก tests ให้ T8 — บันทึกเป็น deviation ใน Evidence แล้ว
+   ไม่ได้แตะ `tests/`
+3. **`ProductInput` ตัด parameter กลางลิสต์** = positional call ทุกจุดเลื่อน โดยที่ compiler ไม่ช่วย
+   ถ้า type ข้างเคียงตรงกัน (ตำแหน่ง 5 เดิม `BranchCode`, 6 `SaleCode` เป็น `string` ทั้งคู่) —
+   ตอนแก้ caller ต้องอ่านชื่อ argument ไม่ใช่แค่ให้ build ผ่าน
+4. **ชื่อ CLR `CommissionAmountAmount` -> `CommissionAmount`** ตามกับดัก T1 ข้อ 3 — คอลัมน์ชื่อ
+   `CommissionAmount` อยู่แล้ว ดังนั้น T5 ต้อง **ไม่** `RenameColumn` ตัวนี้ แค่เปลี่ยน precision + DROP
+   `CommissionCurrency`
+5. `rtk` ย่อ output ของ `dotnet build` เหลือบรรทัดเดียว — ตอนต้องอ่าน error CS จริงต้องใช้
+   `rtk proxy dotnet build ...`
+
+commit ของ T2: `__T2_COMMIT__`

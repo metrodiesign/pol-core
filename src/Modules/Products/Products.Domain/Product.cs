@@ -6,9 +6,10 @@ namespace Products.Domain;
 /// A merchant-owned sellable insurance document
 /// (<c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> §2/§5.2) — one row per
 /// APPLICATION / POLICY / RENEWAL / ENDORSEMENT awaiting payment. <see cref="TotalPremium"/> is the
-/// selling price, mapped as an EF complex type (decimal(19,4) + char(3) columns, per the Money rule);
-/// the optional premium breakdown uses the nullable Amount+Currency pair pattern (see
-/// <c>Orders.Domain.Items.ItemPolicy</c>).
+/// selling price; it and the optional premium breakdown are plain <c>decimal(19,2)</c> columns, not
+/// <c>Money</c> — §5.2 carries no currency column (the source system is THB-only). Currency is minted
+/// once at the cart boundary, so the scale and sign checks <c>Money.Of</c> used to provide live in
+/// <see cref="Create"/> instead.
 /// </summary>
 public sealed class Product : AggregateRoot<Guid>
 {
@@ -31,7 +32,6 @@ public sealed class Product : AggregateRoot<Guid>
     public string? ReferenceYear { get; private set; }
     public string? ReferenceNo { get; private set; }
 
-    public string BranchCode { get; private set; } = default!;
     public string SaleCode { get; private set; } = default!;
     public string? SaleFullName { get; private set; }
     public string? BrokerCode { get; private set; }
@@ -57,17 +57,13 @@ public sealed class Product : AggregateRoot<Guid>
     /// <summary>Motor documents only; always null for Non-Motor.</summary>
     public string? LicensePlateNumber { get; private set; }
 
-    /// <summary>Total premium (เบี้ยรวม) — the selling price of this document.</summary>
-    public Money TotalPremium { get; private set; }
+    /// <summary>Total premium (เบี้ยรวม) — the selling price of this document, decimal(19,2) THB.</summary>
+    public decimal TotalPremium { get; private set; }
 
-    public decimal? NetPremiumAmount { get; private set; }
-    public string? NetPremiumCurrency { get; private set; }
-    public decimal? StampAmount { get; private set; }
-    public string? StampCurrency { get; private set; }
-    public decimal? TaxVatAmount { get; private set; }
-    public string? TaxVatCurrency { get; private set; }
-    public decimal? CommissionAmountAmount { get; private set; }
-    public string? CommissionAmountCurrency { get; private set; }
+    public decimal? NetPremium { get; private set; }
+    public decimal? Stamp { get; private set; }
+    public decimal? TaxVat { get; private set; }
+    public decimal? CommissionAmount { get; private set; }
 
     /// <summary>Commission rate — decimal(19,6) in the source contract, not a Money.</summary>
     public decimal? CommissionPercent { get; private set; }
@@ -77,49 +73,26 @@ public sealed class Product : AggregateRoot<Guid>
     /// <summary>Null while <see cref="PaymentStatus"/> is <see cref="PaymentStatus.UNPAID"/>.</summary>
     public DateTime? PaidDate { get; private set; }
 
-    /// <summary>Still sellable (unpaid and not withdrawn) — the bridge flag the cart/checkout flow keys on.</summary>
-    public bool IsActive { get; private set; }
-
-    public DateTime CreatedAt { get; private set; }
-
     /// <summary>Motor vs Non-Motor, derived from <see cref="ProductGroup"/> — never stored.</summary>
     public InsuranceType InsuranceType =>
         ProductGroup is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;
 
-    public Money? NetPremium =>
-        NetPremiumAmount is { } a && NetPremiumCurrency is { } c ? Money.Of(a, c) : null;
-
-    public Money? Stamp =>
-        StampAmount is { } a && StampCurrency is { } c ? Money.Of(a, c) : null;
-
-    public Money? TaxVat =>
-        TaxVatAmount is { } a && TaxVatCurrency is { } c ? Money.Of(a, c) : null;
-
-    public Money? CommissionAmount =>
-        CommissionAmountAmount is { } a && CommissionAmountCurrency is { } c ? Money.Of(a, c) : null;
-
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Product() { }
 
-    /// <summary>Creates a new unpaid, active insurance document for a merchant.</summary>
-    public static Product Create(ProductInput input, DateTime createdAt)
+    /// <summary>Creates a new unpaid insurance document for a merchant.</summary>
+    public static Product Create(ProductInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
 
         if (input.MerchantId == Guid.Empty)
             throw new ArgumentException("MerchantId is required.", nameof(input));
 
-        var branchCode = Required(input.BranchCode, 3, nameof(input.BranchCode));
         var saleCode = Required(input.SaleCode, 20, nameof(input.SaleCode));
         var documentNo = Required(input.DocumentNo, 150, nameof(input.DocumentNo));
 
-        if (input.TotalPremium.Amount <= 0)
+        if (input.TotalPremium <= 0)
             throw new ArgumentException("TotalPremium must be greater than zero.", nameof(input));
-        RequireThb(input.TotalPremium, nameof(input.TotalPremium));
-        RequireThb(input.NetPremium, nameof(input.NetPremium));
-        RequireThb(input.Stamp, nameof(input.Stamp));
-        RequireThb(input.TaxVat, nameof(input.TaxVat));
-        RequireThb(input.CommissionAmount, nameof(input.CommissionAmount));
 
         if (input.StartDate is { } start && input.EndDate is { } end && start > end)
             throw new ArgumentException("StartDate must not be after EndDate.", nameof(input));
@@ -147,7 +120,6 @@ public sealed class Product : AggregateRoot<Guid>
             PolicySequenceNo = Optional(input.PolicySequenceNo, 30, nameof(input.PolicySequenceNo)),
             ReferenceYear = Optional(input.ReferenceYear, 2, nameof(input.ReferenceYear)),
             ReferenceNo = Optional(input.ReferenceNo, 30, nameof(input.ReferenceNo)),
-            BranchCode = branchCode,
             SaleCode = saleCode,
             SaleFullName = Optional(input.SaleFullName, 500, nameof(input.SaleFullName)),
             BrokerCode = Optional(input.BrokerCode, 20, nameof(input.BrokerCode)),
@@ -162,20 +134,14 @@ public sealed class Product : AggregateRoot<Guid>
             EndDate = input.EndDate,
             ShowName = Optional(input.ShowName, 500, nameof(input.ShowName)),
             LicensePlateNumber = Optional(input.LicensePlateNumber, 100, nameof(input.LicensePlateNumber)),
-            TotalPremium = input.TotalPremium,
-            NetPremiumAmount = input.NetPremium?.Amount,
-            NetPremiumCurrency = input.NetPremium?.Currency,
-            StampAmount = input.Stamp?.Amount,
-            StampCurrency = input.Stamp?.Currency,
-            TaxVatAmount = input.TaxVat?.Amount,
-            TaxVatCurrency = input.TaxVat?.Currency,
-            CommissionAmountAmount = input.CommissionAmount?.Amount,
-            CommissionAmountCurrency = input.CommissionAmount?.Currency,
+            TotalPremium = RequireMoney(input.TotalPremium, nameof(input.TotalPremium)),
+            NetPremium = RequireMoney(input.NetPremium, nameof(input.NetPremium)),
+            Stamp = RequireMoney(input.Stamp, nameof(input.Stamp)),
+            TaxVat = RequireMoney(input.TaxVat, nameof(input.TaxVat)),
+            CommissionAmount = RequireMoney(input.CommissionAmount, nameof(input.CommissionAmount)),
             CommissionPercent = input.CommissionPercent,
             PaymentStatus = PaymentStatus.UNPAID,
             PaidDate = null,
-            IsActive = true,
-            CreatedAt = createdAt,
         };
     }
 
@@ -184,11 +150,7 @@ public sealed class Product : AggregateRoot<Guid>
     {
         PaymentStatus = PaymentStatus.PAID;
         PaidDate = paidDate;
-        IsActive = false;
     }
-
-    /// <summary>Marks the document inactive so it no longer appears in the sellable catalog.</summary>
-    public void Deactivate() => IsActive = false;
 
     private static string Required(string value, int maxLength, string name)
     {
@@ -208,9 +170,17 @@ public sealed class Product : AggregateRoot<Guid>
         return trimmed;
     }
 
-    private static void RequireThb(Money? money, string name)
+    /// <summary>Money columns are decimal(19,2): reject negatives and any scale SQL Server would round
+    /// away silently. Replaces the checks <c>Money.Of</c> used to run before the currency was dropped.</summary>
+    private static decimal RequireMoney(decimal value, string name)
     {
-        if (money is { } m && !string.Equals(m.Currency, "THB", StringComparison.Ordinal))
-            throw new ArgumentException($"{name} currency must be THB.", name);
+        if (value < 0)
+            throw new ArgumentException($"{name} must not be negative.", name);
+        if (decimal.Round(value, 2) != value)
+            throw new ArgumentException($"{name} must not have more than 2 decimal places.", name);
+        return value;
     }
+
+    private static decimal? RequireMoney(decimal? value, string name) =>
+        value is { } v ? RequireMoney(v, name) : null;
 }
