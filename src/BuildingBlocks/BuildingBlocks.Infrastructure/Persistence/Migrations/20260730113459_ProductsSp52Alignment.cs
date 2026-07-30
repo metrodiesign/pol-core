@@ -10,7 +10,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
     /// drops the eight columns the source contract has no field for, renames the four premium
     /// <c>*Amount</c> columns to their §5.2 names, and narrows every money column to
     /// <c>decimal(19,2)</c>. The scaffolder emitted drop+add for the four renames (it cannot infer a
-    /// rename); replaced by <c>RenameColumn</c> so existing rows keep their premiums.
+    /// rename); replaced by <c>RenameColumn</c> so existing rows keep their premiums. Narrowing the
+    /// scale is guarded by a precondition that aborts if any stored premium has more than 2 decimal
+    /// places, so an upgrade can never round money silently.
     /// No <c>DropTable</c>, so the <c>pol_app</c> grants stay in place.
     /// </summary>
     public partial class ProductsSp52Alignment : Migration
@@ -86,6 +88,21 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 schema: "shop",
                 table: "Products",
                 newName: "TaxVat");
+
+            // Narrowing decimal(19,4) -> decimal(19,2) rounds silently in SQL Server, so a database
+            // upgraded from the Money model could have its premiums (and therefore later charge
+            // amounts) altered without anyone approving the conversion. Abort instead: a row with a
+            // 3rd/4th decimal place is a business decision, not a migration side effect.
+            migrationBuilder.Sql("""
+                IF EXISTS (
+                    SELECT 1 FROM shop.Products
+                    WHERE TotalPremium     <> ROUND(TotalPremium, 2)
+                       OR NetPremium       <> ROUND(NetPremium, 2)
+                       OR Stamp            <> ROUND(Stamp, 2)
+                       OR TaxVat           <> ROUND(TaxVat, 2)
+                       OR CommissionAmount <> ROUND(CommissionAmount, 2))
+                    THROW 51000, N'ProductsSp52Alignment: shop.Products holds premium values with more than 2 decimal places. Narrowing to decimal(19,2) would silently round money — convert those rows deliberately, then re-run this migration.', 1;
+                """);
 
             migrationBuilder.AlterColumn<decimal>(
                 name: "TotalPremium",

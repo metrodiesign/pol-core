@@ -122,11 +122,16 @@ public sealed record ProductFilterDto
     {
         get
         {
-            if (PaymentStatus is null) return DomainPaymentStatus.UNPAID;
-            if (PaymentStatus == "ALL") return null;
-            return Enum.TryParse<DomainPaymentStatus>(PaymentStatus, ignoreCase: false, out var parsed)
-                ? parsed
-                : throw new ArgumentException("PaymentStatus must be UNPAID, PAID or ALL (SP error 50007).");
+            // Matched by name, not Enum.TryParse: TryParse also accepts the numeric forms ("0", "1")
+            // and any other integer string, which would slip an undefined enum value into the query.
+            return PaymentStatus switch
+            {
+                null => DomainPaymentStatus.UNPAID,
+                "ALL" => null,
+                nameof(DomainPaymentStatus.UNPAID) => DomainPaymentStatus.UNPAID,
+                nameof(DomainPaymentStatus.PAID) => DomainPaymentStatus.PAID,
+                _ => throw new ArgumentException("PaymentStatus must be UNPAID, PAID or ALL (SP error 50007)."),
+            };
         }
     }
 

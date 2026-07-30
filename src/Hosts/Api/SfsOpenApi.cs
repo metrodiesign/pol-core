@@ -39,7 +39,8 @@ internal static class SfsOpenApi
         AddPagingParameters(operation).Add(Param("productFilters", JsonSchemaType.String,
             "JSON object ของตัวกรองเอกสารแบบ URL-encoded (บังคับ): {\"saleCode\" (บังคับ),\"searchText\",\"insuredName\","
             + "\"policyNo\",\"applicationNo\",\"documentType\",\"productGroup\",\"paymentStatus\":\"UNPAID\"|\"PAID\"|\"ALL\","
-            + "\"coverageStartFrom\",\"coverageStartTo\",\"coverageEndFrom\",\"coverageEndTo\",\"paidDateFrom\",\"paidDateTo\"}"));
+            + "\"coverageStartFrom\",\"coverageStartTo\",\"coverageEndFrom\",\"coverageEndTo\",\"paidDateFrom\",\"paidDateTo\"}",
+            required: true));
     }
 
     private static IList<IOpenApiParameter> AddPagingParameters(OpenApiOperation operation)
@@ -50,11 +51,12 @@ internal static class SfsOpenApi
         return parameters;
     }
 
-    private static OpenApiParameter Param(string name, JsonSchemaType type, string description) => new()
+    private static OpenApiParameter Param(string name, JsonSchemaType type, string description,
+        bool required = false) => new()
     {
         Name = name,
         In = ParameterLocation.Query,
-        Required = false,
+        Required = required,
         Description = description,
         Schema = new OpenApiSchema { Type = type },
     };

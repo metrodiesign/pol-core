@@ -62,6 +62,9 @@ public sealed class ProductFilterDtoTests
     [InlineData("unpaid")]                      // case-sensitive
     [InlineData("NOPE")]
     [InlineData("")]
+    [InlineData("0")]                           // Enum.TryParse would read this as UNPAID
+    [InlineData("1")]                           // ...and this as PAID
+    [InlineData("99")]                          // ...and this as an undefined enum value
     public void Parse_rejects_an_unknown_paymentStatus(string wire) =>
         Assert.Throws<ArgumentException>(() =>
             ProductFilterDto.Parse($$"""{"saleCode":"00098","paymentStatus":"{{wire}}"}"""));
