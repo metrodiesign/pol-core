@@ -9,8 +9,9 @@
 ## สถานะ
 
 อยู่ระหว่าง implement บน branch `develop` (spec-driven — specs come before code, ALWAYS).
-โมดูลที่ลงแล้ว: Products / Cart / Checkout / Orders / Payments (E2E), Tenant provisioning,
-Admin (Google SSO + RBAC), Producer (Google SSO + registration). งานใหม่ผ่าน workflow gates เสมอ.
+โมดูลที่ลงแล้ว: Products / Cart / Checkout / Orders / Payments (E2E), Merchants (provisioning +
+merchant-user Google SSO + registration, รวม Tenant+Producer เดิม, rf1), Admin (Google SSO + RBAC).
+งานใหม่ผ่าน workflow gates เสมอ.
 
 ## Stack
 
@@ -83,11 +84,14 @@ dotnet ef database update --context PolDbContext \
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
 | SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
-| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (default) + `pol_admin` (keyed, control-plane) | REST + BFF auth + outbox dispatcher (Worker merge เข้ามาแล้ว, `multi-tier-deployment`) |
-| FE `pol-admin` (repo แยก) | `5200` | — | Next.js, proxy `/admin/*` + `/merchants/*` -> `:5100` |
+| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
+| FE admin console (repo แยก) | `5200` | — | Next.js, proxy `/api/v1/admins/*` -> `:5100` |
+| FE merchant-user console (repo แยก) | `5300` | — | Next.js, proxy `/api/v1/merchants/*` -> `:5100` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
-`App`=pol_app (RLS) · `Admin`=pol_admin (control-plane) · `Worker`=pol_worker · `Migrator`=sa (DDL, Dev auto-migrate).
+`App`=pol_app (connection string เดียวของ runtime, ทุก plane) · `Migrator`=sa (DDL, Dev auto-migrate).
+ไม่มี `Admin`/`Worker` แล้ว (ถอดพร้อม RLS teardown — spec `rls-to-query-filter` — และ Worker host retirement;
+รายละเอียด: `docs/runbooks/local-dev-run.md` §3/§4.3).
 
 > ชื่อคีย์คือ **`App`** — rf1 rename มาจาก `Producer` แล้ว (`Program.cs` เรียก `GetConnectionString("App")`).
 > คีย์เก่าที่ค้างใน `.env` / `appsettings.Development.json` ของเครื่องใครจะ **ไม่ถูกอ่านเลย** และ `App` จะตกไป

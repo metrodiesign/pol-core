@@ -60,15 +60,15 @@
 
 | โมดูลใน SaaS (in scope) | บทบาท | เทียบอีคอมเมิร์ซ |
 |---|---|---|
-| **Products** | แผนประกัน / กรมธรรม์ (แคตตาล็อก + quote เบี้ย) | สินค้า / SKU |
-| **Cart** | ตะกร้าสินค้า — รวมแผนที่เลือก + quote (แก้ไขได้) | ตะกร้า / cart |
+| **Products** | เอกสารประกันที่ขายได้ (ใบสมัคร/กรมธรรม์/ต่ออายุ/สลักหลัง) ในแคตตาล็อกกลาง — **read-only over HTTP** ไม่มี quote | สินค้า / SKU |
+| **Cart** | ตะกร้าสินค้า — รวมเอกสารประกันที่เลือกจากแคตตาล็อก (แก้ไขได้) | ตะกร้า / cart |
 | **Checkout** | หน้าสรุปคำสั่งซื้อ + ส่วนลด + ข้อมูลผู้ซื้อ + **เลือกช่องทางจ่าย 1 ช่องทาง (ล็อก)** + ตั้งค่าผู้รับแจ้งเตือน → สร้าง Order | checkout |
 | **Orders** | ข้อมูลคำสั่งซื้อ + **ลิงก์**ไปหน้าสรุป (ที่ Payments ให้บริการ) · **ส่งแจ้งเตือน + ลิงก์ให้ลูกค้าแบบ background** (ระบุผู้รับได้) · `AwaitingPayment` **ยังไม่แตะ PSP** · รับ `PaymentPaid` → Paid | คำสั่งซื้อ / order |
 | **Payments** | **หน้าจอสรุปคำสั่งซื้อสำหรับลูกค้า** (ดึงข้อมูลจาก Orders) · ลูกค้ากดยืนยัน → สร้าง **รายการจ่ายกับ PSP** + redirect URL (`PspCharge.RedirectUrl`) → รับชำระ redirect-only, captive | ชำระเงิน / payment |
 
 Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Payments** · จบที่ **"รับชำระเสร็จ → emit `PaymentPaid`"** — SaaS **ไม่มีขั้นจัดส่ง/ออกกรมธรรม์ (issuance)**
 
-**ผู้เกี่ยวข้อง:** *ผู้ผลิต (Tenant Console)* = ผู้เลือกแผน/กรมธรรม์ → ตะกร้า → checkout · *ลูกค้า* = เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น)
+**ผู้เกี่ยวข้อง:** *ผู้ผลิต (Tenant Console)* = ผู้เลือกเอกสารประกันจากแคตตาล็อก → ตะกร้า → checkout · *ลูกค้า* = เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น)
 
 > **ลำดับสำคัญ:** สร้าง Order **ไม่ได้สร้างรายการกับ PSP** — Order อยู่ `AwaitingPayment` + มีลิงก์ไปหน้าสรุป · รายการกับ PSP (`PspCharge.RedirectUrl`) ถูกสร้างใน **Payments เมื่อลูกค้าเปิดหน้าสรุป (ของ Payments) แล้วกดยืนยัน** → Orders ไม่ผูกกับ PSP โดยตรง เปลี่ยน/เพิ่ม PSP ได้โดยไม่แตะ Orders
 
@@ -126,9 +126,9 @@ sequenceDiagram
   participant Cu as ลูกค้า
   participant Pay as Payments
   participant PSP as PSP (2C2P/Opn)
-  loop เลือกได้หลายแผน/กรมธรรม์
-    Pd->>Pr: เลือกแผนประกัน
-    Pr-->>Pd: quote เบี้ย
+  loop เลือกได้หลายรายการ
+    Pd->>Pr: เลือกเอกสารประกันจากแคตตาล็อก
+    Pr-->>Pd: รายละเอียด + ราคา (TotalPremium)
     Pd->>Ca: add ลงตะกร้า
   end
   Pd->>Ck: สรุป + ส่วนลด + ข้อมูลผู้ซื้อ + เลือกช่องทางจ่าย (1 อย่าง)
@@ -474,6 +474,15 @@ as-built แยกเป็น **2 ขั้นไม่ใช่ 1** — สร
   > (จุดเดียว); **`MarkExpired` ยังไม่มีผู้เรียกเลย** — sweeper เป็นสเปกแยกโดยเจตนา. หมายเหตุ: `reason`
   > ที่ส่งเข้า `MarkFailed` ถูก validate ว่าไม่ว่างแล้ว **ทิ้ง** ไม่มีคอลัมน์เก็บ (ops อ่านสาเหตุจาก log
   > ของ HTTP layer เท่านั้น)
+  > **[as-built 2026-07-27]** `MarkFailed` ไม่ถูกเรียกทุกครั้งที่ charge ล้ม — เฉพาะตอน **พิสูจน์ได้ว่าไม่มี
+  > charge เกิดขึ้นจริง** เท่านั้น (secret reveal ล้ม หรือ `PspRejectedException` — PSP ปฏิเสธคำขอตรง ๆ ก่อน
+  > สร้าง charge): เพราะ `catch (...) when (!settlingClaim)` กัน (ก) exception อื่นทุกชนิด (timeout/5xx/
+  > transport fault/parse error — **ambiguous**, PSP อาจถือ charge อยู่แล้ว) และ (ข) การ retry ที่ session
+  > อยู่ `Redirected` แล้วไม่มี `RedirectUrl` (**settling claim**) ไม่ให้ `MarkFailed` เด็ดขาด — เหตุผล: session
+  > ที่ fail แล้วให้ order เปิดใบใหม่ได้ (id ใหม่ = idempotency key ใหม่) ซึ่งถ้า charge เดิมมีอยู่จริงที่ PSP
+  > จะกลายเป็น **double charge**. ทาง settle คือเรียก start-redirect ซ้ำด้วย session เดิม — ทั้ง 2 adapter
+  > derive charge key จาก `Session.Id` เดียวกัน จึงได้ charge เดิมกลับมาผูกไว้ ไม่สร้างซ้ำ (spec
+  > `captive-payment-alignment`, PR #140)
 
 #### Return handler
 - รับ browser redirect กลับ แสดง UX — **ไม่ตัดสินสถานะการจ่าย**
@@ -490,7 +499,7 @@ as-built แยกเป็น **2 ขั้นไม่ใช่ 1** — สร
 
 #### Webhook handler
 - **`POST /api/v1/webhooks/{pspConnectionId:guid}`** (`AllowAnonymous` + rate limiting) — **แหล่งความจริง** ของสถานะ
-- ลำดับจริง: resolve merchant จาก **connection id ที่เชื่อถือได้** (`IWebhookMerchantResolver`, escape-hatch port; ไม่รู้จัก → 404) → `IActorScope.Begin(merchantId)` → reveal secret → `VerifyWebhook` (ไม่ผ่าน → **401**) → **ใน transaction เดียว**: parse → claim idempotency **2 คีย์** (`{psp}:{connectionId}:event:{eventId}` และ `{psp}:{connectionId}:charge:{chargeId}:{status}`) → `FetchChargeAsync` fetch-to-confirm → **เทียบยอด** → `MarkPaid` → enqueue `PaymentPaid` ลง outbox → commit
+- ลำดับจริง: resolve merchant จาก **connection id ที่เชื่อถือได้** (`IWebhookMerchantResolver`, escape-hatch port; ไม่รู้จัก → 404) → `IActorScope.Begin(merchantId)` → reveal secret → `VerifyWebhook` (ไม่ผ่าน → **401**) → **ใน transaction เดียว**: parse → `FetchChargeAsync` fetch-to-confirm → **เทียบยอด** → claim idempotency **2 คีย์** (`{psp}:{connectionId}:event:{eventId}` และ `{psp}:{connectionId}:charge:{chargeId}:{status}`) → `MarkPaid` → enqueue `PaymentPaid` ลง outbox → commit
 - outcome 4 แบบ: `Rejected` (401) / `Processed` / `Duplicate` / `Ignored` (verified + first-seen แต่ fetch ยังไม่ยืนยันว่า Paid **หรือยอดที่ PSP รายงานไม่ตรง**)
   > **[as-built 2026-07-26]** เพิ่มด่านเทียบยอด **หลัง** resolve session และ **ก่อน** `MarkPaid`:
   > `FetchChargeAsync` คืน `PspChargeConfirmation(Status, Money? Amount)` แล้ว ถ้า `Amount` มีค่าและไม่ตรงกับ
@@ -498,10 +507,14 @@ as-built แยกเป็น **2 ขั้นไม่ใช่ 1** — สร
   > (PSP จึงไม่ retry ไม่รู้จบ). เหตุที่จุดนี้จำเป็น: หลังยอด session มาจากแถว order แล้ว การเทียบใน
   > `Order.MarkPaid` กลายเป็นการเทียบค่าเดียวกับตัวเอง — **นี่เป็นที่เดียวในระบบที่เทียบกับยอดที่ PSP เก็บจริง**.
   > `Amount == null` (PSP ไม่รายงานยอด) = ยืนยันด้วยสถานะอย่างเดียวตามพฤติกรรมเดิม **ยังเป็น gap ที่เปิดอยู่**
-  > (ไม่ fail-closed บน contract ที่ยังไม่ verify กับ sandbox). idempotency key, ลำดับ/ขอบเขต transaction และ
-  > สัญญา `PaymentPaid` **ไม่ถูกแตะ**; ผลพ่วงที่มีอยู่ก่อนแล้ว: claim ถูก consume ก่อน fetch ดังนั้น webhook
-  > ใบที่สองของ event ที่ยอดไม่ตรงจะได้ `Duplicate` ทั้งที่ไม่เคย mark paid — และ `Ignored` เพราะยอดไม่ตรง
-  > แยกจาก `Ignored` เพราะยังไม่ Paid ไม่ได้จาก outcome (ต้องเพิ่มค่า enum/telemetry = สเปกแยก)
+  > (ไม่ fail-closed บน contract ที่ยังไม่ verify กับ sandbox). สัญญา `PaymentPaid` **ไม่ถูกแตะ**; `Ignored`
+  > เพราะยอดไม่ตรง แยกจาก `Ignored` เพราะยังไม่ Paid ไม่ได้จาก outcome (ต้องเพิ่มค่า enum/telemetry = สเปกแยก)
+  > **[as-built 2026-07-28]** claim idempotency ถูกย้ายไปอยู่**หลัง** `FetchChargeAsync`+เทียบยอด แล้ว "ใช้ไป
+  > พร้อมกับการ transition เดียวกัน" เท่านั้น (ก่อนหน้านี้ claim ก่อน fetch: webhook ที่ verify ผ่านแต่ fetch
+  > ยังไม่ยืนยัน Paid หรือยอดไม่ตรง — burn คีย์ `charge:{id}:{status}` ไปแล้วโดยไม่ mark paid — พิสูจน์เป็นบั๊ก
+  > จริงบน 2C2P sandbox 2026-07-28: redelivery ที่ถูกต้องจริงหลังจากนั้นถูกปฏิเสธเป็น `Duplicate` ตลอดไป)
+  > keys ยังผูกกับ `pspConnectionId` เหมือนเดิม (กัน event id ที่ unique แค่ระดับ merchant ชนกันข้าม
+  > merchant/connection). spec `captive-payment-alignment`, PR #140.
 
 ### 3.2 Engine
 
@@ -1815,8 +1828,8 @@ fallback, entity ที่ลืมใส่ schema **fail arch test** ไม่
 
 | โมดูล | ระนาบ | บทบาทย่อ |
 |---|---|---|
-| Products | domain | แผนประกัน/กรมธรรม์ + quote เบี้ย (→ Order) |
-| Cart | domain | ตะกร้าสินค้า — รวมแผน + quote (แก้ไขได้) |
+| Products | domain | เอกสารประกันที่ขายได้ในแคตตาล็อกกลาง — read-only over HTTP, ไม่มี quote (→ Order) |
+| Cart | domain | ตะกร้าสินค้า — รวมเอกสารประกันที่เลือกจากแคตตาล็อก (แก้ไขได้) |
 | Checkout | domain | หน้าสรุป + ส่วนลด + ข้อมูลผู้ซื้อ + ตั้งค่าผู้รับแจ้งเตือน → สร้าง Order |
 | Orders | domain | ข้อมูลคำสั่งซื้อ + ลิงก์หน้าสรุป (Payments) · แจ้งเตือนลูกค้า background · รับ `PaymentPaid`→Paid |
 | เก็บเบี้ย/รับชำระ | data | จุดที่ลูกค้าบริษัทในเครือจ่าย |

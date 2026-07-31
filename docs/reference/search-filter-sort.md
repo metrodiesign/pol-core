@@ -911,7 +911,7 @@ isolation floor ปัจจุบันอยู่ที่ **app layer ทั
 
 1. **Read floor — EF Core global query filter** (`HasQueryFilter`, ~22 call site ทั้ง src). นิยามใน
    `OnModelCreating` ของแต่ละ `IEntityTypeConfiguration` เช่น
-   `Persistence.MerchantRuntime/Orders/OrderConfiguration.cs`, `.../Products/ProductConfiguration.cs`:
+   `Persistence.MerchantRuntime/Orders/OrderConfiguration.cs`, `.../Carts/CartConfiguration.cs`:
 
    ```csharp
    builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
@@ -929,20 +929,21 @@ isolation floor ปัจจุบันอยู่ที่ **app layer ทั
 filter/search/sort เป็นการ **แคบ** ผลลัพธ์ลงเท่านั้น (`.Where` เพิ่มบน `IQueryable` ที่ query filter ครอบแล้ว)
 — **ไม่มีทางขยาย merchant scope**. เงื่อนไขบังคับ:
 
-- entity ที่เป็น **merchant data** (มี `MerchantId`: Product, Cart, Order, CheckoutSession, ItemPolicy, ...)
+- entity ที่เป็น **merchant data** (มี `MerchantId`: Cart, Order, CheckoutSession, ItemPolicy, ... — **ไม่ใช่**
+  `Product` อีกต่อไป, catalogue กลางไม่มีคอลัมน์ `MerchantId`/query filter, ดูหมายเหตุต้นเอกสาร 2026-07-30)
   query record ที่สืบทอด `PagedQuery` ต้อง mark `IMerchantScoped` เพื่อให้ `MerchantGuardBehavior` ปฏิเสธ
   เมื่อไม่มี actor ผูก:
 
   ```csharp
-  public sealed record ListProductsQuery : PagedQuery,
-      IQuery<PagedResult<ProductListItem>>, IMerchantScoped   // merchant data -> ต้อง IMerchantScoped
+  public sealed record ListPolicyReportQuery : PagedQuery,
+      IQuery<PagedResult<PolicyReportItem>>, IMerchantScoped   // merchant data -> ต้อง IMerchantScoped
   {
       public required Guid MerchantId { get; init; }
   }
   ```
 
   และ repository เติม explicit `.Where(p => p.MerchantId == query.MerchantId)` เป็น defence-in-depth
-  (query filter ยัง gate row อยู่ดี) — belt-and-suspenders ตาม `ProductRepository.ListAsync` จริง.
+  (query filter ยัง gate row อยู่ดี) — ตรงตาม `Orders.Application/ListPolicyReportQuery.cs` จริง.
 
 - entity ที่เป็น **control-plane** (ไม่มี merchant dimension — `iam.Roles`, `iam.Permissions`,
   `admin.Users`, ...) อยู่บน `ControlPlaneDbContext` ซึ่ง **ไม่มี query filter เลย** และ **ห้าม** mark
@@ -1371,7 +1372,10 @@ SFS ถูก implement จริงแล้ว (spec `.ai/specs/search-filter-
   `using SearchOption = BuildingBlocks.Application.SearchOption;`.
 - **OpenAPI SFS params (REQ-13)** ประกาศผ่าน built-in `AddOperationTransformer` + metadata marker
   `SfsQueryParamsMarker` (`src/Hosts/Api/SfsOpenApi.cs`) — **ไม่ใช่ `.WithOpenApi(...)`** (§12.1/§12.2/D13):
-  โปรเจกต์ใช้ .NET 10 built-in OpenAPI (document/operation transformers) ไม่ใช่ Swashbuckle.
+  โปรเจกต์ใช้ .NET 10 built-in OpenAPI (document/operation transformers) ไม่ใช่ Swashbuckle. `GET /api/v1/products`
+  ใช้ marker คนละตัว — `ProductQueryParamsMarker` -> `SfsOpenApi.AddProductQueryParameters` ประกาศแค่
+  `page`/`limit`/`productFilters` (**ไม่มี** `filters`/`sort`/`search`), ตรงกับที่ §12.2 บอกว่า Products ไม่มี
+  SFS surface อีกแล้ว.
 - **Apply pipeline ต่อโมดูล**: whitelist + `ApplyFilters`/`ApplySort`(+`ApplySearch` เมื่อ shipped) เป็น
   `static` class co-located ข้าง repository (แทน `file static RoleQueryFields` ใน §8/§12.1). ตำแหน่งปัจจุบันหลัง
   rf2 (iam catalog) + `rls-to-query-filter` (แยก persistence ตาม cluster):
@@ -1386,11 +1390,16 @@ SFS ถูก implement จริงแล้ว (spec `.ai/specs/search-filter-
 
   repo/port `ListAsync` ของฝั่ง role รับ `RoleSideContext` + `PagedQuery` base.
 - **`ProductFilterDto.Parse`** อยู่ที่ `Products.Application` (pure `System.Text.Json` + DataAnnotations) ไม่ใช่ Hosts
-  `ParseProductFilters` (§7) — testable + endpoint บาง. field เป็น `MinPriceAmount`/`MaxPriceAmount` (`decimal?`)
-  ตามมาตรฐาน Money DECIMAL(19,4) — **ไม่มี minor-unit field**.
-- **Coverage 14 operator แบ่งสองตัวอย่าง**: Role (คอลัมน์ string/enum) = eq, ne, in, not_in, like, ilike,
-  contains, is_null, is_not_null; Products (คอลัมน์ numeric/date) = eq + gt, gte, lt, lte, between. Product whitelist
-  ขยายจาก §12.2 (เดิม gte/lte/between) ให้รวม gt/lt ด้วย เพื่อครบ 14 ตัวข้ามสองตัวอย่าง (+ reference §4.1).
+  `ParseProductFilters` (§7) — testable + endpoint บาง. field จริง (`products-sp-53-alignment`) คือ `SaleCode`
+  (บังคับ, `MaxLength(20)`), `SearchText`/`InsuredName`/`PolicyNo`/`ApplicationNo`, `DocumentType?`/`ProductGroup?`,
+  `PaymentStatus` (string `UNPAID`|`PAID`|`ALL`, ไม่ใส่ = `UNPAID`), `CoverageStartFrom/To`/`CoverageEndFrom/To`/
+  `PaidDateFrom/To` — **ไม่มี `MinPriceAmount`/`MaxPriceAmount`/`ActiveOnly`** อีกแล้ว (`Product` เลิกใช้ `Money`
+  ทั้งหมด, ดูหมายเหตุต้นเอกสาร 2026-07-30).
+- **Coverage 14 operator ไม่รวม Products อีกแล้ว**: `ProductRepository.ListAsync` กรองด้วย typed
+  `ProductFilterDto` ตรง ๆ ไม่มี `FilterOperator`/whitelist เข้ามาเกี่ยวเลย (ตัวอย่าง `priceAmount`/`MinPriceAmount`/
+  `ActiveOnly` ใน §4/§7/§12.2 เป็นของสมมติทั้งหมด). operator ทั้ง 14 ตัว (eq, ne, gt, gte, lt, lte, like, ilike,
+  in, not_in, is_null, is_not_null, between, contains — reference §4.1) คุมด้วย test ฝั่ง Role/Admin เท่านั้น
+  ตอนนี้ ไม่ใช่ Role+Products แบ่งกันคุมแบบเดิม.
 - **Whitelist-drop logging (REQ-8.6)** ผ่าน optional `ILogger?` บน `ApplyFilters`/`ApplySort`; repository ส่ง
   `ILogger<T>` (wire ผ่าน DI).
 - **Relational test** ใช้ in-memory SQLite (EF relational provider ที่ repo มีอยู่แล้ว) สำหรับ NULLS-last, LIKE-escape

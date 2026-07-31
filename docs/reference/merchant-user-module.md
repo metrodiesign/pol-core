@@ -693,7 +693,7 @@ Merchant-side keys ที่ merchant-user ใช้ได้:
 
 | group | keys |
 |---|---|
-| `catalog` | `product.create`, `product.update` |
+| `catalog` | `product.create`, `product.update` (orphan) — seed grant `merchant_manager`/`merchant_staff` (`SeedData.cs:102-110`) แต่ไม่มี endpoint ไหน `RequirePermission` อ้างถึงแล้ว หลัง `POST /products` ถูกถอด (commit `152b692`); ยังโผล่ใน `GET /me` effective-permissions array ได้ปกติ (seed ยังอยู่) แค่ไม่ gate อะไร |
 | `payment` | `payment.create`, `payment.redirect` |
 | `roles` | `roles.view`, `roles.manage`, `users.roles` |
 | `policies` | `policies.read`, `policies.write` |

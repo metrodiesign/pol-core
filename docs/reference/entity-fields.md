@@ -1034,7 +1034,8 @@ FK **composite** `(CartId, MerchantId)` -> `Carts (Id, MerchantId)` cascade — 
 **ทำงานยังไง**: `Session.Start` (Checkouts.Domain/Session.cs:51-72) รับ `amount`/`items` ที่คำนวณมาแล้วจาก endpoint (ไม่คำนวณเองในนี้) reject `items` ว่าง (บรรทัด 59-60) แล้ว snapshot ทุกบรรทัดทันที (บรรทัด 64-69) `Confirm()` (บรรทัด 75-81) เปลี่ยน `Started`->`Confirmed` เท่านั้น เรียกจริงจาก `ConfirmCheckoutHandler.Handle` (Checkouts.Application/ConfirmCheckout.cs:40) ซึ่งเปิด outbox message ใน transaction เดียวกับการเปลี่ยนสถานะพอดี (บรรทัด 47-51) — แต่ `Abandon()` (Session.cs:84-90) กลับ**ไม่มี caller เลยแม้แต่ในเทสต์**: grep ทั้ง repo (`src` + `tests`) หา `.Abandon(` หรือ `SessionStatus.Abandoned` เจอแค่ definition ในตัวเองเท่านั้น ไม่มี handler/endpoint ไหนเรียก แถว `Abandoned` ที่เห็นใน `seed-demo.sql` จึงมาจาก raw SQL seed เท่านั้น ไม่มี code path จริงที่ทำให้ session เข้าสถานะนี้ได้ในระบบปัจจุบัน
 
 ### Item -> `shop.CheckoutSessionItems`
-1 บรรทัด = 1 ผู้เอาประกัน. field ผู้เอาประกัน + ราคา/ทุน/ผู้รับประกัน เป็น **snapshot ณ เวลาซื้อ**
+1 บรรทัด = 1 ผู้เอาประกัน. field ผู้เอาประกัน + ราคา/เอกสารประกัน (`DocumentNo`/`ProductGroup`/
+`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate`) เป็น **snapshot ณ เวลาซื้อ** จาก `Product`
 (ไม่ตามการแก้ catalog ทีหลัง). FK composite `(SessionId, MerchantId)` -> `CheckoutSessions (Id, MerchantId)`
 cascade.
 
@@ -1050,19 +1051,21 @@ cascade.
 | Quantity | int | N | | `1` | บังคับ 1 เสมอ — 1 บรรทัด = 1 ผู้เอาประกัน |
 | UnitPriceAmount | decimal(19,4) | N | | `15900.0000` | เบี้ยที่ตกลง ณ เวลา start |
 | UnitPriceCurrency | char(3) | N | | `THB` | สกุลเบี้ย |
-| SumInsuredAmount | decimal(19,4) | N | | `1000000.0000` | ทุนประกัน snapshot |
-| SumInsuredCurrency | char(3) | N | | `THB` | สกุลทุนประกัน |
-| InsurerName | nvarchar(200) | N | | `วิริยะประกันภัย` | property ชื่อ `Insurer` |
-| CoverageDurationDays | int | N | | `365` | ระยะคุ้มครอง snapshot |
+| DocumentNo | nvarchar(150) | N | | `S001-69900/บต/900008` | snapshot จาก `Product.DocumentNo` ณ เวลา start |
+| ProductGroup | varchar(10) | N | | `CMI` | wire value ของ `Product.ProductGroup` — string ล้วน ไม่ reference enum ข้ามโมดูล |
+| DocumentType | varchar(20) | N | | `POLICY` | wire value ของ `Product.DocumentType` |
+| PolicyNumber | varchar(150) | Y | | `P-2569-000123` | snapshot จาก `Product.PolicyNumber` |
+| StartDate | datetime2(0) | Y | | `2026-07-01T00:00:00` | snapshot จาก `Product.StartDate`; `Create` throw ถ้า `StartDate > EndDate` |
+| EndDate | datetime2(0) | Y | | `2027-06-30T00:00:00` | snapshot จาก `Product.EndDate` |
 | InsuredFirstName | nvarchar(200) | N | | `สมชาย` | PII — อ่านแบบ mask, การเปิดจริงถูก audit |
 | InsuredLastName | nvarchar(200) | N | | `ใจดี` | PII |
 | InsuredIdNumber | nvarchar(20) | N | | `1103700123456` (13 หลัก) | PII |
 | InsuredDateOfBirth | datetime2 | N | | `1985-03-15T00:00:00Z` | PII — เก็บเป็น datetime2 (ไม่ใช่ `date`) |
 
-**คืออะไร**: 1 แถว = 1 คนที่จะได้รับความคุ้มครองในใบเสนอราคานั้น (ไม่ใช่ 1 แผน) เก็บชื่อ-นามสกุล-เลขบัตร-วันเกิดของผู้เอาประกัน พร้อมราคา/ทุนประกัน/บริษัทประกันที่ตกลงกัน ณ ตอนกดเช็คเอาต์
+**คืออะไร**: 1 แถว = 1 คนที่จะได้รับความคุ้มครองในใบเสนอราคานั้น (ไม่ใช่ 1 แผน) เก็บชื่อ-นามสกุล-เลขบัตร-วันเกิดของผู้เอาประกัน พร้อมราคา/เอกสารประกันที่ตกลงกัน ณ ตอนกดเช็คเอาต์
 **บทบาท**: เป็นก้อนข้อมูลที่ event `CheckoutConfirmed` แนบไปให้ `Orders` module ใช้สร้าง `shop.OrderItems` ต่อ (โครงสร้าง field เหมือนกันแทบทุกตัว เพราะเป็นข้อมูลชุดเดียวกันที่ "จบทาง" ที่ Order) validate ชุดเดียวกับ `Orders.Domain.Items.Item` เพื่อกันคำขอเสียหลุดไปถึง `Order.Create`
 **ถ้าไม่มีตารางนี้จะพังยังไง**: ใบเสนอราคาจะไม่มีที่เก็บว่า "ใครคือผู้เอาประกัน" เลย รู้แค่ว่าซื้อแผนอะไรกี่ชิ้น แต่ตอบไม่ได้ว่าคุ้มครองใคร — เขียนกรมธรรม์จริงไม่ได้เพราะไม่มีชื่อ-เลขบัตรผู้เอาประกันติดไปกับยอดที่ล็อกไว้
-**ทำงานยังไง**: สร้างพร้อม `Session` ใน `Session.Start` (Session.cs:64-69) — internal ctor ของ `Item` (Checkouts.Domain/Items/Item.cs:33-47) validate ชื่อ/นามสกุล/เลขบัตรห้ามว่าง (บรรทัด 43-45) และวันเกิดห้ามเป็นอนาคต (บรรทัด 46-47) แต่**ไม่มี**การเช็ค `Quantity == 1` อยู่ใน constructor นี้เลย — endpoint `POST /checkouts` (Program.cs:747-748) เช็คก่อนแล้วว่าทุกบรรทัดของ cart ต้อง `Quantity == 1` ถึงจะยอมสร้าง session ต่อ (reject ตั้งแต่ต้นทาง 400 ก่อนหลุดมาถึงชั้นนี้)
+**ทำงานยังไง**: สร้างพร้อม `Session` ใน `Session.Start` (Session.cs:64-69) — internal ctor ของ `Item` (Checkouts.Domain/Items/Item.cs:40-77) validate ชื่อ/นามสกุล/เลขบัตรห้ามว่าง (บรรทัด 57-59) และวันเกิดห้ามเป็นอนาคต (บรรทัด 60-61) แต่**ไม่มี**การเช็ค `Quantity == 1` อยู่ใน constructor นี้เลย — endpoint `POST /checkouts` (Program.cs:747-748) เช็คก่อนแล้วว่าทุกบรรทัดของ cart ต้อง `Quantity == 1` ถึงจะยอมสร้าง session ต่อ (reject ตั้งแต่ต้นทาง 400 ก่อนหลุดมาถึงชั้นนี้)
 
 ### Order -> `shop.Orders`
 `Id` ไม่ใช่ value-generated (แอป assign). `SummaryToken` = capability opaque สำหรับลูกค้าเปิดหน้าสรุปแบบ
@@ -1111,22 +1114,24 @@ INSERT-only (ค่าที่ต้องแก้ทีหลังไปอ�
 | Quantity | int | N | | `1` | บังคับ 1 — 1 บรรทัด = 1 ผู้เอาประกัน; ผลรวมของทุกบรรทัดต้องเท่ากับ `Orders.Amount` เป๊ะ |
 | UnitPriceAmount | decimal(19,4) | N | | `15900.0000` | เบี้ยที่ขายจริง (snapshot ณ เวลาซื้อ) |
 | UnitPriceCurrency | char(3) | N | | `THB` | สกุลเบี้ย |
-| SumInsuredAmount | decimal(19,4) | N | | `1000000.0000` (พ.ร.บ. = `200000.0000`) | ทุนประกัน snapshot |
-| SumInsuredCurrency | char(3) | N | | `THB` | สกุลทุนประกัน |
-| InsurerName | nvarchar(200) | N | | `วิริยะประกันภัย` | property ชื่อ `Insurer` — snapshot ไม่ตามการแก้ catalog |
-| CoverageDurationDays | int | N | | `365` | ระยะคุ้มครอง snapshot |
+| DocumentNo | nvarchar(150) | N | | `S001-69900/บต/900008` | snapshot จาก `Product.DocumentNo` ณ เวลาซื้อ |
+| ProductGroup | varchar(10) | N | | `CMI` | wire value ของ `Product.ProductGroup` — string ล้วน ไม่ reference enum ข้ามโมดูล |
+| DocumentType | varchar(20) | N | | `POLICY` | wire value ของ `Product.DocumentType` |
+| PolicyNumber | varchar(150) | Y | | `P-2569-000123` | snapshot จาก `Product.PolicyNumber` |
+| StartDate | datetime2(0) | Y | | `2026-07-01T00:00:00` | snapshot จาก `Product.StartDate` |
+| EndDate | datetime2(0) | Y | | `2027-06-30T00:00:00` | snapshot จาก `Product.EndDate` |
 | InsuredFirstName | nvarchar(200) | N | | `สมชาย` | PII |
 | InsuredLastName | nvarchar(200) | N | | `ใจดี` | PII |
 | InsuredIdNumber | nvarchar(20) | N | | `1103700123456` | PII |
 | InsuredDateOfBirth | datetime2 | N | | `1985-03-15T00:00:00Z` | PII |
 
-**คืออะไร**: แต่ละแถวคือ "1 คนที่ถูกเอาประกัน" ภายใต้คำสั่งซื้อ 1 ใบ (1 บรรทัด = 1 กรมธรรม์ที่ขาย = 1 คนเอาประกัน เพราะ `Quantity` ถูกล็อกไว้ที่ 1 เสมอ) เก็บราคา/ทุนประกัน/ข้อมูลผู้เอาประกัน ณ วินาทีที่ซื้อ ไม่ตามการเปลี่ยนแปลงของสินค้าในแคตตาล็อกภายหลัง
+**คืออะไร**: แต่ละแถวคือ "1 คนที่ถูกเอาประกัน" ภายใต้คำสั่งซื้อ 1 ใบ (1 บรรทัด = 1 กรมธรรม์ที่ขาย = 1 คนเอาประกัน เพราะ `Quantity` ถูกล็อกไว้ที่ 1 เสมอ) เก็บราคา/field เอกสารประกัน/ข้อมูลผู้เอาประกัน ณ วินาทีที่ซื้อ ไม่ตามการเปลี่ยนแปลงของสินค้าในแคตตาล็อกภายหลัง
 
 **บทบาท**: บันทึกฝั่ง "ขายแล้ว" คู่กับ `shop.Orders` — เป็น snapshot ที่ไม่มีวันแก้ ต่างจาก `shop.OrderItemPolicies` ที่เป็นข้อมูลกรอกทีหลัง เดิมชื่อ `OrderLines`, rename ด้วย `sp_rename` (ยืนยันแล้วว่ามีไฟล์ migration `20260723122929_RenameOrderLinesToOrderItems.cs` จริงตรงกับที่ระบุไว้ข้างบน)
 
 **ถ้าไม่มีตารางนี้จะพังยังไง**: ไม่มีที่เก็บว่า order หนึ่งใบขายกรมธรรม์กี่ฉบับให้ใคร ราคาต่อฉบับเท่าไหร่ — ถ้าราคาสินค้าถูกแก้ในแคตตาล็อกทีหลัง คำสั่งซื้อเก่าจะแสดงราคาผิด (ราคาปัจจุบันแทนราคาที่จ่ายจริง) และไม่มีที่ให้ `shop.OrderItemPolicies` ผูกเลขกรมธรรม์เข้ากับ "คนที่ถูกเอาประกัน" คนไหน
 
-**ทำงานยังไง**: `Item` (`src/Modules/Orders/Orders.Domain/Items/Item.cs:12-72`) เป็น INSERT-only จริง — ทุก property เป็น `private set` และถูก set ครั้งเดียวใน constructor (บรรทัด 45-71) ไม่มี method ไหนแก้ค่าทีหลังเลย ตัวเดียวที่สร้างมันคือ `Order.Create` (`Order.cs:117-122`) วนสร้าง `Item` ทีละบรรทัดพร้อมกับ order แม่ในธุรกรรมเดียวกัน ระดับ DB: composite FK ไปที่ `Orders (Id, MerchantId)` ผ่าน `HasForeignKey(i => new { i.OrderId, i.MerchantId }).HasPrincipalKey(...).OnDelete(Cascade)` (`OrderConfiguration.cs:59-63`)
+**ทำงานยังไง**: `Item` (`src/Modules/Orders/Orders.Domain/Items/Item.cs:13-87`) เป็น INSERT-only จริง — ทุก property เป็น `private set` และถูก set ครั้งเดียวใน constructor (บรรทัด 71-85) ไม่มี method ไหนแก้ค่าทีหลังเลย ตัวเดียวที่สร้างมันคือ `Order.Create` (`Order.cs:117-124`) วนสร้าง `Item` ทีละบรรทัดพร้อมกับ order แม่ในธุรกรรมเดียวกัน ระดับ DB: composite FK ไปที่ `Orders (Id, MerchantId)` ผ่าน `HasForeignKey(i => new { i.OrderId, i.MerchantId }).HasPrincipalKey(...).OnDelete(Cascade)` (`OrderConfiguration.cs:59-63`)
 
 ### ItemPolicy -> `shop.OrderItemPolicies`
 policy-reference record ต่อ OrderItem — aggregate **mutable** 1:1 กับ OrderItem (ต่างจาก OrderItem เองที่
