@@ -109,7 +109,7 @@ floor เป็น **ตึกให้เช่าที่มีหลาย�
 
 **ทำงานยังไง**: ทุกโมดูลใน `src/Modules/*.Domain` และ `*.Application` reference `SharedKernel` ได้ (21 `.csproj` อ้างถึงจริง) — แต่ `SharedKernel` เองไม่ reference กลับไปหาใคร. กติกานี้ไม่ใช่แค่คำแนะนำในเอกสาร — `Architecture.Tests` (NetArchTest) เช็คจริงว่า `*.Domain` ห้ามพึ่ง `Microsoft.EntityFrameworkCore` โดยเฉพาะ และห้ามพึ่ง namespace `*.Infrastructure` ใด ๆ เลย (ของตัวเองหรือโมดูลอื่น) — **ไม่ใช่ guard แบบ "ห้ามพึ่ง framework ใด ๆ เลย" กว้าง ๆ** ถ้า Domain วันหนึ่งไป reference ASP.NET Core หรือ Mediator ตรง ๆ (ไม่ผ่าน EF Core/`*.Infrastructure` namespace) จะไม่ถูก guard ปัจจุบันจับ. ที่ยังไม่พังทุกวันนี้เพราะ Domain มีแค่ `SharedKernel` ให้พึ่งเท่านั้น. `Contracts.csproj` (§2) ก็ reference `SharedKernel` เช่นกัน เพื่อให้ event ข้ามโมดูลพก `Money` แบบ value object ได้ตรง ๆ (เช่น `PaymentPaid.Amount: Money`) แทนที่จะต้องแปลงเป็น `decimal`/`long` ดิบตรง seam.
 
-**ทำงานร่วมกับ layer อื่นตรงไหน**: ทุก aggregate ในทั้ง 12 โมดูล (`Product`, `Merchant`, `Order`, `Payments.Session` ฯลฯ) สืบทอด `AggregateRoot<TId>` จากที่นี่ และเก็บฟิลด์เงินเป็น `Money` เสมอ — เห็นตัวจริงที่ตัวอย่าง **B1 (สร้างสินค้า)** ด้านล่าง ที่ `Product.Price`/`Product.SumInsured` เป็น `Money` ตั้งแต่ domain ยัน wire response.
+**ทำงานร่วมกับ layer อื่นตรงไหน**: ทุก aggregate ในทั้ง 12 โมดูล (`Merchant`, `Order`, `Payments.Session` ฯลฯ) สืบทอด `AggregateRoot<TId>` จากที่นี่ และเก็บฟิลด์เงินเป็น `Money` เสมอ — **ข้อยกเว้นเดียวคือ `Product`**: เบี้ยประกัน (`TotalPremium` ฯลฯ) เป็น `decimal(19,2)` ล้วนตาม §5.2 ไม่ใช่ `Money` (ดู §5 หัวข้อ Products และ B1 ด้านล่าง) เพราะ source system เป็น THB อย่างเดียว, currency ถูก mint เป็น `Money` ครั้งแรกตอน `Cart.AddItem` (`Item.UnitPrice: Money`) แทน — เห็นตัวจริงที่ตัวอย่าง **B2 (checkout confirm)** ด้านล่าง.
 
 ---
 
@@ -190,7 +190,7 @@ compiler ไม่ใช่แค่ convention:
 
 - **`Persistence.ControlPlane`** → `ControlPlaneDbContext` — คุม schema `admin`/`iam`/`cfg`/`dbo.DataProtectionKeys`, ไม่มี merchant dimension เลยจึงไม่มี query filter
 - **`Persistence.MerchantUsers`** → `MerchantUserDbContext` — คุม schema `merch` เฉพาะส่วน identity/session
-- **`Persistence.MerchantRuntime`** → `MerchantRuntimeDbContext` — คุม schema `shop`/`txn`/`merch` (ส่วนข้อมูล) — **นี่คือ isolation floor จริงของระบบ**: ทุก entity มี query filter `MerchantId == CurrentMerchant`
+- **`Persistence.MerchantRuntime`** → `MerchantRuntimeDbContext` — คุม schema `shop`/`txn`/`merch` (ส่วนข้อมูล) — **นี่คือ isolation floor จริงของระบบ**: เกือบทุก entity มี query filter `MerchantId == CurrentMerchant` — ยกเว้น `Product` (schema `shop` เดียวกัน แต่ไม่มีคอลัมน์ `MerchantId` เลย เพราะแคตตาล็อกเอกสารเป็นของกลาง ไม่ใช่ต่อ merchant, ขอบเขตจริงคือ `SaleCode` ที่ query layer บังคับเอง ไม่ใช่ query filter — ดู §5 Products และ B1)
 - **`Persistence.Provisioning`** → `ProvisioningCoordinator` — จุดเดียวในทั้งระบบที่ 2 context ข้างบนแชร์ connection/transaction เดียวกัน (ใช้ตอน super-admin provision merchant ใหม่: เขียน ledger ฝั่ง control plane + เขียน merchant/PSP connection/vault secret ฝั่ง merchant runtime แบบ atomic)
 
 **ทำไมต้องแยกเป็น assembly ที่ 4 แทนที่จะฝัง `ProvisioningCoordinator` ไว้ใน `ControlPlane` หรือ `MerchantRuntime`
@@ -238,7 +238,7 @@ Server RLS ที่ตัว database เป็นคนกันแทน พ�
 
 | โมดูล | หน้าที่ |
 |---|---|
-| Products | แคตตาล็อกกรมธรรม์ต่อ merchant |
+| Products | แคตตาล็อกเอกสารประกันกลาง (ไม่มี `MerchantId`, read-only ผ่าน HTTP) |
 | Carts | ตะกร้าเก็บ line ก่อน checkout |
 | Checkouts | ล็อกราคาจาก cart subtotal + snapshot เงื่อนไขกรมธรรม์/ข้อมูลผู้เอาประกัน ณ เวลาซื้อ |
 | Orders | order + line snapshot + policy-reference record ที่แก้ทีหลังได้ + reconciliation |
@@ -284,7 +284,8 @@ Server RLS ที่ตัว database เป็นคนกันแทน พ�
 (ctor `private`, ตัว parameterless เปิดไว้ให้ EF materialize อย่างเดียว): `TotalPremium` ต้องมากกว่าศูนย์
 และมีทศนิยมไม่เกิน 2 ตำแหน่ง (`decimal(19,2)` ตาม §5.2 — ค่าที่ละเอียดกว่านั้นถูก **ปฏิเสธ** ไม่ใช่ปัดเงียบ),
 `StartDate` ต้องไม่หลัง `EndDate`, `ProductGroup`/`DocumentType` ต้องเป็นสมาชิก enum จริง (`Enum.IsDefined`),
-CMI ห้ามคู่กับ `APPLICATION`, `MerchantId`/`DocumentNo`/`SaleCode` ต้องไม่ว่าง — ผิดข้อใดข้อหนึ่ง throw
+CMI ห้ามคู่กับ `APPLICATION`, `DocumentNo`/`SaleCode` ต้องไม่ว่าง (ไม่มี `MerchantId` — แคตตาล็อกเป็นของกลาง) —
+ผิดข้อใดข้อหนึ่ง throw
 `ArgumentException` ทันทีตอน construct ไม่ปล่อยให้เป็น invalid state ค้างใน DB. หลังสร้างแล้วมี mutation
 **ตัวเดียว** คือ `MarkPaid(paidDate)` (set `PaymentStatus = PAID` + `PaidDate`) — แกน "ขายได้/ขายไม่ได้"
 คือ `PaymentStatus` ไม่ใช่ soft-delete flag (`IsActive`/`Deactivate()` ถูกลบใน `products-sp-53-alignment`)
