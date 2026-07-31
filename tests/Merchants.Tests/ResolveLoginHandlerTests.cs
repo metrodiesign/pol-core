@@ -60,7 +60,7 @@ public sealed class ResolveLoginHandlerTests
     {
         var account = Pending();
         account.Approve(MerchantId, Now);
-        var roles = new FakeRoles("product.create", "payment.create");
+        var roles = new FakeRoles("payment.redirect", "payment.create");
 
         var result = await Handle(account, roles);
 
@@ -69,7 +69,7 @@ public sealed class ResolveLoginHandlerTests
         Assert.Equal(account.Id, resolution.MerchantUserId);
         Assert.Equal(MerchantId, resolution.MerchantId);
         Assert.Equal(account.Email, resolution.Email);
-        Assert.Equal(new HashSet<string> { "product.create", "payment.create" }, resolution.Permissions);
+        Assert.Equal(new HashSet<string> { "payment.redirect", "payment.create" }, resolution.Permissions);
         // the union was asked scoped to the account's OWN MerchantId (REQ-16.4)
         Assert.Equal((account.Id, MerchantId), roles.LastQuery);
     }

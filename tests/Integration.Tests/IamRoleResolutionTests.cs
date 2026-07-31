@@ -52,16 +52,16 @@ public sealed class IamRoleResolutionTests
 
         try
         {
-            // One Active custom role (product.create) + one Inactive one (payment.create), both this merchant's own.
+            // One Active custom role (payment.redirect) + one Inactive one (payment.create), both this merchant's own.
             await InsertMerchRole(admin, activeRole, "res_a_" + activeRole.ToString("N")[..6], status: 0, merchant);
             await InsertMerchRole(admin, inactiveRole, "res_i_" + inactiveRole.ToString("N")[..6], status: 1, merchant);
-            await Grant(admin, activeRole, "product.create");
+            await Grant(admin, activeRole, "payment.redirect");
             await Grant(admin, inactiveRole, "payment.create");
             await InsertMerchAssignment(admin, user, activeRole, merchant);
             await InsertMerchAssignment(admin, user, inactiveRole, merchant);
 
             // The Inactive role contributes nothing (REQ-4.6); a merchant the user was never approved into is empty.
-            Assert.Equal(new[] { "product.create" }, await Effective(admin, MerchEffectiveSql, user, merchant));
+            Assert.Equal(new[] { "payment.redirect" }, await Effective(admin, MerchEffectiveSql, user, merchant));
             Assert.Empty(await Effective(admin, MerchEffectiveSql, user, IntegrationDb.MerchantB));
         }
         finally
@@ -81,9 +81,9 @@ public sealed class IamRoleResolutionTests
         try
         {
             await InsertMerchRole(admin, role, "rev_" + role.ToString("N")[..6], status: 0, merchant);
-            await Grant(admin, role, "product.create");
+            await Grant(admin, role, "payment.create");
             await InsertMerchAssignment(admin, user, role, merchant);
-            Assert.Equal(new[] { "product.create" }, await Effective(admin, MerchEffectiveSql, user, merchant));
+            Assert.Equal(new[] { "payment.create" }, await Effective(admin, MerchEffectiveSql, user, merchant));
 
             // No cache: deactivating the role removes it from the very next resolution (REQ-4.4).
             await IntegrationDb.ExecAsync(admin, "UPDATE iam.Roles SET Status=1 WHERE Id=@id", ("@id", role));
@@ -106,7 +106,7 @@ public sealed class IamRoleResolutionTests
         {
             // Role owned by Merchant B, but an assignment row (bypassing validation) says the user is in Merchant A.
             await InsertMerchRole(admin, role, "did_" + role.ToString("N")[..6], status: 0, IntegrationDb.MerchantB);
-            await Grant(admin, role, "product.create");
+            await Grant(admin, role, "payment.create");
             await InsertMerchAssignment(admin, user, role, IntegrationDb.MerchantA);
 
             // Defense-in-depth (REQ-4.2): resolution for Merchant A joins through RoleVisibility for A, which
@@ -203,7 +203,7 @@ public sealed class IamRoleResolutionTests
             await IntegrationDb.InsertPlatformUserAsync(admin, adminWithMerchRole, "amr-" + adminWithMerchRole.ToString("N")[..8],
                 adminWithMerchRole.ToString("N")[..8] + "@example.com", tier: 1, status: 0);
             await InsertMerchRole(admin, merchRole, "amr_" + merchRole.ToString("N")[..6], status: 0, merchantId: null);
-            await Grant(admin, merchRole, "product.create");
+            await Grant(admin, merchRole, "payment.create");
             await InsertAdminAssignment(admin, adminWithMerchRole, merchRole);
             Assert.Empty(await Effective(admin, AdminEffectiveSql, adminWithMerchRole, Guid.Empty));
         }

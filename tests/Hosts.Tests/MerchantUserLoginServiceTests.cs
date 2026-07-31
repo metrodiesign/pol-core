@@ -39,7 +39,7 @@ public sealed class MerchantUserLoginServiceTests
     public async Task An_active_merchant_user_gets_a_session_login_audit_cookies_and_a_returnTo_redirect()
     {
         var (service, ctx) = Build(LoginResult.Active(
-            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "product.create" })));
+            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "payment.create" })));
 
         await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "google", "/dashboard", default);
 

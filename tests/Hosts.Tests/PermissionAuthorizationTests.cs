@@ -41,12 +41,12 @@ public sealed class PermissionAuthorizationTests
     [Fact]
     public void Admits_a_bound_merchant_user_whose_effective_set_holds_the_permission() =>
         Assert.True(ApiHost::Api.Iam.PermissionAuthorization.IsAllowed(
-            new ApiHost::Api.Admins.AdminScope(), UserBoundScope("roles.manage", "product.create"), "roles.manage"));
+            new ApiHost::Api.Admins.AdminScope(), UserBoundScope("roles.manage", "payment.create"), "roles.manage"));
 
     [Fact]
     public void Denies_a_bound_merchant_user_missing_the_permission() =>
         Assert.False(ApiHost::Api.Iam.PermissionAuthorization.IsAllowed(
-            new ApiHost::Api.Admins.AdminScope(), UserBoundScope("product.create"), "roles.manage"));
+            new ApiHost::Api.Admins.AdminScope(), UserBoundScope("payment.create"), "roles.manage"));
 
     [Fact]
     public void Fails_closed_when_neither_scope_is_bound() =>
@@ -70,7 +70,7 @@ public sealed class PermissionParityTests
     // every one must pass parity: catalogued, and on the side its policy implies.
     private static readonly (string Key, string? Policy)[] RealGateSites =
     [
-        ("product.create", "merchant-user"), ("payment.create", "merchant-user"), ("payment.redirect", "merchant-user"),
+        ("payment.create", "merchant-user"), ("payment.redirect", "merchant-user"),
         ("roles.manage", "merchant-user"), ("users.roles", "merchant-user"), ("policies.write", "merchant-user"),
         ("policies.read", "merchant-user"),
         ("merchants.users.approve", "admin"), ("merchants.users.reject", "admin"),

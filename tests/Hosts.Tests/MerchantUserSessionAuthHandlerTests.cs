@@ -33,7 +33,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
         new(TimeSpan.FromMinutes(30), TimeSpan.FromHours(8), TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60));
 
     private static ByIdResult Resolved =>
-        ByIdResult.Of(new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "product.create" }), "google-sub-1");
+        ByIdResult.Of(new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "payment.create" }), "google-sub-1");
 
     [Fact]
     public async Task No_cookie_yields_no_result_so_authorization_returns_401_directly()
