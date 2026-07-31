@@ -351,20 +351,30 @@ post-deploy ไม่ใช่โค้ด.
 
 ## 9. Flow การทำงาน (A-E)
 
-### Flow A — Merchant-facing request (เช่น `GET /api/v1/products`)
+### Flow A — Product catalogue read (`GET /api/v1/products`) — ข้อยกเว้นของ isolation floor
+
+> `Product` (`shop.Products`, `Persistence.MerchantRuntime/Products/ProductConfiguration.cs`) เป็น
+> **entity เดียวใน `MerchantRuntimeDbContext` ที่ไม่มี tenant key column และไม่มี `HasQueryFilter`** —
+> ตั้งใจ (comment ในไฟล์ configuration บอกตรง ๆ): แคตตาล็อกเอกสารประกันเป็น **กลาง** ใช้ร่วมกันทุก
+> merchant (`products-sp-53-alignment` §5.2 ไม่มีคอลัมน์ merchant) ไม่ใช่ row ที่ scoped ต่อ merchant แบบ
+> entity อื่นในหัวข้อ 5. `MerchantRuntimeDbContext.OnModelCreating` (บรรทัด 92) เรียก
+> `new ProductConfiguration()` โดย**ไม่ส่ง context เข้าไป** (ต่างจากทุก config อื่นในไฟล์เดียวกันที่ส่ง
+> `this` เพื่อผูก query filter) — สัญญาณเดียวกันซ้ำสอง.
 
 ```
-HTTP + merchant-user session cookie
-  -> auth -> MerchantUserDbContext resolve caller -> merchant id
-  -> IActorContext.CurrentMerchant = merchant id
+HTTP (ไม่มี merchant-user session ก็เรียกได้ — endpoint นี้ไม่ผูก merchant)
   -> [MerchantRuntimeDbContext]
-  -> query Products
-  -> EF query filter: MerchantId == CurrentMerchant -> เห็นเฉพาะ row ของ merchant นี้
-[ถ้า message เป็น IMerchantScoped แต่ HasActor=false -> MerchantGuardBehavior โยน exception ก่อนแตะ DB,
- ยิง UnboundActor telemetry]
+  -> query Products, บังคับ productFilters JSON param ที่ต้องมี SaleCode
+  -> ไม่มี query filter ที่ DB/EF ระดับ entity -> ขอบเขตข้อมูลเกิดที่ query criteria (SaleCode) ที่ caller
+     ส่งมา ไม่ใช่ isolation floor (ต่างจากทุก entity อื่นในหัวข้อ 9)
 ```
 
-Isolation มาจาก: EF query filter (ทุก request ผ่าน context เดียวกัน, capability แยกที่ actor ไม่ใช่ principal)
+Endpoint นี้ **read-only** (`POST /products` ถูกถอดแล้ว, `products-sp-53-alignment`) — เขียนเข้าระบบผ่าน
+importer/seed เท่านั้น, ไม่ผ่าน `IWriteAuthorizer` ของ HTTP request flow นี้.
+
+Entity อื่นทั้งหมดในหัวข้อ 9 (Orders/Carts/PaymentSessions/…) ยังคง isolation มาจาก: EF query filter
+(ทุก request ผ่าน context เดียวกัน, capability แยกที่ actor ไม่ใช่ principal) — `Product` เป็นข้อยกเว้น
+เดียวที่ตั้งใจให้อยู่นอกโมเดลนี้.
 
 ### Flow B — Admin provisioning (`POST /api/v1/merchants`) — cross-context (the ONE)
 
