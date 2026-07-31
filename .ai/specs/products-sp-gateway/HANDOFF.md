@@ -181,3 +181,106 @@
   `BuildingBlocks.Infrastructure`) — ไม่ต้องเพิ่ม PackageReference ในโปรเจกต์ test; ส่วน pin exact
   ที่ REQ-5.9 สั่งเป็นงานของ task 5 ใน `Directory.Packages.props` + csproj ของ `Products.Infrastructure`
 - `CommandType` ต้อง `using System.Data;` (ImplicitUsings ของ test project ไม่ได้ใส่มาให้)
+
+## Task 3 (sp-task3, 2026-07-31)
+
+### สิ่งที่ทำ
+
+ไฟล์ใหม่ 4 + แก้ 2 (commit `69ff065`, +179 บรรทัด ไม่มีการลบ) — ยังไม่มี consumer ตามที่ task กำหนด
+
+- `src/Modules/Products/Products.Application/Ports/ISpDocumentGateway.cs`
+- `src/Modules/Products/Products.Application/Ports/SpDocumentContracts.cs` (3 record: request / metadata / item + result)
+- `src/Modules/Products/Products.Application/Ports/SpDocumentSearchRejectedException.cs` (แยกไฟล์ตาม convention
+  ของ `Payments.Application/Ports/PspRejectedException.cs`)
+- `src/BuildingBlocks/BuildingBlocks.Application/UpstreamUnavailableException.cs`
+- `ProblemDetailsExceptionHandler.Map()` +2 บรรทัด (arm เดียว วางต่อจาก `InvalidOperationException`)
+- `tests/Hosts.Tests/ProblemDetailsExceptionHandlerTests.cs` +17 บรรทัด (ต่อยอดไฟล์เดิม ไม่สร้างไฟล์ใหม่)
+
+ไม่แตะ `Products.Application.csproj` (ไม่มี package ใหม่ — `InsuranceType` มาจาก `Products.Domain` ที่ reference อยู่แล้ว)
+
+### Signature จริง (copy ได้เลย — ตรง design ตัวต่อตัว ไม่มี deviation)
+
+```csharp
+namespace Products.Application.Ports;   // ทุกไฟล์ในกลุ่มนี้
+
+public interface ISpDocumentGateway
+{
+    Task<SpDocumentSearchResult> SearchAsync(SpDocumentSearchRequest request, CancellationToken cancellationToken);
+}
+
+// SpDocumentContracts.cs — ต้องมี `using Products.Domain;` (InsuranceType)
+public sealed record SpDocumentSearchRequest(
+    InsuranceType Target, string SaleCode, string? SearchText, string? InsuredName,
+    DateOnly? CoverageStartFrom, DateOnly? CoverageStartTo,
+    DateOnly? CoverageEndFrom, DateOnly? CoverageEndTo,
+    string PaymentStatus, string DocumentType, string ProductGroup,
+    string? PolicyNo, string? ApplicationNo,
+    DateTime? PaidDateFrom, DateTime? PaidDateTo,
+    int PageNo, int PageSize, string CountMode);
+
+public sealed record SpPaginationMetadata(
+    long? TotalRows, long? TotalPages, int PageNo, int PageSize,
+    bool HasNextPage, bool HasPreviousPage, string CountMode, int SearchWindowMonths);
+
+public sealed record SpDocumentItem(
+    string? InsuranceType, string? SourceSystem, string? DocumentType, string? DocumentNo,
+    string? PolicyYear, string? ReferenceBranch, string? ReferencePre, string? PolicySequenceNo,
+    string? ReferenceYear, string? ReferenceNo, string? PolicyBranch, string? PolicyType,
+    string? SaleCode, string? SaleFullName, string? BrokerCode, string? BrokerName,
+    string? PolicyNumber, string? ApplicationNumber, string? PreviousPolicyNumber,
+    string? EndorsementNumber, DateTime? StartDate, DateTime? EndDate, string? ShowName,
+    decimal? NetPremium, decimal? Stamp, decimal? TaxVat, decimal? TotalPremium,
+    decimal? CommissionPercent, decimal? CommissionAmount, DateTime? PaidDate,
+    string? LicensePlateNumber, string? PaymentStatus);
+
+public sealed record SpDocumentSearchResult(SpPaginationMetadata Page, IReadOnlyList<SpDocumentItem> Items);
+
+public sealed class SpDocumentSearchRejectedException : ArgumentException
+{
+    public SpDocumentSearchRejectedException(int spErrorNumber, string message) : base(message) =>
+        SpErrorNumber = spErrorNumber;
+
+    public int SpErrorNumber { get; }
+}
+
+// namespace BuildingBlocks.Application
+public sealed class UpstreamUnavailableException : Exception
+{
+    public UpstreamUnavailableException(string message) : base(message) { }
+    public UpstreamUnavailableException(string message, Exception innerException) : base(message, innerException) { }
+}
+```
+
+ลำดับ 32 field ของ `SpDocumentItem` คัดลอกจาก `ExpectedItemColumns` ใน `SpDocumentContractTests` (ลำดับจริงของ RS2)
+— positional record จึงเรียง reader ตามลำดับนี้ได้ตรง ๆ แต่ REQ-5.3 ยังสั่งให้ใช้ `GetOrdinal` ตามชื่อ ห้ามใช้ index ดิบ
+
+### สิ่งที่ task 4 / 5 / 6 ต้อง import
+
+- task 4 (`SpDocumentItemMapper` ใน `Products.Application/Ports/`): `SpDocumentItem` อยู่ namespace เดียวกันแล้ว
+  ไม่ต้อง using เพิ่ม; ฝั่ง `Products.Domain` (`ProductInput`) ต้อง `using Products.Domain;`
+- task 5 (`Products.Infrastructure/Sp/SpDocumentGateway.cs`): `using Products.Application.Ports;` +
+  `using BuildingBlocks.Application;` (สำหรับ `UpstreamUnavailableException`) — csproj ของ `Products.Infrastructure`
+  reference ทั้งสองอยู่แล้ว ไม่ต้องเพิ่ม ProjectReference
+- task 6 (`ListProducts.cs`): `using Products.Application.Ports;` — `ListProducts.cs` อยู่ namespace
+  `Products.Application` (ไม่ใช่ `.Ports`) จึงต้อง using จริง
+
+### ข้อควรระวัง
+
+- **task 6 / REQ-10.5**: `tests/Hosts.Tests/ProblemDetailsExceptionHandlerTests.cs` มี
+  `using Products.Application.Ports;` แล้ว (จำเป็น — ตัวพิสูจน์ว่า `SpDocumentSearchRejectedException` ได้ 400 จริง
+  ผ่าน handler ต้องอยู่ที่เดียวกับ handler) ดังนั้น insulation guard ต้องสแกน **production assembly เท่านั้น**
+  (Api / Contracts / โมดูลอื่น) ห้ามสแกน assembly ของ test ไม่งั้น guard แดงทันทีที่เขียนเสร็จ
+- **ห้ามเพิ่ม arm ให้ `SpDocumentSearchRejectedException` ใน `Map()`** — มันได้ 400 จาก bucket `ArgumentException`
+  ที่มีอยู่ (arm อื่นที่อยู่ก่อนหน้าไม่มีตัวไหนอยู่บน chain การสืบทอดของมัน) และห้ามแทรก arm ใหม่ก่อนบรรทัด
+  `ArgumentException` ที่จะกลืนมันไปโดยไม่ตั้งใจ
+- **`Map()` ไม่ echo `exception.Message` ทุก arm** (fixed detail) — `SpErrorNumber` กับข้อความที่เราเขียน
+  มีไว้ให้ log/test เท่านั้น ห้ามออกแบบให้ client อ่านเลขจาก body
+- handler log ให้อัตโนมัติ: `status >= 500` -> `LogError`, ต่ำกว่า -> `LogWarning` ดังนั้น 503 ถูก log กลางอยู่แล้ว
+  แต่ REQ-5.6 ยังสั่งให้ adapter log รายละเอียด `SqlException` เอง — ใช้ ctor 2 พารามิเตอร์ (ใส่ inner) จะได้เห็น
+  SQL error เต็มใน log กลางด้วยโดยไม่รั่วออก response
+- `PaymentStatus` / `DocumentType` / `ProductGroup` / `CountMode` บน request เป็น **string ของ wire ไม่ใช่ enum**
+  เพราะ `ALL` ไม่ใช่สมาชิกของ enum ฝั่ง Domain (และห้ามทำให้เป็น — ล็อกโดย spec `checkout-chain-document-fields`)
+  — handler เป็นคนแปลง `ProductFilterDto` -> string เหล่านี้
+- `Target` เป็น `Products.Domain.InsuranceType` (ไม่ใช่ string) — เป็น routing key ฝั่งเรา ไม่ใช่พารามิเตอร์ของ SP
+  ห้ามส่งเข้า `SqlCommand`; `@BranchCode` มาจาก options ที่ adapter เท่านั้น (B2)
+- Architecture.Tests เต็มชุดรัน **~3 วินาที** (225 tests) ไม่ใช่หลักนาที — ไม่ต้องกลัวรัน; ที่ช้าคือ build แรก
