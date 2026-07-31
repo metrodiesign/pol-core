@@ -300,13 +300,22 @@ contract ของ §2 ตรง ๆ (`page`/`limit` + `productFilters` typed DT
 แล้ว throw `ArgumentException` (map เป็น 400) ถ้า JSON เพี้ยนหรือ validation ไม่ผ่าน แทนที่จะ silent-drop
 filter นั้นทิ้งเงียบๆ; `productFilters` เป็น **required** และ `saleCode` ข้างในบังคับ (SP error 50005)
 ผลลัพธ์ไป `ProductListItem` = 32 field ของ §5.2 + `Id` (`ProductView`/`GetProductsQuery` ถูกลบทั้งคู่)
+ห่อด้วย envelope `ProductPage` ตาม §5.1 (`products-sp-gateway` — ไม่ใช่ `PagedResult` แบบ endpoint อื่น)
 
-**Infrastructure**: `ProductsModuleRegistration.cs` -> `=> services` เปล่า แต่เปล่าด้วยเหตุผลที่ต่างจากโมดูล
-reference-data ทั่วไป — comment บอกตรงๆ ว่า `IProductRepository` ตัวจริงย้ายไปอยู่ที่
-`Persistence.MerchantRuntime` (`AddMerchantRuntimePersistence`, task 8.5.3) ไม่ใช่ที่นี่เลย สิ่งเดียวที่
-project นี้มีคือ `ProductConfiguration` (EF mapping ของ `Product` — **ไม่มี** `Money` complex type แล้ว:
+`ListProductsQuery` **ไม่อ่าน `shop.Products` แล้ว** (`products-sp-gateway`): handler resolve ว่าจะยิง SP
+ฝั่งไหนจาก `insuranceType`/`productGroup` -> `ISpDocumentGateway.SearchAsync` -> `SpDocumentItemMapper`
+(ข้ามแถวเสีย + log) -> `IProductRepository.UpsertByDocumentNoAsync` -> คัดลอก metadata ของ SP ใส่ envelope;
+`ListAsync` ถูกลบออกจาก port ไปแล้ว. `Products.Application` จึงมี `Ports/` ชุดใหม่ (`ISpDocumentGateway`
++ `SpDocument*` DTO ของ wire) ที่ **ห้ามรั่วออกนอกโมดูล** — `ProductPage`/`ProductListItem` ต้องไม่มี type
+เหล่านี้ใน signature (guard `SpInsulationTests`)
+
+**Infrastructure**: `ProductsModuleRegistration.cs` ลงทะเบียนแค่ตัวเดียวคือ
+`AddSingleton<ISpDocumentGateway, SpDocumentGateway>()` — comment บอกตรงๆ ว่า `IProductRepository` ตัวจริง
+ย้ายไปอยู่ที่ `Persistence.MerchantRuntime` (`AddMerchantRuntimePersistence`, task 8.5.3) ไม่ใช่ที่นี่
+สิ่งที่ project นี้มีคือ `ProductConfiguration` (EF mapping ของ `Product` — **ไม่มี** `Money` complex type แล้ว:
 ค่าเบี้ยทุกตัวเป็น `decimal(19,2)` scalar ตาม §5.2 และ currency ถูก mint เป็น THB ที่ cart boundary
-จุดเดียว) ที่ host discover ผ่าน `HostModuleAssemblies.All` ตอน model-build
+จุดเดียว) ที่ host discover ผ่าน `HostModuleAssemblies.All` ตอน model-build กับ `Sp/` (adapter ADO.NET
+ที่ยิง SP ต้นทาง + `SpDocumentOptions`) ซึ่งเป็นที่เดียวในโมดูลที่เปิด `SqlConnection` เอง
 
 **จุดสังเกต**: คนใหม่ grep หา implementation ของ `IProductRepository` ใน `Products.Infrastructure` จะไม่เจอ —
 ต้องรู้ว่ามันย้ายออกไปอยู่ `Persistence.MerchantRuntime` ทั้งก้อนแล้ว (ต่างจาก pattern ทั่วไปที่ Infrastructure
@@ -781,24 +790,26 @@ api.MapGet("/products", async (HttpContext http, IMediator mediator, Cancellatio
 แคตตาล็อก; `paymentStatus` แปลด้วยการเทียบชื่อ ไม่ใช่ `Enum.TryParse` (ซึ่งรับ `"0"`/`"1"` ด้วย) และค่าที่ไม่ส่งมา
 default เป็น `UNPAID`
 
-**4. Persistence** (`Persistence.MerchantRuntime/Products/ProductRepository.cs`) — `SaleCode` เป็นแกนขอบเขตเดียว
-แล้วบังคับ search window ทับเสมอ ไม่ว่า client จะกรองอะไรมา:
+**4. Modules -> Infrastructure -> Persistence** (`products-sp-gateway`) — handler **ไม่ query แคตตาล็อกแล้ว**:
+มันเลือกฝั่ง SP จาก `insuranceType`/`productGroup` แล้วยิงออกไปที่ระบบต้นทาง จากนั้นค่อยเขียนผลกลับเข้า
+`shop.Products`:
 ```csharp
-IQueryable<Product> src = _db.Set<Product>().AsNoTracking()
-    .Where(p => p.SaleCode == pf.SaleCode);
-
-var today = _clock.UtcNow.Date;
-src = src.Where(p =>
-    (p.DocumentType == DocumentType.RENEWAL
-        && p.EndDate >= today && p.EndDate < today.AddMonths(RenewalWindowMonths))
-    || (p.DocumentType != DocumentType.RENEWAL
-        && p.StartDate >= today.AddMonths(-SearchWindowMonths)));
+var (target, productGroup) = ResolveTarget(filters);            // Motor | NonMotor, ขัดแย้ง/ว่างทั้งคู่ -> 400
+var result = await gateway.SearchAsync(new SpDocumentSearchRequest(...), ct);
+var mapped = SpDocumentItemMapper.Map(result.Items);            // แถวเสีย -> Input == null + SkipReason
+var saved = await products.UpsertByDocumentNoAsync(inputs, ct); // key = DocumentNo
 ```
-`_clock` เป็น `IClock` ไม่ใช่ `DateTime.UtcNow` — ทดสอบ window ได้โดยไม่ต้องรอเวลาจริง
+`ISpDocumentGateway` ตัวจริงคือ `Products.Infrastructure/Sp/SpDocumentGateway.cs` (ADO.NET เรียก stored
+procedure ตรง — ที่เดียวในระบบที่ production infrastructure เปิด `SqlConnection` เองโดยได้รับการยกเว้นจาก
+guard `RawConnectionTests`) และ `UpsertByDocumentNoAsync` อยู่ `Persistence.MerchantRuntime/Products/
+ProductRepository.cs` (Create/RefreshFromExternal + retry หนึ่งครั้งเมื่อชน unique index จาก race).
+search window / order / การนับ **ย้ายไปอยู่ใน SP ทั้งหมด** — `ProductRepository` จึงไม่มี `IClock`
+และไม่มี window constant อีกแล้ว
 
-**5. SharedKernel** — ผลลัพธ์ห่อด้วย `PagedResult<ProductListItem>` และ `ProductListItem` เป็น mirror ของ §5.2
-ครบ 32 field; เบี้ยเป็น `decimal` เปล่า ไม่ใช่ `Money` (Product เป็น entity เดียวที่ไม่ถือ `Money` — currency
-ถูก mint ที่ cart add-item แทน)
+**5. SharedKernel** — ผลลัพธ์ห่อด้วย `ProductPage` (envelope §5.1 คัดลอกจาก result set แรกของ SP ตรง ๆ)
+ไม่ใช่ `PagedResult` และ `ProductListItem` เป็น mirror ของ §5.2 ครบ 32 field + `Id` ของแถว local; เบี้ยเป็น
+`decimal` เปล่า ไม่ใช่ `Money` (Product เป็น entity เดียวที่ไม่ถือ `Money` — currency ถูก mint ที่
+cart add-item แทน). ถ้าระบบต้นทางล่ม endpoint ตอบ **503** ไม่ใช่ 500
 
 ### B2. flow ข้ามโมดูลผ่าน event — checkout confirm เปิด order เอง
 

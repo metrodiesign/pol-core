@@ -470,3 +470,31 @@ spec-architect adversarial critique รอบ 1 (2026-07-31) — 2 BLOCKER + 12 
 - M8 cancellation passthrough + contract drift -> 503
 - M10-M12 ชะตากรรม 3 ไฟล์ test เดิม (`git rm` trap), guard ย้ายไป Hosts.Tests fail-closed, sqlcmd `-b` + assertion ใน migrate-entrypoint.test.sh
 - MINOR-1/2/3/4/8/9/10/11/12 ตามที่ปรากฏใน body (นับ criteria 73, handler อยู่ BuildingBlocks.Web, pin exact, `IntegrationDb.ForCatalog`, previousPolicyNumber casing, ใบเตือน open question, REQ-2.11 ใน body, dedupe, SfsOpenApi)
+
+### As-built deviations (สรุปจาก task 1-6, บันทึกตอนปิดงาน task 7)
+
+รายละเอียดเต็มของแต่ละข้ออยู่ใน `HANDOFF.md` section ของ task นั้น ๆ และใน `Evidence:` ของ `tasks.md` —
+ที่นี่เก็บเฉพาะข้อที่ **ทำต่างจากถ้อยคำใน design นี้** เพื่อให้คนอ่าน design ภายหลังไม่หลงทาง
+
+- **SQL (task 1)** — snippet ใน design เขียนได้ไม่ตรง T-SQL จริง 3 จุด: `CREATE DATABASE` ต้องห่อ `EXEC()`
+  (statement เดียวต่อ batch), `TOP (@PageSize + 1)` + `OFFSET` ใช้ร่วมกันไม่ได้ (ของจริงใช้
+  `OFFSET ... FETCH NEXT (@PageSize + 1) ROWS ONLY`), และเพิ่ม temp table `#match` ก่อน `#page` เพื่อให้
+  predicate อยู่ที่เดียวแทนการเขียนซ้ำ 4 ชุด; นอกจากนั้น database ใช้ `COLLATE Thai_CI_AS` (เลขเอกสารมี
+  อักษรไทยใน `varchar` ตาม §5.2) และขอบบน coverage เทียบ `< DATEADD(day, 1, @To)` เพื่อให้ inclusive จริง
+  เมื่อพารามิเตอร์เป็น `date` แต่คอลัมน์เป็น `datetime2(0)`
+- **Mapper (task 4)** — `MappedSpDocument` พก `SkipReason` เพิ่มจาก shape `(item, ProductInput?)` ใน design
+  (handler ต้อง log ได้ว่าข้ามเพราะอะไร) และ `PaymentStatus`/`PaidDate` บน `ProductInput` อยู่ในกลุ่ม
+  พารามิเตอร์บังคับ ไม่ใช่ท้าย record ที่มี default — default `UNPAID` คือช่องเงียบเดียวกับที่ B1 เกิด
+- **Adapter (task 5)** — `RawConnectionTests` ต้องยกเว้น `SpDocumentGateway` ด้วย **ชื่อ type เดียว**
+  (REQ-5.1 สั่ง ADO.NET ตรง ส่วน guard เดิมห้าม production infrastructure แตะ `SqlConnection` เลย);
+  `Integration.Tests` เพิ่ม `ProjectReference` ไป `Products.Infrastructure` (task 5) และ
+  `Persistence.MerchantRuntime` + `InternalsVisibleTo` (task 6) เพื่อขับ type ตัวจริง — ทำให้ insulation
+  guard ของ REQ-10.5 **ต้องสแกน production assembly เท่านั้น**
+- **Handler (task 6)** — routing validation (ขัดแย้ง / ว่างทั้งคู่) อยู่ที่ `ResolveTarget` ใน handler
+  ไม่ใช่ `ProductFilterDto.Parse` ⇒ เคสเหล่านั้นถูกทดสอบใน `ListProductsHandlerTests` ไม่ใช่
+  `ProductFilterDtoTests` ตามที่ตาราง Testing Strategy วางไว้; `Products.Application` ได้
+  `Microsoft.Extensions.Logging.Abstractions` เป็น package ใหม่ (ไม่มี Application project ไหนเข้าถึง
+  `ILogger` ได้มาก่อน แต่ REQ-7.6/7.7 สั่งให้ handler log)
+- **ชะตากรรม test เดิม (task 6)** — `InsuranceCheckoutEndToEndTests` เปลี่ยนความหมายของ assert ท้ายเส้น
+  จาก "เอกสาร PAID หลุดจากลิสต์ UNPAID" (ตัวกรองย้ายไป SP แล้ว โค้ดเราไม่ได้ทำอีก) เป็น
+  "upstream บอก UNPAID แล้ว local PAID ต้องไม่ถูก downgrade" (REQ-7.4)

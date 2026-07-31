@@ -364,11 +364,19 @@ post-deploy ไม่ใช่โค้ด.
 ```
 HTTP + merchant-user session cookie
   -> auth: .RequireAuthorization("merchant-user") -> ไม่มี session = 401 ก่อนแตะ DB
-  -> [MerchantRuntimeDbContext]
-  -> query Products, บังคับ productFilters JSON param ที่ต้องมี SaleCode
+  -> [SpDocumentGateway] connection แยกไปที่ hippodb/mammothdb (ADO.NET, login pol_app มีแค่ EXECUTE)
+  -> EXEC usp_{Motor|NonMotor}_SearchDocument @SaleCode=... @BranchCode=<จาก options ฝั่ง server>
+  -> [MerchantRuntimeDbContext] upsert ผลลัพธ์เข้า shop.Products ตาม DocumentNo แล้วคืน Guid ของแถว local
   -> ไม่มี query filter ที่ DB/EF ระดับ entity -> "เห็นแถวไหน" ตัดสินที่ query criteria (SaleCode) ที่ caller
      ส่งมา ไม่ใช่ isolation floor (ต่างจากทุก entity อื่นในหัวข้อ 9)
 ```
+
+> **หลัง `products-sp-gateway`**: การอ่านไม่ได้เกิดบน `shop.Products` อีกแล้ว — เส้นทางค้นคือ SP ของระบบ
+> ต้นทาง (วันนี้จำลองด้วย `hippodb`/`mammothdb` ใน container เดียวกัน) แล้วเขียนผลกลับเข้าแคตตาล็อก
+> ⇒ `GET /products` กลายเป็น endpoint **อ่านแล้วเขียน** ทั้งที่เป็น GET (ตั้งใจ: cart/checkout ต้องอ้าง
+> `Guid` ของแถว local ต่อ). connection ของ SP มาจาก section `SpDocument` ไม่ใช่ `ConnectionStrings:App`
+> (ถ้าเว้นว่างจะ derive จาก `App` โดยเปลี่ยนแค่ `InitialCatalog`) และเป็นข้อยกเว้นที่ระบุชื่อไว้ใน
+> `RawConnectionTests` — database ปลายทางไม่มีแถวผูก merchant ให้ floor ปกป้องตั้งแต่แรก
 
 แยกสองเรื่องนี้ให้ขาด: endpoint นี้ยัง**บังคับ session ของ merchant-user เหมือนทุก endpoint ในหัวข้อ 9**
 (`Program.cs`, `.RequireAuthorization("merchant-user")`) — ที่หายไปคือ **row filtering ต่อ merchant**
