@@ -119,3 +119,65 @@
 - `@PaymentStatus='unpaid'` -> `50007` (BIN2 = case-sensitive) · `@ProductGroup='CMI'` บน Non-Motor -> `50002`
 - multi-invalid (`@BranchCode='  '` + `@CountMode='X'`) -> `50004` ตาม fixed order
 - ทุก error เป็น `THROW 5000x, N'<msg>', 1` severity 16 -> `SqlException.Number` ตรงเลข
+
+## Task 2 (sp-task2, 2026-07-31)
+
+### สิ่งที่ทำ
+
+- `tests/Integration.Tests/IntegrationDb.cs` — `For(user, pwEnv, catalog = null)` รับ catalog เพิ่ม +
+  `ForCatalog(string)` คืน connection ของ `pol_app` ที่ชี้ catalog อื่นบน instance เดียวกัน (ของเดิม
+  hardcode `Database={POL_DB}`); ไม่แตะ `AppConn`/`SaConn` เดิม
+- ใหม่: `tests/Integration.Tests/SpDocumentContractTests.cs` — 24 test method / **44 test case**
+  (20 `[Theory]` รันทั้ง Motor/NonMotor + 4 `[Fact]` เฉพาะฝั่ง) ครอบทุกช่องในตาราง Testing Strategy
+  แถว "SP contract"
+- ผลรัน: `source .env.integration && dotnet test tests/Integration.Tests/Integration.Tests.csproj
+  --filter Category=Integration` -> `Passed!  - Failed: 0, Passed: 91, Skipped: 0, Total: 91`
+  (ของเดิม 47 + ใหม่ 44); `dotnet build ... -warnaserror` -> 0 error 0 warning
+
+### ไม่พบ bug ใน SP — ไม่มีการแก้ `02-external-sim.sql`
+
+ทุก assertion ที่เขียนตาม design/requirements ผ่านตั้งแต่รอบแรก จึงไม่มี deviation ฝั่ง SQL
+เพื่อกันการ "เขียวลอย ๆ" ทดสอบความไวด้วยการ mutate ค่าคาดหวังชั่วคราว 2 จุด
+(`TotalRows: 28 -> 29`, `RenewalKeptSeq: 950004 -> 950005`) -> `Failed: 8, Passed: 36`
+แล้ว revert กลับและรันซ้ำเขียว 91/91
+
+จุดเดียวที่ไม่ได้ทำตามถ้อยคำใน task: ใช้ `@InsuredName` ไม่ใช่ `@SearchText` เป็นตัวพิสูจน์ LIKE escape
+เพราะ §3/§4 ไม่ได้ให้ `@SearchText` ค้น `ShowName` (`@SearchText='100%'` จึงคืน 0 แถวเสมอ ไม่ใช่หลักฐาน) —
+ตรงกับที่ task 1 ยิงมือไว้ใน HANDOFF เดิม และเสริม `%` / `_` เดี่ยว ๆ ซึ่งเด็ดขาดกว่า `100%`
+(ถ้าไม่ escape `%` จะได้ทั้งหน้า 25 แถว แทนที่จะได้แถวเดียว ส่วน `100%` เผอิญให้ผลเท่ากันทั้งสองแบบ)
+
+### สิ่งที่ task 3-5 ต้องรู้
+
+**helper ที่มีให้ใช้แล้ว** — `IntegrationDb.ForCatalog("hippodb" | "mammothdb")` (login `pol_app`,
+พิสูจน์ GRANT ไปในตัว); `SpDocumentGatewayIntegrationTests` ของ task 5 ใช้ตัวนี้สร้าง connection string
+ที่ยัดใส่ `SpDocumentOptions.MotorConnectionString`/`NonMotorConnectionString` ได้ตรง ๆ
+
+**สัญญาที่ pin ไว้แล้ว (adapter เชื่อได้ ไม่ต้อง defensive เกิน)**
+
+- RS1 มี **หนึ่งแถวเสมอ** และมาก่อน RS2 เสมอ, ไม่มี RS ที่สาม — `NextResultAsync()` ครั้งที่สองคืน false
+  (helper ใน contract test assert ทั้งสามข้อนี้ทุกครั้งที่เรียก SP)
+- ชื่อ + ลำดับคอลัมน์ RS1 8 ตัว / RS2 32 ตัว ถูก assert แบบ ordered sequence — ลำดับใน `ExpectedItemColumns`
+  ของไฟล์ test คือลำดับจริงที่ SP คืน (`InsuranceType` มาก่อน `SourceSystem`, `PaymentStatus` ปิดท้าย)
+- ชนิดที่ ADO.NET คืน: `TotalRows`/`TotalPages` = `long` (bigint, เป็น `DBNull` เมื่อ FAST),
+  `PageNo`/`PageSize`/`SearchWindowMonths` = `int`, `HasNextPage`/`HasPreviousPage` = `bool` (bit),
+  `CountMode` = `string`; ฝั่ง RS2 `StartDate`/`EndDate`/`PaidDate` = `DateTime` (datetime2(0) ไม่มี offset —
+  naive ตามที่ design ระบุ), เงิน = `decimal`
+- `SqlException.Number` ของ THROW ตรงเลข 50001-50009 (ยืนยันครบทั้ง 9 ตัวทั้งสองฝั่ง) — mapping
+  `SqlException.Number in 50001..50009 -> SpDocumentSearchRejectedException` (REQ-5.5) ปลอดภัย
+- `@BranchCode` เป็น validate-only จริง (ค่า `'999'` ที่ไม่ตรงแถวไหนเลยยังคืนครบ 28/27 แถว) — options
+  `BranchCode` default `"000"` จึงไม่ทำให้ผลหาย แต่ **ค่าว่าง/ช่องว่างล้วนจะได้ 50004** ระวังตอน
+  `PostConfigure` อย่าปล่อยให้ค่าเป็น `""`
+
+**กับดักเวลาเขียน test ต่อ**
+
+- **ห้าม assert ว่าเรียงตามเลขลำดับ** — `ORDER BY DocumentNo` ตัดสินด้วยอักษรไทยที่คั่นกลางก่อน
+  (`กธ` < `ตอ` < `ปช` · `บต` < `อค`) หน้า 2 ของ Motor คือ `950120`, `950004`, `950014` ตามลำดับนั้น;
+  ใน contract test ทุก assertion เป็น **set** ยกเว้น test เดียวที่ตั้งใจ pin ลำดับนี้ไว้
+- แถวถูกอ้างด้วย "เลขลำดับท้าย DocumentNo" ผ่าน helper `Seqs()` (`.../กธ/950001-10` -> `950001`) —
+  `950008` ไม่มี suffix `-10` ต่างจากแถวอื่น helper รองรับแล้ว
+- `pol_app` **ไม่มีสิทธิ์ SELECT** บน `hippodb.dbo.Documents` / `mammothdb.dbo.Documents` (มีแต่ EXECUTE +
+  ownership chaining) — test ที่อยากเช็คข้อมูลดิบต้องใช้ `sa` หรือพิสูจน์ผ่าน SP เท่านั้น
+- `Microsoft.Data.SqlClient` มาแบบ transitive ใน `Integration.Tests` อยู่แล้ว (ผ่าน
+  `BuildingBlocks.Infrastructure`) — ไม่ต้องเพิ่ม PackageReference ในโปรเจกต์ test; ส่วน pin exact
+  ที่ REQ-5.9 สั่งเป็นงานของ task 5 ใน `Directory.Packages.props` + csproj ของ `Products.Infrastructure`
+- `CommandType` ต้อง `using System.Data;` (ImplicitUsings ของ test project ไม่ได้ใส่มาให้)
