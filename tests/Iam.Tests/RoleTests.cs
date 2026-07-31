@@ -32,10 +32,10 @@ public sealed class RoleTests
     [Fact]
     public void Create_rejects_a_permission_key_from_the_wrong_side()
     {
-        // product.create is a Merchant-side key; granting it to a Platform-scope role is structurally impossible
+        // payment.create is a Merchant-side key; granting it to a Platform-scope role is structurally impossible
         // (REQ-6.6) rather than merely undocumented.
         Assert.Throws<ArgumentException>(() =>
-            Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Platform, null, ["product.create"], Catalog));
+            Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Platform, null, ["payment.create"], Catalog));
         Assert.Throws<ArgumentException>(() =>
             Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Merchant, MerchantId, ["txn.view"], Catalog));
     }
@@ -81,7 +81,7 @@ public sealed class RoleTests
         Assert.Equal(new HashSet<string> { "merchant.view", "user.view" }, role.PermissionKeys.ToHashSet());
 
         Assert.Throws<ArgumentException>(() => role.SetPermissions(["not.a.key"], Catalog));
-        Assert.Throws<ArgumentException>(() => role.SetPermissions(["product.create"], Catalog)); // Merchant-side key
+        Assert.Throws<ArgumentException>(() => role.SetPermissions(["payment.create"], Catalog)); // Merchant-side key
     }
 
     [Theory]

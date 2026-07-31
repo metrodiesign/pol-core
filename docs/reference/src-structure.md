@@ -354,7 +354,7 @@ webhook = source of truth. Application แยกโฟลเดอร์ต่�
 
 | ไฟล์ | บทบาท |
 |------|-------|
-| `Domain/Permissions/{Keys,Permission,PermissionGroup}.cs` | **central catalog** `iam.*` — `Keys` เป็น const ของ permission key ทุกตัว (`product.create`, `payment.redirect`, ...) |
+| `Domain/Permissions/{Keys,Permission,PermissionGroup}.cs` | **central catalog** `iam.*` — `Keys` เป็น const ของ permission key ทุกตัว (`payment.create`, `payment.redirect`, ...) |
 | `Domain/Roles/{Role,RolePermission,RoleStatus,RoleVisibility}.cs` | role + mapping; `RoleVisibility` แยกว่า role นี้ของ plane ไหน |
 | `Application/Roles/{CreateRole,UpdateRole,DeleteRole,RoleQueries,RolePorts,RoleSideContext,IRoleAssignmentCounter,IRoleAuditSink}.cs` | CRUD role + query (SFS) — **unified**: Admin console กับ Merchant console ใช้ command/type ชุดเดียวกัน แยกด้วย `RoleSideContext` |
 | `Application/Permissions/PermissionCatalog.cs` | อ่าน catalog (scope `Platform`/`Merchant`) |
