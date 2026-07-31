@@ -46,6 +46,7 @@ using Merchants.Infrastructure;
 using Products.Application;
 using Products.Domain;
 using Products.Infrastructure;
+using Products.Infrastructure.Sp;
 // Scalar.AspNetCore also has a DocumentType — the wire enum below is the domain's.
 using DocumentType = Products.Domain.DocumentType;
 using Merchants.Application.GetMerchant;
@@ -130,6 +131,22 @@ builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 // Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).
 builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptions.SectionName));
+
+// Document-search upstream. Unless a deployment names its own connection strings, both default to the app
+// connection re-pointed at the simulated catalogues that live beside the app database on the same instance
+// — so no environment gains a variable for them (REQ-3.4) and every host still boots when the simulated
+// databases are absent (nothing connects until a search request arrives). Pointing at the real
+// motordb/centerdb on cutover day is an override of these two values, not a code change.
+builder.Services.Configure<SpDocumentOptions>(builder.Configuration.GetSection(SpDocumentOptions.SectionName));
+builder.Services.PostConfigure<SpDocumentOptions>(spDocument =>
+{
+    if (string.IsNullOrWhiteSpace(spDocument.MotorConnectionString))
+        spDocument.MotorConnectionString =
+            new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "hippodb" }.ConnectionString;
+    if (string.IsNullOrWhiteSpace(spDocument.NonMotorConnectionString))
+        spDocument.NonMotorConnectionString =
+            new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "mammothdb" }.ConnectionString;
+});
 
 builder.Services.AddProductsModule();
 builder.Services.AddCartModule();

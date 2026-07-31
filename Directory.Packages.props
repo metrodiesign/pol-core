@@ -14,6 +14,10 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8" />
     <!-- In-memory Sqlite for ProducerDbContext model/integration tests -->
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <!-- Direct ADO.NET for the VCentralPay document-search procedures (two result sets from databases
+         outside every DbContext model). Exact patch = the version EF SqlServer 10.0.8 already resolves
+         transitively, so the direct reference never splits the graph. -->
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="6.1.1" />
     <!-- ASP.NET Core auth (Google SSO via OIDC/JWT) -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
     <!-- Admin BFF: server-side OIDC Authorization Code flow (confidential client) -->
