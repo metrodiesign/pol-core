@@ -524,7 +524,7 @@ redirect URL ลง span attribute
 
 ### 3.2 โมดูล Admin RBAC
 
-> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** permission/role catalog ฝั่ง admin (เดิม `admin.*` 16 keys / 6 groups, entities `AdminRole*`/`AdminPermission*`) ถูกยุบเข้า **catalog กลางเดียว module `Iam` schema `iam`** ร่วมกับฝั่ง merchant-user — vocabulary รวม **24 keys / 10 groups** (rf2 ตั้งต้น 20/8 + `merchants.policies`/`policies` อีก 4 keys / 2 groups จาก `policy-reference-record`), seed 4 roles (platform: `platform_admin`/`platform_auditor`; merchant: `merchant_manager`/`merchant_staff`). Admin console เห็นเฉพาะ Platform-scope keys (15 keys / 6 groups: `txn`/`merchant`/`user`/`system`/`merchants.users`/`merchants.policies`). recovery anchor เปลี่ยน `super_admin` → `platform_admin` (ปิด/ลบไม่ได้). `RequirePermission` + boot parity guard เหลือกลไกเดียว side-aware (`Api.Iam`). ตัวเลข/ชื่อ entity ในส่วนด้านล่าง (16/6, `AdminRole*`, `super_admin`) เป็นสถานะก่อน rf2 — ดู `.ai/specs/rf2-iam-rbac/`.
+> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** permission/role catalog ฝั่ง admin (เดิม `admin.*` 16 keys / 6 groups, entities `AdminRole*`/`AdminPermission*`) ถูกยุบเข้า **catalog กลางเดียว module `Iam` schema `iam`** ร่วมกับฝั่ง merchant-user — vocabulary รวม **22 keys / 9 groups** (rf2 ตั้งต้น 20/8 + `merchants.policies`/`policies` อีก 4 keys / 2 groups จาก `policy-reference-record` แล้วถอด `product.create`/`product.update` + group `catalog` ออกใน `20260731065539_RetireCatalogPermissions` เมื่อ 2026-07-31 หลัง `POST /products` ถูกถอด), seed 4 roles (platform: `platform_admin`/`platform_auditor`; merchant: `merchant_manager`/`merchant_staff`). Admin console เห็นเฉพาะ Platform-scope keys (15 keys / 6 groups: `txn`/`merchant`/`user`/`system`/`merchants.users`/`merchants.policies`). recovery anchor เปลี่ยน `super_admin` → `platform_admin` (ปิด/ลบไม่ได้). `RequirePermission` + boot parity guard เหลือกลไกเดียว side-aware (`Api.Iam`). ตัวเลข/ชื่อ entity ในส่วนด้านล่าง (16/6, `AdminRole*`, `super_admin`) เป็นสถานะก่อน rf2 — ดู `.ai/specs/rf2-iam-rbac/`.
 
 **บทบาท**
 - permission catalog เป็น reference data ใน DB (16 keys / 6 กลุ่ม: txn, merchant, finance, user, system, producer) — feature ใหม่ seed key ของตัวเองผ่าน migration
@@ -633,7 +633,7 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
-| แคตตาล็อกกลาง `iam` | Merchant-scope 9 keys / 4 กลุ่ม (`catalog`/`payment`/`roles`/`policies`) จาก catalog เดียวที่ share กับ admin — แคตตาล็อกแยกฝั่ง producer เดิม (7 keys / 3 กลุ่ม) ถูกยุบเข้าใน rf2 | มีแล้ว |
+| แคตตาล็อกกลาง `iam` | Merchant-scope 7 keys / 3 กลุ่ม (`payment`/`roles`/`policies` — group `catalog` ถูกถอดเมื่อ 2026-07-31 พร้อม `product.create`/`product.update` ที่ไม่ gate อะไรแล้ว) จาก catalog เดียวที่ share กับ admin — แคตตาล็อกแยกฝั่ง producer เดิม (7 keys / 3 กลุ่ม) ถูกยุบเข้าใน rf2 | มีแล้ว |
 | Role CRUD + assignment | `GET/POST/PUT/DELETE /api/v1/merchants/users/roles[/{code}]`, `PUT /api/v1/merchants/users/{merchantUserId}/roles`; custom role ผูก `iam.Roles.MerchantId` ไม่รั่วข้าม merchant; role status lowercase บน wire | มีแล้ว |
 | Fail-closed + boot parity guard | `RequirePermission(...)` กลไกเดียวร่วมกับ Admin — startup fail ถ้า gate ใช้ key นอกแคตตาล็อก **หรือ** key ผิด side | มีแล้ว |
 | Anchor role | `merchant_manager` (ทุก merchant key) ปิด/ลบไม่ได้; `merchant_staff` เป็น seed role ที่สอง | มีแล้ว |
