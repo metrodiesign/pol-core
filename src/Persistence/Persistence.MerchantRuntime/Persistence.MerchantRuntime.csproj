@@ -41,6 +41,11 @@
     <InternalsVisibleTo Include="Architecture.Tests" />
     <InternalsVisibleTo Include="Persistence.Provisioning" />
     <InternalsVisibleTo Include="Hosts.Tests" />
+    <!-- products-sp-gateway task 6: ProductRepository.UpsertByDocumentNoAsync retries a unique-index race by
+         resetting the change tracker, which only a live SQL Server can actually provoke (SQLite raises a
+         different error and EF maps it differently) — so that path is proven against pol-db, driving the real
+         repository rather than a copy of it. -->
+    <InternalsVisibleTo Include="Integration.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

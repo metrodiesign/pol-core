@@ -10,7 +10,7 @@ namespace Persistence.MerchantRuntime.Orders.Items;
 /// 4.2/4.4) — the ambient <see cref="MerchantRuntimeDbContext"/>; <see cref="PolicyReportSfs.BuildQuery"/> is
 /// confined to <c>{ query.MerchantId }</c> both by the ambient query filter (already active, since
 /// <paramref name="ignoreFilters"/> is false — see call site) AND the explicit confinement set below
-/// (defence-in-depth, mirrors <c>ProductRepository.ListAsync</c>).
+/// (defence-in-depth).
 /// </summary>
 internal sealed class PolicyReportRepository : IPolicyReportRepository
 {

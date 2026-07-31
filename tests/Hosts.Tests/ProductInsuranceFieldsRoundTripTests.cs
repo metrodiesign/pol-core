@@ -2,28 +2,32 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Products;
 using Products.Application;
+using Products.Application.Ports;
 
 namespace Hosts.Tests;
 
 /// <summary>
-/// insurance-pivot task 1 (REQ-1/2): proves the 3 new insurance fields survive create -&gt; list -&gt;
-/// get-by-id through the REAL Application handlers (<see cref="CreateProductHandler"/>,
-/// <see cref="ListProductsHandler"/>, <see cref="GetProductByIdHandler"/>) backed by the REAL
-/// <see cref="ProductRepository"/>/<see cref="MerchantRuntimeUnitOfWork"/> (Persistence.MerchantRuntime,
-/// reached here via the same InternalsVisibleTo grant task 0 added) on SQLite in-memory. These handlers are
-/// exactly what <c>POST /api/v1/products</c>/<c>GET /api/v1/products</c>/<c>GetProductByIdQuery</c> call —
-/// only the HTTP/JSON transport (generic ASP.NET model binding, already proven for <c>Money</c> elsewhere per
-/// design.md) is not re-exercised here.
+/// products-sp-gateway task 6 (REQ-7.1/7.2/7.9): an upstream §5.2 row survives the whole cutover path —
+/// gateway -> <see cref="SpDocumentItemMapper"/> -> <c>Product.Create</c> -> <see cref="ProductRepository"/>'s
+/// upsert -> the answered <see cref="ProductListItem"/> — and is still there field-for-field when read back
+/// by id, the read the cart uses. Every step is the REAL Application handler over the REAL
+/// <see cref="ProductRepository"/>/<see cref="MerchantRuntimeDbContext"/> (reached through the
+/// InternalsVisibleTo grant insurance-pivot task 0 added) on SQLite in-memory; only the two upstream
+/// procedures are stubbed, and those are exercised for real in <c>Integration.Tests</c>.
+/// <para>
+/// This replaces the create -> list round trip this file used to prove: the list no longer reads
+/// <c>shop.Products</c>, so a document reaching the list is now a document the upstream returned.
+/// </para>
 /// </summary>
 public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
 {
     private static readonly Guid MerchantA = Guid.NewGuid();
 
-    /// <summary>Frozen so the repository's 6-month search window (REQ-6.1) cannot drift with the wall clock.</summary>
-    private static readonly DateTime Today = new(2026, 7, 30, 9, 0, 0, DateTimeKind.Utc);
+    private const string DocumentNo = "77001-69900/กธ/950001-10";
 
     private readonly SqliteConnection _connection;
 
@@ -40,48 +44,50 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
             FakeActor.For(MerchantA), AllowAllWriteAuthorizer.Instance, NoOpSecurityTelemetry.Instance);
 
     [Fact]
-    public async Task Created_document_fields_survive_list_and_get_by_id()
+    public async Task Upstream_document_fields_survive_the_list_upsert_and_get_by_id()
     {
-        const decimal totalPremium = 15900m;
-        const decimal netPremium = 14800m;
-        var start = new DateTime(2026, 7, 1);
-        var end = new DateTime(2027, 7, 1);
+        var start = new DateTime(2026, 7, 1, 8, 30, 0);
+        var end = new DateTime(2027, 6, 30, 23, 59, 59);
+
+        // A full §5.2 row, in the column order the procedures return (SpDocumentContractTests pins it).
+        var gateway = new FakeSpDocumentGateway(new SpDocumentItem(
+            "Motor", "VMI", "POLICY", DocumentNo,
+            "69", "900", "pre", "seq-1", "68", "ref-1", "branch-1", "type-1",
+            "77001", "สมชาย ขาย", "BK", "โบรกเกอร์",
+            "00098-68100/037674", "APP-1", "POL-0", "E950001",
+            start, end, "สมชาย ใจดี",
+            14800m, 10m, 1090m, 15900m, 12m, 500m, null,
+            "1กก 1234", "UNPAID"));
 
         Guid productId;
         using (var db = NewContext())
         {
-            var handler = new CreateProductHandler(
-                NewRepository(db),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+            var page = await new ListProductsHandler(
+                    gateway, new ProductRepository(db), NullLogger<ListProductsHandler>.Instance)
+                .Handle(
+                    new ListProductsQuery
+                    {
+                        ProductFilters = new ProductFilterDto { SaleCode = "77001", InsuranceType = Products.Domain.InsuranceType.Motor },
+                        Page = 1,
+                        Limit = 25,
+                    },
+                    CancellationToken.None);
 
-            productId = await handler.Handle(
-                new CreateProductCommand(new Products.Domain.ProductInput(
-                    Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
-                    "00098-69100/กธ/037674-10", "00098", totalPremium,
-                    Products.Domain.PaymentStatus.UNPAID, null,
-                    PolicyYear: "69", PolicyNumber: "00098-68100/037674",
-                    StartDate: start, EndDate: end, ShowName: "สมชาย ใจดี",
-                    LicensePlateNumber: "1กก 1234", NetPremium: netPremium, CommissionPercent: 12m)),
-                CancellationToken.None);
-        }
+            // The §5.1 envelope is the procedure's, copied through untouched (REQ-8.1).
+            Assert.Equal(1, page.TotalRows);
+            Assert.Equal(1, page.TotalPages);
+            Assert.Equal("EXACT", page.CountMode);
+            Assert.Equal(6, page.SearchWindowMonths);
+            Assert.False(page.HasNextPage);
 
-        using (var db = NewContext())
-        {
-            var listed = await new ListProductsHandler(NewRepository(db)).Handle(
-                new ListProductsQuery
-                {
-                    ProductFilters = new ProductFilterDto { SaleCode = "00098" },
-                    Page = 1,
-                    Limit = 10,
-                },
-                CancellationToken.None);
-
-            var item = Assert.Single(listed.Items);
-            Assert.Equal("00098-69100/กธ/037674-10", item.DocumentNo);
+            var item = Assert.Single(page.Items);
+            productId = item.Id;
+            Assert.NotEqual(Guid.Empty, item.Id);
+            Assert.Equal(DocumentNo, item.DocumentNo);
             Assert.Equal(Products.Domain.DocumentType.POLICY, item.DocumentType);
             Assert.Equal(Products.Domain.ProductGroup.VMI, item.ProductGroup);
             Assert.Equal("สมชาย ใจดี", item.ShowName);
-            Assert.Equal(totalPremium, item.TotalPremium);
+            Assert.Equal(15900m, item.TotalPremium);
             Assert.Equal(Products.Domain.PaymentStatus.UNPAID, item.PaymentStatus);
             Assert.Equal(start, item.StartDate);
             Assert.Equal(end, item.EndDate);
@@ -89,28 +95,60 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
 
         using (var db = NewContext())
         {
-            var view = await new GetProductByIdHandler(NewRepository(db))
+            var view = await new GetProductByIdHandler(new ProductRepository(db))
                 .Handle(new GetProductByIdQuery(productId), CancellationToken.None);
 
             Assert.NotNull(view);
-            Assert.Equal("00098-69100/กธ/037674-10", view!.DocumentNo);
+            Assert.Equal(DocumentNo, view!.DocumentNo);
             Assert.Equal("69", view.PolicyYear);
             Assert.Equal("00098-68100/037674", view.PolicyNumber);
             Assert.Equal("1กก 1234", view.LicensePlateNumber);
-            Assert.Equal(totalPremium, view.TotalPremium);
-            Assert.Equal(netPremium, view.NetPremium);
+            Assert.Equal(15900m, view.TotalPremium);
+            Assert.Equal(14800m, view.NetPremium);
             Assert.Equal(12m, view.CommissionPercent);
             Assert.Equal(Products.Domain.InsuranceType.Motor, view.InsuranceType);
         }
     }
 
-    private static ProductRepository NewRepository(MerchantRuntimeDbContext db) =>
-        new(db, new FixedClock(Today));
-
-    private sealed class FixedClock(DateTime utcNow) : IClock
+    // REQ-7.2: the second search of the same document updates the row it already created — one document, one
+    // Guid, so a cart line opened from the first page still points at it after the next refresh.
+    [Fact]
+    public async Task A_second_search_refreshes_the_same_document_instead_of_duplicating_it()
     {
-        public DateTime UtcNow { get; } = utcNow;
+        var gateway = new FakeSpDocumentGateway(Row(15900m));
+        Guid firstId;
+
+        using (var db = NewContext())
+            firstId = Assert.Single((await ListAsync(gateway, db)).Items).Id;
+
+        var refreshed = new FakeSpDocumentGateway(Row(16900m));
+        using (var db = NewContext())
+        {
+            var item = Assert.Single((await ListAsync(refreshed, db)).Items);
+            Assert.Equal(firstId, item.Id);
+            Assert.Equal(16900m, item.TotalPremium);
+        }
+
+        using var verify = NewContext();
+        Assert.Equal(1, await verify.Set<Products.Domain.Product>().CountAsync(p => p.DocumentNo == DocumentNo));
     }
+
+    private static SpDocumentItem Row(decimal totalPremium) => new(
+        "Motor", "VMI", "POLICY", DocumentNo,
+        null, null, null, null, null, null, null, null,
+        "77001", null, null, null, null, null, null, null,
+        null, null, null,
+        null, null, null, totalPremium, null, null, null, null, "UNPAID");
+
+    private static Task<ProductPage> ListAsync(ISpDocumentGateway gateway, MerchantRuntimeDbContext db) =>
+        new ListProductsHandler(gateway, new ProductRepository(db), NullLogger<ListProductsHandler>.Instance)
+            .Handle(
+                new ListProductsQuery
+                {
+                    ProductFilters = new ProductFilterDto { SaleCode = "77001", InsuranceType = Products.Domain.InsuranceType.Motor },
+                },
+                CancellationToken.None)
+            .AsTask();
 
     private sealed class FakeActor(bool hasActor, Guid merchantId = default) : IActorContext
     {

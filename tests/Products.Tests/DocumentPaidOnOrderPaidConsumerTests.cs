@@ -56,7 +56,8 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
             Task.FromResult(_products.FirstOrDefault(p => p.Id == productId));
 
         public void Add(Product product) => throw new NotSupportedException();
-        public Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken cancellationToken) =>
+        public Task<IReadOnlyList<Product>> UpsertByDocumentNoAsync(
+            IReadOnlyList<ProductInput> inputs, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 

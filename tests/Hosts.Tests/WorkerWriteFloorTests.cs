@@ -115,7 +115,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
         using (var db = ApiContext())
         {
             productId = await new CreateProductHandler(
-                    new ProductRepository(db, new FixedClock(DateTime.UtcNow)),
+                    new ProductRepository(db),
                     new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
                 .Handle(new CreateProductCommand(new Products.Domain.ProductInput(
                     ProductGroup.VMI, DocumentType.POLICY,
@@ -126,7 +126,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
         using (var db = NewContext())
         {
             var consumer = new DocumentPaidOnOrderPaidConsumer(
-                new ProductRepository(db, new FixedClock(DateTime.UtcNow)),
+                new ProductRepository(db),
                 new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
             await consumer.Handle(new Contracts.OrderPaid(MerchantA, [productId], DateTime.UtcNow), CancellationToken.None);
         }
@@ -147,11 +147,6 @@ public sealed class WorkerWriteFloorTests : IDisposable
 
         db.Remove(order);
         await Assert.ThrowsAsync<WriteGuardException>(() => db.SaveChangesAsync());
-    }
-
-    private sealed class FixedClock(DateTime utcNow) : IClock
-    {
-        public DateTime UtcNow { get; } = utcNow;
     }
 
     private sealed class FakeActor(bool hasActor, Guid merchantId = default) : IActorContext

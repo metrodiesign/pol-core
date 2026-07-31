@@ -624,12 +624,14 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
 // "merchant-user" policy + its permission unconditionally — the former MerchantUser:EnforcePermissionsOnWrites
 // toggle (a transitional un-gated Bearer state) no longer has a Bearer path to fall back to, so it is deleted.
 
-// GET /products — the central document catalogue, and the ONLY product endpoint: the catalogue is read-only over
-// HTTP because the documents originate in the upstream policy system, not from a merchant filling in a form. The
+// GET /products — the document catalogue, and the ONLY product endpoint: the catalogue is read-only over HTTP
+// because the documents originate in the upstream policy system, not from a merchant filling in a form. The
 // write seam is CreateProductCommand, reachable from an importer/tests but deliberately not mapped to a route.
 // It carries no merchant of its own, so the request is scoped by the mandatory saleCode inside productFilters and
 // gated by the merchant-user policy; the input surface is exactly SP guide §2: paging plus the typed
-// productFilters (REQ-7.1).
+// productFilters (REQ-7.1). The search itself runs against the upstream procedures and each page is mirrored
+// into shop.Products on the way out, so 503 is a real outcome here: the upstream being unreachable is not a
+// 500 of ours (products-sp-gateway REQ-7.1/8.4).
 api.MapGet("/products", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var p = SfsQueryParser.ParsePaging(http.Request.Query);
@@ -645,10 +647,11 @@ api.MapGet("/products", async (HttpContext http, IMediator mediator, Cancellatio
     .WithTags("ผลิตภัณฑ์")
     .WithName("ListProducts")
     .WithSummary("รายการผลิตภัณฑ์")
-    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้าจากแคตตาล็อกกลาง รับ page, limit และ productFilters (บังคับ — ต้องมี saleCode ซึ่งเป็นตัวจำกัดขอบเขตข้อมูล) ตาม §2 ของเอกสาร SP; ไม่รองรับ filters/sort/search")
-    .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
+    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้า ค้นสดจากระบบต้นทางแล้วบันทึกลงแคตตาล็อกกลาง รับ page, limit และ productFilters (บังคับ — ต้องมี saleCode ซึ่งเป็นตัวจำกัดขอบเขตข้อมูล) ตาม §2 ของเอกสาร SP; ต้องระบุ insuranceType (Motor|NonMotor) เมื่อไม่ได้ส่ง productGroup และห้ามขัดแย้งกับ productGroup; countMode (EXACT|FAST ค่าเริ่มต้น EXACT) — FAST ให้ totalRows/totalPages เป็น null; ตอบเป็น envelope §5.1 ที่คัดลอกค่ามาจากระบบต้นทาง; ไม่รองรับ filters/sort/search")
+    .Produces<ProductPage>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Cart — open, add/merge lines, review, adjust, clear. Merchant comes from the principal; the commands are
 // IMerchantScoped so RLS + the merchant guard confine every cart to the bound merchant.

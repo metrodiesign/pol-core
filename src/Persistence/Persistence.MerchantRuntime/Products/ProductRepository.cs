@@ -1,4 +1,4 @@
-using BuildingBlocks.Application;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Products.Application;
 using Products.Domain;
@@ -11,99 +11,74 @@ namespace Persistence.MerchantRuntime.Products;
 /// </summary>
 internal sealed class ProductRepository : IProductRepository
 {
-    // §3/§4 search window: general documents look back SearchWindowMonths on StartDate; RENEWAL looks
-    // forward RenewalWindowMonths on EndDate. Named + in one place so the window can be retuned (or the
-    // RENEWAL direction flipped) in a single line once the SP owner confirms it (REQ-6.4).
-    private const int SearchWindowMonths = 6;
-    private const int RenewalWindowMonths = 2;
-
     private readonly MerchantRuntimeDbContext _db;
-    private readonly IClock _clock;
 
-    public ProductRepository(MerchantRuntimeDbContext db, IClock clock)
-    {
-        _db = db;
-        _clock = clock;
-    }
+    public ProductRepository(MerchantRuntimeDbContext db) => _db = db;
 
     public void Add(Product product) => _db.Set<Product>().Add(product);
 
     public Task<Product?> GetAsync(Guid productId, CancellationToken cancellationToken) =>
         _db.Set<Product>().FirstOrDefaultAsync(p => p.Id == productId, cancellationToken);
 
-    public async Task<PagedResult<ProductListItem>> ListAsync(ListProductsQuery query, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<Product>> UpsertByDocumentNoAsync(
+        IReadOnlyList<ProductInput> inputs, CancellationToken cancellationToken)
     {
-        var pf = query.ProductFilters;
+        ArgumentNullException.ThrowIfNull(inputs);
+        if (inputs.Count == 0) return [];
 
-        // The catalogue is central (no MerchantId column), so SaleCode is the only scoping axis — hence
-        // it is mandatory in §2 and rejected at the boundary when absent (REQ-3.3).
-        IQueryable<Product> src = _db.Set<Product>().AsNoTracking()
-            .Where(p => p.SaleCode == pf.SaleCode);
-
-        // §3 RENEWAL is read as forward-looking: EndDate (= period_to) within [today, today + 2 months) means
-        // "about to expire, ready to renew". The document only says "window 2 เดือนตาม period_to / p_to"
-        // without a direction — flipping it is a one-line change to the clause below (REQ-6.2/6.4).
-        // Accepted side effect: rows with a NULL StartDate/EndDate fall outside the window (SQL `>=` on NULL).
-        var today = _clock.UtcNow.Date;
-        src = src.Where(p =>
-            (p.DocumentType == DocumentType.RENEWAL
-                && p.EndDate >= today && p.EndDate < today.AddMonths(RenewalWindowMonths))
-            || (p.DocumentType != DocumentType.RENEWAL
-                && p.StartDate >= today.AddMonths(-SearchWindowMonths)));
-
-        if (pf.PaymentStatusFilter is { } paymentStatus)   // null = wire ALL = do not filter (REQ-3.1/3.2)
-            src = src.Where(p => p.PaymentStatus == paymentStatus);
-
-        if (pf.SearchText is { } text && !string.IsNullOrWhiteSpace(text))
+        try
         {
-            var pattern = $"%{SfsLike.Escape(text.Trim())}%";
-            // The licence plate joins the predicate only on Motor rows (§3 vs §4). The gate is per-row, not
-            // per-request, so it stays correct when the client sends no productGroup; Product.InsuranceType is
-            // builder.Ignore and cannot be translated, hence the explicit enum comparison (REQ-5.1/5.2).
-            src = src.Where(p =>
-                EF.Functions.Like(p.DocumentNo, pattern, "\\")
-                || (p.PolicyNumber != null && EF.Functions.Like(p.PolicyNumber, pattern, "\\"))
-                || (p.ApplicationNumber != null && EF.Functions.Like(p.ApplicationNumber, pattern, "\\"))
-                || (p.EndorsementNumber != null && EF.Functions.Like(p.EndorsementNumber, pattern, "\\"))
-                || ((p.ProductGroup == ProductGroup.CMI || p.ProductGroup == ProductGroup.VMI)
-                    && p.LicensePlateNumber != null && EF.Functions.Like(p.LicensePlateNumber, pattern, "\\")));
+            return await ApplyAsync(inputs, cancellationToken);
         }
-        if (pf.InsuredName is { } insured && !string.IsNullOrWhiteSpace(insured))
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            var pattern = $"%{SfsLike.Escape(insured.Trim())}%";
-            src = src.Where(p => p.ShowName != null && EF.Functions.Like(p.ShowName, pattern, "\\"));
+            // Another request created one of these documents between our read and our save. Every entity we
+            // staged is now suspect — the Added one is still Added and would collide again — so the tracked
+            // graph goes and the whole page is replayed against what is in the table now.
+            // ponytail: one retry; a page is at most 25 rows and losing the same race twice is not a case
+            // worth designing for. Losing it twice throws, which is the honest answer for a write.
+            _db.ChangeTracker.Clear();
+            return await ApplyAsync(inputs, cancellationToken);
         }
-        if (pf.PolicyNo is { } policyNo) src = src.Where(p => p.PolicyNumber == policyNo);
-        if (pf.ApplicationNo is { } applicationNo) src = src.Where(p => p.ApplicationNumber == applicationNo);
-        if (pf.DocumentType is { } documentType) src = src.Where(p => p.DocumentType == documentType);
-        if (pf.ProductGroup is { } productGroup) src = src.Where(p => p.ProductGroup == productGroup);
-
-        // Coverage bounds are dates (inclusive, SP guide §2) over datetime2(0) columns -> half-open upper.
-        if (pf.CoverageStartFrom is { } csf) { var v = csf.ToDateTime(TimeOnly.MinValue); src = src.Where(p => p.StartDate >= v); }
-        if (pf.CoverageStartTo is { } cst) { var v = cst.AddDays(1).ToDateTime(TimeOnly.MinValue); src = src.Where(p => p.StartDate < v); }
-        if (pf.CoverageEndFrom is { } cef) { var v = cef.ToDateTime(TimeOnly.MinValue); src = src.Where(p => p.EndDate >= v); }
-        if (pf.CoverageEndTo is { } cet) { var v = cet.AddDays(1).ToDateTime(TimeOnly.MinValue); src = src.Where(p => p.EndDate < v); }
-        if (pf.PaidDateFrom is { } pdf) src = src.Where(p => p.PaidDate >= pdf);
-        if (pf.PaidDateTo is { } pdt) src = src.Where(p => p.PaidDate <= pdt);
-
-        long total = await src.LongCountAsync(cancellationToken);   // after filter/search, before paging (REQ-2.5)
-
-        int skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);   // overflow-safe offset (REQ-2.6)
-
-        var items = await src
-            .OrderBy(p => p.DocumentNo)   // globally unique -> stable paging without a tie-breaker (REQ-7.2)
-            .Skip(skip)
-            .Take(query.Limit)
-            .Select(p => new ProductListItem(
-                p.Id, p.ProductGroup, p.DocumentType, p.DocumentNo, p.PolicyYear,
-                p.ReferenceBranch, p.ReferencePre, p.PolicySequenceNo, p.ReferenceYear, p.ReferenceNo,
-                p.PolicyBranch, p.PolicyType, p.SaleCode, p.SaleFullName, p.BrokerCode, p.BrokerName,
-                p.PolicyNumber, p.ApplicationNumber, p.PreviousPolicyNumber, p.EndorsementNumber,
-                p.StartDate, p.EndDate, p.ShowName,
-                p.NetPremium, p.Stamp, p.TaxVat, p.TotalPremium, p.CommissionPercent, p.CommissionAmount,
-                p.PaidDate, p.LicensePlateNumber, p.PaymentStatus))
-            .ToListAsync(cancellationToken);
-
-        return new PagedResult<ProductListItem>(items, query.Page, query.Limit, total);
     }
+
+    /// <summary>One pass of the upsert. A <see cref="Product.RefreshFromExternal"/> that throws part-way
+    /// leaves its aggregate partly applied on purpose (the guards it fails on mean the upstream sent a row
+    /// for the wrong document): the exception has to travel out with nothing saved, so this method never
+    /// catches one and saves the rest.</summary>
+    private async Task<IReadOnlyList<Product>> ApplyAsync(
+        IReadOnlyList<ProductInput> inputs, CancellationToken cancellationToken)
+    {
+        // Tracked on purpose: RefreshFromExternal mutates these, and EF writes only what actually changed —
+        // which is also what keeps a concurrent MarkPaid from being overwritten by an unchanged value (F3).
+        var documentNos = inputs.Select(i => i.DocumentNo).ToArray();
+        var stored = await _db.Set<Product>()
+            .Where(p => documentNos.Contains(p.DocumentNo))
+            .ToDictionaryAsync(p => p.DocumentNo, cancellationToken);
+
+        var documents = new List<Product>(inputs.Count);
+        foreach (var input in inputs)
+        {
+            if (stored.TryGetValue(input.DocumentNo, out var document))
+            {
+                document.RefreshFromExternal(input);
+            }
+            else
+            {
+                document = Product.Create(input);
+                _db.Set<Product>().Add(document);
+                stored[input.DocumentNo] = document;
+            }
+
+            documents.Add(document);
+        }
+
+        await _db.SaveChangesAsync(cancellationToken);
+        return documents;
+    }
+
+    // SQL Server: 2627 = unique constraint, 2601 = duplicate key in a unique index. Read off the inner
+    // exception rather than by opening a connection of our own, which this assembly must never do.
+    private static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is SqlException { Number: 2627 or 2601 };
 }

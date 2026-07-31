@@ -31,6 +31,10 @@
     <PackageVersion Include="Scalar.AspNetCore" Version="2.16.5" />
     <!-- Platform HttpClientFactory for the real PSP adapters (named clients + pooled handlers) -->
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.8" />
+    <!-- ILogger for an Application-layer handler that has to report what it dropped (products-sp-gateway
+         REQ-7.6/7.7). Abstractions only — no provider, no configuration — and the same 10.0.8 that EF Core
+         already resolves transitively everywhere else. -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
     <!-- Test stack -->
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.8" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
