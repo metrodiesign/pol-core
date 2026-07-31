@@ -295,8 +295,9 @@ public sealed class UpstreamUnavailableException : Exception
 - `src/Modules/Products/Products.Domain/Product.cs` — `Create` honor ค่าจาก input, `RefreshFromExternal` ใหม่,
   `ApplyFields` private ตัวเดียวใช้ร่วมกัน, `SideOf(ProductGroup)` static helper (`InsuranceType` เดิมเรียกตัวนี้)
 - ใหม่: `src/Modules/Products/Products.Application/Ports/SpDocumentItemMapper.cs`
-- ใหม่: `tests/Products.Tests/SpDocumentItemMapperTests.cs` (19 test method / 40 case)
-- `tests/Products.Tests/ProductTests.cs` +16 test method (helper `NewInput` รับ `paymentStatus`/`paidDate` เพิ่ม)
+- ใหม่: `tests/Products.Tests/SpDocumentItemMapperTests.cs` (13 test method / 29 case)
+- `tests/Products.Tests/ProductTests.cs` +16 test method / 19 case (helper `NewInput` รับ
+  `paymentStatus`/`paidDate` เพิ่ม) — รวม Products.Tests 54 -> 102
 
 ### Shape จริงของ mapper output (task 6 ใช้ตัวนี้)
 
