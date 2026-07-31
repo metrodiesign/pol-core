@@ -18,7 +18,7 @@ public sealed class DocumentPaidOnOrderPaidConsumerTests
     private static Product NewProduct() =>
         Product.Create(
             new ProductInput(ProductGroup.VMI, DocumentType.POLICY,
-                "00098-69100/กธ/037674-10", "00098", 2500m));
+                "00098-69100/กธ/037674-10", "00098", 2500m, PaymentStatus.UNPAID, null));
 
     [Fact]
     public async Task It_marks_matching_products_PAID_and_saves_once()

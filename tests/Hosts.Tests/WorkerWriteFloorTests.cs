@@ -119,7 +119,8 @@ public sealed class WorkerWriteFloorTests : IDisposable
                     new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
                 .Handle(new CreateProductCommand(new Products.Domain.ProductInput(
                     ProductGroup.VMI, DocumentType.POLICY,
-                    "00098-69100/กธ/900001-10", "00098", 2500m)), CancellationToken.None);
+                    "00098-69100/กธ/900001-10", "00098", 2500m,
+                    Products.Domain.PaymentStatus.UNPAID, null)), CancellationToken.None);
         }
 
         using (var db = NewContext())

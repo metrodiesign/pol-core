@@ -58,7 +58,7 @@ public sealed class ProductRepositoryListTests : IDisposable
         ProductGroup group = ProductGroup.VMI, DocumentType type = DocumentType.POLICY,
         DateTime? startDate = null, DateTime? endDate = null, string? showName = null, string? plate = null) =>
         Product.Create(new ProductInput(
-            group, type, documentNo, saleCode, totalPremium,
+            group, type, documentNo, saleCode, totalPremium, PaymentStatus.UNPAID, null,
             StartDate: startDate ?? Today.AddDays(-1), EndDate: endDate,
             ShowName: showName, LicensePlateNumber: plate));
 
@@ -144,7 +144,7 @@ public sealed class ProductRepositoryListTests : IDisposable
         // Built without the Prod helper: these cases need a genuinely NULL StartDate/EndDate, which the
         // helper's in-window default would mask.
         Seed(Product.Create(new ProductInput(
-            ProductGroup.VMI, type, label, "00098", 100m,
+            ProductGroup.VMI, type, label, "00098", 100m, PaymentStatus.UNPAID, null,
             StartDate: Day(startDate), EndDate: Day(endDate))));
 
         var page = await Repo().ListAsync(Query(), CancellationToken.None);
@@ -242,7 +242,7 @@ public sealed class ProductRepositoryListTests : IDisposable
         var start = new DateTime(2026, 7, 1);
         var end = new DateTime(2027, 6, 30);
         Seed(Product.Create(new ProductInput(
-            ProductGroup.CMI, DocumentType.POLICY, "full-1", "00098", 15900m,
+            ProductGroup.CMI, DocumentType.POLICY, "full-1", "00098", 15900m, PaymentStatus.UNPAID, null,
             PolicyYear: "69", ReferenceBranch: "100", ReferencePre: "pre", PolicySequenceNo: "seq",
             ReferenceYear: "69", ReferenceNo: "ref", PolicyBranch: "branch", PolicyType: "type",
             SaleFullName: "สมชาย ขาย", BrokerCode: "BK", BrokerName: "โบรก", PolicyNumber: "POL-1",

@@ -58,6 +58,7 @@ public sealed class ProductInsuranceFieldsRoundTripTests : IDisposable
                 new CreateProductCommand(new Products.Domain.ProductInput(
                     Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
                     "00098-69100/กธ/037674-10", "00098", totalPremium,
+                    Products.Domain.PaymentStatus.UNPAID, null,
                     PolicyYear: "69", PolicyNumber: "00098-68100/037674",
                     StartDate: start, EndDate: end, ShowName: "สมชาย ใจดี",
                     LicensePlateNumber: "1กก 1234", NetPremium: netPremium, CommissionPercent: 12m)),

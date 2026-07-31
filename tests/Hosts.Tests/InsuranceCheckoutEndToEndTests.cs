@@ -95,6 +95,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 new CreateProductCommand(new Products.Domain.ProductInput(
                     Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
                     "00098-69100/กธ/037674-10", "00098", 2500m,
+                    Products.Domain.PaymentStatus.UNPAID, null,
                     StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
                     ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
                 CancellationToken.None);
