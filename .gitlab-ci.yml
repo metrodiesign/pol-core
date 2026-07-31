@@ -110,6 +110,11 @@ integration:
       sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C \
         -v DbName="VCentralPay" POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
         -i docker/bootstrap/01-principals.sql
+      # Simulated upstream DBs (products-sp-gateway REQ-3.2/3.3): hippodb/mammothdb stand in for
+      # motordb@hippo and centerdb@mammoth. Created before any test host boots against this server
+      # so parallel hosts cannot race on CREATE DATABASE; -b propagates the script's self-checks.
+      sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -b \
+        -i docker/bootstrap/02-external-sim.sql
       dotnet restore pol-core.slnx
       dotnet tool install --global dotnet-ef --version 10.0.8
       export PATH="$PATH:$HOME/.dotnet/tools"
