@@ -10,12 +10,15 @@
 
 ## Purpose
 
-**Internal Insurance Sales + Payment Platform (captive)** — SaaS ขาย**แผนประกันภัย** multi-tenant
-ที่ให้บริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) ขายแผนประกัน (`Product` พก `SumInsured`/
-`CoverageDurationDays`/`Insurer` จริง ไม่ใช่ generic catalog item) ให้ลูกค้า พร้อมรับชำระเงินผ่าน PSP
-ที่ถือใบอนุญาตอยู่แล้ว (2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** —
-เรา "ใช้" PSP ไม่ใช่ "เป็น" PSP; แพลตฟอร์มเป็น sales + payment channel เท่านั้น — **ไม่ออกกรมธรรม์เอง**
-(ดู Non-Goals)
+**Internal Insurance Sales + Payment Platform (captive)** — SaaS รับชำระค่าเบี้ยประกันภัย multi-tenant
+ที่ให้บริษัทในเครือ (vPrivilege / vCommerce / vSouvenir) ขายเอกสารประกัน (`Product` = เอกสารประกันที่ขายได้
+1 รายการ — ใบสมัคร/กรมธรรม์/ต่ออายุ/สลักหลัง — ที่มาจาก**แคตตาล็อกกลาง**อีกระบบหนึ่ง mirror ผลลัพธ์
+`docs/reference/vcentralpay-sp-quick-reference.pdf` §5.2 ทั้ง 32 field ตรง ๆ ไม่ใช่ generic catalog item
+และไม่ใช่ "แผนประกัน/quote เบี้ย" — catalogue เป็น**read-only over HTTP** (`GET /api/v1/products` เท่านั้น,
+scope ด้วย `SaleCode` ที่ต้องส่งมาทุกครั้ง; เอกสารเข้าระบบผ่าน importer/seed ไม่ใช่ HTTP write, spec
+`products-sp-53-alignment` 2026-07-30) ให้ลูกค้า พร้อมรับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
+(2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** — เรา "ใช้" PSP ไม่ใช่
+"เป็น" PSP; แพลตฟอร์มเป็น sales + payment channel เท่านั้น — **ไม่ออกกรมธรรม์เอง** (ดู Non-Goals)
 
 ระบบคือ scope เดียวกัน มี 5 โมดูล (Products · Cart · Checkout · Orders · Payments) คุยกันผ่าน
 **Mediator (martinothamar/Mediator)** แบบ modular ไม่อ้างถึงกันตรง — โมดูลที่ build out มากสุดคือ Payments
@@ -37,12 +40,14 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
 ## Key Features
 
 - **5 SaaS modules** ผ่าน Mediator — Products → Cart → Checkout → Orders → Payments (จบที่ emit `PaymentPaid`)
-- **แผนประกันเป็น field จริงบน `Product`** — `SumInsured`/`CoverageDurationDays`/`Insurer`, validate ตอน
-  `Create`, เป็น source of truth เสมอ (server-side, ไม่รับจาก client) ทั้งราคาและเงื่อนไขประกัน
+- **`Product` = เอกสารประกันในแคตตาล็อกกลาง** — 32 field mirror §5.2 ตรง (`TotalPremium` เป็นราคาขาย,
+  `decimal(19,2)` ล้วน ไม่ใช้ `Money`/currency column เพราะ source system เป็น THB อย่างเดียว), read-only
+  over HTTP (list เดียว ผ่าน `GET /products`, ไม่มี create/update endpoint), source of truth ของราคา/
+  เงื่อนไขมาจากแถวนี้เสมอ
 - **ผู้เอาประกันต่อ `OrderItem`** — จับข้อมูลผู้เอาประกัน (ชื่อ/เลขบัตร/วันเกิด) 1 คนต่อ 1 line ตอน checkout,
-  snapshot เงื่อนไขประกัน (`SumInsured`/`CoverageDurationDays`/`Insurer`) เข้า line ไม่อ่านจาก `Product` สดๆ
-  ภายหลัง; list/summary mask เลขบัตร (โชว์ 4 ตัวท้าย), detail read เผยเต็มพร้อมเขียน append-only reveal audit
-  ต่อ line, customer summary ไม่โชว์วันเกิดเลย
+  snapshot ราคา/เงื่อนไขจาก `Product` เข้า line ไม่อ่านจาก `Product` สดๆ ภายหลัง; list/summary mask เลขบัตร
+  (โชว์ 4 ตัวท้าย), detail read เผยเต็มพร้อมเขียน append-only reveal audit ต่อ line, customer summary
+  ไม่โชว์วันเกิดเลย
 - **2 console คนละแอป** — Tenant Console (public-facing, 3 บริษัทใช้ร่วม) + Admin Console (internal-only) บน backend/data ชุดเดียว เพื่อลด blast radius
 - **PSP adapter** 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร / PromptPay / ผ่อน), normalize เป็นสัญญาเดียว
 - **Webhook = source of truth** — verify ลายเซ็น + idempotent + fetch-to-confirm ก่อนอัปเดตสถานะ (ไม่เชื่อ browser redirect)
