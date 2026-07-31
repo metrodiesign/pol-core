@@ -455,3 +455,106 @@ public static class SpDocumentItemMapper
 - `bash scripts/check-rename-identifiers.sh` -> `rename-identifier gate: OK`
 - mutation ชั่วคราว 3 จุด (สลับ ordinal commission, ย่อช่วง error เป็น 50001..50005, hardcode BranchCode
   `"000"`) -> `Failed: 6, Passed: 10` แดงตรงตัวที่ตั้งใจ แล้ว revert + เขียว 16/16
+
+## Task 6 (sp-task6, 2026-07-31)
+
+### สิ่งที่ทำ
+
+ไฟล์ใหม่ 4 + ลบ 1 (`git rm`) + แก้ 15 (commit `9b2a3dd`, +974/-479) — cutover ทั้งเส้นทาง read
+
+- `Products.Application/ListProducts.cs` — `ProductFilterDto` เพิ่ม `InsuranceType?` + `CountMode`
+  (+ `CountModeValue`), `ProductPage` ใหม่, `ListProductsQuery : IQuery<ProductPage>`,
+  `ListProductsHandler` เขียนใหม่ทั้งตัว (`ResolveTarget` -> gateway -> mapper -> log -> upsert -> envelope)
+- `Products.Application/IProductRepository.cs` — ลบ `ListAsync`, เพิ่ม `UpsertByDocumentNoAsync`
+- `Persistence.MerchantRuntime/Products/ProductRepository.cs` — impl upsert + retry, ตัด `IClock` /
+  window constants / `SfsLike` (ctor เหลือ `db` ตัวเดียว)
+- `Hosts/Api/Program.cs` endpoint metadata + `SfsOpenApi.AddProductQueryParameters` description
+- `Directory.Packages.props` + `Products.Application.csproj` — `Microsoft.Extensions.Logging.Abstractions` 10.0.8
+- `Persistence.MerchantRuntime.csproj` + `Integration.Tests.csproj` — grant + ProjectReference (ดู deviation 3)
+- tests: ใหม่ `ListProductsHandlerTests` / `SpInsulationTests` / `FakeSpDocumentGateway` /
+  `ProductUpsertIntegrationTests`; แก้ `ProductFilterDtoTests` / `DocumentPaidOnOrderPaidConsumerTests` /
+  `WorkerWriteFloorTests`; rewrite `ProductInsuranceFieldsRoundTripTests` /
+  `InsuranceCheckoutEndToEndTests` (เฉพาะ list path); ลบ `ProductRepositoryListTests.cs`
+
+### Shape จริงที่ task 7 (docs/E2E) ต้องอ้าง
+
+```csharp
+public sealed record ProductPage(
+    IReadOnlyList<ProductListItem> Items,
+    long? TotalRows, long? TotalPages, int PageNo, int PageSize,
+    bool HasNextPage, bool HasPreviousPage, string CountMode, int SearchWindowMonths);
+
+Task<IReadOnlyList<Product>> UpsertByDocumentNoAsync(IReadOnlyList<ProductInput> inputs, CancellationToken ct);
+```
+
+JSON ของ response เป็น camelCase ตามปกติ: `items[]`, `totalRows`, `totalPages`, `pageNo`, `pageSize`,
+`hasNextPage`, `hasPreviousPage`, `countMode`, `searchWindowMonths` — **ไม่ใช่** `page`/`limit`/`total`
+ของ `PagedResult` เดิม (breaking change ที่ REQ-8.1 ตั้งใจ)
+
+### Decision / deviation
+
+1. **routing validation อยู่ที่ handler (`ResolveTarget`) ไม่ใช่ `Parse`** — design เขียน "resolve Target"
+   ไว้ที่ handler และ handler ต้อง resolve อยู่แล้ว จึงเช็คขัดแย้ง/ว่างทั้งคู่ที่จุดเดียว; เคสขัดแย้งจึงถูก
+   ทดสอบใน `ListProductsHandlerTests` ไม่ใช่ `ProductFilterDtoTests` (ต่างจากช่องในตาราง Testing Strategy)
+2. **เพิ่ม package `Microsoft.Extensions.Logging.Abstractions` 10.0.8** ให้ `Products.Application` —
+   ไม่มี Application project ไหนเข้าถึง `ILogger` ได้มาก่อน (คอมเมนต์ค้างใน `OrderPaidConsumer.cs` ยืนยัน)
+   แต่ REQ-7.6/7.7 สั่งให้ handler log; เลขเดียวกับที่ EF resolve transitive อยู่แล้ว
+3. **`Integration.Tests` เลิกเป็น raw-connection-only** — เพิ่ม ProjectReference `Persistence.MerchantRuntime`
+   + `InternalsVisibleTo Include="Integration.Tests"` เพราะ retry ของ upsert เป็นพฤติกรรม EF ChangeTracker
+   ที่ต้องขับ type ตัวจริง; ไฟล์อื่นในโปรเจกต์ยัง raw connection เหมือนเดิม
+4. **`InsuranceCheckoutEndToEndTests` เปลี่ยนความหมายของ assert ท้ายเส้น** — จาก "เอกสาร PAID หลุดจาก
+   ลิสต์ UNPAID" (ตัวกรองย้ายไป SP แล้ว โค้ดเราไม่ได้ทำอีก) เป็น "upstream บอก UNPAID -> local PAID ไม่ถูก
+   downgrade" (REQ-7.4) ซึ่งเป็นกติกาที่ยังเป็นของเราจริง
+5. จำลอง race ด้วย `SaveChangesInterceptor` ที่ INSERT แถวชนจาก context อื่นตอน save ครั้งแรก (ยิงครั้งเดียว)
+6. แก้คอมเมนต์ค้างใน `PolicyReportRepository.cs` ที่อ้าง `ProductRepository.ListAsync`
+
+### ผล verify
+
+- `dotnet build pol-core.slnx -warnaserror` -> `64 projects, 0 errors, 0 warnings`
+- `dotnet test tests/Products.Tests` -> `Passed! Failed: 0, Passed: 135` (เดิม 102)
+- `source .env.integration && dotnet test tests/Integration.Tests --filter Category=Integration` ->
+  `Passed! Failed: 0, Passed: 112, Skipped: 0, Total: 112` (เดิม 107)
+- `dotnet test tests/Hosts.Tests` -> `Passed! Failed: 0, Passed: 369` (เดิม 365)
+- `dotnet test tests/Architecture.Tests` -> `Passed! Failed: 0, Passed: 200` (เดิม 225 — ลบ 25 case
+  ของ `ProductRepositoryListTests`)
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> เขียวทั้ง 16 โปรเจกต์
+- `bash scripts/check-rename-identifiers.sh` -> `rename-identifier gate: OK`
+- mutation 4 จุด (เลข unique violation, เดา target เมื่อว่างทั้งคู่, ยัด Ports เข้า Persistence,
+  ใส่ assembly ปลอมในรายการ guard) -> แดงตรงตัวที่ตั้งใจทุกจุด แล้ว revert
+
+### สิ่งที่ task 7 ต้องรู้
+
+**docs ที่ยังไม่ได้อัปเดต (งานของ task 7)** — ไล่ตรวจแล้วมี 3 กลุ่ม
+
+- `docs/reference/platform-modules.md` §5 Product (บรรทัด ~656-675) — ยังบรรยาย read path ว่าเป็น
+  `page`/`limit` + `productFilters` ที่ order ด้วย `DocumentNo` และ search window 6 เดือน / RENEWAL 2 เดือน
+  **ฝั่งเรา**; ตอนนี้ทั้ง window / order / paging เป็นของ SP และ response เป็น envelope §5.1
+- `docs/reference/search-filter-sort.md` — ตัวอย่าง `ListProductsQuery` (~บรรทัด 755 และ 1250) มี note
+  เตือนอยู่แล้วว่าล้าสมัยตั้งแต่ sp-53 (`PagedResult<ProductListItem>` + `PagedQuery` + `IMerchantScoped`
+  ในตัวอย่างไม่ตรงโค้ดจริงมาก่อนหน้านี้แล้ว) — task 7 แค่ต่อ note เดิมให้ครอบ `ProductPage` /
+  `insuranceType` / `countMode` พอ ไม่ต้องรื้อตัวอย่าง
+- spec เก่า `.ai/specs/products-sp-53-alignment/` อ้าง `ListAsync` ไว้หลายที่ — เป็นบันทึกประวัติศาสตร์
+  **ห้ามแก้ย้อนหลัง** (จดไว้กันสับสนตอน grep)
+
+**E2E ควรยิงตรงไหน** (REQ-11.5 checklist)
+
+- `GET /api/v1/products?page=1&limit=25&productFilters={"saleCode":"77001","insuranceType":"Motor"}`
+  -> คาด `totalRows` 28 / `totalPages` 2 / `items` 25 แถว (ค่าตาม seed ของ task 1)
+- ฝั่ง Non-Motor ใช้ `{"saleCode":"S001","insuranceType":"NonMotor"}` -> 27 / 2
+- `countMode=FAST` -> `totalRows` กับ `totalPages` เป็น `null` ใน JSON (ไม่ใช่ 0) และ `hasNextPage` ยังจริง
+- `countMode=APPROX` -> 400; `{"saleCode":"77001"}` เปล่า ๆ (ไม่มี insuranceType/productGroup) -> 400;
+  `{"saleCode":"77001","productGroup":"FIRE","insuranceType":"Motor"}` -> 400
+- add-to-cart ด้วย `items[0].id` ที่เพิ่ง upsert (Guid ของแถว local ไม่ใช่ DocumentNo)
+- 503: `docker stop pol-db` ไม่ได้ (แอปตายไปด้วย) — วิธีที่ตรงกว่าคือชี้
+  `SpDocument:MotorConnectionString` ไปที่ catalog ที่ไม่มี SP แล้วยิงใหม่
+- **ก่อน E2E ต้องรัน `dotnet ef database update` + `scripts/seed-demo.sh` ถ้าเพิ่ง `down -v`** (compose
+  ไม่ได้รัน migration ให้ — ข้อนี้ task 1 เจอมาแล้ว)
+
+**กับดักที่เหลือ**
+
+- seed `shop.Products` 500 แถวเดิม **ไม่ align กับ DocumentNo ของ sim DB** — เอกสารจาก SP จะถูก INSERT ใหม่
+  ทั้งหมด (คนละ DocumentNo) ไม่ชนกัน แต่ถ้าวันหลังมีคน align ให้ระวัง side-flip guard: ถ้าแถวเดิมใน
+  `shop.Products` เป็นคนละฝั่ง Motor/NonMotor กับที่ SP คืน จะได้ 400 ทั้งหน้า (ตั้งใจ — แก้ที่ข้อมูล)
+- `ProductPage` ไม่ได้ generalize `PagedResult` — endpoint อื่นทั้ง repo ยังใช้ `PagedResult` เหมือนเดิม
+- ถ้าเพิ่ม production project ใหม่เข้า solution ต้องเติมชื่อใน `SpInsulationTests.ProductionAssemblies`
+  ไม่งั้น guard แดงพร้อมข้อความ fail-closed (ตั้งใจ)
