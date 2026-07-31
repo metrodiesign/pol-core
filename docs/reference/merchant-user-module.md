@@ -638,7 +638,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
   "email": "user@example.com",
   "merchantId": "…",
   "roles": ["merchant_manager"],          // active role codes เท่านั้น
-  "permissions": ["product.create", "roles.manage", "…"]
+  "permissions": ["payment.create", "roles.manage", "…"]
 }
 
 // GET /api/v1/merchants/users/roles  (array)
@@ -686,14 +686,17 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 ## 13. RBAC + permission enforcement
 
 catalog **กลางชุดเดียว** module `Iam` schema `iam` (rf2) — ไม่มี catalog แยกต่อ console อีกแล้ว. vocabulary อยู่ใน
-`Iam.Domain.Permissions.Keys` (24 keys / 10 groups) และ migration seed `iam.Permissions` / `iam.PermissionGroups`
+`Iam.Domain.Permissions.Keys` (22 keys / 9 groups) และ migration seed `iam.Permissions` / `iam.PermissionGroups`
 จาก vocabulary เดียวกัน. แต่ละ group มี `Scope` = `Platform` (admin console) หรือ `Merchant` (merchant-user console).
+
+> **[อัปเดต 2026-07-31]** group `catalog` (`product.create`, `product.update`) ถูกถอดออกทั้งกลุ่ม — orphan มาตั้งแต่
+> `POST /products` ถูกถอด (commit `152b692`) และไม่มี endpoint ไหนกลับมา gate อีก; migration
+> `20260731065539_RetireCatalogPermissions` ลบทั้ง grant/permission/group
 
 Merchant-side keys ที่ merchant-user ใช้ได้:
 
 | group | keys |
 |---|---|
-| `catalog` | `product.create`, `product.update` (orphan) — seed grant `merchant_manager`/`merchant_staff` (`SeedData.cs:102-110`) แต่ไม่มี endpoint ไหน `RequirePermission` อ้างถึงแล้ว หลัง `POST /products` ถูกถอด (commit `152b692`); ยังโผล่ใน `GET /me` effective-permissions array ได้ปกติ (seed ยังอยู่) แค่ไม่ gate อะไร |
 | `payment` | `payment.create`, `payment.redirect` |
 | `roles` | `roles.view`, `roles.manage`, `users.roles` |
 | `policies` | `policies.read`, `policies.write` |

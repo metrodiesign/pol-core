@@ -622,10 +622,10 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 ### 4.2 RBAC ฝั่ง merchant-user
 
-> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** catalog ฝั่ง merchant-user (เดิม producer, `merch.*` 7 keys / 3 groups, จงใจ duplicate โครงจาก Admin) ถูกยุบเข้า **catalog กลางเดียว `iam`** ร่วมกับฝั่ง admin — merchant console เห็นเฉพาะ Merchant-scope keys (rf2 ตั้งต้น 7 keys / 3 groups → ปัจจุบัน **9 keys / 4 groups** หลัง `policy-reference-record` เพิ่ม `policies`), seed 2 roles ฝั่ง merchant `merchant_manager` (ทุก merchant key) / `merchant_staff`; anchor `merchant_manager` ปิด/ลบไม่ได้. custom role ของ merchant ผูก `Roles.MerchantId` ไม่รั่วข้าม merchant แล้ว (ปิด wart เดิม). merchant-user gate ใช้ `RequirePermission` กลไกเดียวร่วมกับ admin (แทน `RequireProducerPermission`/`RequireMerchantUserPermission` แยกฝั่ง). ดู `.ai/specs/rf2-iam-rbac/`.
+> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** catalog ฝั่ง merchant-user (เดิม producer, `merch.*` 7 keys / 3 groups, จงใจ duplicate โครงจาก Admin) ถูกยุบเข้า **catalog กลางเดียว `iam`** ร่วมกับฝั่ง admin — merchant console เห็นเฉพาะ Merchant-scope keys (rf2 ตั้งต้น 7 keys / 3 groups → หลัง `policy-reference-record` เพิ่ม `policies` เป็น 9 keys / 4 groups → **[อัปเดต 2026-07-31] ปัจจุบัน 7 keys / 3 groups** หลัง group `catalog` (`product.create`/`product.update`, orphan ตั้งแต่ `POST /products` ถูกถอด) ถูกถอดทิ้งทั้งกลุ่ม (migration `20260731065539_RetireCatalogPermissions`)), seed 2 roles ฝั่ง merchant `merchant_manager` (ทุก merchant key) / `merchant_staff`; anchor `merchant_manager` ปิด/ลบไม่ได้. custom role ของ merchant ผูก `Roles.MerchantId` ไม่รั่วข้าม merchant แล้ว (ปิด wart เดิม). merchant-user gate ใช้ `RequirePermission` กลไกเดียวร่วมกับ admin (แทน `RequireProducerPermission`/`RequireMerchantUserPermission` แยกฝั่ง). ดู `.ai/specs/rf2-iam-rbac/`.
 
 **บทบาท**
-- แคตตาล็อกกลางเดียว `iam` ร่วมกับฝั่ง Admin (rf2) — merchant console เห็นเฉพาะ **Merchant-scope keys 9 keys / 4 กลุ่ม**: `catalog` (`product.create`, `product.update`) · `payment` (`payment.create`, `payment.redirect`) · `roles` (`roles.view`, `roles.manage`, `users.roles`) · `policies` (`policies.read`, `policies.write` — จาก `policy-reference-record`)
+- แคตตาล็อกกลางเดียว `iam` ร่วมกับฝั่ง Admin (rf2) — merchant console เห็นเฉพาะ **Merchant-scope keys 7 keys / 3 กลุ่ม**: `payment` (`payment.create`, `payment.redirect`) · `roles` (`roles.view`, `roles.manage`, `users.roles`) · `policies` (`policies.read`, `policies.write` — จาก `policy-reference-record`)
 - `RequirePermission(...)` fail-closed + boot parity guard **กลไกเดียวกับฝั่ง Admin** (`Api.Iam`, side-aware); write endpoint gate แบบไม่มีเงื่อนไข — flag `EnforcePermissionsOnWrites` เดิมถูกถอดทิ้งพร้อม Bearer ใน rf1
 - endpoints: `GET /api/v1/merchants/users/permissions`, `GET/POST/PUT/DELETE /api/v1/merchants/users/roles[/{code}]`, `PUT /api/v1/merchants/users/{merchantUserId}/roles`
 
@@ -686,7 +686,7 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 | List ตาม §2 input contract | `GET /products` — `page`/`limit` (cap 25) + typed `productFilters` (`saleCode` บังคับ, `paymentStatus` default `UNPAID`, smart search รวมทะเบียนรถเฉพาะแถว Motor, search window 6 เดือน / `RENEWAL` 2 เดือน); **ไม่มี** `filters`/`sort`/`search` (`ProductSfs` ถูกลบ) | มีแล้ว (products-sp-53-alignment) |
 | Query รายตัวภายใน | `GetProductById` ผ่าน Mediator — ผู้ใช้คือ Cart/Checkout ตอน add item / เริ่ม checkout (ไม่มี public endpoint) | มีแล้ว |
 | mark เอกสารเป็น PAID | `Product.MarkPaid` ผ่าน `DocumentPaidOnOrderPaidConsumer` ตอน order จ่ายสำเร็จ — เป็นทางเดียวที่ทำให้เอกสารขายซ้ำไม่ได้ | มีแล้ว |
-| แก้ไข/ถอนเอกสารจากการขาย | ไม่มี endpoint และ **ไม่มี `Deactivate()`** อีกแล้ว (ถูกลบใน products-sp-53-alignment) — แกน "ขายไม่ได้" เหลือทางเดียวคือขายจบแล้วเป็น `PAID`; permission `product.update` ยังจองไว้ | ยังไม่มี (ข้อ 11) |
+| แก้ไข/ถอนเอกสารจากการขาย | ไม่มี endpoint และ **ไม่มี `Deactivate()`** อีกแล้ว (ถูกลบใน products-sp-53-alignment) — แกน "ขายไม่ได้" เหลือทางเดียวคือขายจบแล้วเป็น `PAID`; permission `product.update` ถูกถอดออกทั้งคู่กับ `product.create` ใน migration `20260731065539_RetireCatalogPermissions` (ข้อ 11) | ยังไม่มี (ข้อ 11) |
 | อ่านรายตัว public | target: `GET /api/producer/v1/products/{productId}` สำหรับหน้า detail ฝั่ง console | ยังไม่มี |
 | Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot เคยใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` แต่ **ถูกลบไปแล้ว** ใน products-sp-53-alignment (`Product` = mirror §5.2 เท่านั้น, immutable หลังสร้างยกเว้น `MarkPaid`) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
 
@@ -1275,9 +1275,11 @@ route/permission/ตารางเดิมทั้งหมด
     PSP เก็บจริง**ที่ webhook เพิ่มเข้ามา (ดู §12). **ที่ยังเหลือของ target ภาค 8.5** (ติดตามที่ข้อ 3/13
     ไม่ใช่ข้อนี้): `method`/`psp` ยังมาจาก client (ต้องล็อกตั้งแต่ checkout + router), และยังไม่เช็ค
     merchant `active`
-11. **`product.update` จองสิทธิ์ไว้แต่ไม่มี endpoint** — permission อยู่ใน Producer RBAC catalog แล้ว
-    แต่ไม่มีเส้นทางแก้ไขเอกสารเลย — `IsActive`/`Deactivate()` ถูกลบใน products-sp-53-alignment, state ที่เปลี่ยนได้
-    หลังสร้างเหลือทางเดียวคือ `MarkPaid` (ผ่าน outbox consumer ไม่ใช่ endpoint) — pattern เดียวกับ `apikey.manage` (ข้อ 6)
+11. **[ปิดแล้ว 2026-07-31]** `product.update`/`product.create` เคยจองสิทธิ์ไว้แต่ไม่มี endpoint —
+    `IsActive`/`Deactivate()` ถูกลบใน products-sp-53-alignment, state ที่เปลี่ยนได้หลังสร้างเหลือทางเดียวคือ
+    `MarkPaid` (ผ่าน outbox consumer ไม่ใช่ endpoint); ทั้ง 2 permission เป็น orphan ถาวรเพราะแคตตาล็อก
+    read-only over HTTP อย่างถาวร (commit `152b692`) — ถอดทั้งคู่ + group `catalog` ทิ้งใน migration
+    `20260731065539_RetireCatalogPermissions` แทนการปล่อยให้จองไว้เฉย ๆ
 12. **สถานะปลายทางมีใน domain แต่ไม่มี trigger ใน production — ยังเปิดอยู่** (ทบทวน 2026-07-26):
     `Session.MarkExpired`, `CheckoutSession.Abandon`, `Order.Cancel` ไม่มีผู้เรียกนอก test
     (`MarkExpired` วันนี้ไม่มีผู้เรียกเลยแม้ใน test): ไม่มี job auto-expire payment session (target payload

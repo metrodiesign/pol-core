@@ -922,7 +922,7 @@ resolve เป็น `Guid.Empty` ซึ่งไม่มี row จริง�
 > **[อัปเดต 2026-07-30 — spec `products-sp-53-alignment`]** ตารางนี้เคยมี `Name`, `InsurerName`,
 > `CoverageDurationDays`, `PriceAmount`/`PriceCurrency`, `SumInsuredAmount`/`SumInsuredCurrency`,
 > `BranchCode`, `IsActive`, `CreatedAt` — **ทั้งหมดถูกลบ** (`IsActive` -> gate ใช้ `PaymentStatus == UNPAID`
-> แทน, `Deactivate()` ถูกลบ, permission `product.update` ยังจองไว้แต่ไม่มี endpoint) และ 4 คอลัมน์
+> แทน, `Deactivate()` ถูกลบ, permission `product.update`/`product.create` ถูกถอดออกทั้งคู่ [อัปเดต 2026-07-31]) และ 4 คอลัมน์
 > `*PremiumAmount`/`StampAmount`/`TaxVatAmount` ถูก rename ให้ตรงชื่อ §5.2
 
 > ตัวอย่าง: migration `20260730072057` (6 แถวตัวอย่าง) + `seed-demo.sql`
