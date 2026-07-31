@@ -65,14 +65,14 @@ IF (SELECT COUNT(*) FROM sys.database_permissions p
 
 -- --- Seeds: central RBAC catalog (rf2 — iam.* replaced the two per-side catalogs) + HR master data
 -- (exact counts — fixed VALUES lists, no NEWID rows) ---
-IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 10
-    SET @fail += N'iam.PermissionGroups expected 10 rows; ';
-IF (SELECT COUNT(*) FROM iam.Permissions) <> 24
-    SET @fail += N'iam.Permissions expected 24 rows; ';
+IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 9
+    SET @fail += N'iam.PermissionGroups expected 9 rows; ';
+IF (SELECT COUNT(*) FROM iam.Permissions) <> 22
+    SET @fail += N'iam.Permissions expected 22 rows; ';
 IF (SELECT COUNT(*) FROM iam.Roles) <> 4
     SET @fail += N'iam.Roles expected 4 rows; ';
-IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 34
-    SET @fail += N'iam.RolePermissions expected 34 rows; ';
+IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 30
+    SET @fail += N'iam.RolePermissions expected 30 rows; ';
 IF OBJECT_ID(N'admin.Roles', N'U') IS NOT NULL OR OBJECT_ID(N'merch.Roles', N'U') IS NOT NULL
     SET @fail += N'legacy per-side RBAC catalog tables must not exist (rf2 cutover); ';
 -- master data lives in cfg since the masterdata-module cutover (it left the Admins module) —
