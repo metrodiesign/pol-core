@@ -131,7 +131,7 @@ data-plane ที่ **ไม่ผูก cluster ใด cluster หนึ่ง
 | `ModuleAssemblies.cs` | singleton ถือ list assembly ของโมดูล → ใช้ apply `IEntityTypeConfiguration` ของทุกโมดูล |
 | `SchemaNames.cs` | ชื่อ schema เป็น const เดียว: `shop`/`txn`/`admin`/`merch`/`iam`/`cfg`/`dbo` |
 
-**Persistence/Migrations/** (EF generated — 18 migration, ห้ามแก้มือ `*.Designer.cs` / `PolDbContextModelSnapshot.cs`)
+**Persistence/Migrations/** (EF generated — 19 migration, ห้ามแก้มือ `*.Designer.cs` / `PolDbContextModelSnapshot.cs`)
 
 | migration | ผล |
 |-----------|-----|
