@@ -7,7 +7,7 @@
 
 ทุกวันนี้ TenantId มาจาก `tenant_id` claim บน Google token (dev shim ใน `HttpTenantContext`) — แต่ reference
 2.5 บังคับว่า "role/tenant ตัดสินที่ platform เสมอ" (Google ทำแค่ authentication). สเปกนี้สร้าง platform-side
-identity ฝั่ง **Tenant Console realm**: ตาราง `TenantUser` (ผูก [[Tenant]] ที่ provisioning สร้าง) + ExternalLogin
+identity ฝั่ง **Merchant Console realm**: ตาราง `TenantUser` (ผูก [[Tenant]] ที่ provisioning สร้าง) + ExternalLogin
 (Google `sub` -> user) + registration ticket + register/approve flow + RBAC (Tenant Admin/Finance/Viewer) +
 runtime resolution ที่ replace claim shim. authentication ใช้ Google SSO ที่มีอยู่ (`GoogleAuthenticationExtensions`).
 
@@ -21,7 +21,7 @@ Owner/Operator/Risk/Support) และ **ยังไม่ทำ dual maker-che
 **Acceptance Criteria (EARS):**
 - 1.1 THE SYSTEM SHALL store a TenantUser with: external subject (Google `sub`, the stable id), Email, TenantId (FK to an existing producer.Tenants row), Role, Status, CreatedAtUtc.
 - 1.2 THE SYSTEM SHALL constrain Status to one of `PendingApproval`, `Active`, `Suspended`.
-- 1.3 THE SYSTEM SHALL constrain Role to one of `TenantAdmin`, `Finance`, `Viewer` (reference 2.3 Tenant Console roles).
+- 1.3 THE SYSTEM SHALL constrain Role to one of `TenantAdmin`, `Finance`, `Viewer` (reference 2.3 Merchant Console roles).
 - 1.4 WHILE a TenantUser is `PendingApproval` THE SYSTEM SHALL allow its TenantId to be unset (NULL) until approval binds it.
 - 1.5 THE SYSTEM SHALL enforce that an external subject maps to at most one TenantUser (unique on subject).
 - 1.6 IF a TenantUser is created with a Role or Status outside the allowed sets THEN THE SYSTEM SHALL reject it with a validation error.
@@ -71,7 +71,7 @@ Owner/Operator/Risk/Support) และ **ยังไม่ทำ dual maker-che
 - 6.4 WHILE a TenantUser is `Suspended` THE SYSTEM SHALL deny all tenant requests for that subject.
 - 6.5 THE SYSTEM SHALL NOT fall back to a `tenant_id` token claim for production resolution (the dev claim shim is replaced by this lookup; any remaining dev fallback is Development-only and off in production).
 
-## REQ-7: RBAC enforcement (Tenant Console roles)
+## REQ-7: RBAC enforcement (Merchant Console roles)
 **User Story:** As the platform, I want tenant actions gated by the user's role, so that a Viewer cannot perform write actions.
 **Acceptance Criteria (EARS):**
 - 7.1 THE SYSTEM SHALL admit only `TenantAdmin`, `Finance`, or `Viewer` as the resolved tenant role.

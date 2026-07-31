@@ -112,7 +112,7 @@ public sealed class TwoCTwoPAdapterTests
     {
         // REQ-4.1: backendReturnUrl is DERIVED per connection, so every company's webhook reaches the route
         // (/api/v1/webhooks/{pspConnectionId}) instead of only whichever connection a global URL named.
-        // frontendReturnUrl stays the configured platform-wide value (REQ-4.4) — one shared Tenant Console.
+        // frontendReturnUrl stays the configured platform-wide value (REQ-4.4) — one shared Merchant Console.
         var session = MakeSession();
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 

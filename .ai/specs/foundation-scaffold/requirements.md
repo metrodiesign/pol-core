@@ -96,7 +96,7 @@ so that backend ร่วมกันแต่ข้อมูลข้าม ten
 - 5.4 IF โค้ดเขียน raw SQL ข้าม tenant scope หรือเรียก `IgnoreQueryFilters` ข้าม tenant THEN THE
   SYSTEM SHALL ถือเป็นการละเมิด (ban; ครอบด้วย test).
 - 5.5 WHERE ต้องการ admin cross-tenant access THE SYSTEM SHALL ทำผ่าน DB principal แยกเท่านั้น
-  พร้อม reason/correlation id ลง audit — ห้าม bypass RLS จาก session ของ Tenant Console.
+  พร้อม reason/correlation id ลง audit — ห้าม bypass RLS จาก session ของ Merchant Console.
 - 5.6 WHEN pooled connection ถูก reuse ข้าม request THE SYSTEM SHALL ไม่ retain tenant เดิม
   (test พิสูจน์ leak ปิด).
 

@@ -88,7 +88,7 @@ Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`):
   (ปลายทางเดียวกับที่ reverse proxy รับ `POST /api/v1/webhooks/...` เข้ามา ไม่ใช่ hostname ภายใน docker network).
 - `PSP_USE_SANDBOX` — default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง.
 - `PSP_TWOCTWOP_FRONTEND_RETURN_URL` — 2C2P ส่ง browser ลูกค้ากลับหลัง hosted page (UX เท่านั้น, ไม่ใช่
-  แหล่งความจริงของสถานะ). ยังเป็น global ทั้งแพลตฟอร์มโดยเจตนา — Tenant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน.
+  แหล่งความจริงของสถานะ). ยังเป็น global ทั้งแพลตฟอร์มโดยเจตนา — Merchant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน.
 - `PSP_OMISE_RETURN_URI` — Omise ส่ง browser กลับหลัง hosted 3DS เท่านั้น (global เหมือนกัน ด้วยเหตุผลเดียวกัน).
 - **`PSP_TWOCTWOP_BACKEND_RETURN_URL` เลิกใช้แล้ว** (captive-payment-alignment REQ-4.2) — ถูกลบออกจาก
   `PspOptions`/compose/`.env.prod.example`/CI ทั้งหมด. deploy ที่มีอยู่แล้วให้ **ลบบรรทัดนี้ออกจาก `.env`**

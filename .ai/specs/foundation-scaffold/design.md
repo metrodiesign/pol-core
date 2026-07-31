@@ -140,7 +140,7 @@ route by PSP connection id / signed path (ยังไม่ trust tenant/PSP �
 
 - `TenantConsole` (public-facing, 3 บริษัทใช้ร่วม) + `AdminConsole` (internal-only) — คนละ deployable,
   backend/data ชุดเดียว.
-- admin endpoint (cross-tenant/approve/config) เรียกผ่าน session Tenant Console ไม่ได้ (REQ-10.2).
+- admin endpoint (cross-tenant/approve/config) เรียกผ่าน session Merchant Console ไม่ได้ (REQ-10.2).
 - `Mediator.SourceGenerator` ที่ host; wire `ModuleAssemblies(producer, admin)` เข้า DI +
   `AddBuildingBlocksInfrastructure()` (REQ-10.3).
 
@@ -217,7 +217,7 @@ route by PSP connection id / signed path (ยังไม่ trust tenant/PSP �
 | 9.4 | D9 — signature ไม่ผ่าน → ปฏิเสธ ไม่ transition |
 | 9.5 | D9/D3 — Orders รับ `PaymentPaid` verify amount + currency ก่อน Paid |
 | 10.1 | D10 — `TenantConsole` + `AdminConsole` คนละ deployable บน backend/data ชุดเดียว |
-| 10.2 | D10 — admin endpoint เรียกผ่าน session Tenant Console ไม่ได้ |
+| 10.2 | D10 — admin endpoint เรียกผ่าน session Merchant Console ไม่ได้ |
 | 10.3 | D10 — `Mediator.SourceGenerator` ที่ host + wire `ModuleAssemblies(producer, admin)` เข้า DI |
 | 11.1 | D11 — test project ครบ 6 ชั้น (SharedKernel/BuildingBlocks/Payments/Orders/Architecture/Hosts) |
 | 11.2 | D11 — `Architecture.Tests` บังคับทิศ dependency |
