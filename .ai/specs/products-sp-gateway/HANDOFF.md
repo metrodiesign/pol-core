@@ -369,3 +369,89 @@ public static class SpDocumentItemMapper
 - `Product.Create` ตอนนี้ **ไม่ hardcode UNPAID แล้ว** — ทางอื่นที่สร้าง Product (importer/test ใหม่)
   ต้องระบุสถานะเอง คอมไพเลอร์บังคับให้แล้ว
 - `Products.Tests` ตอนนี้ 102 test (เดิม 54) — ถ้า task 6 ทำให้ตัวเลขนี้ลด แปลว่าลบ test โดยไม่ตั้งใจ
+
+## Task 5 (sp-task5, 2026-07-31)
+
+### สิ่งที่ทำ
+
+ไฟล์ใหม่ 3 + แก้ 6 (commit `727ebd2`, +558/-1) — adapter + options + DI + wiring ล้วน ไม่แตะ handler / repository / mapper
+
+- ใหม่: `src/Modules/Products/Products.Infrastructure/Sp/{SpDocumentOptions,SpDocumentGateway}.cs`
+- ใหม่: `tests/Integration.Tests/SpDocumentGatewayIntegrationTests.cs` (8 test method / 16 case)
+- `Directory.Packages.props` — pin `Microsoft.Data.SqlClient` **6.1.1** exact (เลขที่ EF SqlServer 10.0.8
+  resolve transitive อยู่แล้ว ตรวจด้วย `dotnet list src/BuildingBlocks/BuildingBlocks.Infrastructure
+  package --include-transitive`) + `PackageReference` ใน `Products.Infrastructure.csproj`
+- `ProductsModuleRegistration.AddProductsModule()` — เดิมคืน `services` เปล่า ตอนนี้
+  `AddSingleton<ISpDocumentGateway, SpDocumentGateway>()` (ถูกเรียกจาก `Program.cs` อยู่แล้ว)
+- `tests/Integration.Tests/Integration.Tests.csproj` — `ProjectReference` ไป `Products.Infrastructure`
+- `tests/Architecture.Tests/RawConnectionTests.cs` — ยกเว้น `SpDocumentGateway` หนึ่งชื่อ (ดู deviation)
+
+### DI / config ที่เพิ่มใน Program.cs (บรรทัดจริง)
+
+- บรรทัด 49: `using Products.Infrastructure.Sp;`
+- บรรทัด 140-149: `Configure<SpDocumentOptions>(...GetSection(SpDocumentOptions.SectionName))` +
+  `PostConfigure<SpDocumentOptions>` ที่เติม connection string เฉพาะตัวที่ว่าง/blank ด้วย
+  `new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "hippodb"|"mammothdb" }.ConnectionString`
+  — วางต่อจาก `Configure<PspOptions>` ก่อน `AddProductsModule()` (ต้องอยู่หลังบรรทัดที่ `appConnString`
+  ถูก re-stamp `ApplicationName = "Api"` แล้ว); ไม่มี env var / compose variable ใหม่
+- บรรทัด 151: `builder.Services.AddProductsModule();` (เดิมอยู่แล้ว ไม่ได้ย้าย)
+
+### พฤติกรรม gateway ที่ task 6 พึ่งได้
+
+- **คืน `SpDocumentSearchResult` ตามที่ SP คืนดิบ ๆ** — ไม่ filter/sort/นับซ้ำ ไม่แตะ `Page` ใด ๆ;
+  `Items` เรียงตามลำดับแถวของ SP; หน้าที่เกินท้ายชุดได้ `Items` ว่างพร้อม metadata ปกติ (ไม่ throw)
+- **`Page.TotalRows`/`TotalPages` เป็น `null` จริงตอน FAST** (ไม่ใช่ 0) — envelope ส่งต่อได้ตรง ๆ ตาม REQ-8.2
+- exception ที่ออกจาก `SearchAsync` มีแค่ 3 ทาง: `SpDocumentSearchRejectedException` (SP THROW 50001-50009,
+  พก `SpErrorNumber`) -> 400 · `UpstreamUnavailableException` (SqlException อื่น / RS หาย / column drift /
+  connection string ว่าง) -> 503 · `OperationCanceledException` (request ถูก cancel) — handler **ไม่ต้อง
+  try/catch อะไรเพิ่ม** ทุกตัว map ที่ `ProblemDetailsExceptionHandler` อยู่แล้ว
+- `@BranchCode` มาจาก options เท่านั้น — `SpDocumentSearchRequest` ไม่มีช่องนี้ ห้ามพยายามส่งจาก handler
+- gateway เป็น **singleton** และ stateless (ถือแค่ options + logger, เปิด/ปิด `SqlConnection` ต่อ call) —
+  handler ที่เป็น Scoped inject ได้ปกติ ไม่เกิด captive dependency
+- `CommandTimeoutSeconds` = 15 ปริยาย; timeout จะมาถึง handler เป็น `UpstreamUnavailableException` ไม่ใช่ 500
+
+### ข้อควรระวังสำหรับ task 6
+
+- **insulation guard REQ-10.5 ต้องสแกน production assembly เท่านั้น** — ตอนนี้มี test assembly 2 ตัวที่อ้าง
+  `Products.Application.Ports` โดยชอบธรรม: `Hosts.Tests` (จาก task 3) และ `Integration.Tests` (ไฟล์นี้ +
+  `ProjectReference` ไป `Products.Infrastructure`) ถ้า guard สแกนทั้ง solution จะแดงทันที
+- **`RawConnectionTests` เป็น guard ที่งานนี้ชนแล้วครั้งหนึ่ง** — ถ้า task 6 เพิ่มโค้ดที่แตะ `SqlConnection`
+  ใน `Persistence.MerchantRuntime` (เช่นตอนจับ 2601/2627) จะแดงอีก; ทางที่ถูกคือจับ `SqlException` ผ่าน
+  `DbUpdateException.InnerException` (ชื่อ type `SqlException` ไม่ติด guard — guard จับ prefix
+  `Microsoft.Data.SqlClient.SqlConnection` เท่านั้น) ไม่ใช่เปิด connection เอง
+- **ห้าม assert วันที่แบบสัมบูรณ์ใน test ที่แตะ sim DB** — seed สัมพัทธ์กับ `GETDATE()` ของ *วันที่ bootstrap รัน*
+  ไม่ใช่วันที่รัน test; ถ้า container เก่ากว่าหลายวัน ค่าจะเลื่อน (ไฟล์นี้จึง assert แค่ not-null / EndDate >
+  StartDate / `Kind == Unspecified`)
+- **แถวแกนดึงด้วย `PolicyNo` exact ไม่ใช่ตำแหน่งในหน้า** — `960001` อยู่หน้า 2 ของ Non-Motor เพราะ
+  `ORDER BY DocumentNo` ตัดสินด้วยอักษรไทยก่อน (`บต` < `อค`); `PolicyNumber` = `{SaleCode}-69900/{Seq}`
+  ซึ่งฝั่ง Non-Motor คือ `S001-69900/960001` (SaleCode ไม่ใช่ prefix `88001` ของ DocumentNo)
+- `SpDocumentItem.PolicyType` เป็น NULL ทุกแถวฝั่ง mammothdb และเป็น `'90'` เฉพาะ VMI ฝั่ง hippodb —
+  อย่าใช้ field นี้เป็นเงื่อนไขอะไรใน mapper/handler
+- ถ้าอยากเห็น log ของ 503 ตอน debug: adapter `LogError` ที่ `Products.Infrastructure.Sp.SpDocumentGateway`
+  พร้อม `Number`/`State`/`Class` + inner exception เต็ม ส่วน response ยังเป็น fixed detail ไม่รั่ว
+
+### Deviation
+
+1. **ยกเว้น `SpDocumentGateway` ใน `RawConnectionTests`** — guard เดิมห้าม production infrastructure อ้าง
+   `Microsoft.Data.SqlClient.SqlConnection` เลย (raw connection ข้าม query filter + `IWriteAuthorizer` ของ
+   app database) แต่ REQ-5.1 สั่ง ADO.NET ตรงโดยเจตนา และ gateway ต่อ `hippodb`/`mammothdb` ซึ่งไม่มีแถวผูก
+   merchant ไม่อยู่ใน DbContext ใด และ login มีแค่ EXECUTE — ไม่มี floor ให้ข้าม จึงยกเว้นด้วย **ชื่อ type เดียว**
+   (`.That().DoNotHaveName("SpDocumentGateway")`) ไม่ใช่ถอด assembly ออกจากรายการ; ยืนยันว่าช่องแคบจริงด้วย
+   การเปลี่ยนชื่อยกเว้นเป็น `SpDocumentGatewayXX` ชั่วคราว -> guard แดงที่ offender เดิมทันที
+2. **`Add(...)` helper ของ parameter รับ `size` แล้วเซ็ตเฉพาะเมื่อ > 0** — `Date`/`DateTime2`/`Int` ส่ง 0
+   (ไม่เซ็ต `Size`); ไม่ได้เซ็ต `Scale` ของ `DateTime2` เพราะ SP ประกาศ `datetime2(0)` อยู่แล้ว server
+   แปลงให้ที่ boundary ของพารามิเตอร์
+3. **เพิ่ม `ArgumentNullException.ThrowIfNull(request)`** ต้นเมธอด (design ไม่ได้ระบุ) — port เป็น public
+   surface ของโมดูล และ NRE กลางทาง `AddParameters` อ่านยากกว่ามาก
+
+### ผล verify
+
+- `dotnet build pol-core.slnx -warnaserror` -> `64 projects, 0 errors, 0 warnings`
+- `source .env.integration && dotnet test tests/Integration.Tests/Integration.Tests.csproj --filter
+  Category=Integration` -> `Passed! Failed: 0, Passed: 107, Skipped: 0, Total: 107` (เดิม 91 + ใหม่ 16)
+- `dotnet test tests/Hosts.Tests` -> `Passed! Failed: 0, Passed: 365` (17 host boot ผ่าน — ไม่มี ValidateOnStart)
+- `dotnet test tests/Architecture.Tests` -> `Passed! Failed: 0, Passed: 225`
+- `dotnet test pol-core.slnx --filter "Category!=Integration"` -> เขียวทั้ง 16 โปรเจกต์
+- `bash scripts/check-rename-identifiers.sh` -> `rename-identifier gate: OK`
+- mutation ชั่วคราว 3 จุด (สลับ ordinal commission, ย่อช่วง error เป็น 50001..50005, hardcode BranchCode
+  `"000"`) -> `Failed: 6, Passed: 10` แดงตรงตัวที่ตั้งใจ แล้ว revert + เขียว 16/16
