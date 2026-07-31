@@ -15,8 +15,9 @@
 1 รายการ — ใบสมัคร/กรมธรรม์/ต่ออายุ/สลักหลัง — ที่มาจาก**แคตตาล็อกกลาง**อีกระบบหนึ่ง mirror ผลลัพธ์
 `docs/reference/vcentralpay-sp-quick-reference.pdf` §5.2 ทั้ง 32 field ตรง ๆ ไม่ใช่ generic catalog item
 และไม่ใช่ "แผนประกัน/quote เบี้ย" — catalogue เป็น**read-only over HTTP** (`GET /api/v1/products` เท่านั้น,
-scope ด้วย `SaleCode` ที่ต้องส่งมาทุกครั้ง; เอกสารเข้าระบบผ่าน importer/seed ไม่ใช่ HTTP write, spec
-`products-sp-53-alignment` 2026-07-30) ให้ลูกค้า พร้อมรับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
+scope ด้วย `SaleCode` ที่ต้องส่งมาทุกครั้ง; ปัจจุบันเอกสารเข้าระบบผ่าน migration/seed เท่านั้น ส่วน
+adapter ดึงจาก SP ต้นทางยังเป็นงานเฟสถัดไป — `CreateProductCommand` เป็น write seam ที่จองไว้ให้ importer
+ตัวนั้น ยังไม่มี implementation จริง, spec `products-sp-53-alignment` 2026-07-30) ให้ลูกค้า พร้อมรับชำระเงินผ่าน PSP ที่ถือใบอนุญาตอยู่แล้ว
 (2C2P + Omise/Opn) แบบ **redirect-only** โดย **เงินจริงไม่วิ่งผ่านแพลตฟอร์ม** — เรา "ใช้" PSP ไม่ใช่
 "เป็น" PSP; แพลตฟอร์มเป็น sales + payment channel เท่านั้น — **ไม่ออกกรมธรรม์เอง** (ดู Non-Goals)
 

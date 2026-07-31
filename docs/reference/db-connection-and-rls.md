@@ -362,15 +362,23 @@ post-deploy ไม่ใช่โค้ด.
 > `this` เพื่อผูก query filter) — สัญญาณเดียวกันซ้ำสอง.
 
 ```
-HTTP (ไม่มี merchant-user session ก็เรียกได้ — endpoint นี้ไม่ผูก merchant)
+HTTP + merchant-user session cookie
+  -> auth: .RequireAuthorization("merchant-user") -> ไม่มี session = 401 ก่อนแตะ DB
   -> [MerchantRuntimeDbContext]
   -> query Products, บังคับ productFilters JSON param ที่ต้องมี SaleCode
-  -> ไม่มี query filter ที่ DB/EF ระดับ entity -> ขอบเขตข้อมูลเกิดที่ query criteria (SaleCode) ที่ caller
+  -> ไม่มี query filter ที่ DB/EF ระดับ entity -> "เห็นแถวไหน" ตัดสินที่ query criteria (SaleCode) ที่ caller
      ส่งมา ไม่ใช่ isolation floor (ต่างจากทุก entity อื่นในหัวข้อ 9)
 ```
 
-Endpoint นี้ **read-only** (`POST /products` ถูกถอดแล้ว, `products-sp-53-alignment`) — เขียนเข้าระบบผ่าน
-importer/seed เท่านั้น, ไม่ผ่าน `IWriteAuthorizer` ของ HTTP request flow นี้.
+แยกสองเรื่องนี้ให้ขาด: endpoint นี้ยัง**บังคับ session ของ merchant-user เหมือนทุก endpoint ในหัวข้อ 9**
+(`Program.cs`, `.RequireAuthorization("merchant-user")`) — ที่หายไปคือ **row filtering ต่อ merchant**
+เท่านั้น ไม่ใช่ authentication. ผลคือ merchant-user ที่ล็อกอินแล้วเห็นเอกสารของ `SaleCode` ที่ตัวเองส่งมา
+ได้ทุกใบ ไม่ว่าใบนั้นจะ "เป็นของ" merchant ไหน — เพราะแคตตาล็อกไม่มีเจ้าของตั้งแต่แรก.
+
+Endpoint นี้ **read-only** (`POST /products` ถูกถอดแล้ว, `products-sp-53-alignment`) — ปัจจุบันเอกสารเข้า
+ระบบผ่าน migration/seed script เท่านั้น; `CreateProductCommand` เป็น write seam ที่จองไว้ให้ importer
+ในอนาคต (ยังไม่มี implementation จริง — ผู้เรียกที่มีอยู่คือ test) ไม่ผ่าน `IWriteAuthorizer` ของ HTTP
+request flow นี้.
 
 Entity อื่นทั้งหมดในหัวข้อ 9 (Orders/Carts/PaymentSessions/…) ยังคง isolation มาจาก: EF query filter
 (ทุก request ผ่าน context เดียวกัน, capability แยกที่ actor ไม่ใช่ principal) — `Product` เป็นข้อยกเว้น

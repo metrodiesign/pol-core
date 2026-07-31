@@ -226,7 +226,7 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 
 | Module | หน้าที่ / บทบาท | ผู้ดำเนินการ (actor) |
 |---|---|---|
-| Products | แคตตาล็อกเอกสารประกันกลาง (ไม่มี `MerchantId`) — list อ่านอย่างเดียวผ่าน HTTP, กรองด้วย `SaleCode` บังคับ; สร้างเอกสารผ่าน importer/seed เท่านั้น (`POST /products` ถูกถอด) | Merchant-user (list/read) |
+| Products | แคตตาล็อกเอกสารประกันกลาง (ไม่มี `MerchantId`) — list อ่านอย่างเดียวผ่าน HTTP, กรองด้วย `SaleCode` บังคับ; สร้างเอกสารผ่าน migration/seed เท่านั้น ณ ตอนนี้ (`POST /products` ถูกถอด; importer จาก SP ต้นทางยังไม่มี) | Merchant-user (list/read) |
 | Carts | ตะกร้าเก็บ line ก่อน checkout — เพิ่ม/แก้/ลบ line, คำนวณ subtotal | Merchant-user |
 | Checkouts | ล็อกราคา (จาก cart subtotal) + snapshot เงื่อนไขกรมธรรม์/ข้อมูลผู้เอาประกัน ณ เวลาซื้อ ก่อนเปิด order | Merchant-user |
 | Orders | คำสั่งซื้อ + item snapshot + policy-reference record ที่แก้ทีหลังได้ + summary link + reconciliation/policy report | Merchant-user (สร้าง/list/แก้ policy ของ merchant ตัวเอง) · Admin (cross-merchant, tag Admin Orders) · ลูกค้าปลายทาง (อ่าน summary ผ่าน capability link — anonymous) |
@@ -247,7 +247,7 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 |------|------|-------|
 | `Product.cs` | Domain | aggregate = mirror ของ §5.2 ใน `docs/reference/vcentralpay-sp-quick-reference.pdf`: DocumentNo/ProductGroup/DocumentType/SaleCode/เลขเอกสาร/ช่วงคุ้มครอง/**TotalPremium:decimal(19,2)** + breakdown 5 ตัว/PaymentStatus/PaidDate — **ไม่มี `MerchantId`** (ถูกถอดใน `ProductsCentralCatalogue`, แคตตาล็อกกลางไม่ผูก merchant); `Create(ProductInput)`, `MarkPaid` เท่านั้น (ไม่มี `Rename`/`Deactivate` — ถูกลบใน products-sp-53-alignment) |
 | `ProductInput.cs` / `ProductGroup.cs` / `DocumentType.cs` / `PaymentStatus.cs` / `InsuranceType.cs` | Domain | input record + enum ทั้งชุด (`InsuranceType` = computed `Motor`/`NonMotor`, ไม่มีคอลัมน์) |
-| `CreateProductCommand.cs` | App | `ICommand<Guid>` + handler — **ไม่ใช่** `IMerchantScoped` (แคตตาล็อกไม่มี merchant); ไม่ reachable ผ่าน HTTP, ใช้เป็น write seam ให้ importer/test เท่านั้น |
+| `CreateProductCommand.cs` | App | `ICommand<Guid>` + handler — **ไม่ใช่** `IMerchantScoped` (แคตตาล็อกไม่มี merchant); ไม่ reachable ผ่าน HTTP, เป็น write seam ที่จองไว้ให้ importer ในอนาคต — ผู้เรียกที่มีจริงตอนนี้คือ test เท่านั้น |
 | `ListProducts.cs` | App | `ListProductsQuery` (page/limit + `required ProductFilterDto ProductFilters`) → `PagedResult<ProductListItem>` (32 field §5.2 + `Id`) — **ไม่มี SFS** แล้ว (`ProductSfs` ถูกลบ, เลิก inherit `PagedQuery`) |
 | `GetProductById.cs` | App | lookup ต่อ id (ใช้ตอนตั้งราคา cart line ฝั่ง server) — คืน `ProductListItem` ตัวเดียวกัน (`ProductView`/`GetProductsQuery` ถูกลบ) |
 | `DocumentPaidOnOrderPaidConsumer.cs` | App | consume `OrderPaid` -> `Product.MarkPaid` (idempotent ต่อ replay) |
