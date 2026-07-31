@@ -462,7 +462,10 @@ redirect URL ลง span attribute
 - **Events**: `TenantProvisionedV1` · `TenantPolicyChangedV1` · `TenantSuspendedV1` · `TenantApiClientRotatedV1`
 - **Security**: sensitive update ใช้ maker-checker (ข้อ 14)
 
-**ความสัมพันธ์** — ทุก entity ฝั่ง data plane (Product/Cart/CheckoutSession/Order/PaymentSession/PspConnection) อ้าง `TenantId` (as-built = `MerchantId`); ขอบเขตการเข้าถึงมาจาก `admin.MerchantAccess` ฝั่ง admin (§3) และคอลัมน์ `merch.Users.MerchantId` ฝั่ง merchant-user (§4 — ไม่มีตาราง assignment แยกแล้ว)
+**ความสัมพันธ์** — entity ฝั่ง data plane ส่วนใหญ่ (Cart/CheckoutSession/Order/PaymentSession/PspConnection)
+อ้าง `TenantId` (as-built = `MerchantId`); ข้อยกเว้นคือ `Product` — แคตตาล็อกกลาง**ไม่มี**คอลัมน์
+`MerchantId` (ดู §5) จึงไม่ scope ต่อ tenant. ขอบเขตการเข้าถึงมาจาก `admin.MerchantAccess` ฝั่ง admin (§3)
+และคอลัมน์ `merch.Users.MerchantId` ฝั่ง merchant-user (§4 — ไม่มีตาราง assignment แยกแล้ว)
 
 **สถานะ: บางส่วน**
 - มีแล้ว: entity + provisioning (`POST /api/v1/admins/tenants` Super-only, `GET /api/v1/admins/tenants/{code}`)
@@ -653,11 +656,12 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 ## 5. Product
 
 **บริบท** — สิ่งที่ขายบนแพลตฟอร์ม = **เอกสารประกัน** (กรมธรรม์/ใบคำขอ/สลักหลัง/ใบต่ออายุ) ที่รอเก็บเงิน;
-catalog แยกต่อ merchant. `Product` เป็น mirror ของ result set §5.2 ใน
+**แคตตาล็อกกลางเดียว** (`shop.Products`, ไม่มีคอลัมน์ `MerchantId`, ไม่มี query filter) — ไม่แยกต่อ merchant.
+`Product` เป็น mirror ของ result set §5.2 ใน
 [`vcentralpay-sp-quick-reference.pdf`](./vcentralpay-sp-quick-reference.pdf) ตรง ๆ (spec `products-sp-53-alignment`)
 
 **บทบาท**
-- `Product`: `DocumentNo` (unique ต่อ merchant), `ProductGroup` (`CMI`/`VMI`/`FIRE`/`MISC`), `DocumentType`
+- `Product`: `DocumentNo` (unique ทั้งแคตตาล็อก — `IX_Products_DocumentNo`), `ProductGroup` (`CMI`/`VMI`/`FIRE`/`MISC`), `DocumentType`
   (`POLICY`/`APPLICATION`/`RENEWAL`/`ENDORSEMENT`), `SaleCode`, เลขเอกสาร 4 ชุด, ช่วงคุ้มครอง
   (`StartDate`/`EndDate`), `LicensePlateNumber`, `ShowName` และ **`PaymentStatus` (`UNPAID`/`PAID`) + `PaidDate`**
   ซึ่งเป็นแกนขายได้/ขายไม่ได้ (ไม่มี `IsActive` แล้ว)
@@ -686,7 +690,8 @@ catalog แยกต่อ merchant. `Product` เป็น mirror ของ res
 | อ่านรายตัว public | target: `GET /api/producer/v1/products/{productId}` สำหรับหน้า detail ฝั่ง console | ยังไม่มี |
 | Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot เคยใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` แต่ **ถูกลบไปแล้ว** ใน products-sp-53-alignment (`Product` = mirror §5.2 เท่านั้น, immutable หลังสร้างยกเว้น `MarkPaid`) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
 
-**โมเดลเป้าหมายเชิง API**
+**โมเดลเป้าหมายเชิง API (แผน — ProductVersion/ProductQuote ยังไม่เริ่ม, ดูแถว "Product versioning + quote"
+ด้านบน; ไม่ใช่สถานะปัจจุบัน — as-built ยังคง `Product` เดี่ยวและ read-only ตามหัวข้อบทบาท)**
 
 - **Owns**: Product identity + lifecycle · sellable `ProductVersion` · premium/price rule หรือ quoted
   premium result · product metadata ที่จำเป็นต่อการขาย — **ไม่ own**: Cart quantity, Order snapshot,
@@ -694,10 +699,11 @@ catalog แยกต่อ merchant. `Product` เป็น mirror ของ res
 - **Invariants**: client ห้ามส่งราคาเป็น source of truth · published ProductVersion แก้ย้อนหลังไม่ได้ ·
   inactive/expired version เพิ่มลง cart ใหม่ไม่ได้ · quote มี expiry + input hash · product currency
   สอดคล้อง tenant policy
-- **API surface**: `GET /api/producer/v1/products[/{productId}]` · `POST /api/producer/v1/products` ·
-  `POST .../products/{productId}/versions` · `POST .../products/{productId}/activate|deactivate` ·
-  `POST /api/producer/v1/product-quotes`
-- **Events**: `ProductCreatedV1` · `ProductVersionPublishedV1` · `ProductDeactivatedV1` · `ProductQuoteCreatedV1`
+- **API surface**: `GET /api/v1/products[/{productId}]` (list มีแล้ว, `{productId}` ยังไม่มี — ดูแถว
+  "อ่านรายตัว public") · `POST .../products/{productId}/versions` (publish `ProductVersion` ใหม่) ·
+  `POST /api/v1/product-quotes` — **ไม่มี** endpoint สร้าง/activate/deactivate `Product` เอง (แคตตาล็อก
+  read-only เสมอ ดู §5 บทบาท)
+- **Events**: `ProductVersionPublishedV1` · `ProductQuoteCreatedV1`
 
 **ความสัมพันธ์** — `CartItem` อ้าง `ProductId`; ราคาถูก snapshot เข้า cart ตอนหยิบ
 
@@ -805,7 +811,7 @@ target ยกระดับเป็น Product/ProductVersion/ProductQuote ย
 **บริบท** — รายการคำสั่งซื้อ: สถานะกลางที่ทั้งระบบและลูกค้าอ้างอิง ตั้งแต่รอชำระจนชำระสำเร็จ
 
 **บทบาท**
-- `Order`: ยอดรวมทั้งใบ (`Money`) + `Items` (immutable snapshot ต่อแผนที่ซื้อ — ผลรวมต้องเท่ากับยอดใบเป๊ะ), สถานะ `AwaitingPayment` → `Paid` / `Cancelled`; `MarkPaid` **ตรวจ amount + currency ซ้ำ** (ไม่เชื่อแค่ id) และ idempotent
+- `Order`: ยอดรวมทั้งใบ (`Money`) + `Items` (immutable snapshot ต่อแผนที่ซื้อ — ผลรวมต้องเท่ากับยอดใบเป๊ะ), สถานะ `AwaitingPayment` → `Paid` / `Cancelled`; `MarkPaid` **ตรวจ amount + currency ซ้ำ** (ไม่เชื่อแค่ id) และ idempotent; publish `OrderPaid` (cross-module) ให้ Products module consume (`DocumentPaidOnOrderPaidConsumer`) mark เอกสารที่ซื้อแต่ละ `Item` เป็น `PAID` ทาง `Product.MarkPaid` — ทางเดียวที่ปิดเอกสารไม่ให้ขายซ้ำ (ดู §5)
 - `ItemPolicy` 1:1 ต่อ `Item` — บันทึก **เลขอ้างอิงกรมธรรม์จากบริษัทประกันภายนอก** ที่ operator กรอกหลังการขาย (แพลตฟอร์มไม่ออกเลขเอง) พร้อม `ItemPolicyAudit` ต่อการเขียน; เขียน/อ่านได้ทั้งระนาบ merchant และระนาบ admin ข้าม merchant (policy-reference-record)
 - ออก `SummaryToken` (TTL 72 ชั่วโมง) เป็น capability link ให้ลูกค้าเปิดหน้าสรุปแบบไม่มีบัญชี (`404` ไม่รู้จัก / `410` หมดอายุ) + resend ได้ (rotate token + ส่งแจ้งเตือนใหม่)
 - reconciliation = **read-only report** สรุปยอดเหนือ Orders (ไม่เคลื่อนเงิน)
@@ -1201,7 +1207,7 @@ route/permission/ตารางเดิมทั้งหมด
 | 3.2 | Admin RBAC | role → permission (fail-closed) orthogonal กับ Tier | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 4.1 | Producer (merchant-user) | บัญชีตัวแทน/นายหน้า + สมัคร ticket-gated + OIDC BFF | มีแล้ว | [merchant-user-module.md](merchant-user-module.md) |
 | 4.2 | Merchant-user RBAC | role → permission ฝั่ง merchant-user (rf2: catalog กลาง `iam` ร่วมกับ admin) | มีแล้ว | [merchant-user-module.md](merchant-user-module.md) |
-| 5 | Product | catalog สินค้า/กรมธรรม์ต่อ tenant, source ของราคา | มีแล้ว | [entity-fields.md](entity-fields.md) |
+| 5 | Product | แคตตาล็อกเอกสารประกันกลาง (read-only), source ของราคา | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 6 | Cart | ตะกร้า + subtotal สกุลเดียว | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 7 | Checkout | กำหนดข้อมูล + ล็อกยอด ก่อนยืนยันคำสั่งซื้อ | บางส่วน | [entity-fields.md](entity-fields.md) |
 | 8 | Order | คำสั่งซื้อ + items snapshot + policy-reference record + summary link + report | มีแล้ว | [entity-fields.md](entity-fields.md) |
