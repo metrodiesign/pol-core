@@ -558,3 +558,103 @@ JSON ของ response เป็น camelCase ตามปกติ: `items[]`,
 - `ProductPage` ไม่ได้ generalize `PagedResult` — endpoint อื่นทั้ง repo ยังใช้ `PagedResult` เหมือนเดิม
 - ถ้าเพิ่ม production project ใหม่เข้า solution ต้องเติมชื่อใน `SpInsulationTests.ProductionAssemblies`
   ไม่งั้น guard แดงพร้อมข้อความ fail-closed (ตั้งใจ)
+
+## Task 7 (sp-task7, 2026-07-31)
+
+### สิ่งที่ทำ
+
+ปิดงานทั้ง spec — docs 5 ไฟล์ + `design.md` (commit `20d257c`), flip task 7 (commit `a56256e`).
+**ไม่แตะโค้ด production เลย** เพราะไม่มี gate ตัวไหนจับ bug ได้ (เขียวทุกตัวตั้งแต่รอบแรก)
+
+### ผล gate (รันหลัง recreate ระบบใหม่จาก volume เปล่า ไม่ใช่ DB ที่สะสมสถานะมา)
+
+| gate | ผล |
+|---|---|
+| `dotnet build pol-core.slnx -warnaserror` | `64 projects, 0 errors, 0 warnings` |
+| `dotnet test pol-core.slnx --filter "Category!=Integration"` | 16 โปรเจกต์เขียว **1359 passed / 0 failed / 0 skipped** |
+| `source .env.integration && dotnet test tests/Integration.Tests ... --filter Category=Integration` | `Passed! Failed: 0, Passed: 112, Skipped: 0, Total: 112` |
+| skip scan (`grep -rn --include='*.cs' -E "\.only\|\.skip\|Skip *=" tests/`) | ไม่มีบรรทัดใดเลย |
+| `bash scripts/spec-trace.sh products-sp-gateway` | `OK: ... เกณฑ์ 73 ข้อ ถูกอ้างครบ ... EARS lint ผ่านทุกข้อ` |
+| `bash scripts/check-rename-identifiers.sh` | `rename-identifier gate: OK` |
+| `bash scripts/check-migration-lineage.sh` | `Migration lineage gate OK — all 4 existing migration IDs discoverable via PolDbContext.` |
+
+จำนวน test ต่อโปรเจกต์ (offline): Hosts 369, Architecture 200, Payments 162, Products 135,
+Merchants 120, Admins 95, Orders 76, Iam 61, SharedKernel 46, BuildingBlocks 43, Carts 15,
+Checkouts 13, Divisions/Levels/Offices/Positions 6 ตัวละ
+
+### E2E ผ่านช่องทางไหน — **HTTP จริงบน API host ตัวจริง** (ไม่ใช่ in-proc test host)
+
+ทำ SSO ไม่ได้ใน environment นี้ จึงใช้วิธีเดียวกับ E2E ของ sp-53: mint session ลง `merch.Sessions`
+ตรง ๆ (`TokenHash = SHA256(utf8(token))`, `Status = 0`, `IssuedAt = SYSUTCDATETIME()`) ให้ผู้ใช้ demo
+`somchai.p@demo.pol.local` แล้วส่ง `Cookie: mch_session=<token>` — **ลบ session row ทิ้งหลังเสร็จ**
+(`e2e sessions left = 0`), ไม่มี secret ลงไฟล์
+
+ลำดับ recreate: `docker compose down -v && docker compose up -d` (init exit 0, `02-external-sim: OK.`)
+-> `dotnet ef database update` (`Done.`) -> `./scripts/seed-demo.sh` (`seed-demo: OK.`)
+-> `dotnet run --project src/Hosts/Api --no-build --no-launch-profile --urls http://localhost:5177`
+
+| เคส | คาดหวัง | ผลจริง |
+|---|---|---|
+| Motor `{"saleCode":"77001","insuranceType":"Motor"}` | 200, 28/2, 25 แถว | **ผ่าน** envelope ครบ 8 field + `id` เป็น Guid ทุกแถว |
+| NonMotor `{"saleCode":"S001","insuranceType":"NonMotor"}` | 200, 27/2 | **ผ่าน** |
+| `countMode:"FAST"` | totals เป็น null, hasNextPage ยังจริง | **ผ่าน** (`None`/`None`, `hasNextPage: True`, 25 แถว) |
+| `countMode:"APPROX"` | 400 | **ผ่าน** (detail ว่างตาม fixed-detail M6) |
+| ไม่มี insuranceType/productGroup | 400 | **ผ่าน** |
+| `productGroup:"FIRE"` + `insuranceType:"Motor"` | 400 | **ผ่าน** |
+| upsert จริง | แถวจาก sim โผล่ใน `shop.Products` | **ผ่าน** 506 -> 556 แถว, นับเฉพาะ sim = 50 (25+25), Guid ตรงกับที่ response คืน |
+| ยิงซ้ำ | Guid ชุดเดิม | **ผ่าน** (upsert idempotent) |
+| PAID จาก sim | เข้า `shop.Products` เป็น PAID + PaidDate | **ผ่าน** (`950007`/`950008`, PaidDate `2026-07-24`/`2026-07-28`) |
+| add-to-cart แถว PAID | 400 (B1) | **ผ่าน** `Unknown or inactive product.` |
+| add-to-cart แถว UNPAID | 200 | **ไม่ผ่าน — 409 (bug เดิมของ cart ดูด้านล่าง)** |
+| 503 เมื่อ upstream ล่ม | 503 ไม่รั่ว SQL | **ผ่าน** `Upstream dependency unavailable`, NonMotor ยัง 200 |
+| OpenAPI (REQ-8.4) | `ProductPage` + 503 + description ใหม่ | **ผ่าน** (ดูด้านล่าง) |
+
+- **503 พิสูจน์ยังไง**: `docker stop pol-db` ไม่ได้ (sim อยู่ container เดียวกับ DB หลัก แอปตายไปด้วย)
+  จึง override ระดับ process ด้วย env var `SpDocument__MotorConnectionString` ชี้ไป `localhost,11999`
+  ที่ไม่มีจริง — **ไม่ commit อะไร**; ผลคือ Motor 503 ขณะ NonMotor ยัง 200 (พิสูจน์ว่า 503 แยกต่อ connection)
+  และ log ฝั่ง server มี `LogError` จาก `Products.Infrastructure.Sp.SpDocumentGateway`:
+  `SpDocument: dbo.usp_Motor_SearchDocument failed for Motor (SQL error 10061, state 0, class 20).`
+  พร้อม exception เต็ม ส่วน response ไม่มีข้อความ SQL หลุด (REQ-5.6 + REQ-4.6 พิสูจน์พร้อมกัน)
+- **OpenAPI จาก host จริง** (`/openapi/v1.json`): parameters = `page`/`limit`/`productFilters` เท่านั้น,
+  description ของ `productFilters` พูดถึงทั้ง `insuranceType` และ `countMode`, responses =
+  `200/400/401/503`, schema ของ 200 = `ProductPage` มี property ครบ 9 ตัว
+
+### กับดักที่เจอตอนรัน E2E (คนถัดไปเจอซ้ำแน่)
+
+- **`--no-launch-profile` ตัด `ASPNETCORE_ENVIRONMENT=Development` ของ launchSettings ทิ้งไปด้วย** ->
+  host อ่านแต่ `appsettings.json` (ไม่มี OIDC ClientId) -> guard `ProvisioningGuards.RequireOidcProviders`
+  kill process ตอน boot ด้วย `AdminAuth:Providers requires at least one provider with a configured ClientId`
+  ทั้งที่ `appsettings.Development.json` มีค่าครบ — ต้องตั้ง env var นี้เองเสมอ
+- **user demo คือ `E5000000-0000-4000-8000-000000000001` (GUID well-formed)** ไม่ใช่
+  `E5000000-0000-0000-0000-000000000001` ที่ HANDOFF ของ sp-53 เขียนย่อไว้ และตารางชื่อ **`merch.Users`**
+  ไม่ใช่ `merch.MerchantUsers`
+- seed `shop.Products` 500 แถวเดิมใช้ลำดับ `9000xx` ส่วนเอกสารจาก sim เป็น `95xxxx`/`96xxxx` —
+  ถ้าจะนับว่า "อะไรมาจาก sim" ต้อง filter ด้วย `%/95%`/`%/96%` ไม่ใช่ prefix `77001-`/`88001-`
+  (demo seed ใช้ SaleCode ชุดเดียวกัน)
+
+### ปัญหาที่เจอและ **ไม่ได้แก้** (ของเดิม ไม่ใช่ของ spec นี้)
+
+**add-to-cart ได้ 409 `The resource was modified concurrently; please retry.` ทุกครั้งบน SQL Server จริง** —
+พิสูจน์ว่าไม่ใช่ของ branch นี้ด้วย differential test: หยิบ product จาก seed เดิม
+(`E9000000-0000-4000-8000-000000000006` ซึ่ง branch นี้ไม่ได้แตะ) ใส่ตะกร้าก็ 409 เหมือนกัน —
+อาการเดียวกับที่ `products-sp-53-alignment` HANDOFF บันทึกไว้ว่าเกิดตั้งแต่ `rls-to-query-filter`/
+`insurance-pivot`; REQ-9.3 ห้ามแตะ cart จึงปล่อยไว้เป็น follow-up. หลักฐานที่ยังได้ครบคือ **Guid ที่ upsert
+ใช้อ้างเอกสารได้จริง** เพราะ product gate ทำงานก่อน cart write เสมอ ⇒ UNPAID ผ่าน gate (ตกที่ 409 ของ cart)
+ส่วน PAID ถูก gate ปฏิเสธที่ 400 — ผลต่าง 400 vs 409 คือหลักฐานว่า lookup สำเร็จทั้งสองเคส
+
+### docs ที่แตะ
+
+- `docs/reference/platform-modules.md` — §5 บทบาท (read path ผ่าน SP + upsert, window/order/paging เป็นของ SP)
+  + 4 แถวใหม่ในตารางฟีเจอร์ (filter ใหม่ 2 ตัว, ค้นสด+upsert, envelope §5.1, 400/503) + ย่อหน้าสถานะ
+- `docs/reference/search-filter-sort.md` — ต่อ note เดิมทั้งหัวไฟล์และ §12 (ไม่รื้อตัวอย่างตามที่ task 6 แนะ)
+- `docs/reference/src-structure.md` — `ListProducts.cs`, port ที่ไม่มี `ListAsync` + 2 แถวใหม่ (`Ports/`, `Sp/`)
+- `docs/reference/layers-guide.md` — §Products + flow B1 ขั้น 4-5 ที่เคย quote โค้ด EF ที่ถูกลบไปแล้ว
+- `docs/reference/db-connection-and-rls.md` — Flow A (GET ที่เขียนด้วย + connection แยกของ SP)
+- `.ai/specs/products-sp-gateway/design.md` — section ใหม่ "As-built deviations" ใต้ Design review log
+- **ไม่แตะ** `.ai/specs/products-sp-53-alignment/` (บันทึกประวัติศาสตร์ ห้ามแก้ย้อนหลัง)
+
+### สถานะ
+
+**พร้อมเปิด PR** — task 1-7 ครบ `[x]` ทุกตัว, gate ทุกตัวเขียว, E2E ผ่านครบยกเว้นข้อ add-to-cart UNPAID
+ที่ติด bug เดิมของ cart (ไม่ใช่ของ spec นี้ มี differential test ยืนยัน). branch
+`feat/products-sp-gateway` มี 21 commit เหนือ develop (นับรวม commit นี้), ยังไม่ push ตามกติกา
