@@ -22,8 +22,14 @@ internal static class IntegrationDb
     public static string AppConn => For("pol_app", "POL_APP_PASSWORD");
     public static string SaConn => For("sa", "POL_SA_PASSWORD");
 
-    private static string For(string user, string pwEnv) =>
-        $"Server={Server};Database={Db};User Id={user};Password={Require(pwEnv)};" +
+    /// <summary>The same pol_app connection pointed at another catalogue on the same instance. The simulated
+    /// upstream databases (<c>hippodb</c> / <c>mammothdb</c>, created by docker/bootstrap/02-external-sim.sql)
+    /// sit beside the app database, and pol_app holds nothing there but EXECUTE on the two search procedures —
+    /// so every call through this connection also proves the GRANT.</summary>
+    public static string ForCatalog(string catalog) => For("pol_app", "POL_APP_PASSWORD", catalog);
+
+    private static string For(string user, string pwEnv, string? catalog = null) =>
+        $"Server={Server};Database={catalog ?? Db};User Id={user};Password={Require(pwEnv)};" +
         "Encrypt=True;TrustServerCertificate=True;Pooling=False";
 
     /// <summary>Opens a connection and (optionally) binds the merchant via read-only SESSION_CONTEXT — kept
