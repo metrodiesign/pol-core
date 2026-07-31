@@ -284,3 +284,87 @@ public sealed class UpstreamUnavailableException : Exception
 - `Target` เป็น `Products.Domain.InsuranceType` (ไม่ใช่ string) — เป็น routing key ฝั่งเรา ไม่ใช่พารามิเตอร์ของ SP
   ห้ามส่งเข้า `SqlCommand`; `@BranchCode` มาจาก options ที่ adapter เท่านั้น (B2)
 - Architecture.Tests เต็มชุดรัน **~3 วินาที** (225 tests) ไม่ใช่หลักนาที — ไม่ต้องกลัวรัน; ที่ช้าคือ build แรก
+
+## Task 4 (sp-task4, 2026-07-31)
+
+### สิ่งที่ทำ
+
+ไฟล์ใหม่ 2 + แก้ 10 (commit `e995b65`) — domain + mapper ล้วน ไม่แตะ handler / repository / adapter
+
+- `src/Modules/Products/Products.Domain/ProductInput.cs` — เพิ่ม `PaymentStatus` + `PaidDate`
+- `src/Modules/Products/Products.Domain/Product.cs` — `Create` honor ค่าจาก input, `RefreshFromExternal` ใหม่,
+  `ApplyFields` private ตัวเดียวใช้ร่วมกัน, `SideOf(ProductGroup)` static helper (`InsuranceType` เดิมเรียกตัวนี้)
+- ใหม่: `src/Modules/Products/Products.Application/Ports/SpDocumentItemMapper.cs`
+- ใหม่: `tests/Products.Tests/SpDocumentItemMapperTests.cs` (19 test method / 40 case)
+- `tests/Products.Tests/ProductTests.cs` +16 test method (helper `NewInput` รับ `paymentStatus`/`paidDate` เพิ่ม)
+
+### Shape จริงของ mapper output (task 6 ใช้ตัวนี้)
+
+```csharp
+namespace Products.Application.Ports;   // ไฟล์เดียวกันมีทั้ง record และ static class
+
+public sealed record MappedSpDocument(SpDocumentItem Item, ProductInput? Input, string? SkipReason);
+
+public static class SpDocumentItemMapper
+{
+    public static IReadOnlyList<MappedSpDocument> Map(IReadOnlyList<SpDocumentItem> items);
+}
+```
+
+- คืน **หนึ่งรายการต่อแถวของ SP ตามลำดับเดิมเสมอ** (ไม่กรองให้) — `Input == null` คือแถวที่ข้าม และ
+  `SkipReason` เป็นข้อความพร้อม log (`"DocumentNo is blank"`, `"SaleCode is blank"`,
+  `"TotalPremium is null or not greater than zero"`, `"unknown SourceSystem 'xxx'"`,
+  `"unknown DocumentType 'xxx'"`, `"unknown PaymentStatus 'xxx'"`, `"duplicate DocumentNo within the page"`)
+- แถวที่ `Input != null` การันตี `SkipReason == null` และกลับกัน — handler กรองด้วย
+  `mapped.Where(m => m.Input is not null)` ส่งเข้า `UpsertByDocumentNoAsync` แล้วจับคู่ผลกลับตามลำดับ
+  (repository คืน `Product` ตามลำดับ inputs ตาม design)
+- **REQ-7.6 warning เป็นหน้าที่ handler**: mapper ไม่ log — เช็ค `input.PaymentStatus is PaymentStatus.PAID
+  && input.PaidDate is null` เอา `DocumentNo` ไปเขียน log warning (domain ยอมรับเคสนี้เงียบ ๆ โดยตั้งใจ)
+- `Map` ปลอดภัยกับ list ว่าง; `null` -> `ArgumentNullException`
+
+### Decision / deviation
+
+1. **`PaymentStatus` + `PaidDate` อยู่ในกลุ่มพารามิเตอร์บังคับ (ต่อจาก `TotalPremium`) ไม่ใช่ท้าย record** —
+   C# ห้ามพารามิเตอร์บังคับตามหลังพารามิเตอร์ที่มี default (ท้าย record = ต้องมี default = `UNPAID` เงียบ ๆ
+   ซึ่งคือช่องเดียวกับที่ B1 เกิด) จึงบังคับให้ทุก construction site ระบุเอง; caller เดิมทุกจุดส่ง
+   `PaymentStatus.UNPAID, null` ตามที่ task กำหนด
+2. **`ApplyFields` normalize `PaidDate` เป็น null เมื่อสถานะลงเอยเป็น UNPAID** — รักษา invariant ที่
+   `Product.PaidDate` ประกาศไว้ ("Null while PaymentStatus is UNPAID")
+3. **mapper ใช้ switch expression ต่อ enum ไม่ใช่ `Enum.TryParse`** — TryParse รับ `"0"` และ `"CMI, VMI"`
+   เป็นสมาชิกด้วย (มี test คุมทั้งสองรูปแบบ) ส่วน case-sensitivity ก็ได้มาฟรีจาก switch
+4. **`MappedSpDocument` พก `SkipReason`** เพิ่มจาก shape `(item, ProductInput?)` ใน design (ที่เปิดช่องไว้ว่า
+   "shape เทียบเท่าที่สื่อ skip/reason ได้") — เหตุผลของการข้ามต่างกันมากในเชิง ops
+   (upstream เปลี่ยน enum vs ข้อมูลแหว่ง vs แถวซ้ำ) ถ้าไม่พกมา handler เขียน log ที่ใช้งานไม่ได้
+5. **แถวที่ถูก skip ไม่จอง DocumentNo ใน dedupe set** — dedupe เช็คเป็นด่านสุดท้ายหลัง validate ครบ
+   ไม่งั้นแถวเสียแถวแรกจะบังแถวดีที่ตามมาในหน้าเดียวกัน (มี test คุม)
+
+### Caller ที่ไล่แก้ (8 จุด / 6 ไฟล์ — ทั้งหมดเป็น test; ใน src ไม่มีจุดไหนสร้าง `ProductInput` เลย)
+
+`CreateProductCommand` แค่ **ถือ** `ProductInput` ต่อ (`CreateProductCommand(ProductInput Input)`) จึงไม่ต้องแก้
+และ `seed-demo.sql` INSERT ตรงเข้า `shop.Products` เป็น SQL ล้วน (grep แล้วไม่ผ่าน `ProductInput`) จึงไม่แตะ
+
+- `tests/Architecture.Tests/WriteFloorTests.cs`, `ReadFloorTests.cs`, `ProductRepositoryListTests.cs` (3 จุด)
+- `tests/Products.Tests/ProductTests.cs` (helper), `DocumentPaidOnOrderPaidConsumerTests.cs`
+- `tests/Hosts.Tests/WorkerWriteFloorTests.cs`, `InsuranceCheckoutEndToEndTests.cs`,
+  `ProductInsuranceFieldsRoundTripTests.cs`
+
+ใน Hosts.Tests ต้องเขียน `Products.Domain.PaymentStatus.UNPAID` แบบเต็ม (ชนกับ `PaymentStatus` ของโมดูลอื่น
+ที่ using อยู่ในไฟล์เดียวกัน) ส่วน Architecture.Tests / Products.Tests เขียนสั้นได้
+
+### ข้อควรระวังสำหรับ task 6
+
+- **`RefreshFromExternal` throw กลางทางได้ และ aggregate จะถูกแก้ไปแล้วบางส่วน** (`ApplyFields` assign
+  ทีละ property; ตัวที่ throw ได้คือ `Optional` เกินความยาว กับ `RequireMoney` ทศนิยม/ติดลบ) — repository
+  ต้องปล่อยให้ exception พา unit of work ทั้งก้อนตาย **ห้าม catch แล้ว SaveChanges ต่อ** ไม่งั้นเขียนค่าครึ่ง ๆ ลง DB
+- แถวจาก SP ที่ field ยาวเกิน limit ของ `shop.Products` (เช่น `ShowName` > 500) **ไม่ใช่เคส skip ของ mapper**
+  (REQ-7.7 ไม่ครอบ) — จะกลายเป็น `ArgumentException` -> 400 ทั้งหน้า; sim DB ใช้ความยาวตาม §5.2 จึงไม่ชน
+  แต่ถ้าอยากกันจริงต้องเป็น requirement ใหม่ อย่าเงียบ ๆ ใส่ try/catch รายแถว
+- `RefreshFromExternal` เทียบ `DocumentNo` **หลัง trim** กับค่าที่เก็บใน aggregate (ซึ่ง trim แล้วเช่นกัน)
+  และ mapper ก็ trim ให้ก่อนแล้ว — repository lookup ต้องใช้ `ProductInput.DocumentNo` (trim แล้ว) เป็น key
+  ให้ตรงกัน ไม่ใช่ค่าดิบจาก `SpDocumentItem`
+- side-flip guard ยิงเมื่อ `ProductGroup` ใหม่ข้ามฝั่ง Motor/NonMotor: เกิดได้จริงถ้า upstream คืน
+  `SourceSystem` คนละฝั่งกับแถวที่มี `DocumentNo` เดียวกันใน `shop.Products` (เช่น seed เดิม 500 แถวที่ยัง
+  ไม่ align) — ผลคือ 400 ทั้งหน้า ไม่ใช่ skip แถวเดียว ถ้าเจอตอน E2E ให้แก้ที่ข้อมูล ไม่ใช่ผ่อน guard
+- `Product.Create` ตอนนี้ **ไม่ hardcode UNPAID แล้ว** — ทางอื่นที่สร้าง Product (importer/test ใหม่)
+  ต้องระบุสถานะเอง คอมไพเลอร์บังคับให้แล้ว
+- `Products.Tests` ตอนนี้ 102 test (เดิม 54) — ถ้า task 6 ทำให้ตัวเลขนี้ลด แปลว่าลบ test โดยไม่ตั้งใจ
