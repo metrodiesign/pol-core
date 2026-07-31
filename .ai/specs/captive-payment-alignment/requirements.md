@@ -59,7 +59,7 @@ blocker 4 ข้อ (F, E, H, และ EF/config traps) ซึ่งถูก v
 5. **ไม่ทำ return-handler endpoint ใหม่** — browser return ยังเป็น UX นอก API เหมือนเดิม.
 6. **ไม่แตะ 7 Non-Goals ของ PROJECT_CONTEXT** — ไม่มี settlement/ledger/billing/self-serve onboarding/
    card data/non-redirect/policy issuance เพิ่มแม้แต่ field เดียว.
-7. **ไม่ทำ frontend return URL ต่อ merchant** — Tenant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน
+7. **ไม่ทำ frontend return URL ต่อ merchant** — Merchant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน
    (PROJECT_CONTEXT §Key Features) global จึงถูกต้องตามโมเดล; เฉพาะ **backend/webhook** URL ที่ต้อง
    เป็นต่อ connection.
 
@@ -156,7 +156,7 @@ company.
 - 4.3 IF `Psp:PublicBaseUrl` ไม่ถูกตั้งค่า หรือไม่ใช่ absolute URI THEN THE SYSTEM SHALL fail fast
   ตอน startup **ในสภาพแวดล้อมที่ไม่ใช่ Development** พร้อมข้อความที่ระบุชื่อ config key.
 - 4.4 THE SYSTEM SHALL คง browser-facing return URL (`Psp:TwoCTwoP:FrontendReturnUrl`,
-  `Psp:Omise:ReturnUri`) เป็น global ตามเดิม เพราะ Tenant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน.
+  `Psp:Omise:ReturnUri`) เป็น global ตามเดิม เพราะ Merchant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน.
 - 4.5 WHERE PSP กำหนด webhook URL จาก dashboard ไม่ใช่จาก request (Omise/Opn) THE SYSTEM SHALL บันทึก
   ขั้นตอน ops ที่ต้องตั้ง URL ต่อ connection ลงใน runbook (`docs/runbooks/deploy-self-host.md`) แทน
   การพยายามส่งค่าใน request.

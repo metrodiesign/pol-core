@@ -7,7 +7,7 @@
 Product decisions (locked autonomously, AFK): notification ขี่ outbox + OutboxDispatcher เดิม (retry/backoff/DLQ = MaxAttempts ที่มีอยู่; ไม่เพิ่ม message broker ภายนอก); การส่งจริงผ่าน `INotificationSender` port + default impl ที่ log (provider email/SMS จริง wire ภายหลังผ่าน config); summary-link TTL default 72 ชม.; reconciliation = สรุปต่อ tenant (นับ + รวมยอด Paid vs PendingPayment).
 
 ## REQ-1: Cart management (read + edit + clear)
-**User Story:** As a producer (Tenant Console), I want to view, adjust, and clear my cart, so that I can correct selections before checkout.
+**User Story:** As a producer (Merchant Console), I want to view, adjust, and clear my cart, so that I can correct selections before checkout.
 **Acceptance Criteria (EARS):**
 - 1.1 WHEN a producer requests a cart by id THE SYSTEM SHALL return its lines + subtotal, or 404 if no cart with that id exists in the bound tenant.
 - 1.2 WHEN a producer removes a product line from an open cart THE SYSTEM SHALL drop that line and leave the rest unchanged.

@@ -183,7 +183,7 @@ Base path `/api/v1/{area}` เป็น **convention ที่ตัดสิน
 | Surface | Base path | ผู้เรียก | Auth | ขอบเขต |
 |---|---|---|---|---|
 | Admin API | `/api/admin/v1` | Admin Console | OIDC BFF session + CSRF | control plane, cross-tenant ตาม tier/permission |
-| Producer API | `/api/producer/v1` | Tenant Console | Producer BFF session | data ของ tenant และสิทธิ์ของ producer |
+| Producer API | `/api/producer/v1` | Merchant Console | Producer BFF session | data ของ tenant และสิทธิ์ของ producer |
 | Customer capability API | `/api/customer/v1` | Browser ลูกค้า | opaque capability token | อ่าน summary และเริ่ม redirect เฉพาะ Order เดียว |
 | Integration API | `/api/integration/v1` | ระบบภายในบริษัท | OAuth2 client credentials หรือ signed API key | machine-to-machine ภายใต้ tenant เดียว |
 | PSP Webhook API | `/api/webhooks/v1` | PSP | provider signature + connection key | write-only ingress จาก PSP |

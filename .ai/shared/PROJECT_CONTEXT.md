@@ -26,7 +26,7 @@ adapter ดึงจาก SP ต้นทางยังเป็นงาน�
 
 ## Target Users
 
-- **Producer (Tenant Console)** — ตัวแทนประกันภัย / นายหน้าประกันภัย ในสังกัดบริษัทในเครือ:
+- **Producer (Merchant Console)** — ตัวแทนประกันภัย / นายหน้าประกันภัย ในสังกัดบริษัทในเครือ:
   เลือกแผน/กรมธรรม์ → ตะกร้า → checkout → สร้าง Order เห็นเฉพาะข้อมูล tenant ตน (scope ด้วย `TenantId`)
 - **ลูกค้า** — เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น) ผ่าน redirect ไปหน้า PSP
 - **ทีมกลาง (Admin Console)** — internal-only: provision tenant, เก็บ PSP credential/config, ตั้ง routing, monitor, audit
@@ -49,7 +49,7 @@ redirect ไปหน้า PSP เท่านั้น → คง **PCI SAQ A*
   snapshot ราคา/เงื่อนไขจาก `Product` เข้า line ไม่อ่านจาก `Product` สดๆ ภายหลัง; list/summary mask เลขบัตร
   (โชว์ 4 ตัวท้าย), detail read เผยเต็มพร้อมเขียน append-only reveal audit ต่อ line, customer summary
   ไม่โชว์วันเกิดเลย
-- **2 console คนละแอป** — Tenant Console (public-facing, 3 บริษัทใช้ร่วม) + Admin Console (internal-only) บน backend/data ชุดเดียว เพื่อลด blast radius
+- **2 console คนละแอป** — Merchant Console (public-facing, 3 บริษัทใช้ร่วม) + Admin Console (internal-only) บน backend/data ชุดเดียว เพื่อลด blast radius
 - **PSP adapter** 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร / PromptPay / ผ่อน), normalize เป็นสัญญาเดียว
 - **Webhook = source of truth** — verify ลายเซ็น + idempotent + fetch-to-confirm ก่อนอัปเดตสถานะ (ไม่เชื่อ browser redirect)
 - **Multi-tenant provisioning** — Admin สร้าง tenant + เก็บ PSP credential ลง vault (encrypt, แยก key ต่อ tenant)

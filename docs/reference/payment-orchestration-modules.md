@@ -22,8 +22,6 @@
 > [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md) ·
 > [`db-connection-and-rls.md`](db-connection-and-rls.md) (isolation floor ปัจจุบัน, current-state reference)
 >
-> **ยังคงเป็นภาษาเชิงออกแบบ (ไม่ใช่ as-built):** คำว่า "Tenant Console" ในภาค 1-7 = **Merchant Console** ของจริง
-> (แอปเดียวที่ 3 บริษัทใช้ร่วม) — prose ยังไม่ถูก rename ทั้งฉบับเพราะ `PROJECT_CONTEXT.md` เองก็ยังใช้คำเดิม;
 > ชื่อ **entity/table/route** ในเอกสารนี้เป็นชื่อจริงแล้ว.
 
 > โมเดล **captive / internal** · redirect-only · multi-tenant · ไม่ถือเงิน · ใช้ฟรีภายในเครือ
@@ -68,7 +66,7 @@
 
 Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Payments** · จบที่ **"รับชำระเสร็จ → emit `PaymentPaid`"** — SaaS **ไม่มีขั้นจัดส่ง/ออกกรมธรรม์ (issuance)**
 
-**ผู้เกี่ยวข้อง:** *ผู้ผลิต (Tenant Console)* = ผู้เลือกเอกสารประกันจากแคตตาล็อก → ตะกร้า → checkout · *ลูกค้า* = เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น)
+**ผู้เกี่ยวข้อง:** *ผู้ผลิต (Merchant Console)* = ผู้เลือกเอกสารประกันจากแคตตาล็อก → ตะกร้า → checkout · *ลูกค้า* = เปิดลิงก์หน้าสรุปคำสั่งซื้อ → กดยืนยัน → จ่าย (เท่านั้น)
 
 > **ลำดับสำคัญ:** สร้าง Order **ไม่ได้สร้างรายการกับ PSP** — Order อยู่ `AwaitingPayment` + มีลิงก์ไปหน้าสรุป · รายการกับ PSP (`PspCharge.RedirectUrl`) ถูกสร้างใน **Payments เมื่อลูกค้าเปิดหน้าสรุป (ของ Payments) แล้วกดยืนยัน** → Orders ไม่ผูกกับ PSP โดยตรง เปลี่ยน/เพิ่ม PSP ได้โดยไม่แตะ Orders
 
@@ -118,7 +116,7 @@ Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Paymen
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Pd as ผู้ผลิต · Tenant Console
+  participant Pd as ผู้ผลิต · Merchant Console
   participant Pr as Products
   participant Ca as Cart
   participant Ck as Checkout
@@ -223,7 +221,7 @@ sequenceDiagram
 
 ทั้งสองแอปเป็นคนละ frontend/คนละ deploy แต่ **นั่งบน backend + data ชุดเดียวกัน**
 
-### 2.1 Tenant Console (SaaS app #1)
+### 2.1 Merchant Console (SaaS app #1)
 - **บทบาท:** แอปเดียวที่ทั้ง 3 บริษัทใช้ร่วมกัน โดย scope ต่อรายผ่าน tenant context จากตอน login
 - **หน้าที่หลัก:** ดู dashboard/รายงาน/reconciliation เฉพาะตน, ตั้งค่าระดับที่อนุญาต — **ไม่ได้สร้าง tenant หรือกรอก PSP credential เอง** (admin provision ให้)
 - **คุณสมบัติ:** public-facing · เห็นเฉพาะข้อมูล tenant ตน
@@ -231,19 +229,19 @@ sequenceDiagram
 
 ### 2.2 Admin Console (SaaS app #2)
 - **บทบาท:** แอปของทีมกลาง เข้าถึงข้ามทุก tenant
-- **หน้าที่หลัก:** **สร้าง/provision Tenant Console ให้แต่ละบริษัท**, กรอกและเก็บ PSP integration config + credential รายบริษัทลง vault, ตั้ง webhook/return URL mapping ต่อ tenant, จัดการ tenant/allowlist, ตั้ง routing, มอนิเตอร์, audit
+- **หน้าที่หลัก:** **สร้าง/provision Merchant Console ให้แต่ละบริษัท**, กรอกและเก็บ PSP integration config + credential รายบริษัทลง vault, ตั้ง webhook/return URL mapping ต่อ tenant, จัดการ tenant/allowlist, ตั้ง routing, มอนิเตอร์, audit
 - **คุณสมบัติ:** **internal-only** (VPN/IP allowlist, MFA เข้มกว่า, แยก identity provider) · แยก deploy/codebase เพื่อลด blast radius
 - **หมายเหตุ:** เป็น control plane ตัวจริง — ฟังก์ชันอำนาจสูงทั้งหมดอยู่ที่นี่
 
 ### 2.3 Permission model (RBAC)
 - **โครงสร้าง:** สิทธิ = Scope × Resource × Action
-- **Role ใน Tenant Console:** Tenant Admin / Finance / Viewer (scope = tenant ตนเท่านั้น)
+- **Role ใน Merchant Console:** Tenant Admin / Finance / Viewer (scope = tenant ตนเท่านั้น)
 - **Role ใน Admin Console:** Platform Owner / Operator / Risk & Compliance / Support (scope = ทุก tenant)
 - **maker-checker:** ใช้กับ action อ่อนไหว เช่น approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist
-- **บังคับใช้:** การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ **backend authorization แยก permission scope ให้ขาด** endpoint ของ admin (cross-tenant/approve/config) ต้องเรียกผ่าน session ของ Tenant Console ไม่ได้
+- **บังคับใช้:** การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ **backend authorization แยก permission scope ให้ขาด** endpoint ของ admin (cross-tenant/approve/config) ต้องเรียกผ่าน session ของ Merchant Console ไม่ได้
 
 ### 2.4 Provisioning (admin-driven)
-- **ลำดับ:** Admin สร้าง tenant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ tenant → provision Tenant Console + พื้นที่ข้อมูลแยก → tenant พร้อมใช้
+- **ลำดับ:** Admin สร้าง tenant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ tenant → provision Merchant Console + พื้นที่ข้อมูลแยก → tenant พร้อมใช้
 - **บทบาท:** ทีมกลาง provision ทั้งหมดผ่าน Admin Console (ไม่ใช่ self-serve ของ tenant) เหมาะกับ captive เพราะ 3 บริษัทอยู่ในเครือ ทีมกลางถือ credential ได้
 - **ขอบเขต:** เฉพาะ vPrivilege / vCommerce / vSouvenir (allowlist) · ไม่มี billing
 - **ข้อมูลที่ provision (data model, as-built):** `Merchant` → `merch.Merchants` (Code/DisplayName/LegalEntityId/Status/Country/Currency/EnabledChannels + `Metadata` json) → `Payments.Domain.Psp.Connection` → `txn.PspConnections` ต่อ PSP (MerchantId, Psp, EnabledMethods csv, **`SecretRefName`**, `Metadata` json, IsEnabled) → `VaultSecretBlob` → `merch.VaultSecrets` คีย์ด้วย (MerchantId, `Name`) เก็บ ciphertext + `Hint` (last-4, ไม่ใช่ secret) · runtime: `Payments.Domain.Session` → `txn.PaymentSessions` อ้าง **MerchantId + OrderId + Psp** (ไม่ได้อ้าง ConnectionId)
