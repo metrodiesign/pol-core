@@ -131,7 +131,7 @@ data-plane ที่ **ไม่ผูก cluster ใด cluster หนึ่ง
 | `ModuleAssemblies.cs` | singleton ถือ list assembly ของโมดูล → ใช้ apply `IEntityTypeConfiguration` ของทุกโมดูล |
 | `SchemaNames.cs` | ชื่อ schema เป็น const เดียว: `shop`/`txn`/`admin`/`merch`/`iam`/`cfg`/`dbo` |
 
-**Persistence/Migrations/** (EF generated — 14 migration, ห้ามแก้มือ `*.Designer.cs` / `PolDbContextModelSnapshot.cs`)
+**Persistence/Migrations/** (EF generated — 18 migration, ห้ามแก้มือ `*.Designer.cs` / `PolDbContextModelSnapshot.cs`)
 
 | migration | ผล |
 |-----------|-----|
@@ -148,6 +148,7 @@ data-plane ที่ **ไม่ผูก cluster ใด cluster หนึ่ง
 | `20260730072057_ProductsInsuranceDocument` | pivot `Product` เป็นเอกสารประกัน (recreate `shop.Products` + seed 6 แถว) |
 | `20260730081227_CheckoutChainDocumentFields` | snapshot chain Cart -> Checkout -> Order ใช้ field เอกสารแทน field แผนประกัน |
 | `20260730113459_ProductsSp52Alignment` | products-sp-53-alignment: DROP 8 คอลัมน์ (`BranchCode`/`IsActive`/`CreatedAt` + currency ×5), rename ×4 ให้ตรง §5.2, `decimal(19,2)` |
+| `20260730143112_ProductsCentralCatalogue` | ถอด `MerchantId` ออกจาก `shop.Products` — เอกสารประกันเป็นแคตตาล็อกกลาง ไม่ผูก merchant อีกต่อไป; index เปลี่ยนจาก `MerchantId`-prefixed เป็น `DocumentNo` unique ทั้งระบบ + `SaleCode`+`PaymentStatus`; `Down()` restore แค่ shape (ownership เดิมกู้คืนไม่ได้) |
 
 > **กับดัก**: ตารางใหม่ทุกตารางต้องมี `GRANT` ให้ `pol_app` เป็น statement แยก — SQLite unit test จับ grant ที่หายไปไม่ได้.
 
@@ -225,7 +226,7 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 
 | Module | หน้าที่ / บทบาท | ผู้ดำเนินการ (actor) |
 |---|---|---|
-| Products | แคตตาล็อกกรมธรรม์ต่อ merchant — สร้าง/list สินค้าที่ merchant-user เลือกขายให้ลูกค้า | Merchant-user |
+| Products | แคตตาล็อกเอกสารประกันกลาง (ไม่มี `MerchantId`) — list อ่านอย่างเดียวผ่าน HTTP, กรองด้วย `SaleCode` บังคับ; สร้างเอกสารผ่าน importer/seed เท่านั้น (`POST /products` ถูกถอด) | Merchant-user (list/read) |
 | Carts | ตะกร้าเก็บ line ก่อน checkout — เพิ่ม/แก้/ลบ line, คำนวณ subtotal | Merchant-user |
 | Checkouts | ล็อกราคา (จาก cart subtotal) + snapshot เงื่อนไขกรมธรรม์/ข้อมูลผู้เอาประกัน ณ เวลาซื้อ ก่อนเปิด order | Merchant-user |
 | Orders | คำสั่งซื้อ + item snapshot + policy-reference record ที่แก้ทีหลังได้ + summary link + reconciliation/policy report | Merchant-user (สร้าง/list/แก้ policy ของ merchant ตัวเอง) · Admin (cross-merchant, tag Admin Orders) · ลูกค้าปลายทาง (อ่าน summary ผ่าน capability link — anonymous) |
@@ -244,14 +245,15 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 
 | ไฟล์ | ชั้น | บทบาท |
 |------|------|-------|
-| `Product.cs` | Domain | aggregate = mirror ของ §5.2 ใน `docs/reference/vcentralpay-sp-quick-reference.pdf`: MerchantId/DocumentNo/ProductGroup/DocumentType/SaleCode/เลขเอกสาร/ช่วงคุ้มครอง/**TotalPremium:decimal(19,2)** + breakdown 5 ตัว/PaymentStatus/PaidDate; `Create(ProductInput)`, `MarkPaid` เท่านั้น (ไม่มี `Rename`/`Deactivate` — ถูกลบใน products-sp-53-alignment) |
+| `Product.cs` | Domain | aggregate = mirror ของ §5.2 ใน `docs/reference/vcentralpay-sp-quick-reference.pdf`: DocumentNo/ProductGroup/DocumentType/SaleCode/เลขเอกสาร/ช่วงคุ้มครอง/**TotalPremium:decimal(19,2)** + breakdown 5 ตัว/PaymentStatus/PaidDate — **ไม่มี `MerchantId`** (ถูกถอดใน `ProductsCentralCatalogue`, แคตตาล็อกกลางไม่ผูก merchant); `Create(ProductInput)`, `MarkPaid` เท่านั้น (ไม่มี `Rename`/`Deactivate` — ถูกลบใน products-sp-53-alignment) |
 | `ProductInput.cs` / `ProductGroup.cs` / `DocumentType.cs` / `PaymentStatus.cs` / `InsuranceType.cs` | Domain | input record + enum ทั้งชุด (`InsuranceType` = computed `Motor`/`NonMotor`, ไม่มีคอลัมน์) |
-| `CreateProductCommand.cs` | App | `ICommand<Guid>, IMerchantScoped` + handler |
+| `CreateProductCommand.cs` | App | `ICommand<Guid>` + handler — **ไม่ใช่** `IMerchantScoped` (แคตตาล็อกไม่มี merchant); ไม่ reachable ผ่าน HTTP, ใช้เป็น write seam ให้ importer/test เท่านั้น |
 | `ListProducts.cs` | App | `ListProductsQuery` (page/limit + `required ProductFilterDto ProductFilters`) → `PagedResult<ProductListItem>` (32 field §5.2 + `Id`) — **ไม่มี SFS** แล้ว (`ProductSfs` ถูกลบ, เลิก inherit `PagedQuery`) |
 | `GetProductById.cs` | App | lookup ต่อ id (ใช้ตอนตั้งราคา cart line ฝั่ง server) — คืน `ProductListItem` ตัวเดียวกัน (`ProductView`/`GetProductsQuery` ถูกลบ) |
 | `DocumentPaidOnOrderPaidConsumer.cs` | App | consume `OrderPaid` -> `Product.MarkPaid` (idempotent ต่อ replay) |
 | `IProductRepository.cs` | App | port (`Add`/`ListAsync`/`GetAsync`) |
-| `ProductConfiguration.cs` / `ProductsModuleRegistration.cs` | Infra | EF config + `AddProductsModule()` |
+| `ProductConfiguration.cs` / `ProductsModuleRegistration.cs` | Infra | EF config + `AddProductsModule()` (marker เปล่า — ดู §2.2 หมายเหตุ) |
+| `Persistence.MerchantRuntime/Products/ProductConfiguration.cs` / `ProductRepository.cs` | Infra (นอกโมดูล) | EF config + repo ตัวจริงที่ผูก runtime context (§3) — โมดูลถือแค่ port (`IProductRepository`) |
 
 ### 4.2 Carts — ตะกร้า
 
