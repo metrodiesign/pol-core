@@ -656,6 +656,10 @@ Product/ProductVersion/ProductQuote ยังไม่เริ่ม
 
 **บริบท** — ตะกร้ารวมรายการสินค้าที่ producer เลือกให้ลูกค้า ก่อนเข้าสู่ checkout
 
+รายละเอียดเชิงลึกเฉพาะ Cart (Domain/Application/Infrastructure/API/migration แยกทีละไฟล์โค้ด) ดู
+[`carts.md`](carts.md) — Products มีไฟล์แยกอยู่แล้ว ([`products.md`](products.md)), Checkouts/Orders
+ยังไม่มี
+
 **บทบาท**
 - `Cart` + `CartItem`: add แล้ว merge รายการสินค้าเดิมที่ราคาเท่ากัน, แก้จำนวน/ลบ/ล้างได้ระหว่าง `Open`
 - `Subtotal` คำนวณฝั่ง domain, บังคับสกุลเงินเดียวทั้งตะกร้า
