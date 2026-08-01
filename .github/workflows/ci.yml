@@ -188,6 +188,13 @@ jobs:
             -v DbName="VCentralPay" \
                POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
             -i docker/bootstrap/01-principals.sql
+      - name: Bootstrap simulated upstream DBs (products-sp-gateway REQ-3.2/3.3)
+        # hippodb/mammothdb stand in for motordb@hippo and centerdb@mammoth. Created here, BEFORE
+        # any test host boots against this server, so parallel hosts can never race on CREATE
+        # DATABASE. `-b` propagates the script's own self-check failures into the job.
+        run: |
+          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b \
+            -i docker/bootstrap/02-external-sim.sql
       - name: Restore
         # `dotnet ef database update` builds the startup project, which needs a restored assets file
         # (the integration job has no prior restore/build step); `dotnet test` below restores itself.

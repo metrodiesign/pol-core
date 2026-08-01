@@ -8,6 +8,10 @@
 
   <ItemGroup>
     <PackageReference Include="Mediator.Abstractions" />
+    <!-- ListProductsHandler logs the upstream rows it had to drop (REQ-7.7) and the PAID row that arrived
+         without a PaidDate (REQ-7.6); those are operational facts, not results, so they cannot travel in the
+         response. Abstractions only — the host still owns every provider. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <PropertyGroup>

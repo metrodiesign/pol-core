@@ -54,6 +54,15 @@ sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
      POL_APP_PASSWORD="$APP_PW" \
   -i docker/bootstrap/01-principals.sql
 
+# products-sp-gateway REQ-3.2/3.3: hippodb/mammothdb stand in for the upstream systems we do not
+# own yet, so GET /products has nothing to read without them. They must exist before the API serves
+# traffic (compose gates that with depends_on: service_completed_successfully) and before any test
+# host boots against this server, which is what keeps two hosts from racing on CREATE DATABASE.
+# Runs after 01-principals.sql because it grants EXECUTE to the pol_app login that script creates.
+echo "[migrate] bootstrapping simulated upstream databases hippodb/mammothdb (idempotent)..."
+sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
+  -i docker/bootstrap/02-external-sim.sql
+
 echo "[migrate] applying EF migrations (schema + pol_app grant matrix)..."
 # Same DB_PORT/trust wiring as docker/entrypoint.sh: pinned CA cert -> Encrypt=Strict, else
 # Encrypt=True;TrustServerCertificate=False (OS trust store) — no input can make

@@ -21,6 +21,17 @@
 >    `GET /api/v1/admins`, `GET /api/v1/admins/roles`, `GET /api/v1/reports/policies`,
 >    `GET /api/v1/admins/reports/policies`.
 
+> **[ต่อจากหมายเหตุด้านบน, 2026-07-31 — spec `products-sp-gateway`]** `GET /api/v1/products` ห่างจาก
+> คู่มือนี้ไปอีกขั้น: **read path ไม่ใช่ EF query อีกต่อไป** — handler ค้นสดผ่าน stored procedure ของระบบ
+> ต้นทาง (`ISpDocumentGateway`) แล้ว upsert ผลกลับเข้า `shop.Products` ⇒ `IProductRepository.ListAsync`
+> ถูกลบทิ้ง และ **paging / order / search window เป็นของ SP ทั้งหมด** (เราไม่เขียน `OrderBy`/`Skip`/`Take`
+> บนเส้นนี้เลย). ผลลัพธ์เป็น envelope `ProductPage` (`items` + `totalRows?`/`totalPages?`/`pageNo`/`pageSize`/
+> `hasNextPage`/`hasPreviousPage`/`countMode`/`searchWindowMonths`) **ไม่ใช่ `PagedResult`** ที่ endpoint
+> อื่นทั้ง repo ยังใช้อยู่ — `countMode=FAST` ทำให้ `totalRows`/`totalPages` เป็น `null` โดยตั้งใจ.
+> `productFilters` เพิ่ม `insuranceType` (`Motor`|`NonMotor`, บังคับเมื่อไม่มี `productGroup`) กับ `countMode`
+> (`EXACT`|`FAST`) และ endpoint ตอบ 503 ได้เมื่อระบบต้นทางล่ม. ตัวอย่างที่ใช้ `ListProductsQuery` ในเอกสาร
+> นี้ (§7, §12) จึงเป็นตัวอย่างเชิง pattern ล้วน ไม่ตรงโค้ดจริงแม้แต่ signature.
+
 คู่มือมาตรฐานฉบับละเอียดสำหรับทำ search / filter / sort / pagination (เรียกรวมว่า SFS) บน list endpoint
 ของ pol-core. พอร์ต *แนวคิด* มาจาก guide ต้นฉบับของโปรเจกต์ `nong-kaewta-api`
 (NestJS / TypeORM / PostgreSQL) แต่ปรับ server-side ทั้งหมดให้ตรง stack จริงของเรา:
@@ -1242,6 +1253,15 @@ product เป็น **merchant data** — query ต้อง mark `IMerchantSco
 > เลิกสืบทอด `PagedQuery`, และ `Product` ไม่มี `Name`/`Price`/`SumInsured`/`CoverageDurationDays`/`Insurer`/
 > `IsActive`/`CreatedAt` แล้ว (premium เป็น `decimal(19,2)` เปล่า ไม่ใช่ `Money`). ตัวอย่างที่ยังตรงกับโค้ดจริง
 > ให้ดู §12.1 (admins/roles) และ `PolicyReportSfs`.
+>
+> **[ห่างจากของจริงไปอีกขั้น, 2026-07-31 — `products-sp-gateway`]** read path ของ products ไม่แตะ
+> `shop.Products` แล้ว: handler เรียก SP ของระบบต้นทางผ่าน `ISpDocumentGateway` แล้ว upsert ผลกลับเข้า
+> แคตตาล็อก จึง **ไม่มี `IProductRepository.ListAsync` ให้เรียก** และ `IQueryable`/`OrderBy`/paging ในตัวอย่าง
+> ด้านล่างไม่มีอยู่จริงบนเส้นทางนี้อีกเลย (order/window/การนับทั้งหมดเกิดใน SP). `ListProductsQuery` คืน
+> `ProductPage` (envelope §5.1: `items` + `totalRows?`/`totalPages?`/`pageNo`/`pageSize`/`hasNextPage`/
+> `hasPreviousPage`/`countMode`/`searchWindowMonths`) ไม่ใช่ `PagedResult<ProductListItem>`, `productFilters`
+> เพิ่ม `insuranceType` (`Motor`|`NonMotor` — ตัวเลือก SP) กับ `countMode` (`EXACT`|`FAST`) และ endpoint
+> ตอบ 503 ได้เมื่อระบบต้นทางล่ม. อ่านโค้ดจริงที่ `Products.Application/ListProducts.cs`.
 
 **Query** — สืบทอด `PagedQuery` + `IMerchantScoped` + carry typed filter (section 7):
 

@@ -25,6 +25,14 @@
     <!-- Iam.Domain: the single central permission/role vocabulary (Keys, Role anchors) — the code side of the
          seed code<->DB parity drift guard (rf2 replaced the two per-side catalogs with this one). -->
     <ProjectReference Include="..\..\src\Modules\Iam\Iam.Domain\Iam.Domain.csproj" />
+    <!-- products-sp-gateway task 5: SpDocumentGateway is exercised as the real adapter against the
+         simulated upstream, so the test drives the production type rather than a copy of it. -->
+    <ProjectReference Include="..\..\src\Modules\Products\Products.Infrastructure\Products.Infrastructure.csproj" />
+    <!-- products-sp-gateway task 6: the ONE test here that is not raw-connection-only. The upsert's
+         unique-index retry is EF change-tracker behaviour against a real SQL Server, so it needs the real
+         ProductRepository/MerchantRuntimeDbContext (internal — via that project's InternalsVisibleTo grant).
+         Everything else in this project still drives raw connections. -->
+    <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
   </ItemGroup>
 
 </Project>

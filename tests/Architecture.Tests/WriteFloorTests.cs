@@ -43,7 +43,7 @@ public sealed class WriteFloorTests : IDisposable
         Products.Domain.Product.Create(
             new Products.Domain.ProductInput(
                 Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
-                documentNo, "00098", 10m));
+                documentNo, "00098", 10m, Products.Domain.PaymentStatus.UNPAID, null));
 
     private static Carts.Domain.Cart NewCart(Guid merchantId) =>
         new(Guid.NewGuid(), merchantId, DateTime.UtcNow);

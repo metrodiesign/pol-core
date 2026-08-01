@@ -88,6 +88,47 @@ public sealed class ProductFilterDtoTests
         Assert.Null(dto.ProductGroup);
     }
 
+    // products-sp-gateway REQ-6.1: insuranceType picks which upstream procedure answers. Read like the other
+    // enum members here (case-insensitive), unlike paymentStatus/countMode, which are raw wire strings.
+    [Theory]
+    [InlineData("Motor", InsuranceType.Motor)]
+    [InlineData("NonMotor", InsuranceType.NonMotor)]
+    [InlineData("motor", InsuranceType.Motor)]
+    public void Parse_reads_the_insuranceType(string wire, InsuranceType expected) =>
+        Assert.Equal(expected,
+            ProductFilterDto.Parse($$"""{"saleCode":"00098","insuranceType":"{{wire}}"}""").InsuranceType);
+
+    [Fact]
+    public void An_absent_insuranceType_is_null_and_left_to_the_handler_to_derive() =>
+        Assert.Null(ProductFilterDto.Parse(SaleCodeOnly).InsuranceType);
+
+    [Theory]
+    [InlineData("Both")]
+    [InlineData("0")]                           // a numeric enum token is out of contract
+    public void Parse_rejects_an_unknown_insuranceType(string wire) =>
+        Assert.Throws<ArgumentException>(() =>
+            ProductFilterDto.Parse($$"""{"saleCode":"00098","insuranceType":"{{wire}}"}"""));
+
+    // REQ-6.5: countMode is EXACT|FAST, absent = EXACT, anything else is a 400 at the boundary citing 50006.
+    [Fact]
+    public void An_absent_countMode_means_EXACT() =>
+        Assert.Equal("EXACT", ProductFilterDto.Parse(SaleCodeOnly).CountModeValue);
+
+    [Theory]
+    [InlineData("EXACT")]
+    [InlineData("FAST")]
+    public void A_wire_countMode_is_kept_as_it_is(string wire) =>
+        Assert.Equal(wire,
+            ProductFilterDto.Parse($$"""{"saleCode":"00098","countMode":"{{wire}}"}""").CountModeValue);
+
+    [Theory]
+    [InlineData("fast")]                        // case-sensitive, like the procedure's own comparison
+    [InlineData("APPROX")]
+    [InlineData("")]
+    public void Parse_rejects_an_unknown_countMode(string wire) =>
+        Assert.Throws<ArgumentException>(() =>
+            ProductFilterDto.Parse($$"""{"saleCode":"00098","countMode":"{{wire}}"}"""));
+
     // REQ-3.4: @BranchCode is not supported; an unknown JSON member is ignored, not a 400.
     [Fact]
     public void Parse_ignores_a_branchCode_member() =>

@@ -169,7 +169,9 @@ public sealed class ReadFloorTests : IDisposable
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.Unbound);
         writer.Add(Product.Create(
-            new ProductInput(ProductGroup.VMI, DocumentType.POLICY, documentNo, "00098", 10m)));
+            new ProductInput(
+                ProductGroup.VMI, DocumentType.POLICY, documentNo, "00098", 10m,
+                PaymentStatus.UNPAID, null)));
         await writer.SaveChangesAsync();
     }
 

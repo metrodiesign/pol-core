@@ -147,6 +147,18 @@ sqlcmd_log="$(cat "$TMPDIR/sqlcmd.log")"
 check_contains "sqlcmd: uses -N" "$sqlcmd_log" "-N"
 check_not_contains "sqlcmd: never -C" "$sqlcmd_log" "-C"
 
+# --- simulated upstream bootstrap (products-sp-gateway REQ-3.2): after the principal script, same
+# TLS flags, and with -b so a failed self-check inside the SQL stops the deploy ---
+sim_call="$(grep -- '02-external-sim.sql' "$TMPDIR/sqlcmd.log" | head -1)"
+principals_line="$(grep -n -- '01-principals.sql' "$TMPDIR/sqlcmd.log" | head -1 | cut -d: -f1)"
+sim_line="$(grep -n -- '02-external-sim.sql' "$TMPDIR/sqlcmd.log" | head -1 | cut -d: -f1)"
+check_contains "sim bootstrap: 02-external-sim.sql runs" "$sqlcmd_log" "02-external-sim.sql"
+check_eq "sim bootstrap: runs AFTER 01-principals.sql" \
+    "$([ -n "$principals_line" ] && [ -n "$sim_line" ] && [ "$sim_line" -gt "$principals_line" ] && echo yes || echo no)" "yes"
+check_contains "sim bootstrap: uses -N"     "$sim_call" "-N"
+check_not_contains "sim bootstrap: never -C" "$sim_call" "-C"
+check_contains "sim bootstrap: uses -b"     "$sim_call" "-b"
+
 # --- POL_DESIGN_SQL wiring: same DB_PORT/TLS shape as entrypoint.sh, trust flag never True ---
 rm -f "$TMPDIR/probe_count" "$TMPDIR/sqlcmd.log"
 out_fallback="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1)"

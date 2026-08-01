@@ -46,6 +46,7 @@ using Merchants.Infrastructure;
 using Products.Application;
 using Products.Domain;
 using Products.Infrastructure;
+using Products.Infrastructure.Sp;
 // Scalar.AspNetCore also has a DocumentType — the wire enum below is the domain's.
 using DocumentType = Products.Domain.DocumentType;
 using Merchants.Application.GetMerchant;
@@ -130,6 +131,22 @@ builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 // Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).
 builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptions.SectionName));
+
+// Document-search upstream. Unless a deployment names its own connection strings, both default to the app
+// connection re-pointed at the simulated catalogues that live beside the app database on the same instance
+// — so no environment gains a variable for them (REQ-3.4) and every host still boots when the simulated
+// databases are absent (nothing connects until a search request arrives). Pointing at the real
+// motordb/centerdb on cutover day is an override of these two values, not a code change.
+builder.Services.Configure<SpDocumentOptions>(builder.Configuration.GetSection(SpDocumentOptions.SectionName));
+builder.Services.PostConfigure<SpDocumentOptions>(spDocument =>
+{
+    if (string.IsNullOrWhiteSpace(spDocument.MotorConnectionString))
+        spDocument.MotorConnectionString =
+            new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "hippodb" }.ConnectionString;
+    if (string.IsNullOrWhiteSpace(spDocument.NonMotorConnectionString))
+        spDocument.NonMotorConnectionString =
+            new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "mammothdb" }.ConnectionString;
+});
 
 builder.Services.AddProductsModule();
 builder.Services.AddCartModule();
@@ -607,12 +624,14 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
 // "merchant-user" policy + its permission unconditionally — the former MerchantUser:EnforcePermissionsOnWrites
 // toggle (a transitional un-gated Bearer state) no longer has a Bearer path to fall back to, so it is deleted.
 
-// GET /products — the central document catalogue, and the ONLY product endpoint: the catalogue is read-only over
-// HTTP because the documents originate in the upstream policy system, not from a merchant filling in a form. The
+// GET /products — the document catalogue, and the ONLY product endpoint: the catalogue is read-only over HTTP
+// because the documents originate in the upstream policy system, not from a merchant filling in a form. The
 // write seam is CreateProductCommand, reachable from an importer/tests but deliberately not mapped to a route.
 // It carries no merchant of its own, so the request is scoped by the mandatory saleCode inside productFilters and
 // gated by the merchant-user policy; the input surface is exactly SP guide §2: paging plus the typed
-// productFilters (REQ-7.1).
+// productFilters (REQ-7.1). The search itself runs against the upstream procedures and each page is mirrored
+// into shop.Products on the way out, so 503 is a real outcome here: the upstream being unreachable is not a
+// 500 of ours (products-sp-gateway REQ-7.1/8.4).
 api.MapGet("/products", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
     var p = SfsQueryParser.ParsePaging(http.Request.Query);
@@ -628,10 +647,11 @@ api.MapGet("/products", async (HttpContext http, IMediator mediator, Cancellatio
     .WithTags("ผลิตภัณฑ์")
     .WithName("ListProducts")
     .WithSummary("รายการผลิตภัณฑ์")
-    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้าจากแคตตาล็อกกลาง รับ page, limit และ productFilters (บังคับ — ต้องมี saleCode ซึ่งเป็นตัวจำกัดขอบเขตข้อมูล) ตาม §2 ของเอกสาร SP; ไม่รองรับ filters/sort/search")
-    .Produces<PagedResult<ProductListItem>>(StatusCodes.Status200OK)
+    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้า ค้นสดจากระบบต้นทางแล้วบันทึกลงแคตตาล็อกกลาง รับ page, limit และ productFilters (บังคับ — ต้องมี saleCode ซึ่งเป็นตัวจำกัดขอบเขตข้อมูล) ตาม §2 ของเอกสาร SP; ต้องระบุ insuranceType (Motor|NonMotor) เมื่อไม่ได้ส่ง productGroup และห้ามขัดแย้งกับ productGroup; countMode (EXACT|FAST ค่าเริ่มต้น EXACT) — FAST ให้ totalRows/totalPages เป็น null; ตอบเป็น envelope §5.1 ที่คัดลอกค่ามาจากระบบต้นทาง; ไม่รองรับ filters/sort/search")
+    .Produces<ProductPage>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Cart — open, add/merge lines, review, adjust, clear. Merchant comes from the principal; the commands are
 // IMerchantScoped so RLS + the merchant guard confine every cart to the bound merchant.

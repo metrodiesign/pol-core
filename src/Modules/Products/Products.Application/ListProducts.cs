@@ -2,6 +2,8 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using BuildingBlocks.Application;
 using Mediator;
+using Microsoft.Extensions.Logging;
+using Products.Application.Ports;
 using Products.Domain;
 using DomainPaymentStatus = Products.Domain.PaymentStatus;
 
@@ -78,9 +80,9 @@ public sealed record ProductListItem(
 /// <para>
 /// Two knowing deviations from §2: <c>@SaleCode</c> is taken from the client although the document puts it
 /// in the server-side authorization context (user decision — the real tenant floor is <c>MerchantId</c>),
-/// and <c>@BranchCode</c> is not supported at all because the <c>BranchCode</c> column is gone from §5.2.
-/// A <c>branchCode</c> member in the JSON is therefore ignored (<see cref="JsonSerializerDefaults.Web"/>
-/// does not error on unknown members).
+/// and <c>@BranchCode</c> is not client input at all — the adapter fills it from <c>SpDocumentOptions</c>
+/// (REQ-6.6). A <c>branchCode</c> member in the JSON is therefore ignored
+/// (<see cref="JsonSerializerDefaults.Web"/> does not error on unknown members).
 /// </para>
 /// </summary>
 public sealed record ProductFilterDto
@@ -94,6 +96,18 @@ public sealed record ProductFilterDto
     [MaxLength(30)] public string? ApplicationNo { get; init; }
     public DocumentType? DocumentType { get; init; }
     public ProductGroup? ProductGroup { get; init; }
+
+    /// <summary>Which upstream procedure answers the search: <c>Motor</c> | <c>NonMotor</c> (REQ-6.1). The two
+    /// catalogues cannot be merged into one page, so exactly one side is picked per request — from this member,
+    /// or derived from <see cref="ProductGroup"/> when only that is given; the handler rejects a request that
+    /// gives neither or gives two that disagree. Read case-insensitively like the other enum members here, not
+    /// case-sensitively like <see cref="PaymentStatus"/>, which is a raw wire string.</summary>
+    public InsuranceType? InsuranceType { get; init; }
+
+    /// <summary>§2 <c>@CountMode</c> on the wire: <c>EXACT</c> | <c>FAST</c>, absent = <c>EXACT</c>. A string for
+    /// the same reason as <see cref="PaymentStatus"/> — it is upstream vocabulary, not a Domain concept. Read via
+    /// <see cref="CountModeValue"/>.</summary>
+    public string? CountMode { get; init; }
 
     /// <summary>§2 <c>@PaymentStatus</c> on the wire: <c>UNPAID</c> | <c>PAID</c> | <c>ALL</c>,
     /// case-sensitive, absent = <c>UNPAID</c>. A string rather than the enum because <c>ALL</c> is not a
@@ -135,6 +149,16 @@ public sealed record ProductFilterDto
         }
     }
 
+    /// <summary>§2 <see cref="CountMode"/> resolved to the wire value sent to the procedure; absent means
+    /// <c>EXACT</c>. Throws on any other value, and <see cref="Parse"/> forces this read so the 400 happens at
+    /// the boundary rather than as SP error 50006 a round-trip later.</summary>
+    public string CountModeValue => CountMode switch
+    {
+        null => "EXACT",
+        "EXACT" or "FAST" => CountMode,
+        _ => throw new ArgumentException("CountMode must be EXACT or FAST (SP error 50006)."),
+    };
+
     /// <summary>Deserializes then validates the <c>productFilters</c> value, which is mandatory.
     /// Absent, blank, malformed or invalid -> <see cref="ArgumentException"/> (mapped to 400
     /// ProblemDetails by <c>ProblemDetailsExceptionHandler</c>; never <c>BadHttpRequestException</c>,
@@ -157,6 +181,7 @@ public sealed record ProductFilterDto
         dto = dto with { SaleCode = saleCode };
 
         _ = dto.PaymentStatusFilter;
+        _ = dto.CountModeValue;
 
         var results = new List<ValidationResult>();
         if (!Validator.TryValidateObject(dto, new ValidationContext(dto), results, validateAllProperties: true))
@@ -174,7 +199,26 @@ public sealed record ProductFilterDto
 }
 
 /// <summary>
-/// Lists insurance documents from the central catalogue (§2 input surface). Not <see cref="IMerchantScoped"/>:
+/// One page of documents plus the §5.1 pagination envelope, copied value-by-value from what the upstream
+/// procedure reported (REQ-8.1). Nothing is recounted here: the procedure owns the window, the filtering and
+/// the totals, so recomputing them locally could only ever disagree with it. <see cref="TotalRows"/> and
+/// <see cref="TotalPages"/> are null under <c>countMode=FAST</c>, where the procedure deliberately does not
+/// count (REQ-8.2). <see cref="Items"/> may be shorter than <see cref="PageSize"/> — and than
+/// <see cref="TotalRows"/> implies — when a row on the page could not become a document (REQ-7.7).
+/// </summary>
+public sealed record ProductPage(
+    IReadOnlyList<ProductListItem> Items,
+    long? TotalRows,
+    long? TotalPages,
+    int PageNo,
+    int PageSize,
+    bool HasNextPage,
+    bool HasPreviousPage,
+    string CountMode,
+    int SearchWindowMonths);
+
+/// <summary>
+/// Lists insurance documents from the upstream catalogue (§2 input surface). Not <see cref="IMerchantScoped"/>:
 /// the catalogue carries no merchant, so <c>SaleCode</c> — mandatory in <see cref="ProductFilterDto"/> — is
 /// the only scoping axis, and the endpoint's authorization is the access gate.
 /// <para>
@@ -182,7 +226,7 @@ public sealed record ProductFilterDto
 /// inheriting would leave settable <c>Filters</c>/<c>Sort</c>/<c>Search</c> that nothing reads.
 /// </para>
 /// </summary>
-public sealed record ListProductsQuery : IQuery<PagedResult<ProductListItem>>
+public sealed record ListProductsQuery : IQuery<ProductPage>
 {
     public required ProductFilterDto ProductFilters { get; init; }
 
@@ -193,9 +237,99 @@ public sealed record ListProductsQuery : IQuery<PagedResult<ProductListItem>>
     public int Limit { get; init; } = 25;
 }
 
-public sealed class ListProductsHandler(IProductRepository products)
-    : IQueryHandler<ListProductsQuery, PagedResult<ProductListItem>>
+/// <summary>
+/// Searches the upstream catalogue live and mirrors what came back into <c>shop.Products</c> (REQ-7.1/7.2):
+/// resolve which of the two procedures answers, translate the filter into wire values, search, map each row,
+/// upsert the usable ones by <c>DocumentNo</c>, and answer with the local rows — which is what gives every
+/// item the <c>Guid</c> the cart later adds (REQ-7.9). The order is the procedure's; nothing re-sorts it.
+/// <para>
+/// No <c>IUnitOfWork</c>: the upsert saves inside the repository, because a unique-index race has to be
+/// retried with a reset change tracker, which only that layer can reach (M7).
+/// </para>
+/// </summary>
+public sealed class ListProductsHandler(
+    ISpDocumentGateway gateway, IProductRepository products, ILogger<ListProductsHandler> logger)
+    : IQueryHandler<ListProductsQuery, ProductPage>
 {
-    public async ValueTask<PagedResult<ProductListItem>> Handle(ListProductsQuery query, CancellationToken ct) =>
-        await products.ListAsync(query, ct);
+    public async ValueTask<ProductPage> Handle(ListProductsQuery query, CancellationToken ct)
+    {
+        var filters = query.ProductFilters;
+        var (target, productGroup) = ResolveTarget(filters);
+
+        var result = await gateway.SearchAsync(
+            new SpDocumentSearchRequest(
+                Target: target,
+                SaleCode: filters.SaleCode!,
+                SearchText: filters.SearchText,
+                InsuredName: filters.InsuredName,
+                CoverageStartFrom: filters.CoverageStartFrom,
+                CoverageStartTo: filters.CoverageStartTo,
+                CoverageEndFrom: filters.CoverageEndFrom,
+                CoverageEndTo: filters.CoverageEndTo,
+                // Absent means "everything" on the wire; absent paymentStatus means UNPAID, which is
+                // PaymentStatusFilter's own default (null there = the client asked for ALL).
+                PaymentStatus: filters.PaymentStatusFilter?.ToString() ?? "ALL",
+                DocumentType: filters.DocumentType?.ToString() ?? "ALL",
+                ProductGroup: productGroup,
+                PolicyNo: filters.PolicyNo,
+                ApplicationNo: filters.ApplicationNo,
+                PaidDateFrom: filters.PaidDateFrom,
+                PaidDateTo: filters.PaidDateTo,
+                PageNo: query.Page,
+                PageSize: query.Limit,
+                CountMode: filters.CountModeValue),
+            ct);
+
+        var mapped = SpDocumentItemMapper.Map(result.Items);
+        var inputs = new List<ProductInput>(mapped.Count);
+
+        foreach (var row in mapped)
+        {
+            if (row.Input is not { } input)
+            {
+                // The page still answers on the rows it kept, and the procedure's totals still count the
+                // dropped one — so this line is the only trace a bad upstream row leaves (REQ-7.7).
+                logger.LogWarning("Products: skipped upstream document {DocumentNo} — {SkipReason}.",
+                    row.Item.DocumentNo, row.SkipReason);
+                continue;
+            }
+
+            if (input.PaymentStatus is DomainPaymentStatus.PAID && input.PaidDate is null)
+                logger.LogWarning(
+                    "Products: upstream document {DocumentNo} is PAID without a PaidDate; keeping the stored one.",
+                    input.DocumentNo);
+
+            inputs.Add(input);
+        }
+
+        var upserted = await products.UpsertByDocumentNoAsync(inputs, ct);
+        var page = result.Page;
+
+        return new ProductPage(
+            [.. upserted.Select(ProductListItem.From)],
+            page.TotalRows, page.TotalPages, page.PageNo, page.PageSize,
+            page.HasNextPage, page.HasPreviousPage, page.CountMode, page.SearchWindowMonths);
+    }
+
+    /// <summary>Picks the side that answers, and the <c>@ProductGroup</c> that goes with it (REQ-6.1-6.4). The
+    /// two catalogues are separate procedures with separate paging, so exactly one has to be chosen: a request
+    /// naming neither side nor a group cannot be answered, and one naming both must have them agree.</summary>
+    private static (InsuranceType Target, string ProductGroup) ResolveTarget(ProductFilterDto filters)
+    {
+        if (filters.ProductGroup is not { } group)
+        {
+            return filters.InsuranceType is { } side
+                ? (side, "ALL")
+                : throw new ArgumentException("insuranceType is required when productGroup is absent.");
+        }
+
+        var groupSide = group is Domain.ProductGroup.CMI or Domain.ProductGroup.VMI
+            ? Domain.InsuranceType.Motor
+            : Domain.InsuranceType.NonMotor;
+
+        if (filters.InsuranceType is { } declared && declared != groupSide)
+            throw new ArgumentException($"productGroup {group} is not a {declared} product group.");
+
+        return (groupSide, group.ToString());
+    }
 }

@@ -3,6 +3,7 @@ using BuildingBlocks.Web;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Products.Application.Ports;
 
 namespace Hosts.Tests;
 
@@ -19,9 +20,24 @@ public sealed class ProblemDetailsExceptionHandlerTests
         { new ConcurrencyConflictException("rowversion clash"), StatusCodes.Status409Conflict },
         { new MerchantBindingException("no merchant bound"), StatusCodes.Status500InternalServerError },
         { new ArgumentException("bad arg"), StatusCodes.Status400BadRequest },
+        // Has no arm of its own: it reaches 400 through the ArgumentException bucket above, which is the
+        // whole reason it derives from it (REQ-4.5).
+        { new SpDocumentSearchRejectedException(50006, "Invalid CountMode."), StatusCodes.Status400BadRequest },
         { new InvalidOperationException("illegal state"), StatusCodes.Status409Conflict },
+        { new UpstreamUnavailableException("hippodb refused the connection"), StatusCodes.Status503ServiceUnavailable },
         { new Exception("some internal failure"), StatusCodes.Status500InternalServerError },
     };
+
+    /// <summary>The §6 error number rides along for the server log and for tests; the client only ever
+    /// sees the handler's fixed 400 detail (REQ-4.5).</summary>
+    [Fact]
+    public void A_rejected_sp_search_carries_its_error_number()
+    {
+        var exception = new SpDocumentSearchRejectedException(50007, "Invalid PaymentStatus.");
+
+        Assert.Equal(50007, exception.SpErrorNumber);
+        Assert.IsAssignableFrom<ArgumentException>(exception);
+    }
 
     [Theory]
     [MemberData(nameof(Mappings))]
@@ -39,6 +55,7 @@ public sealed class ProblemDetailsExceptionHandlerTests
     {
         new Exception(LeakProbe),                 // unknown -> 500
         new MerchantBindingException(LeakProbe),    // security-floor signal -> opaque 500
+        new UpstreamUnavailableException(LeakProbe),  // upstream fault -> 503 without the SQL/infra text (REQ-4.6)
     };
 
     private const string LeakProbe = "do-not-leak-internal-detail-xyz";

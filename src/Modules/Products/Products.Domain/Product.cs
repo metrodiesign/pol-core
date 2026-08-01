@@ -72,17 +72,59 @@ public sealed class Product : AggregateRoot<Guid>
     public DateTime? PaidDate { get; private set; }
 
     /// <summary>Motor vs Non-Motor, derived from <see cref="ProductGroup"/> — never stored.</summary>
-    public InsuranceType InsuranceType =>
-        ProductGroup is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;
+    public InsuranceType InsuranceType => SideOf(ProductGroup);
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Product() { }
 
-    /// <summary>Creates a new unpaid insurance document in the catalogue.</summary>
+    /// <summary>Creates an insurance document in the catalogue with the payment state the caller states —
+    /// an upstream row that is already PAID must not be born UNPAID, or the cart gate would put a paid
+    /// document back on sale. PAID without a <c>PaidDate</c> is allowed (the upstream does not always send
+    /// one); the caller logs that.</summary>
     public static Product Create(ProductInput input)
     {
         ArgumentNullException.ThrowIfNull(input);
 
+        var product = new Product { Id = Guid.NewGuid() };
+        product.ApplyFields(input);
+        return product;
+    }
+
+    /// <summary>Re-applies an upstream row onto the document it already stands for (REQ-7.3-7.6). Same
+    /// validation as <see cref="Create"/>, plus two guards: the row must be the same
+    /// <see cref="DocumentNo"/>, and its <see cref="ProductGroup"/> must stay on this document's
+    /// <see cref="InsuranceType"/> side — a Motor document turning Non-Motor means the upstream matched the
+    /// wrong row. A local PAID is never downgraded to UNPAID, and its <see cref="PaidDate"/> survives.
+    /// </summary>
+    public void RefreshFromExternal(ProductInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        // Case-insensitive to match IX_Products_DocumentNo: a row the database matched to this document
+        // must refresh it, not throw. ApplyFields then adopts the wire casing, as with every other field.
+        if (!string.Equals(Required(input.DocumentNo, 150, nameof(input.DocumentNo)), DocumentNo,
+                StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("DocumentNo must match the document being refreshed.", nameof(input));
+
+        if (SideOf(input.ProductGroup) != InsuranceType)
+            throw new ArgumentException(
+                "ProductGroup must stay on the same InsuranceType side.", nameof(input));
+
+        var paid = PaymentStatus is PaymentStatus.PAID || input.PaymentStatus is PaymentStatus.PAID;
+
+        ApplyFields(input with
+        {
+            PaymentStatus = paid ? PaymentStatus.PAID : PaymentStatus.UNPAID,
+            PaidDate = paid ? input.PaidDate ?? PaidDate : null,
+        });
+    }
+
+    /// <summary>Validates and assigns every field of <paramref name="input"/> — the single copy of the
+    /// document rules shared by <see cref="Create"/> and <see cref="RefreshFromExternal"/>. A failure
+    /// part-way through leaves the aggregate partly applied, so a caller must let the exception abort the
+    /// whole unit of work instead of saving what got through.</summary>
+    private void ApplyFields(ProductInput input)
+    {
         var saleCode = Required(input.SaleCode, 20, nameof(input.SaleCode));
         var documentNo = Required(input.DocumentNo, 150, nameof(input.DocumentNo));
 
@@ -98,46 +140,47 @@ public sealed class Product : AggregateRoot<Guid>
             throw new ArgumentException("Unknown ProductGroup.", nameof(input));
         if (!Enum.IsDefined(input.DocumentType))
             throw new ArgumentException("Unknown DocumentType.", nameof(input));
+        if (!Enum.IsDefined(input.PaymentStatus))
+            throw new ArgumentException("Unknown PaymentStatus.", nameof(input));
 
         if (input.ProductGroup == ProductGroup.CMI && input.DocumentType == DocumentType.APPLICATION)
             throw new ArgumentException("Motor/CMI does not support APPLICATION documents.", nameof(input));
 
-        return new Product
-        {
-            Id = Guid.NewGuid(),
-            ProductGroup = input.ProductGroup,
-            DocumentType = input.DocumentType,
-            DocumentNo = documentNo,
-            PolicyYear = Optional(input.PolicyYear, 2, nameof(input.PolicyYear)),
-            ReferenceBranch = Optional(input.ReferenceBranch, 3, nameof(input.ReferenceBranch)),
-            ReferencePre = Optional(input.ReferencePre, 20, nameof(input.ReferencePre)),
-            PolicySequenceNo = Optional(input.PolicySequenceNo, 30, nameof(input.PolicySequenceNo)),
-            ReferenceYear = Optional(input.ReferenceYear, 2, nameof(input.ReferenceYear)),
-            ReferenceNo = Optional(input.ReferenceNo, 30, nameof(input.ReferenceNo)),
-            SaleCode = saleCode,
-            SaleFullName = Optional(input.SaleFullName, 500, nameof(input.SaleFullName)),
-            BrokerCode = Optional(input.BrokerCode, 20, nameof(input.BrokerCode)),
-            BrokerName = Optional(input.BrokerName, 500, nameof(input.BrokerName)),
-            PolicyBranch = Optional(input.PolicyBranch, 250, nameof(input.PolicyBranch)),
-            PolicyType = Optional(input.PolicyType, 250, nameof(input.PolicyType)),
-            PolicyNumber = Optional(input.PolicyNumber, 150, nameof(input.PolicyNumber)),
-            ApplicationNumber = Optional(input.ApplicationNumber, 150, nameof(input.ApplicationNumber)),
-            PreviousPolicyNumber = Optional(input.PreviousPolicyNumber, 150, nameof(input.PreviousPolicyNumber)),
-            EndorsementNumber = Optional(input.EndorsementNumber, 150, nameof(input.EndorsementNumber)),
-            StartDate = input.StartDate,
-            EndDate = input.EndDate,
-            ShowName = Optional(input.ShowName, 500, nameof(input.ShowName)),
-            LicensePlateNumber = Optional(input.LicensePlateNumber, 100, nameof(input.LicensePlateNumber)),
-            TotalPremium = RequireMoney(input.TotalPremium, nameof(input.TotalPremium)),
-            NetPremium = RequireMoney(input.NetPremium, nameof(input.NetPremium)),
-            Stamp = RequireMoney(input.Stamp, nameof(input.Stamp)),
-            TaxVat = RequireMoney(input.TaxVat, nameof(input.TaxVat)),
-            CommissionAmount = RequireMoney(input.CommissionAmount, nameof(input.CommissionAmount)),
-            CommissionPercent = input.CommissionPercent,
-            PaymentStatus = PaymentStatus.UNPAID,
-            PaidDate = null,
-        };
+        ProductGroup = input.ProductGroup;
+        DocumentType = input.DocumentType;
+        DocumentNo = documentNo;
+        PolicyYear = Optional(input.PolicyYear, 2, nameof(input.PolicyYear));
+        ReferenceBranch = Optional(input.ReferenceBranch, 3, nameof(input.ReferenceBranch));
+        ReferencePre = Optional(input.ReferencePre, 20, nameof(input.ReferencePre));
+        PolicySequenceNo = Optional(input.PolicySequenceNo, 30, nameof(input.PolicySequenceNo));
+        ReferenceYear = Optional(input.ReferenceYear, 2, nameof(input.ReferenceYear));
+        ReferenceNo = Optional(input.ReferenceNo, 30, nameof(input.ReferenceNo));
+        SaleCode = saleCode;
+        SaleFullName = Optional(input.SaleFullName, 500, nameof(input.SaleFullName));
+        BrokerCode = Optional(input.BrokerCode, 20, nameof(input.BrokerCode));
+        BrokerName = Optional(input.BrokerName, 500, nameof(input.BrokerName));
+        PolicyBranch = Optional(input.PolicyBranch, 250, nameof(input.PolicyBranch));
+        PolicyType = Optional(input.PolicyType, 250, nameof(input.PolicyType));
+        PolicyNumber = Optional(input.PolicyNumber, 150, nameof(input.PolicyNumber));
+        ApplicationNumber = Optional(input.ApplicationNumber, 150, nameof(input.ApplicationNumber));
+        PreviousPolicyNumber = Optional(input.PreviousPolicyNumber, 150, nameof(input.PreviousPolicyNumber));
+        EndorsementNumber = Optional(input.EndorsementNumber, 150, nameof(input.EndorsementNumber));
+        StartDate = input.StartDate;
+        EndDate = input.EndDate;
+        ShowName = Optional(input.ShowName, 500, nameof(input.ShowName));
+        LicensePlateNumber = Optional(input.LicensePlateNumber, 100, nameof(input.LicensePlateNumber));
+        TotalPremium = RequireMoney(input.TotalPremium, nameof(input.TotalPremium));
+        NetPremium = RequireMoney(input.NetPremium, nameof(input.NetPremium));
+        Stamp = RequireMoney(input.Stamp, nameof(input.Stamp));
+        TaxVat = RequireMoney(input.TaxVat, nameof(input.TaxVat));
+        CommissionAmount = RequireMoney(input.CommissionAmount, nameof(input.CommissionAmount));
+        CommissionPercent = input.CommissionPercent;
+        PaymentStatus = input.PaymentStatus;
+        PaidDate = input.PaymentStatus is PaymentStatus.PAID ? input.PaidDate : null;
     }
+
+    private static InsuranceType SideOf(ProductGroup group) =>
+        group is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;
 
     /// <summary>Marks the document paid; a paid document leaves the sellable catalog.</summary>
     public void MarkPaid(DateTime paidDate)

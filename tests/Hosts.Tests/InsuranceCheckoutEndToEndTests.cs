@@ -9,6 +9,7 @@ using Contracts;
 using Mediator;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application;
 using Orders.Domain;
 using Persistence.MerchantRuntime;
@@ -55,10 +56,6 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
     private static readonly Guid MerchantA = Guid.NewGuid();
     private static readonly DateTime Dob = new(1985, 5, 20, 0, 0, 0, DateTimeKind.Utc);
 
-    /// <summary>Frozen "today" for the ProductRepository search window (REQ-6.1) so the document created below
-    /// stays inside it whatever the wall clock says.</summary>
-    private static readonly DateTime Today = new(2026, 7, 30, 9, 0, 0, DateTimeKind.Utc);
-
     private readonly SqliteConnection _connection;
 
     public InsuranceCheckoutEndToEndTests()
@@ -95,6 +92,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 new CreateProductCommand(new Products.Domain.ProductInput(
                     Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
                     "00098-69100/กธ/037674-10", "00098", 2500m,
+                    Products.Domain.PaymentStatus.UNPAID, null,
                     StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
                     ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
                 CancellationToken.None);
@@ -227,14 +225,30 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.NotNull(read);
         Assert.NotEqual(Products.Domain.PaymentStatus.UNPAID, read!.PaymentStatus);
 
-        // ...and it has left the default (UNPAID-only) list surface (REQ-3.1).
-        var listed = await new ListProductsHandler(NewProductRepository(db)).Handle(
-            new ListProductsQuery
-            {
-                ProductFilters = new ProductFilterDto { SaleCode = "00098" },
-            },
-            CancellationToken.None);
-        Assert.Empty(listed.Items);
+        // ...and the next search cannot put it back on sale: the upstream simulated here still reports the
+        // document UNPAID (it learns about our payment separately, if ever), and the upsert must keep the
+        // local PAID and its PaidDate anyway — a downgrade here would be the cart gate reopening a sold
+        // document (products-sp-gateway REQ-7.4).
+        var upstreamStillUnpaid = new FakeSpDocumentGateway(new Products.Application.Ports.SpDocumentItem(
+            "Motor", "VMI", "POLICY", "00098-69100/กธ/037674-10",
+            null, null, null, null, null, null, null, null,
+            "00098", null, null, null, null, null, null, null,
+            null, null, "Somchai Jaidee",
+            null, null, null, 2500m, null, null, null, null, "UNPAID"));
+
+        var listed = await new ListProductsHandler(
+                upstreamStillUnpaid, NewProductRepository(db), NullLogger<ListProductsHandler>.Instance)
+            .Handle(
+                new ListProductsQuery
+                {
+                    ProductFilters = new ProductFilterDto { SaleCode = "00098", ProductGroup = Products.Domain.ProductGroup.VMI },
+                },
+                CancellationToken.None);
+
+        var stillPaid = Assert.Single(listed.Items);
+        Assert.Equal(productId, stillPaid.Id);
+        Assert.Equal(Products.Domain.PaymentStatus.PAID, stillPaid.PaymentStatus);
+        Assert.NotNull(stillPaid.PaidDate);
     }
 
     // REQ-7.4 — merchant-authenticated list surface: masked, no audit trail written.
@@ -300,13 +314,7 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
     // confirmed by trying). Its masking behavior is proven at Integration.Tests level instead — see
     // OrderSummaryReaderIntegrationTests.cs, run against the real pol-db container.
 
-    private static ProductRepository NewProductRepository(MerchantRuntimeDbContext db) =>
-        new(db, new FixedClock(Today));
-
-    private sealed class FixedClock(DateTime utcNow) : IClock
-    {
-        public DateTime UtcNow { get; } = utcNow;
-    }
+    private static ProductRepository NewProductRepository(MerchantRuntimeDbContext db) => new(db);
 
     private sealed class CapturingOutbox(IOutbox inner) : IOutbox
     {

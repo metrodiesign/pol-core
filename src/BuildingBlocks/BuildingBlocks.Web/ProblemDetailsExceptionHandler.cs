@@ -67,6 +67,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
             (StatusCodes.Status400BadRequest, "Invalid request", null),
         InvalidOperationException =>
             (StatusCodes.Status409Conflict, "The operation is not allowed in the resource's current state", null),
+        UpstreamUnavailableException =>
+            (StatusCodes.Status503ServiceUnavailable, "Upstream dependency unavailable", null),
         _ =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
     };

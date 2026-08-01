@@ -46,7 +46,17 @@ public class RawConnectionTests
     {
         // Prefix match: catches SqlConnection (+ SqlConnectionStringBuilder) but NOT SqlException,
         // which EfIdempotencyStore legitimately inspects to detect a unique-violation.
+        //
+        // SpDocumentGateway (products-sp-gateway REQ-5.1) is the one exemption, and it is exempt for the
+        // reason the rule exists rather than in spite of it: it never touches the app database. It calls two
+        // stored procedures in the upstream insurance catalogues, which hold no merchant-scoped rows, are in
+        // no DbContext model, and grant this login EXECUTE and nothing else — there is no query filter or
+        // write authorizer to bypass. EF cannot express the call either (two result sets, no mapped entity).
+        // Anything else in these assemblies reaching for SqlConnection is still the bug this test was
+        // written to catch.
         var result = Types.InAssemblies(ProductionInfrastructure)
+            .That()
+            .DoNotHaveName("SpDocumentGateway")
             .ShouldNot()
             .HaveDependencyOn("Microsoft.Data.SqlClient.SqlConnection")
             .GetResult();
