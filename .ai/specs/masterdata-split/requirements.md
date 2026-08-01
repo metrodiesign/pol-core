@@ -133,7 +133,11 @@ no client changes.
   SHALL แยกต่อโมดูล (`"Positions"`/`"Offices"`/`"Levels"`/`"Divisions"`, ไม่มี prefix
   `"Admin "` — เป็น reference list ไม่ใช่ admin-account operation) แทนการรวมเป็น
   `"Admin Master Data"` เดียว — amended 2026-07-20: Scalar UI ต้องสะท้อนการแตกโมดูลจริง
-  ไม่ใช่ซ่อนไว้หลัง tag รวม.
+  ไม่ใช่ซ่อนไว้หลัง tag รวม. — amended 2026-08-01: implementation จริงใช้**คำไทยต่อโมดูล**
+  เป็น tag (`ตำแหน่ง`/`สำนักงาน`/`ระดับ`/`แผนก`, ผ่าน parameter `thaiLabel` ของ
+  `MapMasterCrud`) ไม่ใช่ชื่อโมดูลอังกฤษตามที่ระบุไว้เดิม — เป็นการตัดสินใจตั้งใจตอน implement
+  (เจตนาเดียวกับ "แยกต่อโมดูล ไม่รวมเป็นก้อนเดียว" ยังคงอยู่ แค่เปลี่ยนภาษาป้าย) ไม่ใช่ bug;
+  แก้ requirement นี้ให้ตรงกับโค้ดจริงเพื่อกันการ revert ผิดในรอบ compliance ครั้งถัดไป.
 - 6.4 THE SYSTEM SHALL คง domain invariant เดิมในทุก entity: `Code` ตรง `^[a-z0-9_]+$`,
   trim, immutable หลังสร้าง; `Rename` แก้ได้แค่ `Name`; `Activate`/`Deactivate` toggle
   `IsActive`.
