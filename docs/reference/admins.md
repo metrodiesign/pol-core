@@ -68,6 +68,12 @@ module.exports = {
       { source: '/api/v1/admins/:path*', destination: 'http://localhost:5100/api/v1/admins/:path*' },
       // merchant provisioning ย้ายออกจาก prefix /admins แล้ว — ต้อง proxy เส้นนี้ด้วย (ดู Endpoints)
       { source: '/api/v1/merchants/:path*', destination: 'http://localhost:5100/api/v1/merchants/:path*' },
+      // master-data reference lists (profile FK ของ admin) เป็น top-level area แยกของตัวเอง ไม่อยู่ใต้ /admins —
+      // ไม่ proxy ด้วยจะโดน 404 จาก frontend server แทนที่จะถึง API (ดู Dev / CORS)
+      { source: '/api/v1/positions/:path*', destination: 'http://localhost:5100/api/v1/positions/:path*' },
+      { source: '/api/v1/offices/:path*', destination: 'http://localhost:5100/api/v1/offices/:path*' },
+      { source: '/api/v1/levels/:path*', destination: 'http://localhost:5100/api/v1/levels/:path*' },
+      { source: '/api/v1/divisions/:path*', destination: 'http://localhost:5100/api/v1/divisions/:path*' },
     ]
   },
 }
@@ -163,7 +169,7 @@ nullable (id ที่หา code ไม่เจอ -> `null`).
 >   "adminId": "…", "email": "b@x.com", "tier": "scoped", "status": "active",
 >   "createdAt": "…", "subjectBound": true,
 >   "accessibleMerchants": { "isUnrestricted": false, "merchants": [ { "id": "…", "code": "acme" } ] },
->   "roleCodes": ["merchant_manager"],
+>   "roleCodes": ["platform_auditor"],
 >   "position": { "id": "…", "code": "sales_rep", "name": "Sales Representative" },
 >   "office": null, "level": null, "division": null
 > }
@@ -237,7 +243,7 @@ permission key เฉพาะ); เขียน (create/update/delete role, set
 | GET | `/api/v1/admins/roles/{code}` | any admin | — | 200 | บทบาทเดียว; ไม่รู้จัก code -> 404 |
 | POST | `/api/v1/admins/roles` | `user.roles` | ต้อง | 201 | รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
 | PUT | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 200 | code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
-| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409 |
+| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409; `platform_admin` (seed anchor) ลบไม่ได้เสมอ -> 409 แม้ไม่มีใครผูกอยู่เลย |
 | PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404 |
 
 `RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount }` — `status` เป็น
