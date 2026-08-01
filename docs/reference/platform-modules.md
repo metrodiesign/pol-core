@@ -35,7 +35,7 @@
 > เอกสารลึกรายเรื่อง: [payment-orchestration-modules.md](payment-orchestration-modules.md)
 > (Payments/PSP/flow + ภาค 8 Canonical Payment API target design),
 > [entity-fields.md](entity-fields.md) (ทุก entity/field/enum), [src-structure.md](src-structure.md) (โครงโค้ด),
-> [admins.md](admins.md) + [merchant-user-module.md](merchant-user-module.md) (auth),
+> [admins.md](admins.md) + [merchants.md](merchants.md) (auth),
 > [search-filter-sort.md](search-filter-sort.md) (query convention)
 
 ---
@@ -618,7 +618,7 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 **ความสัมพันธ์** — merchant ผูกที่คอลัมน์ `merch.Users.MerchantId` ตรง ๆ (1 บัญชี/1 merchant — **ไม่มีตาราง assignment แยกแล้ว**); สมัครแล้ว emit `MerchantUserRegistrationSubmitted` (`src/Contracts/`) ผ่าน outbox แจ้งฝั่ง Admin; auth/registration ลง `merch.AuthAudits`/`merch.RegistrationAudits` (§14)
 
-**สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [merchant-user-module.md](merchant-user-module.md)
+**สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [merchants.md](merchants.md)
 
 ### 4.2 RBAC ฝั่ง merchant-user
 
@@ -1170,8 +1170,8 @@ route/permission/ตารางเดิมทั้งหมด
 | 2 | Tenant | config บริษัทในเครือ + แกน `TenantId`/`MerchantId` ของ query filter + write guard (config อันดับ 2) | บางส่วน | [entity-fields.md](entity-fields.md) |
 | 3.1 | Admin | บัญชีพนักงานภายใน + OIDC BFF session | มีแล้ว | [admins.md](admins.md) |
 | 3.2 | Admin RBAC | role → permission (fail-closed) orthogonal กับ Tier | มีแล้ว | [entity-fields.md](entity-fields.md) |
-| 4.1 | Producer (merchant-user) | บัญชีตัวแทน/นายหน้า + สมัคร ticket-gated + OIDC BFF | มีแล้ว | [merchant-user-module.md](merchant-user-module.md) |
-| 4.2 | Merchant-user RBAC | role → permission ฝั่ง merchant-user (rf2: catalog กลาง `iam` ร่วมกับ admin) | มีแล้ว | [merchant-user-module.md](merchant-user-module.md) |
+| 4.1 | Producer (merchant-user) | บัญชีตัวแทน/นายหน้า + สมัคร ticket-gated + OIDC BFF | มีแล้ว | [merchants.md](merchants.md) |
+| 4.2 | Merchant-user RBAC | role → permission ฝั่ง merchant-user (rf2: catalog กลาง `iam` ร่วมกับ admin) | มีแล้ว | [merchants.md](merchants.md) |
 | 5 | Product | แคตตาล็อกเอกสารประกันกลาง (read-only), source ของราคา | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 6 | Cart | ตะกร้า + subtotal สกุลเดียว | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 7 | Checkout | กำหนดข้อมูล + ล็อกยอด ก่อนยืนยันคำสั่งซื้อ | บางส่วน | [entity-fields.md](entity-fields.md) |
