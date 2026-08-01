@@ -236,7 +236,7 @@ sequenceDiagram
 ### 2.3 Permission model (RBAC)
 - **โครงสร้าง:** สิทธิ = Scope × Resource × Action — catalog กลางเดียว `iam.*` (rf2), ดู `docs/reference/iam.md`
 - **Role ใน Merchant Console:** `merchant_manager` (ทุก merchant key, anchor ปิด/ลบไม่ได้) / `merchant_staff` (scope = merchant ตนเท่านั้น) — merchant สร้าง custom role เพิ่มเองได้
-- **Role ใน Admin Console:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) / `platform_auditor` (scope = ทุก tenant, อ่านอย่างเดียว)
+- **Role ใน Admin Console:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) / `platform_auditor` (Platform-scope, อ่านอย่างเดียว) — เข้าถึงข้าม tenant มาจาก `AdminTier.Super` คนละแกนกับ role, ไม่ใช่ role นี้ที่ให้สิทธิ์ข้าม tenant
 - **maker-checker:** ใช้กับ action อ่อนไหว เช่น approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist — ยังไม่ implement (ดู `platform-modules.md` §3.2)
 - **บังคับใช้:** การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ **backend authorization แยก permission scope ให้ขาด** endpoint ของ admin (cross-tenant/approve/config) ต้องเรียกผ่าน session ของ Merchant Console ไม่ได้
 
@@ -390,7 +390,7 @@ as-built: `POST /api/v1/merchants` → `ProvisionMerchantCommand` → `Provision
 - **ด่านเข้า (default-deny):** ตรวจ `aud=admin-client` + **`hd=platform.com`** ทุก request — ไม่ผ่าน → 403
 - **Role:** RBAC catalog กลาง `iam.*` (rf2) กำหนด role ตรงๆ ตอน assign — ไม่ใช่ default-role-then-elevate แบบเดิม ดู `docs/reference/iam.md`
 - **Bootstrap owner:** seed owner คนแรกผ่าน config/migration (ตารางว่างตอน deploy → elevate ตัวเองผ่าน UI ไม่ได้)
-- **Roles:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) · `platform_auditor` (cross-tenant, อ่านอย่างเดียว)
+- **Roles:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) · `platform_auditor` (Platform-scope, อ่านอย่างเดียว — เข้าถึงข้าม tenant ขึ้นกับ `AdminTier.Super` ไม่ใช่ role นี้)
 - **สมมติฐานที่ต้องจริงตลอด:** ทุกบัญชี @platform.com = คนที่ให้เข้า admin ได้ (โดเมนสงวนเฉพาะทีมกลาง) ถ้าวันใดโดเมนขยายใช้ทั่วไป ต้องกลับไปใช้ allowlist รายคน
 
 #### Merchant Console (เดิมเรียก Tenant Console / producer)

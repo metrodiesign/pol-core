@@ -79,7 +79,7 @@
 | `platform_admin` | Platform | ใช่ (ปิด/ลบไม่ได้) | ทุก Platform key (15) | `11111111-1111-1111-1111-111111111111` |
 | `platform_auditor` | Platform | ไม่ | subset อ่านอย่างเดียว | `55555555-...` |
 | `merchant_manager` | Merchant | ใช่ (ปิด/ลบไม่ได้) | ทุก Merchant key (7) | `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` |
-| `merchant_staff` | Merchant | ไม่ | `payment.create`, `payment.redirect` | `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb` |
+| `merchant_staff` | Merchant | ไม่ | `payment.create`, `payment.redirect`, `policies.read` | `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb` |
 
 merchant สร้าง custom role ของตัวเองเพิ่มได้ (ผูก `MerchantId`) ผ่าน endpoint ด้านล่าง — ไม่ใช่แค่ 4 role นี้ตายตัว
 
