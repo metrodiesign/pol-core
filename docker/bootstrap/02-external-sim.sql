@@ -430,13 +430,13 @@ SET PolicyYear           = '69',
                                WHEN 4 THEN N'สาขาขอนแก่น'
                                ELSE        N'สาขาพระราม 9' END,
     PolicyType           = CASE WHEN d.SourceSystem = 'VMI' THEN N'90' END,
-    SaleFullName         = CASE v.Seq % 6
-                               WHEN 0 THEN N'นายกิตติพงศ์ อารีย์วงศ์'
-                               WHEN 1 THEN N'นางสาวสุนิสา วงศ์สว่าง'
-                               WHEN 2 THEN N'นายเอกรัตน์ ธีรวุฒิ'
-                               WHEN 3 THEN N'นางสาวจิราพร คงเจริญ'
-                               WHEN 4 THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
-                               ELSE        N'นางเบญจวรรณ ทองอยู่' END,
+    -- SaleCode is the agent's own code; SaleFullName is that same agent's name. They must come from
+    -- one paired dataset (a code always names the same agent), not vary independently per row — keyed
+    -- on d.SaleCode, not v.Seq. Same two agents by SaleCode across both hippodb/mammothdb (an agent
+    -- can sell both Motor and Non-Motor).
+    SaleFullName         = CASE d.SaleCode
+                               WHEN '77001' THEN N'นายเอกชัย รุ่งโรจน์กิจ'
+                               WHEN 'S001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
     BrokerCode           = CASE v.Seq % 5
                                WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
                                WHEN 3 THEN '704' ELSE '705' END,
@@ -851,13 +851,11 @@ SET PolicyYear           = '69',
                                WHEN 4 THEN N'สาขาขอนแก่น'
                                ELSE        N'สาขาพระราม 9' END,
     PolicyType           = NULL,   -- product-type code is a Motor/VMI concept in this catalogue
-    SaleFullName         = CASE v.Seq % 6
-                               WHEN 0 THEN N'นายกิตติพงศ์ อารีย์วงศ์'
-                               WHEN 1 THEN N'นางสาวสุนิสา วงศ์สว่าง'
-                               WHEN 2 THEN N'นายเอกรัตน์ ธีรวุฒิ'
-                               WHEN 3 THEN N'นางสาวจิราพร คงเจริญ'
-                               WHEN 4 THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
-                               ELSE        N'นางเบญจวรรณ ทองอยู่' END,
+    -- Same agent roster as hippodb (SaleCode -> SaleFullName is one paired dataset, not per-row
+    -- variety) — an agent can sell both Motor and Non-Motor under the same code.
+    SaleFullName         = CASE d.SaleCode
+                               WHEN '77001' THEN N'นายเอกชัย รุ่งโรจน์กิจ'
+                               WHEN 'S001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
     BrokerCode           = CASE v.Seq % 5
                                WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
                                WHEN 3 THEN '704' ELSE '705' END,
