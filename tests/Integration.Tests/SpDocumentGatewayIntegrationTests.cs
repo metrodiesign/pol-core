@@ -38,6 +38,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         decimal AxisTotalPremium,
         string? AxisLicensePlate,
         string? AxisPolicyType,
+        string AxisReferenceBranch,
         string PaidPolicyNumber);
 
     private static readonly Side MotorSide = new(
@@ -52,6 +53,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         AxisTotalPremium: 12500.00m,
         AxisLicensePlate: "1กก 1001",
         AxisPolicyType: "90",                       // seeded for VMI only
+        AxisReferenceBranch: "900",                  // SaleCode 77001 -> broker 701 -> branch 900
         PaidPolicyNumber: "77001-69900/950007");
 
     private static readonly Side NonMotorSide = new(
@@ -66,6 +68,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         AxisTotalPremium: 18500.00m,
         AxisLicensePlate: null,                     // §5.2: the Non-Motor procedure returns a constant null
         AxisPolicyType: null,                       // policy-type codes are a Motor concept in this catalogue
+        AxisReferenceBranch: "901",                  // SaleCode 90001 -> broker 702 -> branch 901
         PaidPolicyNumber: "90001-69900/960007");
 
     // ------------------------------------------------------------------ mapping (REQ-5.1, 5.2, 5.3)
@@ -112,7 +115,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         Assert.Equal("POLICY", item.DocumentType);
         Assert.Equal(side.AxisDocumentNo, item.DocumentNo);
         Assert.Equal("69", item.PolicyYear);
-        Assert.Equal("900", item.ReferenceBranch);
+        Assert.Equal(side.AxisReferenceBranch, item.ReferenceBranch);
         Assert.Null(item.ReferencePre);                          // seeded for ENDORSEMENT only
         Assert.Equal(side.AxisPolicyNumber[^6..], item.PolicySequenceNo);   // the sequence the number ends on
         Assert.Equal("69", item.ReferenceYear);

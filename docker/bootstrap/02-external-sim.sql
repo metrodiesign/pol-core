@@ -428,17 +428,23 @@ GO
 UPDATE d
 SET PolicyYear           = '69',
     ReferenceYear        = '69',
-    ReferenceBranch      = '900',
+    -- ReferenceBranch/PolicyBranch is one branch office, code + name — the same paired-set rule as
+    -- SaleCode/SaleFullName. A broker's home branch is fixed, and BrokerCode is itself pinned to
+    -- SaleCode above, so this chains off d.SaleCode too (same partition as the BrokerCode CASE below,
+    -- just naming the branch instead of the broker).
+    ReferenceBranch      = CASE WHEN d.SaleCode IN ('77001', '77006') THEN '900'
+                                 WHEN d.SaleCode IN ('77002', '90001') THEN '901'
+                                 WHEN d.SaleCode =    '77003'          THEN '902'
+                                 WHEN d.SaleCode =    '77004'          THEN '903'
+                                 WHEN d.SaleCode =    '77005'          THEN '904' END,
     ReferencePre         = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN '900' END,
     PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
     ReferenceNo          = CONVERT(varchar(30), v.Seq),
-    PolicyBranch         = CASE v.Seq % 6
-                               WHEN 0 THEN N'สำนักงานใหญ่'
-                               WHEN 1 THEN N'สาขาสีลม'
-                               WHEN 2 THEN N'สาขาเชียงใหม่'
-                               WHEN 3 THEN N'สาขาหาดใหญ่'
-                               WHEN 4 THEN N'สาขาขอนแก่น'
-                               ELSE        N'สาขาพระราม 9' END,
+    PolicyBranch         = CASE WHEN d.SaleCode IN ('77001', '77006') THEN N'สำนักงานใหญ่'
+                                 WHEN d.SaleCode IN ('77002', '90001') THEN N'สาขาสีลม'
+                                 WHEN d.SaleCode =    '77003'          THEN N'สาขาเชียงใหม่'
+                                 WHEN d.SaleCode =    '77004'          THEN N'สาขาหาดใหญ่'
+                                 WHEN d.SaleCode =    '77005'          THEN N'สาขาขอนแก่น' END,
     PolicyType           = CASE WHEN d.SourceSystem = 'VMI' THEN N'90' END,
     -- SaleCode is the agent's own code; SaleFullName is that same agent's name — one code always names
     -- the same agent, so this is keyed on d.SaleCode, not v.Seq. Covers this side's own 6-agent roster
@@ -869,17 +875,23 @@ GO
 UPDATE d
 SET PolicyYear           = '69',
     ReferenceYear        = '69',
-    ReferenceBranch      = '900',
+    -- Same paired-set rule and broker-chain as hippodb's block above: ReferenceBranch/PolicyBranch is
+    -- one branch office, keyed off d.SaleCode via the same BrokerCode grouping (share the SAME branch
+    -- for the two SaleCodes shared across both sides: '77001' and '90001' land on the branch their
+    -- broker — '701' and '702' respectively — is pinned to there too).
+    ReferenceBranch      = CASE WHEN d.SaleCode IN ('90005', '77001') THEN '900'
+                                 WHEN d.SaleCode IN ('90001', '90006') THEN '901'
+                                 WHEN d.SaleCode =    '90002'          THEN '902'
+                                 WHEN d.SaleCode =    '90003'          THEN '903'
+                                 WHEN d.SaleCode =    '90004'          THEN '904' END,
     ReferencePre         = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN '900' END,
     PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
     ReferenceNo          = CONVERT(varchar(30), v.Seq),
-    PolicyBranch         = CASE v.Seq % 6
-                               WHEN 0 THEN N'สำนักงานใหญ่'
-                               WHEN 1 THEN N'สาขาสีลม'
-                               WHEN 2 THEN N'สาขาเชียงใหม่'
-                               WHEN 3 THEN N'สาขาหาดใหญ่'
-                               WHEN 4 THEN N'สาขาขอนแก่น'
-                               ELSE        N'สาขาพระราม 9' END,
+    PolicyBranch         = CASE WHEN d.SaleCode IN ('90005', '77001') THEN N'สำนักงานใหญ่'
+                                 WHEN d.SaleCode IN ('90001', '90006') THEN N'สาขาสีลม'
+                                 WHEN d.SaleCode =    '90002'          THEN N'สาขาเชียงใหม่'
+                                 WHEN d.SaleCode =    '90003'          THEN N'สาขาหาดใหญ่'
+                                 WHEN d.SaleCode =    '90004'          THEN N'สาขาขอนแก่น' END,
     PolicyType           = NULL,   -- product-type code is a Motor/VMI concept in this catalogue
     -- SaleCode is the agent's own code; SaleFullName is that same agent's name — keyed on d.SaleCode,
     -- not v.Seq. Covers this side's own 6-agent roster (matching the SaleCode CASE in the generate
