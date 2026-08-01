@@ -1,22 +1,24 @@
-# Merchant-user Module — OIDC BFF (Google + Entra) + Sequence Diagrams
+# Merchants Module — OIDC BFF (Google + Entra) + Sequence Diagrams
 
-> Generated 2026-07-25 จากโค้ดจริงบน `develop`: `src/Hosts/Api/Merchants/*.cs`, `src/Hosts/Api/Program.cs`
-> (route tree), `src/Modules/Merchants/**`, `src/Persistence/Persistence.MerchantUsers/**`,
+> Generated 2026-07-25, sync 2026-07-31 (retire catalog permissions), sweep ล่าสุด **2026-08-01** (rename
+> `merchant-user-module.md` -> `merchants.md`; เพิ่ม query-param contract ของ `GET /products`,
+> concurrency-token 409 ของ approve/reject/resubmit, ตัวอย่าง payment-session request body) จากโค้ดจริงบน
+> `develop`: `src/Hosts/Api/Merchants/*.cs`, `src/Hosts/Api/Program.cs` (route tree),
+> `src/Modules/Merchants/**`, `src/Persistence/Persistence.MerchantUsers/**`,
 > `src/Hosts/Api/Iam/PermissionAuthorization.cs`, `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`.
 > เอกสารนี้เป็น **สัญญาสำหรับทีม merchant-user SPA** + คู่มือกลไกฝั่ง backend. แก้ auth/route/cookie/CORS เมื่อไหร่
 > ให้ update ไฟล์นี้ตามด้วย.
 >
-> ไฟล์นี้เดิมชื่อ `producer-module.md`. module `Producer` **ไม่มีอยู่แล้ว** — ถูก merge เข้ากับ `Tenant` เป็น
-> **`Merchants` module** เดียว (rf1), actor `ProducerAccount` -> **`Merchants.Domain.Users.User`** (เรียกในเอกสาร/
-> โค้ดว่า *merchant-user*), route `/api/v1/producers/*` -> **`/api/v1/merchants/{auth,users}/*`**, cookie
-> `prd_*` -> **`mch_*`**, schema `producer` -> **`merch`**. ทุกชื่อในไฟล์นี้ derive จากโค้ดปัจจุบัน ไม่ได้ยกมาจาก
-> ฉบับเดิม.
+> ไฟล์นี้เดิมชื่อ `producer-module.md`; module `Producer` ถูก merge เข้ากับ `Tenant` เป็น **`Merchants`** module
+> เดียว (rf1, actor `ProducerAccount` -> `Merchants.Domain.Users.User`, เรียกในเอกสาร/โค้ดว่า *merchant-user*)
+> แล้วไฟล์เปลี่ยนชื่อเป็น `merchant-user-module.md` และล่าสุดเปลี่ยนเป็น **`merchants.md`** ให้ตรงชื่อโมดูลจริง
+> (namespace `Api.Merchants`, `Merchants.Domain`) — เนื้อหาทุกจุด derive จากโค้ดปัจจุบันสด ไม่ใช่ยกมาจากฉบับเดิม.
 
 **Ports (dev):** API `http://localhost:5100` · Admin SPA `:5200` · Merchant-user SPA `:5300`
 
 **โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) · **เทียบ admin console:**
-[admins.md](admins.md) (กลไกเดียวกัน คนละ actor) · **ตาราง/ฟิลด์:**
-[entity-fields.md](entity-fields.md)
+[admins.md](admins.md) (กลไกเดียวกัน คนละ actor) · **ตาราง/ฟิลด์:** [entity-fields.md](entity-fields.md) ·
+**แคตตาล็อกสินค้าที่ funnel endpoint `GET /products` เรียก:** [products.md](products.md)
 
 ---
 
@@ -48,9 +50,9 @@
 
 ## 1. หลักการ (อ่านก่อนเขียนโค้ด)
 
-Merchant-user auth เป็น **server-side OIDC BFF** (Backend-for-Frontend) แบบเดียวกับ admin console. FE **ไม่** แตะ
-IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แนบ `Authorization` header. auth ทั้งหมดคือ **session cookie** ที่ server
-ออกให้หลัง login สำเร็จ.
+Merchant-user auth เป็น **server-side OIDC BFF** (Backend-for-Frontend) แบบเดียวกับ admin console. FE **ไม่**
+แตะ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แนบ `Authorization` header. auth ทั้งหมดคือ **session cookie** ที่
+server ออกให้หลัง login สำเร็จ.
 
 ```
                 Browser (merchant-user SPA, :5300)
@@ -73,7 +75,7 @@ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แน�
    |                                                          |
    |  [MerchantUserSession cookie scheme] (ทุก request)        |
    |        re-resolve READ-ONLY -> IUserScope                |
-   |        rotation / reuse-detect / idle-slide              |
+   |        rotation / reuse-detect / idle-slide               |
    |                                                          |
    |  policy "merchant-user" (single-scheme)                  |
    |  RequirePermission (fail-closed, side-aware)             |
@@ -187,14 +189,15 @@ IdP โดยตรง, **ไม่** ถือ id_token, **ไม่** แน�
 บังคับอย่างน้อย 1.
 
 > ไม่มี flag `EnforcePermissionsOnWrites` อีกแล้ว — ของเดิมเป็น transitional toggle ตอนยังมี Bearer fallback;
-> rf1 ถอด Bearer ออกหมด write endpoint จึง gate permission แบบไม่มีเงื่อนไข.
+> rf1 ถอด Bearer ออกหมด write endpoint จึง gate permission แบบไม่มีเงื่อนไข (ยืนยันจาก comment `Program.cs:622-624`).
 
 ---
 
 ## 4. Sequence: login redirect (challenge)
 
 `GET /api/v1/merchants/auth/{provider}/login?returnTo=...` — anonymous, rate-limited. resolve provider slug จาก
-`UserOidcProviders`, validate `returnTo` กับ allowlist, แล้ว `Results.Challenge` เข้า scheme ของ provider นั้น.
+`UserOidcProviders`, validate `returnTo` กับ allowlist, แล้ว `Results.Challenge` เข้า scheme ของ provider นั้น
+(`Program.cs:1163-1182`).
 
 ```mermaid
 sequenceDiagram
@@ -474,7 +477,7 @@ sequenceDiagram
         EP-->>A: 409 "The selected merchant is not active."
     else พบและ Active
         EP->>AC: ApproveCommand(subject, validatedMerchantId, roleCodes,<br/>actingAdminSubject, actingAdminId, correlationId)
-        AC->>DB: Users.FindBySubject(subject)
+        AC->>DB: Users.FindBySubject(subject)   (IAccountStore — pre-bind seam, ไม่ผ่าน query filter)
         alt ไม่พบ
             AC-->>EP: 404
         else Active อยู่แล้ว + merchant เดิม
@@ -502,6 +505,18 @@ non-Pending -> 409; unknown -> 404.
 
 > `User.Approve` เป็นตัวบังคับ invariant เอง (idempotent เมื่อ merchant เดิม, throw เมื่อเปลี่ยน merchant) —
 > handler แค่อ่านผลลัพธ์ไปประกอบ response.
+
+### Concurrency-token 409 (เพิ่มใหม่ — commit `02d5863`, bugfix-merchant-prebind-wiring Codex P1)
+
+`Status` + `MerchantId` บน `merch.Users` เป็น **EF concurrency token** (`IsConcurrencyToken()` ระดับ model
+เท่านั้น — ไม่มี DB column/migration ใหม่, `UserConfiguration.cs:20,29-30`). ถ้าสอง request แข่งกันบน
+merchant-user แถวเดียวกัน (เช่น approve 2 ครั้งพร้อมกัน, หรือ approve ชนกับ reject/resubmit ที่กำลังเขียนแถว
+เดียวกันอยู่) ฝั่งที่ save ทีหลังจะชน `DbUpdateConcurrencyException` -> แปลงเป็น `ConcurrencyConflictException`
+(`MerchantUserRepositories.cs:73-79`) -> ตอบ **409** ด้วยข้อความ
+`"The resource was modified concurrently; please retry."` (`ProblemDetailsExceptionHandler.cs:61`) —
+**คนละข้อความจาก** 409 ของ business-conflict ปกติ (เช่น "must be PendingApproval", "already active for a
+different merchant") FE ควร retry ทันทีเมื่อเจอ 409 แบบนี้ (state ไม่ได้ผิด แค่ชนกันตอนเขียน) ต่างจาก 409
+ธรรมดาที่ต้องแก้ input/state ก่อนค่อย retry.
 
 ---
 
@@ -606,7 +621,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 
 | Method | Path | Auth | CSRF | Permission | Success | หมายเหตุ |
 |---|---|---|---|---|---|---|
-| POST | `/api/v1/admins/merchants/users/{subject}/approve` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.approve` | 200 | body `{ merchantCode, roleCodes[] }`; idempotent; 400/404/409 |
+| POST | `/api/v1/admins/merchants/users/{subject}/approve` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.approve` | 200 | body `{ merchantCode, roleCodes[] }`; idempotent; 400/404/409 (รวม concurrency-token 409 — ดู §8) |
 | POST | `/api/v1/admins/merchants/users/{subject}/reject` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.reject` | 200 | body `{ reason? }`; revoke sessions; 404/409 |
 
 ### Funnel endpoints ที่ merchant-user ใช้ (policy เดียวกัน, คนละ group)
@@ -616,7 +631,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 
 | Method | Path | Permission |
 |---|---|---|
-| GET | `/api/v1/products` | — |
+| GET | `/api/v1/products` | — (รายละเอียด query param ดูด้านล่าง) |
 | POST · GET · PUT · DELETE | `/api/v1/carts`, `/api/v1/carts/{cartId}`, `/api/v1/carts/{cartId}/items[/{productId}]`, `/api/v1/carts/{cartId}/clear` | — |
 | POST | `/api/v1/checkouts`, `/api/v1/checkouts/{checkoutSessionId}/confirm` | — |
 | POST | `/api/v1/payments/sessions` | `payment.create` |
@@ -628,6 +643,22 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 | GET | `/api/v1/reports/policies` | `policies.read` |
 
 `merchantUserId` / `merchantId` / `orderId` ฯลฯ เป็น Guid. JSON body/field เป็น camelCase.
+
+#### `GET /api/v1/products` — query contract (products-sp-gateway pivot)
+
+**ไม่มี SFS** (`filters`/`sort`/`search` ถูกถอดหมด) รับแค่:
+
+- `page` / `limit` — paging ธรรมดา (`SfsQueryParser.ParsePaging`, `limit` cap **25**)
+- `productFilters` — JSON object **บังคับต้องมี** `saleCode`; ตัวเลือกอื่น: `searchText`, `insuredName`,
+  `policyNo`, `applicationNo`, `documentType`, `productGroup`, `coverageStartFrom`/`-To`,
+  `coverageEndFrom`/`-To`, `paidDateFrom`/`-To`
+- `insuranceType` (`Motor`/`NonMotor`) — **บังคับเมื่อไม่ส่ง** `productGroup`, ห้ามขัดแย้งกับ `productGroup` -> 400
+- `countMode` (`EXACT`/`FAST`, default `EXACT`) — `FAST` ให้ `totalRows`/`totalPages` เป็น `null`
+- `paymentStatus` (`UNPAID`/`PAID`/`ALL`, default `UNPAID`)
+
+ค้นสด ผ่าน `ISpDocumentGateway` แล้ว upsert กลับเข้า `shop.Products` — SP ล่ม/ต่อไม่ได้ตอบ **503** (ไม่ใช่ 500).
+รายละเอียด response envelope (`ProductPage`) + full contract: **[products.md](products.md) §2/§5.1** (เอกสารนี้
+ไม่ copy รายละเอียดมาซ้ำ — sync ที่ `products.md` ที่เดียว).
 
 ### Response shape ที่ FE ใช้บ่อย
 
@@ -654,6 +685,11 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 
 // POST /api/v1/admins/merchants/users/{subject}/approve  (200)
 { "merchantUserId": "…", "status": "Active", "alreadyActive": false }
+
+// POST /api/v1/payments/sessions — request body (commit 4a73059)
+{ "orderId": "…", "method": "card", "psp": "TWOCTWOP" }
+// ไม่มี "amount": ยอดเงินอ่านจากแถว order ฝั่ง server เสมอ — ส่ง amount มาก็ถูก ignore
+// (Program.cs:2204-2207: "the platform never mints a charge the order does not back")
 ```
 
 `status` ของ **role** เป็น lowercase (`active`/`inactive`) และ parse แบบ strict — ค่าอื่น (typo/blank/null) = 400
@@ -766,6 +802,7 @@ AddPolicy("merchant-user", p => p
 | write floor | `HttpMerchantWriteAuthorizer(IAdminScope, IActorContext)` สำหรับ HTTP request — เลือกต่อ write: admin scope bound -> `AdminApprovalWriteAuthorizer` (ชุด approve/reject เท่านั้น, confine ตาม accessible set), ไม่ bound -> `MerchantRequestWriteAuthorizer(IActorContext)`; `WorkerWriteAuthorizer()` สำหรับ background dispatch scope (เลือกด้วย `BackgroundDispatchScope.IsHttpRequest`) — spec `bugfix-merchant-prebind-wiring` |
 | query filter | **เฉพาะ `merch.Users` และ `merch.RoleAssignments`** — `x.MerchantId == context.CurrentMerchant`. อีก 5 entity ใน cluster (Sessions / ExternalLogins / AuthAudits / RegistrationAudits / RegistrationNotices) **ไม่มี** filter |
 | pending carve-out | `User.MerchantId` เป็น nullable; NULL ไม่มีวันเท่า `CurrentMerchant` ใน SQL -> pending row ถูกซ่อนจาก merchant actor โดยอัตโนมัติ เห็นได้เฉพาะผ่าน pre-bind seam ที่ suppress filter ชัดเจน: `IAccountResolver` (login/by-id read) + `IAccountStore` (tracked load ของ registration/correction/approve/reject) |
+| concurrency | `merch.Users.Status`+`MerchantId` เป็น EF concurrency token ตั้งแต่ commit `02d5863` (model-level เท่านั้น, ไม่มี column/migration ใหม่) — ดู §8 |
 | migration owner | `PolDbContext` เท่านั้น — cluster นี้ไม่ประกาศ migration เอง |
 
 ports ที่ `AddMerchantUserPersistence` bind (ทั้งหมดอยู่บน `MerchantUserDbContext` เดียวกัน scope เดียวกัน ->
@@ -799,7 +836,7 @@ schema = `merch` ทั้งหมด. รายละเอียดฟิล�
 
 | ตาราง | query filter | หมายเหตุ |
 |---|---|---|
-| `merch.Users` | **มี** (`MerchantId == CurrentMerchant`, NULL = ซ่อน) | merchant-user account **+ person details** (`DisplayName` server-computed, `FirstName`/`LastName` NOT NULL, `PersonType`/`IdNumber`/`ProducerCode`/`LicenseNumber`/`Phone`, `PhotoObjectKey`/`PhotoContentType`); `MerchantId` **nullable** — NULL จนกว่า admin approve; **UNIQUE บน `Subject`** = 1 record ต่อ subject (dedup/replay guard) |
+| `merch.Users` | **มี** (`MerchantId == CurrentMerchant`, NULL = ซ่อน) | merchant-user account **+ person details** (`DisplayName` server-computed, `FirstName`/`LastName` NOT NULL, `PersonType`/`IdNumber`/`ProducerCode`/`LicenseNumber`/`Phone`, `PhotoObjectKey`/`PhotoContentType`); `MerchantId` **nullable** — NULL จนกว่า admin approve; **UNIQUE บน `Subject`** = 1 record ต่อ subject (dedup/replay guard); **`Status`+`MerchantId` เป็น EF concurrency token** (model-level เท่านั้น ไม่มี column/migration เพิ่ม — commit `02d5863`, ดู §8) |
 | `merch.Sessions` | ไม่มี | BFF session rotation family; UNIQUE `TokenHash` (`varbinary(32)`), index `FamilyId` / `MerchantUserId` / `AbsoluteExpiresAt` |
 | `merch.ExternalLogins` | ไม่มี | provider subject -> `MerchantUserId`; UNIQUE `(Provider, Subject)` |
 | `merch.AuthAudits` | ไม่มี (append-only) | `login-success` / `logout` / `logout-all` / `rotated` / `family-revoked-reuse` / `auth-denied`; `MerchantUserId` nullable (deny ก่อน resolve ได้) |
@@ -940,12 +977,24 @@ const res = await fetch('/api/v1/merchants/users/register', { method: 'POST', bo
 `displayName` **ไม่ใช่** field ที่ส่ง — server compute จาก `firstName + lastName`. `subject` / `email` ก็ไม่ใช่ —
 มาจาก ticket เท่านั้น.
 
+### payment session (ไม่มี amount)
+
+```js
+const res = await merchantFetch('/api/v1/payments/sessions', {
+  method: 'POST',
+  body: JSON.stringify({ orderId, method: 'card', psp: 'TWOCTWOP' }),
+  headers: { 'Content-Type': 'application/json' },
+})
+// ห้ามส่ง amount — ยอดเงินคิดจากแถว order ฝั่ง server เสมอ ส่งมาก็ถูก ignore เงียบ ๆ
+```
+
 ### ห้าม
 
 - อย่าใช้ `Authorization: Bearer` — Bearer path ถูกถอดทั้งระบบแล้ว (rf1)
 - อย่าอ่าน/เก็บ session cookie เอง (HttpOnly)
 - อย่า cache ค่า `mch_csrf` ไว้ในตัวแปรข้ามหลาย request — rotation เปลี่ยนค่ามันได้ทุกเมื่อ
 - อย่าถือ `roles` / `permissions` ที่ cache ฝั่ง client เป็น authority — server re-resolve ทุก request อยู่แล้ว
+- อย่าส่ง `amount` ใน payment session request — ยอดคิดจาก order เสมอ
 
 ---
 
@@ -956,13 +1005,15 @@ const res = await fetch('/api/v1/merchants/users/register', { method: 'POST', bo
 
 | Status | ความหมาย | FE ทำอะไร |
 |---|---|---|
-| 400 | body/form ผิด, ticket invalid/expired, role code ไม่รู้จัก, role status ผิดรูป | validation error |
+| 400 | body/form ผิด, ticket invalid/expired, role code ไม่รู้จัก, role status ผิดรูป, `insuranceType` ขัดแย้งกับ `productGroup` | validation error |
 | 401 | ไม่มี session cookie / session หมด / ถูก revoke / ตรวจพบ reuse | redirect ไป `/api/v1/merchants/auth/{provider}/login` |
 | 403 | session valid แต่: scope ไม่ bound (`BoundFilter`), ไม่มี permission, **หรือ CSRF token หาย/ไม่ตรง** | "ไม่มีสิทธิ์" หรือ refresh CSRF แล้วลองใหม่ |
 | 404 | provider ไม่รู้จัก/ไม่ config; role/target นอก merchant หรือไม่มีจริง (กัน existence leak) | not-found |
-| 409 | duplicate subject (replay), dup role code, merchant ไม่ active, state ไม่ถูกต้อง (ต้องเป็น PendingApproval) | conflict |
+| 409 (business) | duplicate subject (replay), dup role code, merchant ไม่ active, state ไม่ถูกต้อง (ต้องเป็น PendingApproval), already active for a different merchant | conflict — ต้องแก้ input/state ก่อนค่อย retry |
+| 409 (concurrency) | approve/reject/resubmit ชนกันตอนเขียนแถวเดียวกัน (`"The resource was modified concurrently; please retry."` — ดู §8) | **retry ได้ทันที** ไม่ต้องแก้ input |
 | 413 | upload เกิน `PhotoMaxBytes` | "ไฟล์ใหญ่เกินไป" |
 | 429 | เกิน rate limit ของ `/auth/{provider}/login` หรือ `/users/register` (20/60s ต่อ IP) | "ลองใหม่อีกครั้ง" |
+| 503 | `GET /products` — SP ต้นทางล่ม/ต่อไม่ได้ (ไม่ใช่ 500 ของเรา, ดู [products.md](products.md)) | "ลองใหม่ภายหลัง" |
 
 ---
 
@@ -1022,12 +1073,15 @@ FE code ไม่ต้องเปลี่ยน. ต้องตั้ง `Co
 - cookies + CSRF: `src/Hosts/Api/Merchants/UserSessionCookies.cs`, `.../UserCsrfFilter.cs`
 - registration: `src/Hosts/Api/Merchants/UserRegistration.cs`,
   `src/Modules/Merchants/Merchants.Application/Users/SubmitRegistration.cs`
-- approve/reject: `src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs`
+- approve/reject + concurrency token: `src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs`,
+  `src/Persistence/Persistence.MerchantUsers/Users/UserConfiguration.cs`,
+  `src/Persistence/Persistence.MerchantUsers/Users/MerchantUserRepositories.cs`
 - actor entity: `src/Modules/Merchants/Merchants.Domain/Users/User.cs`
-- routes (`/api/v1/merchants/auth` + `/api/v1/merchants/users` + admin cross-plane): `src/Hosts/Api/Program.cs`
+- routes (`/api/v1/merchants/auth` + `/api/v1/merchants/users` + admin cross-plane + funnel): `src/Hosts/Api/Program.cs`
 - permission gate + boot parity: `src/Hosts/Api/Iam/PermissionAuthorization.cs`;
   vocabulary: `src/Modules/Iam/Iam.Domain/Permissions/Keys.cs`
 - persistence cluster: `src/Persistence/Persistence.MerchantUsers/**`
 - CORS split: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
+- products catalog ที่ `GET /products` เรียก: [products.md](products.md), `src/Hosts/Api/Program.cs:634-654`
 - canon: [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
   [`CODING_STANDARDS.md`](../../.ai/shared/CODING_STANDARDS.md)

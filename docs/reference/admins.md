@@ -255,7 +255,7 @@ route ต่อไปนี้ mount อยู่ใต้ `/api/v1/admins/*` (�
 auth เท่านั้น — เป็น business action ของโมดูลอื่น เอกสารเต็มอยู่คนละที่ ไม่ copy รายละเอียดมาซ้ำที่นี่:
 
 - `POST /api/v1/admins/merchants/users/{subject}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
-  ใหม่ ดู [`merchant-user-module.md`](merchant-user-module.md) §8 (sequence diagram เต็ม)
+  ใหม่ ดู [`merchants.md`](merchants.md) §8 (sequence diagram เต็ม)
 - `PUT /api/v1/admins/orders/{orderId}/items/{itemId}/policy`, `GET /api/v1/admins/reports/policies` — แก้/
   อ่าน policy-reference record ข้าม merchant (escape-hatch ผ่าน `IAdminScope`) ดู
   [`platform-modules.md`](platform-modules.md) แถว policy-reference-record
