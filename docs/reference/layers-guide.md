@@ -598,6 +598,9 @@ registers it unkeyed, shared by both hosts"). คนใหม่ที่ grep �
 
 #### 10. Levels
 
+> รายละเอียดเชิงลึกเฉพาะ Levels (domain/application/infrastructure/API/migration ครบชุด) ย้ายไปรวมที่
+> [`levels.md`](levels.md) แล้ว — ที่นี่เก็บไว้เฉพาะมุมมอง 6-layer เทียบกับ Divisions/Offices/Positions
+
 **Domain**: `Level.cs` (48 บรรทัด, เหมือน `Division`/`Office`/`Position` เป๊ะ) — ไม่มี state machine ไม่มี
 concurrency token, invariant เดียวคือ `Code` ต้องผ่าน `^[a-z0-9_]+$` แล้ว immutable หลังสร้าง (identity) ส่วน
 `Name`/`IsActive` แก้ได้อิสระผ่าน `Rename`/`Activate`/`Deactivate` — คอมเมนต์ในโค้ดยืนยันว่าเป็น "standalone

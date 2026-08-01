@@ -1110,6 +1110,9 @@ claim ที่สะสางไม่จบเมื่อเหตุขั�
 4 โมดูลอิสระแล้วลบ `MasterData` ทิ้ง** (`masterdata-split`, PR #117 MERGED 2026-07-19). DDL ไม่เปลี่ยนตลอดทาง —
 route/permission/ตารางเดิมทั้งหมด
 
+รายละเอียดเชิงลึกเฉพาะ Levels (Domain/Application/Infrastructure/API/migration แยกทีละไฟล์โค้ด) ดู
+[`levels.md`](levels.md) — Divisions/Offices/Positions ยังไม่มีไฟล์แยกแบบนี้
+
 **บทบาท** (เหมือนกันทั้ง 4 โมดูล — แต่ **ไม่แชร์ base type ใดๆ**: แค่รูปทรงพ้องกัน)
 - aggregate เดียวต่อโมดูล (`Division`/`Level`/`Office`/`Position`): `Code` (slug `^[a-z0-9_]+$`, unique),
   `Name`, `IsActive` — ไม่มี merchant dimension
@@ -1125,7 +1128,7 @@ route/permission/ตารางเดิมทั้งหมด
 | Top-level API area (ไม่อยู่ใต้ `/admins`) | ย้ายออกจากกลุ่ม `/admins` แล้ว (2026-07-20) — ทุก verb re-attach `CsrfFilter` เอง, CORS admin plane มาจาก `CorsExtensions.IsAdminPlane` | มีแล้ว |
 | Gate เดียวทั้ง 4 รายการ | ทุก verb ต้อง policy `admin` + permission `user.manage` | มีแล้ว |
 | DELETE = soft-deactivate | ตั้ง `IsActive=false` เท่านั้น — **ไม่เคย hard-delete** (FK จาก `admin.Users` เป็น `Restrict`) | มีแล้ว |
-| Scalar group แยกต่อโมดูล | tag เป็น `Positions`/`Offices`/`Levels`/`Divisions` (ไม่มี prefix `Admin`) — ให้เห็นการแตกโมดูลจาก API surface ด้วย | มีแล้ว |
+| Scalar group แยกต่อโมดูล | tag เป็น**คำไทยต่อโมดูล** (`ตำแหน่ง`/`สำนักงาน`/`ระดับ`/`แผนก`, `Program.cs` ตั้ง `var tag = thaiLabel`) ไม่ใช่ชื่อโมดูลอังกฤษ, ไม่มี prefix `Admin` — ให้เห็นการแตกโมดูลจาก API surface ด้วย | มีแล้ว |
 | Host registration แบบ delegate | `MapMasterCrud<TStore, TItem>` รับ delegate ต่อ verb (แทน generic constraint บน base type ที่ไม่มีอยู่แล้วหลัง split) | มีแล้ว |
 
 **ความสัมพันธ์** — `Admins.Domain.Users.User` (`admin.Users`) ถือ FK nullable 4 ตัวเข้ามา (§3.1); ไม่มีโมดูล data plane ใดอ้างถึง
