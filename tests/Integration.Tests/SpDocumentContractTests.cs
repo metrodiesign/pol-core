@@ -18,7 +18,7 @@ namespace Integration.Tests;
 /// identified by the sequence number at the tail of DocumentNo (see <see cref="Seqs"/>): the full number
 /// embeds a Thai abbreviation, and ORDER BY DocumentNo therefore sorts by THAT letter first
 /// (กธ &lt; ตอ &lt; ปช, บต &lt; อค) — never by the sequence. Only
-/// <see cref="Motor_page_two_is_ordered_by_the_thai_letter_in_the_document_number"/> depends on that order;
+/// <see cref="Motor_last_page_is_ordered_by_the_thai_letter_in_the_document_number"/> depends on that order;
 /// everywhere else the expectation is a set.
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
@@ -41,6 +41,7 @@ public sealed class SpDocumentContractTests
         string GroupB,
         string RejectedGroup,
         long TotalRows,
+        long TotalPages,
         int LastPageRows,
         string SeqPrefix,
         string[] SeqPrefixHits,
@@ -51,8 +52,8 @@ public sealed class SpDocumentContractTests
         string LikeMetacharacterSeq,
         string[] PaidSeqs);
 
-    // 28 of hippodb's 34 rows and 27 of mammothdb's 32 fall in the default search (own sale code, UNPAID,
-    // inside the window) — the counts 02-external-sim.sql pins in its own self-check.
+    // 194 of hippodb's 200 rows and 195 of mammothdb's 200 fall in the default search (own sale code,
+    // UNPAID, inside the window) — the counts 02-external-sim.sql pins in its own self-check.
     private static readonly Side MotorSide = new(
         Catalog: "hippodb",
         Procedure: "dbo.usp_Motor_SearchDocument",
@@ -63,8 +64,9 @@ public sealed class SpDocumentContractTests
         GroupA: "CMI",
         GroupB: "VMI",
         RejectedGroup: "FIRE",
-        TotalRows: 28,
-        LastPageRows: 3,
+        TotalRows: 194,
+        TotalPages: 8,
+        LastPageRows: 19,
         SeqPrefix: "95000",
         SeqPrefixHits: ["950001", "950002", "950004", "950009"],
         RenewalDroppedSeqs: ["950005", "950006"],
@@ -84,8 +86,9 @@ public sealed class SpDocumentContractTests
         GroupA: "FIRE",
         GroupB: "MISC",
         RejectedGroup: "CMI",
-        TotalRows: 27,
-        LastPageRows: 2,
+        TotalRows: 195,
+        TotalPages: 8,
+        LastPageRows: 20,
         SeqPrefix: "96000",
         SeqPrefixHits: ["960001", "960002", "960004", "960006"],
         RenewalDroppedSeqs: ["960005"],
@@ -125,7 +128,7 @@ public sealed class SpDocumentContractTests
         // UNPAID | ALL | ALL | EXACT | page 1 | size 25 (REQ-2.2). The two PAID documents on each side are
         // absent, which is what makes "@PaymentStatus defaults to UNPAID" observable rather than assumed.
         Assert.Equal(side.TotalRows, Get<long>(result.Metadata, "TotalRows"));
-        Assert.Equal(2L, Get<long>(result.Metadata, "TotalPages"));
+        Assert.Equal(side.TotalPages, Get<long>(result.Metadata, "TotalPages"));
         Assert.Equal(1, Get<int>(result.Metadata, "PageNo"));
         Assert.Equal(25, Get<int>(result.Metadata, "PageSize"));
         Assert.True(Get<bool>(result.Metadata, "HasNextPage"));
@@ -307,7 +310,7 @@ public sealed class SpDocumentContractTests
         Assert.Equal(3, small.Items.Count);
         Assert.True(Get<bool>(small.Metadata, "HasNextPage"));
 
-        var last = await SearchAsync(side, ("@CountMode", "FAST"), ("@PageNo", 2));
+        var last = await SearchAsync(side, ("@CountMode", "FAST"), ("@PageNo", (int)side.TotalPages));
 
         Assert.Equal(side.LastPageRows, last.Items.Count);
         Assert.False(Get<bool>(last.Metadata, "HasNextPage"));
@@ -324,7 +327,7 @@ public sealed class SpDocumentContractTests
         var result = await SearchAsync(side, ("@PageNo", 99));
 
         Assert.Equal(side.TotalRows, Get<long>(result.Metadata, "TotalRows"));
-        Assert.Equal(2L, Get<long>(result.Metadata, "TotalPages"));
+        Assert.Equal(side.TotalPages, Get<long>(result.Metadata, "TotalPages"));
         Assert.Equal(99, Get<int>(result.Metadata, "PageNo"));
         Assert.Equal(25, Get<int>(result.Metadata, "PageSize"));
         Assert.False(Get<bool>(result.Metadata, "HasNextPage"));
@@ -339,15 +342,17 @@ public sealed class SpDocumentContractTests
     {
         var side = SideOf(key);
 
-        var first = await SearchAsync(side);
-        var second = await SearchAsync(side, ("@PageNo", 2));
+        var pages = new List<SpResult>();
+        for (var pageNo = 1; pageNo <= side.TotalPages; pageNo++)
+            pages.Add(await SearchAsync(side, ("@PageNo", pageNo)));
 
-        Assert.Equal(side.LastPageRows, second.Items.Count);
-        Assert.False(Get<bool>(second.Metadata, "HasNextPage"));
+        Assert.Equal(side.LastPageRows, pages[^1].Items.Count);
+        Assert.False(Get<bool>(pages[^1].Metadata, "HasNextPage"));
+        Assert.All(pages[..^1], p => Assert.True(Get<bool>(p.Metadata, "HasNextPage")));
 
-        var walked = DocumentNumbers(first).Concat(DocumentNumbers(second)).ToArray();
+        var walked = pages.SelectMany(DocumentNumbers).ToArray();
 
-        Assert.Equal(side.TotalRows, walked.Distinct().Count());   // no row repeated or skipped at the seam
+        Assert.Equal(side.TotalRows, walked.Distinct().Count());   // no row repeated or skipped at any seam
         Assert.Equal(walked.OrderBy(no => no, StringComparer.Ordinal), walked);
     }
 
@@ -557,14 +562,16 @@ public sealed class SpDocumentContractTests
     }
 
     [Fact]
-    public async Task Motor_page_two_is_ordered_by_the_thai_letter_in_the_document_number()
+    public async Task Motor_last_page_is_ordered_by_the_thai_letter_in_the_document_number()
     {
         // ORDER BY DocumentNo under Thai_CI_AS sorts on the abbreviation embedded in the number
-        // (กธ < ตอ < ปช), so the RENEWAL and ENDORSEMENT rows land last however small their sequence is.
-        // Pinned here because reading this order as numeric is the easy mistake to make against this seed.
-        var second = await SearchAsync(MotorSide, ("@PageNo", 2));
+        // (กธ < ตอ < ปช): every generated row embeds 'กธ', so the RENEWAL(950004, 'ตอ') and
+        // ENDORSEMENT(950014, 'ปช') axis rows always sort after all of them and land as the last page's
+        // final two entries — however many 'กธ' rows the seed grows to. Pinned here because reading this
+        // order as numeric is the easy mistake to make against this seed.
+        var last = await SearchAsync(MotorSide, ("@PageNo", (int)MotorSide.TotalPages));
 
-        Assert.Equal(new[] { "950120", "950004", "950014" }, Seqs(second));
+        Assert.Equal(new[] { "950004", "950014" }, Seqs(last)[^2..]);
     }
 
     // ---------------------------------------------------------------- plumbing

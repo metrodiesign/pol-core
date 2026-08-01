@@ -358,8 +358,11 @@ VALUES
     ('VMI', '200', 'ENDORSEMENT', '77001-69900/' + N'ปช' + '/950014-10', '77001',
         DATEADD(day, -45, @today), DATEADD(day, 320, @today), N'นายจักรพงษ์ วิริยะกุล',    1200.00, 'UNPAID', NULL, N'9ฮฮ 9999');
 
--- 20 more in-window UNPAID rows so a default search overflows the 25-row page cap and HasNextPage /
--- page 2 / FAST mode all have something to prove.
+-- 186 more in-window UNPAID rows (bringing hippodb to 200 total) so a default search overflows the
+-- 25-row page cap many times over and HasNextPage / mid-range pages / FAST mode all have something
+-- to prove. StartDate/EndDate offsets are bound via DaysBack (never exceeding 170 days) so every
+-- generated row stays inside the 6-month window (181 days is the calendar minimum) — same intent as
+-- the original 20-row block, just scaled.
 INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
@@ -369,20 +372,43 @@ SELECT
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     '77001-69900/' + N'กธ' + '/' + CONVERT(varchar(6), 950100 + g.value) + '-10',
     '77001',
-    DATEADD(day, -(g.value + 1), @today),
-    DATEADD(day, 364 - g.value, @today),
-    CASE g.value % 5
-        WHEN 0 THEN N'นายอนุชา รุ่งเรืองยนต์'
-        WHEN 1 THEN N'นางสาวกมลชนก ทองแท้'
-        WHEN 2 THEN N'นายพิเชษฐ์ มั่นคงชัย'
-        WHEN 3 THEN N'นางสาวรัตนาภรณ์ สุขใจดี'
-        ELSE        N'นายวรพล เจริญยิ่ง' END,
+    DATEADD(day, -o.DaysBack, @today),
+    DATEADD(day, 365 - o.DaysBack, @today),
+    names.ShowName,
     CAST(500 + g.value * 137.25 AS decimal(19,2)),
     'UNPAID',
     NULL,
     CASE WHEN g.value % 2 = 0
          THEN CONCAT(g.value % 9 + 1, N'กท', N' ', CONVERT(varchar(4), 2000 + g.value)) END
-FROM GENERATE_SERIES(1, 20) g;
+FROM GENERATE_SERIES(1, 186) g
+-- g.value % 170 = 29 -> DaysBack 30 would collide with axis row #1 (StartDate -30 / EndDate +335),
+-- the exact-single-day landmark Coverage_bounds_are_inclusive_on_both_ends expects as a singleton
+-- match; remap that one occurrence to DaysBack 1 (a value no exact-boundary test queries for).
+CROSS APPLY (SELECT CASE WHEN g.value % 170 = 29 THEN 1 ELSE 1 + (g.value % 170) END AS DaysBack) o
+-- 40-name pool so no ShowName repeats more than 5 times across the 186 generated rows
+-- (186 = 40*4 + 26 -> 26 names appear 5 times, 14 appear 4 times).
+JOIN (VALUES
+    (0,  N'นายอดิศักดิ์ เรืองสุวรรณ'),      (1,  N'นางสาวศิริพร แก้วมณี'),
+    (2,  N'นายณัฐพงษ์ บุญเลิศ'),            (3,  N'นางสาวปิยะดา ศรีสวัสดิ์'),
+    (4,  N'นายชัยวัฒน์ ทิพย์มณี'),          (5,  N'นางสาวธัญญารัตน์ พูลสวัสดิ์'),
+    (6,  N'นายสุรเดช วงศ์ไพศาล'),           (7,  N'นางสาวกัญญารัตน์ โพธิ์ทอง'),
+    (8,  N'นายวิสุทธิ์ ชูเกียรติ'),         (9,  N'นางสาวอรุณี สวัสดิ์รักษา'),
+    (10, N'นายประพันธ์ เกษมสุข'),           (11, N'นางสาวนภัสสร วัฒนกุล'),
+    (12, N'นายกฤษฎา อินทรสุวรรณ'),          (13, N'นางสาวสมฤทัย จันทรังษี'),
+    (14, N'นายธีรพล คำแก้ว'),               (15, N'นางสาวลลิตา สายทอง'),
+    (16, N'นายสมพงษ์ พิทักษ์กุล'),          (17, N'นางสาวชนากานต์ รักษ์ดี'),
+    (18, N'นายไพรัช สุขสมบูรณ์'),           (19, N'นางสาวเบญจมาศ ทองสุข'),
+    (20, N'นายพีรพัฒน์ วิเชียรเพริศ'),      (21, N'นางสาวสุพัตรา แจ่มใส'),
+    (22, N'นายอนันต์ ศรีบุญเรือง'),         (23, N'นางสาวขวัญใจ อยู่สบาย'),
+    (24, N'นายรัฐพล เจนจบ'),                (25, N'นางสาวมณีรัตน์ ทวีสุข'),
+    (26, N'นายเกียรติศักดิ์ ประเสริฐกุล'),  (27, N'นางสาวปวีณา ศิริวัฒนา'),
+    (28, N'นายบรรจง หาญกล้า'),              (29, N'นางสาวรุ่งนภา แสงอรุณ'),
+    (30, N'นายศักดิ์สิทธิ์ บุญมี'),         (31, N'นางสาวจริยา เพชรรัตน์'),
+    (32, N'นายวรวุฒิ ทองแดง'),              (33, N'นางสาวพรทิพย์ อ่อนละมัย'),
+    (34, N'นายณรงค์ชัย ปิ่นทอง'),           (35, N'นางสาวสุกัญญา ไชยวงศ์'),
+    (36, N'นายเฉลิมพล กาญจนวงศ์'),          (37, N'นางสาวอัจฉรา บัวขาว'),
+    (38, N'นายทวีศักดิ์ มีสุข'),            (39, N'นางสาวธนพร ศรีสมบูรณ์')
+) AS names(Idx, ShowName) ON names.Idx = g.value % 40;
 GO
 
 -- Fill the derived document fields for every seeded row in one pass (same idea as seed-demo.sql):
@@ -463,9 +489,9 @@ IF NOT EXISTS (SELECT 1
     THROW 51002, N'02-external-sim: pol_app lacks EXECUTE on hippodb.dbo.usp_Motor_SearchDocument.', 1;
 
 DECLARE @rows int = (SELECT COUNT(*) FROM dbo.Documents);
-IF @rows <> 34
+IF @rows <> 200
 BEGIN
-    DECLARE @rowMsg nvarchar(200) = CONCAT(N'02-external-sim: hippodb seeded ', @rows, N' documents, expected 34.');
+    DECLARE @rowMsg nvarchar(200) = CONCAT(N'02-external-sim: hippodb seeded ', @rows, N' documents, expected 200.');
     THROW 51002, @rowMsg, 1;
 END
 
@@ -484,14 +510,14 @@ DECLARE @visible int = (
     WHERE SaleCode = '77001' AND PaymentStatus = 'UNPAID'
       AND ((DocumentType = 'RENEWAL' AND EndDate >= @today AND EndDate < DATEADD(month, 2, @today))
         OR (DocumentType <> 'RENEWAL' AND StartDate >= DATEADD(month, -6, @today))));
-IF @visible <> 28
+IF @visible <> 194
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: hippodb default search sees ', @visible, N' documents, expected 28.');
+        N'02-external-sim: hippodb default search sees ', @visible, N' documents, expected 194.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: hippodb OK (34 documents, 28 in the default search window).';
+PRINT N'02-external-sim: hippodb OK (200 documents, 194 in the default search window).';
 GO
 
 -- ############################################################################
@@ -757,29 +783,57 @@ VALUES
     ('MISC', '400', 'POLICY',      '88001-69900/' + N'บต' + '/960010', 'S001',
         DATEADD(day, -5, @today), DATEADD(day, 360, @today), N'ห้างหุ้นส่วนจำกัด 100%_บูรพาการช่าง',      550.00, 'UNPAID', NULL, N'8ฮฮ 8888');
 
+-- 190 more in-window UNPAID rows (bringing mammothdb to 200 total). Same DaysBack-bound + name-pool
+-- scaling as hippodb's block above.
 INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 SELECT
-    CASE WHEN g.value % 2 = 0 THEN 'FIRE' ELSE 'MISC' END,
+    -- SourceSystem is keyed on mod 5, NOT mod 2 like the DocumentNo abbreviation two lines down:
+    -- ORDER BY DocumentNo sorts 'บต' (MISC-only under the old mod-2 coupling) entirely before 'อค', so
+    -- tying both to the same parity made every early page a single SourceSystem once the seed grew past
+    -- one page — Omitting_every_optional_parameter_applies_the_documented_defaults expects a mix.
+    CASE WHEN g.value % 5 < 3 THEN 'FIRE' ELSE 'MISC' END,
     CASE g.value % 4 WHEN 0 THEN '100' WHEN 1 THEN '200' WHEN 2 THEN '300' ELSE '400' END,
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     '88001-69900/' + CASE WHEN g.value % 2 = 0 THEN N'อค' ELSE N'บต' END
         + '/' + CONVERT(varchar(6), 960100 + g.value),
     'S001',
-    DATEADD(day, -(g.value + 1), @today),
-    DATEADD(day, 364 - g.value, @today),
-    CASE g.value % 5
-        WHEN 0 THEN N'บริษัท ตะวันฉาย พาณิชย์ จำกัด'
-        WHEN 1 THEN N'บริษัท ไพรวัลย์ อุตสาหกรรม จำกัด'
-        WHEN 2 THEN N'ห้างหุ้นส่วนจำกัด มิตรไมตรีการค้า'
-        WHEN 3 THEN N'บริษัท ลานนาทรัพย์สิน จำกัด'
-        ELSE        N'บริษัท สุพรรณิการ์ เทรดดิ้ง จำกัด' END,
+    DATEADD(day, -o.DaysBack, @today),
+    DATEADD(day, 365 - o.DaysBack, @today),
+    names.ShowName,
     CAST(500 + g.value * 137.25 AS decimal(19,2)),
     'UNPAID',
     NULL,
     NULL
-FROM GENERATE_SERIES(1, 22) g;
+FROM GENERATE_SERIES(1, 190) g
+-- Same collision guard as hippodb: g.value % 170 = 29 would otherwise mint DaysBack 30, matching
+-- axis row #1's exact StartDate -30 / EndDate +335 landmark.
+CROSS APPLY (SELECT CASE WHEN g.value % 170 = 29 THEN 1 ELSE 1 + (g.value % 170) END AS DaysBack) o
+-- 40-name pool so no ShowName repeats more than 5 times across the 190 generated rows
+-- (190 = 40*4 + 30 -> 30 names appear 5 times, 10 appear 4 times).
+JOIN (VALUES
+    (0,  N'บริษัท ทองไพศาล วิศวกรรม จำกัด'),          (1,  N'ห้างหุ้นส่วนจำกัด รุ่งอรุณ การช่าง'),
+    (2,  N'บริษัท สยามภัณฑ์ อุตสาหกรรม จำกัด'),        (3,  N'บริษัท เพชรบุรี ก่อสร้าง จำกัด'),
+    (4,  N'ห้างหุ้นส่วนจำกัด แสงเจริญ พาณิชย์'),       (5,  N'บริษัท นวธานี ดีเวลลอปเมนท์ จำกัด'),
+    (6,  N'บริษัท ไพบูลย์ศรี อุตสาหกรรมเหล็ก จำกัด'),  (7,  N'ห้างหุ้นส่วนจำกัด ทิพย์วรรณ การเกษตร'),
+    (8,  N'บริษัท เมืองทอง ขนส่งด่วน จำกัด'),          (9,  N'บริษัท ศิลาแลง วัสดุก่อสร้าง จำกัด'),
+    (10, N'ห้างหุ้นส่วนจำกัด บางกอกน้อย เฟอร์นิเจอร์'),(11, N'บริษัท อรัญวารี ฟู้ดส์ จำกัด'),
+    (12, N'บริษัท จันทบูรณ์ ผลไม้ส่งออก จำกัด'),       (13, N'ห้างหุ้นส่วนจำกัด รัตนโกสินทร์ การพิมพ์'),
+    (14, N'บริษัท วนาสวรรค์ รีสอร์ทแอนด์สปา จำกัด'),   (15, N'บริษัท เกียรตินคร ยานยนต์อะไหล่ จำกัด'),
+    (16, N'ห้างหุ้นส่วนจำกัด สุขสมบูรณ์ ค้าข้าว'),     (17, N'บริษัท ปิยะมิตร แพคเกจจิ้ง จำกัด'),
+    (18, N'บริษัท ธารทิพย์ น้ำดื่ม จำกัด'),            (19, N'ห้างหุ้นส่วนจำกัด โกลเด้นแลนด์ อสังหาริมทรัพย์'),
+    (20, N'บริษัท วิไลวรรณ สิ่งทอ จำกัด'),             (21, N'บริษัท ชลบุรี ปิโตรเคมีภัณฑ์ จำกัด'),
+    (22, N'ห้างหุ้นส่วนจำกัด อินทนิล เฟอร์นิเจอร์'),   (23, N'บริษัท สยามอินทรีย์ เกษตรภัณฑ์ จำกัด'),
+    (24, N'บริษัท เพิ่มพูนทรัพย์ ลิสซิ่ง จำกัด'),      (25, N'ห้างหุ้นส่วนจำกัด นครินทร์ ขนส่ง'),
+    (26, N'บริษัท ทวีทรัพย์ วัสดุอุตสาหกรรม จำกัด'),   (27, N'บริษัท หริภุญชัย เซรามิค จำกัด'),
+    (28, N'ห้างหุ้นส่วนจำกัด บุญประเสริฐ การช่าง'),    (29, N'บริษัท มหานคร ซัพพลายเชน จำกัด'),
+    (30, N'บริษัท อุบลรัตน์ อุตสาหกรรมกระดาษ จำกัด'),  (31, N'ห้างหุ้นส่วนจำกัด ไพลิน วัสดุภัณฑ์'),
+    (32, N'บริษัท ปทุมวดี คลังสินค้า จำกัด'),          (33, N'บริษัท ระยองไพศาล ปิโตรเลียม จำกัด'),
+    (34, N'ห้างหุ้นส่วนจำกัด ธนพัฒน์ การค้า'),         (35, N'บริษัท สินทวีชัย เหล็กกล้า จำกัด'),
+    (36, N'บริษัท กาญจนบุรี อุตสาหกรรมไม้ จำกัด'),     (37, N'ห้างหุ้นส่วนจำกัด ศรีสยาม ขนส่งสินค้า'),
+    (38, N'บริษัท วัฒนาพร เคมีภัณฑ์ จำกัด'),           (39, N'บริษัท เอกภาพ โลจิสติกส์ จำกัด')
+) AS names(Idx, ShowName) ON names.Idx = g.value % 40;
 GO
 
 UPDATE d
@@ -854,9 +908,9 @@ IF NOT EXISTS (SELECT 1
     THROW 51002, N'02-external-sim: pol_app lacks EXECUTE on mammothdb.dbo.usp_NonMotor_SearchDocument.', 1;
 
 DECLARE @rows int = (SELECT COUNT(*) FROM dbo.Documents);
-IF @rows <> 32
+IF @rows <> 200
 BEGIN
-    DECLARE @rowMsg nvarchar(200) = CONCAT(N'02-external-sim: mammothdb seeded ', @rows, N' documents, expected 32.');
+    DECLARE @rowMsg nvarchar(200) = CONCAT(N'02-external-sim: mammothdb seeded ', @rows, N' documents, expected 200.');
     THROW 51002, @rowMsg, 1;
 END
 
@@ -875,14 +929,14 @@ DECLARE @visible int = (
     SELECT COUNT(*) FROM dbo.Documents
     WHERE SaleCode = 'S001' AND PaymentStatus = 'UNPAID'
       AND StartDate >= DATEADD(month, -6, @today));
-IF @visible <> 27
+IF @visible <> 195
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 27.');
+        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 195.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: mammothdb OK (32 documents, 27 in the default search window).';
+PRINT N'02-external-sim: mammothdb OK (200 documents, 195 in the default search window).';
 GO
 
 PRINT N'02-external-sim: OK.';
