@@ -43,7 +43,7 @@ public sealed class SpDocumentGatewayIntegrationTests
     private static readonly Side MotorSide = new(
         Target: InsuranceType.Motor,
         SaleCode: "77001",
-        TotalRows: 194,
+        TotalRows: 39,
         InsuranceTypeWire: "Motor",
         AxisPolicyNumber: "77001-69900/950001",
         AxisDocumentNo: "77001-69900/กธ/950001-10",
@@ -56,17 +56,17 @@ public sealed class SpDocumentGatewayIntegrationTests
 
     private static readonly Side NonMotorSide = new(
         Target: InsuranceType.NonMotor,
-        SaleCode: "S001",
-        TotalRows: 195,
+        SaleCode: "90001",
+        TotalRows: 36,
         InsuranceTypeWire: "NonMotor",
-        AxisPolicyNumber: "S001-69900/960001",
+        AxisPolicyNumber: "90001-69900/960001",
         AxisDocumentNo: "88001-69900/อค/960001",
         AxisSourceSystem: "FIRE",
         AxisShowName: "บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด",
         AxisTotalPremium: 18500.00m,
         AxisLicensePlate: null,                     // §5.2: the Non-Motor procedure returns a constant null
         AxisPolicyType: null,                       // policy-type codes are a Motor concept in this catalogue
-        PaidPolicyNumber: "S001-69900/960007");
+        PaidPolicyNumber: "90001-69900/960007");
 
     // ------------------------------------------------------------------ mapping (REQ-5.1, 5.2, 5.3)
 
@@ -81,7 +81,7 @@ public sealed class SpDocumentGatewayIntegrationTests
 
         // Straight out of result set 1 — nothing here is recomputed on our side (REQ-8.1).
         Assert.Equal(side.TotalRows, result.Page.TotalRows);
-        Assert.Equal(8L, result.Page.TotalPages);
+        Assert.Equal(2L, result.Page.TotalPages);
         Assert.Equal(1, result.Page.PageNo);
         Assert.Equal(25, result.Page.PageSize);
         Assert.True(result.Page.HasNextPage);

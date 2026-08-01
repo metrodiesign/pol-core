@@ -343,7 +343,7 @@ VALUES
     ('VMI', '300', 'APPLICATION', '77001-69900/' + N'กธ' + '/950009-10', '77001',
         DATEADD(day, -10, @today), DATEADD(day, 355, @today), N'นางสาวสุนิสา วงศ์สว่าง',   32000.00, 'UNPAID', NULL, N'9ญญ 1009'),
     -- Different SaleCode: proves @SaleCode is a hard scope axis, not a hint
-    ('VMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950010-10', 'S001',
+    ('VMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950010-10', '90001',
         DATEADD(day, -25, @today), DATEADD(day, 340, @today), N'นายเอกรัตน์ ธีรวุฒิ',      4100.00, 'UNPAID', NULL, N'1ฎฎ 1010'),
     -- ShowName carries literal LIKE metacharacters: @InsuredName = '100%' must match THIS row only
     ('CMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950011-10', '77001',
@@ -371,7 +371,11 @@ SELECT
     CASE g.value % 4 WHEN 0 THEN '100' WHEN 1 THEN '200' WHEN 2 THEN '300' ELSE '400' END,
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     '77001-69900/' + N'กธ' + '/' + CONVERT(varchar(6), 950100 + g.value) + '-10',
-    '77001',
+    -- SaleCode is an agent's own code, so a 6-agent roster needs 6 distinct codes, not one shared
+    -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code).
+    CASE g.value % 6
+        WHEN 0 THEN '77001' WHEN 1 THEN '77002' WHEN 2 THEN '77003'
+        WHEN 3 THEN '77004' WHEN 4 THEN '77005' ELSE '77006' END,
     DATEADD(day, -o.DaysBack, @today),
     DATEADD(day, 365 - o.DaysBack, @today),
     names.ShowName,
@@ -430,13 +434,18 @@ SET PolicyYear           = '69',
                                WHEN 4 THEN N'สาขาขอนแก่น'
                                ELSE        N'สาขาพระราม 9' END,
     PolicyType           = CASE WHEN d.SourceSystem = 'VMI' THEN N'90' END,
-    -- SaleCode is the agent's own code; SaleFullName is that same agent's name. They must come from
-    -- one paired dataset (a code always names the same agent), not vary independently per row — keyed
-    -- on d.SaleCode, not v.Seq. Same two agents by SaleCode across both hippodb/mammothdb (an agent
-    -- can sell both Motor and Non-Motor).
+    -- SaleCode is the agent's own code; SaleFullName is that same agent's name — one code always names
+    -- the same agent, so this is keyed on d.SaleCode, not v.Seq. Covers this side's own 6-agent roster
+    -- (matching the SaleCode CASE in the generate block above) plus '90001', mammothdb's own default
+    -- agent, who shows up here only through the foreign-SaleCode axis probe row.
     SaleFullName         = CASE d.SaleCode
-                               WHEN '77001' THEN N'นายเอกชัย รุ่งโรจน์กิจ'
-                               WHEN 'S001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
+                               WHEN '77001' THEN N'นายกิตติพงศ์ อารีย์วงศ์'
+                               WHEN '77002' THEN N'นางสาวสุนิสา วงศ์สว่าง'
+                               WHEN '77003' THEN N'นายเอกรัตน์ ธีรวุฒิ'
+                               WHEN '77004' THEN N'นางสาวจิราพร คงเจริญ'
+                               WHEN '77005' THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
+                               WHEN '77006' THEN N'นางเบญจวรรณ ทองอยู่'
+                               WHEN '90001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
     BrokerCode           = CASE v.Seq % 5
                                WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
                                WHEN 3 THEN '704' ELSE '705' END,
@@ -510,14 +519,14 @@ DECLARE @visible int = (
     WHERE SaleCode = '77001' AND PaymentStatus = 'UNPAID'
       AND ((DocumentType = 'RENEWAL' AND EndDate >= @today AND EndDate < DATEADD(month, 2, @today))
         OR (DocumentType <> 'RENEWAL' AND StartDate >= DATEADD(month, -6, @today))));
-IF @visible <> 194
+IF @visible <> 39
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: hippodb default search sees ', @visible, N' documents, expected 194.');
+        N'02-external-sim: hippodb default search sees ', @visible, N' documents, expected 39.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: hippodb OK (200 documents, 194 in the default search window).';
+PRINT N'02-external-sim: hippodb OK (200 documents, 39 in the default search window).';
 GO
 
 -- ############################################################################
@@ -756,31 +765,31 @@ INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, S
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 VALUES
-    ('FIRE', '100', 'POLICY',      '88001-69900/' + N'อค' + '/960001', 'S001',
+    ('FIRE', '100', 'POLICY',      '88001-69900/' + N'อค' + '/960001', '90001',
         DATEADD(day, -30, @today), DATEADD(day, 335, @today), N'บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด', 18500.00, 'UNPAID', NULL, NULL),
-    ('MISC', '200', 'POLICY',      '88001-69900/' + N'บต' + '/960002', 'S001',
+    ('MISC', '200', 'POLICY',      '88001-69900/' + N'บต' + '/960002', '90001',
         DATEADD(day, -60, @today), DATEADD(day, 305, @today), N'บริษัท ไทยรุ่งเรือง โลจิสติกส์ จำกัด',   32000.00, 'UNPAID', NULL, NULL),
     -- outside the 6-month window
-    ('FIRE', '300', 'POLICY',      '88001-69900/' + N'อค' + '/960003', 'S001',
+    ('FIRE', '300', 'POLICY',      '88001-69900/' + N'อค' + '/960003', '90001',
         DATEADD(day, -245, @today), DATEADD(day, 120, @today), N'ห้างหุ้นส่วนจำกัด สหมิตรการช่าง',      9800.00, 'UNPAID', NULL, NULL),
     -- RENEWAL, StartDate in window, EndDate far past 2 months: INCLUDED here, and the Motor rule
     -- would have dropped it — the pair below is what makes the Non-Motor window rule observable
-    ('FIRE', '100', 'RENEWAL',     '88001-69900/' + N'อค' + '/960004', 'S001',
+    ('FIRE', '100', 'RENEWAL',     '88001-69900/' + N'อค' + '/960004', '90001',
         DATEADD(day, -20, @today), DATEADD(day, 345, @today), N'บริษัท บูรพา อุตสาหกรรมอาหาร จำกัด',    3500.00, 'UNPAID', NULL, NULL),
     -- RENEWAL, StartDate out of window, EndDate inside 2 months: EXCLUDED here (Motor would keep it)
-    ('MISC', '200', 'RENEWAL',     '88001-69900/' + N'บต' + '/960005', 'S001',
+    ('MISC', '200', 'RENEWAL',     '88001-69900/' + N'บต' + '/960005', '90001',
         DATEADD(day, -245, @today), DATEADD(day, 30, @today), N'บริษัท พนาไพร รีสอร์ท จำกัด',           4100.00, 'UNPAID', NULL, NULL),
-    ('MISC', '200', 'APPLICATION', '88001-69900/' + N'บต' + '/960006', 'S001',
+    ('MISC', '200', 'APPLICATION', '88001-69900/' + N'บต' + '/960006', '90001',
         DATEADD(day, -10, @today), DATEADD(day, 355, @today), N'บริษัท ศรีนครินทร์ เรียลเอสเตท จำกัด',  12800.00, 'UNPAID', NULL, NULL),
-    ('FIRE', '100', 'ENDORSEMENT', '88001-69900/' + N'อค' + '/960007', 'S001',
+    ('FIRE', '100', 'ENDORSEMENT', '88001-69900/' + N'อค' + '/960007', '90001',
         DATEADD(day, -15, @today), DATEADD(day, 350, @today), N'บริษัท อุดมโชค เท็กซ์ไทล์ จำกัด',        2100.00, 'PAID', DATEADD(day, -5, @today), NULL),
-    ('MISC', '300', 'POLICY',      '88001-69900/' + N'บต' + '/960008', 'S001',
+    ('MISC', '300', 'POLICY',      '88001-69900/' + N'บต' + '/960008', '90001',
         DATEADD(day, -25, @today), DATEADD(day, 340, @today), N'บริษัท สินไทยพาณิชย์ จำกัด',             990.00, 'PAID', DATEADD(day, -2, @today), NULL),
     -- different SaleCode
     ('FIRE', '100', 'POLICY',      '88001-69900/' + N'อค' + '/960009', '77001',
         DATEADD(day, -12, @today), DATEADD(day, 353, @today), N'บริษัท ราชพฤกษ์ คลังสินค้า จำกัด',       450.00, 'UNPAID', NULL, NULL),
     -- literal LIKE metacharacters in ShowName + a stored plate the SP must neither search nor return
-    ('MISC', '400', 'POLICY',      '88001-69900/' + N'บต' + '/960010', 'S001',
+    ('MISC', '400', 'POLICY',      '88001-69900/' + N'บต' + '/960010', '90001',
         DATEADD(day, -5, @today), DATEADD(day, 360, @today), N'ห้างหุ้นส่วนจำกัด 100%_บูรพาการช่าง',      550.00, 'UNPAID', NULL, N'8ฮฮ 8888');
 
 -- 190 more in-window UNPAID rows (bringing mammothdb to 200 total). Same DaysBack-bound + name-pool
@@ -798,7 +807,11 @@ SELECT
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     '88001-69900/' + CASE WHEN g.value % 2 = 0 THEN N'อค' ELSE N'บต' END
         + '/' + CONVERT(varchar(6), 960100 + g.value),
-    'S001',
+    -- SaleCode is an agent's own code, so a 6-agent roster needs 6 distinct codes, not one shared
+    -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code).
+    CASE g.value % 6
+        WHEN 0 THEN '90001' WHEN 1 THEN '90002' WHEN 2 THEN '90003'
+        WHEN 3 THEN '90004' WHEN 4 THEN '90005' ELSE '90006' END,
     DATEADD(day, -o.DaysBack, @today),
     DATEADD(day, 365 - o.DaysBack, @today),
     names.ShowName,
@@ -851,11 +864,18 @@ SET PolicyYear           = '69',
                                WHEN 4 THEN N'สาขาขอนแก่น'
                                ELSE        N'สาขาพระราม 9' END,
     PolicyType           = NULL,   -- product-type code is a Motor/VMI concept in this catalogue
-    -- Same agent roster as hippodb (SaleCode -> SaleFullName is one paired dataset, not per-row
-    -- variety) — an agent can sell both Motor and Non-Motor under the same code.
+    -- SaleCode is the agent's own code; SaleFullName is that same agent's name — keyed on d.SaleCode,
+    -- not v.Seq. Covers this side's own 6-agent roster (matching the SaleCode CASE in the generate
+    -- block above) plus '77001', hippodb's own default agent, who shows up here only through the
+    -- foreign-SaleCode axis probe row.
     SaleFullName         = CASE d.SaleCode
-                               WHEN '77001' THEN N'นายเอกชัย รุ่งโรจน์กิจ'
-                               WHEN 'S001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
+                               WHEN '90001' THEN N'นางสาวปาริชาติ วงศ์เจริญพร'
+                               WHEN '90002' THEN N'นายจิรายุ ภูวไนย'
+                               WHEN '90003' THEN N'นางสาวกันตา ศรีวิไล'
+                               WHEN '90004' THEN N'นายพงศกร แสนสุข'
+                               WHEN '90005' THEN N'นางสาวอรอนงค์ ตั้งมั่นคง'
+                               WHEN '90006' THEN N'นายวิชัย เกียรติกุล'
+                               WHEN '77001' THEN N'นายกิตติพงศ์ อารีย์วงศ์' END,
     BrokerCode           = CASE v.Seq % 5
                                WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
                                WHEN 3 THEN '704' ELSE '705' END,
@@ -925,16 +945,16 @@ IF NOT EXISTS (SELECT 1 FROM dbo.Documents WHERE ShowName LIKE N'%จำกั�
 DECLARE @today date = CAST(GETDATE() AS date);
 DECLARE @visible int = (
     SELECT COUNT(*) FROM dbo.Documents
-    WHERE SaleCode = 'S001' AND PaymentStatus = 'UNPAID'
+    WHERE SaleCode = '90001' AND PaymentStatus = 'UNPAID'
       AND StartDate >= DATEADD(month, -6, @today));
-IF @visible <> 195
+IF @visible <> 36
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 195.');
+        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 36.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: mammothdb OK (200 documents, 195 in the default search window).';
+PRINT N'02-external-sim: mammothdb OK (200 documents, 36 in the default search window).';
 GO
 
 PRINT N'02-external-sim: OK.';
