@@ -200,7 +200,12 @@ endpoint -> representative-segment pinning ของ `PermissionGateSitesTests` 
 OpenAPI tag: amended 2026-07-20 (REQ-6.3) — แยกต่อโมดูลแทนการรวม (`tag =
 $"{Capitalize(segment)}"` ในตัว helper เอง, ไม่มี `"Admin "` prefix เพราะเป็น reference
 list ไม่ใช่ admin-account operation, ไม่ต้องเพิ่ม parameter) เพราะรวม 4 โมดูลไว้ใต้
-`"Admin Master Data"` เดียวทำให้ Scalar UI ไม่สะท้อนว่าโมดูลแตกกันจริงแล้ว.
+`"Admin Master Data"` เดียวทำให้ Scalar UI ไม่สะท้อนว่าโมดูลแตกกันจริงแล้ว. — amended
+2026-08-01 (REQ-6.3): formula ที่ implement จริงคือ `var tag = thaiLabel` (parameter ที่
+call site ส่งเข้ามาเป็นคำไทย — `"ตำแหน่ง"`/`"สำนักงาน"`/`"ระดับ"`/`"แผนก"`) **ไม่ใช่**
+`$"{Capitalize(segment)}"` ตามที่ระบุไว้ข้างบน — เจตนา "แยกต่อโมดูล" ยังคงอยู่ แค่เปลี่ยนจาก
+ป้ายอังกฤษเป็นคำไทยที่ผู้ใช้ Scalar UI (ภาษาไทย) อ่านง่ายกว่า; แก้ design ให้ตรงกับ
+`src/Hosts/Api/Program.cs` ของจริง.
 
 **Write floor:** `ControlPlaneAdminWriteAuthorizer.BoundOnlyTypes` คง
 `typeof(Position), typeof(Office), typeof(Level), typeof(Division)` — identifier เดิม
