@@ -21,8 +21,9 @@ denormalization), `products-sp-53-alignment` (REQ-8.4 — currency mint boundary
 ตั้งแต่ commit `1af6dc2` (2026-07-19)
 
 โมดูลต้นทาง (`Products`, ที่ดึงราคามา) มีไฟล์ reference แยกอยู่แล้ว: [`products.md`](products.md)
-— โมดูลปลายทาง (`Checkouts`/`Orders`) ยังไม่มีไฟล์แยกลักษณะนี้ ภาพรวมของทั้ง 2 โมดูลยังอยู่ใน
-[`layers-guide.md`](layers-guide.md) §5 และ [`platform-modules.md`](platform-modules.md) §7/§8
+— โมดูลปลายทาง `Orders` ก็มีไฟล์แยกแล้วเช่นกัน: [`orders.md`](orders.md) ส่วน `Checkouts` ยังไม่มีไฟล์
+แยกลักษณะนี้ ภาพรวมยังอยู่ใน [`layers-guide.md`](layers-guide.md) §5 และ
+[`platform-modules.md`](platform-modules.md) §7
 
 ## Domain model (`Carts.Domain`)
 
