@@ -291,7 +291,7 @@ merchant-user = multi-tenant/organizational accounts) — ไม่ share client
 > `:5100` **ไม่ต้องลงทะเบียน** และเข้าตรงไม่ได้: ยิง login ที่ `:5100` โดยตรงจะไม่มี `X-Forwarded-Host` ->
 > `redirect_uri` กลายเป็น `http://localhost:5100/...` ซึ่งไม่มีใน console -> IdP ตอบ
 > `Error 400: redirect_uri_mismatch`. ให้เข้าผ่าน FE console เสมอ (§4.4).
-> cross-check: `docs/reference/admin-module.md` (หัวข้อ Proxy / Dev-CORS) ระบุตรงกัน — Next.js rewrites
+> cross-check: `docs/reference/admins.md` (หัวข้อ Proxy / Dev-CORS) ระบุตรงกัน — Next.js rewrites
 > ส่ง `X-Forwarded-Host` เอง, backend honor แล้ว, `redirect_uri` ออกมาเป็น origin ของ FE.
 
 ทั้งสอง app registration ต้องเพิ่ม **optional claim `email`** ที่ id_token (Entra ID **ไม่ส่ง** `email` claim
@@ -471,7 +471,7 @@ GROUP BY o.name ORDER BY o.name;"
 ## 9. อ้างอิง
 
 - `docs/reference/producer-module.md` — สเปก producer SSO module เต็ม (pre-rf1 vocab — ดู stale banner ในไฟล์, actor จริงตอนนี้คือ `MerchantUser`)
-- `docs/reference/admin-module.md` — admin SSO + FE integration
+- `docs/reference/admins.md` — admin SSO + FE integration
 - `.ai/shared/ARCHITECTURE.md` — folder layout, principal model
 - `.ai/shared/CODING_STANDARDS.md` — version pin, hard constraints
 - `docker-compose.yml` / `docker/bootstrap/01-principals.sql` — dev DB + principals

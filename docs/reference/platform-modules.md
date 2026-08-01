@@ -35,7 +35,7 @@
 > เอกสารลึกรายเรื่อง: [payment-orchestration-modules.md](payment-orchestration-modules.md)
 > (Payments/PSP/flow + ภาค 8 Canonical Payment API target design),
 > [entity-fields.md](entity-fields.md) (ทุก entity/field/enum), [src-structure.md](src-structure.md) (โครงโค้ด),
-> [admin-module.md](admin-module.md) + [merchant-user-module.md](merchant-user-module.md) (auth),
+> [admins.md](admins.md) + [merchant-user-module.md](merchant-user-module.md) (auth),
 > [search-filter-sort.md](search-filter-sort.md) (query convention)
 
 ---
@@ -520,7 +520,7 @@ redirect URL ลง span attribute
 
 **ความสัมพันธ์** — ตารางทั้งหมดเป็น control plane (`ControlPlaneDbContext` — ไม่มี merchant dimension จึงไม่มี query filter); การกระทำลง `admin.UserAudits`/`admin.AuthAudits` (§14); เป็นผู้อนุมัติ merchant-user (§4)
 
-**สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [admin-module.md](admin-module.md)
+**สถานะ: มีแล้ว** — รายละเอียด flow เต็ม: [admins.md](admins.md)
 
 ### 3.2 โมดูล Admin RBAC
 
@@ -1168,7 +1168,7 @@ route/permission/ตารางเดิมทั้งหมด
 |---|---|---|---|---|
 | 1 | Platform | orchestrate การรับชำระแบบ captive/redirect-only โดยไม่ถือเงิน | มีแล้ว (โครง) | [payment-orchestration-modules.md](payment-orchestration-modules.md) |
 | 2 | Tenant | config บริษัทในเครือ + แกน `TenantId`/`MerchantId` ของ query filter + write guard (config อันดับ 2) | บางส่วน | [entity-fields.md](entity-fields.md) |
-| 3.1 | Admin | บัญชีพนักงานภายใน + OIDC BFF session | มีแล้ว | [admin-module.md](admin-module.md) |
+| 3.1 | Admin | บัญชีพนักงานภายใน + OIDC BFF session | มีแล้ว | [admins.md](admins.md) |
 | 3.2 | Admin RBAC | role → permission (fail-closed) orthogonal กับ Tier | มีแล้ว | [entity-fields.md](entity-fields.md) |
 | 4.1 | Producer (merchant-user) | บัญชีตัวแทน/นายหน้า + สมัคร ticket-gated + OIDC BFF | มีแล้ว | [merchant-user-module.md](merchant-user-module.md) |
 | 4.2 | Merchant-user RBAC | role → permission ฝั่ง merchant-user (rf2: catalog กลาง `iam` ร่วมกับ admin) | มีแล้ว | [merchant-user-module.md](merchant-user-module.md) |
