@@ -446,15 +446,21 @@ SET PolicyYear           = '69',
                                WHEN '77005' THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
                                WHEN '77006' THEN N'นางเบญจวรรณ ทองอยู่'
                                WHEN '90001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
-    BrokerCode           = CASE v.Seq % 5
-                               WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
-                               WHEN 3 THEN '704' ELSE '705' END,
-    BrokerName           = CASE v.Seq % 5
-                               WHEN 0 THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN 1 THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
-                               WHEN 2 THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN 3 THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
-                               ELSE        N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด' END,
+    -- BrokerCode/BrokerName is the broker firm an agent works under — one agent always sits under the
+    -- same broker, so this is keyed on d.SaleCode too (same 5-broker pool mammothdb's block below uses,
+    -- since a broker firm can carry both Motor and Non-Motor agents).
+    BrokerCode           = CASE d.SaleCode
+                               WHEN '77001' THEN '701' WHEN '77002' THEN '702' WHEN '77003' THEN '703'
+                               WHEN '77004' THEN '704' WHEN '77005' THEN '705' WHEN '77006' THEN '701'
+                               WHEN '90001' THEN '702' END,
+    BrokerName           = CASE d.SaleCode
+                               WHEN '77001' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '77002' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
+                               WHEN '77003' THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '77004' THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
+                               WHEN '77005' THEN N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '77006' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '90001' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด' END,
     PolicyNumber         = CASE WHEN d.DocumentType <> 'APPLICATION'
                                 THEN CONCAT(d.SaleCode, '-69900/', v.Seq) END,
     ApplicationNumber    = CASE WHEN d.DocumentType = 'APPLICATION'
@@ -876,15 +882,20 @@ SET PolicyYear           = '69',
                                WHEN '90005' THEN N'นางสาวอรอนงค์ ตั้งมั่นคง'
                                WHEN '90006' THEN N'นายวิชัย เกียรติกุล'
                                WHEN '77001' THEN N'นายกิตติพงศ์ อารีย์วงศ์' END,
-    BrokerCode           = CASE v.Seq % 5
-                               WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
-                               WHEN 3 THEN '704' ELSE '705' END,
-    BrokerName           = CASE v.Seq % 5
-                               WHEN 0 THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN 1 THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
-                               WHEN 2 THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN 3 THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
-                               ELSE        N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด' END,
+    -- Same broker pool and pairing rule as hippodb's block above — the two SaleCodes shared across
+    -- both sides ('77001', '90001') must land on the SAME broker here as there.
+    BrokerCode           = CASE d.SaleCode
+                               WHEN '90001' THEN '702' WHEN '90002' THEN '703' WHEN '90003' THEN '704'
+                               WHEN '90004' THEN '705' WHEN '90005' THEN '701' WHEN '90006' THEN '702'
+                               WHEN '77001' THEN '701' END,
+    BrokerName           = CASE d.SaleCode
+                               WHEN '90001' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
+                               WHEN '90002' THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '90003' THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
+                               WHEN '90004' THEN N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '90005' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '90006' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
+                               WHEN '77001' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด' END,
     PolicyNumber         = CASE WHEN d.DocumentType <> 'APPLICATION'
                                 THEN CONCAT(d.SaleCode, '-69900/', v.Seq) END,
     ApplicationNumber    = CASE WHEN d.DocumentType = 'APPLICATION'
