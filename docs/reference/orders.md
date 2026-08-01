@@ -12,11 +12,13 @@ Order คือจุดที่ funnel ธุรกิจ `Carts → CheckoutS
 endpoint สร้าง order ตรงๆ ในระบบจริง) และจบเมื่อ Payments module ยืนยัน PSP ชำระสำเร็จ (`PaymentPaid`) หรือ
 ถูกยกเลิก
 
-ต่างจาก Carts (ephemeral, ไม่มี PII, mutate ได้อิสระ), Order เป็น **INSERT-only snapshot ของรายการที่
-ซื้อจริง** (`Item`) บวก **PII ผู้เอาประกัน** บวก **capability token** ให้ลูกค้า anonymous เปิดดูสรุปได้โดย
-ไม่ต้อง login บวก entity ลูกอีกตัว (`ItemPolicy`) ที่ mutable และเขียนโดยคนละ actor หลังการขาย — ความ
-ซับซ้อนของโมดูลนี้ส่วนใหญ่มาจากการแยก "สิ่งที่ snapshot ตอนขาย" ออกจาก "ข้อมูลอ้างอิงกรมธรรม์ที่กรอกทีหลัง"
-อย่างเด็ดขาด
+ต่างจาก Carts (ephemeral, ไม่มี PII, mutate ได้อิสระ) — `Order` เองแก้ได้แค่ 2 ทาง ควบคุมแคบผ่าน
+`MarkPaid` (`Status`/`PaidAt`) กับ `ReissueSummary` (`SummaryToken`/`SummaryTokenExpiresAt`) ส่วน
+**`Item` ลูกของมัน (รายการที่ซื้อจริง) เป็น INSERT-only snapshot** บวก **PII ผู้เอาประกัน** บวก
+**capability token** ให้ลูกค้า anonymous เปิดดูสรุปได้โดยไม่ต้อง login บวก entity ลูกอีกตัว
+(`ItemPolicy`) ที่ mutable และเขียนโดยคนละ actor หลังการขาย — ความซับซ้อนของโมดูลนี้ส่วนใหญ่มาจากการแยก
+"สิ่งที่ snapshot ตอนขาย" (`Item`, ห้ามแก้) ออกจาก "ข้อมูลอ้างอิงกรมธรรม์ที่กรอกทีหลัง" (`ItemPolicy`,
+แก้ได้) อย่างเด็ดขาด
 
 **เส้นทางวิวัฒนาการ** (เรียงเวลา จาก `.ai/specs/`):
 - `insurance-pivot` (approved 2026-07-20) — กำเนิด order line (ตอนนั้นชื่อ `OrderLine`) พก PII ผู้เอา
