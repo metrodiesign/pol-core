@@ -24,8 +24,8 @@
 >
 > ชื่อ **entity/table/route** ในเอกสารนี้เป็นชื่อจริงแล้ว.
 
-> โมเดล **captive / internal** · redirect-only · multi-tenant · ไม่ถือเงิน · ใช้ฟรีภายในเครือ
-> Tenant: **vPrivilege · vCommerce · vSouvenir** · PSP ปลายทาง: 2C2P + Omise/Opn
+> โมเดล **captive / internal** · redirect-only · multi-merchant · ไม่ถือเงิน · ใช้ฟรีภายในเครือ
+> Merchant: **vPrivilege · vCommerce · vSouvenir** · PSP ปลายทาง: 2C2P + Omise/Opn
 > เวอร์ชันอัปเดต: สะท้อนการตัดสินใจล่าสุด (2 SaaS console, no payout, no fee, captive)
 >
 > **[intake 2026-07-05]** ไฟล์นี้รวมสองส่วน: ภาค 1-7 + Naming = canon เดิม (design แรก + as-built
@@ -87,8 +87,8 @@ Flow ใน SaaS: Products → **Cart** → **Checkout** → Orders → **Paymen
 **โมดูล Payments ทำอะไร:**
 - รับ payment intent จากช่องทางของบริษัทในเครือ → ออก **redirect ไปหน้า PSP** (สัญญากลางรูปทรงเดียวทุก PSP)
 - รับผลจริงทาง **webhook (source of truth)** → verify ลายเซ็น + fetch-to-confirm → อัปเดตสถานะ → emit `PaymentPaid`
-- **Multi-tenant provisioning** — Admin Console สร้าง tenant + เก็บ PSP credential/config ต่อบริษัท (vault)
-- **2 SaaS console** (Tenant/Admin) คนละแอป + **RBAC** + **identity (Google SSO)**
+- **Multi-merchant provisioning** — Admin Console สร้าง merchant + เก็บ PSP credential/config ต่อบริษัท (vault)
+- **2 SaaS console** (Merchant/Admin) คนละแอป + **RBAC** + **identity (Google SSO)**
 - **PSP adapter** 2C2P + Omise/Opn — redirect-only ครบ 3 ช่องทาง (บัตร/PromptPay/ผ่อน)
 - **Reconciliation = reporting**, retry/dunning, idempotency, audit log
 
@@ -222,27 +222,27 @@ sequenceDiagram
 ทั้งสองแอปเป็นคนละ frontend/คนละ deploy แต่ **นั่งบน backend + data ชุดเดียวกัน**
 
 ### 2.1 Merchant Console (SaaS app #1)
-- **บทบาท:** แอปเดียวที่ทั้ง 3 บริษัทใช้ร่วมกัน โดย scope ต่อรายผ่าน tenant context จากตอน login
-- **หน้าที่หลัก:** ดู dashboard/รายงาน/reconciliation เฉพาะตน, ตั้งค่าระดับที่อนุญาต — **ไม่ได้สร้าง tenant หรือกรอก PSP credential เอง** (admin provision ให้)
-- **คุณสมบัติ:** public-facing · เห็นเฉพาะข้อมูล tenant ตน
+- **บทบาท:** แอปเดียวที่ทั้ง 3 บริษัทใช้ร่วมกัน โดย scope ต่อรายผ่าน merchant context จากตอน login
+- **หน้าที่หลัก:** ดู dashboard/รายงาน/reconciliation เฉพาะตน, ตั้งค่าระดับที่อนุญาต — **ไม่ได้สร้าง merchant หรือกรอก PSP credential เอง** (admin provision ให้)
+- **คุณสมบัติ:** public-facing · เห็นเฉพาะข้อมูล merchant ตน
 - **หมายเหตุ:** ไม่มี code path ไปฟังก์ชัน admin เลย
 
 ### 2.2 Admin Console (SaaS app #2)
-- **บทบาท:** แอปของทีมกลาง เข้าถึงข้ามทุก tenant
-- **หน้าที่หลัก:** **สร้าง/provision Merchant Console ให้แต่ละบริษัท**, กรอกและเก็บ PSP integration config + credential รายบริษัทลง vault, ตั้ง webhook/return URL mapping ต่อ tenant, จัดการ tenant/allowlist, ตั้ง routing, มอนิเตอร์, audit
+- **บทบาท:** แอปของทีมกลาง เข้าถึงข้ามทุก merchant
+- **หน้าที่หลัก:** **สร้าง/provision Merchant Console ให้แต่ละบริษัท**, กรอกและเก็บ PSP integration config + credential รายบริษัทลง vault, ตั้ง webhook/return URL mapping ต่อ merchant, จัดการ merchant/allowlist, ตั้ง routing, มอนิเตอร์, audit
 - **คุณสมบัติ:** **internal-only** (VPN/IP allowlist, MFA เข้มกว่า, แยก identity provider) · แยก deploy/codebase เพื่อลด blast radius
 - **หมายเหตุ:** เป็น control plane ตัวจริง — ฟังก์ชันอำนาจสูงทั้งหมดอยู่ที่นี่
 
 ### 2.3 Permission model (RBAC)
 - **โครงสร้าง:** สิทธิ = Scope × Resource × Action — catalog กลางเดียว `iam.*` (rf2), ดู `docs/reference/iam.md`
 - **Role ใน Merchant Console:** `merchant_manager` (ทุก merchant key, anchor ปิด/ลบไม่ได้) / `merchant_staff` (scope = merchant ตนเท่านั้น) — merchant สร้าง custom role เพิ่มเองได้
-- **Role ใน Admin Console:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) / `platform_auditor` (Platform-scope, อ่านอย่างเดียว) — เข้าถึงข้าม tenant มาจาก `AdminTier.Super` คนละแกนกับ role, ไม่ใช่ role นี้ที่ให้สิทธิ์ข้าม tenant
-- **maker-checker:** ใช้กับ action อ่อนไหว เช่น approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist — ยังไม่ implement (ดู `platform-modules.md` §3.2)
-- **บังคับใช้:** การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ **backend authorization แยก permission scope ให้ขาด** endpoint ของ admin (cross-tenant/approve/config) ต้องเรียกผ่าน session ของ Merchant Console ไม่ได้
+- **Role ใน Admin Console:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) / `platform_auditor` (Platform-scope, อ่านอย่างเดียว) — เข้าถึงข้าม merchant มาจาก `AdminTier.Super` คนละแกนกับ role, ไม่ใช่ role นี้ที่ให้สิทธิ์ข้าม merchant
+- **maker-checker:** ใช้กับ action อ่อนไหว เช่น approve merchant ใหม่, เปลี่ยน routing rule, แก้ allowlist — ยังไม่ implement (ดู `platform-modules.md` §3.2)
+- **บังคับใช้:** การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ **backend authorization แยก permission scope ให้ขาด** endpoint ของ admin (cross-merchant/approve/config) ต้องเรียกผ่าน session ของ Merchant Console ไม่ได้
 
 ### 2.4 Provisioning (admin-driven)
-- **ลำดับ:** Admin สร้าง tenant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ tenant → provision Merchant Console + พื้นที่ข้อมูลแยก → tenant พร้อมใช้
-- **บทบาท:** ทีมกลาง provision ทั้งหมดผ่าน Admin Console (ไม่ใช่ self-serve ของ tenant) เหมาะกับ captive เพราะ 3 บริษัทอยู่ในเครือ ทีมกลางถือ credential ได้
+- **ลำดับ:** Admin สร้าง merchant → Admin กรอก PSP config + credential รายบริษัท (เก็บลง vault) → ตั้ง webhook/return URL mapping ต่อ merchant → provision Merchant Console + พื้นที่ข้อมูลแยก → merchant พร้อมใช้
+- **บทบาท:** ทีมกลาง provision ทั้งหมดผ่าน Admin Console (ไม่ใช่ self-serve ของ merchant) เหมาะกับ captive เพราะ 3 บริษัทอยู่ในเครือ ทีมกลางถือ credential ได้
 - **ขอบเขต:** เฉพาะ vPrivilege / vCommerce / vSouvenir (allowlist) · ไม่มี billing
 - **ข้อมูลที่ provision (data model, as-built):** `Merchant` → `merch.Merchants` (Code/DisplayName/LegalEntityId/Status/Country/Currency/EnabledChannels + `Metadata` json) → `Payments.Domain.Psp.Connection` → `txn.PspConnections` ต่อ PSP (MerchantId, Psp, EnabledMethods csv, **`SecretRefName`**, `Metadata` json, IsEnabled) → `VaultSecretBlob` → `merch.VaultSecrets` คีย์ด้วย (MerchantId, `Name`) เก็บ ciphertext + `Hint` (last-4, ไม่ใช่ secret) · runtime: `Payments.Domain.Session` → `txn.PaymentSessions` อ้าง **MerchantId + OrderId + Psp** (ไม่ได้อ้าง ConnectionId)
 - **`PspConnection` ไม่มีคอลัมน์ `WebhookPath`** — path/return URL ที่ admin ส่งมาเก็บลง `Metadata` json verbatim; ส่วน endpoint/return URL ที่ adapter ใช้จริงตอน runtime มาจาก config section `Psp` (appsettings/env, `PspOptions`) ซึ่งเป็น **global ต่อ deployment ไม่ใช่ต่อ connection** — ช่องว่างที่ยังไม่ปิด
@@ -356,7 +356,7 @@ sequenceDiagram
 - ทุกคีย์ใน `secrets` → รวมเป็น **envelope JSON ก้อนเดียว** แล้ว encrypt ลง `merch.VaultSecrets` **1 แถวต่อ connection** (ไม่ใช่ 1 แถวต่อ secret field, ไม่มีคอลัมน์ `Kind`) — `Connection.SecretRefName` คือชื่อที่ใช้ค้นกลับ
 
 - **กฎ secret:** ฟิลด์ใน `secrets` เป็น **write-only** — API อ่านกลับต้อง mask เสมอ (เช่น `"secretKey": "••••3a9f"`) ไม่ส่ง plaintext คืน
-- **WebhookPath / returnUri:** ต้องเอาไปตั้งใน dashboard ของ PSP ฝั่งบริษัทด้วย เพื่อให้ callback/return แยก tenant/PSP ได้
+- **WebhookPath / returnUri:** ต้องเอาไปตั้งใน dashboard ของ PSP ฝั่งบริษัทด้วย เพื่อให้ callback/return แยก merchant/PSP ได้
 
 #### Provisioning sequence
 
@@ -384,13 +384,13 @@ as-built: `POST /api/v1/merchants` → `ProvisionMerchantCommand` → `Provision
 
 **IdP:** ทั้งสอง console ใช้ Google SSO (Sign in with Google) → `iss` ร่วมกัน (`accounts.google.com`) จึง **แยก domain ด้วย `aud` (OAuth client คนละตัวต่อ console) + ตาราง identity ฝั่ง platform + `hd` guard** ไม่ใช่ด้วย `iss`
 
-**Authn vs authz:** Google ทำแค่ authentication (ยืนยันเจ้าของอีเมล → ให้ `sub`/`email`/`hd`) ส่วน role/tenant ตัดสินที่ platform เสมอ
+**Authn vs authz:** Google ทำแค่ authentication (ยืนยันเจ้าของอีเมล → ให้ `sub`/`email`/`hd`) ส่วน role/merchant ตัดสินที่ platform เสมอ
 
 #### Admin Console
 - **ด่านเข้า (default-deny):** ตรวจ `aud=admin-client` + **`hd=platform.com`** ทุก request — ไม่ผ่าน → 403
 - **Role:** RBAC catalog กลาง `iam.*` (rf2) กำหนด role ตรงๆ ตอน assign — ไม่ใช่ default-role-then-elevate แบบเดิม ดู `docs/reference/iam.md`
 - **Bootstrap owner:** seed owner คนแรกผ่าน config/migration (ตารางว่างตอน deploy → elevate ตัวเองผ่าน UI ไม่ได้)
-- **Roles:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) · `platform_auditor` (Platform-scope, อ่านอย่างเดียว — เข้าถึงข้าม tenant ขึ้นกับ `AdminTier.Super` ไม่ใช่ role นี้)
+- **Roles:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) · `platform_auditor` (Platform-scope, อ่านอย่างเดียว — เข้าถึงข้าม merchant ขึ้นกับ `AdminTier.Super` ไม่ใช่ role นี้)
 - **สมมติฐานที่ต้องจริงตลอด:** ทุกบัญชี @platform.com = คนที่ให้เข้า admin ได้ (โดเมนสงวนเฉพาะทีมกลาง) ถ้าวันใดโดเมนขยายใช้ทั่วไป ต้องกลับไปใช้ allowlist รายคน
 
 #### Merchant Console (เดิมเรียก Tenant Console / producer)
@@ -680,7 +680,7 @@ sandbox/production เลือกด้วย `PspOptions.UseSandbox` (**defaul
 
 - **Multi-merchant isolation (app-layer floor, ไม่ใช่ RLS)** — SQL Server RLS/security policy/`SESSION_CONTEXT`/`EXECUTE AS` bypass proc **ถูกถอดออกหมดแล้ว** (spec `rls-to-query-filter`). floor ปัจจุบันมีสองชั้นที่ app layer:
   - **read** — EF global query filter `x.MerchantId == context.CurrentMerchant` ประกาศใน `OnModelCreating` ของแต่ละ `EntityTypeConfiguration`, **deny-default** (ไม่มี actor ผูก = เห็นศูนย์แถว ไม่ใช่เห็นหมด)
-  - **write** — `GuardedRuntimeDbContext.GuardPendingChanges` (override `SaveChanges` แบบ **sealed**) เรียก `IWriteAuthorizer.CanWrite(entity, operation, targetMerchant)` แบบ default-deny + concurrency token + tenant-key immutable-after-insert + reject `MerchantId == Guid.Empty`
+  - **write** — `GuardedRuntimeDbContext.GuardPendingChanges` (override `SaveChanges` แบบ **sealed**) เรียก `IWriteAuthorizer.CanWrite(entity, operation, targetMerchant)` แบบ default-deny + concurrency token + merchant-key immutable-after-insert + reject `MerchantId == Guid.Empty`
   - DB มี **principal เดียว `pol_app`** ไม่มีสิทธิ์แยกตาม capability อีกแล้ว — capability แยกที่ `IWriteAuthorizer` implementation (4 ตัว: merchant request / control-plane admin / provisioning Super / worker dispatch)
   - `IgnoreQueryFilters()`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL อนุญาตเฉพาะไฟล์ใน **escape-hatch allowlist** ที่ arch test บังคับ (`Architecture.Tests.BypassPrimitiveTests`) — ฝั่ง Payments มี `WebhookMerchantResolver` (map connection id → merchant) กับ `ConnectionRepository.ListByTenantAsync` (admin cross-merchant read-back)
   - ทุก denial ยิง `ISecurityTelemetry.Emit(DenialEvent)` → Seq (ชดเชย DB-level attribution ที่หายไปตอนยุบเหลือ 1 principal)
@@ -1686,8 +1686,8 @@ reconciliation query ที่ไม่เคลื่อนเงิน · migr
 | Namespace / Class / Struct / Record / Enum | PascalCase | `PaymentSession` |
 | Interface | `I` + PascalCase | `IPspAdapter` |
 | Method (async ลงท้าย `Async`) | PascalCase | `CreateSessionAsync` |
-| Property | PascalCase | `TenantId`, `IsActive` |
-| Parameter / local variable | camelCase | `tenantId` |
+| Property | PascalCase | `MerchantId`, `IsActive` |
+| Parameter / local variable | camelCase | `merchantId` |
 | Private field | `_` + camelCase | `_vault` |
 | Constant / static readonly | PascalCase | `DefaultCurrency` |
 | Enum member | PascalCase | `SessionStatus.Redirected` |
@@ -1764,14 +1764,14 @@ fallback, entity ที่ลืมใส่ schema **fail arch test** ไม่
 | JSON property (request/response) | **camelCase** | `pspConnections`, `merchantId`, `webhookPath`, `secretKey` |
 | ตั้งครั้งเดียวใน .NET | `JsonNamingPolicy.CamelCase` | map `MerchantId` (C#) ↔ `merchantId` (JSON) อัตโนมัติ |
 | JWT/OIDC claim (มาตรฐาน) | ตามสเปก (lowercase) | `iss`, `aud`, `sub`, `exp`, `hd`, `email_verified` |
-| Custom claim | คงชื่อตาม IdP/สเปก | `tenant_id`, `role` (เป็นคนละ namespace กับ `TenantId` ที่เป็นคอลัมน์) |
+| Custom claim | คงชื่อตาม IdP/สเปก | `tid` (Entra tenant id), `role` (เป็นคนละ namespace กับ `MerchantId` ที่เป็นคอลัมน์) |
 
 - **ค่า (value) ของ provider/method** เก็บเป็น code string เสถียร: `"2c2p"` / `"omise"` · `"card"` / `"promptpay"` / `"installment"` (แยกจากชื่อ enum member ในโค้ด เช่น `TwoCTwoP`)
 - **ค่าจาก PSP ภายนอก** คงรูปเดิมเสมอ: Omise source types `installment_kbank`/`installment_bay`/…, field เช่น `authorize_uri`, `return_uri`, event `charge.complete` — เป็นของ Omise ห้ามเปลี่ยน
 
 ### ถ้าทีมเลือก snake_case ใน DB
 
-ถ้าอยากให้ table/column เป็น snake_case (เช่น `psp_connection`, `tenant_id`) ขณะที่ C# ยังเป็น PascalCase → ตั้ง **global convention ครั้งเดียว** (เช่น package `EFCore.NamingConventions` → `optionsBuilder.UseSnakeCaseNamingConvention()`) อย่าตั้งชื่อสลับมือทีละตาราง **เลือกแบบเดียวแล้วใช้ทั้งโปรเจกต์** ไม่ปนกัน (ER diagram ก่อนหน้าใช้ snake_case เชิงแนวคิด ตอน implement ให้ยึด convention ที่เลือกที่นี่)
+ถ้าอยากให้ table/column เป็น snake_case (เช่น `psp_connection`, `merchant_id`) ขณะที่ C# ยังเป็น PascalCase → ตั้ง **global convention ครั้งเดียว** (เช่น package `EFCore.NamingConventions` → `optionsBuilder.UseSnakeCaseNamingConvention()`) อย่าตั้งชื่อสลับมือทีละตาราง **เลือกแบบเดียวแล้วใช้ทั้งโปรเจกต์** ไม่ปนกัน (ER diagram ก่อนหน้าใช้ snake_case เชิงแนวคิด ตอน implement ให้ยึด convention ที่เลือกที่นี่)
 
 ### ชื่อ canonical เฉพาะโปรเจกต์
 
