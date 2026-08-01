@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
@@ -101,5 +102,19 @@ public sealed class MicrosoftAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.EndsWith(callbackPath, query["redirect_uri"].ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Id_token_validation_uses_the_explicit_two_minute_clock_skew()
+    {
+        // Explicit, not the library's 5-minute default — set in both (deliberately duplicated) OIDC wirings.
+        using var factory = new MicrosoftLoginFactory();
+        var monitor = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>();
+        foreach (var scheme in new[]
+        {
+            ApiHost::Api.Admins.OidcAuthentication.SchemePrefix + "Microsoft",
+            ApiHost::Api.Merchants.UserOidcAuthentication.SchemePrefix + "Microsoft",
+        })
+            Assert.Equal(TimeSpan.FromMinutes(2), monitor.Get(scheme).TokenValidationParameters.ClockSkew);
     }
 }

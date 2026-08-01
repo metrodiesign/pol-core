@@ -659,7 +659,7 @@ api.MapPost("/carts", async (IActorContext actor, IMediator mediator, Cancellati
 {
     var id = await mediator.Send(new CreateCartCommand(actor.MerchantId), ct);
     return TypedResults.Ok(new CreateCartResponse(id));
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("CreateCart")
     .WithSummary("เปิดตะกร้าสินค้า")
@@ -682,7 +682,7 @@ api.MapPost("/carts/{cartId:guid}/items", async (
     var result = await mediator.Send(new AddItemToCartCommand(
         cartId, actor.MerchantId, body.ProductId, body.Quantity, Money.Of(product.TotalPremium, "THB")), ct);
     return Results.Ok(result);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("AddCartItem")
     .WithSummary("เพิ่มรายการสินค้าในตะกร้า")
@@ -710,7 +710,7 @@ api.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
 {
     var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, actor.MerchantId, productId), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("RemoveCartItem")
     .WithSummary("ลบรายการในตะกร้า")
@@ -723,7 +723,7 @@ api.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
 {
     var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, actor.MerchantId, productId, body.Quantity), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("SetCartItemQuantity")
     .WithSummary("ปรับจำนวนรายการในตะกร้า")
@@ -736,7 +736,7 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
 {
     var view = await mediator.Send(new ClearCartCommand(cartId, actor.MerchantId), ct);
     return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("ClearCart")
     .WithSummary("ล้างตะกร้าสินค้า")
@@ -787,7 +787,7 @@ api.MapPost("/checkouts", async (
     var result = await mediator.Send(
         new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, items, body.Recipient), ct);
     return Results.Ok(result);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("เช็คเอาต์")
     .WithName("StartCheckout")
     .WithSummary("เริ่มเช็คเอาต์")
@@ -803,7 +803,7 @@ api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
 {
     var result = await mediator.Send(new ConfirmCheckoutCommand(checkoutSessionId, actor.MerchantId), ct);
     return Results.Ok(result);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("เช็คเอาต์")
     .WithName("ConfirmCheckout")
     .WithSummary("ยืนยันเช็คเอาต์")
@@ -821,7 +821,7 @@ var createPaymentSession = api.MapPost("/payments/sessions", async (
         body.OrderId, actor.MerchantId, body.Method, body.Psp), ct);
     return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
 });
-createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentCreate)
+createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentCreate).RequireUserCsrf()
     .WithTags("การชำระเงิน")
     .WithName("CreatePaymentSession")
     .WithSummary("สร้าง payment session")
@@ -844,7 +844,7 @@ var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redi
     var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
     return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
 });
-startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentRedirect)
+startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentRedirect).RequireUserCsrf()
     .WithTags("การชำระเงิน")
     .WithName("StartPaymentRedirect")
     .WithSummary("เริ่ม redirect ไปยัง PSP")
@@ -884,7 +884,7 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
 {
     var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, actor.MerchantId), ct);
     return Results.Ok(result);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("คำสั่งซื้อ")
     .WithName("ResendOrderSummary")
     .WithSummary("ส่งลิงก์สรุปคำสั่งซื้อซ้ำ")
@@ -937,7 +937,7 @@ api.MapPut("/orders/{orderId:guid}/items/{itemId:guid}/policy", async (
     var result = await mediator.Send(
         new UpsertItemPolicyCommand(actor.MerchantId, itemId, input, actor.UserId!.Value.ToString()), ct);
     return Results.Ok(result);
-}).RequireAuthorization("merchant-user").RequirePermission(Keys.PoliciesWrite)
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.PoliciesWrite).RequireUserCsrf()
     .WithTags("คำสั่งซื้อ")
     .WithName("UpsertItemPolicy")
     .WithSummary("บันทึกเลขอ้างอิงกรมธรรม์ภายนอกของ item")
@@ -989,7 +989,7 @@ api.MapGet("/reports/policies", async (HttpContext http, IActorContext actor, IM
 // policy is applied to /api/v1/admins/* by PolCorsPolicyProvider). Per-endpoint authorization stays explicit: login
 // is anonymous; every other route gates on the Session "admin" policy. The CSRF filter exempts safe methods,
 // so the login/callback GETs pass untouched.
-var admin = api.MapGroup("/admins").AddEndpointFilter<CsrfFilter>();
+var admin = api.MapGroup("/admins").RequireCsrf();
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
 // allowlist, then hand off to the {provider}'s OIDC handler, which builds the Authorization Code + PKCE + state
@@ -1113,7 +1113,7 @@ api.MapPost("/merchants", async (
     static JsonElement? ToElement(IDictionary<string, JsonElement>? extra) =>
         extra is null || extra.Count == 0 ? null : JsonSerializer.SerializeToElement(extra);
 })
-    .AddEndpointFilter<CsrfFilter>() // re-attached explicitly — no longer inherited from the /admins group (REQ-7.1)
+    .RequireCsrf() // re-attached explicitly — no longer inherited from the /admins group (REQ-7.1)
     .RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super) // provisioning is Super-only (REQ-8.4)
     .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("ProvisionMerchant")
@@ -1137,7 +1137,7 @@ api.MapGet("/merchants/{code}", async (
     return view is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
-}).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin") // GET is CSRF-exempt by design; attached for REQ-7.1
+}).RequireCsrf().RequireAuthorization("admin") // GET is CSRF-exempt by design; attached for REQ-7.1
     .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("GetMerchant")
     .WithSummary("อ่านข้อมูลร้านค้าตามรหัส")
@@ -1278,10 +1278,10 @@ merchantUsersAnon.MapPost("/register", async (
 // methods, and the anonymous pre-session routes (login/callback/register) are mapped OUTSIDE these groups, so they
 // are untouched. MerchantBoundFilter then fail-closes both groups on a BOUND merchant-user (REQ-17.2/F10).
 var merchantAuth = api.MapGroup("/merchants/auth")
-    .AddEndpointFilter<UserCsrfFilter>()
+    .RequireUserCsrf()
     .AddEndpointFilter<BoundFilter>();
 var merchantUsers = api.MapGroup("/merchants/users")
-    .AddEndpointFilter<UserCsrfFilter>()
+    .RequireUserCsrf()
     .AddEndpointFilter<BoundFilter>();
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-12.1). The
@@ -1634,7 +1634,7 @@ api.MapPost("/admins", async (
         body.Email, scope.Current.AdminId, http.TraceIdentifier,
         body.PositionId, body.OfficeId, body.LevelId, body.DivisionId), ct);
     return Results.Created($"/api/v1/admins/{result.AdminId}", result);
-}).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+}).RequireCsrf().RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
     .WithTags("ผู้ดูแลระบบ")
     .WithName("CreateScopedAdmin")
     .WithSummary("เชิญ Scoped admin")
@@ -1915,7 +1915,7 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
         return Results.Ok(new PagedResult<MasterResponse>(
             [.. result.Items.Select(toWire)],
             result.Page, result.Limit, result.Total));
-    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"List{segment}")
         .WithSummary($"รายการ{thaiLabel}ทั้งหมด")
@@ -1927,7 +1927,7 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     {
         var item = await getById(store, id, ct);
         return Results.Ok(toWire(item));
-    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Get{segment}")
         .WithSummary($"อ่านข้อมูล{thaiLabel}ตาม id")
@@ -1942,7 +1942,7 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
         var item = await create(store, body.Code ?? "", body.Name ?? "", ct);
         var wire = toWire(item);
         return Results.Created($"/api/v1/{segment}/{wire.Id}", wire);
-    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Create{segment}")
         .WithSummary($"สร้าง{thaiLabel}ใหม่")
@@ -1957,7 +1957,7 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     {
         var item = await update(store, id, body.Name ?? "", body.IsActive, ct);
         return Results.Ok(toWire(item));
-    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Update{segment}")
         .WithSummary($"เปลี่ยนชื่อหรือเปิด/ปิดการใช้งาน{thaiLabel}")
@@ -1972,7 +1972,7 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
     {
         await deactivate(store, id, ct);
         return Results.NoContent();
-    }).AddEndpointFilter<CsrfFilter>().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
         .WithTags(tag)
         .WithName($"Deactivate{segment}")
         .WithSummary($"ปิดการใช้งาน{thaiLabel}")
@@ -2167,6 +2167,10 @@ admin.MapPut("/{id:guid}/roles", async (
 // or a key whose side does not match the endpoint's own auth policy (side-aware, REQ-5.4) — one guard now covers
 // both consoles, incl. the cross-catalog merchant-user.approve/reject keys gated under the "admin" policy.
 PermissionParity.Assert(app.Services);
+
+// CSRF parity: every unsafe endpoint under a cookie-session policy must carry its own side's CSRF filter —
+// a forgotten .RequireCsrf()/.RequireUserCsrf() is a boot failure here, not a silent runtime gap.
+CsrfParity.Assert(app.Services);
 
 app.Run();
 
