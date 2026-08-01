@@ -99,6 +99,32 @@ public sealed class ProductUpsertIntegrationTests : IAsyncLifetime
         Assert.Equal("ชื่อใหม่", row.ShowName);
     }
 
+    [Fact]
+    public async Task A_case_variant_DocumentNo_refreshes_the_same_row()
+    {
+        // shop.Products.DocumentNo collates case-insensitively (SQL_Latin1_General_CP1_CI_AS), so a
+        // case-variant upstream row is the same document: it must refresh the stored row in place, never
+        // stage a second Add into IX_Products_DocumentNo and fail the page.
+        var documentNo = DocumentNo("CASE-1");
+        Guid id;
+
+        await using (var db = NewContext())
+            id = Assert.Single(await new ProductRepository(db).UpsertByDocumentNoAsync([Input(documentNo)], default)).Id;
+
+        await using (var db = NewContext())
+        {
+            var stored = Assert.Single(await new ProductRepository(db)
+                .UpsertByDocumentNoAsync([Input(documentNo.ToLowerInvariant(), totalPremium: 20250m)], default));
+
+            Assert.Equal(id, stored.Id);
+        }
+
+        await using var verify = NewContext();
+        var row = await verify.Set<Product>().SingleAsync(p => p.Id == id);
+        Assert.Equal(documentNo.ToLowerInvariant(), row.DocumentNo);
+        Assert.Equal(20250m, row.TotalPremium);
+    }
+
     // REQ-7.4 — the upstream reporting UNPAID must never undo a payment taken here; the PaidDate survives too.
     [Fact]
     public async Task A_local_PAID_is_never_downgraded_by_an_UNPAID_row()

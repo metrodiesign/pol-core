@@ -100,7 +100,10 @@ public sealed class Product : AggregateRoot<Guid>
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        if (Required(input.DocumentNo, 150, nameof(input.DocumentNo)) != DocumentNo)
+        // Case-insensitive to match IX_Products_DocumentNo: a row the database matched to this document
+        // must refresh it, not throw. ApplyFields then adopts the wire casing, as with every other field.
+        if (!string.Equals(Required(input.DocumentNo, 150, nameof(input.DocumentNo)), DocumentNo,
+                StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("DocumentNo must match the document being refreshed.", nameof(input));
 
         if (SideOf(input.ProductGroup) != InsuranceType)

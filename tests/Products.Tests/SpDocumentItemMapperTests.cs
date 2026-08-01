@@ -200,6 +200,20 @@ public sealed class SpDocumentItemMapperTests
         Assert.Equal("77001-69900/กธ/950002-10", mapped[2].Input!.DocumentNo);
     }
 
+    // The claim is case-insensitive because IX_Products_DocumentNo is: "ab" after "AB" is the same
+    // document, and letting it through would be the same two Adds against the index.
+    [Fact]
+    public void A_case_variant_DocumentNo_within_the_page_is_a_duplicate()
+    {
+        var mapped = SpDocumentItemMapper.Map(
+            [Row(documentNo: "77001-69900/AB/950009-10", totalPremium: 100m),
+             Row(documentNo: "77001-69900/ab/950009-10", totalPremium: 200m)]);
+
+        Assert.Equal(100m, mapped[0].Input!.TotalPremium);
+        Assert.Null(mapped[1].Input);
+        Assert.Contains("duplicate", mapped[1].SkipReason);
+    }
+
     [Fact]
     public void A_skipped_row_does_not_claim_its_DocumentNo()
     {

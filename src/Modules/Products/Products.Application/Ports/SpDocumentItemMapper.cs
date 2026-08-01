@@ -19,9 +19,10 @@ public static class SpDocumentItemMapper
         ArgumentNullException.ThrowIfNull(items);
 
         // First row wins per DocumentNo: two rows for one document would be two Adds against
-        // IX_Products_DocumentNo in a single save. Only usable rows claim the key, so a broken row does
-        // not shadow a good one further down the page.
-        var claimed = new HashSet<string>(StringComparer.Ordinal);
+        // IX_Products_DocumentNo in a single save. That index is unique under a case-insensitive
+        // collation, so the claim is case-insensitive too. Only usable rows claim the key, so a broken
+        // row does not shadow a good one further down the page.
+        var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var mapped = new List<MappedSpDocument>(items.Count);
 
         foreach (var item in items)

@@ -1,6 +1,6 @@
 # Design: products-sp-gateway
 
-> Status: approved 2026-07-31
+> Status: approved 2026-07-31, amended 2026-08-01
 > Requirements: [requirements.md](requirements.md) (approved 2026-07-31, amended 2026-07-31) — 11 REQ / 73 criteria
 > Contract ต้นเรื่อง: `docs/reference/vcentralpay-sp-quick-reference.pdf` v1.0
 
@@ -403,6 +403,7 @@ detail `"Invalid request"` ของ handler เดิม — spec นี้ไ�
 | `productFilters` ผิด (saleCode ว่าง, paymentStatus/countMode ผิด, date inversion, insuranceType ขัดแย้ง/ว่าง) | `ProductFilterDto.Parse` / handler routing — ก่อนถึง SP | 400 ProblemDetails, **fixed detail** (message ฝั่งเราอยู่ใน exception สำหรับ log/test — M6) |
 | SP `THROW 50001..50009` (เคสที่หลุด boundary หรือเรียกตรง) | `SpDocumentGateway` catch `SqlException` | `SpDocumentSearchRejectedException` -> 400 fixed detail; `SpErrorNumber` ใช้ assert ใน test |
 | `SqlException` อื่น: timeout (-2), login (18456), permission (229), network | `SpDocumentGateway` | `LogError` เต็มฝั่ง server -> `UpstreamUnavailableException` -> 503 fixed detail |
+| connection string ที่ config มา parse ไม่ได้ (`ArgumentException`/`FormatException` จาก `new SqlConnection`) | `SpDocumentGateway.CreateConnection` (Codex P2, 2026-08-01) | `LogError` + `UpstreamUnavailableException` -> 503 — misconfig ฝั่ง operator ต้องไม่กลายเป็น 400 โทษ caller |
 | column/type drift: `IndexOutOfRangeException` (`GetOrdinal` ไม่เจอคอลัมน์) / `InvalidCastException` | `SpDocumentGateway` (M8) | `LogError` + `UpstreamUnavailableException` -> 503 — ไม่ใช่ 500 opaque |
 | request ถูก cancel (user ปิดหน้า) | `SpDocumentGateway` เช็ค `ct.IsCancellationRequested` ก่อน map (M8) | rethrow `OperationCanceledException` — ไม่ใช่ 503 ปลอม/alert ปลอม |
 | RS1 ไม่มีแถว / result set หาย | `SpDocumentGateway` | `UpstreamUnavailableException` -> 503 |
@@ -498,3 +499,10 @@ spec-architect adversarial critique รอบ 1 (2026-07-31) — 2 BLOCKER + 12 
 - **ชะตากรรม test เดิม (task 6)** — `InsuranceCheckoutEndToEndTests` เปลี่ยนความหมายของ assert ท้ายเส้น
   จาก "เอกสาร PAID หลุดจากลิสต์ UNPAID" (ตัวกรองย้ายไป SP แล้ว โค้ดเราไม่ได้ทำอีก) เป็น
   "upstream บอก UNPAID แล้ว local PAID ต้องไม่ถูก downgrade" (REQ-7.4)
+- **Post-PR review (Codex P2 บน PR #150, 2026-08-01)** — การเทียบ `DocumentNo` ฝั่ง CLR เปลี่ยนเป็น
+  case-insensitive (`OrdinalIgnoreCase`) ให้ตรง semantics ของ `IX_Products_DocumentNo` ซึ่ง unique ใต้
+  collation `SQL_Latin1_General_CP1_CI_AS` (ยืนยันจาก DB จริง): dictionary ใน `UpsertByDocumentNoAsync`,
+  dedupe ใน `SpDocumentItemMapper`, guard ใน `RefreshFromExternal` (refresh แล้ว adopt casing จาก wire
+  เหมือน field อื่น) — ก่อนแก้ แถว case-variant จาก upstream จะถูก stage เป็น Add ซ้ำชน index -> retry ->
+  500; และ `SpDocumentGateway` ห่อ connection string ที่ parse ไม่ได้เป็น `UpstreamUnavailableException`
+  (503) แทนที่จะปล่อย `ArgumentException` ไหลออกเป็น 400

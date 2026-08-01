@@ -266,6 +266,20 @@ public sealed class ProductTests
         Assert.Throws<ArgumentException>(() =>
             Product.Create(NewInput()).RefreshFromExternal(NewInput(documentNo: "00098-69100/กธ/999999-10")));
 
+    // IX_Products_DocumentNo is unique under a case-insensitive collation: a row the database matched by
+    // a case-variant DocumentNo is still this document, so it must refresh — and adopt the wire casing,
+    // the same way every other field mirrors the upstream.
+    [Fact]
+    public void RefreshFromExternal_matches_the_DocumentNo_case_insensitively()
+    {
+        var product = Product.Create(NewInput(documentNo: "D-CASE-1"));
+
+        product.RefreshFromExternal(NewInput(documentNo: "d-case-1", totalPremium: 500m));
+
+        Assert.Equal("d-case-1", product.DocumentNo);
+        Assert.Equal(500m, product.TotalPremium);
+    }
+
     [Fact]
     public void RefreshFromExternal_matches_the_DocumentNo_after_trimming()
     {

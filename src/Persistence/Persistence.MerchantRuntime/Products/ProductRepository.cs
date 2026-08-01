@@ -51,10 +51,13 @@ internal sealed class ProductRepository : IProductRepository
     {
         // Tracked on purpose: RefreshFromExternal mutates these, and EF writes only what actually changed —
         // which is also what keeps a concurrent MarkPaid from being overwritten by an unchanged value (F3).
+        // The Contains match runs under the column's case-insensitive collation, and IX_Products_DocumentNo
+        // is unique under that same collation — so the CLR key lookup must be case-insensitive too, or a
+        // row matched by the database misses here and gets staged as a duplicate Add into the index.
         var documentNos = inputs.Select(i => i.DocumentNo).ToArray();
         var stored = await _db.Set<Product>()
             .Where(p => documentNos.Contains(p.DocumentNo))
-            .ToDictionaryAsync(p => p.DocumentNo, cancellationToken);
+            .ToDictionaryAsync(p => p.DocumentNo, StringComparer.OrdinalIgnoreCase, cancellationToken);
 
         var documents = new List<Product>(inputs.Count);
         foreach (var input in inputs)

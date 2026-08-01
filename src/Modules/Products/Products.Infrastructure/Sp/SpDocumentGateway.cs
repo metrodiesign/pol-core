@@ -46,7 +46,7 @@ public sealed class SpDocumentGateway(IOptions<SpDocumentOptions> options, ILogg
 
         try
         {
-            await using var connection = new SqlConnection(connectionString);
+            await using var connection = CreateConnection(connectionString, request.Target);
             await using var command = new SqlCommand(motor ? MotorProcedure : NonMotorProcedure, connection)
             {
                 CommandType = CommandType.StoredProcedure,
@@ -96,6 +96,24 @@ public sealed class SpDocumentGateway(IOptions<SpDocumentOptions> options, ILogg
             // 503 (with the detail logged) is honest about that; a 500 would blame us for their change.
             logger.LogError(ex, "SpDocument: result-set contract drift reading {Target} documents.", request.Target);
             throw new UpstreamUnavailableException("Document search returned an unexpected result-set shape.", ex);
+        }
+    }
+
+    /// <summary>A connection string that will not even parse is operator configuration, not caller input:
+    /// letting the <see cref="ArgumentException"/> out would turn every product request into a misleading
+    /// 400. It is the same "upstream unreachable from here" as a bad host, so it takes the same 503 path,
+    /// with the parse failure kept server-side.</summary>
+    private SqlConnection CreateConnection(string connectionString, InsuranceType target)
+    {
+        try
+        {
+            return new SqlConnection(connectionString);
+        }
+        catch (Exception ex) when (ex is ArgumentException or FormatException)
+        {
+            logger.LogError(ex, "SpDocument: malformed connection string configured for {Target}.", target);
+            throw new UpstreamUnavailableException(
+                $"The SpDocument connection string configured for {target} is malformed.", ex);
         }
     }
 
