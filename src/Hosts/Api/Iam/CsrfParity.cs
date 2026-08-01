@@ -40,9 +40,12 @@ internal static class CsrfParity
     private static readonly HashSet<string> SafeMethods =
         new(StringComparer.OrdinalIgnoreCase) { "GET", "HEAD", "OPTIONS", "TRACE" };
 
-    public static void Assert(IServiceProvider services)
+    // Takes the route builder, NOT IServiceProvider: before app.Run() the DI EndpointDataSource composite is
+    // still empty (minimal-API sources attach at host start), so a service-provider walk sees 0 endpoints and
+    // silently guards nothing. app.DataSources is populated at map time.
+    public static void Assert(IEndpointRouteBuilder app)
     {
-        var endpoints = services.GetRequiredService<EndpointDataSource>().Endpoints
+        var endpoints = app.DataSources.SelectMany(ds => ds.Endpoints)
             .OfType<RouteEndpoint>()
             .Select(e => (
                 Pattern: e.RoutePattern.RawText ?? "?",

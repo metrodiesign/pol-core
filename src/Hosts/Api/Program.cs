@@ -2166,11 +2166,11 @@ admin.MapPut("/{id:guid}/roles", async (
 // rf2-iam-rbac REQ-5: fail fast at boot if any RequirePermission gate references a key absent from the catalog,
 // or a key whose side does not match the endpoint's own auth policy (side-aware, REQ-5.4) — one guard now covers
 // both consoles, incl. the cross-catalog merchant-user.approve/reject keys gated under the "admin" policy.
-PermissionParity.Assert(app.Services);
+PermissionParity.Assert(app);
 
 // CSRF parity: every unsafe endpoint under a cookie-session policy must carry its own side's CSRF filter —
 // a forgotten .RequireCsrf()/.RequireUserCsrf() is a boot failure here, not a silent runtime gap.
-CsrfParity.Assert(app.Services);
+CsrfParity.Assert(app);
 
 app.Run();
 

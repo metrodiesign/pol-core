@@ -66,9 +66,12 @@ internal static class PermissionAuthorization
 /// </summary>
 internal static class PermissionParity
 {
-    public static void Assert(IServiceProvider services)
+    // Takes the route builder, NOT IServiceProvider: before app.Run() the DI EndpointDataSource composite is
+    // still empty (minimal-API sources attach at host start), so the previous service-provider walk saw 0
+    // endpoints and silently guarded nothing. app.DataSources is populated at map time.
+    public static void Assert(IEndpointRouteBuilder app)
     {
-        var gated = services.GetRequiredService<EndpointDataSource>().Endpoints
+        var gated = app.DataSources.SelectMany(ds => ds.Endpoints)
             .SelectMany(e =>
             {
                 var policy = e.Metadata.OfType<IAuthorizeData>().Select(a => a.Policy).LastOrDefault(p => !string.IsNullOrEmpty(p));
