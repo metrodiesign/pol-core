@@ -59,9 +59,13 @@ Ctor สาธารณะ `Cart(Guid id, Guid merchantId, DateTime createdAt) :
 | `Clear()` (`:83-89`) | `InvalidOperationException` ถ้า `Status != Open` | no-op ถ้าว่างอยู่แล้ว |
 | `MarkCheckedOut()` (`:92`) | ไม่มี guard เลย | ดูหัวข้อ state machine ด้านบน |
 
-ไม่มี concurrency token (`RowVersion`) เลยทั้ง `Cart` และ `Item`. ไม่มี domain event ถูก `Raise()`
-จริง (มี `Raise()`/`DomainEvents` มาจาก `AggregateRoot<Guid>` แต่ไม่มีจุดไหนในไฟล์เรียก — ถูก
-`Ignore()` ที่ EF config ด้วย)
+ไม่มี `RowVersion` column แยกทั้ง `Cart` และ `Item` — **แต่ไม่ได้แปลว่าไม่มี concurrency token
+เลย**: `TenantKeyDescriptor.Require(...)` (เรียกที่ runtime persistence เท่านั้น — ดูหัวข้อ Runtime
+persistence ด้านล่าง) ตั้ง `property.IsConcurrencyToken = true` บน `MerchantId` ของทั้งคู่จริง
+(model-only token ไม่มี column เพิ่ม) ผสมกับ composite FK relationship ทำให้ flow เขียนปกติพังจริง
+บน SQL Server — รายละเอียดเต็มดูหัวข้อ "จุดที่ไม่สมมาตร" ข้อ 1 ด้านล่าง ไม่มี domain event ถูก
+`Raise()` จริง (มี `Raise()`/`DomainEvents` มาจาก `AggregateRoot<Guid>` แต่ไม่มีจุดไหนในไฟล์เรียก —
+ถูก `Ignore()` ที่ EF config ด้วย)
 
 `Item` (`Items/Item.cs`) — `public sealed class Item : Entity<Guid>` (ไม่ใช่ `AggregateRoot` —
 เป็นลูกของ `Cart`, **ไม่มี navigation กลับไปหา parent เลย**)
@@ -127,8 +131,10 @@ filter ผ่าน query filter ของ context เอง) comment ยืน�
 
 `CartConfiguration` (`CartConfiguration.cs:13-41`, apply เข้า `PolDbContext`):
 - `ToTable("Carts", SchemaNames.Shop)`, `HasKey(Id)`
-- `Status` เก็บเป็น **string** (`HasConversion<string>().HasMaxLength(16)`) — **ตารางเดียวใน
-  ระบบที่ enum ไม่เก็บเป็น int**
+- `Status` เก็บเป็น **string** (`HasConversion<string>().HasMaxLength(16)`) — ไม่ใช่ตารางเดียวที่
+  ทำแบบนี้ (`shop.Products` ก็เก็บ `ProductGroup`/`DocumentType`/`PaymentStatus` เป็น string
+  เหมือนกัน, `Products.Infrastructure/ProductConfiguration.cs:23-24,59`) แต่ต่างจากตารางส่วนใหญ่
+  ในระบบที่เก็บ enum เป็น `int`
 - `Ignore(Subtotal)`, `Ignore(DomainEvents)`
 - `HasAlternateKey(Id, MerchantId)` (`AK_Carts_Id_MerchantId`) — ต้องมีก่อนถึงจะทำ composite FK
   ได้ เพราะ `MerchantId` ไม่ใช่ PK ของ `Cart` เอง
@@ -155,6 +161,10 @@ Configuration ของ Cart มี **2 ชุดโดยตั้งใจ** (
 |---|---|---|---|
 | Migration-owner | `Carts.Infrastructure/CartConfiguration.cs` | `PolDbContext` (migration/schema เท่านั้น) | ไม่มี |
 | Runtime | `Persistence.MerchantRuntime/Carts/CartConfiguration.cs` (`:15-44`) | `MerchantRuntimeDbContext` (query path จริง) | **มี** `HasQueryFilter(x => x.MerchantId == context.CurrentMerchant)` + `TenantKeyDescriptor.Require(...)` |
+
+`TenantKeyDescriptor.Require(...)` ไม่ได้แค่ validate โครง property — มันตั้ง
+`property.IsConcurrencyToken = true` บน `MerchantId` จริงด้วย (`TenantKeyDescriptor.cs:50`) นี่คือ
+ต้นเหตุของ bug การเขียนจริงที่ระบุไว้ในหัวข้อ "จุดที่ไม่สมมาตร" ข้อ 1 ด้านล่าง
 
 Mapping ของ runtime config เหมือน migration-owner เป๊ะทุก field/index/FK — **ต่างจาก entity อื่น
 ตรงที่ `Items` relationship ไม่ถูกตัดออก** (comment ยืนยัน `:9-13`: entity อื่นในระบบมักตัด
@@ -215,21 +225,34 @@ explicit ถูกต้อง (`view is null ? Results.NotFound() : Results.Ok(
 
 ## จุดที่ไม่สมมาตร (known gaps)
 
-3 จุดจริงจากโค้ด ไม่ใช่ข้อเสนอแนะ — เก็บไว้ให้คนที่จะแก้ endpoint นี้เห็นก่อนเริ่มงาน:
+4 จุดจริงจากโค้ด ไม่ใช่ข้อเสนอแนะ — เก็บไว้ให้คนที่จะแก้ endpoint นี้เห็นก่อนเริ่มงาน (ข้อ 1 คือ
+bug ที่ทำให้ endpoint ใช้งานจริงไม่ได้ ไม่ใช่แค่ metadata gap):
 
-1. **409 vs 404 สำหรับ "cart ไม่พบ"** — Cart module ไม่ใช้ custom exception type
+1. **`POST .../items` ปกติพังจริงบน SQL Server (bug เดิม ยังไม่ได้แก้)** —
+   `TenantKeyDescriptor.Require` ตั้ง `property.IsConcurrencyToken = true` บน `MerchantId` ของทั้ง
+   `Cart` และ `Item` (model-only token ไม่มี column `RowVersion` เพิ่ม — ดูหัวข้อ Domain model/
+   Runtime persistence) ผสมกับ composite FK relationship ทำให้ flow ปกติ (สร้าง cart ด้วย
+   `CreateCartCommand` แล้วเพิ่ม item ด้วย `AddItemToCartCommand` เป็นคนละ request — การใช้งานจริง
+   ของ production) โยน `DbUpdateConcurrencyException` ("expected to affect 1 row(s), but actually
+   affected 0") → `ConcurrencyConflictException` → **409 ทุกครั้ง** ยืนยันแล้วทั้งบน SQLite และ
+   SQL Server จริง (`pol-db` container) เป็น bug ที่มีมาตั้งแต่ `rls-to-query-filter` (PR #112,
+   commit `1af6dc2`) ถูก flag ซ้ำระหว่าง `insurance-pivot` และ `products-sp-53-alignment` แต่ยังไม่
+   มี dedicated bugfix spec เปิดแก้ (ดู `.ai/specs/insurance-pivot/tasks.md` บรรทัด 39 และ
+   `.ai/specs/products-sp-53-alignment/HANDOFF.md` §"ปัญหาที่เจอและไม่ได้แก้" ข้อ 2)
+2. **409 vs 404 สำหรับ "cart ไม่พบ"** — Cart module ไม่ใช้ custom exception type
    (`NotFoundException`/`ConflictException`) เลยแม้แต่จุดเดียว ใช้ BCL exception ล้วน
    (`InvalidOperationException`, `ArgumentException`) `ProblemDetailsExceptionHandler.Map`
    (`BuildingBlocks.Web/ProblemDetailsExceptionHandler.cs:54-74`) map `InvalidOperationException
    → 409`, `ArgumentException`(รวม subclass `ArgumentOutOfRangeException`) `→ 400` ผลคือ "cart
    ไม่พบ" ผ่าน **ทุก write endpoint** คืน **409 Conflict** ไม่ใช่ 404 — ต่างจาก `GetCartQuery` ที่
    คืน 404 จริงทาง explicit null check สำหรับ cart เดียวกันที่ไม่มีอยู่จริง
-2. **OpenAPI under-declare** — `.ProducesProblem` ของ `AddCartItem`/`RemoveCartItem`/
+3. **OpenAPI under-declare** — `.ProducesProblem` ของ `AddCartItem`/`RemoveCartItem`/
    `SetCartItemQuantity`/`ClearCart` ไม่มีเส้นไหนประกาศ `Status409Conflict` เลย ทั้งที่ runtime
-   คืนจริงได้บ่อย (cart ไม่พบ, cart ไม่ `Open`, currency mismatch); `SetCartItemQuantity`/
-   `AddCartItem` ก็ไม่ประกาศ `Status400BadRequest` ทั้งที่ `quantity <= 0` คืน 400 จริง — เป็น
-   documentation gap ใน OpenAPI/Scalar metadata ไม่ใช่ bug เชิงพฤติกรรม
-3. **ข้อความ throw ไม่สม่ำเสมอ** — `AddItemToCartHandler` (inline check) กับ `CartEdits.cs`'s
+   คืนจริงได้บ่อย (cart ไม่พบ, cart ไม่ `Open`, currency mismatch, และ concurrency conflict ตาม
+   ข้อ 1 ด้านบน); `SetCartItemQuantity` ก็ไม่ประกาศ `Status400BadRequest` ทั้งที่ `quantity <= 0`
+   คืน 400 จริง (`AddCartItem` ประกาศ 400 ไว้ครบแล้วที่ `Program.cs:691`) — เป็น documentation gap
+   ใน OpenAPI/Scalar metadata ไม่ใช่ bug เชิงพฤติกรรม
+4. **ข้อความ throw ไม่สม่ำเสมอ** — `AddItemToCartHandler` (inline check) กับ `CartEdits.cs`'s
    `CartLoad.RequireAsync` throw ข้อความคนละแบบสำหรับ "cart ไม่พบ"/"merchant ไม่ตรง" (ดูหัวข้อ
    Application layer) — runtime HTTP status เหมือนกันทั้งคู่ (409) ไม่รั่วออก response จริงเพราะ
    `ProblemDetailsExceptionHandler` ไม่ echo `exception.Message` (log เต็มอยู่ฝั่ง server เท่านั้น)
@@ -266,6 +289,9 @@ denormalized บน `CartItems` เองถึงจะ filter ได้โด�
 - Spec ยืนยัน currency mint boundary: `.ai/specs/products-sp-53-alignment/requirements.md` REQ-8.4
 - Spec ที่อ้าง Cart เป็น baseline upstream (ไม่ได้แก้ `Carts.Domain` เอง):
   `checkout-chain-document-fields`, `policy-reference-record`, `insurance-pivot`
+- Concurrency-token production bug (§"จุดที่ไม่สมมาตร" ข้อ 1): บันทึกครั้งแรกที่
+  `rls-to-query-filter` (PR #112), ยืนยันซ้ำที่ `.ai/specs/insurance-pivot/tasks.md` และ
+  `.ai/specs/products-sp-53-alignment/HANDOFF.md`
 
 ## Source of truth
 
@@ -273,5 +299,6 @@ denormalized บน `CartItems` เองถึงจะ filter ได้โด�
 `src/Modules/Carts/Carts.Application/{CreateCartCommand.cs,CreateCartHandler.cs,AddItemToCartCommand.cs,AddItemToCartHandler.cs,GetCart.cs,CartEdits.cs,AddItemResult.cs,ICartRepository.cs}`,
 `src/Modules/Carts/Carts.Infrastructure/{CartConfiguration.cs,Items/ItemConfiguration.cs,CartModuleRegistration.cs}`,
 `src/Persistence/Persistence.MerchantRuntime/Carts/{CartConfiguration.cs,Items/ItemConfiguration.cs,CartRepository.cs}`,
+`src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/TenantKeyDescriptor.cs`,
 `src/Hosts/Api/Program.cs` (route mapping, `:656-745`) — ตัวเลข/พฤติกรรมในไฟล์นี้ต้อง sync กับโค้ด
-5 จุดนี้เสมอ
+6 จุดนี้เสมอ
