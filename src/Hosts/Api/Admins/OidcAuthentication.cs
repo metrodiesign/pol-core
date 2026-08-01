@@ -86,6 +86,8 @@ internal static class OidcAuthentication
             options.Scope.Add("profile");        // Entra puts oid/tid behind profile; openid alone yields only the pairwise sub
 
         options.TokenValidationParameters.ValidateIssuer = true;
+        // The library default skew (5 min) is generous for short-lived id_tokens; servers run NTP — 2 min covers real drift.
+        options.TokenValidationParameters.ClockSkew = TimeSpan.FromMinutes(2);
         if (isMicrosoft)
             // The Entra v2 issuer is per-tenant (a template in multi-tenant metadata) — validate it against the
             // token's own tid claim + the AllowedTenants gate (MicrosoftOidc).
