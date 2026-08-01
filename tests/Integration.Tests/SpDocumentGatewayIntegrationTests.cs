@@ -43,7 +43,7 @@ public sealed class SpDocumentGatewayIntegrationTests
     private static readonly Side MotorSide = new(
         Target: InsuranceType.Motor,
         SaleCode: "77001",
-        TotalRows: 39,
+        TotalRows: 42,
         InsuranceTypeWire: "Motor",
         AxisPolicyNumber: "77001-69900/950001",
         AxisDocumentNo: "77001-69900/กธ/950001-10",
@@ -57,7 +57,7 @@ public sealed class SpDocumentGatewayIntegrationTests
     private static readonly Side NonMotorSide = new(
         Target: InsuranceType.NonMotor,
         SaleCode: "90001",
-        TotalRows: 36,
+        TotalRows: 39,
         InsuranceTypeWire: "NonMotor",
         AxisPolicyNumber: "90001-69900/960001",
         AxisDocumentNo: "88001-69900/อค/960001",

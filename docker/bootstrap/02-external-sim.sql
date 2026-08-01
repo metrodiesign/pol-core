@@ -372,10 +372,16 @@ SELECT
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     '77001-69900/' + N'กธ' + '/' + CONVERT(varchar(6), 950100 + g.value) + '-10',
     -- SaleCode is an agent's own code, so a 6-agent roster needs 6 distinct codes, not one shared
-    -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code).
-    CASE g.value % 6
-        WHEN 0 THEN '77001' WHEN 1 THEN '77002' WHEN 2 THEN '77003'
-        WHEN 3 THEN '77004' WHEN 4 THEN '77005' ELSE '77006' END,
+    -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code). Keyed on
+    -- names.Idx, not g.value, so every ShowName always sells through the same one agent (an insured
+    -- party doesn't jump agents from policy to policy) — a contiguous 7/7/7/6/6/7 split of the 40-name
+    -- pool below, in Idx order.
+    CASE WHEN names.Idx BETWEEN 0  AND 6  THEN '77001'
+         WHEN names.Idx BETWEEN 7  AND 13 THEN '77002'
+         WHEN names.Idx BETWEEN 14 AND 20 THEN '77003'
+         WHEN names.Idx BETWEEN 21 AND 26 THEN '77004'
+         WHEN names.Idx BETWEEN 27 AND 32 THEN '77005'
+         ELSE                                  '77006' END,
     DATEADD(day, -o.DaysBack, @today),
     DATEADD(day, 365 - o.DaysBack, @today),
     names.ShowName,
@@ -525,14 +531,14 @@ DECLARE @visible int = (
     WHERE SaleCode = '77001' AND PaymentStatus = 'UNPAID'
       AND ((DocumentType = 'RENEWAL' AND EndDate >= @today AND EndDate < DATEADD(month, 2, @today))
         OR (DocumentType <> 'RENEWAL' AND StartDate >= DATEADD(month, -6, @today))));
-IF @visible <> 39
+IF @visible <> 42
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: hippodb default search sees ', @visible, N' documents, expected 39.');
+        N'02-external-sim: hippodb default search sees ', @visible, N' documents, expected 42.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: hippodb OK (200 documents, 39 in the default search window).';
+PRINT N'02-external-sim: hippodb OK (200 documents, 42 in the default search window).';
 GO
 
 -- ############################################################################
@@ -814,10 +820,15 @@ SELECT
     '88001-69900/' + CASE WHEN g.value % 2 = 0 THEN N'อค' ELSE N'บต' END
         + '/' + CONVERT(varchar(6), 960100 + g.value),
     -- SaleCode is an agent's own code, so a 6-agent roster needs 6 distinct codes, not one shared
-    -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code).
-    CASE g.value % 6
-        WHEN 0 THEN '90001' WHEN 1 THEN '90002' WHEN 2 THEN '90003'
-        WHEN 3 THEN '90004' WHEN 4 THEN '90005' ELSE '90006' END,
+    -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code). Keyed on
+    -- names.Idx, not g.value, so every ShowName always sells through the same one agent — same
+    -- contiguous 7/7/7/6/6/7 split of the 40-name pool below as hippodb's block above.
+    CASE WHEN names.Idx BETWEEN 0  AND 6  THEN '90001'
+         WHEN names.Idx BETWEEN 7  AND 13 THEN '90002'
+         WHEN names.Idx BETWEEN 14 AND 20 THEN '90003'
+         WHEN names.Idx BETWEEN 21 AND 26 THEN '90004'
+         WHEN names.Idx BETWEEN 27 AND 32 THEN '90005'
+         ELSE                                  '90006' END,
     DATEADD(day, -o.DaysBack, @today),
     DATEADD(day, 365 - o.DaysBack, @today),
     names.ShowName,
@@ -958,14 +969,14 @@ DECLARE @visible int = (
     SELECT COUNT(*) FROM dbo.Documents
     WHERE SaleCode = '90001' AND PaymentStatus = 'UNPAID'
       AND StartDate >= DATEADD(month, -6, @today));
-IF @visible <> 36
+IF @visible <> 39
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 36.');
+        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 39.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: mammothdb OK (200 documents, 36 in the default search window).';
+PRINT N'02-external-sim: mammothdb OK (200 documents, 39 in the default search window).';
 GO
 
 PRINT N'02-external-sim: OK.';

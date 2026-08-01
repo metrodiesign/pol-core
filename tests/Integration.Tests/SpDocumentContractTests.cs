@@ -52,10 +52,11 @@ public sealed class SpDocumentContractTests
         string LikeMetacharacterSeq,
         string[] PaidSeqs);
 
-    // 39 of hippodb's 200 rows and 36 of mammothdb's 200 fall in the default search (own sale code,
-    // UNPAID, inside the window — each side spreads its 200 rows across a 6-agent SaleCode roster, so
-    // the default search only sees its one agent's share) — the counts 02-external-sim.sql pins in its
-    // own self-check.
+    // 42 of hippodb's 200 rows and 39 of mammothdb's 200 fall in the default search (own sale code,
+    // UNPAID, inside the window — each side spreads its 200 rows across a 6-agent SaleCode roster, and
+    // ShowName is grouped 7/7/7/6/6/7 across that roster so a given ShowName always sells through the
+    // same agent, so the default search only sees its one agent's share) — the counts 02-external-sim.sql
+    // pins in its own self-check.
     private static readonly Side MotorSide = new(
         Catalog: "hippodb",
         Procedure: "dbo.usp_Motor_SearchDocument",
@@ -66,9 +67,9 @@ public sealed class SpDocumentContractTests
         GroupA: "CMI",
         GroupB: "VMI",
         RejectedGroup: "FIRE",
-        TotalRows: 39,
+        TotalRows: 42,
         TotalPages: 2,
-        LastPageRows: 14,
+        LastPageRows: 17,
         SeqPrefix: "95000",
         SeqPrefixHits: ["950001", "950002", "950004", "950009"],
         RenewalDroppedSeqs: ["950005", "950006"],
@@ -88,9 +89,9 @@ public sealed class SpDocumentContractTests
         GroupA: "FIRE",
         GroupB: "MISC",
         RejectedGroup: "CMI",
-        TotalRows: 36,
+        TotalRows: 39,
         TotalPages: 2,
-        LastPageRows: 11,
+        LastPageRows: 14,
         SeqPrefix: "96000",
         SeqPrefixHits: ["960001", "960002", "960004", "960006"],
         RenewalDroppedSeqs: ["960005"],
