@@ -31,6 +31,8 @@ cost tracking และ retrospective. อ่านตามลำดับส�
 - [payment orchestration modules](reference/payment-orchestration-modules.md) — โมดูลฝั่ง payment
   + ภาค 8 = Canonical Payment API **target design (normative)**: Payment/PaymentAttempt/Webhook inbox/Routing
 - [Search / Filter / Sort](reference/search-filter-sort.md) — convention SFS + pagination บน list endpoint (JSON-DSL, EF Core, SQL Server, RLS)
+- [ระบบดึงข้อมูลกรมธรรม์จากอีก 2 บริษัท (ฉบับไม่ใช้ศัพท์เทคนิค)](reference/products.md) —
+  อธิบาย `Products.Application/Ports` แบบให้คนที่ไม่ได้เขียนโค้ดเข้าใจว่าทำอะไร/ทำไมต้องมี
 
 ## แหล่งความจริง (source of truth) — ห้ามขัดกับไฟล์เหล่านี้
 
