@@ -1110,8 +1110,9 @@ claim ที่สะสางไม่จบเมื่อเหตุขั�
 4 โมดูลอิสระแล้วลบ `MasterData` ทิ้ง** (`masterdata-split`, PR #117 MERGED 2026-07-19). DDL ไม่เปลี่ยนตลอดทาง —
 route/permission/ตารางเดิมทั้งหมด
 
-รายละเอียดเชิงลึกเฉพาะ Levels (Domain/Application/Infrastructure/API/migration แยกทีละไฟล์โค้ด) ดู
-[`levels.md`](levels.md) — Divisions/Offices/Positions ยังไม่มีไฟล์แยกแบบนี้
+รายละเอียดเชิงลึกเฉพาะแต่ละโมดูล (Domain/Application/Infrastructure/API/migration แยกทีละไฟล์โค้ด) ดู
+[`levels.md`](levels.md), [`divisions.md`](divisions.md), [`offices.md`](offices.md),
+[`positions.md`](positions.md)
 
 **บทบาท** (เหมือนกันทั้ง 4 โมดูล — แต่ **ไม่แชร์ base type ใดๆ**: แค่รูปทรงพ้องกัน)
 - aggregate เดียวต่อโมดูล (`Division`/`Level`/`Office`/`Position`): `Code` (slug `^[a-z0-9_]+$`, unique),
