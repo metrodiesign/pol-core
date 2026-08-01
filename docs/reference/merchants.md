@@ -646,15 +646,24 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 
 #### `GET /api/v1/products` — query contract (products-sp-gateway pivot)
 
-**ไม่มี SFS** (`filters`/`sort`/`search` ถูกถอดหมด) รับแค่:
+**ไม่มี SFS** (`filters`/`sort`/`search` ถูกถอดหมด) รับแค่ **2 query param**: `page` / `limit` (paging ธรรมดา,
+`SfsQueryParser.ParsePaging`, `limit` cap **25**) และ `productFilters` — JSON object เดียวที่รวมทุก field
+กรอง **ไม่มี field ไหนเป็น top-level query param แยกต่างหาก** (ยืนยันจาก `ProductFilterDto`,
+`ListProducts.cs:88-165`):
 
-- `page` / `limit` — paging ธรรมดา (`SfsQueryParser.ParsePaging`, `limit` cap **25**)
-- `productFilters` — JSON object **บังคับต้องมี** `saleCode`; ตัวเลือกอื่น: `searchText`, `insuredName`,
-  `policyNo`, `applicationNo`, `documentType`, `productGroup`, `coverageStartFrom`/`-To`,
-  `coverageEndFrom`/`-To`, `paidDateFrom`/`-To`
+- `saleCode` — **บังคับ**
+- `searchText`, `insuredName`, `policyNo`, `applicationNo`, `documentType`, `productGroup` — ตัวเลือก
+- `coverageStartFrom`/`-To`, `coverageEndFrom`/`-To`, `paidDateFrom`/`-To` — ตัวเลือก
 - `insuranceType` (`Motor`/`NonMotor`) — **บังคับเมื่อไม่ส่ง** `productGroup`, ห้ามขัดแย้งกับ `productGroup` -> 400
 - `countMode` (`EXACT`/`FAST`, default `EXACT`) — `FAST` ให้ `totalRows`/`totalPages` เป็น `null`
 - `paymentStatus` (`UNPAID`/`PAID`/`ALL`, default `UNPAID`)
+
+ตัวอย่าง (encode แล้วต่อท้าย `?page=1&limit=25&productFilters=`):
+
+```jsonc
+// ?productFilters=
+{ "saleCode": "SC001", "insuranceType": "Motor", "countMode": "EXACT", "paymentStatus": "UNPAID" }
+```
 
 ค้นสด ผ่าน `ISpDocumentGateway` แล้ว upsert กลับเข้า `shop.Products` — SP ล่ม/ต่อไม่ได้ตอบ **503** (ไม่ใช่ 500).
 รายละเอียด response envelope (`ProductPage`) + full contract: **[products.md](products.md) §2/§5.1** (เอกสารนี้
@@ -687,7 +696,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 { "merchantUserId": "…", "status": "Active", "alreadyActive": false }
 
 // POST /api/v1/payments/sessions — request body (commit 4a73059)
-{ "orderId": "…", "method": "card", "psp": "TWOCTWOP" }
+{ "orderId": "…", "method": "card", "psp": "2c2p" }
 // ไม่มี "amount": ยอดเงินอ่านจากแถว order ฝั่ง server เสมอ — ส่ง amount มาก็ถูก ignore
 // (Program.cs:2204-2207: "the platform never mints a charge the order does not back")
 ```
@@ -982,7 +991,7 @@ const res = await fetch('/api/v1/merchants/users/register', { method: 'POST', bo
 ```js
 const res = await merchantFetch('/api/v1/payments/sessions', {
   method: 'POST',
-  body: JSON.stringify({ orderId, method: 'card', psp: 'TWOCTWOP' }),
+  body: JSON.stringify({ orderId, method: 'card', psp: '2c2p' }),
   headers: { 'Content-Type': 'application/json' },
 })
 // ห้ามส่ง amount — ยอดเงินคิดจากแถว order ฝั่ง server เสมอ ส่งมาก็ถูก ignore เงียบ ๆ
