@@ -655,50 +655,8 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 ## 5. Product
 
-**บริบท** — สิ่งที่ขายบนแพลตฟอร์ม = **เอกสารประกัน** (กรมธรรม์/ใบคำขอ/สลักหลัง/ใบต่ออายุ) ที่รอเก็บเงิน;
-**แคตตาล็อกกลางเดียว** (`shop.Products`, ไม่มีคอลัมน์ `MerchantId`, ไม่มี query filter) — ไม่แยกต่อ merchant.
-`Product` เป็น mirror ของ result set §5.2 ใน
-[`vcentralpay-sp-quick-reference.pdf`](./vcentralpay-sp-quick-reference.pdf) ตรง ๆ (spec `products-sp-53-alignment`)
-
-**บทบาท**
-- `Product`: `DocumentNo` (unique ทั้งแคตตาล็อก — `IX_Products_DocumentNo`), `ProductGroup` (`CMI`/`VMI`/`FIRE`/`MISC`), `DocumentType`
-  (`POLICY`/`APPLICATION`/`RENEWAL`/`ENDORSEMENT`), `SaleCode`, เลขเอกสาร 4 ชุด, ช่วงคุ้มครอง
-  (`StartDate`/`EndDate`), `LicensePlateNumber`, `ShowName` และ **`PaymentStatus` (`UNPAID`/`PAID`) + `PaidDate`**
-  ซึ่งเป็นแกนขายได้/ขายไม่ได้ (ไม่มี `IsActive` แล้ว)
-- ค่าเงินเป็น `decimal(19,2)` เปล่า **ไม่ใช่ `Money`**: `TotalPremium` (บังคับ) + breakdown
-  `NetPremium`/`Stamp`/`TaxVat`/`CommissionAmount`/`CommissionPercent` — `Create` throw ถ้า `TotalPremium <= 0`,
-  ค่าติดลบ, ทศนิยมเกิน 2 ตำแหน่ง, `StartDate > EndDate` หรือ `CMI` + `APPLICATION`; currency (`THB`) ถูก mint
-  ที่ boundary เดียวคือ cart add-item
-- เป็น source ของเบี้ย**และ field เอกสาร**เสมอ — ทั้ง Cart (เบี้ย) และ Checkout (field เอกสาร, ดู §7) ดึงจาก
-  catalog ตอนทำรายการ, ไม่รับค่าเหล่านี้จาก client
-- endpoints: `GET /products` **ตัวเดียว** — แคตตาล็อกเป็น read-only ผ่าน HTTP (เอกสารมาจากระบบกรมธรรม์ต้นทาง
-  ไม่ได้เกิดจาก merchant กรอกฟอร์ม); write seam คือ `CreateProductCommand` ที่ไม่ถูก map เป็น route
-  (**ไม่มี SFS** — รับแค่ `page`/`limit` + typed `productFilters` ที่บังคับมี `saleCode`)
-- **read path ไม่อ่าน `shop.Products` แล้ว** (spec `products-sp-gateway`) — `GET /products` ค้นสดผ่าน
-  `ISpDocumentGateway` ไปยัง SP ของระบบต้นทาง (วันนี้คือ database จำลอง `hippodb`/`mammothdb` ใน
-  container เดียวกับ DB หลัก; วันเชื่อมของจริงเปลี่ยนแค่ connection string) แล้ว **upsert ผลลัพธ์กลับเข้า
-  `shop.Products` ด้วย key `DocumentNo`** เพื่อให้ cart/checkout ยังอ้าง `Guid` เดิมได้ — `IProductRepository`
-  จึงไม่มี `ListAsync` อีกแล้ว เหลือ `UpsertByDocumentNoAsync` + `GetAsync`
-- **paging / order / search window เป็นของ SP ไม่ใช่ของเรา**: order คงที่ด้วย `DocumentNo`, window 6 เดือน
-  (Motor `RENEWAL` ใช้ `EndDate` 2 เดือน) และการนับทั้งหมดเกิดใน SP — โค้ดฝั่งเราคัดลอกค่ามาใส่ envelope ตรง ๆ
-  ไม่คำนวณซ้ำ
-
-**ฟีเจอร์ละเอียด**
-
-| ฟีเจอร์ | รายละเอียด | สถานะ |
-|---|---|---|
-| สร้างเอกสาร | ไม่มี HTTP endpoint — `POST /products` ถูกถอดออก (แคตตาล็อก read-only, เอกสารมาจากระบบต้นทาง); เข้าถึงได้ผ่าน `CreateProductCommand` ภายในเท่านั้น | ถอดออกแล้ว |
-| เบี้ยเป็น source of truth | Cart ดึงเบี้ยจาก catalog ตอน add แล้ว mint `Money.Of(TotalPremium, "THB")` — ไม่รับเบี้ยจาก client | มีแล้ว |
-| field เอกสารบน `Product` | `DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` — snapshot เข้า `OrderItem` ตอน checkout-start (server-side, ไม่รับจาก client — ดู §7/§8) | มีแล้ว (checkout-chain-document-fields) |
-| List ตาม §2 input contract | `GET /products` — `page`/`limit` (cap 25) + typed `productFilters` (`saleCode` บังคับ, `paymentStatus` default `UNPAID`, smart search รวมทะเบียนรถเฉพาะแถว Motor, search window 6 เดือน / `RENEWAL` 2 เดือน); **ไม่มี** `filters`/`sort`/`search` (`ProductSfs` ถูกลบ) — filter เพิ่ม 2 ตัวจาก products-sp-gateway: `insuranceType` (`Motor`\|`NonMotor`, บังคับเมื่อไม่ได้ส่ง `productGroup` และห้ามขัดแย้งกัน -> 400) ซึ่งเป็นตัวเลือกว่าจะยิง SP ตัวไหน และ `countMode` (`EXACT`\|`FAST`, absent = `EXACT`) | มีแล้ว (products-sp-53-alignment + products-sp-gateway) |
-| ค้นสดผ่าน SP + upsert แคตตาล็อก | `GET /products` เรียก `ISpDocumentGateway.SearchAsync` (adapter ADO.NET `CommandType.StoredProcedure` ใน `Products.Infrastructure/Sp/`) -> map แถว wire เป็น `ProductInput` (ข้ามแถวที่ key ว่าง/เบี้ยไม่ถูก/enum ไม่รู้จัก + log warning) -> `UpsertByDocumentNoAsync` เข้า `shop.Products` (ไม่มี -> `Create`, มีแล้ว -> `RefreshFromExternal` ซึ่งไม่ downgrade `PAID` ของ local และ throw เมื่อ `DocumentNo` ไม่ตรงหรือ `ProductGroup` สลับฝั่ง Motor/NonMotor) -> ตอบ item พร้อม `Guid` ของแถว local | มีแล้ว (products-sp-gateway) |
-| Response envelope §5.1 | `ProductPage` = `items` + `totalRows?`/`totalPages?`/`pageNo`/`pageSize`/`hasNextPage`/`hasPreviousPage`/`countMode`/`searchWindowMonths` คัดลอกจาก result set แรกของ SP ตรง ๆ (ไม่คำนวณซ้ำ); `countMode=FAST` -> `totalRows`/`totalPages` เป็น `null` — **breaking change** จาก `PagedResult` เดิม (`page`/`limit`/`total`) และใช้เฉพาะ endpoint นี้ endpoint อื่นทั้ง repo ยังเป็น `PagedResult` | มีแล้ว (products-sp-gateway) |
-| SP ล่ม/ต่อไม่ได้ | `SqlException` ที่ไม่ใช่ error 50001-50009 (timeout/login/network/column drift) -> `UpstreamUnavailableException` -> **503** พร้อม detail คงที่ ไม่รั่วข้อความ SQL (รายละเอียดเต็มลง log ฝั่ง server เท่านั้น); input ที่ SP ปฏิเสธ (50001-50009) -> **400** | มีแล้ว (products-sp-gateway) |
-| Query รายตัวภายใน | `GetProductById` ผ่าน Mediator — ผู้ใช้คือ Cart/Checkout ตอน add item / เริ่ม checkout (ไม่มี public endpoint) | มีแล้ว |
-| mark เอกสารเป็น PAID | `Product.MarkPaid` ผ่าน `DocumentPaidOnOrderPaidConsumer` ตอน order จ่ายสำเร็จ — เป็นทางเดียวที่ทำให้เอกสารขายซ้ำไม่ได้ | มีแล้ว |
-| แก้ไข/ถอนเอกสารจากการขาย | ไม่มี endpoint และ **ไม่มี `Deactivate()`** อีกแล้ว (ถูกลบใน products-sp-53-alignment) — แกน "ขายไม่ได้" เหลือทางเดียวคือขายจบแล้วเป็น `PAID`; permission `product.update` ถูกถอดออกทั้งคู่กับ `product.create` ใน migration `20260731065539_RetireCatalogPermissions` (ข้อ 11) | ยังไม่มี (ข้อ 11) |
-| อ่านรายตัว public | target: `GET /api/producer/v1/products/{productId}` สำหรับหน้า detail ฝั่ง console | ยังไม่มี |
-| Product versioning + quote | target formalize แล้ว: `Product` (identity/สถานะ) + `ProductVersion` (immutable version ของชื่อ/coverage/premium/currency/effective period — publish แล้วแก้ย้อนหลังไม่ได้ ต้องออก version ใหม่; version ที่ inactive/expired เพิ่มลง cart ใหม่ไม่ได้) + `ProductQuote` (optional เมื่อราคาต้องคำนวณจากข้อมูลผู้เอาประกัน — มี expiry + input hash) — target เดิมวางแผนครอบ field เฉพาะประกันภัย (แผนความคุ้มครอง, ทุนเอาประกัน ฯลฯ) ผ่าน `ProductVersion`; insurance-pivot เคยใส่ field ชุด baseline (`SumInsured`/`CoverageDurationDays`/`Insurer`) ตรงบน `Product` แต่ **ถูกลบไปแล้ว** ใน products-sp-53-alignment (`Product` = mirror §5.2 เท่านั้น, immutable หลังสร้างยกเว้น `MarkPaid`) — `ProductVersion`/`ProductQuote` เองยังไม่มี | ยังไม่มี (ProductVersion/ProductQuote) |
+> บริบท/บทบาท/schema/ฟีเจอร์ละเอียดทั้งหมดย้ายไปรวมที่ [`products.md`](products.md) แล้ว — แก้/อ่าน
+> ที่นั่น ที่นี่เก็บไว้เฉพาะ**โมเดลเป้าหมายเชิง API (roadmap)** ให้ตรง pattern ของทุกโมดูลในไฟล์นี้
 
 **โมเดลเป้าหมายเชิง API (แผน — ProductVersion/ProductQuote ยังไม่เริ่ม, ดูแถว "Product versioning + quote"
 ด้านบน; ไม่ใช่สถานะปัจจุบัน — as-built ยังคง `Product` เดี่ยวและ read-only ตามหัวข้อบทบาท)**
@@ -717,13 +675,8 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 **ความสัมพันธ์** — `CartItem` อ้าง `ProductId`; ราคาถูก snapshot เข้า cart ตอนหยิบ
 
-**สถานะ: มีแล้ว** — ไม่ใช่ generic catalog item อีกต่อไป: `Product` เป็น **เอกสารประกัน** ที่ mirror §5.2
-ของ SP quick reference ตรง ๆ (products-sp-53-alignment) — field แผนประกันชุด insurance-pivot
-(`SumInsured`/`CoverageDurationDays`/`Insurer`) และ `Name`/`Price`/`IsActive`/`CreatedAt` **ถูกลบทั้งหมด**;
-target ยกระดับเป็น Product/ProductVersion/ProductQuote ยังไม่เริ่ม; ยังไม่มีเส้นทางแก้ไขเอกสาร
-SP adapter ของจริงเขียนแล้วและใช้งานอยู่ (products-sp-gateway) โดยชี้ไปที่ database จำลอง
-`hippodb`/`mammothdb` ซึ่งรัน SP ตัวเดียวกับ contract ในทุก environment — การเชื่อม `motordb`/`centerdb`
-ของจริงเหลือแค่เปลี่ยน `SpDocument:MotorConnectionString`/`NonMotorConnectionString` ทาง config
+**สถานะ: มีแล้ว** (as-built เต็ม + ตารางฟีเจอร์ → [`products.md`](products.md)) — target ยกระดับเป็น
+Product/ProductVersion/ProductQuote ยังไม่เริ่ม
 
 ---
 

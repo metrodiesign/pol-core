@@ -353,13 +353,9 @@ post-deploy ไม่ใช่โค้ด.
 
 ### Flow A — Product catalogue read (`GET /api/v1/products`) — ข้อยกเว้นของ isolation floor
 
-> `Product` (`shop.Products`, `Persistence.MerchantRuntime/Products/ProductConfiguration.cs`) เป็น
-> **entity เดียวใน `MerchantRuntimeDbContext` ที่ไม่มี tenant key column และไม่มี `HasQueryFilter`** —
-> ตั้งใจ (comment ในไฟล์ configuration บอกตรง ๆ): แคตตาล็อกเอกสารประกันเป็น **กลาง** ใช้ร่วมกันทุก
-> merchant (`products-sp-53-alignment` §5.2 ไม่มีคอลัมน์ merchant) ไม่ใช่ row ที่ scoped ต่อ merchant แบบ
-> entity อื่นในหัวข้อ 5. `MerchantRuntimeDbContext.OnModelCreating` (บรรทัด 92) เรียก
-> `new ProductConfiguration()` โดย**ไม่ส่ง context เข้าไป** (ต่างจากทุก config อื่นในไฟล์เดียวกันที่ส่ง
-> `this` เพื่อผูก query filter) — สัญญาณเดียวกันซ้ำสอง.
+> รายละเอียดเต็ม (ทำไมไม่มี query filter, ผลกระทบต่อ merchant-user) → [`products.md`](products.md)
+> section "ข้อยกเว้นจาก convention ทั่วไปของ repo" — ที่นี่เก็บไว้แค่ flow diagram ให้ตรง pattern
+> ของหัวข้อ 9 ในไฟล์นี้
 
 ```
 HTTP + merchant-user session cookie
@@ -370,23 +366,6 @@ HTTP + merchant-user session cookie
   -> ไม่มี query filter ที่ DB/EF ระดับ entity -> "เห็นแถวไหน" ตัดสินที่ query criteria (SaleCode) ที่ caller
      ส่งมา ไม่ใช่ isolation floor (ต่างจากทุก entity อื่นในหัวข้อ 9)
 ```
-
-> **หลัง `products-sp-gateway`**: การอ่านไม่ได้เกิดบน `shop.Products` อีกแล้ว — เส้นทางค้นคือ SP ของระบบ
-> ต้นทาง (วันนี้จำลองด้วย `hippodb`/`mammothdb` ใน container เดียวกัน) แล้วเขียนผลกลับเข้าแคตตาล็อก
-> ⇒ `GET /products` กลายเป็น endpoint **อ่านแล้วเขียน** ทั้งที่เป็น GET (ตั้งใจ: cart/checkout ต้องอ้าง
-> `Guid` ของแถว local ต่อ). connection ของ SP มาจาก section `SpDocument` ไม่ใช่ `ConnectionStrings:App`
-> (ถ้าเว้นว่างจะ derive จาก `App` โดยเปลี่ยนแค่ `InitialCatalog`) และเป็นข้อยกเว้นที่ระบุชื่อไว้ใน
-> `RawConnectionTests` — database ปลายทางไม่มีแถวผูก merchant ให้ floor ปกป้องตั้งแต่แรก
-
-แยกสองเรื่องนี้ให้ขาด: endpoint นี้ยัง**บังคับ session ของ merchant-user เหมือนทุก endpoint ในหัวข้อ 9**
-(`Program.cs`, `.RequireAuthorization("merchant-user")`) — ที่หายไปคือ **row filtering ต่อ merchant**
-เท่านั้น ไม่ใช่ authentication. ผลคือ merchant-user ที่ล็อกอินแล้วเห็นเอกสารของ `SaleCode` ที่ตัวเองส่งมา
-ได้ทุกใบ ไม่ว่าใบนั้นจะ "เป็นของ" merchant ไหน — เพราะแคตตาล็อกไม่มีเจ้าของตั้งแต่แรก.
-
-Endpoint นี้ **read-only** (`POST /products` ถูกถอดแล้ว, `products-sp-53-alignment`) — ปัจจุบันเอกสารเข้า
-ระบบผ่าน migration/seed script เท่านั้น; `CreateProductCommand` เป็น write seam ที่จองไว้ให้ importer
-ในอนาคต (ยังไม่มี implementation จริง — ผู้เรียกที่มีอยู่คือ test) ไม่ผ่าน `IWriteAuthorizer` ของ HTTP
-request flow นี้.
 
 Entity อื่นทั้งหมดในหัวข้อ 9 (Orders/Carts/PaymentSessions/…) ยังคง isolation มาจาก: EF query filter
 (ทุก request ผ่าน context เดียวกัน, capability แยกที่ actor ไม่ใช่ principal) — `Product` เป็นข้อยกเว้น

@@ -30,7 +30,8 @@
 > อื่นทั้ง repo ยังใช้อยู่ — `countMode=FAST` ทำให้ `totalRows`/`totalPages` เป็น `null` โดยตั้งใจ.
 > `productFilters` เพิ่ม `insuranceType` (`Motor`|`NonMotor`, บังคับเมื่อไม่มี `productGroup`) กับ `countMode`
 > (`EXACT`|`FAST`) และ endpoint ตอบ 503 ได้เมื่อระบบต้นทางล่ม. ตัวอย่างที่ใช้ `ListProductsQuery` ในเอกสาร
-> นี้ (§7, §12) จึงเป็นตัวอย่างเชิง pattern ล้วน ไม่ตรงโค้ดจริงแม้แต่ signature.
+> นี้ (§7, §12) จึงเป็นตัวอย่างเชิง pattern ล้วน ไม่ตรงโค้ดจริงแม้แต่ signature. พฤติกรรม `GET /products`
+> จริงวันนี้ทั้งหมดรวมอยู่ที่ [`products.md`](products.md) แล้ว.
 
 คู่มือมาตรฐานฉบับละเอียดสำหรับทำ search / filter / sort / pagination (เรียกรวมว่า SFS) บน list endpoint
 ของ pol-core. พอร์ต *แนวคิด* มาจาก guide ต้นฉบับของโปรเจกต์ `nong-kaewta-api`
