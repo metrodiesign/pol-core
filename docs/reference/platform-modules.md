@@ -524,28 +524,10 @@ redirect URL ลง span attribute
 
 ### 3.2 โมดูล Admin RBAC
 
-> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** permission/role catalog ฝั่ง admin (เดิม `admin.*` 16 keys / 6 groups, entities `AdminRole*`/`AdminPermission*`) ถูกยุบเข้า **catalog กลางเดียว module `Iam` schema `iam`** ร่วมกับฝั่ง merchant-user — vocabulary รวม **22 keys / 9 groups** (rf2 ตั้งต้น 20/8 + `merchants.policies`/`policies` อีก 4 keys / 2 groups จาก `policy-reference-record` แล้วถอด `product.create`/`product.update` + group `catalog` ออกใน `20260731065539_RetireCatalogPermissions` เมื่อ 2026-07-31 หลัง `POST /products` ถูกถอด), seed 4 roles (platform: `platform_admin`/`platform_auditor`; merchant: `merchant_manager`/`merchant_staff`). Admin console เห็นเฉพาะ Platform-scope keys (15 keys / 6 groups: `txn`/`merchant`/`user`/`system`/`merchants.users`/`merchants.policies`). recovery anchor เปลี่ยน `super_admin` → `platform_admin` (ปิด/ลบไม่ได้). `RequirePermission` + boot parity guard เหลือกลไกเดียว side-aware (`Api.Iam`). ตัวเลข/ชื่อ entity ในส่วนด้านล่าง (16/6, `AdminRole*`, `super_admin`) เป็นสถานะก่อน rf2 — ดู `.ai/specs/rf2-iam-rbac/`.
-
-**บทบาท**
-- permission catalog เป็น reference data ใน DB (16 keys / 6 กลุ่ม: txn, merchant, finance, user, system, producer) — feature ใหม่ seed key ของตัวเองผ่าน migration
-- `AdminRole` → `AdminRolePermission` → `AdminRoleAssignment`; สิทธิ์รวม = **union ของ role ที่ Active**
-- แกน role/permission **orthogonal กับ `Tier`**: Tier คุม *ขอบเขต merchant*, role คุม *ความสามารถ* — ไม่มี Super bypass permission
-- `RequirePermission(...)` fail-closed (403 เมื่อ scope ไม่ถูก bind, ไม่มีทาง 500) + boot parity guard (startup fail ถ้า gate ใช้ key ที่ไม่อยู่ในแคตตาล็อก); `super_admin` เป็น recovery anchor ลบ/ปิดไม่ได้
-- endpoints: `GET /api/v1/admins/permissions`, `GET/POST/PUT/DELETE /api/v1/admins/roles[/{code}]`, `PUT /api/v1/admins/{id}/roles`
-
-**ฟีเจอร์ละเอียด**
-
-| ฟีเจอร์ | รายละเอียด | สถานะ |
-|---|---|---|
-| Permission catalog ใน DB | 16 keys / 6 กลุ่ม seed ผ่าน migration; feature ใหม่เพิ่ม key ของตัวเอง | มีแล้ว |
-| Role CRUD + assignment | `GET/POST/PUT/DELETE /api/v1/admins/roles[/{code}]`, `PUT /api/v1/admins/{id}/roles`; code slug `^[a-z0-9_]+$` | มีแล้ว |
-| สิทธิ์รวม = union ของ role Active | resolve สดต่อ request | มีแล้ว |
-| Orthogonal Tier × role | Tier คุมขอบเขต merchant, role คุมความสามารถ — ไม่มี Super bypass | มีแล้ว |
-| Fail-closed + boot parity guard | `RequirePermission(...)` = 403 เสมอเมื่อ bind ไม่ถูก; startup fail ถ้า gate ใช้ key นอกแคตตาล็อก | มีแล้ว |
-| Recovery anchor | `super_admin` ลบ/ปิดไม่ได้; bootstrap auto-assign + migration back-fill | มีแล้ว |
-| Audit การเปลี่ยน role | ทุกการเปลี่ยนบัญชี/role ลง `admin.UserAudits` มี actor เสมอ | มีแล้ว |
-| Effective-permission view | `GET /api/v1/admins/{id}/effective-permissions` (gate `user.view`) — union ของ role Active, sorted ascending; ใช้ได้กับ target ที่ suspended (spec `admin-account-management`) | มีแล้ว |
-| Change request แบบ maker-checker | target: `POST/GET /api/admin/v1/change-requests`, `POST .../change-requests/{requestId}/approve\|reject` — maker กับ checker คนละ principal, checker ต้องมี permission ของ action เดียวกันหรือ permission approval เฉพาะ, approval มี TTL + ผูก request hash (payload เปลี่ยนต้องขอใหม่) | ยังไม่มี (ข้อ 14) |
+> permission/role catalog เต็ม (domain model, invariants, ตัวเลข catalog 22 keys/9 groups/4 roles,
+> application/infrastructure layer, API endpoints, migration history) ย้ายไปรวมที่ [`iam.md`](iam.md) แล้ว —
+> แก้/อ่านที่นั่น ที่นี่เก็บไว้เฉพาะ**โมเดลเป้าหมายเชิง API (roadmap)** ให้ตรง pattern ของทุกโมดูลในไฟล์นี้
+> (เทียบ §5 Product)
 
 **โมเดลเป้าหมายเชิง API**
 
@@ -560,10 +542,11 @@ redirect URL ลง span attribute
   `POST/GET /api/admin/v1/change-requests` + `POST .../{requestId}/approve|reject`
 - **Events**: `AdminRoleChangedV1` · `AdminPermissionsChangedV1` · `SensitiveChangeApprovedV1` · `SensitiveChangeRejectedV1`
 
-**สถานะ: มีแล้ว** — ยกเว้น maker-checker (ข้อ 14). NOTE (spec `admin-account-management`): reads ของ admin
-directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate ด้วย permission `user.view` เดี่ยว
-(single-key filter ไม่ใช่ OR) — role ที่ให้ `user.roles` ควร grant `user.view` ด้วย เพื่อให้ operator เห็นรายชื่อ
-ก่อน assign role ได้; lifecycle/session ops (reactivate, sessions list/revoke) gate ด้วย `AdminTier.Super` mirror suspend
+**สถานะ: มีแล้ว** (as-built เต็ม + ตัวเลข catalog → [`iam.md`](iam.md)) — ยกเว้น maker-checker change request
+(ข้อ 14). NOTE (spec `admin-account-management`): reads ของ admin directory (`GET /api/v1/admins`, `/{id}`,
+`/{id}/effective-permissions`) gate ด้วย permission `user.view` เดี่ยว (single-key filter ไม่ใช่ OR) — role
+ที่ให้ `user.roles` ควร grant `user.view` ด้วย เพื่อให้ operator เห็นรายชื่อก่อน assign role ได้; lifecycle/session
+ops (reactivate, sessions list/revoke) gate ด้วย `AdminTier.Super` mirror suspend
 
 ---
 
@@ -622,23 +605,10 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
 
 ### 4.2 RBAC ฝั่ง merchant-user
 
-> **สถานะ rf2 (2026-07-13, spec `rf2-iam-rbac`):** catalog ฝั่ง merchant-user (เดิม producer, `merch.*` 7 keys / 3 groups, จงใจ duplicate โครงจาก Admin) ถูกยุบเข้า **catalog กลางเดียว `iam`** ร่วมกับฝั่ง admin — merchant console เห็นเฉพาะ Merchant-scope keys (rf2 ตั้งต้น 7 keys / 3 groups → หลัง `policy-reference-record` เพิ่ม `policies` เป็น 9 keys / 4 groups → **[อัปเดต 2026-07-31] ปัจจุบัน 7 keys / 3 groups** หลัง group `catalog` (`product.create`/`product.update`, orphan ตั้งแต่ `POST /products` ถูกถอด) ถูกถอดทิ้งทั้งกลุ่ม (migration `20260731065539_RetireCatalogPermissions`)), seed 2 roles ฝั่ง merchant `merchant_manager` (ทุก merchant key) / `merchant_staff`; anchor `merchant_manager` ปิด/ลบไม่ได้. custom role ของ merchant ผูก `Roles.MerchantId` ไม่รั่วข้าม merchant แล้ว (ปิด wart เดิม). merchant-user gate ใช้ `RequirePermission` กลไกเดียวร่วมกับ admin (แทน `RequireProducerPermission`/`RequireMerchantUserPermission` แยกฝั่ง). ดู `.ai/specs/rf2-iam-rbac/`.
-
-**บทบาท**
-- แคตตาล็อกกลางเดียว `iam` ร่วมกับฝั่ง Admin (rf2) — merchant console เห็นเฉพาะ **Merchant-scope keys 7 keys / 3 กลุ่ม**: `payment` (`payment.create`, `payment.redirect`) · `roles` (`roles.view`, `roles.manage`, `users.roles`) · `policies` (`policies.read`, `policies.write` — จาก `policy-reference-record`)
-- `RequirePermission(...)` fail-closed + boot parity guard **กลไกเดียวกับฝั่ง Admin** (`Api.Iam`, side-aware); write endpoint gate แบบไม่มีเงื่อนไข — flag `EnforcePermissionsOnWrites` เดิมถูกถอดทิ้งพร้อม Bearer ใน rf1
-- endpoints: `GET /api/v1/merchants/users/permissions`, `GET/POST/PUT/DELETE /api/v1/merchants/users/roles[/{code}]`, `PUT /api/v1/merchants/users/{merchantUserId}/roles`
-
-**ฟีเจอร์ละเอียด**
-
-| ฟีเจอร์ | รายละเอียด | สถานะ |
-|---|---|---|
-| แคตตาล็อกกลาง `iam` | Merchant-scope 7 keys / 3 กลุ่ม (`payment`/`roles`/`policies` — group `catalog` ถูกถอดเมื่อ 2026-07-31 พร้อม `product.create`/`product.update` ที่ไม่ gate อะไรแล้ว) จาก catalog เดียวที่ share กับ admin — แคตตาล็อกแยกฝั่ง producer เดิม (7 keys / 3 กลุ่ม) ถูกยุบเข้าใน rf2 | มีแล้ว |
-| Role CRUD + assignment | `GET/POST/PUT/DELETE /api/v1/merchants/users/roles[/{code}]`, `PUT /api/v1/merchants/users/{merchantUserId}/roles`; custom role ผูก `iam.Roles.MerchantId` ไม่รั่วข้าม merchant; role status lowercase บน wire | มีแล้ว |
-| Fail-closed + boot parity guard | `RequirePermission(...)` กลไกเดียวร่วมกับ Admin — startup fail ถ้า gate ใช้ key นอกแคตตาล็อก **หรือ** key ผิด side | มีแล้ว |
-| Anchor role | `merchant_manager` (ทุก merchant key) ปิด/ลบไม่ได้; `merchant_staff` เป็น seed role ที่สอง | มีแล้ว |
-| ช่องทางจ่ายต่อ merchant-user | config อันดับ 3 — target: `PUT /api/producer/v1/merchants/users/{merchantUserId}/payment-method-entitlements` + สูตร `AllowedMethods = Tenant.EnabledMethods ∩ Producer.MethodEntitlements ∩ AvailableRoutingCapabilities` (ไม่มี entitlement = "ไม่จำกัดเพิ่ม" ไม่ใช่ "ห้ามหมด"; entitlement จำกัดเพิ่มจากชั้นบนเท่านั้น เปิดสิ่งที่ชั้นบนปิดไม่ได้); ปัจจุบัน RBAC คุมแค่สิทธิ์ *ทำรายการจ่าย* | ยังไม่มี |
-| Effective-permission view ฝั่ง merchant-user | target: `GET /api/producer/v1/merchants/users/{merchantUserId}/effective-permissions` | ยังไม่มี |
+> permission/role catalog เต็ม (domain model, invariants, ตัวเลข catalog 22 keys/9 groups/4 roles,
+> application/infrastructure layer, API endpoints, migration history) ย้ายไปรวมที่ [`iam.md`](iam.md) แล้ว —
+> แก้/อ่านที่นั่น ที่นี่เก็บไว้เฉพาะ**โมเดลเป้าหมายเชิง API (roadmap)** ให้ตรง pattern ของทุกโมดูลในไฟล์นี้
+> (เทียบ §5 Product)
 
 **โมเดลเป้าหมายเชิง API**
 
@@ -649,7 +619,9 @@ directory (`GET /api/v1/admins`, `/{id}`, `/{id}/effective-permissions`) gate �
   `PUT /api/producer/v1/merchants/users/{merchantUserId}/roles` · `PUT .../payment-method-entitlements` ·
   `GET .../effective-permissions`
 
-**สถานะ: มีแล้ว** — ส่วน "ช่องทางชำระเงินที่เปิดใช้ต่อ producer" (อันดับ 3 ของ config ช่องทาง) **ยังไม่มี**: RBAC ปัจจุบันคุมสิทธิ์ *ทำรายการจ่าย* (`payment.create`/`payment.redirect`) ไม่ใช่รายช่องทาง
+**สถานะ: มีแล้ว** (as-built เต็ม + ตัวเลข catalog → [`iam.md`](iam.md)) — ส่วน "ช่องทางชำระเงินที่เปิดใช้ต่อ
+producer" (อันดับ 3 ของ config ช่องทาง) และ effective-permissions view ฝั่ง merchant-user **ยังไม่มี**: RBAC
+ปัจจุบันคุมสิทธิ์ *ทำรายการจ่าย* (`payment.create`/`payment.redirect`) ไม่ใช่รายช่องทาง
 
 ---
 

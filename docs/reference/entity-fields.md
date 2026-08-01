@@ -387,7 +387,7 @@ idempotency ledger ของ merchant provisioning (multi-context coordinator). 
 
 ## iam schema (context: ControlPlane) — 4 ตาราง
 
-schema นี้เกิดจากการรวม catalog สิทธิ์ที่เคยแยกกันสองชุด (ฝั่ง admin กับฝั่ง merchant-user) ให้เหลือ vocabulary เดียว — รายละเอียดว่า RBAC รับใช้ flow ธุรกิจไหนดู `docs/reference/platform-modules.md`. เหตุผลที่แยกเป็น 4 ตารางไม่ใช่ 1: สองตารางบน (`PermissionGroups`/`Permissions`) เป็น catalog นิ่ง (`pol_app` SELECT อย่างเดียว, แก้ได้ทาง migration เท่านั้น) ส่วนสองตารางล่าง (`Roles`/`RolePermissions`) เป็นข้อมูลที่แก้ได้ runtime (ทั้ง admin สร้าง custom role และ merchant สร้าง role ของตัวเองได้) — แยกกันเพื่อให้ grant บน DB principal ต่างกันได้ตรงตามจริง ไม่ใช่ table เดียวที่ mixed สิทธิ์แก้ได้/แก้ไม่ได้ปนกัน. ตารางบน->ล่างผูกกันด้วย FK Restrict ตามลำดับชั้น (group -> key -> grant), ส่วน `Roles` ผูกออกไปยัง assignment table ต่อฝั่ง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK Restrict คนละโมดูล ไม่อยู่ใน schema นี้) ซึ่งเป็นจุดที่ role จริง ๆ ถูกมอบให้คนใช้งาน.
+schema นี้เกิดจากการรวม catalog สิทธิ์ที่เคยแยกกันสองชุด (ฝั่ง admin กับฝั่ง merchant-user) ให้เหลือ vocabulary เดียว — รายละเอียด domain model/invariants/endpoints เต็มดู `docs/reference/iam.md`, บริบทว่า RBAC รับใช้ flow ธุรกิจไหนต่อ actor ดู `docs/reference/admins.md`/`docs/reference/merchants.md`. เหตุผลที่แยกเป็น 4 ตารางไม่ใช่ 1: สองตารางบน (`PermissionGroups`/`Permissions`) เป็น catalog นิ่ง (`pol_app` SELECT อย่างเดียว, แก้ได้ทาง migration เท่านั้น) ส่วนสองตารางล่าง (`Roles`/`RolePermissions`) เป็นข้อมูลที่แก้ได้ runtime (ทั้ง admin สร้าง custom role และ merchant สร้าง role ของตัวเองได้) — แยกกันเพื่อให้ grant บน DB principal ต่างกันได้ตรงตามจริง ไม่ใช่ table เดียวที่ mixed สิทธิ์แก้ได้/แก้ไม่ได้ปนกัน. ตารางบน->ล่างผูกกันด้วย FK Restrict ตามลำดับชั้น (group -> key -> grant), ส่วน `Roles` ผูกออกไปยัง assignment table ต่อฝั่ง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK Restrict คนละโมดูล ไม่อยู่ใน schema นี้) ซึ่งเป็นจุดที่ role จริง ๆ ถูกมอบให้คนใช้งาน.
 
 ```mermaid
 flowchart LR
@@ -401,26 +401,28 @@ predicate; per-merchant visibility บน `Roles`/`RolePermissions` เป็น
 `pol_app` ได้แค่ **SELECT** บน `PermissionGroups`/`Permissions` (catalog seed โดย migration, immutable at
 runtime) แต่ได้ SELECT/INSERT/UPDATE/DELETE บน `Roles`/`RolePermissions`.
 
-### PermissionGroup -> `iam.PermissionGroups`  (10 seed rows)
+### PermissionGroup -> `iam.PermissionGroups`  (9 seed rows)
 
 > ตัวอย่าง: migration `20260712185912_SeedData` (8 กลุ่มแรก) + `20260723150000_SeedPolicyPermissions`
-> (อีก 2 กลุ่ม) — vocabulary ต้นทางคือ `Iam.Domain/Permissions/Keys.cs` (integration test บังคับว่าไม่ drift).
+> (อีก 2 กลุ่ม) − `20260731065539_RetireCatalogPermissions` (ถอด 1 กลุ่ม `catalog`, 2026-07-31) —
+> vocabulary ต้นทางคือ `Iam.Domain/Permissions/Keys.cs` (integration test บังคับว่าไม่ drift).
 
 | Field | Type | Null | Key | ตัวอย่าง | หมายเหตุ |
 |---|---|---|---|---|---|
-| Key | nvarchar(32) | N | PK | `merchants.users` | เช่น `txn`, `merchant`, `user`, `system`, `merchants.users`, `catalog`, `payment`, `roles`, `merchants.policies`, `policies` — string คงที่ ห้าม rename หลัง ship |
+| Key | nvarchar(32) | N | PK | `merchants.users` | เช่น `txn`, `merchant`, `user`, `system`, `merchants.users`, `payment`, `roles`, `merchants.policies`, `policies` — string คงที่ ห้าม rename หลัง ship |
 | LabelTh | nvarchar(128) | N | | `ผู้ใช้งานร้านค้า` | ป้ายภาษาไทยที่คอนโซลใช้จัดหัวข้อ |
-| Scope | int | N | | `0` (Platform) | `Scope` (Platform=0, Merchant=1). กลุ่ม Platform 6 กลุ่ม / Merchant 4 กลุ่ม — คุมว่า key ในกลุ่มนี้ให้กับ role ฝั่งไหนได้ |
+| Scope | int | N | | `0` (Platform) | `Scope` (Platform=0, Merchant=1). กลุ่ม Platform 6 กลุ่ม / Merchant 3 กลุ่ม — คุมว่า key ในกลุ่มนี้ให้กับ role ฝั่งไหนได้ |
 | SortOrder | int | N | | `5` | ลำดับแสดงผล 1-10 (ไม่มี unique constraint) |
 
-**คืออะไร**: บัญชีรายชื่อ "หมวดหมู่สิทธิ์" กลาง (เช่นหมวด `merchants.users`, หมวด `catalog`) ที่ใช้จัดกลุ่มสิทธิ์ย่อยใน `iam.Permissions` ให้อยู่หมวดเดียวกันตอนแสดงในหน้าตั้งค่า role ของทั้งสองคอนโซล
-**บทบาท**: เป็นชั้นบนสุดของ catalog สิทธิ์กลางที่แทนที่ catalog ซึ่งเคยซ้ำกันสองชุด (admin/merch) — ดู `docs/reference/platform-modules.md` สำหรับบริบท RBAC เต็ม คอลัมน์ `Scope` (Platform 6 กลุ่ม / Merchant 4 กลุ่ม) คือจุดเดียวที่กำหนดว่าหมวดนี้เปิดให้ role ฝั่งไหนใช้ — `iam.Permissions` ไม่เก็บ Scope ซ้ำ สืบทอดจากที่นี่เท่านั้น
-**ถ้าไม่มีตารางนี้จะพังยังไง**: `iam.Permissions` จะไม่มีที่ผูก label ภาษาไทย/ลำดับแสดงผลเป็นหมวด และไม่มีที่มาของ Scope กลาง (ต้องเก็บ Scope ซ้ำในทุกแถวของ Permissions แทน เสี่ยง drift ระหว่าง permission ที่ควรอยู่หมวดเดียวกันแต่ Scope ไม่ตรงกัน) หน้าตั้งค่า role ต้องแสดงสิทธิ์ทั้งหมด 24 รายการเป็น list แบนราบไม่มีหัวข้อจัดกลุ่ม
-**ทำงานยังไง**: seed คงที่ผ่าน migration 2 รอบ (`20260712185912_SeedData` 8 กลุ่มแรก + `20260723150000_SeedPolicyPermissions` อีก 2 กลุ่ม) `pol_app` ได้แค่ SELECT (ไม่มี grant INSERT/UPDATE/DELETE ให้เลย — catalog immutable at runtime) แก้ได้ทางเดียวคือเปิด migration ใหม่
+**คืออะไร**: บัญชีรายชื่อ "หมวดหมู่สิทธิ์" กลาง (เช่นหมวด `merchants.users`, หมวด `payment`) ที่ใช้จัดกลุ่มสิทธิ์ย่อยใน `iam.Permissions` ให้อยู่หมวดเดียวกันตอนแสดงในหน้าตั้งค่า role ของทั้งสองคอนโซล
+**บทบาท**: เป็นชั้นบนสุดของ catalog สิทธิ์กลางที่แทนที่ catalog ซึ่งเคยซ้ำกันสองชุด (admin/merch) — ดู `docs/reference/iam.md` สำหรับบริบท RBAC เต็ม คอลัมน์ `Scope` (Platform 6 กลุ่ม / Merchant 3 กลุ่ม) คือจุดเดียวที่กำหนดว่าหมวดนี้เปิดให้ role ฝั่งไหนใช้ — `iam.Permissions` ไม่เก็บ Scope ซ้ำ สืบทอดจากที่นี่เท่านั้น
+**ถ้าไม่มีตารางนี้จะพังยังไง**: `iam.Permissions` จะไม่มีที่ผูก label ภาษาไทย/ลำดับแสดงผลเป็นหมวด และไม่มีที่มาของ Scope กลาง (ต้องเก็บ Scope ซ้ำในทุกแถวของ Permissions แทน เสี่ยง drift ระหว่าง permission ที่ควรอยู่หมวดเดียวกันแต่ Scope ไม่ตรงกัน) หน้าตั้งค่า role ต้องแสดงสิทธิ์ทั้งหมด 22 รายการเป็น list แบนราบไม่มีหัวข้อจัดกลุ่ม
+**ทำงานยังไง**: seed คงที่ผ่าน migration 2 รอบแรก (`20260712185912_SeedData` 8 กลุ่มแรก + `20260723150000_SeedPolicyPermissions` อีก 2 กลุ่ม) แล้วถอด 1 กลุ่ม (`catalog`) ใน `20260731065539_RetireCatalogPermissions` เหลือ 9 กลุ่ม `pol_app` ได้แค่ SELECT (ไม่มี grant INSERT/UPDATE/DELETE ให้เลย — catalog immutable at runtime) แก้ได้ทางเดียวคือเปิด migration ใหม่
 
-### Permission -> `iam.Permissions`  (24 seed rows)
+### Permission -> `iam.Permissions`  (22 seed rows)
 
-> ตัวอย่าง: migration `SeedData` (20 keys) + `SeedPolicyPermissions` (4 keys) — catalog นี้ `pol_app`
+> ตัวอย่าง: migration `SeedData` (20 keys) + `SeedPolicyPermissions` (4 keys) − `RetireCatalogPermissions`
+> (ถอด 2 keys: `product.create`/`product.update`, 2026-07-31) — catalog นี้ `pol_app`
 > อ่านได้อย่างเดียว แก้ผ่าน migration เท่านั้น.
 
 | Field | Type | Null | Key | ตัวอย่าง | หมายเหตุ |
@@ -428,12 +430,12 @@ runtime) แต่ได้ SELECT/INSERT/UPDATE/DELETE บน `Roles`/`RolePerm
 | Key | nvarchar(64) | N | PK | `merchants.policies.write` | เช่น `txn.view`, `roles.manage`, `payment.redirect`. ระวังคู่ที่หน้าตาคล้าย: `user.roles` (Platform) กับ `users.roles` (Merchant) เป็นคนละ key |
 | GroupKey | nvarchar(32) | N | FK, IX | `merchants.policies` | -> `iam.PermissionGroups.Key` (Restrict) — `Scope` ของ key มาจากกลุ่ม ไม่ได้เก็บซ้ำที่นี่ |
 | LabelTh | nvarchar(160) | N | | `แก้ไขข้อมูลกรมธรรม์ร้านค้า` | ป้ายภาษาไทยของสิทธิ์ |
-| SortOrder | int | N | | `22` | ลำดับแสดงผล 1-24 เรียงข้ามกลุ่ม |
+| SortOrder | int | N | | `22` | ลำดับแสดงผล 1-22 เรียงข้ามกลุ่ม |
 
 **คืออะไร**: บัญชีรายชื่อ "สิทธิ์" แต่ละอันแบบละเอียด (เช่น แก้ไขข้อมูลกรมธรรม์ร้านค้า, ดูรายงาน) ที่ role หนึ่งจะ grant ให้ได้ทีละรายการ
-**บทบาท**: เป็น vocabulary กลางที่ endpoint ทุกจุดใน API อ้างถึงผ่าน permission key เดียวกัน ทั้งฝั่ง admin และ merchant — ดู `docs/reference/platform-modules.md` สำหรับ flow RBAC เต็ม
+**บทบาท**: เป็น vocabulary กลางที่ endpoint ทุกจุดใน API อ้างถึงผ่าน permission key เดียวกัน ทั้งฝั่ง admin และ merchant — ดู `docs/reference/iam.md` สำหรับ flow RBAC เต็ม
 **ถ้าไม่มีตารางนี้จะพังยังไง**: ไม่มีที่ยืนยันว่า permission key ที่โค้ด endpoint อ้างถึง (`.RequirePermission("...")`) เป็นคำที่มีจริงในระบบ — boot-time parity guard `PermissionParity.Assert` (`src/Hosts/Api/Iam/PermissionAuthorization.cs:69`, เรียกจาก `Program.cs:2152` หลัง endpoint ทั้งหมด map เสร็จ) จะไม่มีอะไรให้เช็คคู่กับ key ที่ endpoint กำหนด typo ในโค้ดจะไม่ถูกจับตอน boot อีกต่อไป (จาก `InvalidOperationException` ตอน start กลายเป็น 403 เงียบ ๆ ตอน runtime แทน)
-**ทำงานยังไง**: seed 2 รอบเช่นกัน (`SeedData` 20 keys + `SeedPolicyPermissions` 4 keys) แต่ละแถวผูก `GroupKey` (FK Restrict ไป `PermissionGroups`) และไม่เก็บ `Scope` ของตัวเอง — ยืนยันตรงกับ in-memory catalog: `Keys.KeySide` (`src/Modules/Iam/Iam.Domain/Permissions/Keys.cs:115-116`) คือ `All.ToDictionary(x => x.Key, x => GroupScope[x.GroupKey])` derive จาก group เสมอ ไม่มีค่าซ้ำเก็บแยก — DB กับโค้ด C# สอดคล้องกัน 100% `pol_app` ได้แค่ SELECT เหมือน `PermissionGroups`
+**ทำงานยังไง**: seed 2 รอบแรกเช่นกัน (`SeedData` 20 keys + `SeedPolicyPermissions` 4 keys) แล้วถอด 2 keys (`product.create`/`product.update`) ใน `RetireCatalogPermissions` เหลือ 22 แต่ละแถวผูก `GroupKey` (FK Restrict ไป `PermissionGroups`) และไม่เก็บ `Scope` ของตัวเอง — ยืนยันตรงกับ in-memory catalog: `Keys.KeySide` (`src/Modules/Iam/Iam.Domain/Permissions/Keys.cs:115-116`) คือ `All.ToDictionary(x => x.Key, x => GroupScope[x.GroupKey])` derive จาก group เสมอ ไม่มีค่าซ้ำเก็บแยก — DB กับโค้ด C# สอดคล้องกัน 100% `pol_app` ได้แค่ SELECT เหมือน `PermissionGroups`
 
 ### Role -> `iam.Roles`  (4 seed rows)
 seed 4 role ด้วย fixed id: `platform_admin` (anchor, ทุก Platform key), `platform_auditor`,
@@ -455,14 +457,15 @@ seed 4 role ด้วย fixed id: `platform_admin` (anchor, ทุก Platform 
 | — | — | — | CK | — | `CK_Roles_ScopeMerchant`: `([Scope] = 0 AND [MerchantId] IS NULL) OR [Scope] = 1` |
 
 **คืออะไร**: ชื่อ "บทบาท" หนึ่งชุด (เช่น "ผู้ดูแลแพลตฟอร์ม") ที่รวมสิทธิ์หลายรายการเข้าด้วยกัน แล้วเอาไปมอบให้คนใช้งานคนหนึ่งได้ ทั้งชุด role ที่ platform สร้างไว้ให้ (seed) และ role ที่ merchant สร้างเองได้
-**บทบาท**: เป็น aggregate เดียวที่แทนที่ role type ซึ่งเคยซ้ำกันสองชุด (`Admins.Domain.Roles.Role` / `Merchants.Domain.Users.Roles.Role`) — ผูกออกไปยัง assignment table ต่อฝั่ง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK Restrict, คนละโมดูล) ซึ่งเป็นจุดที่มอบ role ให้คนจริง ดู `docs/reference/platform-modules.md` สำหรับบริบท RBAC เต็ม
+**บทบาท**: เป็น aggregate เดียวที่แทนที่ role type ซึ่งเคยซ้ำกันสองชุด (`Admins.Domain.Roles.Role` / `Merchants.Domain.Users.Roles.Role`) — ผูกออกไปยัง assignment table ต่อฝั่ง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK Restrict, คนละโมดูล) ซึ่งเป็นจุดที่มอบ role ให้คนจริง ดู `docs/reference/iam.md` สำหรับบริบท RBAC เต็ม
 **ถ้าไม่มีตารางนี้จะพังยังไง**: ไม่มีที่ผูก grant ใด ๆ เข้ากับชื่อบทบาทที่มนุษย์เข้าใจได้เลย และไม่มี "recovery anchor" กันคนล็อกตัวเองออกจากระบบ — `Role.PlatformAdminCode`/`Role.MerchantManagerCode` (`src/Modules/Iam/Iam.Domain/Roles/Role.cs:20-24`) ถูก comment เรียกตรงๆ ว่า "the lockout-recovery roles" หากตารางนี้หาย role กู้คืนสองตัวนี้ก็ไม่มีที่อยู่ ทุกฝั่งเสี่ยงล็อกตัวเองออกถาวรถ้า role อื่นถูกลบ/ปิดหมด
 **ทำงานยังไง**: `Role.cs` เป็นจุดบังคับกฎทั้งหมด — `IsSeedAnchor` (บรรทัด 56-59) เช็คว่าเป็น seed anchor ก็ต่อเมื่อ `MerchantId is null` **และ** `Code` ตรงกับ anchor คงที่ (merchant สร้าง custom role โค้ดซ้ำชื่อ `platform_admin` ได้เพราะคนละ MerchantId bucket แต่จะไม่ถูกนับเป็น anchor) `Deactivate()`/`EnsureDeletable()` (บรรทัด 101-114) throw `InvalidOperationException` ถ้าเป็น anchor `SetPermissions()` (บรรทัด 120-144) reject ทั้ง key นอก catalog และ key ที่ `catalog[k] != Scope` ของ role เอง (cross-scope grant เป็นไปไม่ได้ในระดับ domain) DB บังคับซ้ำด้วย `CK_Roles_ScopeMerchant` และ unique index `(MerchantId, Code)` ที่ `.HasFilter(null)` แบบตั้งใจ (`RoleConfigurations.cs:34`, comment อ้างว่า filter ค่า default ของ SQL Server provider จะยกเว้นแถว NULL ทุกแถวออกจาก uniqueness เงียบ ๆ — Codex P2 เคยจับได้ใน PR #98) ทำให้ shared/seed role ชื่อซ้ำกันไม่ได้แต่ merchant คนละรายใช้โค้ดซ้ำกันได้
 
-### RolePermission -> `iam.RolePermissions`  (34 seed rows)
+### RolePermission -> `iam.RolePermissions`  (30 seed rows)
 
-> ตัวอย่าง: migration `SeedData` (28 grants) + `SeedPolicyPermissions` (6 grants) — id ใช้ `NEWID()`
-> ไม่คงที่ข้าม environment.
+> ตัวอย่าง: migration `SeedData` (28 grants) + `SeedPolicyPermissions` (6 grants) − `RetireCatalogPermissions`
+> (ลบ 4 grants: `merchant_manager`/`merchant_staff` × `product.create`/`product.update`, 2026-07-31) — id ใช้
+> `NEWID()` ไม่คงที่ข้าม environment.
 
 | Field | Type | Null | Key | ตัวอย่าง | หมายเหตุ |
 |---|---|---|---|---|---|
@@ -471,7 +474,7 @@ seed 4 role ด้วย fixed id: `platform_admin` (anchor, ทุก Platform 
 | PermissionKey | nvarchar(64) | N | FK, IX, UQ | `merchants.policies.read` | -> `iam.Permissions.Key` (Restrict) — กัน phantom key. Scope ของ key ต้องตรงกับ Scope ของ role (บังคับใน `Role.Create`) |
 
 **คืออะไร**: ตารางเชื่อม (junction) ที่บอกว่า "บทบาทนี้ได้สิทธิ์อะไรบ้าง" — แต่ละแถวคือ 1 คู่ (role, permission) ที่ถูก grant จริง
-**บทบาท**: เป็นข้อมูล grant จริงที่ `iam.Roles`/`iam.Permissions` (ทั้งคู่แค่ตั้งชื่อ) ต้องมีตารางนี้ถึงจะมีความหมายเชิงสิทธิ์จริง ดู `docs/reference/platform-modules.md` สำหรับบริบท RBAC เต็ม
+**บทบาท**: เป็นข้อมูล grant จริงที่ `iam.Roles`/`iam.Permissions` (ทั้งคู่แค่ตั้งชื่อ) ต้องมีตารางนี้ถึงจะมีความหมายเชิงสิทธิ์จริง ดู `docs/reference/iam.md` สำหรับบริบท RBAC เต็ม
 **ถ้าไม่มีตารางนี้จะพังยังไง**: role ทุกตัวจะกลายเป็นแค่ชื่อเปล่า ไม่มีสิทธิ์อะไรติดมาด้วยเลย และผูกกับ boot-time guard จริง — `PermissionParity.Assert` (`src/Hosts/Api/Iam/PermissionAuthorization.cs:69`, เรียกจาก `Program.cs:2152`) วนเช็คทุก `RequiredPermission` metadata ที่ endpoint ประกาศไว้ ว่า (a) key มีอยู่ใน `Keys.AllKeys` จริง และ (b) side ของ key ตรงกับ auth policy ของ endpoint (`AuthPolicyScheme`) — ถ้าไม่มีระบบ grant นี้เลยก็ไม่มีทางเช็คได้ว่า role ไหนควรได้ key ไหนจริง กฎ scope-matching ทั้งหมดจะพังไปด้วย
 **ทำงานยังไง**: `Id` เป็น surrogate key (`NEWID()`) ที่ไม่ควรอ้างถึงตรง ๆ ให้ค้นด้วย `(RoleId, PermissionKey)` แทน — บังคับด้วย unique index `(RoleId, PermissionKey)` จริงที่ `RoleConfigurations.cs:50` และ FK `PermissionKey -> Permissions.Key` เป็น `DeleteBehavior.Restrict` (`RoleConfigurations.cs:53-54`, กัน key ที่มี role ถืออยู่ถูกถอดจาก catalog ได้) ส่วน `RoleId -> Roles.Id` เป็น `Cascade` (`RoleConfigurations.cs:37-38`, ลบ role แล้ว grant หายตาม) การบังคับ side ตรงกัน (permission Scope ต้องตรง role Scope) ทำที่ domain layer ก่อนถึง DB — ดู `Role.SetPermissions` ในบล็อก `iam.Roles` ด้านบน ไม่ใช่ constraint ระดับ DB
 

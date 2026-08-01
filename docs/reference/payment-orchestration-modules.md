@@ -234,10 +234,10 @@ sequenceDiagram
 - **หมายเหตุ:** เป็น control plane ตัวจริง — ฟังก์ชันอำนาจสูงทั้งหมดอยู่ที่นี่
 
 ### 2.3 Permission model (RBAC)
-- **โครงสร้าง:** สิทธิ = Scope × Resource × Action
-- **Role ใน Merchant Console:** Tenant Admin / Finance / Viewer (scope = tenant ตนเท่านั้น)
-- **Role ใน Admin Console:** Platform Owner / Operator / Risk & Compliance / Support (scope = ทุก tenant)
-- **maker-checker:** ใช้กับ action อ่อนไหว เช่น approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist
+- **โครงสร้าง:** สิทธิ = Scope × Resource × Action — catalog กลางเดียว `iam.*` (rf2), ดู `docs/reference/iam.md`
+- **Role ใน Merchant Console:** `merchant_manager` (ทุก merchant key, anchor ปิด/ลบไม่ได้) / `merchant_staff` (scope = merchant ตนเท่านั้น) — merchant สร้าง custom role เพิ่มเองได้
+- **Role ใน Admin Console:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) / `platform_auditor` (scope = ทุก tenant, อ่านอย่างเดียว)
+- **maker-checker:** ใช้กับ action อ่อนไหว เช่น approve tenant ใหม่, เปลี่ยน routing rule, แก้ allowlist — ยังไม่ implement (ดู `platform-modules.md` §3.2)
 - **บังคับใช้:** การแยกแอปเป็นแค่หน้าบ้าน — เส้นป้องกันจริงคือ **backend authorization แยก permission scope ให้ขาด** endpoint ของ admin (cross-tenant/approve/config) ต้องเรียกผ่าน session ของ Merchant Console ไม่ได้
 
 ### 2.4 Provisioning (admin-driven)
@@ -388,9 +388,9 @@ as-built: `POST /api/v1/merchants` → `ProvisionMerchantCommand` → `Provision
 
 #### Admin Console
 - **ด่านเข้า (default-deny):** ตรวจ `aud=admin-client` + **`hd=platform.com`** ทุก request — ไม่ผ่าน → 403
-- **Role:** ผ่าน hd-gate ครั้งแรก → **role ต่ำสุดเป็น default** (read-only) elevate เป็น Operator/Risk/Owner ผ่าน record ที่ทีมกลางกำหนด
+- **Role:** RBAC catalog กลาง `iam.*` (rf2) กำหนด role ตรงๆ ตอน assign — ไม่ใช่ default-role-then-elevate แบบเดิม ดู `docs/reference/iam.md`
 - **Bootstrap owner:** seed owner คนแรกผ่าน config/migration (ตารางว่างตอน deploy → elevate ตัวเองผ่าน UI ไม่ได้)
-- **Roles:** Platform Owner · Operator · Risk & Compliance · Support (cross-tenant)
+- **Roles:** `platform_admin` (ทุก Platform key, anchor ปิด/ลบไม่ได้) · `platform_auditor` (cross-tenant, อ่านอย่างเดียว)
 - **สมมติฐานที่ต้องจริงตลอด:** ทุกบัญชี @platform.com = คนที่ให้เข้า admin ได้ (โดเมนสงวนเฉพาะทีมกลาง) ถ้าวันใดโดเมนขยายใช้ทั่วไป ต้องกลับไปใช้ allowlist รายคน
 
 #### Merchant Console (เดิมเรียก Tenant Console / producer)
