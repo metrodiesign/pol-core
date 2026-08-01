@@ -15,7 +15,7 @@
 **Ports (dev):** API `http://localhost:5100` · Admin SPA `:5200` · Merchant-user SPA `:5300`
 
 **โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) · **เทียบ admin console:**
-[admin-module.md](admin-module.md) (กลไกเดียวกัน คนละ actor) · **ตาราง/ฟิลด์:**
+[admins.md](admins.md) (กลไกเดียวกัน คนละ actor) · **ตาราง/ฟิลด์:**
 [entity-fields.md](entity-fields.md)
 
 ---

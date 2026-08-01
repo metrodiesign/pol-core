@@ -1,7 +1,9 @@
-# Admin Module — Google SSO (BFF) + FE Integration
+# Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> Generated 2026-06-24, sweep ล่าสุด **2026-07-25** (post-`rf1-schema-reset` — actor rename `Tenant`→`Merchant`
-> ลงหมดแล้วในไฟล์นี้). Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes), `CorsExtensions.cs`.
+> Generated 2026-06-24, sweep ล่าสุด **2026-08-01** (เพิ่ม admin-role-rbac — เปลี่ยน tier/แก้ profile/จัดการ
+> role-permission — และ rf2 permission-catalog unify; ก่อนหน้า post-`rf1-schema-reset` — actor rename
+> `Tenant`→`Merchant` ลงหมดแล้วในไฟล์นี้). Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
+> `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
 > [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (rename map เต็ม).
@@ -123,7 +125,7 @@ async function bootstrap() {
 }
 ```
 
-Response shape (`AdminMeResponse`, `src/Hosts/Api/Program.cs:2320-2328`):
+Response shape (`AdminMeResponse`, `src/Hosts/Api/Program.cs:2393-2395`):
 
 ```jsonc
 // Super — เห็นทุก merchant; key `merchants` ถูก omit ทิ้งไปเลย (ไม่ใช่ null)
@@ -145,8 +147,27 @@ Response shape (`AdminMeResponse`, `src/Hosts/Api/Program.cs:2320-2328`):
 action permission ของ role ที่ Active (admin-role-rbac REQ-9.1) — axis แยกจาก tier. `merchants[].code` เป็น
 nullable (id ที่หา code ไม่เจอ -> `null`).
 
+> **quirk ที่ต้องรู้ — `tier` casing ไม่ตรงกันข้าม endpoint**: `GET /me` (ข้างบน) กับ `POST /{id}/tier` (ดู
+> [Account management](#account-management-spec-admin-account-management-scheme-apiv1admins)) คืน `tier` แบบ
+> PascalCase (`"Super"`/`"Scoped"`, ผ่าน enum `.ToString()` ตรงๆ) — ในขณะที่ `GET /api/v1/admins` (list) และ
+> `GET /api/v1/admins/{id}` (detail) คืนแบบ lowercase (`"super"`/`"scoped"`) เป็น quirk จริงในโค้ด ไม่ใช่เอกสารพิมพ์ผิด
+> — FE ที่แชร์ renderer ระหว่าง `/me` กับ list/detail ต้อง normalize case เอง (เช่น `.toLowerCase()` ก่อนเทียบ).
+
 > `GET /api/v1/admins/{id}` (detail) ใช้ **DTO ตัวเดียวกันและ JSON key เดียวกัน** (`accessibleMerchants`) โดยตั้งใจ
-> ให้ client แชร์ renderer ตัวเดียวได้ (`Program.cs:2332-2337`).
+> ให้ client แชร์ renderer ตัวเดียวได้ (`AdminDetailResponse`, `Program.cs:2407-2410`) — นอกจากนี้ detail ยังมี
+> `roleCodes` (รวม role ที่ Inactive) และ `position`/`office`/`level`/`division` (แต่ละตัว `{ "id", "code", "name" }`
+> หรือ `null` ถ้าไม่ได้ตั้งค่า):
+>
+> ```jsonc
+> {
+>   "adminId": "…", "email": "b@x.com", "tier": "scoped", "status": "active",
+>   "createdAt": "…", "subjectBound": true,
+>   "accessibleMerchants": { "isUnrestricted": false, "merchants": [ { "id": "…", "code": "acme" } ] },
+>   "roleCodes": ["merchant_manager"],
+>   "position": { "id": "…", "code": "sales_rep", "name": "Sales Representative" },
+>   "office": null, "level": null, "division": null
+> }
+> ```
 
 ## Endpoints
 
@@ -155,7 +176,7 @@ Scoped ยิงโดน 403.
 
 | Method | Path | Tier | CSRF | Body | Success | Note |
 |---|---|---|---|---|---|---|
-| GET | `/api/v1/admins/auth/google/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>` |
+| GET | `/api/v1/admins/auth/google/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>`; rate-limited (ดูล่าง) -> 429 ถ้าเกิน |
 | POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
 | POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
@@ -166,27 +187,72 @@ Scoped ยิงโดน 403.
 | DELETE | `/api/v1/admins/{id}/merchants/{merchantId}` | **Super** | ต้อง | — | 204 | unassign; unknown -> 404 |
 | POST | `/api/v1/admins/{id}/suspend` | **Super** | ต้อง | — | 204 | suspend; suspend ตัวเอง -> 403 |
 
+> **Auth rate limiting**: `GET /auth/{provider}/login` (เท่านั้น — endpoint อื่นในตารางนี้ไม่มี) ผ่าน sliding
+> window ต่อ source IP: 20 request / 60 วินาที (6 segments, ไม่ queue เกิน limit -> 429 ทันที) นโยบายชื่อ
+> `admin-auth` (`src/Hosts/Api/Admins/AuthRateLimiting.cs`, ผูกที่ `Program.cs:1011`) กันสแปม login/probe callback
+> จาก IP เดียว ไม่กระทบการ login ปกติที่ไม่ถี่.
+>
 > **สองเส้นทาง merchant provisioning อยู่นอก prefix `/api/v1/admins`** (`hierarchical-naming` task 8): map ตรงบน
 > `/api/v1/merchants` แล้ว re-attach control เองทีละ endpoint (`CsrfFilter` + policy `admin` + Super tier บน POST)
-> แทนการ inherit จาก group — admin CORS policy ผูกให้ผ่าน path table ใน `CorsExtensions.cs`
-> (`src/Hosts/Api/Program.cs:1013-1095`). FE ยังยิงผ่าน proxy เดิมได้ แต่ rewrite rule ต้องครอบ `/api/v1/merchants`
-> ด้วย ไม่ใช่แค่ `/api/v1/admins` (ดู [Proxy](#proxy--same-origin-บังคับ)).
+> แทนการ inherit จาก group — admin CORS policy ผูกให้ผ่าน path table ใน method `IsAdminPlane` ของ
+> `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs:91-98` (**ไม่ใช่** `Program.cs` ตามที่เอกสารรุ่นก่อนเขียนผิด).
+> FE ยังยิงผ่าน proxy เดิมได้ แต่ rewrite rule ต้องครอบ `/api/v1/merchants` ด้วย ไม่ใช่แค่ `/api/v1/admins` (ดู
+> [Proxy](#proxy--same-origin-บังคับ)).
 
 ### Account management (spec `admin-account-management`, scheme `/api/v1/admins`)
 
-reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle/session ops gate ด้วย `AdminTier.Super`.
+reads gate ด้วย permission `user.view` (single-key ไม่ใช่ tier); lifecycle/session ops gate ด้วย `Tier.Super`.
 กติกา: role ที่ให้ `user.roles` ควร grant `user.view` ด้วย ให้ operator เห็น directory ก่อน assign role.
+
+`POST /api/v1/admins` (invite, ตารางบน) รับ body `{ "email": "…", "positionId"?, "officeId"?, "levelId"?,
+"divisionId"? }` — 4 FK เป็น optional ตั้งได้ตั้งแต่ตอนเชิญ ไม่ต้องรอ `PUT .../profile` ทีหลัง.
 
 | Method | Path | Gate | CSRF | Success | Note |
 |---|---|---|---|---|---|
 | GET | `/api/v1/admins` | `user.view` | — | 200 | SFS list: `page`/`limit`/`filters`(email/tier/status)/`sort`(email/createdAt)/`search`(email); tier/status ค่า lowercase, นอก domain -> 400 |
-| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), role codes (รวม Inactive); unknown -> 404 |
+| GET | `/api/v1/admins/{id}` | `user.view` | — | 200 | detail: tier, status, `accessibleMerchants` (unrestricted ถ้า Super), `roleCodes` (รวม Inactive), profile FKs (ดู JSON ด้านบน); unknown -> 404 |
 | GET | `/api/v1/admins/{id}/effective-permissions` | `user.view` | — | 200 | union ของ role Active, sorted ascending; ใช้กับ suspended target ได้; unknown -> 404 |
+| POST | `/api/v1/admins/{id}/tier` | **Super** | ต้อง | 200 | body `{ "tier": "super"\|"scoped" }` (response `tier` เป็น PascalCase — ดู quirk ด้านบน); เปลี่ยน tier ตัวเอง -> 403; idempotent ถ้า tier ตรงกับปัจจุบัน; tier ไม่รู้จัก -> 400; unknown -> 404 |
+| PUT | `/api/v1/admins/{id}/profile` | `user.manage` | ต้อง | 204 | body `{ "positionId"?, "officeId"?, "levelId"?, "divisionId"? }` (Guid, full-replace — `null` = ล้างค่า); FK ไม่รู้จัก/ไม่ active -> 400; unknown admin -> 404 |
 | POST | `/api/v1/admins/{id}/reactivate` | **Super** | ต้อง | 204 | คืน Active + revoke session ทั้งหมดของ target (fresh-login); idempotent; unknown -> 404 |
 | GET | `/api/v1/admins/{id}/sessions` | **Super** | — | 200 | sessions (ไม่มี token material) + `isLive`; unknown -> 404 |
 | DELETE | `/api/v1/admins/{id}/sessions/{sessionId}` | **Super** | ต้อง | 204 | revoke ทั้ง rotation family; unknown/ไม่ใช่เจ้าของ -> 404; idempotent |
 
 `adminId` / `id` / `merchantId` เป็น Guid. JSON body/field เป็น camelCase.
+
+### Role & permission management (RBAC, scheme `/api/v1/admins`)
+
+Permission catalog ฝั่ง platform (admin console) ที่ endpoint กลุ่มนี้ใช้จริง: **6 กลุ่ม / 15 keys** — `txn`,
+`merchant`, `user`, `system`, `merchants.users`, `merchants.policies` (ยืนยันจาก
+`Iam.Domain.Permissions.Keys.cs`). Catalog เต็มระบบ (รวมฝั่ง merchant-user, rf2: 22 keys/9 groups) + บริบท
+migration ดู [`platform-modules.md`](platform-modules.md) §3.2 — ไม่ทำตารางซ้ำที่นี่.
+
+อ่าน (`GET /permissions`, `GET /roles`, `GET /roles/{code}`) เปิดให้ admin ที่ login แล้วทุกคน (ไม่ต้องมี
+permission key เฉพาะ); เขียน (create/update/delete role, set role ของ admin) gate ด้วย `user.roles`.
+
+| Method | Path | Gate | CSRF | Success | Note |
+|---|---|---|---|---|---|
+| GET | `/api/v1/admins/permissions` | any admin | — | 200 | catalog: `groups[{key,label}]` + `permissions[{key,label,resource}]` |
+| GET | `/api/v1/admins/roles` | any admin | — | 200 | SFS list ของบทบาท พร้อม permissions + จำนวนผู้ใช้ที่ผูก (`userCount`) |
+| GET | `/api/v1/admins/roles/{code}` | any admin | — | 200 | บทบาทเดียว; ไม่รู้จัก code -> 404 |
+| POST | `/api/v1/admins/roles` | `user.roles` | ต้อง | 201 | รหัสซ้ำ -> 409; permission key นอก catalog -> 400 |
+| PUT | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 200 | code (จาก route) แก้ไขไม่ได้; ปิดใช้งาน `platform_admin` -> 409 |
+| DELETE | `/api/v1/admins/roles/{code}` | `user.roles` | ต้อง | 204 | บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409 |
+| PUT | `/api/v1/admins/{id}/roles` | `user.roles` | ต้อง | 204 | แทนที่ role ทั้งหมดของ admin นั้นด้วยชุดที่ระบุ; role code ไม่รู้จัก -> 400; unknown admin -> 404 |
+
+`RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount }` — `status` เป็น
+lowercase wire string เหมือน admin tier/status.
+
+### หมายเหตุ: endpoint อื่นใต้ prefix เดียวกัน แต่ไม่ใช่ของโมดูลนี้
+
+route ต่อไปนี้ mount อยู่ใต้ `/api/v1/admins/*` (ผ่าน CSRF filter + policy `admin` เดียวกัน) ด้วยเหตุผล
+auth เท่านั้น — เป็น business action ของโมดูลอื่น เอกสารเต็มอยู่คนละที่ ไม่ copy รายละเอียดมาซ้ำที่นี่:
+
+- `POST /api/v1/admins/merchants/users/{subject}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
+  ใหม่ ดู [`merchant-user-module.md`](merchant-user-module.md) §8 (sequence diagram เต็ม)
+- `PUT /api/v1/admins/orders/{orderId}/items/{itemId}/policy`, `GET /api/v1/admins/reports/policies` — แก้/
+  อ่าน policy-reference record ข้าม merchant (escape-hatch ผ่าน `IAdminScope`) ดู
+  [`platform-modules.md`](platform-modules.md) แถว policy-reference-record
 
 ## Logout
 
@@ -260,7 +326,10 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
   merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `http://localhost:5200`), merchant-user =
   `Cors__AllowedOrigins` (dev `http://localhost:5300`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
-  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
+  `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ `/api/v1/positions`, `/offices`,
+  `/levels`, `/divisions` ด้วย (4 master-data reference list ที่ profile FK อ้างถึง — ย้ายออกจาก `/admins`
+  group เป็น top-level area ของตัวเองตั้งแต่ 2026-07-20, gate `user.manage` ทั้งหมด; บทบาทของแต่ละตาราง ดู
+  [`entity-fields.md`](entity-fields.md)) ไม่ใช่แค่ `/admins`/`/merchants`. prod ต้องตั้ง origin จริง — ไม่ตั้ง = block ทุก cross-origin
 - XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
   ได้เหมือนกัน
@@ -289,6 +358,7 @@ FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'inc
 - session auth + rotation/reuse/revocation: `src/Hosts/Api/Admins/SessionAuthenticationHandler.cs`,
   `src/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs`
 - cookies (session + CSRF): `src/Hosts/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Hosts/Api/Admins/CsrfFilter.cs`
+- auth rate limiting: `src/Hosts/Api/Admins/AuthRateLimiting.cs`
 - routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Hosts/Api/Program.cs`
 - CORS split + path-based policy selection: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
 - tier enum: `src/Modules/Admins/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
