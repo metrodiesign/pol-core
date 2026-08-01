@@ -24,8 +24,10 @@
 `Ports/` คือ **จุดเชื่อมต่อจุดเดียว** ระหว่างระบบของเรากับช่องบริการทั้ง 2 ฝั่ง — เปรียบเทียบ
 ง่าย ๆ เหมือน **ล่าม + เจ้าหน้าที่ตรวจเอกสาร** ที่ยืนอยู่หน้าประตูก่อนข้อมูลจะเข้าระบบเรา:
 
-1. **แปลคำถามของเราเป็นภาษาที่เขาเข้าใจ** — ก่อนถาม เรารู้อยู่แล้วว่าจะถามฝั่งไหน (ประกันรถ
-   หรือไม่ใช่รถ) ระบบจะเลือกช่องทางที่ถูกต้องเองอัตโนมัติ ผู้ใช้ไม่ต้องเลือก
+1. **แปลคำถามของเราเป็นภาษาที่เขาเข้าใจ** — ผู้ใช้ต้องระบุก่อนว่าจะค้นฝั่งไหน (ประกันรถ หรือ
+   ไม่ใช่รถ) หรือไม่ก็ระบุ `productGroup` ที่บอกฝั่งอยู่ในตัว (เช่น `CMI` = รถ) เพราะช่องบริการ
+   ทั้ง 2 ฝั่งแยกกันเด็ดขาด รวมกันไม่ได้ — ถ้าไม่ระบุเลยทั้งคู่ ระบบจะปฏิเสธคำถามทันทีแทนที่จะ
+   เดาให้
 2. **รับคำตอบตามที่เขาส่งมา โดยไม่รีบเชื่อ** — คำตอบที่ได้กลับมาถือเป็น "ข้อมูลดิบ" ยังไม่ใช่
    ข้อมูลที่ระบบเราจะใช้งานตรง ๆ (เหตุผลอยู่หัวข้อถัดไป)
 3. **ตรวจสอบก่อนรับเข้า** — ถ้าคำตอบผิดรูปแบบ หรือข้อมูลบางแถวไม่ครบ (เช่น ไม่มีเลขกรมธรรม์)
@@ -34,7 +36,8 @@
 4. **แปลงเป็นข้อผิดพลาดที่เข้าใจง่าย** — ถ้าอีกฝั่งปฏิเสธคำถาม (เช่น ใส่วันที่ผิด) ผู้ใช้จะเห็น
    ข้อความแจ้งเตือนที่แก้ไขได้เอง; ถ้าอีกฝั่ง**ล่มหรือติดต่อไม่ได้เลย** ผู้ใช้จะเห็นข้อความว่า
    "ระบบต้นทางไม่พร้อมใช้งาน" — ไม่ใช่ข้อความ error ทางเทคนิคที่งง ๆ และรายละเอียดจริง (เช่น
-   ชื่อเซิร์ฟเวอร์ รหัสผ่าน) จะไม่หลุดออกไปให้ผู้ใช้เห็นเด็ดขาด — บันทึกไว้แค่ใน log ฝั่งเราเท่านั้น
+   ชื่อเซิร์ฟเวอร์ที่ต่อไม่ได้) จะไม่หลุดออกไปให้ผู้ใช้เห็นเด็ดขาด — บันทึกไว้แค่ใน log ฝั่งเราเท่านั้น
+   (log เองก็ไม่มีรหัสผ่าน/credential ปนอยู่ — ตามกฎห้าม log ข้อมูล sensitive)
 
 ## ทำไมต้องมี "กำแพงกั้น" นี้ ทั้งที่เพิ่มความซับซ้อน
 
@@ -50,10 +53,10 @@
 ## สรุปเป็นภาพเดียว
 
 ```
-ผู้ใช้ค้นหากรมธรรม์
+ผู้ใช้ค้นหากรมธรรม์ (ระบุฝั่งรถ/ไม่ใช่รถ หรือ productGroup ที่บอกฝั่งอยู่ในตัว)
         │
         ▼
-   [จุดเชื่อมต่อนี้]  ── เลือกช่องถูกฝั่ง (รถ/ไม่ใช่รถ) อัตโนมัติ
+   [จุดเชื่อมต่อนี้]  ── ยิงไปช่องบริการฝั่งที่ผู้ใช้ระบุ
         │
         ▼
   ระบบต้นทาง (hippo หรือ mammoth) ตอบข้อมูลดิบกลับมา
@@ -224,7 +227,7 @@ grant `pol_app` บน `shop.Products`: SELECT/INSERT/UPDATE/DELETE
 | `IProductRepository.cs` | App | port (`Add`/`GetAsync`/`UpsertByDocumentNoAsync`) — `ListAsync` ถูกลบใน products-sp-gateway |
 | `Ports/ISpDocumentGateway.cs` / `SpDocumentContracts.cs` / `SpDocumentSearchRejectedException.cs` / `SpDocumentItemMapper.cs` | App | ชั้นแยก Domain ออกจาก wire contract ของ SP ต้นทาง: port + DTO §5.1/§5.2 (nullable ทั้งชุด, enum เป็น raw string) + exception ที่ได้ 400 + mapper `SpDocumentItem` -> `ProductInput?` (ข้ามแถวเสีย + dedupe) — **type ชุดนี้ห้ามหลุดออกนอก `Products.Application`/`Products.Infrastructure`** (guard `tests/Hosts.Tests/SpInsulationTests.cs`) |
 | `Products.Infrastructure/Sp/SpDocumentGateway.cs` / `SpDocumentOptions.cs` | Infra | adapter ADO.NET (`Microsoft.Data.SqlClient` + `CommandType.StoredProcedure`) ยิง `usp_Motor_SearchDocument`/`usp_NonMotor_SearchDocument`; connection string มาจาก section `SpDocument` (ว่างไว้ = derive จาก `ConnectionStrings:App` เป็น `hippodb`/`mammothdb`), `@BranchCode` เติมที่ adapter ไม่รับจาก client |
-| `ProductConfiguration.cs` / `ProductsModuleRegistration.cs` | Infra | EF config + `AddProductsModule()` (marker เปล่า — implementation จริงของ `IProductRepository` อยู่นอกโมดูล) |
+| `ProductConfiguration.cs` / `ProductsModuleRegistration.cs` | Infra | EF config + `AddProductsModule()` ลงทะเบียน `AddSingleton<ISpDocumentGateway, SpDocumentGateway>()` จริง (singleton เพราะ gateway ไม่ถือ state อะไรนอกจาก options/logger, เปิด connection ใหม่ต่อ call) — implementation ของ `IProductRepository` อยู่นอกโมดูล |
 | `Persistence.MerchantRuntime/Products/ProductConfiguration.cs` / `ProductRepository.cs` | Infra (นอกโมดูล) | EF config + repo ตัวจริงที่ผูก runtime context — โมดูลถือแค่ port (`IProductRepository`) |
 
 **จุดสังเกต**: คนใหม่ grep หา implementation ของ `IProductRepository` ใน `Products.Infrastructure`
