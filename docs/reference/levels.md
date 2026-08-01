@@ -11,8 +11,8 @@ Levels เป็น 1 ใน 4 โมดูล reference master data ที่�
 โมดูลอิสระแล้วลบ `MasterData` ทิ้ง (`masterdata-split`, PR #117 MERGED 2026-07-19) → เพิ่ม full CRUD (PR
 เดียวกับ split, commit `46bbecd`, 2026-07-20). DDL ไม่เปลี่ยนตลอดทาง
 
-หมายเหตุ: Divisions/Offices/Positions ยังไม่มีไฟล์ reference แยกของตัวเองแบบนี้ — รายละเอียดของ 3 โมดูลนั้น
-(และภาพรวม 4 โมดูลร่วมกัน) ยังอยู่ใน
+โมดูลพี่น้องที่มีไฟล์ reference แยกแบบนี้เหมือนกัน: [`divisions.md`](divisions.md),
+[`offices.md`](offices.md), [`positions.md`](positions.md) ภาพรวมรวม 4 โมดูลร่วมกันยังอยู่ใน
 [`platform-modules.md`](platform-modules.md#15-divisions--levels--offices--positions-reference-master-data),
 [`layers-guide.md`](layers-guide.md), [`src-structure.md`](src-structure.md),
 [`entity-fields.md`](entity-fields.md)
