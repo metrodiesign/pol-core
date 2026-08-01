@@ -285,6 +285,9 @@ Server RLS ที่ตัว database เป็นคนกันแทน พ�
 
 #### 2. Carts
 
+> รายละเอียดเชิงลึกเฉพาะ Carts (domain/application/infrastructure/API/migration ครบชุด) ย้ายไปรวมที่
+> [`carts.md`](carts.md) แล้ว — ที่นี่เก็บไว้เฉพาะมุมมอง 6-layer เทียบกับ Products/Checkouts/Orders
+
 **Domain**: `Cart.cs` (122 บรรทัด) — aggregate root บน `AggregateRoot<Guid>` ที่ถือ `Item` (ใน
 `Carts.Domain.Items`) เป็น owned collection ผ่าน field `_items`. State machine มีแค่ 2 states (Open →
 CheckedOut) ทางเดียว และไม่สมมาตร: 4 เมธอด mutate (`AddItem`/`RemoveItem`/`SetItemQuantity`/`Clear`) guard
