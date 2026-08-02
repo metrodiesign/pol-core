@@ -54,31 +54,33 @@ public sealed class OrderSummaryReaderIntegrationTests
         await InsertOrderAsync(c, orderId, IntegrationDb.MerchantA, token, orderNo);
         await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA, "1234567890123");
 
-        // Exactly the reader's first query — purchase-flow-completion REQ-7.3 added OrderNo to it.
+        // Exactly the reader's first query (OrderSummaryReader.cs, column-for-column — purchase-flow-completion
+        // REQ-7.3 added OrderNo to it); only the parameter syntax differs ({0} -> @token).
         await using var orderCmd = c.CreateCommand();
         orderCmd.CommandText =
-            "SELECT TOP 1 Id, OrderNo FROM shop.Orders WHERE SummaryToken = @token";
+            "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentSessionId, "
+            + "SummaryTokenExpiresAt FROM shop.Orders WHERE SummaryToken = @token";
         orderCmd.Parameters.AddWithValue("@token", token);
         await using var orderReader = await orderCmd.ExecuteReaderAsync();
         Assert.True(await orderReader.ReadAsync());
         var resolvedOrderId = orderReader.GetGuid(0);
         Assert.Equal(orderId, resolvedOrderId);
-        Assert.Equal(orderNo, orderReader.GetString(1));
+        Assert.Equal(orderNo, orderReader.GetString(2));
         await orderReader.CloseAsync();
 
         // Exactly the reader's second query — deliberately does NOT select InsuredDateOfBirth.
         await using var lineCmd = c.CreateCommand();
         lineCmd.CommandText =
-            "SELECT InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = @orderId";
+            "SELECT ProductId, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = @orderId";
         lineCmd.Parameters.AddWithValue("@orderId", resolvedOrderId);
         await using var reader = await lineCmd.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
 
-        Assert.Equal("Somchai", reader.GetString(0));
-        Assert.Equal("Jaidee", reader.GetString(1));
-        Assert.Equal("****0123", MaskIdNumber(reader.GetString(2)));
+        Assert.Equal("Somchai", reader.GetString(1));
+        Assert.Equal("Jaidee", reader.GetString(2));
+        Assert.Equal("****0123", MaskIdNumber(reader.GetString(3)));
 
-        // The query never asked for InsuredDateOfBirth, so the result set has exactly the 3 columns above.
-        Assert.Equal(3, reader.FieldCount);
+        // The query never asked for InsuredDateOfBirth, so the result set has exactly the 4 columns above.
+        Assert.Equal(4, reader.FieldCount);
     }
 }

@@ -31,6 +31,8 @@ public sealed class GetOrderDetailTests
 
         var result = await handler.Handle(new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default);
 
+        // REQ-7.3 second surface: the detail view must carry the order's number, not just the lines.
+        Assert.Equal("ORD6900000001", result.OrderNo);
         Assert.Equal(["1111111111111", "2222222222222"], result.Lines.Select(l => l.InsuredIdNumber));
     }
 
