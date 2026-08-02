@@ -157,14 +157,14 @@ merchant `Product` เป็น mirror ของ result set §5.2 ใน
 | Id | uniqueidentifier | N | PK | `e9000000-…-0006` | app assign |
 | ProductGroup | varchar(10) | N | | `CMI` (`VMI`/`FIRE`/`MISC`) | = `SourceSystem` ของ §5.2; `CMI`/`VMI` = Motor |
 | DocumentType | varchar(20) | N | | `POLICY` (`APPLICATION`/`RENEWAL`/`ENDORSEMENT`) | `CMI` + `APPLICATION` ไม่รองรับ (throw ตอน `Create`) |
-| DocumentNo | nvarchar(150) | N | UQ | `S001-69900/บต/900008` | unique **ทั้งระบบ** (`IX_Products_DocumentNo`) + เป็น order key ของ `GET /products`; column collation case-insensitive (default DB collation) — โค้ดฝั่ง CLR ที่เทียบ/dedupe ค่านี้ (`ProductRepository.UpsertByDocumentNoAsync`, `SpDocumentItemMapper`, `Product.RefreshFromExternal`) ต้องใช้ `OrdinalIgnoreCase` ให้ตรง index มิฉะนั้น row ต่างแค่ตัวพิมพ์จะชน unique ซ้อน (พบจาก Codex review PR #150) |
+| DocumentNo | nvarchar(150) | N | UQ | `69301/กธ/910001` | unique **ทั้งระบบ** (`IX_Products_DocumentNo`) + เป็น order key ของ `GET /products`; column collation case-insensitive (default DB collation) — โค้ดฝั่ง CLR ที่เทียบ/dedupe ค่านี้ (`ProductRepository.UpsertByDocumentNoAsync`, `SpDocumentItemMapper`, `Product.RefreshFromExternal`) ต้องใช้ `OrdinalIgnoreCase` ให้ตรง index มิฉะนั้น row ต่างแค่ตัวพิมพ์จะชน unique ซ้อน (พบจาก Codex review PR #150) |
 | PolicyYear | varchar(2) | Y | | `69` | ปี พ.ศ. 2 หลัก |
-| ReferenceBranch | varchar(3) | Y | | `001` | รหัสสาขาของเลขอ้างอิง (**ไม่ใช่** `@BranchCode` ของ §2 — ยังไม่ยืนยันว่า field เดียวกัน) |
+| ReferenceBranch | varchar(3) | Y | | `301` | รหัสสาขาของเลขอ้างอิง (**ไม่ใช่** `@BranchCode` ของ §2 — ยังไม่ยืนยันว่า field เดียวกัน) |
 | ReferencePre | varchar(20) | Y | | `บต` | prefix เลขอ้างอิง |
 | PolicySequenceNo | varchar(30) | Y | | `900008` | ลำดับที่ในเล่ม |
 | ReferenceYear | varchar(2) | Y | | `69` | ปีของเลขอ้างอิง |
 | ReferenceNo | varchar(30) | Y | | `910007-10` | เลขอ้างอิง |
-| SaleCode | varchar(20) | N | IX | `S001` | รหัสผู้ขาย — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
+| SaleCode | varchar(20) | N | IX | `77001` | รหัสผู้ขาย (ตัวเลข 5 หลัก) — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
 | SaleFullName | nvarchar(500) | Y | | `สมชาย ใจดี` | ชื่อผู้ขาย |
 | BrokerCode | varchar(20) | Y | | `BRK001` | รหัสนายหน้า |
 | BrokerName | nvarchar(500) | Y | | `บริษัทนายหน้า จำกัด` | ชื่อนายหน้า |

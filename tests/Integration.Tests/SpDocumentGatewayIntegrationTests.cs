@@ -24,13 +24,16 @@ public sealed class SpDocumentGatewayIntegrationTests
     private const string NonMotor = "NonMotor";
 
     /// <summary>One simulated side plus the axis row this file reads field by field. The row is pulled by
-    /// its policy number rather than by page position: ORDER BY DocumentNo sorts on the Thai abbreviation
-    /// embedded in the number, so "the first row of page 1" is not the row anyone means.</summary>
+    /// its policy number rather than by page position: ORDER BY DocumentNo sorts on the abbreviation
+    /// embedded in the number (Thai on Motor, ASCII on Non-Motor), so "the first row of page 1" is not the
+    /// row anyone means.</summary>
     private sealed record Side(
         InsuranceType Target,
         string SaleCode,
         long TotalRows,
+        long TotalPages,
         string InsuranceTypeWire,
+        string PolicyYear,
         string AxisPolicyNumber,
         string AxisDocumentNo,
         string AxisSourceSystem,
@@ -38,35 +41,42 @@ public sealed class SpDocumentGatewayIntegrationTests
         decimal AxisTotalPremium,
         string? AxisLicensePlate,
         string? AxisPolicyType,
+        string AxisReferenceBranch,
         string PaidPolicyNumber);
 
     private static readonly Side MotorSide = new(
         Target: InsuranceType.Motor,
         SaleCode: "77001",
-        TotalRows: 28,
+        TotalRows: 42,
+        TotalPages: 2,
         InsuranceTypeWire: "Motor",
-        AxisPolicyNumber: "77001-69900/950001",
-        AxisDocumentNo: "77001-69900/กธ/950001-10",
+        PolicyYear: "69",
+        AxisPolicyNumber: "77001-69301/910001",
+        AxisDocumentNo: "69301/กธ/910001",
         AxisSourceSystem: "VMI",
         AxisShowName: "นายสมชาย ใจดีมงคล",
         AxisTotalPremium: 12500.00m,
         AxisLicensePlate: "1กก 1001",
         AxisPolicyType: "90",                       // seeded for VMI only
-        PaidPolicyNumber: "77001-69900/950007");
+        AxisReferenceBranch: "301",                  // SaleCode 77001 -> broker 701 -> branch 301
+        PaidPolicyNumber: "77001-69301/910007");
 
     private static readonly Side NonMotorSide = new(
         Target: InsuranceType.NonMotor,
-        SaleCode: "S001",
-        TotalRows: 27,
+        SaleCode: "77001",
+        TotalRows: 40,
+        TotalPages: 2,
         InsuranceTypeWire: "NonMotor",
-        AxisPolicyNumber: "S001-69900/960001",
-        AxisDocumentNo: "88001-69900/อค/960001",
+        PolicyYear: "26",
+        AxisPolicyNumber: "77001-26301/000001",
+        AxisDocumentNo: "26301/POL/000001",
         AxisSourceSystem: "FIRE",
         AxisShowName: "บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด",
         AxisTotalPremium: 18500.00m,
         AxisLicensePlate: null,                     // §5.2: the Non-Motor procedure returns a constant null
         AxisPolicyType: null,                       // policy-type codes are a Motor concept in this catalogue
-        PaidPolicyNumber: "S001-69900/960007");
+        AxisReferenceBranch: "301",                  // SaleCode 77001 -> broker 701 -> branch 301
+        PaidPolicyNumber: "77001-26301/000007");
 
     // ------------------------------------------------------------------ mapping (REQ-5.1, 5.2, 5.3)
 
@@ -81,7 +91,7 @@ public sealed class SpDocumentGatewayIntegrationTests
 
         // Straight out of result set 1 — nothing here is recomputed on our side (REQ-8.1).
         Assert.Equal(side.TotalRows, result.Page.TotalRows);
-        Assert.Equal(2L, result.Page.TotalPages);
+        Assert.Equal(side.TotalPages, result.Page.TotalPages);
         Assert.Equal(1, result.Page.PageNo);
         Assert.Equal(25, result.Page.PageSize);
         Assert.True(result.Page.HasNextPage);
@@ -111,11 +121,11 @@ public sealed class SpDocumentGatewayIntegrationTests
         Assert.Equal(side.AxisSourceSystem, item.SourceSystem);
         Assert.Equal("POLICY", item.DocumentType);
         Assert.Equal(side.AxisDocumentNo, item.DocumentNo);
-        Assert.Equal("69", item.PolicyYear);
-        Assert.Equal("900", item.ReferenceBranch);
+        Assert.Equal(side.PolicyYear, item.PolicyYear);
+        Assert.Equal(side.AxisReferenceBranch, item.ReferenceBranch);
         Assert.Null(item.ReferencePre);                          // seeded for ENDORSEMENT only
         Assert.Equal(side.AxisPolicyNumber[^6..], item.PolicySequenceNo);   // the sequence the number ends on
-        Assert.Equal("69", item.ReferenceYear);
+        Assert.Equal(side.PolicyYear, item.ReferenceYear);
         Assert.Equal(item.PolicySequenceNo, item.ReferenceNo);
         Assert.False(string.IsNullOrWhiteSpace(item.PolicyBranch));
         Assert.Equal(side.AxisPolicyType, item.PolicyType);
@@ -186,8 +196,9 @@ public sealed class SpDocumentGatewayIntegrationTests
     {
         var side = SideOf(key);
 
-        // '999' matches no seeded row. The full result set still comes back, which is the procedure
-        // validating the branch without filtering on it (REQ-2.11) — and proof the value travelled.
+        // dbo.Documents has no column to match '999' against. The full result set still comes back, which is
+        // the procedure validating the branch without filtering on it (REQ-2.11) — and proof the value
+        // travelled.
         var result = await Gateway(branchCode: "999").SearchAsync(Request(side), CancellationToken.None);
 
         Assert.Equal(side.TotalRows, result.Page.TotalRows);
