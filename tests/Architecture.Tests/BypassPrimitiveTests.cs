@@ -25,6 +25,7 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Webhooks/WebhookMerchantResolver.cs", // task 8.5.3 mirror of the old BuildingBlocks.Infrastructure WebhookMerchantResolver (moved)
         "src/Persistence/Persistence.MerchantRuntime/Vault/VaultAuditAppender.cs", // task 6 applock-based vault-audit chain append (replaces sec.usp_vault_audit_head)
         "src/Persistence/Persistence.MerchantRuntime/Orders/OrderSummaryReader.cs", // task 8.5.3 mirror of the old Orders.Infrastructure OrderSummaryReader (moved)
+        "src/Persistence/Persistence.MerchantRuntime/Orders/OrderNoSequence.cs", // purchase-flow-completion task 6: NEXT VALUE FOR shop.OrderNoSeq (IOrderNoSequence) — EF has no sequence primitive; one statement, no entity, no predicate to widen
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantAccountResolver.cs", // bugfix-merchant-prebind-wiring: pre-bind login-by-subject/by-id read (IAccountResolver, narrow projection)
         "src/Persistence/Persistence.MerchantUsers/Outbox/MerchantUserOutboxDrain.cs", // task 5 per-owner outbox drain (cross-owner lease scan)
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantAccountStore.cs", // bugfix-merchant-prebind-wiring: pre-bind tracked target load for registration/correction/approve/reject (IAccountStore) — read-filter bypass only, the write floor still authorizes every staged change

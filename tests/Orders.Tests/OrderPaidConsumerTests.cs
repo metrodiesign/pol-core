@@ -23,7 +23,7 @@ public sealed class OrderPaidConsumerTests
     private static Order ProductionOrder(decimal amount = 15000m, string currency = "THB") =>
         Order.Create(
             Merchant, Money.Of(amount, currency), At, OrderLineInputs.OneLine(Money.Of(amount, currency)),
-            checkoutSessionId: Guid.NewGuid());
+            checkoutSessionId: Guid.NewGuid(), orderNo: "ORD6900000001");
 
     private static PaymentPaid PaidEvent(Order order, decimal amount = 15000m, string currency = "THB") => new(
         PaymentSessionId: Guid.NewGuid(),

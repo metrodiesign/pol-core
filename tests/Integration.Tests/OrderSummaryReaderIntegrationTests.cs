@@ -22,14 +22,14 @@ public sealed class OrderSummaryReaderIntegrationTests
     private static string MaskIdNumber(string idNumber) =>
         idNumber.Length <= 4 ? new string('*', idNumber.Length) : $"****{idNumber[^4..]}";
 
-    private static Task InsertOrderAsync(SqlConnection c, Guid orderId, Guid merchantId, string token) =>
+    private static Task InsertOrderAsync(SqlConnection c, Guid orderId, Guid merchantId, string token, string orderNo) =>
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.Orders
-                (Id, MerchantId, AmountAmount, AmountCurrency, Status, CreatedAt, SummaryToken, SummaryTokenExpiresAt)
-            VALUES (@id, @m, 15000, N'THB', 0, SYSUTCDATETIME(), @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, CreatedAt, SummaryToken, SummaryTokenExpiresAt)
+            VALUES (@id, @m, @orderNo, 15000, N'THB', 0, SYSUTCDATETIME(), @token, DATEADD(hour, 72, SYSUTCDATETIME()));
             """,
-            ("@id", orderId), ("@m", merchantId), ("@token", token));
+            ("@id", orderId), ("@m", merchantId), ("@orderNo", orderNo), ("@token", token));
 
     private static Task InsertOrderLineAsync(SqlConnection c, Guid lineId, Guid orderId, Guid merchantId, string idNumber) =>
         IntegrationDb.ExecAsync(c,
@@ -49,17 +49,22 @@ public sealed class OrderSummaryReaderIntegrationTests
     {
         var orderId = Guid.NewGuid();
         var token = Guid.NewGuid().ToString("N");
+        var orderNo = $"ORD69{Random.Shared.Next(80_000_000, 89_999_999)}";
         await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        await InsertOrderAsync(c, orderId, IntegrationDb.MerchantA, token);
+        await InsertOrderAsync(c, orderId, IntegrationDb.MerchantA, token, orderNo);
         await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA, "1234567890123");
 
-        // Exactly the reader's first query.
+        // Exactly the reader's first query — purchase-flow-completion REQ-7.3 added OrderNo to it.
         await using var orderCmd = c.CreateCommand();
         orderCmd.CommandText =
-            "SELECT TOP 1 Id FROM shop.Orders WHERE SummaryToken = @token";
+            "SELECT TOP 1 Id, OrderNo FROM shop.Orders WHERE SummaryToken = @token";
         orderCmd.Parameters.AddWithValue("@token", token);
-        var resolvedOrderId = (Guid)(await orderCmd.ExecuteScalarAsync())!;
+        await using var orderReader = await orderCmd.ExecuteReaderAsync();
+        Assert.True(await orderReader.ReadAsync());
+        var resolvedOrderId = orderReader.GetGuid(0);
         Assert.Equal(orderId, resolvedOrderId);
+        Assert.Equal(orderNo, orderReader.GetString(1));
+        await orderReader.CloseAsync();
 
         // Exactly the reader's second query — deliberately does NOT select InsuredDateOfBirth.
         await using var lineCmd = c.CreateCommand();

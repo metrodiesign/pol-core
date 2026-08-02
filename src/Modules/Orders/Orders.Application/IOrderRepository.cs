@@ -21,8 +21,10 @@ public interface IOrderRepository
     Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken cancellationToken);
 
     /// <summary>Lists the bound merchant's orders, newest first, with their lines loaded (REQ-7.4 masked
-    /// list surface — masking itself happens at the read-model projection, not here).</summary>
-    Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken cancellationToken);
+    /// list surface — masking itself happens at the read-model projection, not here). A non-null
+    /// <paramref name="orderNo"/> narrows the list to the exact order number (purchase-flow-completion
+    /// REQ-7.4).</summary>
+    Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken);
 
     /// <summary>Tracks a new order for insertion on the next unit-of-work save.</summary>
     void Add(Order order);

@@ -155,7 +155,8 @@ public sealed class MerchantLifecycleEndpointTests
             product.Id, 1, Money.Of(product.TotalPremium, "THB"),
             product.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
             product.PolicyNumber, product.StartDate, product.EndDate,
-            "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))]);
+            "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))],
+        Checkouts.Domain.PaymentChannel.CARD, CustomerContact.Of("Somchai Jaidee", "0812345678", null));
 
     private static HttpRequestMessage Post(string path, string? json = null, bool csrf = true)
     {
@@ -171,11 +172,14 @@ public sealed class MerchantLifecycleEndpointTests
         return request;
     }
 
-    private static string StartCheckoutBody(Cart cart, Product product) =>
+    private static string StartCheckoutBody(Cart cart, Product product, string channel = "CARD", decimal? discount = null) =>
         $$"""
-        {"cartId":"{{cart.Id}}","recipient":"buyer@example.com","insuredPersons":[
+        {"cartId":"{{cart.Id}}","paymentChannel":"{{channel}}",
+         "customer":{"name":"Somchai Jaidee","phone":"0812345678","email":"buyer@example.com"},
+         "insuredPersons":[
           {"productId":"{{product.Id}}","firstName":"Somchai","lastName":"Jaidee",
-           "idNumber":"1234567890123","dateOfBirth":"1990-01-01T00:00:00Z"}]}
+           "idNumber":"1234567890123","dateOfBirth":"1990-01-01T00:00:00Z"
+           {{(discount is null ? "" : $",\"discount\":{discount}")}}}]}
         """;
 
     // REQ-1.3 — a document that is no longer UNPAID is already sold, so POST /carts/{id}/items refuses it
@@ -359,5 +363,154 @@ public sealed class MerchantLifecycleEndpointTests
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(Checkouts.Domain.SessionStatus.Started, session.Status);
+    }
+
+    // ---- purchase-flow-completion REQ-6: what POST /checkouts now takes, and what it refuses --------------
+
+    // REQ-6.1/6.6 — the channel and the buyer's contact ride the request onto the session.
+    [Theory]
+    [InlineData("CARD", Checkouts.Domain.PaymentChannel.CARD)]
+    [InlineData("PROMPTPAY_QR", Checkouts.Domain.PaymentChannel.PROMPTPAY_QR)]
+    [InlineData("INSTALLMENT", Checkouts.Domain.PaymentChannel.INSTALLMENT)]
+    public async Task Starting_a_checkout_records_the_channel_and_the_customer(
+        string wire, Checkouts.Domain.PaymentChannel expected)
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, wire)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var session = Assert.Single(sessions);
+        Assert.Equal(expected, session.Channel);
+        Assert.Equal("Somchai Jaidee", session.CustomerName);
+        Assert.Equal("0812345678", session.CustomerPhone);
+        Assert.Equal("buyer@example.com", session.CustomerEmail);
+    }
+
+    // REQ-6.2 — anything outside the three supported channels is a 400, and nothing is written.
+    [Theory]
+    [InlineData("BITCOIN")]
+    [InlineData("card")]        // the wire values are the enum member names, case included
+    [InlineData("")]
+    public async Task Starting_a_checkout_with_an_unsupported_channel_is_400(string channel)
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, channel)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+    }
+
+    // REQ-6.7 — a missing name/phone or a malformed phone/email is a 400 before anything is written.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("""{"name":"","phone":"0812345678"}""")]
+    [InlineData("""{"name":"Somchai Jaidee","phone":""}""")]
+    [InlineData("""{"name":"Somchai Jaidee","phone":"12"}""")]
+    [InlineData("""{"name":"Somchai Jaidee","phone":"0812345678","email":"not-an-email"}""")]
+    public async Task Starting_a_checkout_with_an_invalid_customer_is_400(string? customerJson)
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var body = $$"""
+        {"cartId":"{{cart.Id}}","paymentChannel":"CARD","customer":{{customerJson ?? "null"}},
+         "insuredPersons":[
+          {"productId":"{{product.Id}}","firstName":"Somchai","lastName":"Jaidee",
+           "idNumber":"1234567890123","dateOfBirth":"1990-01-01T00:00:00Z"}]}
+        """;
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", body));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
+    }
+
+    // REQ-6.3 — the discount comes off the line, and the session is priced at the net total.
+    [Fact]
+    public async Task A_line_discount_is_subtracted_from_the_checkout_total()
+    {
+        var product = UnpaidProduct();   // 1200 THB
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(
+            Post("/api/v1/checkouts", StartCheckoutBody(cart, product, discount: 200m)));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var session = Assert.Single(sessions);
+        Assert.Equal(Money.Of(1000m, "THB"), session.Amount);
+        Assert.Equal(Money.Of(200m, "THB"), Assert.Single(session.Items).Discount);
+    }
+
+    // REQ-6.4 — a discount that exceeds its line, or a negative one, never reaches the session.
+    [Theory]
+    [InlineData(1200.01)]
+    [InlineData(-1)]
+    public async Task An_out_of_range_discount_is_400(decimal discount)
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(
+            Post("/api/v1/checkouts", StartCheckoutBody(cart, product, discount: discount)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
+    }
+
+    // REQ-6.5 — a client total that disagrees with the server's arithmetic is rejected, not silently repriced.
+    [Fact]
+    public async Task A_client_total_that_disagrees_with_the_server_is_400()
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var body = StartCheckoutBody(cart, product, discount: 200m)
+            .Replace("\"cartId\"", "\"amount\":1200,\"cartId\"", StringComparison.Ordinal);
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", body));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
+    }
+
+    [Fact]
+    public async Task A_client_total_that_matches_the_net_is_accepted()
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var body = StartCheckoutBody(cart, product, discount: 200m)
+            .Replace("\"cartId\"", "\"amount\":1000,\"cartId\"", StringComparison.Ordinal);
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", body));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(Money.Of(1000m, "THB"), Assert.Single(sessions).Amount);
     }
 }

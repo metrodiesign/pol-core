@@ -7,10 +7,11 @@ using SharedKernel;
 namespace Checkouts.Application;
 
 /// <summary>Opens a new checkout session for a cart with an agreed amount, its per-line snapshot
-/// (insurance-pivot REQ-6.5), + an optional notification recipient (the customer's email/phone, carried
-/// to the order on confirm).</summary>
+/// (insurance-pivot REQ-6.5), the payment channel the merchant picked and the buyer's contact details
+/// (purchase-flow-completion REQ-6.1/6.6) — both carried to the order on confirm.</summary>
 public sealed record StartCheckoutCommand(
-    Guid MerchantId, Guid CartId, Money Amount, IReadOnlyList<CheckoutItemInput> Lines, string? Recipient = null)
+    Guid MerchantId, Guid CartId, Money Amount, IReadOnlyList<CheckoutItemInput> Lines,
+    PaymentChannel Channel, CustomerContact Customer)
     : ICommand<StartCheckoutResult>, IMerchantScoped;
 
 /// <summary>Identity of the freshly started checkout session.</summary>
@@ -38,7 +39,8 @@ public sealed class StartCheckoutHandler : ICommandHandler<StartCheckoutCommand,
             throw new ConflictException($"Cart {command.CartId} already has a live checkout session.");
 
         var session = Session.Start(
-            command.MerchantId, command.CartId, command.Amount, _clock.UtcNow, command.Lines, command.Recipient);
+            command.MerchantId, command.CartId, command.Amount, _clock.UtcNow, command.Lines,
+            command.Channel, command.Customer);
 
         _repository.Add(session);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

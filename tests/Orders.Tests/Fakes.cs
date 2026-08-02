@@ -60,11 +60,27 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken ct) =>
         Task.FromResult(Reconciliation);
 
-    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken ct) =>
+    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Order>>(
-            _orders.Where(o => o.MerchantId == merchantId).OrderByDescending(o => o.CreatedAt).ToList());
+            _orders.Where(o => o.MerchantId == merchantId && (orderNo is null || o.OrderNo == orderNo))
+                .OrderByDescending(o => o.CreatedAt).ToList());
 
     public void Add(Order order) => _orders.Add(order);
+}
+
+/// <summary>Hands out ORD69000000NN in call order — the format the real sequence produces, without a DB.</summary>
+internal sealed class FakeOrderNoSequence : IOrderNoSequence
+{
+    private int _next;
+
+    public readonly List<string> Minted = [];
+
+    public Task<string> NextAsync(CancellationToken cancellationToken)
+    {
+        var orderNo = $"ORD69{++_next:D8}";
+        Minted.Add(orderNo);
+        return Task.FromResult(orderNo);
+    }
 }
 
 internal sealed class FakeRevealAuditWriter : IRevealAuditWriter

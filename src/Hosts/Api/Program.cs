@@ -776,7 +776,18 @@ api.MapPost("/checkouts", async (
     if (!cartProductIds.SetEquals(insuredProductIds))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "insuredPersons must cover every cart line exactly once.");
 
+    // REQ-6.2 — the channel must be one of the three the platform supports. Parsed here (case-sensitive:
+    // the wire values ARE the enum member names) so garbage is a 400 before any work happens; Session.Start
+    // re-checks the parsed value as defense in depth.
+    if (!Enum.TryParse<Checkouts.Domain.PaymentChannel>(body.PaymentChannel, out var channel)
+        || !Enum.IsDefined(channel))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsupported payment channel.");
+
+    // REQ-6.6/6.7 — throws ArgumentException (-> 400) for a missing name/phone or a malformed phone/email.
+    var customer = CustomerContact.Of(body.Customer?.Name, body.Customer?.Phone, body.Customer?.Email);
+
     var items = new List<CheckoutItemInput>();
+    var netTotal = Money.Zero(subtotal.Currency);
     foreach (var item in cart.Items)
     {
         var product = await mediator.Send(new GetProductByIdQuery(item.ProductId), ct);
@@ -784,15 +795,28 @@ api.MapPost("/checkouts", async (
             return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart product is no longer available.");
 
         var person = body.InsuredPersons.Single(p => p.ProductId == item.ProductId);
+
+        // REQ-6.3/6.4 — the discount is the ONLY money the client contributes, and it is a Money in the
+        // line's own currency. Money.Of rejects a negative one; LineAmounts the rest.
+        var gross = LineAmounts.Gross(item.UnitPrice, item.Quantity);
+        var discount = LineAmounts.NormaliseDiscount(
+            person.Discount is { } d ? Money.Of(d, item.UnitPrice.Currency) : null, gross);
+        netTotal = netTotal.Add(LineAmounts.Net(gross, discount));
+
         items.Add(new CheckoutItemInput(
             item.ProductId, item.Quantity, item.UnitPrice,
             product.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
             product.PolicyNumber, product.StartDate, product.EndDate,
-            person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth));
+            person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth, discount));
     }
 
+    // REQ-6.5 — the client may state what it thinks the total is; if it disagrees with the server's own
+    // arithmetic the request is rejected rather than silently repriced. The charge is always netTotal.
+    if (body.Amount is { } claimed && claimed != netTotal.Amount)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The submitted total does not match the order total.");
+
     var result = await mediator.Send(
-        new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, items, body.Recipient), ct);
+        new StartCheckoutCommand(actor.MerchantId, body.CartId, netTotal, items, channel, customer), ct);
 
     // Second unit of work, by design (REQ-2.1): the snapshot is already frozen inside the session above, and
     // IX_CheckoutSessions_CartId_Open blocks a second checkout even if this freeze never lands — a cart left
@@ -899,7 +923,7 @@ api.MapGet("/orders/{token}/summary", async (
         return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
 
     return Results.Ok(new OrderSummaryResponse(
-        summary.OrderId, summary.Amount, summary.Status, summary.PaymentSessionId,
+        summary.OrderId, summary.OrderNo, summary.Amount, summary.Status, summary.PaymentSessionId,
         summary.Lines.Select(l => new OrderSummaryLineResponse(l.ProductId, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
 }).AllowAnonymous()
     .WithTags("คำสั่งซื้อ")
@@ -945,16 +969,27 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
     .ProducesProblem(StatusCodes.Status409Conflict);
 
 // Merchant-authenticated order list — every line's InsuredIdNumber masked (REQ-7.4). No reveal audit here.
-api.MapGet("/orders", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
+// purchase-flow-completion REQ-7.4 adopts the SFS `filters` contract for ONE field, orderNo/eq; every other
+// field or operator is silently dropped, which is what the SFS whitelist rule prescribes. Paging/sort/search
+// are NOT adopted here yet (a separate piece of work), so no SfsQueryParamsMarker is declared.
+api.MapGet("/orders", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new GetOrdersQuery(actor.MerchantId), ct);
+    var (_, _, filters, _, _) = SfsQueryParser.Parse(http.Request.Query);
+    var orderNo = filters
+        .FirstOrDefault(f =>
+            string.Equals(f.Field, "orderNo", StringComparison.OrdinalIgnoreCase)
+            && f.Operator == FilterOperator.Equals)
+        ?.Value?.GetString();
+
+    var result = await mediator.Send(new GetOrdersQuery(actor.MerchantId, orderNo), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user")
     .WithTags("คำสั่งซื้อ")
     .WithName("ListOrders")
     .WithSummary("รายการคำสั่งซื้อของร้านค้าที่ผูกอยู่")
-    .WithDescription("InsuredIdNumber ของทุก line จะถูก mask (เห็นแค่ 4 ตัวท้าย) ใช้ endpoint อ่านรายละเอียดถ้าต้องการค่าเต็ม")
+    .WithDescription("InsuredIdNumber ของทุก line จะถูก mask (เห็นแค่ 4 ตัวท้าย) ใช้ endpoint อ่านรายละเอียดถ้าต้องการค่าเต็ม กรองด้วยเลขคำสั่งซื้อได้ผ่าน filters=[{\"field\":\"orderNo\",\"operator\":\"eq\",\"value\":\"ORD6900000001\"}] (field/operator อื่นจะถูกทิ้งเงียบตามสัญญา SFS)")
     .Produces<OrdersListView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 // Merchant-authenticated single-order detail — every line's InsuredIdNumber in FULL, one RevealAudit row
@@ -2289,14 +2324,21 @@ internal sealed record CreatePaymentSessionRequest(
 internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
+// Discount is per cart line and optional (purchase-flow-completion REQ-6.3) — the amount only, in the
+// line's own currency: the client never picks the currency of a line it did not price.
 internal sealed record StartCheckoutInsuredPerson(
-    Guid ProductId, string FirstName, string LastName, string IdNumber, DateTime DateOfBirth);
+    Guid ProductId, string FirstName, string LastName, string IdNumber, DateTime DateOfBirth, decimal? Discount);
+internal sealed record StartCheckoutCustomer(string? Name, string? Phone, string? Email);
+// Amount is the client's OWN total (REQ-6.5) — checked against the server's arithmetic, never used as the
+// price. Omit it and the server total stands unchallenged.
 internal sealed record StartCheckoutRequest(
-    Guid CartId, string? Recipient, IReadOnlyList<StartCheckoutInsuredPerson> InsuredPersons);
+    Guid CartId, string? PaymentChannel, StartCheckoutCustomer? Customer, decimal? Amount,
+    IReadOnlyList<StartCheckoutInsuredPerson> InsuredPersons);
 internal sealed record OrderSummaryLineResponse(
     Guid ProductId, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
 internal sealed record OrderSummaryResponse(
-    Guid OrderId, Money Amount, string Status, Guid? PaymentSessionId, IReadOnlyList<OrderSummaryLineResponse> Lines);
+    Guid OrderId, string OrderNo, Money Amount, string Status, Guid? PaymentSessionId,
+    IReadOnlyList<OrderSummaryLineResponse> Lines);
 
 // policy-reference-record REQ-1/REQ-3: field-for-field wire twin of ItemPolicyInput — a dedicated request
 // type rather than binding the domain input directly (this codebase's convention, e.g. AddItemToCartRequest).

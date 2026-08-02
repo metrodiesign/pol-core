@@ -33,23 +33,34 @@ public sealed class ConfirmCheckoutTests
 
     private static readonly DateTime StartAt = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
+    private static readonly CustomerContact Customer =
+        CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com");
+
+    // REQ-6.1/6.6 — the channel and the buyer's three contact fields are snapshotted onto the session.
     [Fact]
-    public async Task Start_captures_the_notification_recipient()
+    public async Task Start_captures_the_channel_and_the_customer()
     {
         var repo = new FakeCheckoutRepository();
         var handler = new StartCheckoutHandler(repo, new FakeUnitOfWork(), new FixedClock());
 
         await handler.Handle(
-            new StartCheckoutCommand(Merchant, Cart, Money.Of(15000m, "THB"), OneLine(), "buyer@example.com"), default);
+            new StartCheckoutCommand(
+                Merchant, Cart, Money.Of(15000m, "THB"), OneLine(), PaymentChannel.INSTALLMENT, Customer),
+            default);
 
-        Assert.Equal("buyer@example.com", Assert.Single(repo.Added).NotificationRecipient);
+        var session = Assert.Single(repo.Added);
+        Assert.Equal(PaymentChannel.INSTALLMENT, session.Channel);
+        Assert.Equal("Somchai Jaidee", session.CustomerName);
+        Assert.Equal("0812345678", session.CustomerPhone);
+        Assert.Equal("buyer@example.com", session.CustomerEmail);
     }
 
     [Fact]
     public void Start_rejects_an_empty_line_list()
     {
         Assert.Throws<ArgumentException>(() => Session.Start(
-            Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), []));
+            Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), [],
+            PaymentChannel.CARD, Customer));
     }
 
     // REQ-7.2 — validated at Start, not deferred to Order.Create, so a bad request never reaches a
@@ -61,7 +72,7 @@ public sealed class ConfirmCheckoutTests
     {
         var line = ItemInput(idNumber: idNumber);
 
-        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line], PaymentChannel.CARD, Customer));
     }
 
     // REQ-1.4 — the document snapshot is required and the coverage window must be ordered.
@@ -74,7 +85,7 @@ public sealed class ConfirmCheckoutTests
     {
         var line = ItemInput(documentNo, productGroup, documentType);
 
-        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line], PaymentChannel.CARD, Customer));
     }
 
     [Fact]
@@ -82,14 +93,15 @@ public sealed class ConfirmCheckoutTests
     {
         var line = ItemInput(startDate: CoverTo, endDate: CoverFrom);
 
-        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line], PaymentChannel.CARD, Customer));
     }
 
     [Fact]
     public void Start_trims_and_snapshots_the_document_fields()
     {
         var session = Session.Start(
-            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [ItemInput(documentNo: "  DOC-1  ")]);
+            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [ItemInput(documentNo: "  DOC-1  ")],
+            PaymentChannel.CARD, Customer);
 
         var item = Assert.Single(session.Items);
         Assert.Equal("DOC-1", item.DocumentNo);
@@ -104,7 +116,7 @@ public sealed class ConfirmCheckoutTests
     {
         var line = ItemInput(dob: StartAt.AddDays(1));
 
-        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+        Assert.Throws<ArgumentException>(() => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line], PaymentChannel.CARD, Customer));
     }
 
     [Fact]
@@ -113,7 +125,7 @@ public sealed class ConfirmCheckoutTests
         var line = ItemInput(dob: new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc));
 
         var ex = Assert.Throws<ArgumentException>(
-            () => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line]));
+            () => Session.Start(Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [line], PaymentChannel.CARD, Customer));
 
         Assert.DoesNotContain("2099", ex.Message, StringComparison.Ordinal);
     }
@@ -123,7 +135,7 @@ public sealed class ConfirmCheckoutTests
     {
         var session = Session.Start(
             Merchant, Cart, Money.Of(15000m, "THB"), new DateTime(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc), OneLine(),
-            "buyer@example.com");
+            PaymentChannel.PROMPTPAY_QR, Customer);
         var repo = new FakeCheckoutRepository(session);
         var outbox = new FakeOutbox();
         var handler = new ConfirmCheckoutHandler(repo, outbox, new FakeUnitOfWork(), new FixedClock());
@@ -134,7 +146,13 @@ public sealed class ConfirmCheckoutTests
         var evt = Assert.IsType<CheckoutConfirmed>(Assert.Single(outbox.Enqueued));
         Assert.Equal(session.Id, evt.CheckoutSessionId);
         Assert.Equal(Money.Of(15000m, "THB"), evt.Amount);
-        Assert.Equal("buyer@example.com", evt.Recipient);
+        // REQ-6.8 — the channel + contact ride along, and Recipient stays filled with what the consumer
+        // would derive anyway (phone first), so a pre-REQ-6.6 reader still knows where to send the link.
+        Assert.Equal("PROMPTPAY_QR", evt.PaymentChannel);
+        Assert.Equal("Somchai Jaidee", evt.CustomerName);
+        Assert.Equal("0812345678", evt.CustomerPhone);
+        Assert.Equal("buyer@example.com", evt.CustomerEmail);
+        Assert.Equal("0812345678", evt.Recipient);
         Assert.Single(evt.Items);
     }
 }

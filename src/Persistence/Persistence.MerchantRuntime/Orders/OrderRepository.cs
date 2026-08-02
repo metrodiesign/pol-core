@@ -29,9 +29,10 @@ internal sealed class OrderRepository : IOrderRepository
             .Select(g => new OrderStatusTotal(g.Key.Status, g.Key.Currency, g.Count(), g.Sum(o => o.Amount.Amount)))
             .ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken) =>
         await _db.Set<Order>()
             .Where(o => o.MerchantId == merchantId)
+            .Where(o => orderNo == null || o.OrderNo == orderNo)
             .Include(o => o.Items)
             .OrderByDescending(o => o.CreatedAt)
             .ToListAsync(cancellationToken);

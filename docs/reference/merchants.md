@@ -665,6 +665,44 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 
 `merchantUserId` / `merchantId` / `orderId` ฯลฯ เป็น Guid. JSON body/field เป็น camelCase.
 
+#### `POST /api/v1/checkouts` — body (purchase-flow-completion REQ-6)
+
+```jsonc
+{
+  "cartId": "…",
+  "paymentChannel": "CARD",            // CARD | PROMPTPAY_QR | INSTALLMENT (ตรงตัวพิมพ์) — ค่าอื่น -> 400
+  "customer": {                        // บังคับ
+    "name": "สมชาย ใจดี",              // บังคับ
+    "phone": "0812345678",             // บังคับ, 8-15 หลัก, คั่นด้วย + - space ได้
+    "email": "buyer@example.com"       // ไม่บังคับ
+  },
+  "amount": 1000,                      // ไม่บังคับ — ยอดที่ client คิดเอง ถ้าไม่ตรงยอด server -> 400
+  "insuredPersons": [
+    { "productId": "…", "firstName": "…", "lastName": "…",
+      "idNumber": "…", "dateOfBirth": "1990-01-01T00:00:00Z",
+      "discount": 200 }                // ไม่บังคับ ต่อบรรทัด, 0 <= discount <= ยอดบรรทัดนั้น มิฉะนั้น 400
+  ]
+}
+```
+
+ราคาคิดจากฝั่ง server เสมอ: ยอด checkout = Σ(unitPrice x quantity − discount) ของทุกบรรทัดในตะกร้า —
+`amount` ใน body ใช้ *ตรวจ* เท่านั้น ไม่เคยใช้ตั้งราคา. `recipient` เดิมถูกแทนที่ด้วย `customer` (ปลายทางแจ้ง
+ลูกค้า = `customer.phone` ก่อน แล้วจึง `customer.email`).
+
+#### `GET /api/v1/orders` — filter (purchase-flow-completion REQ-7.4)
+
+รับ `filters` ตามสัญญา SFS (JSON url-encoded) แต่รองรับ **field เดียว** คือ `orderNo` operator `eq`:
+
+```
+GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD6900000001"}]
+```
+
+field/operator อื่นถูกทิ้งเงียบตามกฎ whitelist ของ SFS; `filters` ที่ไม่ใช่ JSON -> 400. ยังไม่รับ
+`page`/`limit`/`sort`/`search` บน endpoint นี้ (SFS เต็มรูปเป็นงานแยก).
+
+`OrderNo` (`ORD` + ปี พ.ศ. 2 หลัก + running 8 หลัก เช่น `ORD6900000001`) ปรากฏใน `GET /api/v1/orders`,
+`GET /api/v1/orders/{orderId}` และ `GET /api/v1/orders/{token}/summary`.
+
 #### `GET /api/v1/products` — query contract (products-sp-gateway pivot)
 
 **ไม่มี SFS** (`filters`/`sort`/`search` ถูกถอดหมด) รับแค่ **2 query param**: `page` / `limit` (paging ธรรมดา,

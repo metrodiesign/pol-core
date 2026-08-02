@@ -21,7 +21,7 @@ public sealed class GetOrderDetailTests
                     "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Somchai", "Jaidee", "1111111111111", Dob),
                 new OrderItemInput(Product, 1, Money.Of(15000m, "THB"),
                     "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Suda", "Meesuk", "2222222222222", Dob),
-            ]);
+            ], orderNo: "ORD6900000001");
 
     [Fact]
     public async Task Every_lines_full_InsuredIdNumber_is_returned()

@@ -25,8 +25,8 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
 
         var rows = await db.Database
             .SqlQueryRaw<OrderSummaryRow>(
-                "SELECT TOP 1 Id, MerchantId, AmountAmount, AmountCurrency, Status, PaymentSessionId, SummaryTokenExpiresAt "
-                + "FROM shop.Orders WHERE SummaryToken = {0}",
+                "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentSessionId, "
+                + "SummaryTokenExpiresAt FROM shop.Orders WHERE SummaryToken = {0}",
                 token)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -48,8 +48,8 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
             .ToList();
 
         return new OrderSummary(
-            r.Id, Money.Of(r.AmountAmount, r.AmountCurrency), ((OrderStatus)r.Status).ToString(), r.PaymentSessionId,
-            r.SummaryTokenExpiresAt, lines);
+            r.Id, r.OrderNo, Money.Of(r.AmountAmount, r.AmountCurrency), ((OrderStatus)r.Status).ToString(),
+            r.PaymentSessionId, r.SummaryTokenExpiresAt, lines);
     }
 
     // Local to this read model's projection, deliberately not shared with Payments' PspSecretEnvelopeFactory
@@ -63,6 +63,7 @@ internal sealed class OrderSummaryRow
 {
     public Guid Id { get; set; }
     public Guid MerchantId { get; set; }
+    public string OrderNo { get; set; } = default!;
     public decimal AmountAmount { get; set; }
     public string AmountCurrency { get; set; } = default!;
     public int Status { get; set; }

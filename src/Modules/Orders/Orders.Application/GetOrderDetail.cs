@@ -17,12 +17,17 @@ public sealed record GetOrderDetailCommand(Guid MerchantId, Guid OrderId, string
     : ICommand<OrderDetailView>, IMerchantScoped;
 
 public sealed record OrderItemDetail(
-    Guid ProductId, int Quantity, Money UnitPrice,
+    Guid ProductId, int Quantity, Money UnitPrice, Money Discount,
     string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
     DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth);
 
-public sealed record OrderDetailView(Guid OrderId, string Status, Money Amount, IReadOnlyList<OrderItemDetail> Lines);
+/// <summary>The single-order read (purchase-flow-completion REQ-7.3 adds <see cref="OrderNo"/>,
+/// <see cref="PaymentChannel"/> and the buyer's contact to what the merchant sees).</summary>
+public sealed record OrderDetailView(
+    Guid OrderId, string OrderNo, string Status, Money Amount, string? PaymentChannel,
+    string CustomerName, string CustomerPhone, string? CustomerEmail,
+    IReadOnlyList<OrderItemDetail> Lines);
 
 public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailCommand, OrderDetailView>
 {
@@ -51,10 +56,12 @@ public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailComman
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var lines = order.Items.Select(i => new OrderItemDetail(
-            i.ProductId, i.Quantity, i.UnitPrice,
+            i.ProductId, i.Quantity, i.UnitPrice, i.Discount,
             i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
             i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth)).ToList();
 
-        return new OrderDetailView(order.Id, order.Status.ToString(), order.Amount, lines);
+        return new OrderDetailView(
+            order.Id, order.OrderNo, order.Status.ToString(), order.Amount, order.PaymentChannel,
+            order.CustomerName, order.CustomerPhone, order.CustomerEmail, lines);
     }
 }
