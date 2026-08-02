@@ -31,6 +31,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         InsuranceType Target,
         string SaleCode,
         long TotalRows,
+        long TotalPages,
         string InsuranceTypeWire,
         string PolicyYear,
         string AxisPolicyNumber,
@@ -47,6 +48,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         Target: InsuranceType.Motor,
         SaleCode: "77001",
         TotalRows: 42,
+        TotalPages: 2,
         InsuranceTypeWire: "Motor",
         PolicyYear: "69",
         AxisPolicyNumber: "77001-69900/910001",
@@ -63,6 +65,7 @@ public sealed class SpDocumentGatewayIntegrationTests
         Target: InsuranceType.NonMotor,
         SaleCode: "77001",
         TotalRows: 40,
+        TotalPages: 2,
         InsuranceTypeWire: "NonMotor",
         PolicyYear: "26",
         AxisPolicyNumber: "77001-26900/000001",
@@ -88,7 +91,7 @@ public sealed class SpDocumentGatewayIntegrationTests
 
         // Straight out of result set 1 — nothing here is recomputed on our side (REQ-8.1).
         Assert.Equal(side.TotalRows, result.Page.TotalRows);
-        Assert.Equal(2L, result.Page.TotalPages);
+        Assert.Equal(side.TotalPages, result.Page.TotalPages);
         Assert.Equal(1, result.Page.PageNo);
         Assert.Equal(25, result.Page.PageSize);
         Assert.True(result.Page.HasNextPage);

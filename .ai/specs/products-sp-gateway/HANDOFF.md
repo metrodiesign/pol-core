@@ -8,11 +8,13 @@
 > `S001`/`77001`, DocumentNo prefix `77`/`88`, เลขวิ่ง `950xxx`/`960xxx` — ค่าเหล่านี้ยังถูกต้องใน
 > ฐานะ**บันทึกประวัติศาสตร์ของแต่ละ task** (ห้ามแก้ย้อนหลัง) แต่**ไม่ใช่ current state อีกต่อไป** หลังจาก
 > branch `data/expand-sim-seed-200-per-side` (PR #160) ขยาย seed เป็น 200 แถว/ฝั่ง + เปลี่ยน SaleCode
-> เป็น 5 หลัก (`77001`/`90001`) + redesign รูปแบบ DocumentNo ทั้งหมด ค่าปัจจุบันจริง: **200/200 แถว,
-> ค้นปริยาย 42 (hippodb) / 39 (mammothdb) แถว** — ดู `docker/bootstrap/02-external-sim.sql` (โค้ดจริง)
-> และ `.ai/specs/external-sim-documentno-format/` (spec+HANDOFF ของรูปแบบ DocumentNo ปัจจุบัน) เป็น
-> reference ที่ถูกต้อง จุดที่มีตัวเลข/checklist แบบ current-state-facing ด้านล่างมีหมายเหตุชี้กลับมาที่นี่
-> กำกับไว้เป็นจุด ๆ
+> เป็น 5 หลัก + redesign รูปแบบ DocumentNo ทั้งหมด + รวม roster เป็นชุดเดียวกันทั้งสองฝั่ง (`77001` คือ
+> SaleCode หลักของทั้ง hippodb และ mammothdb ตอนนี้ — mammothdb's เดิม `90001`-`90006` retired แล้ว)
+> ค่าปัจจุบันจริง: **200/200 แถว, ค้นปริยาย 42 (hippodb) / 40 (mammothdb) แถว** — ดู
+> `docker/bootstrap/02-external-sim.sql` (โค้ดจริง), `.ai/specs/external-sim-documentno-format/`
+> (spec+HANDOFF ของรูปแบบ DocumentNo ปัจจุบัน), และ `.ai/specs/external-sim-shared-agent-network/`
+> (spec+HANDOFF ของ shared roster ปัจจุบัน) เป็น reference ที่ถูกต้อง จุดที่มีตัวเลข/checklist แบบ
+> current-state-facing ด้านล่างมีหมายเหตุชี้กลับมาที่นี่กำกับไว้เป็นจุด ๆ
 
 ## Setup (lead, 2026-07-31)
 
@@ -102,8 +104,10 @@
 | DocumentNo prefix | ขึ้นต้น `77` เสมอ | ขึ้นต้น `88` เสมอ |
 
 > ค่าข้างบนคือ snapshot ของ task 1 (2026-07-31, seed 34/32 แถว) **ล้าสมัยแล้ว** — ปัจจุบันจริง (2026-08-02):
-> 200/200 แถว, ค้นปริยาย 42/39 แถว, SaleCode หลัก `77001`/`90001`, DocumentNo ไม่มี prefix `77`/`88`
-> อีกต่อไป ดู `.ai/specs/external-sim-documentno-format/HANDOFF.md` สำหรับตาราง axis-row ปัจจุบันเต็ม ๆ
+> 200/200 แถว, ค้นปริยาย 42/40 แถว, SaleCode หลัก `77001` (roster เดียวกันทั้งสองฝั่งแล้ว — mammothdb's
+> เดิม `90001` ก็ retired), DocumentNo ไม่มี prefix `77`/`88` อีกต่อไป ดู
+> `.ai/specs/external-sim-documentno-format/HANDOFF.md` สำหรับตาราง axis-row ปัจจุบันเต็ม ๆ และ
+> `.ai/specs/external-sim-shared-agent-network/HANDOFF.md` สำหรับ roster ปัจจุบัน
 
 **แถวแกน (axis rows) ที่ตั้งใจให้ assert ตรง ๆ** — เลขลำดับคือส่วนท้าย DocumentNo
 
@@ -571,9 +575,10 @@ JSON ของ response เป็น camelCase ตามปกติ: `items[]`,
 - ฝั่ง Non-Motor ใช้ `{"saleCode":"S001","insuranceType":"NonMotor"}` -> 27 / 2
 
 > **อัปเดต (2026-08-02):** SaleCode/ตัวเลขคาดหวังข้างบนล้าสมัย — ปัจจุบันใช้
-> `{"saleCode":"77001","insuranceType":"Motor"}` -> คาด `totalRows 42`, `{"saleCode":"90001",
-> "insuranceType":"NonMotor"}` -> คาด `totalRows 39` (`totalPages`/`items`ต่อหน้าขึ้นกับ `limit` ที่ส่ง
-> ไม่ใช่ค่าคงที่ตายตัวอีกต่อไปที่ 2/25 เสมอ — คำนวณจาก `totalRows` จริง ณ ตอนยิง)
+> `{"saleCode":"77001","insuranceType":"Motor"}` -> คาด `totalRows 42`, `{"saleCode":"77001",
+> "insuranceType":"NonMotor"}` -> คาด `totalRows 40` (SaleCode เดียวกันตอนนี้ — roster เป็นชุดเดียวกัน
+> ทั้งสองฝั่งแล้ว; `totalPages`/`items`ต่อหน้าขึ้นกับ `limit` ที่ส่ง ไม่ใช่ค่าคงที่ตายตัวอีกต่อไปที่ 2/25
+> เสมอ — คำนวณจาก `totalRows` จริง ณ ตอนยิง)
 
 - `countMode=FAST` -> `totalRows` กับ `totalPages` เป็น `null` ใน JSON (ไม่ใช่ 0) และ `hasNextPage` ยังจริง
 - `countMode=APPROX` -> 400; `{"saleCode":"77001"}` เปล่า ๆ (ไม่มี insuranceType/productGroup) -> 400;
@@ -644,7 +649,7 @@ Checkouts 13, Divisions/Levels/Offices/Positions 6 ตัวละ
 | OpenAPI (REQ-8.4) | `ProductPage` + 503 + description ใหม่ | **ผ่าน** (ดูด้านล่าง) |
 
 > ตารางข้างบนคือผล E2E จริงที่สังเกตได้ ณ 2026-07-31 ภายใต้ seed 34/32 แถว — **เป็นบันทึกประวัติศาสตร์
-> ไม่ใช่ค่าที่ต้องคาดหวังจากการรัน E2E วันนี้** (seed ปัจจุบัน 200/200 แถว, ค้นปริยาย 42/39, ไม่มีแถวชื่อ
+> ไม่ใช่ค่าที่ต้องคาดหวังจากการรัน E2E วันนี้** (seed ปัจจุบัน 200/200 แถว, ค้นปริยาย 42/40, ไม่มีแถวชื่อ
 > `950007`/`950008` อีกต่อไป — เลขวิ่งเปลี่ยนไปทั้งหมดตามที่ระบุในหมายเหตุก่อนหน้าในไฟล์นี้)
 
 - **503 พิสูจน์ยังไง**: `docker stop pol-db` ไม่ได้ (sim อยู่ container เดียวกับ DB หลัก แอปตายไปด้วย)

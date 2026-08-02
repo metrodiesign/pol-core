@@ -164,7 +164,7 @@ merchant `Product` เป็น mirror ของ result set §5.2 ใน
 | PolicySequenceNo | varchar(30) | Y | | `900008` | ลำดับที่ในเล่ม |
 | ReferenceYear | varchar(2) | Y | | `69` | ปีของเลขอ้างอิง |
 | ReferenceNo | varchar(30) | Y | | `910007-10` | เลขอ้างอิง |
-| SaleCode | varchar(20) | N | IX | `90001` | รหัสผู้ขาย (ตัวเลข 5 หลัก) — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
+| SaleCode | varchar(20) | N | IX | `77001` | รหัสผู้ขาย (ตัวเลข 5 หลัก) — filter บังคับของ `GET /products` (§2 `@SaleCode`) |
 | SaleFullName | nvarchar(500) | Y | | `สมชาย ใจดี` | ชื่อผู้ขาย |
 | BrokerCode | varchar(20) | Y | | `BRK001` | รหัสนายหน้า |
 | BrokerName | nvarchar(500) | Y | | `บริษัทนายหน้า จำกัด` | ชื่อนายหน้า |
