@@ -60,7 +60,8 @@ public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
         _outbox.Enqueue(new Contracts.OrderPaid(
             order.MerchantId,
             order.Items.Select(i => i.ProductId).ToList(),
-            notification.OccurredAt));
+            notification.OccurredAt,
+            order.Id));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

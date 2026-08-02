@@ -152,15 +152,44 @@ public sealed class ProductTests
     }
 
     [Fact]
-    public void MarkPaid_sets_status_and_paid_date()
+    public void MarkPaid_sets_status_and_paid_date_and_records_the_buying_order()
     {
         var product = Product.Create(NewInput());
         var paidAt = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
+        var orderId = Guid.NewGuid();
 
-        product.MarkPaid(paidAt);
+        product.MarkPaid(paidAt, orderId);
 
         Assert.Equal(PaymentStatus.PAID, product.PaymentStatus);
         Assert.Equal(paidAt, product.PaidDate);
+        Assert.Equal(orderId, product.SoldOrderId);
+    }
+
+    // REQ-5.4 — the first buyer is the one recorded: a second order paying for the same document must not
+    // rewrite history, or the double-sell signal would compare the new order against itself and stay quiet.
+    [Fact]
+    public void MarkPaid_keeps_the_first_order_that_bought_the_document()
+    {
+        var product = Product.Create(NewInput());
+        var first = Guid.NewGuid();
+
+        product.MarkPaid(new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc), first);
+        product.MarkPaid(new DateTime(2026, 8, 2, 12, 0, 0, DateTimeKind.Utc), Guid.NewGuid());
+
+        Assert.Equal(first, product.SoldOrderId);
+    }
+
+    // An OrderPaid enqueued before the contract carried the order id: nothing to record, and no empty Guid
+    // masquerading as a buyer (which would make the next real sale look like a double sale).
+    [Fact]
+    public void MarkPaid_records_no_order_when_the_event_carries_none()
+    {
+        var product = Product.Create(NewInput());
+
+        product.MarkPaid(new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc), Guid.Empty);
+
+        Assert.Equal(PaymentStatus.PAID, product.PaymentStatus);
+        Assert.Null(product.SoldOrderId);
     }
 
     // REQ-7.2 (B1): a row the upstream already reports as PAID must not be born UNPAID, or the cart gate
@@ -223,7 +252,7 @@ public sealed class ProductTests
     {
         var paidAt = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
         var product = Product.Create(NewInput());
-        product.MarkPaid(paidAt);
+        product.MarkPaid(paidAt, Guid.NewGuid());
 
         product.RefreshFromExternal(NewInput(paymentStatus: PaymentStatus.UNPAID, totalPremium: 17250m));
 
@@ -251,7 +280,7 @@ public sealed class ProductTests
     {
         var paidAt = new DateTime(2026, 8, 1, 12, 0, 0, DateTimeKind.Utc);
         var product = Product.Create(NewInput());
-        product.MarkPaid(paidAt);
+        product.MarkPaid(paidAt, Guid.NewGuid());
 
         product.RefreshFromExternal(NewInput(paymentStatus: PaymentStatus.PAID, paidDate: null));
 

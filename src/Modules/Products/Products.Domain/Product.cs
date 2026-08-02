@@ -71,6 +71,12 @@ public sealed class Product : AggregateRoot<Guid>
     /// <summary>Null while <see cref="PaymentStatus"/> is <see cref="PaymentStatus.UNPAID"/>.</summary>
     public DateTime? PaidDate { get; private set; }
 
+    /// <summary>The order that bought this document — written once, by the first buyer
+    /// (<see cref="MarkPaid"/>). Its only job is to tell a redelivered <c>OrderPaid</c> (same order, normal)
+    /// apart from a second order paying for a document already sold (a real double-sell, REQ-5.4). Null on
+    /// every row sold before the contract carried the order id.</summary>
+    public Guid? SoldOrderId { get; private set; }
+
     /// <summary>Motor vs Non-Motor, derived from <see cref="ProductGroup"/> — never stored.</summary>
     public InsuranceType InsuranceType => SideOf(ProductGroup);
 
@@ -182,11 +188,17 @@ public sealed class Product : AggregateRoot<Guid>
     private static InsuranceType SideOf(ProductGroup group) =>
         group is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;
 
-    /// <summary>Marks the document paid; a paid document leaves the sellable catalog.</summary>
-    public void MarkPaid(DateTime paidDate)
+    /// <summary>Marks the document paid; a paid document leaves the sellable catalog. Records
+    /// <paramref name="orderId"/> as <see cref="SoldOrderId"/> only the first time: a replay of the same
+    /// order must not look different from the original, and a genuine second buyer must not erase who
+    /// really bought it. <see cref="Guid.Empty"/> means the event predates the order id and records
+    /// nothing.</summary>
+    public void MarkPaid(DateTime paidDate, Guid orderId)
     {
         PaymentStatus = PaymentStatus.PAID;
         PaidDate = paidDate;
+        if (SoldOrderId is null && orderId != Guid.Empty)
+            SoldOrderId = orderId;
     }
 
     private static string Required(string value, int maxLength, string name)

@@ -33,11 +33,18 @@ public sealed class ListProductsHandlerTests
     {
         public IReadOnlyList<ProductInput> Upserted { get; private set; } = [];
 
+        /// <summary>DocumentNos the stored mirror already has as PAID — what a real upsert answers with
+        /// after <c>RefreshFromExternal</c> refuses to downgrade a local PAID (REQ-5.3).</summary>
+        public HashSet<string> AlreadySoldHere { get; init; } = [];
+
         public Task<IReadOnlyList<Product>> UpsertByDocumentNoAsync(
             IReadOnlyList<ProductInput> inputs, CancellationToken cancellationToken)
         {
             Upserted = inputs;
-            return Task.FromResult<IReadOnlyList<Product>>([.. inputs.Select(Product.Create)]);
+            return Task.FromResult<IReadOnlyList<Product>>([.. inputs.Select(i => Product.Create(
+                AlreadySoldHere.Contains(i.DocumentNo)
+                    ? i with { PaymentStatus = PaymentStatus.PAID, PaidDate = new DateTime(2026, 7, 30) }
+                    : i))]);
         }
 
         public void Add(Product product) => throw new NotSupportedException();
@@ -227,6 +234,70 @@ public sealed class ListProductsHandlerTests
         Assert.Equal(PaymentStatus.PAID, paid.PaymentStatus);
         Assert.Equal(paidAt, paid.PaidDate);
         Assert.Equal(PaymentStatus.UNPAID, repository.Upserted[1].PaymentStatus);
+    }
+
+    // REQ-5.1 — the upstream still lists a document this platform already sold (it is never told), so a
+    // search asking for UNPAID drops the rows the local mirror says are PAID. The row is still upserted:
+    // dropping it from the page is not the same as refusing to refresh it.
+    [Fact]
+    public async Task A_document_sold_here_is_dropped_from_an_UNPAID_page()
+    {
+        var repository = new FakeRepository { AlreadySoldHere = { "sold-here" } };
+        var gateway = new FakeGateway(FullPage, Row("still-for-sale"), Row("sold-here"));
+
+        var result = await HandleAsync(gateway, repository, Query(Filters(insuranceType: InsuranceType.Motor)));
+
+        Assert.Equal(["still-for-sale"], result.Items.Select(i => i.DocumentNo));
+        Assert.Equal(["still-for-sale", "sold-here"], repository.Upserted.Select(i => i.DocumentNo));
+    }
+
+    // REQ-5.2 — the procedure's totals stay its own. It counted a row we then dropped, so the page is
+    // legitimately shorter than TotalRows says; re-counting here could only disagree with the paging the
+    // procedure also owns.
+    [Fact]
+    public async Task Dropping_a_sold_document_does_not_restate_the_procedures_totals()
+    {
+        var repository = new FakeRepository { AlreadySoldHere = { "sold-here" } };
+        var gateway = new FakeGateway(FullPage, Row("sold-here"));
+
+        var result = await HandleAsync(gateway, repository, Query(Filters(insuranceType: InsuranceType.Motor)));
+
+        Assert.Empty(result.Items);
+        Assert.Equal(3, result.TotalRows);
+        Assert.Equal(1, result.TotalPages);
+    }
+
+    // REQ-5.1 — decided from the string sent to the procedure alone: PAID and ALL are asking to see paid
+    // documents, so nothing is dropped. Only the UNPAID page has anything to hide.
+    [Theory]
+    [InlineData("ALL")]
+    [InlineData("PAID")]
+    public async Task A_page_that_did_not_ask_for_UNPAID_keeps_the_sold_document(string paymentStatus)
+    {
+        var repository = new FakeRepository { AlreadySoldHere = { "sold-here" } };
+        var gateway = new FakeGateway(FullPage, Row("sold-here"));
+
+        var result = await HandleAsync(gateway, repository,
+            Query(Filters(insuranceType: InsuranceType.Motor, paymentStatus: paymentStatus)));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("sold-here", item.DocumentNo);
+        Assert.Equal(PaymentStatus.PAID, item.PaymentStatus);
+    }
+
+    // The upstream's own PAID rows on an UNPAID page are dropped by the same rule — the filter reads the
+    // stored status, and after the upsert an upstream PAID is a stored PAID.
+    [Fact]
+    public async Task An_upstream_PAID_row_is_dropped_from_an_UNPAID_page_too()
+    {
+        var gateway = new FakeGateway(FullPage,
+            Row("paid-upstream", paymentStatus: "PAID", paidDate: new DateTime(2026, 7, 20)),
+            Row("unpaid-doc"));
+
+        var result = await HandleAsync(gateway, new FakeRepository(),
+            Query(Filters(insuranceType: InsuranceType.Motor)));
+
+        Assert.Equal(["unpaid-doc"], result.Items.Select(i => i.DocumentNo));
     }
 
     [Fact]
