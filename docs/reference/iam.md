@@ -105,6 +105,49 @@ merchant สร้าง custom role ของตัวเองเพิ่ม�
 เป็น parameter ตรงๆ — client ไม่มีทาง smuggle side selection ผ่าน request body ได้ เพราะ host เป็นจุดเดียวที่
 ประกอบ record นี้ (`RoleSideContextResolver` ใน host, ดูด้านล่าง)
 
+### Role write guardrails (Create / Update / Delete)
+
+ลำดับการเช็คจริงใน `CreateRole.cs` / `UpdateRole.cs` / `DeleteRole.cs` — error code ต่อกรณีตรงกับตาราง Handler
+ด้านบน:
+
+```mermaid
+flowchart TD
+    START((●)) --> OP{ประเภทคำสั่ง}
+
+    OP -->|Create| C1{Code ซ้ำใน visible set<br/>หรือ shared NULL bucket?}
+    C1 -->|yes| RC1[409 Conflict]
+    C1 -->|no| C2{Permission key นอก catalog<br/>หรือ side ไม่ตรง Scope?}
+    C2 -->|yes| RC2[400 Bad Request<br/>domain reject]
+    C2 -->|no| SAVE_C[persist + audit<br/>RoleCreated]
+    SAVE_C --> END_S((◉))
+    RC1 --> END_F((◉))
+    RC2 --> END_F
+
+    OP -->|Update / Delete| U1{Role มองเห็นใน<br/>RoleSideContext?}
+    U1 -->|no| RU1[404 Not Found]
+    U1 -->|yes| U2{Merchant caller และ<br/>role.MerchantId ไม่ตรง context?}
+    U2 -->|yes| RU2[409 ไม่ใช่เจ้าของ]
+    U2 -->|no| U3{IsSeedAnchor และ<br/>Delete หรือ deactivate?}
+    U3 -->|yes| RU3[409 anchor ปิด/ลบไม่ได้]
+    U3 -->|no| U4{Delete และมี assignment<br/>ผูกอยู่ ≥1 ฝั่งใดฝั่งหนึ่ง?}
+    U4 -->|yes| RU4[409 ยังมี user ผูกอยู่]
+    U4 -->|no| SAVE_U[persist + audit<br/>RoleUpdated/RoleDeleted]
+    SAVE_U --> END_S2((◉))
+    RU1 --> END_F2((◉))
+    RU2 --> END_F2
+    RU3 --> END_F2
+    RU4 --> END_F2
+
+    classDef ok fill:#1f6f3a,stroke:#3fb950,color:#fff
+    classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
+    classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
+    class SAVE_C,END_S,SAVE_U,END_S2 ok
+    class RC1,RC2,RU1,RU2,RU3,RU4,END_F,END_F2 fail
+    class OP,C1,C2,U1,U2,U3,U4 gate
+```
+
+`U4` (assignment check) มีผลเฉพาะ Delete — Update ไม่เช็คจำนวน assignment เลย (แก้ role ที่มีคนผูกอยู่ได้ปกติ)
+
 ## Infrastructure
 
 **Schema `iam` (context: ControlPlane) — 4 ตาราง** รายละเอียด field-level เต็มดู
@@ -112,9 +155,12 @@ merchant สร้าง custom role ของตัวเองเพิ่ม�
 
 ```mermaid
 flowchart LR
+  Scope{{"Scope enum: Platform/Merchant"}}
   PG[iam.PermissionGroups] -->|FK Restrict GroupKey| P[iam.Permissions]
   P -->|FK Restrict PermissionKey| RP[iam.RolePermissions]
   R[iam.Roles] -->|FK Cascade RoleId| RP
+  Scope -.->|"ผูก Group.Scope (Permission derive จาก group)"| PG
+  Scope -.->|"ผูก Role.Scope (immutable, set ตอน Create เท่านั้น)"| R
 ```
 
 - `PermissionGroups`/`Permissions` = catalog นิ่ง — `pol_app` ได้แค่ **SELECT** (seed ผ่าน migration เท่านั้น
@@ -141,6 +187,65 @@ flowchart LR
 | `AdminRoleAuditSink : IRoleAuditSink` | `RoleHostWiring.cs` | เขียน audit ใน transaction เดียวกับ role write; no-op เมื่อไม่มี admin bind (merchant-side role CRUD ไม่เคยถูก audit) |
 | `HostRoleAssignmentCounter : IRoleAssignmentCounter` | `RoleHostWiring.cs` | รวม count จาก `IAdminRoleAssignmentCountReader` + `IMerchantRoleAssignmentCountReader` — merchant context นับเฉพาะ merchant ตัวเอง กัน leak จำนวนผู้ใช้ข้าม tenant |
 | `AddIamRoleManagement()` | `RoleHostWiring.cs` | ลงทะเบียน 2 ตัวบน ต้องเรียกหลัง `AddAdminIdentity` + `AddControlPlanePersistence`/`AddMerchantUserPersistence` |
+
+### Runtime permission check (ต่อ request)
+
+`PermissionAuthorization.IsAllowed` — resolve ผ่าน DI สดทุก request ไม่ใช่ claim ที่ cache; fail-closed เสมอ
+(ไม่มี 500):
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Client
+    participant EP as Endpoint<br/>RequirePermission filter
+    participant AS as IAdminScope
+    participant US as IUserScope
+
+    Note over EP: resolve จาก DI ทุก request<br/>ไม่ใช่ claim ที่ cache
+    C->>EP: HTTP request (gate ด้วย permission key)
+    alt AdminScope ผูกอยู่
+        EP->>AS: Current.Permissions.Contains(key)?
+        AS-->>EP: true/false
+    else UserScope ผูกอยู่
+        EP->>US: Current.Permissions.Contains(key)?
+        US-->>EP: true/false
+    else ไม่ผูกทั้งคู่
+        EP->>EP: fail-closed = false
+    end
+    alt มีสิทธิ์
+        EP-->>C: next() → handler ทำงานต่อ
+    else ไม่มีสิทธิ์
+        EP-->>C: 403 Problem
+    end
+```
+
+### Boot-time parity guard
+
+`PermissionParity.Assert` เรียกหลัง endpoint ทั้งหมด map เสร็จ ก่อน `app.Run()` — ผิดคือ boot fail ทันที ไม่ใช่
+runtime surprise:
+
+```mermaid
+flowchart TD
+    START((●)) --> MAP[endpoint ทั้งหมด map เสร็จ]
+    MAP --> ASSERT[PermissionParity.Assert<br/>ก่อน app.Run]
+    ASSERT --> LOOP{วนทุก RequiredPermission key<br/>ที่ gate อยู่}
+    LOOP --> CHK1{key อยู่ใน<br/>Keys.AllKeys?}
+    CHK1 -->|no| FAIL[boot fail:<br/>key หลุด catalog]
+    CHK1 -->|yes| CHK2{policy รู้จักใน<br/>AuthPolicyScheme?}
+    CHK2 -->|no| FAIL
+    CHK2 -->|yes| CHK3{KeySide key ตรงกับ<br/>policy.Side?}
+    CHK3 -->|no| FAIL
+    CHK3 -->|yes| OK[ผ่าน parity]
+    OK --> END_S((◉))
+    FAIL --> END_F((◉))
+
+    classDef ok fill:#1f6f3a,stroke:#3fb950,color:#fff
+    classDef fail fill:#6b1f1f,stroke:#f85149,color:#fff
+    classDef gate fill:#1f3f6b,stroke:#58a6ff,color:#fff
+    class OK,END_S ok
+    class FAIL,END_F fail
+    class LOOP,CHK1,CHK2,CHK3 gate
+```
 
 ## API endpoints
 
