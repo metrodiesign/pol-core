@@ -1,8 +1,10 @@
 # Merchants Module — OIDC BFF (Google + Entra) + Sequence Diagrams
 
-> Generated 2026-07-25, sync 2026-07-31 (retire catalog permissions), sweep ล่าสุด **2026-08-01** (rename
+> Generated 2026-07-25, sync 2026-07-31 (retire catalog permissions), sweep **2026-08-01** (rename
 > `merchant-user-module.md` -> `merchants.md`; เพิ่ม query-param contract ของ `GET /products`,
-> concurrency-token 409 ของ approve/reject/resubmit, ตัวอย่าง payment-session request body) จากโค้ดจริงบน
+> concurrency-token 409 ของ approve/reject/resubmit, ตัวอย่าง payment-session request body), ล่าสุด
+> **2026-08-02** (`accessible-merchant floor` บน `GET .../registrations` — commit `5af8662`, review PR #161)
+> จากโค้ดจริงบน
 > `develop`: `src/Hosts/Api/Merchants/*.cs`, `src/Hosts/Api/Program.cs` (route tree),
 > `src/Modules/Merchants/**`, `src/Persistence/Persistence.MerchantUsers/**`,
 > `src/Hosts/Api/Iam/PermissionAuthorization.cs`, `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`.
@@ -627,7 +629,21 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 |---|---|---|---|---|---|---|
 | POST | `/api/v1/admins/merchants/users/{subject}/approve` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.approve` | 200 | body `{ merchantCode, roleCodes[] }`; idempotent; 400/404/409 (รวม concurrency-token 409 — ดู §8) |
 | POST | `/api/v1/admins/merchants/users/{subject}/reject` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.reject` | 200 | body `{ reason? }`; revoke sessions; 404/409 |
-| GET | `/api/v1/admins/merchants/users/{subject}/registrations` | `admin` | — (safe method) | `merchants.users.view` | 200 | snapshot ฟอร์มทุก attempt (เรียง `AttemptNo`) + timeline จาก `RegistrationAudits` (ตัด `revealed` ออก); PII mask เป็นค่าเริ่มต้น; `?reveal=true` คืนค่าเต็ม + เขียน audit `revealed` ก่อนตอบ (fail-closed); unknown -> 404 |
+| GET | `/api/v1/admins/merchants/users/{subject}/registrations` | `admin` | — (safe method) | `merchants.users.view` | 200 | snapshot ฟอร์มทุก attempt (เรียง `AttemptNo`) + timeline จาก `RegistrationAudits` (ตัด `revealed` ออก); PII mask เป็นค่าเริ่มต้น; `?reveal=true` คืนค่าเต็ม + เขียน audit `revealed` ก่อนตอบ (fail-closed); unknown -> 404; target ที่ `MerchantId` ผูกกับ merchant นอก accessible set ของ admin -> 404 เดียวกัน (accessible-merchant floor, ดูหมายเหตุด้านล่าง) |
+
+> **Accessible-merchant floor (เพิ่มใหม่ — commit `5af8662`, review PR #161):** `merchants.users.view` เป็น
+> permission **Scope** (คอนโซลไหน gate key นี้) ซึ่ง**ไม่ผูกกับ** admin **Tier**/accessible set (merchant ไหนที่
+> admin คนนั้นเข้าถึงได้) — สอง axis นี้ orthogonal กันในระบบนี้ (`SetRoles` assign role ใดก็ได้โดยไม่เช็ค Tier)
+> ดังนั้น Scoped admin ถือ key นี้ได้ตามปกติ. ก่อน fix, handler resolve เป้าหมายจาก `Subject` เพียงอย่างเดียว —
+> admin ที่ scope แคบกว่าอ่าน (และด้วย `?reveal=true` เปิดเผย) PII การลงทะเบียนของ merchant-user นอก
+> accessible set ตัวเองได้ (เหมือน endpoint `approve` และทุก endpoint กลุ่ม `merchants.policies` ที่บังคับ floor
+> นี้อยู่แล้ว). ตอนนี้ host ส่ง `scope.Accessible.IsUnrestricted` / `scope.Accessible.Merchants` เป็น primitives
+> เข้า `GetRegistrationHistoryQuery` (module นี้อ้าง Admins-plane scope type ตรงไม่ได้) แล้ว handler เช็คหลัง
+> resolve: target ที่ `MerchantId` ไม่ใช่ NULL และอยู่นอก set -> คืน `null` -> host ตอบ **404 เดียวกับ not-found**
+> (ไม่ leak existence, ไม่เขียน audit, ไม่ไปถึง reveal branch); target ที่ยัง Pending/Rejected (`MerchantId`
+> NULL) ไม่ถูกจำกัด. โค้ด: `src/Hosts/Api/Program.cs:1543-1560`,
+> `src/Modules/Merchants/Merchants.Application/Users/GetRegistrationHistory.cs` (`GetRegistrationHistoryQuery`
+> + handler บรรทัด accessible-floor check); spec: `.ai/specs/registration-attempt-history/design.md` REQ-2.7.
 
 ### Funnel endpoints ที่ merchant-user ใช้ (policy เดียวกัน, คนละ group)
 
@@ -1090,6 +1106,8 @@ FE code ไม่ต้องเปลี่ยน. ต้องตั้ง `Co
 - approve/reject + concurrency token: `src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs`,
   `src/Persistence/Persistence.MerchantUsers/Users/UserConfiguration.cs`,
   `src/Persistence/Persistence.MerchantUsers/Users/MerchantUserRepositories.cs`
+- registration history + accessible-merchant floor:
+  `src/Modules/Merchants/Merchants.Application/Users/GetRegistrationHistory.cs`, `src/Hosts/Api/Program.cs:1543-1560`
 - actor entity: `src/Modules/Merchants/Merchants.Domain/Users/User.cs`
 - routes (`/api/v1/merchants/auth` + `/api/v1/merchants/users` + admin cross-plane + funnel): `src/Hosts/Api/Program.cs`
 - permission gate + boot parity: `src/Hosts/Api/Iam/PermissionAuthorization.cs`;
