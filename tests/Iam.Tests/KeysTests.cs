@@ -12,7 +12,7 @@ public sealed class KeysTests
         "merchant.view", "merchant.manage",
         "user.view", "user.manage", "user.roles",
         "audit.view", "settings.manage", "apikey.manage",
-        "merchants.users.approve", "merchants.users.reject",
+        "merchants.users.approve", "merchants.users.reject", "merchants.users.view",
         "payment.create", "payment.redirect",
         "roles.view", "roles.manage", "users.roles",
         "merchants.policies.read", "merchants.policies.write",
@@ -23,9 +23,9 @@ public sealed class KeysTests
         ["txn", "merchant", "user", "system", "merchants.users", "payment", "roles", "merchants.policies", "policies"];
 
     [Fact]
-    public void All_has_exactly_22_keys_across_9_groups()
+    public void All_has_exactly_23_keys_across_9_groups()
     {
-        Assert.Equal(22, Keys.AllKeys.Count);
+        Assert.Equal(23, Keys.AllKeys.Count);
         Assert.Equal(9, Keys.GroupKeys.Count);
         Assert.Equal(ExpectedKeys.ToHashSet(StringComparer.Ordinal), Keys.AllKeys);
         Assert.Equal(ExpectedGroups.ToHashSet(StringComparer.Ordinal), Keys.GroupKeys.ToHashSet(StringComparer.Ordinal));
@@ -65,9 +65,9 @@ public sealed class KeysTests
     }
 
     [Fact]
-    public void Platform_side_has_15_keys_and_merchant_side_has_7()
+    public void Platform_side_has_16_keys_and_merchant_side_has_7()
     {
-        Assert.Equal(15, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
+        Assert.Equal(16, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
         Assert.Equal(7, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
     }
 

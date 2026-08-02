@@ -168,13 +168,14 @@ public sealed class IamRoleResolutionTests
         try
         {
             // Orthogonality (REQ-8.2/8.3): a SCOPED-tier admin (Tier=0) holding platform_admin still resolves the
-            // full 15-key action set (policy-reference-record task 3 grew platform_admin 13->15) — action comes
+            // full 16-key action set (policy-reference-record task 3 grew platform_admin 13->15;
+            // registration-attempt-history added merchants.users.view -> 16) — action comes
             // from the role, not the Tier. (Its narrow VISIBILITY under fn_merchant_predicate is the separate
             // axis, covered by RlsIsolationTests.)
             await IntegrationDb.InsertPlatformUserAsync(admin, user, "orth-" + user.ToString("N")[..8],
                 user.ToString("N")[..8] + "@example.com", tier: 0, status: 0);
             await InsertAdminAssignment(admin, user, platformAdminId);
-            Assert.Equal(15, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
+            Assert.Equal(16, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
         finally
         {
@@ -259,9 +260,9 @@ public sealed class IamRoleResolutionTests
             // handler's AssignmentExists check + this DB backstop mean a retry/race never double-assigns.
             await Assert.ThrowsAsync<SqlException>(() => InsertAdminAssignment(admin, user, roleId));
 
-            // The bootstrap account is usable immediately: platform_admin's full 15-key action set resolves
-            // (policy-reference-record task 3 grew platform_admin 13->15).
-            Assert.Equal(15, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
+            // The bootstrap account is usable immediately: platform_admin's full 16-key action set resolves
+            // (policy-reference-record task 3 grew platform_admin 13->15; registration-attempt-history -> 16).
+            Assert.Equal(16, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
         finally
         {

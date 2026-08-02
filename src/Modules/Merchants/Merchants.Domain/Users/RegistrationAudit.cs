@@ -10,6 +10,11 @@ public static class RegistrationAuditAction
     public const string Approved = "approved";
     public const string Rejected = "rejected";
     public const string Suspended = "suspended";
+
+    /// <summary>An admin viewed full (unmasked) PII via the registration-history endpoint's
+    /// <c>?reveal=true</c> (registration-attempt-history REQ-3.5). Excluded from the history timeline —
+    /// it records access, not a lifecycle event.</summary>
+    public const string Revealed = "revealed";
 }
 
 /// <summary>

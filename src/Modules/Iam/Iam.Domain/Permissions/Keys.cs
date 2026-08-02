@@ -17,13 +17,15 @@ public enum Scope
 /// <c>iam.Permissions</c>/<c>iam.PermissionGroups</c> FROM this same vocabulary, and an integration test
 /// asserts the seeded rows equal <see cref="All"/> so code and DB never drift. The boot parity guard checks
 /// every gated key against <see cref="AllKeys"/> AND its <see cref="KeySide"/> against the endpoint's policy
-/// (REQ-5.1/5.4) without touching the database. 22 keys / 9 groups (REQ-2.1) — the old admin-only
+/// (REQ-5.1/5.4) without touching the database. 23 keys / 9 groups (REQ-2.1) — the old admin-only
 /// <c>invoice.view</c>/<c>invoice.manage</c>/<c>settlement.run</c> (group <c>finance</c>) are dropped
 /// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals). policy-reference-record task 3
 /// (REQ-3.2/3.6/4.2) added <c>merchants.policies</c> (Platform)/<c>policies</c> (Merchant) on top of the
 /// original rf2 20/8 baseline. <c>product.create</c>/<c>product.update</c> (group <c>catalog</c>) were retired
 /// once orphaned — <c>POST /api/v1/products</c> was removed (commit 152b692, the catalogue is read-only over
 /// HTTP for good) and no endpoint gated on them anymore; the now-empty <c>catalog</c> group was dropped too.
+/// registration-attempt-history (REQ-4.1) added <c>merchants.users.view</c> under the existing
+/// <c>merchants.users</c> group for the admin registration-history endpoint.
 /// </summary>
 public static class Keys
 {
@@ -52,6 +54,7 @@ public static class Keys
     public const string ApiKeyManage = "apikey.manage";
     public const string MerchantUserApprove = "merchants.users.approve";
     public const string MerchantUserReject = "merchants.users.reject";
+    public const string MerchantUserView = "merchants.users.view";
     public const string PaymentCreate = "payment.create";
     public const string PaymentRedirect = "payment.redirect";
     public const string RolesView = "roles.view";
@@ -97,6 +100,7 @@ public static class Keys
         (UserView, GroupUser), (UserManage, GroupUser), (UserRoles, GroupUser),
         (AuditView, GroupSystem), (SettingsManage, GroupSystem), (ApiKeyManage, GroupSystem),
         (MerchantUserApprove, GroupMerchantUsers), (MerchantUserReject, GroupMerchantUsers),
+        (MerchantUserView, GroupMerchantUsers),
         (PaymentCreate, GroupPayment), (PaymentRedirect, GroupPayment),
         (RolesView, GroupRoles), (RolesManage, GroupRoles), (UsersRoles, GroupRoles),
         (MerchantsPoliciesRead, GroupMerchantsPolicies), (MerchantsPoliciesWrite, GroupMerchantsPolicies),

@@ -66,6 +66,38 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.MerchantId);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
+        // The registration-history timeline filters by TargetSubject on every request; the audit table grows
+        // platform-wide, so an unindexed scan would degrade with total registrations, not per-user history.
+        builder.HasIndex(x => x.TargetSubject);
+    }
+}
+
+// Per-submit form snapshot (registration-attempt-history REQ-1). Maxlengths mirror the User columns the values
+// are copied from. The FK to merch.Users is a real declared relationship (no CLR navigation) — the first in
+// this cluster: REQ-1.3 mandates the DB constraint, and the runtime mirror needs the same declaration so EF
+// orders the Users INSERT before the attempt INSERT in the registration branch's single SaveChanges.
+public sealed class RegistrationAttemptConfiguration : IEntityTypeConfiguration<RegistrationAttempt>
+{
+    public void Configure(EntityTypeBuilder<RegistrationAttempt> builder)
+    {
+        builder.ToTable("RegistrationAttempts", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.AttemptNo).IsRequired();
+        builder.Property(x => x.Purpose).HasConversion<int>().IsRequired();
+        builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.PersonType).HasConversion<int>();
+        builder.Property(x => x.IdNumber).HasMaxLength(64);
+        builder.Property(x => x.ProducerCode).HasMaxLength(64);
+        builder.Property(x => x.LicenseNumber).HasMaxLength(64);
+        builder.Property(x => x.Phone).HasMaxLength(32);
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.PhotoObjectKey).HasMaxLength(256);
+        builder.Property(x => x.PhotoContentType).HasMaxLength(128);
+        builder.Property(x => x.SubmittedAt).IsRequired();
+        builder.HasOne<User>().WithMany().HasForeignKey(x => x.MerchantUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => new { x.MerchantUserId, x.AttemptNo }).IsUnique(); // REQ-1.4/1.5 — races lose here → 409
     }
 }
 

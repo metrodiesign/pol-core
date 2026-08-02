@@ -197,6 +197,49 @@ public sealed class WriteFloorTests : IDisposable
         connection.Dispose();
     }
 
+    // registration-attempt-history REQ-1.7 — mirrors the VaultRevealAudit guard test above on the
+    // MerchantUser cluster: a captured form snapshot is immutable history.
+    [Fact]
+    public async Task Registration_attempt_accepts_insert_but_rejects_modify_and_delete()
+    {
+        var connection = OpenMerchantUserSqlite();
+        MerchantUserDbContext NewContext() =>
+            new(new DbContextOptionsBuilder<MerchantUserDbContext>().UseSqlite(connection).Options,
+                FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
+
+        using (var seed = NewContext())
+        {
+            await seed.Database.EnsureCreatedAsync();
+            var user = MerchantUserAccount.Register("attempt-subject", "attempt@example.com", DateTime.UtcNow);
+            user.SetDetails("First", "Last", null, null, null, null, null);
+            seed.Add(user);
+            seed.Add(Merchants.Domain.Users.RegistrationAttempt.Capture(
+                user, 1, Merchants.Domain.Users.TicketPurpose.Registration, "attempt@example.com", DateTime.UtcNow));
+            await seed.SaveChangesAsync(); // insert must succeed — append-only bans Modified/Deleted, not Added
+        }
+
+        using (var modifier = NewContext())
+        {
+            var attempt = await modifier.RegistrationAttempts.SingleAsync();
+            modifier.Entry(attempt).Property(nameof(Merchants.Domain.Users.RegistrationAttempt.FirstName))
+                .CurrentValue = "tampered";
+
+            var modifyEx = await Assert.ThrowsAsync<WriteGuardException>(() => modifier.SaveChangesAsync());
+            Assert.Contains("append-only", modifyEx.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var deleter = NewContext())
+        {
+            var toDelete = await deleter.RegistrationAttempts.SingleAsync();
+            deleter.RegistrationAttempts.Remove(toDelete);
+
+            var deleteEx = await Assert.ThrowsAsync<WriteGuardException>(() => deleter.SaveChangesAsync());
+            Assert.Contains("append-only", deleteEx.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        connection.Dispose();
+    }
+
     [Fact]
     public async Task ControlPlaneDbContext_append_only_admin_audit_rejects_modify_and_defaults_writes_to_deny()
     {

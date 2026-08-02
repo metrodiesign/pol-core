@@ -19,8 +19,11 @@
    สำหรับ endpoint อ่าน/เขียน `ItemPolicy` (ดู `docs/reference/products.md`)
 2. **`RetireCatalogPermissions`** (migration `20260731065539`, 2026-07-31) ถอด `product.create`/`product.update`
    (group `catalog`) ทิ้ง เพราะ orphan หลัง `POST /api/v1/products` ถูกถอด (catalog อ่านอย่างเดียวผ่าน HTTP แล้ว)
+3. **`GrantAndSeedRegistrationHistory`** (migration `20260802082629`, 2026-08-02, spec
+   `registration-attempt-history`) เพิ่ม `merchants.users.view` เข้า group `merchants.users` เดิม (SortOrder 25 —
+   ค่า 1-24 ถูกใช้แล้ว, 14/15 ถูกลบโดยไม่ reflow) grant ให้ `platform_admin` role เดียว
 
-ผลคือตัวเลขปัจจุบันจริง (ไม่ใช่ 20/8 ตาม rf2 baseline เดิม): **22 keys / 9 groups / 4 roles**
+ผลคือตัวเลขปัจจุบันจริง (ไม่ใช่ 20/8 ตาม rf2 baseline เดิม): **23 keys / 9 groups / 4 roles**
 
 ## Domain model (`Iam.Domain`)
 
@@ -48,7 +51,7 @@
   filtered index ของ SqlServer provider (ซึ่งจะยกเว้นทุกแถว NULL ออกจาก uniqueness เงียบๆ, Codex P2 เคยจับได้
   ใน PR #98) ทำให้ shared/seed role ชื่อซ้ำกันไม่ได้ แต่ merchant คนละรายใช้โค้ดซ้ำกันได้
 
-## Catalog ปัจจุบัน — 22 keys / 9 groups / 4 roles
+## Catalog ปัจจุบัน — 23 keys / 9 groups / 4 roles
 
 แหล่งความจริงเดียว: `Iam.Domain/Permissions/Keys.cs:31-104` (migration seed ต้องตรงกับ `Keys.All` เป๊ะ)
 
@@ -60,7 +63,7 @@
 | `merchant` | Platform | `merchant.view`, `merchant.manage` |
 | `user` | Platform | `user.view`, `user.manage`, `user.roles` |
 | `system` | Platform | `audit.view`, `settings.manage`, `apikey.manage` |
-| `merchants.users` | Platform | `merchants.users.approve`, `merchants.users.reject` |
+| `merchants.users` | Platform | `merchants.users.approve`, `merchants.users.reject`, `merchants.users.view` |
 | `merchants.policies` | Platform | `merchants.policies.read`, `merchants.policies.write` |
 | `payment` | Merchant | `payment.create`, `payment.redirect` |
 | `roles` | Merchant | `roles.view`, `roles.manage`, `users.roles` |
@@ -76,7 +79,7 @@
 
 | Code | Scope | Anchor | Seed permissions | GUID |
 |---|---|---|---|---|
-| `platform_admin` | Platform | ใช่ (ปิด/ลบไม่ได้) | ทุก Platform key (15) | `11111111-1111-1111-1111-111111111111` |
+| `platform_admin` | Platform | ใช่ (ปิด/ลบไม่ได้) | ทุก Platform key (16) | `11111111-1111-1111-1111-111111111111` |
 | `platform_auditor` | Platform | ไม่ | subset อ่านอย่างเดียว | `55555555-...` |
 | `merchant_manager` | Merchant | ใช่ (ปิด/ลบไม่ได้) | ทุก Merchant key (7) | `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa` |
 | `merchant_staff` | Merchant | ไม่ | `payment.create`, `payment.redirect`, `policies.read` | `bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb` |
@@ -172,8 +175,9 @@ flowchart LR
 | `20260712185912_SeedData` | 2026-07-12 | rf2 baseline: 20 keys / 8 groups / 4 roles, 28 role-permission grants |
 | `20260723150000_SeedPolicyPermissions` | 2026-07-23 | +4 keys (`merchants.policies.{read,write}`, `policies.{read,write}`) / +2 groups / +6 grants → ชั่วคราว 24/10 |
 | `20260731065539_RetireCatalogPermissions` | 2026-07-31 | -2 keys (`product.create`/`product.update`) / -1 group (`catalog`) / -4 grants (`merchant_manager`+`merchant_staff` × 2 key) — orphan หลัง `POST /api/v1/products` ถูกถอด |
+| `20260802082629_GrantAndSeedRegistrationHistory` | 2026-08-02 | +1 key (`merchants.users.view`, group เดิม `merchants.users`, SortOrder 25) / +1 grant (`platform_admin`) + GRANT `SELECT, INSERT` บน `merch.RegistrationAttempts` |
 
-**ผลลัพธ์ปัจจุบัน: 22 keys / 9 groups / 4 roles, `iam.RolePermissions` 30 seed rows** (28 + 6 − 4)
+**ผลลัพธ์ปัจจุบัน: 23 keys / 9 groups / 4 roles, `iam.RolePermissions` 31 seed rows** (28 + 6 − 4 + 1)
 
 ## Cross-reference
 

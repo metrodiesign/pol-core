@@ -52,6 +52,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
     private readonly IAccountStore _accounts;
     private readonly IExternalLoginRepository _logins;
     private readonly IRegistrationAuditWriter _audits;
+    private readonly IRegistrationAttemptWriter _attempts;
     private readonly IRegistrationOutboxWriter _outbox;
     private readonly IRegistrationUnitOfWork _unitOfWork;
     private readonly IPhotoStore _photos;
@@ -64,6 +65,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
         IAccountStore accounts,
         IExternalLoginRepository logins,
         IRegistrationAuditWriter audits,
+        IRegistrationAttemptWriter attempts,
         IRegistrationOutboxWriter outbox,
         IRegistrationUnitOfWork unitOfWork,
         IPhotoStore photos,
@@ -72,6 +74,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
         _accounts = accounts;
         _logins = logins;
         _audits = audits;
+        _attempts = attempts;
         _outbox = outbox;
         _unitOfWork = unitOfWork;
         _photos = photos;
@@ -85,9 +88,8 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
 
         return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            Guid merchantUserId;
+            User account;
             string action;
-            string displayName;
 
             if (command.Purpose == TicketPurpose.Registration)
             {
@@ -95,42 +97,39 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 // wire ticket is stateless; a duplicate subject (a replayed still-valid token or a concurrent second
                 // tab) violates the unique (Subject)/(Provider,Subject) index and the unit of work turns it into a
                 // 409 (REQ-4.6/S9).
-                var account = User.Register(command.Subject, command.Email, now);
+                account = User.Register(command.Subject, command.Email, now);
                 _accounts.Add(account);
                 _logins.Add(ExternalLogin.Create(command.Subject, account.Id, command.Provider));
-
-                ApplyForm(account, command.Form);
-                await ApplyPhotoAsync(account, command, ct);
-
-                merchantUserId = account.Id;
                 action = RegistrationAuditAction.Registered;
-                displayName = account.DisplayName;
             }
             else
             {
                 // Correction resubmission (REQ-5.3/5.4/5.5): edit the EXISTING record bound to the subject —
                 // never a second user/login. Resubmit() enforces the source state is Rejected (else throws → 409).
-                var account = await _accounts.FindBySubjectAsync(command.Subject, ct)
+                account = await _accounts.FindBySubjectAsync(command.Subject, ct)
                     ?? throw new InvalidOperationException("No registration exists for this subject to correct.");
                 account.Resubmit(now);
-
-                ApplyForm(account, command.Form);
-                await ApplyPhotoAsync(account, command, ct);
-
-                merchantUserId = account.Id;
                 action = RegistrationAuditAction.Resubmitted;
-                displayName = account.DisplayName;
             }
+
+            ApplyForm(account, command.Form);
+            await ApplyPhotoAsync(account, command, ct);
+
+            // Per-submit snapshot in the SAME transaction (registration-attempt-history REQ-1.1/1.8): frozen from
+            // the account AFTER ApplyForm/ApplyPhoto (trimmed values, this attempt's photo key), Email from the
+            // verified ticket. An AttemptNo race is settled by the unique index at SaveChanges → 409 (REQ-1.9).
+            var attemptNo = await _attempts.NextAttemptNoAsync(account.Id, ct);
+            _attempts.Add(RegistrationAttempt.Capture(account, attemptNo, command.Purpose, command.Email, now));
 
             // Audit + outbox event in the SAME transaction (REQ-20.2/21.1). The event carries a sentinel merchant
             // (stamped by the writer); no actor subject — this is a self-service action. DisplayName is the
             // domain-computed value, not a form field.
             _audits.Append(RegistrationAudit.For(action, command.Subject, command.CorrelationId, now));
             _outbox.Enqueue(new MerchantUserRegistrationSubmitted(
-                merchantUserId, command.Subject, command.Email, command.HostedDomain, displayName, now));
+                account.Id, command.Subject, command.Email, command.HostedDomain, account.DisplayName, now));
 
             await _unitOfWork.SaveChangesAsync(ct);
-            return new SubmitRegistrationResult(merchantUserId, UserStatus.PendingApproval);
+            return new SubmitRegistrationResult(account.Id, UserStatus.PendingApproval);
         }, cancellationToken);
     }
 
