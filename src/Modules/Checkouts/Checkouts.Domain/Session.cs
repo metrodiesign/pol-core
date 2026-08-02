@@ -81,9 +81,14 @@ public sealed class Session : AggregateRoot<Guid>
         Status = SessionStatus.Confirmed;
     }
 
-    /// <summary>Transitions a started checkout to <see cref="SessionStatus.Abandoned"/>.</summary>
+    /// <summary>Transitions a started checkout to <see cref="SessionStatus.Abandoned"/>. Abandoning an
+    /// already-abandoned checkout is a no-op so the merchant can retry the cancel safely (REQ-2.9); a
+    /// <see cref="SessionStatus.Confirmed"/> one is past the point of no return and is rejected (REQ-2.6).</summary>
     public void Abandon()
     {
+        if (Status == SessionStatus.Abandoned)
+            return;
+
         if (Status != SessionStatus.Started)
             throw new InvalidOperationException($"Cannot abandon a checkout in state {Status}.");
 

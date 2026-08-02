@@ -32,6 +32,11 @@ public sealed class StartCheckoutHandler : ICommandHandler<StartCheckoutCommand,
 
     public async ValueTask<StartCheckoutResult> Handle(StartCheckoutCommand command, CancellationToken cancellationToken)
     {
+        // One live checkout per cart (REQ-2.3). This read can lose a race; IX_CheckoutSessions_CartId_Open
+        // catches the loser at commit and the unit of work turns it into the same ConflictException -> 409.
+        if (await _repository.GetOpenForCartAsync(command.CartId, cancellationToken).ConfigureAwait(false) is not null)
+            throw new ConflictException($"Cart {command.CartId} already has a live checkout session.");
+
         var session = Session.Start(
             command.MerchantId, command.CartId, command.Amount, _clock.UtcNow, command.Lines, command.Recipient);
 

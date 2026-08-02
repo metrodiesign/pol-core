@@ -91,6 +91,10 @@ public sealed class Cart : AggregateRoot<Guid>
     /// <summary>Freezes the cart so it can no longer be edited.</summary>
     public void MarkCheckedOut() => Status = CartStatus.CheckedOut;
 
+    /// <summary>Unfreezes a cart whose checkout was abandoned, so the merchant can edit it and check out
+    /// again (REQ-2.5). An already-open cart is a no-op, which is what makes abandoning twice safe (REQ-2.9).</summary>
+    public void Reopen() => Status = CartStatus.Open;
+
     /// <summary>
     /// The sum of every line total. An empty cart has no currency to denominate zero in, so callers
     /// must guard against that — this returns <c>null</c> when the cart is empty.

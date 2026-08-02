@@ -12,4 +12,9 @@ public interface ICheckoutRepository
 
     /// <summary>Loads a session by id, or <c>null</c> when none exists in the caller's merchant.</summary>
     Task<Session?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken);
+
+    /// <summary>Loads the cart's live checkout session — Started or Confirmed — or <c>null</c> when the cart
+    /// has none. The pre-check for one-open-checkout-per-cart (REQ-2.3); the filtered unique index
+    /// IX_CheckoutSessions_CartId_Open is the backstop for the race this read cannot win (REQ-2.4).</summary>
+    Task<Session?> GetOpenForCartAsync(Guid cartId, CancellationToken cancellationToken);
 }

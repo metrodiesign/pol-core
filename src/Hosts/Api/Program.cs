@@ -757,6 +757,10 @@ api.MapPost("/checkouts", async (
     var cart = await mediator.Send(new GetCartQuery(body.CartId, actor.MerchantId), ct);
     if (cart is null)
         return Results.NotFound();
+    // A cart already frozen by a live checkout cannot start a second one (REQ-2.2). The cart is reopened by
+    // POST /checkouts/{id}/abandon, so this is recoverable, not terminal.
+    if (cart.Status != nameof(Carts.Domain.CartStatus.Open))
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The cart is not open.");
     if (cart.Subtotal is not { } subtotal)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Cannot check out an empty cart.");
 
@@ -788,12 +792,17 @@ api.MapPost("/checkouts", async (
 
     var result = await mediator.Send(
         new StartCheckoutCommand(actor.MerchantId, body.CartId, subtotal, items, body.Recipient), ct);
+
+    // Second unit of work, by design (REQ-2.1): the snapshot is already frozen inside the session above, and
+    // IX_CheckoutSessions_CartId_Open blocks a second checkout even if this freeze never lands — a cart left
+    // Open with a live session is recovered by abandoning it.
+    await mediator.Send(new MarkCartCheckedOutCommand(body.CartId, actor.MerchantId), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("เช็คเอาต์")
     .WithName("StartCheckout")
     .WithSummary("เริ่มเช็คเอาต์")
-    .WithDescription("คำนวณราคาเช็คเอาต์จาก subtotal ของตะกร้า (ไม่ใช้จำนวนเงินจาก client) พร้อม snapshot เงื่อนไขประกันฝั่ง server หากไม่พบตะกร้า -> 404, ตะกร้าว่าง/ไม่ตรงกัน/qty!=1 -> 400, ผลิตภัณฑ์ไม่ active -> 409")
+    .WithDescription("คำนวณราคาเช็คเอาต์จาก subtotal ของตะกร้า (ไม่ใช้จำนวนเงินจาก client) พร้อม snapshot เงื่อนไขประกันฝั่ง server แล้วตรึงตะกร้าเป็น CheckedOut หากไม่พบตะกร้า -> 404, ตะกร้าว่าง/ไม่ตรงกัน/qty!=1 -> 400, ตะกร้าไม่ได้เปิดอยู่/มี checkout ที่ยังไม่ปิด/ผลิตภัณฑ์ไม่ active -> 409")
     .Produces<StartCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -812,6 +821,25 @@ api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
     .WithDescription("ยืนยัน checkout session แล้ว emit event CheckoutConfirmed เพื่อให้ Orders เปิดคำสั่งซื้อ")
     .Produces<ConfirmCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Abandon = the way out of a checkout the merchant no longer wants (REQ-2.5-2.9). Two units of work, the
+// mirror image of start: the session goes Abandoned first, then the cart is reopened. Both halves are
+// no-ops when already in the target state, so a retry after a half-completed call finishes the job.
+api.MapPost("/checkouts/{checkoutSessionId:guid}/abandon", async (
+    Guid checkoutSessionId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+{
+    var result = await mediator.Send(new AbandonCheckoutCommand(checkoutSessionId, actor.MerchantId), ct);
+    await mediator.Send(new ReopenCartCommand(result.CartId, actor.MerchantId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    .WithTags("เช็คเอาต์")
+    .WithName("AbandonCheckout")
+    .WithSummary("ยกเลิกเช็คเอาต์")
+    .WithDescription("ยกเลิก checkout session ที่ยังไม่ยืนยัน แล้วปลดล็อกตะกร้ากลับเป็น Open เรียกซ้ำบน session ที่ยกเลิกไปแล้วตอบสำเร็จโดยไม่เปลี่ยนอะไร หากไม่พบ session -> 404, session ยืนยันไปแล้ว -> 409")
+    .Produces<AbandonCheckoutResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict);
 
 var createPaymentSession = api.MapPost("/payments/sessions", async (
     CreatePaymentSessionRequest body,
