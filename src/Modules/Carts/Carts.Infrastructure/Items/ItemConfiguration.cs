@@ -16,6 +16,10 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
     {
         builder.ToTable("CartItems", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
+        // The id is minted by Cart.AddItem, not the store. Leaving it store-generated (the Guid-PK
+        // convention default) makes EF's graph paint a new line discovered on a tracked cart Modified
+        // instead of Added — an UPDATE of 0 rows, surfacing as a spurious concurrency conflict.
+        builder.Property(x => x.Id).ValueGeneratedNever();
 
         builder.Property(x => x.CartId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Cart (rls-to-query-filter REQ-6)

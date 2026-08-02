@@ -15,6 +15,9 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
     {
         builder.ToTable("CartItems", SchemaNames.Shop);
         builder.HasKey(x => x.Id);
+        // Mirrors Carts.Infrastructure.Items.ItemConfiguration: client-minted id, so EF paints a new
+        // line on a tracked cart as Added (INSERT) instead of Modified (UPDATE of 0 rows -> 409).
+        builder.Property(x => x.Id).ValueGeneratedNever();
 
         builder.Property(x => x.CartId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Cart (rls-to-query-filter REQ-6)

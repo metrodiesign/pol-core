@@ -40,15 +40,8 @@ namespace Hosts.Tests;
 /// is bypassed the same way task 0 already justifies (SQL-Server-only lease SQL, orthogonal to what this
 /// proves) by capturing the enqueued notification and calling the consumer directly.
 /// <para>
-/// The cart is built directly via the real <c>Carts.Domain.Cart</c> domain object (<c>new Cart(...)</c> +
-/// <c>AddItem</c>, one <c>SaveChangesAsync</c>) rather than through <c>CreateCartHandler</c> then
-/// <c>AddItemToCartHandler</c> as two separate requests would: that two-request sequence was found, while
-/// building this test, to throw <see cref="BuildingBlocks.Application.ConcurrencyConflictException"/> on
-/// BOTH SQLite and a real SQL Server <c>pol-db</c> — a genuine PRE-EXISTING bug in <c>Carts</c>
-/// (introduced by the rls-to-query-filter migration's concurrency-token write floor, unrelated to and not
-/// caused by this spec, and explicitly out of scope here — <c>Carts.Domain</c> is "not touched" per
-/// design.md). Reported separately; not fixed in this task. Cart itself is out of scope for insurance-pivot
-/// either way — <c>Item</c> already carries everything REQ-6 needs.
+/// The cart step runs <c>CreateCartHandler</c> and <c>AddItemToCartHandler</c> in two separate contexts,
+/// as two separate HTTP requests would (purchase-flow-completion REQ-1.1).
 /// </para>
 /// </summary>
 public sealed class InsuranceCheckoutEndToEndTests : IDisposable
@@ -98,19 +91,8 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                 CancellationToken.None);
         }
 
-        Guid cartId;
-        using (var db = ApiContext())
-        {
-            var product = await new GetProductByIdHandler(NewProductRepository(db))
-                .Handle(new GetProductByIdQuery(productId), CancellationToken.None);
-
-            var cart = new Carts.Domain.Cart(Guid.CreateVersion7(), MerchantA, DateTime.UtcNow);
-            // The currency is minted at this boundary, exactly as Program.cs's cart add-item does (REQ-8.4).
-            cart.AddItem(productId, 1, Money.Of(product!.TotalPremium, "THB"));
-            db.Add(cart);
-            await db.SaveChangesAsync();
-            cartId = cart.Id;
-        }
+        var cartId = await CreateCartAsync();
+        await AddProductToCartAsync(cartId, productId);
 
         Guid checkoutSessionId;
         using (var db = ApiContext())
@@ -183,6 +165,70 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         }
 
         return (productId, checkoutSessionId, orderId, summaryToken);
+    }
+
+    /// <summary>One "POST /carts" request: its own context, its own unit of work.</summary>
+    private async Task<Guid> CreateCartAsync()
+    {
+        using var db = ApiContext();
+        var handler = new CreateCartHandler(
+            new CartRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
+        return await handler.Handle(new CreateCartCommand(MerchantA), CancellationToken.None);
+    }
+
+    /// <summary>One "POST /carts/{id}/items" request, on a context that has never seen the cart before.
+    /// The currency is minted at this boundary, exactly as Program.cs's cart add-item does.</summary>
+    private async Task<AddItemResult> AddProductToCartAsync(Guid cartId, Guid productId, int quantity = 1)
+    {
+        using var db = ApiContext();
+        var product = await new GetProductByIdHandler(NewProductRepository(db))
+            .Handle(new GetProductByIdQuery(productId), CancellationToken.None);
+
+        var handler = new AddItemToCartHandler(
+            new CartRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+        return await handler.Handle(
+            new AddItemToCartCommand(cartId, MerchantA, productId, quantity, Money.Of(product!.TotalPremium, "THB")),
+            CancellationToken.None);
+    }
+
+    // REQ-1.1/1.2/1.4 regression — the bug only shows across two scopes: with a store-generated Item.Id the
+    // line added to a cart loaded fresh in the second context is painted Modified, so the INSERT becomes an
+    // UPDATE of 0 rows and the write floor reports a concurrency conflict. Same-context adds never hit it.
+    [Fact]
+    public async Task Adding_an_item_to_a_cart_created_by_an_earlier_request_inserts_the_line()
+    {
+        Guid productId;
+        using (var db = ApiContext())
+        {
+            productId = await new CreateProductHandler(
+                    NewProductRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
+                .Handle(
+                    new CreateProductCommand(new Products.Domain.ProductInput(
+                        Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                        "00098-69100/กธ/037675-10", "00098", 1200m,
+                        Products.Domain.PaymentStatus.UNPAID, null,
+                        StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
+                        ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
+                    CancellationToken.None);
+        }
+
+        var cartId = await CreateCartAsync();
+
+        var added = await AddProductToCartAsync(cartId, productId, 2);
+        Assert.Equal(1, added.ItemCount);
+        Assert.Equal(2400m, added.Subtotal.Amount);
+
+        // Re-adding the same product at the same price merges into the existing line (REQ-1.2), still in a
+        // scope of its own.
+        var merged = await AddProductToCartAsync(cartId, productId, 3);
+        Assert.Equal(1, merged.ItemCount);
+        Assert.Equal(6000m, merged.Subtotal.Amount);
+
+        using var verify = ApiContext();
+        var line = Assert.Single(await verify.CartItems.Where(i => i.CartId == cartId).ToListAsync());
+        Assert.Equal(productId, line.ProductId);
+        Assert.Equal(5, line.Quantity);
+        Assert.Equal(MerchantA, line.MerchantId);
     }
 
     [Fact]
