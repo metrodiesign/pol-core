@@ -26,8 +26,10 @@ public sealed class OrderSummaryReaderIntegrationTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.Orders
-                (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, CreatedAt, SummaryToken, SummaryTokenExpiresAt)
-            VALUES (@id, @m, @orderNo, 15000, N'THB', 0, SYSUTCDATETIME(), @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, CreatedAt,
+                 SummaryToken, SummaryTokenExpiresAt)
+            VALUES (@id, @m, @orderNo, 15000, N'THB', 0, 'PROMPTPAY_QR', SYSUTCDATETIME(),
+                    @token, DATEADD(hour, 72, SYSUTCDATETIME()));
             """,
             ("@id", orderId), ("@m", merchantId), ("@orderNo", orderNo), ("@token", token));
 
@@ -55,10 +57,12 @@ public sealed class OrderSummaryReaderIntegrationTests
         await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA, "1234567890123");
 
         // Exactly the reader's first query (OrderSummaryReader.cs, column-for-column — purchase-flow-completion
-        // REQ-7.3 added OrderNo to it); only the parameter syntax differs ({0} -> @token).
+        // REQ-7.3 added OrderNo, REQ-8 swapped PaymentSessionId for PaymentChannel); only the parameter syntax
+        // differs ({0} -> @token). The channel is what the customer pay endpoint charges through, so a column
+        // that does not exist (or is misspelled) has to fail HERE, not at a customer's first payment.
         await using var orderCmd = c.CreateCommand();
         orderCmd.CommandText =
-            "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentSessionId, "
+            "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, "
             + "SummaryTokenExpiresAt FROM shop.Orders WHERE SummaryToken = @token";
         orderCmd.Parameters.AddWithValue("@token", token);
         await using var orderReader = await orderCmd.ExecuteReaderAsync();
@@ -66,6 +70,7 @@ public sealed class OrderSummaryReaderIntegrationTests
         var resolvedOrderId = orderReader.GetGuid(0);
         Assert.Equal(orderId, resolvedOrderId);
         Assert.Equal(orderNo, orderReader.GetString(2));
+        Assert.Equal("PROMPTPAY_QR", orderReader.GetString(6));
         await orderReader.CloseAsync();
 
         // Exactly the reader's second query — deliberately does NOT select InsuredDateOfBirth.

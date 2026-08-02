@@ -657,6 +657,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 | POST | `/api/v1/checkouts`, `/api/v1/checkouts/{checkoutSessionId}/confirm`, `/api/v1/checkouts/{checkoutSessionId}/abandon` | — |
 | POST | `/api/v1/payments/sessions` | `payment.create` |
 | POST | `/api/v1/payments/sessions/{paymentSessionId}/redirect` | `payment.redirect` |
+| GET | `/api/v1/payments/sessions/{paymentSessionId}` | — (ไม่พบ/ของร้านค้าอื่น -> 404) |
 | GET | `/api/v1/orders`, `/api/v1/orders/{orderId}` | — |
 | POST | `/api/v1/orders/{orderId}/summary/resend`, `/api/v1/orders/{orderId}/cancel` | — |
 | PUT | `/api/v1/orders/{orderId}/items/{itemId}/policy` | `policies.write` |
@@ -709,6 +710,14 @@ field/operator อื่นถูกทิ้งเงียบตามกฎ w
 
 `OrderNo` (`ORD` + ปี พ.ศ. 2 หลัก + running 8 หลัก เช่น `ORD6900000001`) ปรากฏใน `GET /api/v1/orders`,
 `GET /api/v1/orders/{orderId}` และ `GET /api/v1/orders/{token}/summary`.
+
+#### เส้นของลูกค้า (anonymous, ไม่ใช่ merchant-user) — purchase-flow-completion REQ-8
+
+`POST /api/v1/orders/{token}/pay` และ `POST /api/v1/orders/{token}/payment-status` ใช้ summary token เป็น
+capability ล้วน (ไม่มี cookie ไม่มี CSRF) จำกัดอัตราด้วย policy `customer-payment` (~10 ครั้ง/นาที/IP)
+ร้านค้าไม่ได้เรียกสองเส้นนี้ แต่ต้องรู้ว่า **ช่องทางที่เลือกตอน `POST /checkouts` คือช่องทางที่ลูกค้าจะถูก
+ชาร์จจริง** และคำสั่งซื้อที่ยกเลิกแล้วจะทำให้ลิงก์ตาย (404) ทันที — รายละเอียดสัญญาอยู่ใน
+`docs/reference/orders.md`.
 
 #### `GET /api/v1/products` — query contract (products-sp-gateway pivot)
 

@@ -297,6 +297,37 @@ public sealed class OrderCancelEndpointTests
         Assert.Null(FakeOrders.LastOrderNoFilter);
     }
 
+    // ---- purchase-flow-completion REQ-8.8: GET /payments/sessions/{id} --------------------------------
+
+    // A session that is not there — or belongs to another company, which the query filter makes the same
+    // thing — must be 404. It answered 409 before this task, because the handler raised
+    // InvalidOperationException; the route mapping and that status are what this pins.
+    [Fact]
+    public async Task Reading_a_payment_session_that_does_not_exist_is_404()
+    {
+        using var factory = new OrderFactory(Merchant, [], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get($"/api/v1/payments/sessions/{Guid.NewGuid()}"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reading_a_payment_session_returns_its_status()
+    {
+        var order = NewOrder();
+        var session = SessionFor(order, TimeSpan.FromMinutes(5));
+        using var factory = new OrderFactory(Merchant, [order], [session]);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get($"/api/v1/payments/sessions/{session.Id}"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains(SessionStatus.Created.ToString(), body, StringComparison.Ordinal);
+    }
+
     // The SFS whitelist rule: a field or operator this surface does not support is dropped, not an error.
     [Theory]
     [InlineData("""[{"field":"status","operator":"eq","value":"Paid"}]""")]

@@ -17,7 +17,10 @@ namespace Hosts.Tests;
 // GET /orders/{token}/summary response must carry the order number ON THE WIRE. The reader is faked (its
 // real SQL is proven in Integration.Tests/OrderSummaryReaderIntegrationTests against a live SQL Server);
 // this test pins the response contract itself, asserting the serialized JSON property — dropping OrderNo
-// from OrderSummaryResponse (or renaming it on the wire) goes red here and nowhere else.
+// from OrderSummaryResponse (or renaming it on the wire) goes red here and nowhere else. It also pins the
+// two fields that must NOT be there: the merchant id the reader now carries for the host's actor binding
+// (REQ-8.4 — projecting it would tell an anonymous customer who the merchant is) and the payment-session id
+// REQ-8.9 removed.
 
 file sealed class FakeSummaryReader(OrderSummary summary) : IOrderSummaryReader
 {
@@ -47,10 +50,10 @@ file sealed class SummaryFactory(OrderSummary summary) : WebApplicationFactory<A
 public sealed class OrderSummaryEndpointTests
 {
     [Fact]
-    public async Task The_summary_response_carries_the_order_number_on_the_wire()
+    public async Task The_summary_response_carries_the_order_number_and_leaks_neither_merchant_nor_session()
     {
         var summary = new OrderSummary(
-            Guid.NewGuid(), "ORD6900000042", Money.Of(15000m, "THB"), "Paid", null,
+            Guid.NewGuid(), Guid.NewGuid(), "ORD6900000042", Money.Of(15000m, "THB"), "Paid", "CARD",
             DateTime.UtcNow.AddHours(1),
             [new OrderSummaryLine(Guid.NewGuid(), "Somchai", "Jaidee", "****0123")]);
         using var factory = new SummaryFactory(summary);
@@ -61,5 +64,7 @@ public sealed class OrderSummaryEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("ORD6900000042", json.GetProperty("orderNo").GetString());
+        Assert.False(json.TryGetProperty("merchantId", out _));
+        Assert.False(json.TryGetProperty("paymentSessionId", out _));
     }
 }

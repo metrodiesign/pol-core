@@ -165,6 +165,15 @@ Read-only anonymous (ไม่ผ่าน mediator, เรียก `IOrderSumm
 /orders/{token}/summary` — token ไม่รู้จัก → 404, หมดอายุ → 410 Gone (`clock.UtcNow >=
 summary.ExpiresAt` เช็คที่ host)
 
+เส้นชำระเงินของลูกค้า (anonymous เหมือนกัน, purchase-flow-completion REQ-8) — resolve token ด้วย reader
+ตัวเดียวกันแล้ว `IActorScope.Begin(summary.MerchantId)` ก่อนส่งคำสั่ง (แบบเดียวกับ webhook):
+- `POST /orders/{token}/pay` → `CreateSessionCommand` + `StartRedirectCommand` → `{redirectUrl}`
+- `POST /orders/{token}/payment-status` → `ConfirmPaymentStatusCommand` → `{status}` ∈ `paid`/`failed`/
+  `pending`/`cancelled`
+
+สองเส้นนี้ตอบ **404 ทั้งกรณี token ไม่รู้จักและหมดอายุ** (ไม่ใช่ 410 แบบ summary — endpoint ลูกค้าจงใจ
+opaque) และจำกัดอัตราด้วย policy `customer-payment` (~10 ครั้ง/นาที/IP, partition ตาม source IP)
+
 **Consumer** (event-driven, ไม่ผูก HTTP):
 - `CheckoutConfirmedConsumer` — consume `Contracts.CheckoutConfirmed`, idempotent lookup ผ่าน
   `CheckoutSessionId` (skip ถ้ามีแล้ว), ไม่งั้น `Order.Create` + enqueue `CustomerOrderNotification` ถ้ามี
@@ -223,6 +232,8 @@ Tag `"คำสั่งซื้อ"`. Merchant plane:
 | Method | Route | Line | Command/Query | Auth | Error |
 |---|---|---|---|---|---|
 | GET | `/api/v1/orders/{token}/summary` | 861-880 | `IOrderSummaryReader.GetByTokenAsync` (ตรง ไม่ผ่าน mediator) | `AllowAnonymous()` | 404 (token ไม่รู้จัก), 410 Gone (หมดอายุ) |
+| POST | `/api/v1/orders/{token}/pay` | — | reader + `CreateSessionCommand` + `StartRedirectCommand` | `AllowAnonymous()` + rate limit `customer-payment` | 404 (token ไม่รู้จัก/หมดอายุ/order ถูกยกเลิก), 409 (order ชำระแล้ว / ไม่มี `PaymentChannel` / ไม่มี connection ที่ชาร์จช่องทางนั้นได้), 429 |
+| POST | `/api/v1/orders/{token}/payment-status` | — | reader + `ConfirmPaymentStatusCommand` | `AllowAnonymous()` + rate limit `customer-payment` | 404 (token ไม่รู้จัก/หมดอายุ), 429 |
 | POST | `/api/v1/orders/{orderId}/summary/resend` | 882-893 | `ResendOrderSummaryCommand` | `merchant-user` | 401 (+404/409 undeclared ใน OpenAPI) |
 | GET | `/api/v1/orders` | 896-906 | `GetOrdersQuery` | `merchant-user` | 401 |
 | GET | `/api/v1/orders/{orderId}` | 911-924 | `GetOrderDetailCommand` | `merchant-user` | 401, 404 |
@@ -238,9 +249,12 @@ Admin plane (twin ของ policy endpoint, cross-merchant escape hatch):
 | GET | `/api/v1/admins/reports/policies` | ~1566 | `admin` + `Keys.MerchantsPoliciesRead` |
 
 **หมายเหตุ endpoint สำคัญ**:
-- `GET /orders/{token}/summary` เป็นเส้นเดียวในโมดูลที่ `AllowAnonymous()` — capability token เองคือ
-  หลักฐานสิทธิ์ ไม่มี merchant binding เลย response ไม่มี `MerchantId`/`DateOfBirth` และ `InsuredIdNumber`
-  ถูก mask เสมอ
+- `GET /orders/{token}/summary` + `POST /orders/{token}/pay` + `POST /orders/{token}/payment-status` เป็น
+  สามเส้นในโมดูลที่ `AllowAnonymous()` — capability token เองคือหลักฐานสิทธิ์ `OrderSummary` (ฝั่งใน) ถือ
+  `MerchantId` ไว้ให้ host bind actor scope เท่านั้น **ห้าม project ออก response** และ response ของ summary
+  ไม่มี `DateOfBirth` เลย ส่วน `InsuredIdNumber` ถูก mask เสมอ
+- response ของ summary **ไม่มี `paymentSessionId` แล้ว** (purchase-flow-completion REQ-8.9 — ค่าเดิมเป็น
+  null เสมอเพราะไม่มีผู้เขียน) สถานะการชำระดูผ่าน `POST /orders/{token}/payment-status` แทน
 - `GET /orders/{orderId}` (detail) คืน `InsuredIdNumber` **เต็ม** และเขียน `RevealAudit` — ต่างจาก `GET
   /orders` (list) ที่ mask เสมอไม่มี audit
 - `PUT .../items/{itemId}/policy` (ทั้ง merchant + admin) **ไม่ gate บน `Order.Status`** — เขียนได้แม้ order

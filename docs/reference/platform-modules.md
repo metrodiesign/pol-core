@@ -756,7 +756,7 @@ Product/ProductVersion/ProductQuote ยังไม่เริ่ม
 - `ItemPolicy` 1:1 ต่อ `Item` — บันทึก **เลขอ้างอิงกรมธรรม์จากบริษัทประกันภายนอก** ที่ operator กรอกหลังการขาย (แพลตฟอร์มไม่ออกเลขเอง) พร้อม `ItemPolicyAudit` ต่อการเขียน; เขียน/อ่านได้ทั้งระนาบ merchant และระนาบ admin ข้าม merchant (policy-reference-record)
 - ออก `SummaryToken` (TTL 72 ชั่วโมง) เป็น capability link ให้ลูกค้าเปิดหน้าสรุปแบบไม่มีบัญชี (`404` ไม่รู้จัก / `410` หมดอายุ) + resend ได้ (rotate token + ส่งแจ้งเตือนใหม่)
 - reconciliation = **read-only report** สรุปยอดเหนือ Orders (ไม่เคลื่อนเงิน)
-- endpoints: `GET /orders/{token}/summary` (anonymous), `POST /orders/{orderId}/summary/resend`, `GET /reports/reconciliation` — ไม่มี `POST /orders`; Order เกิดจาก consumer เท่านั้น
+- endpoints: `GET /orders/{token}/summary` (anonymous), `POST /orders/{token}/pay` + `POST /orders/{token}/payment-status` (anonymous, rate limit `customer-payment` — purchase-flow-completion REQ-8), `POST /orders/{orderId}/summary/resend`, `POST /orders/{orderId}/cancel`, `GET /reports/reconciliation` — ไม่มี `POST /orders`; Order เกิดจาก consumer เท่านั้น
 
 **ฟีเจอร์ละเอียด**
 
@@ -765,7 +765,8 @@ Product/ProductVersion/ProductQuote ยังไม่เริ่ม
 | Order เกิดจาก consumer เท่านั้น | `CheckoutConfirmedConsumer` idempotent ด้วย unique `CheckoutSessionId` — ไม่มี `POST /orders` | มีแล้ว |
 | `MarkPaid` ตรวจซ้ำ + idempotent | verify amount + currency (ไม่เชื่อแค่ id); เรียกซ้ำปลอดภัย | มีแล้ว |
 | จับคู่ด้วย `PaymentPaid.OrderId` | consumer resolve order ด้วย `OrderId` บน contract; mismatch/cancelled ล้มดังเข้า DLQ (PR #44) | มีแล้ว |
-| Summary link แบบ capability | `SummaryToken` TTL 72 ชม.; `GET /orders/{token}/summary` anonymous; `404` ไม่รู้จัก / `410` หมดอายุ | มีแล้ว |
+| Summary link แบบ capability | `SummaryToken` TTL 72 ชม.; `GET /orders/{token}/summary` anonymous; `404` ไม่รู้จัก / `410` หมดอายุ; response ไม่มี `paymentSessionId` และไม่มี `merchantId` | มีแล้ว |
+| ลูกค้าชำระเงินเอง | `POST /orders/{token}/pay` เปิด session ตาม `Order.PaymentChannel` แล้วคืน redirect URL ของ 2C2P (เรียกซ้ำ = resume ใบเดิม), `POST /orders/{token}/payment-status` verify กับ 2C2P บนเส้น `PaymentConfirmationService` เดียวกับ webhook แล้วคืน `paid`/`failed`/`pending`/`cancelled`; token ไม่รู้จัก/หมดอายุ = `404` ทั้งคู่ (opaque) | มีแล้ว (purchase-flow-completion REQ-8) |
 | Resend ลิงก์ | `POST /orders/{orderId}/summary/resend` — rotate token + enqueue แจ้งเตือนใหม่ | มีแล้ว |
 | Reconciliation report | `GET /reports/reconciliation` — read-only สรุปยอดเหนือ Orders | มีแล้ว |
 | Order items (รายการต่อใบ) | `Order.Items` = `IReadOnlyCollection<Item>` immutable snapshot ต่อแผนที่ซื้อ (1 ผู้เอาประกัน/1 item, `Quantity` ต้อง = 1) — `Order.Create(..., IReadOnlyList<OrderItemInput> items, ...)` บังคับ ≥ 1 item, currency ตรงกับใบ, และผลรวม item total **ต้องเท่ากับ** `Amount` เป๊ะ; item snapshot ทั้ง commercial (`ProductId`/`UnitPrice`) และ field เอกสาร (`DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate` — เดิมเป็น `SumInsured`/`CoverageDurationDays`/`Insurer` ก่อน checkout-chain-document-fields) + ผู้เอาประกัน (`InsuredFirstName`/`InsuredLastName`/`InsuredIdNumber`/`InsuredDateOfBirth`) ณ เวลาซื้อ; `Item` เป็น **INSERT-only** (ไม่มี mutator) | มีแล้ว (insurance-pivot) |

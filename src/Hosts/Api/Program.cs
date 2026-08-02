@@ -34,6 +34,7 @@ using Microsoft.EntityFrameworkCore;
 using Orders.Application;
 using Orders.Domain.Items;
 using Orders.Infrastructure;
+using Payments.Application.ConfirmPaymentStatus;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
 using Payments.Application.MethodPayable;
@@ -53,6 +54,13 @@ using Products.Infrastructure.Sp;
 using DocumentType = Products.Domain.DocumentType;
 // Payments.Domain cannot be imported wholesale here (its SessionStatus collides with the admin one).
 using PaymentMethods = Payments.Domain.PaymentMethods;
+// The order summary carries its status as the wire STRING; this is what those strings are named after, so
+// the customer endpoints branch on nameof(...) instead of on literals.
+using OrderStatus = Orders.Domain.OrderStatus;
+// Payments.Application.GetSession cannot be imported wholesale either — its SessionView collides with the
+// admin one, the same way Payments.Domain's SessionStatus does.
+using GetPaymentSessionQuery = Payments.Application.GetSession.GetSessionQuery;
+using PaymentSessionView = Payments.Application.GetSession.SessionView;
 using Merchants.Application.GetMerchant;
 using Merchants.Application.ProvisionMerchant;
 // L6 (hierarchical-naming): Admins.*.Users/.Roles and Merchants.*.Users/.Roles now share bare names (User,
@@ -82,6 +90,7 @@ using Iam.Domain.Roles;
 using Api;
 using Api.Admins;
 using Api.BackgroundDispatch;
+using Api.Customers;
 using Api.Iam;
 using Api.Merchants;
 using Api.Persistence;
@@ -454,6 +463,7 @@ builder.Services.AddReadinessHealthChecks(appConnString);
 builder.Services.AddWebhookRateLimiter();
 builder.Services.AddAdminAuthRateLimiter();
 builder.Services.AddMerchantUserAuthRateLimiter();
+builder.Services.AddCustomerPaymentRateLimiter();
 
 // Dev-only HTTP req/res logging incl. response headers (esp. Location on a 302 — see where the OIDC callback /
 // register redirect actually sends the browser). Logs headers + bodies would leak PII/photo bytes, so this stays
@@ -921,6 +931,26 @@ startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.Payme
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
+// The merchant's read of one payment session (REQ-8.8). Merchant scoping is automatic (IMerchantScoped +
+// the query filter), so another company's session is simply absent — and absent is 404, which is why the
+// handler raises NotFoundException rather than the InvalidOperationException that used to answer 409.
+var getPaymentSession = api.MapGet("/payments/sessions/{paymentSessionId:guid}", async (
+    Guid paymentSessionId,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var view = await mediator.Send(new GetPaymentSessionQuery(paymentSessionId), ct);
+    return TypedResults.Ok(view);
+});
+getPaymentSession.RequireAuthorization("merchant-user")
+    .WithTags("การชำระเงิน")
+    .WithName("GetPaymentSession")
+    .WithSummary("อ่าน payment session")
+    .WithDescription("คืนสถานะของ payment session ของร้านค้าที่ล็อกอินอยู่ ต้องมี merchant-user policy หากไม่พบ (หรือเป็นของร้านค้าอื่น) -> 404")
+    .Produces<PaymentSessionView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound);
+
 // Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
 // a bypass proc (no merchant binding). Unknown token -> 404; expired -> 410. A merchant-user can resend (rotates
 // the token + extends the TTL), which is merchant-scoped.
@@ -933,8 +963,10 @@ api.MapGet("/orders/{token}/summary", async (
     if (clock.UtcNow >= summary.ExpiresAt)
         return Results.Problem(statusCode: StatusCodes.Status410Gone, title: "This link has expired.");
 
+    // Deliberately projects neither MerchantId (the customer must not learn the merchant, REQ-8.4) nor a
+    // payment-session id (REQ-8.9 — the payment state is asked for through payment-status).
     return Results.Ok(new OrderSummaryResponse(
-        summary.OrderId, summary.OrderNo, summary.Amount, summary.Status, summary.PaymentSessionId,
+        summary.OrderId, summary.OrderNo, summary.Amount, summary.Status,
         summary.Lines.Select(l => new OrderSummaryLineResponse(l.ProductId, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
 }).AllowAnonymous()
     .WithTags("คำสั่งซื้อ")
@@ -944,6 +976,90 @@ api.MapGet("/orders/{token}/summary", async (
     .Produces<OrderSummaryResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status410Gone);
+
+// The customer's pay button. Anonymous by design: the opaque summary token IS the capability, so there is
+// no session cookie and no CSRF token to present (REQ-8.1) — which is exactly why the rate limit is per
+// source IP and tight. Every refusal below answers 404 or 409 only; the token is never told apart from a
+// well-formed one that does not exist (REQ-8.2), and an expired one is 404 here rather than the summary
+// read's 410, because a customer endpoint that distinguishes them hands out an oracle.
+//
+// The merchant comes from the ORDER, never from the request, and is bound before any merchant-scoped work
+// exactly as the webhook does it. Resume (REQ-8.10) is not implemented here at all: create-session hands
+// back the open session for the same channel and start-redirect hands back its existing hosted URL, so a
+// double click or a second tab lands on the same charge instead of a second one.
+api.MapPost("/orders/{token}/pay", async (
+    string token,
+    IOrderSummaryReader reader,
+    IActorScope actorScope,
+    IMediator mediator,
+    IClock clock,
+    CancellationToken ct) =>
+{
+    var summary = await reader.GetByTokenAsync(token, ct);
+    if (summary is null || clock.UtcNow >= summary.ExpiresAt)
+        return Results.NotFound();
+
+    // A cancelled order is gone as far as its link is concerned; a paid one is a state conflict the
+    // customer can see the truth about on the summary itself (REQ-8.11).
+    if (summary.Status == nameof(OrderStatus.Cancelled))
+        return Results.NotFound();
+    if (summary.Status == nameof(OrderStatus.Paid))
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "This order is already paid.");
+
+    // Orders written before the checkout captured a channel have nothing to charge through. There is no
+    // safe default — picking one would charge the customer down a channel nobody agreed to — so the way
+    // out is the merchant cancelling and re-issuing the order.
+    if (summary.PaymentChannel is not { } channel)
+        return Results.Problem(
+            statusCode: StatusCodes.Status409Conflict, title: "This order has no payment channel to charge through.");
+
+    using var actorBinding = actorScope.Begin(summary.MerchantId);
+
+    // 2C2P only: the customer is redirected, and Omise drives no redirect channel here (design: the
+    // customer-side PSP choice). An ineligible or missing connection surfaces as the handler's own 409.
+    var session = await mediator.Send(
+        new CreateSessionCommand(summary.OrderId, summary.MerchantId, PaymentMethods.ForChannel(channel), Code.TwoCTwoP), ct);
+    var redirect = await mediator.Send(new StartRedirectCommand(session.PaymentSessionId), ct);
+
+    return Results.Ok(new StartRedirectResponse(redirect.RedirectUrl));
+}).AllowAnonymous().RequireRateLimiting(PaymentRateLimiting.PolicyName)
+    .WithTags("คำสั่งซื้อ")
+    .WithName("PayOrder")
+    .WithSummary("ลูกค้าชำระเงินผ่านลิงก์")
+    .WithDescription("เปิด payment session ตามช่องทางที่ร้านค้าเลือกไว้ แล้วคืน URL redirect ของ 2C2P ใช้ opaque token เป็น capability ไม่ต้องมี session/CSRF เรียกซ้ำขณะ session เดิมยังเปิดอยู่จะได้ URL เดิม หากไม่พบ token/token หมดอายุ/คำสั่งซื้อถูกยกเลิก -> 404, คำสั่งซื้อชำระแล้ว/ไม่มีช่องทางชำระบันทึกไว้/ไม่มี connection ที่ชาร์จช่องทางนั้นได้ -> 409")
+    .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+// Where the customer lands back from 2C2P. POST, not GET, because it can SETTLE the payment: it runs the
+// same fetch-to-confirm the webhook does, so a customer who returns before the webhook arrives still gets a
+// true answer instead of a spinner. The response carries the status and nothing else — no session id, no
+// merchant, no charge id (REQ-8.4).
+api.MapPost("/orders/{token}/payment-status", async (
+    string token,
+    IOrderSummaryReader reader,
+    IActorScope actorScope,
+    IMediator mediator,
+    IClock clock,
+    CancellationToken ct) =>
+{
+    var summary = await reader.GetByTokenAsync(token, ct);
+    if (summary is null || clock.UtcNow >= summary.ExpiresAt)
+        return Results.NotFound();
+
+    using var actorBinding = actorScope.Begin(summary.MerchantId);
+
+    var status = await mediator.Send(new ConfirmPaymentStatusCommand(summary.OrderId), ct);
+    return Results.Ok(new PaymentStatusResponse(status.ToString().ToLowerInvariant()));
+}).AllowAnonymous().RequireRateLimiting(PaymentRateLimiting.PolicyName)
+    .WithTags("คำสั่งซื้อ")
+    .WithName("GetOrderPaymentStatus")
+    .WithSummary("สถานะการชำระเงินของลูกค้า")
+    .WithDescription("ตรวจสถานะการชำระเงินของคำสั่งซื้อ: คำสั่งซื้อที่ชำระแล้ว/ยกเลิกแล้วตอบจากตัวคำสั่งซื้อเอง ส่วน session ที่ยังเปิดอยู่จะถูก verify กับ 2C2P ก่อน (เส้นเดียวกับ webhook) คืนค่า paid | failed | pending | cancelled หากไม่พบ token หรือ token หมดอายุ -> 404")
+    .Produces<PaymentStatusResponse>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -2348,8 +2464,10 @@ internal sealed record StartCheckoutRequest(
 internal sealed record OrderSummaryLineResponse(
     Guid ProductId, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
 internal sealed record OrderSummaryResponse(
-    Guid OrderId, string OrderNo, Money Amount, string Status, Guid? PaymentSessionId,
+    Guid OrderId, string OrderNo, Money Amount, string Status,
     IReadOnlyList<OrderSummaryLineResponse> Lines);
+/// <summary>The customer's payment state, lowercase on the wire: paid | failed | pending | cancelled.</summary>
+internal sealed record PaymentStatusResponse(string Status);
 
 // policy-reference-record REQ-1/REQ-3: field-for-field wire twin of ItemPolicyInput — a dedicated request
 // type rather than binding the domain input directly (this codebase's convention, e.g. AddItemToCartRequest).
