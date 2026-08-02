@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 using Mediator;
+using Microsoft.Extensions.Logging;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
@@ -157,8 +158,13 @@ internal sealed class FakeSessionRepository : ISessionRepository
     /// must leave this empty.</summary>
     public List<Session> Added { get; } = [];
 
+    /// <summary>Fires at the moment of the insert. Lets a test observe the world AS the row is added — the
+    /// only way to prove the expire-then-mint ORDER rather than just its end state.</summary>
+    public Action<Session>? OnAdd { get; init; }
+
     public void Add(Session session)
     {
+        OnAdd?.Invoke(session);
         Added.Add(session);
         _sessions.Add(session);
     }
@@ -230,4 +236,22 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
 internal sealed class FixedClock : IClock
 {
     public DateTime UtcNow { get; init; } = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
+}
+
+/// <summary>Keeps every log line so a test can assert that a money/state disagreement was raised at Critical
+/// — the only trace those outcomes leave, since they deliberately change nothing and throw nothing.</summary>
+internal sealed class RecordingLogger<T> : ILogger<T>
+{
+    public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+    public IReadOnlyList<string> Critical =>
+        Entries.Where(e => e.Level == LogLevel.Critical).Select(e => e.Message).ToList();
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(
+        LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+        Entries.Add((logLevel, formatter(state, exception)));
 }

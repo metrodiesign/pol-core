@@ -12,6 +12,11 @@ namespace Payments.Domain;
 /// </summary>
 public sealed class Session : AggregateRoot<Guid>
 {
+    /// <summary>How long a chargeable session stays chargeable, measured from <see cref="CreatedAt"/>. A
+    /// constant, not configuration: it only has to be far longer than a 2C2P hosted page lives, and there is
+    /// no column — the age is derived, so no row can disagree with the rule (REQ-3.1).</summary>
+    public static readonly TimeSpan OpenTtl = TimeSpan.FromHours(24);
+
     public Guid MerchantId { get; private set; }
 
     public Guid OrderId { get; private set; }
@@ -165,6 +170,17 @@ public sealed class Session : AggregateRoot<Guid>
         Status = SessionStatus.Failed;
         UpdatedAt = occurredAt;
     }
+
+    /// <summary>
+    /// Whether this session has outlived <see cref="OpenTtl"/> at <paramref name="now"/>. Only a chargeable
+    /// session (Created/Redirected) can be expired-by-age — a terminal one already has its answer, and
+    /// calling this a second sort of "expired" is what would let a Paid session be re-judged by the clock.
+    /// <para>Being expired by age is NOT permission to <see cref="MarkExpired"/>: a session that carries a
+    /// <see cref="PspExternalChargeId"/> must be confirmed against the PSP first, because money may exist
+    /// for it. That rule lives in <c>PaymentConfirmationService</c>, the only caller that may expire.</para>
+    /// </summary>
+    public bool IsExpiredAt(DateTime now) =>
+        Status is SessionStatus.Created or SessionStatus.Redirected && now - CreatedAt >= OpenTtl;
 
     /// <summary>Guarded transition to <see cref="SessionStatus.Expired"/> from a non-terminal state.</summary>
     public void MarkExpired(DateTime occurredAt)

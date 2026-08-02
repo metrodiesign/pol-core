@@ -1,8 +1,10 @@
 using BuildingBlocks.Application;
 using Mediator;
+using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
+using SharedKernel;
 
 namespace Payments.Application.CreateSession;
 
@@ -14,6 +16,11 @@ namespace Payments.Application.CreateSession;
 /// point, while "the amount is the order's own" is an invariant every caller must pass. The order of the
 /// checks is itself contract: it decides which status code a caller sees (400 malformed method, 404 unknown
 /// order, 409 for every server-state refusal), so it must not be rearranged.
+///
+/// The one-open-session rule is released lazily rather than by a sweeper: an order whose previous attempt
+/// aged past <see cref="Session.OpenTtl"/> gets it retired HERE, at the only moment it blocks anyone
+/// (REQ-3.1/3.2). The age check runs BEFORE the same-channel resume, because a dead hosted page is not
+/// something to hand back to a customer.
 /// </summary>
 public sealed class CreateSessionHandler
     : ICommandHandler<CreateSessionCommand, CreateSessionResult>
@@ -22,6 +29,7 @@ public sealed class CreateSessionHandler
     private readonly IConnectionRepository _connections;
     private readonly IPspAdapterFactory _adapters;
     private readonly ISessionRepository _sessions;
+    private readonly PaymentConfirmationService _confirmation;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
@@ -30,6 +38,7 @@ public sealed class CreateSessionHandler
         IConnectionRepository connections,
         IPspAdapterFactory adapters,
         ISessionRepository sessions,
+        PaymentConfirmationService confirmation,
         IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -37,6 +46,7 @@ public sealed class CreateSessionHandler
         _connections = connections;
         _adapters = adapters;
         _sessions = sessions;
+        _confirmation = confirmation;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
@@ -70,6 +80,32 @@ public sealed class CreateSessionHandler
                 $"The {command.Psp} adapter cannot honour method '{method}'.");
 
         var open = await _sessions.GetOpenForOrderAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
+
+        if (open is not null && open.IsExpiredAt(_clock.UtcNow))
+        {
+            // REQ-3.2: releasing the stale session and minting its replacement land together or not at all —
+            // a release that commits alone leaves the order with no way to pay until someone asks again.
+            // TWO saves inside the one transaction, not one batch: the filtered unique index
+            // IX_PaymentSessions_OrderId_Open forbids two chargeable rows for an order, and EF's
+            // ModificationCommandComparer gives no guarantee that the UPDATE is sent before the INSERT.
+            // Betting the money path on that ordering is how this deadlocks into a 409 nobody can clear.
+            return await _unitOfWork.ExecuteInTransactionAsync(
+                async ct =>
+                {
+                    // Verify-first, ALWAYS: a session carrying a PSP charge may be holding the customer's
+                    // money, so only the confirmation service may retire it. Anything other than a session
+                    // that is now provably terminal-without-payment (Expired/Failed) means we do not know it
+                    // is safe to open a second chargeable attempt — refuse rather than risk a second charge.
+                    var outcome = await _confirmation.ConfirmAsync(open, ct).ConfigureAwait(false);
+                    if (outcome is not (ConfirmationOutcome.Expired or ConfirmationOutcome.Failed))
+                        throw new ConflictException(
+                            $"Order {command.OrderId} has a payment session that could not be released ({outcome}).");
+
+                    return await MintAsync(command, order.Amount, method, ct).ConfigureAwait(false);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+
         if (open is not null)
         {
             // Same channel: hand back the existing session instead of minting a second chargeable one. A
@@ -82,10 +118,19 @@ public sealed class CreateSessionHandler
                 $"Order {command.OrderId} already has an open payment session on a different channel.");
         }
 
+        return await MintAsync(command, order.Amount, method, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<CreateSessionResult> MintAsync(
+        CreateSessionCommand command,
+        Money amount,
+        string method,
+        CancellationToken cancellationToken)
+    {
         var session = Session.Create(
             command.MerchantId,
             command.OrderId,
-            order.Amount,
+            amount,
             method,
             command.Psp,
             _clock.UtcNow);

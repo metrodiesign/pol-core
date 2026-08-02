@@ -1,4 +1,5 @@
 using Contracts;
+using Payments.Application.Confirmation;
 using Payments.Application.HandlePspWebhook;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -57,20 +58,31 @@ public sealed class HandlePspWebhookHandlerTests
         var unitOfWork = new FakeUnitOfWork();
         var idempotency = new FakeIdempotencyStore();
 
+        var connections = new FakeConnectionRepository(connection);
+        var adapters = new FakePspAdapterFactory(new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card)
+        {
+            WebhookVerifies = true,
+            ParsedWebhook = new WebhookEvent(EventId, ChargeId, PspChargeStatus.Paid),
+            OnFetchCharge = onFetchCharge ?? (_ => new PspChargeConfirmation(fetchedStatus, confirmedAmount)),
+        });
+        var vault = new FakeVaultSecretStore();
+        var clock = new FixedClock { UtcNow = Now };
+
         var handler = new HandlePspWebhookHandler(
-            new FakeConnectionRepository(connection),
+            connections,
             new FakeSessionRepository(session),
-            new FakePspAdapterFactory(new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card)
-            {
-                WebhookVerifies = true,
-                ParsedWebhook = new WebhookEvent(EventId, ChargeId, PspChargeStatus.Paid),
-                OnFetchCharge = onFetchCharge ?? (_ => new PspChargeConfirmation(fetchedStatus, confirmedAmount)),
-            }),
-            new FakeVaultSecretStore(),
-            idempotency,
-            outbox,
+            adapters,
+            vault,
             unitOfWork,
-            new FixedClock { UtcNow = Now });
+            new PaymentConfirmationService(
+                connections,
+                adapters,
+                vault,
+                idempotency,
+                outbox,
+                unitOfWork,
+                clock,
+                new RecordingLogger<PaymentConfirmationService>()));
 
         return new Harness(handler, connection.Id, session, outbox, unitOfWork, idempotency);
     }

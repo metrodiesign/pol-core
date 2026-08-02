@@ -28,6 +28,11 @@ public sealed class TransactionInventoryTests
     private static readonly Dictionary<string, int> ExpectedExecuteInTransactionAsyncSites = new()
     {
         ["src/Modules/Payments/Payments.Application/HandlePspWebhook/HandlePspWebhookHandler.cs"] = 1, // row 21
+        // purchase-flow-completion design.md ("Expire + mint ใหม่" -> 2-phase SaveChanges in one transaction):
+        // single-context (txn data plane only). Retiring an aged-out session and minting its replacement must
+        // commit together, and the UPDATE must be sent before the INSERT or the filtered unique index rejects
+        // the pair — hence its own transaction rather than one batched SaveChanges.
+        ["src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs"] = 1,
         ["src/Modules/Admins/Admins.Application/Users/UnassignMerchant.cs"] = 1,                       // row 9
         ["src/Modules/Admins/Admins.Application/Users/ReactivateAdmin.cs"] = 1,                        // row 4
         ["src/Modules/Admins/Admins.Application/Users/RevokeAdminSession.cs"] = 1,                     // row 5
