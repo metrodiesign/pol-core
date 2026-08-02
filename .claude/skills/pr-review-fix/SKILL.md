@@ -33,10 +33,17 @@ Reviewer ผิดได้. ทุก finding ต้องเปิดไฟล
 - แนวแก้ที่ reviewer เสนอสอดคล้อง convention ของ repo — ถ้า repo มี precedent อื่น ให้ยึด precedent
 - ผิดจริงแต่แนวแก้ผิด → แก้ตามแนว repo แล้วอธิบายใน reply
 - finding ไม่จริง → REBUT ใน reply พร้อมชี้ไฟล์:บรรทัด ห้ามแก้ตาม reviewer แบบไม่ตรวจ
+- finding ที่จริง → วิเคราะห์หา root cause ก่อนลงมือ: trace flow จริง (ใครเรียก, ข้อมูลไหลจากไหน,
+  ทำไมถึงเกิด) — จุดที่ reviewer ชี้อาจเป็นปลายเหตุ; แก้ที่ต้นเหตุจุดเดียวที่ทุก path วิ่งผ่าน
+  ไม่ patch เฉพาะจุดที่ถูกชี้แล้วปล่อย sibling path พังต่อ
+- ห้ามเดาทุกกรณี — ทุกข้อสรุป (ปัญหาจริง/ไม่จริง, root cause, แนวแก้) ต้องมีหลักฐานอ้างได้:
+  ไฟล์:บรรทัด, ผล grep callers, ผลรัน test/reproduce จริง — ไม่มีหลักฐาน = ยังสรุปไม่ได้ ต้องหาต่อ
 
 ## 4. แก้บน branch เดิมของ PR
 
 - `git checkout <headRefName>` — working tree ต้องสะอาดก่อนสลับ (มีของค้าง → หยุดถาม user)
+- ก่อนแก้แต่ละ finding สรุป **ก่อน → หลัง**: จะเปลี่ยนอะไร, กระทบ caller/module/contract/test ไหนบ้าง
+  (จาก grep callers จริง ไม่ใช่คาดเดา) — เจอผลกระทบเกิน scope ของ finding → หยุดรายงาน user ก่อนลงมือ
 - แก้ตาม findings ที่ยืนยันแล้ว + **เขียน/ขยาย test ที่จับ regression ของ finding นั้นโดยตรง**
   (finding ที่ไม่มี test จับ = ยังไม่ปิด)
 - feature มาจาก spec (`.ai/specs/<feature>/`) → sync spec artifacts ตามกฎ sync mode:
@@ -55,6 +62,8 @@ Reviewer ผิดได้. ทุก finding ต้องเปิดไฟล
 - ตอบกลับใต้ PR ด้วย `unset GH_TOKEN; gh pr comment <n> --body ...`: ตาราง finding → ผล
   (fixed + commit SHA / rebutted + เหตุผล / deferred + เหตุผล) — evidence จริงเท่านั้น
 - รายงาน user: สรุป findings, สิ่งที่แก้, ผล test, ลิงก์ commit + comment
+  + ผลกระทบต่อระบบของแต่ละการแก้ (พฤติกรรมก่อน → หลัง, โมดูล/endpoint ที่กระทบ)
+  เทียบกับที่ประเมินไว้ก่อนแก้
 - **ห้าม merge เอง** — จบที่ push + reply เสมอ
 
 ## ข้อห้ามยืนพื้น
@@ -62,4 +71,5 @@ Reviewer ผิดได้. ทุก finding ต้องเปิดไฟล
 - ห้ามแก้ตาม finding โดยไม่ verify กับโค้ดจริงก่อน
 - ห้าม push ตรง develop / force push / `--no-verify`
 - ห้ามปิด finding แบบเงียบ (ไม่แก้และไม่ตอบ) — ทุกตัวต้องมีคำตอบใน reply
+- ห้ามสรุป root cause หรือผลกระทบจากการเดา — ไม่มีหลักฐาน = ไม่ลงมือ
 - CI แดงหลัง push → แก้ต่อใน branch เดิม ห้ามทิ้งค้างโดยไม่รายงาน
