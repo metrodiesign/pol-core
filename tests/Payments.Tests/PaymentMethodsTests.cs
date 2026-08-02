@@ -50,6 +50,29 @@ public sealed class PaymentMethodsTests
         Assert.Throws<ArgumentNullException>(() => PaymentMethods.Normalize(null!));
 
     [Theory]
+    [InlineData("CARD", "card")]
+    [InlineData("PROMPTPAY_QR", "promptpay")]
+    [InlineData("INSTALLMENT", "installment")]
+    public void ForChannel_maps_every_checkout_channel_to_its_method(string channel, string expected) =>
+        // purchase-flow-completion REQ-6.1: the ONE translation from the purchase flow's channel wire value
+        // to a payment method. Both the checkout eligibility gate and the customer pay path read it, so a
+        // wrong pair here means a customer picks one channel and is charged on another.
+        Assert.Equal(expected, PaymentMethods.ForChannel(channel));
+
+    [Theory]
+    [InlineData("card")]              // the method code, not a channel — the two vocabularies are separate
+    [InlineData("promptpay_qr")]      // channels are case-sensitive enum member names
+    [InlineData("PROMPTPAY")]
+    [InlineData("QR")]
+    [InlineData("")]
+    public void ForChannel_rejects_a_value_outside_the_channel_contract(string channel) =>
+        Assert.Throws<ArgumentException>(() => PaymentMethods.ForChannel(channel));
+
+    [Fact]
+    public void ForChannel_rejects_null() =>
+        Assert.Throws<ArgumentNullException>(() => PaymentMethods.ForChannel(null!));
+
+    [Theory]
     [InlineData("card", true)]
     [InlineData("CARD", true)]
     [InlineData(" promptpay ", true)]

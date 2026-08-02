@@ -19,6 +19,28 @@ public static class PaymentMethods
     public static bool IsKnown(string? method) =>
         method?.Trim().ToLowerInvariant() is Card or PromptPay or Installment;
 
+    /// <summary>
+    /// Maps a purchase-flow payment CHANNEL wire value (<c>CARD</c>/<c>PROMPTPAY_QR</c>/<c>INSTALLMENT</c> —
+    /// the values a checkout captures and an order carries) to the method code payments speak. The ONE
+    /// place that translation happens: the checkout eligibility gate and the customer pay path both route
+    /// through here, so a channel can never mean one method at checkout and another at charge time.
+    /// </summary>
+    /// <exception cref="ArgumentException">The channel is blank or outside the contract — malformed CLIENT
+    /// input (400), the same class of failure as an unknown method.</exception>
+    public static string ForChannel(string channel)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(channel);
+
+        // Ordinal, case-sensitive: the wire values ARE the enum member names (Checkouts.Domain.PaymentChannel).
+        return channel.Trim() switch
+        {
+            "CARD" => Card,
+            "PROMPTPAY_QR" => PromptPay,
+            "INSTALLMENT" => Installment,
+            _ => throw new ArgumentException($"Unknown payment channel '{channel}'.", nameof(channel)),
+        };
+    }
+
     /// <summary>Returns <paramref name="method"/> as its canonical code (trimmed, lower-invariant).</summary>
     /// <exception cref="ArgumentException">The method is blank or outside the vocabulary — that is
     /// malformed CLIENT input, which the ProblemDetails handler maps to 400. A method the server merely

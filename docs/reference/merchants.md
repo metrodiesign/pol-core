@@ -685,6 +685,13 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 }
 ```
 
+`paymentChannel` ต้องเป็นช่องทางที่ merchant นี้ **ชาร์จได้จริง** ด้วย (REQ-6.1): endpoint ถาม Payments ว่า
+connection 2C2P ของ merchant เปิด method นั้นไว้ (`txn.PspConnections.EnabledMethods`) และ adapter รองรับ
+(`TwoCTwoPAdapter.SupportedMethods` = `card`/`promptpay`/`installment` → PGW channel `CC`/`QR`/`IPP`) —
+ไม่ผ่านข้อใดข้อหนึ่ง (รวมถึงไม่มี connection เลย) -> **400** ตั้งแต่ตอนเริ่มเช็คเอาต์ ไม่ปล่อยให้ไปตาย 409
+ตอนลูกค้ากดจ่าย. mapping `CARD`→`card` / `PROMPTPAY_QR`→`promptpay` / `INSTALLMENT`→`installment` อยู่ที่
+`Payments.Domain.PaymentMethods.ForChannel` ที่เดียว.
+
 ราคาคิดจากฝั่ง server เสมอ: ยอด checkout = Σ(unitPrice x quantity − discount) ของทุกบรรทัดในตะกร้า —
 `amount` ใน body ใช้ *ตรวจ* เท่านั้น ไม่เคยใช้ตั้งราคา. `recipient` เดิมถูกแทนที่ด้วย `customer` (ปลายทางแจ้ง
 ลูกค้า = `customer.phone` ก่อน แล้วจึง `customer.email`).

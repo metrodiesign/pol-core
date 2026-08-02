@@ -36,6 +36,7 @@ using Orders.Domain.Items;
 using Orders.Infrastructure;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
+using Payments.Application.MethodPayable;
 using Payments.Application.ReleaseOpenSession;
 using Payments.Application.StartRedirect;
 using Payments.Domain.Psp;
@@ -50,6 +51,8 @@ using Products.Infrastructure;
 using Products.Infrastructure.Sp;
 // Scalar.AspNetCore also has a DocumentType — the wire enum below is the domain's.
 using DocumentType = Products.Domain.DocumentType;
+// Payments.Domain cannot be imported wholesale here (its SessionStatus collides with the admin one).
+using PaymentMethods = Payments.Domain.PaymentMethods;
 using Merchants.Application.GetMerchant;
 using Merchants.Application.ProvisionMerchant;
 // L6 (hierarchical-naming): Admins.*.Users/.Roles and Merchants.*.Users/.Roles now share bare names (User,
@@ -783,6 +786,13 @@ api.MapPost("/checkouts", async (
     if (!Enum.GetNames<Checkouts.Domain.PaymentChannel>().Contains(body.PaymentChannel, StringComparer.Ordinal)
         || !Enum.TryParse<Checkouts.Domain.PaymentChannel>(body.PaymentChannel, out var channel))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsupported payment channel.");
+
+    // REQ-6.1 — a channel the platform supports is not automatically a channel THIS merchant can be charged
+    // on: the connection's enabled methods and the adapter's own capability both have to admit it. Asked
+    // here, before an order exists, so the merchant cannot commit a customer to a link that would 409 at
+    // pay time. PaymentMethods.ForChannel is the one place a channel becomes a method (T8 pays through it).
+    if (!await mediator.Send(new MethodPayableQuery(actor.MerchantId, PaymentMethods.ForChannel(body.PaymentChannel)), ct))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The payment channel is not available for this merchant.");
 
     // REQ-6.6/6.7 — throws ArgumentException (-> 400) for a missing name/phone or a malformed phone/email.
     var customer = CustomerContact.Of(body.Customer?.Name, body.Customer?.Phone, body.Customer?.Email);

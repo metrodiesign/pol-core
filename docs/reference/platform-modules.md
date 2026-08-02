@@ -930,11 +930,11 @@ claim ที่สะสางไม่จบเมื่อเหตุขั�
 - `PspConnection` ต่อ (tenant, PSP): `EnabledMethods` (ช่องทางที่เปิดต่อ connection), `SecretRefName` (ชี้ secret ใน vault — **credential ไม่อยู่ใน DB**, envelope encryption + reveal ถูก audit), `IsEnabled`, `Metadata` (display-only)
 - adapter ต่อ PSP normalize เป็นสัญญาเดียว `IPspAdapter`: `CreateRedirectChargeAsync` / `VerifyWebhook` / `ParseWebhook` / `FetchChargeAsync` + `SupportedMethods` — ค่าจาก PSP ภายนอกคงรูปเดิมเสมอ (เช่น Omise `authorize_uri`, event `charge.complete`)
 - เป้าหมาย: ทั้ง 3 ช่องทาง (`card`/`promptpay`/`installment`) เปิดได้บนทั้ง 2 PSP แบบ redirect-only —
-  **as-built รองรับจริงเฉพาะ `card`** (ทั้ง 2 adapter ประกาศ `SupportedMethods = { card }`):
-  `OmiseAdapter` throw `NotSupportedException` สำหรับ `promptpay`/`installment`. ตั้งแต่ 2026-07-26
-  `TwoCTwoPAdapter` **derive `paymentChannel` จาก `Session.Method`** แล้ว (ไม่ใช่ค่าคงที่ `["CC"]`) และ
-  method ที่ honour ไม่ได้ถูกปฏิเสธ **409 ที่ create-session** ไม่ถูก substitute เป็นบัตรเงียบ ๆ —
-  แต่ **การ implement 2 ช่องทางที่เหลือยังเป็นช่องว่างอยู่**
+  **as-built: 2C2P ครบ 3 ช่องทางแล้ว** (`SupportedMethods = { card, promptpay, installment }`,
+  purchase-flow-completion REQ-6.1) โดย `TwoCTwoPAdapter` **derive `paymentChannel` จาก `Session.Method`**
+  ผ่าน mapping `card`→`CC` / `promptpay`→`QR` / `installment`→`IPP` (PGW v4.3) ไม่ใช่ค่าคงที่ `["CC"]`
+  และ method ที่ honour ไม่ได้ถูกปฏิเสธโดยไม่ substitute เป็นบัตรเงียบ ๆ;
+  **Omise ยัง `{ card }`** (`OmiseAdapter` throw `NotSupportedException` สำหรับ `promptpay`/`installment`)
   (ดู [ช่องว่าง](#ช่องว่างเทียบเป้าหมาย-as-built-gaps) ข้อ 8)
 
 **ฟีเจอร์ละเอียด**
@@ -1187,12 +1187,11 @@ route/permission/ตารางเดิมทั้งหมด
 5. **Transaction view ยังไม่มี** — ถ้าต้องการหน้า "รายการชำระเงิน" ให้ทำเป็น read model เหนือ `PaymentSession` (ห้ามสร้าง money ledger — non-goal)
 6. **API client ระดับ tenant ยังไม่มี entity** — สิทธิ์ `apikey.manage` จองชื่อไว้ในแคตตาล็อกแล้วแต่ยังไม่ implement
 7. **`src/Modules/Identity` เป็นโฟลเดอร์ค้าง** จากโมดูลที่ถูกลบ (ถูกแทนด้วย Producer) — ควรเก็บกวาดใน housekeeping ถัดไป
-8. **PSP adapter รองรับจริงเฉพาะ `card` — ยังเปิดอยู่** (ทบทวน 2026-07-26): ทั้ง 2 adapter ประกาศ
-   `SupportedMethods = { card }`; `OmiseAdapter.CreateRedirectChargeAsync` ยัง throw
-   `NotSupportedException` สำหรับ `promptpay`/`installment`. **ที่เปลี่ยนแล้ว (ไม่ใช่การปิด gap นี้):**
-   `TwoCTwoPAdapter` derive `paymentChannel` จาก `Session.Method` แทนค่าคงที่ `["CC"]` และ method ที่
-   adapter honour ไม่ได้ถูกปฏิเสธ **409 ที่ create-session** — อาการ "เลือก PromptPay แล้วถูกส่งไปจ่ายด้วย
-   บัตรเงียบ ๆ" หมดไป แต่**ความสามารถยังไม่มี** เป้าหมาย 3 ช่องทาง × 2 PSP จึงยังไม่ถึง.
+8. **Omise ยังรองรับจริงเฉพาะ `card` — ยังเปิดอยู่** (ทบทวน 2026-08-03): `OmiseAdapter` ประกาศ
+   `SupportedMethods = { card }` และ `CreateRedirectChargeAsync` ยัง throw `NotSupportedException`
+   สำหรับ `promptpay`/`installment`. **ที่ปิดไปแล้ว:** 2C2P ครบ 3 ช่องทาง (`CC`/`QR`/`IPP`,
+   purchase-flow-completion REQ-6.1) และ channel ที่ merchant เลือกถูกตรวจ eligibility ตั้งแต่
+   `POST /checkouts` (400) ไม่ใช่ไปโผล่ 409 ตอนลูกค้ากดจ่าย. เป้าหมาย 3 ช่องทาง × 2 PSP จึงเหลือฝั่ง Omise.
    **ทำไมยังไม่ทำ:** ต้อง sandbox-verify ก่อน — Omise PromptPay ต้องผ่าน **Payment Links+ hosted page**
    เท่านั้น (direct source+charge คืน `scannable_code.image.download_uri` = QR offline ที่เราต้องแสดงเอง
    ขัด redirect-only/SAQ A) และ link→charge correlation (`data.id` เป็น charge id ที่ต่างจาก link id)

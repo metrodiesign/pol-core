@@ -8,7 +8,8 @@ using Payments.Domain.Psp;
 namespace Payments.Infrastructure.Psp;
 
 /// <summary>
-/// Real 2C2P Payment Gateway (PGW v4.3) adapter. Redirect-only card flow: every request/response body is
+/// Real 2C2P Payment Gateway (PGW v4.3) adapter. Redirect-only hosted flow on three channels — card (CC),
+/// PromptPay QR (QR) and instalment (IPP): every request/response body is
 /// {"payload": HS256-JWT} signed with the merchant secret key. CreateRedirectChargeAsync -> paymentToken
 /// returns the HOSTED webPaymentUrl (PCI SAQ A — no card fields touch us). FetchChargeAsync -> paymentInquiry
 /// is the authoritative status (respCode). The webhook's authenticity IS the body JWT's HS256 signature.
@@ -27,10 +28,14 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
     public override Code Psp => Code.TwoCTwoP;
 
-    /// <summary>Card only today: the paymentToken request is built with a card payment channel, so a
-    /// promptpay/installment request must be refused up-front instead of being charged as a card.</summary>
+    /// <summary>All three channels PGW v4.3 exposes for a hosted redirect, each with its own paymentChannel
+    /// code (see <see cref="PaymentChannelFor"/>). A method outside this set has no channel code to be sent
+    /// under, so it must be refused up-front rather than charged as something else.</summary>
     public override IReadOnlySet<string> SupportedMethods { get; } =
-        new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment,
+        };
 
     private string BaseUrl => Options.UseSandbox
         ? Options.TwoCTwoP.SandboxBaseUrl
@@ -129,16 +134,18 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             TryReadMajorUnitMoney(GetDecimal(resp, "amount"), GetString(resp, "currencyCode")));
     }
 
-    /// <summary>Maps a canonical payment method to the 2C2P paymentChannel code it must be charged through.
-    /// Card only today — the same truth <see cref="SupportedMethods"/> declares, so create-session has
-    /// already refused everything else (REQ-6.2). A method that still reaches here is a wiring bug and must
-    /// fail naming itself, never be substituted with the card channel: sending a customer who picked
-    /// PromptPay to a card page is the silent mis-routing REQ-6.3/6.4 exist to stop.</summary>
+    /// <summary>Maps a canonical payment method to the PGW v4.3 paymentChannel code it must be charged
+    /// through — the same truth <see cref="SupportedMethods"/> declares, so create-session has already
+    /// refused everything else (REQ-6.2). A method that still reaches here is a wiring bug and must fail
+    /// naming itself, never be substituted with another channel: sending a customer who picked PromptPay to
+    /// a card page is the silent mis-routing REQ-6.3/6.4 exist to stop.</summary>
     private static string PaymentChannelFor(string method) => method.Trim().ToLowerInvariant() switch
     {
         PaymentMethods.Card => "CC",
+        PaymentMethods.PromptPay => "QR",
+        PaymentMethods.Installment => "IPP",
         _ => throw new PspRejectedException(
-            $"2c2p adapter cannot honour payment method '{method}' — it declares card only."),
+            $"2c2p adapter cannot honour payment method '{method}'."),
     };
 
     /// <summary>Maps a 2C2P respCode to the normalized status: "0000"=Paid, in-progress codes=Pending,

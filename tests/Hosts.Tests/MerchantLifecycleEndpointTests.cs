@@ -18,6 +18,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Payments.Application.Ports.Psp;
+using Payments.Domain.Psp;
 using Products.Application;
 using Products.Domain;
 using SharedKernel;
@@ -98,7 +100,33 @@ file sealed class NoOpUnitOfWork : IUnitOfWork
         await operation(cancellationToken);
 }
 
-file sealed class CartFactory(Guid merchantId, Product? product, List<Cart> carts, List<CheckoutSession> sessions)
+// The merchant's 2C2P connection, as the checkout eligibility gate reads it (REQ-6.1). A null method list
+// stands for a merchant with no connection at all. The adapter behind the gate is the REAL TwoCTwoPAdapter
+// the host registers — SupportedMethods needs no HTTP — so these tests see the production capability set.
+file sealed class FakeConnections(Guid merchantId, string? enabledMethods, DateTime now) : IConnectionRepository
+{
+    private readonly Connection? _connection = enabledMethods is null
+        ? null
+        : Connection.Create(merchantId, Code.TwoCTwoP, enabledMethods, "psp/test/2c2p", now);
+
+    public Task<Connection?> GetAsync(Guid merchant, Code psp, CancellationToken cancellationToken) =>
+        Task.FromResult(_connection?.MerchantId == merchant && _connection.Psp == psp ? _connection : null);
+
+    public Task<Connection?> GetByIdAsync(Guid connectionId, CancellationToken cancellationToken) =>
+        Task.FromResult(_connection?.Id == connectionId ? _connection : null);
+
+    public void Add(Connection connection) => throw new NotSupportedException();
+
+    public Task<IReadOnlyList<Connection>> ListByTenantAsync(Guid merchant, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<Connection>>(_connection is null ? [] : [_connection]);
+}
+
+file sealed class CartFactory(
+    Guid merchantId,
+    Product? product,
+    List<Cart> carts,
+    List<CheckoutSession> sessions,
+    string? enabledMethods = "card,promptpay,installment")
     : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -128,6 +156,8 @@ file sealed class CartFactory(Guid merchantId, Product? product, List<Cart> cart
             services.AddScoped<ICartRepository>(_ => new FakeCarts(carts));
             services.AddScoped<ICheckoutRepository>(_ => new FakeCheckouts(sessions));
             services.AddScoped<IUnitOfWork>(_ => new NoOpUnitOfWork());
+            services.AddScoped<IConnectionRepository>(_ => new FakeConnections(
+                merchantId, enabledMethods, new DateTime(2026, 8, 3, 0, 0, 0, DateTimeKind.Utc)));
         });
     }
 }
@@ -408,6 +438,49 @@ public sealed class MerchantLifecycleEndpointTests
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, channel)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+    }
+
+    // REQ-6.1 — a channel the platform supports but THIS merchant's connection does not enable is refused at
+    // start checkout, not left to fail when the customer finally clicks pay. Nothing is written and the cart
+    // stays open, so the merchant can pick a channel that works.
+    [Theory]
+    [InlineData("PROMPTPAY_QR")]
+    [InlineData("INSTALLMENT")]
+    public async Task Starting_a_checkout_on_a_channel_the_merchant_cannot_be_charged_on_is_400(string channel)
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions, enabledMethods: "card");
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, channel)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+
+        // …while a channel that connection DOES enable still goes through, so the gate is reading the
+        // merchant's method list rather than refusing everything.
+        var card = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, "CARD")));
+        Assert.Equal(HttpStatusCode.OK, card.StatusCode);
+    }
+
+    // REQ-6.1 — no PSP connection at all means no channel is chargeable: same 400, no order to strand.
+    [Fact]
+    public async Task Starting_a_checkout_for_a_merchant_with_no_connection_is_400()
+    {
+        var product = UnpaidProduct();
+        var cart = CartWith(product);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, product, [cart], sessions, enabledMethods: null);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(sessions);
