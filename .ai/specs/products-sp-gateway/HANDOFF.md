@@ -15,6 +15,17 @@
 > (spec+HANDOFF ของรูปแบบ DocumentNo ปัจจุบัน), และ `.ai/specs/external-sim-shared-agent-network/`
 > (spec+HANDOFF ของ shared roster ปัจจุบัน) เป็น reference ที่ถูกต้อง จุดที่มีตัวเลข/checklist แบบ
 > current-state-facing ด้านล่างมีหมายเหตุชี้กลับมาที่นี่กำกับไว้เป็นจุด ๆ
+>
+> **เพิ่มเติม (2026-08-02, `.ai/specs/external-sim-realistic-branch-codes/`):** `ReferenceBranch`
+> เปลี่ยนอีกรอบจาก `{900,901,902,903,904}` (sequential, ดูเหมือน row index) เป็น
+> `{301,315,220,335,450}` (SaleCode `77001`/`77006`→`301`, `77002`→`315`, `77003`→`220`,
+> `77004`→`335`, `77005`→`450`) — ค่าตั้งต้น `101`/`115` ถูกทิ้งกลางทางเพราะชนกับ marker `'91'` ที่
+> `external-sim-documentno-format` ฝังใน `PolicySequenceNo` ของ axis row (ดู spec นี้ requirements.md
+> REQ-2.4). `dbo.Documents.BranchCode` (คอลัมน์เดิมที่ validate-only ไม่เคย filter จริง, REQ-2.11 เดิม)
+> ถูก**ลบออกทั้งคอลัมน์** — ไม่มีเหลืออยู่บน `dbo.Documents` ของทั้ง hippodb/mammothdb อีกแล้ว
+> (`@BranchCode` SP input parameter ยังอยู่เหมือนเดิม ไม่เปลี่ยน) spec นี้เป็น current-state reference
+> ล่าสุดของทั้งสองเรื่อง — supersede ทุกตัวอย่าง `ReferenceBranch`/`BranchCode` ที่เขียนไว้ก่อนหน้านี้ใน
+> ไฟล์นี้ (รวมถึง task 1 ด้านล่างที่ยังอ้าง `BranchCode` เป็นคอลัมน์)
 
 ## Setup (lead, 2026-07-31)
 

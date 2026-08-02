@@ -70,7 +70,7 @@ public sealed class SpDocumentContractTests
         Procedure: "dbo.usp_Motor_SearchDocument",
         InsuranceType: "Motor",
         SaleCode: "77001",
-        PolicyYearBranch: "69900",
+        PolicyYearBranch: "69301",
         GroupA: "CMI",
         GroupB: "VMI",
         RejectedGroup: "FIRE",
@@ -91,7 +91,7 @@ public sealed class SpDocumentContractTests
         Procedure: "dbo.usp_NonMotor_SearchDocument",
         InsuranceType: "NonMotor",
         SaleCode: "77001",
-        PolicyYearBranch: "26900",
+        PolicyYearBranch: "26301",
         GroupA: "FIRE",
         GroupB: "MISC",
         RejectedGroup: "CMI",
@@ -389,8 +389,9 @@ public sealed class SpDocumentContractTests
     [InlineData(NonMotor)]
     public async Task Branch_code_is_validated_but_never_filters(string key)
     {
-        // REQ-2.11: §2 makes @BranchCode required but never defines filter semantics. The seed spreads rows
-        // over branches 100/200/300/400, and a branch that matches no row at all still returns everything.
+        // REQ-2.11: §2 makes @BranchCode required but never defines filter semantics — dbo.Documents has no
+        // column to match it against, so any value, including one that matches no row at all, still returns
+        // everything.
         var side = SideOf(key);
 
         foreach (var branch in new[] { "100", "400", "999" })
@@ -677,7 +678,7 @@ public sealed class SpDocumentContractTests
     private static string[] DocumentNumbers(SpResult result) =>
         result.Items.Select(row => Get<string>(row, "DocumentNo")).ToArray();
 
-    /// <summary>The running number at the tail of a DocumentNo ('69900/กธ/910001' -> '910001'). Motor
+    /// <summary>The running number at the tail of a DocumentNo ('69301/กธ/910001' -> '910001'). Motor
     /// ENDORSEMENT rows carry an extra un-delimited '1' after it (REQ-1.3); stripping that digit is branched
     /// on the row's own SourceSystem/DocumentType, never on string length — a 7-char tail is ambiguous on
     /// its own (a plain CMI running number and a VMI running number + flag look identical).</summary>

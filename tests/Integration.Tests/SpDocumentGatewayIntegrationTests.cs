@@ -51,15 +51,15 @@ public sealed class SpDocumentGatewayIntegrationTests
         TotalPages: 2,
         InsuranceTypeWire: "Motor",
         PolicyYear: "69",
-        AxisPolicyNumber: "77001-69900/910001",
-        AxisDocumentNo: "69900/กธ/910001",
+        AxisPolicyNumber: "77001-69301/910001",
+        AxisDocumentNo: "69301/กธ/910001",
         AxisSourceSystem: "VMI",
         AxisShowName: "นายสมชาย ใจดีมงคล",
         AxisTotalPremium: 12500.00m,
         AxisLicensePlate: "1กก 1001",
         AxisPolicyType: "90",                       // seeded for VMI only
-        AxisReferenceBranch: "900",                  // SaleCode 77001 -> broker 701 -> branch 900
-        PaidPolicyNumber: "77001-69900/910007");
+        AxisReferenceBranch: "301",                  // SaleCode 77001 -> broker 701 -> branch 301
+        PaidPolicyNumber: "77001-69301/910007");
 
     private static readonly Side NonMotorSide = new(
         Target: InsuranceType.NonMotor,
@@ -68,15 +68,15 @@ public sealed class SpDocumentGatewayIntegrationTests
         TotalPages: 2,
         InsuranceTypeWire: "NonMotor",
         PolicyYear: "26",
-        AxisPolicyNumber: "77001-26900/000001",
-        AxisDocumentNo: "26900/POL/000001",
+        AxisPolicyNumber: "77001-26301/000001",
+        AxisDocumentNo: "26301/POL/000001",
         AxisSourceSystem: "FIRE",
         AxisShowName: "บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด",
         AxisTotalPremium: 18500.00m,
         AxisLicensePlate: null,                     // §5.2: the Non-Motor procedure returns a constant null
         AxisPolicyType: null,                       // policy-type codes are a Motor concept in this catalogue
-        AxisReferenceBranch: "900",                  // SaleCode 77001 -> broker 701 -> branch 900
-        PaidPolicyNumber: "77001-26900/000007");
+        AxisReferenceBranch: "301",                  // SaleCode 77001 -> broker 701 -> branch 301
+        PaidPolicyNumber: "77001-26301/000007");
 
     // ------------------------------------------------------------------ mapping (REQ-5.1, 5.2, 5.3)
 
@@ -196,8 +196,9 @@ public sealed class SpDocumentGatewayIntegrationTests
     {
         var side = SideOf(key);
 
-        // '999' matches no seeded row. The full result set still comes back, which is the procedure
-        // validating the branch without filtering on it (REQ-2.11) — and proof the value travelled.
+        // dbo.Documents has no column to match '999' against. The full result set still comes back, which is
+        // the procedure validating the branch without filtering on it (REQ-2.11) — and proof the value
+        // travelled.
         var result = await Gateway(branchCode: "999").SearchAsync(Request(side), CancellationToken.None);
 
         Assert.Equal(side.TotalRows, result.Page.TotalRows);

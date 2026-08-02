@@ -30,9 +30,11 @@
 --   1. mammothdb uses ONE dbo.Documents table instead of the real centerdb + firewebdb + miscwebdb
 --      topology (REQ-1.3). The contract we owe is the SP's OUTPUT, not mammoth's internals.
 --   2. dbo.Documents has NO InsuranceType column (F6): each SP returns a constant for its side
---      ('Motor' / 'NonMotor'). BranchCode IS a column but is NOT a predicate — §2 makes it required
---      but never defines filter semantics, so the SP validates it and stops there (REQ-2.11); the
---      column is seeded so a future WHERE has data to bite on.
+--      ('Motor' / 'NonMotor'). dbo.Documents also has NO BranchCode column — §5.2's 32-field output
+--      contract has no such field, only ReferenceBranch (varchar(3)) — so there is nothing for a
+--      seeded column to back. @BranchCode (§2) stays a required, validated input parameter (REQ-5
+--      of external-sim-realistic-branch-codes, supersedes REQ-2.11 of products-sp-gateway); if a
+--      real filter is ever added it targets ReferenceBranch, not a separate column.
 --   3. §5.2 spells the field `previousPolicyNumber`; this sim uses PascalCase `PreviousPolicyNumber`
 --      (MINOR-8). The adapter resolves columns via GetOrdinal, which is case-insensitive.
 --   4. Enum-valued parameters are compared under COLLATE Latin1_General_BIN2 = case-SENSITIVE (M5),
@@ -73,7 +75,6 @@ IF OBJECT_ID(N'dbo.Documents', N'U') IS NULL
 CREATE TABLE dbo.Documents (
     DocumentId           int IDENTITY PRIMARY KEY,  -- sim-internal key + ordering tie-break; never returned
     SourceSystem         varchar(10)   NOT NULL,    -- CMI | VMI
-    BranchCode           varchar(3)    NULL,        -- validated only, never filtered (REQ-2.11)
     DocumentType         varchar(20)   NULL,
     DocumentNo           varchar(150)  NULL,
     PolicyYear           varchar(2)    NULL,
@@ -332,49 +333,49 @@ DECLARE @today date = CAST(GETDATE() AS date);
 -- match) get prefix '80', each zero-padded to this row's own width (7 digits CMI, 6 VMI). A bare
 -- index would collide across the two widths — a 2-digit index leaves a different number of leading
 -- zeros per width (design.md "A discovered conflict this design resolves").
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
+INSERT INTO dbo.Documents (SourceSystem, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 VALUES
     -- in the 6-month window, UNPAID — the plain happy-path rows
-    ('VMI', '100', 'POLICY',      '910001', '77001',
+    ('VMI', 'POLICY',      '910001', '77001',
         DATEADD(day, -30, @today), DATEADD(day, 335, @today), N'นายสมชาย ใจดีมงคล',      12500.00, 'UNPAID', NULL, N'1กก 1001'),
-    ('CMI', '100', 'POLICY',      '9100002', '77001',
+    ('CMI', 'POLICY',      '9100002', '77001',
         DATEADD(day, -60, @today), DATEADD(day, 305, @today), N'นางสาวปรียานุช แสงทองดี',   645.21, 'UNPAID', NULL, NULL),
     -- OUTSIDE the 6-month window (StartDate 245 days back) — must never come back
-    ('VMI', '200', 'POLICY',      '910003', '77001',
+    ('VMI', 'POLICY',      '910003', '77001',
         DATEADD(day, -245, @today), DATEADD(day, 120, @today), N'นายวีรพงษ์ ตันติเจริญ',   9800.00, 'UNPAID', NULL, N'3คค 1003'),
     -- RENEWAL inside the 2-month EndDate window — included even though StartDate is a year back
-    ('VMI', '100', 'RENEWAL',     '910004', '77001',
+    ('VMI', 'RENEWAL',     '910004', '77001',
         DATEADD(day, -335, @today), DATEADD(day, 30, @today), N'นางอรพรรณ ศรีสุขเกษม',    15900.00, 'UNPAID', NULL, N'4งง 1004'),
     -- RENEWAL expiring beyond 2 months — excluded
-    ('CMI', '200', 'RENEWAL',     '9100005', '77001',
+    ('CMI', 'RENEWAL',     '9100005', '77001',
         DATEADD(day, -265, @today), DATEADD(day, 100, @today), N'นายธนกฤต พงษ์พิพัฒน์',     720.00, 'UNPAID', NULL, N'5จจ 1005'),
     -- RENEWAL already expired — excluded (window is [today, today + 2 months))
-    ('VMI', '300', 'RENEWAL',     '910006', '77001',
+    ('VMI', 'RENEWAL',     '910006', '77001',
         DATEADD(day, -375, @today), DATEADD(day, -10, @today), N'นางสาวชนิสรา บุญมาก',     8900.00, 'UNPAID', NULL, N'6ฉฉ 1006'),
     -- PAID with a PaidDate, both sides of @PaymentStatus / @PaidDateFrom-@PaidDateTo
-    ('VMI', '100', 'POLICY',      '910007', '77001',
+    ('VMI', 'POLICY',      '910007', '77001',
         DATEADD(day, -20, @today), DATEADD(day, 345, @today), N'นางสาวพิมพ์ชนก เลิศวัฒนา', 24500.00, 'PAID', DATEADD(day, -7, @today), N'7ชช 1007'),
-    ('CMI', '200', 'ENDORSEMENT', '9100008', '77001',
+    ('CMI', 'ENDORSEMENT', '9100008', '77001',
         DATEADD(day, -15, @today), DATEADD(day, 350, @today), N'นายกิตติพงศ์ อารีย์วงศ์',   6200.00, 'PAID', DATEADD(day, -3, @today), NULL),
     -- APPLICATION never pairs with CMI (§1.2) — VMI only on the Motor side
-    ('VMI', '300', 'APPLICATION', '910009', '77001',
+    ('VMI', 'APPLICATION', '910009', '77001',
         DATEADD(day, -10, @today), DATEADD(day, 355, @today), N'นางสาวสุนิสา วงศ์สว่าง',   32000.00, 'UNPAID', NULL, N'9ญญ 1009'),
     -- Ordinary VMI POLICY row under agent 77002 (สาขาสีลม) — same shape as row 1, different agent/branch.
-    ('VMI', '100', 'POLICY',      '800010', '77002',
+    ('VMI', 'POLICY',      '800010', '77002',
         DATEADD(day, -25, @today), DATEADD(day, 340, @today), N'นายเอกรัตน์ ธีรวุฒิ',      4100.00, 'UNPAID', NULL, N'1ฎฎ 1010'),
     -- ShowName carries literal LIKE metacharacters: @InsuredName = '100%' must match THIS row only
-    ('CMI', '100', 'POLICY',      '8000011', '77001',
+    ('CMI', 'POLICY',      '8000011', '77001',
         DATEADD(day, -5, @today), DATEADD(day, 360, @today), N'บริษัท 100%_มงคลยานยนต์ จำกัด', 590.00, 'UNPAID', NULL, NULL),
-    ('VMI', '400', 'POLICY',      '800012', '77001',
+    ('VMI', 'POLICY',      '800012', '77001',
         DATEADD(day, -1, @today), DATEADD(day, 364, @today), N'นายภาณุวัฒน์ สุขประเสริฐ',    480.00, 'UNPAID', NULL, N'2ฐฐ 1012'),
     -- StartDate exactly 6 months back: the window boundary is inclusive
-    ('CMI', '100', 'POLICY',      '8000013', '77001',
+    ('CMI', 'POLICY',      '8000013', '77001',
         DATEADD(month, -6, @today), DATEADD(day, 180, @today), N'นางเบญจวรรณ ทองอยู่',      390.00, 'UNPAID', NULL, N'3ฑฑ 1013'),
     -- Distinctive plate for the Motor-only smart-search test (mammothdb seeds '8ฮฮ 8888', which its
     -- SP must NOT find)
-    ('VMI', '200', 'ENDORSEMENT', '800014', '77001',
+    ('VMI', 'ENDORSEMENT', '800014', '77001',
         DATEADD(day, -45, @today), DATEADD(day, 320, @today), N'นายจักรพงษ์ วิริยะกุล',    1200.00, 'UNPAID', NULL, N'9ฮฮ 9999');
 
 -- 186 more in-window UNPAID rows (bringing hippodb to 200 total) so a default search overflows the
@@ -382,12 +383,11 @@ VALUES
 -- to prove. StartDate/EndDate offsets are bound via DaysBack (never exceeding 170 days) so every
 -- generated row stays inside the 6-month window (181 days is the calendar minimum) — same intent as
 -- the original 20-row block, just scaled.
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
+INSERT INTO dbo.Documents (SourceSystem, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 SELECT
     CASE WHEN g.value % 2 = 0 THEN 'VMI' ELSE 'CMI' END,
-    CASE g.value % 4 WHEN 0 THEN '100' WHEN 1 THEN '200' WHEN 2 THEN '300' ELSE '400' END,
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     -- REQ-3.4: 100 + g.value, zero-padded to this row's own width (7 CMI, 6 VMI). SourceSystem is
     -- duplicated from the first SELECT-list expression above — T-SQL can't reference a sibling
@@ -516,11 +516,11 @@ SET PolicyYear           = '69',
     CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
 FROM dbo.Documents d
 CROSS APPLY (
-    SELECT CASE WHEN d.SaleCode IN ('77001', '77006') THEN '900'
-                WHEN d.SaleCode =    '77002'          THEN '901'
-                WHEN d.SaleCode =    '77003'          THEN '902'
-                WHEN d.SaleCode =    '77004'          THEN '903'
-                WHEN d.SaleCode =    '77005'          THEN '904' END AS ReferenceBranch
+    SELECT CASE WHEN d.SaleCode IN ('77001', '77006') THEN '301'
+                WHEN d.SaleCode =    '77002'          THEN '315'
+                WHEN d.SaleCode =    '77003'          THEN '220'
+                WHEN d.SaleCode =    '77004'          THEN '335'
+                WHEN d.SaleCode =    '77005'          THEN '450' END AS ReferenceBranch
 ) rb
 -- Abbrev(SourceSystem, DocumentType) — hippodb is Motor-only (CMI|VMI), so only the Motor half of
 -- design.md's table applies: POLICY/RENEWAL share 'กธ' (REQ-2.7), APPLICATION -> 'รย', ENDORSEMENT -> 'อท'.
@@ -612,7 +612,6 @@ IF OBJECT_ID(N'dbo.Documents', N'U') IS NULL
 CREATE TABLE dbo.Documents (
     DocumentId           int IDENTITY PRIMARY KEY,
     SourceSystem         varchar(10)   NOT NULL,    -- FIRE | MISC
-    BranchCode           varchar(3)    NULL,
     DocumentType         varchar(20)   NULL,
     DocumentNo           varchar(150)  NULL,
     PolicyYear           varchar(2)    NULL,
@@ -837,41 +836,41 @@ DECLARE @today date = CAST(GETDATE() AS date);
 -- PolicySequenceNo is a plain 1-based index, 6-digit zero-padded — mammothdb's SourceSystem is
 -- always FIRE/MISC, never CMI, so unlike hippodb there is no width split to defeat with a marker
 -- scheme (design.md "A discovered conflict this design resolves").
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
+INSERT INTO dbo.Documents (SourceSystem, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 VALUES
-    ('FIRE', '100', 'POLICY',      '000001', '77001',
+    ('FIRE', 'POLICY',      '000001', '77001',
         DATEADD(day, -30, @today), DATEADD(day, 335, @today), N'บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด', 18500.00, 'UNPAID', NULL, NULL),
-    ('MISC', '200', 'POLICY',      '000002', '77001',
+    ('MISC', 'POLICY',      '000002', '77001',
         DATEADD(day, -60, @today), DATEADD(day, 305, @today), N'บริษัท ไทยรุ่งเรือง โลจิสติกส์ จำกัด',   32000.00, 'UNPAID', NULL, NULL),
     -- outside the 6-month window
-    ('FIRE', '300', 'POLICY',      '000003', '77001',
+    ('FIRE', 'POLICY',      '000003', '77001',
         DATEADD(day, -245, @today), DATEADD(day, 120, @today), N'ห้างหุ้นส่วนจำกัด สหมิตรการช่าง',      9800.00, 'UNPAID', NULL, NULL),
     -- RENEWAL, StartDate in window, EndDate far past 2 months: INCLUDED here, and the Motor rule
     -- would have dropped it — the pair below is what makes the Non-Motor window rule observable
-    ('FIRE', '100', 'RENEWAL',     '000004', '77001',
+    ('FIRE', 'RENEWAL',     '000004', '77001',
         DATEADD(day, -20, @today), DATEADD(day, 345, @today), N'บริษัท บูรพา อุตสาหกรรมอาหาร จำกัด',    3500.00, 'UNPAID', NULL, NULL),
     -- RENEWAL, StartDate out of window, EndDate inside 2 months: EXCLUDED here (Motor would keep it)
-    ('MISC', '200', 'RENEWAL',     '000005', '77001',
+    ('MISC', 'RENEWAL',     '000005', '77001',
         DATEADD(day, -245, @today), DATEADD(day, 30, @today), N'บริษัท พนาไพร รีสอร์ท จำกัด',           4100.00, 'UNPAID', NULL, NULL),
-    ('MISC', '200', 'APPLICATION', '000006', '77001',
+    ('MISC', 'APPLICATION', '000006', '77001',
         DATEADD(day, -10, @today), DATEADD(day, 355, @today), N'บริษัท ศรีนครินทร์ เรียลเอสเตท จำกัด',  12800.00, 'UNPAID', NULL, NULL),
-    ('FIRE', '100', 'ENDORSEMENT', '000007', '77001',
+    ('FIRE', 'ENDORSEMENT', '000007', '77001',
         DATEADD(day, -15, @today), DATEADD(day, 350, @today), N'บริษัท อุดมโชค เท็กซ์ไทล์ จำกัด',        2100.00, 'PAID', DATEADD(day, -5, @today), NULL),
-    ('MISC', '300', 'POLICY',      '000008', '77001',
+    ('MISC', 'POLICY',      '000008', '77001',
         DATEADD(day, -25, @today), DATEADD(day, 340, @today), N'บริษัท สินไทยพาณิชย์ จำกัด',             990.00, 'PAID', DATEADD(day, -2, @today), NULL),
     -- Ordinary POLICY row under the shared roster's default agent 77001 — same code as every other
     -- mammothdb axis row now that both sides draw from one roster.
-    ('FIRE', '100', 'POLICY',      '000009', '77001',
+    ('FIRE', 'POLICY',      '000009', '77001',
         DATEADD(day, -12, @today), DATEADD(day, 353, @today), N'บริษัท ราชพฤกษ์ คลังสินค้า จำกัด',       450.00, 'UNPAID', NULL, NULL),
     -- literal LIKE metacharacters in ShowName + a stored plate the SP must neither search nor return
-    ('MISC', '400', 'POLICY',      '000010', '77001',
+    ('MISC', 'POLICY',      '000010', '77001',
         DATEADD(day, -5, @today), DATEADD(day, 360, @today), N'ห้างหุ้นส่วนจำกัด 100%_บูรพาการช่าง',      550.00, 'UNPAID', NULL, N'8ฮฮ 8888');
 
 -- 190 more in-window UNPAID rows (bringing mammothdb to 200 total). Same DaysBack-bound + name-pool
 -- scaling as hippodb's block above.
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
+INSERT INTO dbo.Documents (SourceSystem, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 SELECT
@@ -880,7 +879,6 @@ SELECT
     -- modulus would make ORDER BY DocumentNo sort every early page into a single SourceSystem again —
     -- Omitting_every_optional_parameter_applies_the_documented_defaults expects a mix.
     CASE WHEN g.value % 5 < 3 THEN 'FIRE' ELSE 'MISC' END,
-    CASE g.value % 4 WHEN 0 THEN '100' WHEN 1 THEN '200' WHEN 2 THEN '300' ELSE '400' END,
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
     -- REQ-3.4: 100 + g.value, zero-padded to 6 digits. mammothdb's SourceSystem is always FIRE/MISC
     -- (never CMI), so unlike hippodb's generated-row expression there is no width CASE to duplicate.
@@ -997,11 +995,11 @@ SET PolicyYear           = '26',
     CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
 FROM dbo.Documents d
 CROSS APPLY (
-    SELECT CASE WHEN d.SaleCode IN ('77001', '77006') THEN '900'
-                WHEN d.SaleCode =    '77002'          THEN '901'
-                WHEN d.SaleCode =    '77003'          THEN '902'
-                WHEN d.SaleCode =    '77004'          THEN '903'
-                WHEN d.SaleCode =    '77005'          THEN '904' END AS ReferenceBranch
+    SELECT CASE WHEN d.SaleCode IN ('77001', '77006') THEN '301'
+                WHEN d.SaleCode =    '77002'          THEN '315'
+                WHEN d.SaleCode =    '77003'          THEN '220'
+                WHEN d.SaleCode =    '77004'          THEN '335'
+                WHEN d.SaleCode =    '77005'          THEN '450' END AS ReferenceBranch
 ) rb
 -- Abbrev(SourceSystem, DocumentType) — mammothdb is Non-Motor-only (FIRE|MISC), so only the
 -- Non-Motor half of design.md's table applies: POLICY/RENEWAL share 'POL' (REQ-2.7),
