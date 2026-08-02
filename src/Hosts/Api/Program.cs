@@ -36,6 +36,7 @@ using Orders.Domain.Items;
 using Orders.Infrastructure;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
+using Payments.Application.ReleaseOpenSession;
 using Payments.Application.StartRedirect;
 using Payments.Domain.Psp;
 using Payments.Infrastructure;
@@ -921,6 +922,27 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     .WithDescription("หมุน token ของสรุปคำสั่งซื้อและต่ออายุ TTL แล้วคืนลิงก์ใหม่")
     .Produces<ResendOrderSummaryResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+// Cancel = the merchant's way out of an order the customer never paid for (REQ-4). Two units of work, and the
+// ORDER of them is the whole safety property: the payment session must be proven dead first, because an order
+// cancelled while a charge can still settle is money against an order nobody will honour. Release refuses
+// (409) on a live session, a settled one, and an unreachable PSP alike, which is why the cancel below only
+// runs on its success. Both halves are no-ops in their target state, so a retry finishes a half-done call.
+api.MapPost("/orders/{orderId:guid}/cancel", async (
+    Guid orderId, IMediator mediator, CancellationToken ct) =>
+{
+    await mediator.Send(new ReleaseOpenSessionCommand(orderId), ct);
+    var result = await mediator.Send(new CancelOrderCommand(orderId), ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    .WithTags("คำสั่งซื้อ")
+    .WithName("CancelOrder")
+    .WithSummary("ยกเลิกคำสั่งซื้อ")
+    .WithDescription("ปล่อย payment session ที่ค้างอยู่ (หมดอายุ/ถูก PSP ปฏิเสธ) แล้วยกเลิกคำสั่งซื้อ เรียกซ้ำบนคำสั่งซื้อที่ยกเลิกแล้วตอบสำเร็จโดยไม่เปลี่ยนอะไร หากไม่พบคำสั่งซื้อ -> 404, คำสั่งซื้อชำระแล้ว/มี session ที่ยังจ่ายได้อยู่/ถาม PSP ไม่สำเร็จ -> 409")
+    .Produces<CancelOrderResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict);
 
 // Merchant-authenticated order list — every line's InsuredIdNumber masked (REQ-7.4). No reveal audit here.
 api.MapGet("/orders", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
