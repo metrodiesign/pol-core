@@ -146,8 +146,60 @@ public sealed class GetRegistrationHistoryHandlerTests
         Assert.Equal("photo unreadable", result.Timeline[1].Reason); // reject rationale rides along (REQ-2.3, G4)
     }
 
-    private static GetRegistrationHistoryQuery Query(string subject, bool reveal = false) =>
-        new(subject, reveal, ActorSubject: "admin-1", CorrelationId: "corr-1");
+    // --- accessible-merchant floor (REQ-2.7, review PR #161) ---
+
+    [Fact]
+    public async Task A_scoped_admin_outside_the_targets_merchant_gets_null_with_no_audit_even_on_reveal()
+    {
+        var ctx = new Ctx();
+        var merchant = Guid.NewGuid();
+        var user = ctx.SeedUser("g-sub-1");
+        ctx.SeedAttempt(user, 1, idNumber: "1234567890123", email: "somchai@example.com");
+        user.Approve(merchant, Now); // Active, merchant-bound
+        ctx.Accounts.Seed(user);     // re-project the snapshot with the bound MerchantId
+
+        var result = await ctx.Handler.Handle(
+            Query("g-sub-1", reveal: true, unrestricted: false, accessible: new HashSet<Guid> { Guid.NewGuid() }),
+            default);
+
+        Assert.Null(result);                 // same 404 as not-found — no existence leak
+        Assert.Empty(ctx.Audits.Appended);   // the reveal branch is never reached
+        Assert.Equal(0, ctx.Uow.SaveCalls);
+    }
+
+    [Fact]
+    public async Task A_scoped_admin_inside_the_targets_merchant_reads_the_history()
+    {
+        var ctx = new Ctx();
+        var merchant = Guid.NewGuid();
+        var user = ctx.SeedUser("g-sub-1");
+        ctx.SeedAttempt(user, 1, email: "somchai@example.com");
+        user.Approve(merchant, Now);
+        ctx.Accounts.Seed(user);
+
+        var result = await ctx.Handler.Handle(
+            Query("g-sub-1", unrestricted: false, accessible: new HashSet<Guid> { merchant }), default);
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Attempts);
+    }
+
+    [Fact]
+    public async Task A_scoped_admin_still_reads_a_pending_target_with_no_merchant_bound()
+    {
+        var ctx = new Ctx();
+        ctx.SeedUser("g-sub-1"); // PendingApproval — MerchantId NULL, not merchant-bound yet
+
+        var result = await ctx.Handler.Handle(
+            Query("g-sub-1", unrestricted: false, accessible: new HashSet<Guid>()), default);
+
+        Assert.NotNull(result); // pending/rejected stay unrestricted (REQ-2.7)
+    }
+
+    private static GetRegistrationHistoryQuery Query(
+        string subject, bool reveal = false, bool unrestricted = true, IReadOnlySet<Guid>? accessible = null) =>
+        new(subject, reveal, ActorSubject: "admin-1", CorrelationId: "corr-1",
+            IsUnrestrictedAdmin: unrestricted, AccessibleMerchantIds: accessible ?? new HashSet<Guid>());
 
     // --- fakes ---
 

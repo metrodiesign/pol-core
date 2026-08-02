@@ -1,6 +1,6 @@
 # Implementation Tasks: Registration Attempt History
 
-> Status: approved 2026-08-02
+> Status: approved 2026-08-02, amended 2026-08-02 (REQ-2.7 — review PR #161)
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task
 > in one pass (it may touch many files). Decompose into sub-steps yourself at
@@ -25,7 +25,7 @@
        - viewports: n/a — logic-only
        - deviations: none
 - [x] 3. Query ประวัติ + masking + reveal audit — `GetRegistrationHistory.cs` (query/handler/DTO/`PiiMask`) + port `IRegistrationHistoryReader` (AsNoTracking, ตัด action `revealed`, ORDER ตาม design) + adapter + handler ใช้ `IAccountResolver` (404 = null) + audit `revealed` persist ผ่าน `IRegistrationAuditWriter`+`IUserUnitOfWork` ก่อนประกอบ DTO (precedent `GetOrderDetailHandler`); done = handler ครบทุกพฤติกรรม REQ-2 (ยกเว้น endpoint) + REQ-3
-     Satisfies: REQ-2.2, REQ-2.3, REQ-2.4, REQ-2.5, REQ-2.6, REQ-3 (all criteria). Depends on: 1. Verify: `dotnet test tests/Merchants.Tests` (GetRegistrationHistoryHandlerTests ใหม่: mask edges, reveal + audit persist รวม list ว่าง, 404 ไม่ audit, audit fail → throw, เรียง AttemptNo, timeline ไม่มี `revealed`).
+     Satisfies: REQ-2.2, REQ-2.3, REQ-2.4, REQ-2.5, REQ-2.6, REQ-2.7 (amended — review PR #161), REQ-3 (all criteria). Depends on: 1. Verify: `dotnet test tests/Merchants.Tests` (GetRegistrationHistoryHandlerTests ใหม่: mask edges, reveal + audit persist รวม list ว่าง, 404 ไม่ audit, audit fail → throw, เรียง AttemptNo, timeline ไม่มี `revealed`).
      Evidence:
        - test: `dotnet test tests/Merchants.Tests` -> 131 passed / 0 failed (GetRegistrationHistoryHandlerTests ใหม่ 8 ข้อครบทุกพฤติกรรม)
        - viewports: n/a — logic-only
@@ -39,6 +39,10 @@
        - trace: `scripts/spec-trace.sh registration-attempt-history` -> OK 26 เกณฑ์ครบ
        - viewports: n/a — logic-only
        - deviations: full run แรกเจอ pin เก่า 15-key ของ platform_admin ใน `IamRoleResolutionTests` (2 ข้อ) — อัปเดตเป็น 16 แล้วรันซ้ำเขียว; header comment ของ PermissionGateSitesTests ตัวเลขเก่า stale (26 vs Fact 25) แก้ให้ตรงจริงเป็น 8+18=26
+     Evidence (amended 2026-08-02 — REQ-2.7, review PR #161):
+       - fix: accessible-merchant floor ใน `GetRegistrationHistoryHandler` (thread `IsUnrestrictedAdmin`/`AccessibleMerchantIds` จาก `IAdminScope.Accessible` ตาม pattern merchants.policies) — target ผูก merchant นอก scope → null → 404 ไม่ audit
+       - test: `dotnet test tests/Merchants.Tests` -> 134 passed (3 ข้อใหม่: out-of-scope reveal ไม่ audit, in-scope อ่านได้, pending ไม่จำกัด)
+       - test: Hosts.Tests RegistrationHistoryEndpointTests+GateSites -> 33 passed (2 ข้อใหม่: Scoped 404 out-of-scope, 200 in-scope); Architecture lifecycle+WriteFloor -> 20 passed
 
 ## Suggested execution batches
 
@@ -52,7 +56,7 @@
 |-----|------|
 | REQ-1 (1.1-1.9) | 1 (1.3 ยืนยันซ้ำใน e2e ของ task 4) |
 | REQ-2.1 | 4 |
-| REQ-2.2-2.6 | 3 |
+| REQ-2.2-2.7 | 3 (2.7 amended — review PR #161) |
 | REQ-3 (3.1-3.7) | 3 |
 | REQ-4.1, 4.4 | 2 |
 | REQ-4.2, 4.3 | 4 |

@@ -1,6 +1,6 @@
 # Design: Registration Attempt History
 
-> Status: approved 2026-08-02
+> Status: approved 2026-08-02, amended 2026-08-02 (REQ-2.7 accessible-merchant floor — review PR #161)
 
 ## Architecture Overview
 
@@ -108,8 +108,13 @@ Adapters ใน `Persistence.MerchantUsers/Users/MerchantUserRepositories.cs` (�
 
 ```csharp
 public sealed record GetRegistrationHistoryQuery(
-    string Subject, bool Reveal, string ActorSubject, string CorrelationId)
+    string Subject, bool Reveal, string ActorSubject, string CorrelationId,
+    bool IsUnrestrictedAdmin, IReadOnlySet<Guid> AccessibleMerchantIds)
     : IQuery<RegistrationHistoryResult?>; // null → host คืน 404
+// REQ-2.7 (amended, review PR #161): host ส่ง scope.Accessible เป็น primitives ตาม pattern เดียวกับ
+// merchants.policies queries (module นี้อ้าง Admins-plane type ไม่ได้) — handler เช็คหลัง resolve:
+// target ที่ MerchantId ไม่ใช่ NULL และอยู่นอก set → คืน null (404 เดียวกับ not-found, ไม่ audit,
+// ไม่ถึง reveal branch); pending/rejected (NULL) ไม่จำกัด — floor เดียวกับ approve endpoint
 
 public sealed record RegistrationHistoryResult(
     string Subject, UserStatus Status,
@@ -183,6 +188,7 @@ admin.MapGet("/merchants/users/{subject}/registrations",
 | กรณี | พฤติกรรม | REQ |
 |------|----------|-----|
 | subject ไม่พบ | handler คืน null → host 404; ไม่เขียน audit ใด | 2.5, 3.6 |
+| target ผูก merchant นอก accessible set ของ admin | handler คืน null → 404 เดียวกัน (no existence leak, ไม่ audit) | 2.7 |
 | ไม่มี permission `merchants.users.view` | endpoint filter เดิม fail-closed 403 | 4.3 |
 | race `AttemptNo` ชน | unique index → `MerchantUserUnitOfWork` map 409 (message เดิม, ยอมรับกำกวม — m6) | 1.9 |
 | snapshot เขียน fail ใน submit | exception ใน tx → rollback ทั้งก้อน (submit ล้มทั้ง request) | 1.8 |
@@ -218,6 +224,7 @@ admin.MapGet("/merchants/users/{subject}/registrations",
 | `AppendOnlyDescriptor` + GRANT `SELECT,INSERT` (2 ชั้น) | 1.7 |
 | `GetRegistrationHistoryQuery`/handler + `IRegistrationHistoryReader` (ตัด `revealed` จาก timeline) | 2.1, 2.2, 2.3, 2.6 |
 | `IAccountResolver` ใน handler (filter-free) | 2.4, 2.5 |
+| accessible-merchant floor ใน handler (primitives จาก `IAdminScope.Accessible`) | 2.7 |
 | `PiiMask` + `Reveal` flag; ชื่อเต็มผ่าน `AttemptView.FirstName/LastName` | 3.1, 3.2, 3.3, 3.4 |
 | audit `revealed` persist ผ่าน `IUserUnitOfWork` ก่อนประกอบ DTO (precedent `GetOrderDetailHandler`) | 3.5, 3.6, 3.7 |
 | `Keys.MerchantUserView` + seed migration (SortOrder 25) + `RequirePermission` | 4.1, 4.2, 4.3 |

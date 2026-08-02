@@ -1541,16 +1541,20 @@ admin.MapPost("/merchants/users/{subject}/reject", async (
 // omits ?reveal= would 400 and kill the primary masked path (B4). Returns the Application record directly:
 // enums serialize as strings via the global JsonStringEnumConverter, nothing needs reshaping (m4).
 admin.MapGet("/merchants/users/{subject}/registrations", async (
-    string subject, HttpContext http, IMediator mediator, CancellationToken ct, bool reveal = false) =>
+    string subject, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct,
+    bool reveal = false) =>
 {
+    // Accessible-merchant floor (REQ-2.7): threaded as primitives like the merchants.policies endpoints —
+    // a merchant-bound target outside the admin's scope reads as 404 inside the handler (no existence leak).
     var result = await mediator.Send(new GetRegistrationHistoryQuery(
-        subject, reveal, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
+        subject, reveal, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
+        scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
     return result is null ? Results.NotFound() : Results.Ok(result);
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
     .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("GetMerchantUserRegistrationHistory")
     .WithSummary("ดูประวัติการลงทะเบียนของผู้ใช้ร้านค้ารายคน")
-    .WithDescription("ต้องมีสิทธิ์ merchants.users.view คืน snapshot ฟอร์มทุกครั้ง (เรียงตาม AttemptNo) + timeline จาก RegistrationAudits โดย mask PII เป็นค่าเริ่มต้น ส่ง ?reveal=true เพื่อดูค่าเต็ม (ระบบบันทึก audit ว่าเปิดดูทุกครั้ง) ไม่พบเป้าหมาย -> 404")
+    .WithDescription("ต้องมีสิทธิ์ merchants.users.view คืน snapshot ฟอร์มทุกครั้ง (เรียงตาม AttemptNo) + timeline จาก RegistrationAudits โดย mask PII เป็นค่าเริ่มต้น ส่ง ?reveal=true เพื่อดูค่าเต็ม (ระบบบันทึก audit ว่าเปิดดูทุกครั้ง) ไม่พบเป้าหมาย หรือเป้าหมายผูกกับ merchant นอก scope ของ admin -> 404")
     .Produces<RegistrationHistoryResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)

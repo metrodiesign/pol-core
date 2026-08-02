@@ -363,7 +363,8 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         using (var s = AdminPlaneScope())
         {
             var history = await s.HistoryHandler().Handle(
-                new GetRegistrationHistoryQuery("lc-history", Reveal: false, "admin-sub", "corr-h"),
+                new GetRegistrationHistoryQuery("lc-history", Reveal: false, "admin-sub", "corr-h",
+                    IsUnrestrictedAdmin: true, AccessibleMerchantIds: new HashSet<Guid>()),
                 CancellationToken.None);
 
             Assert.NotNull(history);

@@ -11,9 +11,19 @@ namespace Merchants.Application.Users;
 /// returns full values response-wide and writes ONE <see cref="RegistrationAuditAction.Revealed"/> row per
 /// request, saved BEFORE the response is built (fail-closed — precedent <c>GetOrderDetailHandler</c>: a reveal
 /// that cannot be proven audited must not happen). Null result → host returns 404 (no audit, REQ-3.6).
+/// <para>
+/// Accessible-merchant floor (REQ-2.7, review PR #161): permission Scope (which console gates the key) and
+/// admin Tier/accessible set (which merchants an admin reaches) are orthogonal — a Scoped admin can hold
+/// <c>merchants.users.view</c>. So for a merchant-bound (Active) target the caller's accessible set must
+/// allow that merchant, same floor the approve endpoint enforces; out of scope reads as 404 (no existence
+/// leak). Pending/Rejected targets carry no merchant yet and stay unrestricted. Threaded as primitives
+/// (<see cref="IsUnrestrictedAdmin"/>/<see cref="AccessibleMerchantIds"/>) exactly like the
+/// <c>merchants.policies</c> queries — this module cannot reference the Admins-plane scope type.
+/// </para>
 /// </summary>
 public sealed record GetRegistrationHistoryQuery(
-    string Subject, bool Reveal, string ActorSubject, string CorrelationId)
+    string Subject, bool Reveal, string ActorSubject, string CorrelationId,
+    bool IsUnrestrictedAdmin, IReadOnlySet<Guid> AccessibleMerchantIds)
     : IQuery<RegistrationHistoryResult?>;
 
 public sealed record RegistrationHistoryResult(
@@ -63,6 +73,13 @@ public sealed class GetRegistrationHistoryHandler
         var account = await _accounts.FindBySubjectAsync(query.Subject, cancellationToken).ConfigureAwait(false);
         if (account is null)
             return null; // host → 404; no audit of any kind (REQ-2.5/3.6)
+
+        // Accessible-merchant floor (REQ-2.7): a merchant-bound target outside the calling admin's accessible
+        // set reads as the same 404 as "not found" — no existence leak, no audit, and the reveal branch below
+        // is never reached. NULL MerchantId (pending/rejected) is not merchant-bound, so it passes.
+        if (account.MerchantId is Guid boundMerchant
+            && !query.IsUnrestrictedAdmin && !query.AccessibleMerchantIds.Contains(boundMerchant))
+            return null;
 
         var attempts = await _history.ListAttemptsAsync(account.MerchantUserId, cancellationToken).ConfigureAwait(false);
         var audits = await _history.ListAuditsAsync(query.Subject, cancellationToken).ConfigureAwait(false);

@@ -1,6 +1,6 @@
 # Requirements: Registration Attempt History
 
-> Status: approved 2026-08-02
+> Status: approved 2026-08-02, amended 2026-08-02 (REQ-2.7 accessible-merchant floor — review PR #161)
 
 ## Overview
 
@@ -34,6 +34,7 @@ merchant user ที่ถูก admin ปฏิเสธการลงทะ�
 - 2.4 THE SYSTEM SHALL อ่านข้อมูล user ผ่าน read path แบบ filter-free (pre-bind seam) เพราะ target row อาจมี `MerchantId` เป็น NULL
 - 2.5 IF ไม่พบ user ของ `subject` นั้น THEN THE SYSTEM SHALL คืน 404
 - 2.6 WHEN user ยังไม่มี attempt (ลงทะเบียนก่อน feature นี้ deploy และยังไม่ resubmit) THE SYSTEM SHALL คืน list ว่างพร้อม timeline จาก `RegistrationAudits` ตามปกติ (ไม่ error)
+- 2.7 IF target user ผูกกับ merchant แล้ว (`MerchantId` ไม่ใช่ NULL) และ merchant นั้นอยู่นอก accessible set ของ admin ผู้เรียก THEN THE SYSTEM SHALL คืน 404 โดยไม่เขียน audit ใด (no existence leak — floor เดียวกับ approve; target ที่ยังไม่ผูก merchant ไม่ถูกจำกัด)
 
 ## REQ-3: PII Masking and Reveal Audit
 
@@ -80,3 +81,4 @@ merchant user ที่ถูก admin ปฏิเสธการลงทะ�
 | U1 | 1.2/2 | ไม่มี endpoint ดูรูปย้อนหลัง | out of scope — snapshot เก็บ photo metadata เท่านั้น FE ไม่ render รูปจากประวัติ |
 | — | 3.1 | `Phone` mask หรือไม่ (open question เดิม) | mask ด้วย rule เดียวกับ `IdNumber` |
 | — | 4.1 | role ไหนได้ `merchants.users.view` ใน seed (open question เดิม) | ชุดเดียวกับ role ที่ถือ `MerchantUserApprove`/`Reject` |
+| R1 | 2.7 | review PR #161 (claude[bot]): endpoint ไม่บังคับ accessible-merchant floor — Scoped admin ที่ถือ key อ่าน/reveal PII ของ user ต่าง merchant ได้ (permission Scope กับ Tier orthogonal, `SetRolesHandler` ไม่เช็ค Tier) | เพิ่ม REQ-2.7: target ผูก merchant นอก scope → 404 ไม่ audit; pending/rejected ไม่จำกัด — thread primitives ตาม pattern `merchants.policies` |

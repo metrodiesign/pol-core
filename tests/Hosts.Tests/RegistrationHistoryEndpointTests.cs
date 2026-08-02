@@ -46,21 +46,29 @@ file sealed class TestAdminAuthHandler(
     }
 }
 
-file sealed class BoundAdminScope(IReadOnlySet<string> permissions) : IAdminScope
+file sealed class BoundAdminScope(IReadOnlySet<string> permissions, AccessibleMerchants accessible) : IAdminScope
 {
     public bool IsBound => true;
     public Resolution Current { get; } =
-        new(Guid.NewGuid(), "admin@org.com", Tier.Super, AccessibleMerchants.All) { Permissions = permissions };
-    public AccessibleMerchants Accessible => AccessibleMerchants.All;
+        new(Guid.NewGuid(), "admin@org.com", Tier.Super, accessible) { Permissions = permissions };
+    public AccessibleMerchants Accessible => accessible;
 }
 
 file sealed class FakeResolver : IAccountResolver
 {
     public static readonly Guid UserId = Guid.NewGuid();
+    public static readonly Guid ActiveUserId = Guid.NewGuid();
+    public static readonly Guid ActiveMerchantId = Guid.NewGuid();
+
     public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken ct) =>
-        Task.FromResult<AccountSnapshot?>(subject == "g-sub-1"
-            ? new AccountSnapshot(UserId, subject, "somchai@example.com", null, MerchantUserStatus.PendingApproval)
-            : null);
+        Task.FromResult<AccountSnapshot?>(subject switch
+        {
+            "g-sub-1" => new AccountSnapshot(UserId, subject, "somchai@example.com", null,
+                MerchantUserStatus.PendingApproval),
+            "g-sub-active" => new AccountSnapshot(ActiveUserId, subject, "somchai@example.com", ActiveMerchantId,
+                MerchantUserStatus.Active),
+            _ => null,
+        });
     public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
         Task.FromResult<AccountSnapshot?>(null);
 }
@@ -93,7 +101,8 @@ file sealed class NoOpUserUow : IUserUnitOfWork
         operation(ct);
 }
 
-file sealed class HistoryFactory(bool grantViewKey) : WebApplicationFactory<ApiHost::Program>
+file sealed class HistoryFactory(bool grantViewKey, AccessibleMerchants? accessible = null)
+    : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -116,7 +125,8 @@ file sealed class HistoryFactory(bool grantViewKey) : WebApplicationFactory<ApiH
             IReadOnlySet<string> permissions = grantViewKey
                 ? new HashSet<string> { Keys.MerchantUserView }
                 : new HashSet<string>();
-            services.AddScoped<IAdminScope>(_ => new BoundAdminScope(permissions));
+            services.AddScoped<IAdminScope>(_ =>
+                new BoundAdminScope(permissions, accessible ?? AccessibleMerchants.All));
 
             // Last-registered wins for these Scoped ports — the handler runs for real, no DB behind it.
             services.AddScoped<IAccountResolver, FakeResolver>();
@@ -171,5 +181,31 @@ public sealed class RegistrationHistoryEndpointTests
         var response = await client.GetAsync("/api/v1/admins/merchants/users/missing/registrations");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode); // REQ-2.5
+    }
+
+    // REQ-2.7 (review PR #161): a Scoped admin holding the view key still cannot read a merchant-bound user
+    // outside its accessible set — indistinguishable from not-found (no existence leak).
+    [Fact]
+    public async Task Scoped_admin_outside_the_targets_merchant_gets_404()
+    {
+        using var factory = new HistoryFactory(grantViewKey: true,
+            accessible: AccessibleMerchants.Of(new HashSet<Guid> { Guid.NewGuid() }));
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/admins/merchants/users/g-sub-active/registrations?reveal=true");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Scoped_admin_inside_the_targets_merchant_reads_the_history()
+    {
+        using var factory = new HistoryFactory(grantViewKey: true,
+            accessible: AccessibleMerchants.Of(new HashSet<Guid> { FakeResolver.ActiveMerchantId }));
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/admins/merchants/users/g-sub-active/registrations");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 }
