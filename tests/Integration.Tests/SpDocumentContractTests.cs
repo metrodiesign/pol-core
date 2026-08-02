@@ -15,11 +15,14 @@ namespace Integration.Tests;
 /// the procedure read dbo.Documents on a principal that cannot SELECT from it.
 ///
 /// The seed is deterministic and relative to GETDATE(), so expectations are stable on any run day. Rows are
-/// identified by the sequence number at the tail of DocumentNo (see <see cref="Seqs"/>): the full number
-/// embeds a Thai abbreviation, and ORDER BY DocumentNo therefore sorts by THAT letter first
-/// (กธ &lt; ตอ &lt; ปช, บต &lt; อค) — never by the sequence. Only
-/// <see cref="Motor_last_page_is_ordered_by_the_thai_letter_in_the_document_number"/> depends on that order;
-/// everywhere else the expectation is a set.
+/// identified by the running number at the tail of DocumentNo (see <see cref="Seqs"/>) — Motor's
+/// ENDORSEMENT rows carry an extra un-delimited '1' after it (REQ-1.3), stripped only when the row's own
+/// SourceSystem/DocumentType say so. Motor embeds a Thai abbreviation right after the shared
+/// PolicyYear+ReferenceBranch prefix (กธ &lt; รย &lt; อท under Thai_CI_AS), so ORDER BY DocumentNo sorts by
+/// THAT letter first — never by the running number. Only
+/// <see cref="Motor_endorsement_rows_sort_after_every_other_row_by_thai_letter"/> depends on that order;
+/// everywhere else the expectation is a set. Non-Motor's abbreviation (POL/APP/END) is ASCII, so its side
+/// has no equivalent letter-grouping quirk.
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
 [Trait("Category", "Integration")]
@@ -28,15 +31,20 @@ public sealed class SpDocumentContractTests
     private const string Motor = "Motor";
     private const string NonMotor = "NonMotor";
 
-    /// <summary>One simulated upstream and the seed landmarks that make its rules observable. Sequence
-    /// numbers are the DocumentNo tails documented in .ai/specs/products-sp-gateway/HANDOFF.md.</summary>
+    /// <summary>One simulated upstream and the seed landmarks that make its rules observable. Running
+    /// numbers are the DocumentNo tails documented in
+    /// .ai/specs/external-sim-documentno-format/HANDOFF.md.</summary>
+    // Neither is a real SaleCode: "7700" is a strict prefix of every master code (77001-77006), "7001" is a
+    // strict substring (the tail of 77001) — shared by both sides since REQ-1 unified the roster.
+    private const string SaleCodePrefixProbe = "7700";
+    private const string SaleCodeSubstringProbe = "7001";
+
     private sealed record Side(
         string Catalog,
         string Procedure,
         string InsuranceType,
         string SaleCode,
-        string ForeignSaleCode,
-        string ForeignSaleCodeSeq,
+        string PolicyYearBranch,
         string GroupA,
         string GroupB,
         string RejectedGroup,
@@ -52,7 +60,7 @@ public sealed class SpDocumentContractTests
         string LikeMetacharacterSeq,
         string[] PaidSeqs);
 
-    // 42 of hippodb's 200 rows and 39 of mammothdb's 200 fall in the default search (own sale code,
+    // 42 of hippodb's 200 rows and 40 of mammothdb's 200 fall in the default search (own sale code,
     // UNPAID, inside the window — each side spreads its 200 rows across a 6-agent SaleCode roster, and
     // ShowName is grouped 7/7/7/6/6/7 across that roster so a given ShowName always sells through the
     // same agent, so the default search only sees its one agent's share) — the counts 02-external-sim.sql
@@ -62,44 +70,42 @@ public sealed class SpDocumentContractTests
         Procedure: "dbo.usp_Motor_SearchDocument",
         InsuranceType: "Motor",
         SaleCode: "77001",
-        ForeignSaleCode: "90001",
-        ForeignSaleCodeSeq: "950010",
+        PolicyYearBranch: "69900",
         GroupA: "CMI",
         GroupB: "VMI",
         RejectedGroup: "FIRE",
         TotalRows: 42,
         TotalPages: 2,
         LastPageRows: 17,
-        SeqPrefix: "95000",
-        SeqPrefixHits: ["950001", "950002", "950004", "950009"],
-        RenewalDroppedSeqs: ["950005", "950006"],
-        RenewalKeptSeq: "950004",
-        ApplicationSeq: "950009",
-        PolicySeq: "950001",
-        LikeMetacharacterSeq: "950011",
-        PaidSeqs: ["950007", "950008"]);
+        SeqPrefix: "91",
+        SeqPrefixHits: ["910001", "9100002", "910004", "910009"],
+        RenewalDroppedSeqs: ["9100005", "910006"],
+        RenewalKeptSeq: "910004",
+        ApplicationSeq: "910009",
+        PolicySeq: "910001",
+        LikeMetacharacterSeq: "8000011",
+        PaidSeqs: ["910007", "9100008"]);
 
     private static readonly Side NonMotorSide = new(
         Catalog: "mammothdb",
         Procedure: "dbo.usp_NonMotor_SearchDocument",
         InsuranceType: "NonMotor",
-        SaleCode: "90001",
-        ForeignSaleCode: "77001",
-        ForeignSaleCodeSeq: "960009",
+        SaleCode: "77001",
+        PolicyYearBranch: "26900",
         GroupA: "FIRE",
         GroupB: "MISC",
         RejectedGroup: "CMI",
-        TotalRows: 39,
+        TotalRows: 40,
         TotalPages: 2,
-        LastPageRows: 14,
-        SeqPrefix: "96000",
-        SeqPrefixHits: ["960001", "960002", "960004", "960006"],
-        RenewalDroppedSeqs: ["960005"],
-        RenewalKeptSeq: "960004",
-        ApplicationSeq: "960006",
-        PolicySeq: "960001",
-        LikeMetacharacterSeq: "960010",
-        PaidSeqs: ["960007", "960008"]);
+        LastPageRows: 15,
+        SeqPrefix: "00000",
+        SeqPrefixHits: ["000001", "000002", "000004", "000006", "000009"],
+        RenewalDroppedSeqs: ["000005"],
+        RenewalKeptSeq: "000004",
+        ApplicationSeq: "000006",
+        PolicySeq: "000001",
+        LikeMetacharacterSeq: "000010",
+        PaidSeqs: ["000007", "000008"]);
 
     private static readonly string[] ExpectedMetadataColumns =
     [
@@ -141,13 +147,19 @@ public sealed class SpDocumentContractTests
 
         Assert.Equal(25, result.Items.Count);
         Assert.All(result.Items, row => Assert.Equal("UNPAID", row["PaymentStatus"]));
-        // ALL on both axes: the page mixes document types and source systems.
-        Assert.True(result.Items.Select(row => row["DocumentType"]).Distinct().Count() > 1,
-            "@DocumentType defaulting to ALL should leave more than one document type on the page");
-        Assert.True(result.Items.Select(row => row["SourceSystem"]).Distinct().Count() > 1,
-            "@ProductGroup defaulting to ALL should leave more than one source system on the page");
         // InsuranceType is a per-side constant, not a stored column (F6).
         Assert.All(result.Items, row => Assert.Equal(side.InsuranceType, row["InsuranceType"]));
+
+        // ALL on both axes leaves the WHOLE result unfiltered — checked across every row, not just page 1:
+        // REQ-1.1 dropped the SaleCode prefix, so DocumentNo now sorts by its embedded abbreviation first
+        // (REQ-2), and a single-SaleCode page can legitimately be one DocumentType by chance even when
+        // nothing is filtered (e.g. Motor's page 1 is all POLICY, since POLICY/RENEWAL's shared 'กธ'
+        // abbreviation sorts before APPLICATION's 'รย' and ENDORSEMENT's 'อท').
+        var allItems = (await AllPagesAsync(side)).SelectMany(p => p.Items).ToArray();
+        Assert.True(allItems.Select(row => row["DocumentType"]).Distinct().Count() > 1,
+            "@DocumentType defaulting to ALL should leave more than one document type across the full result");
+        Assert.True(allItems.Select(row => row["SourceSystem"]).Distinct().Count() > 1,
+            "@ProductGroup defaulting to ALL should leave more than one source system across the full result");
     }
 
     [Theory]
@@ -345,9 +357,7 @@ public sealed class SpDocumentContractTests
     {
         var side = SideOf(key);
 
-        var pages = new List<SpResult>();
-        for (var pageNo = 1; pageNo <= side.TotalPages; pageNo++)
-            pages.Add(await SearchAsync(side, ("@PageNo", pageNo)));
+        var pages = await AllPagesAsync(side);
 
         Assert.Equal(side.LastPageRows, pages[^1].Items.Count);
         Assert.False(Get<bool>(pages[^1].Metadata, "HasNextPage"));
@@ -364,16 +374,14 @@ public sealed class SpDocumentContractTests
     [Theory]
     [InlineData(Motor)]
     [InlineData(NonMotor)]
-    public async Task Sale_code_is_an_exact_scope_axis(string key)
+    public async Task Sale_code_does_not_match_by_prefix_or_substring(string key)
     {
         var side = SideOf(key);
 
-        // Each side seeds exactly one row under the OTHER side's sale code; asking for it must return that
-        // row and nothing else, which no partial or prefix match could produce.
-        var result = await SearchAsync(side, ("@SaleCode", side.ForeignSaleCode));
-
-        Assert.Equal(new[] { side.ForeignSaleCodeSeq }, Seqs(result));
-        Assert.All(result.Items, row => Assert.Equal(side.ForeignSaleCode, row["SaleCode"]));
+        // Neither probe is a real SaleCode (REQ-5.4 — no landmark row needed): a prefix or substring match
+        // would return rows, an exact match returns none.
+        Assert.Empty((await SearchAsync(side, ("@SaleCode", SaleCodePrefixProbe))).Items);
+        Assert.Empty((await SearchAsync(side, ("@SaleCode", SaleCodeSubstringProbe))).Items);
     }
 
     [Theory]
@@ -434,8 +442,8 @@ public sealed class SpDocumentContractTests
     public async Task Policy_number_and_application_number_match_exactly(string key)
     {
         var side = SideOf(key);
-        var policyNumber = $"{side.SaleCode}-69900/{side.PolicySeq}";
-        var applicationNumber = $"{side.SaleCode}-69900/{side.ApplicationSeq}";
+        var policyNumber = $"{side.SaleCode}-{side.PolicyYearBranch}/{side.PolicySeq}";
+        var applicationNumber = $"{side.SaleCode}-{side.PolicyYearBranch}/{side.ApplicationSeq}";
 
         Assert.Equal(new[] { side.PolicySeq }, Seqs(await SearchAsync(side, ("@PolicyNo", policyNumber))));
         Assert.Empty((await SearchAsync(side, ("@PolicyNo", policyNumber[..^1]))).Items);
@@ -507,10 +515,10 @@ public sealed class SpDocumentContractTests
     {
         // M3 — the reason the window cannot be chosen from @DocumentType at request level: 'ALL' mixes
         // RENEWAL and non-RENEWAL rows, and they obey different rules.
-        //   Motor    keeps 950004 (StartDate 335 days back, EndDate +30) and drops 950005 (EndDate +100) and
-        //            950006 (EndDate -10) — so RENEWAL is judged on EndDate, inside [today, today+2 months).
-        //   NonMotor keeps 960004 (StartDate -20, EndDate +345 — Motor's rule would have dropped it) and
-        //            drops 960005 (StartDate -245, EndDate +30 — Motor's rule would have kept it), so this
+        //   Motor    keeps 910004 (StartDate 335 days back, EndDate +30) and drops 9100005 (EndDate +100) and
+        //            910006 (EndDate -10) — so RENEWAL is judged on EndDate, inside [today, today+2 months).
+        //   NonMotor keeps 000004 (StartDate -20, EndDate +345 — Motor's rule would have dropped it) and
+        //            drops 000005 (StartDate -245, EndDate +30 — Motor's rule would have kept it), so this
         //            side judges every type on StartDate alone.
         // Every dropped row matches the search text, so their absence is the window and nothing else.
         var side = SideOf(key);
@@ -532,8 +540,8 @@ public sealed class SpDocumentContractTests
         var exact = await SearchAsync(MotorSide, ("@SearchText", "9ฮฮ 9999"));
         var partial = await SearchAsync(MotorSide, ("@SearchText", "9ฮฮ"));
 
-        Assert.Equal(new[] { "950014" }, Seqs(exact));
-        Assert.Equal(new[] { "950014" }, Seqs(partial));
+        Assert.Equal(new[] { "800014" }, Seqs(exact));
+        Assert.Equal(new[] { "800014" }, Seqs(partial));
         Assert.Equal("9ฮฮ 9999", exact.Items[0]["LicensePlateNumber"]);
     }
 
@@ -554,27 +562,41 @@ public sealed class SpDocumentContractTests
     [Fact]
     public async Task Motor_coverage_start_window_includes_the_row_sitting_exactly_six_months_back()
     {
-        // REQ-2.5 boundary: 950013 starts on DATEADD(month, -6, today) to the day. It is inside the default
+        // REQ-2.5 boundary: 8000013 starts on DATEADD(month, -6, today) to the day. It is inside the default
         // page, and asking for exactly that day returns it — an exclusive window would lose it silently.
         var pinned = await SearchAsync(MotorSide,
             ("@CoverageStartFrom", DateTime.Today.AddMonths(-6)),
             ("@CoverageStartTo", DateTime.Today.AddMonths(-6)));
 
-        Assert.Equal(new[] { "950013" }, Seqs(pinned));
-        Assert.Contains("950013", Seqs(await SearchAsync(MotorSide)));
+        Assert.Equal(new[] { "8000013" }, Seqs(pinned));
+        Assert.Contains("8000013", Seqs(await SearchAsync(MotorSide)));
     }
 
     [Fact]
-    public async Task Motor_last_page_is_ordered_by_the_thai_letter_in_the_document_number()
+    public async Task Motor_endorsement_rows_sort_after_every_other_row_by_thai_letter()
     {
-        // ORDER BY DocumentNo under Thai_CI_AS sorts on the abbreviation embedded in the number
-        // (กธ < ตอ < ปช): every generated row embeds 'กธ', so the RENEWAL(950004, 'ตอ') and
-        // ENDORSEMENT(950014, 'ปช') axis rows always sort after all of them and land as the last page's
-        // final two entries — however many 'กธ' rows the seed grows to. Pinned here because reading this
-        // order as numeric is the easy mistake to make against this seed.
-        var last = await SearchAsync(MotorSide, ("@PageNo", (int)MotorSide.TotalPages));
+        // ORDER BY DocumentNo under Thai_CI_AS sorts on the abbreviation embedded right after the shared
+        // PolicyYear+ReferenceBranch prefix (กธ < รย < อท): every ENDORSEMENT row — the 2 axis rows plus
+        // roughly a third of the generated rows (REQ-2 fixed the old bug where generated rows always showed
+        // 'กธ' regardless of DocumentType) — carries 'อท', so every one of them must sort after every row
+        // that doesn't, whatever the numeric running number says.
+        var walked = (await AllPagesAsync(MotorSide)).SelectMany(DocumentNumbers).ToArray();
 
-        Assert.Equal(new[] { "950004", "950014" }, Seqs(last)[^2..]);
+        var endorsementPositions = walked
+            .Select((documentNo, position) => (documentNo, position))
+            .Where(x => x.documentNo.Contains("อท", StringComparison.Ordinal))
+            .Select(x => x.position)
+            .ToArray();
+        var otherPositions = walked
+            .Select((documentNo, position) => (documentNo, position))
+            .Where(x => !x.documentNo.Contains("อท", StringComparison.Ordinal))
+            .Select(x => x.position)
+            .ToArray();
+
+        Assert.NotEmpty(endorsementPositions);
+        Assert.NotEmpty(otherPositions);
+        Assert.True(endorsementPositions.Min() > otherPositions.Max(),
+            "every 'อท' (ENDORSEMENT) DocumentNo must sort after every non-'อท' DocumentNo");
     }
 
     // ---------------------------------------------------------------- plumbing
@@ -622,6 +644,17 @@ public sealed class SpDocumentContractTests
         return new SpResult(metadata, metadataColumns, items, itemColumns);
     }
 
+    /// <summary>Walks every page of the side's default search, in order — the full-page-walk shared by
+    /// <see cref="The_pages_cut_one_document_number_ordered_list"/> and
+    /// <see cref="Motor_endorsement_rows_sort_after_every_other_row_by_thai_letter"/>.</summary>
+    private static async Task<List<SpResult>> AllPagesAsync(Side side)
+    {
+        var pages = new List<SpResult>();
+        for (var pageNo = 1; pageNo <= side.TotalPages; pageNo++)
+            pages.Add(await SearchAsync(side, ("@PageNo", pageNo)));
+        return pages;
+    }
+
     private static async Task<int> RejectionAsync(Side side, params (string Name, object? Value)[] arguments)
     {
         var thrown = await Assert.ThrowsAsync<SqlException>(() => SearchAsync(side, arguments));
@@ -644,12 +677,17 @@ public sealed class SpDocumentContractTests
     private static string[] DocumentNumbers(SpResult result) =>
         result.Items.Select(row => Get<string>(row, "DocumentNo")).ToArray();
 
-    /// <summary>The sequence number at the tail of a DocumentNo ('…/กธ/950001-10' -> '950001'), which is how
-    /// the seed's axis rows are named in HANDOFF.md.</summary>
+    /// <summary>The running number at the tail of a DocumentNo ('69900/กธ/910001' -> '910001'). Motor
+    /// ENDORSEMENT rows carry an extra un-delimited '1' after it (REQ-1.3); stripping that digit is branched
+    /// on the row's own SourceSystem/DocumentType, never on string length — a 7-char tail is ambiguous on
+    /// its own (a plain CMI running number and a VMI running number + flag look identical).</summary>
     private static string[] Seqs(SpResult result) =>
-        DocumentNumbers(result).Select(no =>
+        result.Items.Select(row =>
         {
-            var tail = no[(no.LastIndexOf('/') + 1)..];
-            return tail.EndsWith("-10", StringComparison.Ordinal) ? tail[..^3] : tail;
+            var tail = Get<string>(row, "DocumentNo");
+            tail = tail[(tail.LastIndexOf('/') + 1)..];
+            var isMotorEndorsement = Get<string>(row, "SourceSystem") is "CMI" or "VMI"
+                && Get<string>(row, "DocumentType") == "ENDORSEMENT";
+            return isMotorEndorsement ? tail[..^1] : tail;
         }).ToArray();
 }

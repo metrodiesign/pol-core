@@ -5,6 +5,9 @@
 --   sqlcmd -S <server> -U sa -P <pw> -C -b -i 02-external-sim.sql
 -- `-b` = sqlcmd exits non-zero when the self-checks at the bottom THROW.
 -- Spec: .ai/specs/products-sp-gateway/{requirements,design}.md (REQ-1, REQ-2, REQ-3).
+-- Spec: .ai/specs/external-sim-documentno-format/{requirements,design}.md (DocumentNo layout, REQ-1-REQ-9).
+-- Spec: .ai/specs/external-sim-shared-agent-network/{requirements,design}.md (shared 6-agent/broker/
+--   branch roster, REQ-1-REQ-8).
 -- Contract: docs/reference/vcentralpay-sp-quick-reference.pdf v1.0 (§1-§6).
 --
 -- WHAT THIS SIMULATES
@@ -13,6 +16,15 @@
 -- The simulated names deliberately differ from the real catalogue names so nobody mistakes one for
 -- the other; cutover to the real upstream changes a connection string only (InitialCatalog), never
 -- code — the SP names and the output contract are identical.
+--
+-- AGENT / BROKER / BRANCH NETWORK (external-sim-shared-agent-network)
+--   Both databases represent ONE insurance company's shared sales network, not two independent
+--   ones: the same 6-agent/broker/branch master roster (SaleCode 77001-77006) resolves to identical
+--   SaleFullName/BrokerCode/BrokerName/ReferenceBranch/PolicyBranch on both hippodb and mammothdb —
+--   an agent selling Motor policies through hippodb is the same person, under the same broker and
+--   branch, selling Non-Motor policies through mammothdb. hippodb and mammothdb remain two separate
+--   databases on separate servers (still no FK, no cross-database transaction) — only the
+--   agent/broker/branch data they draw from is shared.
 --
 -- DELIBERATE DEVIATIONS (all decided in design.md, do not "fix" them here)
 --   1. mammothdb uses ONE dbo.Documents table instead of the real centerdb + firewebdb + miscwebdb
@@ -96,7 +108,8 @@ GO
 
 -- shop.Products.IX_Products_DocumentNo is unique across the WHOLE local catalogue, so the two
 -- simulated sides must never mint the same DocumentNo (M9). This index enforces it per side; the
--- self-checks enforce the disjoint prefixes ('77…' here, '88…' in mammothdb) that keep the sides apart.
+-- self-checks enforce the disjoint PolicyYear literals ('69…' here, '26…' in mammothdb, REQ-4.1/4.2)
+-- that keep the sides apart (external-sim-documentno-format REQ-6.1).
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = N'UX_Documents_DocumentNo' AND object_id = OBJECT_ID(N'dbo.Documents'))
     CREATE UNIQUE INDEX UX_Documents_DocumentNo ON dbo.Documents(DocumentNo) WHERE DocumentNo IS NOT NULL;
@@ -305,7 +318,8 @@ GO
 -- Seed (REQ-1.4). Deterministic, relative to GETDATE(), and INVENTED — the shapes imitate real
 -- documents, the values are ours (same rule as demo-seed-data). Idempotent by full reload: this
 -- database exists only to be simulated upstream, so there is nothing else in it to preserve.
--- Every DocumentNo starts '77' here and '88' in mammothdb (M9); the self-check enforces it.
+-- Every DocumentNo starts with PolicyYear '69' here and '26' in mammothdb (M9); the self-check
+-- enforces it (external-sim-documentno-format REQ-4.1/4.2/6.1).
 -- ---------------------------------------------------------------------------
 DELETE FROM dbo.Documents;
 GO
@@ -313,49 +327,54 @@ GO
 DECLARE @today date = CAST(GETDATE() AS date);
 
 -- The hand-written rows are the axis rows: each exists to make one contract rule observable.
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, SaleCode,
+-- PolicySequenceNo is marker-prefixed rather than a bare sequential index: rows 1-9 (the ones the
+-- smart-search-window test must MATCH @SearchText = "91") get prefix '91', rows 10-14 (must NOT
+-- match) get prefix '80', each zero-padded to this row's own width (7 digits CMI, 6 VMI). A bare
+-- index would collide across the two widths — a 2-digit index leaves a different number of leading
+-- zeros per width (design.md "A discovered conflict this design resolves").
+INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 VALUES
     -- in the 6-month window, UNPAID — the plain happy-path rows
-    ('VMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950001-10', '77001',
+    ('VMI', '100', 'POLICY',      '910001', '77001',
         DATEADD(day, -30, @today), DATEADD(day, 335, @today), N'นายสมชาย ใจดีมงคล',      12500.00, 'UNPAID', NULL, N'1กก 1001'),
-    ('CMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950002-10', '77001',
+    ('CMI', '100', 'POLICY',      '9100002', '77001',
         DATEADD(day, -60, @today), DATEADD(day, 305, @today), N'นางสาวปรียานุช แสงทองดี',   645.21, 'UNPAID', NULL, NULL),
     -- OUTSIDE the 6-month window (StartDate 245 days back) — must never come back
-    ('VMI', '200', 'POLICY',      '77001-69900/' + N'กธ' + '/950003-10', '77001',
+    ('VMI', '200', 'POLICY',      '910003', '77001',
         DATEADD(day, -245, @today), DATEADD(day, 120, @today), N'นายวีรพงษ์ ตันติเจริญ',   9800.00, 'UNPAID', NULL, N'3คค 1003'),
     -- RENEWAL inside the 2-month EndDate window — included even though StartDate is a year back
-    ('VMI', '100', 'RENEWAL',     '77001-69900/' + N'ตอ' + '/950004-10', '77001',
+    ('VMI', '100', 'RENEWAL',     '910004', '77001',
         DATEADD(day, -335, @today), DATEADD(day, 30, @today), N'นางอรพรรณ ศรีสุขเกษม',    15900.00, 'UNPAID', NULL, N'4งง 1004'),
     -- RENEWAL expiring beyond 2 months — excluded
-    ('CMI', '200', 'RENEWAL',     '77001-69900/' + N'ตอ' + '/950005-10', '77001',
+    ('CMI', '200', 'RENEWAL',     '9100005', '77001',
         DATEADD(day, -265, @today), DATEADD(day, 100, @today), N'นายธนกฤต พงษ์พิพัฒน์',     720.00, 'UNPAID', NULL, N'5จจ 1005'),
     -- RENEWAL already expired — excluded (window is [today, today + 2 months))
-    ('VMI', '300', 'RENEWAL',     '77001-69900/' + N'ตอ' + '/950006-10', '77001',
+    ('VMI', '300', 'RENEWAL',     '910006', '77001',
         DATEADD(day, -375, @today), DATEADD(day, -10, @today), N'นางสาวชนิสรา บุญมาก',     8900.00, 'UNPAID', NULL, N'6ฉฉ 1006'),
     -- PAID with a PaidDate, both sides of @PaymentStatus / @PaidDateFrom-@PaidDateTo
-    ('VMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950007-10', '77001',
+    ('VMI', '100', 'POLICY',      '910007', '77001',
         DATEADD(day, -20, @today), DATEADD(day, 345, @today), N'นางสาวพิมพ์ชนก เลิศวัฒนา', 24500.00, 'PAID', DATEADD(day, -7, @today), N'7ชช 1007'),
-    ('CMI', '200', 'ENDORSEMENT', '77001-69900/' + N'ปช' + '/950008',    '77001',
+    ('CMI', '200', 'ENDORSEMENT', '9100008', '77001',
         DATEADD(day, -15, @today), DATEADD(day, 350, @today), N'นายกิตติพงศ์ อารีย์วงศ์',   6200.00, 'PAID', DATEADD(day, -3, @today), NULL),
     -- APPLICATION never pairs with CMI (§1.2) — VMI only on the Motor side
-    ('VMI', '300', 'APPLICATION', '77001-69900/' + N'กธ' + '/950009-10', '77001',
+    ('VMI', '300', 'APPLICATION', '910009', '77001',
         DATEADD(day, -10, @today), DATEADD(day, 355, @today), N'นางสาวสุนิสา วงศ์สว่าง',   32000.00, 'UNPAID', NULL, N'9ญญ 1009'),
-    -- Different SaleCode: proves @SaleCode is a hard scope axis, not a hint
-    ('VMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950010-10', '90001',
+    -- Ordinary VMI POLICY row under agent 77002 (สาขาสีลม) — same shape as row 1, different agent/branch.
+    ('VMI', '100', 'POLICY',      '800010', '77002',
         DATEADD(day, -25, @today), DATEADD(day, 340, @today), N'นายเอกรัตน์ ธีรวุฒิ',      4100.00, 'UNPAID', NULL, N'1ฎฎ 1010'),
     -- ShowName carries literal LIKE metacharacters: @InsuredName = '100%' must match THIS row only
-    ('CMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950011-10', '77001',
+    ('CMI', '100', 'POLICY',      '8000011', '77001',
         DATEADD(day, -5, @today), DATEADD(day, 360, @today), N'บริษัท 100%_มงคลยานยนต์ จำกัด', 590.00, 'UNPAID', NULL, NULL),
-    ('VMI', '400', 'POLICY',      '77001-69900/' + N'กธ' + '/950012-10', '77001',
+    ('VMI', '400', 'POLICY',      '800012', '77001',
         DATEADD(day, -1, @today), DATEADD(day, 364, @today), N'นายภาณุวัฒน์ สุขประเสริฐ',    480.00, 'UNPAID', NULL, N'2ฐฐ 1012'),
     -- StartDate exactly 6 months back: the window boundary is inclusive
-    ('CMI', '100', 'POLICY',      '77001-69900/' + N'กธ' + '/950013-10', '77001',
+    ('CMI', '100', 'POLICY',      '8000013', '77001',
         DATEADD(month, -6, @today), DATEADD(day, 180, @today), N'นางเบญจวรรณ ทองอยู่',      390.00, 'UNPAID', NULL, N'3ฑฑ 1013'),
     -- Distinctive plate for the Motor-only smart-search test (mammothdb seeds '8ฮฮ 8888', which its
     -- SP must NOT find)
-    ('VMI', '200', 'ENDORSEMENT', '77001-69900/' + N'ปช' + '/950014-10', '77001',
+    ('VMI', '200', 'ENDORSEMENT', '800014', '77001',
         DATEADD(day, -45, @today), DATEADD(day, 320, @today), N'นายจักรพงษ์ วิริยะกุล',    1200.00, 'UNPAID', NULL, N'9ฮฮ 9999');
 
 -- 186 more in-window UNPAID rows (bringing hippodb to 200 total) so a default search overflows the
@@ -363,14 +382,18 @@ VALUES
 -- to prove. StartDate/EndDate offsets are bound via DaysBack (never exceeding 170 days) so every
 -- generated row stays inside the 6-month window (181 days is the calendar minimum) — same intent as
 -- the original 20-row block, just scaled.
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, SaleCode,
+INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 SELECT
     CASE WHEN g.value % 2 = 0 THEN 'VMI' ELSE 'CMI' END,
     CASE g.value % 4 WHEN 0 THEN '100' WHEN 1 THEN '200' WHEN 2 THEN '300' ELSE '400' END,
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
-    '77001-69900/' + N'กธ' + '/' + CONVERT(varchar(6), 950100 + g.value) + '-10',
+    -- REQ-3.4: 100 + g.value, zero-padded to this row's own width (7 CMI, 6 VMI). SourceSystem is
+    -- duplicated from the first SELECT-list expression above — T-SQL can't reference a sibling
+    -- SELECT-list alias (design.md "Generated-row SELECT shape change").
+    RIGHT(REPLICATE('0', 7) + CONVERT(varchar(7), 100 + g.value),
+          CASE WHEN CASE WHEN g.value % 2 = 0 THEN 'VMI' ELSE 'CMI' END = 'CMI' THEN 7 ELSE 6 END),
     -- SaleCode is an agent's own code, so a 6-agent roster needs 6 distinct codes, not one shared
     -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code). Keyed on
     -- names.Idx, not g.value, so every ShowName always sells through the same one agent (an insured
@@ -422,7 +445,9 @@ JOIN (VALUES
 GO
 
 -- Fill the derived document fields for every seeded row in one pass (same idea as seed-demo.sql):
--- the sequence embedded in DocumentNo drives everything, so a re-run reproduces identical values.
+-- PolicySequenceNo already carries the row's running number (set at INSERT time, REQ-3.4/REQ-5), so
+-- this pass composes DocumentNo and the REQ-9 policy-number family FORWARD from it and the row's own
+-- SaleCode/DocumentType/SourceSystem — nothing here parses DocumentNo back out (REQ-5.3).
 -- Premium components are derived backwards from TotalPremium: net + 0.4% stamp + 7% VAT, with
 -- TaxVat as the residual so the three always add up exactly.
 UPDATE d
@@ -431,55 +456,59 @@ SET PolicyYear           = '69',
     -- ReferenceBranch/PolicyBranch is one branch office, code + name — the same paired-set rule as
     -- SaleCode/SaleFullName. A broker's home branch is fixed, and BrokerCode is itself pinned to
     -- SaleCode above, so this chains off d.SaleCode too (same partition as the BrokerCode CASE below,
-    -- just naming the branch instead of the broker).
-    ReferenceBranch      = CASE WHEN d.SaleCode IN ('77001', '77006') THEN '900'
-                                 WHEN d.SaleCode IN ('77002', '90001') THEN '901'
-                                 WHEN d.SaleCode =    '77003'          THEN '902'
-                                 WHEN d.SaleCode =    '77004'          THEN '903'
-                                 WHEN d.SaleCode =    '77005'          THEN '904' END,
+    -- just naming the branch instead of the broker). Sourced from the rb CROSS APPLY below (not an
+    -- inline CASE here) because DocumentNo/PolicyNumber/etc. also need this value and a SET clause
+    -- cannot see another SET clause's result within the same UPDATE.
+    ReferenceBranch      = rb.ReferenceBranch,
     ReferencePre         = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN '900' END,
-    PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
-    ReferenceNo          = CONVERT(varchar(30), v.Seq),
+    ReferenceNo          = d.PolicySequenceNo,
     PolicyBranch         = CASE WHEN d.SaleCode IN ('77001', '77006') THEN N'สำนักงานใหญ่'
-                                 WHEN d.SaleCode IN ('77002', '90001') THEN N'สาขาสีลม'
+                                 WHEN d.SaleCode =    '77002'          THEN N'สาขาสีลม'
                                  WHEN d.SaleCode =    '77003'          THEN N'สาขาเชียงใหม่'
                                  WHEN d.SaleCode =    '77004'          THEN N'สาขาหาดใหญ่'
                                  WHEN d.SaleCode =    '77005'          THEN N'สาขาขอนแก่น' END,
     PolicyType           = CASE WHEN d.SourceSystem = 'VMI' THEN N'90' END,
     -- SaleCode is the agent's own code; SaleFullName is that same agent's name — one code always names
-    -- the same agent, so this is keyed on d.SaleCode, not v.Seq. Covers this side's own 6-agent roster
-    -- (matching the SaleCode CASE in the generate block above) plus '90001', mammothdb's own default
-    -- agent, who shows up here only through the foreign-SaleCode axis probe row.
+    -- the same agent, so this is keyed on d.SaleCode, not the running number. This is the shared
+    -- 6-agent/broker/branch master roster (external-sim-shared-agent-network) — mammothdb's block
+    -- below duplicates this same CASE verbatim, since both databases represent one insurance
+    -- company's sales network.
     SaleFullName         = CASE d.SaleCode
                                WHEN '77001' THEN N'นายกิตติพงศ์ อารีย์วงศ์'
                                WHEN '77002' THEN N'นางสาวสุนิสา วงศ์สว่าง'
                                WHEN '77003' THEN N'นายเอกรัตน์ ธีรวุฒิ'
                                WHEN '77004' THEN N'นางสาวจิราพร คงเจริญ'
                                WHEN '77005' THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
-                               WHEN '77006' THEN N'นางเบญจวรรณ ทองอยู่'
-                               WHEN '90001'  THEN N'นางสาวปาริชาติ วงศ์เจริญพร' END,
+                               WHEN '77006' THEN N'นางเบญจวรรณ ทองอยู่' END,
     -- BrokerCode/BrokerName is the broker firm an agent works under — one agent always sits under the
     -- same broker, so this is keyed on d.SaleCode too (same 5-broker pool mammothdb's block below uses,
     -- since a broker firm can carry both Motor and Non-Motor agents).
     BrokerCode           = CASE d.SaleCode
                                WHEN '77001' THEN '701' WHEN '77002' THEN '702' WHEN '77003' THEN '703'
-                               WHEN '77004' THEN '704' WHEN '77005' THEN '705' WHEN '77006' THEN '701'
-                               WHEN '90001' THEN '702' END,
+                               WHEN '77004' THEN '704' WHEN '77005' THEN '705' WHEN '77006' THEN '701' END,
     BrokerName           = CASE d.SaleCode
                                WHEN '77001' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
                                WHEN '77002' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
                                WHEN '77003' THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
                                WHEN '77004' THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
                                WHEN '77005' THEN N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN '77006' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN '90001' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด' END,
+                               WHEN '77006' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด' END,
+    -- DocumentNo (REQ-1): PolicyYear + ReferenceBranch + '/' + Abbrev + '/' + PolicySequenceNo, with
+    -- Motor's ENDORSEMENT variant appending an un-delimited '1' after the running number (REQ-1.3).
+    DocumentNo           = CASE WHEN d.DocumentType = 'ENDORSEMENT'
+                                THEN CONCAT('69', rb.ReferenceBranch, '/', ab.Abbrev, '/', d.PolicySequenceNo, '1')
+                                ELSE CONCAT('69', rb.ReferenceBranch, '/', ab.Abbrev, '/', d.PolicySequenceNo) END,
     PolicyNumber         = CASE WHEN d.DocumentType <> 'APPLICATION'
-                                THEN CONCAT(d.SaleCode, '-69900/', v.Seq) END,
+                                THEN CONCAT(d.SaleCode, '-69', rb.ReferenceBranch, '/', d.PolicySequenceNo) END,
     ApplicationNumber    = CASE WHEN d.DocumentType = 'APPLICATION'
-                                THEN CONCAT(d.SaleCode, '-69900/', v.Seq) END,
+                                THEN CONCAT(d.SaleCode, '-69', rb.ReferenceBranch, '/', d.PolicySequenceNo) END,
+    -- PrevYear is PolicyYear - 1 ('69' -> '68', a fixed literal per REQ-4.3); the running number is
+    -- re-derived as an integer, decremented, and re-padded to this row's own RunningWidth (REQ-9.2).
     PreviousPolicyNumber = CASE WHEN d.DocumentType IN ('RENEWAL', 'ENDORSEMENT')
-                                THEN CONCAT(d.SaleCode, '-68900/', v.Seq - 1) END,
-    EndorsementNumber    = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', v.Seq) END,
+                                THEN CONCAT(d.SaleCode, '-68', rb.ReferenceBranch, '/',
+                                     RIGHT(REPLICATE('0', 7) + CONVERT(varchar(7), CAST(d.PolicySequenceNo AS int) - 1),
+                                           CASE WHEN d.SourceSystem = 'CMI' THEN 7 ELSE 6 END)) END,
+    EndorsementNumber    = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', d.PolicySequenceNo) END,
     NetPremium           = m.Net,
     Stamp                = m.Stamp,
     TaxVat               = d.TotalPremium - m.Net - m.Stamp,
@@ -487,13 +516,24 @@ SET PolicyYear           = '69',
     CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
 FROM dbo.Documents d
 CROSS APPLY (
-    SELECT CAST(REPLACE(RIGHT(d.DocumentNo, CHARINDEX('/', REVERSE(d.DocumentNo)) - 1), '-10', '') AS int) AS Seq
-) v
+    SELECT CASE WHEN d.SaleCode IN ('77001', '77006') THEN '900'
+                WHEN d.SaleCode =    '77002'          THEN '901'
+                WHEN d.SaleCode =    '77003'          THEN '902'
+                WHEN d.SaleCode =    '77004'          THEN '903'
+                WHEN d.SaleCode =    '77005'          THEN '904' END AS ReferenceBranch
+) rb
+-- Abbrev(SourceSystem, DocumentType) — hippodb is Motor-only (CMI|VMI), so only the Motor half of
+-- design.md's table applies: POLICY/RENEWAL share 'กธ' (REQ-2.7), APPLICATION -> 'รย', ENDORSEMENT -> 'อท'.
+CROSS APPLY (
+    SELECT CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN N'อท'
+                WHEN d.DocumentType = 'APPLICATION' THEN N'รย'
+                ELSE N'กธ' END AS Abbrev
+) ab
 CROSS APPLY (SELECT ROUND(d.TotalPremium / 1.07428, 2) AS Net) n
 CROSS APPLY (
     SELECT n.Net AS Net,
            ROUND(n.Net * 0.004, 2) AS Stamp,
-           CAST(CASE v.Seq % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
+           CAST(CASE CAST(d.PolicySequenceNo AS int) % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
 ) m;
 GO
 
@@ -522,8 +562,22 @@ BEGIN
     THROW 51002, @rowMsg, 1;
 END
 
-IF EXISTS (SELECT 1 FROM dbo.Documents WHERE DocumentNo IS NULL OR DocumentNo NOT LIKE '77%')
-    THROW 51002, N'02-external-sim: hippodb DocumentNo must always start with 77 (mammothdb owns 88).', 1;
+-- Roster-completeness (REQ-4.3): the shared 6-agent master roster must actually be fully present,
+-- not merely true by the current data's coincidence.
+IF (SELECT COUNT(DISTINCT SaleCode) FROM dbo.Documents) <> 6
+BEGIN
+    THROW 51002, N'02-external-sim: hippodb expected exactly 6 distinct SaleCode values (the shared master roster).', 1;
+END
+
+-- ShowName->SaleCode pairing invariant (REQ-1.5) — the one REQ-1.5 invariant not already guaranteed
+-- by construction (every other identity column is set by a SaleCode-keyed CASE/CROSS APPLY).
+IF EXISTS (SELECT 1 FROM dbo.Documents GROUP BY ShowName HAVING COUNT(DISTINCT SaleCode) > 1)
+BEGIN
+    THROW 51002, N'02-external-sim: hippodb a ShowName resolves to more than one SaleCode (ShowName->SaleCode pairing invariant violated).', 1;
+END
+
+IF EXISTS (SELECT 1 FROM dbo.Documents WHERE DocumentNo IS NULL OR DocumentNo NOT LIKE '69%')
+    THROW 51002, N'02-external-sim: hippodb DocumentNo must always start with 69 (PolicyYear literal).', 1;
 
 -- A varchar column under a non-Thai collation, or a sqlcmd input code page that is not UTF-8, turns
 -- Thai text into '?' silently. Fail here instead of shipping mojibake into every downstream test.
@@ -779,62 +833,68 @@ GO
 
 DECLARE @today date = CAST(GETDATE() AS date);
 
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, SaleCode,
+-- The hand-written rows are the axis rows: each exists to make one contract rule observable.
+-- PolicySequenceNo is a plain 1-based index, 6-digit zero-padded — mammothdb's SourceSystem is
+-- always FIRE/MISC, never CMI, so unlike hippodb there is no width split to defeat with a marker
+-- scheme (design.md "A discovered conflict this design resolves").
+INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 VALUES
-    ('FIRE', '100', 'POLICY',      '88001-69900/' + N'อค' + '/960001', '90001',
+    ('FIRE', '100', 'POLICY',      '000001', '77001',
         DATEADD(day, -30, @today), DATEADD(day, 335, @today), N'บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด', 18500.00, 'UNPAID', NULL, NULL),
-    ('MISC', '200', 'POLICY',      '88001-69900/' + N'บต' + '/960002', '90001',
+    ('MISC', '200', 'POLICY',      '000002', '77001',
         DATEADD(day, -60, @today), DATEADD(day, 305, @today), N'บริษัท ไทยรุ่งเรือง โลจิสติกส์ จำกัด',   32000.00, 'UNPAID', NULL, NULL),
     -- outside the 6-month window
-    ('FIRE', '300', 'POLICY',      '88001-69900/' + N'อค' + '/960003', '90001',
+    ('FIRE', '300', 'POLICY',      '000003', '77001',
         DATEADD(day, -245, @today), DATEADD(day, 120, @today), N'ห้างหุ้นส่วนจำกัด สหมิตรการช่าง',      9800.00, 'UNPAID', NULL, NULL),
     -- RENEWAL, StartDate in window, EndDate far past 2 months: INCLUDED here, and the Motor rule
     -- would have dropped it — the pair below is what makes the Non-Motor window rule observable
-    ('FIRE', '100', 'RENEWAL',     '88001-69900/' + N'อค' + '/960004', '90001',
+    ('FIRE', '100', 'RENEWAL',     '000004', '77001',
         DATEADD(day, -20, @today), DATEADD(day, 345, @today), N'บริษัท บูรพา อุตสาหกรรมอาหาร จำกัด',    3500.00, 'UNPAID', NULL, NULL),
     -- RENEWAL, StartDate out of window, EndDate inside 2 months: EXCLUDED here (Motor would keep it)
-    ('MISC', '200', 'RENEWAL',     '88001-69900/' + N'บต' + '/960005', '90001',
+    ('MISC', '200', 'RENEWAL',     '000005', '77001',
         DATEADD(day, -245, @today), DATEADD(day, 30, @today), N'บริษัท พนาไพร รีสอร์ท จำกัด',           4100.00, 'UNPAID', NULL, NULL),
-    ('MISC', '200', 'APPLICATION', '88001-69900/' + N'บต' + '/960006', '90001',
+    ('MISC', '200', 'APPLICATION', '000006', '77001',
         DATEADD(day, -10, @today), DATEADD(day, 355, @today), N'บริษัท ศรีนครินทร์ เรียลเอสเตท จำกัด',  12800.00, 'UNPAID', NULL, NULL),
-    ('FIRE', '100', 'ENDORSEMENT', '88001-69900/' + N'อค' + '/960007', '90001',
+    ('FIRE', '100', 'ENDORSEMENT', '000007', '77001',
         DATEADD(day, -15, @today), DATEADD(day, 350, @today), N'บริษัท อุดมโชค เท็กซ์ไทล์ จำกัด',        2100.00, 'PAID', DATEADD(day, -5, @today), NULL),
-    ('MISC', '300', 'POLICY',      '88001-69900/' + N'บต' + '/960008', '90001',
+    ('MISC', '300', 'POLICY',      '000008', '77001',
         DATEADD(day, -25, @today), DATEADD(day, 340, @today), N'บริษัท สินไทยพาณิชย์ จำกัด',             990.00, 'PAID', DATEADD(day, -2, @today), NULL),
-    -- different SaleCode
-    ('FIRE', '100', 'POLICY',      '88001-69900/' + N'อค' + '/960009', '77001',
+    -- Ordinary POLICY row under the shared roster's default agent 77001 — same code as every other
+    -- mammothdb axis row now that both sides draw from one roster.
+    ('FIRE', '100', 'POLICY',      '000009', '77001',
         DATEADD(day, -12, @today), DATEADD(day, 353, @today), N'บริษัท ราชพฤกษ์ คลังสินค้า จำกัด',       450.00, 'UNPAID', NULL, NULL),
     -- literal LIKE metacharacters in ShowName + a stored plate the SP must neither search nor return
-    ('MISC', '400', 'POLICY',      '88001-69900/' + N'บต' + '/960010', '90001',
+    ('MISC', '400', 'POLICY',      '000010', '77001',
         DATEADD(day, -5, @today), DATEADD(day, 360, @today), N'ห้างหุ้นส่วนจำกัด 100%_บูรพาการช่าง',      550.00, 'UNPAID', NULL, N'8ฮฮ 8888');
 
 -- 190 more in-window UNPAID rows (bringing mammothdb to 200 total). Same DaysBack-bound + name-pool
 -- scaling as hippodb's block above.
-INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, DocumentNo, SaleCode,
+INSERT INTO dbo.Documents (SourceSystem, BranchCode, DocumentType, PolicySequenceNo, SaleCode,
                            StartDate, EndDate, ShowName, TotalPremium, PaymentStatus, PaidDate,
                            LicensePlateNumber)
 SELECT
-    -- SourceSystem is keyed on mod 5, NOT mod 2 like the DocumentNo abbreviation two lines down:
-    -- ORDER BY DocumentNo sorts 'บต' (MISC-only under the old mod-2 coupling) entirely before 'อค', so
-    -- tying both to the same parity made every early page a single SourceSystem once the seed grew past
-    -- one page — Omitting_every_optional_parameter_applies_the_documented_defaults expects a mix.
+    -- SourceSystem is keyed on mod 5, NOT mod 3 like DocumentType (ENDORSEMENT vs POLICY) two lines
+    -- down: the UPDATE below derives Abbrev from DocumentType, so tying SourceSystem to the same
+    -- modulus would make ORDER BY DocumentNo sort every early page into a single SourceSystem again —
+    -- Omitting_every_optional_parameter_applies_the_documented_defaults expects a mix.
     CASE WHEN g.value % 5 < 3 THEN 'FIRE' ELSE 'MISC' END,
     CASE g.value % 4 WHEN 0 THEN '100' WHEN 1 THEN '200' WHEN 2 THEN '300' ELSE '400' END,
     CASE WHEN g.value % 3 = 0 THEN 'ENDORSEMENT' ELSE 'POLICY' END,
-    '88001-69900/' + CASE WHEN g.value % 2 = 0 THEN N'อค' ELSE N'บต' END
-        + '/' + CONVERT(varchar(6), 960100 + g.value),
+    -- REQ-3.4: 100 + g.value, zero-padded to 6 digits. mammothdb's SourceSystem is always FIRE/MISC
+    -- (never CMI), so unlike hippodb's generated-row expression there is no width CASE to duplicate.
+    RIGHT('000000' + CONVERT(varchar(6), 100 + g.value), 6),
     -- SaleCode is an agent's own code, so a 6-agent roster needs 6 distinct codes, not one shared
     -- literal (see the SaleFullName CASE in the UPDATE below, keyed off this same code). Keyed on
     -- names.Idx, not g.value, so every ShowName always sells through the same one agent — same
     -- contiguous 7/7/7/6/6/7 split of the 40-name pool below as hippodb's block above.
-    CASE WHEN names.Idx BETWEEN 0  AND 6  THEN '90001'
-         WHEN names.Idx BETWEEN 7  AND 13 THEN '90002'
-         WHEN names.Idx BETWEEN 14 AND 20 THEN '90003'
-         WHEN names.Idx BETWEEN 21 AND 26 THEN '90004'
-         WHEN names.Idx BETWEEN 27 AND 32 THEN '90005'
-         ELSE                                  '90006' END,
+    CASE WHEN names.Idx BETWEEN 0  AND 6  THEN '77001'
+         WHEN names.Idx BETWEEN 7  AND 13 THEN '77002'
+         WHEN names.Idx BETWEEN 14 AND 20 THEN '77003'
+         WHEN names.Idx BETWEEN 21 AND 26 THEN '77004'
+         WHEN names.Idx BETWEEN 27 AND 32 THEN '77005'
+         ELSE                                  '77006' END,
     DATEADD(day, -o.DaysBack, @today),
     DATEADD(day, 365 - o.DaysBack, @today),
     names.ShowName,
@@ -873,59 +933,63 @@ JOIN (VALUES
 GO
 
 UPDATE d
-SET PolicyYear           = '69',
-    ReferenceYear        = '69',
-    -- Same paired-set rule and broker-chain as hippodb's block above: ReferenceBranch/PolicyBranch is
-    -- one branch office, keyed off d.SaleCode via the same BrokerCode grouping (share the SAME branch
-    -- for the two SaleCodes shared across both sides: '77001' and '90001' land on the branch their
-    -- broker — '701' and '702' respectively — is pinned to there too).
-    ReferenceBranch      = CASE WHEN d.SaleCode IN ('90005', '77001') THEN '900'
-                                 WHEN d.SaleCode IN ('90001', '90006') THEN '901'
-                                 WHEN d.SaleCode =    '90002'          THEN '902'
-                                 WHEN d.SaleCode =    '90003'          THEN '903'
-                                 WHEN d.SaleCode =    '90004'          THEN '904' END,
+SET PolicyYear           = '26',
+    ReferenceYear        = '26',
+    -- ReferenceBranch/PolicyBranch is one branch office, code + name — the same paired-set rule as
+    -- SaleCode/SaleFullName. This is the shared 6-agent/broker/branch master roster
+    -- (external-sim-shared-agent-network), duplicated verbatim from hippodb's block above — both
+    -- databases represent one insurance company's sales network. Sourced from the rb CROSS APPLY
+    -- below (not an inline CASE here) because DocumentNo/PolicyNumber/etc. also need this value and a
+    -- SET clause cannot see another SET clause's result within the same UPDATE.
+    ReferenceBranch      = rb.ReferenceBranch,
     ReferencePre         = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN '900' END,
-    PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
-    ReferenceNo          = CONVERT(varchar(30), v.Seq),
-    PolicyBranch         = CASE WHEN d.SaleCode IN ('90005', '77001') THEN N'สำนักงานใหญ่'
-                                 WHEN d.SaleCode IN ('90001', '90006') THEN N'สาขาสีลม'
-                                 WHEN d.SaleCode =    '90002'          THEN N'สาขาเชียงใหม่'
-                                 WHEN d.SaleCode =    '90003'          THEN N'สาขาหาดใหญ่'
-                                 WHEN d.SaleCode =    '90004'          THEN N'สาขาขอนแก่น' END,
+    ReferenceNo          = d.PolicySequenceNo,
+    PolicyBranch         = CASE WHEN d.SaleCode IN ('77001', '77006') THEN N'สำนักงานใหญ่'
+                                 WHEN d.SaleCode =    '77002'          THEN N'สาขาสีลม'
+                                 WHEN d.SaleCode =    '77003'          THEN N'สาขาเชียงใหม่'
+                                 WHEN d.SaleCode =    '77004'          THEN N'สาขาหาดใหญ่'
+                                 WHEN d.SaleCode =    '77005'          THEN N'สาขาขอนแก่น' END,
     PolicyType           = NULL,   -- product-type code is a Motor/VMI concept in this catalogue
-    -- SaleCode is the agent's own code; SaleFullName is that same agent's name — keyed on d.SaleCode,
-    -- not v.Seq. Covers this side's own 6-agent roster (matching the SaleCode CASE in the generate
-    -- block above) plus '77001', hippodb's own default agent, who shows up here only through the
-    -- foreign-SaleCode axis probe row.
+    -- SaleCode is the agent's own code; SaleFullName is that same agent's name — one code always names
+    -- the same agent, so this is keyed on d.SaleCode, not the running number. This is the shared
+    -- 6-agent/broker/branch master roster (external-sim-shared-agent-network), duplicated verbatim
+    -- from hippodb's block above — both databases represent one insurance company's sales network.
     SaleFullName         = CASE d.SaleCode
-                               WHEN '90001' THEN N'นางสาวปาริชาติ วงศ์เจริญพร'
-                               WHEN '90002' THEN N'นายจิรายุ ภูวไนย'
-                               WHEN '90003' THEN N'นางสาวกันตา ศรีวิไล'
-                               WHEN '90004' THEN N'นายพงศกร แสนสุข'
-                               WHEN '90005' THEN N'นางสาวอรอนงค์ ตั้งมั่นคง'
-                               WHEN '90006' THEN N'นายวิชัย เกียรติกุล'
-                               WHEN '77001' THEN N'นายกิตติพงศ์ อารีย์วงศ์' END,
-    -- Same broker pool and pairing rule as hippodb's block above — the two SaleCodes shared across
-    -- both sides ('77001', '90001') must land on the SAME broker here as there.
+                               WHEN '77001' THEN N'นายกิตติพงศ์ อารีย์วงศ์'
+                               WHEN '77002' THEN N'นางสาวสุนิสา วงศ์สว่าง'
+                               WHEN '77003' THEN N'นายเอกรัตน์ ธีรวุฒิ'
+                               WHEN '77004' THEN N'นางสาวจิราพร คงเจริญ'
+                               WHEN '77005' THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
+                               WHEN '77006' THEN N'นางเบญจวรรณ ทองอยู่' END,
+    -- BrokerCode/BrokerName is the broker firm an agent works under — one agent always sits under the
+    -- same broker, so this is keyed on d.SaleCode too. Same shared master roster, duplicated verbatim
+    -- from hippodb's block above.
     BrokerCode           = CASE d.SaleCode
-                               WHEN '90001' THEN '702' WHEN '90002' THEN '703' WHEN '90003' THEN '704'
-                               WHEN '90004' THEN '705' WHEN '90005' THEN '701' WHEN '90006' THEN '702'
-                               WHEN '77001' THEN '701' END,
+                               WHEN '77001' THEN '701' WHEN '77002' THEN '702' WHEN '77003' THEN '703'
+                               WHEN '77004' THEN '704' WHEN '77005' THEN '705' WHEN '77006' THEN '701' END,
     BrokerName           = CASE d.SaleCode
-                               WHEN '90001' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
-                               WHEN '90002' THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN '90003' THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
-                               WHEN '90004' THEN N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN '90005' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN '90006' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
-                               WHEN '77001' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด' END,
+                               WHEN '77001' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '77002' THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
+                               WHEN '77003' THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '77004' THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
+                               WHEN '77005' THEN N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด'
+                               WHEN '77006' THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด' END,
+    -- DocumentNo (REQ-1): PolicyYear + ReferenceBranch + '/' + Abbrev + '/' + PolicySequenceNo, with
+    -- Non-Motor's ENDORSEMENT variant prefixing '1-' before the whole base instead of appending a
+    -- trailing digit (REQ-1.2 — a different position from Motor's trailing '1' in REQ-1.3, do not swap).
+    DocumentNo           = CASE WHEN d.DocumentType = 'ENDORSEMENT'
+                                THEN CONCAT('1-26', rb.ReferenceBranch, '/', ab.Abbrev, '/', d.PolicySequenceNo)
+                                ELSE CONCAT('26', rb.ReferenceBranch, '/', ab.Abbrev, '/', d.PolicySequenceNo) END,
     PolicyNumber         = CASE WHEN d.DocumentType <> 'APPLICATION'
-                                THEN CONCAT(d.SaleCode, '-69900/', v.Seq) END,
+                                THEN CONCAT(d.SaleCode, '-26', rb.ReferenceBranch, '/', d.PolicySequenceNo) END,
     ApplicationNumber    = CASE WHEN d.DocumentType = 'APPLICATION'
-                                THEN CONCAT(d.SaleCode, '-69900/', v.Seq) END,
+                                THEN CONCAT(d.SaleCode, '-26', rb.ReferenceBranch, '/', d.PolicySequenceNo) END,
+    -- PrevYear is PolicyYear - 1 ('26' -> '25', a fixed literal per REQ-4.3); the running number is
+    -- re-derived as an integer, decremented, and re-padded to 6 digits (REQ-9.2).
     PreviousPolicyNumber = CASE WHEN d.DocumentType IN ('RENEWAL', 'ENDORSEMENT')
-                                THEN CONCAT(d.SaleCode, '-68900/', v.Seq - 1) END,
-    EndorsementNumber    = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', v.Seq) END,
+                                THEN CONCAT(d.SaleCode, '-25', rb.ReferenceBranch, '/',
+                                     RIGHT('000000' + CONVERT(varchar(6), CAST(d.PolicySequenceNo AS int) - 1), 6)) END,
+    EndorsementNumber    = CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', d.PolicySequenceNo) END,
     NetPremium           = m.Net,
     Stamp                = m.Stamp,
     TaxVat               = d.TotalPremium - m.Net - m.Stamp,
@@ -933,13 +997,25 @@ SET PolicyYear           = '69',
     CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
 FROM dbo.Documents d
 CROSS APPLY (
-    SELECT CAST(REPLACE(RIGHT(d.DocumentNo, CHARINDEX('/', REVERSE(d.DocumentNo)) - 1), '-10', '') AS int) AS Seq
-) v
+    SELECT CASE WHEN d.SaleCode IN ('77001', '77006') THEN '900'
+                WHEN d.SaleCode =    '77002'          THEN '901'
+                WHEN d.SaleCode =    '77003'          THEN '902'
+                WHEN d.SaleCode =    '77004'          THEN '903'
+                WHEN d.SaleCode =    '77005'          THEN '904' END AS ReferenceBranch
+) rb
+-- Abbrev(SourceSystem, DocumentType) — mammothdb is Non-Motor-only (FIRE|MISC), so only the
+-- Non-Motor half of design.md's table applies: POLICY/RENEWAL share 'POL' (REQ-2.7),
+-- APPLICATION -> 'APP', ENDORSEMENT -> 'END'.
+CROSS APPLY (
+    SELECT CASE WHEN d.DocumentType = 'ENDORSEMENT' THEN 'END'
+                WHEN d.DocumentType = 'APPLICATION' THEN 'APP'
+                ELSE 'POL' END AS Abbrev
+) ab
 CROSS APPLY (SELECT ROUND(d.TotalPremium / 1.07428, 2) AS Net) n
 CROSS APPLY (
     SELECT n.Net AS Net,
            ROUND(n.Net * 0.004, 2) AS Stamp,
-           CAST(CASE v.Seq % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
+           CAST(CASE CAST(d.PolicySequenceNo AS int) % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
 ) m;
 GO
 
@@ -966,29 +1042,70 @@ BEGIN
     THROW 51002, @rowMsg, 1;
 END
 
-IF EXISTS (SELECT 1 FROM dbo.Documents WHERE DocumentNo IS NULL OR DocumentNo NOT LIKE '88%')
-    THROW 51002, N'02-external-sim: mammothdb DocumentNo must always start with 88 (hippodb owns 77).', 1;
+-- Roster-completeness (REQ-4.3): the shared 6-agent master roster must actually be fully present,
+-- not merely true by the current data's coincidence.
+IF (SELECT COUNT(DISTINCT SaleCode) FROM dbo.Documents) <> 6
+BEGIN
+    THROW 51002, N'02-external-sim: mammothdb expected exactly 6 distinct SaleCode values (the shared master roster).', 1;
+END
+
+-- ShowName->SaleCode pairing invariant (REQ-1.5) — the one REQ-1.5 invariant not already guaranteed
+-- by construction (every other identity column is set by a SaleCode-keyed CASE/CROSS APPLY).
+IF EXISTS (SELECT 1 FROM dbo.Documents GROUP BY ShowName HAVING COUNT(DISTINCT SaleCode) > 1)
+BEGIN
+    THROW 51002, N'02-external-sim: mammothdb a ShowName resolves to more than one SaleCode (ShowName->SaleCode pairing invariant violated).', 1;
+END
+
+IF EXISTS (SELECT 1 FROM dbo.Documents
+           WHERE DocumentNo IS NULL OR (DocumentNo NOT LIKE '26%' AND DocumentNo NOT LIKE '1-26%'))
+    THROW 51002, N'02-external-sim: mammothdb DocumentNo must always start with 26 (PolicyYear literal, plain or 1- ENDORSEMENT prefix).', 1;
 
 IF EXISTS (SELECT 1 FROM hippodb.dbo.Documents h
            JOIN mammothdb.dbo.Documents m ON m.DocumentNo = h.DocumentNo)
     THROW 51002, N'02-external-sim: a DocumentNo exists on both simulated sides — local IX_Products_DocumentNo would collide.', 1;
 
-IF NOT EXISTS (SELECT 1 FROM dbo.Documents WHERE ShowName LIKE N'%จำกัด%' AND DocumentNo LIKE N'%อค%')
+-- Cross-database identity consistency (REQ-4): both sides draw from the same shared master roster, so
+-- SaleFullName/BrokerCode/BrokerName/ReferenceBranch/PolicyBranch must agree for any SaleCode present
+-- on both sides. EXCEPT (not a <> chain) because ANSI_NULLS ON makes '<>' blind to a future NULL-vs-
+-- value drift (NULL <> 'x' is UNKNOWN, not TRUE) — design.md's cross-database identity self-check.
+DECLARE @identityDriftCode varchar(20) = (
+    SELECT TOP 1 h.SaleCode
+    FROM (SELECT DISTINCT SaleCode, SaleFullName, BrokerCode, BrokerName, ReferenceBranch, PolicyBranch
+          FROM hippodb.dbo.Documents) h
+    JOIN (SELECT DISTINCT SaleCode, SaleFullName, BrokerCode, BrokerName, ReferenceBranch, PolicyBranch
+          FROM mammothdb.dbo.Documents) m ON m.SaleCode = h.SaleCode
+    WHERE EXISTS (
+        SELECT h.SaleFullName, h.BrokerCode, h.BrokerName, h.ReferenceBranch, h.PolicyBranch
+        EXCEPT
+        SELECT m.SaleFullName, m.BrokerCode, m.BrokerName, m.ReferenceBranch, m.PolicyBranch
+    ));
+IF @identityDriftCode IS NOT NULL
+BEGIN
+    DECLARE @identityMsg nvarchar(400) = CONCAT(
+        N'02-external-sim: agent identity drifted between hippodb and mammothdb for SaleCode ',
+        @identityDriftCode, N' — SaleFullName/BrokerCode/BrokerName/ReferenceBranch/PolicyBranch must match on both sides.');
+    THROW 51002, @identityMsg, 1;
+END
+
+-- mammothdb's DocumentNo is ASCII-only under REQ-2.4-2.6 (POL/APP/END), so the Thai round-trip check
+-- retargets at PolicyBranch instead (REQ-6.5) — hippodb's equivalent check stays on DocumentNo
+-- because Motor keeps Thai abbreviations (REQ-2.1-2.3).
+IF NOT EXISTS (SELECT 1 FROM dbo.Documents WHERE ShowName LIKE N'%จำกัด%' AND PolicyBranch LIKE N'%สาขา%')
     THROW 51002, N'02-external-sim: mammothdb Thai text did not round-trip (collation or sqlcmd input code page).', 1;
 
 DECLARE @today date = CAST(GETDATE() AS date);
 DECLARE @visible int = (
     SELECT COUNT(*) FROM dbo.Documents
-    WHERE SaleCode = '90001' AND PaymentStatus = 'UNPAID'
+    WHERE SaleCode = '77001' AND PaymentStatus = 'UNPAID'
       AND StartDate >= DATEADD(month, -6, @today));
-IF @visible <> 39
+IF @visible <> 40
 BEGIN
     DECLARE @visibleMsg nvarchar(200) = CONCAT(
-        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 39.');
+        N'02-external-sim: mammothdb default search sees ', @visible, N' documents, expected 40.');
     THROW 51002, @visibleMsg, 1;
 END
 
-PRINT N'02-external-sim: mammothdb OK (200 documents, 39 in the default search window).';
+PRINT N'02-external-sim: mammothdb OK (200 documents, 40 in the default search window).';
 GO
 
 PRINT N'02-external-sim: OK.';

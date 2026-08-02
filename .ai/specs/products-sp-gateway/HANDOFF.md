@@ -3,6 +3,17 @@
 > Teammate ใหม่: อ่านไฟล์นี้ + requirements.md + design.md + tasks.md ให้จบก่อนแตะโค้ด
 > จบ task ของตัวเอง: เติม section ใหม่ **ต่อท้ายไฟล์นี้** (task, สิ่งที่ทำ, decision/deviation, trap ที่เจอ, สถานะ verify, สิ่งที่คนถัดไปต้องรู้)
 
+> **⚠ ค่าตัวเลข/รูปแบบข้อมูลในไฟล์นี้ล้าสมัยบางส่วน (เพิ่มหมายเหตุ 2026-08-02).** spec นี้ปิดงานเมื่อ
+> 2026-07-31 ด้วย seed 34 แถว (hippodb) / 32 แถว (mammothdb), ค้นปริยาย 28/27 แถว, SaleCode หลัก
+> `S001`/`77001`, DocumentNo prefix `77`/`88`, เลขวิ่ง `950xxx`/`960xxx` — ค่าเหล่านี้ยังถูกต้องใน
+> ฐานะ**บันทึกประวัติศาสตร์ของแต่ละ task** (ห้ามแก้ย้อนหลัง) แต่**ไม่ใช่ current state อีกต่อไป** หลังจาก
+> branch `data/expand-sim-seed-200-per-side` (PR #160) ขยาย seed เป็น 200 แถว/ฝั่ง + เปลี่ยน SaleCode
+> เป็น 5 หลัก (`77001`/`90001`) + redesign รูปแบบ DocumentNo ทั้งหมด ค่าปัจจุบันจริง: **200/200 แถว,
+> ค้นปริยาย 42 (hippodb) / 39 (mammothdb) แถว** — ดู `docker/bootstrap/02-external-sim.sql` (โค้ดจริง)
+> และ `.ai/specs/external-sim-documentno-format/` (spec+HANDOFF ของรูปแบบ DocumentNo ปัจจุบัน) เป็น
+> reference ที่ถูกต้อง จุดที่มีตัวเลข/checklist แบบ current-state-facing ด้านล่างมีหมายเหตุชี้กลับมาที่นี่
+> กำกับไว้เป็นจุด ๆ
+
 ## Setup (lead, 2026-07-31)
 
 - Branch: `feat/products-sp-gateway` (แตกจาก develop @ b5a7ac6); spec commit `ffea8d4`
@@ -90,6 +101,10 @@
 | BranchCode | `100` / `200` / `300` / `400` (validate อย่างเดียว ไม่ filter) | เหมือนกัน |
 | DocumentNo prefix | ขึ้นต้น `77` เสมอ | ขึ้นต้น `88` เสมอ |
 
+> ค่าข้างบนคือ snapshot ของ task 1 (2026-07-31, seed 34/32 แถว) **ล้าสมัยแล้ว** — ปัจจุบันจริง (2026-08-02):
+> 200/200 แถว, ค้นปริยาย 42/39 แถว, SaleCode หลัก `77001`/`90001`, DocumentNo ไม่มี prefix `77`/`88`
+> อีกต่อไป ดู `.ai/specs/external-sim-documentno-format/HANDOFF.md` สำหรับตาราง axis-row ปัจจุบันเต็ม ๆ
+
 **แถวแกน (axis rows) ที่ตั้งใจให้ assert ตรง ๆ** — เลขลำดับคือส่วนท้าย DocumentNo
 
 - hippodb: `950001`/`950002` ปกติในกรอบ · `950003` นอกกรอบ 6 เดือน · `950004` RENEWAL ใน 2 เดือน (EndDate +30d)
@@ -104,10 +119,21 @@
   · `960007`/`960008` PAID · `960009` SaleCode `77001` · `960010` ShowName มี `%`/`_` + มีทะเบียน
   `8ฮฮ 8888` เก็บในตารางแต่ SP ต้องไม่ค้นและไม่คืน · `960101`-`960122` แถวเติม
 
+> เลขวิ่ง `950xxx`/`960xxx` ข้างบนถูกเลิกใช้ทั้งหมดแล้ว (retired) แทนที่ด้วย `PolicySequenceNo` คนละ
+> scheme ต่อฝั่ง — ดู `.ai/specs/external-sim-documentno-format/design.md` หัวข้อ "A discovered conflict
+> this design resolves" + `HANDOFF.md` สำหรับตาราง axis-row ปัจจุบันเต็ม ๆ (ทั้ง 14 แถว hippodb และ 10
+> แถว mammothdb)
+
 **รูปแบบ field ที่ derive** (ใช้ assert exact-match ได้): `PolicyNumber` = `{SaleCode}-69900/{Seq}` ทุกแถวที่
 ไม่ใช่ APPLICATION · `ApplicationNumber` = รูปแบบเดียวกันเฉพาะ APPLICATION · `EndorsementNumber` = `E{Seq}`
 · `PreviousPolicyNumber` = `{SaleCode}-68900/{Seq-1}` เฉพาะ RENEWAL/ENDORSEMENT · `PolicyYear` =
 `ReferenceYear` = `69` · `ReferenceBranch` = `900` · `NetPremium + Stamp + TaxVat = TotalPremium` เป๊ะ
+
+> **สูตรข้างบนมีบั๊กที่ถูกแก้ไปแล้ว**: `ReferenceBranch`/`69900`/`900` ไม่ใช่ค่าคงที่ตายตัวจริง ๆ —
+> คำนวณต่อ `SaleCode` ของแต่ละแถวจริง (บั๊กเดิมที่ hardcode ค่าคงที่ถูกพบและแก้ระหว่างงาน redesign
+> DocumentNo วันที่ 2026-08-02 ดู `.ai/specs/external-sim-documentno-format/HANDOFF.md` ส่วน Task 2
+> หัวข้อ "พบ bug แฝงของโค้ดเดิม") mammothdb ปัจจุบัน `PolicyYear = '26'` ไม่ใช่ `'69'` ร่วมกับ hippodb
+> อีกต่อไป
 
 **พฤติกรรมที่ยิงมือแล้วได้ผลตามนี้** (ใช้เป็นค่าคาดหวังตั้งต้นได้เลย)
 
@@ -119,6 +145,8 @@
 - `@PaymentStatus='unpaid'` -> `50007` (BIN2 = case-sensitive) · `@ProductGroup='CMI'` บน Non-Motor -> `50002`
 - multi-invalid (`@BranchCode='  '` + `@CountMode='X'`) -> `50004` ตาม fixed order
 - ทุก error เป็น `THROW 5000x, N'<msg>', 1` severity 16 -> `SqlException.Number` ตรงเลข
+
+> ตัวเลข/เลขอ้างอิงแถวข้างบนคือค่า ณ 34/32-row seed (2026-07-31) ล้าสมัยแล้ว เช่นเดียวกับหมายเหตุด้านบน
 
 ## Task 2 (sp-task2, 2026-07-31)
 
@@ -541,6 +569,12 @@ JSON ของ response เป็น camelCase ตามปกติ: `items[]`,
 - `GET /api/v1/products?page=1&limit=25&productFilters={"saleCode":"77001","insuranceType":"Motor"}`
   -> คาด `totalRows` 28 / `totalPages` 2 / `items` 25 แถว (ค่าตาม seed ของ task 1)
 - ฝั่ง Non-Motor ใช้ `{"saleCode":"S001","insuranceType":"NonMotor"}` -> 27 / 2
+
+> **อัปเดต (2026-08-02):** SaleCode/ตัวเลขคาดหวังข้างบนล้าสมัย — ปัจจุบันใช้
+> `{"saleCode":"77001","insuranceType":"Motor"}` -> คาด `totalRows 42`, `{"saleCode":"90001",
+> "insuranceType":"NonMotor"}` -> คาด `totalRows 39` (`totalPages`/`items`ต่อหน้าขึ้นกับ `limit` ที่ส่ง
+> ไม่ใช่ค่าคงที่ตายตัวอีกต่อไปที่ 2/25 เสมอ — คำนวณจาก `totalRows` จริง ณ ตอนยิง)
+
 - `countMode=FAST` -> `totalRows` กับ `totalPages` เป็น `null` ใน JSON (ไม่ใช่ 0) และ `hasNextPage` ยังจริง
 - `countMode=APPROX` -> 400; `{"saleCode":"77001"}` เปล่า ๆ (ไม่มี insuranceType/productGroup) -> 400;
   `{"saleCode":"77001","productGroup":"FIRE","insuranceType":"Motor"}` -> 400
@@ -608,6 +642,10 @@ Checkouts 13, Divisions/Levels/Offices/Positions 6 ตัวละ
 | add-to-cart แถว UNPAID | 200 | **ไม่ผ่าน — 409 (bug เดิมของ cart ดูด้านล่าง)** |
 | 503 เมื่อ upstream ล่ม | 503 ไม่รั่ว SQL | **ผ่าน** `Upstream dependency unavailable`, NonMotor ยัง 200 |
 | OpenAPI (REQ-8.4) | `ProductPage` + 503 + description ใหม่ | **ผ่าน** (ดูด้านล่าง) |
+
+> ตารางข้างบนคือผล E2E จริงที่สังเกตได้ ณ 2026-07-31 ภายใต้ seed 34/32 แถว — **เป็นบันทึกประวัติศาสตร์
+> ไม่ใช่ค่าที่ต้องคาดหวังจากการรัน E2E วันนี้** (seed ปัจจุบัน 200/200 แถว, ค้นปริยาย 42/39, ไม่มีแถวชื่อ
+> `950007`/`950008` อีกต่อไป — เลขวิ่งเปลี่ยนไปทั้งหมดตามที่ระบุในหมายเหตุก่อนหน้าในไฟล์นี้)
 
 - **503 พิสูจน์ยังไง**: `docker stop pol-db` ไม่ได้ (sim อยู่ container เดียวกับ DB หลัก แอปตายไปด้วย)
   จึง override ระดับ process ด้วย env var `SpDocument__MotorConnectionString` ชี้ไป `localhost,11999`
