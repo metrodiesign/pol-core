@@ -17,7 +17,7 @@ public sealed class CheckoutEnrichmentTests
     private static readonly CustomerContact Customer =
         CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com");
 
-    private static CheckoutItemInput Line(decimal unitPrice = 15000m, Money? discount = null, string currency = "THB") =>
+    private static CheckoutItemInput Insured(decimal unitPrice = 15000m, Money? discount = null, string currency = "THB") =>
         new(Product, 1, Money.Of(unitPrice, currency),
             "00098-69100/AB/900001-10", "VMI", "POLICY", "POL-0001", null, null,
             "Somchai", "Jaidee", "1234567890123", Dob, discount);
@@ -29,7 +29,7 @@ public sealed class CheckoutEnrichmentTests
     [Fact]
     public void A_line_without_a_discount_gets_a_zero_one_in_its_own_currency()
     {
-        var item = Assert.Single(Start(15000m, Line()).Items);
+        var item = Assert.Single(Start(15000m, Insured()).Items);
 
         Assert.Equal(0m, item.Discount.Amount);
         Assert.Equal("THB", item.Discount.Currency);
@@ -39,7 +39,7 @@ public sealed class CheckoutEnrichmentTests
     [Fact]
     public void A_discounted_line_prices_the_checkout_at_the_net_total()
     {
-        var session = Start(13500m, Line(discount: Money.Of(1500m, "THB")));
+        var session = Start(13500m, Insured(discount: Money.Of(1500m, "THB")));
 
         Assert.Equal(Money.Of(13500m, "THB"), session.Amount);
         Assert.Equal(Money.Of(1500m, "THB"), Assert.Single(session.Items).Discount);
@@ -48,7 +48,7 @@ public sealed class CheckoutEnrichmentTests
     [Fact]
     public void Discounts_across_several_lines_all_come_off_the_total()
     {
-        var session = Start(23000m, Line(15000m, Money.Of(1000m, "THB")), Line(10000m, Money.Of(1000m, "THB")));
+        var session = Start(23000m, Insured(15000m, Money.Of(1000m, "THB")), Insured(10000m, Money.Of(1000m, "THB")));
 
         Assert.Equal(Money.Of(23000m, "THB"), session.Amount);
     }
@@ -56,28 +56,28 @@ public sealed class CheckoutEnrichmentTests
     // REQ-6.4 — a discount bigger than its own line is rejected (a negative one cannot be built at all).
     [Fact]
     public void A_discount_larger_than_its_line_is_rejected() =>
-        Assert.Throws<ArgumentException>(() => Start(0m, Line(discount: Money.Of(15000.01m, "THB"))));
+        Assert.Throws<ArgumentException>(() => Start(0m, Insured(discount: Money.Of(15000.01m, "THB"))));
 
     [Fact]
     public void A_discount_in_another_currency_is_rejected() =>
-        Assert.Throws<ArgumentException>(() => Start(15000m, Line(discount: Money.Of(10m, "USD"))));
+        Assert.Throws<ArgumentException>(() => Start(15000m, Insured(discount: Money.Of(10m, "USD"))));
 
     // REQ-6.5 — the stated amount must be exactly the sum of the lines' net totals, both ways.
     [Theory]
     [InlineData(15000)]     // forgot to subtract the discount
     [InlineData(13499)]     // subtracted too much
     public void An_amount_that_is_not_the_net_sum_is_rejected(decimal amount) =>
-        Assert.Throws<ArgumentException>(() => Start(amount, Line(discount: Money.Of(1500m, "THB"))));
+        Assert.Throws<ArgumentException>(() => Start(amount, Insured(discount: Money.Of(1500m, "THB"))));
 
     [Fact]
     public void A_line_in_another_currency_than_the_checkout_is_rejected() =>
-        Assert.Throws<ArgumentException>(() => Start(15000m, Line(currency: "USD")));
+        Assert.Throws<ArgumentException>(() => Start(15000m, Insured(currency: "USD")));
 
     // REQ-6.2 — an out-of-range channel value never reaches the column.
     [Fact]
     public void A_channel_outside_the_supported_set_is_rejected() =>
         Assert.Throws<ArgumentException>(() => Session.Start(
-            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [Line()], (PaymentChannel)99, Customer));
+            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [Insured()], (PaymentChannel)99, Customer));
 
     [Theory]
     [InlineData(PaymentChannel.CARD)]
@@ -86,7 +86,7 @@ public sealed class CheckoutEnrichmentTests
     public void Every_supported_channel_is_accepted(PaymentChannel channel)
     {
         var session = Session.Start(
-            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [Line()], channel, Customer);
+            Merchant, Cart, Money.Of(15000m, "THB"), StartAt, [Insured()], channel, Customer);
 
         Assert.Equal(channel, session.Channel);
     }

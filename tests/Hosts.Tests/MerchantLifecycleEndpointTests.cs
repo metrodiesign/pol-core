@@ -395,6 +395,9 @@ public sealed class MerchantLifecycleEndpointTests
     [Theory]
     [InlineData("BITCOIN")]
     [InlineData("card")]        // the wire values are the enum member names, case included
+    [InlineData("0")]           // the underlying number is not a wire value
+    [InlineData("2")]
+    [InlineData("CARD,INSTALLMENT")]    // nor is a comma list Enum.TryParse would happily accept
     [InlineData("")]
     public async Task Starting_a_checkout_with_an_unsupported_channel_is_400(string channel)
     {

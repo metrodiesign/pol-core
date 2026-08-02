@@ -776,11 +776,12 @@ api.MapPost("/checkouts", async (
     if (!cartProductIds.SetEquals(insuredProductIds))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "insuredPersons must cover every cart line exactly once.");
 
-    // REQ-6.2 — the channel must be one of the three the platform supports. Parsed here (case-sensitive:
-    // the wire values ARE the enum member names) so garbage is a 400 before any work happens; Session.Start
-    // re-checks the parsed value as defense in depth.
-    if (!Enum.TryParse<Checkouts.Domain.PaymentChannel>(body.PaymentChannel, out var channel)
-        || !Enum.IsDefined(channel))
+    // REQ-6.2 — the channel must be one of the three the platform supports. Matched against the member
+    // names first (the wire values ARE those names): Enum.TryParse on its own also accepts numbers ("0")
+    // and comma lists ("CARD,INSTALLMENT"), which are not part of the contract. Session.Start re-checks
+    // the parsed value as defense in depth.
+    if (!Enum.GetNames<Checkouts.Domain.PaymentChannel>().Contains(body.PaymentChannel, StringComparer.Ordinal)
+        || !Enum.TryParse<Checkouts.Domain.PaymentChannel>(body.PaymentChannel, out var channel))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsupported payment channel.");
 
     // REQ-6.6/6.7 — throws ArgumentException (-> 400) for a missing name/phone or a malformed phone/email.
