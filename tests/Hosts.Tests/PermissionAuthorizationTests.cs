@@ -74,6 +74,7 @@ public sealed class PermissionParityTests
         ("roles.manage", "merchant-user"), ("users.roles", "merchant-user"), ("policies.write", "merchant-user"),
         ("policies.read", "merchant-user"),
         ("merchants.users.approve", "admin"), ("merchants.users.reject", "admin"),
+        ("merchants.users.view", "admin"),
         ("user.view", "admin"), ("user.manage", "admin"), ("user.roles", "admin"),
         ("merchants.policies.write", "admin"), ("merchants.policies.read", "admin"),
     ];

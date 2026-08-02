@@ -447,6 +447,10 @@ sequenceDiagram
 - outbox event `MerchantUserRegistrationSubmitted` commit ใน tx เดียวกัน; consumer `RegistrationConsumer`
   (รันบน background dispatch scope) เขียน `merch.RegistrationNotices` แบบ idempotent บน `MerchantUserId`
   ให้ฝั่ง admin เห็นว่ามีคนรออนุมัติ.
+- ทุก submit (Registration และ Correction) เขียน snapshot ฟอร์มหนึ่งแถวลง `merch.RegistrationAttempts`
+  ใน tx เดียวกัน (registration-attempt-history): append-only, FK `MerchantUserId`, `UNIQUE(MerchantUserId,
+  AttemptNo)` ตัดสิน race -> 409, `Email` เป็นค่าจาก verified ticket ของ attempt นั้น, รูปเก็บ reference
+  เท่านั้น — admin ดูย้อนหลังผ่าน `GET /api/v1/admins/merchants/users/{subject}/registrations`.
 - **ยังไม่มี** endpoint `GET /api/v1/merchants/users/{id}` และไม่มี endpoint เสิร์ฟรูป — `Location` header ของ 201
   จึงชี้ไป route ที่ยังไม่ถูก map (known gap).
 
@@ -623,6 +627,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 |---|---|---|---|---|---|---|
 | POST | `/api/v1/admins/merchants/users/{subject}/approve` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.approve` | 200 | body `{ merchantCode, roleCodes[] }`; idempotent; 400/404/409 (รวม concurrency-token 409 — ดู §8) |
 | POST | `/api/v1/admins/merchants/users/{subject}/reject` | `admin` | ต้อง (`adm_csrf`) | `merchants.users.reject` | 200 | body `{ reason? }`; revoke sessions; 404/409 |
+| GET | `/api/v1/admins/merchants/users/{subject}/registrations` | `admin` | — (safe method) | `merchants.users.view` | 200 | snapshot ฟอร์มทุก attempt (เรียง `AttemptNo`) + timeline จาก `RegistrationAudits` (ตัด `revealed` ออก); PII mask เป็นค่าเริ่มต้น; `?reveal=true` คืนค่าเต็ม + เขียน audit `revealed` ก่อนตอบ (fail-closed); unknown -> 404 |
 
 ### Funnel endpoints ที่ merchant-user ใช้ (policy เดียวกัน, คนละ group)
 

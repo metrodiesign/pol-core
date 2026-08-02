@@ -146,11 +146,13 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         }
 
         public SubmitRegistrationHandler SubmitHandler() => new(
-            Store, new MerchantExternalLoginRepository(Db), Audits,
+            Store, new MerchantExternalLoginRepository(Db), Audits, new MerchantRegistrationAttemptWriter(Db),
             new MerchantRegistrationOutboxWriter(Db, new FixedClock()), UnitOfWork,
             new NullPhotoStore(), new FixedClock());
 
         public ResolveLoginHandler ResolveLoginHandler() => new(Resolver, Roles);
+        public GetRegistrationHistoryHandler HistoryHandler() => new(
+            Resolver, new MerchantRegistrationHistoryReader(Db), Audits, UnitOfWork, new FixedClock());
         public ResolveByIdHandler ResolveByIdHandler() => new(Resolver, Roles);
         public ApproveHandler ApproveHandler() => new(Store, Roles, Audits, UnitOfWork, new FixedClock());
         public RejectHandler RejectHandler() => new(
@@ -337,6 +339,55 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
             var final = await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None);
             Assert.Equal(LoginOutcome.Active, final.Outcome);
             Assert.Equal(MerchantB, final.Resolution!.MerchantId);
+        }
+    }
+
+    // registration-attempt-history REQ-1.3/1.4/2.1-adjacent/2.3: the same lifecycle, proven through the REAL
+    // EF adapters — every submit freezes one attempt row under the SAME MerchantUserId, and the history
+    // handler returns them in order with the full lifecycle timeline (reject reason included).
+    [Fact]
+    public async Task Lifecycle_captures_one_attempt_per_submit_bound_to_the_same_user_and_serves_the_timeline()
+    {
+        Guid userId;
+        using (var s = SelfServiceScope())
+            userId = (await s.SubmitHandler().Handle(
+                Submission("lc-history", TicketPurpose.Registration), CancellationToken.None)).MerchantUserId;
+
+        using (var s = AdminPlaneScope())
+            await s.RejectHandler().Handle(
+                new RejectCommand("lc-history", "photo unreadable", "admin-sub", "corr-1"), CancellationToken.None);
+
+        using (var s = SelfServiceScope())
+            await s.SubmitHandler().Handle(Submission("lc-history", TicketPurpose.Correction), CancellationToken.None);
+
+        using (var s = AdminPlaneScope())
+        {
+            var history = await s.HistoryHandler().Handle(
+                new GetRegistrationHistoryQuery("lc-history", Reveal: false, "admin-sub", "corr-h",
+                    IsUnrestrictedAdmin: true, AccessibleMerchantIds: new HashSet<Guid>()),
+                CancellationToken.None);
+
+            Assert.NotNull(history);
+            Assert.Equal(2, history!.Attempts.Count);                       // one snapshot per submit
+            Assert.Equal([1, 2], history.Attempts.Select(a => a.AttemptNo)); // sequential, ordered
+            Assert.Equal(TicketPurpose.Registration, history.Attempts[0].Purpose);
+            Assert.Equal(TicketPurpose.Correction, history.Attempts[1].Purpose);
+            Assert.Equal("Version", history.Attempts[0].LastName);           // attempt 1 froze the ORIGINAL form
+            Assert.Equal("Corrected", history.Attempts[1].LastName);         // attempt 2 froze the resubmitted form
+
+            // Both rows hang off the SAME user id — the whole history is the one user's record.
+            var attempts = await s.Db.RegistrationAttempts.AsNoTracking().ToListAsync();
+            Assert.All(attempts, a => Assert.Equal(userId, a.MerchantUserId));
+
+            // Timeline from RegistrationAudits: registered + rejected(reason) + resubmitted. Order-insensitive
+            // here — the shared FixedClock stamps every row with the SAME OccurredAt, so ORDER BY OccurredAt
+            // has no tie-breaker to observe (real requests get distinct clock reads).
+            Assert.Equal(3, history.Timeline.Count);
+            Assert.Equal(
+                new[] { RegistrationAuditAction.Registered, RegistrationAuditAction.Rejected, RegistrationAuditAction.Resubmitted }.ToHashSet(),
+                history.Timeline.Select(t => t.Action).ToHashSet());
+            Assert.Equal("photo unreadable",
+                Assert.Single(history.Timeline, t => t.Action == RegistrationAuditAction.Rejected).Reason);
         }
     }
 

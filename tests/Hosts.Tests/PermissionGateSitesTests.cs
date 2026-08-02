@@ -16,14 +16,14 @@ namespace Hosts.Tests;
 // REQ-10.4's specific worry) is caught at test time rather than in production. Supersedes the old narrower
 // MerchantUserWritePermissionsTests (3 of the 7 merchant-user sites only).
 //
-// 26 gate SITES in source (REQ-4.5: admin 16 + merchant-user 8, +1 policy-reference-record merchant write +1
-// policy-reference-record admin write from task 5, +1 policy-reference-record merchant report read +1
-// policy-reference-record admin report read from task 6) map to more than 26 physical ROUTES at runtime
+// 26 gate SITES in source (REQ-4.5: merchant-user 8 + admin 18 — the policy-reference-record write/read pairs
+// from tasks 5/6, minus the retired POST /products, plus registration-attempt-history's admin registration
+// history read) map to more than 26 physical ROUTES at runtime
 // because the reference master-data CRUD (positions/offices/levels/divisions, standalone areas since
 // 2026-07-20) instantiates the SAME generic MapMasterCrud<TStore, TItem> body four times, now 5 verbs each
 // (List/Get/Create/Update/Deactivate). This inventory pins one representative segment ("positions") for that
 // generic body — the other three segments are the identical generic instantiation, not independent gate sites
-// — landing back on exactly 26 pinned endpoints (10 + 16). PermissionParityTests.RealGateSites is the
+// — landing back on exactly 26 pinned endpoints (8 + 18). PermissionParityTests.RealGateSites is the
 // source-level completeness check (14 distinct (key, policy) pairs covering all call sites incl. duplicates).
 
 file sealed class GateFactory : WebApplicationFactory<ApiHost::Program>
@@ -50,7 +50,7 @@ public sealed class PermissionGateSitesTests
 
     private static readonly Site[] Sites =
     [
-        // --- merchant-user (6) ---
+        // --- merchant-user (8) ---
         new("POST", "/api/v1/payments/sessions", "merchant-user", "payment.create"),
         new("POST", "/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "merchant-user", "payment.redirect"),
         new("POST", "/api/v1/merchants/users/roles", "merchant-user", "roles.manage"),
@@ -60,9 +60,10 @@ public sealed class PermissionGateSitesTests
         new("PUT", "/api/v1/orders/{orderId:guid}/items/{itemId:guid}/policy", "merchant-user", "policies.write"),
         new("GET", "/api/v1/reports/policies", "merchant-user", "policies.read"),
 
-        // --- admin (16) ---
+        // --- admin (18) ---
         new("POST", "/api/v1/admins/merchants/users/{subject}/approve", "admin", "merchants.users.approve"),
         new("POST", "/api/v1/admins/merchants/users/{subject}/reject", "admin", "merchants.users.reject"),
+        new("GET", "/api/v1/admins/merchants/users/{subject}/registrations", "admin", "merchants.users.view"),
         new("GET", "/api/v1/admins", "admin", "user.view"),
         new("GET", "/api/v1/admins/{id:guid}", "admin", "user.view"),
         new("GET", "/api/v1/admins/{id:guid}/effective-permissions", "admin", "user.view"),
@@ -102,7 +103,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_25_gate_sites_are_pinned() => Assert.Equal(25, Sites.Length); // REQ-4.5 count drift guard, +2 policy-reference-record write (task 5) +2 policy-reference-record report read (task 6), -1 POST /products retired (catalogue is read-only over HTTP)
+    public void Exactly_26_gate_sites_are_pinned() => Assert.Equal(26, Sites.Length); // REQ-4.5 count drift guard, +2 policy-reference-record write (task 5) +2 policy-reference-record report read (task 6), -1 POST /products retired (catalogue is read-only over HTTP), +1 registration-attempt-history admin history read
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

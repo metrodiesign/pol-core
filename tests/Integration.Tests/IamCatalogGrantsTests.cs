@@ -33,17 +33,19 @@ public sealed class IamCatalogGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        // 9 groups / 22 keys / 4 roles / 30 grants (REQ-2.1/2.3/10.1; policy-reference-record task 3 added
+        // 9 groups / 23 keys / 4 roles / 31 grants (REQ-2.1/2.3/10.1; policy-reference-record task 3 added
         // merchants.policies/policies on top of the rf2 8/20/28 baseline; the orphan catalog group/keys were
-        // retired by RetireCatalogPermissions on top of that, 10/24/34 -> 9/22/30).
+        // retired by RetireCatalogPermissions on top of that, 10/24/34 -> 9/22/30; registration-attempt-history
+        // added merchants.users.view + its platform_admin grant, 9/23/31).
         Assert.Equal(9, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
-        Assert.Equal(22, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
+        Assert.Equal(23, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Roles")));
-        Assert.Equal(30, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
+        Assert.Equal(31, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
 
-        // Per-role grant counts (design matrix): platform_admin 15, platform_auditor 5, merchant_manager 7,
+        // Per-role grant counts (design matrix): platform_admin 16 (registration-attempt-history added
+        // merchants.users.view), platform_auditor 5, merchant_manager 7,
         // merchant_staff 3 (each lost product.create/product.update).
-        Assert.Equal(15, await GrantCount(admin, PlatformAdminRoleId));
+        Assert.Equal(16, await GrantCount(admin, PlatformAdminRoleId));
         Assert.Equal(5, await GrantCount(admin, PlatformAuditorRoleId));
         Assert.Equal(7, await GrantCount(admin, MerchantManagerRoleId));
         Assert.Equal(3, await GrantCount(admin, MerchantStaffRoleId));

@@ -65,6 +65,36 @@ public interface IRegistrationAuditWriter
 }
 
 /// <summary>
+/// Append-only writer for the per-submit form snapshots (registration-attempt-history REQ-1), on the same
+/// context as the registration write so the snapshot commits in the submit transaction. A race on
+/// <see cref="NextAttemptNoAsync"/> is settled by the DB unique (MerchantUserId, AttemptNo) index → 409 via
+/// the unit of work (REQ-1.9), not by locking here.
+/// </summary>
+public interface IRegistrationAttemptWriter
+{
+    /// <summary>max(AttemptNo)+1 for the user; 1 when no attempt exists yet.</summary>
+    Task<int> NextAttemptNoAsync(Guid merchantUserId, CancellationToken cancellationToken);
+    void Add(RegistrationAttempt attempt);
+}
+
+/// <summary>
+/// Read side of the admin registration-history endpoint (registration-attempt-history REQ-2). Both reads are
+/// AsNoTracking — the handler saves a reveal audit on the same scoped context in the reveal branch, and must
+/// not accidentally flush tracked history rows with it. Neither table is merchant-filtered, so no
+/// filter-free escape hatch is involved (the USER lookup goes through <see cref="IAccountResolver"/>).
+/// </summary>
+public interface IRegistrationHistoryReader
+{
+    /// <summary>All attempts for the user, ORDER BY AttemptNo ascending (REQ-2.2).</summary>
+    Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken cancellationToken);
+
+    /// <summary>Lifecycle timeline rows for the subject, ORDER BY OccurredAt ascending, EXCLUDING
+    /// <see cref="RegistrationAuditAction.Revealed"/> — reveal records access, not lifecycle, and keeping it
+    /// would make every reveal grow the unpaginated timeline it returns (REQ-2.3/M2).</summary>
+    Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(string targetSubject, CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Enqueues an integration event onto the SAME keyed pol_admin <see cref="PolDbContext"/> as the registration
 /// write so the row + the event commit atomically (REQ-20.2, critique B1). NOT the stock <c>IOutbox</c>/<c>EfOutbox</c>,
 /// which bind the default pol_app context and throw without a bound merchant — registration runs merchant-less. The row

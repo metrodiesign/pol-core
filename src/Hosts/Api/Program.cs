@@ -61,6 +61,8 @@ using PhotoValidation = Merchants.Application.Users.PhotoValidation;
 using ApproveCommand = Merchants.Application.Users.ApproveCommand;
 using RejectCommand = Merchants.Application.Users.RejectCommand;
 using SubmitRegistrationCommand = Merchants.Application.Users.SubmitRegistrationCommand;
+using GetRegistrationHistoryQuery = Merchants.Application.Users.GetRegistrationHistoryQuery;
+using RegistrationHistoryResult = Merchants.Application.Users.RegistrationHistoryResult;
 using IMerchantSessionStore = Merchants.Application.Users.ISessionStore;
 using IMerchantAuthAuditWriter = Merchants.Application.Users.IAuthAuditWriter;
 using IMerchantRoleRepository = Merchants.Application.Users.Roles.IRoleRepository;
@@ -1530,6 +1532,31 @@ admin.MapPost("/merchants/users/{subject}/reject", async (
     .Produces<RejectMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+// registration-attempt-history REQ-2/3/4: per-attempt form snapshots + lifecycle timeline for ONE merchant
+// user. PII masked by default; ?reveal=true returns full values and the handler persists a `revealed` audit
+// BEFORE building the response (fail-closed). `reveal` must keep its default — without one, a request that
+// omits ?reveal= would 400 and kill the primary masked path (B4). Returns the Application record directly:
+// enums serialize as strings via the global JsonStringEnumConverter, nothing needs reshaping (m4).
+admin.MapGet("/merchants/users/{subject}/registrations", async (
+    string subject, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct,
+    bool reveal = false) =>
+{
+    // Accessible-merchant floor (REQ-2.7): threaded as primitives like the merchants.policies endpoints —
+    // a merchant-bound target outside the admin's scope reads as 404 inside the handler (no existence leak).
+    var result = await mediator.Send(new GetRegistrationHistoryQuery(
+        subject, reveal, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
+        scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
+    return result is null ? Results.NotFound() : Results.Ok(result);
+}).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+    .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
+    .WithName("GetMerchantUserRegistrationHistory")
+    .WithSummary("ดูประวัติการลงทะเบียนของผู้ใช้ร้านค้ารายคน")
+    .WithDescription("ต้องมีสิทธิ์ merchants.users.view คืน snapshot ฟอร์มทุกครั้ง (เรียงตาม AttemptNo) + timeline จาก RegistrationAudits โดย mask PII เป็นค่าเริ่มต้น ส่ง ?reveal=true เพื่อดูค่าเต็ม (ระบบบันทึก audit ว่าเปิดดูทุกครั้ง) ไม่พบเป้าหมาย หรือเป้าหมายผูกกับ merchant นอก scope ของ admin -> 404")
+    .Produces<RegistrationHistoryResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 

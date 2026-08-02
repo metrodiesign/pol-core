@@ -49,6 +49,42 @@ internal sealed class MerchantRegistrationAuditWriter : IRegistrationAuditWriter
     public void Append(RegistrationAudit audit) => _db.RegistrationAudits.Add(audit);
 }
 
+internal sealed class MerchantRegistrationAttemptWriter : IRegistrationAttemptWriter
+{
+    private readonly MerchantUserDbContext _db;
+    public MerchantRegistrationAttemptWriter(MerchantUserDbContext db) => _db = db;
+
+    public async Task<int> NextAttemptNoAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
+        await _db.RegistrationAttempts.AsNoTracking()
+            .Where(a => a.MerchantUserId == merchantUserId)
+            .MaxAsync(a => (int?)a.AttemptNo, cancellationToken).ConfigureAwait(false) + 1 ?? 1;
+
+    public void Add(RegistrationAttempt attempt) => _db.RegistrationAttempts.Add(attempt);
+}
+
+/// <summary>Read side of the admin registration-history endpoint (registration-attempt-history REQ-2).
+/// AsNoTracking both ways — the handler saves a reveal audit on this same scoped context and must not flush
+/// tracked history rows with it. Neither table carries a merchant query filter, so these are plain reads.</summary>
+internal sealed class MerchantRegistrationHistoryReader : IRegistrationHistoryReader
+{
+    private readonly MerchantUserDbContext _db;
+    public MerchantRegistrationHistoryReader(MerchantUserDbContext db) => _db = db;
+
+    public async Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(
+        Guid merchantUserId, CancellationToken cancellationToken) =>
+        await _db.RegistrationAttempts.AsNoTracking()
+            .Where(a => a.MerchantUserId == merchantUserId)
+            .OrderBy(a => a.AttemptNo)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(
+        string targetSubject, CancellationToken cancellationToken) =>
+        await _db.RegistrationAudits.AsNoTracking()
+            .Where(a => a.TargetSubject == targetSubject && a.Action != RegistrationAuditAction.Revealed)
+            .OrderBy(a => a.OccurredAt)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+}
+
 /// <summary>Mirrors the original <c>UserUnitOfWork</c> exactly (ChangeTracker.Clear() per retry attempt,
 /// unique-violation -&gt; <see cref="ConflictException"/>, concurrency -&gt;
 /// <see cref="ConcurrencyConflictException"/>) over <see cref="MerchantUserDbContext"/> instead of the keyed

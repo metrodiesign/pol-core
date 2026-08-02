@@ -39,6 +39,7 @@ internal sealed class MerchantUserDbContext : GuardedRuntimeDbContext
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
     public DbSet<AuthAudit> AuthAudits => Set<AuthAudit>();
     public DbSet<RegistrationAudit> RegistrationAudits => Set<RegistrationAudit>();
+    public DbSet<RegistrationAttempt> RegistrationAttempts => Set<RegistrationAttempt>();
     public DbSet<RegistrationNotice> RegistrationNotices => Set<RegistrationNotice>();
     public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();
 
@@ -49,6 +50,7 @@ internal sealed class MerchantUserDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new UserConfiguration(this));
         modelBuilder.ApplyConfiguration(new ExternalLoginConfiguration());
         modelBuilder.ApplyConfiguration(new RegistrationAuditConfiguration());
+        modelBuilder.ApplyConfiguration(new RegistrationAttemptConfiguration());
         modelBuilder.ApplyConfiguration(new RegistrationNoticeConfiguration());
         modelBuilder.ApplyConfiguration(new SessionConfiguration());
         modelBuilder.ApplyConfiguration(new AuthAuditConfiguration());

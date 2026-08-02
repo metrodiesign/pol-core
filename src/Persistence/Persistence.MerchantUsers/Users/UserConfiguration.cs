@@ -5,9 +5,11 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Persistence.MerchantUsers.Users;
 
-// Runtime (scalar-only) mapping — mirrors Merchants.Infrastructure.Persistence.Users.UserConfigurations.
-// None of these entities carry a CLR navigation to another type in this cluster (MerchantUserId/MerchantId
-// are plain Guid/Guid? columns everywhere), so there is nothing to keep as a real EF relationship here.
+// Runtime mapping — mirrors Merchants.Infrastructure.Persistence.Users.UserConfigurations.
+// No entity here carries a CLR navigation (MerchantUserId/MerchantId are plain Guid/Guid? columns), and most
+// stay scalar-only; the ONE declared relationship is RegistrationAttempt→User (scalar-FK HasOne<User>()), which
+// this runtime side must mirror so EF orders the Users INSERT before the attempt INSERT in the registration
+// branch's single SaveChanges (registration-attempt-history B3).
 
 internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntityTypeConfiguration<User>
 {
@@ -78,7 +80,40 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.MerchantId);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
+        // Mirrors the migration-owner index — the registration-history timeline filters by TargetSubject.
+        builder.HasIndex(x => x.TargetSubject);
         AppendOnlyDescriptor.Mark(builder.Metadata); // rls-to-query-filter REQ-2.4-adjacent: append-only audit
+    }
+}
+
+// Runtime mirror of Merchants.Infrastructure's RegistrationAttemptConfiguration (registration-attempt-history
+// REQ-1). Not merchant-filtered (same as RegistrationAudits — pre-bind rows have no merchant yet); append-only
+// at the write floor, and the DB grant is SELECT, INSERT only.
+public sealed class RegistrationAttemptConfiguration : IEntityTypeConfiguration<RegistrationAttempt>
+{
+    public void Configure(EntityTypeBuilder<RegistrationAttempt> builder)
+    {
+        builder.ToTable("RegistrationAttempts", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.AttemptNo).IsRequired();
+        builder.Property(x => x.Purpose).HasConversion<int>().IsRequired();
+        builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.PersonType).HasConversion<int>();
+        builder.Property(x => x.IdNumber).HasMaxLength(64);
+        builder.Property(x => x.ProducerCode).HasMaxLength(64);
+        builder.Property(x => x.LicenseNumber).HasMaxLength(64);
+        builder.Property(x => x.Phone).HasMaxLength(32);
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.PhotoObjectKey).HasMaxLength(256);
+        builder.Property(x => x.PhotoContentType).HasMaxLength(128);
+        builder.Property(x => x.SubmittedAt).IsRequired();
+        // Declared on BOTH configs (B3): migration-owner for the DDL constraint, here for INSERT ordering —
+        // without it EF may emit the attempt INSERT before the Users INSERT → SQL 547 masquerading as a 409.
+        builder.HasOne<User>().WithMany().HasForeignKey(x => x.MerchantUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => new { x.MerchantUserId, x.AttemptNo }).IsUnique(); // REQ-1.4/1.5 — races lose here → 409
+        AppendOnlyDescriptor.Mark(builder.Metadata); // REQ-1.7: snapshots are immutable history
     }
 }
 
