@@ -126,7 +126,7 @@ existing work, not a regression of it.
 - 8.2  THE SYSTEM SHALL keep the default-search visible count at 42 (hippodb) and 39 (mammothdb).
 - 8.3  THE SYSTEM SHALL keep the SaleCode↔SaleFullName, SaleCode→BrokerCode/BrokerName, ShowName→SaleCode, ReferenceBranch↔PolicyBranch, and BrokerCode→ReferenceBranch pairing invariants from prior rounds intact for every row (axis and generated).
 - 8.4  THE SYSTEM SHALL keep the `SaleCode` column itself (not the `DocumentNo` string) as the sole 5-digit agent identifier used for search scoping (`@SaleCode`), unchanged by this feature.
-- 8.5  WHEN the Thai-collation last-page ordering test is re-derived for the new abbreviation vocabulary (`กธ` < `รย` < `อท`, still ascending under `Thai_CI_AS` since ก < ร < อ) THE SYSTEM SHALL preserve the same "prove ordering is by Thai letter, not by number" property the current test proves, updating only the pinned literal values.
+- 8.5  WHEN the Thai-collation last-page ordering test is re-derived for the new abbreviation vocabulary (`กธ` < `รย` < `อท`, still ascending under `Thai_100_CI_AS` since ก < ร < อ) THE SYSTEM SHALL preserve the same "prove ordering is by Thai letter, not by number" property the current test proves, updating only the pinned literal values.
 
 ## REQ-9: Document-Number-Adjacent Fields Survive the Parsing Removal
 

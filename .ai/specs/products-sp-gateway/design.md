@@ -480,7 +480,7 @@ spec-architect adversarial critique รอบ 1 (2026-07-31) — 2 BLOCKER + 12 
 - **SQL (task 1)** — snippet ใน design เขียนได้ไม่ตรง T-SQL จริง 3 จุด: `CREATE DATABASE` ต้องห่อ `EXEC()`
   (statement เดียวต่อ batch), `TOP (@PageSize + 1)` + `OFFSET` ใช้ร่วมกันไม่ได้ (ของจริงใช้
   `OFFSET ... FETCH NEXT (@PageSize + 1) ROWS ONLY`), และเพิ่ม temp table `#match` ก่อน `#page` เพื่อให้
-  predicate อยู่ที่เดียวแทนการเขียนซ้ำ 4 ชุด; นอกจากนั้น database ใช้ `COLLATE Thai_CI_AS` (เลขเอกสารมี
+  predicate อยู่ที่เดียวแทนการเขียนซ้ำ 4 ชุด; นอกจากนั้น database ใช้ `COLLATE Thai_100_CI_AS` (เลขเอกสารมี
   อักษรไทยใน `varchar` ตาม §5.2) และขอบบน coverage เทียบ `< DATEADD(day, 1, @To)` เพื่อให้ inclusive จริง
   เมื่อพารามิเตอร์เป็น `date` แต่คอลัมน์เป็น `datetime2(0)`
 - **Mapper (task 4)** — `MappedSpDocument` พก `SkipReason` เพิ่มจาก shape `(item, ProductInput?)` ใน design
@@ -501,7 +501,7 @@ spec-architect adversarial critique รอบ 1 (2026-07-31) — 2 BLOCKER + 12 
   "upstream บอก UNPAID แล้ว local PAID ต้องไม่ถูก downgrade" (REQ-7.4)
 - **Post-PR review (Codex P2 บน PR #150, 2026-08-01)** — การเทียบ `DocumentNo` ฝั่ง CLR เปลี่ยนเป็น
   case-insensitive (`OrdinalIgnoreCase`) ให้ตรง semantics ของ `IX_Products_DocumentNo` ซึ่ง unique ใต้
-  collation `SQL_Latin1_General_CP1_CI_AS` (ยืนยันจาก DB จริง): dictionary ใน `UpsertByDocumentNoAsync`,
+  collation `Thai_100_CI_AS` (ยืนยันจาก DB จริง): dictionary ใน `UpsertByDocumentNoAsync`,
   dedupe ใน `SpDocumentItemMapper`, guard ใน `RefreshFromExternal` (refresh แล้ว adopt casing จาก wire
   เหมือน field อื่น) — ก่อนแก้ แถว case-variant จาก upstream จะถูก stage เป็น Add ซ้ำชน index -> retry ->
   500; และ `SpDocumentGateway` ห่อ connection string ที่ parse ไม่ได้เป็น `UpstreamUnavailableException`

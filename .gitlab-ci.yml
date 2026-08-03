@@ -107,7 +107,9 @@ integration:
       # Ephemeral runtime principal password (never stored) — hex + mixed-case/digit
       # suffix to satisfy the SQL password policy.
       export POL_APP_PASSWORD="Ci$(openssl rand -hex 8)Aa1"
-      sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C \
+      # `-b` propagates the script's own collation gate failure into the job (same reasoning as
+      # the external-sim step below).
+      sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -b \
         -v DbName="VCentralPay" POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
         -i docker/bootstrap/01-principals.sql
       # Simulated upstream DBs (products-sp-gateway REQ-3.2/3.3): hippodb/mammothdb stand in for

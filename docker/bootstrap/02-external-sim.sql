@@ -40,7 +40,7 @@
 --   4. Enum-valued parameters are compared under COLLATE Latin1_General_BIN2 = case-SENSITIVE (M5),
 --      one notch stricter than the CI database default, so the SP can never be laxer than the HTTP
 --      boundary and contract tests stay deterministic.
---   5. Both databases are created COLLATE Thai_CI_AS. §5.2 types are honoured exactly (DocumentNo is
+--   5. Both databases are created COLLATE Thai_100_CI_AS. §5.2 types are honoured exactly (DocumentNo is
 --      varchar(150), not nvarchar), and real document numbers embed Thai abbreviations — under the
 --      instance default (CP1252) every Thai character in a varchar column would silently become '?'.
 --      The self-checks assert a Thai string round-trips, so a mis-encoded run fails loudly instead.
@@ -58,11 +58,11 @@ SET QUOTED_IDENTIFIER ON;
 GO
 
 IF DB_ID(N'hippodb') IS NULL
-    EXEC(N'CREATE DATABASE [hippodb] COLLATE Thai_CI_AS');
+    EXEC(N'CREATE DATABASE [hippodb] COLLATE Thai_100_CI_AS');
 GO
 
 IF DB_ID(N'mammothdb') IS NULL
-    EXEC(N'CREATE DATABASE [mammothdb] COLLATE Thai_CI_AS');
+    EXEC(N'CREATE DATABASE [mammothdb] COLLATE Thai_100_CI_AS');
 GO
 
 -- ############################################################################
@@ -537,8 +537,14 @@ CROSS APPLY (
 ) m;
 GO
 
--- Self-check (REQ-1.5): objects, grant, row counts, DocumentNo prefix, and Thai round-trip.
+-- Self-check (REQ-1.5): objects, grant, row counts, DocumentNo prefix, collation, and Thai round-trip.
 -- Anything off THROWs, which makes `sqlcmd -b` exit non-zero and the bootstrap container fail.
+-- Collation is checked by name, not just by the Thai round-trip below: Thai_CI_AS and
+-- Thai_100_CI_AS share code page 874, so a round-trip alone cannot tell an old DB apart from one
+-- actually recreated under Thai_100_CI_AS (the idempotency guard above skips CREATE DATABASE once
+-- the database already exists, so a stale collation would otherwise go undetected forever).
+IF ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(N'hippodb', N'Collation')), N'') <> N'Thai_100_CI_AS'
+    THROW 51002, N'02-external-sim: hippodb collation is not Thai_100_CI_AS.', 1;
 IF OBJECT_ID(N'dbo.Documents', N'U') IS NULL
     THROW 51002, N'02-external-sim: hippodb.dbo.Documents is missing.', 1;
 IF OBJECT_ID(N'dbo.usp_Motor_SearchDocument', N'P') IS NULL
@@ -1017,6 +1023,10 @@ CROSS APPLY (
 ) m;
 GO
 
+-- Collation check by name (see the hippodb self-check above for why the Thai round-trip alone
+-- cannot catch a stale Thai_CI_AS database — same reasoning applies here).
+IF ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(N'mammothdb', N'Collation')), N'') <> N'Thai_100_CI_AS'
+    THROW 51002, N'02-external-sim: mammothdb collation is not Thai_100_CI_AS.', 1;
 IF OBJECT_ID(N'dbo.Documents', N'U') IS NULL
     THROW 51002, N'02-external-sim: mammothdb.dbo.Documents is missing.', 1;
 IF OBJECT_ID(N'dbo.usp_NonMotor_SearchDocument', N'P') IS NULL

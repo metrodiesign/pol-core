@@ -55,12 +55,17 @@ git config core.hooksPath .githooks
 
 ```
 docker compose up -d
+docker compose ps -a
 ```
 
 ยก 3 service:
 - `pol-db` — SQL Server 2025 ที่ `localhost:11433`
-- `pol-db-init` — รัน `docker/bootstrap/01-principals.sql` (idempotent): สร้าง DB `VCentralPay` +
-  login/user **`pol_app` ตัวเดียว**. exit 0 เมื่อเสร็จ
+- `pol-db-init` — รัน `docker/bootstrap/01-principals.sql` (idempotent): สร้าง DB `VCentralPay` + login/user
+  **`pol_app` ตัวเดียว**. exit 0 เมื่อเสร็จ — ยืนยันด้วย `docker compose ps -a` เอง เพราะ `up -d` ไม่ฟ้อง
+  (คืน exit 0 เสมอแม้ container นี้ exit ไม่ใช่ 0). เห็น `Exited (1)` มักเป็น collation gate ยิง (DB เดิม
+  collation ไม่ตรง `Thai_100_CI_AS`) — ยืนยันสาเหตุจริงด้วย `docker compose logs pol-db-init` แล้วแก้ด้วย
+  `docker compose down -v && docker compose up -d` (อย่า drop เฉพาะ `VCentralPay` ตามข้อความ THROW ตรงตัว
+  เพราะ sim DB `hippodb`/`mammothdb` ต้อง recreate ใหม่ด้วย)
 - `seq` (container `pol-seq`) — Seq sink สำหรับ security/denial telemetry (rls-to-query-filter task 9,
   REQ-13.4). UI ที่ `http://localhost:5341` (bind `127.0.0.1` เท่านั้น, local dev เปิดแบบไม่มี auth ผ่าน
   `SEQ_FIRSTRUN_NOAUTHENTICATION`). host POST event ไปที่ `http://seq:5341/api/events/raw`

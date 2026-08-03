@@ -14,6 +14,13 @@ GO
 
 DECLARE @fail nvarchar(max) = N'';
 
+-- --- Database collation — pinned at CREATE DATABASE (01-principals.sql). The EF dev auto-migrate
+-- path (src/Hosts/Api/Program.cs MigrateAsync()) can also create the database itself, without
+-- COLLATE, if it races ahead of bootstrap; 01-principals.sql's own gate now catches that case
+-- before this script ever runs, so this check is a second, independent floor, not the only one. ---
+IF ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), N'Collation')), N'') <> N'Thai_100_CI_AS'
+    SET @fail += N'database collation: expected Thai_100_CI_AS; ';
+
 -- --- Schemas (6) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
 IF (SELECT COUNT(*) FROM sys.schemas s JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
     WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'shop', N'txn') AND dp.name = N'dbo') <> 6
