@@ -40,3 +40,4 @@ tsconfig.tsbuildinfo
 *.key
 secrets/
 
+.pipeline/
