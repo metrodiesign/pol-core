@@ -36,7 +36,7 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs", // task 8.5.8: ListByTenantAsync is GetMerchantHandler's admin cross-merchant read-back (explicit merchantId param, its only caller)
         "src/Persistence/Persistence.MerchantRuntime/Orders/Items/AdminItemPolicyWriter.cs", // policy-reference-record task 5: admin cross-merchant ItemPolicy write escape-hatch (IAdminItemPolicyWriter) — Scoped admin confined by AdminItemPolicyWriteAuthorizer.CanWrite checking IAdminScope.Accessible, never widened here
         "src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs", // policy-reference-record task 6: admin cross-merchant policy-report read escape-hatch (IAdminItemPolicyReader, via BuildQuery's IgnoreQueryFilters) — confined by IsUnrestrictedAdmin/AccessibleMerchantIds + optional ?merchantId=, never widened here
-        "src/Persistence/Persistence.MerchantRuntime/Payments/PayableOrderReader.cs", // purchase-flow-completion REQ-3.6 (review PR #167): GetForMintAsync's UPDLOCK re-read — FromSql on the entity SET so the merchant query filter still composes; single row by Id, lock held to commit (mint-vs-cancel serialization)
+        "src/Persistence/Persistence.MerchantRuntime/Payments/PayableOrderReader.cs", // purchase-flow-completion REQ-3.6 (review PR #167, fixed PR #168): GetForMintAsync's UPDLOCK re-read is a raw scalar Database.SqlQueryRaw with no merchant predicate — the row is single by Id and the merchant floor is enforced by the GetAsync LINQ read that follows it, inside the same transaction
     ];
 
     private static readonly Regex BypassPrimitive = new(

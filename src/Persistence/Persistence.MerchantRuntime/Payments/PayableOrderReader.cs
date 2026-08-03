@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
 using Payments.Application.Ports;
@@ -38,19 +39,22 @@ internal sealed class PayableOrderReader : IPayableOrderReader
     {
         // UPDLOCK holds the order row until the surrounding transaction commits, so a concurrent cancel's
         // UPDATE waits behind this mint (and this mint waits behind a cancel that got there first — its
-        // re-read then sees Cancelled and refuses). FromSql on the entity set, not Database.SqlQueryRaw,
-        // so the merchant query filter still composes around the raw SELECT. SQL Server-only, like
-        // OrderSummaryReader's raw reads.
-        var row = await _db.Set<Order>()
-            .FromSqlInterpolated($"SELECT * FROM shop.Orders WITH (UPDLOCK) WHERE Id = {orderId}")
-            .AsNoTracking()
-            .Select(o => new { o.Id, o.Amount.Amount, o.Amount.Currency, o.Status })
-            .FirstOrDefaultAsync(cancellationToken)
+        // re-read then sees Cancelled and refuses). The lock is taken by a raw scalar SELECT (no complex-type
+        // columns): composing a projection over FromSql makes EF forget the complex type's HasColumnName
+        // mapping and emit Amount_Amount/Amount_Currency (invalid columns). The locked read then goes through
+        // the same LINQ path as GetAsync — mapped columns, merchant query filter — inside the same transaction.
+        // ToListAsync + Count == 0, not SingleAsync/FirstOrDefaultAsync: those compose the SqlQueryRaw into a
+        // derived table, which is exactly what breaks NEXT VALUE FOR in OrderNoSequence (Msg 11719) — this
+        // scalar read avoids the same trap by never composing over it.
+        var locked = await _db.Database
+            .SqlQueryRaw<Guid>("SELECT Id AS Value FROM shop.Orders WITH (UPDLOCK) WHERE Id = @p0",
+                new SqlParameter("@p0", orderId))
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        if (locked.Count == 0)
+            return null;
 
-        return row is null
-            ? null
-            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), Map(row.Status));
+        return await GetAsync(orderId, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Total by hand rather than by cast: the two enums are independent contracts, and a status
