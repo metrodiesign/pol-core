@@ -10,7 +10,8 @@ public sealed record GetCartQuery(Guid CartId, Guid MerchantId) : IQuery<CartVie
 
 public sealed record CartLineView(Guid ProductId, int Quantity, Money UnitPrice, Money LineTotal);
 
-public sealed record CartView(Guid CartId, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal)
+public sealed record CartView(
+    Guid CartId, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal, int Version)
 {
     public static CartView From(Domain.Cart cart) => new(
         cart.Id,
@@ -18,7 +19,8 @@ public sealed record CartView(Guid CartId, string Status, IReadOnlyList<CartLine
         cart.Items
             .Select(i => new CartLineView(i.ProductId, i.Quantity, i.UnitPrice, i.LineTotal))
             .ToList(),
-        cart.Subtotal);
+        cart.Subtotal,
+        cart.Version);
 }
 
 public sealed class GetCartHandler : IQueryHandler<GetCartQuery, CartView?>

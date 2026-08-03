@@ -1,6 +1,6 @@
 # Design: Purchase Flow Completion (ปิด flow ซื้อประกันภัย End-to-End)
 
-> Status: approved 2026-08-02
+> Status: approved 2026-08-02, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166)
 
 ## Architecture Overview
 
@@ -187,7 +187,7 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 
 | เรื่อง | ตัดสิน | เหตุผล |
 |---|---|---|
-| Cart freeze point | ตอน `StartCheckout` ผ่าน endpoint orchestration 2 UoW | snapshot ตรึงตอน Start; index กัน checkout ที่สอง — damage bounded, ทางออก = abandon |
+| Cart freeze point | ตอน `StartCheckout` ผ่าน endpoint orchestration 2 UoW + `Cart.Version` optimistic token (amended 2026-08-03, review PR #166) | snapshot ตรึงตอน Start; index กัน checkout ที่สอง; race "แก้ cart แทรกระหว่าง snapshot→freeze" ปิดด้วย Version ที่ทุก mutation bump (รวม edit ที่แตะแค่ `CartItems`) — freeze แบก `ExpectedVersion` จาก snapshot, แพ้ race → abandon session ที่เพิ่งเปิด + 409 ให้ merchant เริ่มใหม่; rowversion ใช้ไม่ได้ (item-edit ไม่แตะแถว `Carts` + SQLite ไม่มี) |
 | Session expiry | lazy expire ผ่าน `PaymentConfirmationService` — ไม่มี sweeper | แก้ตรงจุดที่เจ็บ (เปิดใหม่/เช็คสถานะ/cancel); **ห้าม expire session ที่มี chargeId โดยไม่ fetch ก่อน** (กฎ money-path — ambiguous ห้ามตัดสิน) |
 | Expire + mint ใหม่ | 2-phase `SaveChanges` ใน `ExecuteInTransactionAsync` เดียว | filtered unique index มองไม่เห็นโดย EF ordering — ลำดับ UPDATE ก่อน INSERT ต้อง deterministic ไม่เดิมพันกับ `ModificationCommandComparer`; ยัง atomic ตาม REQ-3.2 |
 | TTL = 24h | ค่าคงที่ใน domain | ยาวกว่าอายุ hosted page 2C2P มาก; ไม่ทำ config จนกว่าจะมีเหตุ |
@@ -208,6 +208,7 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 | mutation บน cart ไม่ Open | domain throw (มีแล้ว) → endpoint 409 (REQ-2.7) |
 | start checkout ซ้ำ (แพ้ race) | unique index → `DbUpdateException` → 409 เดียวกับ pre-check |
 | `MarkCartCheckedOut` ล้มหลัง session เปิด | cart ค้าง Open แต่ index กัน start ที่สอง — ทางฟื้น: abandon (no-op ได้ทุกขั้น) → start ใหม่ |
+| cart ถูกแก้แทรกหลัง snapshot ก่อน freeze (amended 2026-08-03) | `ExpectedVersion` mismatch หรือ token ชนตอน commit → `ConcurrencyConflictException` → endpoint abandon session ที่เพิ่งเปิดแล้วตอบ 409 "cart changed"; ฝั่ง edit ที่ commit ทีหลัง freeze โดน token ปัดที่ SaveChanges ของตัวเอง → 409 |
 | pay: token ไม่พบ/ผิด/**หมดอายุ** | **404 ทั้งหมด** (REQ-8.2 — ต่างจาก summary เดิมที่ตอบ 410 สำหรับหมดอายุ; endpoint ลูกค้าใหม่ใช้ 404 opaque) |
 | pay: order Paid / Cancelled | 409 / 404 (REQ-8.11) |
 | pay: order เก่า `PaymentChannel` null | 409 Problem — merchant ยกเลิกแล้วสร้างใหม่ (เฉพาะข้อมูลก่อน deploy) |

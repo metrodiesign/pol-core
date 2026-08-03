@@ -231,6 +231,118 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         Assert.Equal(MerchantA, line.MerchantId);
     }
 
+    private async Task<Guid> CreateUnpaidProductAsync(string documentNo)
+    {
+        using var db = ApiContext();
+        return await new CreateProductHandler(
+                NewProductRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
+            .Handle(
+                new CreateProductCommand(new Products.Domain.ProductInput(
+                    Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
+                    documentNo, "00098", 1200m,
+                    Products.Domain.PaymentStatus.UNPAID, null,
+                    StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31),
+                    ShowName: "Somchai Jaidee", BrokerName: "Muang Thai Insurance")),
+                CancellationToken.None);
+    }
+
+    // PR #166 review — the freeze race, token half: an add-item/edit request that LOADED the cart while it
+    // was still Open but commits after the freeze landed. Without Cart.Version both writes would silently
+    // interleave (an item edit touches only shop.CartItems, never the Carts row) and the confirmed session
+    // would sell lines the cart no longer has. With it, the loser's own SaveChanges throws.
+    [Fact]
+    public async Task A_cart_edit_that_commits_after_the_freeze_is_rejected_by_the_version_token()
+    {
+        var productId = await CreateUnpaidProductAsync("00098-69100/กธ/037676-10");
+        var cartId = await CreateCartAsync();
+        await AddProductToCartAsync(cartId, productId, 2);
+
+        // The edit request has already loaded the cart — it still sees an Open cart.
+        using var editDb = ApiContext();
+        var staleCart = await new CartRepository(editDb).GetAsync(cartId, CancellationToken.None);
+
+        // The checkout freeze lands first, in its own request scope, at the version its snapshot was read at.
+        using (var freezeDb = ApiContext())
+        {
+            var current = await new CartRepository(freezeDb).GetAsync(cartId, CancellationToken.None);
+            await new MarkCartCheckedOutHandler(
+                    new CartRepository(freezeDb), new MerchantRuntimeUnitOfWork(freezeDb, NoOpSecurityTelemetry.Instance))
+                .Handle(new MarkCartCheckedOutCommand(cartId, MerchantA, current!.Version), CancellationToken.None);
+        }
+
+        // The stale edit now commits: UPDATE shop.Carts ... WHERE Version = @loaded finds 0 rows.
+        staleCart!.SetItemQuantity(productId, 5);
+        await Assert.ThrowsAsync<ConcurrencyConflictException>(() =>
+            new MerchantRuntimeUnitOfWork(editDb, NoOpSecurityTelemetry.Instance).SaveChangesAsync(CancellationToken.None));
+    }
+
+    // PR #166 review — the freeze race, snapshot half, reproduced inline exactly as Program.cs orchestrates
+    // it: the endpoint reads its cart snapshot, a concurrent edit commits in full, StartCheckout opens a
+    // session on the stale snapshot, and the freeze (carrying the snapshot's Version) must refuse — after
+    // which the endpoint abandons the just-opened session, leaving the cart Open, unfrozen, and holding its
+    // REAL lines for the retry.
+    [Fact]
+    public async Task A_cart_edit_between_snapshot_and_freeze_aborts_the_checkout_and_frees_the_cart()
+    {
+        var productId = await CreateUnpaidProductAsync("00098-69100/กธ/037677-10");
+        var cartId = await CreateCartAsync();
+        await AddProductToCartAsync(cartId, productId, 2);
+
+        // The endpoint reads its snapshot (GetCartQuery in Program.cs).
+        CartView snapshot;
+        using (var db = ApiContext())
+            snapshot = (await new GetCartHandler(new CartRepository(db))
+                .Handle(new GetCartQuery(cartId, MerchantA), CancellationToken.None))!;
+
+        // A concurrent edit request lands in full AFTER the snapshot, through the real handler.
+        using (var db = ApiContext())
+            await new SetCartItemQuantityHandler(
+                    new CartRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
+                .Handle(new SetCartItemQuantityCommand(cartId, MerchantA, productId, 9), CancellationToken.None);
+
+        // StartCheckout still succeeds — its lines are the (now stale) snapshot's lines.
+        Guid sessionId;
+        using (var db = ApiContext())
+        {
+            var line = Assert.Single(snapshot.Items);
+            var result = await new StartCheckoutHandler(
+                    new CheckoutRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
+                    new SystemClock())
+                .Handle(new StartCheckoutCommand(MerchantA, cartId, snapshot.Subtotal!.Value,
+                    [
+                        new CheckoutItemInput(line.ProductId, line.Quantity, line.UnitPrice,
+                            "00098-69100/กธ/037677-10", "VMI", "POLICY", null,
+                            new DateTime(2026, 7, 1), new DateTime(2026, 7, 31),
+                            "Somchai", "Jaidee", "1234567890123", Dob),
+                    ]), CancellationToken.None);
+            sessionId = result.CheckoutSessionId;
+        }
+
+        // The freeze carries the SNAPSHOT's version and must lose to the committed edit.
+        using (var db = ApiContext())
+            await Assert.ThrowsAsync<ConcurrencyConflictException>(async () =>
+                await new MarkCartCheckedOutHandler(
+                        new CartRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
+                    .Handle(new MarkCartCheckedOutCommand(cartId, MerchantA, snapshot.Version), CancellationToken.None));
+
+        // Endpoint compensation: abandon the just-opened session; the cart never froze.
+        using (var db = ApiContext())
+        {
+            var abandoned = await new AbandonCheckoutHandler(
+                    new CheckoutRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
+                .Handle(new AbandonCheckoutCommand(sessionId, MerchantA), CancellationToken.None);
+            Assert.Equal(cartId, abandoned.CartId);
+            Assert.Equal(Checkouts.Domain.SessionStatus.Abandoned, abandoned.Status);
+        }
+
+        using (var db = ApiContext())
+        {
+            var cart = await new CartRepository(db).GetAsync(cartId, CancellationToken.None);
+            Assert.Equal(Carts.Domain.CartStatus.Open, cart!.Status);
+            Assert.Equal(9, cart.Items.Single().Quantity); // the real lines survived, nothing froze
+        }
+    }
+
     [Fact]
     public async Task Product_to_cart_to_checkout_to_paid_order_survives_the_real_write_floor_end_to_end()
     {

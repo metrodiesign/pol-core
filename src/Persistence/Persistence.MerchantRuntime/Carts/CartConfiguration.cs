@@ -23,6 +23,10 @@ internal sealed class CartConfiguration(MerchantRuntimeDbContext context) : IEnt
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
 
+        // Mirrors Carts.Infrastructure: the concurrency token must exist on BOTH contexts or the runtime
+        // path would silently skip the WHERE Version = @original check that closes the freeze race.
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
+
         builder.Ignore(x => x.Subtotal);
         builder.Ignore(x => x.DomainEvents);
 

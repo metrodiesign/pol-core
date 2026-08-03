@@ -96,10 +96,29 @@ public sealed class CartHandlerTests
         var uow = new FakeUnitOfWork();
 
         await new MarkCartCheckedOutHandler(new FakeCartRepository(cart), uow)
-            .Handle(new MarkCartCheckedOutCommand(cartId, Merchant), default);
+            .Handle(new MarkCartCheckedOutCommand(cartId, Merchant, cart.Version), default);
 
         Assert.Equal(1, uow.SaveCount);
         Assert.Throws<InvalidOperationException>(() => cart.Clear());
+    }
+
+    // PR #166 review — the freeze race: an edit that landed after the checkout snapshot was read makes the
+    // cart's Version differ from the command's ExpectedVersion, and the freeze must refuse (409) rather
+    // than freeze a cart whose lines no longer match the session.
+    [Fact]
+    public async Task MarkCheckedOut_with_a_stale_version_is_rejected_and_never_saves()
+    {
+        var cart = SeededCart(out var cartId);
+        var staleVersion = cart.Version;
+        cart.AddItem(Guid.NewGuid(), 1, Money.Of(150m, "THB")); // concurrent edit after the snapshot
+        var uow = new FakeUnitOfWork();
+        var handler = new MarkCartCheckedOutHandler(new FakeCartRepository(cart), uow);
+
+        await Assert.ThrowsAsync<BuildingBlocks.Application.ConcurrencyConflictException>(async () =>
+            await handler.Handle(new MarkCartCheckedOutCommand(cartId, Merchant, staleVersion), default));
+
+        Assert.Equal(0, uow.SaveCount);
+        Assert.Equal(nameof(Carts.Domain.CartStatus.Open), cart.Status.ToString());
     }
 
     [Fact]
@@ -124,7 +143,7 @@ public sealed class CartHandlerTests
         var handler = new MarkCartCheckedOutHandler(new FakeCartRepository(cart), new FakeUnitOfWork());
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await handler.Handle(new MarkCartCheckedOutCommand(cartId, Guid.NewGuid()), default));
+            await handler.Handle(new MarkCartCheckedOutCommand(cartId, Guid.NewGuid(), cart.Version), default));
     }
 
     [Fact]

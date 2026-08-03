@@ -21,6 +21,12 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<CartAggregate>
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
 
+        // Application-managed token (the domain bumps it on every mutation, item edits included) — makes
+        // a cart-edit racing the checkout freeze a DbUpdateConcurrencyException instead of a silent
+        // interleave. Not IsRowVersion: item-only edits never write the Carts row, and SQLite (host
+        // tests) has no rowversion.
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
+
         builder.Ignore(x => x.Subtotal);
         builder.Ignore(x => x.DomainEvents);
 
