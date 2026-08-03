@@ -10,11 +10,20 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
     /// silently relabelled every stored phone number as an email address; it also cannot know about the
     /// sequence, the backfill, or the DEFAULTs a rolling deploy needs. Five phases, in order:
     /// <para>
-    /// (a) ADD every column nullable or with a DB DEFAULT, so the previous build keeps INSERTing rows while
-    /// both versions run; (b) BACKFILL — mint an OrderNo for every existing order and split the single
-    /// recipient column into phone/email; (c) ALTER OrderNo to NOT NULL now that every row has one;
-    /// (d) UNIQUE index on OrderNo; (e) DROP the checkout's recipient column, whose content now lives in the
-    /// two customer columns.
+    /// (a) ADD every column nullable or with a DB DEFAULT; (b) BACKFILL — mint an OrderNo for every existing
+    /// order and split the single recipient column into phone/email (guarded: a legacy value the split would
+    /// truncate FAILS the migration rather than silently corrupting it); (c) ALTER OrderNo to NOT NULL now
+    /// that every row has one; (d) UNIQUE index on OrderNo; (e) DROP the checkout's recipient column, whose
+    /// content now lives in the two customer columns.
+    /// </para>
+    /// <para>
+    /// Concurrency truth, not a zero-downtime claim (review PR #168): EF runs the whole migration in ONE
+    /// transaction, and the phase-(a) ALTER TABLE ADD takes a Sch-M lock on each table that is held to
+    /// COMMIT — so no concurrent INSERT can land between the backfill and the NOT NULL flip; writers block
+    /// until the migration commits as a whole. The DEFAULTs exist for the window AFTER commit while the
+    /// previous api build is still being replaced (docker-compose.prod.yml starts the new hosts only after
+    /// `migrate` completes): that build can still INSERT CheckoutSessions rows, but its Orders INSERTs fail
+    /// loudly on the NOT NULL OrderNo — deliberate, because no DEFAULT can satisfy a UNIQUE order number.
     /// </para>
     /// shop.Orders.NotificationRecipient is deliberately KEPT: it is still the single source of truth for
     /// where the summary link is sent, and the consumer derives it from phone/email (design F-03).
@@ -81,6 +90,27 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             // The one recipient column held either an email or a phone; split it where the readers now look.
             // Rows with neither keep the column DEFAULTs, which is exactly what "unknown customer" means here.
+            // A phone-shaped value longer than the 20 chars CustomerPhone holds is bad legacy data: FAIL the
+            // migration naming the rows, exactly as CustomerContact.Of would refuse it in application code —
+            // never silently truncate it into a different phone number (review PR #168).
+            migrationBuilder.Sql(
+                """
+                IF EXISTS (
+                    SELECT 1 FROM shop.Orders
+                    WHERE NotificationRecipient IS NOT NULL
+                      AND CHARINDEX('@', NotificationRecipient) = 0
+                      AND LEN(NotificationRecipient) > 20)
+                    THROW 50001, N'CheckoutOrderEnrichment: shop.Orders holds phone-shaped NotificationRecipient values longer than 20 chars; fix those rows before migrating.', 1;
+                """);
+            migrationBuilder.Sql(
+                """
+                IF EXISTS (
+                    SELECT 1 FROM shop.CheckoutSessions
+                    WHERE NotificationRecipient IS NOT NULL
+                      AND CHARINDEX('@', NotificationRecipient) = 0
+                      AND LEN(NotificationRecipient) > 20)
+                    THROW 50001, N'CheckoutOrderEnrichment: shop.CheckoutSessions holds phone-shaped NotificationRecipient values longer than 20 chars; fix those rows before migrating.', 1;
+                """);
             migrationBuilder.Sql(
                 """
                 UPDATE shop.Orders
@@ -90,7 +120,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql(
                 """
                 UPDATE shop.Orders
-                SET CustomerPhone = LEFT(NotificationRecipient, 20)
+                SET CustomerPhone = NotificationRecipient
                 WHERE NotificationRecipient IS NOT NULL AND CHARINDEX('@', NotificationRecipient) = 0;
                 """);
             migrationBuilder.Sql(
@@ -102,7 +132,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             migrationBuilder.Sql(
                 """
                 UPDATE shop.CheckoutSessions
-                SET CustomerPhone = LEFT(NotificationRecipient, 20)
+                SET CustomerPhone = NotificationRecipient
                 WHERE NotificationRecipient IS NOT NULL AND CHARINDEX('@', NotificationRecipient) = 0;
                 """);
 

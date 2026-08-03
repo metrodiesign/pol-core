@@ -1,6 +1,6 @@
 # Design: Purchase Flow Completion (ปิด flow ซื้อประกันภัย End-to-End)
 
-> Status: approved 2026-08-02, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166), amended 2026-08-03 (ปิด race มินต์ session แทรกระหว่าง cancel — REQ-3.6/4.7, review PR #167 ข้อ 1)
+> Status: approved 2026-08-02, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166), amended 2026-08-03 (ปิด race มินต์ session แทรกระหว่าง cancel — REQ-3.6/4.7, review PR #167 ข้อ 1), amended 2026-08-03 (จำแนก ambiguous PSP ด้วย `PspAmbiguousException` + guard backfill truncation + แก้ claim migration ให้ตรงกลไก — review PR #168)
 
 ## Architecture Overview
 
@@ -95,13 +95,13 @@ Webhook ยังเป็น source of truth เส้นหลัก — ท�
 
 แตกส่วน fetch→verify→claim→mark→enqueue ออกจาก `HandlePspWebhookHandler` ให้ 4 ผู้เรียกใช้ร่วม: webhook, `ConfirmPaymentStatusCommand`, lazy expire ใน `CreateSessionHandler`, `ReleaseOpenSessionCommand` กติกา:
 
-1. **Expire ได้เมื่อพิสูจน์ได้ว่าไม่มี charge เท่านั้น**: `PspExternalChargeId == null` → expire ได้เลย; ไม่ null → `FetchChargeAsync` ก่อนเสมอ — Paid → เดินเส้น confirm (ห้าม expire), Failed → `MarkFailed`, ยังเปิด → expire ได้เมื่อเกิน TTL; fetch ล้ม (timeout/5xx) = ambiguous → ไม่ตัดสินอะไร (ผู้เรียกตอบ 409/`pending` ตามบริบท)
+1. **Expire ได้เมื่อพิสูจน์ได้ว่าไม่มี charge เท่านั้น**: `PspExternalChargeId == null` → expire ได้เลย; ไม่ null → `FetchChargeAsync` ก่อนเสมอ — Paid → เดินเส้น confirm (ห้าม expire), Failed → `MarkFailed`, ยังเปิด → expire ได้เมื่อเกิน TTL; fetch ล้ม (timeout/5xx/response ที่อ่านหรือ verify ไม่ได้) = ambiguous → ไม่ตัดสินอะไร (ผู้เรียกตอบ 409/`pending` ตามบริบท) — adapter จำแนกเองเป็น `PspAmbiguousException` คู่กับ `PspRejectedException` เดิม ผู้เรียก catch ด้วย type ไม่ enumerate transport exception (review PR #168 ข้อ 2: enumeration เดิมปล่อย signature-fail หลุดเป็น 409)
 2. **Idempotency key แชร์**: `{psp}:{connectionId}:charge:{chargeId}:confirmed` — claim โดย service ตัวเดียว ทั้ง webhook และ payment-status; ฝั่ง webhook ยังคง key `event:{EventId}` เดิมเป็น key เสริม (dedup ระดับ delivery)
 3. **Enqueue `PaymentPaid` เฉพาะเมื่อ transition เกิดจริง** (เช็ค `Status != Paid` ก่อน `MarkPaid`) — race webhook↔status ต่อให้ทั้งคู่ผ่าน claim คนละ key ก็ยิง event ได้ครั้งเดียว
 4. **Session terminal (`Expired`/`Failed`) แต่ PSP ยืนยัน Paid**: `LogCritical` (orderId, sessionId, chargeId, amount) + คืน outcome `Conflicted` — webhook ตอบ 200 (ไม่ 500 ไม่ retry loop), payment-status คืน `failed` (REQ-3.4/3.5) — refund = manual ops
 5. เทียบยอด/สกุลก่อน mark เสมอ (พฤติกรรม webhook เดิม) — ไม่ตรง → `LogCritical` + ไม่ mark
 
-### คอลัมน์ใหม่ + ลำดับ migration (rolling-deploy safe)
+### คอลัมน์ใหม่ + ลำดับ migration (transaction เดียว — ไม่ใช่ zero-downtime)
 
 | ตาราง | คอลัมน์ | ชนิด | หมายเหตุ |
 |---|---|---|---|
@@ -118,7 +118,9 @@ Webhook ยังเป็น source of truth เส้นหลัก — ท�
 | `shop.Products` | `SoldOrderId` | `uniqueidentifier NULL` | ผู้ซื้อรายแรก — ใช้แยก replay จาก double-sell (REQ-5.4) |
 | sequence `shop.OrderNoSeq` | `bigint START 1` | | + `GRANT UPDATE ON OBJECT::shop.OrderNoSeq TO pol_app` |
 
-ลำดับใน migration เดียว (เขียนมือ): (a) ADD คอลัมน์ nullable/มี DEFAULT ทั้งหมด → (b) backfill (`OrderNo`, แตก `Recipient`) → (c) ALTER `OrderNo` เป็น NOT NULL → (d) unique index `OrderNo` + filtered unique index `IX_CheckoutSessions_CartId_Open` (`CartId` WHERE `[Status] IN (0,1)`, named overload ทั้ง 2 mirror) → (e) DROP `Recipient`
+ลำดับใน migration เดียว (เขียนมือ): (a) ADD คอลัมน์ nullable/มี DEFAULT ทั้งหมด → (b) guard ข้อมูลเก่า (recipient รูปเบอร์โทรยาวเกิน 20 → `THROW` ให้ migration fail แทนตัดเงียบ — review PR #168 ข้อ 4) แล้ว backfill (`OrderNo`, แตก `Recipient`) → (c) ALTER `OrderNo` เป็น NOT NULL → (d) unique index `OrderNo` + filtered unique index `IX_CheckoutSessions_CartId_Open` (`CartId` WHERE `[Status] IN (0,1)`, named overload ทั้ง 2 mirror) → (e) DROP `Recipient`
+
+ความจริงเชิง concurrency (review PR #168 ข้อ 1): ทั้ง migration รันใน transaction เดียวของ EF และ `ALTER TABLE ADD` ใน (a) ถือ Sch-M lock บนตารางจน commit — INSERT จาก build เก่าแทรกระหว่าง backfill กับ NOT NULL ไม่ได้ (โดน block ทั้งก้อน) จึงไม่มีทางที่ (c) fail เพราะแถวใหม่; DEFAULT มีไว้สำหรับช่วงหลัง commit ที่ build เก่ายังรันอยู่ระหว่าง compose แทนที่ api (`docker-compose.prod.yml` ให้ hosts start หลัง `migrate` จบเท่านั้น) — build เก่ายัง INSERT `CheckoutSessions` ได้ แต่ INSERT `Orders` จะ fail-loud โดยตั้งใจเพราะ `OrderNo` NOT NULL ไม่มี DEFAULT ได้ (ต้อง unique)
 
 **OrderNo**: sequence เดียว global ไม่ reset ต่อปี (unique จาก sequence ล้วน ปีเป็น display prefix จากวันมินต์) — format `$"ORD{(year+543)%100:D2}{seq:D8}"`; มินต์ผ่าน **port `IOrderNoSequence`** (interface ใน `Orders.Application`, impl `src/Persistence/Persistence.MerchantRuntime/Orders/OrderNoSequence.cs` ใช้ raw SQL `NEXT VALUE FOR` — **เพิ่มไฟล์นี้เข้า `BypassPrimitiveTests.AllowedPorts`** เป็นส่วนหนึ่งของ task) เรียกใน `CheckoutConfirmedConsumer` ก่อน enqueue `CustomerOrderNotification` (event ต้องมี OrderNo); replay idempotent เช็ค existing ด้วย `CheckoutSessionId` ก่อนมินต์ — รูเลขจาก retry ยอมรับได้
 

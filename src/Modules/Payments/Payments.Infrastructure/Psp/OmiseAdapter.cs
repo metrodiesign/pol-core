@@ -84,9 +84,9 @@ public sealed class OmiseAdapter : PspAdapterBase
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
 
-        var id = GetString(root, "id") ?? throw new InvalidOperationException("Omise charge response missing id.");
+        var id = GetString(root, "id") ?? throw new PspAmbiguousException("Omise charge response missing id.");
         var authorizeUri = GetString(root, "authorize_uri")
-            ?? throw new InvalidOperationException("Omise charge response missing authorize_uri (no hosted redirect).");
+            ?? throw new PspAmbiguousException("Omise charge response missing authorize_uri (no hosted redirect).");
 
         return new PspCharge(id, authorizeUri);
     }

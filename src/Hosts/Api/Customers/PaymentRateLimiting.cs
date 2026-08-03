@@ -11,6 +11,9 @@ namespace Api.Customers;
 /// unbounded. A sliding window keeps a customer's legitimate poll-after-redirect from being 429'd by a
 /// window edge. A second AddRateLimiter call only ADDS this policy onto the shared RateLimiterOptions (the
 /// middleware + 429 status are configured once elsewhere).
+/// Behind a reverse proxy, configure ForwardedHeaders so this is the real client IP; otherwise all customer
+/// payment traffic shares the proxy's single bounded budget — still safe, just a global cap instead of
+/// per-source (same ops note as the webhook limiter).
 /// </summary>
 // ponytail: DUPLICATE-shaped of the two auth limiters (distinct policy name + budget) — deliberate.
 internal static class PaymentRateLimiting

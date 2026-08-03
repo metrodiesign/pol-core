@@ -351,7 +351,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession();
         var (adapter, handler) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<PspAmbiguousException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Equal(1, handler.CallCount); // single-shot: a retry could double-charge
@@ -375,6 +375,7 @@ public sealed class TwoCTwoPAdapterTests
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Equal(refused, thrown is PspRejectedException);
+        Assert.Equal(!refused, thrown is PspAmbiguousException); // never a bare InvalidOperationException
     }
 
     [Fact]
@@ -415,7 +416,8 @@ public sealed class TwoCTwoPAdapterTests
             "a-different-key-aaaaaaaaaaaaaaaaaa")));
         var (adapter, _) = Build((_, _) => forged);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // Ambiguous, not rejected: a response we cannot verify says nothing about whether a charge exists.
+        await Assert.ThrowsAsync<PspAmbiguousException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
     }
 
@@ -426,7 +428,20 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "0000" }), "a-different-key-aaaaaaaaaaaaaaaaaa")));
         var (adapter, _) = Build((_, _) => forged);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // The regression review PR #168 called out: an unverifiable INQUIRY response must be classified
+        // ambiguous (the customer surface answers pending), never escape as a definitive-looking failure.
+        await Assert.ThrowsAsync<PspAmbiguousException>(
+            () => adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task FetchCharge_classifies_a_malformed_inquiry_response_as_ambiguous()
+    {
+        // A body with no payload JWT at all — a proxy error page, a half-written response. Same rule: we
+        // asked and could not read the answer, so no caller may treat it as "not paid".
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{\"unexpected\":true}"));
+
+        await Assert.ThrowsAsync<PspAmbiguousException>(
             () => adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None));
     }
 

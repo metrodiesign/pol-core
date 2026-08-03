@@ -160,6 +160,7 @@ public sealed class ReleaseOpenSessionHandlerTests
     [InlineData("http")]
     [InlineData("timeout")]
     [InlineData("garbage")]
+    [InlineData("ambiguous")] // the adapter's own classification: unverifiable/unreadable inquiry, persistent 5xx
     public async Task An_inquiry_that_fails_refuses_the_release(string failure)
     {
         var session = NewSession(withCharge: true);
@@ -167,7 +168,8 @@ public sealed class ReleaseOpenSessionHandlerTests
         {
             "http" => new HttpRequestException("2c2p unreachable"),
             "timeout" => new TaskCanceledException("inquiry timed out"),
-            _ => new System.Text.Json.JsonException("unreadable inquiry response"),
+            "ambiguous" => new PspAmbiguousException("2c2p paymentInquiry response failed signature verification."),
+            _ => (Exception)new System.Text.Json.JsonException("unreadable inquiry response"),
         }));
 
         var conflict = await Assert.ThrowsAsync<ConflictException>(

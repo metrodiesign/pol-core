@@ -33,7 +33,15 @@ internal sealed class OrderNoSequence : IOrderNoSequence
         return Format(_clock.UtcNow, next);
     }
 
-    /// <summary>ORD + Buddhist year mod 100 + the sequence value, zero-padded to 8 (REQ-7.1).</summary>
-    internal static string Format(DateTime mintedAt, long sequenceValue) =>
-        $"ORD{(mintedAt.Year + 543) % 100:D2}{sequenceValue:D8}";
+    /// <summary>ORD + Buddhist year mod 100 + the sequence value, zero-padded to 8 (REQ-7.1). A value past
+    /// the 8-digit space would render 14+ chars into a varchar(13) column — the column would still refuse it,
+    /// but as an opaque truncation error; this names the real problem instead (review PR #168).</summary>
+    internal static string Format(DateTime mintedAt, long sequenceValue)
+    {
+        if (sequenceValue > 99_999_999)
+            throw new InvalidOperationException(
+                $"OrderNo sequence value {sequenceValue} exceeds the 8-digit ORD number space (REQ-7.1).");
+
+        return $"ORD{(mintedAt.Year + 543) % 100:D2}{sequenceValue:D8}";
+    }
 }

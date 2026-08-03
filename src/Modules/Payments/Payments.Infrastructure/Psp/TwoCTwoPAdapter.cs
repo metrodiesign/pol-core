@@ -62,7 +62,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         var responseJwt = await PostPayloadAsync("paymentToken", claims, creds.SecretKey, cancellationToken).ConfigureAwait(false);
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var resp))
-            throw new InvalidOperationException("2c2p paymentToken response failed signature verification.");
+            throw new PspAmbiguousException("2c2p paymentToken response failed signature verification.");
 
         var respCode = GetString(resp, "respCode");
         if (respCode != "0000")
@@ -72,7 +72,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
             throw new PspRejectedException($"2c2p paymentToken declined (respCode {respCode}).");
 
         var webPaymentUrl = GetString(resp, "webPaymentUrl")
-            ?? throw new InvalidOperationException("2c2p paymentToken response missing webPaymentUrl.");
+            ?? throw new PspAmbiguousException("2c2p paymentToken response missing webPaymentUrl.");
 
         // invoiceNo is the durable correlation key, NOT the per-attempt paymentToken.
         return new PspCharge(invoiceNo, webPaymentUrl);
@@ -125,7 +125,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
 
         var responseJwt = await PostPayloadWithRetryAsync("paymentInquiry", claims, creds.SecretKey, cancellationToken).ConfigureAwait(false);
         if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var resp))
-            throw new InvalidOperationException("2c2p paymentInquiry response failed signature verification.");
+            throw new PspAmbiguousException("2c2p paymentInquiry response failed signature verification.");
 
         // paymentInquiry reports the collected amount in MAJOR units under the same field names the
         // paymentToken request used (amount + currencyCode). Read from the signature-verified claims only.
@@ -184,7 +184,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         var jwt = EncodeJwtHs256(claimsJson, secretKey);
         using var request = BuildPayloadRequest(endpoint, jwt);
         var body = await SendOnceAsync(request, ct).ConfigureAwait(false);
-        return ExtractPayloadJwt(body) ?? throw new InvalidOperationException($"2c2p {endpoint} response missing payload.");
+        return ExtractPayloadJwt(body) ?? throw new PspAmbiguousException($"2c2p {endpoint} response missing payload.");
     }
 
     /// <summary>POSTs to an IDEMPOTENT v4.3 read endpoint (paymentInquiry) with bounded retry.</summary>
@@ -192,7 +192,7 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
     {
         var jwt = EncodeJwtHs256(claimsJson, secretKey);
         var body = await SendWithRetryAsync(() => BuildPayloadRequest(endpoint, jwt), ct).ConfigureAwait(false);
-        return ExtractPayloadJwt(body) ?? throw new InvalidOperationException($"2c2p {endpoint} response missing payload.");
+        return ExtractPayloadJwt(body) ?? throw new PspAmbiguousException($"2c2p {endpoint} response missing payload.");
     }
 
     private HttpRequestMessage BuildPayloadRequest(string endpoint, string jwt)

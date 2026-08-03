@@ -64,12 +64,15 @@ public sealed class ConfirmPaymentStatusHandler
             outcome = await _confirmation.ConfirmAsync(open, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ambiguous) when (
-            ambiguous is HttpRequestException or TaskCanceledException or JsonException
+            ambiguous is HttpRequestException or TaskCanceledException or JsonException or PspAmbiguousException
             && !cancellationToken.IsCancellationRequested)
         {
             // The confirmation service deliberately lets a failed inquiry through: the PSP may be holding
             // money we have not heard about. The customer is told to wait — never that it failed, which
-            // would send them off to pay a second time.
+            // would send them off to pay a second time. PspAmbiguousException is the adapter's own
+            // classification of the same case (unverifiable/unreadable inquiry response, persistent 5xx);
+            // a PspRejectedException or a plain InvalidOperationException here is NOT ambiguous — it is a
+            // wiring/config fault that must surface as the 409 ops can see, not dissolve into pending.
             return PaymentStatusResult.Pending;
         }
 

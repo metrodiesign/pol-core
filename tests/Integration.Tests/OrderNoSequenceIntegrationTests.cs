@@ -51,6 +51,17 @@ public sealed class OrderNoSequenceIntegrationTests
         Assert.Equal(value.ToString("D8"), orderNo[5..]);
     }
 
+    // Past 99,999,999 the number no longer fits varchar(13): the formatter must name the exhaustion itself
+    // instead of letting the column refuse it as an opaque truncation error (review PR #168).
+    [Fact]
+    public void A_sequence_value_past_the_8_digit_space_is_refused_by_name()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => OrderNoSequence.Format(new DateTime(2026, 8, 3, 0, 0, 0, DateTimeKind.Utc), 100_000_000));
+
+        Assert.Contains("8-digit", ex.Message, StringComparison.Ordinal);
+    }
+
     // REQ-7.1 "บังคับ unique" — the index, not just the sequence, is what makes a duplicate impossible.
     [Fact]
     public async Task Two_orders_cannot_share_a_number()

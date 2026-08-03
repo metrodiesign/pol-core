@@ -212,16 +212,23 @@ public sealed class ConfirmPaymentStatusHandlerTests
     // --- an inquiry we could not complete is not an answer ---
 
     [Theory]
-    [InlineData(typeof(HttpRequestException))]
-    [InlineData(typeof(TaskCanceledException))]
-    [InlineData(typeof(JsonException))]
-    public async Task An_unreachable_PSP_is_pending_and_leaves_the_session_alone(Type failure)
+    [InlineData("http")]
+    [InlineData("timeout")]
+    [InlineData("garbage")]
+    [InlineData("ambiguous")] // the adapter's own classification: unverifiable/unreadable inquiry, persistent 5xx
+    public async Task An_unreachable_PSP_is_pending_and_leaves_the_session_alone(string failure)
     {
         var session = NewSession();
         var harness = NewHarness(
             session: session,
             now: Created + Session.OpenTtl + TimeSpan.FromMinutes(1),
-            onFetchCharge: _ => throw (Exception)Activator.CreateInstance(failure)!);
+            onFetchCharge: _ => throw (failure switch
+            {
+                "http" => new HttpRequestException("2c2p unreachable"),
+                "timeout" => new TaskCanceledException("inquiry timed out"),
+                "ambiguous" => new PspAmbiguousException("2c2p paymentInquiry response failed signature verification."),
+                _ => (Exception)new JsonException("unreadable inquiry response"),
+            }));
 
         // Past its TTL, so the tempting reading of a failed inquiry is "nobody paid, expire it" — which is
         // exactly how a paid customer's session gets retired and their order left unpayable.
