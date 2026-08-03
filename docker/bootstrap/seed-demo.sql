@@ -405,12 +405,23 @@ VALUES
 
 -- shop.CheckoutSessions (REQ-6.2): AmountAmount = SUM(Quantity * UnitPriceAmount) of the bound
 -- cart. Both Confirmed rows point at the 2 CheckedOut carts; Started/Abandoned point at Open carts.
-INSERT INTO shop.CheckoutSessions (Id, MerchantId, CartId, Status, CreatedAt, NotificationRecipient, AmountAmount, AmountCurrency)
+-- PaymentChannel/CustomerName/CustomerPhone/CustomerEmail (CheckoutOrderEnrichment migration,
+-- purchase-flow-completion REQ-6.1/6.6/6.7) replace the dropped NotificationRecipient column — the
+-- merchant picks a channel and the customer's contact is captured when checkout starts, so every row
+-- carries them regardless of status (column is NOT NULL). The two Confirmed rows reuse the real
+-- contact of the merch.Users row the old NotificationRecipient email pointed at (ec…0001 ->
+-- merch.Users e5…0001, ec…0002 -> e5…0005); both are 'CARD' because they feed shop.Orders n=1/n=2
+-- below, whose txn.PaymentSessions row is hardcoded Method='card' — a session cannot show a different
+-- channel than the payment it settled with. ec…0003 (Started, no order/payment attached) carries the
+-- demo variety instead ('PROMPTPAY_QR', vprivilege has it enabled); Abandoned reuses the column's own
+-- DEFAULT ('CARD', also vsouvenir's only enabled method). Started/Abandoned both get
+-- CustomerContact.Unspecified (name/phone/email = '(ไม่ระบุ)'/''/NULL).
+INSERT INTO shop.CheckoutSessions (Id, MerchantId, CartId, Status, CreatedAt, PaymentChannel, CustomerName, CustomerPhone, CustomerEmail, AmountAmount, AmountCurrency)
 VALUES
-    ('ec000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000002', 1, SYSUTCDATETIME(), N'somchai.p@demo.pol.local', 56500.0000, 'THB'),
-    ('ec000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000002', 'ea000000-0000-4000-8000-000000000004', 1, SYSUTCDATETIME(), N'araya.c@demo.pol.local',   21700.0000, 'THB'),
-    ('ec000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000001', 0, SYSUTCDATETIME(), NULL,                        23400.0000, 'THB'),
-    ('ec000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000003', 'ea000000-0000-4000-8000-000000000005', 2, SYSUTCDATETIME(), NULL,                         3130.0000, 'THB');
+    ('ec000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000002', 1, SYSUTCDATETIME(), 'CARD',         N'สมชาย พริวิเลจ', '0812345001', N'somchai.p@demo.pol.local', 56500.0000, 'THB'),
+    ('ec000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000002', 'ea000000-0000-4000-8000-000000000004', 1, SYSUTCDATETIME(), 'CARD',         N'อารยา คอมเมิร์ซ',  '0823456001', N'araya.c@demo.pol.local',   21700.0000, 'THB'),
+    ('ec000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000001', 0, SYSUTCDATETIME(), 'PROMPTPAY_QR', N'(ไม่ระบุ)',        '',           NULL,                        23400.0000, 'THB'),
+    ('ec000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000003', 'ea000000-0000-4000-8000-000000000005', 2, SYSUTCDATETIME(), 'CARD',         N'(ไม่ระบุ)',        '',           NULL,                         3130.0000, 'THB');
 
 -- shop.Orders (REQ-6.3) + txn.PaymentSessions (REQ-6.4/6.5): generated from a number sequence
 -- (GENERATE_SERIES — DB compat level 170 here, SQL Server 2022+ feature) instead of 40+36 hand-typed
@@ -449,9 +460,25 @@ SELECT
     'THB'
 FROM (SELECT value AS n, DATEADD(day, -(value % 90), SYSUTCDATETIME()) AS createdAt FROM GENERATE_SERIES(1, 40)) AS g;
 
-INSERT INTO shop.Orders (Id, MerchantId, PaymentSessionId, CheckoutSessionId, Status, CreatedAt, PaidAt, SummaryToken, SummaryTokenExpiresAt, NotificationRecipient, AmountAmount, AmountCurrency)
-SELECT Id, MerchantId, NULL, CheckoutSessionId, Status, CreatedAt, PaidAt, SummaryToken, SummaryTokenExpiresAt, NULL, AmountAmount, AmountCurrency
-FROM @OrderSeed;
+-- OrderNo (REQ-7.1) is minted from the same shop.OrderNoSeq sequence and formatted exactly as
+-- OrderNoSequence.Format / the CheckoutOrderEnrichment migration's own backfill do — ORD + Buddhist
+-- year (2 digits, taken at seed-run time, same as the backfill's YEAR(GETUTCDATE())) + the sequence
+-- value padded to 8 — never hand-computed, or it would collide with a value the sequence hands out
+-- later. PaymentChannel/CustomerName/CustomerPhone/CustomerEmail (REQ-6.1/6.6/6.7): n=1/n=2 are the
+-- two orders a real CheckoutConfirmedConsumer run would have created from checkout sessions ec…0001/
+-- ec…0002, so they carry that session's channel and contact verbatim (Order.Create copies both from
+-- the notification); every other order predates contact capture and gets CustomerContact.Unspecified.
+-- NotificationRecipient is no longer a literal value — it is CustomerContact.NotificationRecipient's
+-- own rule (phone, else email, else NULL) applied to whichever contact the row ended up with.
+INSERT INTO shop.Orders (Id, MerchantId, PaymentSessionId, CheckoutSessionId, Status, CreatedAt, PaidAt, SummaryToken, SummaryTokenExpiresAt, OrderNo, PaymentChannel, CustomerName, CustomerPhone, CustomerEmail, NotificationRecipient, AmountAmount, AmountCurrency)
+SELECT
+    s.Id, s.MerchantId, NULL, s.CheckoutSessionId, s.Status, s.CreatedAt, s.PaidAt, s.SummaryToken, s.SummaryTokenExpiresAt,
+    CONCAT('ORD', RIGHT(CONVERT(varchar(4), YEAR(GETUTCDATE()) + 543), 2), FORMAT(NEXT VALUE FOR shop.OrderNoSeq, 'D8')),
+    cs.PaymentChannel, ISNULL(cs.CustomerName, N'(ไม่ระบุ)'), ISNULL(cs.CustomerPhone, ''), cs.CustomerEmail,
+    CASE WHEN ISNULL(cs.CustomerPhone, '') <> '' THEN ISNULL(cs.CustomerPhone, '') WHEN cs.CustomerEmail IS NOT NULL THEN cs.CustomerEmail END,
+    s.AmountAmount, s.AmountCurrency
+FROM @OrderSeed s
+LEFT JOIN shop.CheckoutSessions cs ON cs.Id = s.CheckoutSessionId;
 
 -- txn.PaymentSessions: 1 per order except 4 AwaitingPayment orders (n IN (29,30,37,38)) left with
 -- no PSP attempt at all — matches the real flow where an order can exist before payment starts
