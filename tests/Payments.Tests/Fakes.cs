@@ -24,10 +24,24 @@ internal sealed class FakePayableOrderReader : IPayableOrderReader
 
     public int Calls { get; private set; }
 
+    public int LockedCalls { get; private set; }
+
+    /// <summary>What the LOCKED re-read reports, when it should differ from <see cref="GetAsync"/> — how a
+    /// cancel that landed between the two reads is simulated. Null = same order as the first read.</summary>
+    public Func<Guid, PayableOrder?>? OnGetForMint { get; set; }
+
     public Task<PayableOrder?> GetAsync(Guid orderId, CancellationToken cancellationToken)
     {
         Calls++;
         return Task.FromResult(_order?.OrderId == orderId ? _order : null);
+    }
+
+    public Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        LockedCalls++;
+        return OnGetForMint is { } locked
+            ? Task.FromResult(locked(orderId))
+            : Task.FromResult(_order?.OrderId == orderId ? _order : null);
     }
 }
 
