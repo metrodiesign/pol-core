@@ -107,4 +107,31 @@ public sealed class CartTests
         Assert.Equal(2, cart.Items.First().Quantity);
         cart.Clear(); // still open for edits
     }
+
+    // PR #166 review — the freeze-race token: EVERY mutation must bump Version (item edits included, since
+    // they never touch the Carts row on their own), or a writer racing the checkout freeze slips through
+    // the WHERE Version = @original check unnoticed.
+    [Fact]
+    public void Every_mutation_bumps_the_version_and_a_reopen_noop_does_not()
+    {
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
+        Assert.Equal(0, cart.Version);
+
+        cart.AddItem(Product, 2, Money.Of(100m, "THB"));
+        Assert.Equal(1, cart.Version);
+        cart.SetItemQuantity(Product, 7);
+        Assert.Equal(2, cart.Version);
+        cart.RemoveItem(Product);
+        Assert.Equal(3, cart.Version);
+        cart.AddItem(Product, 1, Money.Of(100m, "THB"));
+        cart.Clear();
+        Assert.Equal(5, cart.Version);
+
+        cart.MarkCheckedOut();
+        Assert.Equal(6, cart.Version);
+        cart.Reopen();
+        Assert.Equal(7, cart.Version);
+        cart.Reopen(); // no-op on an open cart (REQ-2.9) — no write, no bump
+        Assert.Equal(7, cart.Version);
+    }
 }

@@ -796,8 +796,21 @@ api.MapPost("/checkouts", async (
 
     // Second unit of work, by design (REQ-2.1): the snapshot is already frozen inside the session above, and
     // IX_CheckoutSessions_CartId_Open blocks a second checkout even if this freeze never lands — a cart left
-    // Open with a live session is recovered by abandoning it.
-    await mediator.Send(new MarkCartCheckedOutCommand(body.CartId, actor.MerchantId), ct);
+    // Open with a live session is recovered by abandoning it. The freeze carries the Version the snapshot
+    // was read at: a cart edit that slipped in anywhere between GetCartQuery and this commit loses to the
+    // concurrency token (PR #166 review), the just-opened session is abandoned, and the merchant retries
+    // from the cart's current state.
+    try
+    {
+        await mediator.Send(new MarkCartCheckedOutCommand(body.CartId, actor.MerchantId, cart.Version), ct);
+    }
+    catch (ConcurrencyConflictException)
+    {
+        await mediator.Send(new AbandonCheckoutCommand(result.CheckoutSessionId, actor.MerchantId), ct);
+        return Results.Problem(
+            statusCode: StatusCodes.Status409Conflict,
+            title: "The cart changed while checkout was starting; try again.");
+    }
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("เช็คเอาต์")
