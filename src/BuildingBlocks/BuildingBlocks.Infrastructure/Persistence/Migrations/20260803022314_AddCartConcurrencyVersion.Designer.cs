@@ -5,6 +5,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -12,9 +13,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    partial class PolDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260803022314_AddCartConcurrencyVersion")]
+    partial class AddCartConcurrencyVersion
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -657,24 +660,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasPrecision(0)
                         .HasColumnType("datetime2(0)");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Discount", "Checkouts.Domain.Items.Item.Discount#Money", b1 =>
-                        {
-                            b1.IsRequired();
-
-                            b1.Property<decimal>("Amount")
-                                .HasPrecision(19, 4)
-                                .HasColumnType("decimal(19,4)")
-                                .HasColumnName("DiscountAmount");
-
-                            b1.Property<string>("Currency")
-                                .IsRequired()
-                                .HasMaxLength(3)
-                                .IsUnicode(false)
-                                .HasColumnType("char(3)")
-                                .HasColumnName("DiscountCurrency")
-                                .IsFixedLength();
-                        });
-
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Checkouts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
                             b1.IsRequired();
@@ -709,33 +694,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CartId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
-                        .HasColumnName("PaymentChannel");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CustomerEmail")
-                        .HasMaxLength(320)
-                        .HasColumnType("nvarchar(320)");
-
-                    b.Property<string>("CustomerName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("CustomerPhone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("NotificationRecipient")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -1504,24 +1471,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasPrecision(0)
                         .HasColumnType("datetime2(0)");
 
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Discount", "Orders.Domain.Items.Item.Discount#Money", b1 =>
-                        {
-                            b1.IsRequired();
-
-                            b1.Property<decimal>("Amount")
-                                .HasPrecision(19, 4)
-                                .HasColumnType("decimal(19,4)")
-                                .HasColumnName("DiscountAmount");
-
-                            b1.Property<string>("Currency")
-                                .IsRequired()
-                                .HasMaxLength(3)
-                                .IsUnicode(false)
-                                .HasColumnType("char(3)")
-                                .HasColumnName("DiscountCurrency")
-                                .IsFixedLength();
-                        });
-
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Orders.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
                             b1.IsRequired();
@@ -1718,21 +1667,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CustomerEmail")
-                        .HasMaxLength(320)
-                        .HasColumnType("nvarchar(320)");
-
-                    b.Property<string>("CustomerName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("CustomerPhone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1740,19 +1674,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(320)
                         .HasColumnType("nvarchar(320)");
 
-                    b.Property<string>("OrderNo")
-                        .IsRequired()
-                        .HasMaxLength(13)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(13)");
-
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("PaymentChannel")
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
 
                     b.Property<Guid?>("PaymentSessionId")
                         .HasColumnType("uniqueidentifier");
@@ -1793,9 +1716,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
                     b.HasIndex("MerchantId");
-
-                    b.HasIndex("OrderNo")
-                        .IsUnique();
 
                     b.HasIndex("PaymentSessionId")
                         .HasFilter("[PaymentSessionId] IS NOT NULL");
@@ -2081,9 +2001,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<string>("ShowName")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
-
-                    b.Property<Guid?>("SoldOrderId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal?>("Stamp")
                         .HasPrecision(19, 2)
