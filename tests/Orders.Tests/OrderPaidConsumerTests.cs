@@ -51,7 +51,10 @@ public sealed class OrderPaidConsumerTests
         Assert.Equal(1, uow.SaveCount);
     }
 
-    [Fact] // REQ-7.1 — a real transition enqueues Contracts.OrderPaid carrying the merchant + line product ids.
+    // REQ-7.1 — a real transition enqueues Contracts.OrderPaid carrying the merchant + line product ids,
+    // plus the order itself (REQ-5.4): this is the only emitter, so an unfilled OrderId would leave the
+    // Products consumer permanently unable to tell a redelivery from a document sold twice.
+    [Fact]
     public async Task It_enqueues_OrderPaid_with_the_lines_product_ids_on_transition()
     {
         var order = ProductionOrder();
@@ -64,6 +67,7 @@ public sealed class OrderPaidConsumerTests
         Assert.Equal(Merchant, paid.MerchantId);
         Assert.Equal(expectedProductIds, paid.ProductIds);
         Assert.Equal(At.AddMinutes(5), paid.OccurredAt);
+        Assert.Equal(order.Id, paid.OrderId);
     }
 
     [Fact] // F3 — amount mismatch must escape (dispatcher MarkFailed -> retry -> DLQ), never ack silently.

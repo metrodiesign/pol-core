@@ -160,7 +160,8 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         {
             var consumer = new DocumentPaidOnOrderPaidConsumer(
                 NewProductRepository(db),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
+                NullLogger<DocumentPaidOnOrderPaidConsumer>.Instance);
             await consumer.Handle(orderPaid, CancellationToken.None);
         }
 
@@ -394,16 +395,28 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
             null, null, "Somchai Jaidee",
             null, null, null, 2500m, null, null, null, null, "UNPAID"));
 
-        var listed = await new ListProductsHandler(
-                upstreamStillUnpaid, NewProductRepository(db), NullLogger<ListProductsHandler>.Instance)
-            .Handle(
-                new ListProductsQuery
-                {
-                    ProductFilters = new ProductFilterDto { SaleCode = "00098", ProductGroup = Products.Domain.ProductGroup.VMI },
-                },
-                CancellationToken.None);
+        async Task<ProductPage> SearchAsync(string? paymentStatus) =>
+            await new ListProductsHandler(
+                    upstreamStillUnpaid, NewProductRepository(db), NullLogger<ListProductsHandler>.Instance)
+                .Handle(
+                    new ListProductsQuery
+                    {
+                        ProductFilters = new ProductFilterDto
+                        {
+                            SaleCode = "00098",
+                            ProductGroup = Products.Domain.ProductGroup.VMI,
+                            PaymentStatus = paymentStatus,
+                        },
+                    },
+                    CancellationToken.None);
 
-        var stillPaid = Assert.Single(listed.Items);
+        // REQ-5.1 — the default search asks the procedure for UNPAID, so the document this platform just
+        // sold is gone from the page even though the upstream still offers it.
+        Assert.Empty((await SearchAsync(null)).Items);
+
+        // ...and it is filtered, not lost: asking for ALL still finds the same row, still PAID with its
+        // PaidDate (REQ-5.3 — the upsert never downgraded it).
+        var stillPaid = Assert.Single((await SearchAsync("ALL")).Items);
         Assert.Equal(productId, stillPaid.Id);
         Assert.Equal(Products.Domain.PaymentStatus.PAID, stillPaid.PaymentStatus);
         Assert.NotNull(stillPaid.PaidDate);

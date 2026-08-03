@@ -658,7 +658,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 | POST | `/api/v1/payments/sessions` | `payment.create` |
 | POST | `/api/v1/payments/sessions/{paymentSessionId}/redirect` | `payment.redirect` |
 | GET | `/api/v1/orders`, `/api/v1/orders/{orderId}` | — |
-| POST | `/api/v1/orders/{orderId}/summary/resend` | — |
+| POST | `/api/v1/orders/{orderId}/summary/resend`, `/api/v1/orders/{orderId}/cancel` | — |
 | PUT | `/api/v1/orders/{orderId}/items/{itemId}/policy` | `policies.write` |
 | GET | `/api/v1/reports/reconciliation` | — |
 | GET | `/api/v1/reports/policies` | `policies.read` |

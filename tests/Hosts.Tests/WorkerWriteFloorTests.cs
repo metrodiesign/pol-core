@@ -127,8 +127,11 @@ public sealed class WorkerWriteFloorTests : IDisposable
         {
             var consumer = new DocumentPaidOnOrderPaidConsumer(
                 new ProductRepository(db),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance));
-            await consumer.Handle(new Contracts.OrderPaid(MerchantA, [productId], DateTime.UtcNow), CancellationToken.None);
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
+                NullLogger<DocumentPaidOnOrderPaidConsumer>.Instance);
+            await consumer.Handle(
+                new Contracts.OrderPaid(MerchantA, [productId], DateTime.UtcNow, Guid.NewGuid()),
+                CancellationToken.None);
         }
 
         using var verify = NewContext();

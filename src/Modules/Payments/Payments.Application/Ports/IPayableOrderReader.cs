@@ -19,4 +19,13 @@ public interface IPayableOrderReader
     /// <summary>Reads the order under the bound merchant's query filter; null when it does not exist for
     /// that merchant (an order under another merchant is indistinguishable from a missing one).</summary>
     Task<PayableOrder?> GetAsync(Guid orderId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Re-reads the order while LOCKING its row until the caller's transaction commits — the serialization
+    /// point between minting a session and the order leaving AwaitingPayment (cancel, paid). Must be called
+    /// inside an open transaction, BEFORE the session row is added, so mint and cancel always acquire the
+    /// order row first and cannot deadlock on each other. A plain <see cref="GetAsync"/> answer can be stale
+    /// by commit time; this one cannot (REQ-3.6).
+    /// </summary>
+    Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken);
 }

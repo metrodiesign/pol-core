@@ -33,4 +33,23 @@ internal sealed class PayableOrderReader : IPayableOrderReader
             ? null
             : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), row.Status == OrderStatus.AwaitingPayment);
     }
+
+    public async Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        // UPDLOCK holds the order row until the surrounding transaction commits, so a concurrent cancel's
+        // UPDATE waits behind this mint (and this mint waits behind a cancel that got there first — its
+        // re-read then sees Cancelled and refuses). FromSql on the entity set, not Database.SqlQueryRaw,
+        // so the merchant query filter still composes around the raw SELECT. SQL Server-only, like
+        // OrderSummaryReader's raw reads.
+        var row = await _db.Set<Order>()
+            .FromSqlInterpolated($"SELECT * FROM shop.Orders WITH (UPDLOCK) WHERE Id = {orderId}")
+            .AsNoTracking()
+            .Select(o => new { o.Id, o.Amount.Amount, o.Amount.Currency, o.Status })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return row is null
+            ? null
+            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), row.Status == OrderStatus.AwaitingPayment);
+    }
 }

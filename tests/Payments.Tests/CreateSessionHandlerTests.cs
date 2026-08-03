@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Payments.Application.Confirmation;
 using Payments.Application.CreateSession;
 using Payments.Application.Ports;
 using Payments.Domain;
@@ -37,7 +38,13 @@ public sealed class CreateSessionHandlerTests
         CreateSessionHandler Handler,
         FakePayableOrderReader Orders,
         FakeSessionRepository Sessions,
-        FakeUnitOfWork UnitOfWork);
+        FakeUnitOfWork UnitOfWork,
+        FakeOutbox Outbox)
+    {
+        /// <summary>The save count observed AT the moment the new row was added — the expire must already
+        /// have been committed by then, which the end state alone cannot show.</summary>
+        public int? SaveCountWhenMinted { get; set; }
+    }
 
     /// <summary>Default world: the order is awaiting payment, the merchant has a 2C2P connection enabling
     /// card+promptpay, and both adapters honour card only (today's real capability).</summary>
@@ -45,25 +52,44 @@ public sealed class CreateSessionHandlerTests
         PayableOrder? order = null,
         Connection[]? connections = null,
         string[]? adapterMethods = null,
-        Session[]? existingSessions = null)
+        Session[]? existingSessions = null,
+        DateTime? now = null,
+        Func<string, PspChargeConfirmation>? onFetchCharge = null)
     {
         var orders = new FakePayableOrderReader(order ?? AwaitingOrder());
         var methods = adapterMethods ?? [PaymentMethods.Card];
         var adapters = new FakePspAdapterFactory(
-            new FakePspAdapter(Code.TwoCTwoP, methods),
-            new FakePspAdapter(Code.Omise, methods));
-        var sessions = new FakeSessionRepository(existingSessions ?? []);
+            new FakePspAdapter(Code.TwoCTwoP, methods) { OnFetchCharge = onFetchCharge },
+            new FakePspAdapter(Code.Omise, methods) { OnFetchCharge = onFetchCharge });
         var unitOfWork = new FakeUnitOfWork();
+        var outbox = new FakeOutbox();
+        var connectionRepository = new FakeConnectionRepository(connections ?? [NewConnection()]);
+        var clock = new FixedClock { UtcNow = now ?? Now };
+
+        Harness? harness = null;
+        var sessions = new FakeSessionRepository(existingSessions ?? [])
+        {
+            OnAdd = _ => harness!.SaveCountWhenMinted ??= unitOfWork.SaveCount,
+        };
 
         var handler = new CreateSessionHandler(
             orders,
-            new FakeConnectionRepository(connections ?? [NewConnection()]),
+            connectionRepository,
             adapters,
             sessions,
+            new PaymentConfirmationService(
+                connectionRepository,
+                adapters,
+                new FakeVaultSecretStore(),
+                new FakeIdempotencyStore(),
+                outbox,
+                unitOfWork,
+                clock,
+                new RecordingLogger<PaymentConfirmationService>()),
             unitOfWork,
-            new FixedClock { UtcNow = Now });
+            clock);
 
-        return new Harness(handler, orders, sessions, unitOfWork);
+        return harness = new Harness(handler, orders, sessions, unitOfWork, outbox);
     }
 
     private static CreateSessionCommand Command(string method = PaymentMethods.Card, Code psp = Code.TwoCTwoP) =>
@@ -246,6 +272,162 @@ public sealed class CreateSessionHandlerTests
         var created = Assert.Single(harness.Sessions.Added);
         Assert.Equal(created.Id, result.PaymentSessionId);
         Assert.NotEqual(failed.Id, result.PaymentSessionId);
+    }
+
+    // --- step 7b: an aged-out session is released here, and only on proof it holds no money (REQ-3.1-3.3) ---
+
+    /// <summary>An open session created far enough in the past to be stale at <see cref="Now"/>.</summary>
+    private static Session StaleSession(bool withCharge)
+    {
+        var createdAt = Now - Session.OpenTtl;
+        var session = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, createdAt);
+        if (!withCharge)
+            return session;
+
+        session.BeginRedirect(createdAt);
+        session.SetPspCharge("INV-STALE", "https://2c2p.test/hosted/pay", createdAt);
+        return session;
+    }
+
+    [Fact]
+    public async Task An_expired_session_that_never_got_a_charge_is_retired_and_replaced()
+    {
+        var stale = StaleSession(withCharge: false);
+        var harness = NewHarness(existingSessions: [stale]);
+
+        var result = await harness.Handler.Handle(Command(), default);
+
+        Assert.Equal(SessionStatus.Expired, stale.Status);
+        var created = Assert.Single(harness.Sessions.Added);
+        Assert.Equal(created.Id, result.PaymentSessionId);
+        Assert.NotEqual(stale.Id, result.PaymentSessionId);
+
+        // TWO saves, in this order: the UPDATE that frees the filtered unique index commits before the INSERT
+        // that needs it free. One batched save would leave the ordering to EF's ModificationCommandComparer.
+        Assert.Equal(2, harness.UnitOfWork.SaveCount);
+        Assert.Equal(1, harness.SaveCountWhenMinted);
+    }
+
+    [Fact]
+    public async Task An_expired_session_whose_charge_never_settled_is_verified_first_then_replaced()
+    {
+        var stale = StaleSession(withCharge: true);
+        var harness = NewHarness(
+            existingSessions: [stale],
+            onFetchCharge: _ => new PspChargeConfirmation(PspChargeStatus.Pending, null));
+
+        var result = await harness.Handler.Handle(Command(), default);
+
+        Assert.Equal(SessionStatus.Expired, stale.Status);
+        Assert.Equal(result.PaymentSessionId, Assert.Single(harness.Sessions.Added).Id);
+        Assert.Equal(1, harness.SaveCountWhenMinted);
+    }
+
+    [Fact]
+    public async Task An_expired_session_the_customer_paid_blocks_a_replacement_instead_of_being_expired()
+    {
+        // The money-path case: the hosted page outlived nothing, the customer paid on the last minute, and
+        // this request would otherwise mint a SECOND chargeable session for an order already settled.
+        var stale = StaleSession(withCharge: true);
+        var harness = NewHarness(
+            existingSessions: [stale],
+            onFetchCharge: _ => new PspChargeConfirmation(PspChargeStatus.Paid, OrderAmount));
+
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Equal(SessionStatus.Paid, stale.Status);
+        Assert.Empty(harness.Sessions.Added);
+        Assert.Single(harness.Outbox.Enqueued); // the payment still gets published — it really happened
+    }
+
+    [Fact]
+    public async Task An_expired_session_the_PSP_cannot_be_asked_about_blocks_a_replacement()
+    {
+        // Ambiguous fetch: 2C2P may be holding a charge for this session. Minting a replacement would open a
+        // second chargeable attempt against the same order.
+        var stale = StaleSession(withCharge: true);
+        var harness = NewHarness(
+            existingSessions: [stale],
+            onFetchCharge: _ => throw new HttpRequestException("2c2p timed out"));
+
+        await Assert.ThrowsAsync<HttpRequestException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Equal(SessionStatus.Redirected, stale.Status);
+        AssertNothingWasPersisted(harness);
+    }
+
+    [Fact]
+    public async Task An_expired_session_on_the_same_channel_is_replaced_rather_than_resumed()
+    {
+        // Resume (the same-channel idempotent return) must not win over expiry: handing back a session whose
+        // hosted page died 24h ago sends the customer to a dead link with no way to get a live one.
+        var stale = StaleSession(withCharge: false);
+        var harness = NewHarness(existingSessions: [stale]);
+
+        var result = await harness.Handler.Handle(Command(), default);
+
+        Assert.NotEqual(stale.Id, result.PaymentSessionId);
+    }
+
+    [Fact]
+    public async Task A_session_one_minute_short_of_the_TTL_is_still_open_and_is_resumed()
+    {
+        // REQ-3.3: the one-open-session rule is unchanged for everything inside the TTL — the boundary is the
+        // only thing this task moved, so it is pinned from both sides.
+        var open = Session.Create(MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now - Session.OpenTtl + TimeSpan.FromMinutes(1));
+        var harness = NewHarness(existingSessions: [open]);
+
+        var result = await harness.Handler.Handle(Command(), default);
+
+        Assert.Equal(open.Id, result.PaymentSessionId);
+        AssertNothingWasPersisted(harness);
+    }
+
+    // --- step 7c: the locked re-read (REQ-3.6) — "AwaitingPayment" must hold at COMMIT time, not merely at
+    // the unlocked read at the top of the handler; a cancel can land between the two. ---
+
+    [Fact]
+    public async Task An_order_cancelled_between_the_first_read_and_the_mint_is_refused()
+    {
+        var harness = NewHarness();
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Equal(1, harness.Orders.LockedCalls);
+        AssertNothingWasPersisted(harness);
+    }
+
+    [Fact]
+    public async Task An_order_cancelled_during_the_stale_session_release_is_refused_after_the_release()
+    {
+        // The widest real window: the release's PSP fetch takes hundreds of ms, ample time for a cancel to
+        // commit. The expire may proceed (it frees the dead session either way) but the MINT must not.
+        var stale = StaleSession(withCharge: false);
+        var harness = NewHarness(existingSessions: [stale]);
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, false);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Empty(harness.Sessions.Added);
+    }
+
+    [Fact]
+    public async Task The_mint_prices_from_the_locked_re_read_not_the_first_read()
+    {
+        // The two reads answer the same row, so they can only differ if the first is stale — pinning the
+        // session's amount to the LOCKED read pins which of the two the mint trusts.
+        var lockedAmount = Money.Of(20000m, "THB");
+        var harness = NewHarness();
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, true);
+
+        await harness.Handler.Handle(Command(), default);
+
+        Assert.Equal(lockedAmount, Assert.Single(harness.Sessions.Added).Amount);
     }
 
     // --- step 8: the amount comes from the order, and only from the order ---
