@@ -37,6 +37,15 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.SummaryTokenExpiresAt).IsRequired();
         builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
+        // purchase-flow-completion REQ-7.1/7.2. PaymentChannel is nullable: orders that predate this spec
+        // have no channel and cannot be paid (the customer pay endpoint answers 409).
+        builder.Property(x => x.OrderNo).HasMaxLength(13).IsUnicode(false).IsRequired();
+        builder.Property(x => x.PaymentChannel).HasMaxLength(20).IsUnicode(false);
+        builder.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.CustomerPhone).HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CustomerEmail).HasMaxLength(320);
+        builder.Ignore(x => x.Customer);   // a view over the three columns above, not a column of its own
+
         // Domain events are an in-memory concern; never persisted.
         builder.Ignore(x => x.DomainEvents);
 
@@ -68,5 +77,9 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         // RLS predicate uses MerchantId; index supports the merchant-scoped reads.
         builder.HasIndex(x => x.MerchantId);
+
+        // The order number is the platform-wide human key (REQ-7.1) and the filter GET /orders takes
+        // (REQ-7.4) — unique, not filtered: every order has one.
+        builder.HasIndex(x => x.OrderNo).IsUnique();
     }
 }

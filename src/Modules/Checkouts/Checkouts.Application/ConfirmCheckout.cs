@@ -43,11 +43,15 @@ public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutComm
             .Select(i => new CheckoutConfirmedItem(
                 i.ProductId, i.Quantity, i.UnitPrice,
                 i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
-                i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth))
+                i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth,
+                i.Discount.Amount, i.Discount.Currency))
             .ToList();
+        // Recipient stays filled with the same value the consumer would derive, so the payload is readable
+        // by a pre-REQ-6.6 consumer too — the new fields are additive, not a cutover (REQ-6.8/7.5).
         _outbox.Enqueue(new CheckoutConfirmed(
             session.MerchantId, session.Id, session.Amount,
-            session.NotificationRecipient, _clock.UtcNow, items));
+            session.Customer.NotificationRecipient, _clock.UtcNow, items,
+            session.Channel.ToString(), session.CustomerName, session.CustomerPhone, session.CustomerEmail));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

@@ -21,7 +21,7 @@ public sealed class CreateSessionHandlerTests
     private static readonly Money OrderAmount = Money.Of(15000m, "THB");
     private static readonly DateTime Now = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
 
-    private static PayableOrder AwaitingOrder() => new(OrderId, OrderAmount, true);
+    private static PayableOrder AwaitingOrder() => new(OrderId, OrderAmount, PayableOrderStatus.AwaitingPayment);
 
     private static Connection NewConnection(string enabledMethods = "card,promptpay", Code psp = Code.TwoCTwoP) =>
         Connection.Create(MerchantId, psp, enabledMethods, "psp/secret-ref/merchant-1", Now);
@@ -126,7 +126,7 @@ public sealed class CreateSessionHandlerTests
     {
         // The reader returns null both for a missing order and for another company's order (its query filter
         // makes them indistinguishable) — so this is the 404 path for both, with no "exists elsewhere" hint.
-        var harness = NewHarness(order: new PayableOrder(Guid.NewGuid(), OrderAmount, true));
+        var harness = NewHarness(order: new PayableOrder(Guid.NewGuid(), OrderAmount, PayableOrderStatus.AwaitingPayment));
 
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -141,7 +141,7 @@ public sealed class CreateSessionHandlerTests
     {
         // Covers the already-paid order too: it is no longer AwaitingPayment, so this is the path that stops
         // a second charge against a settled order.
-        var harness = NewHarness(order: new PayableOrder(OrderId, OrderAmount, false));
+        var harness = NewHarness(order: new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Paid));
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -392,7 +392,7 @@ public sealed class CreateSessionHandlerTests
     public async Task An_order_cancelled_between_the_first_read_and_the_mint_is_refused()
     {
         var harness = NewHarness();
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, false);
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Cancelled);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -408,7 +408,7 @@ public sealed class CreateSessionHandlerTests
         // commit. The expire may proceed (it frees the dead session either way) but the MINT must not.
         var stale = StaleSession(withCharge: false);
         var harness = NewHarness(existingSessions: [stale]);
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, false);
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Cancelled);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -423,7 +423,7 @@ public sealed class CreateSessionHandlerTests
         // session's amount to the LOCKED read pins which of the two the mint trusts.
         var lockedAmount = Money.Of(20000m, "THB");
         var harness = NewHarness();
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, true);
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, PayableOrderStatus.AwaitingPayment);
 
         await harness.Handler.Handle(Command(), default);
 

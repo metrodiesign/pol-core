@@ -274,6 +274,43 @@ public sealed class WebhookRateLimitTests
     }
 }
 
+public sealed class CustomerPaymentRateLimitTests
+{
+    [Theory]
+    [InlineData("pay")]
+    [InlineData("payment-status")]
+    public async Task A_flood_on_an_anonymous_customer_route_is_rejected_with_429_and_Retry_After(string route)
+    {
+        // REQ-8.3: both anonymous customer routes must carry the customer-payment policy. Same shape as
+        // WebhookRateLimitTests — fast-failing DB so the admitted requests return immediately (the 429 path
+        // never reaches the reader), and all requests share one partition (the loopback source IP).
+        using var factory = new HardeningFactory<ApiHost::Program>()
+            .WithFastFailDatabase();
+        using var client = factory.CreateClient();
+
+        // 30 > the customer-payment budget (10/60s) but < the webhook budget (60/10s), so this also pins that
+        // it is THIS policy on the route and not the looser one.
+        var responses = await Task.WhenAll(Enumerable.Range(0, 30).Select(_ =>
+            client.PostAsync($"/api/v1/orders/tok-flood/{route}", content: null)));
+
+        try
+        {
+            var tooMany = responses.Where(r => r.StatusCode == HttpStatusCode.TooManyRequests).ToList();
+            Assert.NotEmpty(tooMany);
+            Assert.All(tooMany, r =>
+            {
+                Assert.True(r.Headers.TryGetValues("Retry-After", out var values));
+                Assert.True(int.TryParse(values!.Single(), out var seconds) && seconds > 0);
+            });
+        }
+        finally
+        {
+            foreach (var response in responses)
+                response.Dispose();
+        }
+    }
+}
+
 public sealed class ForwardedHeadersConfigTests
 {
     [Fact]

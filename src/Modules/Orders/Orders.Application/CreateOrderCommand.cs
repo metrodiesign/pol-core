@@ -31,18 +31,22 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
     private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IOrderNoSequence _orderNumbers;
 
-    public CreateOrderHandler(IOrderRepository orders, IOutbox outbox, IUnitOfWork unitOfWork, IClock clock)
+    public CreateOrderHandler(
+        IOrderRepository orders, IOutbox outbox, IUnitOfWork unitOfWork, IClock clock, IOrderNoSequence orderNumbers)
     {
         _orders = orders;
         _outbox = outbox;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _orderNumbers = orderNumbers;
     }
 
     public async ValueTask<CreateOrderResult> Handle(CreateOrderCommand command, CancellationToken cancellationToken)
     {
-        var order = Order.Create(command.MerchantId, command.Amount, _clock.UtcNow, command.Lines,
+        var orderNo = await _orderNumbers.NextAsync(cancellationToken).ConfigureAwait(false);
+        var order = Order.Create(command.MerchantId, command.Amount, _clock.UtcNow, command.Lines, orderNo,
             checkoutSessionId: command.CheckoutSessionId, notificationRecipient: command.Recipient);
 
         _orders.Add(order);
@@ -51,7 +55,7 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
         // delivers it, so creation never blocks on or fails for delivery (REQ-3.2).
         if (!string.IsNullOrWhiteSpace(command.Recipient))
             _outbox.Enqueue(new CustomerOrderNotification(
-                order.MerchantId, order.Id, command.Recipient, order.SummaryToken, _clock.UtcNow));
+                order.MerchantId, order.Id, command.Recipient, order.SummaryToken, _clock.UtcNow, order.OrderNo));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

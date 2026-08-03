@@ -64,8 +64,16 @@ file sealed class FakeOrders(List<Order> orders) : IOrderRepository
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
-    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    /// <summary>The last orderNo the list endpoint asked for — null means "no filter", which is a different
+    /// thing from "filter that matched nothing" and is exactly what the SFS parse can get wrong.</summary>
+    public static string? LastOrderNoFilter { get; private set; }
+
+    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken)
+    {
+        LastOrderNoFilter = orderNo;
+        return Task.FromResult<IReadOnlyList<Order>>(
+            orders.Where(o => orderNo is null || o.OrderNo == orderNo).ToList());
+    }
 
     public void Add(Order order) => orders.Add(order);
 }
@@ -146,7 +154,7 @@ public sealed class OrderCancelEndpointTests
         Merchant, Amount, DateTime.UtcNow.AddHours(-1),
         [new OrderItemInput(
             Guid.NewGuid(), 1, Amount, "00098-69100/กธ/037677-10", "VMI", "POLICY", null, null, null,
-            "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))]);
+            "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))], orderNo: "ORD6900000001");
 
     /// <summary>A chargeless session for <paramref name="order"/>: never redirected, so the confirmation
     /// service can settle it on the clock alone. <paramref name="age"/> past the TTL makes it releasable.</summary>
@@ -285,5 +293,98 @@ public sealed class OrderCancelEndpointTests
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.Equal(OrderStatus.AwaitingPayment, order.Status);
+    }
+
+    // ---- purchase-flow-completion REQ-7.3/7.4: GET /orders --------------------------------------------
+
+    private static HttpRequestMessage Get(string path) => new(HttpMethod.Get, path);
+
+    // REQ-7.4 — the SFS `filters` contract, adopted for orderNo/eq only. The parsed value has to reach the
+    // repository: a filter that is dropped on the floor returns every order and looks like a working page.
+    [Fact]
+    public async Task Listing_orders_passes_the_orderNo_filter_through()
+    {
+        var order = NewOrder();
+        using var factory = new OrderFactory(Merchant, [order], []);
+        using var client = factory.CreateClient();
+
+        var filters = Uri.EscapeDataString("""[{"field":"orderNo","operator":"eq","value":"ORD6900000001"}]""");
+        var response = await client.SendAsync(Get($"/api/v1/orders?filters={filters}"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("ORD6900000001", FakeOrders.LastOrderNoFilter);
+        Assert.Contains("ORD6900000001", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    // No filters at all is "everything", not "match nothing".
+    [Fact]
+    public async Task Listing_orders_without_a_filter_asks_for_everything()
+    {
+        using var factory = new OrderFactory(Merchant, [NewOrder()], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get("/api/v1/orders"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(FakeOrders.LastOrderNoFilter);
+    }
+
+    // ---- purchase-flow-completion REQ-8.8: GET /payments/sessions/{id} --------------------------------
+
+    // A session that is not there — or belongs to another company, which the query filter makes the same
+    // thing — must be 404. It answered 409 before this task, because the handler raised
+    // InvalidOperationException; the route mapping and that status are what this pins.
+    [Fact]
+    public async Task Reading_a_payment_session_that_does_not_exist_is_404()
+    {
+        using var factory = new OrderFactory(Merchant, [], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get($"/api/v1/payments/sessions/{Guid.NewGuid()}"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Reading_a_payment_session_returns_its_status()
+    {
+        var order = NewOrder();
+        var session = SessionFor(order, TimeSpan.FromMinutes(5));
+        using var factory = new OrderFactory(Merchant, [order], [session]);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get($"/api/v1/payments/sessions/{session.Id}"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains(SessionStatus.Created.ToString(), body, StringComparison.Ordinal);
+    }
+
+    // The SFS whitelist rule: a field or operator this surface does not support is dropped, not an error.
+    [Theory]
+    [InlineData("""[{"field":"status","operator":"eq","value":"Paid"}]""")]
+    [InlineData("""[{"field":"orderNo","operator":"like","value":"ORD69%"}]""")]
+    public async Task Listing_orders_silently_drops_a_filter_it_does_not_support(string filtersJson)
+    {
+        using var factory = new OrderFactory(Merchant, [NewOrder()], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get($"/api/v1/orders?filters={Uri.EscapeDataString(filtersJson)}"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Null(FakeOrders.LastOrderNoFilter);
+    }
+
+    // Malformed SFS JSON is a client error, and must be a 400 — not the opaque 500 a BadHttpRequestException
+    // would produce (the reason SfsQueryParser throws ArgumentException).
+    [Fact]
+    public async Task Listing_orders_with_malformed_filters_is_400()
+    {
+        using var factory = new OrderFactory(Merchant, [NewOrder()], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Get("/api/v1/orders?filters=not-json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }

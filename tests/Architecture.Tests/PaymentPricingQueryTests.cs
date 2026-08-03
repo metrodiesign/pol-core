@@ -26,6 +26,11 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class PaymentPricingQueryTests : IDisposable
 {
+    // Every persisted order needs its own number now (IX_Orders_OrderNo is UNIQUE) — a fixed literal in a
+    // helper called more than once per database would collide.
+    private static int _orderNoCounter;
+    private static string NextOrderNo() => $"ORD69{Interlocked.Increment(ref _orderNoCounter):D8}";
+
     private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid MerchantB = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
     private static readonly Money Amount = Money.Of(15000m, "THB");
@@ -51,7 +56,7 @@ public sealed class PaymentPricingQueryTests : IDisposable
         var order = Order.Create(merchantId, Amount, At,
             [new OrderItemInput(
                 Guid.NewGuid(), 1, Amount, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
-                "Somchai", "Jaidee", "1234567890123", Dob)]);
+                "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
         if (paid)
             order.MarkPaid(Amount, At);
 

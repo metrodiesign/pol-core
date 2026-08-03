@@ -23,11 +23,13 @@ public sealed class CheckoutLifecycleTests
             new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2027, 7, 1, 0, 0, 0, DateTimeKind.Utc),
             "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))];
 
+    private static readonly CustomerContact Customer = CustomerContact.Of("Somchai Jaidee", "0812345678", null);
+
     private static Session Started(Guid cartId) =>
-        Session.Start(Merchant, cartId, Amount, StartAt, OneLine());
+        Session.Start(Merchant, cartId, Amount, StartAt, OneLine(), PaymentChannel.CARD, Customer);
 
     private static StartCheckoutCommand StartCommand(Guid cartId) =>
-        new(Merchant, cartId, Amount, OneLine());
+        new(Merchant, cartId, Amount, OneLine(), PaymentChannel.CARD, Customer);
 
     // REQ-2.3 — Started AND Confirmed both count as live: a confirmed checkout has already become an order,
     // so re-checking-out the same cart would sell the same documents twice.

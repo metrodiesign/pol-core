@@ -38,6 +38,14 @@ internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEn
         builder.Property(x => x.SummaryTokenExpiresAt).IsRequired();
         builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
 
+        // Mirrors Orders.Infrastructure.OrderConfiguration (purchase-flow-completion REQ-7.1/7.2).
+        builder.Property(x => x.OrderNo).HasMaxLength(13).IsUnicode(false).IsRequired();
+        builder.Property(x => x.PaymentChannel).HasMaxLength(20).IsUnicode(false);
+        builder.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.CustomerPhone).HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CustomerEmail).HasMaxLength(320);
+        builder.Ignore(x => x.Customer);
+
         builder.Ignore(x => x.DomainEvents);
 
         builder.HasIndex(x => x.PaymentSessionId)
@@ -50,6 +58,8 @@ internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEn
             .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
         builder.HasIndex(x => x.MerchantId);
+
+        builder.HasIndex(x => x.OrderNo).IsUnique();
 
         // Composite alternate key + owned Items collection (insurance-pivot REQ-6), mirrors
         // Orders.Infrastructure.OrderConfiguration and Persistence.MerchantRuntime.Carts.CartConfiguration's

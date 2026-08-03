@@ -28,6 +28,13 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<OrderItem>
             p.Property(m => m.Currency).HasColumnName("UnitPriceCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
         });
 
+        // purchase-flow-completion REQ-7.2 — carried from the checkout line, mapped like UnitPrice.
+        builder.ComplexProperty(x => x.Discount, p =>
+        {
+            p.Property(m => m.Amount).HasColumnName("DiscountAmount").HasPrecision(19, 4);
+            p.Property(m => m.Currency).HasColumnName("DiscountCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        });
+
         builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
         builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.DocumentType).HasMaxLength(20).IsUnicode(false).IsRequired();

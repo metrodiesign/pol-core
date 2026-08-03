@@ -18,26 +18,45 @@ public sealed class Session : AggregateRoot<Guid>
 
     public Guid CartId { get; private set; }
 
+    /// <summary>The net total the customer will be charged: the sum of every line's gross minus its
+    /// discount (purchase-flow-completion REQ-6.3/6.5).</summary>
     public Money Amount { get; private set; }
 
     public SessionStatus Status { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
 
-    /// <summary>Where to notify the customer (email/phone), captured at checkout. Optional; flows to the
-    /// order on confirm so the customer is sent the summary link.</summary>
-    public string? NotificationRecipient { get; private set; }
+    /// <summary>The channel the merchant picked for the customer to pay through (REQ-6.1).</summary>
+    public PaymentChannel Channel { get; private set; }
+
+    /// <summary>Buyer's name — required at <see cref="Start"/> (REQ-6.6).</summary>
+    public string CustomerName { get; private set; } = default!;
+
+    /// <summary>Buyer's phone — required at <see cref="Start"/> (REQ-6.6); the primary place the summary
+    /// link is sent, which is why the order derives its notification recipient from it first.</summary>
+    public string CustomerPhone { get; private set; } = default!;
+
+    /// <summary>Buyer's email — optional (REQ-6.6), the fallback notification channel.</summary>
+    public string? CustomerEmail { get; private set; }
 
     /// <summary>The items snapshotted at <see cref="Start"/>, in insertion order.</summary>
     public IReadOnlyCollection<Item> Items => _items.AsReadOnly();
 
-    private Session(Guid id, Guid merchantId, Guid cartId, Money amount, string? notificationRecipient, DateTime createdAt)
+    /// <summary>The three customer columns as the value object they came in as.</summary>
+    public CustomerContact Customer => CustomerContact.FromStorage(CustomerName, CustomerPhone, CustomerEmail);
+
+    private Session(
+        Guid id, Guid merchantId, Guid cartId, Money amount, PaymentChannel channel, CustomerContact customer,
+        DateTime createdAt)
         : base(id)
     {
         MerchantId = merchantId;
         CartId = cartId;
         Amount = amount;
-        NotificationRecipient = notificationRecipient;
+        Channel = channel;
+        CustomerName = customer.Name;
+        CustomerPhone = customer.Phone;
+        CustomerEmail = customer.Email;
         Status = SessionStatus.Started;
         CreatedAt = createdAt;
     }
@@ -45,12 +64,19 @@ public sealed class Session : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Session() { }
 
-    /// <summary>Opens a new checkout in the <see cref="SessionStatus.Started"/> state, snapshotting
+    /// <summary>
+    /// Opens a new checkout in the <see cref="SessionStatus.Started"/> state, snapshotting
     /// <paramref name="items"/> so nothing is re-read live between start and confirm (REQ-6.5). Rejects an
-    /// empty <paramref name="items"/> (defense in depth — the endpoint already rejects an empty cart).</summary>
+    /// empty <paramref name="items"/> (defense in depth — the endpoint already rejects an empty cart), a
+    /// <paramref name="channel"/> outside the supported set (REQ-6.2), a line discount that is negative,
+    /// exceeds its line, or is quoted in another currency (REQ-6.4), and an <paramref name="amount"/> that
+    /// is not exactly the sum of the lines' net totals (REQ-6.5 — the server's own arithmetic is the only
+    /// thing that decides what the customer pays). <paramref name="customer"/> is validated by
+    /// <see cref="CustomerContact.Of"/> before it gets here (REQ-6.7).
+    /// </summary>
     public static Session Start(
         Guid merchantId, Guid cartId, Money amount, DateTime nowUtc, IReadOnlyList<CheckoutItemInput> items,
-        string? notificationRecipient = null)
+        PaymentChannel channel, CustomerContact customer)
     {
         if (merchantId == Guid.Empty)
             throw new ArgumentException("MerchantId is required.", nameof(merchantId));
@@ -58,16 +84,32 @@ public sealed class Session : AggregateRoot<Guid>
             throw new ArgumentException("CartId is required.", nameof(cartId));
         if (items is null || items.Count == 0)
             throw new ArgumentException("A checkout must have at least one line.", nameof(items));
+        if (!Enum.IsDefined(channel))
+            throw new ArgumentException("Unsupported payment channel.", nameof(channel));
+        ArgumentNullException.ThrowIfNull(customer);
 
-        var session = new Session(Guid.NewGuid(), merchantId, cartId, amount, notificationRecipient, nowUtc);
+        var session = new Session(Guid.NewGuid(), merchantId, cartId, amount, channel, customer, nowUtc);
 
+        var total = Money.Zero(amount.Currency);
         foreach (var item in items)
+        {
+            var gross = LineAmounts.Gross(item.UnitPrice, item.Quantity);
+            if (!gross.SameCurrencyAs(amount))
+                throw new ArgumentException("Line currency must match the checkout amount currency.", nameof(items));
+
+            var discount = LineAmounts.NormaliseDiscount(item.Discount, gross);
+            total = total.Add(LineAmounts.Net(gross, discount));
+
             session._items.Add(new Item(
-                Guid.CreateVersion7(), session.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice,
+                Guid.CreateVersion7(), session.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice, discount,
                 item.DocumentNo, item.ProductGroup, item.DocumentType, item.PolicyNumber,
                 item.StartDate, item.EndDate,
                 item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,
                 nowUtc));
+        }
+
+        if (total.Amount != amount.Amount)
+            throw new ArgumentException("The sum of the lines' net totals must equal the checkout amount.", nameof(amount));
 
         return session;
     }

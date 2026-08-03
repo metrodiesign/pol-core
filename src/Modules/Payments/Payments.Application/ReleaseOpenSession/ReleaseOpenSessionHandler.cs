@@ -39,12 +39,14 @@ public sealed class ReleaseOpenSessionHandler : ICommandHandler<ReleaseOpenSessi
             outcome = await _confirmation.ConfirmAsync(open, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ambiguous) when (
-            ambiguous is HttpRequestException or TaskCanceledException or JsonException
+            ambiguous is HttpRequestException or TaskCanceledException or JsonException or PspAmbiguousException
             && !cancellationToken.IsCancellationRequested)
         {
             // The confirmation service deliberately does not catch a failed inquiry: a timeout/5xx/garbage
             // response means the PSP may be holding money we have not heard about. Reading that as "not paid"
             // is exactly how a paid order gets cancelled, so it answers 409 — the merchant retries later.
+            // PspAmbiguousException is the adapter's own classification of that same case (unverifiable or
+            // unreadable inquiry response, persistent 5xx).
             throw new ConflictException(
                 $"Order {command.OrderId} has a payment session whose status could not be confirmed with the PSP.",
                 ambiguous);

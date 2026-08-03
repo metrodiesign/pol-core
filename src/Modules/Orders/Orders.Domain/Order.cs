@@ -18,6 +18,11 @@ public sealed class Order : AggregateRoot<Guid>
 
     public Guid MerchantId { get; private set; }
 
+    /// <summary>The human-readable order number the merchant quotes to the customer (purchase-flow-completion
+    /// REQ-7.1): <c>ORD</c> + 2-digit Buddhist year + 8-digit running number, minted from a SQL sequence by
+    /// the creating handler (<c>IOrderNoSequence</c>) and unique across the platform.</summary>
+    public string OrderNo { get; private set; } = default!;
+
     /// <summary>The payment session this order is awaiting confirmation from, set when checkout
     /// hands the order to Payments. Null until a session is opened.</summary>
     public Guid? PaymentSessionId { get; private set; }
@@ -43,8 +48,28 @@ public sealed class Order : AggregateRoot<Guid>
     public DateTime SummaryTokenExpiresAt { get; private set; }
 
     /// <summary>The customer contact (email/phone) captured upstream to notify with the summary link.
-    /// Persisted so a merchant-user-triggered resend can re-notify the customer (REQ-2.5); null = no recipient.</summary>
+    /// Persisted so a merchant-user-triggered resend can re-notify the customer (REQ-2.5); null = no recipient.
+    /// Derived at creation from <see cref="CustomerPhone"/> then <see cref="CustomerEmail"/>, and still the
+    /// single source of truth for WHERE the link goes (purchase-flow-completion F-03).</summary>
     public string? NotificationRecipient { get; private set; }
+
+    /// <summary>The channel the merchant picked at checkout, as its wire value (<c>CARD</c>/
+    /// <c>PROMPTPAY_QR</c>/<c>INSTALLMENT</c>) — a plain string, not the Checkouts enum, because Orders
+    /// never references a peer module (same rule as <c>Item.ProductGroup</c>). Null on orders created
+    /// before purchase-flow-completion: those cannot be paid and must be cancelled and re-created.</summary>
+    public string? PaymentChannel { get; private set; }
+
+    /// <summary>Buyer's name, carried from the checkout snapshot (REQ-7.2).</summary>
+    public string CustomerName { get; private set; } = default!;
+
+    /// <summary>Buyer's phone, carried from the checkout snapshot (REQ-7.2).</summary>
+    public string CustomerPhone { get; private set; } = default!;
+
+    /// <summary>Buyer's email, carried from the checkout snapshot (REQ-7.2); optional.</summary>
+    public string? CustomerEmail { get; private set; }
+
+    /// <summary>The three customer columns as the value object they came in as.</summary>
+    public CustomerContact Customer => CustomerContact.FromStorage(CustomerName, CustomerPhone, CustomerEmail);
 
     /// <summary>Default lifetime of a summary link (reference: links have a TTL; expired = error).</summary>
     public static readonly TimeSpan SummaryTokenTtl = TimeSpan.FromHours(72);
@@ -55,15 +80,23 @@ public sealed class Order : AggregateRoot<Guid>
 
     private Order() { }
 
-    private Order(Guid id, Guid merchantId, Guid? paymentSessionId, Guid? checkoutSessionId, Money amount,
-        string? notificationRecipient, DateTime createdAt)
+    private Order(Guid id, Guid merchantId, string orderNo, Guid? paymentSessionId, Guid? checkoutSessionId,
+        Money amount, string? paymentChannel, CustomerContact customer, string? notificationRecipient,
+        DateTime createdAt)
         : base(id)
     {
         MerchantId = merchantId;
+        OrderNo = orderNo;
         PaymentSessionId = paymentSessionId;
         CheckoutSessionId = checkoutSessionId;
         Amount = amount;
-        NotificationRecipient = notificationRecipient;
+        PaymentChannel = paymentChannel;
+        CustomerName = customer.Name;
+        CustomerPhone = customer.Phone;
+        CustomerEmail = customer.Email;
+        // CustomerPhone ?? CustomerEmail ?? the caller's recipient (F-03) — the last one is what a
+        // pre-REQ-6.6 payload carries instead of contact fields, so the notification never loses its writer.
+        NotificationRecipient = customer.NotificationRecipient ?? notificationRecipient;
         Status = OrderStatus.AwaitingPayment;
         CreatedAt = createdAt;
         SummaryToken = Guid.NewGuid().ToString("N");
@@ -88,39 +121,52 @@ public sealed class Order : AggregateRoot<Guid>
     /// Opens a new order awaiting payment for one or more purchased plans (insurance-pivot REQ-6). Rejects
     /// an empty <paramref name="items"/> (REQ-6.7 — an order is never opened without at least one item), an
     /// item whose <see cref="OrderItemInput.Quantity"/> isn't 1 (defense in depth — the checkout endpoint
-    /// already rejects this earlier), and an item-total sum that doesn't equal <paramref name="amount"/>
-    /// exactly, same currency (REQ-6.3).
+    /// already rejects this earlier), and a NET item-total sum (gross minus discount, purchase-flow-completion
+    /// REQ-7.2) that doesn't equal <paramref name="amount"/> exactly, same currency (REQ-6.3).
+    /// <paramref name="orderNo"/> is required — every order has a number, minted by the caller from the
+    /// platform sequence. <paramref name="customer"/> defaults to <see cref="CustomerContact.Unspecified"/>
+    /// for the paths that predate REQ-6.6, which is exactly what the columns' DB DEFAULTs hold.
     /// </summary>
     public static Order Create(Guid merchantId, Money amount, DateTime createdAt, IReadOnlyList<OrderItemInput> items,
-        Guid? paymentSessionId = null, Guid? checkoutSessionId = null, string? notificationRecipient = null)
+        string orderNo, Guid? paymentSessionId = null, Guid? checkoutSessionId = null,
+        string? notificationRecipient = null, string? paymentChannel = null, CustomerContact? customer = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(orderNo, nameof(orderNo));
         if (items is null || items.Count == 0)
             throw new ArgumentException("An order must have at least one line.", nameof(items));
 
         var total = Money.Zero(amount.Currency);
-        foreach (var item in items)
+        var discounts = new Money[items.Count];
+        for (var i = 0; i < items.Count; i++)
         {
+            var item = items[i];
             if (item.Quantity != 1)
                 throw new ArgumentException("Insurance lines must have quantity 1.", nameof(items));
             if (!item.UnitPrice.SameCurrencyAs(amount))
                 throw new ArgumentException("Line currency must match the order amount currency.", nameof(items));
 
-            total = total.Add(Money.Of(item.UnitPrice.Amount * item.Quantity, item.UnitPrice.Currency));
+            var gross = LineAmounts.Gross(item.UnitPrice, item.Quantity);
+            discounts[i] = LineAmounts.NormaliseDiscount(item.Discount, gross);
+            total = total.Add(LineAmounts.Net(gross, discounts[i]));
         }
 
         if (total.Amount != amount.Amount)
             throw new ArgumentException("The sum of line totals must equal the order amount.", nameof(amount));
 
         var order = new Order(
-            Guid.NewGuid(), merchantId, paymentSessionId, checkoutSessionId, amount, notificationRecipient, createdAt);
+            Guid.NewGuid(), merchantId, orderNo.Trim(), paymentSessionId, checkoutSessionId, amount, paymentChannel,
+            customer ?? CustomerContact.Unspecified, notificationRecipient, createdAt);
 
-        foreach (var item in items)
+        for (var i = 0; i < items.Count; i++)
+        {
+            var item = items[i];
             order._items.Add(new Item(
-                Guid.CreateVersion7(), order.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice,
+                Guid.CreateVersion7(), order.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice, discounts[i],
                 item.DocumentNo, item.ProductGroup, item.DocumentType, item.PolicyNumber,
                 item.StartDate, item.EndDate,
                 item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,
                 createdAt));
+        }
 
         return order;
     }

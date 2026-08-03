@@ -22,6 +22,11 @@ public sealed class Item : Entity<Guid>
     public Guid ProductId { get; private set; }
     public int Quantity { get; private set; }
     public Money UnitPrice { get; private set; }
+
+    /// <summary>Discount on this line, in the line's own currency (purchase-flow-completion REQ-6.3). Zero
+    /// when none was given — never null, so the net is always <c>UnitPrice x Quantity - Discount</c>.</summary>
+    public Money Discount { get; private set; }
+
     public string DocumentNo { get; private set; } = default!;
     public string ProductGroup { get; private set; } = default!;
     public string DocumentType { get; private set; } = default!;
@@ -38,7 +43,7 @@ public sealed class Item : Entity<Guid>
     private Item() { }
 
     internal Item(
-        Guid id, Guid sessionId, Guid merchantId, Guid productId, int quantity, Money unitPrice,
+        Guid id, Guid sessionId, Guid merchantId, Guid productId, int quantity, Money unitPrice, Money discount,
         string documentNo, string productGroup, string documentType, string? policyNumber,
         DateTime? startDate, DateTime? endDate,
         string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
@@ -65,6 +70,7 @@ public sealed class Item : Entity<Guid>
         ProductId = productId;
         Quantity = quantity;
         UnitPrice = unitPrice;
+        Discount = discount;
         DocumentNo = documentNo.Trim();
         ProductGroup = productGroup.Trim();
         DocumentType = documentType.Trim();

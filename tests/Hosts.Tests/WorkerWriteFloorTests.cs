@@ -83,7 +83,8 @@ public sealed class WorkerWriteFloorTests : IDisposable
         {
             var consumer = new CheckoutConfirmedConsumer(
                 new OrderRepository(db), new EfOutbox(db, new SystemClock(), FakeActor.For(MerchantA)),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock(),
+                new StubOrderNoSequence());
 
             var notification = new CheckoutConfirmed(
                 MerchantA, checkoutSessionId, Money.Of(100m, "THB"), Recipient: null, DateTime.UtcNow,
@@ -144,7 +145,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
     public async Task Deleting_an_order_is_still_denied_by_the_real_Worker_write_floor()
     {
         using var db = NewContext();
-        var order = OrderAggregate.Create(MerchantA, Money.Of(1m, "THB"), DateTime.UtcNow, OneOrderLine(Money.Of(1m, "THB")));
+        var order = OrderAggregate.Create(MerchantA, Money.Of(1m, "THB"), DateTime.UtcNow, OneOrderLine(Money.Of(1m, "THB")), orderNo: "ORD6900000001");
         db.Add(order);
         await db.SaveChangesAsync();
 

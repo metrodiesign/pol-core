@@ -28,7 +28,15 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
 
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
-        builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
+
+        // purchase-flow-completion REQ-6.1/6.6. Channel is stored as its wire value (varchar(20)) rather
+        // than an ordinal, so the column reads the same as the payload and the HTTP body.
+        builder.Property(x => x.Channel).HasColumnName("PaymentChannel")
+            .HasConversion<string>().HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.CustomerPhone).HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CustomerEmail).HasMaxLength(320);
+        builder.Ignore(x => x.Customer);   // a view over the three columns above, not a column of its own
 
         builder.Ignore(x => x.DomainEvents);
 

@@ -29,7 +29,14 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
 
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
-        builder.Property(x => x.NotificationRecipient).HasMaxLength(320);
+
+        // Mirrors Checkouts.Infrastructure.SessionConfiguration (purchase-flow-completion REQ-6.1/6.6).
+        builder.Property(x => x.Channel).HasColumnName("PaymentChannel")
+            .HasConversion<string>().HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CustomerName).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.CustomerPhone).HasMaxLength(20).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CustomerEmail).HasMaxLength(320);
+        builder.Ignore(x => x.Customer);
 
         builder.Ignore(x => x.DomainEvents);
 

@@ -114,7 +114,10 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
             var handler = new StartCheckoutHandler(
                 new CheckoutRepository(db), new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
             var result = await handler.Handle(
-                new StartCheckoutCommand(MerchantA, cartId, cart.Subtotal!.Value, items), CancellationToken.None);
+                new StartCheckoutCommand(
+                    MerchantA, cartId, cart.Subtotal!.Value, items, Checkouts.Domain.PaymentChannel.CARD,
+                    CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com")),
+                CancellationToken.None);
             checkoutSessionId = result.CheckoutSessionId;
         }
 
@@ -133,7 +136,8 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
         {
             var consumer = new CheckoutConfirmedConsumer(
                 new OrderRepository(db), new EfOutbox(db, new SystemClock(), FakeActor.For(MerchantA)),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock());
+                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), new SystemClock(),
+                new StubOrderNoSequence());
             await consumer.Handle(confirmed, CancellationToken.None);
         }
 
@@ -315,7 +319,8 @@ public sealed class InsuranceCheckoutEndToEndTests : IDisposable
                             "00098-69100/กธ/037677-10", "VMI", "POLICY", null,
                             new DateTime(2026, 7, 1), new DateTime(2026, 7, 31),
                             "Somchai", "Jaidee", "1234567890123", Dob),
-                    ]), CancellationToken.None);
+                    ], Checkouts.Domain.PaymentChannel.CARD,
+                    CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com")), CancellationToken.None);
             sessionId = result.CheckoutSessionId;
         }
 

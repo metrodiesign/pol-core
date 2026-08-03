@@ -38,7 +38,8 @@ public sealed class ResendOrderSummaryHandler : ICommandHandler<ResendOrderSumma
         // (mirrors the create paths; the background worker delivers it). No stored recipient -> nothing to send.
         if (!string.IsNullOrWhiteSpace(order.NotificationRecipient))
             _outbox.Enqueue(new CustomerOrderNotification(
-                order.MerchantId, order.Id, order.NotificationRecipient, order.SummaryToken, _clock.UtcNow));
+                order.MerchantId, order.Id, order.NotificationRecipient, order.SummaryToken, _clock.UtcNow,
+                order.OrderNo));
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

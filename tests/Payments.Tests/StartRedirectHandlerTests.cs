@@ -280,7 +280,7 @@ public sealed class StartRedirectHandlerTests
         var clock = new FixedClock { UtcNow = Now };
 
         var create = new CreateSessionHandler(
-            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, true)),
+            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.AwaitingPayment)),
             connections,
             adapters,
             sessions,

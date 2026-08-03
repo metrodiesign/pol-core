@@ -26,6 +26,10 @@ public sealed class Item : Entity<Guid>
     /// <summary>Premium per unit, from <c>Cart.Item</c> at checkout-start (server, never client).</summary>
     public Money UnitPrice { get; private set; }
 
+    /// <summary>Discount on this line, in the line's own currency, carried from the checkout snapshot
+    /// (purchase-flow-completion REQ-7.2). Zero when none was given — never null.</summary>
+    public Money Discount { get; private set; }
+
     /// <summary>Document number, snapshotted from <c>Product.DocumentNo</c> at checkout-start.</summary>
     public string DocumentNo { get; private set; } = default!;
 
@@ -48,7 +52,7 @@ public sealed class Item : Entity<Guid>
     private Item() { }
 
     internal Item(
-        Guid id, Guid orderId, Guid merchantId, Guid productId, int quantity, Money unitPrice,
+        Guid id, Guid orderId, Guid merchantId, Guid productId, int quantity, Money unitPrice, Money discount,
         string documentNo, string productGroup, string documentType, string? policyNumber,
         DateTime? startDate, DateTime? endDate,
         string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
@@ -73,6 +77,7 @@ public sealed class Item : Entity<Guid>
         ProductId = productId;
         Quantity = quantity;
         UnitPrice = unitPrice;
+        Discount = discount;
         DocumentNo = documentNo.Trim();
         ProductGroup = productGroup.Trim();
         DocumentType = documentType.Trim();

@@ -54,6 +54,7 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<ICheckoutRepository, CheckoutRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderSummaryReader, OrderSummaryReader>();
+        services.AddScoped<IOrderNoSequence, OrderNoSequence>();
         services.AddScoped<IPaymentSessionProbe, PaymentSessionProbe>();
         services.AddScoped<IRevealAuditWriter, RevealAuditWriter>();
         services.AddScoped<IItemPolicyRepository, ItemPolicyRepository>();

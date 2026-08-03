@@ -31,7 +31,7 @@ internal sealed class PayableOrderReader : IPayableOrderReader
 
         return row is null
             ? null
-            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), row.Status == OrderStatus.AwaitingPayment);
+            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), Map(row.Status));
     }
 
     public async Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken)
@@ -50,6 +50,16 @@ internal sealed class PayableOrderReader : IPayableOrderReader
 
         return row is null
             ? null
-            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), row.Status == OrderStatus.AwaitingPayment);
+            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), Map(row.Status));
     }
+
+    /// <summary>Total by hand rather than by cast: the two enums are independent contracts, and a status
+    /// added to Orders must fail loudly here rather than fall through to "still payable".</summary>
+    private static PayableOrderStatus Map(OrderStatus status) => status switch
+    {
+        OrderStatus.AwaitingPayment => PayableOrderStatus.AwaitingPayment,
+        OrderStatus.Paid => PayableOrderStatus.Paid,
+        OrderStatus.Cancelled => PayableOrderStatus.Cancelled,
+        _ => throw new NotSupportedException($"Order status {status} has no payment-path meaning."),
+    };
 }

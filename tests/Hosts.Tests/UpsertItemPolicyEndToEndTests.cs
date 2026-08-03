@@ -26,6 +26,11 @@ namespace Hosts.Tests;
 /// </summary>
 public sealed class UpsertItemPolicyEndToEndTests : IDisposable
 {
+    // Every persisted order needs its own number now (IX_Orders_OrderNo is UNIQUE) — a fixed literal in a
+    // helper called more than once per database would collide.
+    private static int _orderNoCounter;
+    private static string NextOrderNo() => $"ORD69{Interlocked.Increment(ref _orderNoCounter):D8}";
+
     private static readonly Guid MerchantA = Guid.NewGuid();
     private static readonly Guid MerchantB = Guid.NewGuid();
     private static readonly DateTime Dob = new(1985, 5, 20, 0, 0, 0, DateTimeKind.Utc);
@@ -58,7 +63,7 @@ public sealed class UpsertItemPolicyEndToEndTests : IDisposable
             merchantId, Money.Of(2500m, "THB"), DateTime.UtcNow,
             [new OrderItemInput(
                 Guid.NewGuid(), 1, Money.Of(2500m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
-                "Somchai", "Jaidee", "1234567890123", Dob)]);
+                "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
         if (cancelled)
             order.Cancel();
         db.Add(order);

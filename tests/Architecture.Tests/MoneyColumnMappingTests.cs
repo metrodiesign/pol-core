@@ -95,6 +95,20 @@ public sealed class MoneyColumnMappingTests : IDisposable
     public void PaymentSession_Amount_maps_to_decimal_19_4_and_char3() =>
         AssertMoneyColumns(typeof(PaymentSession), nameof(PaymentSession.Amount), "AmountAmount", "AmountCurrency");
 
+    // purchase-flow-completion REQ-6.3/7.2 — the line discount is a Money everywhere, never a bare decimal
+    // at a seam, so it gets the same column pair as UnitPrice on both item types.
+    [Fact]
+    public void CheckoutItem_Discount_maps_to_decimal_19_4_and_char3() =>
+        AssertMoneyColumns(
+            typeof(Checkouts.Domain.Items.Item), nameof(Checkouts.Domain.Items.Item.Discount),
+            "DiscountAmount", "DiscountCurrency");
+
+    [Fact]
+    public void OrderItem_Discount_maps_to_decimal_19_4_and_char3() =>
+        AssertMoneyColumns(
+            typeof(Orders.Domain.Items.Item), nameof(Orders.Domain.Items.Item.Discount),
+            "DiscountAmount", "DiscountCurrency");
+
     public void Dispose()
     {
         _db.Dispose();

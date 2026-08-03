@@ -28,7 +28,7 @@ public sealed class CheckoutConfirmedConsumerTests
     {
         var orders = new FakeOrderRepository();
         var outbox = new FakeOutbox();
-        var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock());
+        var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
         var sessionId = Guid.NewGuid();
 
         await consumer.Handle(
@@ -48,7 +48,7 @@ public sealed class CheckoutConfirmedConsumerTests
     public async Task The_document_snapshot_is_carried_onto_the_order_line_unchanged()
     {
         var orders = new FakeOrderRepository();
-        var consumer = new CheckoutConfirmedConsumer(orders, new FakeOutbox(), new FakeUnitOfWork(), new FixedClock());
+        var consumer = new CheckoutConfirmedConsumer(orders, new FakeOutbox(), new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
 
         await consumer.Handle(
             new CheckoutConfirmed(Merchant, Guid.NewGuid(), Money.Of(15000m, "THB"), null, At, OneLine()), default);
@@ -68,10 +68,10 @@ public sealed class CheckoutConfirmedConsumerTests
         var sessionId = Guid.NewGuid();
         var existing = Order.Create(
             Merchant, Money.Of(15000m, "THB"), At, OrderLineInputs.OneLine(Money.Of(15000m, "THB")),
-            checkoutSessionId: sessionId);
+            checkoutSessionId: sessionId, orderNo: "ORD6900000001");
         var orders = new FakeOrderRepository(existing);
         var outbox = new FakeOutbox();
-        var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock());
+        var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
 
         await consumer.Handle(new CheckoutConfirmed(Merchant, sessionId, Money.Of(15000m, "THB"), null, At, OneLine()), default);
 
@@ -84,7 +84,7 @@ public sealed class CheckoutConfirmedConsumerTests
     {
         var orders = new FakeOrderRepository();
         var outbox = new FakeOutbox();
-        var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock());
+        var consumer = new CheckoutConfirmedConsumer(orders, outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
 
         await consumer.Handle(new CheckoutConfirmed(Merchant, Guid.NewGuid(), Money.Of(15000m, "THB"), null, At, OneLine()), default);
 

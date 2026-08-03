@@ -14,7 +14,7 @@ public sealed class CancelOrderHandlerTests
     private static readonly Money Amount = Money.Of(15000, "THB");
     private static readonly DateTime Created = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
-    private static Order NewOrder() => Order.Create(MerchantId, Amount, Created, OrderLineInputs.OneLine(Amount));
+    private static Order NewOrder() => Order.Create(MerchantId, Amount, Created, OrderLineInputs.OneLine(Amount), orderNo: "ORD6900000001");
 
     private static (CancelOrderHandler Handler, FakeUnitOfWork UnitOfWork, FakePaymentSessionProbe Probe) NewHandler(
         bool sessionBlocks = false, params Order[] orders)
