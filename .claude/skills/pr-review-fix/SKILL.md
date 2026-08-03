@@ -1,75 +1,95 @@
 ---
 name: pr-review-fix
-description: ดำเนินงานต่อจาก review comment บน PR — ดึง findings, verify กับโค้ดจริง, แก้บน branch เดิม, sync spec, gate เขียว, push + ตอบกลับ reviewer
-argument-hint: "<PR number หรือ URL ของ review comment>"
+description: ดำเนินงานต่อจาก review comment บน PR — ดึงข้อค้นพบ, ตรวจยืนยันกับโค้ดจริง, แก้บน branch เดิม, ปรับ spec ให้ตรง, gate เขียว, push + ตอบกลับ reviewer, ส่งต่อการแก้เข้าสาย stack ถ้ามี
+argument-hint: "<เลข PR หรือ URL ของ review comment>"
 ---
 
-# PR review follow-up: $ARGUMENTS
+# งานต่อจาก review บน PR: $ARGUMENTS
 
-จัดการ findings จาก review (คน / claude[bot] / Codex) บน PR ที่ระบุ ให้จบใน branch เดิมของ PR
-narrate เป็นไทยทุกขั้น; commit message / code ตาม convention repo
+จัดการข้อค้นพบจาก review (คน / claude[bot] / Codex) บน PR ที่ระบุ ให้จบใน branch เดิมของ PR
+เล่าความคืบหน้าเป็นไทยทุกขั้น; commit message / code เขียนตาม convention ของ repo
 
 หมายเหตุ credential: ทุก Bash call ที่แตะ `gh`/`git push` ให้ `unset GH_TOKEN` ก่อน
-(stale token shadow keyring — memory `gh-token-env-shadows-keyring`)
+(token ค้างใน environment บดบัง keyring — memory `gh-token-env-shadows-keyring`)
 
 ## 1. ดึง review
 
-- $ARGUMENTS เป็น comment URL (`#issuecomment-<id>`) → `gh api repos/<owner>/<repo>/issues/comments/<id>`
-- เป็นเลข PR → กวาดทั้ง 3 แหล่ง: `gh pr view <n> --comments`, review comments
-  (`gh api repos/.../pulls/<n>/comments`), reviews (`gh api repos/.../pulls/<n>/reviews`)
-- เก็บ `headRefName` ของ PR ไว้: `gh pr view <n> --json headRefName,state` — `state` ต้องเป็น `OPEN`
-  (MERGED/CLOSED → หยุดรายงาน ไม่มี branch ให้แก้ต่อ)
+- $ARGUMENTS เป็น URL ของ comment (`#issuecomment-<id>`) → `gh api repos/<owner>/<repo>/issues/comments/<id>`
+- เป็นเลข PR → กวาดทั้ง 3 แหล่ง: `gh pr view <n> --comments`, review comment ราย diff
+  (`gh api repos/.../pulls/<n>/comments`), review ทั้งชุด (`gh api repos/.../pulls/<n>/reviews`)
+- เก็บข้อมูล PR: `gh pr view <n> --json headRefName,baseRefName,state` — `state` ต้องเป็น `OPEN`
+  (MERGED/CLOSED → หยุดแล้วรายงาน ไม่มี branch ให้แก้ต่อ)
+- เช็คว่า PR นี้เป็นฐานของสาย stack หรือไม่: `gh pr list --base <headRefName>` — มี PR ลูก
+  → จดไว้ การแก้รอบนี้ต้องส่งต่อเข้า branch ลูกด้วย (ขั้น 6)
 
-## 2. Triage findings
+## 2. คัดแยกข้อค้นพบ
 
-แยกเป็นรายการ: ตัวไหน blocking (Should Fix / P1 / Must) ตัวไหน non-blocking (nice-to-have / P3)
-- blocking → ต้องปิดทุกตัว (แก้ หรือ rebut พร้อมหลักฐาน)
-- non-blocking → ประเมินทีละตัว คุ้มแก้รอบนี้ไหม — ไม่คุ้มให้บันทึกเหตุผลไว้ตอบกลับ ไม่เงียบหาย
+แยกเป็นรายการ: ตัวไหนขวางการ merge (Should Fix / P1 / Must) ตัวไหนไม่ขวาง (nice-to-have / P3)
+- ขวาง merge → ต้องปิดทุกตัว (แก้ หรือโต้แย้งพร้อมหลักฐาน)
+- ไม่ขวาง → ประเมินทีละตัวว่าคุ้มแก้รอบนี้ไหม — ไม่คุ้มให้บันทึกเหตุผลไว้ใช้ตอบกลับ ห้ามหายเงียบ
 
-## 3. Verify ก่อนแก้ (ห้ามข้าม)
+## 3. ตรวจยืนยันก่อนแก้ (ห้ามข้าม)
 
-Reviewer ผิดได้. ทุก finding ต้องเปิดไฟล์/บรรทัดที่อ้างแล้วยืนยันเองว่า:
+reviewer ผิดได้ ทุกข้อค้นพบต้องเปิดไฟล์/บรรทัดที่อ้างแล้วยืนยันเองว่า:
 - ปัญหามีจริงในโค้ดปัจจุบันของ branch (ไม่ใช่โค้ดเก่า/คนละ branch)
-- แนวแก้ที่ reviewer เสนอสอดคล้อง convention ของ repo — ถ้า repo มี precedent อื่น ให้ยึด precedent
-- ผิดจริงแต่แนวแก้ผิด → แก้ตามแนว repo แล้วอธิบายใน reply
-- finding ไม่จริง → REBUT ใน reply พร้อมชี้ไฟล์:บรรทัด ห้ามแก้ตาม reviewer แบบไม่ตรวจ
-- finding ที่จริง → วิเคราะห์หา root cause ก่อนลงมือ: trace flow จริง (ใครเรียก, ข้อมูลไหลจากไหน,
-  ทำไมถึงเกิด) — จุดที่ reviewer ชี้อาจเป็นปลายเหตุ; แก้ที่ต้นเหตุจุดเดียวที่ทุก path วิ่งผ่าน
-  ไม่ patch เฉพาะจุดที่ถูกชี้แล้วปล่อย sibling path พังต่อ
-- ห้ามเดาทุกกรณี — ทุกข้อสรุป (ปัญหาจริง/ไม่จริง, root cause, แนวแก้) ต้องมีหลักฐานอ้างได้:
-  ไฟล์:บรรทัด, ผล grep callers, ผลรัน test/reproduce จริง — ไม่มีหลักฐาน = ยังสรุปไม่ได้ ต้องหาต่อ
+- แนวแก้ที่ reviewer เสนอสอดคล้องแบบแผนของ repo — ถ้า repo มีแบบแผนเดิมอยู่แล้ว ให้ยึดของเดิม
+- ผิดจริงแต่แนวแก้ผิด → แก้ตามแนวของ repo แล้วอธิบายในคำตอบกลับ
+- ข้อค้นพบไม่จริง → โต้แย้งในคำตอบกลับพร้อมชี้ไฟล์:บรรทัด ห้ามแก้ตามโดยไม่ตรวจ
+- ข้อค้นพบจริง → หาต้นเหตุก่อนลงมือ: ไล่ flow จริง (ใครเรียก ข้อมูลไหลจากไหน ทำไมถึงเกิด)
+  — จุดที่ reviewer ชี้อาจเป็นปลายเหตุ และช่องโหว่จริงอาจกว้างกว่าที่ถูกชี้; แก้ที่ต้นเหตุ
+  จุดเดียวที่ทุกเส้นทางวิ่งผ่าน ไม่ patch เฉพาะจุดที่ถูกชี้แล้วปล่อยเส้นทางพี่น้องพังต่อ
+- ห้ามเดาทุกกรณี — ทุกข้อสรุป (จริง/ไม่จริง, ต้นเหตุ, แนวแก้) ต้องมีหลักฐานอ้างได้:
+  ไฟล์:บรรทัด, ผล grep หาผู้เรียก, ผลรัน test/ทำซ้ำจริง — ไม่มีหลักฐาน = ยังสรุปไม่ได้ ต้องหาต่อ
 
 ## 4. แก้บน branch เดิมของ PR
 
 - `git checkout <headRefName>` — working tree ต้องสะอาดก่อนสลับ (มีของค้าง → หยุดถาม user)
-- ก่อนแก้แต่ละ finding สรุป **ก่อน → หลัง**: จะเปลี่ยนอะไร, กระทบ caller/module/contract/test ไหนบ้าง
-  (จาก grep callers จริง ไม่ใช่คาดเดา) — เจอผลกระทบเกิน scope ของ finding → หยุดรายงาน user ก่อนลงมือ
-- แก้ตาม findings ที่ยืนยันแล้ว + **เขียน/ขยาย test ที่จับ regression ของ finding นั้นโดยตรง**
-  (finding ที่ไม่มี test จับ = ยังไม่ปิด)
-- feature มาจาก spec (`.ai/specs/<feature>/`) → sync spec artifacts ตามกฎ sync mode:
-  requirements.md/design.md ที่ approved แล้ว → re-stamp `> Status: approved <เดิม>, amended <วันนี้>`
-  + patch เฉพาะส่วนที่เปลี่ยน; tasks.md เติม Evidence ของงานแก้; รัน `scripts/spec-trace.sh <feature>` ให้ผ่าน
+- ก่อนแก้แต่ละข้อ สรุป **ก่อน → หลัง**: จะเปลี่ยนอะไร กระทบผู้เรียก/โมดูล/contract/test ตัวไหนบ้าง
+  (จากผล grep จริง ไม่ใช่คาดเดา) — เจอผลกระทบเกินขอบเขตของข้อค้นพบ → หยุดรายงาน user ก่อนลงมือ
+- แก้ตามข้อที่ยืนยันแล้ว + **เขียน/ขยาย test ที่จับการถดถอยของข้อนั้นโดยตรง** และพิสูจน์ว่า
+  test จับจริง: ถอดการแก้ชั่วคราว → test ต้องแดง → คืนกลับ → เขียว บันทึกผลไว้เป็นหลักฐาน
+  (ข้อค้นพบที่ไม่มี test จับ = ยังไม่ปิด)
+- feature มาจาก spec (`.ai/specs/<feature>/`) → ปรับ spec artifacts ให้ตรง:
+  requirements.md/design.md ที่อนุมัติแล้ว → ประทับใหม่ `> Status: approved <เดิม>, amended <วันนี้>`
+  + แก้เฉพาะส่วนที่เปลี่ยน; tasks.md เติม Evidence ของงานแก้; รัน `scripts/spec-trace.sh <feature>` ให้ผ่าน
 
 ## 5. Gate + push
 
-- รัน test ชุดที่แตะ + full gate ถ้าการแก้ข้ามโมดูล (`dotnet build` + `dotnet test`;
+- รัน test ชุดที่แตะ + gate เต็มเมื่อการแก้ข้ามโมดูล (`dotnet build` + `dotnet test`;
   Integration ต้อง `source .env.integration` ใน call เดียวกัน) — เขียวก่อน push เท่านั้น
-- add/commit แยกคนละ Bash call; commit message อ้าง review: `fix(scope): ... (review PR #<n>)`
+- test แดงที่ดูไม่เกี่ยวกับการแก้ → ห้ามเหมาว่าเป็นของเดิม ต้องพิสูจน์: `git stash` แล้วรัน
+  ชุดเดียวกันบนโค้ดที่ไม่มีการแก้ — จำนวนแดงต้องเท่ากันเป๊ะจึงสรุปว่าเป็นของเดิมได้ แล้วบันทึก
+  ทั้งตัวเลขและสาเหตุลง Evidence (branch ฐานของสาย stack เจอบ่อย: DB เครื่อง dev มี migration
+  ของ branch ลูก apply ค้างอยู่ ทำให้ schema ล้ำหน้าโค้ดของ branch ที่ยืนอยู่)
+- add / commit แยกคนละ Bash call; commit message อ้างถึง review: `fix(scope): ... (review PR #<n>)`
 - `unset GH_TOKEN; git push` เข้า branch เดิม — trigger `synchronize` ให้ CI รันใหม่เอง
 
-## 6. ตอบกลับ + รายงาน
+## 6. ส่งต่อเข้าสาย stack (เฉพาะเมื่อขั้น 1 พบ PR ลูก)
 
-- ตอบกลับใต้ PR ด้วย `unset GH_TOKEN; gh pr comment <n> --body ...`: ตาราง finding → ผล
-  (fixed + commit SHA / rebutted + เหตุผล / deferred + เหตุผล) — evidence จริงเท่านั้น
-- รายงาน user: สรุป findings, สิ่งที่แก้, ผล test, ลิงก์ commit + comment
+- merge branch ที่แก้แล้วเข้า branch ลูกตามลำดับสาย (ฐาน → ลูก → หลาน) ทีละขั้น:
+  checkout branch ลูก → `git merge <branch แม่> --no-edit` → แก้จุดชน → build + test ชุดหลัก
+  ของ branch นั้น → push แล้วค่อยขยับไปขั้นถัดไป
+- จุดชนที่เจอบ่อย: (ก) โค้ด/test ที่เขียนบน branch ฐานเรียก signature เก่า ซึ่ง branch ลูก
+  เปลี่ยนไปแล้ว — build จะฟ้องเอง แก้ตามแบบแผนที่ branch ลูกใช้อยู่ แล้วรวมการแก้เข้า merge
+  commit (`git commit --amend --no-edit` ก่อน push); (ข) ไฟล์ tasks.md ชนกับ hook task-gate —
+  ต้องลบเครื่องหมาย conflict และคง checkbox `[x]` ให้บล็อก Evidence ต่อเนื่องกันภายใน Edit เดียว
+- merge ผ่านอัตโนมัติไม่ได้แปลว่าถูกเชิงความหมาย — เปิดดูจุดที่การแก้แตะบน branch ลูก
+  ด้วยตาอีกรอบเสมอ (เช่น endpoint ที่ branch ลูกเขียนบริเวณเดียวกันใหม่)
+
+## 7. ตอบกลับ + รายงาน
+
+- ตอบกลับใต้ PR ด้วย `unset GH_TOKEN; gh pr comment <n> --body-file <ไฟล์>`: ตารางข้อค้นพบ → ผล
+  (แก้แล้ว + commit SHA / โต้แย้ง + เหตุผล / เลื่อน + เหตุผล) — หลักฐานจริงเท่านั้น
+- รายงาน user เป็นไทย: สรุปข้อค้นพบ สิ่งที่แก้ ผล test ลิงก์ commit + comment
   + ผลกระทบต่อระบบของแต่ละการแก้ (พฤติกรรมก่อน → หลัง, โมดูล/endpoint ที่กระทบ)
-  เทียบกับที่ประเมินไว้ก่อนแก้
-- **ห้าม merge เอง** — จบที่ push + reply เสมอ
+  เทียบกับที่ประเมินไว้ก่อนลงมือ
+- **ห้าม merge PR เอง** — จบที่ push + ตอบกลับเสมอ; CI ที่ยังรันอยู่ให้เฝ้าด้วย Monitor
+  (ห้ามถ่วงเวลาด้วย sleep) แล้วรายงานผลเมื่อจบ
 
 ## ข้อห้ามยืนพื้น
 
-- ห้ามแก้ตาม finding โดยไม่ verify กับโค้ดจริงก่อน
+- ห้ามแก้ตามข้อค้นพบโดยไม่ตรวจยืนยันกับโค้ดจริงก่อน
 - ห้าม push ตรง develop / force push / `--no-verify`
-- ห้ามปิด finding แบบเงียบ (ไม่แก้และไม่ตอบ) — ทุกตัวต้องมีคำตอบใน reply
-- ห้ามสรุป root cause หรือผลกระทบจากการเดา — ไม่มีหลักฐาน = ไม่ลงมือ
+- ห้ามปิดข้อค้นพบแบบเงียบ (ไม่แก้และไม่ตอบ) — ทุกตัวต้องมีคำตอบในคำตอบกลับ
+- ห้ามสรุปต้นเหตุหรือผลกระทบจากการเดา — ไม่มีหลักฐาน = ไม่ลงมือ
 - CI แดงหลัง push → แก้ต่อใน branch เดิม ห้ามทิ้งค้างโดยไม่รายงาน
