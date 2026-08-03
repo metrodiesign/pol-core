@@ -60,11 +60,27 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken ct) =>
         Task.FromResult(Reconciliation);
 
-    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, CancellationToken ct) =>
+    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Order>>(
-            _orders.Where(o => o.MerchantId == merchantId).OrderByDescending(o => o.CreatedAt).ToList());
+            _orders.Where(o => o.MerchantId == merchantId && (orderNo is null || o.OrderNo == orderNo))
+                .OrderByDescending(o => o.CreatedAt).ToList());
 
     public void Add(Order order) => _orders.Add(order);
+}
+
+/// <summary>Hands out ORD69000000NN in call order — the format the real sequence produces, without a DB.</summary>
+internal sealed class FakeOrderNoSequence : IOrderNoSequence
+{
+    private int _next;
+
+    public readonly List<string> Minted = [];
+
+    public Task<string> NextAsync(CancellationToken cancellationToken)
+    {
+        var orderNo = $"ORD69{++_next:D8}";
+        Minted.Add(orderNo);
+        return Task.FromResult(orderNo);
+    }
 }
 
 internal sealed class FakeRevealAuditWriter : IRevealAuditWriter
@@ -94,6 +110,19 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct) =>
         await operation(ct);
+}
+
+/// <summary>Answers a fixed "is a session blocking this order" and records the save count it was asked at —
+/// the cancel must only probe AFTER its own UPDATE holds the order row (REQ-4.7's lock ordering).</summary>
+internal sealed class FakePaymentSessionProbe(FakeUnitOfWork unitOfWork, bool blocking = false) : IPaymentSessionProbe
+{
+    public int? SaveCountWhenProbed { get; private set; }
+
+    public Task<bool> HasBlockingSessionAsync(Guid orderId, CancellationToken ct)
+    {
+        SaveCountWhenProbed ??= unitOfWork.SaveCount;
+        return Task.FromResult(blocking);
+    }
 }
 
 internal sealed class FixedClock : IClock

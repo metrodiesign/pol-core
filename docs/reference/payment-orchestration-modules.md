@@ -527,8 +527,8 @@ as-built แยกเป็น **2 ขั้นไม่ใช่ 1** — สร
   > `InvalidOperationException` (409) เมื่อ `!IsEnabled` หรือ `!Supports(method)`; มี production call site
   > **2 จุด** คือ `CreateSessionHandler` และ `StartRedirectHandler` (recheck ก่อน claim) —
   > `Connection.Supports` จึงมีผู้เรียกจริงแล้วผ่าน guard ตัวนี้.
-  > (2) **`IPspAdapter.SupportedMethods`** (`IReadOnlySet<string>`, abstract ต่อ adapter — วันนี้ทั้ง 2 ตัว
-  > ประกาศ `{ card }`) = ความสามารถจริงของโค้ดเรา. สองชุดนี้**คนละเรื่องกันโดยเจตนา**:
+  > (2) **`IPspAdapter.SupportedMethods`** (`IReadOnlySet<string>`, abstract ต่อ adapter — 2C2P ประกาศ
+  > `{ card, promptpay, installment }`, Omise ยัง `{ card }`) = ความสามารถจริงของโค้ดเรา. สองชุดนี้**คนละเรื่องกันโดยเจตนา**:
   > `EnabledMethods` = ข้อตกลงเชิงพาณิชย์ที่บริษัทเปิดกับ PSP, `SupportedMethods` = สิ่งที่ adapter honour
   > ได้จริง — **intersection คือ eligibility จริง**. เช็คแค่ชุดแรกคือความมั่นใจปลอม (seed จริงเปิด
   > promptpay/installment บน 2C2P อยู่ ซึ่งเคยถูกส่งไปจ่ายด้วยบัตรเงียบ ๆ).
@@ -569,7 +569,7 @@ normalize PSP ที่ทำ redirect คนละกลไกให้เป�
 | `VerifyWebhook(rawPayload, signature, secret)` | `bool` — ไม่ผ่าน = ไม่แตะ state ใด ๆ |
 | `FetchChargeAsync(externalChargeId, secret, ct)` | `PspChargeConfirmation(Status, Money? Amount)` — fetch-to-confirm |
 | `ParseWebhook(rawPayload)` | `WebhookEvent(EventId, ExternalChargeId, Status)` |
-| `SupportedMethods` | `IReadOnlySet<string>` — method ที่ adapter honour ได้จริง (วันนี้ทั้ง 2 ตัว = `{ card }`) |
+| `SupportedMethods` | `IReadOnlySet<string>` — method ที่ adapter honour ได้จริง (2C2P = `{ card, promptpay, installment }` ตั้งแต่ purchase-flow-completion REQ-6.1, Omise ยัง `{ card }`) |
 
 > **[as-built 2026-07-26]** สามรายการในตารางนี้เปลี่ยนจากสวีป 2026-07-25:
 > (1) `CreateRedirectChargeAsync` รับ **`Guid pspConnectionId`** เป็นพารามิเตอร์ที่สอง (ก่อน `secret`) เพื่อ

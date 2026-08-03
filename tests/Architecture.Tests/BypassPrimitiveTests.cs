@@ -25,6 +25,7 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Webhooks/WebhookMerchantResolver.cs", // task 8.5.3 mirror of the old BuildingBlocks.Infrastructure WebhookMerchantResolver (moved)
         "src/Persistence/Persistence.MerchantRuntime/Vault/VaultAuditAppender.cs", // task 6 applock-based vault-audit chain append (replaces sec.usp_vault_audit_head)
         "src/Persistence/Persistence.MerchantRuntime/Orders/OrderSummaryReader.cs", // task 8.5.3 mirror of the old Orders.Infrastructure OrderSummaryReader (moved)
+        "src/Persistence/Persistence.MerchantRuntime/Orders/OrderNoSequence.cs", // purchase-flow-completion task 6: NEXT VALUE FOR shop.OrderNoSeq (IOrderNoSequence) — EF has no sequence primitive; one statement, no entity, no predicate to widen
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantAccountResolver.cs", // bugfix-merchant-prebind-wiring: pre-bind login-by-subject/by-id read (IAccountResolver, narrow projection)
         "src/Persistence/Persistence.MerchantUsers/Outbox/MerchantUserOutboxDrain.cs", // task 5 per-owner outbox drain (cross-owner lease scan)
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantAccountStore.cs", // bugfix-merchant-prebind-wiring: pre-bind tracked target load for registration/correction/approve/reject (IAccountStore) — read-filter bypass only, the write floor still authorizes every staged change
@@ -35,6 +36,7 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Payments/Psp/ConnectionRepository.cs", // task 8.5.8: ListByTenantAsync is GetMerchantHandler's admin cross-merchant read-back (explicit merchantId param, its only caller)
         "src/Persistence/Persistence.MerchantRuntime/Orders/Items/AdminItemPolicyWriter.cs", // policy-reference-record task 5: admin cross-merchant ItemPolicy write escape-hatch (IAdminItemPolicyWriter) — Scoped admin confined by AdminItemPolicyWriteAuthorizer.CanWrite checking IAdminScope.Accessible, never widened here
         "src/Persistence/Persistence.MerchantRuntime/Orders/Items/PolicyReportSfs.cs", // policy-reference-record task 6: admin cross-merchant policy-report read escape-hatch (IAdminItemPolicyReader, via BuildQuery's IgnoreQueryFilters) — confined by IsUnrestrictedAdmin/AccessibleMerchantIds + optional ?merchantId=, never widened here
+        "src/Persistence/Persistence.MerchantRuntime/Payments/PayableOrderReader.cs", // purchase-flow-completion REQ-3.6 (review PR #167): GetForMintAsync's UPDLOCK re-read — FromSql on the entity SET so the merchant query filter still composes; single row by Id, lock held to commit (mint-vs-cancel serialization)
     ];
 
     private static readonly Regex BypassPrimitive = new(

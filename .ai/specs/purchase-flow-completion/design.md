@@ -1,6 +1,6 @@
 # Design: Purchase Flow Completion (ปิด flow ซื้อประกันภัย End-to-End)
 
-> Status: approved 2026-08-02, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166)
+> Status: approved 2026-08-02, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166), amended 2026-08-03 (ปิด race มินต์ session แทรกระหว่าง cancel — REQ-3.6/4.7, review PR #167 ข้อ 1), amended 2026-08-03 (จำแนก ambiguous PSP ด้วย `PspAmbiguousException` + guard backfill truncation + แก้ claim migration ให้ตรงกลไก — review PR #168)
 
 ## Architecture Overview
 
@@ -95,13 +95,13 @@ Webhook ยังเป็น source of truth เส้นหลัก — ท�
 
 แตกส่วน fetch→verify→claim→mark→enqueue ออกจาก `HandlePspWebhookHandler` ให้ 4 ผู้เรียกใช้ร่วม: webhook, `ConfirmPaymentStatusCommand`, lazy expire ใน `CreateSessionHandler`, `ReleaseOpenSessionCommand` กติกา:
 
-1. **Expire ได้เมื่อพิสูจน์ได้ว่าไม่มี charge เท่านั้น**: `PspExternalChargeId == null` → expire ได้เลย; ไม่ null → `FetchChargeAsync` ก่อนเสมอ — Paid → เดินเส้น confirm (ห้าม expire), Failed → `MarkFailed`, ยังเปิด → expire ได้เมื่อเกิน TTL; fetch ล้ม (timeout/5xx) = ambiguous → ไม่ตัดสินอะไร (ผู้เรียกตอบ 409/`pending` ตามบริบท)
+1. **Expire ได้เมื่อพิสูจน์ได้ว่าไม่มี charge เท่านั้น**: `PspExternalChargeId == null` → expire ได้เลย; ไม่ null → `FetchChargeAsync` ก่อนเสมอ — Paid → เดินเส้น confirm (ห้าม expire), Failed → `MarkFailed`, ยังเปิด → expire ได้เมื่อเกิน TTL; fetch ล้ม (timeout/5xx/response ที่อ่านหรือ verify ไม่ได้) = ambiguous → ไม่ตัดสินอะไร (ผู้เรียกตอบ 409/`pending` ตามบริบท) — adapter จำแนกเองเป็น `PspAmbiguousException` คู่กับ `PspRejectedException` เดิม ผู้เรียก catch ด้วย type ไม่ enumerate transport exception (review PR #168 ข้อ 2: enumeration เดิมปล่อย signature-fail หลุดเป็น 409)
 2. **Idempotency key แชร์**: `{psp}:{connectionId}:charge:{chargeId}:confirmed` — claim โดย service ตัวเดียว ทั้ง webhook และ payment-status; ฝั่ง webhook ยังคง key `event:{EventId}` เดิมเป็น key เสริม (dedup ระดับ delivery)
 3. **Enqueue `PaymentPaid` เฉพาะเมื่อ transition เกิดจริง** (เช็ค `Status != Paid` ก่อน `MarkPaid`) — race webhook↔status ต่อให้ทั้งคู่ผ่าน claim คนละ key ก็ยิง event ได้ครั้งเดียว
 4. **Session terminal (`Expired`/`Failed`) แต่ PSP ยืนยัน Paid**: `LogCritical` (orderId, sessionId, chargeId, amount) + คืน outcome `Conflicted` — webhook ตอบ 200 (ไม่ 500 ไม่ retry loop), payment-status คืน `failed` (REQ-3.4/3.5) — refund = manual ops
 5. เทียบยอด/สกุลก่อน mark เสมอ (พฤติกรรม webhook เดิม) — ไม่ตรง → `LogCritical` + ไม่ mark
 
-### คอลัมน์ใหม่ + ลำดับ migration (rolling-deploy safe)
+### คอลัมน์ใหม่ + ลำดับ migration (transaction เดียว — ไม่ใช่ zero-downtime)
 
 | ตาราง | คอลัมน์ | ชนิด | หมายเหตุ |
 |---|---|---|---|
@@ -118,7 +118,9 @@ Webhook ยังเป็น source of truth เส้นหลัก — ท�
 | `shop.Products` | `SoldOrderId` | `uniqueidentifier NULL` | ผู้ซื้อรายแรก — ใช้แยก replay จาก double-sell (REQ-5.4) |
 | sequence `shop.OrderNoSeq` | `bigint START 1` | | + `GRANT UPDATE ON OBJECT::shop.OrderNoSeq TO pol_app` |
 
-ลำดับใน migration เดียว (เขียนมือ): (a) ADD คอลัมน์ nullable/มี DEFAULT ทั้งหมด → (b) backfill (`OrderNo`, แตก `Recipient`) → (c) ALTER `OrderNo` เป็น NOT NULL → (d) unique index `OrderNo` + filtered unique index `IX_CheckoutSessions_CartId_Open` (`CartId` WHERE `[Status] IN (0,1)`, named overload ทั้ง 2 mirror) → (e) DROP `Recipient`
+ลำดับใน migration เดียว (เขียนมือ): (a) ADD คอลัมน์ nullable/มี DEFAULT ทั้งหมด → (b) guard ข้อมูลเก่า (recipient รูปเบอร์โทรยาวเกิน 20 → `THROW` ให้ migration fail แทนตัดเงียบ — review PR #168 ข้อ 4) แล้ว backfill (`OrderNo`, แตก `Recipient`) → (c) ALTER `OrderNo` เป็น NOT NULL → (d) unique index `OrderNo` + filtered unique index `IX_CheckoutSessions_CartId_Open` (`CartId` WHERE `[Status] IN (0,1)`, named overload ทั้ง 2 mirror) → (e) DROP `Recipient`
+
+ความจริงเชิง concurrency (review PR #168 ข้อ 1): ทั้ง migration รันใน transaction เดียวของ EF และ `ALTER TABLE ADD` ใน (a) ถือ Sch-M lock บนตารางจน commit — INSERT จาก build เก่าแทรกระหว่าง backfill กับ NOT NULL ไม่ได้ (โดน block ทั้งก้อน) จึงไม่มีทางที่ (c) fail เพราะแถวใหม่; DEFAULT มีไว้สำหรับช่วงหลัง commit ที่ build เก่ายังรันอยู่ระหว่าง compose แทนที่ api (`docker-compose.prod.yml` ให้ hosts start หลัง `migrate` จบเท่านั้น) — build เก่ายัง INSERT `CheckoutSessions` ได้ แต่ INSERT `Orders` จะ fail-loud โดยตั้งใจเพราะ `OrderNo` NOT NULL ไม่มี DEFAULT ได้ (ต้อง unique)
 
 **OrderNo**: sequence เดียว global ไม่ reset ต่อปี (unique จาก sequence ล้วน ปีเป็น display prefix จากวันมินต์) — format `$"ORD{(year+543)%100:D2}{seq:D8}"`; มินต์ผ่าน **port `IOrderNoSequence`** (interface ใน `Orders.Application`, impl `src/Persistence/Persistence.MerchantRuntime/Orders/OrderNoSequence.cs` ใช้ raw SQL `NEXT VALUE FOR` — **เพิ่มไฟล์นี้เข้า `BypassPrimitiveTests.AllowedPorts`** เป็นส่วนหนึ่งของ task) เรียกใน `CheckoutConfirmedConsumer` ก่อน enqueue `CustomerOrderNotification` (event ต้องมี OrderNo); replay idempotent เช็ค existing ด้วย `CheckoutSessionId` ก่อนมินต์ — รูเลขจาก retry ยอมรับได้
 
@@ -144,7 +146,7 @@ Webhook ยังเป็น source of truth เส้นหลัก — ท�
 | `ReopenCartCommand(CartId)` | Carts | `Cart.Reopen()` |
 | `AbandonCheckoutCommand(CheckoutSessionId)` | Checkouts | REQ-2.5/2.6/2.9 |
 | `ReleaseOpenSessionCommand(OrderId)` | Payments | ผ่าน `PaymentConfirmationService`: ไม่มี open → ok; ไม่มี chargeId → expire; มี chargeId → fetch ก่อน (Paid → `ConflictException` — order จ่ายแล้ว ห้าม cancel; ambiguous → `ConflictException`); open สด → `ConflictException` |
-| `CancelOrderCommand(OrderId)` | Orders | `Order.Cancel()` (Paid→throw, Cancelled→no-op) |
+| `CancelOrderCommand(OrderId)` | Orders | `Order.Cancel()` (Paid→throw, Cancelled→no-op) ใน transaction เดียวกับ re-check ผ่าน port `IPaymentSessionProbe` (implement ใน Persistence.MerchantRuntime — mirror `IPayableOrderReader`): flip UPDATE ถือ lock แถว order ก่อน แล้วถ้ายังพบ session Created/Redirected/Paid → `ConflictException` rollback ทั้งก้อน (REQ-4.7, review PR #167) |
 | `ConfirmPaymentStatusCommand(OrderId)` | Payments | คืน `PaymentStatusResult` ∈ {`Paid`,`Failed`,`Pending`,`Cancelled`} — order Paid/Cancelled ตอบจาก order โดยไม่แตะ session (REQ-8.12); ที่เหลือตาม sequence |
 | `GetSessionQuery` (มีอยู่) | Payments | map route + not-found → `NotFoundException` → 404 |
 
@@ -157,7 +159,7 @@ Webhook ยังเป็น source of truth เส้นหลัก — ท�
 | Route | Gate | หมายเหตุ |
 |---|---|---|
 | `POST /checkouts/{id}/abandon` | merchant-user + CSRF | REQ-2.5-2.9 |
-| `POST /orders/{orderId}/cancel` | merchant-user + CSRF | Release→Cancel; ไม่มี iam key |
+| `POST /orders/{orderId}/cancel` | merchant-user + CSRF | Release→Cancel (cancel มี post-flip re-check ของตัวเอง — REQ-4.7); ไม่มี iam key |
 | `GET /payments/sessions/{id}` | merchant-user | REQ-8.8 |
 | `POST /orders/{token}/pay` | AllowAnonymous + `customer-payment` | REQ-8.1-8.4, 8.10, 8.11 |
 | `POST /orders/{token}/payment-status` | AllowAnonymous + `customer-payment` | ตอบ `{status}` เท่านั้น |
@@ -190,6 +192,7 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 | Cart freeze point | ตอน `StartCheckout` ผ่าน endpoint orchestration 2 UoW + `Cart.Version` optimistic token (amended 2026-08-03, review PR #166) | snapshot ตรึงตอน Start; index กัน checkout ที่สอง; race "แก้ cart แทรกระหว่าง snapshot→freeze" ปิดด้วย Version ที่ทุก mutation bump (รวม edit ที่แตะแค่ `CartItems`) — freeze แบก `ExpectedVersion` จาก snapshot, แพ้ race → abandon session ที่เพิ่งเปิด + 409 ให้ merchant เริ่มใหม่; rowversion ใช้ไม่ได้ (item-edit ไม่แตะแถว `Carts` + SQLite ไม่มี) |
 | Session expiry | lazy expire ผ่าน `PaymentConfirmationService` — ไม่มี sweeper | แก้ตรงจุดที่เจ็บ (เปิดใหม่/เช็คสถานะ/cancel); **ห้าม expire session ที่มี chargeId โดยไม่ fetch ก่อน** (กฎ money-path — ambiguous ห้ามตัดสิน) |
 | Expire + mint ใหม่ | 2-phase `SaveChanges` ใน `ExecuteInTransactionAsync` เดียว | filtered unique index มองไม่เห็นโดย EF ordering — ลำดับ UPDATE ก่อน INSERT ต้อง deterministic ไม่เดิมพันกับ `ModificationCommandComparer`; ยัง atomic ตาม REQ-3.2 |
+| Mint-vs-cancel serialization (amended 2026-08-03, review PR #167) | ทั้งสองฝั่ง serialize บนแถว order: มินต์ทุก path เรียก `IPayableOrderReader.GetForMintAsync` (UPDLOCK re-read, `FromSqlInterpolated` บน entity set ให้ query filter ยัง compose — เข้า `BypassPrimitiveTests` allowlist) ใน `ExecuteInTransactionAsync` ก่อน INSERT เสมอ (fresh path ได้ transaction ที่สองของ `CreateSessionHandler`); cancel flip+re-check ใน transaction ของตัวเอง (call site ใหม่ใน `CancelOrder.cs` — ทั้งคู่ single-context, จดใน `TransactionInventoryTests`) | check-then-act สอง UoW มี stale-read window เสมอ ไม่ว่าจะ wrap endpoint ด้วย transaction หรือไม่ — ต้องถือ lock แถว order ข้ามช่วง verify→commit ทั้งสองฝั่ง; ลำดับ lock เหมือนกัน (order ก่อน session) = deadlock-free; probe นับ Paid ด้วย เพราะ session ที่จ่ายแล้วแต่ order ยังไม่ flip (outbox lag) ก็ห้ามโดน cancel ทับ (REQ-3.6/4.7) |
 | TTL = 24h | ค่าคงที่ใน domain | ยาวกว่าอายุ hosted page 2C2P มาก; ไม่ทำ config จนกว่าจะมีเหตุ |
 | OrderNo | sequence เดียว + ปี display prefix, port `IOrderNoSequence` | ไม่ reset ต่อปี = ไม่มี race ข้ามปี; raw SQL อยู่ใน Persistence ตาม `BypassPrimitiveTests` allowlist |
 | Customer pay auth | summary token capability + `actorScope.Begin` host layer | precedent webhook พิสูจน์แล้วทั้ง guard/authorizer |
@@ -220,6 +223,8 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 | payment-status: session ไม่มี chargeId | ไม่ fetch — เกิน TTL → `MarkExpired`+`failed`, ยังไม่เกิน → `pending` (REQ-8.13) |
 | จ่ายสำเร็จหลัง session terminal | `PaymentConfirmationService` → `LogCritical` + outcome `Conflicted`: webhook ตอบ 200 (ไม่ 500 loop, claim ไม่ rollback), status → `failed`; refund manual (REQ-3.4/3.5) |
 | `FetchChargeAsync` ล้ม (ambiguous) | ไม่เปลี่ยนสถานะใด — status → `pending`, release/cancel → 409 |
+| session ถูกมินต์แทรกหลัง release ผ่านแล้ว (amended 2026-08-03) | cancel re-check เจอใน transaction ตัวเอง → rollback + 409; ฝั่งมินต์ที่แพ้ lock → เห็น order ไม่ใช่ AwaitingPayment ตอน re-read → 409 (REQ-3.6/4.7) |
+| session Paid แต่ order ยัง AwaitingPayment (outbox lag) ตอน cancel | release มองไม่เห็น (ไม่ open) แต่ probe ของ cancel นับ Paid → 409 — เงินที่เข้าแล้วไม่โดน cancel ทับ (REQ-4.7) |
 | double-sell จริง (`SoldOrderId` ต่าง order) | `LogCritical`; redeliver เดิม → เงียบ (REQ-5.4) |
 | outbox consumer ล้มซ้ำ | เดิม: 8 attempts → poison + LastError — known ops gap (DLQ review) |
 | token TTL 72h > session TTL 24h | ยอมรับ — ลิงก์ตายก่อนจ่ายได้ถ้า merchant ส่งช้า; ทางแก้ = resend (rotate token) — บันทึก known gap |
@@ -230,8 +235,8 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 |---|---|---|
 | `Carts.Tests` | Reopen transitions, MarkCheckedOut, guard 4 mutation (test คุมของเดิม) | 1.2, 2.1, 2.5, 2.7 |
 | `Checkouts.Tests` | Start validate (channel/discount Money/currency/customer/ยอดรวม), Abandon: Started→Abandoned/Abandoned→no-op/Confirmed→throw | 2.5-2.9, 6.1-6.8 |
-| `Orders.Tests` | Cancel guards, OrderNo format, consumer: carry field + `NotificationRecipient` derivation + fallback payload เก่า + ไม่มินต์ซ้ำตอน replay, filter orderNo | 4.x, 7.x, 6.8 |
-| `Payments.Tests` | `IsExpiredAt`, `PaymentConfirmationService` ทุก branch (paid/mismatch/Failed/expired-paid `Conflicted`/ambiguous/no-chargeId), enqueue-on-transition (double claim ≠ double event), lazy expire verify-first, Release 3 ทาง, GetSession 404, adapter mapping CC/QR/IPP + `SupportedMethods` | 3.x, 8.5-8.8, 8.13 |
+| `Orders.Tests` | Cancel guards + post-flip probe (session โผล่หลัง release → `ConflictException`, probe รันหลัง save เท่านั้น), OrderNo format, consumer: carry field + `NotificationRecipient` derivation + fallback payload เก่า + ไม่มินต์ซ้ำตอน replay, filter orderNo | 4.x, 7.x, 6.8 |
+| `Payments.Tests` | `IsExpiredAt`, `PaymentConfirmationService` ทุก branch (paid/mismatch/Failed/expired-paid `Conflicted`/ambiguous/no-chargeId), enqueue-on-transition (double claim ≠ double event), lazy expire verify-first, locked re-read ก่อน mint ทุก path (order พ้นสถานะระหว่างทาง → 409, ราคามาจาก locked read), Release 3 ทาง, GetSession 404, adapter mapping CC/QR/IPP + `SupportedMethods` | 3.x, 8.5-8.8, 8.13 |
 | `Products.Tests` | filter UNPAID ตัด PAID, `SoldOrderId` first-write, Critical เฉพาะ order ต่าง / replay เงียบ | 5.1, 5.4 |
 | `Hosts.Tests` — `MerchantLifecycleEndpointTests` ใหม่ (pattern `RegistrationHistoryEndpointTests`) | add-item ไม่ 409 (regression 2-scope), start ซ้ำ 409, abandon→restart, cancel, CSRF, pay/payment-status (fake `IPspAdapter`), summary: +orderNo −paymentSessionId −merchantId, token หมดอายุ → 404 | 1.1, 2.2-2.3, 4.6, 8.1-8.4, 8.9-8.12 |
 | `Hosts.Tests` — `InsuranceCheckoutEndToEndTests` แก้ | เดินสอง handler จริง (ลบ workaround + comment เก่า) + chain ถึง `DocumentPaidOnOrderPaidConsumer` | 1.1, 1.4, 5.3 |
@@ -250,6 +255,8 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 | `Session.OpenTtl`/`IsExpiredAt` + lazy expire verify-first + 2-phase save | REQ-3.1, 3.2, 3.3 |
 | `PaymentConfirmationService` outcome `Conflicted` + LogCritical | REQ-3.4, 3.5 |
 | `ReleaseOpenSessionCommand` (verify-first) + `CancelOrderCommand` + endpoint | REQ-4.1-4.6 |
+| `GetForMintAsync` UPDLOCK re-read ก่อน mint ทุก path (transaction ที่สองของ `CreateSessionHandler`) | REQ-3.6 |
+| `CancelOrderHandler` flip+re-check ใน transaction เดียว + port `IPaymentSessionProbe` (นับ Paid ด้วย) | REQ-4.7 |
 | post-filter + `SoldOrderId`/`OrderPaid.OrderId` signal | REQ-5.1-5.4 |
 | `Session.Start` validation + endpoint amount/eligibility check | REQ-6.1-6.7 |
 | `CheckoutConfirmed` additive + `NotificationRecipient` derivation | REQ-6.8, 7.5 |

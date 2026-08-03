@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Domain.Psp;
 using Payments.Infrastructure.Psp;
@@ -33,6 +34,11 @@ public static class PaymentsModuleRegistration
 
         // Owns the per-PSP secret envelope shape; stateless, consumed by merchant provisioning.
         services.AddSingleton<IPspSecretEnvelopeFactory, PspSecretEnvelopeFactory>();
+
+        // The shared confirm line (webhook, payment-status, lazy expire, release). A concrete class, not a
+        // port: it is application logic those handlers share, not a seam anything swaps. Scoped because it
+        // rides the request's unit of work and repositories.
+        services.AddScoped<PaymentConfirmationService>();
 
         return services;
     }

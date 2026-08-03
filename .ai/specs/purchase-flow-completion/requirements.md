@@ -1,6 +1,6 @@
 # Requirements: Purchase Flow Completion (ปิด flow ซื้อประกันภัย End-to-End)
 
-> Status: approved 2026-08-02, amended 2026-08-02 (REQ-6.3 — Discount เป็น Money ตามมาตรฐาน repo, จาก design critique F-13)
+> Status: approved 2026-08-02, amended 2026-08-02 (REQ-6.3 — Discount เป็น Money ตามมาตรฐาน repo, จาก design critique F-13), amended 2026-08-03 (REQ-3.6/REQ-4.7 — ปิด race มินต์ session แทรกระหว่างยกเลิกคำสั่งซื้อ, จาก review PR #167 ข้อ 1)
 
 ## Overview
 
@@ -43,6 +43,7 @@
 - 3.3 WHEN มีการขอเปิด payment session ใหม่ขณะที่ session เดิมยังไม่หมดอายุ THE SYSTEM SHALL ปฏิเสธด้วย 409 (พฤติกรรม one-open-session เดิมคงไว้)
 - 3.4 IF PSP ยืนยันการชำระเงินของ session ที่ถูกเปลี่ยนเป็น Expired ไปแล้ว THEN THE SYSTEM SHALL ปฏิเสธการ transition (MarkPaid throw) และความล้มเหลวต้องมองเห็นได้ในผลลัพธ์ของ webhook/status check ไม่เงียบหาย
 - 3.5 IF เกิดกรณีตาม 3.4 THEN THE SYSTEM SHALL log ระดับ Critical และ payment-status ตอบ `failed` — การคืนเงินเป็นกระบวนการ manual นอกระบบ (TTL 24 ชั่วโมงยาวกว่าอายุ hosted page ของ 2C2P มาก เคสนี้แทบเกิดไม่ได้)
+- 3.6 WHEN ระบบกำลังมินต์ payment session ใหม่ THE SYSTEM SHALL ตรวจซ้ำว่าคำสั่งซื้อยังเป็น AwaitingPayment ด้วยการอ่านแถวคำสั่งซื้อแบบถือ lock (UPDLOCK) ภายใน transaction เดียวกับ INSERT โดยอ่านก่อนเพิ่มแถว session เสมอ — คำสั่งซื้อที่พ้นสถานะไประหว่างทาง (ถูกยกเลิก/จ่ายแล้ว) ต้องถูกปฏิเสธด้วย 409 ณ จังหวะ commit ไม่ใช่แค่ตอนอ่านครั้งแรก (ปิด race ฝั่งมินต์ — review PR #167)
 
 ## REQ-4: ยกเลิกคำสั่งซื้อ
 
@@ -55,6 +56,7 @@
 - 4.4 IF คำสั่งซื้อสถานะ Paid THEN THE SYSTEM SHALL ปฏิเสธการยกเลิก
 - 4.5 WHEN มีการยกเลิกคำสั่งซื้อที่สถานะ Cancelled อยู่แล้ว THE SYSTEM SHALL ตอบสำเร็จโดยไม่เปลี่ยนแปลงอะไร (idempotent)
 - 4.6 THE SYSTEM SHALL gate endpoint ยกเลิกด้วย policy merchant-user + CSRF โดยไม่เพิ่ม permission key ใหม่
+- 4.7 IF มี payment session ที่ยังชาร์จได้ (Created/Redirected) หรือชำระแล้ว (Paid) โผล่ขึ้นหลังการ release ผ่านไปแล้ว THEN THE SYSTEM SHALL ตรวจพบภายใน transaction เดียวกับการเปลี่ยนสถานะเป็น Cancelled (ตรวจหลัง UPDATE ถือ lock แถวคำสั่งซื้อแล้ว) และ rollback ทั้งการยกเลิกพร้อมตอบ 409 — เงินที่กำลังจะเข้าหรือเข้าแล้วต้องไม่ค้างอยู่บนคำสั่งซื้อที่ถูกยกเลิก (ปิด race ฝั่งยกเลิก — review PR #167)
 
 ## REQ-5: กรองเอกสารที่ขายแล้วออกจากผลค้นหา
 

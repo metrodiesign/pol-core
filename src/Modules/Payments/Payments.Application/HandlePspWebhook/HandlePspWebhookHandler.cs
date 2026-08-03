@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
+using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain.Psp;
@@ -10,42 +11,40 @@ namespace Payments.Application.HandlePspWebhook;
 /// <summary>
 /// The webhook is the source of truth; the browser return URL is UX only. This handler runs the
 /// trusted ingest path: resolve the connection by id (never trust the URL) -> reveal secret -> verify
-/// signature (reject if invalid, do not trust). Then, inside ONE transaction: parse the event ->
-/// fetch-to-confirm with the PSP -> on a confirmed Paid charge, claim multi-key idempotency
-/// (duplicate-safe, spent atomically with the transition — REQ-8.5) -> transition the session and
-/// enqueue <see cref="PaymentPaid"/> via the outbox -> commit atomically (PLAN #9, #10).
+/// signature (reject if invalid, do not trust). Then, inside ONE transaction: parse the event -> find the
+/// session the charge belongs to -> hand it to <see cref="PaymentConfirmationService"/>, which fetches to
+/// confirm, compares the collected amount, claims the shared idempotency key and transitions + enqueues
+/// <see cref="PaymentPaid"/> atomically (PLAN #9, #10).
+///
+/// What is left here is only what is webhook-specific: the connection is resolved BY ID and its secret
+/// revealed once (for the signature, then reused for the fetch), the delivery's event id is carried in as an
+/// extra idempotency key, and the confirmation outcome is mapped to the HTTP-visible
+/// <see cref="WebhookOutcome"/>. Everything a status check, a lazy expire or a release would also have to do
+/// lives in the service, so all four paths cannot drift apart.
 /// </summary>
 public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCommand, WebhookHandled>
 {
-    private const string IdempotencyContext = "psp-webhook";
-
     private readonly IConnectionRepository _connections;
     private readonly ISessionRepository _sessions;
     private readonly IPspAdapterFactory _adapters;
     private readonly IVaultSecretStore _vault;
-    private readonly IIdempotencyStore _idempotency;
-    private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IClock _clock;
+    private readonly PaymentConfirmationService _confirmation;
 
     public HandlePspWebhookHandler(
         IConnectionRepository connections,
         ISessionRepository sessions,
         IPspAdapterFactory adapters,
         IVaultSecretStore vault,
-        IIdempotencyStore idempotency,
-        IOutbox outbox,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        PaymentConfirmationService confirmation)
     {
         _connections = connections;
         _sessions = sessions;
         _adapters = adapters;
         _vault = vault;
-        _idempotency = idempotency;
-        _outbox = outbox;
         _unitOfWork = unitOfWork;
-        _clock = clock;
+        _confirmation = confirmation;
     }
 
     public async ValueTask<WebhookHandled> Handle(
@@ -65,59 +64,33 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
             async ct =>
             {
                 var evt = adapter.ParseWebhook(command.RawPayload);
-                var pspCode = connection.Psp.ToCode();
 
-                // Fetch-to-confirm: never trust the webhook body's status alone.
-                var confirmed = await adapter.FetchChargeAsync(evt.ExternalChargeId, secret, ct).ConfigureAwait(false);
-                if (confirmed.Status != PspChargeStatus.Paid)
-                    return WebhookOutcome.Ignored;
-
+                // Throwing here (rather than answering 200) is deliberate: a notification can beat our own
+                // SetPspCharge commit, and a redelivery is how that race resolves.
                 var session = await _sessions.GetByExternalChargeAsync(connection.Psp, evt.ExternalChargeId, ct).ConfigureAwait(false)
                     ?? throw new InvalidOperationException(
-                        $"No PaymentSession for {pspCode} charge {evt.ExternalChargeId}.");
+                        $"No PaymentSession for {connection.Psp.ToCode()} charge {evt.ExternalChargeId}.");
 
-                // REQ-8.2: what the PSP actually collected must be what the order backs. Since the session
-                // is priced from the order row, comparing here is the only place a wrong-amount collection
-                // can be caught — the Orders-side check compares the session's own amount to itself. Money
-                // is a record struct, so != covers BOTH the amount and the currency. A null Amount means the
-                // PSP reported none (REQ-8.3): confirm on status alone, exactly as before this check existed.
-                if (confirmed.Amount is { } collected && collected != session.Amount)
-                    return WebhookOutcome.Ignored;
-
-                // The claim is spent LAST, in the same transaction as the transition it protects (REQ-8.5).
-                // Claiming before the fetch burned charge:{id}:Paid on an Ignored outcome, and TryBeginAsync
-                // saves inside the ambient transaction which commits on any normal return — so a "paid"
-                // notification arriving before paymentInquiry could see the settled charge poisoned the key
-                // and every genuine redelivery after it was refused as Duplicate, forever (proven live on the
-                // 2C2P sandbox, 2026-07-28). Keys are scoped by the PSP connection id so a webhook event id
-                // that is unique only per-merchant (not globally) cannot collide across merchants/connections.
-                var keys = new[]
-                {
-                    $"{pspCode}:{command.PspConnectionId}:event:{evt.EventId}",
-                    $"{pspCode}:{command.PspConnectionId}:charge:{evt.ExternalChargeId}:{evt.Status}",
-                };
-
-                if (!await _idempotency.TryBeginAsync(keys, IdempotencyContext, ct).ConfigureAwait(false))
-                    return WebhookOutcome.Duplicate;
-
-                var occurredAt = _clock.UtcNow;
-                session.MarkPaid(evt.ExternalChargeId, occurredAt);
-
-                _outbox.Enqueue(new PaymentPaid(
-                    session.Id,
-                    session.OrderId,
-                    session.MerchantId,
-                    session.Amount,
-                    pspCode,
-                    evt.ExternalChargeId,
-                    evt.EventId,
-                    occurredAt));
-
-                await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
-                return WebhookOutcome.Processed;
+                return await _confirmation
+                    .ConfirmAsync(session, new PspAccess(connection, secret), evt.EventId, ct)
+                    .ConfigureAwait(false);
             },
             cancellationToken).ConfigureAwait(false);
 
-        return new WebhookHandled(outcome);
+        return new WebhookHandled(Map(outcome));
     }
+
+    /// <summary>
+    /// The PSP only ever needs to know whether to redeliver. Everything the service decided — including the
+    /// two Critical-logged states, an amount that does not back the order and money collected for a session
+    /// already gone terminal — answers 200: no redelivery can change any of them, and a 500 would turn each
+    /// into an endless retry loop against a state a human has to resolve (REQ-3.4/3.5). Only an ambiguous
+    /// FETCH gets a retry, and that path throws out of the service instead of returning an outcome.
+    /// </summary>
+    private static WebhookOutcome Map(ConfirmationOutcome outcome) => outcome switch
+    {
+        ConfirmationOutcome.Paid or ConfirmationOutcome.Failed or ConfirmationOutcome.Expired => WebhookOutcome.Processed,
+        ConfirmationOutcome.Duplicate or ConfirmationOutcome.AlreadyPaid => WebhookOutcome.Duplicate,
+        _ => WebhookOutcome.Ignored,
+    };
 }

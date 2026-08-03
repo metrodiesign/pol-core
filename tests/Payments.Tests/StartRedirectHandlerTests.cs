@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Payments.Application.Confirmation;
 using Payments.Application.CreateSession;
 using Payments.Application.Ports;
 using Payments.Application.StartRedirect;
@@ -279,10 +280,19 @@ public sealed class StartRedirectHandlerTests
         var clock = new FixedClock { UtcNow = Now };
 
         var create = new CreateSessionHandler(
-            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, true)),
+            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.AwaitingPayment)),
             connections,
             adapters,
             sessions,
+            new PaymentConfirmationService(
+                connections,
+                adapters,
+                new FakeVaultSecretStore(),
+                new FakeIdempotencyStore(),
+                new FakeOutbox(),
+                unitOfWork,
+                clock,
+                new RecordingLogger<PaymentConfirmationService>()),
             unitOfWork,
             clock);
         var redirect = new StartRedirectHandler(

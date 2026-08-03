@@ -256,6 +256,12 @@ public sealed class ListProductsHandler(
         var filters = query.ProductFilters;
         var (target, productGroup) = ResolveTarget(filters);
 
+        // Absent means "everything" on the wire; absent paymentStatus means UNPAID, which is
+        // PaymentStatusFilter's own default (null there = the client asked for ALL). Kept in a local
+        // because the post-filter below decides from exactly this value — what the procedure was asked —
+        // and nothing else.
+        var paymentStatus = filters.PaymentStatusFilter?.ToString() ?? "ALL";
+
         var result = await gateway.SearchAsync(
             new SpDocumentSearchRequest(
                 Target: target,
@@ -266,9 +272,7 @@ public sealed class ListProductsHandler(
                 CoverageStartTo: filters.CoverageStartTo,
                 CoverageEndFrom: filters.CoverageEndFrom,
                 CoverageEndTo: filters.CoverageEndTo,
-                // Absent means "everything" on the wire; absent paymentStatus means UNPAID, which is
-                // PaymentStatusFilter's own default (null there = the client asked for ALL).
-                PaymentStatus: filters.PaymentStatusFilter?.ToString() ?? "ALL",
+                PaymentStatus: paymentStatus,
                 DocumentType: filters.DocumentType?.ToString() ?? "ALL",
                 ProductGroup: productGroup,
                 PolicyNo: filters.PolicyNo,
@@ -305,8 +309,16 @@ public sealed class ListProductsHandler(
         var upserted = await products.UpsertByDocumentNoAsync(inputs, ct);
         var page = result.Page;
 
+        // REQ-5.1 — the upstream is read-only to us, so it keeps listing documents this platform has
+        // already sold. A search that asked for UNPAID drops the rows our own mirror says are PAID, which
+        // is what stops a sold document being put back in a cart. The procedure's totals are left exactly
+        // as it counted them (REQ-5.2): recounting here could only disagree with the paging it also owns.
+        var sellable = paymentStatus == nameof(DomainPaymentStatus.UNPAID)
+            ? upserted.Where(p => p.PaymentStatus is not DomainPaymentStatus.PAID)
+            : upserted;
+
         return new ProductPage(
-            [.. upserted.Select(ProductListItem.From)],
+            [.. sellable.Select(ProductListItem.From)],
             page.TotalRows, page.TotalPages, page.PageNo, page.PageSize,
             page.HasNextPage, page.HasPreviousPage, page.CountMode, page.SearchWindowMonths);
     }

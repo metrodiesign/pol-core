@@ -8,6 +8,10 @@
 
   <ItemGroup>
     <PackageReference Include="Mediator.Abstractions" />
+    <!-- PaymentConfirmationService logs Critical when money and state disagree (an amount the order does not
+         back, a charge confirmed for a session already gone terminal). Those are ops facts a human must act
+         on, not results, so they cannot travel in the response. Abstractions only — the host owns providers. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
   <PropertyGroup>

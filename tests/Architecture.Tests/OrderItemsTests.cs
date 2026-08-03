@@ -18,6 +18,11 @@ namespace Architecture.Tests;
 /// </summary>
 public sealed class OrderItemsTests : IDisposable
 {
+    // Every persisted order needs its own number now (IX_Orders_OrderNo is UNIQUE) — a fixed literal in a
+    // helper called more than once per database would collide.
+    private static int _orderNoCounter;
+    private static string NextOrderNo() => $"ORD69{Interlocked.Increment(ref _orderNoCounter):D8}";
+
     private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid ProductA = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
@@ -42,7 +47,7 @@ public sealed class OrderItemsTests : IDisposable
             [new OrderItemInput(
                 ProductA, 1, Money.Of(15000m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY",
                 "P-900001", At.Date, At.Date.AddYears(1),
-                "Somchai", "Jaidee", "1234567890123", Dob)]);
+                "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
 
     [Fact]
     public async Task Order_with_a_line_round_trips_through_EF()

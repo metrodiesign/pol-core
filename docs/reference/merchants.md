@@ -657,13 +657,67 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 | POST | `/api/v1/checkouts`, `/api/v1/checkouts/{checkoutSessionId}/confirm`, `/api/v1/checkouts/{checkoutSessionId}/abandon` | — |
 | POST | `/api/v1/payments/sessions` | `payment.create` |
 | POST | `/api/v1/payments/sessions/{paymentSessionId}/redirect` | `payment.redirect` |
+| GET | `/api/v1/payments/sessions/{paymentSessionId}` | — (ไม่พบ/ของร้านค้าอื่น -> 404) |
 | GET | `/api/v1/orders`, `/api/v1/orders/{orderId}` | — |
-| POST | `/api/v1/orders/{orderId}/summary/resend` | — |
+| POST | `/api/v1/orders/{orderId}/summary/resend`, `/api/v1/orders/{orderId}/cancel` | — |
 | PUT | `/api/v1/orders/{orderId}/items/{itemId}/policy` | `policies.write` |
 | GET | `/api/v1/reports/reconciliation` | — |
 | GET | `/api/v1/reports/policies` | `policies.read` |
 
 `merchantUserId` / `merchantId` / `orderId` ฯลฯ เป็น Guid. JSON body/field เป็น camelCase.
+
+#### `POST /api/v1/checkouts` — body (purchase-flow-completion REQ-6)
+
+```jsonc
+{
+  "cartId": "…",
+  "paymentChannel": "CARD",            // CARD | PROMPTPAY_QR | INSTALLMENT (ตรงตัวพิมพ์) — ค่าอื่น -> 400
+  "customer": {                        // บังคับ
+    "name": "สมชาย ใจดี",              // บังคับ
+    "phone": "0812345678",             // บังคับ, 8-15 หลัก, คั่นด้วย + - space ได้
+    "email": "buyer@example.com"       // ไม่บังคับ
+  },
+  "amount": 1000,                      // ไม่บังคับ — ยอดที่ client คิดเอง ถ้าไม่ตรงยอด server -> 400
+  "insuredPersons": [
+    { "productId": "…", "firstName": "…", "lastName": "…",
+      "idNumber": "…", "dateOfBirth": "1990-01-01T00:00:00Z",
+      "discount": 200 }                // ไม่บังคับ ต่อบรรทัด, 0 <= discount <= ยอดบรรทัดนั้น มิฉะนั้น 400
+  ]
+}
+```
+
+`paymentChannel` ต้องเป็นช่องทางที่ merchant นี้ **ชาร์จได้จริง** ด้วย (REQ-6.1): endpoint ถาม Payments ว่า
+connection 2C2P ของ merchant เปิด method นั้นไว้ (`txn.PspConnections.EnabledMethods`) และ adapter รองรับ
+(`TwoCTwoPAdapter.SupportedMethods` = `card`/`promptpay`/`installment` → PGW channel `CC`/`QR`/`IPP`) —
+ไม่ผ่านข้อใดข้อหนึ่ง (รวมถึงไม่มี connection เลย) -> **400** ตั้งแต่ตอนเริ่มเช็คเอาต์ ไม่ปล่อยให้ไปตาย 409
+ตอนลูกค้ากดจ่าย. mapping `CARD`→`card` / `PROMPTPAY_QR`→`promptpay` / `INSTALLMENT`→`installment` อยู่ที่
+`Payments.Domain.PaymentMethods.ForChannel` ที่เดียว.
+
+ราคาคิดจากฝั่ง server เสมอ: ยอด checkout = Σ(unitPrice x quantity − discount) ของทุกบรรทัดในตะกร้า —
+`amount` ใน body ใช้ *ตรวจ* เท่านั้น ไม่เคยใช้ตั้งราคา. `recipient` เดิมถูกแทนที่ด้วย `customer` (ปลายทางแจ้ง
+ลูกค้า = `customer.phone` ก่อน แล้วจึง `customer.email`).
+
+#### `GET /api/v1/orders` — filter (purchase-flow-completion REQ-7.4)
+
+รับ `filters` ตามสัญญา SFS (JSON url-encoded) แต่รองรับ **field เดียว** คือ `orderNo` operator `eq`:
+
+```
+GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD6900000001"}]
+```
+
+field/operator อื่นถูกทิ้งเงียบตามกฎ whitelist ของ SFS; `filters` ที่ไม่ใช่ JSON -> 400. ยังไม่รับ
+`page`/`limit`/`sort`/`search` บน endpoint นี้ (SFS เต็มรูปเป็นงานแยก).
+
+`OrderNo` (`ORD` + ปี พ.ศ. 2 หลัก + running 8 หลัก เช่น `ORD6900000001`) ปรากฏใน `GET /api/v1/orders`,
+`GET /api/v1/orders/{orderId}` และ `GET /api/v1/orders/{token}/summary`.
+
+#### เส้นของลูกค้า (anonymous, ไม่ใช่ merchant-user) — purchase-flow-completion REQ-8
+
+`POST /api/v1/orders/{token}/pay` และ `POST /api/v1/orders/{token}/payment-status` ใช้ summary token เป็น
+capability ล้วน (ไม่มี cookie ไม่มี CSRF) จำกัดอัตราด้วย policy `customer-payment` (~10 ครั้ง/นาที/IP)
+ร้านค้าไม่ได้เรียกสองเส้นนี้ แต่ต้องรู้ว่า **ช่องทางที่เลือกตอน `POST /checkouts` คือช่องทางที่ลูกค้าจะถูก
+ชาร์จจริง** และคำสั่งซื้อที่ยกเลิกแล้วจะทำให้ลิงก์ตาย (404) ทันที — รายละเอียดสัญญาอยู่ใน
+`docs/reference/orders.md`.
 
 #### `GET /api/v1/products` — query contract (products-sp-gateway pivot)
 

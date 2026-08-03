@@ -97,6 +97,11 @@ VALUES
 -- subset of the owning merchant's EnabledChannels. Metadata NULL (nullable). SecretRefName points
 -- at a vault ref with no backing secret — merch.VaultSecrets is deliberately NOT seeded (REQ-3.3).
 -- Omise on vSouvenir is IsEnabled=0 so both values of IsEnabled are represented (design §4).
+-- purchase-flow-completion REQ-6.1: this column is now what a MERCHANT SEES AT CHECKOUT — a channel
+-- missing from the 2C2P row is refused with 400 when the merchant starts a checkout, not later at pay
+-- time. vPrivilege carries all three (the merchant to demo the full channel picker with); vCommerce and
+-- vSouvenir stay narrower on purpose, so the refusal is demoable too. An EXISTING deployment must widen
+-- txn.PspConnections.EnabledMethods itself — see the ops step in the PR.
 INSERT INTO txn.PspConnections (Id, MerchantId, Psp, EnabledMethods, SecretRefName, Metadata, IsEnabled, CreatedAt)
 VALUES
     ('e8000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 0, 'card,promptpay,installment', 'psp/vprivilege/2c2p', NULL, 1, SYSUTCDATETIME()),
@@ -453,11 +458,11 @@ FROM @OrderSeed;
 -- (25 Paid + 5 Cancelled + 6 of the 10 AwaitingPayment = 36). MerchantId/AmountAmount/AmountCurrency
 -- always copied from the parent order (REQ-6.4). Every Paid order's session is Status=2/Paid
 -- (REQ-6.5). RowVersion is NOT listed — it's a `rowversion` column, SQL Server generates it.
--- Method is always 'card' (captive-payment-alignment REQ-6.5, 2026-07-26): a session must be
--- payable under the rules the code now enforces, and 'card' is the only method the adapters honour
--- today (2C2P and Omise both declare SupportedMethods = { card }). The seeded connections above
--- deliberately still enable promptpay/installment — that is the commercial arrangement, and
--- create-session refuses those methods with a 409 rather than silently routing them to a card page.
+-- Method is always 'card' (captive-payment-alignment REQ-6.5, 2026-07-26): a session must be payable
+-- under the rules the code enforces, and every seeded connection enables 'card'. 2C2P now honours all
+-- three methods (purchase-flow-completion REQ-6.1 — card/promptpay/installment map to the PGW channel
+-- codes CC/QR/IPP); Omise still declares SupportedMethods = { card }, so an Omise session on another
+-- method would be refused with a 409 rather than silently routed to a card page.
 INSERT INTO txn.PaymentSessions (Id, MerchantId, OrderId, Method, Psp, Status, PspExternalChargeId, RedirectUrl, CreatedAt, UpdatedAt, AmountAmount, AmountCurrency)
 SELECT
     CONVERT(uniqueidentifier, CONCAT('ee000000-0000-4000-8000-', RIGHT('000000000000' + CONVERT(varchar(12), s.n), 12))),

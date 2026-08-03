@@ -19,8 +19,10 @@ public sealed class OrderItemPolicyGrantsTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.Orders
-                (Id, MerchantId, AmountAmount, AmountCurrency, Status, CreatedAt, SummaryToken, SummaryTokenExpiresAt)
-            VALUES (@id, @m, 2500, N'THB', 0, SYSUTCDATETIME(), @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, CreatedAt, SummaryToken, SummaryTokenExpiresAt)
+            VALUES (@id, @m, CONCAT('ORD', RIGHT(CONVERT(varchar(4), YEAR(GETUTCDATE()) + 543), 2),
+                             FORMAT(NEXT VALUE FOR shop.OrderNoSeq, 'D8')),
+                    2500, N'THB', 0, SYSUTCDATETIME(), @token, DATEADD(hour, 72, SYSUTCDATETIME()));
             """,
             ("@id", orderId), ("@m", merchantId), ("@token", Guid.NewGuid().ToString("N")));
 

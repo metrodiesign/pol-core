@@ -29,6 +29,13 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
             p.Property(m => m.Currency).HasColumnName("UnitPriceCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
         });
 
+        // Mirrors Checkouts.Infrastructure.Items.ItemConfiguration (purchase-flow-completion REQ-6.3).
+        builder.ComplexProperty(x => x.Discount, p =>
+        {
+            p.Property(m => m.Amount).HasColumnName("DiscountAmount").HasPrecision(19, 4);
+            p.Property(m => m.Currency).HasColumnName("DiscountCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
+        });
+
         builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
         builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(x => x.DocumentType).HasMaxLength(20).IsUnicode(false).IsRequired();

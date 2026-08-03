@@ -262,15 +262,16 @@ public abstract class PspAdapterBase : IPspAdapter
 
     /// <summary>Classifies a failing status by what it proves about the charge: a 4xx other than the
     /// retry-me pair (408/429) is the PSP refusing outright, so no charge exists and the caller may fail the
-    /// session; a 5xx/408/429 leaves us unable to tell, so it stays ambiguous and the claim must survive
-    /// (REQ-7.5). The message names the PSP and the status only — never the request that carried the secret.</summary>
+    /// session; a 5xx/408/429 leaves us unable to tell, so it is <see cref="PspAmbiguousException"/> and the
+    /// claim must survive (REQ-7.5). The message names the PSP and the status only — never the request that
+    /// carried the secret.</summary>
     private Exception StatusFailure(HttpStatusCode status)
     {
         var message = $"{Psp.ToCode()} returned HTTP {(int)status}.";
         return (int)status is >= 400 and < 500
             && status is not (HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests)
                 ? new PspRejectedException(message)
-                : new InvalidOperationException(message);
+                : new PspAmbiguousException(message);
     }
 
     /// <summary>Sends an IDEMPOTENT request (the fetch-to-confirm GET) with bounded retry on transient

@@ -27,6 +27,42 @@ public sealed class PaymentSessionTests
         return session;
     }
 
+    // --- age (REQ-3.1): derived from CreatedAt, so no row can disagree with the rule ---
+
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(23, false)]
+    [InlineData(24, true)] // the boundary is inclusive: exactly OpenTtl old is expired
+    [InlineData(48, true)]
+    public void A_chargeable_session_is_expired_once_it_has_outlived_OpenTtl(int hoursOld, bool expired)
+    {
+        Assert.Equal(TimeSpan.FromHours(24), Session.OpenTtl);
+
+        var session = Redirected();
+
+        Assert.Equal(expired, session.IsExpiredAt(At.AddHours(hoursOld)));
+    }
+
+    [Fact]
+    public void A_terminal_session_is_never_expired_by_the_clock()
+    {
+        // Age answers "may this be released", which a session that already has an answer must not be re-asked
+        // — otherwise a long-settled Paid session would read as expired to every caller that checks.
+        var paid = Redirected();
+        paid.MarkPaid("chrg_abc", At);
+
+        var failed = NewSession();
+        failed.MarkFailed("declined", At);
+
+        var expired = NewSession();
+        expired.MarkExpired(At);
+
+        var wayLater = At.AddDays(30);
+        Assert.False(paid.IsExpiredAt(wayLater));
+        Assert.False(failed.IsExpiredAt(wayLater));
+        Assert.False(expired.IsExpiredAt(wayLater));
+    }
+
     [Fact]
     public void Create_binds_order_amount_method_psp_and_tenant_up_front()
     {

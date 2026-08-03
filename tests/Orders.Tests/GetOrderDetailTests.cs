@@ -21,7 +21,7 @@ public sealed class GetOrderDetailTests
                     "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Somchai", "Jaidee", "1111111111111", Dob),
                 new OrderItemInput(Product, 1, Money.Of(15000m, "THB"),
                     "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Suda", "Meesuk", "2222222222222", Dob),
-            ]);
+            ], orderNo: "ORD6900000001");
 
     [Fact]
     public async Task Every_lines_full_InsuredIdNumber_is_returned()
@@ -31,6 +31,8 @@ public sealed class GetOrderDetailTests
 
         var result = await handler.Handle(new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default);
 
+        // REQ-7.3 second surface: the detail view must carry the order's number, not just the lines.
+        Assert.Equal("ORD6900000001", result.OrderNo);
         Assert.Equal(["1111111111111", "2222222222222"], result.Lines.Select(l => l.InsuredIdNumber));
     }
 

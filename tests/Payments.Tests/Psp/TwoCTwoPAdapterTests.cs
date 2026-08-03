@@ -50,13 +50,15 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "0000", webPaymentUrl, paymentToken = "tok_per_attempt" }), Key)));
 
     [Fact]
-    public void SupportedMethods_declares_card_only()
+    public void SupportedMethods_declares_the_three_channels_it_has_a_channel_code_for()
     {
         var (adapter, _) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
-        // paymentChannel is built for a card charge, so claiming promptpay/installment here would let
-        // create-session admit a method this adapter silently charges as a card instead.
-        Assert.Equal(new[] { PaymentMethods.Card }, adapter.SupportedMethods);
+        // purchase-flow-completion REQ-6.1: every method declared here must have a paymentChannel mapping
+        // below — declaring one without it would let create-session admit a charge the adapter then refuses.
+        Assert.Equal(
+            new[] { PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment }.Order(),
+            adapter.SupportedMethods.Order());
     }
 
     [Fact]
@@ -150,29 +152,34 @@ public sealed class TwoCTwoPAdapterTests
             claims.GetProperty("backendReturnUrl").GetString());
     }
 
-    [Fact]
-    public async Task CreateRedirectCharge_derives_the_payment_channel_from_the_session_method()
+    [Theory]
+    [InlineData(PaymentMethods.Card, "CC")]
+    [InlineData(PaymentMethods.PromptPay, "QR")]
+    [InlineData(PaymentMethods.Installment, "IPP")]
+    public async Task CreateRedirectCharge_derives_the_payment_channel_from_the_session_method(
+        string method, string expectedChannel)
     {
-        // REQ-6.3: the channel comes from Session.Method through an explicit mapping, not the hardcoded
-        // ["CC"] this adapter used to send regardless of what the customer picked.
-        var session = MakeSession(method: PaymentMethods.Card);
+        // REQ-6.3 + purchase-flow-completion REQ-6.1: the PGW v4.3 channel code comes from Session.Method
+        // through an explicit mapping, not the hardcoded ["CC"] this adapter used to send regardless of what
+        // the customer picked. A wrong code here sends a PromptPay customer to a card page.
+        var session = MakeSession(method: method);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
         await adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None);
 
         var claims = JwtTestHelper.DecodePayload(JwtTestHelper.PayloadOf(handler.Calls[0].Body));
         Assert.Equal(
-            new[] { "CC" },
+            new[] { expectedChannel },
             claims.GetProperty("paymentChannel").EnumerateArray().Select(c => c.GetString()).ToArray());
     }
 
     [Theory]
-    [InlineData(PaymentMethods.PromptPay)]
-    [InlineData(PaymentMethods.Installment)]
-    public async Task CreateRedirectCharge_refuses_a_method_it_cannot_honour_rather_than_substituting_a_card_channel(string method)
+    [InlineData("wallet")]
+    [InlineData("CC")]      // the 2C2P wire code, not one of our method codes
+    public async Task CreateRedirectCharge_refuses_a_method_it_cannot_honour_rather_than_substituting_another_channel(string method)
     {
-        // REQ-6.4: a method outside SupportedMethods must never reach the PSP at all. Before this, such a
-        // session was charged as a card — the customer picked PromptPay and landed on a card page.
+        // REQ-6.4: a method outside SupportedMethods must never reach the PSP at all — the adapter fails
+        // naming the method instead of quietly charging it through some other channel.
         var session = MakeSession(method: method);
         var (adapter, handler) = Build((_, _) => PaymentTokenOk("https://2c2p.test/hosted/pay"));
 
@@ -344,7 +351,7 @@ public sealed class TwoCTwoPAdapterTests
         var session = MakeSession();
         var (adapter, handler) = Build((_, _) => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<PspAmbiguousException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Equal(1, handler.CallCount); // single-shot: a retry could double-charge
@@ -368,6 +375,7 @@ public sealed class TwoCTwoPAdapterTests
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
 
         Assert.Equal(refused, thrown is PspRejectedException);
+        Assert.Equal(!refused, thrown is PspAmbiguousException); // never a bare InvalidOperationException
     }
 
     [Fact]
@@ -408,7 +416,8 @@ public sealed class TwoCTwoPAdapterTests
             "a-different-key-aaaaaaaaaaaaaaaaaa")));
         var (adapter, _) = Build((_, _) => forged);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // Ambiguous, not rejected: a response we cannot verify says nothing about whether a charge exists.
+        await Assert.ThrowsAsync<PspAmbiguousException>(
             () => adapter.CreateRedirectChargeAsync(session, ConnectionId, Secret, CancellationToken.None));
     }
 
@@ -419,7 +428,20 @@ public sealed class TwoCTwoPAdapterTests
             JsonSerializer.Serialize(new { respCode = "0000" }), "a-different-key-aaaaaaaaaaaaaaaaaa")));
         var (adapter, _) = Build((_, _) => forged);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        // The regression review PR #168 called out: an unverifiable INQUIRY response must be classified
+        // ambiguous (the customer surface answers pending), never escape as a definitive-looking failure.
+        await Assert.ThrowsAsync<PspAmbiguousException>(
+            () => adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task FetchCharge_classifies_a_malformed_inquiry_response_as_ambiguous()
+    {
+        // A body with no payload JWT at all — a proxy error page, a half-written response. Same rule: we
+        // asked and could not read the answer, so no caller may treat it as "not paid".
+        var (adapter, _) = Build((_, _) => StubHttpMessageHandler.Json("{\"unexpected\":true}"));
+
+        await Assert.ThrowsAsync<PspAmbiguousException>(
             () => adapter.FetchChargeAsync("INV1", Secret, CancellationToken.None));
     }
 

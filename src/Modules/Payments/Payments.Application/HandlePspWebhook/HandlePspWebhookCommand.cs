@@ -19,7 +19,8 @@ public enum WebhookOutcome
     /// <summary>Signature verification failed — the payload was not trusted and nothing was changed.</summary>
     Rejected = 0,
 
-    /// <summary>A first-time, confirmed event that drove a state transition + outbox enqueue.</summary>
+    /// <summary>A first-time, confirmed event that drove a state transition (Paid — which also enqueues
+    /// <c>PaymentPaid</c> — or the Failed/Expired the confirmation earned instead).</summary>
     Processed = 1,
 
     /// <summary>A replay/duplicate of an already-claimed event — safely ignored.</summary>

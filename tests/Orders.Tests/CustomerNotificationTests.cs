@@ -16,7 +16,7 @@ public sealed class CustomerNotificationTests
     public async Task CreateOrder_with_a_recipient_enqueues_the_notification()
     {
         var outbox = new FakeOutbox();
-        var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
 
         var result = await handler.Handle(
             new CreateOrderCommand(
@@ -34,7 +34,7 @@ public sealed class CustomerNotificationTests
     public async Task CreateOrder_without_a_recipient_enqueues_nothing()
     {
         var outbox = new FakeOutbox();
-        var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock());
+        var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
 
         await handler.Handle(
             new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB"), OrderLineInputs.OneLine(Money.Of(15000m, "THB"))),
