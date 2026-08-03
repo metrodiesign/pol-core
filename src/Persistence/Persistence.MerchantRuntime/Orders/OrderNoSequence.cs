@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Orders.Application;
 
 namespace Persistence.MerchantRuntime.Orders;
@@ -24,13 +25,24 @@ internal sealed class OrderNoSequence : IOrderNoSequence
 
     public async Task<string> NextAsync(CancellationToken cancellationToken)
     {
-        // EF materialises a scalar SqlQuery result from a column literally named "Value".
-        var next = await _db.Database
-            .SqlQueryRaw<long>("SELECT NEXT VALUE FOR shop.OrderNoSeq AS Value")
-            .SingleAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        return Format(_clock.UtcNow, next);
+        // EF wraps any composed SqlQuery in a derived table (SELECT TOP(2) ... FROM (...)), which SQL Server
+        // rejects for NEXT VALUE FOR (Msg 11719) — so this one statement goes through ADO directly, enlisted
+        // in whatever transaction the caller's unit of work already opened (today no caller opens one; the
+        // enlistment is there so the first caller that does is already correct).
+        var connection = _db.Database.GetDbConnection();
+        await _db.Database.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT NEXT VALUE FOR shop.OrderNoSeq;";
+            command.Transaction = _db.Database.CurrentTransaction?.GetDbTransaction();
+            var next = (long)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+            return Format(_clock.UtcNow, next);
+        }
+        finally
+        {
+            await _db.Database.CloseConnectionAsync().ConfigureAwait(false);
+        }
     }
 
     /// <summary>ORD + Buddhist year mod 100 + the sequence value, zero-padded to 8 (REQ-7.1). A value past

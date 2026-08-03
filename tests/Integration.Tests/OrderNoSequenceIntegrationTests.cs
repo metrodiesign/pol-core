@@ -1,4 +1,7 @@
+using BuildingBlocks.Application;
 using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Orders;
 
 namespace Integration.Tests;
@@ -97,4 +100,41 @@ public sealed class OrderNoSequenceIntegrationTests
             """,
             ("@id", orderId), ("@m", IntegrationDb.MerchantA), ("@orderNo", orderNo),
             ("@token", Guid.NewGuid().ToString("N")));
+
+    // 2c2p-e2e-fixes AC-1 — the live-sandbox regression: OrderNoSequence used to route
+    // `NEXT VALUE FOR` through EF's SqlQueryRaw, which SQL Server refuses once EF wraps it in a
+    // derived table (Msg 11719). This calls the real port through the real MerchantRuntimeDbContext
+    // (not a raw connection) so a regression here fails the same way it failed in the sandbox.
+    [Fact]
+    public async Task NextAsync_mints_a_real_order_number_through_EF()
+    {
+        await using var db = NewContext();
+        var sut = new OrderNoSequence(db, new FixedClock());
+
+        var orderNo = await sut.NextAsync(CancellationToken.None);
+
+        Assert.Matches("^ORD69\\d{8}$", orderNo);
+    }
+
+    private static MerchantRuntimeDbContext NewContext() =>
+        new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlServer(IntegrationDb.AppConn).Options,
+            new FakeActor(IntegrationDb.MerchantA), AllowAllWriteAuthorizer.Instance, NoOpSecurityTelemetry.Instance);
+
+    private sealed class FixedClock : IClock
+    {
+        public DateTime UtcNow => new(2026, 8, 3, 0, 0, 0, DateTimeKind.Utc);
+    }
+
+    private sealed class FakeActor(Guid merchantId) : IActorContext
+    {
+        public Guid MerchantId => merchantId;
+        public Guid? UserId => null;
+        public bool HasActor => true;
+    }
+
+    private sealed class AllowAllWriteAuthorizer : IWriteAuthorizer
+    {
+        public static readonly AllowAllWriteAuthorizer Instance = new();
+        public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) => true;
+    }
 }
