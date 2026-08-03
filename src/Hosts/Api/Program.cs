@@ -1092,6 +1092,9 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
 // cancelled while a charge can still settle is money against an order nobody will honour. Release refuses
 // (409) on a live session, a settled one, and an unreachable PSP alike, which is why the cancel below only
 // runs on its success. Both halves are no-ops in their target state, so a retry finishes a half-done call.
+// A session minted BETWEEN the two commands cannot slip through: the cancel re-checks for one inside its own
+// transaction after taking the order row's lock, and a mint holds that same row locked while it verifies the
+// order is still AwaitingPayment (REQ-3.6/4.7) — so one of the two always sees the other and answers 409.
 api.MapPost("/orders/{orderId:guid}/cancel", async (
     Guid orderId, IMediator mediator, CancellationToken ct) =>
 {

@@ -102,6 +102,16 @@ file sealed class NoOpUnitOfWork : IUnitOfWork
         await operation(cancellationToken);
 }
 
+/// <summary>Same predicate as the real <c>PaymentSessionProbe</c>, over the shared in-memory list — a
+/// chargeable session (Created/Redirected) or a Paid one blocks the cancel; Expired/Failed do not.</summary>
+file sealed class FakeSessionProbe(List<PaymentSession> sessions) : IPaymentSessionProbe
+{
+    public Task<bool> HasBlockingSessionAsync(Guid orderId, CancellationToken cancellationToken) =>
+        Task.FromResult(sessions.Any(s =>
+            s.OrderId == orderId
+            && s.Status is SessionStatus.Created or SessionStatus.Redirected or SessionStatus.Paid));
+}
+
 file sealed class OrderFactory(Guid merchantId, List<Order> orders, List<PaymentSession> sessions)
     : WebApplicationFactory<ApiHost::Program>
 {
@@ -129,6 +139,7 @@ file sealed class OrderFactory(Guid merchantId, List<Order> orders, List<Payment
             services.AddScoped<IActorContext>(_ => new BoundActor(merchantId));
             services.AddScoped<IOrderRepository>(_ => new FakeOrders(orders));
             services.AddScoped<ISessionRepository>(_ => new FakePaymentSessions(sessions));
+            services.AddScoped<IPaymentSessionProbe>(_ => new FakeSessionProbe(sessions));
             services.AddScoped<IUnitOfWork>(_ => new NoOpUnitOfWork());
         });
     }
@@ -235,6 +246,27 @@ public sealed class OrderCancelEndpointTests
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Cancel(order.Id))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Cancel(order.Id))).StatusCode);
         Assert.Equal(OrderStatus.Cancelled, order.Status);
+    }
+
+    // REQ-4.7 — a session the release CANNOT see (it looks for open ones only) but the cancel must still
+    // refuse over: here one already Paid, the collapsed end state of a session minted-and-settled after the
+    // release's check. The post-flip probe inside CancelOrderHandler is the only line that catches it.
+    [Fact]
+    public async Task Cancelling_an_order_whose_session_was_paid_behind_the_release_is_409()
+    {
+        var order = NewOrder();
+        var paid = SessionFor(order, TimeSpan.FromMinutes(5));
+        paid.BeginRedirect(DateTime.UtcNow);
+        paid.SetPspCharge("INV-PAID", "https://2c2p.test/hosted/pay", DateTime.UtcNow);
+        paid.MarkPaid("INV-PAID", DateTime.UtcNow);
+        using var factory = new OrderFactory(Merchant, [order], [paid]);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Cancel(order.Id));
+
+        // The in-memory fakes cannot show the transaction's rollback (the real UoW discards the flip);
+        // what this layer pins is the refusal itself.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
     [Fact]

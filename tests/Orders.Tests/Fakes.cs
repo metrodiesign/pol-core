@@ -112,6 +112,19 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
         await operation(ct);
 }
 
+/// <summary>Answers a fixed "is a session blocking this order" and records the save count it was asked at —
+/// the cancel must only probe AFTER its own UPDATE holds the order row (REQ-4.7's lock ordering).</summary>
+internal sealed class FakePaymentSessionProbe(FakeUnitOfWork unitOfWork, bool blocking = false) : IPaymentSessionProbe
+{
+    public int? SaveCountWhenProbed { get; private set; }
+
+    public Task<bool> HasBlockingSessionAsync(Guid orderId, CancellationToken ct)
+    {
+        SaveCountWhenProbed ??= unitOfWork.SaveCount;
+        return Task.FromResult(blocking);
+    }
+}
+
 internal sealed class FixedClock : IClock
 {
     public DateTime UtcNow { get; init; } = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);

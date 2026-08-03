@@ -385,6 +385,51 @@ public sealed class CreateSessionHandlerTests
         AssertNothingWasPersisted(harness);
     }
 
+    // --- step 7c: the locked re-read (REQ-3.6) — "AwaitingPayment" must hold at COMMIT time, not merely at
+    // the unlocked read at the top of the handler; a cancel can land between the two. ---
+
+    [Fact]
+    public async Task An_order_cancelled_between_the_first_read_and_the_mint_is_refused()
+    {
+        var harness = NewHarness();
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Cancelled);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Equal(1, harness.Orders.LockedCalls);
+        AssertNothingWasPersisted(harness);
+    }
+
+    [Fact]
+    public async Task An_order_cancelled_during_the_stale_session_release_is_refused_after_the_release()
+    {
+        // The widest real window: the release's PSP fetch takes hundreds of ms, ample time for a cancel to
+        // commit. The expire may proceed (it frees the dead session either way) but the MINT must not.
+        var stale = StaleSession(withCharge: false);
+        var harness = NewHarness(existingSessions: [stale]);
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Cancelled);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Empty(harness.Sessions.Added);
+    }
+
+    [Fact]
+    public async Task The_mint_prices_from_the_locked_re_read_not_the_first_read()
+    {
+        // The two reads answer the same row, so they can only differ if the first is stale — pinning the
+        // session's amount to the LOCKED read pins which of the two the mint trusts.
+        var lockedAmount = Money.Of(20000m, "THB");
+        var harness = NewHarness();
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, PayableOrderStatus.AwaitingPayment);
+
+        await harness.Handler.Handle(Command(), default);
+
+        Assert.Equal(lockedAmount, Assert.Single(harness.Sessions.Added).Amount);
+    }
+
     // --- step 8: the amount comes from the order, and only from the order ---
 
     [Fact]

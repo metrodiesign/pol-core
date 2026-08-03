@@ -40,6 +40,10 @@ file sealed class FakePayableOrders(PayableOrder? order) : IPayableOrderReader
 {
     public Task<PayableOrder?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
         Task.FromResult(order?.OrderId == orderId ? order : null);
+
+    // The in-memory order cannot change between the two reads, so the locked re-read answers the same row.
+    public Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken) =>
+        GetAsync(orderId, cancellationToken);
 }
 
 file sealed class FakePaymentSessions(List<PaymentSession> sessions) : ISessionRepository

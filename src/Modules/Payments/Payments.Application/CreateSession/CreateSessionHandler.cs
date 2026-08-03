@@ -101,7 +101,8 @@ public sealed class CreateSessionHandler
                         throw new ConflictException(
                             $"Order {command.OrderId} has a payment session that could not be released ({outcome}).");
 
-                    return await MintAsync(command, order.Amount, method, ct).ConfigureAwait(false);
+                    var lockedAmount = await EnsureStillMintableAsync(command.OrderId, ct).ConfigureAwait(false);
+                    return await MintAsync(command, lockedAmount, method, ct).ConfigureAwait(false);
                 },
                 cancellationToken).ConfigureAwait(false);
         }
@@ -118,7 +119,32 @@ public sealed class CreateSessionHandler
                 $"Order {command.OrderId} already has an open payment session on a different channel.");
         }
 
-        return await MintAsync(command, order.Amount, method, cancellationToken).ConfigureAwait(false);
+        return await _unitOfWork.ExecuteInTransactionAsync(
+            async ct =>
+            {
+                var lockedAmount = await EnsureStillMintableAsync(command.OrderId, ct).ConfigureAwait(false);
+                return await MintAsync(command, lockedAmount, method, ct).ConfigureAwait(false);
+            },
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The mint-side half of the mint-vs-cancel race closure (REQ-3.6): re-reads the order UNDER A ROW LOCK
+    /// held to the end of the surrounding transaction, so "still AwaitingPayment" is true at COMMIT time,
+    /// not merely at the unlocked read at the top of the handler. Cancel takes the same row's write lock
+    /// before it re-checks for sessions, so whichever of the two commits first, the other sees it and
+    /// refuses. Always called BEFORE the session row is added — both paths acquire the order row first,
+    /// which is what makes them deadlock-free. Returns the locked row's amount so the mint prices from the
+    /// same read that proved the order mintable.
+    /// </summary>
+    private async Task<Money> EnsureStillMintableAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var locked = await _orders.GetForMintAsync(orderId, cancellationToken).ConfigureAwait(false);
+        if (locked is not { IsAwaitingPayment: true })
+            throw new InvalidOperationException(
+                $"Order {orderId} is not awaiting payment; no payment session can be opened for it.");
+
+        return locked.Amount;
     }
 
     private async Task<CreateSessionResult> MintAsync(

@@ -31,8 +31,14 @@ public sealed class TransactionInventoryTests
         // purchase-flow-completion design.md ("Expire + mint ใหม่" -> 2-phase SaveChanges in one transaction):
         // single-context (txn data plane only). Retiring an aged-out session and minting its replacement must
         // commit together, and the UPDATE must be sent before the INSERT or the filtered unique index rejects
-        // the pair — hence its own transaction rather than one batched SaveChanges.
-        ["src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs"] = 1,
+        // the pair — hence its own transaction rather than one batched SaveChanges. Second site (REQ-3.6,
+        // review PR #167): the fresh-mint path's own transaction, so the UPDLOCK order re-read and the INSERT
+        // commit together — "still AwaitingPayment" must hold at commit, not merely at the unlocked read.
+        ["src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs"] = 2,
+        // purchase-flow-completion design.md (REQ-4.7, review PR #167): single-context (txn data plane only).
+        // Cancel's flip UPDATE and its post-flip re-check for a session minted behind the release must share
+        // one transaction — found -> the whole cancel rolls back as a 409.
+        ["src/Modules/Orders/Orders.Application/CancelOrder.cs"] = 1,
         ["src/Modules/Admins/Admins.Application/Users/UnassignMerchant.cs"] = 1,                       // row 9
         ["src/Modules/Admins/Admins.Application/Users/ReactivateAdmin.cs"] = 1,                        // row 4
         ["src/Modules/Admins/Admins.Application/Users/RevokeAdminSession.cs"] = 1,                     // row 5
