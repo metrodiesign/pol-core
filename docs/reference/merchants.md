@@ -654,7 +654,7 @@ auth = **session cookie** (`credentials: 'include'`). method ที่เปล�
 |---|---|---|
 | GET | `/api/v1/products` | — (รายละเอียด query param ดูด้านล่าง) |
 | POST · GET · PUT · DELETE | `/api/v1/carts`, `/api/v1/carts/{cartId}`, `/api/v1/carts/{cartId}/items[/{productId}]`, `/api/v1/carts/{cartId}/clear` | — |
-| POST | `/api/v1/checkouts`, `/api/v1/checkouts/{checkoutSessionId}/confirm` | — |
+| POST | `/api/v1/checkouts`, `/api/v1/checkouts/{checkoutSessionId}/confirm`, `/api/v1/checkouts/{checkoutSessionId}/abandon` | — |
 | POST | `/api/v1/payments/sessions` | `payment.create` |
 | POST | `/api/v1/payments/sessions/{paymentSessionId}/redirect` | `payment.redirect` |
 | GET | `/api/v1/orders`, `/api/v1/orders/{orderId}` | — |

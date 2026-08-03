@@ -44,5 +44,12 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        // Mirrors Checkouts.Infrastructure.SessionConfiguration's one-live-checkout-per-cart index
+        // (REQ-2.4) — see the rationale there; both models must declare it identically, which
+        // Architecture.Tests/OpenCheckoutIndexTests pins.
+        builder.HasIndex(x => x.CartId, "IX_CheckoutSessions_CartId_Open")
+            .IsUnique()
+            .HasFilter("[Status] IN (0, 1)");
     }
 }

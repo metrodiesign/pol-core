@@ -150,6 +150,11 @@ internal sealed class FakeCheckoutRepository : ICheckoutRepository
 
     public Task<Session?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
         Task.FromResult(_sessions.FirstOrDefault(s => s.Id == checkoutSessionId));
+
+    // Mirrors the EF adapter's predicate: Started/Confirmed are live, Abandoned is not.
+    public Task<Session?> GetOpenForCartAsync(Guid cartId, CancellationToken cancellationToken) =>
+        Task.FromResult(_sessions.FirstOrDefault(
+            s => s.CartId == cartId && s.Status is SessionStatus.Started or SessionStatus.Confirmed));
 }
 
 internal sealed class FakeOutbox : IOutbox

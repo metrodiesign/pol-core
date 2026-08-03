@@ -43,5 +43,14 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(x => x.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        // One live checkout per cart, enforced at the DB floor (purchase-flow-completion REQ-2.4): the
+        // handler's GetOpenForCartAsync pre-check can lose a race, this cannot. Status 0/1 = Started/Confirmed;
+        // Abandoned (2) falls outside the filter, so an abandoned checkout lets the same cart start a fresh one.
+        // NAMED overload deliberately — EF keys UNNAMED indexes by property set, so an unnamed second
+        // HasIndex(x => x.CartId) would MUTATE an existing CartId index instead of adding this one.
+        builder.HasIndex(x => x.CartId, "IX_CheckoutSessions_CartId_Open")
+            .IsUnique()
+            .HasFilter("[Status] IN (0, 1)");
     }
 }

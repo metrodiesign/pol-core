@@ -5,6 +5,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -12,9 +13,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PolDbContext))]
-    partial class PolDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802134226_CartItemClientMintedId")]
+    partial class CartItemClientMintedId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -540,10 +543,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
 
-                    b.Property<int>("Version")
-                        .IsConcurrencyToken()
-                        .HasColumnType("int");
-
                     b.HasKey("Id");
 
                     b.ToTable("Carts", "shop");
@@ -723,10 +722,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         });
 
                     b.HasKey("Id");
-
-                    b.HasIndex(new[] { "CartId" }, "IX_CheckoutSessions_CartId_Open")
-                        .IsUnique()
-                        .HasFilter("[Status] IN (0, 1)");
 
                     b.ToTable("CheckoutSessions", "shop");
                 });

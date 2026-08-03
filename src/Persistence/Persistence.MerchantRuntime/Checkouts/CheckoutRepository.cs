@@ -19,4 +19,11 @@ internal sealed class CheckoutRepository : ICheckoutRepository
 
     public Task<Session?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
         _db.Set<Session>().Include(x => x.Items).FirstOrDefaultAsync(x => x.Id == checkoutSessionId, cancellationToken);
+
+    // Items are not needed to decide "is this cart already checking out", so this read stays narrow.
+    public Task<Session?> GetOpenForCartAsync(Guid cartId, CancellationToken cancellationToken) =>
+        _db.Set<Session>().FirstOrDefaultAsync(
+            x => x.CartId == cartId
+                && (x.Status == SessionStatus.Started || x.Status == SessionStatus.Confirmed),
+            cancellationToken);
 }

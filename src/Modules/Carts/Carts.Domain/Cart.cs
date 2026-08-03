@@ -17,6 +17,15 @@ public sealed class Cart : AggregateRoot<Guid>
     public CartStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>
+    /// Application-managed optimistic concurrency token (REQ-2.1). Every mutation bumps it — including
+    /// item-only edits, which would otherwise never touch the cart's own row — so any two writers racing
+    /// on the same cart (an item edit vs the checkout freeze) conflict at commit instead of silently
+    /// interleaving. A SQL rowversion cannot do this job: it only moves when the Carts row itself is
+    /// written, and it does not exist on the SQLite provider the host tests run on.
+    /// </summary>
+    public int Version { get; private set; }
+
     /// <summary>The cart's lines, in insertion order. Mutated only through the aggregate's methods.</summary>
     public IReadOnlyCollection<Item> Items => _items.AsReadOnly();
 
@@ -44,6 +53,7 @@ public sealed class Cart : AggregateRoot<Guid>
             throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity must be positive.");
 
         EnsureCurrencyMatches(unitPrice);
+        Version++;
 
         var existing = _items.FirstOrDefault(
             i => i.ProductId == productId && i.UnitPrice.Amount == unitPrice.Amount);
@@ -62,6 +72,7 @@ public sealed class Cart : AggregateRoot<Guid>
         if (Status != CartStatus.Open)
             throw new InvalidOperationException("Cannot modify a cart that is not open.");
 
+        Version++;
         _items.RemoveAll(i => i.ProductId == productId);
     }
 
@@ -76,6 +87,7 @@ public sealed class Cart : AggregateRoot<Guid>
 
         var line = _items.FirstOrDefault(i => i.ProductId == productId)
             ?? throw new ArgumentException($"Product {productId} is not in the cart.", nameof(productId));
+        Version++;
         line.SetQuantity(quantity);
     }
 
@@ -85,11 +97,28 @@ public sealed class Cart : AggregateRoot<Guid>
         if (Status != CartStatus.Open)
             throw new InvalidOperationException("Cannot modify a cart that is not open.");
 
+        Version++;
         _items.Clear();
     }
 
-    /// <summary>Freezes the cart so it can no longer be edited.</summary>
-    public void MarkCheckedOut() => Status = CartStatus.CheckedOut;
+    /// <summary>Freezes the cart so it can no longer be edited. Bumps <see cref="Version"/> so an item
+    /// edit that loaded the cart before the freeze landed is rejected at its own commit.</summary>
+    public void MarkCheckedOut()
+    {
+        Status = CartStatus.CheckedOut;
+        Version++;
+    }
+
+    /// <summary>Unfreezes a cart whose checkout was abandoned, so the merchant can edit it and check out
+    /// again (REQ-2.5). An already-open cart is a no-op, which is what makes abandoning twice safe (REQ-2.9).</summary>
+    public void Reopen()
+    {
+        if (Status == CartStatus.Open)
+            return;
+
+        Status = CartStatus.Open;
+        Version++;
+    }
 
     /// <summary>
     /// The sum of every line total. An empty cart has no currency to denominate zero in, so callers

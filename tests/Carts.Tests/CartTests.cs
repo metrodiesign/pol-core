@@ -67,14 +67,71 @@ public sealed class CartTests
         Assert.Empty(cart.Items);
     }
 
+    // REQ-2.7 — all FOUR mutations, not three: add-item is the one that would otherwise let a merchant grow a
+    // cart whose price snapshot is already frozen inside a live checkout session.
     [Fact]
     public void A_checked_out_cart_rejects_edits()
     {
         var cart = CartWithLine();
         cart.MarkCheckedOut();
 
+        Assert.Throws<InvalidOperationException>(() => cart.AddItem(Guid.NewGuid(), 1, Money.Of(100m, "THB")));
         Assert.Throws<InvalidOperationException>(() => cart.SetItemQuantity(Product, 1));
         Assert.Throws<InvalidOperationException>(() => cart.RemoveItem(Product));
         Assert.Throws<InvalidOperationException>(() => cart.Clear());
+    }
+
+    // REQ-2.5 — abandoning the checkout hands the cart back, edits and all.
+    [Fact]
+    public void Reopen_unfreezes_a_checked_out_cart()
+    {
+        var cart = CartWithLine();
+        cart.MarkCheckedOut();
+
+        cart.Reopen();
+
+        cart.SetItemQuantity(Product, 4);
+        Assert.Equal(4, cart.Items.First().Quantity);
+    }
+
+    // REQ-2.9 — abandoning twice must not fail, which is only true if reopening an open cart is a no-op.
+    [Fact]
+    public void Reopen_on_an_open_cart_changes_nothing()
+    {
+        var cart = CartWithLine(2);
+
+        cart.Reopen();
+        cart.Reopen();
+
+        Assert.Single(cart.Items);
+        Assert.Equal(2, cart.Items.First().Quantity);
+        cart.Clear(); // still open for edits
+    }
+
+    // PR #166 review — the freeze-race token: EVERY mutation must bump Version (item edits included, since
+    // they never touch the Carts row on their own), or a writer racing the checkout freeze slips through
+    // the WHERE Version = @original check unnoticed.
+    [Fact]
+    public void Every_mutation_bumps_the_version_and_a_reopen_noop_does_not()
+    {
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
+        Assert.Equal(0, cart.Version);
+
+        cart.AddItem(Product, 2, Money.Of(100m, "THB"));
+        Assert.Equal(1, cart.Version);
+        cart.SetItemQuantity(Product, 7);
+        Assert.Equal(2, cart.Version);
+        cart.RemoveItem(Product);
+        Assert.Equal(3, cart.Version);
+        cart.AddItem(Product, 1, Money.Of(100m, "THB"));
+        cart.Clear();
+        Assert.Equal(5, cart.Version);
+
+        cart.MarkCheckedOut();
+        Assert.Equal(6, cart.Version);
+        cart.Reopen();
+        Assert.Equal(7, cart.Version);
+        cart.Reopen(); // no-op on an open cart (REQ-2.9) — no write, no bump
+        Assert.Equal(7, cart.Version);
     }
 }
