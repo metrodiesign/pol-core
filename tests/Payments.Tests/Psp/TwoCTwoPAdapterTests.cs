@@ -271,6 +271,9 @@ public sealed class TwoCTwoPAdapterTests
     [InlineData("0000", PspChargeStatus.Paid)]
     [InlineData("0001", PspChargeStatus.Pending)]
     [InlineData("2001", PspChargeStatus.Pending)]
+    [InlineData("2002", PspChargeStatus.Pending)] // token minted, customer has not attempted yet — not Failed
+    [InlineData("4009", PspChargeStatus.Pending)]
+    [InlineData("0003", PspChargeStatus.Failed)] // cancelled — regression pin, must never drift into Pending
     [InlineData("9035", PspChargeStatus.Failed)]
     public async Task FetchCharge_maps_respCode_to_status(string respCode, PspChargeStatus expected)
     {
@@ -396,6 +399,7 @@ public sealed class TwoCTwoPAdapterTests
     [Theory]
     [InlineData("0000", PspChargeStatus.Paid)]
     [InlineData("0001", PspChargeStatus.Pending)] // pending webhook is Pending, not Failed (matches fetch)
+    [InlineData("2002", PspChargeStatus.Pending)] // same mapping as fetch — pins the webhook leg too
     [InlineData("9035", PspChargeStatus.Failed)]
     public void ParseWebhook_maps_respCode_to_status(string respCode, PspChargeStatus expected)
     {

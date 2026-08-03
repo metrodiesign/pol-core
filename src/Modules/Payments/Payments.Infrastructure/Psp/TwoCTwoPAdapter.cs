@@ -149,11 +149,18 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
     };
 
     /// <summary>Maps a 2C2P respCode to the normalized status: "0000"=Paid, in-progress codes=Pending,
-    /// everything else (declines/cancels/failures)=Failed.</summary>
+    /// everything else (declines/cancels/failures)=Failed.
+    /// "2002" ("Transaction not found.") is Pending, not Failed: paymentInquiry returns it for a token
+    /// that was minted but the customer has not attempted yet (no card entry / QR scan) — the inquiry
+    /// knows only the token, not a transaction. Confirmed by live 2C2P sandbox repro 2026-08-03
+    /// (order ORD6900000166): mapping it to Failed marked the session MarkFailed before the hosted
+    /// token was ever exhausted, and the customer's real payment then landed on a terminal session.
+    /// Open question: "2003" semantics are not confirmed against the official response-code table
+    /// (https://developer.2c2p.com/docs/response-code-payment) — do not reclassify without live proof.</summary>
     private static PspChargeStatus MapRespCode(string? respCode) => respCode switch
     {
         "0000" => PspChargeStatus.Paid,
-        "0001" or "2001" or "4009" => PspChargeStatus.Pending,
+        "0001" or "2001" or "2002" or "4009" => PspChargeStatus.Pending,
         _ => PspChargeStatus.Failed,
     };
 
