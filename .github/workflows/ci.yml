@@ -24,11 +24,14 @@ jobs:
         # Tier 1 floor: the single check engine (.ai/bin/check-*.sh) is exercised by its
         # adversarial test suite here so it cannot drift / be weakened silently — a loosened
         # guard fails its own paired block/allow case and reds the build. Runs EVERY
-        # *.test.sh under .claude/hooks/tests/ (destructive, hook-bypass, secrets, gate-task).
+        # *.test.sh under .claude/hooks/tests/ (destructive, hook-bypass, secrets, gate-task)
+        # plus the docker entrypoint script-level suites (bugfix-sim-guardrails F10/B13/B14) —
+        # entrypoint.sh and migrate-entrypoint.sh have no other CI caller, so this is the only
+        # gate that reds the build when either script regresses.
         run: |
           set -euo pipefail
           shopt -s nullglob
-          tests=( .claude/hooks/tests/*.test.sh )
+          tests=( .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh )
           if [ "${#tests[@]}" -eq 0 ]; then
             echo "No guard tests found under .claude/hooks/tests/ — expected the suite." >&2
             exit 1
@@ -127,22 +130,7 @@ jobs:
           PSP_OMISE_RETURN_URI: https://ci.example.com/return
         run: docker compose -f docker-compose.prod.yml config
 
-  integration-gate:
-    # The integration job needs the MSSQL_SA_PASSWORD repo secret to stand up SQL Server. Until that
-    # secret is configured, SKIP the integration job (don't red the build) so verify + dotnet stay the
-    # enforced gate. Once the secret is set, integration runs automatically. (secrets is allowed in a
-    # step `run` expression, so the boolean — never the value — is emitted as an output.)
-    name: integration gate (SQL secret present?)
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        run: echo "enabled=${{ secrets.MSSQL_SA_PASSWORD != '' }}" >> "$GITHUB_OUTPUT"
-
   dotnet-integration:
-    needs: integration-gate
-    if: ${{ needs.integration-gate.outputs.enabled == 'true' }}
     # The RLS security floor (PLAN #3) can only be proven against a real SQL Server: spins up SQL
     # Server 2025, bootstraps the DB principals, applies the EF migrations (schema + RLS policy), then
     # runs the [Trait Category=Integration] suite. Needs a repo secret MSSQL_SA_PASSWORD; the runtime

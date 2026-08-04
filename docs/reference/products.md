@@ -73,8 +73,8 @@
 
 หมายเหตุ: วันนี้ "ระบบต้นทาง" ที่เราเชื่อมอยู่เป็น**ระบบจำลอง**ที่สร้างขึ้นเองภายในบริษัท
 (ให้หน้าตา/พฤติกรรมเหมือนของจริงทุกประการ) เพื่อให้ทีมอื่นพัฒนาต่อได้โดยไม่ต้องรอเชื่อมกับ
-ระบบจริงของอีก 2 หน่วยงานก่อน — วันที่เชื่อมของจริง จะเปลี่ยนแค่ "ที่อยู่" ที่ระบบไปติดต่อ
-ไม่ต้องแก้โค้ดส่วนอื่นเลย
+ระบบจริงของอีก 2 หน่วยงานก่อน — วันที่เชื่อมของจริง ระบบจะไปติดต่อ "ที่อยู่" ของอีกฝั่งแทน แต่ทีม
+เทคนิคต้องเตรียมเปิดทางเชื่อมต่อนั้นไว้ก่อน ไม่ใช่แค่เปลี่ยนค่าแล้วเสร็จทันที
 
 ---
 
@@ -104,10 +104,10 @@ merchant `Product` เป็น mirror ของ result set §5.2 ใน
 - **read path ไม่อ่าน `shop.Products` แล้ว** (spec `products-sp-gateway`) — `GET /products` ค้นสด
   ผ่าน `ISpDocumentGateway` ไปยัง SP ของระบบต้นทาง (วันนี้คือ database จำลอง
   `hippodb`/`mammothdb` คนละ SQL Server container แยกจาก DB หลักและแยกจากกันเอง
-  (`external-sim-separate-containers`); วันเชื่อมของจริงเปลี่ยนแค่ connection
-  string) แล้ว **upsert ผลลัพธ์กลับเข้า `shop.Products` ด้วย key `DocumentNo`** เพื่อให้
-  cart/checkout ยังอ้าง `Guid` เดิมได้ — `IProductRepository` จึงไม่มี `ListAsync` อีกแล้ว เหลือ
-  `UpsertByDocumentNoAsync` + `GetAsync`
+  (`external-sim-separate-containers`); cutover ไปต้นทางจริงไม่ใช่แค่เปลี่ยน connection string —
+  ดูย่อหน้า "สถานะ: มีแล้ว" ท้ายหัวข้อนี้) แล้ว **upsert ผลลัพธ์กลับเข้า `shop.Products` ด้วย key
+  `DocumentNo`** เพื่อให้ cart/checkout ยังอ้าง `Guid` เดิมได้ — `IProductRepository` จึงไม่มี
+  `ListAsync` อีกแล้ว เหลือ `UpsertByDocumentNoAsync` + `GetAsync`
 - **paging / order / search window เป็นของ SP ไม่ใช่ของเรา**: order คงที่ด้วย `DocumentNo`,
   window 6 เดือน (Motor `RENEWAL` ใช้ `EndDate` 2 เดือน) และการนับทั้งหมดเกิดใน SP — โค้ดฝั่งเรา
   คัดลอกค่ามาใส่ envelope ตรง ๆ ไม่คำนวณซ้ำ
@@ -136,9 +136,13 @@ merchant `Product` เป็น mirror ของ result set §5.2 ใน
 ยกระดับเป็น Product/ProductVersion/ProductQuote ยังไม่เริ่ม; ยังไม่มีเส้นทางแก้ไขเอกสาร SP adapter
 ของจริงเขียนแล้วและใช้งานอยู่ (products-sp-gateway) โดยชี้ไปที่ database จำลอง
 `hippodb`/`mammothdb` (คนละ SQL Server container, `external-sim-separate-containers`) ซึ่งรัน SP
-ตัวเดียวกับ contract ในทุก environment — การเชื่อม
-`motordb`/`centerdb` ของจริงเหลือแค่เปลี่ยน `SpDocument:MotorConnectionString`/
-`NonMotorConnectionString` ทาง config
+ตัวเดียวกับ contract ในทุก environment — การเชื่อมต่อ `motordb`/`centerdb` ของจริง **ไม่ใช่แค่
+เปลี่ยนค่า** `SpDocument:MotorConnectionString`/`NonMotorConnectionString`: เส้นทางนั้นปิดอยู่สี่ชั้น
+(`docker-compose.prod.yml` ของ service `api` ไม่มี key `SpDocument__*` เลย, `HIPPO_DB_SERVER`/
+`MAMMOTH_DB_SERVER` ถูกบังคับด้วย `:?`, `migrate-entrypoint.sh` บังคับ bootstrap sim ก่อน `api`
+ขึ้นเสมอ, และ `build_conn` hardcode ชื่อ database/principal ของ sim) — ตั้งสองค่านั้นพร้อมกับ
+`HIPPO_DB_SERVER`/`MAMMOTH_DB_SERVER` วันนี้จะโดน `docker/entrypoint.sh` guard บล็อกไม่ให้ container
+ขึ้น (เขียน stderr ระบุชื่อตัวแปรแล้ว exit non-zero แทนการทับเงียบ ๆ)
 
 ## Schema — `shop.Products`
 

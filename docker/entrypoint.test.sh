@@ -67,6 +67,14 @@ check_empty() { # $1=desc $2=value
     fi
 }
 
+check_eq() { # $1=desc $2=actual $3=expected
+    if [ "$2" = "$3" ]; then
+        pass=$((pass + 1))
+    else
+        fail=$((fail + 1)); echo "FAIL [$1] expected [$3] got [$2]"
+    fi
+}
+
 # --- branch: no DB_CA_CERTIFICATE_FILE -> Encrypt=True;TrustServerCertificate=False, default port ---
 out_fallback="$(run_entrypoint)"
 check_contains "fallback: default port"       "$out_fallback" "Server=dbhost.internal,1433"
@@ -116,12 +124,82 @@ check_empty "hippo/mammoth unset: nonmotor conn empty" "$nonmotor_unset"
 out_mammoth="$(run_entrypoint MAMMOTH_DB_SERVER=mammoth.internal MAMMOTH_DB_PORT=19999)"
 check_contains "mammoth set: custom port in nonmotor conn string" "$out_mammoth" "Server=mammoth.internal,19999;Database=mammothdb"
 
+# --- external-sim strict branch: HIPPO_DB_SERVER/MAMMOTH_DB_SERVER paired with DB_CA_CERTIFICATE_FILE
+# --- must assemble Encrypt=Strict the same way the App connection string does — build_conn is the same
+# --- function for both, but no case had ever exercised this branch for the sim strings before. (F8)
+out_sim_strict="$(run_entrypoint HIPPO_DB_SERVER=hippo.internal MAMMOTH_DB_SERVER=mammoth.internal DB_CA_CERTIFICATE_FILE=/run/secrets/db_ca_cert)"
+motor_sim_strict="$(printf '%s\n' "$out_sim_strict" | sed -n '2p')"
+nonmotor_sim_strict="$(printf '%s\n' "$out_sim_strict" | sed -n '3p')"
+check_contains "sim strict: hippo Encrypt=Strict"        "$motor_sim_strict" "Encrypt=Strict"
+check_contains "sim strict: hippo ServerCertificate="    "$motor_sim_strict" "ServerCertificate=/run/secrets/db_ca_cert"
+check_contains "sim strict: hippo HostNameInCertificate" "$motor_sim_strict" "HostNameInCertificate=hippo.internal"
+check_not_contains "sim strict: hippo no plain True/False encrypt fallback" "$motor_sim_strict" "Encrypt=True"
+check_contains "sim strict: mammoth Encrypt=Strict"        "$nonmotor_sim_strict" "Encrypt=Strict"
+check_contains "sim strict: mammoth ServerCertificate="    "$nonmotor_sim_strict" "ServerCertificate=/run/secrets/db_ca_cert"
+check_contains "sim strict: mammoth HostNameInCertificate" "$nonmotor_sim_strict" "HostNameInCertificate=mammoth.internal"
+check_not_contains "sim strict: mammoth no plain True/False encrypt fallback" "$nonmotor_sim_strict" "Encrypt=True"
+
+# --- D1: entrypoint must not silently overwrite an operator-set SpDocument__* value with the
+# --- sim-assembled one — HIPPO_DB_SERVER is paired with SpDocument__MotorConnectionString,
+# --- MAMMOTH_DB_SERVER with SpDocument__NonMotorConnectionString. Both non-empty in the same pair
+# --- must refuse (stderr names both vars, no values) and exit non-zero; only one set must let the
+# --- pre-set value win (hybrid cutover, one side at a time). Empty string counts as unset on both
+# --- sides, same norm as :20's `[ -n "${VAR:-}" ]`. (F1-F5)
+motor_preset='Server=motordb.real,1433;Database=motordb;User Id=up;Password=x;Encrypt=True;TrustServerCertificate=False'
+nonmotor_preset='Server=centerdb.real,1433;Database=centerdb;User Id=up;Password=y;Encrypt=True;TrustServerCertificate=False'
+
+# F1: Motor pre-set collides with HIPPO_DB_SERVER -> refuse, non-zero exit, stderr names both vars only
+out_motor_conflict="$(run_entrypoint HIPPO_DB_SERVER=hippo.internal SpDocument__MotorConnectionString="$motor_preset" 2>&1)"
+rc_motor_conflict=$?
+check_eq "motor conflict: non-zero exit" "$([ "$rc_motor_conflict" -ne 0 ] && echo yes || echo no)" "yes"
+check_contains "motor conflict: stderr names HIPPO_DB_SERVER" "$out_motor_conflict" "HIPPO_DB_SERVER"
+check_contains "motor conflict: stderr names SpDocument__MotorConnectionString" "$out_motor_conflict" "SpDocument__MotorConnectionString"
+check_not_contains "motor conflict: stderr has no password value (F5)" "$out_motor_conflict" "Password=x"
+check_not_contains "motor conflict: stderr has no connection string value (F5)" "$out_motor_conflict" "motordb.real"
+check_not_contains "motor conflict: stderr has no real DB_PW secret (F5)" "$out_motor_conflict" "s3cret"
+
+# F2: NonMotor pre-set collides with MAMMOTH_DB_SERVER -> same guard, its own pair
+out_nonmotor_conflict="$(run_entrypoint MAMMOTH_DB_SERVER=mammoth.internal SpDocument__NonMotorConnectionString="$nonmotor_preset" 2>&1)"
+rc_nonmotor_conflict=$?
+check_eq "nonmotor conflict: non-zero exit" "$([ "$rc_nonmotor_conflict" -ne 0 ] && echo yes || echo no)" "yes"
+check_contains "nonmotor conflict: stderr names MAMMOTH_DB_SERVER" "$out_nonmotor_conflict" "MAMMOTH_DB_SERVER"
+check_contains "nonmotor conflict: stderr names SpDocument__NonMotorConnectionString" "$out_nonmotor_conflict" "SpDocument__NonMotorConnectionString"
+check_not_contains "nonmotor conflict: stderr has no password value (F5)" "$out_nonmotor_conflict" "Password=y"
+check_not_contains "nonmotor conflict: stderr has no connection string value (F5)" "$out_nonmotor_conflict" "centerdb.real"
+check_not_contains "nonmotor conflict: stderr has no real DB_PW secret (F5)" "$out_nonmotor_conflict" "s3cret"
+
+# F3: hybrid cutover — Motor pre-set alone (HIPPO_DB_SERVER unset) must win untouched, NonMotor still
+# assembles from sim via MAMMOTH_DB_SERVER since that pair has no conflict
+out_hybrid="$(run_entrypoint MAMMOTH_DB_SERVER=mammoth.internal SpDocument__MotorConnectionString="$motor_preset" 2>&1)"
+rc_hybrid=$?
+check_eq "hybrid: exit 0" "$rc_hybrid" "0"
+motor_hybrid="$(printf '%s\n' "$out_hybrid" | sed -n '2p')"
+nonmotor_hybrid="$(printf '%s\n' "$out_hybrid" | sed -n '3p')"
+check_eq "hybrid: motor keeps operator value untouched" "$motor_hybrid" "$motor_preset"
+check_contains "hybrid: nonmotor still assembled from sim" "$nonmotor_hybrid" "Server=mammoth.internal,1433;Database=mammothdb"
+
+# F4: empty string counts as unset — empty SpDocument__MotorConnectionString must not block sim assembly
+out_empty_override="$(run_entrypoint HIPPO_DB_SERVER=hippo.internal SpDocument__MotorConnectionString= 2>&1)"
+rc_empty_override=$?
+check_eq "empty override: exit 0" "$rc_empty_override" "0"
+motor_empty_override="$(printf '%s\n' "$out_empty_override" | sed -n '2p')"
+check_contains "empty override: motor still assembled from sim" "$motor_empty_override" "Server=hippo.internal,1433;Database=hippodb"
+
+# F4: empty string counts as unset — empty HIPPO_DB_SERVER must not block the pre-set Motor value from winning
+out_empty_server="$(run_entrypoint HIPPO_DB_SERVER= SpDocument__MotorConnectionString="$motor_preset" 2>&1)"
+rc_empty_server=$?
+check_eq "empty HIPPO_DB_SERVER: exit 0" "$rc_empty_server" "0"
+motor_empty_server="$(printf '%s\n' "$out_empty_server" | sed -n '2p')"
+check_eq "empty HIPPO_DB_SERVER: motor keeps operator value" "$motor_empty_server" "$motor_preset"
+
 # --- invariant: no input combination can make the trust flag be True ---
 never_true_needle="TrustServerCertificate="
 never_true_needle="${never_true_needle}True"
 check_not_contains "invariant: fallback branch"  "$out_fallback"  "$never_true_needle"
 check_not_contains "invariant: strict branch"    "$out_strict"    "$never_true_needle"
 check_not_contains "invariant: empty-CA branch"  "$out_empty_ca"  "$never_true_needle"
+check_not_contains "invariant: hippo branch"     "$out_hippo"     "$never_true_needle"
+check_not_contains "invariant: mammoth branch"   "$out_mammoth"   "$never_true_needle"
 
 echo ""
 echo "pass=$pass fail=$fail"

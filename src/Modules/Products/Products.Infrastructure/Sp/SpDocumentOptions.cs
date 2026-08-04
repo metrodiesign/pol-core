@@ -9,8 +9,14 @@ namespace Products.Infrastructure.Sp;
 /// unset, not this class — but neither has a derive/fallback anymore (external-sim-separate-containers
 /// supersedes products-sp-gateway REQ-3.4): hippodb/mammothdb each run on their own SQL Server instance
 /// now, so there is no single "app connection, different InitialCatalog" left to re-point. Every
-/// environment sets these two values explicitly. Cutover to the real motordb/centerdb is a config
-/// override of these two values and nothing else.</para>
+/// environment sets these two values explicitly today, pointed at the sim tier (hippodb/mammothdb).
+/// Cutover to the real motordb/centerdb needs more than setting these two values: docker-compose.prod.yml's
+/// `api` service has no <c>SpDocument__*</c> key at all (a `.env` value cannot reach the container this
+/// way), HIPPO_DB_SERVER/MAMMOTH_DB_SERVER are `:?`-required so they cannot be blanked out, migrate-entrypoint.sh
+/// bootstraps the sim tier unconditionally before `api` is allowed to start, and docker/entrypoint.sh's
+/// <c>build_conn</c> hardcodes the sim catalog names and the pol_app principal/password. That script does
+/// now refuse to boot (non-zero exit) if these two values are set alongside HIPPO_DB_SERVER/MAMMOTH_DB_SERVER
+/// instead of silently overwriting them, but the four points above still need their own change first.</para>
 /// <para>Deliberately NOT validated with <c>.ValidateOnStart()</c> (REQ-5.7): 17 hosts boot for real in
 /// Hosts.Tests, and a startup validation would take every one of them down over a dependency that is only
 /// touched when a search request arrives.</para>
