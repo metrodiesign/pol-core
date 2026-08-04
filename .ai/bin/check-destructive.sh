@@ -126,9 +126,43 @@ fi
 
 # branch protection: commit/push ขณะอยู่บน main/develop หรือ push ระบุ main/develop
 if echo "$N" | grep -qE "${POS}git[[:space:]]+(commit|push)([[:space:]]|$)"; then
-  BR=$(git branch --show-current 2>/dev/null)
-  if [ "$BR" = "main" ] || [ "$BR" = "develop" ]; then
-    block "git commit/push บน branch $BR — ต้อง branch แยกแล้วผ่าน PR (Workflow rules)"
+  # ข้อยกเว้นแคบ: branch-delete push (`git push --delete/-d <branch>`) แค่ลบ ref ปลายทาง
+  # ไม่ได้ push commit ขึ้น main/develop จึงไม่ควรติด current-branch guard — flow sync หลัง
+  # merge PR ยืนอยู่บน develop แล้วเก็บกวาด feature branch เป็นเรื่องปกติ. ยกเว้น "เฉพาะ"
+  # current-branch เท่านั้น: ref-target guard ด้านล่างยังบล็อก --delete main/develop และ
+  # force guard ด้านบน (บรรทัด 106-125) ยังบล็อก force ทุกกรณีก่อนถึงบล็อกนี้.
+  # ประเมิน "ต่อ push span" แบบเดียวกับ RM_SPANS/CO_SPANS — ถือเป็น branch-delete ก็ต่อเมื่อ
+  # *ทุก* push span ในคำสั่งเป็น branch-delete ล้วน; span ใดไม่ใช่ (เช่น `git push` เปล่าที่ต่อ
+  # หลัง `&&`/`;`/newline) -> ปล่อยให้ current-branch guard ทำงานตามเดิม. แต่ละ span ต้องมี
+  # --delete หรือ -d (token เดี่ยว) และหลังตัด delete flag ออกต้องไม่เหลือ option flag อื่น —
+  # กัน `--push-option -d` (git กิน -d เป็นค่า option อื่น) และ force flag สวมเป็น delete.
+  # เงื่อนไข `! git commit` กัน compound `git commit && git push --delete` ไม่ให้ commit หลุด.
+  IS_BRANCH_DELETE=
+  PUSH_SPANS=$(echo "$N" | grep -oE "${POS}git[[:space:]]+push([[:space:]][^;&|]*)?")
+  if [ -n "$PUSH_SPANS" ] && ! echo "$N" | grep -qE "${POS}git[[:space:]]+commit([[:space:]]|$)"; then
+    IS_BRANCH_DELETE=1
+    while IFS= read -r SPAN; do
+      # deny-list ของ "การซ้อนคำสั่งในตำแหน่ง argument" ทุกรูปที่ bash รองรับ: command substitution
+      # $(...) และ backtick, process substitution <(...) >(...), function substitution (bash 5.3)
+      # ${ cmd; } / ${| cmd; } — ทั้งหมดซ่อน push ตัวอื่นไว้ในนั้น และ ( หรือ ; ที่ปิด construct
+      # อยู่หลัง token push จึงกลืนเข้ามาใน span. `[$<>]\(` ครอบ $( <( >( (จบด้วย '(' เหมือนกัน),
+      # `\$\{[[:space:]|]` ครอบ funsub `${ ` / `${|`, + backtick. span ที่มีรูปเหล่านี้ -> ไม่ถือ
+      # เป็น branch-delete (fail-safe). ตัวแปรธรรมดา ($BR / ${BR} / "$BR" / ${BR:-x}) มีตัวอักษร
+      # ตามหลัง ${ และไม่มี '(' จึงไม่ติด — allow ตามเดิม.
+      if echo "$SPAN" | grep -qE '[[:space:]](--delete|-d)([[:space:]]|$)' &&
+        ! echo "$SPAN" | grep -qE '[$<>]\(|\$\{[[:space:]|]|`' &&
+        ! echo "$SPAN" | sed -E 's/[[:space:]](--delete|-d)([[:space:]]|$)/ /g' | grep -qE '[[:space:]]-'; then
+        continue
+      fi
+      IS_BRANCH_DELETE=
+      break
+    done <<<"$PUSH_SPANS"
+  fi
+  if [ -z "$IS_BRANCH_DELETE" ]; then
+    BR=$(git branch --show-current 2>/dev/null)
+    if [ "$BR" = "main" ] || [ "$BR" = "develop" ]; then
+      block "git commit/push บน branch $BR — ต้อง branch แยกแล้วผ่าน PR (Workflow rules)"
+    fi
   fi
   # anchor ก่อน (main|develop) รับ whitespace / ':' / '+' / '/' :
   #   ':' หรือ whitespace -> 'origin main', 'HEAD:main'
