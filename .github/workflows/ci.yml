@@ -183,8 +183,10 @@ jobs:
         run: |
           echo "POL_APP_PASSWORD=Ci$(openssl rand -hex 8)Aa1" >> "$GITHUB_ENV"
       - name: Bootstrap DB principal
+        # `-b` propagates the script's own collation gate failure into the job (same reasoning as
+        # the external-sim step below).
         run: |
-          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C \
+          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b \
             -v DbName="VCentralPay" \
                POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
             -i docker/bootstrap/01-principals.sql

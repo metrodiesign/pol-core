@@ -220,6 +220,40 @@ ssh -L 8081:$SEQ_IP:80 <deploy-user>@<app-host>
 ถ้าจะเปิดถาวรให้ทีมใช้: ตั้ง authentication ใน Seq ก่อน แล้วค่อยเพิ่ม `ports: ["127.0.0.1:5341:80"]` ที่
 service `seq` (bind loopback + หน้า reverse proxy เท่านั้น — อย่า bind `0.0.0.0`).
 
+## 4.0 Cutover ครั้งเดียว (เฉพาะ deployment ที่ DB ยังไม่ผ่านงาน db-collation-thai-100)
+
+`docker/bootstrap/01-principals.sql` มี collation gate: ถ้า `VCentralPay` มีอยู่แล้วด้วย collation อื่นที่ไม่ใช่
+`Thai_100_CI_AS` (ทุก deployment ที่สร้าง DB ก่อนงานนี้ = `SQL_Latin1_General_CP1_CI_AS` โดย default) สคริปต์จะ
+`THROW` ทันที (ข้อความขึ้นต้น `Msg 50000 ... database [...] collation is ...`) -> service `migrate` exit ไม่ใช่
+0 -> `api` ไม่ start เลย (`depends_on: service_completed_successfully`) — **`02-external-sim.sql` มี gate
+เดียวกันดัก `hippodb`/`mammothdb`** (เดิมสร้างด้วย `Thai_CI_AS`, ข้อความขึ้นต้น `Msg 51002 ... collation is not
+Thai_100_CI_AS.`). ต้องทำ cutover นี้ครั้งเดียวก่อน deploy/rollback รอบถัดไปบน environment นั้น (§4 และ §5
+ด้านล่างชี้กลับมาที่นี่) ตามลำดับนี้:
+
+1. **หยุด App tier ก่อน**: `docker compose -f docker-compose.prod.yml down` — `api` ถือ connection pool +
+   healthcheck `/health/ready` ยิง DB ทุก 15s ไม่หยุดก่อนจะชน `Msg 3702 (object in use)` ตอน DROP ด้านล่าง
+   (ครอบ connection ทั้ง 3 DB ในตัว — **service down สั้น ๆ จนกว่าขั้นตอนที่ 4 จะขึ้นใหม่**)
+2. **BACKUP `VCentralPay`** ด้วยคำสั่งเดียวกับ §4.1 ด้านล่าง (DBA รันบน DB tier, Server 1) — `hippodb`/
+   `mammothdb` เป็น seed ล้วน **ไม่ต้อง backup** (bootstrap `02-external-sim.sql` สร้าง+seed ใหม่ให้เองเสมอ)
+3. Drop ทั้ง 3 database
+4. Deploy ใหม่ (migrate สร้าง+bootstrap ให้ครบทั้ง 3 DB):
+
+```bash
+# Drop ทั้ง 3 DB (VCentralPay ต้องมี backup ตามขั้น 2 แล้วเท่านั้น — hippodb/mammothdb ไม่ต้องรอ backup)
+sqlcmd -S localhost -U sa -P "<SA password ของ DB tier>" -N -b \
+  -Q "DROP DATABASE [VCentralPay]; DROP DATABASE [hippodb]; DROP DATABASE [mammothdb];"
+
+# Deploy ใหม่จาก App tier (bootstrap principals + external-sim + EF migrations สร้างทั้ง 3 DB ใหม่ COLLATE Thai_100_CI_AS)
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+**backup เป็น safety net เท่านั้น ห้าม RESTORE ทับ database ที่ recreate แล้วข้างบน** — RESTORE จะดึง collation
+เดิมกลับมาด้วย ทำให้ gate ยิงซ้ำวนลูปไม่จบ กู้ข้อมูลจาก backup ต้อง export/re-insert เข้า database ใหม่แทน
+ไม่ใช่ restore ทับ.
+
+Fresh deployment (ยังไม่เคยสร้าง `VCentralPay`/`hippodb`/`mammothdb` มาก่อน) ไม่กระทบ — `CREATE DATABASE` ใน
+`01-principals.sql`/`02-external-sim.sql` ปั๊ม `COLLATE Thai_100_CI_AS` ให้ตั้งแต่แรกอยู่แล้ว.
+
 ## 4. Upgrade deploy (มี migration ใหม่)
 
 ```bash
@@ -234,7 +268,9 @@ git fetch && git checkout <release-tag>
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-migrate รันใหม่ทุกครั้ง (idempotent — bootstrap idempotent, EF apply เฉพาะ migration ที่ยังไม่ลง).
+migrate รันใหม่ทุกครั้ง (idempotent เมื่อ DB มีอยู่แล้วด้วย `Thai_100_CI_AS` ถูกต้อง — EF apply เฉพาะ migration
+ที่ยังไม่ลง; ถ้า DB เป็น collation อื่น bootstrap จะ fail-fast ด้วย `THROW` แทนที่จะข้ามเงียบ ๆ ดู §4.0 cutover
+ถ้ายังไม่เคยทำ).
 
 ## 5. Rollback
 
@@ -243,6 +279,10 @@ App rollback (โค้ด):
 git checkout <previous-tag>
 docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+คำสั่งนี้วิ่งผ่าน service `migrate` เหมือนกับ upgrade ทุกประการ (`depends_on` เดิม) — ถ้า DB ของ environment นี้
+ยังไม่ผ่าน cutover ที่ §4.0 (ยัง collation ผิด) รอบ rollback นี้จะ `THROW` เจอ gate เดียวกันและตายเหมือนกัน ไม่ใช่
+ทางหนีจาก §4.0 ได้.
 
 DB migration rollback (ถ้า migration ใหม่เข้ากันกับโค้ดเก่าไม่ได้): apply migration ก่อนหน้า แล้วค่อย rollback app.
 รันใน migrate image (มี dotnet-ef + source) — `migrate`'s `environment:` block ใน compose ฉีด

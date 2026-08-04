@@ -21,8 +21,9 @@ services:
       retries: 12
 
   # Creates the pol_app login/user, then the simulated upstream databases hippodb/mammothdb
-  # (both idempotent). Exits 0 when done. The second command carries `-b` so a failed self-check
-  # inside 02-external-sim.sql actually fails this container instead of passing silently.
+  # (both idempotent). Exits 0 when done. Both commands carry `-b` so a failed self-check —
+  # including the collation gate in 01-principals.sql — actually fails this container instead of
+  # passing silently.
   pol-db-init:
     image: mcr.microsoft.com/mssql/server:2025-latest
     depends_on:
@@ -37,7 +38,7 @@ services:
       - /bin/bash
       - -c
       - >
-        /opt/mssql-tools18/bin/sqlcmd -S pol-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C
+        /opt/mssql-tools18/bin/sqlcmd -S pol-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b
         -v DbName="VCentralPay"
         POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
         -i /bootstrap/01-principals.sql

@@ -102,7 +102,7 @@ public sealed class ProductUpsertIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task A_case_variant_DocumentNo_refreshes_the_same_row()
     {
-        // shop.Products.DocumentNo collates case-insensitively (SQL_Latin1_General_CP1_CI_AS), so a
+        // shop.Products.DocumentNo collates case-insensitively (Thai_100_CI_AS), so a
         // case-variant upstream row is the same document: it must refresh the stored row in place, never
         // stage a second Add into IX_Products_DocumentNo and fail the page.
         var documentNo = DocumentNo("CASE-1");

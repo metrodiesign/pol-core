@@ -18,7 +18,7 @@ namespace Integration.Tests;
 /// identified by the running number at the tail of DocumentNo (see <see cref="Seqs"/>) — Motor's
 /// ENDORSEMENT rows carry an extra un-delimited '1' after it (REQ-1.3), stripped only when the row's own
 /// SourceSystem/DocumentType say so. Motor embeds a Thai abbreviation right after the shared
-/// PolicyYear+ReferenceBranch prefix (กธ &lt; รย &lt; อท under Thai_CI_AS), so ORDER BY DocumentNo sorts by
+/// PolicyYear+ReferenceBranch prefix (กธ &lt; รย &lt; อท under Thai_100_CI_AS), so ORDER BY DocumentNo sorts by
 /// THAT letter first — never by the running number. Only
 /// <see cref="Motor_endorsement_rows_sort_after_every_other_row_by_thai_letter"/> depends on that order;
 /// everywhere else the expectation is a set. Non-Motor's abbreviation (POL/APP/END) is ASCII, so its side
@@ -576,7 +576,7 @@ public sealed class SpDocumentContractTests
     [Fact]
     public async Task Motor_endorsement_rows_sort_after_every_other_row_by_thai_letter()
     {
-        // ORDER BY DocumentNo under Thai_CI_AS sorts on the abbreviation embedded right after the shared
+        // ORDER BY DocumentNo under Thai_100_CI_AS sorts on the abbreviation embedded right after the shared
         // PolicyYear+ReferenceBranch prefix (กธ < รย < อท): every ENDORSEMENT row — the 2 axis rows plus
         // roughly a third of the generated rows (REQ-2 fixed the old bug where generated rows always showed
         // 'กธ' regardless of DocumentType) — carries 'อท', so every one of them must sort after every row
