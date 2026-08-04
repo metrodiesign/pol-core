@@ -1,4 +1,5 @@
-# Local dev stack: SQL Server 2025 + one-shot principal bootstrap.
+# Local dev stack: 3 SQL Server 2025 instances (pol-db = VCentralPay, hippo-db = hippodb,
+# mammoth-db = mammothdb — external-sim-separate-containers) + one-shot bootstrap for all three.
 # Passwords come from .env (copy .env.example). EF migrations run separately:
 #   POL_DESIGN_SQL=... dotnet ef database update --context PolDbContext \
 #     --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
@@ -20,14 +21,53 @@ services:
       timeout: 5s
       retries: 12
 
-  # Creates the pol_app login/user, then the simulated upstream databases hippodb/mammothdb
-  # (both idempotent). Exits 0 when done. Both commands carry `-b` so a failed self-check —
-  # including the collation gate in 01-principals.sql — actually fails this container instead of
-  # passing silently.
+  # external-sim-separate-containers: hippodb/mammothdb each get their OWN SQL Server instance
+  # (separate from pol-db/VCentralPay) — the topology products-sp-gateway always intended
+  # ("separate databases on separate servers"). Ephemeral on purpose: bootstrap is idempotent and
+  # seed-only, so there is nothing here worth persisting across a container recreate — no volume.
+  hippo-db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: pol-hippo-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "11434:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mammoth-db:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: pol-mammoth-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      - "11435:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Creates the pol_app login/user on pol-db, then hippodb (own instance) and mammothdb (own
+  # instance) — each bootstrap file creates its own pol_app LOGIN too, since hippo-db/mammoth-db
+  # have no 01-principals.sql run on them. All 3 idempotent. Exits 0 when done. Every command
+  # carries `-b` so a failed self-check — including the collation gate in 01-principals.sql —
+  # actually fails this container instead of passing silently.
   pol-db-init:
     image: mcr.microsoft.com/mssql/server:2025-latest
     depends_on:
       pol-db:
+        condition: service_healthy
+      hippo-db:
+        condition: service_healthy
+      mammoth-db:
         condition: service_healthy
     environment:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
@@ -43,8 +83,13 @@ services:
         POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
         -i /bootstrap/01-principals.sql
         &&
-        /opt/mssql-tools18/bin/sqlcmd -S pol-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b
-        -i /bootstrap/02-external-sim.sql
+        /opt/mssql-tools18/bin/sqlcmd -S hippo-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b
+        -v POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
+        -i /bootstrap/02-hippo-sim.sql
+        &&
+        /opt/mssql-tools18/bin/sqlcmd -S mammoth-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b
+        -v POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
+        -i /bootstrap/03-mammoth-sim.sql
 
   # rls-to-query-filter task 9 (REQ-13.4): the external tamper-resistant sink for the denial/authz telemetry
   # taxonomy. Local dev runs it wide open (no API key, per Seq's own quickstart) — the hosts POST structured

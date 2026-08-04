@@ -37,9 +37,11 @@ public sealed class SpDocumentGateway(IOptions<SpDocumentOptions> options, ILogg
         var connectionString = motor ? _options.MotorConnectionString : _options.NonMotorConnectionString;
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            // Unreachable in a configured host (PostConfigure always fills both), so this is a
-            // misconfiguration rather than an upstream outage — but it is still the upstream being
-            // unreachable from the caller's point of view, and the detail stays server-side.
+            // The connection string comes from config only now (no PostConfigure fallback) — unset is a
+            // real, reachable state, not misconfiguration-only noise. This guard IS the REQ-5.7/AC-3
+            // contract: the host still boots without SpDocument:* set, but a search request here gets
+            // 503. Do not remove it — without it a null connection string reaches SqlConnection and
+            // throws 500 instead.
             logger.LogError("SpDocument: no connection string configured for {Target}.", request.Target);
             throw new UpstreamUnavailableException($"No SpDocument connection string is configured for {request.Target}.");
         }

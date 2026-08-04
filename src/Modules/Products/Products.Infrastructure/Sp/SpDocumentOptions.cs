@@ -5,10 +5,12 @@ namespace Products.Infrastructure.Sp;
 /// <c>SpDocument</c> section. It lives in Infrastructure — not in <c>Products.Application</c> — because the
 /// Application layer has no options package and must not gain one; the adapter is the only thing that reads
 /// it (precedent: <c>Payments.Infrastructure/Psp/PspOptions.cs</c>).
-/// <para>Both connection strings are nullable on purpose: when either is left unset the host fills it in
-/// (<c>PostConfigure</c> in Program.cs) by re-pointing the app connection at the simulated catalogue on the
-/// same instance, so no environment gains a new variable (REQ-3.4). Cutover to the real motordb/centerdb is
-/// then a config override of these two values and nothing else.</para>
+/// <para>Both connection strings are nullable because REQ-5.7 below decides what happens when they are
+/// unset, not this class — but neither has a derive/fallback anymore (external-sim-separate-containers
+/// supersedes products-sp-gateway REQ-3.4): hippodb/mammothdb each run on their own SQL Server instance
+/// now, so there is no single "app connection, different InitialCatalog" left to re-point. Every
+/// environment sets these two values explicitly. Cutover to the real motordb/centerdb is a config
+/// override of these two values and nothing else.</para>
 /// <para>Deliberately NOT validated with <c>.ValidateOnStart()</c> (REQ-5.7): 17 hosts boot for real in
 /// Hosts.Tests, and a startup validation would take every one of them down over a dependency that is only
 /// touched when a search request arrives.</para>

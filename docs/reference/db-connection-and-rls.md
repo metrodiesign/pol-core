@@ -360,7 +360,10 @@ post-deploy ไม่ใช่โค้ด.
 ```
 HTTP + merchant-user session cookie
   -> auth: .RequireAuthorization("merchant-user") -> ไม่มี session = 401 ก่อนแตะ DB
-  -> [SpDocumentGateway] connection แยกไปที่ hippodb/mammothdb (ADO.NET, login pol_app มีแค่ EXECUTE)
+  -> [SpDocumentGateway] connection แยกไปคนละ SQL Server (hippodb/mammothdb อยู่คนละ instance กันและ
+     แยกจาก DB หลัก — external-sim-separate-containers) ผ่าน config section SpDocument ล้วน ๆ ไม่มี
+     derive fallback (prod: docker/entrypoint.sh ประกอบ SpDocument__* จาก HIPPO_DB_SERVER/
+     MAMMOTH_DB_SERVER แล้ว export ก่อน host boot) (ADO.NET, login pol_app มีแค่ EXECUTE)
   -> EXEC usp_{Motor|NonMotor}_SearchDocument @SaleCode=... @BranchCode=<จาก options ฝั่ง server>
   -> [MerchantRuntimeDbContext] upsert ผลลัพธ์เข้า shop.Products ตาม DocumentNo แล้วคืน Guid ของแถว local
   -> ไม่มี query filter ที่ DB/EF ระดับ entity -> "เห็นแถวไหน" ตัดสินที่ query criteria (SaleCode) ที่ caller

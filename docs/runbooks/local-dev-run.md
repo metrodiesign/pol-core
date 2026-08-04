@@ -38,6 +38,9 @@ cp .env.example .env
   (SQL Server password policy)
 - `ConnectionStrings__*` — ใส่รหัสให้ตรงกับ `POL_APP_PASSWORD` (ทุก connection string ใช้ `pol_app` ตัวเดียวกัน)
 - `POL_DESIGN_SQL` — ใช้ `sa` (migration ต้องมีสิทธิ์ DDL ที่ app principal ไม่มี)
+- `SpDocument__MotorConnectionString`/`__NonMotorConnectionString` — ใส่รหัสให้ตรงกับ `POL_APP_PASSWORD`
+  เช่นกัน (ชี้ `hippodb`/`mammothdb` บน `hippo-db`/`mammoth-db`, `external-sim-separate-containers`);
+  `.env` เดิมที่มีอยู่ก่อนงานนี้ต้องเติม 2 บรรทัดนี้เองจาก `.env.example` (gitignored ไม่ sync ให้อัตโนมัติ)
 
 > มีรหัส DB แค่ **2 ตัว** (`MSSQL_SA_PASSWORD` + `POL_APP_PASSWORD`). `POL_ADMIN_PASSWORD` /
 > `POL_WORKER_PASSWORD` **ไม่มีอยู่แล้ว** — rls-to-query-filter task 8 (RLS teardown) ยุบ
@@ -58,14 +61,20 @@ docker compose up -d
 docker compose ps -a
 ```
 
-ยก 3 service:
-- `pol-db` — SQL Server 2025 ที่ `localhost:11433`
-- `pol-db-init` — รัน `docker/bootstrap/01-principals.sql` (idempotent): สร้าง DB `VCentralPay` + login/user
-  **`pol_app` ตัวเดียว**. exit 0 เมื่อเสร็จ — ยืนยันด้วย `docker compose ps -a` เอง เพราะ `up -d` ไม่ฟ้อง
-  (คืน exit 0 เสมอแม้ container นี้ exit ไม่ใช่ 0). เห็น `Exited (1)` มักเป็น collation gate ยิง (DB เดิม
-  collation ไม่ตรง `Thai_100_CI_AS`) — ยืนยันสาเหตุจริงด้วย `docker compose logs pol-db-init` แล้วแก้ด้วย
-  `docker compose down -v && docker compose up -d` (อย่า drop เฉพาะ `VCentralPay` ตามข้อความ THROW ตรงตัว
-  เพราะ sim DB `hippodb`/`mammothdb` ต้อง recreate ใหม่ด้วย)
+ยก 5 service:
+- `pol-db` — SQL Server 2025 ที่ `localhost:11433` (DB หลัก `VCentralPay`)
+- `hippo-db` — SQL Server 2025 ที่ `localhost:11434` (sim DB `hippodb`, คนละ container จาก `pol-db` —
+  `external-sim-separate-containers`)
+- `mammoth-db` — SQL Server 2025 ที่ `localhost:11435` (sim DB `mammothdb`, คนละ container จาก `pol-db`
+  และจาก `hippo-db`)
+- `pol-db-init` — รัน chain 3 คำสั่งด้วย `&&`: `docker/bootstrap/01-principals.sql` ที่ `pol-db`
+  (idempotent, สร้าง DB `VCentralPay` + login/user **`pol_app` ตัวเดียว**), ตามด้วย `02-hippo-sim.sql`
+  ที่ `hippo-db` และ `03-mammoth-sim.sql` ที่ `mammoth-db`. exit 0 เมื่อครบทั้งเชน — ยืนยันด้วย
+  `docker compose ps -a` เอง เพราะ `up -d` ไม่ฟ้อง (คืน exit 0 เสมอแม้ container นี้ exit ไม่ใช่ 0).
+  เห็น `Exited (1)` มักเป็น collation gate ยิง (DB เดิม collation ไม่ตรง `Thai_100_CI_AS`) — ยืนยันสาเหตุ
+  จริงด้วย `docker compose logs pol-db-init` แล้วแก้ด้วย `docker compose down -v && docker compose up -d`
+  (อย่า drop เฉพาะ `VCentralPay` ตามข้อความ THROW ตรงตัว เพราะ sim DB `hippodb`/`mammothdb` ต้อง recreate
+  ใหม่ด้วย)
 - `seq` (container `pol-seq`) — Seq sink สำหรับ security/denial telemetry (rls-to-query-filter task 9,
   REQ-13.4). UI ที่ `http://localhost:5341` (bind `127.0.0.1` เท่านั้น, local dev เปิดแบบไม่มี auth ผ่าน
   `SEQ_FIRSTRUN_NOAUTHENTICATION`). host POST event ไปที่ `http://seq:5341/api/events/raw`
@@ -133,6 +142,8 @@ dotnet ef database update --context PolDbContext \
 >   `MerchantUser__Oidc__ClientSecret`)
 > - `.env.integration`: **เดิมชี้ container แยกที่ `:11434`** (จัดการเองนอก `docker-compose.yml`, ไม่เคย reproducible
 >   จริง) — **ไม่ใช่ pattern ที่ถูกต้องอีกต่อไป**: ชี้ `pol-db`/`:11433` ตัวเดียวกับ dev เสมอ (ดู §6 ที่แก้ใหม่ทั้งหมด)
+>   (`:11434` ที่นี่คือ orphan รุ่น rf1 สำหรับ `VCentralPay` — คนละเรื่องกับ `hippo-db` ที่
+>   `external-sim-separate-containers` นำ port นี้กลับมาใช้ใหม่ภายหลังสำหรับ sim DB `hippodb`, ดู §3/§6)
 > - DbContext ชื่อ `ProducerDbContext` -> `PolDbContext` ทุกจุดที่อ้างตรง (คำสั่ง `dotnet ef`, custom script ส่วนตัว)
 >
 > ตารางเดิม `ProducerAccounts`/`ProducerTenantAssignments`/`ProducerSessions`/`ProducerAuthAudits`/`ProducerRoles*` ->
@@ -149,6 +160,8 @@ dotnet ef database update --context PolDbContext \
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
 | SQL Server (dev + integration test) | `11433` | — | DB หลัก `VCentralPay` — **container เดียวกันทั้ง dev และ Integration suite** (rf1; ไม่มี container แยกอีกแล้ว, ดู §6) |
+| hippo-db | `11434` | — | sim DB `hippodb` (Motor SP) — คนละ SQL Server container จาก DB หลัก (`external-sim-separate-containers`) |
+| mammoth-db | `11435` | — | sim DB `mammothdb` (Non-Motor SP) — คนละ SQL Server container จาก DB หลักและจาก hippo-db |
 | Seq (container `pol-seq`) | `5341` (loopback) | — | security/denial telemetry sink + UI |
 | API (`src/Hosts/Api`) | `5100` (http) / `5101` (https) | `pol_app` | REST + BFF auth + background dispatch (in-process) |
 | FE admin console (repo แยก) | `5200` | — | Next.js, proxy `/api/v1/admins/*` ไป `:5100` — **origin ที่ browser ใช้ login admin** |
@@ -349,20 +362,26 @@ source .env.integration
 dotnet test pol-core.slnx --filter "Category=Integration"
 ```
 
-> **rf1 (2026-07-12): ไม่มี container แยกสำหรับ integration อีกแล้ว.** เดิม `.env.integration` ชี้ container แยกที่
-> `:11434` (ตั้งขึ้นเองนอก `docker-compose.yml`, ไม่เคย reproducible จริง) — ตอนนี้ integration suite ชี้ `pol-db`/
-> `:11433` **ตัวเดียวกับ dev** เสมอ (ยืนยันจาก `docker-compose.yml` + `.github/workflows/ci.yml`: มี SQL Server
-> service เดียว, ไม่มี `:11434` ที่ไหนเลย). `IntegrationDb.cs` fallback `POL_SQL_SERVER`/`POL_DB` เป็น
-> `localhost,11433`/`VCentralPay` อยู่แล้ว (ตรงกับ `.env`) — `.env.integration` (gitignored, **ไม่มีใน fresh clone
-> ต้องสร้างเอง**) มีไว้ export **รหัสผ่าน 2 ตัว** ที่ไม่มี fallback เท่านั้น (`dotnet test` เป็น subprocess อ่าน env
-> ตรงจาก shell ไม่ใช่จากไฟล์ `.env`). `IntegrationDb.cs` อ่าน env แค่ 4 ตัว — `POL_SQL_SERVER`, `POL_DB`,
-> `POL_SA_PASSWORD`, `POL_APP_PASSWORD` (task 8 ยุบ `pol_admin`/`pol_worker`/`pol_resolver`/`pol_vault_auditor`
-> เข้า `pol_app`; ทุกเทสรันบน principal เดียวนั้น + `sa` เฉพาะ vault-audit applock).
+> **rf1 (2026-07-12): ไม่มี container แยกสำหรับ integration ของ `VCentralPay` อีกแล้ว** (เรื่องคนละเรื่องกับ sim DB —
+> `external-sim-separate-containers` เพิ่ม container แยกสำหรับ `hippodb`/`mammothdb` โดยเฉพาะ ดู §3/ย่อหน้าถัดไป).
+> เดิม `.env.integration` ชี้ container แยกที่ `:11434` สำหรับ `VCentralPay` (ตั้งขึ้นเองนอก `docker-compose.yml`,
+> ไม่เคย reproducible จริง) — ตอนนี้ integration suite ของ `VCentralPay` ยังชี้ `pol-db`/`:11433` **ตัวเดียวกับ
+> dev** เสมอ (ยืนยันจาก `docker-compose.yml` + `.github/workflows/ci.yml`). `IntegrationDb.cs` fallback
+> `POL_SQL_SERVER`/`POL_DB` เป็น `localhost,11433`/`VCentralPay` อยู่แล้ว (ตรงกับ `.env`) — `.env.integration`
+> (gitignored, **ไม่มีใน fresh clone ต้องสร้างเอง**) มีไว้ export **รหัสผ่าน 2 ตัว** ที่ไม่มี fallback
+> (`dotnet test` เป็น subprocess อ่าน env ตรงจาก shell ไม่ใช่จากไฟล์ `.env`). `IntegrationDb.cs` อ่าน env 6 ตัว —
+> `POL_SQL_SERVER`, `POL_DB`, `POL_SA_PASSWORD`, `POL_APP_PASSWORD` (task 8 ยุบ
+> `pol_admin`/`pol_worker`/`pol_resolver`/`pol_vault_auditor` เข้า `pol_app`; ทุกเทสรันบน principal เดียวนั้น +
+> `sa` เฉพาะ vault-audit applock) บวก `POL_HIPPO_SQL_SERVER`/`POL_MAMMOTH_SQL_SERVER`
+> (`external-sim-separate-containers` — fallback `localhost,11434`/`localhost,11435` เมื่อไม่ตั้ง, ใช้โดย
+> `SimCrossInstanceConsistencyTests` + `SpDocumentContractTests`/`SpDocumentGatewayIntegrationTests`).
 > สร้าง `.env.integration` ด้วย exports ตามนี้ (ค่าเดียวกับ `.env`):
 
 ```
 export POL_SQL_SERVER='localhost,11433'
 export POL_DB='VCentralPay'
+export POL_HIPPO_SQL_SERVER='localhost,11434'
+export POL_MAMMOTH_SQL_SERVER='localhost,11435'
 export POL_SA_PASSWORD='<sa-pwd>'
 export POL_APP_PASSWORD='<pol_app-pwd>'
 export POL_DESIGN_SQL="Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=<sa-pwd>;Encrypt=True;TrustServerCertificate=True"
@@ -469,7 +488,10 @@ GROUP BY o.name ORDER BY o.name;"
         WHERE SCHEMA_NAME(t.schema_id)='merch' AND t.name='MerchantUsers';"
 ```
 
-> dev DB และ integration test ใช้ container/port เดียวกันแล้ว (`11433`, rf1) — ไม่มี `11434` ให้ต้องระวังอีกต่อไป.
+> dev DB และ integration test ของ `VCentralPay` ใช้ container/port เดียวกันแล้ว (`11433`, rf1). ส่วน
+> `:11434`/`:11435` ตอนนี้คือ `hippo-db`/`mammoth-db` ของ `docker-compose.yml` (sim DBs,
+> `external-sim-separate-containers` — ดู §3/§6) ไม่ใช่ orphan ให้ต้องระวังอีกต่อไป — integration
+> suite ต่อครบ 3 ports (`VCentralPay` + ทั้งสอง sim DB) ไม่ใช่แค่ `11433` เดียว.
 
 ---
 

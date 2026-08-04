@@ -1,16 +1,21 @@
 #!/bin/sh
-# One-shot migrate/bootstrap: (0) wait for the DB tier to become reachable (bounded retry —
-# the DB tier is a separate host now, not a same-compose service `depends_on` can gate on),
-# (1) create the DB principal (idempotent) as sa, (2) apply the EF migrations
-# (schema + the pol_app grant matrix). Must run to completion BEFORE the app hosts
-# start (compose orders this via depends_on: service_completed_successfully). Runs from the source tree (/src).
+# One-shot migrate/bootstrap: (0) wait for each DB tier to become reachable (bounded retry — the DB tiers
+# are separate hosts now, not same-compose services `depends_on` can gate on), (1) create the DB principal
+# (idempotent) as sa, (2) bootstrap hippodb (own instance, own pol_app LOGIN) and mammothdb (own instance,
+# own pol_app LOGIN), (3) apply the EF migrations (schema + the pol_app grant matrix). Must run to
+# completion BEFORE the app hosts start (compose orders this via depends_on:
+# service_completed_successfully). Runs from the source tree (/src).
 set -eu
 
 : "${DB_SERVER:?set DB_SERVER}"
 : "${DB_NAME:?set DB_NAME}"
+: "${HIPPO_DB_SERVER:?set HIPPO_DB_SERVER}"
+: "${MAMMOTH_DB_SERVER:?set MAMMOTH_DB_SERVER}"
 : "${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD (bootstrap-only)}"
 : "${POL_APP_PASSWORD_FILE:?}"
 : "${DB_PORT:=1433}"
+: "${HIPPO_DB_PORT:=1433}"
+: "${MAMMOTH_DB_PORT:=1433}"
 : "${DB_CONNECT_RETRIES:=30}"
 : "${DB_CONNECT_RETRY_DELAY_SECONDS:=5}"
 
@@ -26,27 +31,32 @@ if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
     update-ca-certificates >/dev/null
 fi
 
-echo "[migrate] waiting for DB tier at ${DB_SERVER}:${DB_PORT} (up to ${DB_CONNECT_RETRIES} attempts, ${DB_CONNECT_RETRY_DELAY_SECONDS}s apart)..."
-i=1
-while true; do
-    if PROBE_OUT="$(sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -Q "SELECT 1" 2>&1)"; then
-        echo "[migrate] DB tier reachable after ${i} attempt(s)."
-        break
-    fi
-    if [ "$i" -ge "$DB_CONNECT_RETRIES" ]; then
-        # sqlcmd doesn't distinguish network vs TLS failure by exit code alone — classify from
-        # its error text so operator-only logs carry the real signal (external /health/ready
-        # stays generic either way).
-        if printf '%s' "$PROBE_OUT" | grep -qi "certificate\|SSL Provider\|TLS"; then
-            echo "[migrate] DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: TLS validation failure" >&2
-        else
-            echo "[migrate] DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: network unreachable" >&2
+# Bounded-retry reachability probe against one server:port. sqlcmd doesn't distinguish network vs TLS
+# failure by exit code alone — classify exhaustion from its error text so operator-only logs carry the
+# real signal (external /health/ready stays generic either way). Called once per DB tier below.
+wait_for_db() { # $1=server $2=port
+    wfd_server="$1"; wfd_port="$2"
+    echo "[migrate] waiting for DB tier at ${wfd_server}:${wfd_port} (up to ${DB_CONNECT_RETRIES} attempts, ${DB_CONNECT_RETRY_DELAY_SECONDS}s apart)..."
+    wfd_i=1
+    while true; do
+        if PROBE_OUT="$(sqlcmd -S "${wfd_server},${wfd_port}" -U sa -P "$MSSQL_SA_PASSWORD" -N -Q "SELECT 1" 2>&1)"; then
+            echo "[migrate] DB tier reachable after ${wfd_i} attempt(s)."
+            break
         fi
-        exit 1
-    fi
-    i=$((i + 1))
-    sleep "$DB_CONNECT_RETRY_DELAY_SECONDS"
-done
+        if [ "$wfd_i" -ge "$DB_CONNECT_RETRIES" ]; then
+            if printf '%s' "$PROBE_OUT" | grep -qi "certificate\|SSL Provider\|TLS"; then
+                echo "[migrate] DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: TLS validation failure" >&2
+            else
+                echo "[migrate] DB tier unreachable after ${DB_CONNECT_RETRIES} attempts: network unreachable" >&2
+            fi
+            exit 1
+        fi
+        wfd_i=$((wfd_i + 1))
+        sleep "$DB_CONNECT_RETRY_DELAY_SECONDS"
+    done
+}
+
+wait_for_db "$DB_SERVER" "$DB_PORT"
 
 echo "[migrate] bootstrapping DB principal (idempotent)..."
 sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
@@ -54,14 +64,23 @@ sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
      POL_APP_PASSWORD="$APP_PW" \
   -i docker/bootstrap/01-principals.sql
 
-# products-sp-gateway REQ-3.2/3.3: hippodb/mammothdb stand in for the upstream systems we do not
-# own yet, so GET /products has nothing to read without them. They must exist before the API serves
-# traffic (compose gates that with depends_on: service_completed_successfully) and before any test
-# host boots against this server, which is what keeps two hosts from racing on CREATE DATABASE.
-# Runs after 01-principals.sql because it grants EXECUTE to the pol_app login that script creates.
-echo "[migrate] bootstrapping simulated upstream databases hippodb/mammothdb (idempotent)..."
-sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
-  -i docker/bootstrap/02-external-sim.sql
+# products-sp-gateway REQ-3.2/3.3 + external-sim-separate-containers: hippodb/mammothdb stand in for the
+# upstream systems we do not own yet, so GET /products has nothing to read without them. Each now runs on
+# its OWN SQL Server instance (own pol_app LOGIN — the bootstrap files create it themselves, since
+# 01-principals.sql above never touches these instances) and must exist before the API serves traffic
+# (compose gates that with depends_on: service_completed_successfully) and before any test host boots
+# against either server, which is what keeps parallel hosts from racing on CREATE DATABASE.
+echo "[migrate] bootstrapping simulated upstream database hippodb (idempotent)..."
+wait_for_db "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT"
+sqlcmd -S "${HIPPO_DB_SERVER},${HIPPO_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
+  -v POL_APP_PASSWORD="$APP_PW" \
+  -i docker/bootstrap/02-hippo-sim.sql
+
+echo "[migrate] bootstrapping simulated upstream database mammothdb (idempotent)..."
+wait_for_db "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT"
+sqlcmd -S "${MAMMOTH_DB_SERVER},${MAMMOTH_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
+  -v POL_APP_PASSWORD="$APP_PW" \
+  -i docker/bootstrap/03-mammoth-sim.sql
 
 echo "[migrate] applying EF migrations (schema + pol_app grant matrix)..."
 # Same DB_PORT/trust wiring as docker/entrypoint.sh: pinned CA cert -> Encrypt=Strict, else

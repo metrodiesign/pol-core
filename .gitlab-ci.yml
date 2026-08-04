@@ -83,10 +83,27 @@ integration:
         ACCEPT_EULA: "Y"
         MSSQL_SA_PASSWORD: $POL_SA_PASSWORD
         MSSQL_PID: Developer
+    # external-sim-separate-containers: hippodb/mammothdb each get their own SQL Server service here
+    # too, mirroring the local docker-compose.yml topology (hippo-db/mammoth-db) — same image/
+    # variables shape as `sql` above, only the alias differs.
+    - name: mcr.microsoft.com/mssql/server:2025-latest
+      alias: hippo
+      variables:
+        ACCEPT_EULA: "Y"
+        MSSQL_SA_PASSWORD: $POL_SA_PASSWORD
+        MSSQL_PID: Developer
+    - name: mcr.microsoft.com/mssql/server:2025-latest
+      alias: mammoth
+      variables:
+        ACCEPT_EULA: "Y"
+        MSSQL_SA_PASSWORD: $POL_SA_PASSWORD
+        MSSQL_PID: Developer
   variables:
     NUGET_PACKAGES: $CI_PROJECT_DIR/.nuget/packages
     POL_SQL_SERVER: sql
     POL_DB: VCentralPay
+    POL_HIPPO_SQL_SERVER: hippo
+    POL_MAMMOTH_SQL_SERVER: mammoth
     POL_DESIGN_SQL: "Server=sql;Database=VCentralPay;User Id=sa;Password=${POL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True"
   cache:
     key: nuget
@@ -99,24 +116,37 @@ integration:
       curl -sSL -O https://github.com/microsoft/go-sqlcmd/releases/download/v1.8.0/sqlcmd-linux-amd64.tar.bz2
       tar xjf sqlcmd-linux-amd64.tar.bz2
       install sqlcmd /usr/local/bin/
-      for i in $(seq 1 30); do
-        sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -Q 'SELECT 1' >/dev/null 2>&1 && break
-        [ "$i" -eq 30 ] && { echo "SQL Server never became ready" >&2; exit 1; }
-        sleep 5
-      done
+      # Wait for all 3 SQL Server services (main + hippo + mammoth) — same bounded-retry shape per
+      # alias, no GitLab health-cmd support so this loop stands in for one.
+      wait_for_sql() { # $1=alias
+        for i in $(seq 1 30); do
+          sqlcmd -S "$1" -U sa -P "${POL_SA_PASSWORD}" -C -Q 'SELECT 1' >/dev/null 2>&1 && return 0
+          [ "$i" -eq 30 ] && { echo "SQL Server ($1) never became ready" >&2; exit 1; }
+          sleep 5
+        done
+      }
+      wait_for_sql sql
+      wait_for_sql hippo
+      wait_for_sql mammoth
       # Ephemeral runtime principal password (never stored) — hex + mixed-case/digit
       # suffix to satisfy the SQL password policy.
       export POL_APP_PASSWORD="Ci$(openssl rand -hex 8)Aa1"
       # `-b` propagates the script's own collation gate failure into the job (same reasoning as
-      # the external-sim step below).
+      # the external-sim steps below).
       sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -b \
         -v DbName="VCentralPay" POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
         -i docker/bootstrap/01-principals.sql
-      # Simulated upstream DBs (products-sp-gateway REQ-3.2/3.3): hippodb/mammothdb stand in for
-      # motordb@hippo and centerdb@mammoth. Created before any test host boots against this server
-      # so parallel hosts cannot race on CREATE DATABASE; -b propagates the script's self-checks.
-      sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -b \
-        -i docker/bootstrap/02-external-sim.sql
+      # Simulated upstream DBs (products-sp-gateway REQ-3.2/3.3, external-sim-separate-containers):
+      # hippodb/mammothdb each stand in for motordb@hippo/centerdb@mammoth on their OWN SQL Server
+      # service now — each bootstrap file creates its own pol_app LOGIN too (neither service has
+      # 01-principals.sql run on it). Created before any test host boots against either server so
+      # parallel hosts cannot race on CREATE DATABASE; -b propagates each script's self-checks.
+      sqlcmd -S hippo -U sa -P "${POL_SA_PASSWORD}" -C -b \
+        -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+        -i docker/bootstrap/02-hippo-sim.sql
+      sqlcmd -S mammoth -U sa -P "${POL_SA_PASSWORD}" -C -b \
+        -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+        -i docker/bootstrap/03-mammoth-sim.sql
       dotnet restore pol-core.slnx
       dotnet tool install --global dotnet-ef --version 10.0.8
       export PATH="$PATH:$HOME/.dotnet/tools"
@@ -159,6 +189,8 @@ package:
       # nothing is run.
       export MSSQL_SA_PASSWORD=ci-placeholder \
         DB_SERVER=ci-db.example.internal \
+        HIPPO_DB_SERVER=ci-hippo.example.internal \
+        MAMMOTH_DB_SERVER=ci-mammoth.example.internal \
         MERCHANT_USER_OIDC_CLIENT_ID=ci-placeholder \
         ADMIN_OIDC_CLIENT_ID=ci-placeholder \
         MERCHANT_USER_FRONTEND_ORIGIN=https://ci.example.com \
