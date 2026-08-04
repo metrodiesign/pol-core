@@ -40,6 +40,14 @@ services:
       DB_PORT: ${DB_PORT:-1433}
       DB_CA_CERTIFICATE_FILE: ${DB_CA_CERTIFICATE_FILE:-}
       DB_NAME: ${DB_NAME:-VCentralPay}
+      # external-sim-separate-containers: hippodb/mammothdb each run on their own, infra/DBA-provisioned
+      # SQL Server instance — migrate bootstraps + seeds both (docker/migrate-entrypoint.sh) before the EF
+      # migrations step, same as DB_SERVER above. Both required: a missing server here means the sim DB
+      # never gets created/seeded, so fail fast at render time rather than partway through migrate.
+      HIPPO_DB_SERVER: ${HIPPO_DB_SERVER:?set HIPPO_DB_SERVER in .env}
+      HIPPO_DB_PORT: ${HIPPO_DB_PORT:-1433}
+      MAMMOTH_DB_SERVER: ${MAMMOTH_DB_SERVER:?set MAMMOTH_DB_SERVER in .env}
+      MAMMOTH_DB_PORT: ${MAMMOTH_DB_PORT:-1433}
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?}
       POL_APP_PASSWORD_FILE: /run/secrets/pol_app_password
     secrets: [pol_app_password, db_ca_cert]
@@ -60,6 +68,15 @@ services:
       DB_NAME: ${DB_NAME:-VCentralPay}
       DB_PRINCIPAL: pol_app
       DB_PASSWORD_FILE: /run/secrets/pol_app_password
+      # external-sim-separate-containers: same sim DB tiers as `migrate` above — docker/entrypoint.sh
+      # assembles SpDocument__MotorConnectionString/__NonMotorConnectionString from these (same pol_app
+      # password as ConnectionStrings__App below). Both required here (compose fails fast at render time
+      # if either is unset) — entrypoint.sh itself still tolerates them being unset when the image runs
+      # outside this compose file (products-sp-gateway REQ-5.7: host boots either way, search 503s).
+      HIPPO_DB_SERVER: ${HIPPO_DB_SERVER:?set HIPPO_DB_SERVER in .env}
+      HIPPO_DB_PORT: ${HIPPO_DB_PORT:-1433}
+      MAMMOTH_DB_SERVER: ${MAMMOTH_DB_SERVER:?set MAMMOTH_DB_SERVER in .env}
+      MAMMOTH_DB_PORT: ${MAMMOTH_DB_PORT:-1433}
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key

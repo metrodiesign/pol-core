@@ -6,8 +6,9 @@
 #
 # Approach: entrypoint.sh ends with `exec dotnet "$HOST_DLL"`, replacing the process before any
 # assertion could run. A stub `dotnet` placed first on PATH intercepts that exec and prints
-# $ConnectionStrings__App instead of launching the real runtime, so the built connection string
-# is observable without a live SQL Server or a real dotnet install.
+# $ConnectionStrings__App / $SpDocument__MotorConnectionString / $SpDocument__NonMotorConnectionString
+# instead of launching the real runtime, so the built connection string(s) are observable without a
+# live SQL Server or a real dotnet install.
 set -u
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/entrypoint.sh"
@@ -18,7 +19,9 @@ STUB_BIN="$TMPDIR/bin"
 mkdir -p "$STUB_BIN"
 cat >"$STUB_BIN/dotnet" <<'EOF'
 #!/bin/sh
-echo "$ConnectionStrings__App"
+printf '%s\n' "$ConnectionStrings__App"
+printf '%s\n' "$SpDocument__MotorConnectionString"
+printf '%s\n' "$SpDocument__NonMotorConnectionString"
 EOF
 chmod +x "$STUB_BIN/dotnet"
 
@@ -56,6 +59,14 @@ check_not_contains() { # $1=desc $2=haystack $3=needle
     fi
 }
 
+check_empty() { # $1=desc $2=value
+    if [ -z "$2" ]; then
+        pass=$((pass + 1))
+    else
+        fail=$((fail + 1)); echo "FAIL [$1] expected empty :: got: $2"
+    fi
+}
+
 # --- branch: no DB_CA_CERTIFICATE_FILE -> Encrypt=True;TrustServerCertificate=False, default port ---
 out_fallback="$(run_entrypoint)"
 check_contains "fallback: default port"       "$out_fallback" "Server=dbhost.internal,1433"
@@ -74,6 +85,36 @@ check_not_contains "strict: no plain True/False encrypt fallback" "$out_strict" 
 # --- branch: DB_CA_CERTIFICATE_FILE set but empty string -> falls back, same as unset ---
 out_empty_ca="$(run_entrypoint DB_CA_CERTIFICATE_FILE=)"
 check_contains "empty CA var: fallback encrypt" "$out_empty_ca" "Encrypt=True;TrustServerCertificate=False"
+
+# --- regression guard: a password containing backslash-escape sequences must survive byte-for-byte.
+# --- dash's builtin `echo` is XSI-compliant and interprets these in its argument (\t -> a real tab,
+# --- \c -> stop output right there, silently dropping everything after it including the TLS clause).
+# --- build_conn uses `printf '%s\n'` instead, which never interprets escapes in a %s argument.
+PW_FILE_ESCAPED="$TMPDIR/db_password_escaped"
+printf '%s' 'Pa\tsw0rd\cTAIL' >"$PW_FILE_ESCAPED"
+
+out_escaped_fallback="$(run_entrypoint DB_PASSWORD_FILE="$PW_FILE_ESCAPED")"
+check_contains "escape-safe fallback: password literal preserved" "$out_escaped_fallback" 'Password=Pa\tsw0rd\cTAIL;'
+check_contains "escape-safe fallback: TLS clause survives"        "$out_escaped_fallback" "Encrypt=True;TrustServerCertificate=False"
+
+out_escaped_strict="$(run_entrypoint DB_PASSWORD_FILE="$PW_FILE_ESCAPED" DB_CA_CERTIFICATE_FILE=/run/secrets/db_ca_cert)"
+check_contains "escape-safe strict: password literal preserved" "$out_escaped_strict" 'Password=Pa\tsw0rd\cTAIL;'
+check_contains "escape-safe strict: TLS clause survives"        "$out_escaped_strict" "Encrypt=Strict;ServerCertificate=/run/secrets/db_ca_cert;HostNameInCertificate=dbhost.internal"
+
+# --- external-sim-separate-containers: HIPPO_DB_SERVER/MAMMOTH_DB_SERVER assemble
+# --- SpDocument__MotorConnectionString/__NonMotorConnectionString the same way (build_conn) and
+# --- independently of each other; unset -> both stay empty (REQ-5.7 — host still boots, no
+# --- derive/fallback in application code).
+out_hippo="$(run_entrypoint HIPPO_DB_SERVER=hippo.internal HIPPO_DB_PORT=11434)"
+check_contains "hippo set: motor conn string" "$out_hippo" "Server=hippo.internal,11434;Database=hippodb"
+
+motor_unset="$(printf '%s\n' "$out_fallback" | sed -n '2p')"
+nonmotor_unset="$(printf '%s\n' "$out_fallback" | sed -n '3p')"
+check_empty "hippo/mammoth unset: motor conn empty"    "$motor_unset"
+check_empty "hippo/mammoth unset: nonmotor conn empty" "$nonmotor_unset"
+
+out_mammoth="$(run_entrypoint MAMMOTH_DB_SERVER=mammoth.internal MAMMOTH_DB_PORT=19999)"
+check_contains "mammoth set: custom port in nonmotor conn string" "$out_mammoth" "Server=mammoth.internal,19999;Database=mammothdb"
 
 # --- invariant: no input combination can make the trust flag be True ---
 never_true_needle="TrustServerCertificate="

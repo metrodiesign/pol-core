@@ -147,21 +147,14 @@ builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultO
 // Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).
 builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptions.SectionName));
 
-// Document-search upstream. Unless a deployment names its own connection strings, both default to the app
-// connection re-pointed at the simulated catalogues that live beside the app database on the same instance
-// — so no environment gains a variable for them (REQ-3.4) and every host still boots when the simulated
-// databases are absent (nothing connects until a search request arrives). Pointing at the real
-// motordb/centerdb on cutover day is an override of these two values, not a code change.
+// Document-search upstream. Connection strings come from section SpDocument ONLY — no derive/
+// fallback (external-sim-separate-containers supersedes products-sp-gateway REQ-3.4: hippodb/
+// mammothdb now each run on their own SQL Server instance, not beside the app database, so there
+// is no single server to re-point InitialCatalog against). Unset -> host still boots (REQ-5.7 of
+// products-sp-gateway, unchanged: SpDocumentOptions has no .ValidateOnStart()) and a products
+// search request gets 503 until the values are configured. Pointing at the real motordb/centerdb
+// on cutover day is a config override of these two values, not a code change.
 builder.Services.Configure<SpDocumentOptions>(builder.Configuration.GetSection(SpDocumentOptions.SectionName));
-builder.Services.PostConfigure<SpDocumentOptions>(spDocument =>
-{
-    if (string.IsNullOrWhiteSpace(spDocument.MotorConnectionString))
-        spDocument.MotorConnectionString =
-            new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "hippodb" }.ConnectionString;
-    if (string.IsNullOrWhiteSpace(spDocument.NonMotorConnectionString))
-        spDocument.NonMotorConnectionString =
-            new SqlConnectionStringBuilder(appConnString) { InitialCatalog = "mammothdb" }.ConnectionString;
-});
 
 builder.Services.AddProductsModule();
 builder.Services.AddCartModule();

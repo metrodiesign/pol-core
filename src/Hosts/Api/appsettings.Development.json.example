@@ -8,6 +8,11 @@
   "ConnectionStrings": {
     "App": "Server=localhost,11433;Database=VCentralPay;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
   },
+  "_SpDocument_note": "external-sim-separate-containers: hippodb/mammothdb each run on their own SQL Server instance (hippo-db :11434, mammoth-db :11435) — no derive/fallback from ConnectionStrings:App anymore (supersedes products-sp-gateway REQ-3.4). Same pol_app password as ConnectionStrings:App. Unset -> host still boots, products search returns 503 (REQ-5.7).",
+  "SpDocument": {
+    "MotorConnectionString": "Server=localhost,11434;Database=hippodb;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True",
+    "NonMotorConnectionString": "Server=localhost,11435;Database=mammothdb;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+  },
   "Merchant": {
     "DevMerchantId": "00000000-0000-0000-0000-000000000001"
   },

@@ -5,10 +5,12 @@ namespace Integration.Tests;
 
 /// <summary>
 /// products-sp-gateway task 2 (REQ-2.*, REQ-3.1, REQ-10.1) — the contract that
-/// <c>docker/bootstrap/02-external-sim.sql</c> owes every caller, asserted by calling the two simulated
-/// procedures directly instead of through the adapter. Everything here is the SP's promise, not ours: the
-/// day we point the connection string at the real motordb/centerdb these tests become the acceptance suite
-/// for the upstream, and any assertion that fails there is a genuine contract difference to negotiate.
+/// <c>docker/bootstrap/02-hippo-sim.sql</c>/<c>03-mammoth-sim.sql</c> owe every caller (split onto separate
+/// SQL Server instances by external-sim-separate-containers — same SP contract, same seed, just relocated),
+/// asserted by calling the two simulated procedures directly instead of through the adapter. Everything here
+/// is the SP's promise, not ours: the day we point the connection string at the real motordb/centerdb
+/// these tests become the acceptance suite for the upstream, and any assertion that fails there is a
+/// genuine contract difference to negotiate.
 ///
 /// The connection is pol_app on hippodb/mammothdb (<see cref="IntegrationDb.ForCatalog"/>), which owns
 /// EXECUTE and nothing else — so every test also re-proves the GRANT and the ownership chaining that lets
@@ -63,8 +65,8 @@ public sealed class SpDocumentContractTests
     // 42 of hippodb's 200 rows and 40 of mammothdb's 200 fall in the default search (own sale code,
     // UNPAID, inside the window — each side spreads its 200 rows across a 6-agent SaleCode roster, and
     // ShowName is grouped 7/7/7/6/6/7 across that roster so a given ShowName always sells through the
-    // same agent, so the default search only sees its one agent's share) — the counts 02-external-sim.sql
-    // pins in its own self-check.
+    // same agent, so the default search only sees its one agent's share) — the counts each bootstrap
+    // file (02-hippo-sim.sql / 03-mammoth-sim.sql) pins in its own self-check.
     private static readonly Side MotorSide = new(
         Catalog: "hippodb",
         Procedure: "dbo.usp_Motor_SearchDocument",

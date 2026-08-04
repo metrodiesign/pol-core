@@ -103,7 +103,8 @@ merchant `Product` เป็น mirror ของ result set §5.2 ใน
   `saleCode`)
 - **read path ไม่อ่าน `shop.Products` แล้ว** (spec `products-sp-gateway`) — `GET /products` ค้นสด
   ผ่าน `ISpDocumentGateway` ไปยัง SP ของระบบต้นทาง (วันนี้คือ database จำลอง
-  `hippodb`/`mammothdb` ใน container เดียวกับ DB หลัก; วันเชื่อมของจริงเปลี่ยนแค่ connection
+  `hippodb`/`mammothdb` คนละ SQL Server container แยกจาก DB หลักและแยกจากกันเอง
+  (`external-sim-separate-containers`); วันเชื่อมของจริงเปลี่ยนแค่ connection
   string) แล้ว **upsert ผลลัพธ์กลับเข้า `shop.Products` ด้วย key `DocumentNo`** เพื่อให้
   cart/checkout ยังอ้าง `Guid` เดิมได้ — `IProductRepository` จึงไม่มี `ListAsync` อีกแล้ว เหลือ
   `UpsertByDocumentNoAsync` + `GetAsync`
@@ -134,7 +135,8 @@ merchant `Product` เป็น mirror ของ result set §5.2 ใน
 `CoverageDurationDays`/`Insurer`) และ `Name`/`Price`/`IsActive`/`CreatedAt` **ถูกลบทั้งหมด**; target
 ยกระดับเป็น Product/ProductVersion/ProductQuote ยังไม่เริ่ม; ยังไม่มีเส้นทางแก้ไขเอกสาร SP adapter
 ของจริงเขียนแล้วและใช้งานอยู่ (products-sp-gateway) โดยชี้ไปที่ database จำลอง
-`hippodb`/`mammothdb` ซึ่งรัน SP ตัวเดียวกับ contract ในทุก environment — การเชื่อม
+`hippodb`/`mammothdb` (คนละ SQL Server container, `external-sim-separate-containers`) ซึ่งรัน SP
+ตัวเดียวกับ contract ในทุก environment — การเชื่อม
 `motordb`/`centerdb` ของจริงเหลือแค่เปลี่ยน `SpDocument:MotorConnectionString`/
 `NonMotorConnectionString` ทาง config
 
@@ -228,7 +230,7 @@ grant `pol_app` บน `shop.Products`: SELECT/INSERT/UPDATE/DELETE
 | `DocumentPaidOnOrderPaidConsumer.cs` | App | consume `OrderPaid` -> `Product.MarkPaid` (idempotent ต่อ replay) |
 | `IProductRepository.cs` | App | port (`Add`/`GetAsync`/`UpsertByDocumentNoAsync`) — `ListAsync` ถูกลบใน products-sp-gateway |
 | `Ports/ISpDocumentGateway.cs` / `SpDocumentContracts.cs` / `SpDocumentSearchRejectedException.cs` / `SpDocumentItemMapper.cs` | App | ชั้นแยก Domain ออกจาก wire contract ของ SP ต้นทาง: port + DTO §5.1/§5.2 (nullable ทั้งชุด, enum เป็น raw string) + exception ที่ได้ 400 + mapper `SpDocumentItem` -> `ProductInput?` (ข้ามแถวเสีย + dedupe) — **type ชุดนี้ห้ามหลุดออกนอก `Products.Application`/`Products.Infrastructure`** (guard `tests/Hosts.Tests/SpInsulationTests.cs`) |
-| `Products.Infrastructure/Sp/SpDocumentGateway.cs` / `SpDocumentOptions.cs` | Infra | adapter ADO.NET (`Microsoft.Data.SqlClient` + `CommandType.StoredProcedure`) ยิง `usp_Motor_SearchDocument`/`usp_NonMotor_SearchDocument`; connection string มาจาก section `SpDocument` (ว่างไว้ = derive จาก `ConnectionStrings:App` เป็น `hippodb`/`mammothdb`), `@BranchCode` เติมที่ adapter ไม่รับจาก client |
+| `Products.Infrastructure/Sp/SpDocumentGateway.cs` / `SpDocumentOptions.cs` | Infra | adapter ADO.NET (`Microsoft.Data.SqlClient` + `CommandType.StoredProcedure`) ยิง `usp_Motor_SearchDocument`/`usp_NonMotor_SearchDocument`; connection string มาจาก section `SpDocument` เท่านั้น (ไม่มี derive fallback แล้ว — `hippodb`/`mammothdb` อยู่คนละ SQL Server instance, `external-sim-separate-containers`), `@BranchCode` เติมที่ adapter ไม่รับจาก client |
 | `ProductConfiguration.cs` / `ProductsModuleRegistration.cs` | Infra | EF config + `AddProductsModule()` ลงทะเบียน `AddSingleton<ISpDocumentGateway, SpDocumentGateway>()` จริง (singleton เพราะ gateway ไม่ถือ state อะไรนอกจาก options/logger, เปิด connection ใหม่ต่อ call) — implementation ของ `IProductRepository` อยู่นอกโมดูล |
 | `Persistence.MerchantRuntime/Products/ProductConfiguration.cs` / `ProductRepository.cs` | Infra (นอกโมดูล) | EF config + repo ตัวจริงที่ผูก runtime context — โมดูลถือแค่ port (`IProductRepository`) |
 

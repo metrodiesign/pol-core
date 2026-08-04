@@ -116,6 +116,8 @@ jobs:
         env:
           MSSQL_SA_PASSWORD: ci-placeholder
           DB_SERVER: ci-db.example.internal
+          HIPPO_DB_SERVER: ci-hippo.example.internal
+          MAMMOTH_DB_SERVER: ci-mammoth.example.internal
           MERCHANT_USER_OIDC_CLIENT_ID: ci-placeholder
           ADMIN_OIDC_CLIENT_ID: ci-placeholder
           MERCHANT_USER_FRONTEND_ORIGIN: https://ci.example.com
@@ -163,10 +165,37 @@ jobs:
         options: >-
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1'"
           --health-interval 10s --health-timeout 5s --health-retries 15
+      # external-sim-separate-containers: hippodb/mammothdb each get their own SQL Server service
+      # here too, mirroring the local docker-compose.yml topology (hippo-db :11434, mammoth-db :11435).
+      # Same image/env/health-cmd shape as `sql` above — only the port differs.
+      hippo:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+          MSSQL_PID: Developer
+        ports:
+          - 11434:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 15
+      mammoth:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+          MSSQL_PID: Developer
+        ports:
+          - 11435:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 15
     env:
       POL_SQL_SERVER: localhost,11433
       POL_DB: VCentralPay
       POL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+      POL_HIPPO_SQL_SERVER: localhost,11434
+      POL_MAMMOTH_SQL_SERVER: localhost,11435
     steps:
       - uses: actions/checkout@v4
       - name: Setup .NET 10
@@ -190,13 +219,19 @@ jobs:
             -v DbName="VCentralPay" \
                POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
             -i docker/bootstrap/01-principals.sql
-      - name: Bootstrap simulated upstream DBs (products-sp-gateway REQ-3.2/3.3)
-        # hippodb/mammothdb stand in for motordb@hippo and centerdb@mammoth. Created here, BEFORE
-        # any test host boots against this server, so parallel hosts can never race on CREATE
-        # DATABASE. `-b` propagates the script's own self-check failures into the job.
+      - name: Bootstrap simulated upstream DBs (products-sp-gateway REQ-3.2/3.3, external-sim-separate-containers)
+        # hippodb/mammothdb each stand in for motordb@hippo/centerdb@mammoth on their OWN SQL Server
+        # service now (hippo/mammoth above) — each bootstrap file creates its own pol_app LOGIN too
+        # (neither service has 01-principals.sql run on it). Created here, BEFORE any test host boots
+        # against either server, so parallel hosts can never race on CREATE DATABASE. `-b` propagates
+        # each script's own self-check failures into the job.
         run: |
-          sqlcmd -S localhost,11433 -U sa -P "${POL_SA_PASSWORD}" -C -b \
-            -i docker/bootstrap/02-external-sim.sql
+          sqlcmd -S localhost,11434 -U sa -P "${POL_SA_PASSWORD}" -C -b \
+            -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+            -i docker/bootstrap/02-hippo-sim.sql
+          sqlcmd -S localhost,11435 -U sa -P "${POL_SA_PASSWORD}" -C -b \
+            -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+            -i docker/bootstrap/03-mammoth-sim.sql
       - name: Restore
         # `dotnet ef database update` builds the startup project, which needs a restored assets file
         # (the integration job has no prior restore/build step); `dotnet test` below restores itself.

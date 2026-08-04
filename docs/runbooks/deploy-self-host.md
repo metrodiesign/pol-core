@@ -225,25 +225,37 @@ service `seq` (bind loopback + หน้า reverse proxy เท่านั้�
 `docker/bootstrap/01-principals.sql` มี collation gate: ถ้า `VCentralPay` มีอยู่แล้วด้วย collation อื่นที่ไม่ใช่
 `Thai_100_CI_AS` (ทุก deployment ที่สร้าง DB ก่อนงานนี้ = `SQL_Latin1_General_CP1_CI_AS` โดย default) สคริปต์จะ
 `THROW` ทันที (ข้อความขึ้นต้น `Msg 50000 ... database [...] collation is ...`) -> service `migrate` exit ไม่ใช่
-0 -> `api` ไม่ start เลย (`depends_on: service_completed_successfully`) — **`02-external-sim.sql` มี gate
-เดียวกันดัก `hippodb`/`mammothdb`** (เดิมสร้างด้วย `Thai_CI_AS`, ข้อความขึ้นต้น `Msg 51002 ... collation is not
-Thai_100_CI_AS.`). ต้องทำ cutover นี้ครั้งเดียวก่อน deploy/rollback รอบถัดไปบน environment นั้น (§4 และ §5
+0 -> `api` ไม่ start เลย (`depends_on: service_completed_successfully`) — **`02-hippo-sim.sql`/
+`03-mammoth-sim.sql` มี gate เดียวกันดัก `hippodb`/`mammothdb`** บนคนละ DB tier ของตัวเอง
+(`external-sim-separate-containers` — เดิมสร้างด้วย `Thai_CI_AS`, ข้อความขึ้นต้น `Msg 51002 ... collation is
+not Thai_100_CI_AS.`). ต้องทำ cutover นี้ครั้งเดียวก่อน deploy/rollback รอบถัดไปบน environment นั้น (§4 และ §5
 ด้านล่างชี้กลับมาที่นี่) ตามลำดับนี้:
 
 1. **หยุด App tier ก่อน**: `docker compose -f docker-compose.prod.yml down` — `api` ถือ connection pool +
    healthcheck `/health/ready` ยิง DB ทุก 15s ไม่หยุดก่อนจะชน `Msg 3702 (object in use)` ตอน DROP ด้านล่าง
-   (ครอบ connection ทั้ง 3 DB ในตัว — **service down สั้น ๆ จนกว่าขั้นตอนที่ 4 จะขึ้นใหม่**)
-2. **BACKUP `VCentralPay`** ด้วยคำสั่งเดียวกับ §4.1 ด้านล่าง (DBA รันบน DB tier, Server 1) — `hippodb`/
-   `mammothdb` เป็น seed ล้วน **ไม่ต้อง backup** (bootstrap `02-external-sim.sql` สร้าง+seed ใหม่ให้เองเสมอ)
-3. Drop ทั้ง 3 database
-4. Deploy ใหม่ (migrate สร้าง+bootstrap ให้ครบทั้ง 3 DB):
+   (ครอบ connection ทั้ง 3 DB tier ในตัว — **service down สั้น ๆ จนกว่าขั้นตอนที่ 4 จะขึ้นใหม่**)
+2. **BACKUP `VCentralPay`** ด้วยคำสั่งเดียวกับ §4.1 ด้านล่าง (DBA รันบน DB tier หลัก) — `hippodb`/
+   `mammothdb` เป็น seed ล้วน **ไม่ต้อง backup** (bootstrap `02-hippo-sim.sql`/`03-mammoth-sim.sql`
+   สร้าง+seed ใหม่ให้เองเสมอ) — ทั้งสองอยู่คนละ DB tier จาก `VCentralPay` แล้ว
+   (`external-sim-separate-containers`, `HIPPO_DB_SERVER`/`MAMMOTH_DB_SERVER` ใน `.env`)
+3. Drop ทั้ง 3 database — **คนละคำสั่งต่อ DB tier** (แยก host กันแล้ว ไม่ใช่ instance เดียวเหมือนเดิม)
+4. Deploy ใหม่ (migrate สร้าง+bootstrap ให้ครบทั้ง 3 DB บนคนละ DB tier):
 
 ```bash
-# Drop ทั้ง 3 DB (VCentralPay ต้องมี backup ตามขั้น 2 แล้วเท่านั้น — hippodb/mammothdb ไม่ต้องรอ backup)
-sqlcmd -S localhost -U sa -P "<SA password ของ DB tier>" -N -b \
-  -Q "DROP DATABASE [VCentralPay]; DROP DATABASE [hippodb]; DROP DATABASE [mammothdb];"
+# Drop VCentralPay (DB tier หลัก — ต้องมี backup ตามขั้น 2 แล้วเท่านั้น)
+sqlcmd -S <DB_SERVER ของ .env> -U sa -P "<MSSQL_SA_PASSWORD, ร่วมทั้ง 3 DB tier>" -N -b \
+  -Q "DROP DATABASE [VCentralPay];"
 
-# Deploy ใหม่จาก App tier (bootstrap principals + external-sim + EF migrations สร้างทั้ง 3 DB ใหม่ COLLATE Thai_100_CI_AS)
+# Drop hippodb (DB tier ของ hippo — seed ล้วน ไม่ต้องรอ backup)
+sqlcmd -S <HIPPO_DB_SERVER ของ .env> -U sa -P "<MSSQL_SA_PASSWORD เดียวกัน>" -N -b \
+  -Q "DROP DATABASE [hippodb];"
+
+# Drop mammothdb (DB tier ของ mammoth — seed ล้วน ไม่ต้องรอ backup)
+sqlcmd -S <MAMMOTH_DB_SERVER ของ .env> -U sa -P "<MSSQL_SA_PASSWORD เดียวกัน>" -N -b \
+  -Q "DROP DATABASE [mammothdb];"
+
+# Deploy ใหม่จาก App tier (bootstrap principals + hippodb + mammothdb + EF migrations สร้างทั้ง 3 DB ใหม่
+# COLLATE Thai_100_CI_AS บนคนละ DB tier ของตัวเอง)
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
@@ -252,7 +264,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ไม่ใช่ restore ทับ.
 
 Fresh deployment (ยังไม่เคยสร้าง `VCentralPay`/`hippodb`/`mammothdb` มาก่อน) ไม่กระทบ — `CREATE DATABASE` ใน
-`01-principals.sql`/`02-external-sim.sql` ปั๊ม `COLLATE Thai_100_CI_AS` ให้ตั้งแต่แรกอยู่แล้ว.
+`01-principals.sql`/`02-hippo-sim.sql`/`03-mammoth-sim.sql` ปั๊ม `COLLATE Thai_100_CI_AS` ให้ตั้งแต่แรกอยู่แล้ว.
 
 ## 4. Upgrade deploy (มี migration ใหม่)
 

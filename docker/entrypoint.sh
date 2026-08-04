@@ -1,7 +1,7 @@
 #!/bin/sh
-# Host entrypoint: build the DB connection string from the mounted password secret + this host's principal,
-# then launch the app. The password is read from a file secret and never enters the image, the compose file,
-# or `docker inspect`.
+# Host entrypoint: build the DB connection string(s) from the mounted password secret + this host's
+# principal, then launch the app. The password is read from a file secret and never enters the image, the
+# compose file, or `docker inspect`.
 # The vault master key is NOT handled here: PR4's keyring reads it directly from Vault__Keys__<id>__KeyFile.
 set -eu
 
@@ -11,17 +11,38 @@ set -eu
 : "${DB_PASSWORD_FILE:?set DB_PASSWORD_FILE (mounted secret)}"
 : "${HOST_DLL:?set HOST_DLL}"
 
+# Assembles one SQL Server connection string. Trust mode is not operator-configurable: a pinned CA cert
+# (DB_CA_CERTIFICATE_FILE, read from the environment directly — the same CA pins every DB tier, there is
+# only one) gets Encrypt=Strict validation against it; otherwise Encrypt=True;TrustServerCertificate=False
+# (OS trust store). No env var can make the trust flag be True.
+build_conn() { # $1=server $2=port $3=db $4=user $5=password
+    conn_server="$1"; conn_port="$2"; conn_db="$3"; conn_user="$4"; conn_pw="$5"
+    if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
+        printf '%s\n' "Server=${conn_server},${conn_port};Database=${conn_db};User Id=${conn_user};Password=${conn_pw};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${conn_server}"
+    else
+        printf '%s\n' "Server=${conn_server},${conn_port};Database=${conn_db};User Id=${conn_user};Password=${conn_pw};Encrypt=True;TrustServerCertificate=False"
+    fi
+}
+
 DB_PW="$(cat "$DB_PASSWORD_FILE")"
 : "${DB_PORT:=1433}"
-# Trust mode is not operator-configurable: a pinned CA cert (DB_CA_CERTIFICATE_FILE) gets
-# Encrypt=Strict validation against it; otherwise Encrypt=True;TrustServerCertificate=False
-# (OS trust store). No env var can make the trust flag be True.
-if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
-    CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}"
-else
-    CONN="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=${DB_PRINCIPAL};Password=${DB_PW};Encrypt=True;TrustServerCertificate=False"
+export ConnectionStrings__App="$(build_conn "$DB_SERVER" "$DB_PORT" "$DB_NAME" "$DB_PRINCIPAL" "$DB_PW")"
+
+# external-sim-separate-containers: hippodb/mammothdb each run on their own SQL Server instance now, so
+# their connection strings are assembled here too (same pol_app principal/password as ConnectionStrings__App
+# above) — no derive/fallback in application code anymore (supersedes products-sp-gateway REQ-3.4).
+# HIPPO_DB_SERVER/MAMMOTH_DB_SERVER are required by docker-compose.prod.yml (`:?`, fails fast at render
+# time), but this script still tolerates them being unset — e.g. this image run standalone, outside that
+# compose file: the host still boots (products-sp-gateway REQ-5.7, no .ValidateOnStart()) and a products
+# search request gets 503 instead of failing boot.
+if [ -n "${HIPPO_DB_SERVER:-}" ]; then
+    : "${HIPPO_DB_PORT:=1433}"
+    export SpDocument__MotorConnectionString="$(build_conn "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT" "hippodb" "$DB_PRINCIPAL" "$DB_PW")"
 fi
-export ConnectionStrings__App="$CONN"
+if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
+    : "${MAMMOTH_DB_PORT:=1433}"
+    export SpDocument__NonMotorConnectionString="$(build_conn "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT" "mammothdb" "$DB_PRINCIPAL" "$DB_PW")"
+fi
 unset DB_PW
 
 # The admin BFF login is a confidential Google OIDC client: export its client secret from the mounted file
