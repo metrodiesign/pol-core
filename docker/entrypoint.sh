@@ -35,11 +35,28 @@ export ConnectionStrings__App="$(build_conn "$DB_SERVER" "$DB_PORT" "$DB_NAME" "
 # time), but this script still tolerates them being unset — e.g. this image run standalone, outside that
 # compose file: the host still boots (products-sp-gateway REQ-5.7, no .ValidateOnStart()) and a products
 # search request gets 503 instead of failing boot.
+#
+# Precedence when SpDocument__MotorConnectionString/__NonMotorConnectionString are ALSO pre-set (e.g. an
+# operator pointing at the real motordb/centerdb upstream): this script no longer silently overwrites them.
+# Both set in the same pair (non-empty) -> stderr names both env vars and the container exits non-zero
+# without exec'ing the app. Only one side of a pair set -> the pre-set value wins, the sim side is left
+# alone (hybrid cutover, one side at a time, works). An empty string counts as unset on both sides, same
+# as the rest of this file. This guard alone does not make cutover a two-value config change — see
+# SpDocumentOptions.cs for the other three layers (compose plumbing, `:?`, migrate bootstrap) that still
+# gate it.
 if [ -n "${HIPPO_DB_SERVER:-}" ]; then
+    if [ -n "${SpDocument__MotorConnectionString:-}" ]; then
+        printf '%s\n' "entrypoint: both HIPPO_DB_SERVER and SpDocument__MotorConnectionString are set — unset one, the entrypoint cannot tell which should win" >&2
+        exit 1
+    fi
     : "${HIPPO_DB_PORT:=1433}"
     export SpDocument__MotorConnectionString="$(build_conn "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT" "hippodb" "$DB_PRINCIPAL" "$DB_PW")"
 fi
 if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
+    if [ -n "${SpDocument__NonMotorConnectionString:-}" ]; then
+        printf '%s\n' "entrypoint: both MAMMOTH_DB_SERVER and SpDocument__NonMotorConnectionString are set — unset one, the entrypoint cannot tell which should win" >&2
+        exit 1
+    fi
     : "${MAMMOTH_DB_PORT:=1433}"
     export SpDocument__NonMotorConnectionString="$(build_conn "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT" "mammothdb" "$DB_PRINCIPAL" "$DB_PW")"
 fi

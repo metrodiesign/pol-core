@@ -153,7 +153,11 @@ builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptio
 // is no single server to re-point InitialCatalog against). Unset -> host still boots (REQ-5.7 of
 // products-sp-gateway, unchanged: SpDocumentOptions has no .ValidateOnStart()) and a products
 // search request gets 503 until the values are configured. Pointing at the real motordb/centerdb
-// on cutover day is a config override of these two values, not a code change.
+// needs more than these two values: docker-compose.prod.yml has no SpDocument__* key for `api`,
+// HIPPO_DB_SERVER/MAMMOTH_DB_SERVER are `:?`-required, migrate-entrypoint.sh bootstraps the sim
+// tier unconditionally, and docker/entrypoint.sh hardcodes the sim catalog/principal — see
+// SpDocumentOptions.cs for the full four-layer breakdown and the new guard that now fails the
+// container instead of silently overwriting an operator-set value.
 builder.Services.Configure<SpDocumentOptions>(builder.Configuration.GetSection(SpDocumentOptions.SectionName));
 
 builder.Services.AddProductsModule();
