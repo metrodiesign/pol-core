@@ -33,8 +33,9 @@ internal static class IntegrationDb
     /// app database), so this routes through <see cref="SimServer"/> instead of <see cref="Server"/>;
     /// sim-db-separate-logins then gave each instance its OWN principal and password (hippo_app /
     /// mammoth_app), so the credential is picked per catalogue too — never pol_app, which belongs to
-    /// VCentralPay alone. Each principal holds nothing on its instance but EXECUTE on its one search
-    /// procedure, so every call through this connection also proves the GRANT. An unknown catalogue throws
+    /// VCentralPay alone. Each principal holds EXECUTE on its one search procedure (plus SELECT on
+    /// dbo.Documents, so a developer's own credential can browse the seed), so every call through this
+    /// connection also proves the EXECUTE GRANT. An unknown catalogue throws
     /// rather than falling back to a credential that would not work anyway.</summary>
     public static string ForCatalog(string catalog) => catalog switch
     {
@@ -43,9 +44,9 @@ internal static class IntegrationDb
         _ => throw new ArgumentOutOfRangeException(nameof(catalog), catalog, "Unknown simulated catalogue.")
     };
 
-    /// <summary>The <c>sa</c> connection to a simulated upstream catalogue — needed by
-    /// <see cref="SimCrossInstanceConsistencyTests"/> because each sim principal (hippo_app/mammoth_app)
-    /// has no SELECT on <c>dbo.Documents</c> (EXECUTE on the search procedure only).</summary>
+    /// <summary>The <c>sa</c> connection to a simulated upstream catalogue — used by
+    /// <see cref="SimCrossInstanceConsistencyTests"/>, which reads <c>dbo.Documents</c> directly rather
+    /// than through the search procedure.</summary>
     public static string SaForCatalog(string catalog) => For("sa", "POL_SA_PASSWORD", catalog);
 
     /// <summary>Routes a simulated catalogue name to its OWN SQL Server instance (external-sim-separate-
