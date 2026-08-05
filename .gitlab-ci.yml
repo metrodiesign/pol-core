@@ -128,9 +128,12 @@ integration:
       wait_for_sql sql
       wait_for_sql hippo
       wait_for_sql mammoth
-      # Ephemeral runtime principal password (never stored) — hex + mixed-case/digit
-      # suffix to satisfy the SQL password policy.
+      # Ephemeral runtime principal passwords (never stored) — one per DB tier, never shared
+      # (sim-db-separate-logins): pol_app on VCentralPay, hippo_app on hippodb, mammoth_app on
+      # mammothdb. hex + mixed-case/digit suffix to satisfy the SQL password policy.
       export POL_APP_PASSWORD="Ci$(openssl rand -hex 8)Aa1"
+      export POL_HIPPO_APP_PASSWORD="Ci$(openssl rand -hex 8)Aa1"
+      export POL_MAMMOTH_APP_PASSWORD="Ci$(openssl rand -hex 8)Aa1"
       # `-b` propagates the script's own collation gate failure into the job (same reasoning as
       # the external-sim steps below).
       sqlcmd -S sql -U sa -P "${POL_SA_PASSWORD}" -C -b \
@@ -138,14 +141,15 @@ integration:
         -i docker/bootstrap/01-principals.sql
       # Simulated upstream DBs (products-sp-gateway REQ-3.2/3.3, external-sim-separate-containers):
       # hippodb/mammothdb each stand in for motordb@hippo/centerdb@mammoth on their OWN SQL Server
-      # service now — each bootstrap file creates its own pol_app LOGIN too (neither service has
-      # 01-principals.sql run on it). Created before any test host boots against either server so
+      # service now — each bootstrap file creates its own LOGIN too (hippo_app / mammoth_app; neither
+      # service has 01-principals.sql run on it) and takes its own sqlcmd variable, so the core's
+      # POL_APP_PASSWORD can never leak in. Created before any test host boots against either server so
       # parallel hosts cannot race on CREATE DATABASE; -b propagates each script's self-checks.
       sqlcmd -S hippo -U sa -P "${POL_SA_PASSWORD}" -C -b \
-        -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+        -v HIPPO_APP_PASSWORD="${POL_HIPPO_APP_PASSWORD}" \
         -i docker/bootstrap/02-hippo-sim.sql
       sqlcmd -S mammoth -U sa -P "${POL_SA_PASSWORD}" -C -b \
-        -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+        -v MAMMOTH_APP_PASSWORD="${POL_MAMMOTH_APP_PASSWORD}" \
         -i docker/bootstrap/03-mammoth-sim.sql
       dotnet restore pol-core.slnx
       dotnet tool install --global dotnet-ef --version 10.0.8

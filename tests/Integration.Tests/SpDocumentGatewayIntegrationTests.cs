@@ -13,8 +13,9 @@ namespace Integration.Tests;
 /// <see cref="SpDocumentGateway"/> collects that promise correctly: both result sets in order, every column
 /// resolved by name into the right field, and each failure shape turned into the exception the HTTP boundary
 /// expects (50001-50009 -> 400, everything else -> 503, cancellation -> neither).
-/// <para>The options are built with <see cref="IntegrationDb.ForCatalog"/>, so the adapter runs as pol_app
-/// with EXECUTE and nothing else — the same principal a deployment uses.</para>
+/// <para>The options are built with <see cref="IntegrationDb.ForCatalog"/>, so the adapter runs as the sim
+/// instance's own principal (hippo_app/mammoth_app) with EXECUTE and nothing else — the same principal a
+/// deployment uses.</para>
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
 [Trait("Category", "Integration")]

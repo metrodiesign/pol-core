@@ -1,5 +1,9 @@
 # Bugfix: sim guardrails — entrypoint ทับ config เงียบ, invariant ไม่ครอบสาย sim, integration check skip ได้แบบนับว่าผ่าน
 > Status: approved 2026-08-04
+> Superseded (บางส่วน): ประโยคใน D1 ที่ว่า `build_conn` hardcode principal `pol_app` สำหรับสาย sim
+> ถูกแทนที่โดย spec `sim-db-separate-logins` (2026-08-05) — `docker/entrypoint.sh` เรียก `build_conn`
+> ด้วย `hippo_app`/`mammoth_app` พร้อม password จาก file secret คนละไฟล์แล้ว ส่วน `Database=hippodb`
+> ที่ hardcode และข้อสรุปของ D1 (เส้น cutover ปิดอยู่) ไม่เปลี่ยน — spec นี้ปิดแล้ว ไม่แก้ย้อนหลัง
 
 สาม defect ที่ต่อกันเป็นสายเดียว: จุดที่ระบบเลือกแหล่งข้อมูลผิดโดยไม่ส่งเสียง, ด่านที่ควรจับเรื่องนั้นแต่ยิงใส่ที่ว่าง, และ gate ที่หายไปได้โดยรายงานว่าผ่าน ทั้งสามมาจาก `external-sim-separate-containers` (PR #177, `1d560d9`) และถูกบันทึกไว้ที่ `retrospectives/2026-08/04/15.16_sim-db-split.md:70-72`
 

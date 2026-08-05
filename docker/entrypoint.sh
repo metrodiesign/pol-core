@@ -29,8 +29,12 @@ DB_PW="$(cat "$DB_PASSWORD_FILE")"
 export ConnectionStrings__App="$(build_conn "$DB_SERVER" "$DB_PORT" "$DB_NAME" "$DB_PRINCIPAL" "$DB_PW")"
 
 # external-sim-separate-containers: hippodb/mammothdb each run on their own SQL Server instance now, so
-# their connection strings are assembled here too (same pol_app principal/password as ConnectionStrings__App
-# above) — no derive/fallback in application code anymore (supersedes products-sp-gateway REQ-3.4).
+# their connection strings are assembled here too — no derive/fallback in application code anymore
+# (supersedes products-sp-gateway REQ-3.4). Each side uses its OWN principal and its OWN mounted password
+# secret (hippo_app / mammoth_app, sim-db-separate-logins) — never DB_PRINCIPAL/DB_PW, which belong to
+# VCentralPay alone. A missing secret file fails the container before the app starts, exactly like
+# DB_PASSWORD_FILE above; the `:?` sits inside each branch so an image run standalone (no sim server
+# configured) needs no sim secret at all.
 # HIPPO_DB_SERVER/MAMMOTH_DB_SERVER are required by docker-compose.prod.yml (`:?`, fails fast at render
 # time), but this script still tolerates them being unset — e.g. this image run standalone, outside that
 # compose file: the host still boots (products-sp-gateway REQ-5.7, no .ValidateOnStart()) and a products
@@ -50,7 +54,10 @@ if [ -n "${HIPPO_DB_SERVER:-}" ]; then
         exit 1
     fi
     : "${HIPPO_DB_PORT:=1433}"
-    export SpDocument__MotorConnectionString="$(build_conn "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT" "hippodb" "$DB_PRINCIPAL" "$DB_PW")"
+    : "${HIPPO_APP_PASSWORD_FILE:?set HIPPO_APP_PASSWORD_FILE (mounted secret) when HIPPO_DB_SERVER is set}"
+    HIPPO_PW="$(cat "$HIPPO_APP_PASSWORD_FILE")"
+    export SpDocument__MotorConnectionString="$(build_conn "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT" "hippodb" "hippo_app" "$HIPPO_PW")"
+    unset HIPPO_PW
 fi
 if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
     if [ -n "${SpDocument__NonMotorConnectionString:-}" ]; then
@@ -58,7 +65,10 @@ if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
         exit 1
     fi
     : "${MAMMOTH_DB_PORT:=1433}"
-    export SpDocument__NonMotorConnectionString="$(build_conn "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT" "mammothdb" "$DB_PRINCIPAL" "$DB_PW")"
+    : "${MAMMOTH_APP_PASSWORD_FILE:?set MAMMOTH_APP_PASSWORD_FILE (mounted secret) when MAMMOTH_DB_SERVER is set}"
+    MAMMOTH_PW="$(cat "$MAMMOTH_APP_PASSWORD_FILE")"
+    export SpDocument__NonMotorConnectionString="$(build_conn "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT" "mammothdb" "mammoth_app" "$MAMMOTH_PW")"
+    unset MAMMOTH_PW
 fi
 unset DB_PW
 

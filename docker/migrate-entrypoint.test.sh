@@ -69,6 +69,13 @@ chmod +x "$STUB_BIN/update-ca-certificates"
 PW_FILE="$TMPDIR/app_password"
 echo "s3cret" >"$PW_FILE"
 
+# sim-db-separate-logins: one password per DB tier, never shared — distinct files so the assertions
+# below can prove the core's value never reaches the sim bootstrap calls.
+HIPPO_PW_FILE="$TMPDIR/hippo_password"
+echo "hippoPw" >"$HIPPO_PW_FILE"
+MAMMOTH_PW_FILE="$TMPDIR/mammoth_password"
+echo "mammothPw" >"$MAMMOTH_PW_FILE"
+
 CA_FILE="$TMPDIR/db_ca.pem"
 echo "FAKE-PEM-CA" >"$CA_FILE"
 CA_TRUST_DIR="$TMPDIR/ca-trust"
@@ -86,6 +93,8 @@ run_migrate() { # extra env assignments as $@
         MAMMOTH_DB_SERVER="mammothhost.internal" \
         MSSQL_SA_PASSWORD="saPw" \
         POL_APP_PASSWORD_FILE="$PW_FILE" \
+        HIPPO_APP_PASSWORD_FILE="$HIPPO_PW_FILE" \
+        MAMMOTH_APP_PASSWORD_FILE="$MAMMOTH_PW_FILE" \
         SQLCMD_LOG="$TMPDIR/sqlcmd.log" \
         SQLCMD_PROBE_COUNT_FILE="$TMPDIR/probe_count" \
         CA_TRUST_DIR="$CA_TRUST_DIR" \
@@ -164,8 +173,9 @@ check_contains "sqlcmd: uses -N" "$sqlcmd_log" "-N"
 check_not_contains "sqlcmd: never -C" "$sqlcmd_log" "-C"
 
 # --- simulated upstream bootstrap (products-sp-gateway REQ-3.2, external-sim-separate-containers): each
-# instance's own file, after the principal script, same TLS flags, carries POL_APP_PASSWORD (its own
-# LOGIN — neither instance has 01-principals.sql run on it), and targets its own server, with -b so a
+# instance's own file, after the principal script, same TLS flags, carries its OWN sqlcmd variable and
+# password (HIPPO_APP_PASSWORD / MAMMOTH_APP_PASSWORD — each instance has its own LOGIN, neither has
+# 01-principals.sql run on it; sim-db-separate-logins), and targets its own server, with -b so a
 # failed self-check inside the SQL stops the deploy ---
 hippo_call="$(grep -- '02-hippo-sim.sql' "$TMPDIR/sqlcmd.log" | head -1)"
 mammoth_call="$(grep -- '03-mammoth-sim.sql' "$TMPDIR/sqlcmd.log" | head -1)"
@@ -181,12 +191,14 @@ check_eq "mammoth bootstrap: runs AFTER 01-principals.sql" \
 check_contains "hippo bootstrap: uses -N"     "$hippo_call" "-N"
 check_not_contains "hippo bootstrap: never -C" "$hippo_call" "-C"
 check_contains "hippo bootstrap: uses -b"     "$hippo_call" "-b"
-check_contains "hippo bootstrap: carries POL_APP_PASSWORD" "$hippo_call" "POL_APP_PASSWORD"
+check_contains "hippo bootstrap: carries HIPPO_APP_PASSWORD" "$hippo_call" "HIPPO_APP_PASSWORD=hippoPw"
+check_not_contains "hippo bootstrap: never carries the core password" "$hippo_call" "s3cret"
 check_contains "hippo bootstrap: targets HIPPO_DB_SERVER" "$hippo_call" "hippohost.internal"
 check_contains "mammoth bootstrap: uses -N"     "$mammoth_call" "-N"
 check_not_contains "mammoth bootstrap: never -C" "$mammoth_call" "-C"
 check_contains "mammoth bootstrap: uses -b"     "$mammoth_call" "-b"
-check_contains "mammoth bootstrap: carries POL_APP_PASSWORD" "$mammoth_call" "POL_APP_PASSWORD"
+check_contains "mammoth bootstrap: carries MAMMOTH_APP_PASSWORD" "$mammoth_call" "MAMMOTH_APP_PASSWORD=mammothPw"
+check_not_contains "mammoth bootstrap: never carries the core password" "$mammoth_call" "s3cret"
 check_contains "mammoth bootstrap: targets MAMMOTH_DB_SERVER" "$mammoth_call" "mammothhost.internal"
 
 # --- POL_DESIGN_SQL wiring: same DB_PORT/TLS shape as entrypoint.sh, trust flag never True ---

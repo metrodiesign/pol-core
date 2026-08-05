@@ -1,8 +1,9 @@
 #!/bin/sh
 # One-shot migrate/bootstrap: (0) wait for each DB tier to become reachable (bounded retry — the DB tiers
 # are separate hosts now, not same-compose services `depends_on` can gate on), (1) create the DB principal
-# (idempotent) as sa, (2) bootstrap hippodb (own instance, own pol_app LOGIN) and mammothdb (own instance,
-# own pol_app LOGIN), (3) apply the EF migrations (schema + the pol_app grant matrix). Must run to
+# (idempotent) as sa, (2) bootstrap hippodb (own instance, own hippo_app LOGIN) and mammothdb (own instance,
+# own mammoth_app LOGIN — each sim tier has its own principal and its own password, sim-db-separate-logins),
+# (3) apply the EF migrations (schema + the pol_app grant matrix). Must run to
 # completion BEFORE the app hosts start (compose orders this via depends_on:
 # service_completed_successfully). Runs from the source tree (/src).
 set -eu
@@ -13,6 +14,8 @@ set -eu
 : "${MAMMOTH_DB_SERVER:?set MAMMOTH_DB_SERVER}"
 : "${MSSQL_SA_PASSWORD:?set MSSQL_SA_PASSWORD (bootstrap-only)}"
 : "${POL_APP_PASSWORD_FILE:?}"
+: "${HIPPO_APP_PASSWORD_FILE:?}"
+: "${MAMMOTH_APP_PASSWORD_FILE:?}"
 : "${DB_PORT:=1433}"
 : "${HIPPO_DB_PORT:=1433}"
 : "${MAMMOTH_DB_PORT:=1433}"
@@ -20,6 +23,10 @@ set -eu
 : "${DB_CONNECT_RETRY_DELAY_SECONDS:=5}"
 
 APP_PW="$(cat "$POL_APP_PASSWORD_FILE")"
+# One password per DB tier, never shared: APP_PW is VCentralPay's pol_app and must not reach the sim
+# bootstrap scripts below (which take their own sqlcmd variable names for exactly that reason).
+HIPPO_PW="$(cat "$HIPPO_APP_PASSWORD_FILE")"
+MAMMOTH_PW="$(cat "$MAMMOTH_APP_PASSWORD_FILE")"
 
 # sqlcmd has no ServerCertificate= pin (unlike Microsoft.Data.SqlClient) — install the mounted
 # CA (PEM) into the OS trust store at RUNTIME so `sqlcmd -N` validates against it. Build-time
@@ -66,20 +73,20 @@ sqlcmd -S "${DB_SERVER},${DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
 
 # products-sp-gateway REQ-3.2/3.3 + external-sim-separate-containers: hippodb/mammothdb stand in for the
 # upstream systems we do not own yet, so GET /products has nothing to read without them. Each now runs on
-# its OWN SQL Server instance (own pol_app LOGIN — the bootstrap files create it themselves, since
-# 01-principals.sql above never touches these instances) and must exist before the API serves traffic
+# its OWN SQL Server instance (own hippo_app/mammoth_app LOGIN — the bootstrap files create it themselves,
+# since 01-principals.sql above never touches these instances) and must exist before the API serves traffic
 # (compose gates that with depends_on: service_completed_successfully) and before any test host boots
 # against either server, which is what keeps parallel hosts from racing on CREATE DATABASE.
 echo "[migrate] bootstrapping simulated upstream database hippodb (idempotent)..."
 wait_for_db "$HIPPO_DB_SERVER" "$HIPPO_DB_PORT"
 sqlcmd -S "${HIPPO_DB_SERVER},${HIPPO_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
-  -v POL_APP_PASSWORD="$APP_PW" \
+  -v HIPPO_APP_PASSWORD="$HIPPO_PW" \
   -i docker/bootstrap/02-hippo-sim.sql
 
 echo "[migrate] bootstrapping simulated upstream database mammothdb (idempotent)..."
 wait_for_db "$MAMMOTH_DB_SERVER" "$MAMMOTH_DB_PORT"
 sqlcmd -S "${MAMMOTH_DB_SERVER},${MAMMOTH_DB_PORT}" -U sa -P "$MSSQL_SA_PASSWORD" -N -b \
-  -v POL_APP_PASSWORD="$APP_PW" \
+  -v MAMMOTH_APP_PASSWORD="$MAMMOTH_PW" \
   -i docker/bootstrap/03-mammoth-sim.sql
 
 echo "[migrate] applying EF migrations (schema + pol_app grant matrix)..."

@@ -14,7 +14,8 @@ namespace Products.Infrastructure.Sp;
 /// `api` service has no <c>SpDocument__*</c> key at all (a `.env` value cannot reach the container this
 /// way), HIPPO_DB_SERVER/MAMMOTH_DB_SERVER are `:?`-required so they cannot be blanked out, migrate-entrypoint.sh
 /// bootstraps the sim tier unconditionally before `api` is allowed to start, and docker/entrypoint.sh's
-/// <c>build_conn</c> hardcodes the sim catalog names and the pol_app principal/password. That script does
+/// <c>build_conn</c> hardcodes the sim catalog names and each side's own principal/password secret
+/// (hippo_app/mammoth_app, sim-db-separate-logins — never the core's pol_app). That script does
 /// now refuse to boot (non-zero exit) if these two values are set alongside HIPPO_DB_SERVER/MAMMOTH_DB_SERVER
 /// instead of silently overwriting them, but the four points above still need their own change first.</para>
 /// <para>Deliberately NOT validated with <c>.ValidateOnStart()</c> (REQ-5.7): 17 hosts boot for real in

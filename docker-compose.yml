@@ -56,10 +56,12 @@ services:
       retries: 12
 
   # Creates the pol_app login/user on pol-db, then hippodb (own instance) and mammothdb (own
-  # instance) — each bootstrap file creates its own pol_app LOGIN too, since hippo-db/mammoth-db
-  # have no 01-principals.sql run on them. All 3 idempotent. Exits 0 when done. Every command
-  # carries `-b` so a failed self-check — including the collation gate in 01-principals.sql —
-  # actually fails this container instead of passing silently.
+  # instance) — each bootstrap file creates its OWN login too (hippo_app / mammoth_app, each with its
+  # own password, sim-db-separate-logins), since hippo-db/mammoth-db have no 01-principals.sql run on
+  # them. Three separate sqlcmd variables, one per instance: POL_APP_PASSWORD never reaches the sim
+  # scripts, and they in turn only accept HIPPO_APP_PASSWORD / MAMMOTH_APP_PASSWORD. All 3 idempotent.
+  # Exits 0 when done. Every command carries `-b` so a failed self-check — including the collation
+  # gate in 01-principals.sql — actually fails this container instead of passing silently.
   pol-db-init:
     image: mcr.microsoft.com/mssql/server:2025-latest
     depends_on:
@@ -72,6 +74,8 @@ services:
     environment:
       MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
       POL_APP_PASSWORD: ${POL_APP_PASSWORD}
+      POL_HIPPO_APP_PASSWORD: ${POL_HIPPO_APP_PASSWORD}
+      POL_MAMMOTH_APP_PASSWORD: ${POL_MAMMOTH_APP_PASSWORD}
     volumes:
       - ./docker/bootstrap:/bootstrap:ro
     entrypoint:
@@ -84,11 +88,11 @@ services:
         -i /bootstrap/01-principals.sql
         &&
         /opt/mssql-tools18/bin/sqlcmd -S hippo-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b
-        -v POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
+        -v HIPPO_APP_PASSWORD="$${POL_HIPPO_APP_PASSWORD}"
         -i /bootstrap/02-hippo-sim.sql
         &&
         /opt/mssql-tools18/bin/sqlcmd -S mammoth-db -U sa -P "$${MSSQL_SA_PASSWORD}" -C -b
-        -v POL_APP_PASSWORD="$${POL_APP_PASSWORD}"
+        -v MAMMOTH_APP_PASSWORD="$${POL_MAMMOTH_APP_PASSWORD}"
         -i /bootstrap/03-mammoth-sim.sql
 
   # rls-to-query-filter task 9 (REQ-13.4): the external tamper-resistant sink for the denial/authz telemetry

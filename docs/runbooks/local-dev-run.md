@@ -34,18 +34,33 @@ cp .env.example .env
 
 แก้ `.env` ใส่ค่า LOCAL (ห้ามใส่ secret จริงของ prod):
 - `MSSQL_SA_PASSWORD` — รหัส `sa` ของ container (compose ส่งให้ทั้ง `pol-db` และ `pol-db-init`)
-- `POL_APP_PASSWORD` — **principal เดียวของ runtime** (`pol_app`). strong, **ห้ามมีชื่อ login อยู่ในรหัส**
-  (SQL Server password policy)
-- `ConnectionStrings__*` — ใส่รหัสให้ตรงกับ `POL_APP_PASSWORD` (ทุก connection string ใช้ `pol_app` ตัวเดียวกัน)
+- `POL_APP_PASSWORD` — **principal เดียวของ runtime บน `VCentralPay`** (`pol_app`). strong,
+  **ห้ามมีชื่อ login อยู่ในรหัส** (SQL Server password policy)
+- `POL_HIPPO_APP_PASSWORD` / `POL_MAMMOTH_APP_PASSWORD` — principal ของ sim DB คนละตัว
+  (`hippo_app` บน `hippodb`, `mammoth_app` บน `mammothdb`, `sim-db-separate-logins`). ใช้ค่า
+  **คนละค่ากันและคนละค่ากับ `POL_APP_PASSWORD`** (จุดประสงค์คือไม่แชร์ credential กับ core)
+- `ConnectionStrings__*` — `__App` ใช้ `pol_app` (รหัสตรงกับ `POL_APP_PASSWORD`), `__Migrator` ใช้ `sa`
+  (รหัสตรงกับ `MSSQL_SA_PASSWORD`) — ทั้งคู่ชี้ `VCentralPay` บน `pol-db`
 - `POL_DESIGN_SQL` — ใช้ `sa` (migration ต้องมีสิทธิ์ DDL ที่ app principal ไม่มี)
-- `SpDocument__MotorConnectionString`/`__NonMotorConnectionString` — ใส่รหัสให้ตรงกับ `POL_APP_PASSWORD`
-  เช่นกัน (ชี้ `hippodb`/`mammothdb` บน `hippo-db`/`mammoth-db`, `external-sim-separate-containers`);
-  `.env` เดิมที่มีอยู่ก่อนงานนี้ต้องเติม 2 บรรทัดนี้เองจาก `.env.example` (gitignored ไม่ sync ให้อัตโนมัติ)
+- `SpDocument__MotorConnectionString`/`__NonMotorConnectionString` — ใช้ `User Id=hippo_app` /
+  `mammoth_app` และใส่รหัสให้ตรงกับ `POL_HIPPO_APP_PASSWORD` / `POL_MAMMOTH_APP_PASSWORD`
+  (**ไม่ใช่ `POL_APP_PASSWORD`** — ใส่ผิดจะ login ไม่ผ่านและ **fail เงียบ** ตอน boot เพราะ
+  `SpDocumentOptions` ไม่มี `.ValidateOnStart()` ตาม REQ-5.7 อาการโผล่เป็น 503 ตอน products search
+  เท่านั้น); ชี้ `hippodb`/`mammothdb` บน `hippo-db`/`mammoth-db`
+  (`external-sim-separate-containers`)
 
-> มีรหัส DB แค่ **2 ตัว** (`MSSQL_SA_PASSWORD` + `POL_APP_PASSWORD`). `POL_ADMIN_PASSWORD` /
-> `POL_WORKER_PASSWORD` **ไม่มีอยู่แล้ว** — rls-to-query-filter task 8 (RLS teardown) ยุบ
-> `pol_admin`/`pol_worker`/`pol_resolver`/`pol_vault_auditor` เข้า `pol_app` ตัวเดียว. ยืนยันได้จาก
-> `docker-compose.yml` (`pol-db-init.environment` ส่งแค่ 2 ตัวนี้) และ `.github/workflows/ci.yml`.
+> **`.env` เดิมที่มีอยู่ก่อนงานนี้ต้องเติมเองจาก `.env.example`** (gitignored ไม่ sync ให้อัตโนมัติ):
+> `POL_HIPPO_APP_PASSWORD`, `POL_MAMMOTH_APP_PASSWORD` และ `SpDocument__*` ทั้งสองบรรทัด. ไม่เติมแล้ว
+> `docker compose up` จะ render `${POL_HIPPO_APP_PASSWORD}` เป็นค่าว่าง -> `02-hippo-sim.sql` ทำ cutover
+> ลบ `pol_app` สำเร็จก่อนแล้วตายที่ `CREATE LOGIN hippo_app WITH PASSWORD = N''` (`CHECK_POLICY`) =
+> sim instance ไม่เหลือ login ที่ใช้ได้เลย. แก้ด้วยการเติม env แล้วรัน `docker compose up -d pol-db-init` ซ้ำ.
+
+> มีรหัส DB **4 ตัว**: `MSSQL_SA_PASSWORD` + `POL_APP_PASSWORD` (VCentralPay) +
+> `POL_HIPPO_APP_PASSWORD` + `POL_MAMMOTH_APP_PASSWORD` (sim DB คนละ instance,
+> `sim-db-separate-logins`). `POL_ADMIN_PASSWORD` / `POL_WORKER_PASSWORD` **ไม่มีอยู่แล้ว** —
+> rls-to-query-filter task 8 (RLS teardown) ยุบ `pol_admin`/`pol_worker`/`pol_resolver`/`pol_vault_auditor`
+> เข้า `pol_app` ตัวเดียว. ยืนยันได้จาก `docker-compose.yml` (`pol-db-init.environment`) และ
+> `.github/workflows/ci.yml`.
 - `Vault__MasterKeyBase64` — gen ของจริง local: `head -c 32 /dev/urandom | base64`
 
 เปิด git hooks (enforcement floor):
@@ -69,7 +84,10 @@ docker compose ps -a
   และจาก `hippo-db`)
 - `pol-db-init` — รัน chain 3 คำสั่งด้วย `&&`: `docker/bootstrap/01-principals.sql` ที่ `pol-db`
   (idempotent, สร้าง DB `VCentralPay` + login/user **`pol_app` ตัวเดียว**), ตามด้วย `02-hippo-sim.sql`
-  ที่ `hippo-db` และ `03-mammoth-sim.sql` ที่ `mammoth-db`. exit 0 เมื่อครบทั้งเชน — ยืนยันด้วย
+  ที่ `hippo-db` และ `03-mammoth-sim.sql` ที่ `mammoth-db` (**สร้าง login ของตัวเองคนละตัว** —
+  `hippo_app`/`mammoth_app` รับ password ผ่าน sqlcmd variable คนละตัวจาก `POL_HIPPO_APP_PASSWORD`/
+  `POL_MAMMOTH_APP_PASSWORD` และลบ `pol_app` เดิมออกจาก sim instance ให้เอง, `sim-db-separate-logins`).
+  exit 0 เมื่อครบทั้งเชน — ยืนยันด้วย
   `docker compose ps -a` เอง เพราะ `up -d` ไม่ฟ้อง (คืน exit 0 เสมอแม้ container นี้ exit ไม่ใช่ 0).
   เห็น `Exited (1)` มักเป็น collation gate ยิง (DB เดิม collation ไม่ตรง `Thai_100_CI_AS`) — ยืนยันสาเหตุ
   จริงด้วย `docker compose logs pol-db-init` แล้วแก้ด้วย `docker compose down -v && docker compose up -d`
@@ -368,13 +386,15 @@ dotnet test pol-core.slnx --filter "Category=Integration"
 > ไม่เคย reproducible จริง) — ตอนนี้ integration suite ของ `VCentralPay` ยังชี้ `pol-db`/`:11433` **ตัวเดียวกับ
 > dev** เสมอ (ยืนยันจาก `docker-compose.yml` + `.github/workflows/ci.yml`). `IntegrationDb.cs` fallback
 > `POL_SQL_SERVER`/`POL_DB` เป็น `localhost,11433`/`VCentralPay` อยู่แล้ว (ตรงกับ `.env`) — `.env.integration`
-> (gitignored, **ไม่มีใน fresh clone ต้องสร้างเอง**) มีไว้ export **รหัสผ่าน 2 ตัว** ที่ไม่มี fallback
-> (`dotnet test` เป็น subprocess อ่าน env ตรงจาก shell ไม่ใช่จากไฟล์ `.env`). `IntegrationDb.cs` อ่าน env 6 ตัว —
+> (gitignored, **ไม่มีใน fresh clone ต้องสร้างเอง**) มีไว้ export **รหัสผ่าน 4 ตัว** ที่ไม่มี fallback
+> (`dotnet test` เป็น subprocess อ่าน env ตรงจาก shell ไม่ใช่จากไฟล์ `.env`). `IntegrationDb.cs` อ่าน env 8 ตัว —
 > `POL_SQL_SERVER`, `POL_DB`, `POL_SA_PASSWORD`, `POL_APP_PASSWORD` (task 8 ยุบ
-> `pol_admin`/`pol_worker`/`pol_resolver`/`pol_vault_auditor` เข้า `pol_app`; ทุกเทสรันบน principal เดียวนั้น +
-> `sa` เฉพาะ vault-audit applock) บวก `POL_HIPPO_SQL_SERVER`/`POL_MAMMOTH_SQL_SERVER`
+> `pol_admin`/`pol_worker`/`pol_resolver`/`pol_vault_auditor` เข้า `pol_app`; เทสฝั่ง `VCentralPay` รันบน
+> principal เดียวนั้น + `sa` เฉพาะ vault-audit applock) บวก `POL_HIPPO_SQL_SERVER`/`POL_MAMMOTH_SQL_SERVER`
 > (`external-sim-separate-containers` — fallback `localhost,11434`/`localhost,11435` เมื่อไม่ตั้ง, ใช้โดย
-> `SimCrossInstanceConsistencyTests` + `SpDocumentContractTests`/`SpDocumentGatewayIntegrationTests`).
+> `SimCrossInstanceConsistencyTests` + `SpDocumentContractTests`/`SpDocumentGatewayIntegrationTests`)
+> และ `POL_HIPPO_APP_PASSWORD`/`POL_MAMMOTH_APP_PASSWORD` (`sim-db-separate-logins` — **ไม่มี fallback
+> ขาดตัวใดตัวหนึ่ง `IntegrationDb.Require()` throw ทุกเทสที่แตะ sim**).
 > สร้าง `.env.integration` ด้วย exports ตามนี้ (ค่าเดียวกับ `.env`):
 
 ```
@@ -384,6 +404,8 @@ export POL_HIPPO_SQL_SERVER='localhost,11434'
 export POL_MAMMOTH_SQL_SERVER='localhost,11435'
 export POL_SA_PASSWORD='<sa-pwd>'
 export POL_APP_PASSWORD='<pol_app-pwd>'
+export POL_HIPPO_APP_PASSWORD='<hippo_app-pwd>'
+export POL_MAMMOTH_APP_PASSWORD='<mammoth_app-pwd>'
 export POL_DESIGN_SQL="Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=<sa-pwd>;Encrypt=True;TrustServerCertificate=True"
 ```
 

@@ -50,9 +50,15 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 # 1) env — copy template, ใส่ค่า LOCAL (ห้าม secret จริง). .env เป็น gitignored.
 cp .env.example .env
 #    แก้: MSSQL_SA_PASSWORD + POL_SA_PASSWORD (ค่าเดียวกัน), POL_APP_PASSWORD (ห้ามมีชื่อ login อยู่ในรหัส
-#    — มีรหัส DB แค่ 2 ตัว, pol_admin/pol_worker ถูกยุบเข้า pol_app แล้ว), ConnectionStrings__App,
-#    ConnectionStrings__Migrator (sa), POL_DESIGN_SQL (sa), Vault__MasterKeyBase64
-#    (head -c 32 /dev/urandom | base64), Psp__PublicBaseUrl
+#    — pol_admin/pol_worker ถูกยุบเข้า pol_app แล้ว), POL_HIPPO_APP_PASSWORD + POL_MAMMOTH_APP_PASSWORD
+#    (principal ของ sim DB คนละตัว คนละค่ากับ pol_app — sim-db-separate-logins) รวมรหัส DB 4 ตัว,
+#    ConnectionStrings__App, ConnectionStrings__Migrator (sa), SpDocument__MotorConnectionString +
+#    SpDocument__NonMotorConnectionString (User Id=hippo_app/mammoth_app + รหัสของตัวเอง),
+#    POL_DESIGN_SQL (sa), Vault__MasterKeyBase64 (head -c 32 /dev/urandom | base64), Psp__PublicBaseUrl
+#
+#    .env ที่มีอยู่ก่อน sim-db-separate-logins ต้องเติม POL_HIPPO_APP_PASSWORD/POL_MAMMOTH_APP_PASSWORD
+#    เองก่อน docker compose up (.env gitignored ไม่ sync ให้ — ค่าว่างทำให้ bootstrap sim ตายกลางคัน,
+#    ดู docs/runbooks/local-dev-run.md §2.1)
 
 # 2) git hooks (enforcement floor)
 git config core.hooksPath .githooks

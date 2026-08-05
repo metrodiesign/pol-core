@@ -8,10 +8,10 @@
   "ConnectionStrings": {
     "App": "Server=localhost,11433;Database=VCentralPay;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
   },
-  "_SpDocument_note": "external-sim-separate-containers: hippodb/mammothdb each run on their own SQL Server instance (hippo-db :11434, mammoth-db :11435) — no derive/fallback from ConnectionStrings:App anymore (supersedes products-sp-gateway REQ-3.4). Same pol_app password as ConnectionStrings:App. Unset -> host still boots, products search returns 503 (REQ-5.7).",
+  "_SpDocument_note": "external-sim-separate-containers: hippodb/mammothdb each run on their own SQL Server instance (hippo-db :11434, mammoth-db :11435) — no derive/fallback from ConnectionStrings:App anymore (supersedes products-sp-gateway REQ-3.4). Each uses its OWN principal and password (hippo_app / mammoth_app, sim-db-separate-logins): paste the matching POL_HIPPO_APP_PASSWORD / POL_MAMMOTH_APP_PASSWORD value from .env, NOT the pol_app one — pol_app does not exist on the sim instances. Unset -> host still boots, products search returns 503 (REQ-5.7).",
   "SpDocument": {
-    "MotorConnectionString": "Server=localhost,11434;Database=hippodb;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True",
-    "NonMotorConnectionString": "Server=localhost,11435;Database=mammothdb;User Id=pol_app;Password=REPLACE_WITH_LOCAL_APP_PASSWORD;Encrypt=True;TrustServerCertificate=True"
+    "MotorConnectionString": "Server=localhost,11434;Database=hippodb;User Id=hippo_app;Password=REPLACE_WITH_LOCAL_HIPPO_PASSWORD;Encrypt=True;TrustServerCertificate=True",
+    "NonMotorConnectionString": "Server=localhost,11435;Database=mammothdb;User Id=mammoth_app;Password=REPLACE_WITH_LOCAL_MAMMOTH_PASSWORD;Encrypt=True;TrustServerCertificate=True"
   },
   "Merchant": {
     "DevMerchantId": "00000000-0000-0000-0000-000000000001"

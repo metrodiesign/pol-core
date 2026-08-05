@@ -1,9 +1,13 @@
 -- pol-core simulated upstream database hippodb (idempotent). Runs as sa, on its OWN SQL Server
 -- instance (external-sim-separate-containers) — 01-principals.sql does NOT run here, so this
--- script creates its own pol_app LOGIN. Independent of the EF migration chain — hippodb stands in
+-- script creates its OWN login, `hippo_app` (sim-db-separate-logins: an upstream we do not own would
+-- never hand us the same credential as VCentralPay's pol_app, so this side gets its own principal and
+-- its own password). Independent of the EF migration chain — hippodb stands in
 -- for a system we do NOT own, so it must never enter PolDbContext's lineage. Contains NO secrets;
--- takes ONE sqlcmd variable (the shared runtime principal's password):
---   sqlcmd -S <hippo-server> -U sa -P <pw> -N -b -v POL_APP_PASSWORD=<pw> -i 02-hippo-sim.sql
+-- takes ONE sqlcmd variable (this instance's own principal password — deliberately NOT named
+-- POL_APP_PASSWORD, so a caller that forgot to update fails loudly on an undefined sqlcmd variable
+-- instead of quietly reusing the core credential):
+--   sqlcmd -S <hippo-server> -U sa -P <pw> -N -b -v HIPPO_APP_PASSWORD=<pw> -i 02-hippo-sim.sql
 -- `-b` = sqlcmd exits non-zero when the self-checks at the bottom THROW.
 -- Spec: .ai/specs/external-sim-separate-containers/{requirements,design}.md (topology, REQ-1, REQ-2).
 -- Spec: .ai/specs/products-sp-gateway/{requirements,design}.md (REQ-1, REQ-2, REQ-3 — SP contract).
@@ -61,15 +65,40 @@ SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO
 
+-- WRONG-INSTANCE GUARD (sim-db-separate-logins). This script DROPs the legacy pol_app principal
+-- below; pol_app is the sole runtime principal of VCentralPay, so running this file against the core
+-- instance by mistake would tear the whole app's login down. Nothing destructive may precede this
+-- check. ASSUMPTION: the core catalog carries its default name — a deployment that renamed it via
+-- DB_NAME (docker-compose.prod.yml) is not covered by this guard, so it stays reliant on pointing the
+-- script at the right server in the first place.
+IF DB_ID(N'VCentralPay') IS NOT NULL
+    THROW 51002, N'02-hippo-sim: refusing to run — this instance hosts VCentralPay. This script belongs to the hippodb sim instance ONLY.', 1;
+GO
+
 IF DB_ID(N'hippodb') IS NULL
     EXEC(N'CREATE DATABASE [hippodb] COLLATE Thai_100_CI_AS');
 GO
 
+-- CUTOVER (sim-db-separate-logins): earlier revisions of this file created a pol_app LOGIN/USER here,
+-- sharing VCentralPay's credential with a simulated third-party upstream. Drop that legacy principal
+-- before creating the new one — USER first, LOGIN second (a login cannot be dropped while a database
+-- user is still mapped to it). Idempotent: a fresh instance simply has nothing to drop.
+USE [hippodb];
+GO
+IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_app')
+    DROP USER pol_app;
+GO
+USE [master];
+GO
+IF EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'pol_app')
+    DROP LOGIN pol_app;
+GO
+
 -- This instance never runs 01-principals.sql (it is a separate SQL Server process from pol-db), so
--- it needs its own pol_app LOGIN — same pattern as 01-principals.sql:29-31. LOGIN is server-level,
--- so this runs before USE [hippodb] below.
-IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'pol_app')
-    CREATE LOGIN pol_app WITH PASSWORD = N'$(POL_APP_PASSWORD)', CHECK_POLICY = ON;
+-- it needs its own hippo_app LOGIN — same pattern as 01-principals.sql:29-31. LOGIN is server-level,
+-- so this runs in the master context (the cutover block above already switched back to [master]).
+IF NOT EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'hippo_app')
+    CREATE LOGIN hippo_app WITH PASSWORD = N'$(HIPPO_APP_PASSWORD)', CHECK_POLICY = ON;
 GO
 
 -- ############################################################################
@@ -316,10 +345,10 @@ GO
 
 -- REQ-3.1: EXECUTE only. SELECT on dbo.Documents rides ownership chaining (dbo -> dbo), which is
 -- exactly the shape §4.3 describes for the real login.
-IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_app')
-    CREATE USER pol_app FOR LOGIN pol_app;
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'hippo_app')
+    CREATE USER hippo_app FOR LOGIN hippo_app;
 GO
-GRANT EXECUTE ON dbo.usp_Motor_SearchDocument TO pol_app;
+GRANT EXECUTE ON dbo.usp_Motor_SearchDocument TO hippo_app;
 GO
 
 -- ---------------------------------------------------------------------------
@@ -559,14 +588,20 @@ IF OBJECT_ID(N'dbo.usp_Motor_SearchDocument', N'P') IS NULL
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
                WHERE name = N'UX_Documents_DocumentNo' AND object_id = OBJECT_ID(N'dbo.Documents'))
     THROW 51002, N'02-hippo-sim: hippodb UX_Documents_DocumentNo is missing.', 1;
-IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_app')
-    THROW 51002, N'02-hippo-sim: hippodb has no pol_app user.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'hippo_app')
+    THROW 51002, N'02-hippo-sim: hippodb has no hippo_app user.', 1;
 IF NOT EXISTS (SELECT 1
                FROM sys.database_permissions p
                JOIN sys.database_principals u ON u.principal_id = p.grantee_principal_id
-               WHERE u.name = N'pol_app' AND p.permission_name = N'EXECUTE' AND p.state = 'G'
+               WHERE u.name = N'hippo_app' AND p.permission_name = N'EXECUTE' AND p.state = 'G'
                  AND p.major_id = OBJECT_ID(N'dbo.usp_Motor_SearchDocument'))
-    THROW 51002, N'02-hippo-sim: pol_app lacks EXECUTE on hippodb.dbo.usp_Motor_SearchDocument.', 1;
+    THROW 51002, N'02-hippo-sim: hippo_app lacks EXECUTE on hippodb.dbo.usp_Motor_SearchDocument.', 1;
+-- Cutover completeness (sim-db-separate-logins): the legacy shared principal must be gone from BOTH
+-- levels, or this instance would still accept VCentralPay's credential.
+IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_app')
+    THROW 51002, N'02-hippo-sim: hippodb still has a pol_app user (cutover to hippo_app did not complete).', 1;
+IF EXISTS (SELECT 1 FROM sys.sql_logins WHERE name = N'pol_app')
+    THROW 51002, N'02-hippo-sim: this instance still has a pol_app LOGIN (cutover to hippo_app did not complete).', 1;
 
 DECLARE @rows int = (SELECT COUNT(*) FROM dbo.Documents);
 IF @rows <> 200
