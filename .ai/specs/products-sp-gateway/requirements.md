@@ -53,6 +53,11 @@
     principal ไม่ใช่ `pol_app` แล้ว — `hippodb` สร้าง `USER hippo_app`, `mammothdb` สร้าง `USER mammoth_app`
     คนละ login/password กัน; รูปสิทธิ์คงเดิมเป๊ะ (`GRANT EXECUTE` บน SP ของฝั่งตัวเองเท่านั้น + ownership
     chaining) — spec นี้ปิดแล้ว ข้อความ REQ เดิมคงไว้ ไม่แก้ย้อนหลัง
+  - แก้เพิ่ม 2026-08-05: `GRANT SELECT ON dbo.Documents` ให้ `hippo_app` / `mammoth_app` ด้วย —
+    เพราะ metadata visibility ของ SQL Server ซ่อนตารางออกจาก `sys.tables` ทั้งใบเมื่อ principal
+    ไม่มีสิทธิ์ใด ๆ บนตาราง ทำให้ client แบบ GUI ที่ต่อด้วย credential ในไฟล์ `.env` (ตัวเดียวที่
+    developer มี) เห็นเป็น "seed หาย"; แลกกับความเที่ยงของ sim ที่หย่อนลง (login จริงฝั่ง upstream
+    เป็น EXECUTE-only) โดยโค้ด production ยังไม่ SELECT ตารางนี้ — `RawConnectionTests` ยังตรึง seam เดิม
 - 3.2 THE SYSTEM SHALL รัน `02-external-sim.sql` ในทุก environment: docker-compose dev (service `pol-db-init`), CI integration ทั้ง GitHub และ GitLab, และ prod-like deploy — จนกว่าจะเชื่อม upstream จริง; ฝั่ง prod-like ข้อบังคับคือ "สคริปต์ต้องรันเสร็จก่อน API พร้อมรับ traffic" ส่วนกลไก (เพิ่ม mssql-tools ใน migrate image vs init service แบบ `pol-db-init`) ให้ design.md ตัดสิน (F4)
 - 3.3 THE SYSTEM SHALL bootstrap database จำลองให้เสร็จก่อน `dotnet test` ใด ๆ ที่ boot host ต่อ :11433 (กัน parallel CREATE DATABASE race)
 - 3.4 THE SYSTEM SHALL ไม่เพิ่ม env var / compose variable ใหม่ — connection string จำลอง derive จากของที่มีอยู่ (กัน render-check ทั้ง 2 CI workflow)

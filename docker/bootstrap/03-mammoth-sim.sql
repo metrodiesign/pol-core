@@ -330,6 +330,11 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'mammoth_app'
 GO
 GRANT EXECUTE ON dbo.usp_NonMotor_SearchDocument TO mammoth_app;
 GO
+-- Direct SELECT too — mirror of 02-hippo-sim.sql, same reasoning and the same accepted trade-off:
+-- without it SQL Server's metadata visibility hides dbo.Documents from mammoth_app entirely and the
+-- seed looks absent in a GUI client.
+GRANT SELECT ON dbo.Documents TO mammoth_app;
+GO
 
 DELETE FROM dbo.Documents;
 GO

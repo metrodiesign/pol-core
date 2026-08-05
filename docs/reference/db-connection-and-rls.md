@@ -365,7 +365,8 @@ HTTP + merchant-user session cookie
      derive fallback (prod: docker/entrypoint.sh ประกอบ SpDocument__* จาก HIPPO_DB_SERVER/
      MAMMOTH_DB_SERVER + file secret ของแต่ละฝั่ง แล้ว export ก่อน host boot)
      (ADO.NET, login แยกต่อ instance — hippo_app บน hippodb, mammoth_app บน mammothdb, ไม่ใช่ pol_app
-     ของ core — แต่ละตัวมีแค่ EXECUTE, sim-db-separate-logins)
+     ของ core — แต่ละตัวมี EXECUTE บน SP ของฝั่งตัวเอง + SELECT บน dbo.Documents สำหรับส่องข้อมูล,
+     sim-db-separate-logins)
   -> EXEC usp_{Motor|NonMotor}_SearchDocument @SaleCode=... @BranchCode=<จาก options ฝั่ง server>
   -> [MerchantRuntimeDbContext] upsert ผลลัพธ์เข้า shop.Products ตาม DocumentNo แล้วคืน Guid ของแถว local
   -> ไม่มี query filter ที่ DB/EF ระดับ entity -> "เห็นแถวไหน" ตัดสินที่ query criteria (SaleCode) ที่ caller

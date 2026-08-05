@@ -9,9 +9,9 @@ namespace Integration.Tests;
 /// into <c>02-hippo-sim.sql</c>/<c>03-mammoth-sim.sql</c>). Now that each runs on its own instance, a
 /// 3-part-name JOIN across them needs a
 /// linked server — these tests open two ordinary connections instead and compare in memory.
-/// <para>Connections use <c>sa</c> (<see cref="IntegrationDb.SaForCatalog"/>), not each side's own
-/// principal: hippo_app/mammoth_app hold only EXECUTE on their search procedure, no SELECT on
-/// <c>dbo.Documents</c>.</para>
+/// <para>Connections use <c>sa</c> (<see cref="IntegrationDb.SaForCatalog"/>) rather than each side's own
+/// principal — these two invariants are properties of the seed, not of what a runtime principal may
+/// see.</para>
 /// Tagged Integration: the default unit run skips these; CI runs them against the live hippo/mammoth SQL
 /// services.
 /// </summary>

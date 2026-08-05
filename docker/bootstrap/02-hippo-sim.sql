@@ -343,12 +343,21 @@ BEGIN
 END
 GO
 
--- REQ-3.1: EXECUTE only. SELECT on dbo.Documents rides ownership chaining (dbo -> dbo), which is
--- exactly the shape §4.3 describes for the real login.
+-- REQ-3.1: EXECUTE on the search procedure. The procedure's own read of dbo.Documents rides
+-- ownership chaining (dbo -> dbo), which is exactly the shape §4.3 describes for the real login.
 IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'hippo_app')
     CREATE USER hippo_app FOR LOGIN hippo_app;
 GO
 GRANT EXECUTE ON dbo.usp_Motor_SearchDocument TO hippo_app;
+GO
+-- Plus direct SELECT on the table, so hippo_app behaves like pol_app does on VCentralPay: the
+-- credential in .env is the ONE a developer has, and without this SQL Server's metadata visibility
+-- hides dbo.Documents from sys.tables entirely — the table does not merely fail to read, it stops
+-- appearing in a GUI client's object tree at all, which reads as "the seed is missing".
+-- Trade-off accepted deliberately: the real upstream login is EXECUTE-only, so this grant makes the
+-- sim looser than the system it stands in for. Nothing in production code SELECTs this table (the
+-- gateway only EXECs the procedure); RawConnectionTests still pins that seam.
+GRANT SELECT ON dbo.Documents TO hippo_app;
 GO
 
 -- ---------------------------------------------------------------------------
