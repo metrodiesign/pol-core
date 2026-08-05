@@ -195,10 +195,15 @@ jobs:
           curl -sSL -O https://github.com/microsoft/go-sqlcmd/releases/download/v1.8.0/sqlcmd-linux-amd64.tar.bz2
           tar xjf sqlcmd-linux-amd64.tar.bz2
           sudo install sqlcmd /usr/local/bin/
-      - name: Generate ephemeral principal password
-        # hex (no login-name substring) + a mixed-case/digit suffix -> meets SQL password policy.
+      - name: Generate ephemeral principal passwords
+        # One per DB tier, never shared (sim-db-separate-logins): pol_app on VCentralPay, hippo_app on
+        # hippodb, mammoth_app on mammothdb. hex (no login-name substring) + a mixed-case/digit suffix
+        # -> meets SQL password policy. Exported to $GITHUB_ENV so `dotnet test` (IntegrationDb.cs) sees
+        # them too.
         run: |
           echo "POL_APP_PASSWORD=Ci$(openssl rand -hex 8)Aa1" >> "$GITHUB_ENV"
+          echo "POL_HIPPO_APP_PASSWORD=Ci$(openssl rand -hex 8)Aa1" >> "$GITHUB_ENV"
+          echo "POL_MAMMOTH_APP_PASSWORD=Ci$(openssl rand -hex 8)Aa1" >> "$GITHUB_ENV"
       - name: Bootstrap DB principal
         # `-b` propagates the script's own collation gate failure into the job (same reasoning as
         # the external-sim step below).
@@ -209,16 +214,17 @@ jobs:
             -i docker/bootstrap/01-principals.sql
       - name: Bootstrap simulated upstream DBs (products-sp-gateway REQ-3.2/3.3, external-sim-separate-containers)
         # hippodb/mammothdb each stand in for motordb@hippo/centerdb@mammoth on their OWN SQL Server
-        # service now (hippo/mammoth above) — each bootstrap file creates its own pol_app LOGIN too
-        # (neither service has 01-principals.sql run on it). Created here, BEFORE any test host boots
-        # against either server, so parallel hosts can never race on CREATE DATABASE. `-b` propagates
-        # each script's own self-check failures into the job.
+        # service now (hippo/mammoth above) — each bootstrap file creates its own LOGIN too (hippo_app /
+        # mammoth_app, sim-db-separate-logins; neither service has 01-principals.sql run on it), and each
+        # takes its own sqlcmd variable so the core's POL_APP_PASSWORD can never leak in. Created here,
+        # BEFORE any test host boots against either server, so parallel hosts can never race on CREATE
+        # DATABASE. `-b` propagates each script's own self-check failures into the job.
         run: |
           sqlcmd -S localhost,11434 -U sa -P "${POL_SA_PASSWORD}" -C -b \
-            -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+            -v HIPPO_APP_PASSWORD="${POL_HIPPO_APP_PASSWORD}" \
             -i docker/bootstrap/02-hippo-sim.sql
           sqlcmd -S localhost,11435 -U sa -P "${POL_SA_PASSWORD}" -C -b \
-            -v POL_APP_PASSWORD="${POL_APP_PASSWORD}" \
+            -v MAMMOTH_APP_PASSWORD="${POL_MAMMOTH_APP_PASSWORD}" \
             -i docker/bootstrap/03-mammoth-sim.sql
       - name: Restore
         # `dotnet ef database update` builds the startup project, which needs a restored assets file

@@ -28,6 +28,14 @@ chmod +x "$STUB_BIN/dotnet"
 PW_FILE="$TMPDIR/db_password"
 echo "s3cret" >"$PW_FILE"
 
+# sim-db-separate-logins: each sim tier has its OWN principal and its OWN mounted password secret, so
+# the harness needs three distinct secret files — a sim connection string carrying the core's password
+# is exactly the silent-failure mode this spec exists to prevent.
+HIPPO_PW_FILE="$TMPDIR/hippo_password"
+echo "hippoPw" >"$HIPPO_PW_FILE"
+MAMMOTH_PW_FILE="$TMPDIR/mammoth_password"
+echo "mammothPw" >"$MAMMOTH_PW_FILE"
+
 pass=0
 fail=0
 
@@ -38,6 +46,8 @@ run_entrypoint() { # extra env assignments as $@, e.g. DB_CA_CERTIFICATE_FILE=/x
         DB_NAME="AppDb" \
         DB_PRINCIPAL="pol_app" \
         DB_PASSWORD_FILE="$PW_FILE" \
+        HIPPO_APP_PASSWORD_FILE="$HIPPO_PW_FILE" \
+        MAMMOTH_APP_PASSWORD_FILE="$MAMMOTH_PW_FILE" \
         HOST_DLL="Api.dll" \
         "$@" \
         sh "$SCRIPT"
@@ -112,9 +122,16 @@ check_contains "escape-safe strict: TLS clause survives"        "$out_escaped_st
 # --- external-sim-separate-containers: HIPPO_DB_SERVER/MAMMOTH_DB_SERVER assemble
 # --- SpDocument__MotorConnectionString/__NonMotorConnectionString the same way (build_conn) and
 # --- independently of each other; unset -> both stay empty (REQ-5.7 — host still boots, no
-# --- derive/fallback in application code).
+# --- derive/fallback in application code). sim-db-separate-logins: each side must carry ITS OWN
+# --- principal and ITS OWN password, never DB_PRINCIPAL/DB_PW — the failure mode is silent (a wrong
+# --- credential only surfaces as a 503 on the first search request), so it is asserted here.
 out_hippo="$(run_entrypoint HIPPO_DB_SERVER=hippo.internal HIPPO_DB_PORT=11434)"
 check_contains "hippo set: motor conn string" "$out_hippo" "Server=hippo.internal,11434;Database=hippodb"
+motor_hippo="$(printf '%s\n' "$out_hippo" | sed -n '2p')"
+check_contains "hippo set: motor uses hippo_app principal" "$motor_hippo" "User Id=hippo_app"
+check_contains "hippo set: motor uses its own password"    "$motor_hippo" "Password=hippoPw;"
+check_not_contains "hippo set: motor never carries the core principal" "$motor_hippo" "User Id=pol_app"
+check_not_contains "hippo set: motor never carries the core password"  "$motor_hippo" "s3cret"
 
 motor_unset="$(printf '%s\n' "$out_fallback" | sed -n '2p')"
 nonmotor_unset="$(printf '%s\n' "$out_fallback" | sed -n '3p')"
@@ -123,6 +140,22 @@ check_empty "hippo/mammoth unset: nonmotor conn empty" "$nonmotor_unset"
 
 out_mammoth="$(run_entrypoint MAMMOTH_DB_SERVER=mammoth.internal MAMMOTH_DB_PORT=19999)"
 check_contains "mammoth set: custom port in nonmotor conn string" "$out_mammoth" "Server=mammoth.internal,19999;Database=mammothdb"
+nonmotor_mammoth="$(printf '%s\n' "$out_mammoth" | sed -n '3p')"
+check_contains "mammoth set: nonmotor uses mammoth_app principal" "$nonmotor_mammoth" "User Id=mammoth_app"
+check_contains "mammoth set: nonmotor uses its own password"      "$nonmotor_mammoth" "Password=mammothPw;"
+check_not_contains "mammoth set: nonmotor never carries the core principal" "$nonmotor_mammoth" "User Id=pol_app"
+check_not_contains "mammoth set: nonmotor never carries the core password"  "$nonmotor_mammoth" "s3cret"
+
+# --- sim-db-separate-logins: a sim server without its own password secret must fail BEFORE exec'ing the
+# --- app (same fail-loud shape as DB_PASSWORD_FILE) rather than falling back to the core credential.
+out_no_hippo_secret="$(run_entrypoint HIPPO_DB_SERVER=hippo.internal HIPPO_APP_PASSWORD_FILE= 2>&1)"
+rc_no_hippo_secret=$?
+check_eq "hippo secret missing: non-zero exit" "$([ "$rc_no_hippo_secret" -ne 0 ] && echo yes || echo no)" "yes"
+check_contains "hippo secret missing: names the var" "$out_no_hippo_secret" "HIPPO_APP_PASSWORD_FILE"
+out_no_mammoth_secret="$(run_entrypoint MAMMOTH_DB_SERVER=mammoth.internal MAMMOTH_APP_PASSWORD_FILE= 2>&1)"
+rc_no_mammoth_secret=$?
+check_eq "mammoth secret missing: non-zero exit" "$([ "$rc_no_mammoth_secret" -ne 0 ] && echo yes || echo no)" "yes"
+check_contains "mammoth secret missing: names the var" "$out_no_mammoth_secret" "MAMMOTH_APP_PASSWORD_FILE"
 
 # --- external-sim strict branch: HIPPO_DB_SERVER/MAMMOTH_DB_SERVER paired with DB_CA_CERTIFICATE_FILE
 # --- must assemble Encrypt=Strict the same way the App connection string does — build_conn is the same

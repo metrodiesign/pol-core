@@ -1,6 +1,14 @@
 # Design: external-sim-separate-containers
 
 > อ้าง `requirements.md` ฉบับนี้ (REQ-1..9) — ไม่ออกแบบใหม่นอกเหนือจากที่ล็อกไว้ในนั้น
+>
+> Superseded (บางส่วน): **ทุกจุดในเอกสารนี้ที่ระบุว่า sim instance ใช้ principal `pol_app`** ถูกแทนที่โดย
+> spec `sim-db-separate-logins` (`.pipeline/sim-db-separate-logins/spec.md`, 2026-08-05) — `hippodb` ใช้
+> login `hippo_app` (sqlcmd variable `HIPPO_APP_PASSWORD`), `mammothdb` ใช้ `mammoth_app`
+> (`MAMMOTH_APP_PASSWORD`) คนละ password กัน และ bootstrap ลบ `pol_app` เดิมออกจาก sim instance เองแบบ
+> idempotent; ฝั่ง prod password มาจาก file secret คนละไฟล์ (`HIPPO_APP_PASSWORD_FILE` /
+> `MAMMOTH_APP_PASSWORD_FILE`) ส่วนที่เหลือของ design (topology, ลำดับ bootstrap, schema/SP/seed,
+> การ route ของ test) ไม่เปลี่ยน — spec นี้ปิดแล้ว ข้อความด้านล่างคงไว้ตามที่ approve ไม่แก้ย้อนหลัง
 
 ## ภาพรวม
 
@@ -39,6 +47,10 @@ sequenceDiagram
     Init->>Hippo: 02-hippo-sim.sql (hippodb + LOGIN pol_app ของตัวเอง + seed)
     Init->>Mammoth: 03-mammoth-sim.sql (mammothdb + LOGIN pol_app ของตัวเอง + seed)
 ```
+
+> Superseded (บางส่วน) โดย `sim-db-separate-logins`: `LOGIN` ของ sim ทั้งสองไม่ใช่ `pol_app` แล้ว —
+> `02-hippo-sim.sql` สร้าง `hippo_app`, `03-mammoth-sim.sql` สร้าง `mammoth_app` คนละ password กัน
+> (และลบ `pol_app` เดิมออกจาก instance ระหว่าง cutover) ลำดับการรันในไดอะแกรมไม่เปลี่ยน
 
 สาม instance ไม่มี principal ร่วมกัน (คนละ SQL Server process) — `02-hippo-sim.sql` และ
 `03-mammoth-sim.sql` จึงต้องสร้าง `LOGIN pol_app` ของตัวเองคนละชุด (REQ-2.4) ต่างจาก
@@ -84,6 +96,8 @@ Mechanical split: คัดบรรทัดช่วง hippodb (1-608 เด�
   sqlcmd variables" เป็นรับ `POL_APP_PASSWORD`
 - เพิ่มบล็อก `CREATE LOGIN pol_app` (pattern `01-principals.sql:29-31`) ก่อน `USE [hippodb]`/
   `USE [mammothdb]` — LOGIN เป็น server-level ไม่ต้องอยู่ใต้ `USE` context
+  (superseded โดย `sim-db-separate-logins`: sqlcmd variable เป็น `HIPPO_APP_PASSWORD`/
+  `MAMMOTH_APP_PASSWORD` และ LOGIN ที่สร้างคือ `hippo_app`/`mammoth_app` พร้อมบล็อก cutover ลบ `pol_app`)
 - ข้อความ `THROW`/`PRINT` ของ self-check: prefix `02-external-sim:` -> `02-hippo-sim:` (ไฟล์ hippo) /
   `03-mammoth-sim:` (ไฟล์ mammoth) — บังคับโดย REQ-9.6 (grep `02-external-sim` ต้องเหลือศูนย์)
 - `03-mammoth-sim.sql` ตัด cross-database self-check 2 บล็อกออก (ย้ายไป REQ-3 integration test)
@@ -133,6 +147,11 @@ server ผ่าน SimServer" โปร่งใสต่อ caller เพิ�
 `SpDocument__NonMotorConnectionString` (mammoth เดียวกัน) — 2 อันหลังครอบด้วย
 `if [ -n "${HIPPO_DB_SERVER:-}" ]` เพื่อให้ REQ-6.5 เป็นจริง (image เดี่ยวไม่ผ่าน compose prod ยัง boot
 ได้)
+
+> Superseded โดย `sim-db-separate-logins`: 2 call หลังไม่ได้ใช้ `DB_PRINCIPAL`/`DB_PW` ของ core แล้ว —
+> ใช้ principal ของตัวเอง (`hippo_app`/`mammoth_app`) พร้อม password จาก file secret คนละไฟล์
+> (`HIPPO_APP_PASSWORD_FILE` / `MAMMOTH_APP_PASSWORD_FILE`) โครงสร้าง `build_conn` + guard
+> `if [ -n "${HIPPO_DB_SERVER:-}" ]` ไม่เปลี่ยน
 
 `docker/migrate-entrypoint.sh` refactor wait-loop เดิม (inline while) เป็น function
 `wait_for_db <server> <port>` — คง TLS-hint classification เดิม (grep

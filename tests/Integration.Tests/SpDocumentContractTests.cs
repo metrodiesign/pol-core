@@ -12,9 +12,10 @@ namespace Integration.Tests;
 /// these tests become the acceptance suite for the upstream, and any assertion that fails there is a
 /// genuine contract difference to negotiate.
 ///
-/// The connection is pol_app on hippodb/mammothdb (<see cref="IntegrationDb.ForCatalog"/>), which owns
-/// EXECUTE and nothing else — so every test also re-proves the GRANT and the ownership chaining that lets
-/// the procedure read dbo.Documents on a principal that cannot SELECT from it.
+/// The connection is each sim instance's own principal — hippo_app on hippodb, mammoth_app on mammothdb
+/// (<see cref="IntegrationDb.ForCatalog"/>) — which owns EXECUTE and nothing else, so every test also
+/// re-proves the GRANT and the ownership chaining that lets the procedure read dbo.Documents on a principal
+/// that cannot SELECT from it.
 ///
 /// The seed is deterministic and relative to GETDATE(), so expectations are stable on any run day. Rows are
 /// identified by the running number at the tail of DocumentNo (see <see cref="Seqs"/>) — Motor's

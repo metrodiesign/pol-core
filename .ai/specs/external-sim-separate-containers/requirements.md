@@ -8,6 +8,12 @@
 > `~/.claude/plans/docker-hippodb-cozy-clock.md`)
 > Supersedes: `products-sp-gateway` REQ-3.4 ("ไม่เพิ่ม env var ใหม่ — connection string จำลอง derive
 > จากของที่มีอยู่") — closed spec, ไม่แก้ย้อนหลัง (ดูเหตุผลใน REQ-4 ด้านล่าง)
+> Superseded (บางส่วน): REQ-2.1 ถึง REQ-2.5 เฉพาะส่วนที่ระบุ principal `pol_app` ถูกแทนที่โดย spec
+> `sim-db-separate-logins` (`.pipeline/sim-db-separate-logins/spec.md`, 2026-08-05) — sim instance
+> ทั้งสองเลิกใช้ `pol_app` (แชร์กับ VCentralPay) แล้ว: `hippodb` ใช้ login `hippo_app` รับ sqlcmd
+> variable `HIPPO_APP_PASSWORD`, `mammothdb` ใช้ `mammoth_app` รับ `MAMMOTH_APP_PASSWORD` คนละ password
+> กัน และ bootstrap ลบ `pol_app` เดิมทิ้งเองแบบ idempotent — spec นี้ปิดแล้ว ข้อความ REQ ด้านล่างคงไว้
+> ตามที่ approve ไม่แก้ย้อนหลัง
 
 ## บริบท
 
@@ -46,6 +52,11 @@ DB tier ของ prod เป็น host แยกอยู่แล้วตา
 อิสระ เพื่อให้สอดคล้องกับ topology จริงที่แต่ละ server เป็นระบบต้นทางคนละระบบ ไม่พึ่งพากัน
 
 **Acceptance Criteria (EARS):**
+
+> Superseded (บางส่วน) โดย `sim-db-separate-logins`: ทุกจุดที่ 2.1-2.5 เขียนว่า principal/`LOGIN` ของ sim
+> คือ `pol_app` และ sqlcmd variable คือ `POL_APP_PASSWORD` ปัจจุบันคือ `hippo_app`/`HIPPO_APP_PASSWORD`
+> (ไฟล์ 02) และ `mammoth_app`/`MAMMOTH_APP_PASSWORD` (ไฟล์ 03) — โครงสร้างข้ออื่นของ REQ-2 ไม่เปลี่ยน
+
 - 2.1 THE SYSTEM SHALL มี `docker/bootstrap/02-hippo-sim.sql` แบบ idempotent สร้าง database
   `hippodb`, ตาราง `dbo.Documents`, unique index `UX_Documents_DocumentNo`, procedure
   `usp_Motor_SearchDocument`, principal `pol_app` (`LOGIN` + `USER`), `GRANT EXECUTE`, seed 200 แถว,

@@ -116,10 +116,16 @@ Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`):
 สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
 
 ```bash
-# DB principal password (1 principal เท่านั้นตอนนี้ — pol_admin/pol_worker ถูกถอดทิ้งแล้วใน
+# DB principal password ของ VCentralPay (principal เดียวบน tier นี้ — pol_admin/pol_worker ถูกถอดทิ้งแล้วใน
 # rls-to-query-filter, ดู db-connection-and-rls.md) — ต้องผ่าน SQL complexity (CHECK_POLICY=ON):
 # >=8 ตัว, upper+lower+digit
 printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/pol_app_password
+
+# DB principal password ของ sim DB tier ทั้งสอง (sim-db-separate-logins) — hippodb ใช้ login `hippo_app`,
+# mammothdb ใช้ `mammoth_app` คนละค่ากันและคนละค่ากับ pol_app ข้างบน (upstream คนละเจ้า ไม่แชร์ credential
+# กับ core). `migrate` ใช้ค่าเหล่านี้ตอน bootstrap และ `api` ใช้ประกอบ SpDocument__* connection string:
+printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/hippo_app_password
+printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/mammoth_app_password
 
 # Vault master key — 32-byte AES key, base64 (PR4 keyring อ่านจาก KeyFile; active id = v1)
 head -c 32 /dev/urandom | base64 > secrets/vault_master_key
@@ -220,7 +226,37 @@ ssh -L 8081:$SEQ_IP:80 <deploy-user>@<app-host>
 ถ้าจะเปิดถาวรให้ทีมใช้: ตั้ง authentication ใน Seq ก่อน แล้วค่อยเพิ่ม `ports: ["127.0.0.1:5341:80"]` ที่
 service `seq` (bind loopback + หน้า reverse proxy เท่านั้น — อย่า bind `0.0.0.0`).
 
-## 4.0 Cutover ครั้งเดียว (เฉพาะ deployment ที่ DB ยังไม่ผ่านงาน db-collation-thai-100)
+## 4.0 Cutover ครั้งเดียว (deployment ที่มีอยู่แล้ว — ทำก่อน deploy/rollback รอบถัดไป)
+
+deployment ที่ตั้งขึ้นแล้ว (เดินผ่าน §4 upgrade / §5 rollback / §6 GitLab CD ไม่ผ่าน §1 อีกแล้ว) ต้องทำ
+cutover ในหัวข้อนี้ให้ครบก่อนกด deploy รอบถัดไป — §4.0.1 ใช้กับทุก deployment, §4.0.2 เฉพาะที่ยังไม่ผ่าน
+งาน db-collation-thai-100.
+
+### 4.0.1 สร้าง file secret ของ sim principal (ทุก deployment ที่ deploy ก่อน sim-db-separate-logins)
+
+`docker-compose.prod.yml` ประกาศ secret `hippo_app_password`/`mammoth_app_password` เป็น `file:` ให้ทั้ง
+`migrate` และ `api` — compose **ต้องหาไฟล์เจอตอน `up`** ไม่งั้น container สร้างไม่ขึ้น (`invalid mount config
+for type "bind": bind source path does not exist`) แล้ว deploy ทั้งรอบ abort (`docker compose config` ผ่าน
+ไม่ได้แปลว่าไฟล์มี — render-check ของ CI จับไม่ได้). รันบน App tier host ในโฟลเดอร์ repo clone ที่มี
+`docker-compose.prod.yml` (ที่เดียวกับที่ §1 รัน `mkdir -p secrets` ตอน first install — deployment ใหม่
+ไม่ต้องทำซ้ำ; host ที่ deploy ผ่าน GitLab CD คือ path ตามตัวแปร `DEPLOY_PATH` ของ §6):
+
+```bash
+printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/hippo_app_password
+printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/mammoth_app_password
+chmod 600 secrets/hippo_app_password secrets/mammoth_app_password
+```
+
+deploy รอบแรกหลังจากนี้ bootstrap `02`/`03` จะ `DROP USER`/`DROP LOGIN pol_app` ออกจาก sim instance ให้เอง
+(idempotent) — **หยุด `api` ก่อนกด deploy รอบนั้น** ไม่งั้น connection pool ของ api ตัวเก่าที่ยังถือ session
+ของ `pol_app` ค้างบน sim instance ทำให้ `DROP LOGIN` ถูกปฏิเสธ (`Msg 15434 ... login owns one or more
+session(s)`) หลัง `DROP USER` ผ่านไปแล้ว:
+
+```bash
+docker compose -f docker-compose.prod.yml stop api
+```
+
+### 4.0.2 Collation cutover (เฉพาะ deployment ที่ DB ยังไม่ผ่านงาน db-collation-thai-100)
 
 `docker/bootstrap/01-principals.sql` มี collation gate: ถ้า `VCentralPay` มีอยู่แล้วด้วย collation อื่นที่ไม่ใช่
 `Thai_100_CI_AS` (ทุก deployment ที่สร้าง DB ก่อนงานนี้ = `SQL_Latin1_General_CP1_CI_AS` โดย default) สคริปต์จะ
@@ -276,13 +312,17 @@ sqlcmd -S localhost -U sa -P "<SA password ของ DB tier>" -N \
   -Q "BACKUP DATABASE [VCentralPay] TO DISK='/var/opt/mssql/backup/pre-deploy.bak' WITH INIT, COMPRESSION"
 
 # 4.2 ดึงโค้ดใหม่ + rebuild + rerun migrate + restart host
+# (deployment ที่ยังไม่เคยทำ §4.0 cutover ต้องทำก่อนบรรทัดนี้ — §4.0.1 file secret ของ sim principal
+#  ใช้กับทุก deployment, §4.0.2 collation เฉพาะที่ยังไม่ผ่าน db-collation-thai-100)
 git fetch && git checkout <release-tag>
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 migrate รันใหม่ทุกครั้ง (idempotent เมื่อ DB มีอยู่แล้วด้วย `Thai_100_CI_AS` ถูกต้อง — EF apply เฉพาะ migration
-ที่ยังไม่ลง; ถ้า DB เป็น collation อื่น bootstrap จะ fail-fast ด้วย `THROW` แทนที่จะข้ามเงียบ ๆ ดู §4.0 cutover
-ถ้ายังไม่เคยทำ).
+ที่ยังไม่ลง; ถ้า DB เป็น collation อื่น bootstrap จะ fail-fast ด้วย `THROW` แทนที่จะข้ามเงียบ ๆ ดู §4.0.2
+ถ้ายังไม่เคยทำ). ถ้ายังไม่ได้สร้าง `secrets/hippo_app_password`/`secrets/mammoth_app_password` ตาม §4.0.1
+คำสั่ง `up` ด้านบนจะตายตั้งแต่ตอนสร้าง container ของ `migrate` (bind mount ของ secret) — `api` ตัวเก่ายังรัน
+image เดิมอยู่ (ไม่ล่ม) แต่ deploy ไม่เกิด.
 
 ## 5. Rollback
 
@@ -293,8 +333,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 คำสั่งนี้วิ่งผ่าน service `migrate` เหมือนกับ upgrade ทุกประการ (`depends_on` เดิม) — ถ้า DB ของ environment นี้
-ยังไม่ผ่าน cutover ที่ §4.0 (ยัง collation ผิด) รอบ rollback นี้จะ `THROW` เจอ gate เดียวกันและตายเหมือนกัน ไม่ใช่
-ทางหนีจาก §4.0 ได้.
+ยังไม่ผ่าน cutover ที่ §4.0.2 (ยัง collation ผิด) รอบ rollback นี้จะ `THROW` เจอ gate เดียวกันและตายเหมือนกัน ไม่ใช่
+ทางหนีจาก §4.0 ได้ และถ้ายังไม่ได้สร้าง file secret ตาม §4.0.1 จะตายก่อนหน้านั้นอีก (compose สร้าง container
+`migrate` ไม่ขึ้นเพราะ bind mount ของ secret ไม่มีไฟล์).
 
 DB migration rollback (ถ้า migration ใหม่เข้ากันกับโค้ดเก่าไม่ได้): apply migration ก่อนหน้า แล้วค่อย rollback app.
 รันใน migrate image (มี dotnet-ef + source) — `migrate`'s `environment:` block ใน compose ฉีด
@@ -340,6 +381,10 @@ Flow (2 environment, manual gate ทั้งคู่):
 
 - ข้อ 1-3 ของ runbook นี้ (`.env`, `./secrets/`, first deploy) ยังเป็นขั้น manual บนแต่ละ host เหมือนเดิม —
   GitLab deploy ไม่แตะ secret ใด ๆ, ใช้สำหรับ upgrade รอบถัดไปแทนข้อ 4.2 (backup ข้อ 4.1 ยังต้องทำก่อนกดเสมอ)
+- **เพราะ job deploy ไม่แตะ secret เอง** secret file ใหม่ทุกตัวจึงต้องถูกสร้างบน host ด้วยมือ *ก่อน* กด play —
+  ตอนนี้คือ §4.0.1 (`secrets/hippo_app_password`, `secrets/mammoth_app_password`). `docker-compose.registry.yml`
+  เป็น override เฉพาะ `image:` จึงสืบ `secrets:` มาเต็ม: ไฟล์ไม่มี = `up` สร้าง container ไม่ขึ้น -> job
+  `deploy-uat`/`deploy-prod` แดง (deploy ไม่เกิด แต่ของเดิมยังรันอยู่)
 - rollback ผ่าน GitLab = กด job deploy จาก pipeline ของ commit/tag ก่อนหน้า (image เก่ายังอยู่ใน registry);
   DB rollback ยังใช้ข้อ 5 เดิม
 - ตัวแปร CI/CD ที่ infra ต้องตั้งใน GitLab (protected, **environment-scoped** — ชื่อเดียวกัน แยกค่าต่อ
@@ -352,8 +397,12 @@ Flow (2 environment, manual gate ทั้งคู่):
 
 ## 7. SA password rotation (post-bootstrap)
 
-`sa` ใช้แค่ตอน bootstrap/migrate (รันบน DB tier, Server 1) — runtime (Api ทั้ง flow HTTP + background
-dispatcher ที่ merge เข้ามาแล้ว) ต่อด้วย principal เดียว `pol_app` เท่านั้น (ดู
-[db-connection-and-rls.md](../reference/db-connection-and-rls.md)). หลัง deploy แรก หมุน SA ได้ (ทำบน
+`sa` ใช้แค่ตอน bootstrap/migrate (รันบน DB tier ทั้งสาม) — runtime มี 3 principal แยกตาม tier: Api
+(ทั้ง flow HTTP + background dispatcher ที่ merge เข้ามาแล้ว) ต่อ VCentralPay ด้วย `pol_app` อย่างเดียว
+(ดู [db-connection-and-rls.md](../reference/db-connection-and-rls.md)) ส่วน SpDocumentGateway ต่อ sim tier
+ด้วย `hippo_app` (hippodb) และ `mammoth_app` (mammothdb) คนละ password กัน (sim-db-separate-logins).
+หมายเหตุ cutover: deploy รอบแรกหลังการเปลี่ยนนี้ bootstrap 02/03 จะลบ `pol_app` (user + login) ออกจาก
+sim instance ให้เองแบบ idempotent — **แต่ ops ยังต้องสร้าง file secret 2 ตัวเองก่อนตาม §4.0.1 และหยุด `api`
+ก่อน deploy รอบนั้น** (bootstrap ทำให้เองแค่การลบ `pol_app` ไม่ได้สร้าง secret file ให้). หลัง deploy แรก หมุน SA ได้ (ทำบน
 DB tier โดย DBA): `ALTER LOGIN sa WITH PASSWORD='...'` แล้วอัปเดต `MSSQL_SA_PASSWORD` ใน `.env` ของ App tier
 (ใช้รอบ migrate ถัดไป).

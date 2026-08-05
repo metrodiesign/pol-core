@@ -27,6 +27,13 @@
 > ล่าสุดของทั้งสองเรื่อง — supersede ทุกตัวอย่าง `ReferenceBranch`/`BranchCode` ที่เขียนไว้ก่อนหน้านี้ใน
 > ไฟล์นี้ (รวมถึง task 1 ด้านล่างที่ยังอ้าง `BranchCode` เป็นคอลัมน์)
 
+> Superseded (บางส่วน): **ทุกจุดในไฟล์นี้ที่ระบุว่าการต่อ sim (`hippodb`/`mammothdb`) ใช้ login `pol_app`**
+> ถูกแทนที่โดย spec `sim-db-separate-logins` (`.pipeline/sim-db-separate-logins/spec.md`, 2026-08-05) —
+> `hippodb` ใช้ login `hippo_app`, `mammothdb` ใช้ `mammoth_app` คนละ password กัน และ bootstrap ลบ
+> `pol_app` ออกจาก sim instance เองแบบ idempotent; ข้อจำกัดสิทธิ์เดิมยังจริงทุกข้อ เปลี่ยนแค่ชื่อ principal
+> (CONNECT + EXECUTE บน SP เท่านั้น ไม่มี SELECT บน `dbo.Documents`) — spec นี้ปิดแล้ว ข้อความด้านล่างคงไว้
+> ตามที่บันทึก ไม่แก้ย้อนหลัง
+
 ## Setup (lead, 2026-07-31)
 
 - Branch: `feat/products-sp-gateway` (แตกจาก develop @ b5a7ac6); spec commit `ffea8d4`

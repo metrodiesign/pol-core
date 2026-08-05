@@ -6,6 +6,13 @@
 > `IntegrationDb.SimServer` routing, per-server probe counter, `.env*` git blob swap ถูกล็อกไว้แล้ว
 > ห้าม re-derive
 
+> Superseded (บางส่วน): **ทุกจุดในไฟล์นี้ที่ระบุว่า `02-hippo-sim.sql`/`03-mammoth-sim.sql` สร้าง/ใช้ login
+> `pol_app`** ถูกแทนที่โดย spec `sim-db-separate-logins` (`.pipeline/sim-db-separate-logins/spec.md`,
+> 2026-08-05) — ไฟล์ 02 สร้าง `hippo_app` (sqlcmd variable `HIPPO_APP_PASSWORD`), ไฟล์ 03 สร้าง
+> `mammoth_app` (`MAMMOTH_APP_PASSWORD`) คนละ password กัน และทั้งสองไฟล์ลบ `pol_app` เดิมออกจาก sim
+> instance เองแบบ idempotent — spec นี้ปิดแล้ว task log ด้านล่างเป็นบันทึกของสิ่งที่ทำ ณ ตอนนั้น
+> ไม่แก้ย้อนหลัง
+
 - [x] 1. SQL split + local compose wiring — `docker/bootstrap/02-hippo-sim.sql`/`03-mammoth-sim.sql`
   ใหม่ (mechanical split จาก `02-external-sim.sql`, seed byte-identical, prefix ข้อความ self-check
   เปลี่ยน, `03-mammoth-sim.sql` มี `CREATE LOGIN pol_app` ของตัวเอง + ตัด cross-database check 2 บล็อก)
