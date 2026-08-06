@@ -18,12 +18,12 @@ internal sealed class ConnectionRepository : IConnectionRepository
     }
 
     public Task<Connection?> GetAsync(Guid merchantId, Code psp, CancellationToken cancellationToken) =>
-        _db.Set<Connection>()
-            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Psp == psp, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Connection>()
+            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Psp == psp, ct), cancellationToken);
 
     public Task<Connection?> GetByIdAsync(Guid pspConnectionId, CancellationToken cancellationToken) =>
-        _db.Set<Connection>()
-            .FirstOrDefaultAsync(x => x.Id == pspConnectionId, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Connection>()
+            .FirstOrDefaultAsync(x => x.Id == pspConnectionId, ct), cancellationToken);
 
     public void Add(Connection connection) => _db.Set<Connection>().Add(connection);
 
@@ -39,8 +39,8 @@ internal sealed class ConnectionRepository : IConnectionRepository
             "ListByTenant", "Admin read-back crossed the merchant read floor via IgnoreQueryFilters().",
             CorrelationId.Current, DateTime.UtcNow));
 
-        return await _db.Set<Connection>().IgnoreQueryFilters()
+        return await PlatformReadGuard.ReadAsync(ct => _db.Set<Connection>().IgnoreQueryFilters()
             .Where(x => x.MerchantId == merchantId)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct), cancellationToken);
     }
 }

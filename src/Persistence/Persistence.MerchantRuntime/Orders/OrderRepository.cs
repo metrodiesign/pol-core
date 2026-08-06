@@ -17,25 +17,27 @@ internal sealed class OrderRepository : IOrderRepository
     public OrderRepository(MerchantRuntimeDbContext db) => _db = db;
 
     public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
-        _db.Set<Order>().Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == orderId, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
+            .Include(o => o.Items).FirstOrDefaultAsync(o => o.Id == orderId, ct), cancellationToken);
 
     public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
-        _db.Set<Order>().FirstOrDefaultAsync(o => o.CheckoutSessionId == checkoutSessionId, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
+            .FirstOrDefaultAsync(o => o.CheckoutSessionId == checkoutSessionId, ct), cancellationToken);
 
     public async Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken cancellationToken) =>
-        await _db.Set<Order>()
+        await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
             .Where(o => o.MerchantId == merchantId)
             .GroupBy(o => new { o.Status, o.Amount.Currency })
             .Select(g => new OrderStatusTotal(g.Key.Status, g.Key.Currency, g.Count(), g.Sum(o => o.Amount.Amount)))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct), cancellationToken);
 
     public async Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken) =>
-        await _db.Set<Order>()
+        await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
             .Where(o => o.MerchantId == merchantId)
             .Where(o => orderNo == null || o.OrderNo == orderNo)
             .Include(o => o.Items)
             .OrderByDescending(o => o.CreatedAt)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct), cancellationToken);
 
     public void Add(Order order) => _db.Set<Order>().Add(order);
 }

@@ -160,15 +160,17 @@ public sealed class ExceptionHandlerPipelineTests
     {
         // A single webhook POST (well under the rate limit) reaches the merchant resolver, whose DB call fails
         // on the fast-fail connection. That exception must surface through UseExceptionHandler ->
-        // ProblemDetailsExceptionHandler as an OPAQUE 500 (application/problem+json, no internal detail),
-        // proving the handler is wired into the real pipeline and never leaks SQL/connection text.
+        // ProblemDetailsExceptionHandler as an OPAQUE ProblemDetails (application/problem+json, no internal
+        // detail), proving the handler is wired into the real pipeline and never leaks SQL/connection text.
+        // probe-dependency-failure-mapping: the resolver's read is guarded now, so the status is the
+        // classified 503 (retry-safe read) instead of the old opaque 500 — the no-leak contract is unchanged.
         using var factory = new HardeningFactory<ApiHost::Program>().WithFastFailDatabase();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsync($"/api/v1/webhooks/{Guid.NewGuid()}", new StringContent("{}"));
         var body = await response.Content.ReadAsStringAsync();
 
-        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain("127.0.0.1", body);
         Assert.DoesNotContain("Server=", body, StringComparison.OrdinalIgnoreCase);

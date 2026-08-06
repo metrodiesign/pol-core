@@ -15,23 +15,23 @@ internal sealed class SessionRepository : ISessionRepository
     public void Add(Session session) => _db.Set<Session>().Add(session);
 
     public Task<Session?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
-        _db.Set<Session>()
-            .FirstOrDefaultAsync(x => x.Id == paymentSessionId, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Session>()
+            .FirstOrDefaultAsync(x => x.Id == paymentSessionId, ct), cancellationToken);
 
     public Task<Session?> GetByExternalChargeAsync(
         Code psp,
         string externalChargeId,
         CancellationToken cancellationToken) =>
-        _db.Set<Session>()
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Session>()
             .FirstOrDefaultAsync(
                 x => x.Psp == psp && x.PspExternalChargeId == externalChargeId,
-                cancellationToken);
+                ct), cancellationToken);
 
     // `||` rather than an `is ... or` pattern: an expression tree cannot contain pattern matching.
     public Task<Session?> GetOpenForOrderAsync(Guid orderId, CancellationToken cancellationToken) =>
-        _db.Set<Session>()
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Session>()
             .FirstOrDefaultAsync(
                 x => x.OrderId == orderId
                     && (x.Status == SessionStatus.Created || x.Status == SessionStatus.Redirected),
-                cancellationToken);
+                ct), cancellationToken);
 }

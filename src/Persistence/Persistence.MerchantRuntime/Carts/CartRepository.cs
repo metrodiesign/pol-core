@@ -18,7 +18,7 @@ internal sealed class CartRepository : ICartRepository
     public void Add(CartAggregate cart) => _db.Set<CartAggregate>().Add(cart);
 
     public Task<CartAggregate?> GetAsync(Guid cartId, CancellationToken cancellationToken) =>
-        _db.Set<CartAggregate>()
+        PlatformReadGuard.ReadAsync(ct => _db.Set<CartAggregate>()
             .Include(c => c.Items)
-            .FirstOrDefaultAsync(c => c.Id == cartId, cancellationToken);
+            .FirstOrDefaultAsync(c => c.Id == cartId, ct), cancellationToken);
 }

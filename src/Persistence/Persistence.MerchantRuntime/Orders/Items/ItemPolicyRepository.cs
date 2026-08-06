@@ -18,10 +18,12 @@ internal sealed class ItemPolicyRepository : IItemPolicyRepository
     public ItemPolicyRepository(MerchantRuntimeDbContext db) => _db = db;
 
     public Task<bool> ItemExistsAsync(Guid orderItemId, CancellationToken cancellationToken) =>
-        _db.Set<OrderItem>().AnyAsync(i => i.Id == orderItemId, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<OrderItem>()
+            .AnyAsync(i => i.Id == orderItemId, ct), cancellationToken);
 
     public Task<ItemPolicy?> GetPolicyByItemAsync(Guid orderItemId, CancellationToken cancellationToken) =>
-        _db.Set<ItemPolicy>().FirstOrDefaultAsync(p => p.OrderItemId == orderItemId, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<ItemPolicy>()
+            .FirstOrDefaultAsync(p => p.OrderItemId == orderItemId, ct), cancellationToken);
 
     public void Add(ItemPolicy policy) => _db.Set<ItemPolicy>().Add(policy);
 

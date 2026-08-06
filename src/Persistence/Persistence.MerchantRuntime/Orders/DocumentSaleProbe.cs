@@ -56,7 +56,7 @@ internal sealed class DocumentSaleProbe : IDocumentSaleProbe
         // hold lapse by itself (REQ-5.13).
         var openSince = _clock.UtcNow - Session.OpenTtl;
 
-        var matched = await (
+        var matched = await PlatformReadGuard.ReadAsync(ct => (
             from item in _db.OrderItems.IgnoreQueryFilters()
             join order in _db.Orders.IgnoreQueryFilters() on item.OrderId equals order.Id
             where documentNos.Contains(item.DocumentNo)
@@ -70,7 +70,7 @@ internal sealed class DocumentSaleProbe : IDocumentSaleProbe
                             || ((session.Status == SessionStatus.Created || session.Status == SessionStatus.Redirected)
                                 && session.CreatedAt > openSince))))
             select new HeldDocument(item.DocumentNo, item.ProductGroup, order.Id, order.Status))
-            .ToListAsync(cancellationToken);
+            .ToListAsync(ct), cancellationToken);
 
         // The same trim on the stored side. Values are trimmed on write (Orders.Domain Item does it), but SQL
         // Server matched a row that carries a trailing blank anyway, and that row must not be the thing that

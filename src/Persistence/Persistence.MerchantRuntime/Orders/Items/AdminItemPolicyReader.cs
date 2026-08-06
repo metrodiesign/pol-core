@@ -48,9 +48,9 @@ internal sealed class AdminItemPolicyReader : IAdminItemPolicyReader
             _ => query.AccessibleMerchantIds,
         };
 
-        var confined = await PolicyReportSfs
+        var confined = await PlatformReadGuard.ReadAsync(ct => PolicyReportSfs
             .BuildQuery(_db, ignoreFilters: true, confineToMerchants)
-            .ToListAsync(cancellationToken);   // bounded to the accessible/requested merchant set — see PolicyReportSfs's "ponytail" note
+            .ToListAsync(ct), cancellationToken);   // bounded to the accessible/requested merchant set — see PolicyReportSfs's "ponytail" note
 
         var filtered = confined.ApplyFilters(query.Filters, _logger).ToList();
 

@@ -23,12 +23,12 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MerchantRuntimeDbContext>();
 
-        var rows = await db.Database
+        var rows = await PlatformReadGuard.ReadAsync(ct => db.Database
             .SqlQueryRaw<OrderSummaryRow>(
                 "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, "
                 + "SummaryTokenExpiresAt FROM shop.Orders WHERE SummaryToken = {0}",
                 token)
-            .ToListAsync(cancellationToken)
+            .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         if (rows.Count == 0)
@@ -36,11 +36,11 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
 
         var r = rows[0];
 
-        var lineRows = await db.Database
+        var lineRows = await PlatformReadGuard.ReadAsync(ct => db.Database
             .SqlQueryRaw<OrderSummaryLineRow>(
                 "SELECT DocumentNo, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = {0}",
                 r.Id)
-            .ToListAsync(cancellationToken)
+            .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         var lines = lineRows

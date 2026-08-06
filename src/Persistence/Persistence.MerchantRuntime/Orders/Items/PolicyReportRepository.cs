@@ -25,9 +25,9 @@ internal sealed class PolicyReportRepository : IPolicyReportRepository
 
     public async Task<PagedResult<PolicyReportItem>> ListAsync(ListPolicyReportQuery query, CancellationToken cancellationToken)
     {
-        var confined = await PolicyReportSfs
+        var confined = await PlatformReadGuard.ReadAsync(ct => PolicyReportSfs
             .BuildQuery(_db, ignoreFilters: false, confineToMerchants: new HashSet<Guid> { query.MerchantId })
-            .ToListAsync(cancellationToken);   // bounded to one merchant — see PolicyReportSfs's own "ponytail" note
+            .ToListAsync(ct), cancellationToken);   // bounded to one merchant — see PolicyReportSfs's own "ponytail" note
 
         var filtered = confined.ApplyFilters(query.Filters, _logger).ToList();
 
