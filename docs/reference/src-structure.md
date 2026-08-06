@@ -107,6 +107,7 @@ abstraction ที่ระดับ application ใช้ร่วม — trans
 | `ISessionByTokenHash.cs` | lookup session จาก token hash (ใช้ร่วมทั้ง admin + merchant-user BFF) |
 | `PagedQuery.cs`, `PagedResult.cs`, `FilterOption.cs`, `FilterOperator.cs`, `SortOption.cs`, `SortDirection.cs`, `SearchOption.cs`, `SfsLike.cs` | **SFS convention** (search/filter/sort/page) ใช้ร่วมทุก list endpoint — ดู [`search-filter-sort.md`](search-filter-sort.md) |
 | `ConcurrencyConflictException.cs` → 409 · `ConflictException.cs` → 409 · `NotFoundException.cs` → 404 · `GoneException.cs` → 410 · `WriteGuardException.cs` · `MerchantBindingException.cs` | exception ที่ไม่ผูก EF; map เป็น HTTP status ที่ `ProblemDetailsExceptionHandler` |
+| `UpstreamUnavailableException.cs` → 503 · `DependencyUnavailableException.cs` → 503 | ทั้งคู่ map เป็น response 503 เดียวกันทุก byte (`"Upstream dependency unavailable"`, detail null) — แยกกันแค่ log ผ่าน property `{ExceptionType}`: `Upstream` = แหล่งข้อมูลภายนอก (SP ต้นทาง — ดู [products.md](products.md)), `Dependency` = ฐานข้อมูลแพลตฟอร์มเราเองอ่านไม่ได้ (`PlatformReadGuard`, §3) |
 
 ### 2.2 BuildingBlocks.Infrastructure (`→ BuildingBlocks.Application`, EF Core SqlServer)
 
@@ -173,7 +174,7 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 | `CorrelationIdMiddleware.cs` | stamp `X-Correlation-ID` ต่อ request (reuse ถ้า well-formed ไม่งั้น mint) + ดัน correlation/merchant id เข้า logging scope (id เท่านั้น ไม่ PII); `AddJsonConsoleLogging()`, `UseCorrelationId()` |
 | `CorsExtensions.cs` | per-request policy provider — admin plane (`/api/v1/admins/*`) credentialed, merchant plane default; origins จาก `Cors:AllowedOrigins`, **ไม่** `AllowAnyOrigin`; origins ว่าง = ปิด cross-origin (safe default) |
 | `HealthChecks.cs` | `AddReadinessHealthChecks` (DB `CanConnectAsync` + vault active key) + `MapPolHealthChecks` → `/health/live` (เปล่า), `/health/ready` (tag `ready`), body สั้นไม่หลุด topology |
-| `ProblemDetailsExceptionHandler.cs` | map exception → RFC7807: `NotFound`→404, `Concurrency`/`Conflict`→409, `Gone`→410, `ArgumentException`→400, `MerchantBinding`/`WriteGuard`→500 opaque, อื่น→500. Detail เป็น string คงที่ต่อ bucket (ไม่ใช้ `exception.Message`), log เต็มฝั่ง server |
+| `ProblemDetailsExceptionHandler.cs` | map exception → RFC7807: `NotFound`→404, `Concurrency`/`Conflict`→409, `Gone`→410, `ArgumentException`→400, `Upstream`/`DependencyUnavailable`→503, `MerchantBinding`/`WriteGuard`→500 opaque, อื่น→500. Detail เป็น string คงที่ต่อ bucket (ไม่ใช้ `exception.Message`), log เต็มฝั่ง server |
 
 ---
 
@@ -209,6 +210,8 @@ cross-cutting HTTP — observability, cors, health, error. (auth/OIDC **ไม�
 | `Persistence.Provisioning/ProvisioningCoordinator.cs` + `ProvisioningRegistration.cs` | Super-recheck `WITH (UPDLOCK, HOLDLOCK)` in-transaction + idempotency ledger + เขียน 2 context ใน tx เดียว |
 
 **Escape-hatch allowlist**: `IgnoreQueryFilters()`/`ExecuteUpdate`/`ExecuteDelete`/raw SQL ทำได้เฉพาะไฟล์ที่อยู่ใน `tests/Architecture.Tests/BypassPrimitiveTests.AllowedPorts` — call site ใหม่นอก allowlist = **red CI ทันที** ไม่ต้องรอ code review จับ.
+
+**Platform read-failure classification** (`PlatformReadGuard`, spec `probe-dependency-failure-mapping`, 2026-08-06): ทุก pure read บน `MerchantRuntimeDbContext` ที่อยู่บนเส้นทางตอบคำขอ (cart/checkout/order/payment/merchant/item-policy/webhook resolver/vault reveal) ห่อผ่าน guard `internal static` ตัวนี้ — จับ `DbException` แล้วโยน `DependencyUnavailableException` → **503** แทน 500 ทึบเดิม (ปลอดภัยให้ client retry เสมอ; ไม่ครอบ write — `SaveChanges`/`DbUpdateException` ไม่มีวันผ่าน guard, unique violation ยังเป็น 409 เหมือนเดิม). gate `PlatformReadGuardCoverageTests` (Architecture.Tests) text-scan สองชั้น: read token ต้องอยู่ใต้ guard หรือ allowlist ราย (ไฟล์, method), และทุก `*Async(`/`.Set<` call ที่ไม่อยู่ใน token list = แดงบังคับให้เติมเอง. **ยังไม่ครอบ** `Persistence.MerchantUsers` (auth/session อ่านก่อนถึง endpoint — VCentralPay ล่มเต็มรูปแบบยังเห็น 500 ที่ auth ก่อน) — เป็น follow-up ที่ต้องเปิด spec ใหม่ (ดู [gap ข้อ 26](platform-modules.md#ช่องว่างเทียบเป้าหมาย-as-built-gaps)).
 
 ---
 
