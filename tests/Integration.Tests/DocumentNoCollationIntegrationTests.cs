@@ -10,6 +10,7 @@ namespace Integration.Tests;
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection(SimSeedCollection.Name)]   // scheduling only — keeps the sim-touching set serialised (REQ-5.5)
 public sealed class DocumentNoCollationIntegrationTests
 {
     [Fact]

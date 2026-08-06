@@ -126,7 +126,7 @@ internal static class IntegrationDb
 
     private static string? Get(string key) => Environment.GetEnvironmentVariable(key);
 
-    private static string Require(string key) =>
+    internal static string Require(string key) =>
         Get(key) ?? throw new InvalidOperationException(
             $"Integration tests need env var '{key}'. Run docker/bootstrap/01-principals.sql (pol_app), "
             + "02-hippo-sim.sql (hippo_app) and 03-mammoth-sim.sql (mammoth_app), then export the principal passwords.");

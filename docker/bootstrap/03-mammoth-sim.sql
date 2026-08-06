@@ -16,6 +16,11 @@
 --   branch roster, REQ-1-REQ-8).
 -- Contract: docs/reference/vcentralpay-sp-quick-reference.pdf v1.0 (§1-§6).
 --
+-- TIME UNIT (sim-seed-date-stability REQ-2.4): every date here — the seed rows' @today, the SP's
+-- GETDATE() search window, and dbo.SeedInfo.AnchorDate — is this CONTAINER's local clock, which runs
+-- TZ=UTC (docker-compose and the CI runners set nothing else). Giving this container another TZ
+-- shifts the anchor date the whole integration suite keys off; if you ever do, do it knowingly.
+--
 -- WHAT THIS SIMULATES
 --   mammothdb <- centerdb on server mammoth -> dbo.usp_NonMotor_SearchDocument (FIRE | MISC)
 -- The simulated name deliberately differs from the real catalogue name so nobody mistakes one for
@@ -336,10 +341,29 @@ GO
 GRANT SELECT ON dbo.Documents TO mammoth_app;
 GO
 
+-- Anchor marker (sim-seed-date-stability REQ-2.1): the ONE place that records which "@today" the
+-- seeded rows were computed against. SimSeedFixture (tests/Integration.Tests) compares it to the
+-- sim's own CAST(GETDATE() AS date) and replays this file when they disagree. NOT part of the SP
+-- contract — the procedure never reads it and production code does not know it exists.
+IF OBJECT_ID(N'dbo.SeedInfo', N'U') IS NULL
+CREATE TABLE dbo.SeedInfo (
+    Id         int  NOT NULL PRIMARY KEY CHECK (Id = 1),  -- single row by construction
+    AnchorDate date NOT NULL);                             -- unit: UTC (container TZ, header note)
+GO
+-- Same reasoning as the dbo.Documents SELECT grant above: the anchor guard inside the contract
+-- tests runs on mammoth_app's own connection, not sa.
+GRANT SELECT ON dbo.SeedInfo TO mammoth_app;
+GO
+
 DELETE FROM dbo.Documents;
 GO
 
 DECLARE @today date = CAST(GETDATE() AS date);
+
+-- REQ-2.1: anchor and data are written from the SAME @today in the SAME batch — they can never
+-- drift from each other, only (together) from a later "today".
+DELETE FROM dbo.SeedInfo;
+INSERT INTO dbo.SeedInfo (Id, AnchorDate) VALUES (1, @today);
 
 -- The hand-written rows are the axis rows: each exists to make one contract rule observable.
 -- PolicySequenceNo is a plain 1-based index, 6-digit zero-padded — mammothdb's SourceSystem is

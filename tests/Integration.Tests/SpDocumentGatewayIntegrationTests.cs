@@ -19,6 +19,7 @@ namespace Integration.Tests;
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection(SimSeedCollection.Name)]   // pins TotalRows 42/40, so it needs the fixture's fresh seed
 public sealed class SpDocumentGatewayIntegrationTests
 {
     private const string Motor = "Motor";
