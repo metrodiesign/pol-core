@@ -70,7 +70,8 @@
        - regression checks: grep `EnableRetryOnFailure(` ใน src+tests = 0 จุด (hit เดียวคือ doc comment ที่บอกว่า "ปิดอยู่"), diff ไม่มี `ISecurityTelemetry`/`_telemetry.Emit` ใหม่ (REQ-4.3), `MerchantRuntimeUnitOfWork.cs` diff = doc comment ล้วน + `VaultAuditAppender.cs` ไม่ถูกแตะ (REQ-5.3), guard ไม่เพิ่ม query ต่อคำขอ (ห่อ call site เดิม 1:1 — REQ-5.2)
        - spec-trace: `scripts/spec-trace.sh probe-dependency-failure-mapping` -> OK เกณฑ์ 25 ข้อครบ, EARS lint ผ่าน
        - viewports: n/a — logic-only
-       - deviations: CI บน PR ยังไม่รัน — งานยังไม่ commit/เปิด PR (รอสั่ง ship); local ครบสามชุดข้างบนแล้ว
+       - CI: PR #188 (`feat/probe-dependency-failure-mapping`, commit `1bc4e31`) เขียวครบทุก check — `guards + spec-trace`, `docker build (api, migrate)`, `dotnet build + test`, `dotnet integration (live SQL 2025)` — ปิด Verify ของ task นี้แล้ว
+       - deviations: none
 
 ## Suggested execution batches
 
