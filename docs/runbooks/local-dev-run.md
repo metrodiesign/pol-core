@@ -413,6 +413,15 @@ export POL_DESIGN_SQL="Server=localhost,11433;Database=VCentralPay;User Id=sa;Pa
 > `SESSION_CONTEXT` กับ connection, ตอนนี้ไม่มีอะไรเขียน `SESSION_CONTEXT` แล้วจึงเหลือไว้เพราะ connection สด
 > ต่อเทสอ่านง่ายกว่าเฉย ๆ. ทุกเทสชี้ container เดียวกัน — อย่าเผลอสร้าง container ใหม่ที่พอร์ตอื่นสำหรับ integration.
 
+> **วันที่ของ sim seed ดูแลตัวเอง (sim-seed-date-stability):** seed ของ `hippodb`/`mammothdb` คำนวณ
+> ข้อมูลเทียบ "วันนี้" ตอน bootstrap แล้วบันทึกวันนั้นลง `dbo.SeedInfo` (anchor) — container ที่เปิดค้าง
+> ข้ามวันเคยทำให้ `SpDocumentContractTests`/`SpDocumentGatewayIntegrationTests` แดงเอง. ตอนนี้
+> `SimSeedFixture` (collection `sim-seed` ใน `Integration.Tests`) เช็ค anchor เทียบนาฬิกาของ sim เอง
+> ก่อนรัน แล้ว replay `02-hippo-sim.sql`/`03-mammoth-sim.sql` ให้อัตโนมัติเมื่อ stale — รัน `dotnet test`
+> ตรง ๆ ได้เลย **ไม่ต้อง restart container หรือ `docker compose down -v` เพื่อแก้วันที่อีก** (ยังต้องมี
+> container ขึ้นอยู่ + env ครบตามข้างบน). ถ้า run คร่อมเที่ยงคืน UTC พอดี test จะแดงพร้อมข้อความบอก
+> anchor กับวันของ sim ทั้งคู่ — รันซ้ำหนึ่งครั้งจบ.
+
 CI gate: unit + integration ต้องเขียวก่อน merge (required check).
 
 ---

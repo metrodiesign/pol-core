@@ -16,6 +16,7 @@ namespace Integration.Tests;
 /// services.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection(SimSeedCollection.Name)]   // scheduling only — must not read dbo.Documents mid-replay (REQ-5.5)
 public sealed class SimCrossInstanceConsistencyTests
 {
     [Fact]

@@ -25,6 +25,7 @@ namespace Integration.Tests;
 /// re-running it here does not disturb other suites' data.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection(SimSeedCollection.Name)]   // LookupAsync/SearchAsync hit the live sim instances (REQ-5.2)
 public sealed class SeedDemoIntegrationTests
 {
     private static readonly string[] UpstreamSaleCodes = ["77001", "77002", "77003", "77004", "77005", "77006"];
@@ -159,38 +160,16 @@ public sealed class SeedDemoIntegrationTests
     }
 
     /// <summary>Runs <c>docker/bootstrap/seed-demo.sql</c> the way <c>scripts/seed-demo.sh</c> and the bootstrap
-    /// container do: substitute <c>$(DbName)</c>, split on <c>GO</c>, execute one batch at a time. Idempotent
-    /// (delete-by-prefix then re-insert) and scoped to its own demo Id prefixes, so re-running it per fact does
-    /// not disturb other suites' data.</summary>
+    /// container do: substitute <c>$(DbName)</c>, split on <c>GO</c> (<see cref="SqlScripts"/>), execute one
+    /// batch at a time. Idempotent (delete-by-prefix then re-insert) and scoped to its own demo Id prefixes, so
+    /// re-running it per fact does not disturb other suites' data.</summary>
     private static async Task RunSeedAsync(SqlConnection c)
     {
         var db = Environment.GetEnvironmentVariable("POL_DB") ?? "VCentralPay";
-        var script = (await File.ReadAllTextAsync(SeedScriptPath()))
+        var script = (await File.ReadAllTextAsync(SqlScripts.RepoPath("docker", "bootstrap", "seed-demo.sql")))
             .Replace("$(DbName)", db, StringComparison.Ordinal);
-        foreach (var batch in SplitBatches(script))
+        foreach (var batch in SqlScripts.SplitBatches(script))
             await IntegrationDb.ExecAsync(c, batch);
-    }
-
-    /// <summary>Splits a sqlcmd script on its <c>GO</c> batch separators (a line that is only <c>GO</c>), the way
-    /// sqlcmd does — ADO.NET executes one batch at a time and does not understand <c>GO</c> itself.</summary>
-    private static IEnumerable<string> SplitBatches(string script)
-    {
-        var current = new List<string>();
-        foreach (var line in script.Split('\n'))
-        {
-            if (line.Trim().Equals("GO", StringComparison.OrdinalIgnoreCase))
-            {
-                var batch = string.Join('\n', current).Trim();
-                if (batch.Length > 0) yield return batch;
-                current.Clear();
-            }
-            else
-            {
-                current.Add(line);
-            }
-        }
-        var tail = string.Join('\n', current).Trim();
-        if (tail.Length > 0) yield return tail;
     }
 
     private static async Task<List<string>> ReadColumnAsync(SqlConnection c, string sql)
@@ -202,17 +181,5 @@ public sealed class SeedDemoIntegrationTests
         while (await reader.ReadAsync())
             values.Add(reader.GetString(0));
         return values;
-    }
-
-    private static string SeedScriptPath()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null)
-        {
-            var candidate = Path.Combine(dir.FullName, "docker", "bootstrap", "seed-demo.sql");
-            if (File.Exists(candidate)) return candidate;
-            dir = dir.Parent;
-        }
-        throw new FileNotFoundException("Could not locate docker/bootstrap/seed-demo.sql above the test output directory.");
     }
 }

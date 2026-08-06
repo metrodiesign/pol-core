@@ -16,7 +16,11 @@ namespace Integration.Tests;
 /// (<see cref="IntegrationDb.ForCatalog"/>) — which owns EXECUTE on that procedure, so every test also
 /// re-proves the GRANT.
 ///
-/// The seed is deterministic and relative to GETDATE(), so expectations are stable on any run day. Rows are
+/// The seed is deterministic and relative to the bootstrap day's GETDATE(); expectations stay stable on any
+/// run day because <see cref="SimSeedFixture"/> replays the seed when its recorded anchor (dbo.SeedInfo) no
+/// longer matches the sim's own today, and every date-relative expectation below reads that anchor
+/// (<see cref="SimSeedFixture.Anchor"/>) instead of the HOST's own clock (sim-seed-date-stability
+/// REQ-1/REQ-2 — three clocks collapsed into the sim's one). Rows are
 /// identified by the running number at the tail of DocumentNo (see <see cref="Seqs"/>) — Motor's
 /// ENDORSEMENT rows carry an extra un-delimited '1' after it (REQ-1.3), stripped only when the row's own
 /// SourceSystem/DocumentType say so. Motor embeds a Thai abbreviation right after the shared
@@ -28,8 +32,13 @@ namespace Integration.Tests;
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
 [Trait("Category", "Integration")]
+[Collection(SimSeedCollection.Name)]
 public sealed class SpDocumentContractTests
 {
+    private readonly SimSeedFixture _fixture;
+
+    public SpDocumentContractTests(SimSeedFixture fixture) => _fixture = fixture;
+
     private const string Motor = "Motor";
     private const string NonMotor = "NonMotor";
 
@@ -462,7 +471,9 @@ public sealed class SpDocumentContractTests
     public async Task Coverage_bounds_are_inclusive_on_both_ends(string key)
     {
         var side = SideOf(key);
-        var today = DateTime.Today;
+        // The seed anchor, not the host's today (REQ-2.3): the landmark offsets below are
+        // relative to the @today the seed was computed against, which only the sim knows.
+        var today = _fixture.Anchor;
 
         // The landmark row starts exactly 30 days ago and ends exactly 335 days out; collapsing a bound pair
         // onto that day must keep it. An exclusive comparison — or a date/datetime2 truncation bug on the
@@ -568,8 +579,8 @@ public sealed class SpDocumentContractTests
         // REQ-2.5 boundary: 8000013 starts on DATEADD(month, -6, today) to the day. It is inside the default
         // page, and asking for exactly that day returns it — an exclusive window would lose it silently.
         var pinned = await SearchAsync(MotorSide,
-            ("@CoverageStartFrom", DateTime.Today.AddMonths(-6)),
-            ("@CoverageStartTo", DateTime.Today.AddMonths(-6)));
+            ("@CoverageStartFrom", _fixture.Anchor.AddMonths(-6)),
+            ("@CoverageStartTo", _fixture.Anchor.AddMonths(-6)));
 
         Assert.Equal(new[] { "8000013" }, Seqs(pinned));
         Assert.Contains("8000013", Seqs(await SearchAsync(MotorSide)));
@@ -615,7 +626,7 @@ public sealed class SpDocumentContractTests
     /// <summary>Executes the side's procedure with the two required parameters filled in, so a test only
     /// states the parameters it is actually about. DBNull is mapped to null on the way out — the adapter
     /// reads the same values through IsDBNull, and null reads better in an assertion.</summary>
-    private static async Task<SpResult> SearchAsync(Side side, params (string Name, object? Value)[] arguments)
+    private async Task<SpResult> SearchAsync(Side side, params (string Name, object? Value)[] arguments)
     {
         var parameters = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
         {
@@ -625,6 +636,9 @@ public sealed class SpDocumentContractTests
         foreach (var (name, value) in arguments) parameters[name] = value;
 
         await using var connection = await IntegrationDb.OpenAsync(IntegrationDb.ForCatalog(side.Catalog));
+        // REQ-1.4: if UTC midnight crossed since the fixture verified the seed, fail HERE with a
+        // message naming both dates — not downstream as a bare `Expected 42 Actual 41`.
+        await _fixture.GuardAnchorAsync(connection);
         await using var command = connection.CreateCommand();
         command.CommandType = CommandType.StoredProcedure;
         command.CommandText = side.Procedure;
@@ -650,7 +664,7 @@ public sealed class SpDocumentContractTests
     /// <summary>Walks every page of the side's default search, in order — the full-page-walk shared by
     /// <see cref="The_pages_cut_one_document_number_ordered_list"/> and
     /// <see cref="Motor_endorsement_rows_sort_after_every_other_row_by_thai_letter"/>.</summary>
-    private static async Task<List<SpResult>> AllPagesAsync(Side side)
+    private async Task<List<SpResult>> AllPagesAsync(Side side)
     {
         var pages = new List<SpResult>();
         for (var pageNo = 1; pageNo <= side.TotalPages; pageNo++)
@@ -658,7 +672,7 @@ public sealed class SpDocumentContractTests
         return pages;
     }
 
-    private static async Task<int> RejectionAsync(Side side, params (string Name, object? Value)[] arguments)
+    private async Task<int> RejectionAsync(Side side, params (string Name, object? Value)[] arguments)
     {
         var thrown = await Assert.ThrowsAsync<SqlException>(() => SearchAsync(side, arguments));
         return thrown.Number;
