@@ -37,7 +37,8 @@ internal static class SfsOpenApi
     public static void AddProductQueryParameters(OpenApiOperation operation)
     {
         AddPagingParameters(operation).Add(Param("productFilters", JsonSchemaType.String,
-            "JSON object ของตัวกรองเอกสารแบบ URL-encoded (บังคับ): {\"saleCode\" (บังคับ),\"searchText\",\"insuredName\","
+            "JSON object ของตัวกรองเอกสารแบบ URL-encoded (บังคับ — ต้องระบุ productGroup หรือ insuranceType อย่างน้อยหนึ่ง"
+            + " เพื่อเลือกฝั่ง Motor/NonMotor; รหัสผู้ขายกำหนดโดย server เองจากผู้ใช้ที่ยืนยันตัวตนแล้ว ไม่ใช่ member ที่นี่): {\"searchText\",\"insuredName\","
             + "\"policyNo\",\"applicationNo\",\"documentType\",\"productGroup\",\"paymentStatus\":\"UNPAID\"|\"PAID\"|\"ALL\","
             + "\"insuranceType\":\"Motor\"|\"NonMotor\" (บังคับเมื่อไม่ส่ง productGroup และต้องไม่ขัดแย้งกับ productGroup),"
             + "\"countMode\":\"EXACT\"|\"FAST\" (ค่าเริ่มต้น EXACT; FAST ให้ totalRows/totalPages เป็น null),"

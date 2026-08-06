@@ -17,4 +17,12 @@ public interface ISpDocumentGateway
     /// <summary>Runs one page of the §2 search and returns the §5.1 metadata plus the §5.2 rows,
     /// exactly as the procedure ordered them.</summary>
     Task<SpDocumentSearchResult> SearchAsync(SpDocumentSearchRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Reads one document from the upstream by its number (products-external-source-of-truth REQ-3):
+    /// runs the same search with <c>@SearchText = documentNo</c>, <c>@PaymentStatus = 'ALL'</c> and
+    /// <c>@ProductGroup = 'ALL'</c> on the side that <see cref="SpDocumentLookupRequest.ProductGroup"/> selects,
+    /// then keeps only the rows whose <c>DocumentNo</c> matches exactly per REQ-2.3 (the <c>@SearchText</c> LIKE
+    /// also returns prefix matches). Returns the single match, <c>null</c> when none match (REQ-3.6), and throws
+    /// <see cref="SpDocumentAmbiguousException"/> when more than one matches (REQ-3.7).</summary>
+    Task<SpDocumentItem?> LookupAsync(SpDocumentLookupRequest request, CancellationToken cancellationToken);
 }

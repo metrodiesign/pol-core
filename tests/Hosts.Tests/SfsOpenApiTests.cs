@@ -46,6 +46,35 @@ public sealed class SfsOpenApiTests
         return [.. op.GetProperty("parameters").EnumerateArray().Select(p => p.GetProperty("name").GetString())];
     }
 
+    private static async Task<JsonElement> QueryParameterAsync(string path, string name)
+    {
+        using var factory = new SfsOpenApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        var op = root.GetProperty("paths").GetProperty(path).GetProperty("get");
+        return op.GetProperty("parameters").EnumerateArray()
+            .Single(p => p.GetProperty("name").GetString() == name).Clone();
+    }
+
+    // REQ-4.8: saleCode moved server-side and is no longer a member of productFilters, so the published contract
+    // must not advertise it — an SDK generator that read a mandatory saleCode would hand every client an argument
+    // the server silently ignores, the exact trust-boundary inversion REQ-4.8 forbids. REQ-3.2: exactly one
+    // catalogue side (Motor|NonMotor) must be named, so productFilters is a required query parameter — the OpenAPI
+    // flag must match that behaviour, not the earlier "optional" gloss.
+    [Fact]
+    public async Task Products_get_productFilters_is_required_and_does_not_advertise_saleCode()
+    {
+        var productFilters = await QueryParameterAsync("/api/v1/products", "productFilters");
+
+        Assert.True(productFilters.GetProperty("required").GetBoolean());
+        Assert.DoesNotContain("saleCode", productFilters.GetProperty("description").GetString(),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     // Every endpoint carrying the SfsQueryParamsMarker must declare all five SFS parameters (REQ-13;
     // admin-account-management REQ-7.6/F2 for the admin directory). These are the four in the host today.
     [Theory]

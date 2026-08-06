@@ -638,19 +638,23 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
 // toggle (a transitional un-gated Bearer state) no longer has a Bearer path to fall back to, so it is deleted.
 
 // GET /products — the document catalogue, and the ONLY product endpoint: the catalogue is read-only over HTTP
-// because the documents originate in the upstream policy system, not from a merchant filling in a form. The
-// write seam is CreateProductCommand, reachable from an importer/tests but deliberately not mapped to a route.
-// It carries no merchant of its own, so the request is scoped by the mandatory saleCode inside productFilters and
-// gated by the merchant-user policy; the input surface is exactly SP guide §2: paging plus the typed
-// productFilters (REQ-7.1). The search itself runs against the upstream procedures and each page is mirrored
-// into shop.Products on the way out, so 503 is a real outcome here: the upstream being unreachable is not a
-// 500 of ours (products-sp-gateway REQ-7.1/8.4).
-api.MapGet("/products", async (HttpContext http, IMediator mediator, CancellationToken ct) =>
+// (REQ-1.1) because the documents originate in the upstream policy system, not from a merchant filling in a form.
+// It carries no merchant of its own, so the request is scoped by the merchant user's OWN saleCode (server-side,
+// never a client field — REQ-4.8) and gated by the merchant-user policy; the input surface is SP guide §2 minus
+// @SaleCode: paging plus the optional typed productFilters. The search runs live against the upstream procedures
+// and nothing is mirrored (REQ-1.2), so 503 is a real outcome here: the upstream being unreachable is not a 500
+// of ours (REQ-7.1). A merchant user with no saleCode bound is refused with 403 BEFORE the filters are parsed
+// (REQ-4.9), so someone with no catalogue access cannot probe filter shapes.
+api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
+    if (string.IsNullOrEmpty(actor.SaleCode))
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "No sale code is bound to this merchant user.");
+
     var p = SfsQueryParser.ParsePaging(http.Request.Query);
     var result = await mediator.Send(new ListProductsQuery
     {
         Page = p.Page, Limit = p.Limit,
+        SaleCode = actor.SaleCode,
         ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
     }, ct);
     return Results.Ok(result);
@@ -660,10 +664,11 @@ api.MapGet("/products", async (HttpContext http, IMediator mediator, Cancellatio
     .WithTags("ผลิตภัณฑ์")
     .WithName("ListProducts")
     .WithSummary("รายการผลิตภัณฑ์")
-    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้า ค้นสดจากระบบต้นทางแล้วบันทึกลงแคตตาล็อกกลาง รับ page, limit และ productFilters (บังคับ — ต้องมี saleCode ซึ่งเป็นตัวจำกัดขอบเขตข้อมูล) ตาม §2 ของเอกสาร SP; ต้องระบุ insuranceType (Motor|NonMotor) เมื่อไม่ได้ส่ง productGroup และห้ามขัดแย้งกับ productGroup; countMode (EXACT|FAST ค่าเริ่มต้น EXACT) — FAST ให้ totalRows/totalPages เป็น null; ตอบเป็น envelope §5.1 ที่คัดลอกค่ามาจากระบบต้นทาง; ไม่รองรับ filters/sort/search")
+    .WithDescription("รายการเอกสารประกันแบบแบ่งหน้า ค้นสดจากระบบต้นทาง (ไม่บันทึกสำเนา) รับ page, limit และ productFilters ตาม §2 ของเอกสาร SP โดย saleCode มาจากผู้ใช้ที่ยืนยันตัวตนแล้วฝั่ง server (client กำหนดเองไม่ได้); ต้องระบุ insuranceType (Motor|NonMotor) เมื่อไม่ได้ส่ง productGroup และห้ามขัดแย้งกับ productGroup; countMode (EXACT|FAST ค่าเริ่มต้น EXACT) — FAST ให้ totalRows/totalPages เป็น null; แต่ละแถวมี soldByPlatform บอกว่าเอกสารถูกขายผ่านแพลตฟอร์มนี้แล้วหรือไม่ และเมื่อ paymentStatus เป็น UNPAID (ค่าเริ่มต้น) จะตัดเอกสารที่ขายแล้วออก; ผู้ใช้ที่ไม่มี saleCode -> 403")
     .Produces<ProductPage>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Cart — open, add/merge lines, review, adjust, clear. Merchant comes from the principal; the commands are
@@ -681,28 +686,56 @@ api.MapPost("/carts", async (IActorContext actor, IMediator mediator, Cancellati
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPost("/carts/{cartId:guid}/items", async (
-    Guid cartId, AddItemToCartRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, AddItemToCartRequest body, IActorContext actor, IMediator mediator,
+    IDocumentSaleProbe documentSales, CancellationToken ct) =>
 {
-    // The unit price is the catalog's, NEVER the client's: look the product up first and price the line
-    // from it (the cart is "selected plans + quote", reference 2.4). A document that is not UNPAID is already
-    // sold, so it cannot be added -> 400 (REQ-2.1).
-    var product = await mediator.Send(new GetProductByIdQuery(body.ProductId), ct);
-    if (product is null || product.PaymentStatus != PaymentStatus.UNPAID)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown or inactive product.");
+    // REQ-4.9 — a user with no sale code cannot use the catalogue at all.
+    if (string.IsNullOrEmpty(actor.SaleCode))
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "No sale code is bound to this merchant user.");
 
-    // The single currency boundary: Product carries a bare decimal (§5.2), while Cart/Checkout/Order/
-    // PaymentSession stay Money{Amount,Currency}, so THB is minted here and nowhere else (REQ-8.4).
+    // productGroup only routes to the Motor vs Non-Motor procedure (REQ-3.2); the document that comes back
+    // carries its own authoritative group. Matched by name (not raw Enum.TryParse, which also accepts "0").
+    if (!Enum.GetNames<ProductGroup>().Contains(body.ProductGroup, StringComparer.Ordinal)
+        || !Enum.TryParse<ProductGroup>(body.ProductGroup, out var productGroup))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsupported product group.");
+
+    // The unit price is the upstream's TotalPremium, NEVER the client's: read the document live and price the
+    // line from it (REQ-4.1/4.2). saleCode is the merchant user's own (REQ-4.8). Not found -> 400 (REQ-4.5);
+    // upstream unreachable -> 503 (REQ-7.1); a blank/over-length/ambiguous number -> 400, all via the shared
+    // ProblemDetails handler.
+    var doc = await mediator.Send(new LookupDocumentQuery(body.DocumentNo, productGroup, actor.SaleCode), ct);
+    if (doc is null)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown document.");
+
+    // REQ-5.3 — the upstream itself reports the document PAID, so it can never be sold again.
+    if (doc.PaymentStatus == PaymentStatus.PAID)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The document is not available for sale.");
+
+    // REQ-5.4 — an order on this platform (possibly another merchant's) already sold it or is mid-payment for
+    // it. The message names no other merchant or order (REQ-5.7).
+    var statuses = await documentSales.ProbeAsync(
+        [new DocumentKey(doc.DocumentNo, doc.ProductGroup.ToString())], ct);
+    if (statuses.Count > 0)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The document is not available for sale.");
+
+    // The single currency boundary: the view carries a bare decimal (§5.2), while Cart/Checkout/Order/
+    // PaymentSession stay Money{Amount,Currency}, so THB is minted here and nowhere else (REQ-4.3). The
+    // DocumentNo/SaleCode/ProductGroup stored are the upstream's own returned values (REQ-4.7). A document
+    // already in this cart -> Cart.AddItem throws ArgumentException -> 400 (REQ-9.4).
     var result = await mediator.Send(new AddItemToCartCommand(
-        cartId, actor.MerchantId, body.ProductId, body.Quantity, Money.Of(product.TotalPremium, "THB")), ct);
+        cartId, actor.MerchantId, doc.DocumentNo, doc.SaleCode, doc.ProductGroup.ToString(), body.Quantity,
+        Money.Of(doc.TotalPremium, "THB")), ct);
     return Results.Ok(result);
 }).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("AddCartItem")
     .WithSummary("เพิ่มรายการสินค้าในตะกร้า")
-    .WithDescription("เพิ่ม product line จากแคตตาล็อกเข้าตะกร้า โดยตั้งราคาตามแคตตาล็อก หากไม่พบผลิตภัณฑ์หรือไม่ active -> 400")
+    .WithDescription("เพิ่มเอกสารประกันเข้าตะกร้าด้วย documentNo + productGroup โดยอ่านเอกสารสดจากต้นทางเพื่อตั้งราคาจาก TotalPremium (ไม่รับราคาจาก client) saleCode มาจากผู้ใช้ที่ยืนยันตัวตนแล้ว; ไม่พบเอกสาร/ต้นทางบอก PAID/เอกสารถูกขายหรือกำลังชำระแล้ว/เอกสารซ้ำในตะกร้า -> 400, ไม่มี saleCode -> 403, ต้นทางล่ม -> 503")
     .Produces<AddItemResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapGet("/carts/{cartId:guid}", async (
     Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -718,31 +751,33 @@ api.MapGet("/carts/{cartId:guid}", async (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-api.MapDelete("/carts/{cartId:guid}/items/{productId:guid}", async (
-    Guid cartId, Guid productId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+api.MapDelete("/carts/{cartId:guid}/items/{itemId:guid}", async (
+    Guid cartId, Guid itemId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, actor.MerchantId, productId), ct);
+    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, actor.MerchantId, itemId), ct);
     return TypedResults.Ok(view);
 }).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("RemoveCartItem")
     .WithSummary("ลบรายการในตะกร้า")
-    .WithDescription("ลบ product line ออกจากตะกร้า แล้วคืนตะกร้าที่อัปเดตแล้ว")
+    .WithDescription("ลบรายการออกจากตะกร้าด้วย itemId (รหัสรายการ ไม่ใช่ documentNo เพราะเลขเอกสารมี / และอักษรไทย) แล้วคืนตะกร้าที่อัปเดตแล้ว หากไม่พบ itemId -> 404")
     .Produces<CartView>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound);
 
-api.MapPut("/carts/{cartId:guid}/items/{productId:guid}", async (
-    Guid cartId, Guid productId, SetCartItemQuantityRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+api.MapPut("/carts/{cartId:guid}/items/{itemId:guid}", async (
+    Guid cartId, Guid itemId, SetCartItemQuantityRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, actor.MerchantId, productId, body.Quantity), ct);
+    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, actor.MerchantId, itemId, body.Quantity), ct);
     return TypedResults.Ok(view);
 }).RequireAuthorization("merchant-user").RequireUserCsrf()
     .WithTags("ตะกร้าสินค้า")
     .WithName("SetCartItemQuantity")
     .WithSummary("ปรับจำนวนรายการในตะกร้า")
-    .WithDescription("ปรับจำนวนของ product line แล้วคืนตะกร้าที่อัปเดตแล้ว")
+    .WithDescription("ปรับจำนวนของรายการด้วย itemId แล้วคืนตะกร้าที่อัปเดตแล้ว หากไม่พบ itemId -> 404")
     .Produces<CartView>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status404NotFound);
 
 api.MapPost("/carts/{cartId:guid}/clear", async (
     Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -763,7 +798,8 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
 // comes from the cart, SumInsured/CoverageDurationDays/Insurer come from the server-side GetProductByIdQuery
 // (never the client, same trust boundary Price already has).
 api.MapPost("/checkouts", async (
-    StartCheckoutRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    StartCheckoutRequest body, IActorContext actor, IMediator mediator,
+    IDocumentSaleProbe documentSales, CancellationToken ct) =>
 {
     var cart = await mediator.Send(new GetCartQuery(body.CartId, actor.MerchantId), ct);
     if (cart is null)
@@ -779,11 +815,15 @@ api.MapPost("/checkouts", async (
     if (cart.Items.Any(i => i.Quantity != 1))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Insurance items must have quantity 1.");
 
-    var cartProductIds = cart.Items.Select(i => i.ProductId).ToHashSet();
-    var insuredProductIds = body.InsuredPersons.Select(p => p.ProductId).ToList();
-    if (insuredProductIds.Count != insuredProductIds.Distinct().Count())
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Duplicate ProductId in insuredPersons.");
-    if (!cartProductIds.SetEquals(insuredProductIds))
+    // Documents are compared per REQ-2.3 — trimmed, case ignored. insuredPersons must cover every cart line
+    // exactly once (REQ-8.4); a documentNo repeated in insuredPersons is a 400 (REQ-8.5).
+    var cartDocuments = cart.Items
+        .Select(i => i.DocumentNo.Trim())
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var insuredDocuments = body.InsuredPersons.Select(p => (p.DocumentNo ?? string.Empty).Trim()).ToList();
+    if (insuredDocuments.Count != insuredDocuments.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Duplicate documentNo in insuredPersons.");
+    if (!cartDocuments.SetEquals(insuredDocuments))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "insuredPersons must cover every cart line exactly once.");
 
     // REQ-6.2 — the channel must be one of the three the platform supports. Matched against the member
@@ -804,15 +844,31 @@ api.MapPost("/checkouts", async (
     // REQ-6.6/6.7 — throws ArgumentException (-> 400) for a missing name/phone or a malformed phone/email.
     var customer = CustomerContact.Of(body.Customer?.Name, body.Customer?.Phone, body.Customer?.Email);
 
+    // REQ-5.5 — one probe read for the whole cart before anything is snapshotted: if any line's document is
+    // already sold or mid-payment on this platform (possibly another merchant's order), no checkout session is
+    // created. The message names no other merchant or order (REQ-5.7).
+    var soldStatuses = await documentSales.ProbeAsync(
+        cart.Items.Select(i => new DocumentKey(i.DocumentNo, i.ProductGroup)).ToArray(), ct);
+    if (soldStatuses.Count > 0)
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart document is no longer available.");
+
     var items = new List<CheckoutItemInput>();
     var netTotal = Money.Zero(subtotal.Currency);
     foreach (var item in cart.Items)
     {
-        var product = await mediator.Send(new GetProductByIdQuery(item.ProductId), ct);
-        if (product is null || product.PaymentStatus != PaymentStatus.UNPAID)   // already sold -> 409 (REQ-2.1)
-            return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart product is no longer available.");
+        // REQ-4.4 — read each document live again at checkout and snapshot it; the price stays the cart's
+        // (REQ-4.6). The group stored on the line only routes the lookup; the returned document is authoritative.
+        if (!Enum.TryParse<ProductGroup>(item.ProductGroup, out var lineGroup))
+            return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart document is no longer available.");
 
-        var person = body.InsuredPersons.Single(p => p.ProductId == item.ProductId);
+        // Not found (incl. dropped out of the upstream search window) -> 409 (REQ-7.4); upstream unreachable ->
+        // 503 (REQ-7.5) via the shared handler; the upstream reporting it PAID -> 409 (REQ-5.3).
+        var doc = await mediator.Send(new LookupDocumentQuery(item.DocumentNo, lineGroup, item.SaleCode), ct);
+        if (doc is null || doc.PaymentStatus == PaymentStatus.PAID)
+            return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "A cart document is no longer available.");
+
+        var person = body.InsuredPersons.Single(
+            p => string.Equals((p.DocumentNo ?? string.Empty).Trim(), item.DocumentNo.Trim(), StringComparison.OrdinalIgnoreCase));
 
         // REQ-6.3/6.4 — the discount is the ONLY money the client contributes, and it is a Money in the
         // line's own currency. Money.Of rejects a negative one; LineAmounts the rest.
@@ -822,9 +878,9 @@ api.MapPost("/checkouts", async (
         netTotal = netTotal.Add(LineAmounts.Net(gross, discount));
 
         items.Add(new CheckoutItemInput(
-            item.ProductId, item.Quantity, item.UnitPrice,
-            product.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
-            product.PolicyNumber, product.StartDate, product.EndDate,
+            item.Quantity, item.UnitPrice,
+            doc.DocumentNo, doc.ProductGroup.ToString(), doc.DocumentType.ToString(),
+            doc.PolicyNumber, doc.StartDate, doc.EndDate,
             person.FirstName, person.LastName, person.IdNumber, person.DateOfBirth, discount));
     }
 
@@ -858,12 +914,13 @@ api.MapPost("/checkouts", async (
     .WithTags("เช็คเอาต์")
     .WithName("StartCheckout")
     .WithSummary("เริ่มเช็คเอาต์")
-    .WithDescription("คำนวณราคาเช็คเอาต์จาก subtotal ของตะกร้า (ไม่ใช้จำนวนเงินจาก client) พร้อม snapshot เงื่อนไขประกันฝั่ง server แล้วตรึงตะกร้าเป็น CheckedOut หากไม่พบตะกร้า -> 404, ตะกร้าว่าง/ไม่ตรงกัน/qty!=1 -> 400, ตะกร้าไม่ได้เปิดอยู่/มี checkout ที่ยังไม่ปิด/ผลิตภัณฑ์ไม่ active -> 409")
+    .WithDescription("คำนวณราคาเช็คเอาต์จาก subtotal ของตะกร้า (ไม่ใช้จำนวนเงินจาก client) พร้อมอ่านเอกสารสดจากต้นทางเป็น snapshot ต่อบรรทัด (ราคายังมาจากตะกร้า) แล้วตรึงตะกร้าเป็น CheckedOut; อ้างผู้เอาประกันด้วย documentNo และต้องครอบทุกบรรทัดพอดีหนึ่งครั้ง หากไม่พบตะกร้า -> 404, ตะกร้าว่าง/ไม่ตรงกัน/qty!=1/documentNo ซ้ำใน insuredPersons -> 400, ตะกร้าไม่ได้เปิด/มี checkout ค้าง/เอกสารถูกขายหรือกำลังชำระ/ต้นทางบอก PAID/อ่านเอกสารไม่พบ -> 409, ต้นทางล่ม -> 503")
     .Produces<StartCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
     Guid checkoutSessionId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -977,7 +1034,7 @@ api.MapGet("/orders/{token}/summary", async (
     // payment-session id (REQ-8.9 — the payment state is asked for through payment-status).
     return Results.Ok(new OrderSummaryResponse(
         summary.OrderId, summary.OrderNo, summary.Amount, summary.Status,
-        summary.Lines.Select(l => new OrderSummaryLineResponse(l.ProductId, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
+        summary.Lines.Select(l => new OrderSummaryLineResponse(l.DocumentNo, l.InsuredFirstName, l.InsuredLastName, l.MaskedInsuredIdNumber)).ToList()));
 }).AllowAnonymous()
     .WithTags("คำสั่งซื้อ")
     .WithName("GetOrderSummary")
@@ -2461,13 +2518,13 @@ internal sealed record RejectMerchantUserResponse(Guid MerchantUserId, string St
 // simply ignored — the platform never mints a charge the order does not back).
 internal sealed record CreatePaymentSessionRequest(
     Guid OrderId, string Method, Code Psp);
-internal sealed record AddItemToCartRequest(Guid ProductId, int Quantity);
+internal sealed record AddItemToCartRequest(string DocumentNo, string ProductGroup, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
 internal sealed record CreateCartResponse(Guid CartId);
 // Discount is per cart line and optional (purchase-flow-completion REQ-6.3) — the amount only, in the
 // line's own currency: the client never picks the currency of a line it did not price.
 internal sealed record StartCheckoutInsuredPerson(
-    Guid ProductId, string FirstName, string LastName, string IdNumber, DateTime DateOfBirth, decimal? Discount);
+    string DocumentNo, string FirstName, string LastName, string IdNumber, DateTime DateOfBirth, decimal? Discount);
 internal sealed record StartCheckoutCustomer(string? Name, string? Phone, string? Email);
 // Amount is the client's OWN total (REQ-6.5) — checked against the server's arithmetic, never used as the
 // price. Omit it and the server total stands unchallenged.
@@ -2475,7 +2532,7 @@ internal sealed record StartCheckoutRequest(
     Guid CartId, string? PaymentChannel, StartCheckoutCustomer? Customer, decimal? Amount,
     IReadOnlyList<StartCheckoutInsuredPerson> InsuredPersons);
 internal sealed record OrderSummaryLineResponse(
-    Guid ProductId, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
+    string DocumentNo, string InsuredFirstName, string InsuredLastName, string InsuredIdNumber);
 internal sealed record OrderSummaryResponse(
     Guid OrderId, string OrderNo, Money Amount, string Status,
     IReadOnlyList<OrderSummaryLineResponse> Lines);

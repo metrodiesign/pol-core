@@ -7,7 +7,7 @@ namespace Orders.Domain.Items;
 /// spec (insurance-pivot REQ-6/7). Owned by its order — never loaded or mutated on its own. Carries a
 /// purchase-time snapshot of the insurance document's terms (<see cref="DocumentNo"/>/
 /// <see cref="ProductGroup"/>/<see cref="DocumentType"/>/<see cref="PolicyNumber"/>/<see cref="StartDate"/>/
-/// <see cref="EndDate"/>, copied from <c>Product</c> at checkout-start, never re-read live) plus the insured
+/// <see cref="EndDate"/>, copied from the upstream document read at checkout-start, never re-read live) plus the insured
 /// person's data (REQ-7.1) — 1 person per item.
 /// </summary>
 public sealed class Item : Entity<Guid>
@@ -17,8 +17,6 @@ public sealed class Item : Entity<Guid>
     /// <summary>Denormalized from the parent <see cref="Order"/> at construction (mirrors
     /// <c>Carts.Domain.Items.Item.MerchantId</c>) — enforced against drift by a composite FK.</summary>
     public Guid MerchantId { get; private set; }
-
-    public Guid ProductId { get; private set; }
 
     /// <summary>Always 1 for this spec — one insured person per item (insurance-pivot locked decision).</summary>
     public int Quantity { get; private set; }
@@ -30,13 +28,14 @@ public sealed class Item : Entity<Guid>
     /// (purchase-flow-completion REQ-7.2). Zero when none was given — never null.</summary>
     public Money Discount { get; private set; }
 
-    /// <summary>Document number, snapshotted from <c>Product.DocumentNo</c> at checkout-start.</summary>
+    /// <summary>Document number, snapshotted from the upstream document at checkout-start — the line's
+    /// identifier (products-external-source-of-truth REQ-2.2).</summary>
     public string DocumentNo { get; private set; } = default!;
 
-    /// <summary>Wire value of <c>Product.ProductGroup</c> (no cross-module reference to the enum).</summary>
+    /// <summary>Wire value of the document's <c>ProductGroup</c> (no cross-module reference to the enum).</summary>
     public string ProductGroup { get; private set; } = default!;
 
-    /// <summary>Wire value of <c>Product.DocumentType</c> (no cross-module reference to the enum).</summary>
+    /// <summary>Wire value of the document's <c>DocumentType</c> (no cross-module reference to the enum).</summary>
     public string DocumentType { get; private set; } = default!;
 
     public string? PolicyNumber { get; private set; }
@@ -52,7 +51,7 @@ public sealed class Item : Entity<Guid>
     private Item() { }
 
     internal Item(
-        Guid id, Guid orderId, Guid merchantId, Guid productId, int quantity, Money unitPrice, Money discount,
+        Guid id, Guid orderId, Guid merchantId, int quantity, Money unitPrice, Money discount,
         string documentNo, string productGroup, string documentType, string? policyNumber,
         DateTime? startDate, DateTime? endDate,
         string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
@@ -74,7 +73,6 @@ public sealed class Item : Entity<Guid>
 
         OrderId = orderId;
         MerchantId = merchantId;
-        ProductId = productId;
         Quantity = quantity;
         UnitPrice = unitPrice;
         Discount = discount;

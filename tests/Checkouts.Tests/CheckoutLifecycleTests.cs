@@ -13,13 +13,12 @@ public sealed class CheckoutLifecycleTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid CartId = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime StartAt = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Money Amount = Money.Of(15000m, "THB");
 
     private static IReadOnlyList<CheckoutItemInput> OneLine() =>
         [new CheckoutItemInput(
-            Product, 1, Amount, "00098-69100/AB/900001-10", "VMI", "POLICY", "POL-0001",
+            1, Amount, "00098-69100/AB/900001-10", "VMI", "POLICY", "POL-0001",
             new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc), new DateTime(2027, 7, 1, 0, 0, 0, DateTimeKind.Utc),
             "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))];
 

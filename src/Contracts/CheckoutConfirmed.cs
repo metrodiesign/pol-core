@@ -4,13 +4,15 @@ using SharedKernel;
 namespace Contracts;
 
 /// <summary>One purchased item of a confirmed checkout (insurance-pivot REQ-6/7) — the commercial +
-/// insurance-document snapshot plus the insured person, frozen at checkout-start. <c>ProductGroup</c> and
+/// insurance-document snapshot plus the insured person, frozen at checkout-start. <c>DocumentNo</c> is the
+/// item's identifier — the old surrogate <c>ProductId</c> is gone (products-external-source-of-truth REQ-8.1),
+/// and a v1 payload still in the outbox deserialises because the serializer ignores members it does not know. <c>ProductGroup</c> and
 /// <c>DocumentType</c> carry the wire value of the Products enums as plain strings (no cross-module
 /// reference to <c>Products.Domain</c>). <c>DiscountAmount</c>/<c>DiscountCurrency</c> are the line's
 /// <c>Money</c> discount in exploded form (purchase-flow-completion REQ-6.3), defaulted so a v1 payload
 /// still in the outbox at deploy time deserialises to "no discount" (REQ-7.5).</summary>
 public sealed record CheckoutConfirmedItem(
-    Guid ProductId, int Quantity, Money UnitPrice,
+    int Quantity, Money UnitPrice,
     string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
     DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth,

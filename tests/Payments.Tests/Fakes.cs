@@ -43,6 +43,24 @@ internal sealed class FakePayableOrderReader : IPayableOrderReader
             ? Task.FromResult(locked(orderId))
             : Task.FromResult(_order?.OrderId == orderId ? _order : null);
     }
+
+    /// <summary>The document keys the sold-check probes for this order (products-external-source-of-truth
+    /// REQ-5.6). Empty by default; a test that exercises the pre-charge sold-check sets it.</summary>
+    public IReadOnlyList<DocumentKey> DocumentKeys { get; set; } = [];
+
+    public Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(Guid orderId, CancellationToken cancellationToken) =>
+        Task.FromResult(DocumentKeys);
+}
+
+/// <summary>The pre-charge sold-check double (products-external-source-of-truth REQ-5.6). Returns nothing by
+/// default (every document sellable); a test that wants a 409 seeds <see cref="Statuses"/>.</summary>
+internal sealed class FakeDocumentSaleProbe : IDocumentSaleProbe
+{
+    public IReadOnlyList<DocumentSaleStatus> Statuses { get; set; } = [];
+
+    public Task<IReadOnlyList<DocumentSaleStatus>> ProbeAsync(
+        IReadOnlyCollection<DocumentKey> keys, CancellationToken cancellationToken) =>
+        Task.FromResult(Statuses);
 }
 
 internal sealed class FakeConnectionRepository : IConnectionRepository

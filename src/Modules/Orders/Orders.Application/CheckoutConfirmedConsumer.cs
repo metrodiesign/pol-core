@@ -43,7 +43,7 @@ public sealed class CheckoutConfirmedConsumer : INotificationHandler<CheckoutCon
 
         var items = notification.Items
             .Select(i => new OrderItemInput(
-                i.ProductId, i.Quantity, i.UnitPrice,
+                i.Quantity, i.UnitPrice,
                 i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
                 i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth,
                 DiscountOf(i)))

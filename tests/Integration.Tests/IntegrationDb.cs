@@ -27,6 +27,14 @@ internal static class IntegrationDb
     public static string AppConn => For("pol_app", "POL_APP_PASSWORD");
     public static string SaConn => For("sa", "POL_SA_PASSWORD");
 
+    /// <summary>An <c>sa</c> connection to another database on the SAME instance as <see cref="SaConn"/> — for
+    /// the tests that create a throwaway database rather than touching the shared VCentralPay
+    /// (products-external-source-of-truth task 1). Distinct from <see cref="SaForCatalog"/>, which re-points the
+    /// server as well because the simulated catalogues live on their own instances.</summary>
+    public static string SaConnFor(string database) =>
+        $"Server={Server};Database={database};User Id=sa;Password={Require("POL_SA_PASSWORD")};"
+        + "Encrypt=True;TrustServerCertificate=True;Pooling=False";
+
     /// <summary>A connection to a simulated upstream catalogue — <c>hippodb</c>
     /// (docker/bootstrap/02-hippo-sim.sql) or <c>mammothdb</c> (docker/bootstrap/03-mammoth-sim.sql).
     /// external-sim-separate-containers moved each onto its OWN SQL Server instance (no longer beside the

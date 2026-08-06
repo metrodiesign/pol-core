@@ -23,8 +23,12 @@ public interface IUserRepository
     void Add(User account);
 }
 
-/// <summary>The narrow pre-bind projection of a merchant-user account — never the tracked aggregate.</summary>
-public sealed record AccountSnapshot(Guid MerchantUserId, string Subject, string Email, Guid? MerchantId, UserStatus Status);
+/// <summary>The narrow pre-bind projection of a merchant-user account — never the tracked aggregate.
+/// <paramref name="SaleCode"/> rides along because the catalogue search picks its upstream sale code from the
+/// authenticated account, never from the client (REQ-4.8); it is optional so the pre-bind flows that do not
+/// care (registration, approval) keep constructing this without it.</summary>
+public sealed record AccountSnapshot(
+    Guid MerchantUserId, string Subject, string Email, Guid? MerchantId, UserStatus Status, string? SaleCode = null);
 
 /// <summary>
 /// Filter-free, read-only account resolution for the flows that run BEFORE any merchant actor exists on the

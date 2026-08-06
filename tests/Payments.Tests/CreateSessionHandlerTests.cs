@@ -54,7 +54,8 @@ public sealed class CreateSessionHandlerTests
         string[]? adapterMethods = null,
         Session[]? existingSessions = null,
         DateTime? now = null,
-        Func<string, PspChargeConfirmation>? onFetchCharge = null)
+        Func<string, PspChargeConfirmation>? onFetchCharge = null,
+        IDocumentSaleProbe? documentSales = null)
     {
         var orders = new FakePayableOrderReader(order ?? AwaitingOrder());
         var methods = adapterMethods ?? [PaymentMethods.Card];
@@ -86,6 +87,7 @@ public sealed class CreateSessionHandlerTests
                 unitOfWork,
                 clock,
                 new RecordingLogger<PaymentConfirmationService>()),
+            documentSales ?? new FakeDocumentSaleProbe(),
             unitOfWork,
             clock);
 
@@ -147,6 +149,54 @@ public sealed class CreateSessionHandlerTests
             await harness.Handler.Handle(Command(), default));
 
         AssertNothingWasPersisted(harness);
+    }
+
+    // --- step 3b: the pre-charge sold-check — the last gate before a charge exists at the PSP (REQ-5.6) ---
+
+    [Fact]
+    public async Task A_document_sold_under_another_order_between_checkout_and_charge_blocks_the_session()
+    {
+        // Between checkout and this call another order — very possibly another merchant's — paid for a document
+        // on this order. Minting a charge here would take money for a document the customer can never be given,
+        // so it is a 409 and nothing is persisted. HeldByOrderId is a DIFFERENT order, which is what makes it a
+        // conflict (a hold by THIS order is a resume — see the next test).
+        var key = new DocumentKey("69100/กธ/900001", "VMI");
+        var holdingOrderId = Guid.NewGuid();   // the OTHER order that paid for it — must never leak (REQ-5.7)
+        var probe = new FakeDocumentSaleProbe
+        {
+            Statuses = [new DocumentSaleStatus(key, DocumentSaleState.Sold, holdingOrderId)],
+        };
+        var harness = NewHarness(documentSales: probe);
+        harness.Orders.DocumentKeys = [key];
+
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        // REQ-5.7 — the refusal names no order (neither this one nor the holder) and no merchant: the
+        // HeldByOrderId/MerchantId that identify the other party stay inside the probe result, never on the wire.
+        Assert.DoesNotContain(OrderId.ToString(), ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(holdingOrderId.ToString(), ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(MerchantId.ToString(), ex.Message, StringComparison.OrdinalIgnoreCase);
+        AssertNothingWasPersisted(harness);
+    }
+
+    [Fact]
+    public async Task A_hold_by_this_orders_own_in_flight_session_is_not_a_conflict_and_the_session_mints()
+    {
+        // The order's own in-flight payment session is exactly what a resume/retry looks like: the probe reports
+        // the document held BY THIS ORDER, so the "!= orderId" carve-out must let the mint proceed. Without it,
+        // every retry would 409 an order against its own hold.
+        var key = new DocumentKey("69100/กธ/900001", "VMI");
+        var probe = new FakeDocumentSaleProbe
+        {
+            Statuses = [new DocumentSaleStatus(key, DocumentSaleState.PaymentInFlight, OrderId)],
+        };
+        var harness = NewHarness(documentSales: probe);
+        harness.Orders.DocumentKeys = [key];
+
+        var result = await harness.Handler.Handle(Command(), default);
+
+        Assert.Equal(Assert.Single(harness.Sessions.Added).Id, result.PaymentSessionId);
     }
 
     // --- steps 4-5: connection existence + eligibility (409) ---

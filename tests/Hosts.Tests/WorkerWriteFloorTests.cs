@@ -5,20 +5,15 @@ using BuildingBlocks.Infrastructure;
 using Contracts;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application;
 using Orders.Domain;
 using Orders.Domain.Items;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Orders;
 using Persistence.MerchantRuntime.Outbox;
-using Persistence.MerchantRuntime.Products;
-using Products.Application;
-using Products.Domain;
 using SharedKernel;
 using OrderAggregate = Orders.Domain.Order;
 using OrderItem = Orders.Domain.Items.Item;
-using ProductAggregate = Products.Domain.Product;
 
 namespace Hosts.Tests;
 
@@ -32,21 +27,22 @@ namespace Hosts.Tests;
 /// prove the write-guard mechanics; the dispatcher's SQL-Server-only lease/poll loop (`OutboxDispatcher`) is
 /// orthogonal plumbing for FINDING a message, not part of what was broken, so this calls the consumer
 /// directly — exactly what that loop does once it has leased a row (`IPublisher.Publish`).
+/// <para>The former Product mark-paid case went away with the catalogue mirror
+/// (products-external-source-of-truth REQ-6.5): double-sell is now audited from Orders, not a Product write.</para>
 /// </summary>
 public sealed class WorkerWriteFloorTests : IDisposable
 {
     private static readonly Guid MerchantA = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static IReadOnlyList<CheckoutConfirmedItem> OneLine(Money unitPrice) =>
         [new CheckoutConfirmedItem(
-            Product, 1, unitPrice, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
+            1, unitPrice, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
     private static IReadOnlyList<OrderItemInput> OneOrderLine(Money unitPrice) =>
         [new OrderItemInput(
-            Product, 1, unitPrice, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
+            1, unitPrice, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 
     private readonly SqliteConnection _connection;
@@ -66,13 +62,6 @@ public sealed class WorkerWriteFloorTests : IDisposable
     private MerchantRuntimeDbContext NewContext() =>
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
             FakeActor.For(MerchantA), new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer(), NoOpSecurityTelemetry.Instance);
-
-    // Api-request floor (allows the bound merchant's Insert) — used only to SEED a Product row before the
-    // Worker floor's Update is exercised; the Worker floor denies Product Insert on purpose.
-    private MerchantRuntimeDbContext ApiContext() =>
-        new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options,
-            FakeActor.For(MerchantA), new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(FakeActor.For(MerchantA)),
-            NoOpSecurityTelemetry.Instance);
 
     [Fact]
     public async Task CheckoutConfirmed_insert_and_subsequent_MarkPaid_update_both_survive_the_real_Worker_write_floor()
@@ -106,39 +95,7 @@ public sealed class WorkerWriteFloorTests : IDisposable
         var paid = await verify.Set<OrderAggregate>().SingleAsync(o => o.CheckoutSessionId == checkoutSessionId);
         Assert.Equal(OrderStatus.Paid, paid.Status);
         var item = await verify.Set<OrderItem>().SingleAsync(i => i.OrderId == paid.Id);
-        Assert.Equal(Product, item.ProductId);
-    }
-
-    [Fact] // REQ-7.2/7.3 — DocumentPaidOnOrderPaidConsumer's Product.MarkPaid update survives the real Worker floor.
-    public async Task OrderPaid_marks_the_product_PAID_through_the_real_Worker_write_floor()
-    {
-        Guid productId;
-        using (var db = ApiContext())
-        {
-            productId = await new CreateProductHandler(
-                    new ProductRepository(db),
-                    new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance))
-                .Handle(new CreateProductCommand(new Products.Domain.ProductInput(
-                    ProductGroup.VMI, DocumentType.POLICY,
-                    "00098-69100/กธ/900001-10", "00098", 2500m,
-                    Products.Domain.PaymentStatus.UNPAID, null)), CancellationToken.None);
-        }
-
-        using (var db = NewContext())
-        {
-            var consumer = new DocumentPaidOnOrderPaidConsumer(
-                new ProductRepository(db),
-                new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance),
-                NullLogger<DocumentPaidOnOrderPaidConsumer>.Instance);
-            await consumer.Handle(
-                new Contracts.OrderPaid(MerchantA, [productId], DateTime.UtcNow, Guid.NewGuid()),
-                CancellationToken.None);
-        }
-
-        using var verify = NewContext();
-        var product = await verify.Set<ProductAggregate>().SingleAsync(p => p.Id == productId);
-        Assert.Equal(PaymentStatus.PAID, product.PaymentStatus);
-        Assert.NotNull(product.PaidDate);
+        Assert.Equal("00098-69100/กธ/900001-10", item.DocumentNo);
     }
 
     [Fact]

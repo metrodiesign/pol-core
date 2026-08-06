@@ -36,6 +36,17 @@ public sealed record SpDocumentSearchRequest(
     string CountMode);
 
 /// <summary>
+/// The input to a single-document lookup (products-external-source-of-truth REQ-3.1): the caller supplies the
+/// <see cref="DocumentNo"/> to find and the <see cref="ProductGroup"/>, which the adapter uses ONLY to pick the
+/// Motor vs Non-Motor procedure (CMI/VMI -> Motor, FIRE/MISC -> NonMotor, REQ-3.2). <see cref="SaleCode"/> is the
+/// server-side sale code of the authenticated merchant user (REQ-3.1/4.8), never a client value.
+/// <para>The value the caller passes here is not used to filter — the lookup runs with <c>@PaymentStatus = 'ALL'</c>
+/// and <c>@ProductGroup = 'ALL'</c> so the row the upstream returns is the authoritative one, and its own
+/// <c>ProductGroup</c> wins (REQ-3.5).</para>
+/// </summary>
+public sealed record SpDocumentLookupRequest(string DocumentNo, ProductGroup ProductGroup, string SaleCode);
+
+/// <summary>
 /// Result set 1 of §5.1, one row, always returned before the documents.
 /// <para><see cref="TotalRows"/> and <see cref="TotalPages"/> are null under <c>@CountMode = 'FAST'</c>,
 /// where the procedure skips the count on purpose; <see cref="HasNextPage"/> stays correct in both modes,

@@ -55,7 +55,7 @@ public sealed class OrderSummaryEndpointTests
         var summary = new OrderSummary(
             Guid.NewGuid(), Guid.NewGuid(), "ORD6900000042", Money.Of(15000m, "THB"), "Paid", "CARD",
             DateTime.UtcNow.AddHours(1),
-            [new OrderSummaryLine(Guid.NewGuid(), "Somchai", "Jaidee", "****0123")]);
+            [new OrderSummaryLine("00098-69100/กธ/900001-10", "Somchai", "Jaidee", "****0123")]);
         using var factory = new SummaryFactory(summary);
         using var client = factory.CreateClient();
 

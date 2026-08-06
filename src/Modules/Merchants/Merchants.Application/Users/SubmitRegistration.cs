@@ -14,7 +14,7 @@ public sealed record RegistrationForm(
     string LastName,
     PersonType? PersonType = null,
     string? IdNumber = null,
-    string? ProducerCode = null,
+    string? SaleCode = null,
     string? LicenseNumber = null,
     string? Phone = null);
 
@@ -135,7 +135,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
 
     private static void ApplyForm(User account, RegistrationForm form) =>
         account.SetDetails(form.FirstName, form.LastName, form.PersonType, form.IdNumber,
-            form.ProducerCode, form.LicenseNumber, form.Phone);
+            form.SaleCode, form.LicenseNumber, form.Phone);
 
     private async Task ApplyPhotoAsync(User account, SubmitRegistrationCommand command, CancellationToken ct)
     {

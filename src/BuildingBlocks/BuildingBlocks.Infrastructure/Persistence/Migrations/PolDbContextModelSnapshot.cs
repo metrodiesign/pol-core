@@ -557,14 +557,28 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CartId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("DocumentNo")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<string>("ProductGroup")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(10)");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
+
+                    b.Property<string>("SaleCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Carts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
@@ -643,9 +657,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(10)
                         .IsUnicode(false)
                         .HasColumnType("varchar(10)");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
@@ -1137,12 +1148,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.Property<string>("ProducerCode")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
                     b.Property<int>("Purpose")
                         .HasColumnType("int");
+
+                    b.Property<string>("SaleCode")
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
 
                     b.Property<DateTime>("SubmittedAt")
                         .HasColumnType("datetime2");
@@ -1391,9 +1403,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.Property<string>("ProducerCode")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
+                    b.Property<string>("SaleCode")
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -1494,9 +1507,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnicode(false)
                         .HasColumnType("varchar(10)");
 
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
@@ -1543,6 +1553,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("OrderId", "MerchantId");
+
+                    b.HasIndex(new[] { "DocumentNo" }, "IX_OrderItems_DocumentNo");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "DocumentNo" }, "IX_OrderItems_DocumentNo"), new[] { "OrderId", "ProductGroup" });
 
                     b.ToTable("OrderItems", "shop");
                 });
@@ -1946,169 +1960,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("Positions", "cfg");
-                });
-
-            modelBuilder.Entity("Products.Domain.Product", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ApplicationNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("BrokerCode")
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<string>("BrokerName")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<decimal?>("CommissionAmount")
-                        .HasPrecision(19, 2)
-                        .HasColumnType("decimal(19,2)");
-
-                    b.Property<decimal?>("CommissionPercent")
-                        .HasPrecision(19, 6)
-                        .HasColumnType("decimal(19,6)");
-
-                    b.Property<string>("DocumentNo")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<DateTime?>("EndDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
-
-                    b.Property<string>("EndorsementNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("LicensePlateNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<decimal?>("NetPremium")
-                        .HasPrecision(19, 2)
-                        .HasColumnType("decimal(19,2)");
-
-                    b.Property<DateTime?>("PaidDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
-
-                    b.Property<string>("PaymentStatus")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
-
-                    b.Property<string>("PolicyBranch")
-                        .HasMaxLength(250)
-                        .HasColumnType("nvarchar(250)");
-
-                    b.Property<string>("PolicyNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("PolicySequenceNo")
-                        .HasMaxLength(30)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(30)");
-
-                    b.Property<string>("PolicyType")
-                        .HasMaxLength(250)
-                        .HasColumnType("nvarchar(250)");
-
-                    b.Property<string>("PolicyYear")
-                        .HasMaxLength(2)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(2)");
-
-                    b.Property<string>("PreviousPolicyNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("ProductGroup")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
-
-                    b.Property<string>("ReferenceBranch")
-                        .HasMaxLength(3)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(3)");
-
-                    b.Property<string>("ReferenceNo")
-                        .HasMaxLength(30)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(30)");
-
-                    b.Property<string>("ReferencePre")
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<string>("ReferenceYear")
-                        .HasMaxLength(2)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(2)");
-
-                    b.Property<string>("SaleCode")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<string>("SaleFullName")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("ShowName")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<Guid?>("SoldOrderId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal?>("Stamp")
-                        .HasPrecision(19, 2)
-                        .HasColumnType("decimal(19,2)");
-
-                    b.Property<DateTime?>("StartDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
-
-                    b.Property<decimal?>("TaxVat")
-                        .HasPrecision(19, 2)
-                        .HasColumnType("decimal(19,2)");
-
-                    b.Property<decimal>("TotalPremium")
-                        .HasPrecision(19, 2)
-                        .HasColumnType("decimal(19,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex(new[] { "DocumentNo" }, "IX_Products_DocumentNo")
-                        .IsUnique();
-
-                    b.HasIndex(new[] { "SaleCode", "PaymentStatus" }, "IX_Products_SaleCode_PaymentStatus");
-
-                    b.ToTable("Products", "shop");
                 });
 
             modelBuilder.Entity("Admins.Domain.Roles.RoleAssignment", b =>

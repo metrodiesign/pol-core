@@ -26,7 +26,7 @@ internal static class UserRegistrationForm
         LastName: Value(form, "lastName") ?? string.Empty,
         PersonType: ParsePersonType(Value(form, "personType")),
         IdNumber: Value(form, "idNumber"),
-        ProducerCode: Value(form, "producerCode"),
+        SaleCode: Value(form, "saleCode"),
         LicenseNumber: Value(form, "licenseNumber"),
         Phone: Value(form, "phone"));
 

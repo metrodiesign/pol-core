@@ -148,7 +148,6 @@ internal sealed class OutboxDispatcher : BackgroundService
         [nameof(PaymentPaid)] = typeof(PaymentPaid),
         [nameof(CustomerOrderNotification)] = typeof(CustomerOrderNotification),
         [nameof(CheckoutConfirmed)] = typeof(CheckoutConfirmed),
-        [nameof(Contracts.OrderPaid)] = typeof(Contracts.OrderPaid),
         [nameof(MerchantUserRegistrationSubmitted)] = typeof(MerchantUserRegistrationSubmitted),
     };
 

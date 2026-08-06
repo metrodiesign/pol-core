@@ -35,7 +35,7 @@ public class ArchitectureBoundaryTests
     // it guarantees the assembly is loaded and avoids brittle string-based Assembly.Load.
     private static Assembly DomainAssembly(string module) => module switch
     {
-        "Products" => typeof(global::Products.Domain.Product).Assembly,
+        "Products" => typeof(global::Products.Domain.ProductGroup).Assembly,
         "Carts" => typeof(global::Carts.Domain.Cart).Assembly,
         "Checkouts" => typeof(global::Checkouts.Domain.Session).Assembly,
         "Orders" => typeof(global::Orders.Domain.Order).Assembly,
@@ -45,7 +45,7 @@ public class ArchitectureBoundaryTests
 
     private static Assembly ApplicationAssembly(string module) => module switch
     {
-        "Products" => typeof(global::Products.Application.IProductRepository).Assembly,
+        "Products" => typeof(global::Products.Application.Ports.ISpDocumentGateway).Assembly,
         "Carts" => typeof(global::Carts.Application.ICartRepository).Assembly,
         "Checkouts" => typeof(global::Checkouts.Application.ICheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Application.IOrderRepository).Assembly,

@@ -20,21 +20,19 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Payments.Application.Ports.Psp;
 using Payments.Domain.Psp;
-using Products.Application;
-using Products.Domain;
+using Products.Application.Ports;
 using SharedKernel;
 using Cart = Carts.Domain.Cart;
 using CheckoutSession = Checkouts.Domain.Session;
 
 namespace Hosts.Tests;
 
-// purchase-flow-completion — the merchant cart/checkout lifecycle at the HTTP boundary, driven through the
-// REAL route + policy + CSRF filter + minimal-API lambda + mediator pipeline (the layer
-// InsuranceCheckoutEndToEndTests, which calls handlers directly, cannot reach). The "merchant-user" policy is
-// re-pointed at a fake always-present scheme (same trick as RegistrationHistoryEndpointTests) and the three
-// persistence ports are in-memory fakes over shared lists, so no live DB is touched: what is under test here
-// is the ORCHESTRATION (which commands the endpoints send, in what order, and which status the resulting
-// exception becomes), not EF.
+// purchase-flow-completion + products-external-source-of-truth — the merchant cart/checkout lifecycle at the HTTP
+// boundary, driven through the REAL route + policy + CSRF filter + minimal-API lambda + mediator pipeline. The
+// "merchant-user" policy is re-pointed at a fake always-present scheme and the persistence ports are in-memory
+// fakes over shared lists, so no live DB is touched. The catalogue is read live from a fake ISpDocumentGateway
+// (add-item and per-line checkout both look the document up) and the sold-check is a fake IDocumentSaleProbe that
+// reports every document sellable: what is under test here is the ORCHESTRATION, not EF or the upstream.
 
 file sealed class TestMerchantUserAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
@@ -50,23 +48,34 @@ file sealed class TestMerchantUserAuthHandler(
     }
 }
 
-file sealed class OneProductRepository(Product? product) : IProductRepository
-{
-    public void Add(Product product) => throw new NotSupportedException();
-
-    public Task<IReadOnlyList<Product>> UpsertByDocumentNoAsync(
-        IReadOnlyList<ProductInput> inputs, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
-
-    public Task<Product?> GetAsync(Guid productId, CancellationToken cancellationToken) =>
-        Task.FromResult(product);
-}
-
-file sealed class BoundActor(Guid merchantId) : IActorContext
+file sealed class BoundActor(Guid merchantId, string? saleCode) : IActorContext
 {
     public Guid MerchantId => merchantId;
     public Guid? UserId => null;
     public bool HasActor => true;
+    public string? SaleCode => saleCode;
+}
+
+// Reports every document sellable — checkout/add-item sold-checks pass, so these tests exercise the rest of the
+// orchestration. The sold-path 4xx are proven in the probe's own tests.
+file sealed class AlwaysSellableProbe : IDocumentSaleProbe
+{
+    public Task<IReadOnlyList<DocumentSaleStatus>> ProbeAsync(
+        IReadOnlyCollection<DocumentKey> keys, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<DocumentSaleStatus>>([]);
+}
+
+// Reports the named documents already sold on this platform, so the add-item (400, REQ-5.4) and checkout
+// (409, REQ-5.5) sold-paths actually run — the always-sellable default can never enter those branches.
+file sealed class SoldProbe(params string[] soldDocumentNos) : IDocumentSaleProbe
+{
+    private readonly HashSet<string> _sold = new(soldDocumentNos, StringComparer.OrdinalIgnoreCase);
+
+    public Task<IReadOnlyList<DocumentSaleStatus>> ProbeAsync(
+        IReadOnlyCollection<DocumentKey> keys, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<DocumentSaleStatus>>(
+            [.. keys.Where(k => _sold.Contains(k.DocumentNo))
+                .Select(k => new DocumentSaleStatus(k, DocumentSaleState.Sold, Guid.NewGuid()))]);
 }
 
 // The aggregates live in the lists, so a "save" is a no-op and mutations survive across requests exactly as
@@ -123,10 +132,12 @@ file sealed class FakeConnections(Guid merchantId, string? enabledMethods, DateT
 
 file sealed class CartFactory(
     Guid merchantId,
-    Product? product,
+    SpDocumentItem? document,
     List<Cart> carts,
     List<CheckoutSession> sessions,
-    string? enabledMethods = "card,promptpay,installment")
+    string? enabledMethods = "card,promptpay,installment",
+    string? saleCode = MerchantLifecycleEndpointTests.SaleCode,
+    IDocumentSaleProbe? saleProbe = null)
     : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -148,11 +159,12 @@ file sealed class CartFactory(
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
 
-            // Last-registered wins, for all four: the gates' product read and every cart/checkout write run
-            // for real, with no DB behind them. The actor is bound so IMerchantScoped messages pass
-            // MerchantGuardBehavior — the fake auth scheme carries no merchant claim of its own.
-            services.AddScoped<IProductRepository>(_ => new OneProductRepository(product));
-            services.AddScoped<IActorContext>(_ => new BoundActor(merchantId));
+            // Last-registered wins: the endpoints' live document read (gateway), the sold-check (probe) and
+            // every cart/checkout write run for real, with no DB behind them. The actor is bound (and carries a
+            // sale code) so IMerchantScoped messages pass MerchantGuardBehavior and the catalogue gate passes.
+            services.AddScoped<ISpDocumentGateway>(_ => new FakeSpDocumentGateway(document is null ? [] : [document]));
+            services.AddScoped<IDocumentSaleProbe>(_ => saleProbe ?? new AlwaysSellableProbe());
+            services.AddScoped<IActorContext>(_ => new BoundActor(merchantId, saleCode));
             services.AddScoped<ICartRepository>(_ => new FakeCarts(carts));
             services.AddScoped<ICheckoutRepository>(_ => new FakeCheckouts(sessions));
             services.AddScoped<IUnitOfWork>(_ => new NoOpUnitOfWork());
@@ -164,27 +176,38 @@ file sealed class CartFactory(
 
 public sealed class MerchantLifecycleEndpointTests
 {
+    internal const string SaleCode = "00098";
+    internal const string DocumentNo = "00098-69100/กธ/037677-10";
+    internal const string Group = "VMI";
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly DateTime Now = new(2026, 8, 2, 0, 0, 0, DateTimeKind.Utc);
 
-    private static Product UnpaidProduct() => Product.Create(new ProductInput(
-        ProductGroup.VMI, DocumentType.POLICY, "00098-69100/กธ/037677-10", "00098", 1200m,
-        PaymentStatus.UNPAID, null,
-        StartDate: new DateTime(2026, 7, 1), EndDate: new DateTime(2026, 7, 31)));
+    /// <summary>An upstream §5.2 row for the catalogue document (products-external-source-of-truth REQ-3.5).</summary>
+    private static SpDocumentItem Doc(string documentNo = DocumentNo, string paymentStatus = "UNPAID",
+        decimal totalPremium = 1200m, DateTime? paidDate = null) =>
+        new("Motor", Group, "POLICY", documentNo,
+            null, null, null, null, null, null, null, null,
+            SaleCode, null, null, null, null, null, null, null,
+            new DateTime(2026, 7, 1), new DateTime(2026, 7, 31), null,
+            null, null, null, totalPremium, null, null, paidDate,
+            null, paymentStatus);
 
-    private static Cart CartWith(Product product)
+    private static SpDocumentItem UnpaidDocument() => Doc();
+
+    private static Cart CartWith(SpDocumentItem document)
     {
         var cart = new Cart(Guid.CreateVersion7(), Merchant, Now);
-        cart.AddItem(product.Id, 1, Money.Of(product.TotalPremium, "THB"));
+        cart.AddItem(document.DocumentNo!, document.SaleCode!, document.SourceSystem!, 1,
+            Money.Of(document.TotalPremium!.Value, "THB"));
         return cart;
     }
 
-    private static CheckoutSession SessionFor(Cart cart, Product product) => CheckoutSession.Start(
+    private static CheckoutSession SessionFor(Cart cart, SpDocumentItem document) => CheckoutSession.Start(
         Merchant, cart.Id, cart.Subtotal!.Value, Now,
         [new CheckoutItemInput(
-            product.Id, 1, Money.Of(product.TotalPremium, "THB"),
-            product.DocumentNo, product.ProductGroup.ToString(), product.DocumentType.ToString(),
-            product.PolicyNumber, product.StartDate, product.EndDate,
+            1, Money.Of(document.TotalPremium!.Value, "THB"),
+            document.DocumentNo!, document.SourceSystem!, document.DocumentType!,
+            document.PolicyNumber, document.StartDate, document.EndDate,
             "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))],
         Checkouts.Domain.PaymentChannel.CARD, CustomerContact.Of("Somchai Jaidee", "0812345678", null));
 
@@ -202,33 +225,113 @@ public sealed class MerchantLifecycleEndpointTests
         return request;
     }
 
-    private static string StartCheckoutBody(Cart cart, Product product, string channel = "CARD", decimal? discount = null) =>
+    private static string AddItemBody(string documentNo = DocumentNo, string productGroup = Group, int quantity = 1) =>
+        $$"""{"documentNo":"{{documentNo}}","productGroup":"{{productGroup}}","quantity":{{quantity}}}""";
+
+    private static string StartCheckoutBody(Cart cart, SpDocumentItem document, string channel = "CARD", decimal? discount = null) =>
         $$"""
         {"cartId":"{{cart.Id}}","paymentChannel":"{{channel}}",
          "customer":{"name":"Somchai Jaidee","phone":"0812345678","email":"buyer@example.com"},
          "insuredPersons":[
-          {"productId":"{{product.Id}}","firstName":"Somchai","lastName":"Jaidee",
+          {"documentNo":"{{document.DocumentNo}}","firstName":"Somchai","lastName":"Jaidee",
            "idNumber":"1234567890123","dateOfBirth":"1990-01-01T00:00:00Z"
            {{(discount is null ? "" : $",\"discount\":{discount}")}}}]}
         """;
 
-    // REQ-1.3 — a document that is no longer UNPAID is already sold, so POST /carts/{id}/items refuses it
-    // with 400 at the endpoint, before any cart write is attempted. Removing or widening the gate makes the
-    // request fall through to AddItemToCartCommand and stop being a 400.
+    // REQ-5.3 — a document the upstream reports PAID is already sold, so POST /carts/{id}/items refuses it
+    // with 400 at the endpoint, before any cart write is attempted.
     [Fact]
-    public async Task Adding_a_product_that_is_not_UNPAID_is_rejected_with_400()
+    public async Task Adding_a_document_that_is_PAID_upstream_is_rejected_with_400()
     {
-        var sold = Product.Create(new ProductInput(
-            ProductGroup.VMI, DocumentType.POLICY, "00098-69100/กธ/037676-10", "00098", 1200m,
-            PaymentStatus.PAID, new DateTime(2026, 7, 15)));
+        var sold = Doc("00098-69100/กธ/037676-10", paymentStatus: "PAID", paidDate: new DateTime(2026, 7, 15));
 
         using var factory = new CartFactory(Merchant, sold, [], []);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post(
-            $"/api/v1/carts/{Guid.NewGuid()}/items", $$"""{"productId":"{{sold.Id}}","quantity":1}"""));
+            $"/api/v1/carts/{Guid.NewGuid()}/items", AddItemBody(sold.DocumentNo!)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    // REQ-4.5 — a document the upstream does not return cannot be added: 400.
+    [Fact]
+    public async Task Adding_an_unknown_document_is_400()
+    {
+        using var factory = new CartFactory(Merchant, UnpaidDocument(), [], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post(
+            $"/api/v1/carts/{Guid.NewGuid()}/items", AddItemBody("no-such-document")));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    // REQ-4.1/4.2/4.3/4.7 — a successful add reads the document live and prices the line from the upstream's
+    // TotalPremium (never the client), mints THB here, and stores the upstream's own DocumentNo/SaleCode/
+    // ProductGroup. This is the ONLY test that drives POST /carts/{id}/items to a 200, so it is the one that
+    // proves the endpoint's happy path at all.
+    [Fact]
+    public async Task Adding_a_document_prices_the_line_from_the_upstream_premium_and_stores_its_own_values()
+    {
+        var document = UnpaidDocument();   // TotalPremium 1200, SaleCode 00098, group VMI
+        var cart = new Cart(Guid.CreateVersion7(), Merchant, Now);
+        using var factory = new CartFactory(Merchant, document, [cart], []);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post($"/api/v1/carts/{cart.Id}/items", AddItemBody()));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var line = Assert.Single(cart.Items);
+        Assert.Equal(DocumentNo, line.DocumentNo);          // REQ-4.7 — the upstream's own returned values
+        Assert.Equal(SaleCode, line.SaleCode);
+        Assert.Equal(Group, line.ProductGroup);
+        Assert.Equal(Money.Of(1200m, "THB"), line.UnitPrice);   // REQ-4.1/4.2/4.3 — priced from TotalPremium, THB minted here
+    }
+
+    // REQ-5.4 — the probe reports the document already sold (or mid-payment) on this platform, so POST
+    // /carts/{id}/items refuses it with 400 before any cart write, and the message names no other merchant
+    // or order (REQ-5.7).
+    [Fact]
+    public async Task Adding_a_document_already_sold_on_the_platform_is_rejected_with_400()
+    {
+        var document = UnpaidDocument();
+        var cart = new Cart(Guid.CreateVersion7(), Merchant, Now);
+        using var factory = new CartFactory(Merchant, document, [cart], [], saleProbe: new SoldProbe(DocumentNo));
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post($"/api/v1/carts/{cart.Id}/items", AddItemBody()));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(cart.Items);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(Merchant.ToString(), body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // REQ-4.9 — a merchant user with no sale code bound has no catalogue access at all: GET /products is 403.
+    [Fact]
+    public async Task Listing_products_without_a_bound_sale_code_is_403()
+    {
+        using var factory = new CartFactory(Merchant, UnpaidDocument(), [], [], saleCode: null);
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/products");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    // REQ-4.9 — the sale-code gate runs BEFORE the body is parsed: an add-item request with a product group that
+    // would otherwise be a 400 still comes back 403 when no sale code is bound, so 403 wins the ordering.
+    [Fact]
+    public async Task Adding_an_item_without_a_bound_sale_code_is_403_before_the_body_is_parsed()
+    {
+        using var factory = new CartFactory(Merchant, UnpaidDocument(), [], [], saleCode: null);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post(
+            $"/api/v1/carts/{Guid.NewGuid()}/items", AddItemBody(productGroup: "not-a-group")));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     // REQ-2.1 — starting a checkout freezes the cart. Two units of work behind one request: the session is
@@ -236,12 +339,12 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Starting_a_checkout_freezes_the_cart()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
-        using var factory = new CartFactory(Merchant, product, [cart], []);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        using var factory = new CartFactory(Merchant, document, [cart], []);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document)));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(Carts.Domain.CartStatus.CheckedOut, cart.Status);
@@ -251,31 +354,87 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Starting_a_checkout_on_a_frozen_cart_is_409()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         cart.MarkCheckedOut();
-        using var factory = new CartFactory(Merchant, product, [cart], []);
+        using var factory = new CartFactory(Merchant, document, [cart], []);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document)));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
-    // REQ-2.3 — and neither can a cart that somehow stayed Open while a live session exists (the freeze in
-    // the second unit of work never landed): the handler's GetOpenForCartAsync pre-check catches it, and the
-    // ConflictException it throws must surface as the SAME 409, not a 500.
+    // A cart that somehow stayed Open while a live session exists: the handler's GetOpenForCartAsync pre-check
+    // catches it, and the ConflictException it throws must surface as the SAME 409, not a 500.
     [Fact]
     public async Task Starting_a_checkout_while_a_live_session_exists_is_409()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
-        using var factory = new CartFactory(Merchant, product, [cart], [SessionFor(cart, product)]);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        using var factory = new CartFactory(Merchant, document, [cart], [SessionFor(cart, document)]);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document)));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    // REQ-5.5 — a cart line whose document the probe reports sold (or mid-payment) on this platform stops the
+    // whole checkout with 409 before any session is created; the message names no other merchant or order (REQ-5.7).
+    [Fact]
+    public async Task Starting_a_checkout_whose_document_is_already_sold_is_409()
+    {
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, document, [cart], sessions, saleProbe: new SoldProbe(DocumentNo));
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document)));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(Merchant.ToString(), body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // REQ-7.4 — a cart document that no longer comes back from the upstream at checkout (e.g. it fell out of the
+    // 6-month search window while in the cart) is a 409, and no session is created.
+    [Fact]
+    public async Task Starting_a_checkout_whose_document_the_upstream_no_longer_returns_is_409()
+    {
+        var inCart = Doc("00098-69100/กธ/999999-10");   // in the cart, but the gateway below does not carry it
+        var cart = CartWith(inCart);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, UnpaidDocument(), [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, inCart)));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+    }
+
+    // REQ-5.3 (checkout half) — the upstream reports the cart's document PAID at checkout time, so it can never be
+    // sold again: 409, and no session is created.
+    [Fact]
+    public async Task Starting_a_checkout_whose_document_the_upstream_reports_PAID_is_409()
+    {
+        var inCart = UnpaidDocument();                                    // priced into the cart while UNPAID
+        var cart = CartWith(inCart);
+        var paidUpstream = Doc(DocumentNo, paymentStatus: "PAID", paidDate: new DateTime(2026, 7, 15));
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, paidUpstream, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, inCart)));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
     }
 
     // REQ-2.7 — every cart mutation on a frozen cart is a 409 at the wire, not a 500: the domain guard
@@ -287,16 +446,16 @@ public sealed class MerchantLifecycleEndpointTests
     [InlineData("POST", "clear")]
     public async Task Mutating_a_frozen_cart_is_409(string method, string shape)
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         cart.MarkCheckedOut();
-        using var factory = new CartFactory(Merchant, product, [cart], []);
+        using var factory = new CartFactory(Merchant, document, [cart], []);
         using var client = factory.CreateClient();
 
         var (path, json) = shape switch
         {
-            "items" => ($"/api/v1/carts/{cart.Id}/items", $$"""{"productId":"{{product.Id}}","quantity":1}"""),
-            "item" => ($"/api/v1/carts/{cart.Id}/items/{product.Id}", """{"quantity":2}"""),
+            "items" => ($"/api/v1/carts/{cart.Id}/items", AddItemBody()),
+            "item" => ($"/api/v1/carts/{cart.Id}/items/{Guid.NewGuid()}", """{"quantity":2}"""),
             _ => ($"/api/v1/carts/{cart.Id}/clear", (string?)null),
         };
 
@@ -316,11 +475,11 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Abandoning_a_checkout_reopens_the_cart_and_lets_it_start_a_new_one()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
-        var session = SessionFor(cart, product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        var session = SessionFor(cart, document);
         cart.MarkCheckedOut();
-        using var factory = new CartFactory(Merchant, product, [cart], [session]);
+        using var factory = new CartFactory(Merchant, document, [cart], [session]);
         using var client = factory.CreateClient();
 
         var abandon = await client.SendAsync(Post($"/api/v1/checkouts/{session.Id}/abandon"));
@@ -329,7 +488,7 @@ public sealed class MerchantLifecycleEndpointTests
         Assert.Equal(Checkouts.Domain.SessionStatus.Abandoned, session.Status);
         Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
 
-        var restart = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product)));
+        var restart = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document)));
         Assert.Equal(HttpStatusCode.OK, restart.StatusCode);
     }
 
@@ -337,11 +496,11 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Abandoning_the_same_checkout_twice_succeeds()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
-        var session = SessionFor(cart, product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        var session = SessionFor(cart, document);
         cart.MarkCheckedOut();
-        using var factory = new CartFactory(Merchant, product, [cart], [session]);
+        using var factory = new CartFactory(Merchant, document, [cart], [session]);
         using var client = factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Post($"/api/v1/checkouts/{session.Id}/abandon"))).StatusCode);
@@ -352,12 +511,12 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Abandoning_a_confirmed_checkout_is_409()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
-        var session = SessionFor(cart, product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        var session = SessionFor(cart, document);
         session.Confirm();
         cart.MarkCheckedOut();
-        using var factory = new CartFactory(Merchant, product, [cart], [session]);
+        using var factory = new CartFactory(Merchant, document, [cart], [session]);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post($"/api/v1/checkouts/{session.Id}/abandon"));
@@ -369,7 +528,7 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Abandoning_an_unknown_checkout_is_404()
     {
-        using var factory = new CartFactory(Merchant, UnpaidProduct(), [], []);
+        using var factory = new CartFactory(Merchant, UnpaidDocument(), [], []);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post($"/api/v1/checkouts/{Guid.NewGuid()}/abandon"));
@@ -382,11 +541,11 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Abandoning_a_checkout_without_a_CSRF_token_is_403()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
-        var session = SessionFor(cart, product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        var session = SessionFor(cart, document);
         cart.MarkCheckedOut();
-        using var factory = new CartFactory(Merchant, product, [cart], [session]);
+        using var factory = new CartFactory(Merchant, document, [cart], [session]);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post($"/api/v1/checkouts/{session.Id}/abandon", csrf: false));
@@ -405,13 +564,13 @@ public sealed class MerchantLifecycleEndpointTests
     public async Task Starting_a_checkout_records_the_channel_and_the_customer(
         string wire, Checkouts.Domain.PaymentChannel expected)
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, wire)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document, wire)));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var session = Assert.Single(sessions);
@@ -431,13 +590,13 @@ public sealed class MerchantLifecycleEndpointTests
     [InlineData("")]
     public async Task Starting_a_checkout_with_an_unsupported_channel_is_400(string channel)
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, channel)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document, channel)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(sessions);
@@ -445,20 +604,19 @@ public sealed class MerchantLifecycleEndpointTests
     }
 
     // REQ-6.1 — a channel the platform supports but THIS merchant's connection does not enable is refused at
-    // start checkout, not left to fail when the customer finally clicks pay. Nothing is written and the cart
-    // stays open, so the merchant can pick a channel that works.
+    // start checkout, not left to fail when the customer finally clicks pay.
     [Theory]
     [InlineData("PROMPTPAY_QR")]
     [InlineData("INSTALLMENT")]
     public async Task Starting_a_checkout_on_a_channel_the_merchant_cannot_be_charged_on_is_400(string channel)
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions, enabledMethods: "card");
+        using var factory = new CartFactory(Merchant, document, [cart], sessions, enabledMethods: "card");
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, channel)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document, channel)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(sessions);
@@ -466,7 +624,7 @@ public sealed class MerchantLifecycleEndpointTests
 
         // …while a channel that connection DOES enable still goes through, so the gate is reading the
         // merchant's method list rather than refusing everything.
-        var card = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product, "CARD")));
+        var card = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document, "CARD")));
         Assert.Equal(HttpStatusCode.OK, card.StatusCode);
     }
 
@@ -474,17 +632,41 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task Starting_a_checkout_for_a_merchant_with_no_connection_is_400()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions, enabledMethods: null);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions, enabledMethods: null);
         using var client = factory.CreateClient();
 
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, product)));
+        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart, document)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(sessions);
         Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+    }
+
+    // REQ-8.5 — a documentNo repeated in insuredPersons is a 400 before anything is written.
+    [Fact]
+    public async Task Starting_a_checkout_with_a_duplicate_insured_documentNo_is_400()
+    {
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
+        var sessions = new List<CheckoutSession>();
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
+        using var client = factory.CreateClient();
+
+        var body = $$"""
+        {"cartId":"{{cart.Id}}","paymentChannel":"CARD",
+         "customer":{"name":"Somchai Jaidee","phone":"0812345678"},
+         "insuredPersons":[
+          {"documentNo":"{{DocumentNo}}","firstName":"A","lastName":"A","idNumber":"1111111111111","dateOfBirth":"1990-01-01T00:00:00Z"},
+          {"documentNo":"{{DocumentNo}}","firstName":"B","lastName":"B","idNumber":"2222222222222","dateOfBirth":"1990-01-01T00:00:00Z"}]}
+        """;
+
+        var response = await client.SendAsync(Post("/api/v1/checkouts", body));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(sessions);
     }
 
     // REQ-6.7 — a missing name/phone or a malformed phone/email is a 400 before anything is written.
@@ -496,16 +678,16 @@ public sealed class MerchantLifecycleEndpointTests
     [InlineData("""{"name":"Somchai Jaidee","phone":"0812345678","email":"not-an-email"}""")]
     public async Task Starting_a_checkout_with_an_invalid_customer_is_400(string? customerJson)
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
         var body = $$"""
         {"cartId":"{{cart.Id}}","paymentChannel":"CARD","customer":{{customerJson ?? "null"}},
          "insuredPersons":[
-          {"productId":"{{product.Id}}","firstName":"Somchai","lastName":"Jaidee",
+          {"documentNo":"{{DocumentNo}}","firstName":"Somchai","lastName":"Jaidee",
            "idNumber":"1234567890123","dateOfBirth":"1990-01-01T00:00:00Z"}]}
         """;
 
@@ -519,14 +701,14 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task A_line_discount_is_subtracted_from_the_checkout_total()
     {
-        var product = UnpaidProduct();   // 1200 THB
-        var cart = CartWith(product);
+        var document = UnpaidDocument();   // 1200 THB
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(
-            Post("/api/v1/checkouts", StartCheckoutBody(cart, product, discount: 200m)));
+            Post("/api/v1/checkouts", StartCheckoutBody(cart, document, discount: 200m)));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var session = Assert.Single(sessions);
@@ -540,14 +722,14 @@ public sealed class MerchantLifecycleEndpointTests
     [InlineData(-1)]
     public async Task An_out_of_range_discount_is_400(decimal discount)
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(
-            Post("/api/v1/checkouts", StartCheckoutBody(cart, product, discount: discount)));
+            Post("/api/v1/checkouts", StartCheckoutBody(cart, document, discount: discount)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(sessions);
@@ -557,13 +739,13 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task A_client_total_that_disagrees_with_the_server_is_400()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
-        var body = StartCheckoutBody(cart, product, discount: 200m)
+        var body = StartCheckoutBody(cart, document, discount: 200m)
             .Replace("\"cartId\"", "\"amount\":1200,\"cartId\"", StringComparison.Ordinal);
 
         var response = await client.SendAsync(Post("/api/v1/checkouts", body));
@@ -575,13 +757,13 @@ public sealed class MerchantLifecycleEndpointTests
     [Fact]
     public async Task A_client_total_that_matches_the_net_is_accepted()
     {
-        var product = UnpaidProduct();
-        var cart = CartWith(product);
+        var document = UnpaidDocument();
+        var cart = CartWith(document);
         var sessions = new List<CheckoutSession>();
-        using var factory = new CartFactory(Merchant, product, [cart], sessions);
+        using var factory = new CartFactory(Merchant, document, [cart], sessions);
         using var client = factory.CreateClient();
 
-        var body = StartCheckoutBody(cart, product, discount: 200m)
+        var body = StartCheckoutBody(cart, document, discount: 200m)
             .Replace("\"cartId\"", "\"amount\":1000,\"cartId\"", StringComparison.Ordinal);
 
         var response = await client.SendAsync(Post("/api/v1/checkouts", body));

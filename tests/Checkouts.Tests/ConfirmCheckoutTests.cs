@@ -15,7 +15,6 @@ public sealed class ConfirmCheckoutTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid Cart = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static readonly DateTime CoverFrom = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -25,7 +24,7 @@ public sealed class ConfirmCheckoutTests
         string documentNo = "00098-69100/AB/900001-10", string productGroup = "VMI", string documentType = "POLICY",
         DateTime? startDate = null, DateTime? endDate = null,
         string idNumber = "1234567890123", DateTime? dob = null) =>
-        new(Product, 1, Money.Of(15000m, "THB"),
+        new(1, Money.Of(15000m, "THB"),
             documentNo, productGroup, documentType, "POL-0001", startDate ?? CoverFrom, endDate ?? CoverTo,
             "Somchai", "Jaidee", idNumber, dob ?? Dob);
 

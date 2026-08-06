@@ -62,22 +62,9 @@ public sealed class MoneyColumnMappingTests : IDisposable
         Assert.False(currency.IsUnicode()); // char(3), not nchar(3) — ISO 4217 is ASCII
     }
 
-    // Product is deliberately NOT a Money owner: §5.2 of the SP quick reference carries no currency column,
-    // so its premium columns are plain decimal(19,2) and currency is minted at the cart boundary (REQ-1.2).
-    [Fact]
-    public void Product_owns_no_Money_complex_property()
-    {
-        var product = _db.Model.FindEntityType(typeof(Products.Domain.Product))
-            ?? throw new InvalidOperationException("Product is not in the model.");
-
-        Assert.Empty(product.GetComplexProperties());
-
-        var totalPremium = product.FindProperty(nameof(Products.Domain.Product.TotalPremium))
-            ?? throw new InvalidOperationException("Product.TotalPremium is not mapped.");
-        Assert.Equal("TotalPremium", totalPremium.GetColumnName());
-        Assert.Equal(19, totalPremium.GetPrecision());
-        Assert.Equal(2, totalPremium.GetScale());
-    }
+    // The Product aggregate and its shop.Products table were retired (products-external-source-of-truth REQ-6.1),
+    // so the former Product_owns_no_Money_complex_property test was removed with them: the catalogue is read live
+    // from the upstream now and no longer has an EF entity to assert against.
 
     [Fact]
     public void CartItem_UnitPrice_maps_to_decimal_19_4_and_char3() =>

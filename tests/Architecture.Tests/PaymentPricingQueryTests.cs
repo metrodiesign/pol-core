@@ -55,7 +55,7 @@ public sealed class PaymentPricingQueryTests : IDisposable
     {
         var order = Order.Create(merchantId, Amount, At,
             [new OrderItemInput(
-                Guid.NewGuid(), 1, Amount, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
+                1, Amount, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
                 "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
         if (paid)
             order.MarkPaid(Amount, At);

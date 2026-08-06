@@ -172,6 +172,26 @@ public sealed class RegistrationHistoryEndpointTests
             body.RootElement.GetProperty("timeline")[0].GetProperty("action").GetString()); // REQ-2.3
     }
 
+    // products-external-source-of-truth REQ-10.3/10.5/10.7: the field this endpoint returns the merchant user's
+    // sale code under is spelled saleCode, the retired producerCode spelling is absent, and — unchanged by the
+    // rename — the value is NOT masked. The result record is serialised straight to the wire with no mapping
+    // layer, so its member name IS the contract; renaming the member without a test here would silently rename
+    // the JSON key for every consumer.
+    [Fact]
+    public async Task The_attempt_carries_saleCode_unmasked_and_no_producerCode()
+    {
+        using var factory = new HistoryFactory(grantViewKey: true);
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(Route);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var attempt = body.RootElement.GetProperty("attempts")[0];
+        Assert.Equal("PC-1", attempt.GetProperty("saleCode").GetString());        // full value, never masked
+        Assert.False(attempt.TryGetProperty("producerCode", out _));
+    }
+
     [Fact]
     public async Task Unknown_subject_returns_404()
     {

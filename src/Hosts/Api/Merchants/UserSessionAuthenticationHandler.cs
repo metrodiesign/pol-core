@@ -119,6 +119,11 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
             identity.AddClaim(new Claim("sub", resolved.Subject));
         identity.AddClaim(new Claim("email", resolution.Email));
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, resolution.MerchantUserId.ToString()));
+        // The catalogue search runs under the account's own upstream sale code, never one the client picked
+        // (REQ-4.8). Re-resolved with the rest of the account on every request, so revoking it takes effect on
+        // the next one; absent when the account has none, which the catalogue path answers with 403 (REQ-4.9).
+        if (!string.IsNullOrEmpty(resolution.SaleCode))
+            identity.AddClaim(new Claim(HttpActorContext.SaleCodeClaim, resolution.SaleCode));
         var principal = new ClaimsPrincipal(identity);
 
         // Rotation + idle-slide apply only to a live Active session (a grace predecessor is already superseded).

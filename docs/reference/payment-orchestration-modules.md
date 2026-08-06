@@ -403,7 +403,7 @@ as-built: `POST /api/v1/merchants` → `ProvisionMerchantCommand` → `Provision
 
 #### ตาราง identity (แยก schema) — as-built 2026-07-25
 - `Admins.Domain.Users.User` → **`admin.Users`**: `Subject` (Google `sub`) · `Email` · `Status` · **`Tier`** (`Super`/`Scoped`) · `AuthorizationVersion` — scope ข้าม merchant ของ `Scoped` เป็น edge แยก **`admin.MerchantAccess`**; session/audit อยู่ `admin.Sessions` / `admin.AuthAudits` / `admin.UserAudits`
-- `Merchants.Domain.Users.User` → **`merch.Users`**: `Subject` UQ · `Email` · `Status` (`PendingApproval`/`Active`/`Rejected`/`Suspended`) · **`MerchantId` nullable** (1 merchant/account, ตั้งตอน admin approve — ไม่มีตาราง assignment แยก) · person details (name/PersonType/IdNumber/ProducerCode/LicenseNumber/phone/photo) — คู่กับ **`merch.ExternalLogins`**; registration ticket เป็น stateless token (ไม่มีตาราง)
+- `Merchants.Domain.Users.User` → **`merch.Users`**: `Subject` UQ · `Email` · `Status` (`PendingApproval`/`Active`/`Rejected`/`Suspended`) · **`MerchantId` nullable** (1 merchant/account, ตั้งตอน admin approve — ไม่มีตาราง assignment แยก) · person details (name/PersonType/IdNumber/SaleCode/LicenseNumber/phone/photo) — คู่กับ **`merch.ExternalLogins`**; registration ticket เป็น stateless token (ไม่มีตาราง)
 - แยก 2 schema (`admin` / `merch`) → อีเมลในตารางหนึ่งไม่ได้สิทธิอีกฝั่งโดยอัตโนมัติ (คนละ RBAC realm) · RBAC catalog เองรวมศูนย์ที่ `iam.*` (rf2)
 
 #### Enforcement (ทุก request) — as-built

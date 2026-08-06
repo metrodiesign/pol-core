@@ -32,6 +32,7 @@ public sealed class SpDocumentGateway(IOptions<SpDocumentOptions> options, ILogg
         SpDocumentSearchRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        VerifySaleCodeBindsIntact(request.SaleCode);
 
         var motor = request.Target is InsuranceType.Motor;
         var connectionString = motor ? _options.MotorConnectionString : _options.NonMotorConnectionString;
@@ -101,6 +102,103 @@ public sealed class SpDocumentGateway(IOptions<SpDocumentOptions> options, ILogg
         }
     }
 
+    /// <summary><c>@SearchText</c> is declared <c>nvarchar(100)</c>; a longer value would be truncated silently.</summary>
+    private const int SearchTextMaxLength = 100;
+
+    /// <summary>The contract width of a document number on the wire and in every column (REQ-2.1).</summary>
+    private const int DocumentNoMaxLength = 150;
+
+    /// <summary>Safety ceiling on how many pages a single lookup will walk. A full document number bound to the
+    /// LIKE <c>@SearchText</c> is highly selective, so a real lookup resolves on page 1; this bound only stops an
+    /// upstream that reports <c>HasNextPage</c> forever from spinning here.</summary>
+    private const int MaxLookupPages = 40;
+
+    public async Task<SpDocumentItem?> LookupAsync(SpDocumentLookupRequest request, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // The boundary guard lives HERE, at the adapter, not only at the caller (design decision, §Data Models):
+        // add-item, checkout and any future caller route through this one method, and @SearchText silently
+        // truncates a value longer than its declared width. Trim once (REQ-2.6) and reject blank / over-length
+        // as a 400 before the value ever binds, so a document that cannot be looked up fails loudly instead of
+        // searching under a truncated number.
+        var documentNo = request.DocumentNo?.Trim();
+        if (string.IsNullOrEmpty(documentNo))
+            throw new ArgumentException("documentNo is required.");
+        if (documentNo.Length > DocumentNoMaxLength)
+            throw new ArgumentException($"documentNo must be at most {DocumentNoMaxLength} characters.");
+        if (documentNo.Length > SearchTextMaxLength)
+            throw new ArgumentException(
+                $"documentNo must be at most {SearchTextMaxLength} characters to be looked up (@SearchText limit).");
+
+        // The group only routes to the Motor vs Non-Motor procedure (REQ-3.2). The search itself is unfiltered by
+        // group and by payment status (ALL) so the row that comes back is the authoritative one and its own group
+        // wins (REQ-3.5). @SearchText is a LIKE over several columns, so this can return prefix hits too; the
+        // exact-match filtering and the 0/1/many decision happen in SelectExactlyOne below.
+        var target = request.ProductGroup is ProductGroup.CMI or ProductGroup.VMI
+            ? InsuranceType.Motor
+            : InsuranceType.NonMotor;
+
+        // Walk every page the LIKE returned, not just the first (REQ-3.4/3.7): an exact match sitting past row 25,
+        // or a second exact match that straddles a page boundary, would otherwise read as "not found" or be picked
+        // wrongly. Accumulate, then let SelectExactlyOne make the 0/1/many decision over the whole result.
+        var all = new List<SpDocumentItem>();
+        var pageNo = 1;
+        while (true)
+        {
+            var result = await SearchAsync(
+                new SpDocumentSearchRequest(
+                    Target: target,
+                    SaleCode: request.SaleCode,
+                    SearchText: documentNo,
+                    InsuredName: null,
+                    CoverageStartFrom: null,
+                    CoverageStartTo: null,
+                    CoverageEndFrom: null,
+                    CoverageEndTo: null,
+                    PaymentStatus: "ALL",
+                    DocumentType: "ALL",
+                    ProductGroup: "ALL",
+                    PolicyNo: null,
+                    ApplicationNo: null,
+                    PaidDateFrom: null,
+                    PaidDateTo: null,
+                    PageNo: pageNo,
+                    PageSize: 25,
+                    CountMode: "FAST"),
+                cancellationToken).ConfigureAwait(false);
+
+            all.AddRange(result.Items);
+
+            if (!result.Page.HasNextPage)
+                break;
+            if (pageNo >= MaxLookupPages)
+            {
+                // A single-document lookup returning more than MaxLookupPages*25 LIKE hits is not a shape we can
+                // safely scan for an exact match; treat it as an upstream problem (503), never a wrong pick.
+                logger.LogError(
+                    "SpDocument: lookup for {DocumentNo} on {Target} still reports more pages after {Pages} — refusing to scan further.",
+                    documentNo, target, MaxLookupPages);
+                throw new UpstreamUnavailableException("Document lookup returned an unexpectedly large result set.");
+            }
+            pageNo++;
+        }
+
+        try
+        {
+            return SpDocumentMatch.SelectExactlyOne(all, documentNo);
+        }
+        catch (SpDocumentAmbiguousException ex)
+        {
+            // REQ-3.7: log at error level here, where the logger lives, then let the typed exception carry to the
+            // HTTP boundary (400) — the client never sees which document or how many rows.
+            logger.LogError(ex,
+                "SpDocument: lookup for {DocumentNo} matched {Count} rows on {Target}; refusing to pick one.",
+                documentNo, ex.MatchCount, target);
+            throw;
+        }
+    }
+
     /// <summary>A connection string that will not even parse is operator configuration, not caller input:
     /// letting the <see cref="ArgumentException"/> out would turn every product request into a misleading
     /// 400. It is the same "upstream unreachable from here" as a bad host, so it takes the same 503 path,
@@ -119,12 +217,34 @@ public sealed class SpDocumentGateway(IOptions<SpDocumentOptions> options, ILogg
         }
     }
 
+    /// <summary>
+    /// <c>@SaleCode</c> is declared <c>varchar(20)</c> and <see cref="Add"/> sizes the parameter to match, so a
+    /// longer or non-ASCII value is truncated/mangled by SqlClient WITHOUT an error and the search silently runs
+    /// under a different party's code. The value is already validated at registration (REQ-4.10); this is the
+    /// last check before binding, so a value that slipped past that edge fails loudly instead of returning
+    /// somebody else's documents (REQ-4.11).
+    /// </summary>
+    private const int SaleCodeParameterSize = 20;
+
+    private static void VerifySaleCodeBindsIntact(string saleCode)
+    {
+        if (saleCode is null)
+            return; // the request contract says non-null; DBNull is the procedure's own §6 rejection to make.
+        if (saleCode.Length > SaleCodeParameterSize)
+            throw new SaleCodeBindingException(
+                $"Sale code is {saleCode.Length} characters; @SaleCode binds at most {SaleCodeParameterSize} and "
+                + "would truncate it.");
+        if (saleCode.Any(c => c is < ' ' or > '~'))
+            throw new SaleCodeBindingException(
+                "Sale code contains a character @SaleCode (varchar) cannot carry unchanged.");
+    }
+
     /// <summary>All 18 §2 parameters, typed and sized as the procedures declare them. The 18th,
     /// <c>@BranchCode</c>, comes from options rather than the request — it is server-side per §1.1.</summary>
     private void AddParameters(SqlCommand command, SpDocumentSearchRequest request)
     {
         Add(command, "@BranchCode", SqlDbType.VarChar, 3, _options.BranchCode);
-        Add(command, "@SaleCode", SqlDbType.VarChar, 20, request.SaleCode);
+        Add(command, "@SaleCode", SqlDbType.VarChar, SaleCodeParameterSize, request.SaleCode);
         Add(command, "@SearchText", SqlDbType.NVarChar, 100, request.SearchText);
         Add(command, "@InsuredName", SqlDbType.NVarChar, 200, request.InsuredName);
         Add(command, "@CoverageStartFrom", SqlDbType.Date, 0, request.CoverageStartFrom);

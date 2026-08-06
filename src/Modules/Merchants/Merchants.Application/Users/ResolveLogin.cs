@@ -23,8 +23,11 @@ public enum LoginOutcome { NotFound, PendingApproval, Rejected, Suspended, Activ
 
 /// <summary>An ACTIVE merchant-user's identity + reach, materialized once per request into <see cref="IUserScope"/>
 /// by the session authentication handler (REQ-17.1). The merchant + effective permissions are resolved fresh from
-/// the record, NEVER from a token claim.</summary>
-public sealed record Resolution(Guid MerchantUserId, string Email, Guid MerchantId, IReadOnlySet<string> Permissions);
+/// the record, NEVER from a token claim. <paramref name="SaleCode"/> is the account's upstream sale code, carried
+/// so the handler can mint the <c>sale_code</c> claim the catalogue path reads (REQ-4.8); optional because an
+/// account may not have one bound yet, which the catalogue path answers with 403 (REQ-4.9).</summary>
+public sealed record Resolution(
+    Guid MerchantUserId, string Email, Guid MerchantId, IReadOnlySet<string> Permissions, string? SaleCode = null);
 
 public sealed record LoginResult(LoginOutcome Outcome, Resolution? Resolution)
 {
@@ -71,6 +74,7 @@ public sealed class ResolveLoginHandler : IQueryHandler<ResolveLoginQuery, Login
 
         return LoginResult.Active(new Resolution(
             account.MerchantUserId, account.Email, merchantId,
-            await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken)));
+            await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken),
+            account.SaleCode));
     }
 }

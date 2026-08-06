@@ -38,13 +38,13 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
 
         var lineRows = await db.Database
             .SqlQueryRaw<OrderSummaryLineRow>(
-                "SELECT ProductId, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = {0}",
+                "SELECT DocumentNo, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = {0}",
                 r.Id)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var lines = lineRows
-            .Select(l => new OrderSummaryLine(l.ProductId, l.InsuredFirstName, l.InsuredLastName, MaskIdNumber(l.InsuredIdNumber)))
+            .Select(l => new OrderSummaryLine(l.DocumentNo, l.InsuredFirstName, l.InsuredLastName, MaskIdNumber(l.InsuredIdNumber)))
             .ToList();
 
         return new OrderSummary(
@@ -76,7 +76,7 @@ internal sealed class OrderSummaryRow
 /// scope for an anonymous customer link).</summary>
 internal sealed class OrderSummaryLineRow
 {
-    public Guid ProductId { get; set; }
+    public string DocumentNo { get; set; } = default!;
     public string InsuredFirstName { get; set; } = default!;
     public string InsuredLastName { get; set; } = default!;
     public string InsuredIdNumber { get; set; } = default!;

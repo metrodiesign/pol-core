@@ -32,8 +32,12 @@ public sealed class MerchantUserSessionAuthHandlerTests
     private static readonly SessionPolicy Policy =
         new(TimeSpan.FromMinutes(30), TimeSpan.FromHours(8), TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60));
 
-    private static ByIdResult Resolved =>
-        ByIdResult.Of(new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "payment.create" }), "google-sub-1");
+    private static ByIdResult Resolved => ResolvedWith(null);
+
+    private static ByIdResult ResolvedWith(string? saleCode) =>
+        ByIdResult.Of(
+            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string> { "payment.create" }, saleCode),
+            "google-sub-1");
 
     [Fact]
     public async Task No_cookie_yields_no_result_so_authorization_returns_401_directly()
@@ -75,6 +79,37 @@ public sealed class MerchantUserSessionAuthHandlerTests
         Assert.Equal(UserId, scope.Current.MerchantUserId);
         Assert.Empty(store.Added);
         Assert.Null(store.Slid);
+    }
+
+    // products-external-source-of-truth REQ-4.8: the catalogue searches under the account's OWN sale code, so
+    // the claim is minted here from the freshly resolved account on every request — never taken from the client,
+    // and never stale (revoking the code takes effect on the next request, like every other resolved field).
+    [Fact]
+    public async Task Live_session_carries_the_resolved_accounts_sale_code_as_a_claim()
+    {
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
+        var (handler, _, _, _, _) = await Make(T0.AddSeconds(30), ResolvedWith("77001"), token, session);
+
+        var result = await handler.AuthenticateAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("77001", result.Principal!.FindFirst("sale_code")!.Value);
+    }
+
+    // An account with no sale code bound gets NO claim rather than an empty one — the catalogue path must be
+    // able to tell "has none" apart from "has a blank one" to answer 403 (REQ-4.9).
+    [Fact]
+    public async Task An_account_without_a_sale_code_gets_no_sale_code_claim()
+    {
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
+        var (handler, _, _, _, _) = await Make(T0.AddSeconds(30), Resolved, token, session);
+
+        var result = await handler.AuthenticateAsync();
+
+        Assert.True(result.Succeeded);
+        Assert.Null(result.Principal!.FindFirst("sale_code"));
     }
 
     [Fact]

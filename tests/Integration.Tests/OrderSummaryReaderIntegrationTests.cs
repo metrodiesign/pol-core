@@ -37,14 +37,14 @@ public sealed class OrderSummaryReaderIntegrationTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.OrderItems
-                (Id, OrderId, MerchantId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency,
+                (Id, OrderId, MerchantId, Quantity, UnitPriceAmount, UnitPriceCurrency,
                  DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate,
                  InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
-            VALUES (@id, @orderId, @m, @productId, 1, 15000, N'THB',
+            VALUES (@id, @orderId, @m, 1, 15000, N'THB',
                     N'00098-69100/กธ/900001-10', 'VMI', 'POLICY', NULL, NULL, NULL,
                     N'Somchai', N'Jaidee', @idNumber, '1990-01-01');
             """,
-            ("@id", lineId), ("@orderId", orderId), ("@m", merchantId), ("@productId", Guid.NewGuid()), ("@idNumber", idNumber));
+            ("@id", lineId), ("@orderId", orderId), ("@m", merchantId), ("@idNumber", idNumber));
 
     [Fact]
     public async Task Reader_SQL_masks_InsuredIdNumber_and_never_selects_date_of_birth()
@@ -76,7 +76,7 @@ public sealed class OrderSummaryReaderIntegrationTests
         // Exactly the reader's second query — deliberately does NOT select InsuredDateOfBirth.
         await using var lineCmd = c.CreateCommand();
         lineCmd.CommandText =
-            "SELECT ProductId, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = @orderId";
+            "SELECT DocumentNo, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = @orderId";
         lineCmd.Parameters.AddWithValue("@orderId", resolvedOrderId);
         await using var reader = await lineCmd.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());

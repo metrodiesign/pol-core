@@ -69,7 +69,7 @@ public sealed class UpsertItemPolicyAdminEndToEndTests : IDisposable
         var order = OrderAggregate.Create(
             merchantId, Money.Of(2500m, "THB"), DateTime.UtcNow,
             [new OrderItemInput(
-                Guid.NewGuid(), 1, Money.Of(2500m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
+                1, Money.Of(2500m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
                 "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
         db.Add(order);
         await db.SaveChangesAsync();

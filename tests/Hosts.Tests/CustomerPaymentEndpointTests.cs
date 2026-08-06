@@ -44,6 +44,11 @@ file sealed class FakePayableOrders(PayableOrder? order) : IPayableOrderReader
     // The in-memory order cannot change between the two reads, so the locked re-read answers the same row.
     public Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken) =>
         GetAsync(orderId, cancellationToken);
+
+    // These tests do not exercise the pre-charge sold-check, so the order carries no document keys.
+    public Task<IReadOnlyList<BuildingBlocks.Application.DocumentKey>> GetDocumentKeysAsync(
+        Guid orderId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<BuildingBlocks.Application.DocumentKey>>([]);
 }
 
 file sealed class FakePaymentSessions(List<PaymentSession> sessions) : ISessionRepository
@@ -213,7 +218,7 @@ public sealed class CustomerPaymentEndpointTests
         string status = "AwaitingPayment", string? channel = "CARD", TimeSpan? expiresIn = null) =>
         new(Order, Merchant, "ORD6900000001", Amount, status, channel,
             DateTime.UtcNow + (expiresIn ?? TimeSpan.FromHours(24)),
-            [new OrderSummaryLine(Guid.NewGuid(), "Somchai", "Jaidee", "****0123")]);
+            [new OrderSummaryLine("00098-69100/กธ/900001-10", "Somchai", "Jaidee", "****0123")]);
 
     private static PayableOrder Payable(PayableOrderStatus status = PayableOrderStatus.AwaitingPayment) =>
         new(Order, Amount, status);

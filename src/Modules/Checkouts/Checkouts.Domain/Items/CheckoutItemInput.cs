@@ -7,7 +7,7 @@ namespace Checkouts.Domain.Items;
 /// optional (purchase-flow-completion REQ-6.3): null means no discount, which <see cref="Session.Start"/>
 /// normalises to zero in the line's own currency.</summary>
 public sealed record CheckoutItemInput(
-    Guid ProductId, int Quantity, Money UnitPrice,
+    int Quantity, Money UnitPrice,
     string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
     DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth,

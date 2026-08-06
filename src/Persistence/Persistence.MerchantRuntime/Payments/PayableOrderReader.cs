@@ -1,8 +1,10 @@
+using BuildingBlocks.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
 using Payments.Application.Ports;
 using SharedKernel;
+using OrderItem = Orders.Domain.Items.Item;
 
 namespace Persistence.MerchantRuntime.Payments;
 
@@ -55,6 +57,21 @@ internal sealed class PayableOrderReader : IPayableOrderReader
             return null;
 
         return await GetAsync(orderId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(
+        Guid orderId, CancellationToken cancellationToken)
+    {
+        // Merchant-filtered on purpose, unlike the sold-check itself: these are the keys of the CALLER'S OWN
+        // order, and an order invisible under the floor simply has no lines to check.
+        var rows = await _db.Set<OrderItem>()
+            .AsNoTracking()
+            .Where(item => item.OrderId == orderId)
+            .Select(item => new { item.DocumentNo, item.ProductGroup })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return rows.ConvertAll(row => new DocumentKey(row.DocumentNo, row.ProductGroup));
     }
 
     /// <summary>Total by hand rather than by cast: the two enums are independent contracts, and a status

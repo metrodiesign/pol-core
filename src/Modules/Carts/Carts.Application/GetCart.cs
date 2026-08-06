@@ -8,7 +8,12 @@ namespace Carts.Application;
 /// another merchant, so the query returns null for both "not found" and "not yours" (no existence leak).</summary>
 public sealed record GetCartQuery(Guid CartId, Guid MerchantId) : IQuery<CartView?>, IMerchantScoped;
 
-public sealed record CartLineView(Guid ProductId, int Quantity, Money UnitPrice, Money LineTotal);
+/// <summary>One cart line as the merchant sees it. <paramref name="ItemId"/> is what the remove/quantity
+/// routes address (products-external-source-of-truth REQ-9.2), and <paramref name="SaleCode"/>/
+/// <paramref name="ProductGroup"/> are the upstream's own values, which checkout re-reads the document with.</summary>
+public sealed record CartLineView(
+    Guid ItemId, string DocumentNo, string SaleCode, string ProductGroup,
+    int Quantity, Money UnitPrice, Money LineTotal);
 
 public sealed record CartView(
     Guid CartId, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal, int Version)
@@ -17,7 +22,8 @@ public sealed record CartView(
         cart.Id,
         cart.Status.ToString(),
         cart.Items
-            .Select(i => new CartLineView(i.ProductId, i.Quantity, i.UnitPrice, i.LineTotal))
+            .Select(i => new CartLineView(
+                i.Id, i.DocumentNo, i.SaleCode, i.ProductGroup, i.Quantity, i.UnitPrice, i.LineTotal))
             .ToList(),
         cart.Subtotal,
         cart.Version);

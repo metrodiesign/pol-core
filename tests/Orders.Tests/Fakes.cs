@@ -16,7 +16,7 @@ internal static class OrderLineInputs
 
     public static IReadOnlyList<OrderItemInput> OneLine(Money unitPrice) =>
         [new OrderItemInput(
-            Guid.NewGuid(), 1, unitPrice,
+            1, unitPrice,
             "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 }
@@ -94,6 +94,19 @@ internal sealed class FakeRevealAuditWriter : IRevealAuditWriter
         if (ShouldThrow)
             throw new InvalidOperationException("audit write failed");
         Appended.Add(orderLineId);
+        return Task.CompletedTask;
+    }
+}
+
+/// <summary>Records how many times (and for which orders) the double-sell audit was asked to run. The consumer
+/// must call it exactly once on a real transition and never on a replay/mismatch/cancelled/unknown order.</summary>
+internal sealed class FakeDoubleSellAuditor : IDoubleSellAuditor
+{
+    public readonly List<Guid> Reported = [];
+
+    public Task ReportIfDoubleSoldAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        Reported.Add(orderId);
         return Task.CompletedTask;
     }
 }

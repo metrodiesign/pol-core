@@ -10,20 +10,15 @@ using DomainPaymentStatus = Products.Domain.PaymentStatus;
 namespace Products.Application;
 
 /// <summary>
-/// Read model for one insurance document — a field-for-field mirror of the §5.2 result set of
-/// <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> (all 32 fields, in document order) plus
-/// the technical key <c>Id</c>. Used by both the paged list and the single-document read.
-/// <para>
-/// Naming/typing deviations from §5.2, all deliberate (see the spec's "Deviation" section):
-/// <c>ProductGroup</c> is §5.2's <c>SourceSystem</c> under its §2 parameter name <c>@ProductGroup</c>;
-/// <c>DocumentNo</c>/<c>SaleCode</c>/<c>TotalPremium</c>/<c>PaymentStatus</c> stay non-nullable because
-/// this repo owns the data (§5.2 is a read model of the upstream system); <c>ProductGroup</c>,
-/// <c>DocumentType</c> and <c>PaymentStatus</c> stay CLR enums whose <c>ToString()</c> is the wire value.
-/// <c>MerchantId</c> is not carried: the catalogue is central and §5.2 has no such field.
-/// </para>
+/// One insurance document as the catalogue list returns it — a field-for-field mirror of the §5.2 result set of
+/// <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> (all 32 fields, in document order), projected from the
+/// central <see cref="DocumentView"/> the mapper produced. It carries NO technical <c>Id</c>: this repo no longer
+/// mints a surrogate for a document (products-external-source-of-truth REQ-1.8/2.1); <see cref="DocumentNo"/> is
+/// the identifier. <see cref="SoldByPlatform"/> is the one field added on top of §5.2 (REQ-5.9): whether an order
+/// on THIS platform has already paid for the document, computed from Orders, without touching the upstream's own
+/// <see cref="PaymentStatus"/>.
 /// </summary>
 public sealed record ProductListItem(
-    Guid Id,
     ProductGroup ProductGroup,
     DocumentType DocumentType,
     string DocumentNo,
@@ -54,42 +49,42 @@ public sealed record ProductListItem(
     decimal? CommissionAmount,
     DateTime? PaidDate,
     string? LicensePlateNumber,
-    DomainPaymentStatus PaymentStatus)
+    DomainPaymentStatus PaymentStatus,
+    bool SoldByPlatform)
 {
-    /// <summary>§5.2 <c>InsuranceType</c> — derived from <see cref="ProductGroup"/> exactly as
-    /// <c>Product.InsuranceType</c> does, so a repository projection never has to select it.</summary>
+    /// <summary>§5.2 <c>InsuranceType</c> — derived from <see cref="ProductGroup"/>, never stored.</summary>
     public InsuranceType InsuranceType =>
         ProductGroup is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;
 
-    public static ProductListItem From(Product p) => new(
-        p.Id, p.ProductGroup, p.DocumentType, p.DocumentNo, p.PolicyYear,
-        p.ReferenceBranch, p.ReferencePre, p.PolicySequenceNo, p.ReferenceYear, p.ReferenceNo,
-        p.PolicyBranch, p.PolicyType, p.SaleCode, p.SaleFullName, p.BrokerCode, p.BrokerName,
-        p.PolicyNumber, p.ApplicationNumber, p.PreviousPolicyNumber, p.EndorsementNumber,
-        p.StartDate, p.EndDate, p.ShowName,
-        p.NetPremium, p.Stamp, p.TaxVat, p.TotalPremium, p.CommissionPercent, p.CommissionAmount,
-        p.PaidDate, p.LicensePlateNumber, p.PaymentStatus);
+    public static ProductListItem From(DocumentView v, bool soldByPlatform) => new(
+        v.ProductGroup, v.DocumentType, v.DocumentNo, v.PolicyYear,
+        v.ReferenceBranch, v.ReferencePre, v.PolicySequenceNo, v.ReferenceYear, v.ReferenceNo,
+        v.PolicyBranch, v.PolicyType, v.SaleCode, v.SaleFullName, v.BrokerCode, v.BrokerName,
+        v.PolicyNumber, v.ApplicationNumber, v.PreviousPolicyNumber, v.EndorsementNumber,
+        v.StartDate, v.EndDate, v.ShowName,
+        v.NetPremium, v.Stamp, v.TaxVat, v.TotalPremium, v.CommissionPercent, v.CommissionAmount,
+        v.PaidDate, v.LicensePlateNumber, v.PaymentStatus, soldByPlatform);
 }
 
 /// <summary>
-/// The required, strictly-validated filter surface for the document list, mirroring the §2 input rules
-/// of <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> (minus paging, which
-/// <see cref="ListProductsQuery"/> owns). Parsed from the <c>productFilters</c> JSON query param, which
-/// is mandatory because <c>@SaleCode</c> is: an absent/blank value, malformed JSON or a broken rule is a
-/// 400, not a silent-drop. Null members other than <see cref="SaleCode"/> mean ALL.
+/// The validated filter surface for the document list, mirroring the §2 input rules of
+/// <c>docs/reference/vcentralpay-sp-quick-reference.pdf</c> (minus paging, which <see cref="ListProductsQuery"/>
+/// owns, and minus <c>@SaleCode</c>, which is server-side now — the merchant user's own code, never a client field,
+/// products-external-source-of-truth REQ-4.8). Parsed from the <c>productFilters</c> JSON query param: absent or
+/// blank is not a 400 <em>here</em> — it deserializes to "every default" — but the handler still needs a catalogue
+/// side, so a request that names neither <see cref="ProductGroup"/> nor <see cref="InsuranceType"/> is rejected at
+/// <c>ResolveTarget</c> (REQ-3.2, no default side). Dropping <c>saleCode</c> as a member (REQ-4.8) removed the only
+/// member the client had to send, but it did not make the blob optional at the endpoint. Null members mean ALL.
+/// Malformed JSON or a broken rule is still a 400.
 /// <para>
-/// Two knowing deviations from §2: <c>@SaleCode</c> is taken from the client although the document puts it
-/// in the server-side authorization context (user decision — the real tenant floor is <c>MerchantId</c>),
-/// and <c>@BranchCode</c> is not client input at all — the adapter fills it from <c>SpDocumentOptions</c>
-/// (REQ-6.6). A <c>branchCode</c> member in the JSON is therefore ignored
-/// (<see cref="JsonSerializerDefaults.Web"/> does not error on unknown members).
+/// One knowing deviation from §2: <c>@BranchCode</c> is not client input — the adapter fills it from
+/// <c>SpDocumentOptions</c>. A <c>branchCode</c> member in the JSON is therefore ignored
+/// (<see cref="JsonSerializerDefaults.Web"/> does not error on unknown members), and so is a stray
+/// <c>saleCode</c> member (REQ-4.8 — the client cannot choose it).
 /// </para>
 /// </summary>
 public sealed record ProductFilterDto
 {
-    /// <summary>§2 <c>@SaleCode</c> — required (SP error 50005), stored trimmed by <see cref="Parse"/>.</summary>
-    [Required][MaxLength(20)] public string? SaleCode { get; init; }
-
     [MaxLength(100)] public string? SearchText { get; init; }
     [MaxLength(200)] public string? InsuredName { get; init; }
     [MaxLength(30)] public string? PolicyNo { get; init; }
@@ -97,7 +92,7 @@ public sealed record ProductFilterDto
     public DocumentType? DocumentType { get; init; }
     public ProductGroup? ProductGroup { get; init; }
 
-    /// <summary>Which upstream procedure answers the search: <c>Motor</c> | <c>NonMotor</c> (REQ-6.1). The two
+    /// <summary>Which upstream procedure answers the search: <c>Motor</c> | <c>NonMotor</c> (REQ-3.2). The two
     /// catalogues cannot be merged into one page, so exactly one side is picked per request — from this member,
     /// or derived from <see cref="ProductGroup"/> when only that is given; the handler rejects a request that
     /// gives neither or gives two that disagree. Read case-insensitively like the other enum members here, not
@@ -159,26 +154,21 @@ public sealed record ProductFilterDto
         _ => throw new ArgumentException("CountMode must be EXACT or FAST (SP error 50006)."),
     };
 
-    /// <summary>Deserializes then validates the <c>productFilters</c> value, which is mandatory.
-    /// Absent, blank, malformed or invalid -> <see cref="ArgumentException"/> (mapped to 400
+    /// <summary>Deserializes then validates the optional <c>productFilters</c> value. Absent or blank ->
+    /// every default (all filters open); malformed or invalid -> <see cref="ArgumentException"/> (mapped to 400
     /// ProblemDetails by <c>ProblemDetailsExceptionHandler</c>; never <c>BadHttpRequestException</c>,
     /// which is an <see cref="IOException"/> and would surface as a 500).</summary>
     public static ProductFilterDto Parse(string? raw)
     {
+        // productFilters is no longer mandatory: saleCode was the only member that made it required, and that
+        // moved server-side (REQ-4.8). An absent blob is "all defaults".
         if (string.IsNullOrWhiteSpace(raw))
-            throw new ArgumentException("productFilters is required (SaleCode is required — SP error 50005).");
+            return new ProductFilterDto();
 
         ProductFilterDto? dto;
         try { dto = JsonSerializer.Deserialize<ProductFilterDto>(raw, Json); }
         catch (JsonException ex) { throw new ArgumentException("Malformed productFilters.", ex); }
-        if (dto is null)
-            throw new ArgumentException("productFilters is required (SaleCode is required — SP error 50005).");
-
-        // Before Validator, so a missing SaleCode cites 50005 instead of the generic invalid-filters message.
-        var saleCode = dto.SaleCode?.Trim();
-        if (string.IsNullOrEmpty(saleCode))
-            throw new ArgumentException("SaleCode is required (SP error 50005).");
-        dto = dto with { SaleCode = saleCode };
+        dto ??= new ProductFilterDto();
 
         _ = dto.PaymentStatusFilter;
         _ = dto.CountModeValue;
@@ -200,11 +190,11 @@ public sealed record ProductFilterDto
 
 /// <summary>
 /// One page of documents plus the §5.1 pagination envelope, copied value-by-value from what the upstream
-/// procedure reported (REQ-8.1). Nothing is recounted here: the procedure owns the window, the filtering and
-/// the totals, so recomputing them locally could only ever disagree with it. <see cref="TotalRows"/> and
-/// <see cref="TotalPages"/> are null under <c>countMode=FAST</c>, where the procedure deliberately does not
-/// count (REQ-8.2). <see cref="Items"/> may be shorter than <see cref="PageSize"/> — and than
-/// <see cref="TotalRows"/> implies — when a row on the page could not become a document (REQ-7.7).
+/// procedure reported. Nothing is recounted here: the procedure owns the window, the filtering and
+/// the totals, so recomputing them locally could only ever disagree with it (REQ-1.4/1.5). <see cref="TotalRows"/>
+/// and <see cref="TotalPages"/> are null under <c>countMode=FAST</c>, where the procedure deliberately does not
+/// count. <see cref="Items"/> may be shorter than <see cref="PageSize"/> — and than <see cref="TotalRows"/>
+/// implies — when a row on the page could not become a document (REQ-1.6) or was dropped as already sold (REQ-5.8).
 /// </summary>
 public sealed record ProductPage(
     IReadOnlyList<ProductListItem> Items,
@@ -218,16 +208,21 @@ public sealed record ProductPage(
     int SearchWindowMonths);
 
 /// <summary>
-/// Lists insurance documents from the upstream catalogue (§2 input surface). Not <see cref="IMerchantScoped"/>:
-/// the catalogue carries no merchant, so <c>SaleCode</c> — mandatory in <see cref="ProductFilterDto"/> — is
+/// Lists insurance documents live from the upstream catalogue (§2 input surface, products-external-source-of-truth
+/// REQ-1). Not <see cref="IMerchantScoped"/>: the catalogue carries no merchant, so <see cref="SaleCode"/> — the
+/// authenticated merchant user's own code, set by the endpoint from the actor (REQ-4.8), never by the client — is
 /// the only scoping axis, and the endpoint's authorization is the access gate.
 /// <para>
-/// Deliberately does NOT inherit <see cref="PagedQuery"/>: §2 has no filter/sort/search concept, and
-/// inheriting would leave settable <c>Filters</c>/<c>Sort</c>/<c>Search</c> that nothing reads.
+/// Deliberately does NOT inherit <c>PagedQuery</c>: §2 has no filter/sort/search concept, and inheriting would
+/// leave settable <c>Filters</c>/<c>Sort</c>/<c>Search</c> that nothing reads.
 /// </para>
 /// </summary>
 public sealed record ListProductsQuery : IQuery<ProductPage>
 {
+    /// <summary>§2 <c>@SaleCode</c> — the merchant user's own sale code, supplied by the endpoint from the
+    /// authenticated actor (REQ-4.8). The client never sets it.</summary>
+    public required string SaleCode { get; init; }
+
     public required ProductFilterDto ProductFilters { get; init; }
 
     /// <summary>§2 <c>@PageNo</c>; clamped to >= 1 at the Hosts layer.</summary>
@@ -238,17 +233,14 @@ public sealed record ListProductsQuery : IQuery<ProductPage>
 }
 
 /// <summary>
-/// Searches the upstream catalogue live and mirrors what came back into <c>shop.Products</c> (REQ-7.1/7.2):
-/// resolve which of the two procedures answers, translate the filter into wire values, search, map each row,
-/// upsert the usable ones by <c>DocumentNo</c>, and answer with the local rows — which is what gives every
-/// item the <c>Guid</c> the cart later adds (REQ-7.9). The order is the procedure's; nothing re-sorts it.
-/// <para>
-/// No <c>IUnitOfWork</c>: the upsert saves inside the repository, because a unique-index race has to be
-/// retried with a reset change tracker, which only that layer can reach (M7).
-/// </para>
+/// Answers the document list from two live reads and NOTHING it stores: the upstream procedure for the documents
+/// (REQ-1.1) and <see cref="IDocumentSaleProbe"/> — one read for the whole page (REQ-5.15) — for which of them an
+/// order on this platform has already sold. There is no repository and no <c>SaveChanges</c>: the catalogue is
+/// read-only now (REQ-1.2), so a document is never mirrored locally. The order is the procedure's; nothing
+/// re-sorts it (REQ-1.4), and the totals are exactly the ones it reported (REQ-1.5).
 /// </summary>
 public sealed class ListProductsHandler(
-    ISpDocumentGateway gateway, IProductRepository products, ILogger<ListProductsHandler> logger)
+    ISpDocumentGateway gateway, IDocumentSaleProbe documentSales, ILogger<ListProductsHandler> logger)
     : IQueryHandler<ListProductsQuery, ProductPage>
 {
     public async ValueTask<ProductPage> Handle(ListProductsQuery query, CancellationToken ct)
@@ -265,7 +257,7 @@ public sealed class ListProductsHandler(
         var result = await gateway.SearchAsync(
             new SpDocumentSearchRequest(
                 Target: target,
-                SaleCode: filters.SaleCode!,
+                SaleCode: query.SaleCode,
                 SearchText: filters.SearchText,
                 InsuredName: filters.InsuredName,
                 CoverageStartFrom: filters.CoverageStartFrom,
@@ -284,46 +276,61 @@ public sealed class ListProductsHandler(
                 CountMode: filters.CountModeValue),
             ct);
 
-        var mapped = SpDocumentItemMapper.Map(result.Items);
-        var inputs = new List<ProductInput>(mapped.Count);
-
-        foreach (var row in mapped)
+        var views = new List<DocumentView>(result.Items.Count);
+        foreach (var row in SpDocumentItemMapper.Map(result.Items))
         {
-            if (row.Input is not { } input)
+            if (row.View is not { } view)
             {
                 // The page still answers on the rows it kept, and the procedure's totals still count the
-                // dropped one — so this line is the only trace a bad upstream row leaves (REQ-7.7).
+                // dropped one — so this line is the only trace a bad upstream row leaves (REQ-1.6/1.7).
                 logger.LogWarning("Products: skipped upstream document {DocumentNo} — {SkipReason}.",
                     row.Item.DocumentNo, row.SkipReason);
                 continue;
             }
 
-            if (input.PaymentStatus is DomainPaymentStatus.PAID && input.PaidDate is null)
+            if (view.PaymentStatus is DomainPaymentStatus.PAID && view.PaidDate is null)
                 logger.LogWarning(
-                    "Products: upstream document {DocumentNo} is PAID without a PaidDate; keeping the stored one.",
-                    input.DocumentNo);
+                    "Products: upstream document {DocumentNo} is PAID without a PaidDate.", view.DocumentNo);
 
-            inputs.Add(input);
+            views.Add(view);
         }
 
-        var upserted = await products.UpsertByDocumentNoAsync(inputs, ct);
+        // REQ-5.1/5.9/5.15 — the upstream is read-only to us, so it keeps listing documents this platform has
+        // already sold. One probe read for the whole page (never one per row) tells which documents an order
+        // here holds. Sold = an order in status Paid carries the (DocumentNo, ProductGroup) pair (REQ-5.1); the
+        // in-flight case is not "sold through this platform" and is not flagged.
+        var keys = views.Select(v => new DocumentKey(v.DocumentNo, v.ProductGroup.ToString())).ToArray();
+        var statuses = keys.Length == 0
+            ? []
+            : await documentSales.ProbeAsync(keys, ct);
+        var soldKeys = statuses
+            .Where(s => s.State == DocumentSaleState.Sold)
+            .Select(s => s.Key)
+            .ToHashSet();
+
+        // REQ-5.8 — a search that asked for UNPAID (the default) drops the documents already sold on this
+        // platform, which is what stops a sold document being put back in a cart. The procedure's totals are
+        // left exactly as it counted them (REQ-5.5): recounting here could only disagree with the paging it
+        // also owns. An ALL/PAID search keeps every row and just flags it (REQ-5.9).
+        var dropSold = paymentStatus == nameof(DomainPaymentStatus.UNPAID);
+
+        var items = new List<ProductListItem>(views.Count);
+        foreach (var view in views)
+        {
+            var sold = soldKeys.Contains(new DocumentKey(view.DocumentNo, view.ProductGroup.ToString()));
+            if (sold && dropSold)
+                continue;
+            items.Add(ProductListItem.From(view, sold));
+        }
+
         var page = result.Page;
-
-        // REQ-5.1 — the upstream is read-only to us, so it keeps listing documents this platform has
-        // already sold. A search that asked for UNPAID drops the rows our own mirror says are PAID, which
-        // is what stops a sold document being put back in a cart. The procedure's totals are left exactly
-        // as it counted them (REQ-5.2): recounting here could only disagree with the paging it also owns.
-        var sellable = paymentStatus == nameof(DomainPaymentStatus.UNPAID)
-            ? upserted.Where(p => p.PaymentStatus is not DomainPaymentStatus.PAID)
-            : upserted;
-
         return new ProductPage(
-            [.. sellable.Select(ProductListItem.From)],
+            items,
             page.TotalRows, page.TotalPages, page.PageNo, page.PageSize,
             page.HasNextPage, page.HasPreviousPage, page.CountMode, page.SearchWindowMonths);
     }
 
-    /// <summary>Picks the side that answers, and the <c>@ProductGroup</c> that goes with it (REQ-6.1-6.4). The
+    /// <summary>Picks the side that answers, and the <c>@ProductGroup</c> that goes with it (REQ-3.2). The
     /// two catalogues are separate procedures with separate paging, so exactly one has to be chosen: a request
     /// naming neither side nor a group cannot be answered, and one naming both must have them agree.</summary>
     private static (InsuranceType Target, string ProductGroup) ResolveTarget(ProductFilterDto filters)

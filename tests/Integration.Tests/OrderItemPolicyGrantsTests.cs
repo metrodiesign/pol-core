@@ -30,14 +30,14 @@ public sealed class OrderItemPolicyGrantsTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.OrderItems
-                (Id, OrderId, MerchantId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency,
+                (Id, OrderId, MerchantId, Quantity, UnitPriceAmount, UnitPriceCurrency,
                  DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate,
                  InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
-            VALUES (@id, @orderId, @m, @productId, 1, 2500, N'THB',
+            VALUES (@id, @orderId, @m, 1, 2500, N'THB',
                     N'00098-69100/กธ/900001-10', 'VMI', 'POLICY', NULL, NULL, NULL,
                     N'Somchai', N'Jaidee', N'1234567890123', '1985-05-20');
             """,
-            ("@id", itemId), ("@orderId", orderId), ("@m", merchantId), ("@productId", Guid.NewGuid()));
+            ("@id", itemId), ("@orderId", orderId), ("@m", merchantId));
 
     [Fact]
     public async Task PolApp_can_insert_update_the_policy_and_insert_the_audit_row_and_the_write_survives_a_fresh_connection()

@@ -293,6 +293,7 @@ public sealed class StartRedirectHandlerTests
                 unitOfWork,
                 clock,
                 new RecordingLogger<PaymentConfirmationService>()),
+            new FakeDocumentSaleProbe(),
             unitOfWork,
             clock);
         var redirect = new StartRedirectHandler(

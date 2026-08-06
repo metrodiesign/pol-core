@@ -153,7 +153,7 @@ public sealed class OrderCancelEndpointTests
     private static Order NewOrder() => Order.Create(
         Merchant, Amount, DateTime.UtcNow.AddHours(-1),
         [new OrderItemInput(
-            Guid.NewGuid(), 1, Amount, "00098-69100/กธ/037677-10", "VMI", "POLICY", null, null, null,
+            1, Amount, "00098-69100/กธ/037677-10", "VMI", "POLICY", null, null, null,
             "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))], orderNo: "ORD6900000001");
 
     /// <summary>A chargeless session for <paramref name="order"/>: never redirected, so the confirmation

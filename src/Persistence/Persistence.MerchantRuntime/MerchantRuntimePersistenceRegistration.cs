@@ -18,7 +18,6 @@ using Persistence.MerchantRuntime.Orders.Items;
 using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantRuntime.Payments;
 using Persistence.MerchantRuntime.Payments.Psp;
-using Persistence.MerchantRuntime.Products;
 using Persistence.MerchantRuntime.Vault;
 using Persistence.MerchantRuntime.Webhooks;
 using Products.Application;
@@ -49,13 +48,14 @@ public static class MerchantRuntimePersistenceRegistration
                 sp.GetRequiredService<ISecurityTelemetry>());
         });
 
-        services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<ICartRepository, CartRepository>();
         services.AddScoped<ICheckoutRepository, CheckoutRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOrderSummaryReader, OrderSummaryReader>();
         services.AddScoped<IOrderNoSequence, OrderNoSequence>();
         services.AddScoped<IPaymentSessionProbe, PaymentSessionProbe>();
+        services.AddScoped<IDocumentSaleProbe, DocumentSaleProbe>();
+        services.AddScoped<IDoubleSellAuditor, DoubleSellAuditor>();
         services.AddScoped<IRevealAuditWriter, RevealAuditWriter>();
         services.AddScoped<IItemPolicyRepository, ItemPolicyRepository>();
         services.AddScoped<IPolicyReportRepository, PolicyReportRepository>();

@@ -17,4 +17,11 @@ public interface IActorContext
 
     /// <summary>True when a concrete actor is bound to this request.</summary>
     bool HasActor { get; }
+
+    /// <summary>The upstream sale code of the merchant user bound to this request — the catalogue search runs
+    /// under this code and a client can never choose it (products-external-source-of-truth REQ-4.8); null when
+    /// the actor has none (or is not a merchant user at all), which the catalogue path answers with 403
+    /// (REQ-4.9). A default member on purpose: only the HTTP actor resolves a real value, and every worker /
+    /// webhook / test binding stays valid unchanged.</summary>
+    string? SaleCode => null;
 }

@@ -52,6 +52,8 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
         if (account.MerchantId is not { } merchantId)
             return ByIdResult.NotActive;
         var permissions = await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken);
-        return ByIdResult.Of(new Resolution(account.MerchantUserId, account.Email, merchantId, permissions), account.Subject);
+        return ByIdResult.Of(
+            new Resolution(account.MerchantUserId, account.Email, merchantId, permissions, account.SaleCode),
+            account.Subject);
     }
 }

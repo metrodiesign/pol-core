@@ -556,12 +556,12 @@ ops (reactivate, sessions list/revoke) gate ด้วย `AdminTier.Super` mirro
 หมายเหตุนิยาม: "Producer" ในเอกสารนี้เป็น**ชื่อบทบาททางธุรกิจ** — ในโค้ด/DB actor ตัวนี้ชื่อ **merchant-user**
 (`Merchants.Domain.Users.User` → ตาราง `merch.Users`; rf1 ยุบโมดูล `Producer` + `Tenant` เข้าเป็นโมดูล `Merchants`
 เดียว จึง **ไม่มีโมดูล/คลาส `Producer*` เหลืออยู่**). เอกสารรุ่นก่อนหน้าเรียก actor นี้ว่า "พนักงานบริษัทในเครือ" —
-ปรับเป็นตัวแทน/นายหน้าตามโมเดลธุรกิจจริง ซึ่งโค้ดรองรับอยู่แล้ว (`ProducerCode`, `LicenseNumber`, `PersonType` บนบัญชี)
+ปรับเป็นตัวแทน/นายหน้าตามโมเดลธุรกิจจริง ซึ่งโค้ดรองรับอยู่แล้ว (`SaleCode`, `LicenseNumber`, `PersonType` บนบัญชี)
 
 ### 4.1 บัญชี merchant-user — OIDC BFF (Google + Entra)
 
 **บทบาท**
-- `Merchants.Domain.Users.User` (ตาราง `merch.Users`; เดิมชื่อ `ProducerAccount`): `Subject` (unique), `Email`, `Status` (`PendingApproval` → `Active` / `Rejected`; `Suspended`), `MerchantId` (nullable — **bind ตอน admin approve**, ไม่มีตาราง assignment แยก), ข้อมูลบุคคล/ใบอนุญาต (`FirstName`, `LastName`, `DisplayName` server-compute, `PersonType`, `IdNumber`, `ProducerCode`, `LicenseNumber`, `Phone`) + รูปถ่าย (`PhotoObjectKey`/`PhotoContentType` — bytes อยู่นอก DB ผ่าน `IPhotoStore`)
+- `Merchants.Domain.Users.User` (ตาราง `merch.Users`; เดิมชื่อ `ProducerAccount`): `Subject` (unique), `Email`, `Status` (`PendingApproval` → `Active` / `Rejected`; `Suspended`), `MerchantId` (nullable — **bind ตอน admin approve**, ไม่มีตาราง assignment แยก), ข้อมูลบุคคล/ใบอนุญาต (`FirstName`, `LastName`, `DisplayName` server-compute, `PersonType`, `IdNumber`, `SaleCode`, `LicenseNumber`, `Phone`) + รูปถ่าย (`PhotoObjectKey`/`PhotoContentType` — bytes อยู่นอก DB ผ่าน `IPhotoStore`)
 - สมัครแบบ **ticket-gated**: ticket เป็น stateless signed token (Data Protection purpose `MerchantUser.RegistrationTicket.v1` — ไม่มีตาราง ticket) → `POST /api/v1/merchants/users/register` (multipart + รูป) → admin อนุมัติ/ปฏิเสธ (`POST /api/v1/admins/merchants/users/{subject}/approve|reject`, gate ด้วย permission `merchants.users.approve`/`merchants.users.reject` ฝั่ง Admin) — merchant + role ถูกกำหนดฝั่ง server ตอนอนุมัติ ไม่มาจาก token
 - login = OIDC BFF มิเรอร์ฝั่ง Admin แต่แยกขาดกัน (OAuth client + scheme `MerchantUser{Google|Microsoft}` คนละตัว, config `MerchantAuth:Providers:*`): cookie `__Host-mch_session` + CSRF `mch_csrf`, rotation/reuse-detection/revoke; callback แตก 4 ทางตามสถานะบัญชี (Active → session, ยังไม่มีบัญชี → ticket ไปหน้า register ฯลฯ)
 - นโยบาย auth `merchant-user` เป็น **session-cookie อย่างเดียว** — rf1 ถอด Google id-token Bearer + policy `tenant` ทิ้งทั้งระบบ ไม่มี `Authorization` header เหลือแล้ว
@@ -572,7 +572,7 @@ ops (reactivate, sessions list/revoke) gate ด้วย `AdminTier.Super` mirro
 | ฟีเจอร์ | รายละเอียด | สถานะ |
 |---|---|---|
 | สมัครแบบ ticket-gated | ticket = stateless signed token (Data Protection), short-lived (`TicketTtlMinutes` default 10) — ไม่มีตาราง ticket; identity มาจาก ticket ไม่ใช่ form | มีแล้ว |
-| ฟอร์มสมัคร + รูปถ่าย | `POST /api/v1/merchants/users/register` (multipart): ข้อมูลบุคคล/ใบอนุญาต (`PersonType`, `IdNumber`, `ProducerCode`, `LicenseNumber`, `Phone`) + รูป (content-type + magic bytes + size validate) | มีแล้ว |
+| ฟอร์มสมัคร + รูปถ่าย | `POST /api/v1/merchants/users/register` (multipart): ข้อมูลบุคคล/ใบอนุญาต (`PersonType`, `IdNumber`, `SaleCode`, `LicenseNumber`, `Phone`) + รูป (content-type + magic bytes + size validate) | มีแล้ว |
 | กันสมัครซ้ำ/replay | unique index `merch.Users.Subject` + `(Provider, Subject)` บน `merch.ExternalLogins` — submit ซ้ำชน index แล้ว unit of work แปลงเป็น **409** ไม่ใช่ 500 (แทน guard `HasPendingAsync` เดิมที่ถูกถอดทิ้ง) | มีแล้ว |
 | อนุมัติ/ปฏิเสธ + เหตุผล | `POST /api/v1/admins/merchants/users/{subject}/approve\|reject` gate ด้วย `merchants.users.approve`/`merchants.users.reject` + accessible-merchant floor (`IAdminQuery`) ที่ host; merchant + role กำหนดฝั่ง server; approve idempotent เมื่อ merchant เดิม, merchant ต่าง → 409; เหตุผล persist ลง `merch.RegistrationAudits`; reject revoke session ที่ live อยู่ด้วย | มีแล้ว |
 | Resubmit หลังถูกปฏิเสธ | correction ticket → แก้ข้อมูล → `User.Resubmit()` (throw ถ้าไม่ใช่ `Rejected`) → กลับเข้า `PendingApproval` | มีแล้ว |
