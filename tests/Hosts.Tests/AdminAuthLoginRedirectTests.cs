@@ -33,12 +33,12 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("AdminAuth:Providers:Google:ClientId", ClientId);
         builder.UseSetting("AdminAuth:Providers:Google:ClientSecret", "test-secret");
         builder.UseSetting("AdminAuth:Providers:Google:CallbackPath", "/api/v1/admins/auth/google/callback");
+        builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
+        builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["AdminSession:ReturnUrlAllowlist:0"] = "/",
                 ["AdminSession:ReturnUrlAllowlist:1"] = "/dashboard",
