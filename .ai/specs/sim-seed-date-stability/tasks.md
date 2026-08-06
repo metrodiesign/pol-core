@@ -49,7 +49,8 @@
        - test (timezone, REQ-1.2/2.2/2.3): `TZ=Asia/Bangkok dotnet test` (Integration filter) -> 150 passed / 0 failed เท่ารัน UTC
        - test (gate เต็ม): unit ทั้ง solution (`Category!=Integration`) -> 0 failure; Integration -> Hosts.Tests 1/1 + Integration.Tests 150/150; `scripts/spec-trace.sh sim-seed-date-stability` -> OK เกณฑ์ 24 ข้อครบ
        - viewports: n/a — logic-only
-       - deviations: CI job `dotnet integration (live SQL 2025)` บน PR ยังไม่รัน — จะเขียวได้ต่อเมื่อเปิด PR (ขั้น ship ถัดไป); sqlcmd ที่ใช้ UPDATE ตรง ๆ ต้อง `SET QUOTED_IDENTIFIER ON` ก่อน (filtered index บน dbo.Documents — trap เดิมของ repo)
+       - deviations: sqlcmd ที่ใช้ UPDATE ตรง ๆ ต้อง `SET QUOTED_IDENTIFIER ON` ก่อน (filtered index บน dbo.Documents — trap เดิมของ repo)
+       - ci: PR #185 (`1adf85d`) เขียวครบทุก check — `dotnet integration (live SQL 2025)` pass, `guards + spec-trace` pass, `dotnet build + test` pass, `docker build (api, migrate)` pass — ปิดเงื่อนไข Verify ข้อ CI ของ task นี้
 
 ## Suggested execution batches
 
