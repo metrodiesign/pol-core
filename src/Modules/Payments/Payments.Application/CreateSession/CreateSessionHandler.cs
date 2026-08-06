@@ -30,6 +30,7 @@ public sealed class CreateSessionHandler
     private readonly IPspAdapterFactory _adapters;
     private readonly ISessionRepository _sessions;
     private readonly PaymentConfirmationService _confirmation;
+    private readonly IDocumentSaleProbe _documentSales;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
 
@@ -39,6 +40,7 @@ public sealed class CreateSessionHandler
         IPspAdapterFactory adapters,
         ISessionRepository sessions,
         PaymentConfirmationService confirmation,
+        IDocumentSaleProbe documentSales,
         IUnitOfWork unitOfWork,
         IClock clock)
     {
@@ -47,6 +49,7 @@ public sealed class CreateSessionHandler
         _adapters = adapters;
         _sessions = sessions;
         _confirmation = confirmation;
+        _documentSales = documentSales;
         _unitOfWork = unitOfWork;
         _clock = clock;
     }
@@ -66,6 +69,8 @@ public sealed class CreateSessionHandler
         if (!order.IsAwaitingPayment)
             throw new InvalidOperationException(
                 $"Order {order.OrderId} is not awaiting payment; no payment session can be opened for it.");
+
+        await EnsureNoDocumentSoldElsewhereAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
 
         var connection = await _connections.GetAsync(command.MerchantId, command.Psp, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException(
@@ -126,6 +131,27 @@ public sealed class CreateSessionHandler
                 return await MintAsync(command, lockedAmount, method, ct).ConfigureAwait(false);
             },
             cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The last gate before a charge exists at the PSP (products-external-source-of-truth REQ-5.6): an
+    /// insurance document is sold once, and between checkout and this call another order — very possibly
+    /// another merchant's — may have paid for it. Refusing here means the customer sees a 409 instead of a
+    /// receipt for a document they can never be given.
+    /// <para>Holds by THIS order are not a conflict: its own in-flight payment session is exactly what a
+    /// resume/retry looks like. The message names neither the holding order nor its merchant (REQ-5.7) —
+    /// that pair only ever appears in <see cref="DocumentSaleStatus.HeldByOrderId"/>, which stays here.</para>
+    /// </summary>
+    private async Task EnsureNoDocumentSoldElsewhereAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var keys = await _orders.GetDocumentKeysAsync(orderId, cancellationToken).ConfigureAwait(false);
+        if (keys.Count == 0)
+            return;
+
+        var statuses = await _documentSales.ProbeAsync(keys, cancellationToken).ConfigureAwait(false);
+        if (statuses.Any(status => status.HeldByOrderId != orderId))
+            throw new ConflictException(
+                "An insurance document on this order is no longer available for sale.");
     }
 
     /// <summary>

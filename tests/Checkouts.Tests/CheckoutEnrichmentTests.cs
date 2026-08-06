@@ -11,14 +11,13 @@ public sealed class CheckoutEnrichmentTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid Cart = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime StartAt = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly CustomerContact Customer =
         CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com");
 
     private static CheckoutItemInput Insured(decimal unitPrice = 15000m, Money? discount = null, string currency = "THB") =>
-        new(Product, 1, Money.Of(unitPrice, currency),
+        new(1, Money.Of(unitPrice, currency),
             "00098-69100/AB/900001-10", "VMI", "POLICY", "POL-0001", null, null,
             "Somchai", "Jaidee", "1234567890123", Dob, discount);
 

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Persistence.MerchantRuntime.Checkouts.Items;
 
 // Runtime (scalar-only) mapping — mirrors Checkouts.Infrastructure.Items.ItemConfiguration exactly for
-// column/index shape. ProductId stays a bare scalar (no CLR nav to Product).
+// column/index shape. The document is identified by DocumentNo — there is no catalogue table to point at.
 
 internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEntityTypeConfiguration<Item>
 {
@@ -17,7 +17,6 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
 
         builder.Property(x => x.SessionId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Session
-        builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(Item.MerchantId));

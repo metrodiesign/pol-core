@@ -41,7 +41,7 @@ public sealed class ConfirmCheckoutHandler : ICommandHandler<ConfirmCheckoutComm
 
         var items = session.Items
             .Select(i => new CheckoutConfirmedItem(
-                i.ProductId, i.Quantity, i.UnitPrice,
+                i.Quantity, i.UnitPrice,
                 i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
                 i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth,
                 i.Discount.Amount, i.Discount.Currency))

@@ -161,7 +161,7 @@ public sealed class Order : AggregateRoot<Guid>
         {
             var item = items[i];
             order._items.Add(new Item(
-                Guid.CreateVersion7(), order.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice, discounts[i],
+                Guid.CreateVersion7(), order.Id, merchantId, item.Quantity, item.UnitPrice, discounts[i],
                 item.DocumentNo, item.ProductGroup, item.DocumentType, item.PolicyNumber,
                 item.StartDate, item.EndDate,
                 item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,

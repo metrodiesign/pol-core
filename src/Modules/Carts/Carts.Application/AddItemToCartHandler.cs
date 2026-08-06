@@ -5,8 +5,8 @@ using SharedKernel;
 namespace Carts.Application;
 
 /// <summary>
-/// Loads the open cart, adds (or merges) the product line, and commits. Rejects an unknown cart or
-/// one owned by another merchant.
+/// Loads the open cart, adds the document line, and commits. Rejects an unknown cart, one owned by another
+/// merchant, or a document the cart already holds (<c>Cart.AddItem</c> -> 400, REQ-9.4).
 /// </summary>
 public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand, AddItemResult>
 {
@@ -27,7 +27,8 @@ public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand,
         if (cart.MerchantId != command.MerchantId)
             throw new InvalidOperationException($"Cart {command.CartId} does not belong to the requesting merchant.");
 
-        cart.AddItem(command.ProductId, command.Quantity, command.UnitPrice);
+        cart.AddItem(
+            command.DocumentNo, command.SaleCode, command.ProductGroup, command.Quantity, command.UnitPrice);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

@@ -29,7 +29,6 @@ using MerchantRegistrationAttempt = Merchants.Domain.Users.RegistrationAttempt;
 using MerchantRegistrationNotice = Merchants.Domain.Users.RegistrationNotice;
 using MerchantRoleAssignment = Merchants.Domain.Users.Roles.RoleAssignment;
 using Payments.Domain.Psp;
-using Products.Domain;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using CheckoutSession = Checkouts.Domain.Session;
@@ -94,7 +93,7 @@ internal sealed class MerchantRequestWriteAuthorizer : IWriteAuthorizer
         typeof(MerchantRoleAssignment),
         typeof(MerchantUserOutbox),
         // MerchantRuntimeDbContext
-        typeof(Product), typeof(CartAggregate), typeof(CartItem), typeof(CheckoutSession), typeof(CheckoutSessionItem),
+        typeof(CartAggregate), typeof(CartItem), typeof(CheckoutSession), typeof(CheckoutSessionItem),
         typeof(OrderAggregate), typeof(OrderItem), typeof(OrderItemRevealAudit),
         typeof(OrderItemPolicy), typeof(OrderItemPolicyAudit),
         typeof(PaymentSession), typeof(Connection), typeof(IdempotencyRecord), typeof(OutboxMessage),

@@ -19,7 +19,6 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<OrderItem>
 
         builder.Property(x => x.OrderId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Order
-        builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
 
         builder.ComplexProperty(x => x.UnitPrice, p =>
@@ -37,6 +36,13 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<OrderItem>
 
         builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
         builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
+
+        // products-external-source-of-truth REQ-5.15: the sold-check probes up to 25 document numbers in one
+        // read, and DocumentNo is its only IN predicate. Covering OrderId + ProductGroup keeps that read off
+        // the clustered index entirely. NOT unique on purpose — a cancelled order and the order that really
+        // sells the document may both hold it (design decision #4).
+        builder.HasIndex(x => x.DocumentNo, "IX_OrderItems_DocumentNo")
+            .IncludeProperties(x => new { x.OrderId, x.ProductGroup });
         builder.Property(x => x.DocumentType).HasMaxLength(20).IsUnicode(false).IsRequired();
         builder.Property(x => x.PolicyNumber).HasMaxLength(150).IsUnicode(false);
         builder.Property(x => x.StartDate).HasPrecision(0);

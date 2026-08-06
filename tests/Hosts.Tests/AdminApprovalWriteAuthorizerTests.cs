@@ -61,7 +61,7 @@ public sealed class AdminApprovalWriteAuthorizerTests
         Assert.False(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Insert, Guid.Empty)); // self-service, not admin
         Assert.False(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Delete, MerchantA));
         Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Delete, MerchantA));
-        Assert.False(floor.CanWrite(typeof(Products.Domain.Product), WriteOperation.Insert, MerchantA)); // product plane
+        Assert.False(floor.CanWrite(typeof(SharedKernel.Money), WriteOperation.Insert, MerchantA)); // not an owned entity type
         Assert.False(floor.CanWrite(typeof(MerchantRegistrationAudit), WriteOperation.Update, Guid.Empty)); // append-only
     }
 }
@@ -97,7 +97,7 @@ public sealed class HttpMerchantWriteAuthorizerSelectionTests
         var floor = new HttpMerchantWriteAuthorizer(scope, new UnboundActor());
 
         Assert.True(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Update, MerchantA));
-        Assert.False(floor.CanWrite(typeof(Products.Domain.Product), WriteOperation.Insert, Guid.Empty));
+        Assert.False(floor.CanWrite(typeof(SharedKernel.Money), WriteOperation.Insert, Guid.Empty));
     }
 
     [Fact]

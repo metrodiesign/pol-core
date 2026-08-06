@@ -17,7 +17,7 @@ public sealed record GetOrderDetailCommand(Guid MerchantId, Guid OrderId, string
     : ICommand<OrderDetailView>, IMerchantScoped;
 
 public sealed record OrderItemDetail(
-    Guid ProductId, int Quantity, Money UnitPrice, Money Discount,
+    int Quantity, Money UnitPrice, Money Discount,
     string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
     DateTime? StartDate, DateTime? EndDate,
     string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth);
@@ -56,7 +56,7 @@ public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailComman
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var lines = order.Items.Select(i => new OrderItemDetail(
-            i.ProductId, i.Quantity, i.UnitPrice, i.Discount,
+            i.Quantity, i.UnitPrice, i.Discount,
             i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
             i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth)).ToList();
 

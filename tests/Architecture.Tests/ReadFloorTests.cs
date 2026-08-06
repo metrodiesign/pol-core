@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantUsers;
 using Carts.Domain;
-using Products.Domain;
 using SharedKernel;
 using MerchantUserAccount = Merchants.Domain.Users.User;
 
@@ -16,9 +15,9 @@ namespace Architecture.Tests;
 /// return zero rows, a by-id load of another merchant's row is IDOR-closed (null, not an exception), an
 /// unbound actor sees nothing, and the filter genuinely re-evaluates per DbContext INSTANCE (not baked into
 /// the shared/cached compiled model) — proven both by differing query RESULTS and by inspecting the
-/// generated SQL's parameter placeholder. <see cref="Cart"/> stands in for the filtered entities here;
-/// <see cref="Product"/> is deliberately NOT one of them (central catalogue, no MerchantId column) and gets
-/// its own test below so that exemption stays a decision rather than a regression.
+/// generated SQL's parameter placeholder. <see cref="Cart"/> stands in for the filtered entities here.
+/// (The former central-catalogue exemption test went away with shop.Products — products-external-source-of-truth
+/// REQ-6.1 — the catalogue is read live from the upstream now and has no EF entity.)
 /// </summary>
 public sealed class ReadFloorTests : IDisposable
 {
@@ -50,22 +49,6 @@ public sealed class ReadFloorTests : IDisposable
 
         Assert.Single(visible);
         Assert.Equal(a, visible[0].Id);
-    }
-
-    [Fact]
-    public async Task The_product_catalogue_is_central_and_visible_to_every_merchant()
-    {
-        // Product carries no MerchantId and no query filter on purpose: the catalogue is shared and a
-        // request is scoped by the mandatory SaleCode filter instead. Locked here so re-adding a tenant
-        // key stays a deliberate change.
-        await SeedProductAsync("a-product");
-        await SeedProductAsync("b-product");
-
-        using var asA = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA));
-        using var unbound = NewMerchantRuntimeContext(FakeActorContext.Unbound);
-
-        Assert.Equal(2, await asA.Products.CountAsync());
-        Assert.Equal(2, await unbound.Products.CountAsync());
     }
 
     [Fact]
@@ -163,16 +146,6 @@ public sealed class ReadFloorTests : IDisposable
         writer.Add(cart);
         await writer.SaveChangesAsync();
         return cart.Id;
-    }
-
-    private async Task SeedProductAsync(string documentNo)
-    {
-        using var writer = NewMerchantRuntimeContext(FakeActorContext.Unbound);
-        writer.Add(Product.Create(
-            new ProductInput(
-                ProductGroup.VMI, DocumentType.POLICY, documentNo, "00098", 10m,
-                PaymentStatus.UNPAID, null)));
-        await writer.SaveChangesAsync();
     }
 
     public void Dispose() => _connection.Dispose();

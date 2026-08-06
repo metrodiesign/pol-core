@@ -11,8 +11,7 @@ namespace Architecture.Tests;
 
 /// <summary>
 /// EF round-trip for <see cref="Order.Items"/> (insurance-pivot REQ-6) over
-/// <see cref="MerchantRuntimeDbContext"/> backed by in-memory SQLite (mirrors
-/// <see cref="ProductRepositoryListTests"/>'s constructor pattern). Proves the composite alternate-key/FK
+/// <see cref="MerchantRuntimeDbContext"/> backed by in-memory SQLite. Proves the composite alternate-key/FK
 /// mapping round-trips every line field, and that deleting the parent <see cref="Order"/> cascades to its
 /// <see cref="OrderItem"/> rows.
 /// </summary>
@@ -24,7 +23,6 @@ public sealed class OrderItemsTests : IDisposable
     private static string NextOrderNo() => $"ORD69{Interlocked.Increment(ref _orderNoCounter):D8}";
 
     private static readonly Guid MerchantA = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
-    private static readonly Guid ProductA = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
@@ -45,7 +43,7 @@ public sealed class OrderItemsTests : IDisposable
     private static Order NewOrderWithOneLine() =>
         Order.Create(MerchantA, Money.Of(15000m, "THB"), At,
             [new OrderItemInput(
-                ProductA, 1, Money.Of(15000m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY",
+                1, Money.Of(15000m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY",
                 "P-900001", At.Date, At.Date.AddYears(1),
                 "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
 
@@ -63,7 +61,6 @@ public sealed class OrderItemsTests : IDisposable
         var reloaded = await reader.Orders.Include(o => o.Items).SingleAsync(o => o.Id == order.Id);
 
         var item = Assert.Single(reloaded.Items);
-        Assert.Equal(ProductA, item.ProductId);
         Assert.Equal(order.Id, item.OrderId);
         Assert.Equal(MerchantA, item.MerchantId);
         Assert.Equal(Money.Of(15000m, "THB"), item.UnitPrice);

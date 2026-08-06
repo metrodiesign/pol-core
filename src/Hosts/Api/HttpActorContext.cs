@@ -60,4 +60,14 @@ public sealed class HttpActorContext : IActorContext
     public Guid? UserId => _ambient.IsBound ? _ambient.UserId : ClaimUserId;
 
     public bool HasActor => _ambient.IsBound || ClaimMerchantId.HasValue;
+
+    /// <summary>Read per access from the <c>sale_code</c> claim the merchant-user session handler mints from the
+    /// freshly resolved account (REQ-4.8) — same lazy rule as <see cref="ClaimMerchantId"/>, never snapshotted at
+    /// construction (bugfix-merchant-prebind-wiring F5). An ambient (webhook) binding carries no merchant user,
+    /// so it has no sale code; there is deliberately no dev fallback — a wrong code searches somebody else's
+    /// catalogue.</summary>
+    public string? SaleCode => _accessor.HttpContext?.User.FindFirstValue(SaleCodeClaim);
+
+    /// <summary>Claim name, in the snake_case the OIDC/claim convention uses (not the C# property spelling).</summary>
+    public const string SaleCodeClaim = "sale_code";
 }

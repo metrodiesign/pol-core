@@ -1,11 +1,12 @@
+using Products.Application;
 using Products.Application.Ports;
 using Products.Domain;
 
 namespace Products.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="SpDocumentItemMapper"/> — the §5.2 row to <see cref="ProductInput"/>
-/// translation (REQ-7.7, REQ-7.10). No DB, no gateway.
+/// Unit tests for <see cref="SpDocumentItemMapper"/> — the §5.2 row to <see cref="DocumentView"/>
+/// translation (products-external-source-of-truth REQ-1.6, REQ-1.7, REQ-3.5). No DB, no gateway.
 /// </summary>
 public sealed class SpDocumentItemMapperTests
 {
@@ -45,7 +46,7 @@ public sealed class SpDocumentItemMapperTests
             "POL-1", "APP-1", "POL-0", "E950001",
             start, end, "ผู้เอาประกัน",
             14000m, 10m, 980m, 15900m, 12.5m, 500m, paidAt,
-            "9ฮฮ 9999", "PAID")).Input;
+            "9ฮฮ 9999", "PAID")).View;
 
         Assert.NotNull(input);
         // REQ-7.10: the group comes from SourceSystem and the row's own InsuranceType ("NonMotor" here,
@@ -90,7 +91,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row());
 
-        Assert.NotNull(mapped.Input);
+        Assert.NotNull(mapped.View);
         Assert.Null(mapped.SkipReason);
     }
 
@@ -101,7 +102,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var paidAt = new DateTime(2026, 7, 20, 9, 15, 0, DateTimeKind.Unspecified);
 
-        var input = MapOne(Row(paymentStatus: "PAID", paidDate: paidAt)).Input;
+        var input = MapOne(Row(paymentStatus: "PAID", paidDate: paidAt)).View;
 
         Assert.Equal(paidAt, input!.PaidDate);
         Assert.Equal(DateTimeKind.Unspecified, input.PaidDate!.Value.Kind);
@@ -115,7 +116,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row(documentNo: documentNo));
 
-        Assert.Null(mapped.Input);
+        Assert.Null(mapped.View);
         Assert.Contains("DocumentNo", mapped.SkipReason);
     }
 
@@ -126,7 +127,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row(saleCode: saleCode));
 
-        Assert.Null(mapped.Input);
+        Assert.Null(mapped.View);
         Assert.Contains("SaleCode", mapped.SkipReason);
     }
 
@@ -139,7 +140,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row(totalPremium: (decimal?)totalPremium));
 
-        Assert.Null(mapped.Input);
+        Assert.Null(mapped.View);
         Assert.Contains("TotalPremium", mapped.SkipReason);
     }
 
@@ -156,7 +157,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row(sourceSystem: sourceSystem));
 
-        Assert.Null(mapped.Input);
+        Assert.Null(mapped.View);
         Assert.Contains("SourceSystem", mapped.SkipReason);
     }
 
@@ -169,7 +170,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row(documentType: documentType));
 
-        Assert.Null(mapped.Input);
+        Assert.Null(mapped.View);
         Assert.Contains("DocumentType", mapped.SkipReason);
     }
 
@@ -182,7 +183,7 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = MapOne(Row(paymentStatus: paymentStatus));
 
-        Assert.Null(mapped.Input);
+        Assert.Null(mapped.View);
         Assert.Contains("PaymentStatus", mapped.SkipReason);
     }
 
@@ -194,10 +195,10 @@ public sealed class SpDocumentItemMapperTests
             [Row(totalPremium: 100m), Row(totalPremium: 200m), Row(documentNo: "77001-69900/กธ/950002-10")]);
 
         Assert.Equal(3, mapped.Count);
-        Assert.Equal(100m, mapped[0].Input!.TotalPremium);
-        Assert.Null(mapped[1].Input);
+        Assert.Equal(100m, mapped[0].View!.TotalPremium);
+        Assert.Null(mapped[1].View);
         Assert.Contains("duplicate", mapped[1].SkipReason);
-        Assert.Equal("77001-69900/กธ/950002-10", mapped[2].Input!.DocumentNo);
+        Assert.Equal("77001-69900/กธ/950002-10", mapped[2].View!.DocumentNo);
     }
 
     // The claim is case-insensitive because IX_Products_DocumentNo is: "ab" after "AB" is the same
@@ -209,8 +210,8 @@ public sealed class SpDocumentItemMapperTests
             [Row(documentNo: "77001-69900/AB/950009-10", totalPremium: 100m),
              Row(documentNo: "77001-69900/ab/950009-10", totalPremium: 200m)]);
 
-        Assert.Equal(100m, mapped[0].Input!.TotalPremium);
-        Assert.Null(mapped[1].Input);
+        Assert.Equal(100m, mapped[0].View!.TotalPremium);
+        Assert.Null(mapped[1].View);
         Assert.Contains("duplicate", mapped[1].SkipReason);
     }
 
@@ -219,8 +220,8 @@ public sealed class SpDocumentItemMapperTests
     {
         var mapped = SpDocumentItemMapper.Map([Row(totalPremium: 0m), Row(totalPremium: 200m)]);
 
-        Assert.Null(mapped[0].Input);
-        Assert.Equal(200m, mapped[1].Input!.TotalPremium);
+        Assert.Null(mapped[0].View);
+        Assert.Equal(200m, mapped[1].View!.TotalPremium);
     }
 
     [Fact]
@@ -229,9 +230,9 @@ public sealed class SpDocumentItemMapperTests
         var mapped = SpDocumentItemMapper.Map(
             [Row(documentNo: "b"), Row(saleCode: " "), Row(documentNo: "a")]);
 
-        Assert.Equal("b", mapped[0].Input!.DocumentNo);
-        Assert.Null(mapped[1].Input);
-        Assert.Equal("a", mapped[2].Input!.DocumentNo);
+        Assert.Equal("b", mapped[0].View!.DocumentNo);
+        Assert.Null(mapped[1].View);
+        Assert.Equal("a", mapped[2].View!.DocumentNo);
     }
 
     [Fact]

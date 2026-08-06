@@ -41,54 +41,64 @@ public sealed class Cart : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Adds <paramref name="quantity"/> of a product at <paramref name="unitPrice"/>. All lines must
-    /// share one currency, so a mismatch is rejected. Re-adding the same product at the same unit
-    /// price merges into the existing line rather than creating a duplicate.
+    /// Adds <paramref name="quantity"/> of the insurance document <paramref name="documentNo"/> at
+    /// <paramref name="unitPrice"/>. All lines must share one currency, so a mismatch is rejected.
+    /// A document already in this cart is REJECTED rather than merged (products-external-source-of-truth
+    /// REQ-9.4): one insurance document is sold once, so a second line for it could only ever fail later —
+    /// at checkout, after the merchant had filled in a second insured person for it.
     /// </summary>
-    public void AddItem(Guid productId, int quantity, Money unitPrice)
+    public void AddItem(string documentNo, string saleCode, string productGroup, int quantity, Money unitPrice)
     {
         if (Status != CartStatus.Open)
             throw new InvalidOperationException("Cannot modify a cart that is not open.");
         if (quantity <= 0)
             throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity must be positive.");
+        ArgumentException.ThrowIfNullOrWhiteSpace(documentNo, nameof(documentNo));
+
+        // REQ-2.3 is the equality rule everywhere: trimmed, case ignored. Ordinal here is the C# fast-path
+        // that must never be LOOSER than the column collation decides — inside one cart there is no SQL
+        // comparison to disagree with, so the strict form is also the safe one.
+        var wanted = documentNo.Trim();
+        if (_items.Exists(i => string.Equals(i.DocumentNo, wanted, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("The document is already in this cart.", nameof(documentNo));
 
         EnsureCurrencyMatches(unitPrice);
         Version++;
 
-        var existing = _items.FirstOrDefault(
-            i => i.ProductId == productId && i.UnitPrice.Amount == unitPrice.Amount);
-        if (existing is not null)
-        {
-            existing.IncreaseQuantity(quantity);
-            return;
-        }
-
-        _items.Add(new Item(Guid.CreateVersion7(), Id, MerchantId, productId, quantity, unitPrice));
+        _items.Add(new Item(
+            Guid.CreateVersion7(), Id, MerchantId, wanted, saleCode, productGroup, quantity, unitPrice));
     }
 
-    /// <summary>Removes the line for <paramref name="productId"/>, if present.</summary>
-    public void RemoveItem(Guid productId)
+    /// <summary>Removes the line <paramref name="itemId"/>. Returns false when the cart has no such line,
+    /// which the caller turns into a 404 (REQ-9.3) — the id is a route segment, not a filter.</summary>
+    public bool RemoveItem(Guid itemId)
     {
         if (Status != CartStatus.Open)
             throw new InvalidOperationException("Cannot modify a cart that is not open.");
 
+        if (_items.RemoveAll(i => i.Id == itemId) == 0)
+            return false;
+
         Version++;
-        _items.RemoveAll(i => i.ProductId == productId);
+        return true;
     }
 
-    /// <summary>Sets an existing line's quantity to a positive value. Rejects a non-open cart, a
-    /// non-positive quantity, or a product that is not in the cart.</summary>
-    public void SetItemQuantity(Guid productId, int quantity)
+    /// <summary>Sets an existing line's quantity to a positive value. Rejects a non-open cart or a
+    /// non-positive quantity; returns false when the cart has no line <paramref name="itemId"/> (REQ-9.3).</summary>
+    public bool SetItemQuantity(Guid itemId, int quantity)
     {
         if (Status != CartStatus.Open)
             throw new InvalidOperationException("Cannot modify a cart that is not open.");
         if (quantity <= 0)
             throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity must be positive.");
 
-        var line = _items.FirstOrDefault(i => i.ProductId == productId)
-            ?? throw new ArgumentException($"Product {productId} is not in the cart.", nameof(productId));
+        var line = _items.Find(i => i.Id == itemId);
+        if (line is null)
+            return false;
+
         Version++;
         line.SetQuantity(quantity);
+        return true;
     }
 
     /// <summary>Empties the cart of all lines.</summary>

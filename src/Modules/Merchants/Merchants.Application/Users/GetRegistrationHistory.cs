@@ -35,7 +35,7 @@ public sealed record RegistrationHistoryResult(
 public sealed record AttemptView(
     int AttemptNo, TicketPurpose Purpose, DateTime SubmittedAt,
     string FirstName, string LastName, PersonType? PersonType,
-    string? IdNumber, string? ProducerCode, string? LicenseNumber, string? Phone,
+    string? IdNumber, string? SaleCode, string? LicenseNumber, string? Phone,
     string Email, string? PhotoObjectKey, string? PhotoContentType);
 
 public sealed record TimelineEntry(
@@ -99,7 +99,7 @@ public sealed class GetRegistrationHistoryHandler
             a.AttemptNo, a.Purpose, a.SubmittedAt,
             a.FirstName, a.LastName, a.PersonType,
             query.Reveal ? a.IdNumber : PiiMask.Last4(a.IdNumber),
-            a.ProducerCode,
+            a.SaleCode,
             query.Reveal ? a.LicenseNumber : PiiMask.Last4(a.LicenseNumber),
             query.Reveal ? a.Phone : PiiMask.Last4(a.Phone),
             query.Reveal ? a.Email : PiiMask.Email(a.Email)!,

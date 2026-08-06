@@ -19,7 +19,6 @@ public sealed class Item : Entity<Guid>
     /// <summary>Denormalized from the parent <see cref="Session"/>, mirrors <c>Carts.Domain.Items.Item.MerchantId</c>.</summary>
     public Guid MerchantId { get; private set; }
 
-    public Guid ProductId { get; private set; }
     public int Quantity { get; private set; }
     public Money UnitPrice { get; private set; }
 
@@ -43,7 +42,7 @@ public sealed class Item : Entity<Guid>
     private Item() { }
 
     internal Item(
-        Guid id, Guid sessionId, Guid merchantId, Guid productId, int quantity, Money unitPrice, Money discount,
+        Guid id, Guid sessionId, Guid merchantId, int quantity, Money unitPrice, Money discount,
         string documentNo, string productGroup, string documentType, string? policyNumber,
         DateTime? startDate, DateTime? endDate,
         string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
@@ -67,7 +66,6 @@ public sealed class Item : Entity<Guid>
 
         SessionId = sessionId;
         MerchantId = merchantId;
-        ProductId = productId;
         Quantity = quantity;
         UnitPrice = unitPrice;
         Discount = discount;

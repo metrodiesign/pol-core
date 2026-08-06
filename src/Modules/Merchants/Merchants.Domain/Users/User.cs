@@ -36,7 +36,12 @@ public sealed class User : AggregateRoot<Guid>
     public string LastName { get; private set; } = default!;
     public PersonType? PersonType { get; private set; }
     public string? IdNumber { get; private set; }
-    public string? ProducerCode { get; private set; }
+
+    /// <summary>The upstream sale code this account sells under — the same field the VCentralPay search
+    /// contract calls <c>@SaleCode</c>. Validated to that contract's shape at <see cref="SetDetails"/>
+    /// (products-external-source-of-truth REQ-4.10): 20 characters of printable ASCII, or NULL.</summary>
+    public string? SaleCode { get; private set; }
+
     public string? LicenseNumber { get; private set; }
     public string? Phone { get; private set; }
 
@@ -76,9 +81,13 @@ public sealed class User : AggregateRoot<Guid>
     }
 
     /// <summary>Sets/overwrites the registrant detail fields from the (corrected) registration form.
-    /// DisplayName is recomputed from the required first/last name.</summary>
+    /// DisplayName is recomputed from the required first/last name. <paramref name="saleCode"/> is validated
+    /// against the upstream contract here — this is the ONLY way a value reaches the field, and the check must
+    /// live at this edge rather than at use time: <c>SqlParameter.Size = 20</c> truncates a longer value with no
+    /// error, and a non-ASCII character is lost to <c>varchar</c>, so an unchecked value would silently search
+    /// under somebody else's code (products-external-source-of-truth REQ-4.10, design decision #8).</summary>
     public void SetDetails(string firstName, string lastName, PersonType? personType,
-        string? idNumber, string? producerCode, string? licenseNumber, string? phone)
+        string? idNumber, string? saleCode, string? licenseNumber, string? phone)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
         ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
@@ -87,9 +96,26 @@ public sealed class User : AggregateRoot<Guid>
         DisplayName = ComposeDisplayName(FirstName, LastName);
         PersonType = personType;
         IdNumber = Trim(idNumber);
-        ProducerCode = Trim(producerCode);
+        SaleCode = ValidSaleCode(Trim(saleCode));
         LicenseNumber = Trim(licenseNumber);
         Phone = Trim(phone);
+    }
+
+    /// <summary>The upstream contract's <c>varchar(20)</c>: at most 20 printable-ASCII characters (REQ-4.10).
+    /// <see cref="ArgumentException"/> so the shared ProblemDetails handler answers 400, not 500.</summary>
+    public const int SaleCodeMaxLength = 20;
+
+    private static string? ValidSaleCode(string? saleCode)
+    {
+        if (saleCode is null)
+            return null;
+        if (saleCode.Length > SaleCodeMaxLength)
+            throw new ArgumentException(
+                $"SaleCode must be at most {SaleCodeMaxLength} characters.", nameof(saleCode));
+        if (saleCode.Any(c => c is < ' ' or > '~'))
+            throw new ArgumentException(
+                "SaleCode must contain printable ASCII characters only.", nameof(saleCode));
+        return saleCode;
     }
 
     private static string ComposeDisplayName(string firstName, string lastName)

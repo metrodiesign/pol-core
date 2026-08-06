@@ -37,14 +37,6 @@ public sealed class WriteFloorTests : IDisposable
         new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlite(_connection).Options, actor, authorizer,
             NoOpSecurityTelemetry.Instance);
 
-    // Product is the catalogue — central, no tenant key — so the tenant-key cases below run on Cart, which
-    // is merchant-owned. Product still stands in for the plain CanWrite path, which needs no tenant key.
-    private static Products.Domain.Product NewProduct(string documentNo) =>
-        Products.Domain.Product.Create(
-            new Products.Domain.ProductInput(
-                Products.Domain.ProductGroup.VMI, Products.Domain.DocumentType.POLICY,
-                documentNo, "00098", 10m, Products.Domain.PaymentStatus.UNPAID, null));
-
     private static Carts.Domain.Cart NewCart(Guid merchantId) =>
         new(Guid.NewGuid(), merchantId, DateTime.UtcNow);
 
@@ -103,8 +95,9 @@ public sealed class WriteFloorTests : IDisposable
     public async Task CanWrite_denial_rejects_the_whole_save()
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.DenyAll);
-        var product = NewProduct("denied-doc");
-        writer.Add(product);
+        // A DenyAll authorizer denies unconditionally, so any tracked write proves the CanWrite gate — Cart is
+        // merchant-owned and passes the tenant-key floor, leaving CanWrite as the only reason the save fails.
+        writer.Add(NewCart(MerchantA));
 
         await Assert.ThrowsAsync<WriteGuardException>(() => writer.SaveChangesAsync());
     }

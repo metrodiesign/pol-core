@@ -18,4 +18,10 @@ internal sealed class FakeSpDocumentGateway(params SpDocumentItem[] items) : ISp
 
     public Task<SpDocumentSearchResult> SearchAsync(SpDocumentSearchRequest request, CancellationToken ct) =>
         Task.FromResult(new SpDocumentSearchResult(Page, items));
+
+    /// <summary>Finds the one row whose DocumentNo matches the request, exactly as the real adapter's
+    /// SelectExactlyOne does (null when none, ambiguous when more than one) — so a test can drive the REAL
+    /// LookupDocumentHandler over the fake upstream.</summary>
+    public Task<SpDocumentItem?> LookupAsync(SpDocumentLookupRequest request, CancellationToken ct) =>
+        Task.FromResult(SpDocumentMatch.SelectExactlyOne(items, request.DocumentNo));
 }

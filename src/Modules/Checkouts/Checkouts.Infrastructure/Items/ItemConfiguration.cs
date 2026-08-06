@@ -18,7 +18,6 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
 
         builder.Property(x => x.SessionId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Session
-        builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
 
         builder.ComplexProperty(x => x.UnitPrice, p =>

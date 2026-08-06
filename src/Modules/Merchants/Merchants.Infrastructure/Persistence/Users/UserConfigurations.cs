@@ -29,7 +29,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.PersonType).HasConversion<int>();
         builder.Property(x => x.IdNumber).HasMaxLength(64);
-        builder.Property(x => x.ProducerCode).HasMaxLength(64);
+        builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.LicenseNumber).HasMaxLength(64);
         builder.Property(x => x.Phone).HasMaxLength(32);
         builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
@@ -89,7 +89,7 @@ public sealed class RegistrationAttemptConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.PersonType).HasConversion<int>();
         builder.Property(x => x.IdNumber).HasMaxLength(64);
-        builder.Property(x => x.ProducerCode).HasMaxLength(64);
+        builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.LicenseNumber).HasMaxLength(64);
         builder.Property(x => x.Phone).HasMaxLength(32);
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();

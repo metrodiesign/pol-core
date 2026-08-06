@@ -22,14 +22,14 @@ namespace Orders.Application;
 public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
 {
     private readonly IOrderRepository _orders;
-    private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IDoubleSellAuditor _doubleSellAuditor;
 
-    public OrderPaidConsumer(IOrderRepository orders, IOutbox outbox, IUnitOfWork unitOfWork)
+    public OrderPaidConsumer(IOrderRepository orders, IUnitOfWork unitOfWork, IDoubleSellAuditor doubleSellAuditor)
     {
         _orders = orders;
-        _outbox = outbox;
         _unitOfWork = unitOfWork;
+        _doubleSellAuditor = doubleSellAuditor;
     }
 
     public async ValueTask Handle(PaymentPaid notification, CancellationToken cancellationToken)
@@ -54,15 +54,13 @@ public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
         if (!transitioned)
             return;
 
-        // Enqueue OrderPaid in the SAME unit of work as MarkPaid (transactional outbox), so the Products
-        // module can retire each sold document out-of-band. Only on a real transition, so a replayed
-        // PaymentPaid never re-enqueues. Fully qualified: Orders.Domain also has an OrderPaid domain event.
-        _outbox.Enqueue(new Contracts.OrderPaid(
-            order.MerchantId,
-            order.Items.Select(i => i.ProductId).ToList(),
-            notification.OccurredAt,
-            order.Id));
-
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // REQ-5.16/8.2 — this is the one place that sees a REAL transition to Paid (a replay returned above),
+        // so it is where "the same document was sold twice" can be reported without paging someone on every
+        // outbox redelivery. Deliberately AFTER the save: the auditor reads the committed state, and a report
+        // is a report — it must never be able to fail the payment that already happened. There is no
+        // Contracts.OrderPaid any more; nothing consumes it since the catalogue mirror was retired (REQ-8.3).
+        await _doubleSellAuditor.ReportIfDoubleSoldAsync(order.Id, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -47,24 +47,9 @@ public sealed class OutboxSerializerTests
         Assert.Equal("THB", restored.Amount.Currency);
     }
 
-    // purchase-flow-completion REQ-5.4 — OrderPaid.OrderId was added to a contract already in flight, so a
-    // payload enqueued before the field existed still has to deserialize (the outbox will replay it after
-    // the deploy). It comes back empty, which is the value the consumer reads as "no double-sell signal".
-    [Fact]
-    public void An_OrderPaid_payload_without_an_order_id_still_deserializes()
-    {
-        const string v1Payload = """
-            {"merchantId":"44444444-4444-4444-4444-444444444444",
-             "productIds":["55555555-5555-5555-5555-555555555555"],
-             "occurredAt":"2026-06-21T12:00:00Z"}
-            """;
-
-        var restored = JsonSerializer.Deserialize<OrderPaid>(v1Payload, OutboxSerializer.Options);
-
-        Assert.NotNull(restored);
-        Assert.Equal(Guid.Empty, restored!.OrderId);
-        Assert.Equal(Guid.Parse("55555555-5555-5555-5555-555555555555"), Assert.Single(restored.ProductIds));
-    }
+    // The Contracts.OrderPaid integration event was retired with the catalogue mirror
+    // (products-external-source-of-truth REQ-8.3), so its serialization test went away with it — double-sell is
+    // now inferred from Orders by IDoubleSellAuditor, not carried on an outbox event.
 
     // purchase-flow-completion REQ-7.5 — same situation for the checkout chain: a CheckoutConfirmed enqueued
     // before the channel/customer/discount fields existed still has to replay after the deploy. Every new

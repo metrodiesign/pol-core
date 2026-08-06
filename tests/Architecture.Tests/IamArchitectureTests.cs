@@ -24,8 +24,8 @@ public class IamArchitectureTests
     // Every OTHER module's three layers — the ones allowed to reference Iam.Domain but nothing deeper.
     private static readonly Assembly[] OtherModuleAssemblies =
     [
-        typeof(global::Products.Domain.Product).Assembly,
-        typeof(global::Products.Application.IProductRepository).Assembly,
+        typeof(global::Products.Domain.ProductGroup).Assembly,
+        typeof(global::Products.Application.Ports.ISpDocumentGateway).Assembly,
         typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
         typeof(global::Carts.Domain.Cart).Assembly,
         typeof(global::Carts.Application.ICartRepository).Assembly,

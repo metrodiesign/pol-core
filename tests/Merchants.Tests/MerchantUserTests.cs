@@ -219,7 +219,7 @@ public sealed class MerchantUserTests
         Assert.Equal("Acme Co", account.DisplayName);     // computed from first + last
         Assert.Equal(PersonType.Juristic, account.PersonType);
         Assert.Equal("1234567890123", account.IdNumber);
-        Assert.Equal("PC-1", account.ProducerCode);
+        Assert.Equal("PC-1", account.SaleCode);
         Assert.Equal("LIC-9", account.LicenseNumber);
         Assert.Equal("0812345678", account.Phone);
     }
@@ -246,6 +246,29 @@ public sealed class MerchantUserTests
         Assert.Equal(200, account.DisplayName.Length);
     }
 
+    // --- SaleCode shape (products-external-source-of-truth REQ-4.10) ---
+    // SetDetails is the ONLY way a value reaches the field, so the upstream contract's varchar(20) is enforced
+    // here. Both rejected shapes fail SILENTLY downstream if they get through — SqlParameter.Size truncates the
+    // long one, varchar mangles the non-ASCII ones — and the search then runs under a different party's code.
+
+    [Theory]
+    [InlineData("123456789012345678901")]      // 21 characters: one past @SaleCode's varchar(20)
+    [InlineData("รหัสผู้ขาย")]                       // Thai: outside printable ASCII, lost to varchar
+    [InlineData("SALE-CODE-\u00E9")]             // Latin-1 'e' with acute: short enough, still not ASCII
+    public void SetDetails_rejects_a_sale_code_the_upstream_parameter_cannot_carry(string saleCode) =>
+        Assert.ThrowsAny<ArgumentException>(() =>
+            NewPending().SetDetails("Acme", "Co", null, null, saleCode, null, null));
+
+    [Fact]
+    public void SetDetails_accepts_a_20_character_ascii_sale_code_after_trimming()
+    {
+        var account = NewPending();
+
+        account.SetDetails("Acme", "Co", null, null, "  12345678901234567890  ", null, null);
+
+        Assert.Equal("12345678901234567890", account.SaleCode); // 20 after trim: the boundary is allowed
+    }
+
     [Fact]
     public void SetDetails_blanks_optional_fields_to_null()
     {
@@ -254,7 +277,7 @@ public sealed class MerchantUserTests
         account.SetDetails("Acme", "Co", null, "  ", "", "   ", null);
 
         Assert.Null(account.IdNumber);
-        Assert.Null(account.ProducerCode);
+        Assert.Null(account.SaleCode);
         Assert.Null(account.LicenseNumber);
         Assert.Null(account.Phone);
     }

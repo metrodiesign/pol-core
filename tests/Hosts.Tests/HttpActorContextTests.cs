@@ -98,6 +98,33 @@ public sealed class HttpActorContextTests
 
         Assert.Equal(MerchantA, actor.MerchantId);
     }
+
+    // ------------------------------------------------- products-external-source-of-truth REQ-4.8/4.9: sale code
+
+    // The catalogue search runs under the authenticated account's own sale code, so the actor is where that
+    // value comes from — and, being a claim, it obeys the same F5 lazy rule as merchant_id: the session handler
+    // sets the principal after this scoped service already exists.
+    [Fact]
+    public void The_sale_code_claim_set_after_construction_is_still_honored()
+    {
+        var (actor, httpContext, _) = Build();
+
+        var identity = new ClaimsIdentity("test");
+        identity.AddClaim(new Claim("sale_code", "77001"));
+        httpContext.User = new ClaimsPrincipal(identity);
+
+        Assert.Equal("77001", actor.SaleCode);
+    }
+
+    // An account with no sale code bound has none here either — null, never a fallback. The catalogue path turns
+    // that into a 403 (REQ-4.9); inventing a value would search a different party's documents.
+    [Fact]
+    public void An_actor_without_the_claim_has_no_sale_code()
+    {
+        var (actor, _, _) = Build(initialUser: PrincipalFor(MerchantA, UserA));
+
+        Assert.Null(actor.SaleCode);
+    }
 }
 
 /// <summary>

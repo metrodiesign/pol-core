@@ -11,7 +11,6 @@ namespace Orders.Tests;
 public sealed class CheckoutConfirmedConsumerTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Start = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -19,7 +18,7 @@ public sealed class CheckoutConfirmedConsumerTests
 
     private static IReadOnlyList<CheckoutConfirmedItem> OneLine() =>
         [new CheckoutConfirmedItem(
-            Product, 1, Money.Of(15000m, "THB"),
+            1, Money.Of(15000m, "THB"),
             "00098-69100/กธ/900001-10", "VMI", "POLICY", "POL-1", Start, End,
             "Somchai", "Jaidee", "1234567890123", Dob)];
 

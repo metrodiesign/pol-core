@@ -26,7 +26,7 @@ public sealed class RegistrationAttempt : Entity<Guid>
 
     public string? IdNumber { get; private set; }
 
-    public string? ProducerCode { get; private set; }
+    public string? SaleCode { get; private set; }
 
     public string? LicenseNumber { get; private set; }
 
@@ -43,7 +43,7 @@ public sealed class RegistrationAttempt : Entity<Guid>
     private RegistrationAttempt() { }
 
     private RegistrationAttempt(Guid id, Guid merchantUserId, int attemptNo, TicketPurpose purpose,
-        string firstName, string lastName, PersonType? personType, string? idNumber, string? producerCode,
+        string firstName, string lastName, PersonType? personType, string? idNumber, string? saleCode,
         string? licenseNumber, string? phone, string email, string? photoObjectKey, string? photoContentType,
         DateTime submittedAt) : base(id)
     {
@@ -54,7 +54,7 @@ public sealed class RegistrationAttempt : Entity<Guid>
         LastName = lastName;
         PersonType = personType;
         IdNumber = idNumber;
-        ProducerCode = producerCode;
+        SaleCode = saleCode;
         LicenseNumber = licenseNumber;
         Phone = phone;
         Email = email;
@@ -72,7 +72,7 @@ public sealed class RegistrationAttempt : Entity<Guid>
         ArgumentOutOfRangeException.ThrowIfLessThan(attemptNo, 1);
         ArgumentException.ThrowIfNullOrWhiteSpace(ticketEmail);
         return new RegistrationAttempt(Guid.NewGuid(), account.Id, attemptNo, purpose,
-            account.FirstName, account.LastName, account.PersonType, account.IdNumber, account.ProducerCode,
+            account.FirstName, account.LastName, account.PersonType, account.IdNumber, account.SaleCode,
             account.LicenseNumber, account.Phone, ticketEmail, account.PhotoObjectKey, account.PhotoContentType,
             submittedAt);
     }

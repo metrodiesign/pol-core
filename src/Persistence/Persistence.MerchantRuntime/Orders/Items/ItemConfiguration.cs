@@ -7,8 +7,8 @@ namespace Persistence.MerchantRuntime.Orders.Items;
 
 // Runtime (scalar-only) mapping — mirrors Orders.Infrastructure.Items.ItemConfiguration exactly for
 // column/index shape (rls-to-query-filter design.md "Runtime EF config is scalar-only, separate from
-// the migration-owner's relationship config"). ProductId stays a bare scalar (no CLR nav to Product —
-// different module; the Order FK is wired from OrderConfiguration's HasMany, not here).
+// the migration-owner's relationship config"). The Order FK is wired from OrderConfiguration's HasMany,
+// not here; the document is identified by DocumentNo, which has no table to point at.
 
 internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEntityTypeConfiguration<OrderItem>
 {
@@ -19,7 +19,6 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
 
         builder.Property(x => x.OrderId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Order
-        builder.Property(x => x.ProductId).IsRequired();
         builder.Property(x => x.Quantity).IsRequired();
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(OrderItem.MerchantId));
@@ -40,6 +39,11 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
 
         builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
         builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
+
+        // Mirrors Orders.Infrastructure.Items.ItemConfiguration (products-external-source-of-truth REQ-5.15) —
+        // the index DocumentSaleProbe's single read seeks.
+        builder.HasIndex(x => x.DocumentNo, "IX_OrderItems_DocumentNo")
+            .IncludeProperties(x => new { x.OrderId, x.ProductGroup });
         builder.Property(x => x.DocumentType).HasMaxLength(20).IsUnicode(false).IsRequired();
         builder.Property(x => x.PolicyNumber).HasMaxLength(150).IsUnicode(false);
         builder.Property(x => x.StartDate).HasPrecision(0);

@@ -418,7 +418,7 @@ sequenceDiagram
     participant DB as MerchantUserDbContext
 
     Note over B: มาถึงพร้อม ?ticket= จาก callback (NotFound/Rejected)
-    B->>API: POST multipart { ticket, firstName, lastName, personType?, idNumber?,<br/>producerCode?, licenseNumber?, phone?, photo? }
+    B->>API: POST multipart { ticket, firstName, lastName, personType?, idNumber?,<br/>saleCode?, licenseNumber?, phone?, photo? }
     API->>API: cap MaxRequestBodySize = PhotoMaxBytes + 64KB *ก่อน* ReadForm
     API->>T: TryUnprotect(ticket)  (stateless: signature + TTL เท่านั้น)
     alt invalid / expired / ไม่ใช่ multipart
@@ -920,7 +920,7 @@ schema = `merch` ทั้งหมด. รายละเอียดฟิล�
 
 | ตาราง | query filter | หมายเหตุ |
 |---|---|---|
-| `merch.Users` | **มี** (`MerchantId == CurrentMerchant`, NULL = ซ่อน) | merchant-user account **+ person details** (`DisplayName` server-computed, `FirstName`/`LastName` NOT NULL, `PersonType`/`IdNumber`/`ProducerCode`/`LicenseNumber`/`Phone`, `PhotoObjectKey`/`PhotoContentType`); `MerchantId` **nullable** — NULL จนกว่า admin approve; **UNIQUE บน `Subject`** = 1 record ต่อ subject (dedup/replay guard); **`Status`+`MerchantId` เป็น EF concurrency token** (model-level เท่านั้น ไม่มี column/migration เพิ่ม — commit `02d5863`, ดู §8) |
+| `merch.Users` | **มี** (`MerchantId == CurrentMerchant`, NULL = ซ่อน) | merchant-user account **+ person details** (`DisplayName` server-computed, `FirstName`/`LastName` NOT NULL, `PersonType`/`IdNumber`/`SaleCode`/`LicenseNumber`/`Phone`, `PhotoObjectKey`/`PhotoContentType`); `MerchantId` **nullable** — NULL จนกว่า admin approve; **UNIQUE บน `Subject`** = 1 record ต่อ subject (dedup/replay guard); **`Status`+`MerchantId` เป็น EF concurrency token** (model-level เท่านั้น ไม่มี column/migration เพิ่ม — commit `02d5863`, ดู §8) |
 | `merch.Sessions` | ไม่มี | BFF session rotation family; UNIQUE `TokenHash` (`varbinary(32)`), index `FamilyId` / `MerchantUserId` / `AbsoluteExpiresAt` |
 | `merch.ExternalLogins` | ไม่มี | provider subject -> `MerchantUserId`; UNIQUE `(Provider, Subject)` |
 | `merch.AuthAudits` | ไม่มี (append-only) | `login-success` / `logout` / `logout-all` / `rotated` / `family-revoked-reuse` / `auth-denied`; `MerchantUserId` nullable (deny ก่อน resolve ได้) |
@@ -1049,7 +1049,7 @@ body.set('firstName', firstName)          // required
 body.set('lastName', lastName)            // required
 body.set('personType', personType)        // optional; ค่าที่ parse ไม่ได้ = null (ไม่ error)
 body.set('idNumber', idNumber)            // optional
-body.set('producerCode', producerCode)    // optional
+body.set('saleCode', saleCode)            // optional
 body.set('licenseNumber', licenseNumber)  // optional
 body.set('phone', phone)                  // optional
 if (photoFile) body.set('photo', photoFile)

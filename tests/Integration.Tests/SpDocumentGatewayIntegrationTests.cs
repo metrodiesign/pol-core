@@ -265,6 +265,64 @@ public sealed class SpDocumentGatewayIntegrationTests
             () => Gateway().SearchAsync(Request(MotorSide), cancelled.Token));
     }
 
+    // ------------------------------------------------------------------ single-document lookup (REQ-3.1, 3.4)
+
+    [Theory]
+    [InlineData(Motor)]
+    [InlineData(NonMotor)]
+    public async Task A_lookup_finds_the_one_document_by_its_number(string key)
+    {
+        var side = SideOf(key);
+
+        // The axis number carries a '/' and (on Motor) Thai characters, which is exactly why it cannot be a route
+        // segment and has to be read this way. @SearchText is a LIKE over several columns, so the adapter's own
+        // exact-match filter is what turns the LIKE hits into the single document meant.
+        var item = await Gateway().LookupAsync(
+            new SpDocumentLookupRequest(side.AxisDocumentNo, Enum.Parse<ProductGroup>(side.AxisSourceSystem), side.SaleCode),
+            CancellationToken.None);
+
+        Assert.NotNull(item);
+        Assert.Equal(side.AxisDocumentNo, item!.DocumentNo);
+        Assert.Equal(side.AxisSourceSystem, item.SourceSystem);
+        // This row is UNPAID and looked up under its own group, so it cannot on its own tell 'ALL' apart from
+        // 'UNPAID'/the caller's group. A_lookup_is_unfiltered_by_status_and_group below is what pins REQ-3.3/3.5.
+        Assert.Equal("UNPAID", item.PaymentStatus);
+    }
+
+    [Fact]
+    public async Task A_lookup_is_unfiltered_by_status_and_group()
+    {
+        // 69301/กธ/910007 is the seeded PAID VMI POLICY row (02-hippo-sim.sql). Two things this pins that the
+        // theory above cannot, because that row is UNPAID and is fetched under its own group:
+        //   REQ-3.3 (@PaymentStatus = 'ALL'): the target is PAID, so a lookup binding 'UNPAID' would miss it
+        //     and return null.
+        //   REQ-3.5 (@ProductGroup = 'ALL'): the row's SourceSystem is VMI but it is looked up under CMI (the
+        //     other Motor group, which still routes to the Motor procedure). Binding the caller's group instead
+        //     of 'ALL' would filter it out -> null; the caller's group must only select the procedure.
+        var item = await Gateway().LookupAsync(
+            new SpDocumentLookupRequest("69301/กธ/910007", ProductGroup.CMI, MotorSide.SaleCode),
+            CancellationToken.None);
+
+        Assert.NotNull(item);
+        Assert.Equal("69301/กธ/910007", item!.DocumentNo);
+        Assert.Equal("PAID", item.PaymentStatus);
+        Assert.Equal("VMI", item.SourceSystem);
+    }
+
+    [Theory]
+    [InlineData(Motor)]
+    [InlineData(NonMotor)]
+    public async Task A_lookup_for_a_number_the_catalogue_does_not_have_is_null(string key)
+    {
+        var side = SideOf(key);
+
+        var item = await Gateway().LookupAsync(
+            new SpDocumentLookupRequest("00000/NONE/999999", Enum.Parse<ProductGroup>(side.AxisSourceSystem), side.SaleCode),
+            CancellationToken.None);
+
+        Assert.Null(item);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static Side SideOf(string key) => key == Motor ? MotorSide : NonMotorSide;

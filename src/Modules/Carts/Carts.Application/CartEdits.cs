@@ -3,12 +3,14 @@ using Mediator;
 
 namespace Carts.Application;
 
-/// <summary>Removes a product line from an open cart and returns the updated view.</summary>
-public sealed record RemoveItemFromCartCommand(Guid CartId, Guid MerchantId, Guid ProductId)
+/// <summary>Removes one line from an open cart and returns the updated view. The line is addressed by its
+/// own id, not by document number (products-external-source-of-truth REQ-9.1).</summary>
+public sealed record RemoveItemFromCartCommand(Guid CartId, Guid MerchantId, Guid ItemId)
     : ICommand<CartView>, IMerchantScoped;
 
-/// <summary>Sets a line's quantity on an open cart (quantity must be positive) and returns the updated view.</summary>
-public sealed record SetCartItemQuantityCommand(Guid CartId, Guid MerchantId, Guid ProductId, int Quantity)
+/// <summary>Sets a line's quantity on an open cart (quantity must be positive) and returns the updated view.
+/// The line is addressed by its own id (REQ-9.1).</summary>
+public sealed record SetCartItemQuantityCommand(Guid CartId, Guid MerchantId, Guid ItemId, int Quantity)
     : ICommand<CartView>, IMerchantScoped;
 
 /// <summary>Empties an open cart and returns the updated view.</summary>
@@ -42,7 +44,8 @@ public sealed class RemoveItemFromCartHandler : ICommandHandler<RemoveItemFromCa
     public async ValueTask<CartView> Handle(RemoveItemFromCartCommand command, CancellationToken cancellationToken)
     {
         var cart = await CartLoad.RequireAsync(_carts, command.CartId, command.MerchantId, cancellationToken).ConfigureAwait(false);
-        cart.RemoveItem(command.ProductId);
+        if (!cart.RemoveItem(command.ItemId))
+            throw new NotFoundException($"Cart item {command.ItemId} was not found."); // REQ-9.3
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return CartView.From(cart);
     }
@@ -62,7 +65,9 @@ public sealed class SetCartItemQuantityHandler : ICommandHandler<SetCartItemQuan
     public async ValueTask<CartView> Handle(SetCartItemQuantityCommand command, CancellationToken cancellationToken)
     {
         var cart = await CartLoad.RequireAsync(_carts, command.CartId, command.MerchantId, cancellationToken).ConfigureAwait(false);
-        cart.SetItemQuantity(command.ProductId, command.Quantity); // qty<=0 -> ArgumentOutOfRangeException -> 400
+        // qty<=0 -> ArgumentOutOfRangeException -> 400; unknown line -> 404 (REQ-9.3)
+        if (!cart.SetItemQuantity(command.ItemId, command.Quantity))
+            throw new NotFoundException($"Cart item {command.ItemId} was not found.");
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return CartView.From(cart);
     }

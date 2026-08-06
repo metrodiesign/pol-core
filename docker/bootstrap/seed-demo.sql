@@ -69,7 +69,6 @@ DELETE FROM shop.Orders            WHERE Id LIKE 'ed000000-%';
 DELETE FROM shop.CheckoutSessions  WHERE Id LIKE 'ec000000-%';
 DELETE FROM shop.CartItems        WHERE Id LIKE 'eb000000-%';
 DELETE FROM shop.Carts            WHERE Id LIKE 'ea000000-%';
-DELETE FROM shop.Products         WHERE Id LIKE 'e9000000-%';
 DELETE FROM txn.PspConnections    WHERE Id LIKE 'e8000000-%';
 DELETE FROM merch.RoleAssignments WHERE Id LIKE 'e7000000-%';
 DELETE FROM merch.ExternalLogins  WHERE Id LIKE 'e6000000-%';
@@ -78,7 +77,7 @@ DELETE FROM merch.Merchants       WHERE Id LIKE 'e1000000-%';
 
 -- ============================================================================
 -- (ง) Re-insert merchant-scoped demo data, parent -> child. T1 adds none — T2
--- (merchants/PSP/platform access+roles), T3 (merchant users/products) and T4
+-- (merchants/PSP/platform access+roles), T3 (merchant users) and T4
 -- (funnel: carts/checkouts/orders/payment sessions) each append their INSERT
 -- block here, in this order.
 -- ============================================================================
@@ -139,21 +138,26 @@ VALUES
 -- SecurityObjects migration's MerchantTables list — only merch.Merchants/shop.*/txn.* are policy-
 -- protected); the session-context stamp from (ข) is irrelevant here but harmless to leave in place.
 -- Subject is fake (demo-mch-<n>) — REQ-5.2's Google login can never resolve to these.
-INSERT INTO merch.Users (Id, Subject, Email, Status, MerchantId, CreatedAt, DisplayName, FirstName, LastName, PersonType, IdNumber, ProducerCode, LicenseNumber, Phone)
+-- SaleCode (products-external-source-of-truth REQ-6.10) MUST be an agent code that actually exists in
+-- the upstream (hippodb/mammothdb seed the shared roster 77001-77006), or a merchant user who logs in
+-- would search the live catalogue with a code the source has never heard of and see zero rows — the
+-- exact demo-is-empty-and-nobody-can-tell-why failure this requirement exists to prevent. The old
+-- PRD-VP-* placeholders were never in the source. varchar(20) non-unicode (REQ-10.6) — plain ASCII.
+INSERT INTO merch.Users (Id, Subject, Email, Status, MerchantId, CreatedAt, DisplayName, FirstName, LastName, PersonType, IdNumber, SaleCode, LicenseNumber, Phone)
 VALUES
     -- vprivilege (merchant e1...0001)
-    ('e5000000-0000-4000-8000-000000000001', N'demo-mch-1', N'somchai.p@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'สมชาย พริวิเลจ', N'สมชาย', N'พริวิเลจ', 0, N'1100200300401', N'PRD-VP-001', N'LIC-2024-00101', N'0812345001'),
-    ('e5000000-0000-4000-8000-000000000002', N'demo-mch-2', N'vprivilege.dist@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'บริษัท วีพริวิเลจ ตัวแทนจำหน่าย จำกัด', N'-', N'-', 1, N'0105561000045', N'PRD-VP-002', N'LIC-2024-00102', N'0812345002'),
+    ('e5000000-0000-4000-8000-000000000001', N'demo-mch-1', N'somchai.p@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'สมชาย พริวิเลจ', N'สมชาย', N'พริวิเลจ', 0, N'1100200300401', '77001', N'LIC-2024-00101', N'0812345001'),
+    ('e5000000-0000-4000-8000-000000000002', N'demo-mch-2', N'vprivilege.dist@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'บริษัท วีพริวิเลจ ตัวแทนจำหน่าย จำกัด', N'-', N'-', 1, N'0105561000045', '77002', N'LIC-2024-00102', N'0812345002'),
     ('e5000000-0000-4000-8000-000000000003', N'demo-mch-3', N'wanida.k@demo.pol.local', 0, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'วนิดา คงพริวิเลจ', N'วนิดา', N'คงพริวิเลจ', 0, N'1100200300402', NULL, NULL, N'0812345003'),
     ('e5000000-0000-4000-8000-000000000004', N'demo-mch-4', N'pichit.s@demo.pol.local', 2, 'e1000000-0000-4000-8000-000000000001', SYSUTCDATETIME(), N'พิชิต แสงพริวิเลจ', N'พิชิต', N'แสงพริวิเลจ', 0, N'1100200300403', NULL, NULL, N'0812345004'),
     -- vcommerce (merchant e1...0002)
-    ('e5000000-0000-4000-8000-000000000005', N'demo-mch-5', N'araya.c@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'อารยา คอมเมิร์ซ', N'อารยา', N'คอมเมิร์ซ', 0, N'1100200300404', N'PRD-VC-001', N'LIC-2024-00201', N'0823456001'),
-    ('e5000000-0000-4000-8000-000000000006', N'demo-mch-6', N'vcommerce.hq@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'บริษัท วีคอมเมิร์ซ โฮลดิ้ง จำกัด', N'-', N'-', 1, N'0105561000053', N'PRD-VC-002', N'LIC-2024-00202', N'0823456002'),
-    ('e5000000-0000-4000-8000-000000000007', N'demo-mch-7', N'natthapong.r@demo.pol.local', 3, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'ณัฐพงศ์ รุ่งคอมเมิร์ซ', N'ณัฐพงศ์', N'รุ่งคอมเมิร์ซ', 0, N'1100200300405', N'PRD-VC-003', N'LIC-2024-00203', N'0823456003'),
+    ('e5000000-0000-4000-8000-000000000005', N'demo-mch-5', N'araya.c@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'อารยา คอมเมิร์ซ', N'อารยา', N'คอมเมิร์ซ', 0, N'1100200300404', '77003', N'LIC-2024-00201', N'0823456001'),
+    ('e5000000-0000-4000-8000-000000000006', N'demo-mch-6', N'vcommerce.hq@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'บริษัท วีคอมเมิร์ซ โฮลดิ้ง จำกัด', N'-', N'-', 1, N'0105561000053', '77004', N'LIC-2024-00202', N'0823456002'),
+    ('e5000000-0000-4000-8000-000000000007', N'demo-mch-7', N'natthapong.r@demo.pol.local', 3, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'ณัฐพงศ์ รุ่งคอมเมิร์ซ', N'ณัฐพงศ์', N'รุ่งคอมเมิร์ซ', 0, N'1100200300405', '77005', N'LIC-2024-00203', N'0823456003'),
     ('e5000000-0000-4000-8000-000000000008', N'demo-mch-8', N'suda.m@demo.pol.local', 0, 'e1000000-0000-4000-8000-000000000002', SYSUTCDATETIME(), N'สุดา มั่นคอมเมิร์ซ', N'สุดา', N'มั่นคอมเมิร์ซ', 0, N'1100200300406', NULL, NULL, N'0823456004'),
     -- vsouvenir (merchant e1...0003)
-    ('e5000000-0000-4000-8000-000000000009', N'demo-mch-9', N'kanya.s@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'กัญญา ซูวีเนียร์', N'กัญญา', N'ซูวีเนียร์', 0, N'1100200300407', N'PRD-VS-001', N'LIC-2024-00301', N'0834567001'),
-    ('e5000000-0000-4000-8000-00000000000a', N'demo-mch-10', N'vsouvenir.shop@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'บริษัท วีซูวีเนียร์ ช็อป จำกัด', N'-', N'-', 1, N'0105561000061', N'PRD-VS-002', N'LIC-2024-00302', N'0834567002'),
+    ('e5000000-0000-4000-8000-000000000009', N'demo-mch-9', N'kanya.s@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'กัญญา ซูวีเนียร์', N'กัญญา', N'ซูวีเนียร์', 0, N'1100200300407', '77006', N'LIC-2024-00301', N'0834567001'),
+    ('e5000000-0000-4000-8000-00000000000a', N'demo-mch-10', N'vsouvenir.shop@demo.pol.local', 1, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'บริษัท วีซูวีเนียร์ ช็อป จำกัด', N'-', N'-', 1, N'0105561000061', '77001', N'LIC-2024-00302', N'0834567002'),
     ('e5000000-0000-4000-8000-00000000000b', N'demo-mch-11', N'thanawat.j@demo.pol.local', 0, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'ธนวัฒน์ จันทร์ซูวีเนียร์', N'ธนวัฒน์', N'จันทร์ซูวีเนียร์', 0, N'1100200300408', NULL, NULL, N'0834567003'),
     ('e5000000-0000-4000-8000-00000000000c', N'demo-mch-12', N'orawan.b@demo.pol.local', 2, 'e1000000-0000-4000-8000-000000000003', SYSUTCDATETIME(), N'อรวรรณ บุญซูวีเนียร์', N'อรวรรณ', N'บุญซูวีเนียร์', 0, N'1100200300409', NULL, NULL, N'0834567004');
 
@@ -185,185 +189,15 @@ VALUES
     ('e7000000-0000-4000-8000-000000000005', 'e5000000-0000-4000-8000-000000000009', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME()),
     ('e7000000-0000-4000-8000-000000000006', 'e5000000-0000-4000-8000-00000000000a', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'e1000000-0000-4000-8000-000000000003', 'e5000000-0000-4000-8000-000000000009', SYSUTCDATETIME());
 
--- shop.Products (REQ-5.4): 500 rows total. A Product is a document in the CENTRAL catalogue - it has no
--- MerchantId of its own, every merchant sells from the same pool and a request is scoped by SaleCode
--- instead. A Product is a sellable insurance document (VCentralPay SP guide) - the first 24 (ids ...01-...18 hex) are the
--- hand-written flagship documents below; shop.CartItems references them by id, so their ids are
--- load-bearing and must not move. The remaining 476 (ids ...19-...1f4 hex) are generated right after.
--- 1 already-sold document per hand-written block plus every 7th generated row carries
--- PaymentStatus = 'PAID' + a PaidDate, so both sides of the sellability gate are represented:
--- cart add-item / checkout accept UNPAID only (products-sp-53-alignment REQ-2.1/2.4 — this used to
--- be the IsActive = 0 axis, which no longer exists as a column).
--- DocumentNo is globally unique (IX_Products_DocumentNo). The two INSERTs below
--- carry only the load-bearing columns; the single UPDATE after them fills every remaining
--- document field for all 500 rows at once (see the comment on that block).
--- TotalPremium is decimal(19,2) — Product.Create rejects a 3rd decimal place, it does not round.
-INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
-                           TotalPremium, PaymentStatus, PaidDate)
-VALUES
-    ('e9000000-0000-4000-8000-000000000001', 'VMI',  'POLICY',      N'77001-69900/กธ/900001-10', '77001', 1200.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000002', 'CMI',  'POLICY',      N'77001-69900/กธ/900002-10', '77001', 1850.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000003', 'FIRE', 'POLICY',      N'S001-69900/อค/900003',     'S001',  18500.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000004', 'MISC', 'APPLICATION', N'S001-69900/บต/900004',     'S001',  32000.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000005', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900005-10', '77001', 24500.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000006', 'CMI',  'ENDORSEMENT', N'69900/ปช/900006',          '77001', 15900.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000007', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900007',     'S001',  3500.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000008', 'MISC', 'POLICY',      N'S001-69900/บต/900008',     'S001',  350.00,   'PAID',   DATEADD(day, -7, SYSUTCDATETIME())),
-    ('e9000000-0000-4000-8000-000000000009', 'VMI',  'POLICY',      N'77001-69900/กธ/900009-10', '77001', 650.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000a', 'CMI',  'POLICY',      N'77001-69900/กธ/900010-10', '77001', 450.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000b', 'FIRE', 'POLICY',      N'S001-69900/อค/900011',     'S001',  9800.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000c', 'MISC', 'APPLICATION', N'S001-69900/บต/900012',     'S001',  12800.00, 'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000d', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900013-10', '77001', 8900.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000e', 'CMI',  'ENDORSEMENT', N'69900/ปช/900014',          '77001', 6200.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-00000000000f', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900015',     'S001',  4100.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000010', 'MISC', 'POLICY',      N'S001-69900/บต/900016',     'S001',  990.00,   'PAID',   DATEADD(day, -5, SYSUTCDATETIME())),
-    ('e9000000-0000-4000-8000-000000000011', 'VMI',  'POLICY',      N'77001-69900/กธ/900017-10', '77001', 390.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000012', 'CMI',  'POLICY',      N'77001-69900/กธ/900018-10', '77001', 590.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000013', 'FIRE', 'POLICY',      N'S001-69900/อค/900019',     'S001',  450.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000014', 'MISC', 'APPLICATION', N'S001-69900/บต/900020',     'S001',  550.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000015', 'VMI',  'RENEWAL',     N'77001-68900/ตอ/900021-10', '77001', 480.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000016', 'CMI',  'ENDORSEMENT', N'69900/ปช/900022',          '77001', 720.00,   'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000017', 'FIRE', 'RENEWAL',     N'S001-68900/อค/900023',     'S001',  2100.00,  'UNPAID', NULL),
-    ('e9000000-0000-4000-8000-000000000018', 'MISC', 'POLICY',      N'S001-69900/บต/900024',     'S001',  48000.00, 'PAID',   DATEADD(day, -3, SYSUTCDATETIME()));
-
--- The remaining 476 documents (ids ...19-...1f4 hex), taking the catalogue to 500. Deterministic
--- throughout - the id is the row number rendered as hex (offset by the 24 above) and DocumentNo
--- embeds the same sequence, so a re-run reproduces the exact same 476 rows and the
--- DELETE ... LIKE 'e9000000-%' in step (ค) still reclaims every one of them. ProductGroup rotates
--- through all four values; DocumentType rotates POLICY/RENEWAL/ENDORSEMENT only (CMI never pairs
--- with APPLICATION per the SP guide's support matrix, and this generator keeps the invariant by
--- simply never emitting APPLICATION).
-;WITH seq AS (
-    SELECT TOP (476) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Seq
-    FROM sys.all_objects
-)
-INSERT INTO shop.Products (Id, ProductGroup, DocumentType, DocumentNo, SaleCode,
-                           TotalPremium, PaymentStatus, PaidDate)
-SELECT
-    CONVERT(uniqueidentifier, 'e9000000-0000-4000-8000-'
-        + RIGHT('000000000000'
-            + LOWER(CONVERT(varchar(20), CONVERT(varbinary(4), 24 + Seq), 2)), 12)),
-    CASE Seq % 4 WHEN 0 THEN 'CMI' WHEN 1 THEN 'VMI' WHEN 2 THEN 'FIRE' ELSE 'MISC' END,
-    CASE Seq % 3 WHEN 0 THEN 'POLICY' WHEN 1 THEN 'RENEWAL' ELSE 'ENDORSEMENT' END,
-    CONCAT(N'77001-69900/กธ/', RIGHT('000000' + CONVERT(varchar(6), 910000 + Seq), 6), N'-10'),
-    '77001',
-    CAST(500 + Seq * 137.25 AS decimal(19,2)),
-    CASE WHEN Seq % 7 = 0 THEN 'PAID' ELSE 'UNPAID' END,
-    CASE WHEN Seq % 7 = 0 THEN DATEADD(day, -Seq, SYSUTCDATETIME()) END
-FROM seq;
-
--- Fill the remaining document fields for all 500 seeded products in one pass. Doing it here rather
--- than inside the two INSERTs keeps the rules in a single readable place and avoids hand-computing
--- 96 premium components. Everything is derived from the row itself, so a re-run is deterministic.
---
--- Dates are anchored on SYSUTCDATETIME() on purpose: ProductRepository.SearchAsync hard-filters
--- every query to a search window (RENEWAL -> EndDate within the next 2 months, everything else ->
--- StartDate within the last 6 months) and NULL/stale dates make the predicate UNKNOWN, so the whole
--- catalogue silently disappears from GET /products. The offsets below (+3..+53 days / -1..-150 days)
--- stay inside those windows no matter which day the seed runs.
---
--- Premium components are derived backwards from the existing TotalPremium (which must not move —
--- cart/order seed rows carry matching totals): net + 0.4% stamp duty + 7% VAT. TaxVat is the
--- residual so the three always add up to TotalPremium exactly. Everything is rounded to 2 decimals
--- because Product.Create rejects a 3rd decimal place instead of rounding.
-UPDATE p
-SET PolicyYear           = v.Yr,
-    ReferenceYear        = v.Yr,
-    ReferenceBranch      = '900',
-    -- On real SP output ReferencePre is a branch code that only appears on endorsements — it is NOT
-    -- the Thai abbreviation inside DocumentNo.
-    ReferencePre         = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN '900' END,
-    PolicySequenceNo     = CONVERT(varchar(30), v.Seq),
-    ReferenceNo          = CONVERT(varchar(30), v.Seq),
-    -- ShowName is the insured party printed on the document, SaleFullName the agent who sold it and
-    -- BrokerName the broking house behind the agent — three different people/firms, so they draw
-    -- from three separate pools. Motor documents (CMI/VMI) are insured by individuals here so the
-    -- name lines up with LicensePlateNumber; fire/miscellaneous documents are insured by juristic
-    -- persons, which is what those lines of business actually look like. Every name is invented —
-    -- do not put a real broker or insurer in demo data.
-    -- The moduli below are coprime with 4 on purpose: the generated rows pick ProductGroup with
-    -- Seq % 4, so a pool sized 4 or 8 would hand every VMI row the same name.
-    ShowName             = CASE WHEN p.ProductGroup IN ('CMI', 'VMI') THEN
-                                    CASE v.Seq % 7
-                                        WHEN 0 THEN N'นายสมชาย ใจดีมงคล'
-                                        WHEN 1 THEN N'นางสาวปรียานุช แสงทองดี'
-                                        WHEN 2 THEN N'นายวีรพงษ์ ตันติเจริญ'
-                                        WHEN 3 THEN N'นางอรพรรณ ศรีสุขเกษม'
-                                        WHEN 4 THEN N'นายธนกฤต พงษ์พิพัฒน์'
-                                        WHEN 5 THEN N'นางสาวชนิสรา บุญมาก'
-                                        ELSE        N'นางสาวพิมพ์ชนก เลิศวัฒนา' END
-                                ELSE
-                                    CASE v.Seq % 7
-                                        WHEN 0 THEN N'บริษัท เจริญทรัพย์ พร็อพเพอร์ตี้ จำกัด'
-                                        WHEN 1 THEN N'บริษัท ไทยรุ่งเรือง โลจิสติกส์ จำกัด'
-                                        WHEN 2 THEN N'ห้างหุ้นส่วนจำกัด สหมิตรการช่าง'
-                                        WHEN 3 THEN N'บริษัท บูรพา อุตสาหกรรมอาหาร จำกัด'
-                                        WHEN 4 THEN N'บริษัท ศรีนครินทร์ เรียลเอสเตท จำกัด'
-                                        WHEN 5 THEN N'บริษัท พนาไพร รีสอร์ท จำกัด'
-                                        ELSE        N'บริษัท อุดมโชค เท็กซ์ไทล์ จำกัด' END
-                           END,
-    SaleFullName         = CASE v.Seq % 6
-                               WHEN 0 THEN N'นายกิตติพงศ์ อารีย์วงศ์'
-                               WHEN 1 THEN N'นางสาวสุนิสา วงศ์สว่าง'
-                               WHEN 2 THEN N'นายเอกรัตน์ ธีรวุฒิ'
-                               WHEN 3 THEN N'นางสาวจิราพร คงเจริญ'
-                               WHEN 4 THEN N'นายภาณุวัฒน์ สุขประเสริฐ'
-                               ELSE        N'นางเบญจวรรณ ทองอยู่' END,
-    BrokerCode           = CASE v.Seq % 5
-                               WHEN 0 THEN '701' WHEN 1 THEN '702' WHEN 2 THEN '703'
-                               WHEN 3 THEN '704' ELSE '705' END,
-    BrokerName           = CASE v.Seq % 5
-                               WHEN 0 THEN N'บริษัท เอเซียรุ่งเรือง อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN 1 THEN N'บริษัท กรุงสยาม นายหน้าประกันภัย จำกัด'
-                               WHEN 2 THEN N'บริษัท ธนบุรี อินชัวรันส์ โบรกเกอร์ จำกัด'
-                               WHEN 3 THEN N'บริษัท ภูมิภาคประกันภัย นายหน้า จำกัด'
-                               ELSE        N'บริษัท เอ็น พี ที อินชัวรันส์ โบรกเกอร์ จำกัด' END,
-    PolicyBranch         = CASE v.Seq % 6
-                               WHEN 0 THEN N'สำนักงานใหญ่'
-                               WHEN 1 THEN N'สาขาสีลม'
-                               WHEN 2 THEN N'สาขาเชียงใหม่'
-                               WHEN 3 THEN N'สาขาหาดใหญ่'
-                               WHEN 4 THEN N'สาขาขอนแก่น'
-                               ELSE        N'สาขาพระราม 9' END,
-    PolicyType           = CASE WHEN p.ProductGroup = 'VMI' THEN '90' END,
-    PolicyNumber         = CASE WHEN p.DocumentType <> 'APPLICATION'
-                                THEN CONCAT(p.SaleCode, '-', v.Yr, '900/', v.Seq) END,
-    ApplicationNumber    = CASE WHEN p.DocumentType = 'APPLICATION'
-                                THEN CONCAT(p.SaleCode, '-', v.Yr, '900/', v.Seq) END,
-    PreviousPolicyNumber = CASE WHEN p.DocumentType IN ('RENEWAL', 'ENDORSEMENT')
-                                THEN CONCAT(p.SaleCode, '-', CONVERT(int, v.Yr) - 1, '900/', v.Seq - 1) END,
-    EndorsementNumber    = CASE WHEN p.DocumentType = 'ENDORSEMENT' THEN CONCAT('E', v.Seq) END,
-    -- Motor only: ProductRepository only searches the plate for CMI/VMI rows.
-    LicensePlateNumber   = CASE WHEN p.ProductGroup IN ('CMI', 'VMI')
-                                THEN CONCAT(v.Seq % 9 + 1,
-                                            CASE v.Seq % 6
-                                                WHEN 0 THEN N'กก' WHEN 1 THEN N'ขข' WHEN 2 THEN N'คค'
-                                                WHEN 3 THEN N'งง' WHEN 4 THEN N'จจ' ELSE N'ฉฉ' END,
-                                            N' ', RIGHT('0000' + CONVERT(varchar(4), 1000 + v.Seq % 9000), 4)) END,
-    StartDate            = CASE WHEN p.DocumentType = 'RENEWAL'
-                                THEN DATEADD(year, -1, DATEADD(day, v.Seq % 50 + 3, v.Today))
-                                ELSE DATEADD(day, -(v.Seq % 150 + 1), v.Today) END,
-    EndDate              = CASE WHEN p.DocumentType = 'RENEWAL'
-                                THEN DATEADD(day, v.Seq % 50 + 3, v.Today)
-                                ELSE DATEADD(year, 1, DATEADD(day, -(v.Seq % 150 + 1), v.Today)) END,
-    NetPremium           = m.Net,
-    Stamp                = m.Stamp,
-    TaxVat               = p.TotalPremium - m.Net - m.Stamp,
-    CommissionPercent    = m.Pct,
-    CommissionAmount     = ROUND(m.Net * m.Pct / 100, 2)
-FROM shop.Products p
-CROSS APPLY (
-    SELECT CAST(REPLACE(RIGHT(p.DocumentNo, CHARINDEX(N'/', REVERSE(p.DocumentNo)) - 1), N'-10', N'') AS int) AS Seq,
-           CASE WHEN p.DocumentNo LIKE N'%68900%' THEN '68' ELSE '69' END AS Yr,
-           CAST(SYSUTCDATETIME() AS date) AS Today
-) v
-CROSS APPLY (SELECT ROUND(p.TotalPremium / 1.07428, 2) AS Net) n
-CROSS APPLY (
-    SELECT n.Net AS Net,
-           ROUND(n.Net * 0.004, 2) AS Stamp,
-           CAST(CASE v.Seq % 3 WHEN 0 THEN 10 WHEN 1 THEN 12 ELSE 15 END AS decimal(19,6)) AS Pct
-) m
-WHERE p.Id LIKE 'e9000000-%';
+-- shop.Products is GONE (products-external-source-of-truth REQ-6.1 dropped the mirror catalogue). The
+-- catalogue is now read live from the upstream SP per request, so there is nothing to seed here and
+-- nothing downstream reads back from it. The cart/order rows below carry the upstream DocumentNo
+-- directly (design.md "seed / demo"): every DocumentNo used is one the sim guarantees it emits AND
+-- that the SP's mandatory search window keeps returning — the Non-Motor procedure always filters
+-- StartDate >= DATEADD(month,-6,@today) (03-mammoth-sim.sql:238) with no parameter to disable it, so an
+-- in-window row is required, not merely an existing one (26301/POL/000003 exists but sits at -245 days
+-- and would resolve to 0 rows -> 409). Motor CMI/VMI come from 02-hippo-sim.sql, Non-Motor FIRE/MISC
+-- from 03-mammoth-sim.sql, so a demo checkout resolves the document instead of 409-ing.
 
 -- shop.Carts (REQ-6.1): 2 per merchant, string Status ('Open'/'CheckedOut' — CartConfiguration
 -- uses HasConversion<string>() into nvarchar(16); an int here would violate the column mapping).
@@ -376,32 +210,39 @@ VALUES
     ('ea000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000003', N'Open',       SYSUTCDATETIME()),
     ('ea000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000003', N'Open',       SYSUTCDATETIME());
 
--- shop.CartItems (REQ-6.1): ProductId always belongs to the same merchant as the parent cart.
--- MerchantId is denormalized onto this table (rls-to-query-filter task 8 — the EF global query
--- filter reads it directly, no join through CartId); must match the parent Cart's MerchantId, a
--- cross-merchant value would still be a data bug (checked by verify query below).
-INSERT INTO shop.CartItems (Id, CartId, MerchantId, ProductId, Quantity, UnitPriceAmount, UnitPriceCurrency)
+-- shop.CartItems (REQ-6.1): identified now by the upstream DocumentNo + SaleCode + ProductGroup
+-- (products-external-source-of-truth REQ-2.2 — the ProductId Guid column was dropped with shop.Products).
+-- Every DocumentNo below is a real sim row, UNPAID at source, IN the SP's mandatory search window
+-- (Non-Motor: StartDate within the last 6 months — 03-mammoth-sim.sql:238; the window cannot be turned
+-- off), under SaleCode 77001 (hippodb Motor: 69301/กธ|รย/*, mammothdb Non-Motor FIRE: 26301/POL/*), so a
+-- demo checkout of these carts resolves the document instead of 409-ing. 26301/POL/000004 (FIRE RENEWAL,
+-- -20 days) is used over its neighbour 000003 precisely because 000003 sits at -245 days, outside the window. Within one cart the DocumentNo values are distinct (Cart.AddItem refuses a
+-- duplicate — REQ-9.4). UnitPriceAmount is the price frozen into the cart at add time (REQ-4.6) — it is the
+-- demo figure carried over from before this cutover, not re-read from source. MerchantId is denormalized
+-- onto this table (rls-to-query-filter task 8 — the EF global query filter reads it directly, no join
+-- through CartId); it must match the parent Cart's MerchantId (checked by verify query below).
+INSERT INTO shop.CartItems (Id, CartId, MerchantId, DocumentNo, SaleCode, ProductGroup, Quantity, UnitPriceAmount, UnitPriceCurrency)
 VALUES
     -- cart ea…0001 (vprivilege, Open) — sum 23400.0000
-    ('eb000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000001', 1, 1200.0000,  'THB'),
-    ('eb000000-0000-4000-8000-000000000002', 'ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000002', 2, 1850.0000,  'THB'),
-    ('eb000000-0000-4000-8000-000000000003', 'ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000003', 1, 18500.0000, 'THB'),
+    ('eb000000-0000-4000-8000-000000000001', 'ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', N'69301/กธ/910001',  '77001', 'VMI',  1, 1200.0000,  'THB'),
+    ('eb000000-0000-4000-8000-000000000002', 'ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', N'69301/กธ/9100002', '77001', 'CMI',  2, 1850.0000,  'THB'),
+    ('eb000000-0000-4000-8000-000000000003', 'ea000000-0000-4000-8000-000000000001', 'e1000000-0000-4000-8000-000000000001', N'26301/POL/000001', '77001', 'FIRE', 1, 18500.0000, 'THB'),
     -- cart ea…0002 (vprivilege, CheckedOut) — sum 56500.0000
-    ('eb000000-0000-4000-8000-000000000004', 'ea000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000004', 1, 32000.0000, 'THB'),
-    ('eb000000-0000-4000-8000-000000000005', 'ea000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000005', 1, 24500.0000, 'THB'),
+    ('eb000000-0000-4000-8000-000000000004', 'ea000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', N'69301/รย/910009',  '77001', 'VMI',  1, 32000.0000, 'THB'),
+    ('eb000000-0000-4000-8000-000000000005', 'ea000000-0000-4000-8000-000000000002', 'e1000000-0000-4000-8000-000000000001', N'69301/กธ/800012',  '77001', 'VMI',  1, 24500.0000, 'THB'),
     -- cart ea…0003 (vcommerce, Open) — sum 12650.0000
-    ('eb000000-0000-4000-8000-000000000006', 'ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 3, 650.0000,   'THB'),
-    ('eb000000-0000-4000-8000-000000000007', 'ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000a', 2, 450.0000,   'THB'),
-    ('eb000000-0000-4000-8000-000000000008', 'ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, 9800.0000,  'THB'),
+    ('eb000000-0000-4000-8000-000000000006', 'ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', N'69301/กธ/9100002', '77001', 'CMI',  3, 650.0000,   'THB'),
+    ('eb000000-0000-4000-8000-000000000007', 'ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', N'69301/กธ/8000011', '77001', 'CMI',  2, 450.0000,   'THB'),
+    ('eb000000-0000-4000-8000-000000000008', 'ea000000-0000-4000-8000-000000000003', 'e1000000-0000-4000-8000-000000000002', N'26301/POL/000004', '77001', 'FIRE', 1, 9800.0000,  'THB'),
     -- cart ea…0004 (vcommerce, CheckedOut) — sum 21700.0000
-    ('eb000000-0000-4000-8000-000000000009', 'ea000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000c', 1, 12800.0000, 'THB'),
-    ('eb000000-0000-4000-8000-00000000000a', 'ea000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000d', 1, 8900.0000,  'THB'),
+    ('eb000000-0000-4000-8000-000000000009', 'ea000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000002', N'69301/กธ/800012',  '77001', 'VMI',  1, 12800.0000, 'THB'),
+    ('eb000000-0000-4000-8000-00000000000a', 'ea000000-0000-4000-8000-000000000004', 'e1000000-0000-4000-8000-000000000002', N'26301/POL/000001', '77001', 'FIRE', 1, 8900.0000,  'THB'),
     -- cart ea…0005 (vsouvenir, Open) — sum 3130.0000
-    ('eb000000-0000-4000-8000-00000000000b', 'ea000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-000000000011', 5, 390.0000,   'THB'),
-    ('eb000000-0000-4000-8000-00000000000c', 'ea000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-000000000012', 2, 590.0000,   'THB'),
+    ('eb000000-0000-4000-8000-00000000000b', 'ea000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000003', N'69301/กธ/910001',  '77001', 'VMI',  5, 390.0000,   'THB'),
+    ('eb000000-0000-4000-8000-00000000000c', 'ea000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000003', N'69301/กธ/9100002', '77001', 'CMI',  2, 590.0000,   'THB'),
     -- cart ea…0006 (vsouvenir, Open) — sum 3450.0000
-    ('eb000000-0000-4000-8000-00000000000d', 'ea000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-000000000013', 4, 450.0000,   'THB'),
-    ('eb000000-0000-4000-8000-00000000000e', 'ea000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000003', 'e9000000-0000-4000-8000-000000000014', 3, 550.0000,   'THB');
+    ('eb000000-0000-4000-8000-00000000000d', 'ea000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000003', N'69301/กธ/8000011', '77001', 'CMI',  4, 450.0000,   'THB'),
+    ('eb000000-0000-4000-8000-00000000000e', 'ea000000-0000-4000-8000-000000000006', 'e1000000-0000-4000-8000-000000000003', N'69301/กธ/800012',  '77001', 'VMI',  3, 550.0000,   'THB');
 
 -- shop.CheckoutSessions (REQ-6.2): AmountAmount = SUM(Quantity * UnitPriceAmount) of the bound
 -- cart. Both Confirmed rows point at the 2 CheckedOut carts; Started/Abandoned point at Open carts.
@@ -528,19 +369,24 @@ WHERE o.Id LIKE 'ed000000-%' AND o.Status = 1;
 -- ทะเบียนรถ to cover the "Voluntary + Compulsory, same vehicle" edge case (requirements.md Edge Cases,
 -- row 1 vs row 6). Item ef…0004 deliberately gets NO OrderItemPolicies row below — REQ-1.7/4.7's
 -- blank-external-column report case (a policy-less item, not a policy row full of nulls).
--- The document snapshot columns (DocumentNo/ProductGroup/DocumentType/PolicyNumber/StartDate/EndDate)
--- are frozen copies of the shop.Products row each item references, taken at purchase time.
-INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, ProductId, Quantity, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, UnitPriceAmount, UnitPriceCurrency)
+-- The document snapshot columns (DocumentNo/ProductGroup/DocumentType/PolicyNumber/StartDate/EndDate) are
+-- frozen copies of the upstream document each item was bought from (products-external-source-of-truth
+-- REQ-4.4) — the ProductId Guid column is gone (REQ-2.2). Every DocumentNo is a real sim row. The two
+-- documents that sit on Paid orders (69301/อท/91000081 on n=16, 26301/POL/000009 on n=8) are deliberately
+-- NOT reused by any sellable cart above, so the double-sell gate (REQ-5.1) never trips a demo checkout;
+-- 69301/กธ/910001 on the AwaitingPayment order n=5 is fine to share with the carts because an unpaid order
+-- does not mark a document sold (REQ-5.11).
+INSERT INTO shop.OrderItems (Id, OrderId, MerchantId, Quantity, DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate, InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth, UnitPriceAmount, UnitPriceCurrency)
 VALUES
-    -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid); product e9…0006
-    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69900/ปช/900006', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
+    -- Motor, ภาคสมัครใจ (Voluntary) — order ed…0016 (vprivilege, Paid); CMI ENDORSEMENT 69301/อท/91000081
+    ('ef000000-0000-4000-8000-000000000001', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 1, N'69301/อท/91000081', 'CMI', 'ENDORSEMENT', 'POL-2026-VP-000123', '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 15900.0000, 'THB'),
     -- Motor, ภาคบังคับ/พ.ร.บ. (Compulsory) — SAME order + SAME insured person + vehicle as above
-    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 'e9000000-0000-4000-8000-000000000006', 1, N'69900/ปช/900006', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
-    -- Non-motor (health) — order ed…0008 (vcommerce, Paid); no InsuredObjectReference on its policy
-    -- below (REQ-1.8 — field is generic to every insurance type, not just Motor); product e9…000b
-    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-00000000000b', 1, N'S001-69900/อค/900011', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
-    -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment); product e9…0009
-    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 'e9000000-0000-4000-8000-000000000009', 1, N'77001-69900/กธ/900009-10', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
+    ('ef000000-0000-4000-8000-000000000002', 'ed000000-0000-4000-8000-000000000016', 'e1000000-0000-4000-8000-000000000001', 1, N'69301/อท/91000081', 'CMI', 'ENDORSEMENT', NULL, '2026-01-01', '2027-01-01', N'สมชาย', N'ใจดี', N'1103700123456', '1985-03-15', 645.2100, 'THB'),
+    -- Non-motor (fire) — order ed…0008 (vcommerce, Paid); no InsuredObjectReference on its policy
+    -- below (REQ-1.8 — field is generic to every insurance type, not just Motor); FIRE POLICY 26301/POL/000009
+    ('ef000000-0000-4000-8000-000000000003', 'ed000000-0000-4000-8000-000000000008', 'e1000000-0000-4000-8000-000000000002', 1, N'26301/POL/000009', 'FIRE', 'POLICY', 'POL-2026-VC-000789', '2026-02-01', '2027-02-01', N'อารยา', N'รุ่งเรือง', N'1209900456789', '1990-07-22', 9800.0000, 'THB'),
+    -- No policy data entered yet — order ed…0005 (vcommerce, AwaitingPayment); VMI POLICY 69301/กธ/910001
+    ('ef000000-0000-4000-8000-000000000004', 'ed000000-0000-4000-8000-000000000005', 'e1000000-0000-4000-8000-000000000002', 1, N'69301/กธ/910001', 'VMI', 'POLICY', NULL, NULL, NULL, N'พิชิต', N'แสงทอง', N'1509900112233', '1978-11-02', 650.0000, 'THB');
 
 INSERT INTO shop.OrderItemPolicies (Id, OrderItemId, MerchantId, InsuranceCategory, ReferenceNumberType, ReferenceNumber, EndorsementNumber, RenewalReminderNumber, InsuredObjectReference, NetPremiumAmount, NetPremiumCurrency, GrossPremiumAmount, GrossPremiumCurrency, PremiumRemittanceStatus, DeductedAt, CreatedAt, UpdatedAt)
 VALUES
@@ -567,7 +413,6 @@ INSERT INTO @counts (TableName, Rows) VALUES
     (N'merch.Users', (SELECT COUNT(*) FROM merch.Users WHERE Id LIKE 'e5000000-%')),
     (N'merch.ExternalLogins', (SELECT COUNT(*) FROM merch.ExternalLogins WHERE Id LIKE 'e6000000-%')),
     (N'merch.RoleAssignments', (SELECT COUNT(*) FROM merch.RoleAssignments WHERE Id LIKE 'e7000000-%')),
-    (N'shop.Products', (SELECT COUNT(*) FROM shop.Products WHERE Id LIKE 'e9000000-%')),
     (N'shop.Carts', (SELECT COUNT(*) FROM shop.Carts WHERE Id LIKE 'ea000000-%')),
     (N'shop.CartItems', (SELECT COUNT(*) FROM shop.CartItems WHERE Id LIKE 'eb000000-%')),
     (N'shop.CheckoutSessions', (SELECT COUNT(*) FROM shop.CheckoutSessions WHERE Id LIKE 'ec000000-%')),
@@ -588,39 +433,25 @@ BEGIN
     THROW 51000, @failMsg, 1;
 END
 
--- Every seeded product must carry a complete document (the fields that are NULL by document type —
--- ReferencePre / PolicyType / LicensePlateNumber / the four *Number columns / PaidDate — are excluded)
--- and the premium components must still add up to TotalPremium exactly.
-DECLARE @incomplete int = (
-    SELECT COUNT(*) FROM shop.Products
-    WHERE Id LIKE 'e9000000-%'
-      AND (PolicyYear IS NULL OR ReferenceYear IS NULL OR ReferenceBranch IS NULL
-           OR PolicySequenceNo IS NULL OR ReferenceNo IS NULL
-           OR ShowName IS NULL OR SaleFullName IS NULL
-           OR BrokerCode IS NULL OR BrokerName IS NULL OR PolicyBranch IS NULL
-           OR StartDate IS NULL OR EndDate IS NULL OR StartDate > EndDate
-           OR NetPremium IS NULL OR Stamp IS NULL OR TaxVat IS NULL
-           OR CommissionPercent IS NULL OR CommissionAmount IS NULL
-           OR NetPremium + Stamp + TaxVat <> TotalPremium));
-IF @incomplete > 0
-    THROW 51000, N'seed-demo: seeded products with missing/inconsistent document fields.', 1;
-
--- Same window ProductRepository.SearchAsync applies — if a seeded row falls outside it, the demo
--- catalogue is invisible through GET /products no matter what filters the caller sends.
-DECLARE @visible int = (
-    SELECT COUNT(*) FROM shop.Products
-    WHERE Id LIKE 'e9000000-%'
-      AND ((DocumentType = 'RENEWAL'
-            AND EndDate >= CAST(SYSUTCDATETIME() AS date)
-            AND EndDate < DATEADD(month, 2, CAST(SYSUTCDATETIME() AS date)))
-        OR (DocumentType <> 'RENEWAL'
-            AND StartDate >= DATEADD(month, -6, CAST(SYSUTCDATETIME() AS date)))));
-IF @visible <> 500
-BEGIN
-    DECLARE @windowMsg nvarchar(200) = CONCAT(
-        N'seed-demo: only ', @visible, N'/500 products fall inside the GET /products search window.');
-    THROW 51000, @windowMsg, 1;
-END
+-- products-external-source-of-truth REQ-6.9: shop.Products is gone, so the old "every seeded product
+-- carries a complete document / falls inside the search window" checks no longer apply — there is
+-- nothing to count in a dropped table. The catalogue is validated live against the upstream now; what
+-- this seed can still guarantee is that the identifier that REPLACED ProductId is populated on every
+-- buy-path row it writes. A blank DocumentNo (or a cart row missing SaleCode/ProductGroup) would be a
+-- row the live buy path could never resolve, so count those instead and fail loudly if any exist.
+DECLARE @blankIdentifier int = (
+    SELECT
+        (SELECT COUNT(*) FROM shop.CartItems
+         WHERE Id LIKE 'eb000000-%'
+           AND (DocumentNo IS NULL OR LTRIM(RTRIM(DocumentNo)) = N''
+                OR SaleCode IS NULL OR LTRIM(RTRIM(SaleCode)) = ''
+                OR ProductGroup IS NULL OR LTRIM(RTRIM(ProductGroup)) = ''))
+      + (SELECT COUNT(*) FROM shop.OrderItems
+         WHERE Id LIKE 'ef000000-%'
+           AND (DocumentNo IS NULL OR LTRIM(RTRIM(DocumentNo)) = N''
+                OR ProductGroup IS NULL OR LTRIM(RTRIM(ProductGroup)) = '')));
+IF @blankIdentifier > 0
+    THROW 51000, N'seed-demo: cart/order rows with a blank DocumentNo/SaleCode/ProductGroup (the identifier that replaced ProductId).', 1;
 
 COMMIT;
 GO

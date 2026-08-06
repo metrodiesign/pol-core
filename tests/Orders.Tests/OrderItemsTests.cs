@@ -13,28 +13,27 @@ namespace Orders.Tests;
 public sealed class OrderItemsTests
 {
     private static readonly Guid MerchantId = Guid.NewGuid();
-    private static readonly Guid ProductA = Guid.NewGuid();
-    private static readonly Guid ProductB = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    // Default-param helper so a signature change touches one line, not every call site.
+    // Default-param helper so a signature change touches one line, not every call site. The line is now keyed
+    // by DocumentNo (the surrogate ProductId is gone — products-external-source-of-truth REQ-2.2).
     private static OrderItemInput Item(
-        Guid productId, decimal unitPrice, int quantity = 1, string idNumber = "1234567890123",
+        decimal unitPrice, int quantity = 1, string idNumber = "1234567890123",
         string currency = "THB", DateTime? dob = null,
         string documentNo = "00098-69100/กธ/900001-10", string productGroup = "VMI", string documentType = "POLICY",
         string? policyNumber = null, DateTime? startDate = null, DateTime? endDate = null) =>
-        new(productId, quantity, Money.Of(unitPrice, currency),
+        new(quantity, Money.Of(unitPrice, currency),
             documentNo, productGroup, documentType, policyNumber, startDate, endDate,
             "Somchai", "Jaidee", idNumber, dob ?? Dob);
 
     [Fact]
     public void Create_with_one_line_matching_the_amount_succeeds()
     {
-        var order = Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(ProductA, 15000m)], orderNo: "ORD6900000001");
+        var order = Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(15000m)], orderNo: "ORD6900000001");
 
         var item = Assert.Single(order.Items);
-        Assert.Equal(ProductA, item.ProductId);
+        Assert.Equal("00098-69100/กธ/900001-10", item.DocumentNo);
         Assert.Equal(order.Id, item.OrderId);
         Assert.Equal(MerchantId, item.MerchantId);
     }
@@ -43,7 +42,8 @@ public sealed class OrderItemsTests
     public void Create_with_multiple_lines_summing_to_the_amount_succeeds()
     {
         var order = Order.Create(
-            MerchantId, Money.Of(25000m, "THB"), At, [Item(ProductA, 15000m), Item(ProductB, 10000m)], orderNo: "ORD6900000002");
+            MerchantId, Money.Of(25000m, "THB"), At,
+            [Item(15000m, documentNo: "DOC-A"), Item(10000m, documentNo: "DOC-B")], orderNo: "ORD6900000002");
 
         Assert.Equal(2, order.Items.Count);
     }
@@ -60,20 +60,20 @@ public sealed class OrderItemsTests
     public void Create_rejects_a_line_whose_quantity_is_not_1()
     {
         Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(30000m, "THB"), At, [Item(ProductA, 15000m, quantity: 2)], orderNo: "ORD6900000004"));
+            () => Order.Create(MerchantId, Money.Of(30000m, "THB"), At, [Item(15000m, quantity: 2)], orderNo: "ORD6900000004"));
     }
 
     [Fact]
     public void Create_rejects_a_line_sum_that_does_not_match_the_amount()
     {
         Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(ProductA, 14999m)], orderNo: "ORD6900000005"));
+            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(14999m)], orderNo: "ORD6900000005"));
     }
 
     [Fact]
     public void Create_rejects_a_line_currency_mismatched_with_the_amount()
     {
-        var mismatched = Item(ProductA, 15000m, currency: "USD");
+        var mismatched = Item(15000m, currency: "USD");
 
         Assert.Throws<ArgumentException>(
             () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [mismatched], orderNo: "ORD6900000006"));
@@ -84,12 +84,12 @@ public sealed class OrderItemsTests
     [InlineData("   ")]
     public void Create_rejects_a_blank_insured_IdNumber(string idNumber) =>
         Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(ProductA, 15000m, idNumber: idNumber)], orderNo: "ORD6900000007"));
+            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(15000m, idNumber: idNumber)], orderNo: "ORD6900000007"));
 
     [Fact]
     public void Create_rejects_a_future_date_of_birth()
     {
-        var futureDob = Item(ProductA, 15000m, dob: At.AddDays(1));
+        var futureDob = Item(15000m, dob: At.AddDays(1));
 
         Assert.Throws<ArgumentException>(() => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [futureDob], orderNo: "ORD6900000008"));
     }
@@ -98,7 +98,7 @@ public sealed class OrderItemsTests
     public void The_thrown_exception_never_echoes_the_invalid_date_of_birth_value()
     {
         var distinctiveFutureDob = new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc);
-        var bad = Item(ProductA, 15000m, dob: distinctiveFutureDob);
+        var bad = Item(15000m, dob: distinctiveFutureDob);
 
         var ex = Assert.Throws<ArgumentException>(() => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [bad], orderNo: "ORD6900000009"));
 
@@ -115,14 +115,14 @@ public sealed class OrderItemsTests
     public void Create_rejects_a_blank_document_field(string documentNo, string productGroup, string documentType) =>
         Assert.Throws<ArgumentException>(() => Order.Create(
             MerchantId, Money.Of(15000m, "THB"), At,
-            [Item(ProductA, 15000m, documentNo: documentNo, productGroup: productGroup, documentType: documentType)], orderNo: "ORD6900000010"));
+            [Item(15000m, documentNo: documentNo, productGroup: productGroup, documentType: documentType)], orderNo: "ORD6900000010"));
 
     [Fact]
     public void Create_rejects_a_start_date_after_the_end_date()
     {
         var ex = Assert.Throws<ArgumentException>(() => Order.Create(
             MerchantId, Money.Of(15000m, "THB"), At,
-            [Item(ProductA, 15000m, startDate: At.AddDays(10), endDate: At)], orderNo: "ORD6900000011"));
+            [Item(15000m, startDate: At.AddDays(10), endDate: At)], orderNo: "ORD6900000011"));
 
         Assert.Equal("startDate", ex.ParamName);
     }
@@ -132,7 +132,7 @@ public sealed class OrderItemsTests
     {
         var order = Order.Create(
             MerchantId, Money.Of(15000m, "THB"), At,
-            [Item(ProductA, 15000m, documentNo: "  DOC-1  ", productGroup: " VMI ", documentType: " POLICY ")], orderNo: "ORD6900000012");
+            [Item(15000m, documentNo: "  DOC-1  ", productGroup: " VMI ", documentType: " POLICY ")], orderNo: "ORD6900000012");
 
         var item = Assert.Single(order.Items);
         Assert.Equal("DOC-1", item.DocumentNo);

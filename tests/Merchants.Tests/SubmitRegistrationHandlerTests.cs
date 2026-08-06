@@ -146,7 +146,7 @@ public sealed class SubmitRegistrationHandlerTests
         Assert.Equal("Co", attempt.LastName);
         Assert.Equal(PersonType.Individual, attempt.PersonType);
         Assert.Equal("1234567890123", attempt.IdNumber);
-        Assert.Equal("PC-1", attempt.ProducerCode);
+        Assert.Equal("PC-1", attempt.SaleCode);
         Assert.Equal("LN-9", attempt.LicenseNumber);
         Assert.Equal("0812345678", attempt.Phone);
         Assert.Equal("p@org.com", attempt.Email);                 // ticket email, not the account's (REQ-1.2/A3)

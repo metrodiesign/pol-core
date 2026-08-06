@@ -101,7 +101,7 @@ public sealed class Session : AggregateRoot<Guid>
             total = total.Add(LineAmounts.Net(gross, discount));
 
             session._items.Add(new Item(
-                Guid.CreateVersion7(), session.Id, merchantId, item.ProductId, item.Quantity, item.UnitPrice, discount,
+                Guid.CreateVersion7(), session.Id, merchantId, item.Quantity, item.UnitPrice, discount,
                 item.DocumentNo, item.ProductGroup, item.DocumentType, item.PolicyNumber,
                 item.StartDate, item.EndDate,
                 item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,

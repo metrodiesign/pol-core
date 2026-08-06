@@ -11,8 +11,6 @@ using Persistence.MerchantRuntime.Carts.Items;
 using Persistence.MerchantRuntime.Merchants;
 using Persistence.MerchantRuntime.Orders;
 using Persistence.MerchantRuntime.Payments.Psp;
-using Persistence.MerchantRuntime.Products;
-using Products.Domain;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using CheckoutSession = Checkouts.Domain.Session;
@@ -65,7 +63,6 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     /// so an unbound actor sees zero rows everywhere in this context.</summary>
     internal Guid CurrentMerchant => _actor.HasActor ? _actor.MerchantId : Guid.Empty;
 
-    public DbSet<Product> Products => Set<Product>();
     public DbSet<CartAggregate> Carts => Set<CartAggregate>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<CheckoutSession> CheckoutSessions => Set<CheckoutSession>();
@@ -88,8 +85,6 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // No context argument: the product catalogue is central, so it has no per-merchant query filter.
-        modelBuilder.ApplyConfiguration(new ProductConfiguration());
         modelBuilder.ApplyConfiguration(new CartConfiguration(this));
         modelBuilder.ApplyConfiguration(new ItemConfiguration(this));
         modelBuilder.ApplyConfiguration(new CheckoutSessionConfiguration(this));

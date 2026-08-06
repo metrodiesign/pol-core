@@ -605,7 +605,7 @@ approve; ก่อนหน้านั้น user ยัง `PendingApproval` �
 | LastName | nvarchar(200) | N | | `พริวิเลจ` | required |
 | PersonType | int | Y | | `0` (Individual) | `PersonType` (Individual=0, Juristic=1) |
 | IdNumber | nvarchar(64) | Y | | `1100200300401` (บุคคล) / `0105561000045` (นิติบุคคล 13 หลัก) | เลขบัตรประชาชน/เลขนิติบุคคล — ค่าปลอมทั้งหมดใน seed |
-| ProducerCode | nvarchar(64) | Y | | `PRD-VP-001` | รหัสตัวแทน; NULL ได้ (ผู้สมัครที่ยังไม่อนุมัติมัก NULL) |
+| SaleCode | varchar(20) | Y | | `77001` | รหัสผู้ขายในระบบต้นทาง (ตรงกับ `@SaleCode` ของ SP); NULL ได้ (ผู้สมัครที่ยังไม่อนุมัติมัก NULL) |
 | LicenseNumber | nvarchar(64) | Y | | `LIC-2024-00101` | เลขใบอนุญาตตัวแทน; NULL ได้ |
 | Phone | nvarchar(32) | Y | | `0812345001` | เก็บ verbatim ไม่ normalize |
 | PhotoObjectKey | nvarchar(256) | Y | | `4d9b1e77c0a34fb1a2e5c6d7e8f90123.jpg` | opaque key (server-gen); bytes อยู่นอก DB. รูปแบบ `{Guid:N}{นามสกุลตาม content-type}` — **ไม่เคยใช้ชื่อไฟล์จาก client** (กัน path traversal) |

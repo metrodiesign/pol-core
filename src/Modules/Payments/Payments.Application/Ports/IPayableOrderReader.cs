@@ -1,3 +1,4 @@
+using BuildingBlocks.Application;
 using SharedKernel;
 
 namespace Payments.Application.Ports;
@@ -43,4 +44,12 @@ public interface IPayableOrderReader
     /// by commit time; this one cannot (REQ-3.6).
     /// </summary>
     Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The insurance documents this order is buying, as the sold-check keys them
+    /// (products-external-source-of-truth REQ-5.6). A separate read rather than a field on
+    /// <see cref="PayableOrder"/>: only the mint path asks this question, and the customer's status check —
+    /// which shares <see cref="GetAsync"/> — has no use for the lines.
+    /// </summary>
+    Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(Guid orderId, CancellationToken cancellationToken);
 }

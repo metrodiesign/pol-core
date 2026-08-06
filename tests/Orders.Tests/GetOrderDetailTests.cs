@@ -11,16 +11,15 @@ namespace Orders.Tests;
 public sealed class GetOrderDetailTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static Order TwoLineOrder() =>
         Order.Create(Merchant, Money.Of(30000m, "THB"), DateTime.UtcNow,
             [
-                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"),
+                new OrderItemInput(1, Money.Of(15000m, "THB"),
                     "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Somchai", "Jaidee", "1111111111111", Dob),
-                new OrderItemInput(Product, 1, Money.Of(15000m, "THB"),
-                    "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Suda", "Meesuk", "2222222222222", Dob),
+                new OrderItemInput(1, Money.Of(15000m, "THB"),
+                    "00098-69100/กธ/900002-10", "VMI", "POLICY", null, null, null, "Suda", "Meesuk", "2222222222222", Dob),
             ], orderNo: "ORD6900000001");
 
     [Fact]

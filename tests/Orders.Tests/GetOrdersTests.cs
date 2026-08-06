@@ -11,13 +11,12 @@ public sealed class GetOrdersTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid OtherMerchant = Guid.NewGuid();
-    private static readonly Guid Product = Guid.NewGuid();
     private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
     private static Order OrderWithIdNumber(Guid merchantId, string idNumber, string orderNo = "ORD6900000001") =>
         Order.Create(merchantId, Money.Of(15000m, "THB"), DateTime.UtcNow,
             [new OrderItemInput(
-                Product, 1, Money.Of(15000m, "THB"),
+                1, Money.Of(15000m, "THB"),
                 "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
                 "Somchai", "Jaidee", idNumber, Dob)], orderNo);
 

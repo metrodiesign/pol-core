@@ -18,12 +18,12 @@ internal sealed class MerchantAccountResolver(MerchantUserDbContext db) : IAccou
     public async Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
         await db.Users.IgnoreQueryFilters().AsNoTracking()
             .Where(u => u.Subject == subject)
-            .Select(u => new AccountSnapshot(u.Id, u.Subject, u.Email, u.MerchantId, u.Status))
+            .Select(u => new AccountSnapshot(u.Id, u.Subject, u.Email, u.MerchantId, u.Status, u.SaleCode))
             .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
         await db.Users.IgnoreQueryFilters().AsNoTracking()
             .Where(u => u.Id == id)
-            .Select(u => new AccountSnapshot(u.Id, u.Subject, u.Email, u.MerchantId, u.Status))
+            .Select(u => new AccountSnapshot(u.Id, u.Subject, u.Email, u.MerchantId, u.Status, u.SaleCode))
             .FirstOrDefaultAsync(cancellationToken);
 }
