@@ -125,10 +125,10 @@ stored procedure ต้นทาง (`usp_Motor_SearchDocument` / `usp_NonMotor_
 | กันขายเอกสารใบเดิมซ้ำ | อนุมานจาก `Orders`/`PaymentSessions` ผ่าน `IDocumentSaleProbe` แทนสถานะที่เคยเก็บไว้เอง — ดูหัวข้อ "กันขายเอกสารซ้ำ" ด้านล่าง | มีแล้ว (products-external-source-of-truth) |
 | Response envelope §5.1 | `ProductPage` = `items` + `totalRows?`/`totalPages?`/`pageNo`/`pageSize`/`hasNextPage`/`hasPreviousPage`/`countMode`/`searchWindowMonths` คัดลอกจาก result set แรกของ SP ตรง ๆ; แต่ละ item **ไม่มีฟิลด์ `id`** อีกแล้ว (ไม่มี `Guid` ให้ส่ง) และเพิ่มฟิลด์ `soldByPlatform` (bool) บอกว่าเอกสารถูกขายผ่านแพลตฟอร์มนี้แล้วหรือไม่ โดยไม่แก้ค่า `paymentStatus` ที่ต้นทางรายงาน — `countMode=FAST` -> `totalRows`/`totalPages` เป็น `null` | มีแล้ว |
 | SP ล่ม/ต่อไม่ได้ | `SqlException` ที่ไม่ใช่ error 50001-50009 (timeout/login/network/column drift) -> `UpstreamUnavailableException` -> **503** พร้อม detail คงที่ ไม่รั่วข้อความ SQL; connection string ที่ parse ไม่ได้ก็เข้าทาง 503 นี้เช่นกัน; input ที่ SP ปฏิเสธ (50001-50009) -> **400** — ไม่เปลี่ยนจากเดิม | มีแล้ว |
-| อ่านเอกสารรายใบสดจากต้นทาง | `LookupDocumentQuery`/`LookupDocumentHandler` — internal เท่านั้น (`REQ-3.8`, ไม่ map เป็น route), ผู้เรียกคือ add-item / checkout / (โดยอ้อม) create payment session; ยิง `ISpDocumentGateway.LookupAsync` ด้วย `@PaymentStatus='ALL'`, `@ProductGroup='ALL'` แล้วกรองแถวที่ `DocumentNo` ตรงเป๊ะในหน่วยความจำ — ไม่พบ -> `null`, ตรงมากกว่าหนึ่งแถว -> `SpDocumentAmbiguousException` (400) | มีแล้ว |
+| อ่านเอกสารรายใบสดจากต้นทาง | `LookupDocumentQuery`/`LookupDocumentHandler` — internal เท่านั้น (`REQ-3.8`, ไม่ map เป็น route), ผู้เรียกคือ add-item / checkout เท่านั้น (create payment session **ไม่เรียก** — ใช้ `IDocumentSaleProbe` อย่างเดียว ดูหัวข้อ "กันขายเอกสารซ้ำ"); ยิง `ISpDocumentGateway.LookupAsync` ด้วย `@PaymentStatus='ALL'`, `@ProductGroup='ALL'` แล้วกรองแถวที่ `DocumentNo` ตรงเป๊ะในหน่วยความจำ — ไม่พบ -> `null`, ตรงมากกว่าหนึ่งแถว -> `SpDocumentAmbiguousException` (400) | มีแล้ว |
 | mark เอกสารเป็น "ขายแล้ว" | **ไม่มีสถานะให้ mark อีกต่อไป** — เดิมมี `Product.MarkPaid` เขียนลงสำเนาของเราตอน order จ่ายสำเร็จ (`DocumentPaidOnOrderPaidConsumer`) ทั้งคู่ถูกลบ; "ขายแล้ว" ตอนนี้เป็นผลการ query สดจาก Orders ทุกครั้ง ไม่ใช่ flag ที่เก็บไว้ | เปลี่ยนกลไกทั้งหมด |
 | แก้ไข/ถอนเอกสารจากการขาย | ไม่มี endpoint เหมือนเดิม — ไม่เคยมี | ยังไม่มี |
-| อ่านรายตัว public | target: `GET /api/producer/v1/products/{documentNo}` สำหรับหน้า detail ฝั่ง console — ยังไม่เริ่ม | ยังไม่มี |
+| อ่านรายตัว public | target: `GET /api/v1/products/{documentNo}` สำหรับหน้า detail ฝั่ง console — ยังไม่เริ่ม (route ต้องอยู่ใต้ `/api/v1/{area}` ตาม spec `api-route-scheme`, ไม่ใช่ audience-first `/api/producer/v1/...` ที่ retired ไปแล้ว) | ยังไม่มี |
 | Product versioning + quote | target เดิม (`ProductVersion`/`ProductQuote`) อิงอยู่กับ aggregate ท้องถิ่นที่ถูกลบไปแล้ว — ถ้าจะทำต้องออกแบบใหม่บนฐาน "อ่านสดล้วน" นี้ ยังไม่เริ่ม | ยังไม่มี |
 
 **สถานะ: มีแล้ว** — SP adapter ของจริงเขียนแล้วและใช้งานอยู่ (`products-sp-gateway`, ยังไม่เปลี่ยน)
@@ -232,8 +232,10 @@ query string) กำหนดโดย `ProductFilterDto`:
 - `GET /carts/{cartId}` คืนแต่ละบรรทัดพร้อม `itemId`, `documentNo`, `saleCode`, `productGroup`
 
 `LookupDocumentQuery`/`LookupDocumentHandler` (`Products.Application/LookupDocument.cs`) **ไม่ถูก
-map เป็น HTTP route** — เป็น internal query ที่ add-item, checkout (อ่านสดต่อบรรทัดตอนเริ่ม
-checkout) และการสร้าง payment session (ผ่าน probe เท่านั้น ไม่เรียก lookup ตรง ๆ) ใช้ร่วมกัน
+map เป็น HTTP route** — เป็น internal query ที่ add-item และ checkout (อ่านสดต่อบรรทัดตอนเริ่ม
+checkout) ใช้ร่วมกันเท่านั้น การสร้าง payment session **ไม่เรียก** `LookupDocumentQuery`/
+`ISpDocumentGateway.LookupAsync` เลย — ใช้แค่ `IDocumentSaleProbe` ตรวจกับประวัติ order ของเรา
+เอง (ดูหัวข้อ "กันขายเอกสารซ้ำ") จึงไม่ต้องพึ่งความพร้อมของต้นทางในขั้นนี้
 
 ---
 
@@ -284,11 +286,18 @@ checkout) และการสร้าง payment session (ผ่าน probe 
 
 เอกสารเอง (ทุกฟิลด์ของ §5.2: `PolicyYear`/`ReferenceBranch`/`SaleFullName`/`BrokerCode`/`ShowName`/
 `NetPremium`/`Stamp`/`TaxVat`/`TotalPremium`/`CommissionPercent`/`CommissionAmount`/`PaidDate`/
-`LicensePlateNumber`/ฯลฯ — 32 ฟิลด์ทั้งหมด) **ไม่ถูกเก็บที่ใดในฐานข้อมูลของเรา** — อ่านสดผ่าน
-`Products.Application/DocumentView.cs` ทุกครั้งที่ต้องใช้ ดูนิยามเต็มที่โครงสร้างไฟล์ด้านล่าง
+`LicensePlateNumber`/ฯลฯ — 32 ฟิลด์ทั้งหมด) **ไม่มีการมิเรอร์ทั้งชุดเก็บไว้ที่ใดอีกแล้ว** (แคตตาล็อก
+32 ฟิลด์แบบเดิมถูกลบไปกับ `shop.Products`) — แต่ไม่ใช่ทุกฟิลด์หายไปจากฐานข้อมูลเรา: 6 ฟิลด์ตาม
+ตารางด้านบน (`DocumentNo`/`ProductGroup`/`DocumentType`/`PolicyNumber`/`StartDate`/`EndDate`) ยัง
+snapshot ลงคอลัมน์ของบรรทัดใน purchase flow และ `TotalPremium` ยัง persist อยู่ในรูป `UnitPrice`
+ของ `CartItems` (mint เป็น `Money` ตอน add-item) ส่วนที่เหลือ (`SaleFullName`/`BrokerCode`/
+`NetPremium`/`Stamp`/`TaxVat`/`CommissionAmount`/`CommissionPercent`/`LicensePlateNumber`/ฯลฯ)
+ไม่ถูกเก็บที่ใดจริง ๆ — อ่านสดผ่าน `Products.Application/DocumentView.cs` ทุกครั้งที่ต้องใช้
+ดูนิยามเต็มที่โครงสร้างไฟล์ด้านล่าง
 
-funnel ธุรกิจ (ลำดับ schema `shop`): `Carts → CheckoutSessions → Orders → PaymentSessions` —
-ไม่มี `Products` อยู่ในลำดับนี้อีกต่อไปเพราะไม่มีตารางให้เป็นจุดเริ่ม
+funnel ธุรกิจ: `shop.Carts → shop.CheckoutSessions → shop.Orders → txn.PaymentSessions` — ข้าม
+schema ที่ขั้นสุดท้าย (`PaymentSessions` แม็ปเข้า `SchemaNames.Txn` ไม่ใช่ `shop`) และไม่มี
+`Products` อยู่ในลำดับนี้อีกต่อไปเพราะไม่มีตารางให้เป็นจุดเริ่ม
 
 ---
 
