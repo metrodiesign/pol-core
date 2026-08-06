@@ -1322,6 +1322,16 @@ route/permission/ตารางเดิมทั้งหมด
     ของ create เท่านั้น). **next step:** spec แยกที่เพิ่ม inquiry ต่อ PSP + สถานะ "ต้องสะสางด้วยมือ" ที่ ops
     เห็นได้ (โยงข้อ 12 auto-expire — sweeper ต้องใช้ inquiry เดียวกัน)
 
+26. **platform DB read-failure 503 ยังไม่ครอบ auth path** (เปิดโดยรู้ตัว 2026-08-06, spec
+    `probe-dependency-failure-mapping` D2): `PlatformReadGuard` (`Persistence.MerchantRuntime`, ดู
+    [src-structure.md §3](src-structure.md#3-persistence--runtime-data-plane-4-assembly)) แปลงการอ่านที่ล้ม
+    บนเส้นทางตอบคำขอเป็น **503** (retry ปลอดภัย) แทน 500 ทึบเดิม แต่ทุกคำขอผ่าน policy `merchant-user`
+    อ่าน session/user จาก `Persistence.MerchantUsers` ก่อนถึง endpoint (`UserSessionAuthenticationHandler`
+    → `MerchantUserSessionStore`) ซึ่ง**อยู่นอก scope ที่ approve ไว้**. ผล: VCentralPay ล่มเต็มรูปแบบ
+    ผู้ใช้ที่ login แล้วยังเห็น **500** จาก auth ก่อนที่ 503 ใหม่จะมีผล. **ทำไมไม่รวมในสเปกนั้น:** ขยาย seam
+    ไป `MerchantUsers` ต้องขยับ requirement D2 ก่อน implement (ตัดสินใน spec-architect critique). **next
+    step:** เปิด spec ใหม่ขยาย `PlatformReadGuard` (หรือเทียบเท่า) ครอบ `Persistence.MerchantUsers`.
+
 ---
 
 ## ทะเบียนตัดสินใจค้าง (ADR pending) และลำดับเปิด spec
