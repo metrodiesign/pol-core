@@ -85,8 +85,8 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
 
     public async Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
-        var blob = await _db.VaultSecrets
-                .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, cancellationToken)
+        var blob = await PlatformReadGuard.ReadAsync(ct => _db.VaultSecrets
+                .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, ct), cancellationToken)
                 .ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Vault secret '{name}' not found for the merchant.");
 
@@ -117,14 +117,16 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
 
     public async Task<string?> MaskedAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
-        var blob = await _db.VaultSecrets
-            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, cancellationToken)
+        var blob = await PlatformReadGuard.ReadAsync(ct => _db.VaultSecrets
+            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, ct), cancellationToken)
             .ConfigureAwait(false);
         return blob is null ? null : $"****{blob.Hint}";
     }
 
-    public Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
-        _db.VaultSecrets.AnyAsync(x => x.MerchantId == merchantId && x.Name == name, cancellationToken);
+    public async Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
+        await PlatformReadGuard.ReadAsync(ct => _db.VaultSecrets
+            .AnyAsync(x => x.MerchantId == merchantId && x.Name == name, ct), cancellationToken)
+            .ConfigureAwait(false);
 
     private static string LastFour(string secret) =>
         secret.Length <= 4 ? new string('*', secret.Length) : secret[^4..];

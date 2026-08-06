@@ -17,10 +17,10 @@ internal sealed class VaultRevealAuditVerifier : IVaultRevealAuditVerifier
 
     public async Task<VaultAuditVerifyResult> VerifyAsync(Guid merchantId, CancellationToken cancellationToken)
     {
-        var rows = await _db.VaultRevealAudits
+        var rows = await PlatformReadGuard.ReadAsync(ct => _db.VaultRevealAudits
             .Where(a => a.MerchantId == merchantId)
             .OrderBy(a => a.Seq)
-            .ToListAsync(cancellationToken).ConfigureAwait(false);
+            .ToListAsync(ct), cancellationToken).ConfigureAwait(false);
 
         byte[] expectedPrev = VaultRevealAudit.Genesis;
         long expectedSeq = 1;

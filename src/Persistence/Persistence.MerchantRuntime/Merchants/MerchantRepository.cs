@@ -29,29 +29,32 @@ internal sealed class MerchantRepository : IMerchantRepository, IMerchantDirecto
     public void Add(Merchant merchant) => _db.Set<Merchant>().Add(merchant);
 
     public Task<Merchant?> GetByCodeAsync(string normalizedCode, CancellationToken cancellationToken) =>
-        _db.Set<Merchant>().FirstOrDefaultAsync(x => x.Code == normalizedCode, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Merchant>()
+            .FirstOrDefaultAsync(x => x.Code == normalizedCode, ct), cancellationToken);
 
     public Task<bool> ExistsByCodeAsync(string normalizedCode, CancellationToken cancellationToken) =>
-        _db.Set<Merchant>().AnyAsync(x => x.Code == normalizedCode, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Merchant>()
+            .AnyAsync(x => x.Code == normalizedCode, ct), cancellationToken);
 
     public Task<bool> IsActiveMerchantAsync(Guid merchantId, CancellationToken cancellationToken) =>
-        _db.Set<Merchant>().AnyAsync(t => t.Id == merchantId && t.Status == MerchantStatus.Active, cancellationToken);
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Merchant>()
+            .AnyAsync(t => t.Id == merchantId && t.Status == MerchantStatus.Active, ct), cancellationToken);
 
     public async Task<IReadOnlyDictionary<Guid, string>> GetCodesByIdsAsync(
         IReadOnlySet<Guid> merchantIds, CancellationToken cancellationToken)
     {
         if (merchantIds.Count == 0)
             return new Dictionary<Guid, string>();
-        return await _db.Set<Merchant>()
+        return await PlatformReadGuard.ReadAsync(ct => _db.Set<Merchant>()
             .Where(t => merchantIds.Contains(t.Id))
-            .ToDictionaryAsync(t => t.Id, t => t.Code, cancellationToken);
+            .ToDictionaryAsync(t => t.Id, t => t.Code, ct), cancellationToken);
     }
 
     // Bare id lookup (no projection, no PSP metadata) so the read seam can apply the accessible-merchant floor
     // before loading a full merchant view. Unknown code -> null (the seam treats null as inaccessible).
     public Task<Guid?> GetIdByCodeAsync(string code, CancellationToken cancellationToken) =>
-        _db.Set<Merchant>()
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Merchant>()
             .Where(t => t.Code == code)
             .Select(t => (Guid?)t.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(ct), cancellationToken);
 }

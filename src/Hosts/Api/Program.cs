@@ -631,7 +631,8 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
     .Produces<WebhookResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status429TooManyRequests);
+    .ProducesProblem(StatusCodes.Status429TooManyRequests)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // T11 (rf1 big-bang): the merchant-Bearer fallback is retired, so every write endpoint gates on the single-scheme
 // "merchant-user" policy + its permission unconditionally — the former MerchantUser:EnforcePermissionsOnWrites
@@ -749,7 +750,8 @@ api.MapGet("/carts/{cartId:guid}", async (
     .WithDescription("คืนตะกร้าพร้อม line ทั้งหมดและ subtotal ที่คำนวณราคาแล้ว หากไม่พบตะกร้า -> 404")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapDelete("/carts/{cartId:guid}/items/{itemId:guid}", async (
     Guid cartId, Guid itemId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -763,7 +765,8 @@ api.MapDelete("/carts/{cartId:guid}/items/{itemId:guid}", async (
     .WithDescription("ลบรายการออกจากตะกร้าด้วย itemId (รหัสรายการ ไม่ใช่ documentNo เพราะเลขเอกสารมี / และอักษรไทย) แล้วคืนตะกร้าที่อัปเดตแล้ว หากไม่พบ itemId -> 404")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status404NotFound);
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPut("/carts/{cartId:guid}/items/{itemId:guid}", async (
     Guid cartId, Guid itemId, SetCartItemQuantityRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -777,7 +780,8 @@ api.MapPut("/carts/{cartId:guid}/items/{itemId:guid}", async (
     .WithDescription("ปรับจำนวนของรายการด้วย itemId แล้วคืนตะกร้าที่อัปเดตแล้ว หากไม่พบ itemId -> 404")
     .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status404NotFound);
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPost("/carts/{cartId:guid}/clear", async (
     Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -790,7 +794,8 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
     .WithSummary("ล้างตะกร้าสินค้า")
     .WithDescription("ลบทุก line ออกจากตะกร้า แล้วคืนตะกร้าที่ว่างแล้ว")
     .Produces<CartView>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Checkout. Start prices the checkout from the CART's subtotal (never a client-supplied amount), captures
 // an optional notification recipient, then Confirm emits CheckoutConfirmed -> Orders opens the order.
@@ -933,7 +938,8 @@ api.MapPost("/checkouts/{checkoutSessionId:guid}/confirm", async (
     .WithSummary("ยืนยันเช็คเอาต์")
     .WithDescription("ยืนยัน checkout session แล้ว emit event CheckoutConfirmed เพื่อให้ Orders เปิดคำสั่งซื้อ")
     .Produces<ConfirmCheckoutResult>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Abandon = the way out of a checkout the merchant no longer wants (REQ-2.5-2.9). Two units of work, the
 // mirror image of start: the session goes Abandoned first, then the cart is reopened. Both halves are
@@ -952,7 +958,8 @@ api.MapPost("/checkouts/{checkoutSessionId:guid}/abandon", async (
     .Produces<AbandonCheckoutResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict);
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 var createPaymentSession = api.MapPost("/payments/sessions", async (
     CreatePaymentSessionRequest body,
@@ -974,7 +981,8 @@ createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Key
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict);
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Claims-then-charges redirect (PLAN #11). Merchant scoping is automatic: the command is IMerchantScoped, so
 // MerchantGuardBehavior + RLS resolve the session for the authenticated merchant only. Errors flow through the
@@ -996,7 +1004,8 @@ startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.Payme
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // The merchant's read of one payment session (REQ-8.8). Merchant scoping is automatic (IMerchantScoped +
 // the query filter), so another company's session is simply absent — and absent is 404, which is why the
@@ -1016,7 +1025,8 @@ getPaymentSession.RequireAuthorization("merchant-user")
     .WithDescription("คืนสถานะของ payment session ของร้านค้าที่ล็อกอินอยู่ ต้องมี merchant-user policy หากไม่พบ (หรือเป็นของร้านค้าอื่น) -> 404")
     .Produces<PaymentSessionView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status404NotFound);
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Order summary link. The customer opens it anonymously — the opaque token IS the capability, resolved on
 // a bypass proc (no merchant binding). Unknown token -> 404; expired -> 410. A merchant-user can resend (rotates
@@ -1042,7 +1052,8 @@ api.MapGet("/orders/{token}/summary", async (
     .WithDescription("capability link แบบสาธารณะ: opaque token จะ resolve สรุปคำสั่งซื้อแบบไม่ระบุตัวตนได้ หากไม่พบ token -> 404, หมดอายุ -> 410 เลข IdNumber ของผู้เอาประกันแต่ละคนจะถูก mask และไม่ส่ง DateOfBirth กลับมาเลย")
     .Produces<OrderSummaryResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status410Gone);
+    .ProducesProblem(StatusCodes.Status410Gone)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // The customer's pay button. Anonymous by design: the opaque summary token IS the capability, so there is
 // no session cookie and no CSRF token to present (REQ-8.1) — which is exactly why the rate limit is per
@@ -1097,7 +1108,8 @@ api.MapPost("/orders/{token}/pay", async (
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status429TooManyRequests);
+    .ProducesProblem(StatusCodes.Status429TooManyRequests)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Where the customer lands back from 2C2P. POST, not GET, because it can SETTLE the payment: it runs the
 // same fetch-to-confirm the webhook does, so a customer who returns before the webhook arrives still gets a
@@ -1126,7 +1138,8 @@ api.MapPost("/orders/{token}/payment-status", async (
     .WithDescription("ตรวจสถานะการชำระเงินของคำสั่งซื้อ: คำสั่งซื้อที่ชำระแล้ว/ยกเลิกแล้วตอบจากตัวคำสั่งซื้อเอง ส่วน session ที่ยังเปิดอยู่จะถูก verify กับ 2C2P ก่อน (เส้นเดียวกับ webhook) คืนค่า paid | failed | pending | cancelled หากไม่พบ token หรือ token หมดอายุ -> 404")
     .Produces<PaymentStatusResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status429TooManyRequests);
+    .ProducesProblem(StatusCodes.Status429TooManyRequests)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -1139,7 +1152,8 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
     .WithSummary("ส่งลิงก์สรุปคำสั่งซื้อซ้ำ")
     .WithDescription("หมุน token ของสรุปคำสั่งซื้อและต่ออายุ TTL แล้วคืนลิงก์ใหม่")
     .Produces<ResendOrderSummaryResult>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Cancel = the merchant's way out of an order the customer never paid for (REQ-4). Two units of work, and the
 // ORDER of them is the whole safety property: the payment session must be proven dead first, because an order
@@ -1163,7 +1177,8 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
     .Produces<CancelOrderResult>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict);
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Merchant-authenticated order list — every line's InsuredIdNumber masked (REQ-7.4). No reveal audit here.
 // purchase-flow-completion REQ-7.4 adopts the SFS `filters` contract for ONE field, orderNo/eq; every other
@@ -1187,7 +1202,8 @@ api.MapGet("/orders", async (HttpContext http, IActorContext actor, IMediator me
     .WithDescription("InsuredIdNumber ของทุก line จะถูก mask (เห็นแค่ 4 ตัวท้าย) ใช้ endpoint อ่านรายละเอียดถ้าต้องการค่าเต็ม กรองด้วยเลขคำสั่งซื้อได้ผ่าน filters=[{\"field\":\"orderNo\",\"operator\":\"eq\",\"value\":\"ORD6900000001\"}] (field/operator อื่นจะถูกทิ้งเงียบตามสัญญา SFS)")
     .Produces<OrdersListView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Merchant-authenticated single-order detail — every line's InsuredIdNumber in FULL, one RevealAudit row
 // written per line returned (REQ-7.5), fail-closed (GetOrderDetailHandler saves the audit before building
@@ -1205,7 +1221,8 @@ api.MapGet("/orders/{orderId:guid}", async (
     .WithDescription("InsuredIdNumber ของทุก line จะคืนค่าเต็ม เขียน reveal-audit หนึ่งแถวต่อหนึ่ง line ที่คืนค่า ถ้าเขียน audit ไม่สำเร็จ จะ fail closed (5xx, ไม่คืนข้อมูล PII)")
     .Produces<OrderDetailView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status404NotFound);
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // policy-reference-record REQ-3: merchant-plane write for one item's external insurance-reference record.
 // Not gated on Order.Status (REQ-3.4 — writable on a Cancelled order too, insurance-pivot's state machine
@@ -1230,7 +1247,8 @@ api.MapPut("/orders/{orderId:guid}/items/{itemId:guid}/policy", async (
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden)
-    .ProducesProblem(StatusCodes.Status404NotFound);
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Reconciliation report: the bound merchant's orders grouped by status + currency (count + total).
 api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
@@ -1243,7 +1261,8 @@ api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator medi
     .WithSummary("รายงาน reconciliation")
     .WithDescription("คำสั่งซื้อของร้านค้าที่ผูกอยู่ จัดกลุ่มตามสถานะและสกุลเงิน (จำนวน + ยอดรวม)")
     .Produces<ReconciliationView>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // policy-reference-record REQ-4.1/4.2/4.4: merchant-plane policy report — auto-scoped to the bound merchant
 // via the ambient query filter (no whitelist exposes merchantId, mirrors /products). SFS filter/sort/paging.
@@ -1266,7 +1285,8 @@ api.MapGet("/reports/policies", async (HttpContext http, IActorContext actor, IM
     .Produces<PagedResult<PolicyReportItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // --- Admin BFF (/api/v1/admins route group, REQ-1/7/10) ---
 // One group binds the CSRF double-submit filter ONCE for the whole admin surface (the credentialed admin CORS
@@ -1407,7 +1427,8 @@ api.MapPost("/merchants", async (
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Cross-merchant read routed through the IAdminQuery seam: a Scoped admin sees only its assigned merchants, a
 // Super is unrestricted (REQ-8.5 / 7.1). Out-of-scope or unknown -> 404 (no existence leak). {code} stays
@@ -1428,7 +1449,8 @@ api.MapGet("/merchants/{code}", async (
     .WithDescription("admin แบบ Scoped เห็นเฉพาะร้านค้าที่ถูก assign ให้; Super เห็นได้ไม่จำกัด นอก scope หรือไม่พบ -> 404 (ไม่รั่วว่ามีอยู่จริงหรือไม่)")
     .Produces<MerchantView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // --- MerchantUser BFF auth (merchant-user-google-sso REQ-8/9/14) ---
 // Auth is its own /api/v1/merchants/auth group, mirroring /api/v1/admins/auth (provider-scoped OIDC): login here
@@ -1893,7 +1915,8 @@ admin.MapGet("/reports/policies", async (HttpContext http, IAdminScope scope, IM
     .Produces<PagedResult<PolicyReportItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // --- Admin identity foundation management (REQ-3..10) + SPA bootstrap (REQ-13) ---
 
@@ -1929,7 +1952,8 @@ admin.MapGet("/me", async (IAdminScope scope, IAdminMerchantDirectory merchants,
     .WithDescription("ให้ SPA อ่านตัวตนของตัวเอง: tier, ร้านค้าที่เข้าถึงได้ (หรือไม่จำกัด) และสิทธิ์ที่มีผลจริง (effective permissions) หากบัญชีถูกปิดใช้งาน -> 403")
     .Produces<AdminMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
-    .ProducesProblem(StatusCodes.Status401Unauthorized);
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Super invites a Scoped admin by verified email; the subject binds on the invitee's first login (REQ-3.4). This is
 // the admins-area ROOT (POST /api/v1/admins): mapped on `api` with AdminCsrfFilter applied per-endpoint — a group's
@@ -2038,7 +2062,8 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
     .Produces<AdminDetailResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden);
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
 admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>

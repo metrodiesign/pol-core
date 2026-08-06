@@ -25,11 +25,11 @@ internal sealed class PayableOrderReader : IPayableOrderReader
 
     public async Task<PayableOrder?> GetAsync(Guid orderId, CancellationToken cancellationToken)
     {
-        var row = await _db.Set<Order>()
+        var row = await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
             .AsNoTracking()
             .Where(o => o.Id == orderId)
             .Select(o => new { o.Id, o.Amount.Amount, o.Amount.Currency, o.Status })
-            .FirstOrDefaultAsync(cancellationToken)
+            .FirstOrDefaultAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         return row is null
@@ -48,10 +48,10 @@ internal sealed class PayableOrderReader : IPayableOrderReader
         // ToListAsync + Count == 0, not SingleAsync/FirstOrDefaultAsync: those compose the SqlQueryRaw into a
         // derived table, which is exactly what breaks NEXT VALUE FOR in OrderNoSequence (Msg 11719) — this
         // scalar read avoids the same trap by never composing over it.
-        var locked = await _db.Database
+        var locked = await PlatformReadGuard.ReadAsync(ct => _db.Database
             .SqlQueryRaw<Guid>("SELECT Id AS Value FROM shop.Orders WITH (UPDLOCK) WHERE Id = @p0",
                 new SqlParameter("@p0", orderId))
-            .ToListAsync(cancellationToken)
+            .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
         if (locked.Count == 0)
             return null;
@@ -64,11 +64,11 @@ internal sealed class PayableOrderReader : IPayableOrderReader
     {
         // Merchant-filtered on purpose, unlike the sold-check itself: these are the keys of the CALLER'S OWN
         // order, and an order invisible under the floor simply has no lines to check.
-        var rows = await _db.Set<OrderItem>()
+        var rows = await PlatformReadGuard.ReadAsync(ct => _db.Set<OrderItem>()
             .AsNoTracking()
             .Where(item => item.OrderId == orderId)
             .Select(item => new { item.DocumentNo, item.ProductGroup })
-            .ToListAsync(cancellationToken)
+            .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         return rows.ConvertAll(row => new DocumentKey(row.DocumentNo, row.ProductGroup));

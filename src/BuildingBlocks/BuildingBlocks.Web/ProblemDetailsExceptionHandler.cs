@@ -36,10 +36,13 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
 
         var (status, title, detail) = Map(exception);
 
+        // {ExceptionType} is a structured property so log filtering can tell OUR database being down
+        // (DependencyUnavailableException) from the external source being down (UpstreamUnavailableException)
+        // without reading stack traces (probe-dependency-failure-mapping REQ-4.2).
         if (status >= StatusCodes.Status500InternalServerError)
-            _logger.LogError(exception, "Unhandled exception mapped to {Status}", status);
+            _logger.LogError(exception, "Unhandled {ExceptionType} mapped to {Status}", exception.GetType().Name, status);
         else
-            _logger.LogWarning(exception, "Handled exception mapped to {Status}", status);
+            _logger.LogWarning(exception, "Handled {ExceptionType} mapped to {Status}", exception.GetType().Name, status);
 
         httpContext.Response.StatusCode = status;
         return await _problemDetails.TryWriteAsync(new ProblemDetailsContext
@@ -68,6 +71,11 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         InvalidOperationException =>
             (StatusCodes.Status409Conflict, "The operation is not allowed in the resource's current state", null),
         UpstreamUnavailableException =>
+            (StatusCodes.Status503ServiceUnavailable, "Upstream dependency unavailable", null),
+        // Same wire as the upstream arm, byte for byte, on purpose: the caller retries either way, and a
+        // distinct title would hand out internal topology for free. The two causes separate in the LOG
+        // via {ExceptionType}, never on the wire (probe-dependency-failure-mapping REQ-4.2).
+        DependencyUnavailableException =>
             (StatusCodes.Status503ServiceUnavailable, "Upstream dependency unavailable", null),
         _ =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),

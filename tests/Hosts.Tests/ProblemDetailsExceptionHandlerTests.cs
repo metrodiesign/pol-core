@@ -24,9 +24,21 @@ public sealed class ProblemDetailsExceptionHandlerTests
         // whole reason it derives from it (REQ-4.5).
         { new SpDocumentSearchRejectedException(50006, "Invalid CountMode."), StatusCodes.Status400BadRequest },
         { new InvalidOperationException("illegal state"), StatusCodes.Status409Conflict },
+        { new ConflictException("duplicate unique key"), StatusCodes.Status409Conflict },
         { new UpstreamUnavailableException("hippodb refused the connection"), StatusCodes.Status503ServiceUnavailable },
+        // Our own platform database being unreadable is the OTHER 503 — same wire as the upstream arm,
+        // separated only in the log (probe-dependency-failure-mapping REQ-1.1, 4.2).
+        { new DependencyUnavailableException("VCentralPay read failed", new Exception("inner")), StatusCodes.Status503ServiceUnavailable },
+        // A raw provider exception from a WRITE has no arm on purpose: a write whose outcome is unknown
+        // must stay an opaque 500, never a retryable 503 (probe-dependency-failure-mapping REQ-1.5).
+        { new FakeDbException("connection reset mid-commit"), StatusCodes.Status500InternalServerError },
         { new Exception("some internal failure"), StatusCodes.Status500InternalServerError },
     };
+
+    private sealed class FakeDbException : System.Data.Common.DbException
+    {
+        public FakeDbException(string message) : base(message) { }
+    }
 
     /// <summary>The §6 error number rides along for the server log and for tests; the client only ever
     /// sees the handler's fixed 400 detail (REQ-4.5).</summary>
@@ -56,6 +68,8 @@ public sealed class ProblemDetailsExceptionHandlerTests
         new Exception(LeakProbe),                 // unknown -> 500
         new MerchantBindingException(LeakProbe),    // security-floor signal -> opaque 500
         new UpstreamUnavailableException(LeakProbe),  // upstream fault -> 503 without the SQL/infra text (REQ-4.6)
+        // platform DB fault -> 503 whose detail never carries the SQL error text (probe-dependency-failure-mapping REQ-3.1)
+        new DependencyUnavailableException(LeakProbe, new Exception(LeakProbe)),
     };
 
     private const string LeakProbe = "do-not-leak-internal-detail-xyz";

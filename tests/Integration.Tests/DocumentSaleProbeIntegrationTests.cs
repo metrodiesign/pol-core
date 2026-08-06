@@ -306,6 +306,26 @@ public sealed class DocumentSaleProbeIntegrationTests
         }
     }
 
+    // probe-dependency-failure-mapping REQ-1.1/2.1: the REAL SqlClient failing a REAL connection attempt
+    // (a port nothing listens on) comes out of ProbeAsync as the classified DependencyUnavailableException
+    // with the provider exception preserved as inner — never as a raw SqlException for the opaque-500 bucket.
+    [Fact]
+    public async Task A_dead_platform_database_surfaces_as_DependencyUnavailable_not_a_raw_SqlException()
+    {
+        var options = new DbContextOptionsBuilder<MerchantRuntimeDbContext>()
+            .UseSqlServer("Server=127.0.0.1,1;Database=VCentralPay;User Id=pol_app;Password=unused;"
+                + "Encrypt=True;TrustServerCertificate=True;Connect Timeout=1");
+        await using var db = new MerchantRuntimeDbContext(
+            options.Options, new FakeActor(IntegrationDb.MerchantA), AllowAllWriteAuthorizer.Instance,
+            NoOpSecurityTelemetry.Instance);
+        var sut = new DocumentSaleProbe(db, new FixedClock(DateTime.UtcNow));
+
+        var thrown = await Assert.ThrowsAsync<DependencyUnavailableException>(() =>
+            sut.ProbeAsync([new DocumentKey(NewDocumentNo(), Group)], CancellationToken.None));
+
+        Assert.IsAssignableFrom<DbException>(thrown.InnerException);
+    }
+
     // ---- harness -------------------------------------------------------------------------------------
 
     private const int OrderStatusAwaitingPayment = 0;

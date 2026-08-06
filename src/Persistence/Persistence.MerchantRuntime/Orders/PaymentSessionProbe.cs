@@ -17,11 +17,11 @@ internal sealed class PaymentSessionProbe : IPaymentSessionProbe
     public PaymentSessionProbe(MerchantRuntimeDbContext db) => _db = db;
 
     public Task<bool> HasBlockingSessionAsync(Guid orderId, CancellationToken cancellationToken) =>
-        _db.Set<Session>()
+        PlatformReadGuard.ReadAsync(ct => _db.Set<Session>()
             .AnyAsync(
                 x => x.OrderId == orderId
                     && (x.Status == SessionStatus.Created
                         || x.Status == SessionStatus.Redirected
                         || x.Status == SessionStatus.Paid),
-                cancellationToken);
+                ct), cancellationToken);
 }

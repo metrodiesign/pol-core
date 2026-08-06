@@ -23,11 +23,11 @@ internal sealed class WebhookMerchantResolver : IWebhookMerchantResolver
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MerchantRuntimeDbContext>();
 
-        var merchantIds = await db.Database
+        var merchantIds = await PlatformReadGuard.ReadAsync(ct => db.Database
             .SqlQueryRaw<Guid>(
                 "SELECT TOP 1 MerchantId AS [Value] FROM txn.PspConnections WHERE Id = {0}",
                 pspConnectionId)
-            .ToListAsync(cancellationToken)
+            .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         return merchantIds.Count > 0 ? merchantIds[0] : null;

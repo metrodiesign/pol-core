@@ -4,8 +4,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Persistence.MerchantRuntime;
 
-/// <summary>Unit of work over the Scoped <see cref="MerchantRuntimeDbContext"/>. Uses the provider's
-/// execution strategy so the transaction is retry-safe under transient SQL Server faults.</summary>
+/// <summary>Unit of work over the Scoped <see cref="MerchantRuntimeDbContext"/>. Wraps the transaction in
+/// the provider's execution strategy, but retries stay OFF (<c>EnableRetryOnFailure</c> is configured
+/// nowhere) — a transient SQL Server fault fails the transaction instead of re-running it.</summary>
 internal sealed class MerchantRuntimeUnitOfWork : IUnitOfWork
 {
     private readonly MerchantRuntimeDbContext _db;
