@@ -38,12 +38,12 @@ file sealed class MicrosoftLoginFactory : WebApplicationFactory<ApiHost::Program
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", MerchantClientId);
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback");
+        builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
+        builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["AdminSession:ReturnUrlAllowlist:0"] = "/dashboard",
                 ["MerchantUser:Session:ReturnUrlAllowlist:0"] = "/dashboard",

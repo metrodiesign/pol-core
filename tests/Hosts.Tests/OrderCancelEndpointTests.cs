@@ -119,10 +119,10 @@ file sealed class OrderFactory(Guid merchantId, List<Order> orders, List<Payment
     {
         builder.UseEnvironment(Environments.Development);
         builder.UseSetting("ConnectionStrings:Migrator", "");
+        builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
+        builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-            ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
             ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         }));
         builder.ConfigureServices(services =>

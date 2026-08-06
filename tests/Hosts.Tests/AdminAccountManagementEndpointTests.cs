@@ -52,10 +52,10 @@ file sealed class AdminMgmtFactory : WebApplicationFactory<ApiHost::Program>
         // Dev-convenience auto-migrate (Program.cs) reads this key too; blank it so a developer's real local
         // appsettings.Development.json Migrator connection can never make this "no live DB" test touch one.
         builder.UseSetting("ConnectionStrings:Migrator", "");
+        builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
+        builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-            ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
             ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         }));
     }

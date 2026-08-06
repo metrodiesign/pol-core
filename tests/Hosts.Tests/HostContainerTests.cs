@@ -39,12 +39,12 @@ file static class HostHarness
             // on the machine's environment. A query would fail, but container validation never runs one.
             // ConnectionStrings:Admin is required at boot (Program.cs fails fast without it) even though
             // Development skips the confidential-client/injected-credential guards.
+            builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
+            builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.AddInMemoryCollection(new Dictionary<string, string?>
                 {
-                    ["ConnectionStrings:App"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
-                    ["ConnectionStrings:Admin"] = "Server=(local);Database=pol_test;Trusted_Connection=True;",
                     // Self-contained: the test must not depend on a (now uncommitted) appsettings.Development.json.
                     // Fake 32-byte (all-zero) base64 key — never a real secret.
                     ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
