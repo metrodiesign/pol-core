@@ -145,11 +145,16 @@ file sealed class LiveCatalogueFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseEnvironment(Environments.Development);   // Development skips the injected-credential/OIDC boot guards
         builder.UseSetting("ConnectionStrings:Migrator", "");   // DB is migrated + seeded out of band; no auto-migrate
         builder.ConfigureLogging(logging => logging.AddProvider(new CapturingLoggerProvider(ServerLogs)));
+        // REAL VCentralPay: the DocumentSaleProbe's MerchantRuntimeDbContext reads shop.Orders/txn.PaymentSessions
+        // here. This MUST go through UseSetting, not ConfigureAppConfiguration: Program.cs reads
+        // GetConnectionString("App") at build time (Program.cs:137), and a factory ConfigureAppConfiguration
+        // in-memory source is applied too late to be seen by that read — the host would fall back to
+        // appsettings.Development.json's pol_app password, which on CI is NOT the ephemeral POL_APP_PASSWORD the
+        // job generated, giving "Login failed for user 'pol_app'" (error 18456).
+        builder.UseSetting("ConnectionStrings:App", IntegrationEnv.AppConn);
+        builder.UseSetting("ConnectionStrings:Admin", IntegrationEnv.AppConn);
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
         {
-            // REAL VCentralPay: the DocumentSaleProbe's MerchantRuntimeDbContext reads shop.Orders/txn.PaymentSessions here.
-            ["ConnectionStrings:App"] = IntegrationEnv.AppConn,
-            ["ConnectionStrings:Admin"] = IntegrationEnv.AppConn,
             ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
             // REAL upstream sim: the SpDocumentGateway singleton routes Motor -> hippodb, Non-Motor -> mammothdb.
             ["SpDocument:BranchCode"] = "000",
@@ -201,14 +206,9 @@ file static class IntegrationEnv
         _ => throw new ArgumentOutOfRangeException(nameof(catalog), catalog, "Unknown simulated catalogue."),
     };
 
-    // Connection POOLING is left on (the production default) on purpose — unlike Integration.Tests' IntegrationDb,
-    // which turns it off because each of its tests opens one short-lived connection. This test boots a WHOLE host
-    // (WebApplicationFactory): DataProtection's keyring read, the three persistence clusters and the DocumentSaleProbe
-    // each open a connection, several concurrently within one request. With Pooling=False every one of those is a
-    // fresh TLS handshake, and a burst of fresh handshakes against a loaded SQL Server on CI intermittently fails
-    // the handshake (Microsoft.Data.SqlClient "TCP Provider, error: 35"), which escaped DocumentSaleProbe.ProbeAsync
-    // as an unmapped SqlException -> 500 (the GET /products red this test was flaking on). Pooling reuses one
-    // physical connection per string, which is both what production does and what removes the handshake storm.
+    // Connection pooling stays at the production default (on). IntegrationDb turns it off (Pooling=False) because
+    // each of its tests opens one short-lived connection; this test boots a WHOLE host that opens several, so the
+    // production default is the faithful choice here.
     private static string Conn(string server, string db, string user, string pw) =>
         $"Server={server};Database={db};User Id={user};Password={pw};Encrypt=True;TrustServerCertificate=True";
 
@@ -247,8 +247,8 @@ public sealed class MerchantCatalogueLiveEndpointTests
 
         // REQ-6.10 — GET /products over HTTP returns a non-empty catalogue for the merchant user's own bound
         // SaleCode, read live from the upstream. The old PRD-* placeholders would have paged empty here.
-        var list = await SendResilient(factory.ServerLogs, () => client.GetAsync(
-            "/api/v1/products?productFilters=" + Uri.EscapeDataString("""{"insuranceType":"Motor"}""")));
+        var list = await client.GetAsync(
+            "/api/v1/products?productFilters=" + Uri.EscapeDataString("""{"insuranceType":"Motor"}"""));
         await AssertOk(list, "GET /products", factory.ServerLogs);
         using var page = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
         Assert.NotEmpty(page.RootElement.GetProperty("items").EnumerateArray());
@@ -263,57 +263,13 @@ public sealed class MerchantCatalogueLiveEndpointTests
             var cart = new Cart(Guid.CreateVersion7(), Merchant, Now);
             factory.Carts.Add(cart);
 
-            var add = await SendResilient(factory.ServerLogs, () =>
-                client.SendAsync(Post($"/api/v1/carts/{cart.Id}/items", AddItemBody(documentNo, productGroup))));
+            var add = await client.SendAsync(Post($"/api/v1/carts/{cart.Id}/items", AddItemBody(documentNo, productGroup)));
             await AssertOk(add, $"POST /carts/items ({documentNo})", factory.ServerLogs);
 
-            var checkout = await SendResilient(factory.ServerLogs, () =>
-                client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart.Id, documentNo))));
+            var checkout = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart.Id, documentNo)));
             await AssertOk(checkout, $"POST /checkouts ({documentNo})", factory.ServerLogs);
         }
     }
-
-    /// <summary>Sends the request and, if it comes back non-OK because the host hit a TRANSIENT SQL connection
-    /// failure — a fresh handshake to the live database refused/reset while the CI runner was under the whole
-    /// integration suite's load (Microsoft.Data.SqlClient "TCP Provider" / "network-related" connection errors) —
-    /// retries a bounded number of times. This is the one thing that flaked GET /products red on CI: the probe's
-    /// live read (DocumentSaleProbe.ProbeAsync) is not wrapped in the 503 dependency-unavailable contract that
-    /// SpDocumentGateway uses, so a connection blip there surfaced as an opaque 500. Retrying here rides over the
-    /// blip WITHOUT weakening the test: a PERSISTENT failure still returns non-OK and AssertOk fails it with the
-    /// captured server logs, and a genuine logic 500 (no connection signature in the logs) is never retried. The
-    /// production gap — a probe read that should map its own SqlException to 503 like the gateway does — is recorded
-    /// as out-of-scope in changes-t5.md for a separate decision.</summary>
-    private static async Task<HttpResponseMessage> SendResilient(
-        IReadOnlyCollection<string> serverLogs, Func<Task<HttpResponseMessage>> send)
-    {
-        const int maxAttempts = 4;
-        for (var attempt = 1; ; attempt++)
-        {
-            var seenBefore = serverLogs.Count;
-            var response = await send();
-            if (response.StatusCode == HttpStatusCode.OK
-                || attempt >= maxAttempts
-                || !ShowsTransientDbConnectionError(serverLogs.Skip(seenBefore)))
-                return response;
-            response.Dispose();
-            await Task.Delay(TimeSpan.FromMilliseconds(200 * attempt));
-        }
-    }
-
-    // Signatures of a transient connection-establishment failure from Microsoft.Data.SqlClient — never a query,
-    // permission or logic error (those carry no connection signature and are returned to AssertOk on the first try).
-    private static readonly string[] TransientDbConnectionSignatures =
-    [
-        "network-related or instance-specific error",
-        "TCP Provider",
-        "Connection Timeout Expired",
-        "The server was not found or was not accessible",
-        "A connection was successfully established with the server, but then an error occurred",
-    ];
-
-    private static bool ShowsTransientDbConnectionError(IEnumerable<string> logEntries) =>
-        logEntries.Any(entry =>
-            TransientDbConnectionSignatures.Any(sig => entry.Contains(sig, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>Asserts 200 and, when it is not, fails with the response body AND the host's captured Warning/Error
     /// log (which carries the actual server exception type + stack). The ProblemDetails body of a 500 is opaque by
