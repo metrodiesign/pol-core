@@ -103,7 +103,7 @@ jobs:
         # guards job above intentionally doesn't install — runs here instead. The
         # live-DB assertion inside the script no-ops without POL_SA_PASSWORD (unset
         # in this job); the live check runs for real in dotnet-integration below.
-        run: docker/bootstrap/assert-fresh-db.test.sh
+        run: bash docker/bootstrap/assert-fresh-db.test.sh
       - name: Test (unit + in-memory; integration excluded)
         run: dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
 
