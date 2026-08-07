@@ -17,19 +17,19 @@ for suffix in InitialSchema SecurityObjects SeedData; do
     || fail "missing or duplicate ${suffix} migration"
 done
 
-if rg -n 'CheckoutSession|ItemPolicy|product\.create|product\.update|2025-latest' \
+if grep -rnE 'CheckoutSession|ItemPolicy|product\.create|product\.update|2025-latest' \
   src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations \
   docker-compose.yml .github/workflows/ci.yml >/dev/null; then
   fail "retired migration surface or floating SQL image remains"
 fi
 
-rg -q '17\.0\.4045\.5' docker/bootstrap/01-principals.sql \
+grep -qE '17\.0\.4045\.5' docker/bootstrap/01-principals.sql \
   || fail "bootstrap engine floor missing"
-rg -q 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
+grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
-rg -q 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-rg -q 'exactly five native json columns required' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'exactly five native json columns required' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion native JSON check missing"
 
 tmp_script="$(mktemp)"
@@ -40,8 +40,8 @@ dotnet ef migrations script 0 \
   --startup-project src/Hosts/Api \
   --output "$tmp_script" >/dev/null
 
-preflight_line="$(rg -n 'InitialSchema refused non-empty or legacy target database' "$tmp_script" | head -1 | cut -d: -f1)"
-ddl_line="$(rg -n 'CREATE SCHEMA \[admin\]' "$tmp_script" | head -1 | cut -d: -f1)"
+preflight_line="$(grep -nE 'InitialSchema refused non-empty or legacy target database' "$tmp_script" | head -1 | cut -d: -f1)"
+ddl_line="$(grep -nE 'CREATE SCHEMA \[admin\]' "$tmp_script" | head -1 | cut -d: -f1)"
 [ -n "$preflight_line" ] && [ -n "$ddl_line" ] && [ "$preflight_line" -lt "$ddl_line" ] \
   || fail "preflight must render before first application DDL"
 
