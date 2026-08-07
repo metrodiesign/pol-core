@@ -34,7 +34,7 @@ internal sealed class LevelStore : ILevelStore
             .OrderBy(m => m.Name)
             .Skip(skip)
             .Take(limit)
-            .Select(m => new LevelItem(m.Id, m.Code, m.Name, m.IsActive))
+            .Select(m => new LevelItem(m.Id, m.Code, m.Name, m.Status))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<LevelItem>(items, page, limit, total);
@@ -49,25 +49,25 @@ internal sealed class LevelStore : ILevelStore
                 throw new ConflictException($"A record with code '{entity.Code}' already exists.");
             _db.Levels.Add(entity);
             await _unitOfWork.SaveChangesAsync(ct);
-            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.Status);
         }, cancellationToken);
 
-    public Task<LevelItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken) =>
+    public Task<LevelItem> UpdateAsync(Guid id, string name, LevelStatus status, CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var entity = await _db.Levels.FirstOrDefaultAsync(m => m.Id == id, ct)
                 ?? throw new NotFoundException("The record was not found.");
             entity.Rename(name);
-            if (isActive) entity.Activate(); else entity.Deactivate();
+            if (status == LevelStatus.Active) entity.Activate(); else entity.Deactivate();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.Status);
         }, cancellationToken);
 
     public async Task<LevelItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         var entity = await _db.Levels.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
             ?? throw new NotFoundException("The record was not found.");
-        return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+        return new LevelItem(entity.Id, entity.Code, entity.Name, entity.Status);
     }
 
     public Task<LevelItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
@@ -77,6 +77,6 @@ internal sealed class LevelStore : ILevelStore
                 ?? throw new NotFoundException("The record was not found.");
             entity.Deactivate();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+            return new LevelItem(entity.Id, entity.Code, entity.Name, entity.Status);
         }, cancellationToken);
 }

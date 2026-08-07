@@ -38,17 +38,16 @@ public sealed class CancelOrderHandlerTests
         Assert.Equal(1, uow.SaveCount);
     }
 
-    // REQ-4.5 — a repeat (double click, retry after a dropped response) succeeds without changing anything.
+    // REQ-9.18 — any non-Pending Order, including Cancelled, is a conflict.
     [Fact]
-    public async Task Cancelling_an_already_cancelled_order_succeeds()
+    public async Task Cancelling_an_already_cancelled_order_is_rejected()
     {
         var order = NewOrder();
         order.Cancel();
         var (handler, _, _) = NewHandler(orders: order);
 
-        var result = await handler.Handle(new CancelOrderCommand(order.Id), default);
-
-        Assert.Equal(nameof(OrderStatus.Cancelled), result.Status);
+        await Assert.ThrowsAsync<ConflictException>(
+            () => handler.Handle(new CancelOrderCommand(order.Id), default).AsTask());
     }
 
     // REQ-4.4 — money has been collected for this order; cancelling it is never on the table.
@@ -56,10 +55,10 @@ public sealed class CancelOrderHandlerTests
     public async Task Cancelling_a_paid_order_is_rejected()
     {
         var order = NewOrder();
-        order.MarkPaid(Amount, Created.AddMinutes(1));
+        order.MarkPaid(Guid.NewGuid(), "card", Amount, Created.AddMinutes(1));
         var (handler, uow, _) = NewHandler(orders: order);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<ConflictException>(
             () => handler.Handle(new CancelOrderCommand(order.Id), default).AsTask());
 
         Assert.Equal(OrderStatus.Paid, order.Status);
@@ -87,16 +86,15 @@ public sealed class CancelOrderHandlerTests
             () => handler.Handle(new CancelOrderCommand(order.Id), default).AsTask());
     }
 
-    // REQ-4.7's lock ordering — probing BEFORE the flip's UPDATE holds the order row would leave the same
-    // stale-read window the probe exists to close, so the save-then-probe order is pinned.
+    // Order lock is acquired by GetForUpdateAsync before this probe; mutation/save happens after probe.
     [Fact]
-    public async Task The_probe_runs_only_after_the_flip_took_the_order_row()
+    public async Task The_probe_runs_before_the_cancel_mutation_is_saved()
     {
         var order = NewOrder();
         var (handler, _, probe) = NewHandler(orders: order);
 
         await handler.Handle(new CancelOrderCommand(order.Id), default);
 
-        Assert.Equal(1, probe.SaveCountWhenProbed);
+        Assert.Equal(0, probe.SaveCountWhenProbed);
     }
 }

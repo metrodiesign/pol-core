@@ -55,7 +55,8 @@ public sealed class OrderSummaryEndpointTests
         var summary = new OrderSummary(
             Guid.NewGuid(), Guid.NewGuid(), "ORD6900000042", Money.Of(15000m, "THB"), "Paid", "CARD",
             DateTime.UtcNow.AddHours(1),
-            [new OrderSummaryLine("00098-69100/กธ/900001-10", "Somchai", "Jaidee", "****0123")]);
+            [new OrderSummaryLine(
+                "00098-69100/กธ/900001-10", "VMI", "ประกันรถยนต์", 1, Money.Of(15000m, "THB"))]);
         using var factory = new SummaryFactory(summary);
         using var client = factory.CreateClient();
 
@@ -64,6 +65,13 @@ public sealed class OrderSummaryEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("ORD6900000042", json.GetProperty("orderNo").GetString());
+        var line = Assert.Single(json.GetProperty("lines").EnumerateArray());
+        Assert.Equal("00098-69100/กธ/900001-10", line.GetProperty("productCode").GetString());
+        Assert.Equal("VMI", line.GetProperty("variantCode").GetString());
+        Assert.Equal(1, line.GetProperty("quantity").GetInt32());
+        Assert.False(line.TryGetProperty("metadata", out _));
+        Assert.False(line.TryGetProperty("documentNo", out _));
+        Assert.False(line.TryGetProperty("insuredIdNumber", out _));
         Assert.False(json.TryGetProperty("merchantId", out _));
         Assert.False(json.TryGetProperty("paymentSessionId", out _));
     }

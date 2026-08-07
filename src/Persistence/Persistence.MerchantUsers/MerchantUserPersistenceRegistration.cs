@@ -32,7 +32,7 @@ public static class MerchantUserPersistenceRegistration
         services.AddScoped(sp =>
         {
             var options = new DbContextOptionsBuilder<MerchantUserDbContext>()
-                .UseSqlServer(connectionString)
+                .UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(170))
                 .Options;
             return new MerchantUserDbContext(
                 options, sp.GetRequiredService<IActorContext>(), authorizerFactory(sp),

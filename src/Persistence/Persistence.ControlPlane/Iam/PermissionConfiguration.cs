@@ -17,7 +17,8 @@ public sealed class PermissionGroupConfiguration : IEntityTypeConfiguration<Perm
         builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(32);
         builder.Property(x => x.Scope).HasConversion<int>().IsRequired();
-        builder.Property(x => x.LabelTh).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.Name).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.SortOrder).IsRequired();
     }
 }
@@ -30,7 +31,8 @@ public sealed class PermissionConfiguration : IEntityTypeConfiguration<Permissio
         builder.HasKey(x => x.Key);
         builder.Property(x => x.Key).HasMaxLength(64);
         builder.Property(x => x.GroupKey).HasMaxLength(32).IsRequired();
-        builder.Property(x => x.LabelTh).HasMaxLength(160).IsRequired();
+        builder.Property(x => x.Name).HasMaxLength(160).IsRequired();
+        builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.SortOrder).IsRequired();
         builder.HasIndex(x => x.GroupKey);
     }

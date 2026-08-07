@@ -8,7 +8,7 @@ namespace BuildingBlocks.Infrastructure.Persistence;
 /// </summary>
 public static class SchemaNames
 {
-    /// <summary>Funnel: Products, Carts, CartItems, CheckoutSessions, Orders.</summary>
+    /// <summary>Commerce: Carts, CartItems and Orders.</summary>
     public const string Shop = "shop";
 
     /// <summary>Payment (interim): PaymentSessions, PspConnections, OutboxMessages, IdempotencyRecords.</summary>

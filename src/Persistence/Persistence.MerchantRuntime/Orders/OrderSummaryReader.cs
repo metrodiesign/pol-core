@@ -38,24 +38,22 @@ internal sealed class OrderSummaryReader : IOrderSummaryReader
 
         var lineRows = await PlatformReadGuard.ReadAsync(ct => db.Database
             .SqlQueryRaw<OrderSummaryLineRow>(
-                "SELECT DocumentNo, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = {0}",
+                "SELECT ProductCode, VariantCode, VariantName, Quantity, UnitPriceAmount, UnitPriceCurrency "
+                + "FROM shop.OrderItems WHERE OrderId = {0}",
                 r.Id)
             .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         var lines = lineRows
-            .Select(l => new OrderSummaryLine(l.DocumentNo, l.InsuredFirstName, l.InsuredLastName, MaskIdNumber(l.InsuredIdNumber)))
+            .Select(l => new OrderSummaryLine(
+                l.ProductCode, l.VariantCode, l.VariantName, l.Quantity,
+                Money.Of(l.UnitPriceAmount, l.UnitPriceCurrency)))
             .ToList();
 
         return new OrderSummary(
             r.Id, r.MerchantId, r.OrderNo, Money.Of(r.AmountAmount, r.AmountCurrency),
             ((OrderStatus)r.Status).ToString(), r.PaymentChannel, r.SummaryTokenExpiresAt, lines);
     }
-
-    // Local to this read model's projection, deliberately not shared with Payments' PspSecretEnvelopeFactory
-    // (design.md non-goal) or reused as a cross-file utility — see GetOrdersHandler's own copy.
-    private static string MaskIdNumber(string idNumber) =>
-        idNumber.Length <= 4 ? new string('*', idNumber.Length) : $"****{idNumber[^4..]}";
 }
 
 /// <summary>Unmapped projection for the resolver query's result set (matched to its SELECT by column name).</summary>
@@ -71,13 +69,13 @@ internal sealed class OrderSummaryRow
     public DateTime SummaryTokenExpiresAt { get; set; }
 }
 
-/// <summary>Unmapped projection for the order-lines query — deliberately excludes InsuredDateOfBirth
-/// (never fetched for this surface, not just omitted at serialization) and merchant/premium data (out of
-/// scope for an anonymous customer link).</summary>
+/// <summary>Unmapped customer-summary projection. Metadata is not selected.</summary>
 internal sealed class OrderSummaryLineRow
 {
-    public string DocumentNo { get; set; } = default!;
-    public string InsuredFirstName { get; set; } = default!;
-    public string InsuredLastName { get; set; } = default!;
-    public string InsuredIdNumber { get; set; } = default!;
+    public string ProductCode { get; set; } = default!;
+    public string VariantCode { get; set; } = default!;
+    public string? VariantName { get; set; }
+    public int Quantity { get; set; }
+    public decimal UnitPriceAmount { get; set; }
+    public string UnitPriceCurrency { get; set; } = default!;
 }

@@ -4,8 +4,23 @@
 -- Object-level GRANT/DENY live in the EF migration, AFTER the tables exist.
 SET NOCOUNT ON;
 
+DECLARE @major int = TRY_CONVERT(int, SERVERPROPERTY('ProductMajorVersion'));
+DECLARE @version nvarchar(128) = CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion'));
+DECLARE @build int = TRY_CONVERT(int, PARSENAME(@version, 2));
+DECLARE @revision int = TRY_CONVERT(int, PARSENAME(@version, 1));
+IF @major <> 17 OR @build < 4045 OR (@build = 4045 AND @revision < 5)
+    THROW 50000, N'01-principals: SQL Server 2025 CU5 (17.0.4045.5) or newer is required.', 1;
+GO
+
 IF DB_ID(N'$(DbName)') IS NULL
     EXEC(N'CREATE DATABASE [$(DbName)] COLLATE Thai_100_CI_AS');
+GO
+
+ALTER DATABASE [$(DbName)] SET COMPATIBILITY_LEVEL = 170;
+GO
+
+IF (SELECT compatibility_level FROM sys.databases WHERE name = N'$(DbName)') <> 170
+    THROW 50000, N'01-principals: database compatibility level 170 is required.', 1;
 GO
 
 -- Collation gate: a fresh CREATE DATABASE above always pins Thai_100_CI_AS, but the EF dev

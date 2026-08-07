@@ -21,7 +21,7 @@ public sealed class CreateSessionHandlerTests
     private static readonly Money OrderAmount = Money.Of(15000m, "THB");
     private static readonly DateTime Now = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
 
-    private static PayableOrder AwaitingOrder() => new(OrderId, OrderAmount, PayableOrderStatus.AwaitingPayment);
+    private static PayableOrder AwaitingOrder() => new(OrderId, OrderAmount, PayableOrderStatus.Pending);
 
     private static Connection NewConnection(string enabledMethods = "card,promptpay", Code psp = Code.TwoCTwoP) =>
         Connection.Create(MerchantId, psp, enabledMethods, "psp/secret-ref/merchant-1", Now);
@@ -128,7 +128,7 @@ public sealed class CreateSessionHandlerTests
     {
         // The reader returns null both for a missing order and for another company's order (its query filter
         // makes them indistinguishable) — so this is the 404 path for both, with no "exists elsewhere" hint.
-        var harness = NewHarness(order: new PayableOrder(Guid.NewGuid(), OrderAmount, PayableOrderStatus.AwaitingPayment));
+        var harness = NewHarness(order: new PayableOrder(Guid.NewGuid(), OrderAmount, PayableOrderStatus.Pending));
 
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -149,6 +149,21 @@ public sealed class CreateSessionHandlerTests
             await harness.Handler.Handle(Command(), default));
 
         AssertNothingWasPersisted(harness);
+    }
+
+    [Theory]
+    [InlineData(PayableOrderStatus.Paid)]
+    [InlineData(PayableOrderStatus.Refunded)]
+    [InlineData(PayableOrderStatus.Cancelled)]
+    public async Task A_terminal_order_cannot_open_a_payment_attempt(PayableOrderStatus status)
+    {
+        var harness = NewHarness(order: new PayableOrder(OrderId, OrderAmount, status));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        AssertNothingWasPersisted(harness);
+        Assert.Equal(0, harness.UnitOfWork.TransactionCount);
     }
 
     // --- step 3b: the pre-charge sold-check — the last gate before a charge exists at the PSP (REQ-5.6) ---
@@ -324,6 +339,84 @@ public sealed class CreateSessionHandlerTests
         Assert.NotEqual(failed.Id, result.PaymentSessionId);
     }
 
+    [Fact]
+    public async Task Attached_Paid_session_blocks_second_attempt_while_Order_event_is_still_pending()
+    {
+        var paid = Session.Create(
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now.AddMinutes(-10));
+        paid.BeginRedirect(Now.AddMinutes(-9));
+        paid.SetPspCharge("paid-charge", "https://psp.test/paid", Now.AddMinutes(-9));
+        paid.MarkPaid("paid-charge", Now.AddMinutes(-1));
+        var harness = NewHarness(
+            order: new PayableOrder(
+                OrderId, OrderAmount, PayableOrderStatus.Pending, paid.Id, PaymentMethods.Card),
+            existingSessions: [paid],
+            adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay],
+            onFetchCharge: _ => new PspChargeConfirmation(PspChargeStatus.Paid, OrderAmount));
+
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+            await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
+
+        Assert.Empty(harness.Sessions.Added);
+        Assert.Null(harness.Orders.AttachedPaymentSessionId);
+        Assert.Equal(1, harness.UnitOfWork.TransactionCount);
+    }
+
+    [Theory]
+    [InlineData(PayableOrderStatus.Failed)]
+    [InlineData(PayableOrderStatus.Expired)]
+    public async Task A_retryable_order_reconfirms_attached_terminal_attempt_then_attaches_new_attempt(
+        PayableOrderStatus orderStatus)
+    {
+        var prior = Session.Create(
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now.AddHours(-1));
+        if (orderStatus == PayableOrderStatus.Failed)
+            prior.MarkFailed("psp_failed", Now);
+        else
+            prior.MarkExpired(Now);
+        var harness = NewHarness(
+            order: new PayableOrder(OrderId, OrderAmount, orderStatus, prior.Id, PaymentMethods.Card),
+            existingSessions: [prior],
+            adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay]);
+
+        var result = await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default);
+
+        Assert.Equal(result.PaymentSessionId, harness.Orders.AttachedPaymentSessionId);
+        Assert.Equal(PaymentMethods.PromptPay, harness.Orders.AttachedMethod);
+        Assert.Equal(result.PaymentSessionId, Assert.Single(harness.Sessions.Added).Id);
+        Assert.Equal(1, harness.UnitOfWork.TransactionCount);
+    }
+
+    [Theory]
+    [InlineData(PayableOrderStatus.Failed)]
+    [InlineData(PayableOrderStatus.Expired)]
+    public async Task Late_paid_attached_attempt_commits_PaymentPaid_and_blocks_retry(
+        PayableOrderStatus orderStatus)
+    {
+        var prior = Session.Create(
+            MerchantId, OrderId, OrderAmount, PaymentMethods.Card, Code.TwoCTwoP, Now.AddHours(-1));
+        prior.BeginRedirect(Now.AddMinutes(-10));
+        prior.SetPspCharge("late-charge", "https://psp.test/late", Now.AddMinutes(-10));
+        if (orderStatus == PayableOrderStatus.Failed)
+            prior.MarkFailed("psp_failed", Now.AddMinutes(-5));
+        else
+            prior.MarkExpired(Now.AddMinutes(-5));
+        var harness = NewHarness(
+            order: new PayableOrder(OrderId, OrderAmount, orderStatus, prior.Id, PaymentMethods.Card),
+            existingSessions: [prior],
+            adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay],
+            onFetchCharge: _ => new PspChargeConfirmation(PspChargeStatus.Paid, OrderAmount));
+
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+            await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
+
+        Assert.Equal(SessionStatus.Paid, prior.Status);
+        Assert.IsType<Contracts.PaymentPaid>(Assert.Single(harness.Outbox.Enqueued));
+        Assert.Empty(harness.Sessions.Added);
+        Assert.Null(harness.Orders.AttachedPaymentSessionId);
+        Assert.Equal(1, harness.UnitOfWork.TransactionCount);
+    }
+
     // --- step 7b: an aged-out session is released here, and only on proof it holds no money (REQ-3.1-3.3) ---
 
     /// <summary>An open session created far enough in the past to be stale at <see cref="Now"/>.</summary>
@@ -473,7 +566,7 @@ public sealed class CreateSessionHandlerTests
         // session's amount to the LOCKED read pins which of the two the mint trusts.
         var lockedAmount = Money.Of(20000m, "THB");
         var harness = NewHarness();
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, PayableOrderStatus.AwaitingPayment);
+        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, PayableOrderStatus.Pending);
 
         await harness.Handler.Handle(Command(), default);
 
@@ -498,6 +591,9 @@ public sealed class CreateSessionHandlerTests
         Assert.Equal(MerchantId, session.MerchantId);
         Assert.Equal(SessionStatus.Created, session.Status);
         Assert.Equal(1, harness.UnitOfWork.SaveCount);
+        Assert.Equal(session.Id, harness.Orders.AttachedPaymentSessionId);
+        Assert.Equal(PaymentMethods.Card, harness.Orders.AttachedMethod);
+        Assert.Equal(1, harness.UnitOfWork.TransactionCount);
     }
 
     [Fact]

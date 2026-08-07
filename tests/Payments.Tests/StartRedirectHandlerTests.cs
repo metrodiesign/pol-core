@@ -61,15 +61,28 @@ public sealed class StartRedirectHandlerTests
         var target = session ?? CreatedSession();
         var vault = new FakeVaultSecretStore { RevealFails = vaultFails };
         var unitOfWork = new FakeUnitOfWork { SaveFails = saveFails };
+        var connectionsRepository = new FakeConnectionRepository(connections ?? [NewConnection()]);
+        var adapterFactory = new FakePspAdapterFactory(
+            new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card) { OnCreateCharge = onCharge });
+        var clock = new FixedClock { UtcNow = Now };
+        var confirmation = new PaymentConfirmationService(
+            connectionsRepository,
+            adapterFactory,
+            vault,
+            new FakeIdempotencyStore(),
+            new FakeOutbox(),
+            unitOfWork,
+            clock,
+            new RecordingLogger<PaymentConfirmationService>());
 
         var handler = new StartRedirectHandler(
             new FakeSessionRepository(target),
-            new FakeConnectionRepository(connections ?? [NewConnection()]),
-            new FakePspAdapterFactory(
-                new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card) { OnCreateCharge = onCharge }),
+            connectionsRepository,
+            adapterFactory,
             vault,
             unitOfWork,
-            new FixedClock { UtcNow = Now });
+            clock,
+            confirmation);
 
         return new Harness(handler, target, vault, unitOfWork);
     }
@@ -280,7 +293,7 @@ public sealed class StartRedirectHandlerTests
         var clock = new FixedClock { UtcNow = Now };
 
         var create = new CreateSessionHandler(
-            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.AwaitingPayment)),
+            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Pending)),
             connections,
             adapters,
             sessions,
@@ -296,8 +309,18 @@ public sealed class StartRedirectHandlerTests
             new FakeDocumentSaleProbe(),
             unitOfWork,
             clock);
+        var redirectVault = new FakeVaultSecretStore();
+        var redirectConfirmation = new PaymentConfirmationService(
+            connections,
+            adapters,
+            redirectVault,
+            new FakeIdempotencyStore(),
+            new FakeOutbox(),
+            unitOfWork,
+            clock,
+            new RecordingLogger<PaymentConfirmationService>());
         var redirect = new StartRedirectHandler(
-            sessions, connections, adapters, new FakeVaultSecretStore(), unitOfWork, clock);
+            sessions, connections, adapters, redirectVault, unitOfWork, clock, redirectConfirmation);
 
         var command = new CreateSessionCommand(OrderId, MerchantId, PaymentMethods.Card, Code.TwoCTwoP);
         var first = await create.Handle(command, default);

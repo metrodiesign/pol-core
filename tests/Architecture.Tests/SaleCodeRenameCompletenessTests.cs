@@ -22,8 +22,7 @@ public sealed class SaleCodeRenameCompletenessTests
     [
         "tests/Architecture.Tests/SaleCodeRenameCompletenessTests.cs",       // this ban itself
         "tests/Hosts.Tests/UserRegistrationFormTests.cs",                    // the old form key binds nothing
-        "tests/Hosts.Tests/RegistrationHistoryEndpointTests.cs",             // the old JSON key is absent
-        "tests/Integration.Tests/SaleCodeRenameMigrationIntegrationTests.cs" // the pre-rename column shape
+        "tests/Hosts.Tests/RegistrationHistoryEndpointTests.cs"              // the old JSON key is absent
     ];
 
     [Fact]

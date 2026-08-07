@@ -71,6 +71,10 @@ internal sealed class MerchantRoleReader : IMerchantRoleReader
             .Where(RoleVisibility.For(Scope.Merchant, merchantId))
             .Where(r => r.Status == RoleStatus.Active && roleIds.Contains(r.Id))
             .Join(_db.RolePermissions, r => r.Id, p => p.RoleId, (r, p) => p.PermissionKey)
+            .Join(_db.Permissions.Where(p => p.Status == PermissionStatus.Active), key => key, p => p.Key,
+                (key, p) => new { key, p.GroupKey })
+            .Join(_db.PermissionGroups.Where(g => g.Status == PermissionStatus.Active), x => x.GroupKey, g => g.Key,
+                (x, g) => x.key)
             .Distinct()
             .ToListAsync(cancellationToken);
         return keys.ToHashSet(StringComparer.Ordinal);

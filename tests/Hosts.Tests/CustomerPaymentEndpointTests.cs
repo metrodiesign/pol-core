@@ -45,6 +45,10 @@ file sealed class FakePayableOrders(PayableOrder? order) : IPayableOrderReader
     public Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken) =>
         GetAsync(orderId, cancellationToken);
 
+    public Task AttachAttemptAsync(
+        Guid orderId, Guid paymentSessionId, string method, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
     // These tests do not exercise the pre-charge sold-check, so the order carries no document keys.
     public Task<IReadOnlyList<BuildingBlocks.Application.DocumentKey>> GetDocumentKeysAsync(
         Guid orderId, CancellationToken cancellationToken) =>
@@ -215,12 +219,12 @@ public sealed class CustomerPaymentEndpointTests
     private static readonly Money Amount = Money.Of(15000m, "THB");
 
     private static OrderSummary Summary(
-        string status = "AwaitingPayment", string? channel = "CARD", TimeSpan? expiresIn = null) =>
+        string status = "Pending", string? channel = "CARD", TimeSpan? expiresIn = null) =>
         new(Order, Merchant, "ORD6900000001", Amount, status, channel,
             DateTime.UtcNow + (expiresIn ?? TimeSpan.FromHours(24)),
-            [new OrderSummaryLine("00098-69100/กธ/900001-10", "Somchai", "Jaidee", "****0123")]);
+            [new OrderSummaryLine("00098-69100/กธ/900001-10", "VMI", "ประกันรถยนต์", 1, Amount)]);
 
-    private static PayableOrder Payable(PayableOrderStatus status = PayableOrderStatus.AwaitingPayment) =>
+    private static PayableOrder Payable(PayableOrderStatus status = PayableOrderStatus.Pending) =>
         new(Order, Amount, status);
 
     private static HttpRequestMessage Post(string action) =>
@@ -248,13 +252,12 @@ public sealed class CustomerPaymentEndpointTests
         Assert.False(json.TryGetProperty("merchantId", out _));
     }
 
-    // REQ-8.1 — the channel the MERCHANT chose at checkout is what the customer is charged through: the
-    // session's method has to be the mapping of the order's channel, not a default.
+    // Customer payment uses canonical method attached to Order, never a default.
     [Theory]
-    [InlineData("CARD", PaymentMethods.Card)]
-    [InlineData("PROMPTPAY_QR", PaymentMethods.PromptPay)]
-    [InlineData("INSTALLMENT", PaymentMethods.Installment)]
-    public async Task Paying_charges_through_the_channel_the_merchant_chose(string channel, string method)
+    [InlineData("card", PaymentMethods.Card)]
+    [InlineData("promptpay", PaymentMethods.PromptPay)]
+    [InlineData("installment", PaymentMethods.Installment)]
+    public async Task Paying_charges_through_the_attached_method(string channel, string method)
     {
         List<PaymentSession> sessions = [];
         using var factory = new CustomerFactory(
@@ -347,7 +350,7 @@ public sealed class CustomerPaymentEndpointTests
         Assert.Empty(sessions);
     }
 
-    // An order written before the checkout captured a channel. There is no safe default to charge through.
+    // Direct Order with no attached attempt has no safe default to charge through.
     [Fact]
     public async Task Paying_an_order_with_no_payment_channel_is_409()
     {

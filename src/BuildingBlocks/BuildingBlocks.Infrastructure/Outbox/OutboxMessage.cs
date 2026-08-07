@@ -18,6 +18,7 @@ public sealed class OutboxMessage
     /// </summary>
     public Guid MerchantId { get; private set; }
     public string Type { get; private set; } = default!;
+    public string SchemaVersion { get; private set; } = default!;
     public string Payload { get; private set; } = default!;
     public DateTime OccurredAt { get; private set; }
     public DateTime? ProcessedAt { get; private set; }
@@ -28,12 +29,19 @@ public sealed class OutboxMessage
 
     private OutboxMessage() { }
 
-    public static OutboxMessage Create(Guid id, Guid merchantId, string type, string payload, DateTime occurredAt) =>
+    public static OutboxMessage Create(
+        Guid id,
+        Guid merchantId,
+        string type,
+        string schemaVersion,
+        string payload,
+        DateTime occurredAt) =>
         new()
         {
             Id = id,
             MerchantId = merchantId,
             Type = type,
+            SchemaVersion = schemaVersion,
             Payload = payload,
             OccurredAt = occurredAt,
         };

@@ -37,7 +37,7 @@ public sealed class MerchantRuntimeWriteRegressionTests : IDisposable
         using var db = NewContext(new ThrowOnSave(
             new DbUpdateException("duplicate key", SqlExceptionFactory.Create(number: 2627))));
         var uow = new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance);
-        db.Carts.Add(new Cart(Guid.NewGuid(), Merchant, DateTime.UtcNow));
+        db.Carts.Add(new Cart(Guid.NewGuid(), Merchant, "77001", DateTime.UtcNow));
 
         await Assert.ThrowsAsync<ConflictException>(() => uow.SaveChangesAsync(default));
     }
@@ -48,7 +48,7 @@ public sealed class MerchantRuntimeWriteRegressionTests : IDisposable
         // 10061 = TCP connection refused. Raw SqlException from a write has no handler arm -> opaque 500.
         using var db = NewContext(new ThrowOnSave(SqlExceptionFactory.Create(number: 10061)));
         var uow = new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance);
-        db.Carts.Add(new Cart(Guid.NewGuid(), Merchant, DateTime.UtcNow));
+        db.Carts.Add(new Cart(Guid.NewGuid(), Merchant, "77001", DateTime.UtcNow));
 
         await Assert.ThrowsAsync<SqlException>(() => uow.SaveChangesAsync(default));
     }

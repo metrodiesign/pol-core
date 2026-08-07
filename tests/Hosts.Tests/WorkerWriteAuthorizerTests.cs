@@ -78,16 +78,15 @@ public sealed class WorkerWriteAuthorizerTests
         Assert.False(authorizer.CanWrite(typeof(MerchantEntity), WriteOperation.Update, MerchantA));
     }
 
-    /// <summary>insurance-pivot task 0: CheckoutConfirmedConsumer inserts the Order it creates while
-    /// dispatched inside the Worker's real outbox drain — Order was missing from this authorizer entirely
-    /// before this fix (a pre-existing gap unrelated to insurance).</summary>
+    /// <summary>Order creation is request-owned after Checkout retirement, so background dispatch cannot
+    /// insert an Order.</summary>
     [Fact]
-    public void Worker_allows_insert_on_order_across_any_merchant()
+    public void Worker_denies_insert_on_order()
     {
         var authorizer = new ApiHost::Api.BackgroundDispatch.WorkerWriteAuthorizer();
 
-        Assert.True(authorizer.CanWrite(typeof(OrderAggregate), WriteOperation.Insert, MerchantA));
-        Assert.True(authorizer.CanWrite(typeof(OrderAggregate), WriteOperation.Insert, Guid.Empty));
+        Assert.False(authorizer.CanWrite(typeof(OrderAggregate), WriteOperation.Insert, MerchantA));
+        Assert.False(authorizer.CanWrite(typeof(OrderAggregate), WriteOperation.Insert, Guid.Empty));
     }
 
     /// <summary>OrderPaidConsumer updates the order via Order.MarkPaid while dispatched the same way —

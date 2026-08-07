@@ -18,13 +18,13 @@ internal sealed class RoleAssignmentConfiguration(MerchantUserDbContext context)
     {
         builder.ToTable("RoleAssignments", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.UserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.AssignedById).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.MerchantUserId, x.RoleId }).IsUnique();
-        builder.HasIndex(x => new { x.MerchantUserId, x.MerchantId }); // per-request resolution lookup
+        builder.HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
+        builder.HasIndex(x => new { x.UserId, x.MerchantId }); // per-request resolution lookup
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(RoleAssignment.MerchantId));
         builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);

@@ -188,8 +188,8 @@ public sealed class LocalEnvelopeVaultStoreTests : IDisposable
         // A NEW secret is written under the active id "v2".
         await store.StoreAsync(Merchant, "other", "sk_live_new00000", CancellationToken.None);
         await using var db3 = NewContext();
-        var fresh = await db3.VaultSecrets.SingleAsync(b => b.Name == "other");
-        Assert.Equal("v2", fresh.KeyId);
+        var fresh = await db3.VaultSecrets.SingleAsync(b => b.SecretName == "other");
+        Assert.Equal("v2", fresh.SecretKey);
     }
 
     [Fact]
@@ -232,8 +232,8 @@ public sealed class LocalEnvelopeVaultStoreTests : IDisposable
 
         // The blob now carries the active id, and the OLD key can be retired entirely — reveal still works.
         await using var db3 = NewContext();
-        var blob = await db3.VaultSecrets.SingleAsync(b => b.Name == "psp-secret");
-        Assert.Equal("v2", blob.KeyId);
+        var blob = await db3.VaultSecrets.SingleAsync(b => b.SecretName == "psp-secret");
+        Assert.Equal("v2", blob.SecretKey);
 
         await using var db4 = NewContext();
         var newKeyOnly = Keyring("v2", ("v2", newKey)); // old key gone from the keyring

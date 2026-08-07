@@ -42,7 +42,7 @@ public sealed class GetMerchantHandlerTests
     public async Task Read_back_surfaces_stored_config_and_psp_merchant_id() // Codex re-review P2 (REQ-9.1)
     {
         var merchant = Merchant.Create("vcommerce", "vCommerce", "0105560000000", "TH", "THB", ["card", "installment"],
-            """{"branding":{"logo":"x"},"routing":{"installment":["2c2p","omise"]}}""", Now);
+            """{"branding":{"logoUrl":"x"},"routing":{"installment":["2c2p","omise"]}}""", Now);
         var connection = Connection.Create(merchant.Id, Code.TwoCTwoP, "card,installment", "psp/2c2p", Now,
             """{"config":{"environment":"production","currencyCode":"764"},"merchantId":"merch_42","secretHints":{"secretKey":"3a9f"}}""");
         var psp = new FakePspConnectionRepository();

@@ -41,7 +41,7 @@ public class MerchantsArchitectureTests
     {
         string[] forbidden =
         [
-            "Products.Infrastructure", "Carts.Infrastructure", "Checkouts.Infrastructure",
+            "Products.Infrastructure", "Carts.Infrastructure",
             "Orders.Infrastructure", "Payments.Infrastructure", "Merchants.Infrastructure",
             "Admins.Infrastructure", "BuildingBlocks.Infrastructure",
         ];

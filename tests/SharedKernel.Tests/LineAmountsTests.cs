@@ -2,8 +2,7 @@ using SharedKernel;
 
 namespace SharedKernel.Tests;
 
-/// <summary>purchase-flow-completion REQ-6.3/6.4 — the per-line money rule, shared by Checkouts, Orders and
-/// the checkout endpoint so the three cannot drift.</summary>
+/// <summary>Per-line money rule shared by Cart and direct Order creation.</summary>
 public sealed class LineAmountsTests
 {
     private static readonly Money Thb1500 = Money.Of(1500m, "THB");

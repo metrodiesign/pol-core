@@ -59,7 +59,7 @@ internal sealed class DocumentSaleProbe : IDocumentSaleProbe
         var matched = await PlatformReadGuard.ReadAsync(ct => (
             from item in _db.OrderItems.IgnoreQueryFilters()
             join order in _db.Orders.IgnoreQueryFilters() on item.OrderId equals order.Id
-            where documentNos.Contains(item.DocumentNo)
+            where documentNos.Contains(item.ProductCode)
                 && (order.Status == OrderStatus.Paid
                     // Session.Paid has to count on its own: between the PSP webhook marking the session paid
                     // and the outbox flipping the order, neither side says "sold" — and the document would
@@ -69,7 +69,7 @@ internal sealed class DocumentSaleProbe : IDocumentSaleProbe
                         && (session.Status == SessionStatus.Paid
                             || ((session.Status == SessionStatus.Created || session.Status == SessionStatus.Redirected)
                                 && session.CreatedAt > openSince))))
-            select new HeldDocument(item.DocumentNo, item.ProductGroup, order.Id, order.Status))
+            select new HeldDocument(item.ProductCode, item.VariantCode, order.Id, order.Status))
             .ToListAsync(ct), cancellationToken);
 
         // The same trim on the stored side. Values are trimmed on write (Orders.Domain Item does it), but SQL

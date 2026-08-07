@@ -48,9 +48,6 @@ public sealed class PlatformReadGuardCoverageTests
         ["src/Persistence/Persistence.MerchantRuntime/Orders/OrderNoSequence.cs"] = ["NextAsync"],
         // Read-before-write in the same idempotency unit on the webhook path.
         ["src/Persistence/Persistence.MerchantRuntime/Idempotency/EfIdempotencyStore.cs"] = ["TryBeginAsync"],
-        // Read-before-write in the admin write unit — its reader sibling gets 503, the writer keeps
-        // today's behavior (REQ-1.5 forces this split).
-        ["src/Persistence/Persistence.MerchantRuntime/Orders/Items/AdminItemPolicyWriter.cs"] = ["LoadAsync"],
         // StoreAsync's read-before-write; Reveal/Masked/Exists ARE guarded.
         ["src/Persistence/Persistence.MerchantRuntime/Vault/LocalEnvelopeVaultStore.cs"] = ["StoreAsync"],
         // Outbox-consumer / maintenance callers — background, verified against real call sites.

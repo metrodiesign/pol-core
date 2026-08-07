@@ -13,7 +13,7 @@ public sealed class ExternalLogin : Entity<Guid>
     /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>).</summary>
     public string Subject { get; private set; } = default!;
 
-    public Guid MerchantUserId { get; private set; }
+    public Guid UserId { get; private set; }
 
     public const string Google = "google";
     public const string Microsoft = "microsoft";
@@ -24,7 +24,7 @@ public sealed class ExternalLogin : Entity<Guid>
     {
         Provider = provider;
         Subject = subject;
-        MerchantUserId = merchantUserId;
+        UserId = merchantUserId;
     }
 
     /// <summary>Links a Google subject to a <see cref="User"/> at registration. <paramref name="provider"/>
@@ -34,7 +34,7 @@ public sealed class ExternalLogin : Entity<Guid>
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         if (merchantUserId == Guid.Empty)
-            throw new ArgumentException("MerchantUserId is required.", nameof(merchantUserId));
+            throw new ArgumentException("UserId is required.", nameof(merchantUserId));
         return new ExternalLogin(Guid.NewGuid(), provider.Trim(), subject.Trim(), merchantUserId);
     }
 }

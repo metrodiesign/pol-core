@@ -192,7 +192,24 @@ public sealed class PaymentConfirmationServiceTests
 
         Assert.Equal(SessionStatus.Failed, harness.Session.Status);
         Assert.Equal(1, harness.UnitOfWork.SaveCount);
+        var failed = Assert.IsType<PaymentFailed>(Assert.Single(harness.Outbox.Enqueued));
+        Assert.Equal(harness.Session.Id, failed.PaymentSessionId);
+        Assert.Equal("psp_failed", failed.ReasonCode);
+    }
+
+    [Theory]
+    [InlineData("psp failed: raw decline")]
+    [InlineData("secret=value")]
+    public async Task Failure_event_rejects_unbounded_or_secret_shaped_reason_text(string reason)
+    {
+        var harness = NewHarness();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.MarkFailedAsync(
+            harness.Session, reason, Created, default));
+
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
         Assert.Empty(harness.Outbox.Enqueued);
+        Assert.Equal(0, harness.UnitOfWork.SaveCount);
     }
 
     // --- expiry: only ever on proof that no money exists ---
@@ -210,6 +227,7 @@ public sealed class PaymentConfirmationServiceTests
 
         Assert.Equal(SessionStatus.Expired, harness.Session.Status);
         Assert.Equal(1, harness.UnitOfWork.SaveCount);
+        Assert.IsType<PaymentExpired>(Assert.Single(harness.Outbox.Enqueued));
         // Not even the connection/secret: a session with no charge must stay releasable after its connection
         // is gone, or the order is blocked forever.
         Assert.Equal(0, harness.Vault.Reveals);
@@ -276,12 +294,12 @@ public sealed class PaymentConfirmationServiceTests
         AssertUntouched(harness, SessionStatus.Redirected);
     }
 
-    // --- money after the session gave up (REQ-3.4/3.5) ---
+    // --- verified late money after the session gave up (REQ-9.27) ---
 
     [Theory]
     [InlineData(SessionStatus.Expired)]
     [InlineData(SessionStatus.Failed)]
-    public async Task A_charge_confirmed_for_a_terminal_session_is_Conflicted_and_logged_Critical(SessionStatus terminal)
+    public async Task A_charge_confirmed_for_a_failed_or_expired_session_becomes_Paid(SessionStatus terminal)
     {
         var session = NewSession();
         if (terminal == SessionStatus.Expired)
@@ -293,14 +311,13 @@ public sealed class PaymentConfirmationServiceTests
 
         var outcome = await harness.Service.ConfirmAsync(session, default);
 
-        // Not an exception: the webhook would then 500 forever on a state no redelivery can change.
-        Assert.Equal(ConfirmationOutcome.Conflicted, outcome);
-        AssertUntouched(harness, terminal);
-        var critical = Assert.Single(harness.Logger.Critical);
-        Assert.Contains(OrderId.ToString(), critical, StringComparison.Ordinal);
-        Assert.Contains(session.Id.ToString(), critical, StringComparison.Ordinal);
-        Assert.Contains(ChargeId, critical, StringComparison.Ordinal);
-        Assert.Contains("250.09", critical, StringComparison.Ordinal);
+        Assert.Equal(ConfirmationOutcome.Paid, outcome);
+        Assert.Equal(SessionStatus.Paid, session.Status);
+        var paid = Assert.IsType<PaymentPaid>(Assert.Single(harness.Outbox.Enqueued));
+        Assert.Equal(session.Id, paid.PaymentSessionId);
+        Assert.Equal(session.Method, paid.Method);
+        Assert.Equal(1, harness.UnitOfWork.SaveCount);
+        Assert.Empty(harness.Logger.Critical);
     }
 
     [Fact]

@@ -13,7 +13,7 @@ internal sealed class AdminSessionByTokenHash(ControlPlaneDbContext db) : ISessi
         await db.Sessions.AsNoTracking()
             .Where(s => s.TokenHash == tokenHash)
             .Select(s => new SessionLookup(
-                s.Id, s.FamilyId, s.PlatformUserId, (SessionLookupStatus)s.Status,
+                s.Id, s.FamilyId, s.AdminUserId, (SessionLookupStatus)s.Status,
                 s.IdleExpiresAt, s.AbsoluteExpiresAt, s.SupersededAt, s.SupersededBySessionId))
             .FirstOrDefaultAsync(cancellationToken);
 }

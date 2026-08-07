@@ -25,7 +25,7 @@ public sealed class ControlPlaneDbContextFactory : IDesignTimeDbContextFactory<C
     ControlPlaneDbContext IDesignTimeDbContextFactory<ControlPlaneDbContext>.CreateDbContext(string[] args)
     {
         var options = new DbContextOptionsBuilder<ControlPlaneDbContext>()
-            .UseSqlServer(DesignConnectionString)
+            .UseSqlServer(DesignConnectionString, sql => sql.UseCompatibilityLevel(170))
             .Options;
         return new ControlPlaneDbContext(options, new DesignTimeAllowAllAuthorizer(), NoOpSecurityTelemetry.Instance);
     }

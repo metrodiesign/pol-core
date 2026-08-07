@@ -28,7 +28,8 @@ public interface IUserRepository
 /// authenticated account, never from the client (REQ-4.8); it is optional so the pre-bind flows that do not
 /// care (registration, approval) keep constructing this without it.</summary>
 public sealed record AccountSnapshot(
-    Guid MerchantUserId, string Subject, string Email, Guid? MerchantId, UserStatus Status, string? SaleCode = null);
+    Guid UserId, string Subject, string Email, Guid? MerchantId, UserStatus Status,
+    string? SaleCode = null, string? DisplayName = null);
 
 /// <summary>
 /// Filter-free, read-only account resolution for the flows that run BEFORE any merchant actor exists on the
@@ -71,7 +72,7 @@ public interface IRegistrationAuditWriter
 /// <summary>
 /// Append-only writer for the per-submit form snapshots (registration-attempt-history REQ-1), on the same
 /// context as the registration write so the snapshot commits in the submit transaction. A race on
-/// <see cref="NextAttemptNoAsync"/> is settled by the DB unique (MerchantUserId, AttemptNo) index → 409 via
+/// <see cref="NextAttemptNoAsync"/> is settled by the DB unique (UserId, AttemptNo) index → 409 via
 /// the unit of work (REQ-1.9), not by locking here.
 /// </summary>
 public interface IRegistrationAttemptWriter
@@ -138,7 +139,7 @@ public interface IUserUnitOfWork
 /// <summary>
 /// Records the Admin-side "awaiting approval" notice idempotently (REQ-20.4). Bound to the DEFAULT
 /// <see cref="PolDbContext"/> — in the worker that is the pol_worker connection (the outbox dispatcher
-/// principal, granted INSERT/SELECT on the control-plane notice table). Idempotent on MerchantUserId so a redelivered
+/// principal, granted INSERT/SELECT on the control-plane notice table). Idempotent on UserId so a redelivered
 /// event records nothing twice and never poisons the message.
 /// </summary>
 public interface IRegistrationNoticeWriter
@@ -158,4 +159,12 @@ public interface IPhotoStore
 {
     Task<string> PutAsync(byte[] bytes, string contentType, CancellationToken cancellationToken);
     Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken cancellationToken);
+    Task<string> PutStagedAsync(
+        Guid operationId,
+        ReadOnlyMemory<byte> bytes,
+        string contentType,
+        CancellationToken cancellationToken);
+    Task CommitAsync(string objectKey, CancellationToken cancellationToken);
+    Task DiscardStagedAsync(string objectKey, CancellationToken cancellationToken);
+    Task DeleteAsync(string objectKey, CancellationToken cancellationToken);
 }

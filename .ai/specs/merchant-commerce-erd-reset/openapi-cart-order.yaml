@@ -1,0 +1,243 @@
+openapi: 3.1.1
+info:
+  title: pol-core Cart and Order cutover contract
+  version: 1.0.0
+  description: Consumer contract extracted from the runtime OpenAPI document after merchant-commerce ERD reset.
+servers:
+  - url: /api/v1
+paths:
+  /carts:
+    post:
+      operationId: CreateCart
+      security: [{ MerchantUserSession: [] }]
+      responses:
+        '200':
+          description: Cart created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateCartResponse' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /carts/{cartId}:
+    get:
+      operationId: GetCart
+      security: [{ MerchantUserSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CartId'
+      responses:
+        '200':
+          description: Current cart
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartView' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /carts/{cartId}/items:
+    post:
+      operationId: AddCartItem
+      security: [{ MerchantUserSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CartId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddItemToCartRequest' }
+      responses:
+        '200':
+          description: Item added
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AddItemResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /carts/{cartId}/items/{itemId}:
+    put:
+      operationId: SetCartItemQuantity
+      security: [{ MerchantUserSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CartId'
+        - $ref: '#/components/parameters/ItemId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetCartItemQuantityRequest' }
+      responses:
+        '200':
+          description: Updated cart
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartView' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+    delete:
+      operationId: RemoveCartItem
+      security: [{ MerchantUserSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CartId'
+        - $ref: '#/components/parameters/ItemId'
+      responses:
+        '200':
+          description: Updated cart
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartView' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /carts/{cartId}/clear:
+    post:
+      operationId: ClearCart
+      security: [{ MerchantUserSession: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CartId'
+      responses:
+        '200':
+          description: Empty cart
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CartView' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /orders:
+    post:
+      operationId: CreateOrderFromCart
+      security: [{ MerchantUserSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderFromCartRequest' }
+      responses:
+        '201':
+          description: Order created; Location is /api/v1/orders/{orderId}
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DirectOrderResult' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+components:
+  securitySchemes:
+    MerchantUserSession:
+      type: apiKey
+      in: cookie
+      name: __Host-mch_session
+  parameters:
+    CartId:
+      name: cartId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Problem:
+      description: RFC 7807 problem response
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+  schemas:
+    Money:
+      type: object
+      additionalProperties: false
+      required: [amount, currency]
+      properties:
+        amount: { type: number, format: decimal, minimum: 0, multipleOf: 0.0001 }
+        currency: { type: string, minLength: 3, maxLength: 3, example: THB }
+    CreateCartResponse:
+      type: object
+      required: [cartId]
+      properties:
+        cartId: { type: string, format: uuid }
+    AddItemToCartRequest:
+      type: object
+      additionalProperties: false
+      required: [productCode, variantCode, quantity]
+      properties:
+        productCode: { type: string, minLength: 1, maxLength: 150 }
+        variantCode: { type: string, enum: [Motor, NonMotor] }
+        quantity: { type: integer, minimum: 1 }
+    AddItemResult:
+      type: object
+      required: [cartId, itemCount, subtotal]
+      properties:
+        cartId: { type: string, format: uuid }
+        itemCount: { type: integer, minimum: 1 }
+        subtotal: { $ref: '#/components/schemas/Money' }
+    SetCartItemQuantityRequest:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { type: integer, minimum: 1 }
+    CartLineView:
+      type: object
+      required: [itemId, productCode, variantCode, quantity, unitPrice, lineTotal]
+      properties:
+        itemId: { type: string, format: uuid }
+        productCode: { type: string }
+        variantCode: { type: string }
+        variantName: { type: [string, 'null'] }
+        quantity: { type: integer }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+        lineTotal: { $ref: '#/components/schemas/Money' }
+        metadata: { type: [object, 'null'], additionalProperties: true }
+    CartView:
+      type: object
+      required: [cartId, status, items, version]
+      properties:
+        cartId: { type: string, format: uuid }
+        saleCode: { type: [string, 'null'] }
+        status: { type: string, enum: [Open, CheckedOut] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartLineView' }
+        subtotal:
+          oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }]
+        version: { type: integer, minimum: 0 }
+    CreateOrderCustomerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
+        email: { type: [string, 'null'], format: email }
+    CreateOrderFromCartRequest:
+      type: object
+      additionalProperties: false
+      required: [cartId]
+      properties:
+        cartId: { type: string, format: uuid }
+        customer:
+          oneOf: [{ $ref: '#/components/schemas/CreateOrderCustomerRequest' }, { type: 'null' }]
+        amount:
+          description: Optional claimed amount. Server validates it against current cart total and never trusts it for pricing.
+          oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }]
+    DirectOrderResult:
+      type: object
+      required: [orderId, orderNo, status, amount]
+      properties:
+        orderId: { type: string, format: uuid }
+        orderNo: { type: string }
+        status: { type: string, enum: [Pending] }
+        amount: { $ref: '#/components/schemas/Money' }
+    ProblemDetails:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }

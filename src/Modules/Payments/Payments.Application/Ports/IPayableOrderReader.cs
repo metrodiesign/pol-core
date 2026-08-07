@@ -8,9 +8,12 @@ namespace Payments.Application.Ports;
 /// EXPLICITLY, so a status added there stops at the seam instead of silently reading as payable.</summary>
 public enum PayableOrderStatus
 {
-    AwaitingPayment = 0,
+    Pending = 0,
     Paid = 1,
-    Cancelled = 2,
+    Failed = 2,
+    Expired = 3,
+    Refunded = 4,
+    Cancelled = 5,
 }
 
 /// <summary>
@@ -18,11 +21,18 @@ public enum PayableOrderStatus
 /// Deliberately carries no line/PII data — the merchant-facing order detail read (which writes a reveal
 /// audit) must never be on the payment path.
 /// </summary>
-public sealed record PayableOrder(Guid OrderId, Money Amount, PayableOrderStatus Status)
+public sealed record PayableOrder(
+    Guid OrderId,
+    Money Amount,
+    PayableOrderStatus Status,
+    Guid? PaymentSessionId = null,
+    string? PaymentChannel = null)
 {
     /// <summary>The only distinction create-session needs; the customer's status check needs the full
     /// three, which is why the status itself is what crosses the port.</summary>
-    public bool IsAwaitingPayment => Status is PayableOrderStatus.AwaitingPayment;
+    public bool CanOpenPaymentAttempt => Status is PayableOrderStatus.Pending
+        or PayableOrderStatus.Failed
+        or PayableOrderStatus.Expired;
 }
 
 /// <summary>
@@ -44,6 +54,14 @@ public interface IPayableOrderReader
     /// by commit time; this one cannot (REQ-3.6).
     /// </summary>
     Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken);
+
+    /// <summary>Mutates the already-locked Order through its own aggregate. Caller saves Order and Session
+    /// in one shared transaction.</summary>
+    Task AttachAttemptAsync(
+        Guid orderId,
+        Guid paymentSessionId,
+        string method,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// The insurance documents this order is buying, as the sold-check keys them

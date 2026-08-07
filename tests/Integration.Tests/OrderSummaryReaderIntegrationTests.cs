@@ -10,51 +10,44 @@ namespace Integration.Tests;
 /// suite uses (confirmed: <c>SQLite Error 1: 'near "1": syntax error'</c>), so it is proven here instead,
 /// against a live SQL Server, mirroring this project's raw-connection-only style (no
 /// Persistence.MerchantRuntime reference — see Integration.Tests.csproj's own comment on why). The masking
-/// transform itself (<c>MaskIdNumber</c>) is unit-tested directly via <c>GetOrdersHandler</c>'s identical
-/// one-line copy (Orders.Tests/GetOrdersTests.cs); this test additionally applies that same transform inline
-/// to confirm the reader's actual SQL wires the right column into it and never selects
-/// <c>InsuredDateOfBirth</c> at all (REQ-7.4 Decision #3, insurance-pivot task 4).
+/// The second query proves generic line fields while never selecting metadata.
 /// Tagged Integration: the default unit run skips these; CI runs them against a live SQL service.
 /// </summary>
 [Trait("Category", "Integration")]
 public sealed class OrderSummaryReaderIntegrationTests
 {
-    private static string MaskIdNumber(string idNumber) =>
-        idNumber.Length <= 4 ? new string('*', idNumber.Length) : $"****{idNumber[^4..]}";
-
     private static Task InsertOrderAsync(SqlConnection c, Guid orderId, Guid merchantId, string token, string orderNo) =>
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.Orders
                 (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, CreatedAt,
-                 SummaryToken, SummaryTokenExpiresAt)
+                 SummaryToken, SummaryTokenExpiresAt, CustomerName, CustomerPhone)
             VALUES (@id, @m, @orderNo, 15000, N'THB', 0, 'PROMPTPAY_QR', SYSUTCDATETIME(),
-                    @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                    @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
             ("@id", orderId), ("@m", merchantId), ("@orderNo", orderNo), ("@token", token));
 
-    private static Task InsertOrderLineAsync(SqlConnection c, Guid lineId, Guid orderId, Guid merchantId, string idNumber) =>
+    private static Task InsertOrderLineAsync(SqlConnection c, Guid lineId, Guid orderId, Guid merchantId) =>
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, Quantity, UnitPriceAmount, UnitPriceCurrency,
-                 DocumentNo, ProductGroup, DocumentType, PolicyNumber, StartDate, EndDate,
-                 InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
+                 DiscountAmount, DiscountCurrency, ProductCode, VariantCode, VariantName, Metadata)
             VALUES (@id, @orderId, @m, 1, 15000, N'THB',
-                    N'00098-69100/กธ/900001-10', 'VMI', 'POLICY', NULL, NULL, NULL,
-                    N'Somchai', N'Jaidee', @idNumber, '1990-01-01');
+                    0, N'THB', N'00098-69100/กธ/900001-10', 'VMI', N'ประกันรถยนต์',
+                    '{"sourceType":"insurance_document","documentType":"POLICY","policyNumber":"POL-1"}');
             """,
-            ("@id", lineId), ("@orderId", orderId), ("@m", merchantId), ("@idNumber", idNumber));
+            ("@id", lineId), ("@orderId", orderId), ("@m", merchantId));
 
     [Fact]
-    public async Task Reader_SQL_masks_InsuredIdNumber_and_never_selects_date_of_birth()
+    public async Task Reader_SQL_returns_generic_line_and_never_selects_metadata()
     {
         var orderId = Guid.NewGuid();
         var token = Guid.NewGuid().ToString("N");
         var orderNo = $"ORD69{Random.Shared.Next(80_000_000, 89_999_999)}";
         await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertOrderAsync(c, orderId, IntegrationDb.MerchantA, token, orderNo);
-        await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA, "1234567890123");
+        await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA);
 
         // Exactly the reader's first query (OrderSummaryReader.cs, column-for-column — purchase-flow-completion
         // REQ-7.3 added OrderNo, REQ-8 swapped PaymentSessionId for PaymentChannel); only the parameter syntax
@@ -73,19 +66,21 @@ public sealed class OrderSummaryReaderIntegrationTests
         Assert.Equal("PROMPTPAY_QR", orderReader.GetString(6));
         await orderReader.CloseAsync();
 
-        // Exactly the reader's second query — deliberately does NOT select InsuredDateOfBirth.
+        // Exactly the reader's second query — deliberately does NOT select Metadata.
         await using var lineCmd = c.CreateCommand();
         lineCmd.CommandText =
-            "SELECT DocumentNo, InsuredFirstName, InsuredLastName, InsuredIdNumber FROM shop.OrderItems WHERE OrderId = @orderId";
+            "SELECT ProductCode, VariantCode, VariantName, Quantity, UnitPriceAmount, UnitPriceCurrency "
+            + "FROM shop.OrderItems WHERE OrderId = @orderId";
         lineCmd.Parameters.AddWithValue("@orderId", resolvedOrderId);
         await using var reader = await lineCmd.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());
 
-        Assert.Equal("Somchai", reader.GetString(1));
-        Assert.Equal("Jaidee", reader.GetString(2));
-        Assert.Equal("****0123", MaskIdNumber(reader.GetString(3)));
-
-        // The query never asked for InsuredDateOfBirth, so the result set has exactly the 4 columns above.
-        Assert.Equal(4, reader.FieldCount);
+        Assert.Equal("00098-69100/กธ/900001-10", reader.GetString(0));
+        Assert.Equal("VMI", reader.GetString(1));
+        Assert.Equal("ประกันรถยนต์", reader.GetString(2));
+        Assert.Equal(1, reader.GetInt32(3));
+        Assert.Equal(15000m, reader.GetDecimal(4));
+        Assert.Equal("THB", reader.GetString(5));
+        Assert.Equal(6, reader.FieldCount);
     }
 }

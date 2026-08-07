@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
+using Orders.Domain;
 
 namespace Orders.Application;
 
@@ -34,33 +35,43 @@ public sealed class OrderPaidConsumer : INotificationHandler<PaymentPaid>
 
     public async ValueTask Handle(PaymentPaid notification, CancellationToken cancellationToken)
     {
-        var order = await _orders
-            .GetAsync(notification.OrderId, cancellationToken)
-            .ConfigureAwait(false);
+        var transitioned = await _unitOfWork.ExecuteInTransactionAsync(
+            async ct =>
+            {
+                var order = await _orders.GetForUpdateAsync(notification.OrderId, ct).ConfigureAwait(false);
+                if (order is null)
+                    return false;
 
-        // ponytail: at-least-once delivery means a PaymentPaid may arrive for an order this module
-        // has no row for (out-of-order/foreign event). Ack and return — never throw, or the
-        // dispatcher retries forever. Structured logging is deferred: Orders.Application does not
-        // reference Microsoft.Extensions.Logging.Abstractions (csproj is owned by the spine);
-        // inject an ILogger here once that package is wired into the project's Directory.*.props.
-        if (order is null)
-            return;
+                if (order.MerchantId != notification.MerchantId)
+                    throw new InvalidOperationException("Payment event merchant does not match Order merchant.");
 
-        // Re-verifies amount + currency; returns false (no transition) if the order is already Paid,
-        // so a replayed event is an idempotent no-op skip.
-        var transitioned = order.MarkPaid(notification.Amount, notification.OccurredAt);
+                if (order.Status is OrderStatus.Cancelled or OrderStatus.Refunded
+                    || order.Status == OrderStatus.Paid && order.PaymentSessionId != notification.PaymentSessionId)
+                {
+                    throw new PaymentReconciliationRequiredException(
+                        notification.EventId, order.Id, notification.PaymentSessionId);
+                }
 
-        // ponytail: replay (already Paid) is a deliberate skip — see logging note above.
+                var changed = order.MarkPaid(
+                    notification.PaymentSessionId,
+                    notification.Method,
+                    notification.Amount,
+                    notification.OccurredAt);
+                if (changed)
+                    await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+
+                return changed;
+            },
+            cancellationToken).ConfigureAwait(false);
+
         if (!transitioned)
             return;
-
-        await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         // REQ-5.16/8.2 — this is the one place that sees a REAL transition to Paid (a replay returned above),
         // so it is where "the same document was sold twice" can be reported without paging someone on every
         // outbox redelivery. Deliberately AFTER the save: the auditor reads the committed state, and a report
         // is a report — it must never be able to fail the payment that already happened. There is no
         // Contracts.OrderPaid any more; nothing consumes it since the catalogue mirror was retired (REQ-8.3).
-        await _doubleSellAuditor.ReportIfDoubleSoldAsync(order.Id, cancellationToken).ConfigureAwait(false);
+        await _doubleSellAuditor.ReportIfDoubleSoldAsync(notification.OrderId, cancellationToken).ConfigureAwait(false);
     }
 }

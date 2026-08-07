@@ -1,4 +1,3 @@
-using System.Text.Json;
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Outbox;
 using Contracts;
@@ -25,11 +24,6 @@ internal sealed class MerchantUserOutboxDispatcher : BackgroundService
     private const int MaxAttempts = 8;
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromMinutes(1);
-
-    private static readonly IReadOnlyDictionary<string, Type> EventTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
-    {
-        [nameof(MerchantUserRegistrationSubmitted)] = typeof(MerchantUserRegistrationSubmitted),
-    };
 
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<MerchantUserOutboxDispatcher> _logger;
@@ -117,12 +111,7 @@ internal sealed class MerchantUserOutboxDispatcher : BackgroundService
 
     private static async Task PublishAsync(IPublisher publisher, MerchantUserOutbox message, CancellationToken cancellationToken)
     {
-        if (!EventTypes.TryGetValue(message.Type, out var eventType))
-            throw new InvalidOperationException($"No MerchantUser outbox publisher registered for type '{message.Type}'.");
-
-        var notification = JsonSerializer.Deserialize(message.Payload, eventType, OutboxSerializer.Options)
-            ?? throw new InvalidOperationException($"MerchantUser outbox payload for {message.Id} deserialised to null.");
-
+        var notification = MerchantUserOutboxEventRegistry.Deserialize(message.Type, message.Payload);
         await publisher.Publish(notification, cancellationToken).ConfigureAwait(false);
     }
 }

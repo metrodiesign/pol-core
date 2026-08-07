@@ -90,10 +90,10 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
         return admin.Id;
     }
 
-    private static ProvisionSpec Spec(string code = "vprivilege", string displayName = "Test Co") => new(
+    private static ProvisionSpec Spec(string code = "vprivilege", string name = "Test Co") => new(
         MerchantCode: code,
-        DisplayName: displayName,
-        LegalEntityId: "LE-1",
+        Name: name,
+        Note: null,
         Country: "TH",
         Currency: "THB",
         EnabledChannels: ["web"],
@@ -231,10 +231,10 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
     public async Task A_replay_with_the_same_key_but_a_different_payload_is_rejected()
     {
         var callerId = await SeedAdminAsync(Tier.Super, UserStatus.Active);
-        await NewCoordinator().ProvisionAsync(Spec(displayName: "Original"), callerId, 0, "op-6", CancellationToken.None);
+        await NewCoordinator().ProvisionAsync(Spec(name: "Original"), callerId, 0, "op-6", CancellationToken.None);
 
         await Assert.ThrowsAsync<ConflictException>(() =>
-            NewCoordinator().ProvisionAsync(Spec(displayName: "Different Payload"), callerId, 0, "op-6", CancellationToken.None));
+            NewCoordinator().ProvisionAsync(Spec(name: "Different Payload"), callerId, 0, "op-6", CancellationToken.None));
 
         Assert.Equal(1, await CountMerchantsAsync());
     }

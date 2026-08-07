@@ -26,7 +26,6 @@ public class RawConnectionTests
         typeof(BuildingBlocks.Infrastructure.Persistence.PolDbContext).Assembly,
         typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
         typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
-        typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,

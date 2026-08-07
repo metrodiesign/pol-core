@@ -9,8 +9,6 @@
     <ProjectReference Include="..\..\Modules\Products\Products.Infrastructure\Products.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Carts\Carts.Application\Carts.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Carts\Carts.Infrastructure\Carts.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Application\Checkouts.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Infrastructure\Checkouts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\Orders.Application\Orders.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\Orders.Infrastructure\Orders.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Payments.Application\Payments.Application.csproj" />

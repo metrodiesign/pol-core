@@ -13,9 +13,8 @@ public interface IOrderRepository
     /// <summary>Loads one order by id (RLS scopes it to the bound merchant), or null if absent.</summary>
     Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken);
 
-    /// <summary>Loads the order created from a checkout session, or null — the idempotency lookup for the
-    /// CheckoutConfirmed consumer (don't create a second order for the same checkout).</summary>
-    Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken);
+    /// <summary>Loads and tracks one Order while holding UPDLOCK,HOLDLOCK until caller transaction ends.</summary>
+    Task<Order?> GetForUpdateAsync(Guid orderId, CancellationToken cancellationToken);
 
     /// <summary>Reconciliation read: the bound merchant's orders grouped by status + currency (count + total).</summary>
     Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken cancellationToken);

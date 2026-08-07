@@ -3,7 +3,7 @@ namespace BuildingBlocks.Infrastructure.Vault;
 /// <summary>
 /// Vault custody config bound from the "Vault" section. The master keys live in a versioned keyring
 /// (<see cref="Keys"/> + <see cref="ActiveKeyId"/>) so the master key can be rotated without re-encrypting
-/// secrets: each <see cref="VaultSecretBlob.KeyId"/> records which key wrapped its DEK, and new writes use
+/// secrets: each <see cref="VaultSecretBlob.SecretKey"/> records which key wrapped its DEK, and new writes use
 /// the active key. Each key is sourced from a mounted secret FILE or env/appsettings — never committed.
 /// <para><see cref="MasterKeyBase64"/> is the legacy single-key shim: when no <see cref="Keys"/> are
 /// configured it becomes the one entry id "local-envelope-v1" (the id every pre-rotation blob carries), so

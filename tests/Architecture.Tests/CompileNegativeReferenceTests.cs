@@ -13,7 +13,7 @@ namespace Architecture.Tests;
 public sealed class CompileNegativeReferenceTests
 {
     [Fact]
-    public void Forbidden_ProjectReference_to_Persistence_ControlPlane_fails_the_build()
+    public async Task Forbidden_ProjectReference_to_Persistence_ControlPlane_fails_the_build()
     {
         var repoRoot = FindRepoRoot();
         var fixturePath = Path.Combine(repoRoot, "tests", "Architecture.Tests", "Fixtures",
@@ -27,9 +27,11 @@ public sealed class CompileNegativeReferenceTests
             UseShellExecute = false,
         };
         using var process = Process.Start(psi)!;
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
 
         Assert.True(process.ExitCode != 0,
             $"Expected the fixture build to FAIL (forbidden ProjectReference), but it exited 0. stdout: {stdout}");

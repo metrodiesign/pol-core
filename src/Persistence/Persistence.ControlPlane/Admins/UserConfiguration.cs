@@ -24,6 +24,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.UpdatedAt);
         // rls-to-query-filter REQ-4.9/4.11: the authorization lease's conditional no-op UPDATE relies on EF's
         // native concurrency-token WHERE clause (WHERE Id=@caller AND AuthorizationVersion=@expected) to get
         // exactly-one-row-or-throw for free — mirrors the tenant-key concurrency-token pattern from task 3.
@@ -43,11 +44,11 @@ public sealed class MerchantAccessConfiguration : IEntityTypeConfiguration<Merch
     {
         builder.ToTable("MerchantAccess", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.PlatformUserId).IsRequired();
+        builder.Property(x => x.AdminUserId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.AssignedByAdminId).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.PlatformUserId, x.MerchantId }).IsUnique();
+        builder.HasIndex(x => new { x.AdminUserId, x.MerchantId }).IsUnique();
     }
 }
 

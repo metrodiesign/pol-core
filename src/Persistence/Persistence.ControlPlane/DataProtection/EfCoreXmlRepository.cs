@@ -45,7 +45,7 @@ internal sealed class EfCoreXmlRepository : IXmlRepository, IPersistedXmlReposit
         var db = scope.ServiceProvider.GetRequiredService<ControlPlaneDbContext>();
         db.DataProtectionKeys.Add(new DataProtectionKey
         {
-            FriendlyName = friendlyName,
+            SecretKey = friendlyName,
             Xml = element.ToString(SaveOptions.DisableFormatting),
         });
         db.SaveChanges();

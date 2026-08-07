@@ -72,7 +72,7 @@ public class RefModulesArchitectureTests
     {
         string[] forbidden =
         [
-            "Products.Infrastructure", "Carts.Infrastructure", "Checkouts.Infrastructure",
+            "Products.Infrastructure", "Carts.Infrastructure",
             "Orders.Infrastructure", "Payments.Infrastructure", "Admins.Infrastructure",
             "Merchants.Infrastructure", "Iam.Infrastructure",
             "Divisions.Infrastructure", "Levels.Infrastructure", "Offices.Infrastructure",

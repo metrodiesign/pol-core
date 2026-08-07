@@ -78,7 +78,7 @@ public sealed record ListSessionsQuery(Guid AdminId) : IQuery<IReadOnlyList<Sess
 
 public sealed record SessionView(
     Guid SessionId, Guid FamilyId, SessionStatus Status, DateTime IssuedAt, DateTime IdleExpiresAt,
-    DateTime AbsoluteExpiresAt, string? CreatedIp, string? UserAgent, bool IsLive);
+    DateTime AbsoluteExpiresAt, string? IpAddress, string? UserAgent, bool IsLive);
 
 public sealed class ListSessionsHandler(IUserRepository admins, ISessionStore sessions, IClock clock)
     : IQueryHandler<ListSessionsQuery, IReadOnlyList<SessionView>?>
@@ -91,6 +91,6 @@ public sealed class ListSessionsHandler(IUserRepository admins, ISessionStore se
         var list = await sessions.ListByAdminAsync(query.AdminId, ct);
         return [.. list.Select(s => new SessionView(
             s.Id, s.FamilyId, s.Status, s.IssuedAt, s.IdleExpiresAt, s.AbsoluteExpiresAt,
-            s.CreatedIp, s.UserAgent, s.IsLiveAt(now)))];
+            s.IpAddress, s.UserAgent, s.IsLiveAt(now)))];
     }
 }

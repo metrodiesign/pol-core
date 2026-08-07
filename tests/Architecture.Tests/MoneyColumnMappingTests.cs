@@ -4,7 +4,6 @@ using Carts.Domain.Items;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
-using CheckoutSession = Checkouts.Domain.Session;
 using PaymentSession = Payments.Domain.Session;
 
 namespace Architecture.Tests;
@@ -34,7 +33,6 @@ public sealed class MoneyColumnMappingTests : IDisposable
         var modules = new ModuleAssemblies([
             typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
             typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
-            typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
             typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
             typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         ]);
@@ -71,24 +69,12 @@ public sealed class MoneyColumnMappingTests : IDisposable
         AssertMoneyColumns(typeof(Item), nameof(Item.UnitPrice), "UnitPriceAmount", "UnitPriceCurrency");
 
     [Fact]
-    public void CheckoutSession_Amount_maps_to_decimal_19_4_and_char3() =>
-        AssertMoneyColumns(typeof(CheckoutSession), nameof(CheckoutSession.Amount), "AmountAmount", "AmountCurrency");
-
-    [Fact]
     public void Order_Amount_maps_to_decimal_19_4_and_char3() =>
         AssertMoneyColumns(typeof(Order), nameof(Order.Amount), "AmountAmount", "AmountCurrency");
 
     [Fact]
     public void PaymentSession_Amount_maps_to_decimal_19_4_and_char3() =>
         AssertMoneyColumns(typeof(PaymentSession), nameof(PaymentSession.Amount), "AmountAmount", "AmountCurrency");
-
-    // purchase-flow-completion REQ-6.3/7.2 — the line discount is a Money everywhere, never a bare decimal
-    // at a seam, so it gets the same column pair as UnitPrice on both item types.
-    [Fact]
-    public void CheckoutItem_Discount_maps_to_decimal_19_4_and_char3() =>
-        AssertMoneyColumns(
-            typeof(Checkouts.Domain.Items.Item), nameof(Checkouts.Domain.Items.Item.Discount),
-            "DiscountAmount", "DiscountCurrency");
 
     [Fact]
     public void OrderItem_Discount_maps_to_decimal_19_4_and_char3() =>

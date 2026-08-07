@@ -16,18 +16,18 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.FamilyId).IsRequired();
         builder.Property(x => x.TokenHash).IsRequired().HasMaxLength(32); // varbinary(32) — SHA-256 digest
-        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.UserId).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.IssuedAt).IsRequired();
         builder.Property(x => x.IdleExpiresAt).IsRequired();
         builder.Property(x => x.AbsoluteExpiresAt).IsRequired();
         builder.Property(x => x.SupersededAt);
         builder.Property(x => x.SupersededBySessionId);
-        builder.Property(x => x.CreatedIp).HasMaxLength(45);
+        builder.Property(x => x.IpAddress).HasMaxLength(45);
         builder.Property(x => x.UserAgent).HasMaxLength(256);
         builder.HasIndex(x => x.TokenHash).IsUnique();        // O(1) lookup by hashed id (REQ-11.4)
         builder.HasIndex(x => x.FamilyId);                    // family-wide revoke (REQ-11.3)
-        builder.HasIndex(x => x.MerchantUserId);               // logout-all + suspend propagation (REQ-12.2/12.3)
+        builder.HasIndex(x => x.UserId);               // logout-all + suspend propagation (REQ-12.2/12.3)
         builder.HasIndex(x => x.AbsoluteExpiresAt);           // prune sweep (REQ-10.4)
     }
 }
@@ -39,12 +39,12 @@ public sealed class AuthAuditConfiguration : IEntityTypeConfiguration<AuthAudit>
         builder.ToTable("AuthAudits", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.EventType).HasMaxLength(32).IsRequired();
-        builder.Property(x => x.MerchantUserId);          // null when no account was resolved (REQ-12.4)
+        builder.Property(x => x.UserId);          // null when no account was resolved (REQ-12.4)
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Reason).HasMaxLength(128);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
-        builder.HasIndex(x => x.MerchantUserId);
+        builder.HasIndex(x => x.UserId);
         AppendOnlyDescriptor.Mark(builder.Metadata); // rls-to-query-filter REQ-2.4-adjacent: append-only audit
     }
 }

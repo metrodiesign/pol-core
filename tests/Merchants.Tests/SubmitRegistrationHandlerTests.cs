@@ -35,7 +35,7 @@ public sealed class SubmitRegistrationHandlerTests
         Assert.Equal("p@org.com", account.Email);
         Assert.Equal(UserStatus.PendingApproval, account.Status); // no merchant until approval
         Assert.Equal(UserStatus.PendingApproval, result.Status);
-        Assert.Equal(account.Id, result.MerchantUserId);
+        Assert.Equal(account.Id, result.UserId);
 
         Assert.Equal("Acme", account.FirstName);           // person details land on the account, not a profile
         Assert.Equal("Co", account.LastName);
@@ -51,9 +51,8 @@ public sealed class SubmitRegistrationHandlerTests
         Assert.Null(audit.ActorSubject);                   // self-service, no admin actor
 
         var evt = Assert.IsType<MerchantUserRegistrationSubmitted>(Assert.Single(ctx.Outbox.Enqueued));
-        Assert.Equal(account.Id, evt.MerchantUserId);
-        Assert.Equal("g-sub-1", evt.Subject);
-        Assert.Equal("Acme Co", evt.DisplayName);
+        Assert.Equal(account.Id, evt.UserId);
+        Assert.Equal(Now, evt.OccurredAt);
         Assert.True(ctx.Uow.SaveCalls >= 1);
     }
 
@@ -86,6 +85,96 @@ public sealed class SubmitRegistrationHandlerTests
     }
 
     [Fact]
+    public async Task Optional_KYC_photo_is_staged_and_persisted_by_key_only_with_lifecycle_event()
+    {
+        var ctx = new Ctx();
+        var operationId = Guid.NewGuid();
+        byte[] bytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        var cmd = RegistrationCommand() with
+        {
+            KycPhotoBytes = bytes,
+            KycPhotoContentType = PhotoValidation.Png,
+            KycOperationId = operationId,
+        };
+
+        var result = await ctx.Handler.Handle(cmd, default);
+
+        Assert.Equal(operationId, ctx.Photos.StagedOperationId);
+        Assert.Equal(bytes, ctx.Photos.StagedBytes);
+        Assert.Equal(PhotoValidation.Png, ctx.Photos.StagedContentType);
+        var account = Assert.Single(ctx.Users.Added);
+        Assert.Equal(ctx.Photos.ReturnedStagedKey, account.KycPhotoObjectKey);
+        Assert.Equal(account.Id, result.UserId);
+
+        var lifecycle = Assert.Single(ctx.Outbox.Enqueued.OfType<KycPhotoLifecycleRequested>());
+        Assert.Equal(ctx.Photos.ReturnedStagedKey, lifecycle.NewObjectKey);
+        Assert.Null(lifecycle.OldObjectKey);
+        Assert.Single(ctx.Outbox.Enqueued.OfType<MerchantUserRegistrationSubmitted>());
+    }
+
+    [Fact]
+    public async Task Correction_without_KYC_photo_preserves_existing_key_and_emits_no_lifecycle_event()
+    {
+        var ctx = new Ctx();
+        var existing = RejectedUserWithKyc("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg");
+        ctx.Users.Seed(existing);
+
+        await ctx.Handler.Handle(RegistrationCommand() with { Purpose = TicketPurpose.Correction }, default);
+
+        Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg", existing.KycPhotoObjectKey);
+        Assert.Null(ctx.Photos.StagedOperationId);
+        Assert.Empty(ctx.Outbox.Enqueued.OfType<KycPhotoLifecycleRequested>());
+    }
+
+    [Fact]
+    public async Task Correction_with_new_KYC_photo_replaces_key_and_requests_old_object_deletion()
+    {
+        var ctx = new Ctx();
+        const string oldKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg";
+        var existing = RejectedUserWithKyc(oldKey);
+        ctx.Users.Seed(existing);
+
+        await ctx.Handler.Handle(RegistrationCommand() with
+        {
+            Purpose = TicketPurpose.Correction,
+            KycPhotoBytes = [0xFF, 0xD8, 0xFF],
+            KycPhotoContentType = PhotoValidation.Jpeg,
+            KycOperationId = Guid.NewGuid(),
+        }, default);
+
+        Assert.Equal(ctx.Photos.ReturnedStagedKey, existing.KycPhotoObjectKey);
+        var lifecycle = Assert.Single(ctx.Outbox.Enqueued.OfType<KycPhotoLifecycleRequested>());
+        Assert.Equal(oldKey, lifecycle.OldObjectKey);
+    }
+
+    [Fact]
+    public async Task Database_failure_best_effort_deletes_new_staged_KYC_object()
+    {
+        var ctx = new Ctx();
+        ctx.Uow.SaveException = new InvalidOperationException("database failed");
+        var command = RegistrationCommand() with
+        {
+            KycPhotoBytes = [0xFF, 0xD8, 0xFF],
+            KycPhotoContentType = PhotoValidation.Jpeg,
+            KycOperationId = Guid.NewGuid(),
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ctx.Handler.Handle(command, default).AsTask());
+
+        Assert.Contains(ctx.Photos.ReturnedStagedKey, ctx.Photos.DiscardedStagedKeys);
+        Assert.Empty(ctx.Photos.DeletedKeys);
+    }
+
+    private static User RejectedUserWithKyc(string key)
+    {
+        var user = User.Register("g-sub-1", "p@org.com", Now);
+        user.SetDetails("Old", "Name", null, null, null, null, null);
+        user.SetKycPhoto(key);
+        user.Reject(Now);
+        return user;
+    }
+
+    [Fact]
     public async Task A_correction_ticket_resubmits_the_existing_rejected_account_without_a_second_login()
     {
         var ctx = new Ctx();
@@ -100,7 +189,7 @@ public sealed class SubmitRegistrationHandlerTests
         Assert.Empty(ctx.Users.Added);                   // edits the existing record, never a second account
         Assert.Empty(ctx.Logins.Added);                  // no second external login (REQ-5.4)
         Assert.Equal(UserStatus.PendingApproval, existing.Status); // Rejected -> Pending
-        Assert.Equal(existing.Id, result.MerchantUserId);
+        Assert.Equal(existing.Id, result.UserId);
         Assert.Equal("New Name", existing.DisplayName);  // account updated in place (computed from first + last)
 
         var audit = Assert.Single(ctx.Audits.Appended);
@@ -130,7 +219,7 @@ public sealed class SubmitRegistrationHandlerTests
         byte[] bytes = [0xFF, 0xD8, 0xFF, 0xE0];
         var cmd = RegistrationCommand(firstName: "Acme", lastName: "Co") with
         {
-            Form = new RegistrationForm("Acme", "Co", PersonType.Individual, "1234567890123", "PC-1", "LN-9", "0812345678"),
+            Form = new RegistrationForm("Acme", "Co", IdentityType.Individual, "1234567890123", "PC-1", "LN-9", "0812345678"),
             PhotoBytes = bytes,
             PhotoContentType = PhotoValidation.Jpeg,
         };
@@ -139,13 +228,13 @@ public sealed class SubmitRegistrationHandlerTests
 
         var account = Assert.Single(ctx.Users.Added);
         var attempt = Assert.Single(ctx.Attempts.Added);
-        Assert.Equal(account.Id, attempt.MerchantUserId);         // bound to the user (REQ-1.3)
+        Assert.Equal(account.Id, attempt.UserId);         // bound to the user (REQ-1.3)
         Assert.Equal(1, attempt.AttemptNo);                       // sequence starts at 1 (REQ-1.4)
         Assert.Equal(TicketPurpose.Registration, attempt.Purpose);
         Assert.Equal("Acme", attempt.FirstName);
         Assert.Equal("Co", attempt.LastName);
-        Assert.Equal(PersonType.Individual, attempt.PersonType);
-        Assert.Equal("1234567890123", attempt.IdNumber);
+        Assert.Equal(IdentityType.Individual, attempt.IdentityType);
+        Assert.Equal("1234567890123", attempt.IdentityNumber);
         Assert.Equal("PC-1", attempt.SaleCode);
         Assert.Equal("LN-9", attempt.LicenseNumber);
         Assert.Equal("0812345678", attempt.Phone);
@@ -175,7 +264,7 @@ public sealed class SubmitRegistrationHandlerTests
 
         Assert.Equal(2, ctx.Attempts.Added.Count);
         var attempt = ctx.Attempts.Added[1];
-        Assert.Equal(existing.Id, attempt.MerchantUserId);        // same user carries the whole history
+        Assert.Equal(existing.Id, attempt.UserId);        // same user carries the whole history
         Assert.Equal(2, attempt.AttemptNo);                       // 1 → 2 (REQ-1.4)
         Assert.Equal(TicketPurpose.Correction, attempt.Purpose);
         Assert.Equal("New", attempt.FirstName);
@@ -252,7 +341,7 @@ public sealed class SubmitRegistrationHandlerTests
         public Exception? ThrowOnNext { get; set; }
         public Task<int> NextAttemptNoAsync(Guid merchantUserId, CancellationToken ct) =>
             ThrowOnNext is null
-                ? Task.FromResult(Added.Where(a => a.MerchantUserId == merchantUserId)
+                ? Task.FromResult(Added.Where(a => a.UserId == merchantUserId)
                     .Select(a => a.AttemptNo).DefaultIfEmpty(0).Max() + 1)
                 : Task.FromException<int>(ThrowOnNext);
         public void Add(RegistrationAttempt attempt) => Added.Add(attempt);
@@ -267,7 +356,12 @@ public sealed class SubmitRegistrationHandlerTests
     private sealed class FakeUow : IRegistrationUnitOfWork
     {
         public int SaveCalls { get; private set; }
-        public Task<int> SaveChangesAsync(CancellationToken ct) { SaveCalls++; return Task.FromResult(1); }
+        public Exception? SaveException { get; set; }
+        public Task<int> SaveChangesAsync(CancellationToken ct)
+        {
+            SaveCalls++;
+            return SaveException is null ? Task.FromResult(1) : Task.FromException<int>(SaveException);
+        }
         public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct) =>
             operation(ct);
     }
@@ -277,6 +371,13 @@ public sealed class SubmitRegistrationHandlerTests
         public byte[]? PutBytes { get; private set; }
         public string? PutContentType { get; private set; }
         public string ReturnedKey { get; } = "deadbeefdeadbeefdeadbeefdeadbeef.jpg";
+        public string ReturnedStagedKey { get; } = "feedfacefeedfacefeedfacefeedface.png";
+        public Guid? StagedOperationId { get; private set; }
+        public byte[]? StagedBytes { get; private set; }
+        public string? StagedContentType { get; private set; }
+        public List<string> CommittedKeys { get; } = [];
+        public List<string> DiscardedStagedKeys { get; } = [];
+        public List<string> DeletedKeys { get; } = [];
         public Task<string> PutAsync(byte[] bytes, string contentType, CancellationToken ct)
         {
             PutBytes = bytes; PutContentType = contentType;
@@ -284,5 +385,28 @@ public sealed class SubmitRegistrationHandlerTests
         }
         public Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken ct) =>
             Task.FromResult<(byte[], string)?>(null);
+        public Task<string> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes, string contentType,
+            CancellationToken ct)
+        {
+            StagedOperationId = operationId;
+            StagedBytes = bytes.ToArray();
+            StagedContentType = contentType;
+            return Task.FromResult(ReturnedStagedKey);
+        }
+        public Task CommitAsync(string objectKey, CancellationToken ct)
+        {
+            CommittedKeys.Add(objectKey);
+            return Task.CompletedTask;
+        }
+        public Task DiscardStagedAsync(string objectKey, CancellationToken ct)
+        {
+            DiscardedStagedKeys.Add(objectKey);
+            return Task.CompletedTask;
+        }
+        public Task DeleteAsync(string objectKey, CancellationToken ct)
+        {
+            DeletedKeys.Add(objectKey);
+            return Task.CompletedTask;
+        }
     }
 }

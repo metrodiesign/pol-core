@@ -30,10 +30,6 @@ public enum ConfirmationOutcome
     /// <summary>The session is Expired (proven chargeless/unsettled past its TTL, or it already was).</summary>
     Expired = 5,
 
-    /// <summary>The PSP collected money for a session that had already gone terminal without it. Logged
-    /// Critical; nothing changed; the refund is a manual ops decision (REQ-3.4/3.5).</summary>
-    Conflicted = 6,
-
     /// <summary>The PSP collected an amount/currency the session does not back. Logged Critical; the
     /// session was NOT marked paid.</summary>
     AmountMismatch = 7,
@@ -60,8 +56,8 @@ public sealed record PspAccess(Connection Connection, string Secret);
 ///   and spent LAST, in the caller's transaction, together with the transition it protects.</item>
 ///   <item><see cref="PaymentPaid"/> is enqueued only on a REAL transition, so two callers that each win a
 ///   different key still publish at most once.</item>
-///   <item>Money arriving for a terminal session is <see cref="ConfirmationOutcome.Conflicted"/> + Critical,
-///   never an exception — a webhook that 500s here would retry that state forever.</item>
+///   <item>Verified late money moves a Failed/Expired Session to Paid and emits PaymentPaid; Orders decides
+///   whether that event is a retryable transition or a terminal reconciliation conflict.</item>
 ///   <item>The collected amount+currency is compared before any mark.</item>
 /// </list>
 /// It owns no transaction: it saves the transition it makes (so the caller can treat that save as a phase)
@@ -159,9 +155,7 @@ public sealed class PaymentConfirmationService
         if (!session.IsExpiredAt(now))
             return ConfirmationOutcome.Pending;
 
-        session.MarkExpired(now);
-        await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return ConfirmationOutcome.Expired;
+        return await MarkExpiredAsync(session, now, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>The PSP refused the charge. Failed sits OUTSIDE the one-open-session filtered index, so the
@@ -171,9 +165,54 @@ public sealed class PaymentConfirmationService
         if (Terminal(session.Status) is { } terminal)
             return terminal;
 
-        session.MarkFailed("The PSP reported the charge as failed.", now);
+        return await MarkFailedAsync(session, "psp_failed", now, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Single emitter for a real Failed transition. ReasonCode is bounded internal vocabulary,
+    /// never a raw PSP response or exception message.</summary>
+    public async Task<ConfirmationOutcome> MarkFailedAsync(
+        Session session,
+        string reasonCode,
+        DateTime occurredAt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reasonCode);
+        if (reasonCode.Length > 64 || reasonCode.Any(ch => !(char.IsAsciiLetterOrDigit(ch) || ch is '_' or '-')))
+            throw new ArgumentException("ReasonCode must be a bounded internal code.", nameof(reasonCode));
+
+        if (Terminal(session.Status) is { } terminal)
+            return terminal;
+
+        session.MarkFailed(reasonCode, occurredAt);
+        _outbox.Enqueue(new PaymentFailed(
+            Guid.CreateVersion7(),
+            session.Id,
+            session.OrderId,
+            session.MerchantId,
+            reasonCode,
+            occurredAt));
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return ConfirmationOutcome.Failed;
+    }
+
+    /// <summary>Single emitter for a real Expired transition.</summary>
+    public async Task<ConfirmationOutcome> MarkExpiredAsync(
+        Session session,
+        DateTime occurredAt,
+        CancellationToken cancellationToken)
+    {
+        if (Terminal(session.Status) is { } terminal)
+            return terminal;
+
+        session.MarkExpired(occurredAt);
+        _outbox.Enqueue(new PaymentExpired(
+            Guid.CreateVersion7(),
+            session.Id,
+            session.OrderId,
+            session.MerchantId,
+            occurredAt));
+        await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return ConfirmationOutcome.Expired;
     }
 
     private async Task<ConfirmationOutcome> ConfirmPaidAsync(
@@ -198,19 +237,6 @@ public sealed class PaymentConfirmationService
             return ConfirmationOutcome.AmountMismatch;
         }
 
-        // Money arrived for a session we had already given up on (MarkPaid would throw from a terminal
-        // status). The refund is manual and outside the system, but it must never be silent, and it must not
-        // be an exception either: the webhook would then 500 forever on a state no retry can change.
-        if (session.Status is SessionStatus.Failed or SessionStatus.Expired)
-        {
-            _logger.LogCritical(
-                "PSP confirmed payment for a TERMINAL payment session: order {OrderId}, payment session {PaymentSessionId} "
-                + "(status {SessionStatus}), charge {ExternalChargeId}, amount {Amount} {Currency}. Refund is manual.",
-                session.OrderId, session.Id, session.Status, chargeId, session.Amount.Amount, session.Amount.Currency);
-
-            return ConfirmationOutcome.Conflicted;
-        }
-
         // Claimed LAST, in the caller's transaction, together with the transition it protects: an outcome
         // that confirmed nothing must leave the key unspent for the delivery that will (live 2C2P repro,
         // 2026-07-28 — claiming before the fetch poisoned the key on a not-yet-settled notification). Keys
@@ -231,10 +257,12 @@ public sealed class PaymentConfirmationService
             return ConfirmationOutcome.AlreadyPaid;
 
         _outbox.Enqueue(new PaymentPaid(
+            Guid.CreateVersion7(),
             session.Id,
             session.OrderId,
             session.MerchantId,
             session.Amount,
+            session.Method,
             pspCode,
             chargeId,
             pspEventId ?? $"inquiry:{chargeId}",

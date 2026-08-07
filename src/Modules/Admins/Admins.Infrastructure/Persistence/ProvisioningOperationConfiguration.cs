@@ -21,7 +21,7 @@ public sealed class ProvisioningOperationConfiguration : IEntityTypeConfiguratio
         builder.Property(x => x.ExpectedAuthorizationVersion).IsRequired();
         builder.Property(x => x.RequestHash).HasMaxLength(64).IsRequired(); // SHA-256 hex
         builder.Property(x => x.MerchantId).IsRequired(); // pre-minted, deliberately NOT a real FK (row precedes merch.Merchants)
-        builder.Property(x => x.Result); // no MaxLength -> nvarchar(max) on SQL Server
+        builder.Property(x => x.Result).HasColumnType("json");
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.HasIndex(x => x.OperationKey).IsUnique().HasDatabaseName("UX_ProvisioningOperations_Key");
     }

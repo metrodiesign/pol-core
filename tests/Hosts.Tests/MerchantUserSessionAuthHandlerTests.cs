@@ -76,7 +76,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
         Assert.Equal("google-sub-1", result.Principal.FindFirst("sub")!.Value);
         Assert.Null(result.Principal.FindFirst("role")); // no role claim — single-scheme, no Bearer principal to distinguish from (T11)
         Assert.True(scope.IsBound);
-        Assert.Equal(UserId, scope.Current.MerchantUserId);
+        Assert.Equal(UserId, scope.Current.UserId);
         Assert.Empty(store.Added);
         Assert.Null(store.Slid);
     }
@@ -126,7 +126,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
         Assert.Equal(session.FamilyId, successor.FamilyId);
         Assert.Equal((session.Id, successor.Id), store.Superseded);
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("mch_session", StringComparison.Ordinal));
-        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.Rotated && a.MerchantUserId == UserId);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.Rotated && a.UserId == UserId);
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
 
         Assert.NotNull(result.Failure);
         Assert.Equal(predecessor.FamilyId, store.RevokedFamily);
-        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.FamilyRevokedReuse && a.MerchantUserId == UserId);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.FamilyRevokedReuse && a.UserId == UserId);
         Assert.False(scope.IsBound);
     }
 

@@ -3,6 +3,8 @@
 # the pre/post-tool guard + task-gate hooks (single source: .ai/bin/check-*.sh, gate-task.sh),
 # and the browser-verify MCP server (single source: .claude/skills/spec-implement/references/browser-verify.md).
 
+approval_policy = "never"
+sandbox_mode = "workspace-write"
 [agents]
 max_threads = 6
 max_depth = 1
@@ -53,3 +55,6 @@ timeout = 120
 [mcp_servers.chrome-devtools]
 command = "npx"
 args = ["-y", "chrome-devtools-mcp@latest"]
+
+[sandbox_workspace_write]
+network_access = true

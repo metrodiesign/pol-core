@@ -61,10 +61,10 @@ public sealed class MerchantUserRoleHandlerTests
 
         await handler.Handle(new SetRolesCommand(target.Id, ["finance"], MerchantA, Actor), default);
 
-        var roleIds = roles.Assignments.Where(a => a.MerchantUserId == target.Id).Select(a => a.RoleId).ToHashSet();
+        var roleIds = roles.Assignments.Where(a => a.UserId == target.Id).Select(a => a.RoleId).ToHashSet();
         Assert.Equal(new HashSet<Guid> { finance }, roleIds);
-        Assert.All(roles.Assignments.Where(a => a.MerchantUserId == target.Id), a => Assert.Equal(MerchantA, a.MerchantId));
-        Assert.All(roles.Assignments.Where(a => a.MerchantUserId == target.Id), a => Assert.Equal(Actor, a.AssignedById));
+        Assert.All(roles.Assignments.Where(a => a.UserId == target.Id), a => Assert.Equal(MerchantA, a.MerchantId));
+        Assert.All(roles.Assignments.Where(a => a.UserId == target.Id), a => Assert.Equal(Actor, a.AssignedById));
     }
 
     private static User Approved(Guid merchantId, FakeUsers users)
@@ -114,9 +114,9 @@ public sealed class MerchantUserRoleHandlerTests
             Task.FromResult<IReadOnlyDictionary<string, Guid>>(
                 _byCode.Where(kv => codes.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value));
         public Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.MerchantUserId == merchantUserId).Select(a => a.RoleId).ToHashSet());
+            Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.UserId == merchantUserId).Select(a => a.RoleId).ToHashSet());
         public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) =>
-            Task.FromResult(Assignments.FirstOrDefault(a => a.MerchantUserId == merchantUserId && a.RoleId == roleId));
+            Task.FromResult(Assignments.FirstOrDefault(a => a.UserId == merchantUserId && a.RoleId == roleId));
 
         // Unused by the handlers under test.
         public Task<IReadOnlyDictionary<string, Guid>> GetActiveRoleIdsByCodesAsync(

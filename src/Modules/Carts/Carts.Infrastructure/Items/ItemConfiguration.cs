@@ -23,10 +23,12 @@ public sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
 
         builder.Property(x => x.CartId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Cart (rls-to-query-filter REQ-6)
-        builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
+        builder.Property(x => x.ProductCode).HasMaxLength(150).IsRequired();
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false).IsRequired();
-        builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
+        builder.Property(x => x.VariantCode).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.VariantName).HasMaxLength(128);
         builder.Property(x => x.Quantity).IsRequired();
+        builder.Property(x => x.Metadata).HasColumnType("json");
 
         builder.ComplexProperty(x => x.UnitPrice, p =>
         {

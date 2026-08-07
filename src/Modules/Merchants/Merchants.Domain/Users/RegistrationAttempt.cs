@@ -5,14 +5,14 @@ namespace Merchants.Domain.Users;
 /// <summary>
 /// Append-only snapshot of ONE registration-form submission (registration-attempt-history REQ-1): what the
 /// applicant actually sent that time, frozen before the next resubmit overwrites the live <see cref="User"/>
-/// row. Bound to the user via <see cref="MerchantUserId"/>; <see cref="AttemptNo"/> is 1-based and unique per
+/// row. Bound to the user via <see cref="UserId"/>; <see cref="AttemptNo"/> is 1-based and unique per
 /// user (a race loses on the DB unique index → 409). <see cref="Email"/> is the verified ticket value of THAT
 /// attempt (REQ-1.2/A3), not the account's current email. The photo is a reference only (REQ-1.6) — the key
 /// may dangle if a later resubmit replaces the blob.
 /// </summary>
 public sealed class RegistrationAttempt : Entity<Guid>
 {
-    public Guid MerchantUserId { get; private set; }
+    public Guid UserId { get; private set; }
 
     public int AttemptNo { get; private set; }
 
@@ -22,9 +22,9 @@ public sealed class RegistrationAttempt : Entity<Guid>
 
     public string LastName { get; private set; } = default!;
 
-    public PersonType? PersonType { get; private set; }
+    public IdentityType? IdentityType { get; private set; }
 
-    public string? IdNumber { get; private set; }
+    public string? IdentityNumber { get; private set; }
 
     public string? SaleCode { get; private set; }
 
@@ -43,17 +43,17 @@ public sealed class RegistrationAttempt : Entity<Guid>
     private RegistrationAttempt() { }
 
     private RegistrationAttempt(Guid id, Guid merchantUserId, int attemptNo, TicketPurpose purpose,
-        string firstName, string lastName, PersonType? personType, string? idNumber, string? saleCode,
+        string firstName, string lastName, IdentityType? personType, string? idNumber, string? saleCode,
         string? licenseNumber, string? phone, string email, string? photoObjectKey, string? photoContentType,
         DateTime submittedAt) : base(id)
     {
-        MerchantUserId = merchantUserId;
+        UserId = merchantUserId;
         AttemptNo = attemptNo;
         Purpose = purpose;
         FirstName = firstName;
         LastName = lastName;
-        PersonType = personType;
-        IdNumber = idNumber;
+        IdentityType = personType;
+        IdentityNumber = idNumber;
         SaleCode = saleCode;
         LicenseNumber = licenseNumber;
         Phone = phone;
@@ -72,7 +72,7 @@ public sealed class RegistrationAttempt : Entity<Guid>
         ArgumentOutOfRangeException.ThrowIfLessThan(attemptNo, 1);
         ArgumentException.ThrowIfNullOrWhiteSpace(ticketEmail);
         return new RegistrationAttempt(Guid.NewGuid(), account.Id, attemptNo, purpose,
-            account.FirstName, account.LastName, account.PersonType, account.IdNumber, account.SaleCode,
+            account.FirstName, account.LastName, account.IdentityType, account.IdentityNumber, account.SaleCode,
             account.LicenseNumber, account.Phone, ticketEmail, account.PhotoObjectKey, account.PhotoContentType,
             submittedAt);
     }

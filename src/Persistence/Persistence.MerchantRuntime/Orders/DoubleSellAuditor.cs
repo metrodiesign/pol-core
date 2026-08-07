@@ -28,7 +28,7 @@ internal sealed class DoubleSellAuditor : IDoubleSellAuditor
     {
         var mine = await _db.OrderItems.IgnoreQueryFilters()
             .Where(item => item.OrderId == orderId)
-            .Select(item => new DocumentRow(item.DocumentNo, item.ProductGroup))
+            .Select(item => new DocumentRow(item.ProductCode, item.VariantCode))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -46,8 +46,8 @@ internal sealed class DoubleSellAuditor : IDoubleSellAuditor
             join order in _db.Orders.IgnoreQueryFilters() on item.OrderId equals order.Id
             where item.OrderId != orderId
                 && order.Status == OrderStatus.Paid
-                && documentNos.Contains(item.DocumentNo)
-            select new { item.DocumentNo, item.ProductGroup, OtherOrderId = order.Id })
+                && documentNos.Contains(item.ProductCode)
+            select new { DocumentNo = item.ProductCode, ProductGroup = item.VariantCode, OtherOrderId = order.Id })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

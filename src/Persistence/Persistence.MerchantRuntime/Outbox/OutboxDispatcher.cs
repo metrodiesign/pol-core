@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Orders.Application;
 
 namespace Persistence.MerchantRuntime.Outbox;
 
@@ -133,34 +134,31 @@ internal sealed class OutboxDispatcher : BackgroundService
             catch (Exception ex)
             {
                 message.MarkFailed(ex.Message);
-                _logger.LogError(ex, "Failed to publish outbox message {OutboxId} ({Type}).", message.Id, message.Type);
+                if (ex is PaymentReconciliationRequiredException)
+                {
+                    _logger.LogCritical(
+                        ex,
+                        "Payment outcome requires manual reconciliation. OutboxId={OutboxId}; EventType={EventType}.",
+                        message.Id,
+                        message.Type);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Failed to publish outbox message {OutboxId} ({Type}).", message.Id, message.Type);
+                }
             }
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 
-    // Maps the stored OutboxMessage.Type (the integration event's CLR simple name, written by
-    // EfOutbox) to its CLR type. A new event ships by adding one entry here — no reflection over
-    // assemblies, no growing switch. Ordinal keys: Type is a CLR identifier, never culture-sensitive.
-    private static readonly IReadOnlyDictionary<string, Type> EventTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
-    {
-        [nameof(PaymentPaid)] = typeof(PaymentPaid),
-        [nameof(CustomerOrderNotification)] = typeof(CustomerOrderNotification),
-        [nameof(CheckoutConfirmed)] = typeof(CheckoutConfirmed),
-        [nameof(MerchantUserRegistrationSubmitted)] = typeof(MerchantUserRegistrationSubmitted),
-    };
-
     private static async Task PublishAsync(IPublisher publisher, OutboxMessage message, CancellationToken cancellationToken)
     {
-        if (!EventTypes.TryGetValue(message.Type, out var eventType))
-            throw new InvalidOperationException($"No outbox publisher registered for type '{message.Type}'.");
-
-        var notification = JsonSerializer.Deserialize(message.Payload, eventType, OutboxSerializer.Options)
-            ?? throw new InvalidOperationException($"Outbox payload for {message.Id} deserialised to null.");
+        var notification = MerchantRuntimeOutboxEventRegistry.Deserialize(
+            message.Type, message.SchemaVersion, message.Payload);
 
         // Non-generic Publish dispatches on the runtime type, so the source-generated handler for the
-        // concrete event (PaymentPaid, CheckoutConfirmed, ...) is invoked — not a handler for object.
+        // concrete event (PaymentPaid, PaymentFailed, ...) is invoked — not a handler for object.
         await publisher.Publish(notification, cancellationToken).ConfigureAwait(false);
     }
 }

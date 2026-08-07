@@ -1,9 +1,11 @@
 using BuildingBlocks.Application;
 
+using Levels.Domain;
+
 namespace Levels.Application;
 
 /// <summary>A level row as the management endpoints render it.</summary>
-public sealed record LevelItem(Guid Id, string Code, string Name, bool IsActive);
+public sealed record LevelItem(Guid Id, string Code, string Name, LevelStatus Status);
 
 /// <summary>
 /// Runtime CRUD over the level master list. Simple control-plane reference data, so it deliberately
@@ -20,7 +22,7 @@ public interface ILevelStore
     Task<LevelItem> CreateAsync(string code, string name, CancellationToken cancellationToken);
 
     /// <summary>Renames + toggles active on an existing level. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<LevelItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken);
+    Task<LevelItem> UpdateAsync(Guid id, string name, LevelStatus status, CancellationToken cancellationToken);
 
     /// <summary>Reads a single level by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<LevelItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);

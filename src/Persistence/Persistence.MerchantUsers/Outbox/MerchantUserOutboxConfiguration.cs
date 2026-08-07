@@ -18,7 +18,7 @@ internal sealed class MerchantUserOutboxConfiguration(MerchantUserDbContext cont
         builder.HasKey(x => x.Id);
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.Type).HasMaxLength(256).IsRequired();
-        builder.Property(x => x.Payload).IsRequired();
+        builder.Property(x => x.Payload).HasColumnType("json").IsRequired();
         builder.Property(x => x.LeaseOwner).HasMaxLength(256);
         builder.Property(x => x.Error).HasMaxLength(2048);
 

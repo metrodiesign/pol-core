@@ -38,7 +38,7 @@ public sealed class WriteFloorTests : IDisposable
             NoOpSecurityTelemetry.Instance);
 
     private static Carts.Domain.Cart NewCart(Guid merchantId) =>
-        new(Guid.NewGuid(), merchantId, DateTime.UtcNow);
+        new(Guid.NewGuid(), merchantId, "77001", DateTime.UtcNow);
 
     [Fact]
     public async Task Forged_detached_write_is_closed_by_the_concurrency_token()

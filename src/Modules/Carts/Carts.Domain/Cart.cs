@@ -14,6 +14,7 @@ public sealed class Cart : AggregateRoot<Guid>
     private readonly List<Item> _items = [];
 
     public Guid MerchantId { get; private set; }
+    public string? SaleCode { get; private set; }
     public CartStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
 
@@ -32,41 +33,53 @@ public sealed class Cart : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Cart() { }
 
-    public Cart(Guid id, Guid merchantId, DateTime createdAt)
+    public Cart(Guid id, Guid merchantId, string? saleCode, DateTime createdAt)
         : base(id)
     {
+        if (saleCode?.Trim().Length > 20)
+            throw new ArgumentException("Sale code must be at most 20 characters.", nameof(saleCode));
         MerchantId = merchantId;
+        SaleCode = string.IsNullOrWhiteSpace(saleCode) ? null : saleCode.Trim();
         Status = CartStatus.Open;
         CreatedAt = createdAt;
     }
 
     /// <summary>
-    /// Adds <paramref name="quantity"/> of the insurance document <paramref name="documentNo"/> at
+    /// Adds <paramref name="quantity"/> of <paramref name="productCode"/> at
     /// <paramref name="unitPrice"/>. All lines must share one currency, so a mismatch is rejected.
     /// A document already in this cart is REJECTED rather than merged (products-external-source-of-truth
     /// REQ-9.4): one insurance document is sold once, so a second line for it could only ever fail later —
     /// at checkout, after the merchant had filled in a second insured person for it.
     /// </summary>
-    public void AddItem(string documentNo, string saleCode, string productGroup, int quantity, Money unitPrice)
+    public void AddItem(
+        string productCode,
+        string saleCode,
+        string variantCode,
+        string? variantName,
+        int quantity,
+        Money unitPrice,
+        CommerceItemMetadata metadata)
     {
         if (Status != CartStatus.Open)
             throw new InvalidOperationException("Cannot modify a cart that is not open.");
         if (quantity <= 0)
             throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity must be positive.");
-        ArgumentException.ThrowIfNullOrWhiteSpace(documentNo, nameof(documentNo));
+        ArgumentException.ThrowIfNullOrWhiteSpace(productCode, nameof(productCode));
+        ArgumentNullException.ThrowIfNull(metadata);
 
         // REQ-2.3 is the equality rule everywhere: trimmed, case ignored. Ordinal here is the C# fast-path
         // that must never be LOOSER than the column collation decides — inside one cart there is no SQL
         // comparison to disagree with, so the strict form is also the safe one.
-        var wanted = documentNo.Trim();
-        if (_items.Exists(i => string.Equals(i.DocumentNo, wanted, StringComparison.OrdinalIgnoreCase)))
-            throw new ArgumentException("The document is already in this cart.", nameof(documentNo));
+        var wanted = productCode.Trim();
+        if (_items.Exists(i => string.Equals(i.ProductCode, wanted, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("The product is already in this cart.", nameof(productCode));
 
+        var item = new Item(
+            Guid.CreateVersion7(), Id, MerchantId, wanted, saleCode, variantCode, variantName,
+            quantity, unitPrice, metadata);
         EnsureCurrencyMatches(unitPrice);
         Version++;
-
-        _items.Add(new Item(
-            Guid.CreateVersion7(), Id, MerchantId, wanted, saleCode, productGroup, quantity, unitPrice));
+        _items.Add(item);
     }
 
     /// <summary>Removes the line <paramref name="itemId"/>. Returns false when the cart has no such line,
@@ -111,22 +124,11 @@ public sealed class Cart : AggregateRoot<Guid>
         _items.Clear();
     }
 
-    /// <summary>Freezes the cart so it can no longer be edited. Bumps <see cref="Version"/> so an item
-    /// edit that loaded the cart before the freeze landed is rejected at its own commit.</summary>
+    /// <summary>Marks Cart consumed by direct Order creation. Bumps <see cref="Version"/> so a concurrent
+    /// edit loaded before the transaction commits is rejected.</summary>
     public void MarkCheckedOut()
     {
         Status = CartStatus.CheckedOut;
-        Version++;
-    }
-
-    /// <summary>Unfreezes a cart whose checkout was abandoned, so the merchant can edit it and check out
-    /// again (REQ-2.5). An already-open cart is a no-op, which is what makes abandoning twice safe (REQ-2.9).</summary>
-    public void Reopen()
-    {
-        if (Status == CartStatus.Open)
-            return;
-
-        Status = CartStatus.Open;
         Version++;
     }
 

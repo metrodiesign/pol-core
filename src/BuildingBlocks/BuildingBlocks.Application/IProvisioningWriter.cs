@@ -33,8 +33,8 @@ public interface IProvisioningWriter
 /// already treats a secret payload as opaque.</summary>
 public sealed record ProvisionSpec(
     string MerchantCode,
-    string DisplayName,
-    string LegalEntityId,
+    string Name,
+    string? Note,
     string Country,
     string Currency,
     IReadOnlyList<string>? EnabledChannels,

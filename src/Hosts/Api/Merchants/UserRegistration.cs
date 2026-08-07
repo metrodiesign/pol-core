@@ -13,7 +13,7 @@ using Microsoft.Extensions.Options;
 namespace Api.Merchants;
 
 /// <summary>The 201 body for a submitted registration.</summary>
-public sealed record UserRegisterResponse(Guid MerchantUserId, string Status);
+public sealed record UserRegisterResponse(Guid UserId, string Status);
 
 /// <summary>Maps the posted multipart fields onto a <see cref="RegistrationForm"/> (REQ-7.1). Identity fields are
 /// NOT read here — they come only from the verified ticket (REQ-4.2). Blank fields normalise to null (empty string
@@ -24,8 +24,8 @@ internal static class UserRegistrationForm
     public static RegistrationForm From(IFormCollection form) => new(
         FirstName: Value(form, "firstName") ?? string.Empty,
         LastName: Value(form, "lastName") ?? string.Empty,
-        PersonType: ParsePersonType(Value(form, "personType")),
-        IdNumber: Value(form, "idNumber"),
+        IdentityType: ParsePersonType(Value(form, "personType")),
+        IdentityNumber: Value(form, "idNumber"),
         SaleCode: Value(form, "saleCode"),
         LicenseNumber: Value(form, "licenseNumber"),
         Phone: Value(form, "phone"));
@@ -36,8 +36,8 @@ internal static class UserRegistrationForm
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static PersonType? ParsePersonType(string? value) =>
-        Enum.TryParse<PersonType>(value, ignoreCase: true, out var personType) ? personType : null;
+    private static IdentityType? ParsePersonType(string? value) =>
+        Enum.TryParse<IdentityType>(value, ignoreCase: true, out var personType) ? personType : null;
 }
 
 /// <summary>Merchant-user registration tuning (REQ-3.2/7.4). TTL default 10 min, photo cap default 2 MB.</summary>
@@ -60,7 +60,12 @@ public sealed class UserRegistrationOptions
 /// signed+time-limited token is self-contained (no server-side row); replay/duplicate safety is the account's unique
 /// (Subject) index at submit time. <c>Provider</c> is the issuing IdP slug ("google"/"microsoft").</summary>
 public sealed record UserTicketPayload(
-    string Subject, string Email, string? HostedDomain, TicketPurpose Purpose, string Provider = ExternalLogin.Google);
+    string Subject,
+    string Email,
+    string? HostedDomain,
+    TicketPurpose Purpose,
+    string Provider = ExternalLogin.Google,
+    Guid OperationId = default);
 
 /// <summary>
 /// Signs+encrypts the registration/correction wire ticket with ASP.NET Core Data Protection under a purpose string
@@ -80,8 +85,12 @@ internal sealed class UserRegistrationTickets
     }
 
     /// <summary>Issues a signed+encrypted wire ticket valid for the configured TTL (used by the callback, Task 5).</summary>
-    public string Protect(UserTicketPayload payload) =>
-        _protector.Protect(JsonSerializer.Serialize(payload), _ttl);
+    public string Protect(UserTicketPayload payload)
+    {
+        if (payload.OperationId == Guid.Empty)
+            throw new ArgumentException("Registration operation id is required.", nameof(payload));
+        return _protector.Protect(JsonSerializer.Serialize(payload), _ttl);
+    }
 
     /// <summary>Verifies + decodes a wire ticket. Returns false on tamper or expiry (the wire-level guard); replay
     /// safety is the account's unique (Subject) index at submit time (REQ-4.6).</summary>
@@ -95,7 +104,8 @@ internal sealed class UserRegistrationTickets
             var json = _protector.Unprotect(token);
             var decoded = JsonSerializer.Deserialize<UserTicketPayload>(json);
             if (decoded is null ||
-                string.IsNullOrWhiteSpace(decoded.Subject) || string.IsNullOrWhiteSpace(decoded.Email))
+                string.IsNullOrWhiteSpace(decoded.Subject) || string.IsNullOrWhiteSpace(decoded.Email) ||
+                decoded.OperationId == Guid.Empty)
                 return false;
             payload = decoded;
             return true;

@@ -18,7 +18,7 @@ namespace Merchants.Application.Users;
 /// allow that merchant, same floor the approve endpoint enforces; out of scope reads as 404 (no existence
 /// leak). Pending/Rejected targets carry no merchant yet and stay unrestricted. Threaded as primitives
 /// (<see cref="IsUnrestrictedAdmin"/>/<see cref="AccessibleMerchantIds"/>) exactly like the
-/// <c>merchants.policies</c> queries — this module cannot reference the Admins-plane scope type.
+/// other cross-merchant queries — this module cannot reference the Admins-plane scope type.
 /// </para>
 /// </summary>
 public sealed record GetRegistrationHistoryQuery(
@@ -31,11 +31,11 @@ public sealed record RegistrationHistoryResult(
     IReadOnlyList<AttemptView> Attempts, IReadOnlyList<TimelineEntry> Timeline);
 
 /// <summary>One captured submission. First/last name are always full (REQ-3.3 — the admin must identify the
-/// applicant); IdNumber/LicenseNumber/Phone/Email are masked unless the request revealed.</summary>
+/// applicant); IdentityNumber/LicenseNumber/Phone/Email are masked unless the request revealed.</summary>
 public sealed record AttemptView(
     int AttemptNo, TicketPurpose Purpose, DateTime SubmittedAt,
-    string FirstName, string LastName, PersonType? PersonType,
-    string? IdNumber, string? SaleCode, string? LicenseNumber, string? Phone,
+    string FirstName, string LastName, IdentityType? IdentityType,
+    string? IdentityNumber, string? SaleCode, string? LicenseNumber, string? Phone,
     string Email, string? PhotoObjectKey, string? PhotoContentType);
 
 public sealed record TimelineEntry(
@@ -81,7 +81,7 @@ public sealed class GetRegistrationHistoryHandler
             && !query.IsUnrestrictedAdmin && !query.AccessibleMerchantIds.Contains(boundMerchant))
             return null;
 
-        var attempts = await _history.ListAttemptsAsync(account.MerchantUserId, cancellationToken).ConfigureAwait(false);
+        var attempts = await _history.ListAttemptsAsync(account.UserId, cancellationToken).ConfigureAwait(false);
         var audits = await _history.ListAuditsAsync(query.Subject, cancellationToken).ConfigureAwait(false);
 
         if (query.Reveal)
@@ -97,8 +97,8 @@ public sealed class GetRegistrationHistoryHandler
 
         var attemptViews = attempts.Select(a => new AttemptView(
             a.AttemptNo, a.Purpose, a.SubmittedAt,
-            a.FirstName, a.LastName, a.PersonType,
-            query.Reveal ? a.IdNumber : PiiMask.Last4(a.IdNumber),
+            a.FirstName, a.LastName, a.IdentityType,
+            query.Reveal ? a.IdentityNumber : PiiMask.Last4(a.IdentityNumber),
             a.SaleCode,
             query.Reveal ? a.LicenseNumber : PiiMask.Last4(a.LicenseNumber),
             query.Reveal ? a.Phone : PiiMask.Last4(a.Phone),

@@ -15,7 +15,7 @@ namespace Merchants.Application.Users;
 /// denies (REQ-12.4). Runs under the keyed pol_admin (control-plane) connection — merchant-user account tables
 /// are control-plane (no merchant predicate, like Admin). The write path (approval) runs only at the admin endpoint, never here.
 /// </summary>
-public sealed record ResolveByIdQuery(Guid MerchantUserId) : IQuery<ByIdResult>;
+public sealed record ResolveByIdQuery(Guid UserId) : IQuery<ByIdResult>;
 
 public enum ByIdOutcome { Resolved, NotActive, NotFound }
 
@@ -42,7 +42,7 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
 
     public async ValueTask<ByIdResult> Handle(ResolveByIdQuery query, CancellationToken cancellationToken)
     {
-        var account = await _accounts.FindByIdAsync(query.MerchantUserId, cancellationToken);
+        var account = await _accounts.FindByIdAsync(query.UserId, cancellationToken);
         if (account is null)
             return ByIdResult.NotFound;
         // Only an Active account with MerchantId set gets a live request; a suspend/reject denies the NEXT request
@@ -51,9 +51,9 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
             return ByIdResult.NotActive;
         if (account.MerchantId is not { } merchantId)
             return ByIdResult.NotActive;
-        var permissions = await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken);
+        var permissions = await _roles.ListEffectivePermissionsAsync(account.UserId, merchantId, cancellationToken);
         return ByIdResult.Of(
-            new Resolution(account.MerchantUserId, account.Email, merchantId, permissions, account.SaleCode),
+            new Resolution(account.UserId, account.Email, merchantId, permissions, account.SaleCode),
             account.Subject);
     }
 }

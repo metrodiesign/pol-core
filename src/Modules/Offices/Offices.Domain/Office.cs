@@ -17,7 +17,7 @@ public sealed class Office : AggregateRoot<Guid>
 
     public string Code { get; private set; } = default!;
     public string Name { get; private set; } = default!;
-    public bool IsActive { get; private set; }
+    public OfficeStatus Status { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Office() { }
@@ -31,7 +31,7 @@ public sealed class Office : AggregateRoot<Guid>
             throw new ArgumentException("Code must match ^[a-z0-9_]+$.", nameof(code));
         Code = code;
         Name = name.Trim();
-        IsActive = true;
+        Status = OfficeStatus.Active;
     }
 
     public static Office Create(string code, string name) => new(Guid.NewGuid(), code, name);
@@ -43,6 +43,6 @@ public sealed class Office : AggregateRoot<Guid>
         Name = name.Trim();
     }
 
-    public void Activate() => IsActive = true;
-    public void Deactivate() => IsActive = false;
+    public void Activate() => Status = OfficeStatus.Active;
+    public void Deactivate() => Status = OfficeStatus.Inactive;
 }

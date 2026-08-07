@@ -41,9 +41,6 @@
     <ProjectReference Include="..\..\src\Modules\Carts\Carts.Domain\Carts.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Carts\Carts.Application\Carts.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Carts\Carts.Infrastructure\Carts.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Checkouts\Checkouts.Domain\Checkouts.Domain.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Checkouts\Checkouts.Application\Checkouts.Application.csproj" />
-    <ProjectReference Include="..\..\src\Modules\Checkouts\Checkouts.Infrastructure\Checkouts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\Orders.Domain\Orders.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\Orders.Application\Orders.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Orders\Orders.Infrastructure\Orders.Infrastructure.csproj" />

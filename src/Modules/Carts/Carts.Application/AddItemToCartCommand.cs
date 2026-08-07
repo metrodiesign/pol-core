@@ -4,15 +4,14 @@ using SharedKernel;
 
 namespace Carts.Application;
 
-/// <summary>Adds one insurance-document line to an open cart. Every value here comes from the row the
-/// upstream returned for this request — the document number, its sale code, its group, and the price minted
-/// from its <c>TotalPremium</c> — never from the request body (products-external-source-of-truth
-/// REQ-4.1/4.2/4.7).</summary>
+/// <summary>Adds one server-resolved insurance product line to an open cart.</summary>
 public sealed record AddItemToCartCommand(
     Guid CartId,
     Guid MerchantId,
-    string DocumentNo,
+    string ProductCode,
     string SaleCode,
-    string ProductGroup,
+    string VariantCode,
+    string? VariantName,
     int Quantity,
-    Money UnitPrice) : ICommand<AddItemResult>, IMerchantScoped;
+    Money UnitPrice,
+    CommerceItemMetadata Metadata) : ICommand<AddItemResult>, IMerchantScoped;

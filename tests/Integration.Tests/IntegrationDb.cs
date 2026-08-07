@@ -108,8 +108,8 @@ internal static class IntegrationDb
     public static Task InsertMerchantAsync(SqlConnection c, Guid id, string code) =>
         ExecAsync(c,
             """
-            INSERT merch.Merchants (Id, Code, DisplayName, LegalEntityId, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
-            VALUES (@id, @code, N'probe', N'0105560000000', 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), N'{}');
+            INSERT merch.Merchants (Id, Code, Name, Note, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
+            VALUES (@id, @code, N'probe', NULL, 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), N'{}');
             """,
             ("@id", id), ("@code", code));
 
@@ -119,8 +119,8 @@ internal static class IntegrationDb
     public static Task InsertPlatformUserAsync(SqlConnection c, Guid id, string? subject, string email, int tier, int status) =>
         ExecAsync(c,
             """
-            INSERT admin.Users (Id, Subject, Email, Tier, Status, CreatedAt)
-            VALUES (@id, @sub, @email, @tier, @status, SYSUTCDATETIME());
+            INSERT admin.Users (Id, Subject, Email, Tier, Status, AuthorizationVersion, CreatedAt)
+            VALUES (@id, @sub, @email, @tier, @status, 0, SYSUTCDATETIME());
             """,
             ("@id", id), ("@sub", (object?)subject ?? DBNull.Value), ("@email", email), ("@tier", tier), ("@status", status));
 

@@ -2,13 +2,13 @@ using System.Text.Json;
 
 namespace Merchants.Application.GetMerchant;
 
-/// <summary>Admin read model for a provisioned merchant. <see cref="Metadata"/> is the verbatim non-secret
-/// config the admin submitted (branding/routing/session/...); secrets appear only as masked hints.</summary>
+/// <summary>Admin read model for a provisioned merchant. <see cref="Metadata"/> follows the closed non-secret
+/// config contract; secrets appear only as masked hints.</summary>
 public sealed record MerchantView(
     Guid Id,
     string Code,
-    string DisplayName,
-    string LegalEntityId,
+    string Name,
+    string? Note,
     string Status,
     string Country,
     string Currency,

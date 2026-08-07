@@ -12,6 +12,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.HasKey(x => x.Id);
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.Type).HasMaxLength(256).IsRequired();
+        builder.Property(x => x.SchemaVersion).HasMaxLength(16).IsUnicode(false).IsRequired();
         builder.Property(x => x.Payload).IsRequired();
         builder.Property(x => x.LeaseOwner).HasMaxLength(256);
         builder.Property(x => x.Error).HasMaxLength(2048);

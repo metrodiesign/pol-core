@@ -2,11 +2,9 @@ using SharedKernel;
 
 namespace Orders.Application;
 
-/// <summary>One line on the customer summary — insured person's name as-is, but
-/// <see cref="MaskedInsuredIdNumber"/> is ALREADY masked by the reader (no reveal audit on this surface,
-/// so nothing full-value ever leaves it), and <see cref="OrderSummaryLine"/> deliberately has NO
-/// date-of-birth field at all — this surface never serializes it (design.md Decision #3, locked).</summary>
-public sealed record OrderSummaryLine(string DocumentNo, string InsuredFirstName, string InsuredLastName, string MaskedInsuredIdNumber);
+/// <summary>Generic customer-summary line. Metadata is deliberately absent.</summary>
+public sealed record OrderSummaryLine(
+    string ProductCode, string VariantCode, string? VariantName, int Quantity, Money UnitPrice);
 
 /// <summary>Order summary resolved from the public, token-keyed link. <see cref="MerchantId"/> is here for
 /// ONE reason — the host binds the actor scope with it before any merchant-scoped work, exactly as the

@@ -28,10 +28,10 @@ internal sealed class FakePlatformUserRepository : IUserRepository
 
     public Task<IReadOnlySet<Guid>> ListAssignedMerchantIdsAsync(Guid adminAccountId, CancellationToken ct) =>
         Task.FromResult<IReadOnlySet<Guid>>(
-            Assignments.Where(a => a.PlatformUserId == adminAccountId).Select(a => a.MerchantId).ToHashSet());
+            Assignments.Where(a => a.AdminUserId == adminAccountId).Select(a => a.MerchantId).ToHashSet());
 
     public Task<MerchantAccess?> GetAssignmentAsync(Guid adminAccountId, Guid merchantId, CancellationToken ct) =>
-        Task.FromResult(Assignments.FirstOrDefault(a => a.PlatformUserId == adminAccountId && a.MerchantId == merchantId));
+        Task.FromResult(Assignments.FirstOrDefault(a => a.AdminUserId == adminAccountId && a.MerchantId == merchantId));
 
     // In-memory SFS stand-in: newest-first + id tiebreak, page-sliced (mirrors the real ordering contract, REQ-1.3).
     public Task<PagedResult<UserListItem>> ListAsync(PagedQuery query, CancellationToken ct)
@@ -71,7 +71,7 @@ internal sealed class FakePlatformUserSessionStore : ISessionStore
     public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
     public Task<IReadOnlyList<Session>> ListByAdminAsync(Guid adminAccountId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Session>>(
-            Sessions.Where(s => s.PlatformUserId == adminAccountId).OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id).ToList());
+            Sessions.Where(s => s.AdminUserId == adminAccountId).OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id).ToList());
     public Task<Session?> FindByIdAsync(Guid sessionId, CancellationToken ct) =>
         Task.FromResult(Sessions.FirstOrDefault(s => s.Id == sessionId));
 }
@@ -93,15 +93,15 @@ internal sealed class FakeAdminRoleRepository : IRoleRepository
             Roles.Where(r => r.Scope == Scope.Platform && r.MerchantId == null && codes.Contains(r.Code))
                 .ToDictionary(r => r.Code, r => r.Id));
     public Task<IReadOnlySet<Guid>> ListRoleIdsForAdminAsync(Guid adminId, CancellationToken ct) =>
-        Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.PlatformUserId == adminId).Select(a => a.RoleId).ToHashSet());
+        Task.FromResult<IReadOnlySet<Guid>>(Assignments.Where(a => a.AdminUserId == adminId).Select(a => a.RoleId).ToHashSet());
     public Task<RoleAssignment?> GetAssignmentAsync(Guid adminId, Guid roleId, CancellationToken ct) =>
-        Task.FromResult(Assignments.FirstOrDefault(a => a.PlatformUserId == adminId && a.RoleId == roleId));
+        Task.FromResult(Assignments.FirstOrDefault(a => a.AdminUserId == adminId && a.RoleId == roleId));
     public Task<bool> AssignmentExistsAsync(Guid adminId, Guid roleId, CancellationToken ct) =>
-        Task.FromResult(Assignments.Any(a => a.PlatformUserId == adminId && a.RoleId == roleId));
+        Task.FromResult(Assignments.Any(a => a.AdminUserId == adminId && a.RoleId == roleId));
 
     public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid adminId, CancellationToken ct)
     {
-        var activeRoleIds = Assignments.Where(a => a.PlatformUserId == adminId).Select(a => a.RoleId).ToHashSet();
+        var activeRoleIds = Assignments.Where(a => a.AdminUserId == adminId).Select(a => a.RoleId).ToHashSet();
         var keys = Roles.Where(r => activeRoleIds.Contains(r.Id) && r.Status == RoleStatus.Active)
             .SelectMany(r => r.PermissionKeys)
             .ToHashSet(StringComparer.Ordinal);
@@ -110,7 +110,7 @@ internal sealed class FakeAdminRoleRepository : IRoleRepository
 
     public Task<IReadOnlyList<string>> ListRoleCodesForAdminAsync(Guid adminId, CancellationToken ct)
     {
-        var roleIds = Assignments.Where(a => a.PlatformUserId == adminId).Select(a => a.RoleId).ToHashSet();
+        var roleIds = Assignments.Where(a => a.AdminUserId == adminId).Select(a => a.RoleId).ToHashSet();
         var codes = Roles.Where(r => roleIds.Contains(r.Id)).Select(r => r.Code).OrderBy(c => c).ToList();
         return Task.FromResult<IReadOnlyList<string>>(codes);
     }

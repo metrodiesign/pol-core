@@ -40,9 +40,9 @@ public sealed class GetMerchantHandler : IQueryHandler<GetMerchantQuery, Merchan
             })
             .ToList();
 
-        return new MerchantView(merchant.Id, merchant.Code, merchant.DisplayName, merchant.LegalEntityId,
+        return new MerchantView(merchant.Id, merchant.Code, merchant.Name, merchant.Note,
             merchant.Status.ToString(), merchant.Country, merchant.Currency, merchant.EnabledChannels,
-            ParseJson(merchant.Metadata), merchant.CreatedAt, connectionViews);
+            MerchantMetadataCodec.ToJsonElement(merchant.Metadata), merchant.CreatedAt, connectionViews);
     }
 
     /// <summary>Projects the connection's stored metadata for read-back (REQ-9.1): the non-secret config +
@@ -75,13 +75,4 @@ public sealed class GetMerchantHandler : IQueryHandler<GetMerchantQuery, Merchan
         return (merchantId, config, masked);
     }
 
-    /// <summary>Parses verbatim-stored JSON (the merchant Metadata blob) into a detached element, or null.</summary>
-    private static JsonElement? ParseJson(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw))
-            return null;
-
-        using var doc = JsonDocument.Parse(raw);
-        return doc.RootElement.Clone();
-    }
 }

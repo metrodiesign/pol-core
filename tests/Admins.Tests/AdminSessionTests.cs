@@ -33,7 +33,7 @@ public sealed class PlatformUserSessionTests
         Assert.Equal(SessionStatus.Active, s.Status);
         Assert.NotEqual(Guid.Empty, s.Id);
         Assert.NotEqual(Guid.Empty, s.FamilyId);
-        Assert.Equal(AdminId, s.PlatformUserId);
+        Assert.Equal(AdminId, s.AdminUserId);
         Assert.Equal(Now, s.IssuedAt);
         Assert.Equal(Now.AddMinutes(30), s.IdleExpiresAt);
         Assert.Equal(Now.AddHours(8), s.AbsoluteExpiresAt);
@@ -107,7 +107,7 @@ public sealed class PlatformUserSessionTests
         // A denied auth attempt (state mismatch / not-allowlisted) has no admin id — allowed here (REQ-12.4),
         // unlike Audit which forbids an empty actor.
         var denied = AuthAudit.For(AuthEventType.AuthDenied, "corr-1", Now, reason: "state-mismatch");
-        Assert.Null(denied.PlatformUserId);
+        Assert.Null(denied.AdminUserId);
         Assert.Equal("state-mismatch", denied.Reason);
 
         Assert.Throws<ArgumentException>(() => AuthAudit.For("", "corr-1", Now));

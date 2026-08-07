@@ -1,408 +1,168 @@
-# Runbook: deploy self-host (Docker / on-prem)
+# Self-host Deployment Runbook
 
-ยกระบบ pol-core แบบ **2 tier**: **App tier** (`docker-compose.prod.yml`, host เดียว, รัน API host เดียว —
-Worker's outbox dispatcher/session-pruner เดิม merge เข้า Api ไปแล้ว ไม่มี container Worker แยกอีกต่อไป) +
-**DB tier** (bare-VM SQL Server 2025 Standard, **ไม่ใช่ Docker**, host แยกต่างหาก จัดเตรียม/ดูแลโดย
-infra/DBA — ดู prerequisites ข้อ 0). App tier ต่อ DB tier ข้าม network จริงผ่าน TCP 1433 + TLS certificate
-validation จริง (ไม่มี trust-any-certificate อีกแล้ว). API เดียวเสิร์ฟทั้ง 2 browser SPA (pol-tenant,
-pol-admin). secret ฉีดตอน deploy ผ่าน file mount (ไม่ commit). ใช้สำหรับ staging/prod ขนาดเล็ก-กลาง.
+> Current runbook for merchant-commerce ERD reset. Production deploy must pass staging and release assembly gate.
 
-ข้อกำหนด rule: prod deploy ต้องผ่าน staging ก่อน; ทุก release ต้องมี rollback plan + tag + changelog;
-DB migration ต้องมี backup ก่อนรันบน prod; ห้าม deploy ศุกร์เย็น/ก่อนวันหยุดยาว (ยกเว้น hotfix).
+## 1. Non-negotiable gates
 
-## สิ่งที่ scaffold นี้ครอบ vs ไม่ครอบ
+- Deploy staging before production.
+- Release from immutable tag `vX.Y.Z` with `CHANGELOG.md`.
+- CI build, tests, integration, secret scan and spec trace must pass.
+- SQL Server must be 2025 build `17.0.4045.5` or newer; database compatibility level 170.
+- Fresh baseline accepts empty target only. Existing tables, objects or migration history fail before DDL.
+- Production reset requires human approval, exact target, verified backup URI/checksum and rollback evidence.
+- Never deploy production Friday evening or before long holiday except approved emergency hotfix.
+- Never run migration `Down` in production. Production rollback restores verified backup.
 
-ครอบ: build image App tier (**1 host — API, non-root, /health/ready**, Worker's outbox dispatchers merge
-เข้าตัวเดียวกันแล้ว), migrate one-shot (bootstrap principals + EF migrations ต่อ DB tier ระยะไกล, bounded
-retry รอ DB tier reachable ก่อน timeout), file-secret injection (DB principal password + vault master key +
-DB tier CA cert), healthcheck + restart.
+## 2. Required infrastructure
 
-ไม่ครอบ (ceiling — ต้องเสริมเอง หรือเป็นของ infra/DBA): TLS termination / reverse proxy (nginx/caddy + cert)
-หน้า API; **การ provision/ออก certificate/เปิด firewall ACL ของ DB tier เอง** (infra/DBA เป็นคนทำ, นอกสโคป
-compose นี้); **HA ของ DB tier (SQL replica/Availability Group) หรือ Edge/DMZ load-balancer failover — ยัง
-ไม่ implement ในสโคปนี้ ยอมรับเป็น ceiling ที่ยังค้างอยู่โดยตั้งใจ** (มี DB tier server เดียว, App tier server
-เดียว ไม่มี replica); secret manager จริง (Vault/SOPS) แทน file ใน ./secrets/; log shipping.
+Three SQL Server tiers:
 
-## 0. Prerequisites
+| Tier | Database | Runtime principal |
+|---|---|---|
+| Core | `VCentralPay` | `pol_app` |
+| Motor source simulation | `hippodb` | `hippo_app` |
+| Non-Motor source simulation | `mammothdb` | `mammoth_app` |
 
-- Docker + Docker Compose v2 บน App tier host
-- clone repo บน App tier host (compose build จาก source; migrate รัน EF จาก source ด้วย)
-- host เปิด port ตาม `.env` (default API 5100; container ฟัง http 8080 ข้างใน) หรือวางหลัง reverse proxy
-- **DB tier (Server 1) ต้อง provision เสร็จแล้วโดย infra/DBA ก่อน**: SQL Server 2025 Standard บน bare VM
-  (ไม่ใช่ Docker), เปิด TCP 1433 ผ่าน firewall ACL ให้ App tier host เข้าถึงได้, มี login `sa` (หรือ
-  sysadmin-capable login เทียบเท่า) ใช้ bootstrap/migrate ได้จริง — ถ้า DB tier เป็น hardened install ที่
-  ปิด/rename `sa` ต้องคุยกับ infra/DBA ก่อน first deploy (ไม่ใช่เรื่องที่ runbook นี้แก้ให้ได้)
-- รู้ hostname/IP + port ของ DB tier (`DB_SERVER`/`DB_PORT`) และถ้าจะ pin certificate เอง ต้องมีไฟล์
-  CA/server cert ของ DB tier พร้อมแล้ว (ไม่บังคับ — ดูข้อ 1)
+Production hosts should use managed/external SQL tiers. Compose DB services are local/integration only. Image reference is
+pinned to SQL Server 2025 CU5 plus immutable digest in compose and CI.
 
-## 1. Config + secrets
+Create local secret files under `./secrets/` with mode `0600`. Never commit them. Required production files include
+runtime DB passwords, OIDC client secrets, PSP credentials where configured and vault keyring files. `.env` and
+`.env.*` remain gitignored; only `.env.example` is committed.
 
-```bash
-cp .env.prod.example .env          # แก้ค่า non-secret + ตั้ง MSSQL_SA_PASSWORD (bootstrap-only)
-mkdir -p secrets                   # ./secrets/ ถูก gitignore แล้ว
+Vault uses file-backed keyring in production. Keep active key ID and historical decrypt keys available through rotation.
+Do not set legacy `Vault__MasterKeyBase64` together with keyring settings.
+
+## 3. Release evidence inputs
+
+Production migrator refuses DB access unless all values pass:
+
+```text
+DEPLOYMENT_ENVIRONMENT=Production
+RESET_TARGET=<DB_SERVER>:<DB_PORT>/VCentralPay
+RESET_APPROVED=true
+BACKUP_ARTIFACT_URI=<durable URI>
+BACKUP_SHA256=<64 hex characters>
+RESET_APPROVAL_EVIDENCE=<approval URI>
+ROLLBACK_EVIDENCE=<rollback/rehearsal URI>
 ```
 
-`.env` ต้องตั้งค่า DB tier ด้วย (REQ ของ multi-tier-deployment): `DB_SERVER`/`DB_PORT` = hostname/IP + port
-จริงของ DB tier (Server 1, infra/DBA จัดเตรียมตามข้อ 0) — ไม่ใช่ literal `sql` แบบเดิม, ไม่มี same-compose
-service ให้ต่อแล้ว. `DB_CA_CERTIFICATE_FILE` ไม่บังคับ: ตั้งเป็น `/run/secrets/db_ca_cert` เพื่อ pin
-certificate ของ DB tier เข้ากับ `Encrypt=Strict` (ปล่อยว่างถ้า cert ของ DB tier chain ไป public CA อยู่แล้ว
-— fallback เป็น `Encrypt=True;TrustServerCertificate=False` ต่อ OS trust store อัตโนมัติ, **ไม่มี env var ไหน
-ทำให้ trust flag กลายเป็นค่า "ยอมรับทุก certificate" ได้**).
+`RESET_TARGET` must exactly match configured `DB_SERVER`, `DB_PORT` and `DB_NAME=VCentralPay`. Evidence URI points to
+immutable ticket/artifact record; do not put secrets in URI. Backup checksum must be calculated after backup completes,
+stored beside release evidence and verified before staging rehearsal and production approval.
 
-`.env` ต้องตั้ง (required — API ไม่ start ถ้าไม่มี): `MERCHANT_USER_FRONTEND_ORIGIN` + `ADMIN_FRONTEND_ORIGIN`
-= origin ของ 2 SPA (CORS allowlist, scheme+host+port ไม่มี trailing slash). ทั้ง merchant-user และ admin เป็น
-server-side OIDC BFF คนละ **confidential** Google OAuth client (type **Web application**), คนละ scheme/cookie/
-callback เต็ม — ไม่ใช่ id-token bearer แบบเดิมอีกแล้ว:
-
-- `MERCHANT_USER_OIDC_CLIENT_ID` = client ของ merchant-user SPA; client **secret** ใส่เป็น secret file
-  (`merchant_user_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. Authorized redirect URI ที่ Google client นั้น =
-  `https://<api-host>/api/v1/merchants/auth/google/callback`.
-- `ADMIN_OIDC_CLIENT_ID` = client ของ admin console; client **secret** ใส่เป็น secret file
-  (`admin_oidc_client_secret`) ด้านล่าง ไม่ใช่ env. Authorized redirect URI ที่ Google client นั้น =
-  `https://<api-host>/api/v1/admins/auth/google/callback`.
-
-OIDC เป็น provider-scoped ทั้งสองฝั่งแล้ว (`multi-provider-oidc`) — Google เป็น provider บังคับ (operator var
-ด้านบนไม่เปลี่ยนชื่อ) ส่วน **Microsoft Entra ID เป็น provider เสริม** (opt-in) ซึ่ง `docker-compose.prod.yml`
-wire ให้แล้ว: เปิดใช้โดยตั้งใน `.env` — `ADMIN_ENTRA_CLIENT_ID` + `ADMIN_ENTRA_TENANT_ID` (admin เป็น
-single-tenant; compose ประกอบ `AdminAuth__Providers__Microsoft__Authority` จาก tenant id ให้เอง) และ/หรือ
-`MERCHANT_ENTRA_CLIENT_ID` (merchant-user ใช้ authority `/organizations` จาก appsettings.json) — แล้วใส่
-client secret จริงลง secret file `admin_entra_client_secret` / `merchant_entra_client_secret` ด้านล่าง
-(`docker/entrypoint.sh` map เป็น `AdminAuth__Providers__Microsoft__ClientSecret` /
-`MerchantAuth__Providers__Microsoft__ClientSecret` เอง). เว้น `*_ENTRA_CLIENT_ID` ว่าง = ปิด Microsoft login
-(scheme ถูก skip, boot Google-only ปกติ) แต่**ไฟล์ secret ทั้งสองต้องมีอยู่เสมอ**เป็น placeholder เปล่า —
-กติกาเดียวกับ `db_ca_cert` (compose บังคับ path); deploy ที่มีอยู่แล้ว หลัง pull ต้องสร้าง 2 ไฟล์นี้ก่อน `up`
-ไม่งั้น compose fail.
-redirect URI ของ Entra client = `https://<api-host>/api/v1/admins/auth/microsoft/callback` (admin) /
-`https://<api-host>/api/v1/merchants/auth/microsoft/callback` (merchant-user) — ต้องสร้าง app registration
-คนละตัวต่อฝั่ง (admin single-tenant, merchant-user multi-tenant) และเพิ่ม optional claim `email` ที่ id_token
-(Entra ไม่ส่ง `email`/`email_verified` โดย default).
-
-Non-secret PSP operational config (`Payments.Infrastructure/Psp/PspOptions.cs`):
-
-- `PSP_PUBLIC_BASE_URL` — **required, fail-fast**: public origin ของ API ตัวนี้ (เช่น
-  `https://api.example.com`, ไม่ต้องมี `/` ปิดท้าย). backend-notification URL ที่ส่งให้ PSP ถูกประกอบจากค่านี้
-  **ต่อ connection** เป็น `{PSP_PUBLIC_BASE_URL}/api/v1/webhooks/{pspConnectionId}` โดย `{pspConnectionId}` =
-  `Id` ของแถวใน `txn.PspConnections` ของคู่ merchant+PSP นั้น (มาจาก DB ตอน charge ไม่ใช่จาก config).
-  ค่าว่างหรือไม่ใช่ absolute URI -> host **ไม่ boot** นอก Development (`ProvisioningGuards.
-  RequirePublicBaseUrl`) พร้อมข้อความที่ระบุชื่อ key. ต้องเป็น origin ที่ PSP เข้าถึงได้จากอินเทอร์เน็ตจริง
-  (ปลายทางเดียวกับที่ reverse proxy รับ `POST /api/v1/webhooks/...` เข้ามา ไม่ใช่ hostname ภายใน docker network).
-- `PSP_USE_SANDBOX` — default `true`; ตั้ง `false` เฉพาะตอนใช้ PSP credential จริง.
-- `PSP_TWOCTWOP_FRONTEND_RETURN_URL` — 2C2P ส่ง browser ลูกค้ากลับหลัง hosted page (UX เท่านั้น, ไม่ใช่
-  แหล่งความจริงของสถานะ). ยังเป็น global ทั้งแพลตฟอร์มโดยเจตนา — Merchant Console เป็นแอปเดียวที่ 3 บริษัทใช้ร่วมกัน.
-- `PSP_OMISE_RETURN_URI` — Omise ส่ง browser กลับหลัง hosted 3DS เท่านั้น (global เหมือนกัน ด้วยเหตุผลเดียวกัน).
-- **`PSP_TWOCTWOP_BACKEND_RETURN_URL` เลิกใช้แล้ว** (captive-payment-alignment REQ-4.2) — ถูกลบออกจาก
-  `PspOptions`/compose/`.env.prod.example`/CI ทั้งหมด. deploy ที่มีอยู่แล้วให้ **ลบบรรทัดนี้ออกจาก `.env`**
-  แล้วตั้ง `PSP_PUBLIC_BASE_URL` แทน (ค่าเดิมเป็น URL เดียวทั้ง deployment จึงถูกได้มากสุด 1 connection —
-  connection อื่นทั้งหมด webhook ไม่ถึง handler แล้ว order ค้าง `AwaitingPayment` ทั้งที่ลูกค้าจ่ายแล้ว).
-
-### ตั้ง webhook URL ต่อ connection ที่ฝั่ง PSP (ops step, ทำหลัง provision merchant)
-
-2C2P รับ `backendReturnUrl` มาใน request ของแต่ละ charge อยู่แล้ว (ระบบประกอบให้เอง จาก
-`PSP_PUBLIC_BASE_URL` + connection id) — **ไม่ต้องตั้งอะไรใน 2C2P dashboard**.
-
-**Omise/Opn ตั้ง webhook endpoint จาก dashboard ไม่ใช่ต่อ charge** ดังนั้นต้องตั้งด้วยมือ **ต่อ connection**:
-
-1. หา connection id: `SELECT Id, MerchantId, IsEnabled FROM txn.PspConnections WHERE Psp = 1;`
-   (`Psp` เก็บเป็น **int** ไม่ใช่ code string — `2c2p = 0`, `omise = 1` ตาม `Payments.Domain/Psp/Code.cs`;
-   ใส่ `'omise'` จะได้ `Conversion failed when converting the nvarchar value 'omise' to data type int`).
-   แถวถูกสร้างตอน provision merchant — ทำขั้นนี้ทุกครั้งที่ provision merchant ใหม่ที่ใช้ Omise.
-2. เข้า Omise dashboard ของ **บัญชี Omise ของบริษัทนั้น** (คนละบัญชีต่อบริษัท — คนละ secret key) ->
-   Settings -> Webhooks -> เพิ่ม endpoint `https://<api-host>/api/v1/webhooks/<Id ที่ได้จากข้อ 1>`.
-3. ยืนยันว่า id ที่ใส่ตรงกับ connection ของบริษัทนั้นจริง: ใส่ id ของบริษัทอื่นจะทำให้ webhook ถูก resolve
-   ไปผิด merchant แล้ว fetch-to-confirm ล้ม (secret ไม่ตรง) -> การจ่ายไม่ถูกยืนยัน.
-4. หลังปิด connection หรือ provision ใหม่ ให้ลบ/แก้ endpoint เดิมใน dashboard ด้วย — ระบบไม่ได้ (และไม่สามารถ)
-   ตั้งค่านี้ให้.
-
-สร้าง secret file (ทุกไฟล์ = บรรทัดเดียว; entrypoint อ่านด้วย $(cat) ตัด trailing newline ให้อยู่แล้ว):
+Run local validation:
 
 ```bash
-# DB principal password ของ VCentralPay (principal เดียวบน tier นี้ — pol_admin/pol_worker ถูกถอดทิ้งแล้วใน
-# rls-to-query-filter, ดู db-connection-and-rls.md) — ต้องผ่าน SQL complexity (CHECK_POLICY=ON):
-# >=8 ตัว, upper+lower+digit
-printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/pol_app_password
-
-# DB principal password ของ sim DB tier ทั้งสอง (sim-db-separate-logins) — hippodb ใช้ login `hippo_app`,
-# mammothdb ใช้ `mammoth_app` คนละค่ากันและคนละค่ากับ pol_app ข้างบน (upstream คนละเจ้า ไม่แชร์ credential
-# กับ core). `migrate` ใช้ค่าเหล่านี้ตอน bootstrap และ `api` ใช้ประกอบ SpDocument__* connection string:
-printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/hippo_app_password
-printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/mammoth_app_password
-
-# Vault master key — 32-byte AES key, base64 (PR4 keyring อ่านจาก KeyFile; active id = v1)
-head -c 32 /dev/urandom | base64 > secrets/vault_master_key
-
-# Merchant-user OIDC client secret — confidential client secret ของ merchant-user SPA (คู่กับ MERCHANT_USER_OIDC_CLIENT_ID).
-# ไม่ใช่ random: paste ค่าจริงจาก Google Cloud Console (OAuth 2.0 Client ของ merchant-user = Web application -> Client secret).
-printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/merchant_user_oidc_client_secret
-
-# Admin OIDC client secret — confidential client secret ของ admin console (คู่กับ ADMIN_OIDC_CLIENT_ID).
-# ไม่ใช่ random: paste ค่าจริงจาก Google Cloud Console (OAuth 2.0 Client ของ admin = Web application -> Client secret).
-printf '%s' 'GOCSPX-...paste-from-google-console...' > secrets/admin_oidc_client_secret
-
-# Entra client secrets (opt-in) — compose บังคับให้มีไฟล์เสมอ: ปิด Microsoft login = ไฟล์เปล่า placeholder,
-# เปิด = paste client secret จริงจาก Entra app registration ของฝั่งนั้น (Certificates & secrets -> Client secret).
-touch secrets/admin_entra_client_secret secrets/merchant_entra_client_secret
-
-# DB tier CA cert (pin optional) — compose mount ไฟล์นี้เสมอไม่ว่าจะ pin หรือไม่ (ต้องมีไฟล์อยู่จริง). ถ้า
-# DB tier ใช้ certificate ที่ chain ไป public CA อยู่แล้ว: ปล่อย DB_CA_CERTIFICATE_FILE ว่างใน .env แล้ว
-# เก็บไฟล์นี้เป็น placeholder เปล่า (ไม่ได้ถูกอ่านเลยเมื่อ env ว่าง). ถ้าจะ pin เอง: เอา CA/server cert ตัวจริง
-# ของ DB tier มาวาง (ต้องเป็น PEM — migrate ติดตั้งเข้า OS trust store ตอน start ด้วย
-# update-ca-certificates ซึ่งรับ PEM เท่านั้น) แล้วตั้ง DB_CA_CERTIFICATE_FILE=/run/secrets/db_ca_cert ใน .env.
-# api ใช้ไฟล์เดียวกันผ่าน connection string (ServerCertificate=...) ส่วน migrate ติดตั้งเข้า trust store
-# ตอน runtime — ไม่มีขั้นตอน build-time ใด ๆ (image ถูก build บน CI ที่ไม่มี cert นี้อยู่แล้ว).
-touch secrets/db_ca_cert   # หรือ: cp /path/to/db-tier-ca.pem secrets/db_ca_cert (ถ้าจะ pin)
-
-chmod 600 secrets/*
+scripts/check-release-evidence.sh
 ```
 
-เก็บ secret เหล่านี้ใน secret manager จริง (backup แยก) — ถ้า `vault_master_key` หาย = ถอด secret ใน vault
-ไม่ได้ทั้งหมด (ดู [[vault-key-rotation]] สำหรับการหมุน). อย่า commit ./secrets/.
+GitHub `Release assembly gate` asks for same values. Tagต้องมีหัวข้อ `## vX.Y.Z` ตรงกันใน `CHANGELOG.md`.
+`production-assembly` depends on successful `staging` job, exact protected `vars.RESET_TARGET` match และ protected
+production environment approval. Workflow validates evidence only; actual deploy remains separate approved action.
 
-## 1.1 หลัง reverse proxy + admin returnTo
+## 4. Staging reset rehearsal
 
-วาง API หลัง TLS-terminating reverse proxy (nginx/caddy): proxy เชื่อมจาก IP ใน docker/private network (ไม่ใช่
-loopback) → ต้อง trust proxy นั้น ไม่งั้น API เมิน `X-Forwarded-Host`/`-Proto` แล้ว OIDC `redirect_uri` กลายเป็น
-internal host (`http://...:8080`) → Google ตอบ `redirect_uri_mismatch`. ตั้งใน `.env` (ค่าว่าง = loopback only,
-พอสำหรับ proxy บน localhost host เดียวกัน):
+Use isolated staging DB. Never point rehearsal at production.
+
+1. Record target identity, owner, release tag and maintenance window.
+2. Create backup; record durable URI + SHA-256; verify restore readability.
+3. Record explicit reset approval.
+4. Stop application traffic and background dispatchers.
+5. DBA resets only approved staging `VCentralPay` target using organization procedure.
+6. Run bootstrap and three migrations: `InitialSchema -> SecurityObjects -> SeedData`.
+7. Run `docker/bootstrap/assert-fresh-db.sql`.
+8. Start API and run smoke path below.
+9. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.
+10. Attach logs, catalog assertion, smoke result and rollback timing to `STAGING_EVIDENCE_URI`.
+
+Required staging smoke:
+
+- `/health/live` and `/health/ready` healthy.
+- merchant-user authentication + CSRF works.
+- Products source query works.
+- Cart create/add/read/update/remove/clear works with `productCode`/`variantCode`.
+- `POST /api/v1/orders` returns `201`, `Location`, `Pending` and server-priced amount.
+- Cart becomes `CheckedOut`; repeated create is `409`.
+- Payment session/redirect/webhook confirms Order `Paid` once.
+- Failed/Expired retry and terminal cancel behavior match contract.
+- Retired Checkout/policy routes return `404`.
+- Cross-merchant read/write remains denied.
+
+Repository rehearsal evidence: `.ai/specs/merchant-commerce-erd-reset/STAGING-EVIDENCE.md`. Production approval needs
+fresh environment-specific evidence URI; repository evidence is not substitute.
+
+## 5. Deploy
+
+Render config before changing environment:
 
 ```bash
-# CIDR ของ network ที่ proxy เชื่อมมา (docker bridge subnet — ดู `docker network inspect <project>_default`)
-ForwardedHeaders__KnownNetworks__0=172.18.0.0/16
-# หรือ IP เดี่ยวของ proxy: ForwardedHeaders__KnownProxies__0=10.0.0.5
+docker compose -f docker-compose.prod.yml config
 ```
 
-admin returnTo: หลัง login backend redirect ไปได้เฉพาะ path ใน `AdminSession:ReturnUrlAllowlist` (committed
-default = `/` เท่านั้น). เพิ่ม route ปลายทาง login ที่ admin SPA ใช้จริง:
-
-```bash
-AdminSession__ReturnUrlAllowlist__0=/
-AdminSession__ReturnUrlAllowlist__1=/dashboard
-```
-
-## 2. First deploy
+Deploy approved immutable release:
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-ลำดับ: `migrate` (รอ DB tier reachable ผ่าน bounded retry -> bootstrap principals + apply migrations ต่อ
-DB tier ระยะไกล แล้ว exit 0) -> `api` start (1 host — Worker's outbox dispatchers รันในตัวเดียวกันแล้ว).
-ถ้า DB tier ยังต่อไม่ได้ (firewall ACL ยังไม่เปิด, DNS ผิด ฯลฯ) `migrate` จะ retry แล้ว exit ไม่ใช่ 0
-(`docker compose ... ps` เห็น `migrate` เป็น `Exited (1)`) — เช็ค log ก่อนสงสัยอย่างอื่น:
-ดู migrate log:
+Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, checks engine/build/compatibility,
+applies baseline and exits. API never auto-migrates outside Development.
+
+Verify:
 
 ```bash
-docker compose -f docker-compose.prod.yml logs migrate     # ต้องจบด้วย "[migrate] done."
+docker compose -f docker-compose.prod.yml logs migrate
+docker compose -f docker-compose.prod.yml ps
+curl -fsS http://localhost:5100/health/live
+curl -fsS http://localhost:5100/health/ready
 ```
 
-## 3. Verify
+Expected migrator end marker: `[migrate] done.`. Failure blocks API startup. Do not bypass failed migration, catalog
+assertion, secret check or health check.
+
+After boot, rerun production-safe smoke reads and one approved synthetic transaction. Do not use real customer PII.
+Record deployment SHA/tag, migration history, health output, smoke result and operator in release evidence.
+
+## 6. Rollback
+
+Trigger rollback when migration, health, authorization, payment or smoke gate fails.
+
+1. Stop new traffic and background dispatchers.
+2. Preserve logs/evidence; do not retry destructive reset.
+3. If DB baseline/reset started, DBA restores exact verified backup identified by `BACKUP_ARTIFACT_URI` and confirms
+   checksum `BACKUP_SHA256`.
+4. Deploy previous immutable application tag compatible with restored DB.
+5. Verify health, auth, merchant isolation and read-only smoke.
+6. Record duration/result at `ROLLBACK_EVIDENCE`; keep production closed if verification fails.
+
+Non-production only may prove dependency-safe `Down` with:
 
 ```bash
-curl -fsS http://localhost:5100/health/ready    # API -> {"status":"healthy"}
-docker compose -f docker-compose.prod.yml ps     # ทุก service healthy / migrate = exited (0)
+dotnet ef database update 0 --context PolDbContext \
+  --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
+  --startup-project src/Hosts/Api
 ```
 
-healthy = keyring build ได้ (master key 32 byte) + DB ต่อได้. ถ้า not_ready: ดู log ของ host นั้น
-(`docker compose ... logs api`) — มักเป็น vault key file ผิด หรือ DB password ไม่ตรง.
+Production rollback is backup restore, never this command.
 
-## 3.1 Seq — sink ของ denial/authz telemetry (ตั้ง retention/alerting หลัง boot แรก)
+## 7. Seq and operational telemetry
 
-compose นี้มี service `seq` (`datalust/seq`, volume `seq-data`) เป็น external tamper-resistant sink ของ
-denial/authz telemetry (REQ-13.4). `api` ผูก `depends_on: seq: condition: service_healthy` ไว้ ดังนั้น
-**seq ไม่ healthy = api ไม่ start เลย** — ไม่ใช่ container เสริมที่ข้ามได้: ถ้า `docker compose ... ps` เห็น
-`api` ค้างไม่ขึ้น ให้ดู `logs seq` ก่อนสงสัยอย่างอื่น. (ตอน runtime sink degrade เป็น log-only ถ้า Seq ล่ม
-ภายหลัง ไม่ block request — gate มีเฉพาะตอน start.) `Seq__IngestionUrl` default `http://seq:80` = ในเน็ตเวิร์ก
-compose เท่านั้น ไม่ใช่ secret ไม่ต้องตั้งใน `.env`.
+Seq is required startup dependency for denial/authz telemetry. Keep it internal, authenticated and retained per policy.
+Alert on authorization denials, reconciliation-required payment events, migration refusal, outbox poison and repeated
+dependency failure. Logs must not contain token, password, credential, KYC object key or customer PII.
 
-**retention + alerting ตั้งฝั่ง Seq เท่านั้น ไม่มี env var ฝั่ง app** — ทำครั้งเดียวหลัง boot แรกที่ Seq UI:
-Settings -> Retention policies (ตั้งอายุ log ให้พอดีดิสก์ที่ volume `seq-data` กินได้) + signal/notification
-สำหรับ alert. compose **ไม่ publish port ของ seq ออก host** (ตั้งใจ — Seq boot แรกยังไม่มี authentication)
-เข้าผ่าน SSH tunnel ไปที่ IP ของ container แทน แล้วเปิด `http://localhost:8081`:
+## 8. Credential rotation
 
-```bash
-SEQ_IP=$(ssh <deploy-user>@<app-host> "docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' pol-core-seq-1")
-ssh -L 8081:$SEQ_IP:80 <deploy-user>@<app-host>
-```
+Runtime uses `pol_app`; `sa` is bootstrap/migration only. Rotate DB passwords and vault keys through secret manager,
+update secret files atomically, restart service and verify health. Keep previous vault decrypt key until all blobs are
+re-encrypted and audited. Credential incident requires rotate/revoke; deleting Git history is insufficient.
 
-ถ้าจะเปิดถาวรให้ทีมใช้: ตั้ง authentication ใน Seq ก่อน แล้วค่อยเพิ่ม `ports: ["127.0.0.1:5341:80"]` ที่
-service `seq` (bind loopback + หน้า reverse proxy เท่านั้น — อย่า bind `0.0.0.0`).
+## 9. Consumer cutover
 
-## 4.0 Cutover ครั้งเดียว (deployment ที่มีอยู่แล้ว — ทำก่อน deploy/rollback รอบถัดไป)
+Frontend changes happen in separate frontend repositories and PRs. Contract package:
 
-deployment ที่ตั้งขึ้นแล้ว (เดินผ่าน §4 upgrade / §5 rollback / §6 GitLab CD ไม่ผ่าน §1 อีกแล้ว) ต้องทำ
-cutover ในหัวข้อนี้ให้ครบก่อนกด deploy รอบถัดไป — §4.0.1 ใช้กับทุก deployment, §4.0.2 เฉพาะที่ยังไม่ผ่าน
-งาน db-collation-thai-100.
+- `.ai/specs/merchant-commerce-erd-reset/openapi-cart-order.yaml`
+- `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`
 
-### 4.0.1 สร้าง file secret ของ sim principal (ทุก deployment ที่ deploy ก่อน sim-db-separate-logins)
-
-`docker-compose.prod.yml` ประกาศ secret `hippo_app_password`/`mammoth_app_password` เป็น `file:` ให้ทั้ง
-`migrate` และ `api` — compose **ต้องหาไฟล์เจอตอน `up`** ไม่งั้น container สร้างไม่ขึ้น (`invalid mount config
-for type "bind": bind source path does not exist`) แล้ว deploy ทั้งรอบ abort (`docker compose config` ผ่าน
-ไม่ได้แปลว่าไฟล์มี — render-check ของ CI จับไม่ได้). รันบน App tier host ในโฟลเดอร์ repo clone ที่มี
-`docker-compose.prod.yml` (ที่เดียวกับที่ §1 รัน `mkdir -p secrets` ตอน first install — deployment ใหม่
-ไม่ต้องทำซ้ำ; host ที่ deploy ผ่าน GitLab CD คือ path ตามตัวแปร `DEPLOY_PATH` ของ §6):
-
-```bash
-printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/hippo_app_password
-printf '%s' "Ci$(openssl rand -hex 10)Aa1" > secrets/mammoth_app_password
-chmod 600 secrets/hippo_app_password secrets/mammoth_app_password
-```
-
-deploy รอบแรกหลังจากนี้ bootstrap `02`/`03` จะ `DROP USER`/`DROP LOGIN pol_app` ออกจาก sim instance ให้เอง
-(idempotent) — **หยุด `api` ก่อนกด deploy รอบนั้น** ไม่งั้น connection pool ของ api ตัวเก่าที่ยังถือ session
-ของ `pol_app` ค้างบน sim instance ทำให้ `DROP LOGIN` ถูกปฏิเสธ (`Msg 15434 ... login owns one or more
-session(s)`) หลัง `DROP USER` ผ่านไปแล้ว:
-
-```bash
-docker compose -f docker-compose.prod.yml stop api
-```
-
-### 4.0.2 Collation cutover (เฉพาะ deployment ที่ DB ยังไม่ผ่านงาน db-collation-thai-100)
-
-`docker/bootstrap/01-principals.sql` มี collation gate: ถ้า `VCentralPay` มีอยู่แล้วด้วย collation อื่นที่ไม่ใช่
-`Thai_100_CI_AS` (ทุก deployment ที่สร้าง DB ก่อนงานนี้ = `SQL_Latin1_General_CP1_CI_AS` โดย default) สคริปต์จะ
-`THROW` ทันที (ข้อความขึ้นต้น `Msg 50000 ... database [...] collation is ...`) -> service `migrate` exit ไม่ใช่
-0 -> `api` ไม่ start เลย (`depends_on: service_completed_successfully`) — **`02-hippo-sim.sql`/
-`03-mammoth-sim.sql` มี gate เดียวกันดัก `hippodb`/`mammothdb`** บนคนละ DB tier ของตัวเอง
-(`external-sim-separate-containers` — เดิมสร้างด้วย `Thai_CI_AS`, ข้อความขึ้นต้น `Msg 51002 ... collation is
-not Thai_100_CI_AS.`). ต้องทำ cutover นี้ครั้งเดียวก่อน deploy/rollback รอบถัดไปบน environment นั้น (§4 และ §5
-ด้านล่างชี้กลับมาที่นี่) ตามลำดับนี้:
-
-1. **หยุด App tier ก่อน**: `docker compose -f docker-compose.prod.yml down` — `api` ถือ connection pool +
-   healthcheck `/health/ready` ยิง DB ทุก 15s ไม่หยุดก่อนจะชน `Msg 3702 (object in use)` ตอน DROP ด้านล่าง
-   (ครอบ connection ทั้ง 3 DB tier ในตัว — **service down สั้น ๆ จนกว่าขั้นตอนที่ 4 จะขึ้นใหม่**)
-2. **BACKUP `VCentralPay`** ด้วยคำสั่งเดียวกับ §4.1 ด้านล่าง (DBA รันบน DB tier หลัก) — `hippodb`/
-   `mammothdb` เป็น seed ล้วน **ไม่ต้อง backup** (bootstrap `02-hippo-sim.sql`/`03-mammoth-sim.sql`
-   สร้าง+seed ใหม่ให้เองเสมอ) — ทั้งสองอยู่คนละ DB tier จาก `VCentralPay` แล้ว
-   (`external-sim-separate-containers`, `HIPPO_DB_SERVER`/`MAMMOTH_DB_SERVER` ใน `.env`)
-3. Drop ทั้ง 3 database — **คนละคำสั่งต่อ DB tier** (แยก host กันแล้ว ไม่ใช่ instance เดียวเหมือนเดิม)
-4. Deploy ใหม่ (migrate สร้าง+bootstrap ให้ครบทั้ง 3 DB บนคนละ DB tier):
-
-```bash
-# Drop VCentralPay (DB tier หลัก — ต้องมี backup ตามขั้น 2 แล้วเท่านั้น)
-sqlcmd -S <DB_SERVER ของ .env> -U sa -P "<MSSQL_SA_PASSWORD, ร่วมทั้ง 3 DB tier>" -N -b \
-  -Q "DROP DATABASE [VCentralPay];"
-
-# Drop hippodb (DB tier ของ hippo — seed ล้วน ไม่ต้องรอ backup)
-sqlcmd -S <HIPPO_DB_SERVER ของ .env> -U sa -P "<MSSQL_SA_PASSWORD เดียวกัน>" -N -b \
-  -Q "DROP DATABASE [hippodb];"
-
-# Drop mammothdb (DB tier ของ mammoth — seed ล้วน ไม่ต้องรอ backup)
-sqlcmd -S <MAMMOTH_DB_SERVER ของ .env> -U sa -P "<MSSQL_SA_PASSWORD เดียวกัน>" -N -b \
-  -Q "DROP DATABASE [mammothdb];"
-
-# Deploy ใหม่จาก App tier (bootstrap principals + hippodb + mammothdb + EF migrations สร้างทั้ง 3 DB ใหม่
-# COLLATE Thai_100_CI_AS บนคนละ DB tier ของตัวเอง)
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-**backup เป็น safety net เท่านั้น ห้าม RESTORE ทับ database ที่ recreate แล้วข้างบน** — RESTORE จะดึง collation
-เดิมกลับมาด้วย ทำให้ gate ยิงซ้ำวนลูปไม่จบ กู้ข้อมูลจาก backup ต้อง export/re-insert เข้า database ใหม่แทน
-ไม่ใช่ restore ทับ.
-
-Fresh deployment (ยังไม่เคยสร้าง `VCentralPay`/`hippodb`/`mammothdb` มาก่อน) ไม่กระทบ — `CREATE DATABASE` ใน
-`01-principals.sql`/`02-hippo-sim.sql`/`03-mammoth-sim.sql` ปั๊ม `COLLATE Thai_100_CI_AS` ให้ตั้งแต่แรกอยู่แล้ว.
-
-## 4. Upgrade deploy (มี migration ใหม่)
-
-```bash
-# 4.1 BACKUP ก่อน (rule: migration บน prod ต้อง backup ก่อน) — DB tier เป็น host แยกแล้ว, ไม่มี service
-# `sql` ใน compose นี้ให้ exec เข้าไปอีกต่อไป: ประสาน DBA ให้ backup ตรงบน DB tier (Server 1) เอง ก่อนกด
-# deploy ทุกครั้งที่มี migration ใหม่ (ตัวอย่างคำสั่งที่ DBA รันบน Server 1 เอง ไม่ใช่จาก App tier):
-sqlcmd -S localhost -U sa -P "<SA password ของ DB tier>" -N \
-  -Q "BACKUP DATABASE [VCentralPay] TO DISK='/var/opt/mssql/backup/pre-deploy.bak' WITH INIT, COMPRESSION"
-
-# 4.2 ดึงโค้ดใหม่ + rebuild + rerun migrate + restart host
-# (deployment ที่ยังไม่เคยทำ §4.0 cutover ต้องทำก่อนบรรทัดนี้ — §4.0.1 file secret ของ sim principal
-#  ใช้กับทุก deployment, §4.0.2 collation เฉพาะที่ยังไม่ผ่าน db-collation-thai-100)
-git fetch && git checkout <release-tag>
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-migrate รันใหม่ทุกครั้ง (idempotent เมื่อ DB มีอยู่แล้วด้วย `Thai_100_CI_AS` ถูกต้อง — EF apply เฉพาะ migration
-ที่ยังไม่ลง; ถ้า DB เป็น collation อื่น bootstrap จะ fail-fast ด้วย `THROW` แทนที่จะข้ามเงียบ ๆ ดู §4.0.2
-ถ้ายังไม่เคยทำ). ถ้ายังไม่ได้สร้าง `secrets/hippo_app_password`/`secrets/mammoth_app_password` ตาม §4.0.1
-คำสั่ง `up` ด้านบนจะตายตั้งแต่ตอนสร้าง container ของ `migrate` (bind mount ของ secret) — `api` ตัวเก่ายังรัน
-image เดิมอยู่ (ไม่ล่ม) แต่ deploy ไม่เกิด.
-
-## 5. Rollback
-
-App rollback (โค้ด):
-```bash
-git checkout <previous-tag>
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-คำสั่งนี้วิ่งผ่าน service `migrate` เหมือนกับ upgrade ทุกประการ (`depends_on` เดิม) — ถ้า DB ของ environment นี้
-ยังไม่ผ่าน cutover ที่ §4.0.2 (ยัง collation ผิด) รอบ rollback นี้จะ `THROW` เจอ gate เดียวกันและตายเหมือนกัน ไม่ใช่
-ทางหนีจาก §4.0 ได้ และถ้ายังไม่ได้สร้าง file secret ตาม §4.0.1 จะตายก่อนหน้านั้นอีก (compose สร้าง container
-`migrate` ไม่ขึ้นเพราะ bind mount ของ secret ไม่มีไฟล์).
-
-DB migration rollback (ถ้า migration ใหม่เข้ากันกับโค้ดเก่าไม่ได้): apply migration ก่อนหน้า แล้วค่อย rollback app.
-รันใน migrate image (มี dotnet-ef + source) — `migrate`'s `environment:` block ใน compose ฉีด
-`DB_SERVER`/`DB_PORT`/`DB_CA_CERTIFICATE_FILE`/`DB_NAME`/`MSSQL_SA_PASSWORD` จาก `.env` ให้อยู่แล้ว ใช้
-logic การประกอบ connection string เดียวกับ `docker/migrate-entrypoint.sh` เป๊ะ (pin cert ถ้าตั้ง
-`DB_CA_CERTIFICATE_FILE` ไม่งั้น fallback `Encrypt=True;TrustServerCertificate=False` — ไม่มีทางได้ค่า
-trust-any-certificate เดิม):
-```bash
-docker compose -f docker-compose.prod.yml run --rm --entrypoint sh migrate -c '
-  : "${DB_PORT:=1433}";
-  if [ -n "${DB_CA_CERTIFICATE_FILE:-}" ]; then
-    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=Strict;ServerCertificate=${DB_CA_CERTIFICATE_FILE};HostNameInCertificate=${DB_SERVER}";
-  else
-    export POL_DESIGN_SQL="Server=${DB_SERVER},${DB_PORT};Database=${DB_NAME};User Id=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=False";
-  fi;
-  dotnet ef database update <PreviousMigrationName> \
-    --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api'
-```
-ถ้า migration rollback เสี่ยง (data loss) -> restore จาก backup ที่ DBA ทำไว้บน DB tier (Server 1, ข้อ 4.1)
-แทน. ออกแบบ migration ให้ backward-compatible (expand/contract) เพื่อให้ app เก่า+ใหม่ทำงานกับ schema
-เดียวกันได้ระหว่าง roll.
-
-## 6. Deploy ผ่าน GitLab CI (ทางหลักหลังตั้งระบบครั้งแรก)
-
-โค้ดหลักอยู่ GitHub; GitLab องค์กร (`gitlab2.viriyah.co.th/central-software/vcentralpayapi`)
-เป็นช่อง CI/CD: GitHub Actions (`mirror-gitlab.yml`) push mirror `develop`/`main`/tag `v*` ให้อัตโนมัติ
-แล้ว pipeline (`.gitlab-ci.yml`) รัน gate เดิม + build/push image เข้า GitLab Container Registry.
-ขั้นตอนตั้งค่าครั้งแรกแบบละเอียดทีละคลิก: [gitlab-cicd-setup.md](gitlab-cicd-setup.md).
-
-Flow (2 environment, manual gate ทั้งคู่):
-
-1. merge เข้า develop บน GitHub ตามปกติ (PR + CI GitHub เป็น merge gate เดิม) — mirror ไป GitLab เอง
-2. **UAT**: pipeline ของ develop build image `:short-sha` เข้า registry → กด play job `deploy-uat`
-   (environment `uat`) เพื่อยก UAT เป็น commit นั้น
-3. **Prod**: tag `vX.Y.Z` + changelog (rule เดิม, ผ่าน UAT แล้ว) แล้ว push tag — pipeline ของ tag
-   build image `:vX.Y.Z` → กด play job `deploy-prod` (environment `production`)
-4. job deploy ทั้งสองทำเหมือนกัน: scp `docker-compose.prod.yml` + `docker-compose.registry.yml`
-   ไป host แล้ว ssh รัน `docker compose ... pull` + `up -d --no-build` (ลำดับ `migrate` -> `api` ตาม
-   `depends_on` เดิม — `migrate` รอ DB tier reachable เองก่อนแล้วค่อย bootstrap+migrate) แล้ว verify
-   `/health/ready`
-
-หมายเหตุ:
-
-- ข้อ 1-3 ของ runbook นี้ (`.env`, `./secrets/`, first deploy) ยังเป็นขั้น manual บนแต่ละ host เหมือนเดิม —
-  GitLab deploy ไม่แตะ secret ใด ๆ, ใช้สำหรับ upgrade รอบถัดไปแทนข้อ 4.2 (backup ข้อ 4.1 ยังต้องทำก่อนกดเสมอ)
-- **เพราะ job deploy ไม่แตะ secret เอง** secret file ใหม่ทุกตัวจึงต้องถูกสร้างบน host ด้วยมือ *ก่อน* กด play —
-  ตอนนี้คือ §4.0.1 (`secrets/hippo_app_password`, `secrets/mammoth_app_password`). `docker-compose.registry.yml`
-  เป็น override เฉพาะ `image:` จึงสืบ `secrets:` มาเต็ม: ไฟล์ไม่มี = `up` สร้าง container ไม่ขึ้น -> job
-  `deploy-uat`/`deploy-prod` แดง (deploy ไม่เกิด แต่ของเดิมยังรันอยู่)
-- rollback ผ่าน GitLab = กด job deploy จาก pipeline ของ commit/tag ก่อนหน้า (image เก่ายังอยู่ใน registry);
-  DB rollback ยังใช้ข้อ 5 เดิม
-- ตัวแปร CI/CD ที่ infra ต้องตั้งใน GitLab (protected, **environment-scoped** — ชื่อเดียวกัน แยกค่าต่อ
-  scope `uat`/`production`): `SSH_PRIVATE_KEY` (File), `SSH_KNOWN_HOSTS` (File),
-  `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_PATH`, `REGISTRY_DEPLOY_USER`/`REGISTRY_DEPLOY_TOKEN`
-  (deploy token scope `read_registry`, คนละใบต่อ env); optional สำหรับ job integration: `POL_SA_PASSWORD` (masked).
-  ฝั่ง GitHub ต้องมี secret `GITLAB_MIRROR_TOKEN` (project access token scope `write_repository`).
-  Runner ต้องเป็น docker executor และ job `package` ต้องมี privileged (DinD) หรือสลับเป็น kaniko.
-- host เตรียมครั้งเดียว: user SSH อยู่ group `docker` + authorize key ของ CI + `$DEPLOY_PATH` มี `.env` และ `secrets/`
-
-## 7. SA password rotation (post-bootstrap)
-
-`sa` ใช้แค่ตอน bootstrap/migrate (รันบน DB tier ทั้งสาม) — runtime มี 3 principal แยกตาม tier: Api
-(ทั้ง flow HTTP + background dispatcher ที่ merge เข้ามาแล้ว) ต่อ VCentralPay ด้วย `pol_app` อย่างเดียว
-(ดู [db-connection-and-rls.md](../reference/db-connection-and-rls.md)) ส่วน SpDocumentGateway ต่อ sim tier
-ด้วย `hippo_app` (hippodb) และ `mammoth_app` (mammothdb) คนละ password กัน (sim-db-separate-logins).
-หมายเหตุ cutover: deploy รอบแรกหลังการเปลี่ยนนี้ bootstrap 02/03 จะลบ `pol_app` (user + login) ออกจาก
-sim instance ให้เองแบบ idempotent — **แต่ ops ยังต้องสร้าง file secret 2 ตัวเองก่อนตาม §4.0.1 และหยุด `api`
-ก่อน deploy รอบนั้น** (bootstrap ทำให้เองแค่การลบ `pol_app` ไม่ได้สร้าง secret file ให้). หลัง deploy แรก หมุน SA ได้ (ทำบน
-DB tier โดย DBA): `ALTER LOGIN sa WITH PASSWORD='...'` แล้วอัปเดต `MSSQL_SA_PASSWORD` ใน `.env` ของ App tier
-(ใช้รอบ migrate ถัดไป).
+Cutover is big-bang. No Checkout/policy compatibility routes, aliases or overlap window.

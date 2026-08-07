@@ -28,7 +28,8 @@ public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand,
             throw new InvalidOperationException($"Cart {command.CartId} does not belong to the requesting merchant.");
 
         cart.AddItem(
-            command.DocumentNo, command.SaleCode, command.ProductGroup, command.Quantity, command.UnitPrice);
+            command.ProductCode, command.SaleCode, command.VariantCode, command.VariantName,
+            command.Quantity, command.UnitPrice, command.Metadata);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 

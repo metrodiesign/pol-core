@@ -34,7 +34,7 @@ public static class ControlPlanePersistenceRegistration
         services.AddScoped(sp =>
         {
             var options = new DbContextOptionsBuilder<ControlPlaneDbContext>()
-                .UseSqlServer(connectionString)
+                .UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(170))
                 .UseApplicationServiceProvider(sp)
                 .Options;
             return new ControlPlaneDbContext(options, authorizerFactory(sp), sp.GetRequiredService<ISecurityTelemetry>());

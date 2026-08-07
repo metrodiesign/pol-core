@@ -19,6 +19,8 @@ public sealed class MerchantTests
 
         Assert.NotEqual(Guid.Empty, m.Id);
         Assert.Equal("vcommerce", m.Code);          // normalized lowercase
+        Assert.Equal("vCommerce Co., Ltd.", m.Name);
+        Assert.Equal("0105560000000", m.Note);
         Assert.Equal("THB", m.Currency);            // normalized upper
         Assert.Equal("TH", m.Country);
         Assert.Equal(MerchantStatus.Active, m.Status);
@@ -37,9 +39,9 @@ public sealed class MerchantTests
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void Create_rejects_blank_display_name(string displayName) =>
+    public void Create_rejects_blank_name(string name) =>
         Assert.Throws<ArgumentException>(() => Merchant.Create(
-            "vcommerce", displayName, "0105560000000", "TH", "THB", ["card"], null, Now));
+            "vcommerce", name, "note", "TH", "THB", ["card"], null, Now));
 
     [Theory]
     [InlineData("Thailand")] // not alpha-2
@@ -56,4 +58,13 @@ public sealed class MerchantTests
         Assert.Equal(string.Empty, m.EnabledChannels);
         Assert.Equal("{}", m.Metadata); // null metadata defaults to empty JSON object
     }
+
+    [Theory]
+    [InlineData("{\"branding\":{\"secret\":\"x\"}}")]
+    [InlineData("{\"token\":\"x\"}")]
+    [InlineData("{\"unknown\":true}")]
+    [InlineData("not-json")]
+    public void Create_rejects_non_allowlisted_or_invalid_metadata(string metadata) =>
+        Assert.ThrowsAny<Exception>(() => Merchant.Create(
+            "vcommerce", "vCommerce", null, "TH", "THB", [], metadata, Now));
 }

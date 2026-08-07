@@ -4,7 +4,7 @@ using SharedKernel;
 namespace Orders.Domain;
 
 /// <summary>
-/// An order placed by a merchant's buyer. Created <see cref="OrderStatus.AwaitingPayment"/> and
+/// An order placed by a merchant's buyer. Created <see cref="OrderStatus.Pending"/> and
 /// fulfilled when the Payments module confirms a PSP-settled charge. <see cref="Amount"/> is the
 /// money seam (PLAN decision #2), mapped as an EF complex type (rf1 — decimal(19,4) + char(3)
 /// columns). <see cref="MarkPaid"/> re-verifies the paid amount + currency before transitioning
@@ -23,13 +23,11 @@ public sealed class Order : AggregateRoot<Guid>
     /// the creating handler (<c>IOrderNoSequence</c>) and unique across the platform.</summary>
     public string OrderNo { get; private set; } = default!;
 
-    /// <summary>The payment session this order is awaiting confirmation from, set when checkout
-    /// hands the order to Payments. Null until a session is opened.</summary>
-    public Guid? PaymentSessionId { get; private set; }
+    /// <summary>Actor sale code captured when order was created directly from cart.</summary>
+    public string? SaleCode { get; private set; }
 
-    /// <summary>The checkout session this order was created from, when it came through the checkout flow.
-    /// Unique (filtered) so a replayed CheckoutConfirmed event cannot create a second order.</summary>
-    public Guid? CheckoutSessionId { get; private set; }
+    /// <summary>Current payment attempt. Null until a payment session is opened.</summary>
+    public Guid? PaymentSessionId { get; private set; }
 
     public Money Amount { get; private set; }
 
@@ -53,19 +51,16 @@ public sealed class Order : AggregateRoot<Guid>
     /// single source of truth for WHERE the link goes (purchase-flow-completion F-03).</summary>
     public string? NotificationRecipient { get; private set; }
 
-    /// <summary>The channel the merchant picked at checkout, as its wire value (<c>CARD</c>/
-    /// <c>PROMPTPAY_QR</c>/<c>INSTALLMENT</c>) — a plain string, not the Checkouts enum, because Orders
-    /// never references a peer module (same rule as <c>Item.ProductGroup</c>). Null on orders created
-    /// before purchase-flow-completion: those cannot be paid and must be cancelled and re-created.</summary>
+    /// <summary>Canonical payment method of the currently attached attempt. Null before first attempt.</summary>
     public string? PaymentChannel { get; private set; }
 
-    /// <summary>Buyer's name, carried from the checkout snapshot (REQ-7.2).</summary>
+    /// <summary>Buyer's name, captured by direct Cart-to-Order creation.</summary>
     public string CustomerName { get; private set; } = default!;
 
-    /// <summary>Buyer's phone, carried from the checkout snapshot (REQ-7.2).</summary>
+    /// <summary>Buyer's phone, captured by direct Cart-to-Order creation.</summary>
     public string CustomerPhone { get; private set; } = default!;
 
-    /// <summary>Buyer's email, carried from the checkout snapshot (REQ-7.2); optional.</summary>
+    /// <summary>Buyer's email, captured by direct Cart-to-Order creation; optional.</summary>
     public string? CustomerEmail { get; private set; }
 
     /// <summary>The three customer columns as the value object they came in as.</summary>
@@ -80,15 +75,15 @@ public sealed class Order : AggregateRoot<Guid>
 
     private Order() { }
 
-    private Order(Guid id, Guid merchantId, string orderNo, Guid? paymentSessionId, Guid? checkoutSessionId,
+    private Order(Guid id, Guid merchantId, string orderNo, string? saleCode, Guid? paymentSessionId,
         Money amount, string? paymentChannel, CustomerContact customer, string? notificationRecipient,
         DateTime createdAt)
         : base(id)
     {
         MerchantId = merchantId;
         OrderNo = orderNo;
+        SaleCode = string.IsNullOrWhiteSpace(saleCode) ? null : saleCode.Trim();
         PaymentSessionId = paymentSessionId;
-        CheckoutSessionId = checkoutSessionId;
         Amount = amount;
         PaymentChannel = paymentChannel;
         CustomerName = customer.Name;
@@ -97,7 +92,7 @@ public sealed class Order : AggregateRoot<Guid>
         // CustomerPhone ?? CustomerEmail ?? the caller's recipient (F-03) — the last one is what a
         // pre-REQ-6.6 payload carries instead of contact fields, so the notification never loses its writer.
         NotificationRecipient = customer.NotificationRecipient ?? notificationRecipient;
-        Status = OrderStatus.AwaitingPayment;
+        Status = OrderStatus.Pending;
         CreatedAt = createdAt;
         SummaryToken = Guid.NewGuid().ToString("N");
         SummaryTokenExpiresAt = createdAt + SummaryTokenTtl;
@@ -110,7 +105,7 @@ public sealed class Order : AggregateRoot<Guid>
     /// payment has a link to reissue; a paid/cancelled order is rejected.</summary>
     public void ReissueSummary(DateTime now)
     {
-        if (Status != OrderStatus.AwaitingPayment)
+        if (Status is OrderStatus.Paid or OrderStatus.Cancelled or OrderStatus.Refunded)
             throw new InvalidOperationException($"Cannot reissue the summary link of an order in status {Status}.");
 
         SummaryToken = Guid.NewGuid().ToString("N");
@@ -128,8 +123,9 @@ public sealed class Order : AggregateRoot<Guid>
     /// for the paths that predate REQ-6.6, which is exactly what the columns' DB DEFAULTs hold.
     /// </summary>
     public static Order Create(Guid merchantId, Money amount, DateTime createdAt, IReadOnlyList<OrderItemInput> items,
-        string orderNo, Guid? paymentSessionId = null, Guid? checkoutSessionId = null,
-        string? notificationRecipient = null, string? paymentChannel = null, CustomerContact? customer = null)
+        string orderNo, Guid? paymentSessionId = null,
+        string? notificationRecipient = null, string? paymentChannel = null, CustomerContact? customer = null,
+        string? saleCode = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(orderNo, nameof(orderNo));
         if (items is null || items.Count == 0)
@@ -140,8 +136,8 @@ public sealed class Order : AggregateRoot<Guid>
         for (var i = 0; i < items.Count; i++)
         {
             var item = items[i];
-            if (item.Quantity != 1)
-                throw new ArgumentException("Insurance lines must have quantity 1.", nameof(items));
+            if (item.Quantity <= 0)
+                throw new ArgumentException("Line quantity must be positive.", nameof(items));
             if (!item.UnitPrice.SameCurrencyAs(amount))
                 throw new ArgumentException("Line currency must match the order amount currency.", nameof(items));
 
@@ -154,7 +150,7 @@ public sealed class Order : AggregateRoot<Guid>
             throw new ArgumentException("The sum of line totals must equal the order amount.", nameof(amount));
 
         var order = new Order(
-            Guid.NewGuid(), merchantId, orderNo.Trim(), paymentSessionId, checkoutSessionId, amount, paymentChannel,
+            Guid.NewGuid(), merchantId, orderNo.Trim(), saleCode, paymentSessionId, amount, paymentChannel,
             customer ?? CustomerContact.Unspecified, notificationRecipient, createdAt);
 
         for (var i = 0; i < items.Count; i++)
@@ -162,10 +158,7 @@ public sealed class Order : AggregateRoot<Guid>
             var item = items[i];
             order._items.Add(new Item(
                 Guid.CreateVersion7(), order.Id, merchantId, item.Quantity, item.UnitPrice, discounts[i],
-                item.DocumentNo, item.ProductGroup, item.DocumentType, item.PolicyNumber,
-                item.StartDate, item.EndDate,
-                item.InsuredFirstName, item.InsuredLastName, item.InsuredIdNumber, item.InsuredDateOfBirth,
-                createdAt));
+                item.ProductCode, item.VariantCode, item.VariantName, item.Metadata));
         }
 
         return order;
@@ -176,13 +169,19 @@ public sealed class Order : AggregateRoot<Guid>
     /// PaymentPaid consumer resolves orders by the event's <c>OrderId</c>, not by this value
     /// (bugfix-order-paid-link F2).
     /// </summary>
-    public void AttachPaymentSession(Guid paymentSessionId)
+    public void AttachPaymentAttempt(Guid paymentSessionId, string method)
     {
-        if (Status != OrderStatus.AwaitingPayment)
+        if (paymentSessionId == Guid.Empty)
+            throw new ArgumentException("PaymentSessionId is required.", nameof(paymentSessionId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+
+        if (Status is OrderStatus.Paid or OrderStatus.Cancelled or OrderStatus.Refunded)
             throw new InvalidOperationException(
-                $"Cannot attach a payment session to an order in status {Status}.");
+                $"Cannot attach a payment attempt to an order in status {Status}.");
 
         PaymentSessionId = paymentSessionId;
+        PaymentChannel = method.Trim();
+        Status = OrderStatus.Pending;
     }
 
     /// <summary>
@@ -191,32 +190,62 @@ public sealed class Order : AggregateRoot<Guid>
     /// second call once already <see cref="OrderStatus.Paid"/> is a no-op, so a replayed event is
     /// safe (PLAN decision #10). Returns true only on the first transition (an event was raised).
     /// </summary>
-    public bool MarkPaid(Money paidAmount, DateTime occurredAt)
+    public bool MarkPaid(Guid paymentSessionId, string method, Money paidAmount, DateTime occurredAt)
     {
-        if (Status == OrderStatus.Paid)
-            return false;
-
-        if (Status == OrderStatus.Cancelled)
-            throw new InvalidOperationException("Cannot mark a cancelled order as paid.");
+        if (paymentSessionId == Guid.Empty)
+            throw new ArgumentException("PaymentSessionId is required.", nameof(paymentSessionId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
         if (!paidAmount.SameCurrencyAs(Amount) || paidAmount.Amount != Amount.Amount)
             throw new InvalidOperationException(
                 $"Paid amount {paidAmount} does not match order amount {Amount}.");
 
+        if (Status == OrderStatus.Paid)
+        {
+            if (PaymentSessionId == paymentSessionId)
+                return false;
+
+            throw new InvalidOperationException("Order is already paid by a different payment session.");
+        }
+
+        if (Status is OrderStatus.Cancelled or OrderStatus.Refunded)
+            throw new InvalidOperationException($"Cannot mark an order in status {Status} as paid.");
+
         Status = OrderStatus.Paid;
+        PaymentSessionId = paymentSessionId;
+        PaymentChannel = method.Trim();
         PaidAt = occurredAt;
         Raise(new OrderPaid(Id, occurredAt));
         return true;
     }
 
-    /// <summary>Cancels an unpaid order. No-op if already cancelled; rejected once paid.</summary>
+    public bool MarkPaymentFailed(Guid paymentSessionId)
+    {
+        if (Status == OrderStatus.Failed && PaymentSessionId == paymentSessionId)
+            return false;
+        if (Status != OrderStatus.Pending || PaymentSessionId != paymentSessionId)
+            return false;
+
+        Status = OrderStatus.Failed;
+        return true;
+    }
+
+    public bool MarkPaymentExpired(Guid paymentSessionId)
+    {
+        if (Status == OrderStatus.Expired && PaymentSessionId == paymentSessionId)
+            return false;
+        if (Status != OrderStatus.Pending || PaymentSessionId != paymentSessionId)
+            return false;
+
+        Status = OrderStatus.Expired;
+        return true;
+    }
+
+    /// <summary>Cancels an Order only while Pending; every other status is a conflict.</summary>
     public void Cancel()
     {
-        if (Status == OrderStatus.Cancelled)
-            return;
-
-        if (Status == OrderStatus.Paid)
-            throw new InvalidOperationException("Cannot cancel a paid order.");
+        if (Status != OrderStatus.Pending)
+            throw new InvalidOperationException($"Cannot cancel an order in status {Status}.");
 
         Status = OrderStatus.Cancelled;
     }

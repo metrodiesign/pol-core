@@ -134,14 +134,14 @@ internal sealed class UserLoginService
         {
             var sessionToken = UserTokens.NewOpaqueToken();
             var csrfToken = UserTokens.NewOpaqueToken();
-            var session = Session.Start(resolution.MerchantUserId, UserTokens.Hash(sessionToken),
+            var session = Session.Start(resolution.UserId, UserTokens.Hash(sessionToken),
                 _clock.UtcNow, Policy,
                 http.Connection.RemoteIpAddress?.ToString(),
                 Truncate(http.Request.Headers.UserAgent.ToString(), 256));
 
             _sessions.Add(session);
             _audit.Append(AuthAudit.For(AuthEventType.LoginSuccess, http.TraceIdentifier, _clock.UtcNow,
-                resolution.MerchantUserId, subject));
+                resolution.UserId, subject));
             await _sessions.SaveChangesAsync(ct);
 
             _cookies.Write(http, sessionToken, csrfToken);
@@ -150,7 +150,7 @@ internal sealed class UserLoginService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Merchant user session establishment failed for {MerchantUserId}.", resolution.MerchantUserId);
+            _logger.LogError(ex, "Merchant user session establishment failed for {UserId}.", resolution.UserId);
             await DenyAsync(http, "session-write-failed", subject, ct);
         }
     }
@@ -166,7 +166,8 @@ internal sealed class UserLoginService
         string wireTicket;
         try
         {
-            wireTicket = _ticketProtector.Protect(new UserTicketPayload(subject, email, hostedDomain, purpose, provider));
+            wireTicket = _ticketProtector.Protect(new UserTicketPayload(
+                subject, email, hostedDomain, purpose, provider, Guid.CreateVersion7()));
         }
         catch (Exception ex)
         {

@@ -11,7 +11,7 @@ namespace Hosts.Tests;
 
 // Split CORS (REQ-10.5), asserted against the single API via WebApplicationFactory. T5 collapsed the old
 // uncredentialed Bearer "tenant" policy into the merchant-user session cookie, so the WHOLE merchant-user funnel
-// (products/carts/checkouts/orders/payments/reports AND /api/v1/merchant-users/*) now shares ONE credentialed
+// (products/carts/orders/payments/reports AND /api/v1/merchant-users/*) now shares ONE credentialed
 // DEFAULT policy; the admin SPA gets its own credentialed policy bound ONLY to the /api/v1/admins route group. So
 // an admin origin is echoed WITH credentials on /api/v1/admins/* but NOT on a merchant-user route, the
 // merchant-user origin is echoed WITH credentials everywhere else, and an unknown origin is never echoed.

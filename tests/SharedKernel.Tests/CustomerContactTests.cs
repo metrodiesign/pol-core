@@ -3,7 +3,7 @@ using SharedKernel;
 namespace SharedKernel.Tests;
 
 /// <summary>purchase-flow-completion REQ-6.6/6.7 — the ONE place a customer contact is validated, shared by
-/// Checkouts and Orders. Name and phone are required, the phone must read as a phone number, an email is
+/// Order creation and read surfaces. Name and phone are required, the phone must read as a phone number, an email is
 /// optional but must parse when given, and no rejection message echoes the offending value.</summary>
 public sealed class CustomerContactTests
 {

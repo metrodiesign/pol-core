@@ -16,8 +16,7 @@ internal static class HostModuleAssemblies
     [
         typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
         typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
-        typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
-        typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
+        typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
         // global:: required: Api.Merchants/Api.Admins/Api.Iam (D7 area namespaces) now shadow the module root
         // namespaces Merchants/Admins/Iam from within namespace Api and its descendants.
@@ -45,7 +44,7 @@ public sealed class PolDbContextFactory : IDesignTimeDbContextFactory<PolDbConte
     public PolDbContext CreateDbContext(string[] args)
     {
         var options = new DbContextOptionsBuilder<PolDbContext>()
-            .UseSqlServer(HostModuleAssemblies.DesignConnectionString)
+            .UseSqlServer(HostModuleAssemblies.DesignConnectionString, sql => sql.UseCompatibilityLevel(170))
             .Options;
         return new PolDbContext(options, new ModuleAssemblies(HostModuleAssemblies.All));
     }

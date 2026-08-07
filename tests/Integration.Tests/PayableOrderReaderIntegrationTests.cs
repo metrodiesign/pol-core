@@ -38,7 +38,7 @@ public sealed class PayableOrderReaderIntegrationTests
             Assert.NotNull(payable);
             Assert.Equal(orderId, payable!.OrderId);
             Assert.Equal(Money.Of(15000m, "THB"), payable.Amount);
-            Assert.Equal(PayableOrderStatus.AwaitingPayment, payable.Status);
+            Assert.Equal(PayableOrderStatus.Pending, payable.Status);
         }
         finally
         {
@@ -56,9 +56,9 @@ public sealed class PayableOrderReaderIntegrationTests
             """
             INSERT shop.Orders
                 (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, CreatedAt,
-                 SummaryToken, SummaryTokenExpiresAt)
+                 SummaryToken, SummaryTokenExpiresAt, CustomerName, CustomerPhone)
             VALUES (@id, @m, @orderNo, 15000, N'THB', 0, SYSUTCDATETIME(),
-                    @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                    @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
             ("@id", orderId), ("@m", IntegrationDb.MerchantA), ("@orderNo", orderNo),
             ("@token", Guid.NewGuid().ToString("N")));

@@ -22,6 +22,35 @@ set -eu
 : "${DB_CONNECT_RETRIES:=30}"
 : "${DB_CONNECT_RETRY_DELAY_SECONDS:=5}"
 
+# Fresh baseline is reset-only. Production must arrive through an operator-approved release
+# invocation tied to one exact target and one verified backup; this script never drops a database.
+if [ "${DEPLOYMENT_ENVIRONMENT:-Development}" = "Production" ]; then
+    expected_target="${DB_SERVER}:${DB_PORT}/${DB_NAME}"
+    if [ "$DB_NAME" != "VCentralPay" ]; then
+        echo "[migrate] refused: production DB_NAME must be VCentralPay" >&2
+        exit 1
+    fi
+    if [ "${RESET_TARGET:-}" != "$expected_target" ]; then
+        echo "[migrate] refused: RESET_TARGET must exactly match the production target" >&2
+        exit 1
+    fi
+    if [ "${RESET_APPROVED:-}" != "true" ]; then
+        echo "[migrate] refused: RESET_APPROVED=true is required" >&2
+        exit 1
+    fi
+    case "${BACKUP_ARTIFACT_URI:-}" in
+        *://?*) ;;
+        *) echo "[migrate] refused: BACKUP_ARTIFACT_URI must be a non-empty URI" >&2; exit 1 ;;
+    esac
+    if ! printf '%s' "${BACKUP_SHA256:-}" | grep -Eq '^[0-9A-Fa-f]{64}$'; then
+        echo "[migrate] refused: BACKUP_SHA256 must be a 64-character SHA-256 checksum" >&2
+        exit 1
+    fi
+    : "${RESET_APPROVAL_EVIDENCE:?production reset requires RESET_APPROVAL_EVIDENCE}"
+    : "${ROLLBACK_EVIDENCE:?production reset requires ROLLBACK_EVIDENCE}"
+    echo "[migrate] production reset evidence validated for exact target"
+fi
+
 APP_PW="$(cat "$POL_APP_PASSWORD_FILE")"
 # One password per DB tier, never shared: APP_PW is VCentralPay's pol_app and must not reach the sim
 # bootstrap scripts below (which take their own sqlcmd variable names for exactly that reason).

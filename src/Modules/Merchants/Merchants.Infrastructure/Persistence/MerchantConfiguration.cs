@@ -18,13 +18,13 @@ public sealed class MerchantConfiguration : IEntityTypeConfiguration<Merchant>
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.Code).HasMaxLength(64).IsRequired();
-        builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.LegalEntityId).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.Note);
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.Country).HasMaxLength(2).IsRequired();
         builder.Property(x => x.Currency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.EnabledChannels).HasMaxLength(256).IsRequired();
-        builder.Property(x => x.Metadata).HasColumnType("nvarchar(max)").IsRequired();
+        builder.Property(x => x.Metadata).HasColumnType("json").IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
 
         builder.HasIndex(x => x.Code).IsUnique();

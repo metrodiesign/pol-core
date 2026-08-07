@@ -7,16 +7,22 @@ public sealed class PermissionGroup
 {
     public string Key { get; private set; } = default!;
     public Scope Scope { get; private set; }
-    public string LabelTh { get; private set; } = default!;
+    public string Name { get; private set; } = default!;
+    public PermissionStatus Status { get; private set; }
     public int SortOrder { get; private set; }
 
     private PermissionGroup() { }
 
-    public PermissionGroup(string key, Scope scope, string labelTh, int sortOrder)
+    public PermissionGroup(string key, Scope scope, string name, int sortOrder,
+        PermissionStatus status = PermissionStatus.Active)
     {
         Key = key;
         Scope = scope;
-        LabelTh = labelTh;
+        Name = name;
         SortOrder = sortOrder;
+        Status = status;
     }
+
+    public void Activate() => Status = PermissionStatus.Active;
+    public void Deactivate() => Status = PermissionStatus.Inactive;
 }

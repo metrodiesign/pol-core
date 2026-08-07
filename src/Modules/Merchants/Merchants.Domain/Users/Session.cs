@@ -20,19 +20,19 @@ public sealed record SessionPolicy(TimeSpan Idle, TimeSpan Absolute, TimeSpan Ro
 /// its successor, so replay of a non-immediate predecessor is detectable as theft. Racing transitions
 /// (rotate/revoke) are applied in the store via atomic set-based updates, not by mutating a tracked entity.
 /// </summary>
-// ponytail: DUPLICATE of Admins.Domain.Users.Session (owner AdminAccountId -> MerchantUserId) — deliberate debt, do not refactor into a shared base.
+// ponytail: DUPLICATE of Admins.Domain.Users.Session (owner AdminAccountId -> UserId) — deliberate debt, do not refactor into a shared base.
 public sealed class Session : AggregateRoot<Guid>
 {
     public Guid FamilyId { get; private set; }
     public byte[] TokenHash { get; private set; } = default!;
-    public Guid MerchantUserId { get; private set; }
+    public Guid UserId { get; private set; }
     public SessionStatus Status { get; private set; }
     public DateTime IssuedAt { get; private set; }
     public DateTime IdleExpiresAt { get; private set; }
     public DateTime AbsoluteExpiresAt { get; private set; }
     public DateTime? SupersededAt { get; private set; }
     public Guid? SupersededBySessionId { get; private set; }
-    public string? CreatedIp { get; private set; }
+    public string? IpAddress { get; private set; }
     public string? UserAgent { get; private set; }
 
     private Session() { } // EF materialisation
@@ -42,12 +42,12 @@ public sealed class Session : AggregateRoot<Guid>
     {
         FamilyId = familyId;
         TokenHash = tokenHash;
-        MerchantUserId = merchantUserId;
+        UserId = merchantUserId;
         Status = SessionStatus.Active;
         IssuedAt = issuedAt;
         IdleExpiresAt = idleExpiresAt;
         AbsoluteExpiresAt = absoluteExpiresAt;
-        CreatedIp = createdIp;
+        IpAddress = createdIp;
         UserAgent = userAgent;
     }
 
@@ -56,7 +56,7 @@ public sealed class Session : AggregateRoot<Guid>
         string? createdIp = null, string? userAgent = null)
     {
         if (merchantUserId == Guid.Empty)
-            throw new ArgumentException("MerchantUserId is required.", nameof(merchantUserId));
+            throw new ArgumentException("UserId is required.", nameof(merchantUserId));
         RequireHash(tokenHash);
         return new Session(Guid.NewGuid(), Guid.NewGuid(), tokenHash, merchantUserId, now,
             now + policy.Idle, now + policy.Absolute, createdIp, userAgent);
@@ -69,8 +69,8 @@ public sealed class Session : AggregateRoot<Guid>
     public Session Rotate(byte[] newHash, DateTime now, SessionPolicy policy)
     {
         RequireHash(newHash);
-        var successor = new Session(Guid.NewGuid(), FamilyId, newHash, MerchantUserId, now,
-            now + policy.Idle, AbsoluteExpiresAt, CreatedIp, UserAgent);
+        var successor = new Session(Guid.NewGuid(), FamilyId, newHash, UserId, now,
+            now + policy.Idle, AbsoluteExpiresAt, IpAddress, UserAgent);
         Status = SessionStatus.Superseded;
         SupersededAt = now;
         SupersededBySessionId = successor.Id;

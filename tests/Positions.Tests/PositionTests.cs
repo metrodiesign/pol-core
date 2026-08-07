@@ -12,7 +12,7 @@ public sealed class PositionTests
         var m = Position.Create(" ceo ", "  Chief Executive  ");
         Assert.Equal("ceo", m.Code);
         Assert.Equal("Chief Executive", m.Name);
-        Assert.True(m.IsActive);
+        Assert.Equal(PositionStatus.Active, m.Status);
     }
 
     [Theory]
@@ -32,8 +32,8 @@ public sealed class PositionTests
         m.Rename(" Chief Exec ");
         Assert.Equal("Chief Exec", m.Name);
         m.Deactivate();
-        Assert.False(m.IsActive);
+        Assert.Equal(PositionStatus.Inactive, m.Status);
         m.Activate();
-        Assert.True(m.IsActive);
+        Assert.Equal(PositionStatus.Active, m.Status);
     }
 }

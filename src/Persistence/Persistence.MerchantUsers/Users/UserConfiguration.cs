@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace Persistence.MerchantUsers.Users;
 
 // Runtime mapping — mirrors Merchants.Infrastructure.Persistence.Users.UserConfigurations.
-// No entity here carries a CLR navigation (MerchantUserId/MerchantId are plain Guid/Guid? columns), and most
+// No entity here carries a CLR navigation (UserId/MerchantId are plain Guid/Guid? columns), and most
 // stay scalar-only; the ONE declared relationship is RegistrationAttempt→User (scalar-FK HasOne<User>()), which
 // this runtime side must mirror so EF orders the Users INSERT before the attempt INSERT in the registration
 // branch's single SaveChanges (registration-attempt-history B3).
@@ -41,13 +41,14 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
         builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired(); // server-computed from first/last name
         builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.PersonType).HasConversion<int>();
-        builder.Property(x => x.IdNumber).HasMaxLength(64);
+        builder.Property(x => x.IdentityType).HasConversion<int>();
+        builder.Property(x => x.IdentityNumber).HasMaxLength(64);
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.LicenseNumber).HasMaxLength(64);
         builder.Property(x => x.Phone).HasMaxLength(32);
         builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
         builder.Property(x => x.PhotoContentType).HasMaxLength(128);
+        builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
         builder.HasIndex(x => x.Subject).IsUnique(); // a subject maps to at most one account (REQ-1.4)
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
     }
@@ -61,7 +62,7 @@ public sealed class ExternalLoginConfiguration : IEntityTypeConfiguration<Extern
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired();
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
-        builder.Property(x => x.MerchantUserId).IsRequired(); // FK-only: no CLR nav to User, stays scalar
+        builder.Property(x => x.UserId).IsRequired(); // FK-only: no CLR nav to User, stays scalar
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // REQ-2.1
     }
 }
@@ -95,13 +96,13 @@ public sealed class RegistrationAttemptConfiguration : IEntityTypeConfiguration<
     {
         builder.ToTable("RegistrationAttempts", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.UserId).IsRequired();
         builder.Property(x => x.AttemptNo).IsRequired();
         builder.Property(x => x.Purpose).HasConversion<int>().IsRequired();
         builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.PersonType).HasConversion<int>();
-        builder.Property(x => x.IdNumber).HasMaxLength(64);
+        builder.Property(x => x.IdentityType).HasConversion<int>();
+        builder.Property(x => x.IdentityNumber).HasMaxLength(64);
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.LicenseNumber).HasMaxLength(64);
         builder.Property(x => x.Phone).HasMaxLength(32);
@@ -111,8 +112,8 @@ public sealed class RegistrationAttemptConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.SubmittedAt).IsRequired();
         // Declared on BOTH configs (B3): migration-owner for the DDL constraint, here for INSERT ordering —
         // without it EF may emit the attempt INSERT before the Users INSERT → SQL 547 masquerading as a 409.
-        builder.HasOne<User>().WithMany().HasForeignKey(x => x.MerchantUserId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasIndex(x => new { x.MerchantUserId, x.AttemptNo }).IsUnique(); // REQ-1.4/1.5 — races lose here → 409
+        builder.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(x => new { x.UserId, x.AttemptNo }).IsUnique(); // REQ-1.4/1.5 — races lose here → 409
         AppendOnlyDescriptor.Mark(builder.Metadata); // REQ-1.7: snapshots are immutable history
     }
 }
@@ -126,13 +127,13 @@ public sealed class RegistrationNoticeConfiguration : IEntityTypeConfiguration<R
     {
         builder.ToTable("RegistrationNotices", SchemaNames.Merch, t => t.ExcludeFromMigrations());
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.UserId).IsRequired();
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.HostedDomain).HasMaxLength(256);
         builder.Property(x => x.OccurredAt).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
-        builder.HasIndex(x => x.MerchantUserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
+        builder.HasIndex(x => x.UserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
     }
 }

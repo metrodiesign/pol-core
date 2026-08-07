@@ -8,7 +8,7 @@ namespace Orders.Tests;
 /// <summary>
 /// PaymentPaid -> Order fulfilment (bugfix-order-paid-link F1-F4, B1-B2): the consumer resolves the
 /// order by the event's <c>OrderId</c> — production orders are created without a payment session id
-/// (see CheckoutConfirmedConsumer), so a PaymentSessionId join can never match — fulfils it once,
+/// so a PaymentSessionId join cannot resolve it before attempt attachment — fulfils it once,
 /// and lets amount-mismatch / cancelled-order violations escape so the dispatcher parks the message
 /// in the DLQ instead of acking it silently. On a real transition it also runs the double-sell audit
 /// (products-external-source-of-truth REQ-5.16/8.2) — the catalogue mirror and its <c>Contracts.OrderPaid</c>
@@ -19,20 +19,22 @@ public sealed class OrderPaidConsumerTests
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
-    // Mirrors the production path: CheckoutConfirmedConsumer opens orders WITHOUT a payment session id.
+    // Mirrors direct Cart-to-Order creation: order starts without a payment session id.
     private static Order ProductionOrder(decimal amount = 15000m, string currency = "THB") =>
         Order.Create(
             Merchant, Money.Of(amount, currency), At, OrderLineInputs.OneLine(Money.Of(amount, currency)),
-            checkoutSessionId: Guid.NewGuid(), orderNo: "ORD6900000001");
+            orderNo: "ORD6900000001");
 
     private static PaymentPaid PaidEvent(Order order, decimal amount = 15000m, string currency = "THB") => new(
+        EventId: Guid.NewGuid(),
         PaymentSessionId: Guid.NewGuid(),
         OrderId: order.Id,
         MerchantId: Merchant,
         Amount: Money.Of(amount, currency),
+        Method: "card",
         PspCode: "2c2p",
         ExternalChargeId: "chg_abc123",
-        EventId: "evt_xyz789",
+        PspEventId: "evt_xyz789",
         OccurredAt: At.AddMinutes(5));
 
     [Fact] // F1 + F2 — the repro: the exact production shape that, before the fix, never fulfilled.
@@ -75,7 +77,7 @@ public sealed class OrderPaidConsumerTests
         await Assert.ThrowsAsync<InvalidOperationException>(
             async () => await consumer.Handle(PaidEvent(order, 14999, "THB"), default));
 
-        Assert.Equal(OrderStatus.AwaitingPayment, order.Status);
+        Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Empty(order.DomainEvents);
         Assert.Empty(auditor.Reported);
         Assert.Equal(0, uow.SaveCount);
@@ -90,7 +92,7 @@ public sealed class OrderPaidConsumerTests
         var auditor = new FakeDoubleSellAuditor();
         var consumer = new OrderPaidConsumer(new FakeOrderRepository(order), uow, auditor);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<PaymentReconciliationRequiredException>(
             async () => await consumer.Handle(PaidEvent(order), default));
 
         Assert.Equal(OrderStatus.Cancelled, order.Status);
@@ -103,12 +105,14 @@ public sealed class OrderPaidConsumerTests
     public async Task It_noops_on_a_replayed_event_for_a_paid_order()
     {
         var order = ProductionOrder();
-        Assert.True(order.MarkPaid(Money.Of(15000, "THB"), At.AddMinutes(5)));
+        var paid = PaidEvent(order);
+        Assert.True(order.MarkPaid(
+            paid.PaymentSessionId, paid.Method, Money.Of(15000, "THB"), At.AddMinutes(5)));
         order.ClearDomainEvents();
         var uow = new FakeUnitOfWork();
         var auditor = new FakeDoubleSellAuditor();
 
-        await new OrderPaidConsumer(new FakeOrderRepository(order), uow, auditor).Handle(PaidEvent(order), default);
+        await new OrderPaidConsumer(new FakeOrderRepository(order), uow, auditor).Handle(paid, default);
 
         Assert.Equal(OrderStatus.Paid, order.Status);
         Assert.Empty(order.DomainEvents);

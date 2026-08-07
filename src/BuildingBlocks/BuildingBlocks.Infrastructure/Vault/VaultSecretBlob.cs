@@ -8,8 +8,8 @@ namespace BuildingBlocks.Infrastructure.Vault;
 public sealed class VaultSecretBlob
 {
     public Guid MerchantId { get; private set; }
-    public string Name { get; private set; } = default!;
-    public string KeyId { get; private set; } = default!;
+    public string SecretName { get; private set; } = default!;
+    public string SecretKey { get; private set; } = default!;
     public byte[] EncryptedDek { get; private set; } = default!;
     public byte[] EncryptedSecret { get; private set; } = default!;
     public string Hint { get; private set; } = default!;
@@ -28,8 +28,8 @@ public sealed class VaultSecretBlob
         DateTime utcNow)
     {
         MerchantId = merchantId;
-        Name = name;
-        KeyId = keyId;
+        SecretName = name;
+        SecretKey = keyId;
         EncryptedDek = encryptedDek;
         EncryptedSecret = encryptedSecret;
         Hint = hint;
@@ -41,7 +41,7 @@ public sealed class VaultSecretBlob
     public void Rotate(byte[] encryptedDek, string keyId, byte[] encryptedSecret, string hint, DateTime utcNow)
     {
         EncryptedDek = encryptedDek;
-        KeyId = keyId;
+        SecretKey = keyId;
         EncryptedSecret = encryptedSecret;
         Hint = hint;
         UpdatedAt = utcNow;
@@ -52,7 +52,7 @@ public sealed class VaultSecretBlob
     public void Rewrap(byte[] encryptedDek, string keyId, DateTime utcNow)
     {
         EncryptedDek = encryptedDek;
-        KeyId = keyId;
+        SecretKey = keyId;
         UpdatedAt = utcNow;
     }
 }

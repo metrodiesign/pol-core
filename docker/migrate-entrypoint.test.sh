@@ -134,6 +134,33 @@ check_eq() { # $1=desc $2=actual $3=expected
     fi
 }
 
+# --- production fresh-reset gate: fail before DB access unless exact target + backup/approval/rollback evidence ---
+rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
+out_prod_refused="$(run_migrate DEPLOYMENT_ENVIRONMENT=Production DB_NAME=VCentralPay 2>&1)"
+rc_prod_refused=$?
+check_eq "production gate: missing evidence fails" "$([ "$rc_prod_refused" -ne 0 ] && echo yes || echo no)" "yes"
+check_contains "production gate: explicit reset approval required" "$out_prod_refused" "RESET_TARGET must exactly match"
+check_eq "production gate: refusal happens before DB access" "$([ -f "$TMPDIR/sqlcmd.log" ] && echo touched || echo untouched)" "untouched"
+
+rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
+out_prod_wrong_target="$(run_migrate DEPLOYMENT_ENVIRONMENT=Production DB_NAME=VCentralPay \
+    RESET_TARGET=other:1433/VCentralPay RESET_APPROVED=true \
+    BACKUP_ARTIFACT_URI=s3://backups/vcentralpay.bak \
+    BACKUP_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+    RESET_APPROVAL_EVIDENCE=change-123 ROLLBACK_EVIDENCE=runbook-456 2>&1)"
+check_contains "production gate: wrong target refused" "$out_prod_wrong_target" "RESET_TARGET must exactly match"
+
+rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
+out_prod_ok="$(run_migrate DEPLOYMENT_ENVIRONMENT=Production DB_NAME=VCentralPay \
+    RESET_TARGET=dbhost.internal:1433/VCentralPay RESET_APPROVED=true \
+    BACKUP_ARTIFACT_URI=s3://backups/vcentralpay.bak \
+    BACKUP_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+    RESET_APPROVAL_EVIDENCE=change-123 ROLLBACK_EVIDENCE=runbook-456 \
+    DB_CONNECT_RETRIES=2 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1)"
+rc_prod_ok=$?
+check_eq "production gate: complete evidence proceeds" "$rc_prod_ok" "0"
+check_contains "production gate: evidence validation logged" "$out_prod_ok" "production reset evidence validated"
+
 # --- reachable on first attempt: proceeds immediately, exits 0 ---
 rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
 out_ok="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1)"

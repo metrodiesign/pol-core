@@ -19,6 +19,7 @@ public sealed class ProblemDetailsExceptionHandlerTests
         { new NotFoundException("PaymentSession 123 not found."), StatusCodes.Status404NotFound },
         { new ConcurrencyConflictException("rowversion clash"), StatusCodes.Status409Conflict },
         { new MerchantBindingException("no merchant bound"), StatusCodes.Status500InternalServerError },
+        { new BadHttpRequestException("invalid JSON body"), StatusCodes.Status400BadRequest },
         { new ArgumentException("bad arg"), StatusCodes.Status400BadRequest },
         // Has no arm of its own: it reaches 400 through the ArgumentException bucket above, which is the
         // whole reason it derives from it (REQ-4.5).

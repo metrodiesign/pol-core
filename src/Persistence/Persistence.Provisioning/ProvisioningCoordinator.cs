@@ -87,7 +87,8 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
             {
                 // Commit-unknown (R5-v7 #2): verify BEFORE blindly retrying, so a committed-but-lost-ack
                 // operation is recognised rather than re-attempted and wrongly denied on retry.
-                var verified = await TryVerifySucceededAsync(operationKey, callerAdminId, requestHash, cancellationToken)
+                var verified = await TryVerifySucceededAsync(
+                    operationKey, callerAdminId, requestHash, spec, cancellationToken)
                     .ConfigureAwait(false);
                 if (verified is not null)
                     return verified;
@@ -129,12 +130,12 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
             if (existing.Result is null)
                 throw new InvalidOperationException(
                     $"Provisioning operation key '{operationKey}' exists but has no recorded result.");
-            return Deserialize(existing.Result);
+            return ProvisioningLedgerResultCodec.Deserialize(existing.Result, spec);
         }
 
         // Step 5: new operation — add the EXACT entity set (Merchant + PspConnection(s) + VaultSecret(s) +
         // ProvisioningAudit), all keyed off the pre-minted merchant id.
-        var merchant = Merchant.CreateWithId(mintedMerchantId, spec.MerchantCode, spec.DisplayName, spec.LegalEntityId,
+        var merchant = Merchant.CreateWithId(mintedMerchantId, spec.MerchantCode, spec.Name, spec.Note,
             spec.Country, spec.Currency, spec.EnabledChannels, spec.MerchantMetadataJson, _clock.UtcNow);
         merchantRuntime.Merchants.Add(merchant);
 
@@ -169,7 +170,7 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
             ProvisioningAudit.Create(mintedMerchantId, spec.MerchantCode, spec.AdminSubject, spec.CorrelationId, _clock.UtcNow));
 
         var result = new ProvisioningWriteResult(mintedMerchantId, connectionResults);
-        ledgerRow.SetResult(JsonSerializer.Serialize(result));
+        ledgerRow.SetResult(ProvisioningLedgerResultCodec.Serialize(result));
         // ledgerRow was inserted via raw SQL — untracked. Attach + mark ONLY Result modified, so SaveChanges
         // emits a targeted UPDATE without a redundant re-SELECT.
         controlPlane.ProvisioningOperations.Attach(ledgerRow);
@@ -259,7 +260,8 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
     };
 
     private async Task<ProvisioningWriteResult?> TryVerifySucceededAsync(
-        string operationKey, Guid callerAdminId, string requestHash, CancellationToken cancellationToken)
+        string operationKey, Guid callerAdminId, string requestHash, ProvisionSpec spec,
+        CancellationToken cancellationToken)
     {
         await using var connection = await _openConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var controlPlane = _controlPlaneFactory(connection);
@@ -272,12 +274,8 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
         if (existing.CallerAdminId != callerAdminId || existing.RequestHash != requestHash)
             throw new ConflictException(
                 $"Provisioning operation key '{operationKey}' was already used by a different caller or payload.");
-        return Deserialize(existing.Result);
+        return ProvisioningLedgerResultCodec.Deserialize(existing.Result, spec);
     }
-
-    private static ProvisioningWriteResult Deserialize(string json) =>
-        JsonSerializer.Deserialize<ProvisioningWriteResult>(json)
-            ?? throw new InvalidOperationException("Stored provisioning result failed to deserialize.");
 
     private static string ComputeRequestHash(ProvisionSpec spec) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(spec))));

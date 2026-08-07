@@ -21,8 +21,6 @@ using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Role = Iam.Domain.Roles.Role;
 using OrderItem = Orders.Domain.Items.Item;
 using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
-using OrderItemPolicy = Orders.Domain.Items.ItemPolicy;
-using OrderItemPolicyAudit = Orders.Domain.Items.ItemPolicyAudit;
 
 namespace Hosts.Tests;
 
@@ -92,8 +90,7 @@ public sealed class WriteAuthorizersTests
         Assert.False(authorizer.CanWrite(typeof(AdminUser), WriteOperation.Insert, Guid.Empty));
     }
 
-    // insurance-pivot task 4 — REQ-7.5's detail-read audit write and task 3's own checkout-line insert both
-    // go through this authorizer (the Api host), so both new item/audit types need an allowlist entry.
+    // Direct Order creation and detail-read audit both use merchant request write floor.
     [Fact]
     public void Merchant_request_allows_OrderItem_and_RevealAudit_for_own_merchant_and_denies_cross_merchant()
     {
@@ -104,21 +101,6 @@ public sealed class WriteAuthorizersTests
 
         Assert.True(authorizer.CanWrite(typeof(OrderItemRevealAudit), WriteOperation.Insert, MerchantA));
         Assert.False(authorizer.CanWrite(typeof(OrderItemRevealAudit), WriteOperation.Insert, MerchantB));
-    }
-
-    // policy-reference-record task 4 — ItemPolicy's merchant-plane write (create + edit) and its audit trail
-    // both go through this authorizer, so both new types need an allowlist entry.
-    [Fact]
-    public void Merchant_request_allows_ItemPolicy_and_ItemPolicyAudit_for_own_merchant_and_denies_cross_merchant()
-    {
-        var authorizer = new ApiHost::Api.Persistence.MerchantRequestWriteAuthorizer(new FakeActor(true, MerchantA));
-
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Insert, MerchantA));
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Update, MerchantA));
-        Assert.False(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Update, MerchantB));
-
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicyAudit), WriteOperation.Insert, MerchantA));
-        Assert.False(authorizer.CanWrite(typeof(OrderItemPolicyAudit), WriteOperation.Insert, MerchantB));
     }
 
     // --- ProvisioningSuperWriteAuthorizer ---
@@ -210,47 +192,6 @@ public sealed class WriteAuthorizersTests
         Assert.False(bound.CanWrite(typeof(ProvisioningOperation), WriteOperation.Update, Guid.Empty));
     }
 
-    // --- AdminItemPolicyWriteAuthorizer (policy-reference-record task 5) ---
-
-    [Fact]
-    public void Admin_item_policy_super_allows_any_merchant()
-    {
-        var authorizer = new ApiHost::Api.Persistence.AdminItemPolicyWriteAuthorizer(new FakeAdminScope(AccessibleMerchants.All));
-
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Insert, MerchantA));
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Update, MerchantB));
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicyAudit), WriteOperation.Insert, MerchantB));
-    }
-
-    // The security boundary this task exists for: a Scoped admin must NOT be able to write outside its own
-    // assigned merchants, even though the (type, operation) pair is otherwise allowed.
-    [Fact]
-    public void Admin_item_policy_scoped_allows_only_its_accessible_merchants()
-    {
-        var authorizer = new ApiHost::Api.Persistence.AdminItemPolicyWriteAuthorizer(
-            new FakeAdminScope(AccessibleMerchants.Of(new HashSet<Guid> { MerchantA })));
-
-        Assert.True(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Update, MerchantA));
-        Assert.False(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Update, MerchantB));
-        Assert.False(authorizer.CanWrite(typeof(OrderItemPolicyAudit), WriteOperation.Insert, MerchantB));
-    }
-
-    [Fact]
-    public void Admin_item_policy_denies_delete_even_for_a_super_admin()
-    {
-        var authorizer = new ApiHost::Api.Persistence.AdminItemPolicyWriteAuthorizer(new FakeAdminScope(AccessibleMerchants.All));
-
-        Assert.False(authorizer.CanWrite(typeof(OrderItemPolicy), WriteOperation.Delete, MerchantA));
-    }
-
-    [Fact]
-    public void Admin_item_policy_denies_an_entity_type_outside_its_narrow_set()
-    {
-        var authorizer = new ApiHost::Api.Persistence.AdminItemPolicyWriteAuthorizer(new FakeAdminScope(AccessibleMerchants.All));
-
-        Assert.False(authorizer.CanWrite(typeof(MerchantEntity), WriteOperation.Update, MerchantA));
-    }
-
     private sealed class FakeActor(bool hasActor, Guid merchantId) : IActorContext
     {
         public Guid MerchantId => hasActor ? merchantId : throw new InvalidOperationException("No actor bound.");
@@ -265,12 +206,4 @@ public sealed class WriteAuthorizersTests
         public AccessibleMerchants Accessible => throw new NotSupportedException();
     }
 
-    // Unlike FakeScope above (whose Accessible is never read by ControlPlaneAdminWriteAuthorizer, only
-    // IsBound), AdminItemPolicyWriteAuthorizer reads Accessible unconditionally — this fake carries a real one.
-    private sealed class FakeAdminScope(AccessibleMerchants accessible) : IAdminScope
-    {
-        public bool IsBound => true;
-        public Resolution Current => throw new NotSupportedException();
-        public AccessibleMerchants Accessible => accessible;
-    }
 }

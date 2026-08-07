@@ -128,8 +128,8 @@ public sealed class Session : AggregateRoot<Guid>
     }
 
     /// <summary>
-    /// Guarded transition <see cref="SessionStatus.Created"/>/<see cref="SessionStatus.Redirected"/>
-    /// to <see cref="SessionStatus.Paid"/>. Idempotent: a repeat call with the same external charge id
+    /// Guarded transition from an open or retryable terminal state to <see cref="SessionStatus.Paid"/>.
+    /// Idempotent: a repeat call with the same external charge id
     /// when already <see cref="SessionStatus.Paid"/> is a no-op (the webhook path can re-confirm).
     /// </summary>
     public void MarkPaid(string externalChargeId, DateTime occurredAt)
@@ -144,7 +144,8 @@ public sealed class Session : AggregateRoot<Guid>
             return;
         }
 
-        if (Status is not (SessionStatus.Created or SessionStatus.Redirected))
+        if (Status is not (SessionStatus.Created or SessionStatus.Redirected
+            or SessionStatus.Failed or SessionStatus.Expired))
             throw new InvalidOperationException(
                 $"PaymentSession {Id} cannot be marked Paid from status {Status}.");
 

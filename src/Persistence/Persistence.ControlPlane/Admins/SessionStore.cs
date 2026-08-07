@@ -75,7 +75,7 @@ internal sealed class SessionStore : ISessionStore
 
     public Task RevokeAllForAdminAsync(Guid adminAccountId, CancellationToken cancellationToken) =>
         _db.Sessions
-            .Where(s => s.PlatformUserId == adminAccountId && s.Status != SessionStatus.Revoked)
+            .Where(s => s.AdminUserId == adminAccountId && s.Status != SessionStatus.Revoked)
             .ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, SessionStatus.Revoked), cancellationToken);
 
     // Every session carries an absolute expiry <= 8h out, so deleting past-absolute rows bounds the table for
@@ -87,7 +87,7 @@ internal sealed class SessionStore : ISessionStore
     // a read for the console.
     public async Task<IReadOnlyList<Session>> ListByAdminAsync(Guid adminAccountId, CancellationToken cancellationToken) =>
         await _db.Sessions.AsNoTracking()
-            .Where(s => s.PlatformUserId == adminAccountId)
+            .Where(s => s.AdminUserId == adminAccountId)
             .OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id)
             .ToListAsync(cancellationToken);
 

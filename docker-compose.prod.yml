@@ -40,6 +40,13 @@ services:
       DB_PORT: ${DB_PORT:-1433}
       DB_CA_CERTIFICATE_FILE: ${DB_CA_CERTIFICATE_FILE:-}
       DB_NAME: ${DB_NAME:-VCentralPay}
+      DEPLOYMENT_ENVIRONMENT: Production
+      RESET_TARGET: ${RESET_TARGET:-}
+      RESET_APPROVED: ${RESET_APPROVED:-false}
+      BACKUP_ARTIFACT_URI: ${BACKUP_ARTIFACT_URI:-}
+      BACKUP_SHA256: ${BACKUP_SHA256:-}
+      RESET_APPROVAL_EVIDENCE: ${RESET_APPROVAL_EVIDENCE:-}
+      ROLLBACK_EVIDENCE: ${ROLLBACK_EVIDENCE:-}
       # external-sim-separate-containers: hippodb/mammothdb each run on their own, infra/DBA-provisioned
       # SQL Server instance — migrate bootstraps + seeds both (docker/migrate-entrypoint.sh) before the EF
       # migrations step, same as DB_SERVER above. Both required: a missing server here means the sim DB

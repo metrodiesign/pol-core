@@ -52,10 +52,10 @@ public sealed class AdminLoginServiceTests
         await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
 
         var session = Assert.Single(store.Added);
-        Assert.Equal(AdminId, session.PlatformUserId);
+        Assert.Equal(AdminId, session.AdminUserId);
         Assert.Equal(SessionStatus.Active, session.Status);
         Assert.Equal(1, store.SaveCount);
-        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.PlatformUserId == AdminId);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.AdminUserId == AdminId);
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);
         Assert.Equal("/dashboard", http.Response.Headers.Location);
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));

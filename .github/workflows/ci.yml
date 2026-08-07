@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          tests=( .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh )
+          tests=( .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh docker/bootstrap/assert-fresh-db.test.sh scripts/check-release-evidence.test.sh )
           if [ "${#tests[@]}" -eq 0 ]; then
             echo "No guard tests found under .claude/hooks/tests/ — expected the suite." >&2
             exit 1
@@ -60,7 +60,7 @@ jobs:
           python-version: '3.12'
       - name: Rename identifier gate (hierarchical-naming REQ-15.3)
         # Tier 1 floor: the eight retired compound identifiers (MerchantUser, PlatformUser,
-        # AdminRole, AdminPermission, PaymentSession, CartItem, CheckoutSession, PspConnection)
+        # AdminRole, AdminPermission, PaymentSession, CartItem, Order, PspConnection)
         # must not reappear as live-code tokens in src/ or tests/. The exception list
         # (REQ-15.4) ships inside the script: retained contracts, frozen wire strings
         # (string literals stripped), history comments (stripped), L6 file-local aliases.
@@ -131,8 +131,8 @@ jobs:
         run: docker compose -f docker-compose.prod.yml config
 
   dotnet-integration:
-    # The RLS security floor (PLAN #3) can only be proven against a real SQL Server: spins up SQL
-    # Server 2025, bootstraps the DB principals, applies the EF migrations (schema + RLS policy), then
+    # SQL contract can only be proven against a real SQL Server: spins up SQL Server 2025,
+    # bootstraps DB principals, applies the fresh baseline, asserts the catalog, then
     # runs the [Trait Category=Integration] suite. Needs a repo secret MSSQL_SA_PASSWORD; the runtime
     # principal passwords are GENERATED per run (never stored). Add this to branch protection once the
     # secret is configured.
@@ -140,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       sql:
-        image: mcr.microsoft.com/mssql/server:2025-latest
+        image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
         env:
           ACCEPT_EULA: "Y"
           MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
@@ -157,7 +157,7 @@ jobs:
       # here too, mirroring the local docker-compose.yml topology (hippo-db :11434, mammoth-db :11435).
       # Same image/env/health-cmd shape as `sql` above — only the port differs.
       hippo:
-        image: mcr.microsoft.com/mssql/server:2025-latest
+        image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
         env:
           ACCEPT_EULA: "Y"
           MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
@@ -168,7 +168,7 @@ jobs:
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1'"
           --health-interval 10s --health-timeout 5s --health-retries 15
       mammoth:
-        image: mcr.microsoft.com/mssql/server:2025-latest
+        image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
         env:
           ACCEPT_EULA: "Y"
           MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
@@ -230,7 +230,7 @@ jobs:
         # `dotnet ef database update` builds the startup project, which needs a restored assets file
         # (the integration job has no prior restore/build step); `dotnet test` below restores itself.
         run: dotnet restore pol-core.slnx
-      - name: Apply migrations (schema + RLS policy)
+      - name: Apply fresh baseline migrations
         env:
           POL_DESIGN_SQL: "Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
         run: |
@@ -239,18 +239,16 @@ jobs:
           dotnet ef database update --context PolDbContext \
             --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
             --startup-project src/Hosts/Api
-      - name: Migration lineage gate (rls-to-query-filter REQ-8.6)
-        # PolDbContext must still discover the FULL existing migration chain — a class-identity/assembly
-        # change that orphans the lineage would otherwise only surface the next time someone hand-authors a
-        # forward migration and gets a re-create-existing-table diff.
+      - name: Migration lineage gate
+        # Fresh reset line is intentionally exactly InitialSchema -> SecurityObjects -> SeedData.
         env:
           POL_DESIGN_SQL: "Server=localhost,11433;Database=VCentralPay;User Id=sa;Password=${{ secrets.MSSQL_SA_PASSWORD }};Encrypt=True;TrustServerCertificate=True"
         run: |
           export PATH="$PATH:$HOME/.dotnet/tools"
           ./scripts/check-migration-lineage.sh
-      - name: Assert fresh-DB raw objects (REQ-7.7)
-        # Fast catalog-level gate BEFORE the (much slower) test suite: RegistrationNotices, no legacy
-        # RLS object/principal survives, pol_app grant floor + seed counts. A partial/silently-failed
+      - name: Assert fresh database contract
+        # Fast catalog-level gate BEFORE the slower suite: engine/build, compatibility 170, schema,
+        # native JSON, raw objects, retired-object absence, pol_app grants and seed counts. A partial
         # raw-SQL migration fails here with a precise message instead of a confusing permission-denied
         # buried in Integration.Tests output.
         run: |

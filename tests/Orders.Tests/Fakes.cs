@@ -12,13 +12,10 @@ namespace Orders.Tests;
 /// now always requires at least one line).</summary>
 internal static class OrderLineInputs
 {
-    private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-
     public static IReadOnlyList<OrderItemInput> OneLine(Money unitPrice) =>
         [new OrderItemInput(
             1, unitPrice,
-            "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
-            "Somchai", "Jaidee", "1234567890123", Dob)];
+            "00098-69100/กธ/900001-10", "VMI", "ประกันรถยนต์")];
 }
 
 internal sealed class FakeOutbox : IOutbox
@@ -48,12 +45,16 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public FakeOrderRepository(params Order[] seed) => _orders.AddRange(seed);
 
     public IReadOnlyList<Order> All => _orders;
+    public int ForUpdateCalls { get; private set; }
 
     public Task<Order?> GetAsync(Guid orderId, CancellationToken ct) =>
         Task.FromResult(_orders.FirstOrDefault(o => o.Id == orderId));
 
-    public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken ct) =>
-        Task.FromResult(_orders.FirstOrDefault(o => o.CheckoutSessionId == checkoutSessionId));
+    public Task<Order?> GetForUpdateAsync(Guid orderId, CancellationToken ct)
+    {
+        ForUpdateCalls++;
+        return GetAsync(orderId, ct);
+    }
 
     public IReadOnlyList<OrderStatusTotal> Reconciliation { get; init; } = [];
 

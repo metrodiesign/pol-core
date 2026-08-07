@@ -1,0 +1,110 @@
+name: Release assembly gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Immutable release tag, vX.Y.Z
+        required: true
+        type: string
+      reset_target:
+        description: Exact SQL target, host:port/VCentralPay
+        required: true
+        type: string
+      staging_evidence_uri:
+        description: Evidence for staging reset, smoke and rollback rehearsal
+        required: true
+        type: string
+      backup_artifact_uri:
+        description: Verified production backup artifact URI
+        required: true
+        type: string
+      backup_sha256:
+        description: Production backup SHA-256
+        required: true
+        type: string
+      reset_approval_evidence:
+        description: Human reset approval evidence URI
+        required: true
+        type: string
+      rollback_evidence:
+        description: Rollback plan/rehearsal evidence URI
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    name: staging quality + rehearsal evidence
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - name: Verify checkout is exact release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build with warnings as errors
+        run: dotnet build pol-core.slnx -warnaserror
+      - name: Offline tests
+        run: dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
+      - name: Secret scan
+        env:
+          SECRET_GUARD_SKIP: ''
+        run: .ai/bin/check-secrets.sh --all
+      - name: Spec trace
+        run: scripts/spec-trace.sh merchant-commerce-erd-reset
+      - name: Validate staging and recovery evidence
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          STAGING_STATUS: passed
+          STAGING_EVIDENCE_URI: ${{ inputs.staging_evidence_uri }}
+          RESET_TARGET: ${{ inputs.reset_target }}
+          RESET_APPROVED: 'true'
+          BACKUP_ARTIFACT_URI: ${{ inputs.backup_artifact_uri }}
+          BACKUP_SHA256: ${{ inputs.backup_sha256 }}
+          RESET_APPROVAL_EVIDENCE: ${{ inputs.reset_approval_evidence }}
+          ROLLBACK_EVIDENCE: ${{ inputs.rollback_evidence }}
+        run: scripts/check-release-evidence.sh
+
+  production-assembly:
+    name: production assembly approval
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - name: Verify checkout is exact release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+      - name: Revalidate immutable release evidence
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          STAGING_STATUS: passed
+          STAGING_EVIDENCE_URI: ${{ inputs.staging_evidence_uri }}
+          RESET_TARGET: ${{ inputs.reset_target }}
+          REQUIRE_EXPECTED_RESET_TARGET: 'true'
+          EXPECTED_RESET_TARGET: ${{ vars.RESET_TARGET }}
+          RESET_APPROVED: 'true'
+          BACKUP_ARTIFACT_URI: ${{ inputs.backup_artifact_uri }}
+          BACKUP_SHA256: ${{ inputs.backup_sha256 }}
+          RESET_APPROVAL_EVIDENCE: ${{ inputs.reset_approval_evidence }}
+          ROLLBACK_EVIDENCE: ${{ inputs.rollback_evidence }}
+        run: scripts/check-release-evidence.sh
+      - name: Assemble approved migrator inputs
+        run: |
+          printf '%s\n' 'Release evidence accepted. Deployment remains a separately approved environment action.'

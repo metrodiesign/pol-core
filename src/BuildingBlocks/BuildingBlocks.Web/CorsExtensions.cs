@@ -12,7 +12,7 @@ namespace BuildingBlocks.Web;
 /// CORS for the two browser SPA frontends served by the one API (REQ-10.5). They have DIFFERENT origins but the
 /// SAME credential posture now: T5 collapsed the old Bearer "tenant" scheme into the merchant-user session
 /// cookie, which the WHOLE funnel authenticates with (not just <c>/merchants/users/*</c> — every endpoint that
-/// used to gate on policy <c>tenant</c>: products/carts/checkouts/orders/payments/reports), so there is no more
+/// used to gate on policy <c>tenant</c>: products/carts/orders/payments/reports), so there is no more
 /// uncredentialed surface left to keep a separate default for.
 /// <list type="bullet">
 /// <item>the <b>default</b> policy is the merchant-user SPA — cookie (credentialed) XHR, so it sets

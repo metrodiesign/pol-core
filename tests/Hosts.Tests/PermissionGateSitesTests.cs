@@ -50,17 +50,15 @@ public sealed class PermissionGateSitesTests
 
     private static readonly Site[] Sites =
     [
-        // --- merchant-user (8) ---
+        // --- merchant-user ---
         new("POST", "/api/v1/payments/sessions", "merchant-user", "payment.create"),
         new("POST", "/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "merchant-user", "payment.redirect"),
         new("POST", "/api/v1/merchants/users/roles", "merchant-user", "roles.manage"),
         new("PUT", "/api/v1/merchants/users/roles/{code}", "merchant-user", "roles.manage"),
         new("DELETE", "/api/v1/merchants/users/roles/{code}", "merchant-user", "roles.manage"),
         new("PUT", "/api/v1/merchants/users/{merchantUserId:guid}/roles", "merchant-user", "users.roles"),
-        new("PUT", "/api/v1/orders/{orderId:guid}/items/{itemId:guid}/policy", "merchant-user", "policies.write"),
-        new("GET", "/api/v1/reports/policies", "merchant-user", "policies.read"),
 
-        // --- admin (18) ---
+        // --- admin ---
         new("POST", "/api/v1/admins/merchants/users/{subject}/approve", "admin", "merchants.users.approve"),
         new("POST", "/api/v1/admins/merchants/users/{subject}/reject", "admin", "merchants.users.reject"),
         new("GET", "/api/v1/admins/merchants/users/{subject}/registrations", "admin", "merchants.users.view"),
@@ -77,8 +75,6 @@ public sealed class PermissionGateSitesTests
         new("PUT", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
         new("DELETE", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
         new("PUT", "/api/v1/admins/{id:guid}/roles", "admin", "user.roles"),
-        new("PUT", "/api/v1/admins/orders/{orderId:guid}/items/{itemId:guid}/policy", "admin", "merchants.policies.write"),
-        new("GET", "/api/v1/admins/reports/policies", "admin", "merchants.policies.read"),
     ];
 
     public static IEnumerable<object[]> SiteCases() => Sites.Select(s => new object[] { s });
@@ -103,7 +99,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_26_gate_sites_are_pinned() => Assert.Equal(26, Sites.Length); // REQ-4.5 count drift guard, +2 policy-reference-record write (task 5) +2 policy-reference-record report read (task 6), -1 POST /products retired (catalogue is read-only over HTTP), +1 registration-attempt-history admin history read
+    public void Exactly_22_active_gate_sites_are_pinned() => Assert.Equal(22, Sites.Length);
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

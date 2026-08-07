@@ -17,7 +17,7 @@ public sealed class PositionConfiguration : IEntityTypeConfiguration<Position>
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.IsActive).IsRequired();
+        builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.HasIndex(x => x.Code).IsUnique();
     }
 }
