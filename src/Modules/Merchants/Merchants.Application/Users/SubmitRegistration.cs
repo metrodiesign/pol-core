@@ -95,13 +95,16 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
             throw new ArgumentException("KYC photo bytes and content type must be supplied together.");
 
         // Staging must happen exactly once outside the execution-strategy transaction delegate. A retry of the
-        // same signed registration ticket carries the same operation id and therefore resolves to the same key.
+        // same signed registration ticket carries the same operation id and therefore resolves to the same key —
+        // PutStagedAsync reports whether THIS call created it, so the failure cleanup below never discards a key
+        // a different (possibly already-committed) attempt is relying on (see stagedKycCreatedNew below).
         string? stagedKycKey = null;
+        var stagedKycCreatedNew = false;
         if (command.KycPhotoBytes is { Length: > 0 } kycBytes && command.KycPhotoContentType is not null)
         {
             if (command.KycOperationId == Guid.Empty)
                 throw new ArgumentException("A KYC operation id is required when a KYC photo is supplied.");
-            stagedKycKey = await _photos.PutStagedAsync(
+            (stagedKycKey, stagedKycCreatedNew) = await _photos.PutStagedAsync(
                 command.KycOperationId, kycBytes, command.KycPhotoContentType, cancellationToken);
         }
 
@@ -163,7 +166,12 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
         }
         catch
         {
-            if (stagedKycKey is not null)
+            // Only discard a key THIS call staged fresh. A retry that resolved to an already-staged (or already
+            // committed) key from a different attempt must never delete it — that attempt may have already
+            // committed its row/outbox event and depends on the object still being there (Codex review #191:
+            // a retried request whose earlier attempt already succeeded was deleting the winning attempt's
+            // still-staged KYC object out from under it).
+            if (stagedKycKey is not null && stagedKycCreatedNew)
             {
                 try
                 {

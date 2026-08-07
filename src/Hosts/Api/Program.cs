@@ -253,6 +253,10 @@ builder.Services.AddMerchantUserOidcAuthentication(builder.Configuration, builde
 builder.Services.AddMerchantUserSessionScheme();
 builder.Services.AddHostedService<UserSessionPruneService>();
 
+// Independent TTL sweep for staged KYC/photo objects (Codex review #191) — see PhotoStagingPruneService
+// for why the sweep inside LocalPhotoStore.PutStagedAsync alone cannot hold the advertised 24-hour bound.
+builder.Services.AddHostedService<PhotoStagingPruneService>();
+
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
 builder.Services.AddAdminDataProtection();

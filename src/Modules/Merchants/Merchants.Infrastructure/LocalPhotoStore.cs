@@ -49,7 +49,7 @@ public sealed partial class LocalPhotoStore : IPhotoStore
         return (bytes, ContentTypeFor(Path.GetExtension(objectKey)));
     }
 
-    public async Task<string> PutStagedAsync(
+    public async Task<(string Key, bool CreatedNew)> PutStagedAsync(
         Guid operationId,
         ReadOnlyMemory<byte> bytes,
         string contentType,
@@ -79,11 +79,11 @@ public sealed partial class LocalPhotoStore : IPhotoStore
                     var existing = await File.ReadAllBytesAsync(existingPath, cancellationToken).ConfigureAwait(false);
                     if (!bytes.Span.SequenceEqual(existing))
                         throw new InvalidOperationException("The KYC operation already contains different photo content.");
-                    return key;
+                    return (key, false);
                 }
 
                 await File.WriteAllBytesAsync(StagedPath(key), bytes.ToArray(), cancellationToken).ConfigureAwait(false);
-                return key;
+                return (key, true);
             }
             finally
             {
@@ -139,6 +139,17 @@ public sealed partial class LocalPhotoStore : IPhotoStore
     {
         cancellationToken.ThrowIfCancellationRequested();
         File.Delete(StagedPath(objectKey));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Sweeps staged objects past <see cref="StagingTtl"/>, independent of new upload traffic — the sweep
+    /// inside <see cref="PutStagedAsync"/> only runs when a new staging call happens, which does not hold the
+    /// advertised TTL bound after a crash with no further uploads. Callable on a timer (see
+    /// Api.Merchants.PhotoStagingPruneService).</summary>
+    public Task PruneExpiredStagedAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        DeleteExpiredStagedObjects(DateTime.UtcNow);
         return Task.CompletedTask;
     }
 

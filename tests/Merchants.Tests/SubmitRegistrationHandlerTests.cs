@@ -165,6 +165,29 @@ public sealed class SubmitRegistrationHandlerTests
         Assert.Empty(ctx.Photos.DeletedKeys);
     }
 
+    [Fact]
+    public async Task Database_failure_never_discards_a_staged_key_this_attempt_did_not_create()
+    {
+        // Codex review #191 (PR pull#191): a retried request resolves the SAME deterministic staged key (same
+        // KycOperationId). If the retry's own insert then fails (e.g. the earlier attempt already committed and
+        // this is a duplicate), discarding that key would delete the object the earlier, WINNING attempt's outbox
+        // event still needs to commit later. PutStagedAsync reporting CreatedNew=false must suppress the discard.
+        var ctx = new Ctx();
+        ctx.Photos.ReturnedStagedCreatedNew = false;
+        ctx.Uow.SaveException = new InvalidOperationException("database failed");
+        var command = RegistrationCommand() with
+        {
+            KycPhotoBytes = [0xFF, 0xD8, 0xFF],
+            KycPhotoContentType = PhotoValidation.Jpeg,
+            KycOperationId = Guid.NewGuid(),
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => ctx.Handler.Handle(command, default).AsTask());
+
+        Assert.DoesNotContain(ctx.Photos.ReturnedStagedKey, ctx.Photos.DiscardedStagedKeys);
+        Assert.Empty(ctx.Photos.DeletedKeys);
+    }
+
     private static User RejectedUserWithKyc(string key)
     {
         var user = User.Register("g-sub-1", "p@org.com", Now);
@@ -372,6 +395,7 @@ public sealed class SubmitRegistrationHandlerTests
         public string? PutContentType { get; private set; }
         public string ReturnedKey { get; } = "deadbeefdeadbeefdeadbeefdeadbeef.jpg";
         public string ReturnedStagedKey { get; } = "feedfacefeedfacefeedfacefeedface.png";
+        public bool ReturnedStagedCreatedNew { get; set; } = true;
         public Guid? StagedOperationId { get; private set; }
         public byte[]? StagedBytes { get; private set; }
         public string? StagedContentType { get; private set; }
@@ -385,13 +409,13 @@ public sealed class SubmitRegistrationHandlerTests
         }
         public Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken ct) =>
             Task.FromResult<(byte[], string)?>(null);
-        public Task<string> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes, string contentType,
-            CancellationToken ct)
+        public Task<(string Key, bool CreatedNew)> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes,
+            string contentType, CancellationToken ct)
         {
             StagedOperationId = operationId;
             StagedBytes = bytes.ToArray();
             StagedContentType = contentType;
-            return Task.FromResult(ReturnedStagedKey);
+            return Task.FromResult((ReturnedStagedKey, ReturnedStagedCreatedNew));
         }
         public Task CommitAsync(string objectKey, CancellationToken ct)
         {

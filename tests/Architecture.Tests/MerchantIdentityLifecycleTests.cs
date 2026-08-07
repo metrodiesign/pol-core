@@ -88,8 +88,9 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
             Task.FromResult("photo-key");
         public Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken cancellationToken) =>
             Task.FromResult<(byte[], string)?>(null);
-        public Task<string> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes, string contentType,
-            CancellationToken cancellationToken) => Task.FromResult($"{operationId:N}.jpg");
+        public Task<(string Key, bool CreatedNew)> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes,
+            string contentType, CancellationToken cancellationToken) =>
+            Task.FromResult(($"{operationId:N}.jpg", true));
         public Task CommitAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task DiscardStagedAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;

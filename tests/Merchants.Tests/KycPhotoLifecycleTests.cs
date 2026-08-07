@@ -23,10 +23,12 @@ public sealed class KycPhotoLifecycleTests : IDisposable
         var operationId = Guid.NewGuid();
         byte[] bytes = [0xFF, 0xD8, 0xFF];
 
-        var first = await store.PutStagedAsync(operationId, bytes, PhotoValidation.Jpeg, default);
-        var retry = await store.PutStagedAsync(operationId, bytes, PhotoValidation.Jpeg, default);
+        var (first, firstCreatedNew) = await store.PutStagedAsync(operationId, bytes, PhotoValidation.Jpeg, default);
+        var (retry, retryCreatedNew) = await store.PutStagedAsync(operationId, bytes, PhotoValidation.Jpeg, default);
 
         Assert.Equal(first, retry);
+        Assert.True(firstCreatedNew);
+        Assert.False(retryCreatedNew);
         Assert.True(File.Exists(Path.Combine(_root, ".staged", first)));
 
         await store.CommitAsync(first, default);
@@ -46,13 +48,30 @@ public sealed class KycPhotoLifecycleTests : IDisposable
     public async Task New_staging_operation_sweeps_objects_older_than_24_hours()
     {
         var store = new LocalPhotoStore(_root);
-        var expiredKey = await store.PutStagedAsync(
+        var (expiredKey, _) = await store.PutStagedAsync(
             Guid.NewGuid(), new byte[] { 0x89, 0x50, 0x4E, 0x47 }, PhotoValidation.Png, default);
         var expiredPath = Path.Combine(_root, ".staged", expiredKey);
         File.SetLastWriteTimeUtc(expiredPath, DateTime.UtcNow - LocalPhotoStore.StagingTtl - TimeSpan.FromMinutes(1));
 
         await store.PutStagedAsync(
             Guid.NewGuid(), new byte[] { 0xFF, 0xD8, 0xFF }, PhotoValidation.Jpeg, default);
+
+        Assert.False(File.Exists(expiredPath));
+    }
+
+    [Fact]
+    public async Task Expired_staged_object_is_swept_without_any_new_upload()
+    {
+        // Codex review #191: the sweep inside PutStagedAsync only runs when a new staging call happens — a crash
+        // after staging, followed by no further upload traffic, must still be cleanable via a standalone sweep
+        // (PruneExpiredStagedAsync, called by Api.Merchants.PhotoStagingPruneService on a timer).
+        var store = new LocalPhotoStore(_root);
+        var (expiredKey, _) = await store.PutStagedAsync(
+            Guid.NewGuid(), new byte[] { 0xFF, 0xD8, 0xFF }, PhotoValidation.Jpeg, default);
+        var expiredPath = Path.Combine(_root, ".staged", expiredKey);
+        File.SetLastWriteTimeUtc(expiredPath, DateTime.UtcNow - LocalPhotoStore.StagingTtl - TimeSpan.FromMinutes(1));
+
+        await store.PruneExpiredStagedAsync(default);
 
         Assert.False(File.Exists(expiredPath));
     }
@@ -76,10 +95,11 @@ public sealed class KycPhotoLifecycleTests : IDisposable
         var operationId = Guid.NewGuid();
         byte[] bytes = [0xFF, 0xD8, 0xFF];
 
-        var keys = await Task.WhenAll(Enumerable.Range(0, 8)
+        var results = await Task.WhenAll(Enumerable.Range(0, 8)
             .Select(_ => store.PutStagedAsync(operationId, bytes, PhotoValidation.Jpeg, default)));
 
-        Assert.Single(keys.Distinct(StringComparer.Ordinal));
+        Assert.Single(results.Select(r => r.Key).Distinct(StringComparer.Ordinal));
+        Assert.Single(results, r => r.CreatedNew);
         Assert.Single(Directory.EnumerateFiles(Path.Combine(_root, ".staged")));
     }
 
@@ -140,8 +160,8 @@ public sealed class KycPhotoLifecycleTests : IDisposable
             throw new NotSupportedException();
         public Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey,
             CancellationToken cancellationToken) => throw new NotSupportedException();
-        public Task<string> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes, string contentType,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<(string Key, bool CreatedNew)> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes,
+            string contentType, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task CommitAsync(string objectKey, CancellationToken cancellationToken)
         {
             if (Failure is not null)

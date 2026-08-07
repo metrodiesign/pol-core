@@ -159,7 +159,11 @@ public interface IPhotoStore
 {
     Task<string> PutAsync(byte[] bytes, string contentType, CancellationToken cancellationToken);
     Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken cancellationToken);
-    Task<string> PutStagedAsync(
+    /// <summary>Stages a photo under a deterministic (per-operation) key. <c>CreatedNew</c> is false when a prior
+    /// call (this attempt's own retry, or a DIFFERENT in-flight/already-committed attempt) already staged the same
+    /// key — callers MUST NOT discard a key they did not create; it may already be relied on by another attempt's
+    /// commit path.</summary>
+    Task<(string Key, bool CreatedNew)> PutStagedAsync(
         Guid operationId,
         ReadOnlyMemory<byte> bytes,
         string contentType,

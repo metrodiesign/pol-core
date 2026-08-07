@@ -12,11 +12,11 @@ public sealed class KycPhotoLifecycleIntegrationTests : IDisposable
     public async Task Staged_photo_survives_process_boundary_and_outbox_replay_is_idempotent()
     {
         var firstProcess = new LocalPhotoStore(_root);
-        var oldKey = await firstProcess.PutStagedAsync(
+        var (oldKey, _) = await firstProcess.PutStagedAsync(
             Guid.NewGuid(), new byte[] { 0xFF, 0xD8, 0xFF }, PhotoValidation.Jpeg, default);
         await firstProcess.CommitAsync(oldKey, default);
 
-        var newKey = await firstProcess.PutStagedAsync(
+        var (newKey, _) = await firstProcess.PutStagedAsync(
             Guid.NewGuid(), new byte[] { 0x89, 0x50, 0x4E, 0x47 }, PhotoValidation.Png, default);
 
         // New adapter instance models a worker/process restart after DB commit but before outbox delivery.
