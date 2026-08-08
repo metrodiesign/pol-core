@@ -20,10 +20,12 @@ Anonymous registration uses signed Data Protection ticket. User submits scalar i
 
 - maximum 2 MiB
 - allowlisted media type + magic bytes
-- deterministic private staged object
+- deterministic private staged object keyed by `KycOperationId`
+- staging returns `(Key, CreatedNew)`; same operation + same bytes is idempotent, different bytes is rejected
 - DB stores key only
 - lifecycle outbox commits/replaces/deletes object idempotently
-- orphan staging cleanup after 24 hours
+- failed registration discards staging only when current attempt created the object
+- orphan staging TTL is 24 hours; `PhotoStagingPruneService` sweeps every hour after a 5-minute startup delay
 - omission keeps existing key
 
 Public/API/history/log surfaces never expose object key, filesystem path, credentials or unnecessary PII.
@@ -48,6 +50,10 @@ Merchant user can:
 
 No Checkout or policy route exists. Full cutover mapping:
 `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`.
+
+Production single-host deployment persists local staged/final photos in named volume
+`merchant-user-photos:/app/merchant-user-photos`. A shared object-store adapter is still required for
+horizontal or multi-host deployment.
 
 ## Persistence boundaries
 

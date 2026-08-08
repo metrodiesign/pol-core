@@ -46,7 +46,10 @@ Migration chain ต้องมีสามตัวตามลำดับน�
 - Merchant user ใช้ `IdentityType`; ไม่มี `PersonType`.
 - KYC photo persistence เก็บ object key เท่านั้น. Binary อยู่ private object store.
 - Upload รองรับ image ที่ผ่าน content type + magic validation ขนาดไม่เกิน 2 MiB.
+- Staging key deterministic ตาม `KycOperationId`; ผลลัพธ์มี `CreatedNew` เพื่อกัน retry ลบ object ของ attempt อื่น.
 - Omission ตอน resubmit คง key เดิม. Lifecycle outbox commit/delete แบบ idempotent; orphan staging TTL 24 ชั่วโมง.
+- `PhotoStagingPruneService` sweep หลัง start 5 นาที แล้วทุก 1 ชั่วโมง.
+- Production single-host ใช้ named volume `merchant-user-photos:/app/merchant-user-photos`; multi-host ต้องใช้ shared object store.
 - API, registration history และ log ห้ามคืน object key, path, credential หรือ PII ที่ไม่จำเป็น.
 
 ## Commerce
@@ -116,8 +119,10 @@ idempotent และ fetch-to-confirm.
 | `merch.Merchants.Metadata` | typed merchant metadata allowlist |
 | `shop.CartItems.Metadata` | typed commerce item metadata |
 | `shop.OrderItems.Metadata` | immutable typed commerce item metadata |
-| `txn.OutboxMessages.Payload` | closed event registry payload |
-| `merch.MerchantUserOutboxMessages.Payload` | closed registration/KYC lifecycle payload |
+| `admin.ProvisioningOperations.Result` | closed provisioning result payload |
+| `merch.UserOutbox.Payload` | closed registration/KYC lifecycle payload |
+
+`txn.OutboxMessages.Payload` เป็น `nvarchar(max)` ตาม migration ไม่ใช่ native `json` column.
 
 Unknown/secret-shaped field ถูก reject. ห้ามเก็บ credential, password, token, photo object key หรือ customer PII ใน
 native JSON. SQL Server ตรวจ invalid JSON write ทุก column.

@@ -1,15 +1,13 @@
 # Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> Generated 2026-06-24, sweep ล่าสุด **2026-08-01** (เพิ่ม admin-role-rbac — เปลี่ยน tier/แก้ profile/จัดการ
-> role-permission — และ rf2 permission-catalog unify; ก่อนหน้า post-`rf1-schema-reset` — actor rename
-> `Tenant`→`Merchant` ลงหมดแล้วในไฟล์นี้). Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
+> As-built 2026-08-07. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
 > `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
 > [`rf1-schema-reset/design.md`](../../.ai/specs/rf1-schema-reset/design.md) (rename map เต็ม).
 >
-> ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console ใช้ **OIDC BFF แบบเดียวกันเป๊ะ** แล้ว (rf1 ถอด
-> Google id-token Bearer + policy `tenant` ทิ้งทั้งระบบ) — แต่เป็น **คนละ instance แยกขาด**: prefix
+> ขอบเขต: เฉพาะ flow ของ admin console. merchant-user console ใช้ **OIDC BFF แบบเดียวกันเป๊ะ** แล้ว
+> (ไม่มี Google id-token Bearer และไม่มี tenant policy) — แต่เป็น **คนละ instance แยกขาด**: prefix
 > `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
 > config `MerchantAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
 >
@@ -256,9 +254,7 @@ auth เท่านั้น — เป็น business action ของโม�
 
 - `POST /api/v1/admins/merchants/users/{subject}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
   ใหม่ ดู [`merchants.md`](merchants.md) §8 (sequence diagram เต็ม)
-- `PUT /api/v1/admins/orders/{orderId}/items/{itemId}/policy`, `GET /api/v1/admins/reports/policies` — แก้/
-  อ่าน policy-reference record ข้าม merchant (escape-hatch ผ่าน `IAdminScope`) ดู
-  [`platform-modules.md`](platform-modules.md) แถว policy-reference-record
+- ไม่มี current policy-reference endpoint ใต้ `/api/v1/admins`; policy entity/report surface ถูก retire แล้ว.
 
 ## Logout
 
@@ -275,8 +271,7 @@ async function logout(all = false) {
 path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
 
 **committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
-- dev (`appsettings.Development.json:44-49`): `/`, `/main`, `/dashboard`, `/tenants` — `/tenants` เป็นค่าที่
-  committed จริง (FE route ยังไม่ถูก rename ตาม `Tenant`→`Merchant`) ไม่ใช่ typo
+- dev (`appsettings.Development.json:44-49`): `/`, `/main`, `/dashboard`, `/tenants` (legacy frontend return path; backend API vocabulary is `Merchant`)
 - staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
 
 **สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
