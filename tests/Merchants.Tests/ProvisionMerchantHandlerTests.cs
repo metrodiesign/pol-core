@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Payments.Infrastructure.Psp;
 using Merchants.Application.ProvisionMerchant;
+using Merchants.Domain;
 
 namespace Merchants.Tests;
 
@@ -10,7 +11,8 @@ public sealed class ProvisionMerchantHandlerTests
     private const long ExpectedAuthorizationVersion = 3;
 
     private static ProvisionMerchantCommand ValidCommand(string code = "vcommerce") => new(
-        new MerchantSpec(code, "vCommerce Co., Ltd.", "0105560000000", "TH", "THB", ["card", "promptpay"], null),
+        new MerchantSpec(code, "vCommerce Co., Ltd.", "0105560000000", "TH", "THB", ["card", "promptpay"],
+            new MerchantMetadata()),
         [
             new PspConnectionSpec("2c2p", ["card"], "merchant-1",
                 new Dictionary<string, string> { ["secretKey"] = "sk2c2pAAAA1234" }, null),

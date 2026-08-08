@@ -49,7 +49,7 @@ public sealed class RevokeSessionHandler : ICommandHandler<RevokeSessionCommand,
                 throw new NotFoundException("The admin account was not found.");
 
             var session = await _sessions.FindByIdAsync(command.SessionId, ct);
-            if (session is null || session.PlatformUserId != command.TargetAdminId)
+            if (session is null || session.AdminUserId != command.TargetAdminId)
                 throw new NotFoundException("The session was not found.");   // no existence leak (REQ-5.4)
 
             // Revoke the WHOLE family (the rotated successor would otherwise stay live). Set-based ExecuteUpdate

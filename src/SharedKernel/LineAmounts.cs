@@ -3,7 +3,7 @@ namespace SharedKernel;
 /// <summary>
 /// The per-line money arithmetic of a purchase (purchase-flow-completion REQ-6.3/6.4/6.5): gross premium,
 /// the discount subtracted from it, and the net the customer is charged. One place, because the same rule is
-/// applied by <c>Checkouts.Domain.Session.Start</c>, <c>Orders.Domain.Order.Create</c> and the checkout
+/// applied by <c>Orders.Domain.Order.Create</c> and direct Cart-to-Order
 /// endpoint's client-total check — three copies of a money rule is how the three drift apart.
 /// </summary>
 public static class LineAmounts

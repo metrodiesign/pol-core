@@ -5,10 +5,10 @@ using Mediator;
 namespace Admins.Application.Users;
 
 /// <summary>Per-request, READ-ONLY admin resolution by account id (REQ-9). The session carries the
-/// <c>PlatformUserId</c>; the auth handler re-resolves the admin's current Status/Tier/accessible set + Subject
+/// <c>AdminUserId</c>; the auth handler re-resolves the admin's current Status/Tier/accessible set + Subject
 /// fresh on every request so suspension and assignment changes take effect without re-login (REQ-9.1/9.2/9.3).
 /// The write path (bind/self-provision) runs ONLY at callback, never here (REQ-9.4).</summary>
-public sealed record ResolveByIdQuery(Guid PlatformUserId) : IQuery<ByIdResult>;
+public sealed record ResolveByIdQuery(Guid AdminUserId) : IQuery<ByIdResult>;
 
 public sealed record ByIdResult(ResolveOutcome Outcome, Resolution? Resolution, string? Subject)
 {
@@ -31,7 +31,7 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
 
     public async ValueTask<ByIdResult> Handle(ResolveByIdQuery query, CancellationToken cancellationToken)
     {
-        var account = await _admins.GetByIdAsync(query.PlatformUserId, cancellationToken);
+        var account = await _admins.GetByIdAsync(query.AdminUserId, cancellationToken);
         if (account is null)
             return ByIdResult.NotFound;
         if (account.Status == UserStatus.Suspended)

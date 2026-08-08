@@ -26,7 +26,7 @@ public sealed class RegistrationAttemptGrantsTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT merch.RegistrationAttempts
-                (Id, MerchantUserId, AttemptNo, Purpose, FirstName, LastName, Email, SubmittedAt)
+                (Id, UserId, AttemptNo, Purpose, FirstName, LastName, Email, SubmittedAt)
             VALUES (@id, @userId, @no, 0, N'First', N'Last', N'attempt@example.com', SYSUTCDATETIME());
             """,
             ("@id", attemptId), ("@userId", userId), ("@no", attemptNo));
@@ -45,7 +45,7 @@ public sealed class RegistrationAttemptGrantsTests
 
         await using var reader = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         var count = Convert.ToInt32(await IntegrationDb.ScalarAsync(reader,
-            "SELECT COUNT(*) FROM merch.RegistrationAttempts WHERE MerchantUserId = @userId", ("@userId", userId)));
+            "SELECT COUNT(*) FROM merch.RegistrationAttempts WHERE UserId = @userId", ("@userId", userId)));
         Assert.Equal(1, count);
     }
 

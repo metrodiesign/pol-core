@@ -17,11 +17,10 @@ public enum Scope
 /// <c>iam.Permissions</c>/<c>iam.PermissionGroups</c> FROM this same vocabulary, and an integration test
 /// asserts the seeded rows equal <see cref="All"/> so code and DB never drift. The boot parity guard checks
 /// every gated key against <see cref="AllKeys"/> AND its <see cref="KeySide"/> against the endpoint's policy
-/// (REQ-5.1/5.4) without touching the database. 23 keys / 9 groups (REQ-2.1) — the old admin-only
+/// (REQ-5.1/5.4) without touching the database. 19 keys / 7 groups (REQ-8.15/8.16) — the old admin-only
 /// <c>invoice.view</c>/<c>invoice.manage</c>/<c>settlement.run</c> (group <c>finance</c>) are dropped
-/// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals). policy-reference-record task 3
-/// (REQ-3.2/3.6/4.2) added <c>merchants.policies</c> (Platform)/<c>policies</c> (Merchant) on top of the
-/// original rf2 20/8 baseline. <c>product.create</c>/<c>product.update</c> (group <c>catalog</c>) were retired
+/// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals). Policy groups/keys were retired
+/// with their API/data surfaces. <c>product.create</c>/<c>product.update</c> (group <c>catalog</c>) were retired
 /// once orphaned — <c>POST /api/v1/products</c> was removed (commit 152b692, the catalogue is read-only over
 /// HTTP for good) and no endpoint gated on them anymore; the now-empty <c>catalog</c> group was dropped too.
 /// registration-attempt-history (REQ-4.1) added <c>merchants.users.view</c> under the existing
@@ -37,8 +36,6 @@ public static class Keys
     public const string GroupMerchantUsers = "merchants.users";
     public const string GroupPayment = "payment";
     public const string GroupRoles = "roles";
-    public const string GroupMerchantsPolicies = "merchants.policies";
-    public const string GroupPolicies = "policies";
 
     // Permission keys — stable strings, carried over LITERAL from the two prior catalogs (REQ-1.3).
     public const string TxnView = "txn.view";
@@ -63,13 +60,6 @@ public static class Keys
     // that used to live in two separate catalogs, one per console — now side by side in one class, so the
     // names must not collide either (REQ-10.4 pins both members AND both literals against a silent swap).
     public const string UsersRoles = "users.roles";
-    // policy-reference-record (REQ-3.2/3.6/4.2): merchants.policies.* = admin cross-merchant read/write on the
-    // ItemPolicy report/write surface; policies.* = producer self-scope read/write on the same surface.
-    public const string MerchantsPoliciesRead = "merchants.policies.read";
-    public const string MerchantsPoliciesWrite = "merchants.policies.write";
-    public const string PoliciesRead = "policies.read";
-    public const string PoliciesWrite = "policies.write";
-
     /// <summary>Every group's <see cref="Scope"/> (REQ-2.1) — the single source both <see cref="KeySide"/> and
     /// the SeedData migration derive from.</summary>
     public static readonly IReadOnlyDictionary<string, Scope> GroupScope = new Dictionary<string, Scope>(StringComparer.Ordinal)
@@ -81,15 +71,12 @@ public static class Keys
         [GroupMerchantUsers] = Scope.Platform,
         [GroupPayment] = Scope.Merchant,
         [GroupRoles] = Scope.Merchant,
-        [GroupMerchantsPolicies] = Scope.Platform,
-        [GroupPolicies] = Scope.Merchant,
     };
 
-    /// <summary>The nine group keys in display order.</summary>
+    /// <summary>The seven group keys in display order.</summary>
     public static readonly IReadOnlyList<string> GroupKeys =
     [
         GroupTxn, GroupMerchant, GroupUser, GroupSystem, GroupMerchantUsers, GroupPayment, GroupRoles,
-        GroupMerchantsPolicies, GroupPolicies,
     ];
 
     /// <summary>Every (key, group) pair in display order. The migration seed mirrors this exactly.</summary>
@@ -103,8 +90,6 @@ public static class Keys
         (MerchantUserView, GroupMerchantUsers),
         (PaymentCreate, GroupPayment), (PaymentRedirect, GroupPayment),
         (RolesView, GroupRoles), (RolesManage, GroupRoles), (UsersRoles, GroupRoles),
-        (MerchantsPoliciesRead, GroupMerchantsPolicies), (MerchantsPoliciesWrite, GroupMerchantsPolicies),
-        (PoliciesRead, GroupPolicies), (PoliciesWrite, GroupPolicies),
     ];
 
     /// <summary>All valid permission keys — the parity reference (REQ-5.1) and the role-grant catalog (REQ-2.6).</summary>

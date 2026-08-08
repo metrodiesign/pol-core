@@ -20,7 +20,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid userId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT merch.Sessions (Id, FamilyId, TokenHash, MerchantUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT merch.Sessions (Id, FamilyId, TokenHash, UserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @user, @st, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, @abs, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),
@@ -69,7 +69,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), user, Active, 8);      // device 2
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE merch.Sessions SET Status=2 WHERE MerchantUserId=@u AND Status<>2", ("@u", user));
+            "UPDATE merch.Sessions SET Status=2 WHERE UserId=@u AND Status<>2", ("@u", user));
 
         Assert.Equal(2, revoked);
     }

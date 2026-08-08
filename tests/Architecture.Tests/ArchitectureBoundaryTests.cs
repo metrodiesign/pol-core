@@ -14,14 +14,13 @@ namespace Architecture.Tests;
 /// </summary>
 public class ArchitectureBoundaryTests
 {
-    // The five business modules. Each name is also the root namespace prefix for that module's
+    // Active business modules. Each name is also the root namespace prefix for that module's
     // three layer assemblies (e.g. "Payments" -> Payments.Domain / .Application / .Infrastructure),
     // so a namespace-prefix dependency check on the bare module name covers all three layers.
     private static readonly string[] Modules =
     [
         "Products",
         "Carts",
-        "Checkouts",
         "Orders",
         "Payments",
     ];
@@ -37,7 +36,6 @@ public class ArchitectureBoundaryTests
     {
         "Products" => typeof(global::Products.Domain.ProductGroup).Assembly,
         "Carts" => typeof(global::Carts.Domain.Cart).Assembly,
-        "Checkouts" => typeof(global::Checkouts.Domain.Session).Assembly,
         "Orders" => typeof(global::Orders.Domain.Order).Assembly,
         "Payments" => typeof(global::Payments.Domain.Session).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
@@ -47,7 +45,6 @@ public class ArchitectureBoundaryTests
     {
         "Products" => typeof(global::Products.Application.Ports.ISpDocumentGateway).Assembly,
         "Carts" => typeof(global::Carts.Application.ICartRepository).Assembly,
-        "Checkouts" => typeof(global::Checkouts.Application.ICheckoutRepository).Assembly,
         "Orders" => typeof(global::Orders.Application.IOrderRepository).Assembly,
         "Payments" => typeof(global::Payments.Application.Ports.IPspAdapter).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),
@@ -57,7 +54,6 @@ public class ArchitectureBoundaryTests
     {
         "Products" => typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
         "Carts" => typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
-        "Checkouts" => typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         "Orders" => typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         "Payments" => typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         _ => throw new ArgumentOutOfRangeException(nameof(module), module, "Unknown module"),

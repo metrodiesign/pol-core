@@ -18,7 +18,7 @@ public sealed record SetRolesCommand(
     Guid TargetMerchantUserId, IReadOnlyList<string> RoleCodes, Guid ActingMerchantId, Guid ActingMerchantUserId)
     : ICommand<SetRolesResult>;
 
-public sealed record SetRolesResult(Guid MerchantUserId, IReadOnlyList<string> RoleCodes);
+public sealed record SetRolesResult(Guid UserId, IReadOnlyList<string> RoleCodes);
 
 public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesResult>
 {

@@ -1,4 +1,5 @@
 extern alias ApiHost;
+using System.Text.Json;
 using ApiHost::Api;
 using ApiHost::Api.Merchants;
 using Microsoft.AspNetCore.DataProtection;
@@ -21,7 +22,8 @@ public sealed class MerchantUserRegistrationTicketsTests
         new(provider, Options.Create(new UserRegistrationOptions { TicketTtlMinutes = 10 }));
 
     private static readonly UserTicketPayload Payload = new(
-        "g-sub-1", "p@org.com", "org.com", TicketPurpose.Registration);
+        "g-sub-1", "p@org.com", "org.com", TicketPurpose.Registration,
+        ExternalLogin.Google, Guid.Parse("0198a1e8-93aa-7000-8000-000000000001"));
 
     [Fact]
     public void A_ticket_roundtrips_carrying_the_verified_identity()
@@ -36,6 +38,28 @@ public sealed class MerchantUserRegistrationTicketsTests
         Assert.Equal("p@org.com", decoded.Email);
         Assert.Equal("org.com", decoded.HostedDomain);
         Assert.Equal(TicketPurpose.Registration, decoded.Purpose);
+        Assert.Equal(Payload.OperationId, decoded.OperationId);
+    }
+
+    [Fact]
+    public void A_ticket_without_operation_id_is_not_issued()
+    {
+        var tickets = Build(new EphemeralDataProtectionProvider());
+        var incomplete = Payload with { OperationId = Guid.Empty };
+
+        Assert.Throws<ArgumentException>(() => tickets.Protect(incomplete));
+    }
+
+    [Fact]
+    public void Registration_response_contains_only_user_id_and_status()
+    {
+        var json = JsonSerializer.Serialize(
+            new UserRegisterResponse(Guid.NewGuid(), "PendingApproval"), JsonSerializerOptions.Web);
+
+        Assert.Contains("userId", json, StringComparison.Ordinal);
+        Assert.Contains("status", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("kyc", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("objectKey", json, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

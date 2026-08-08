@@ -29,7 +29,7 @@ internal sealed class VaultMaintenance : IVaultMaintenance
         var (activeId, activeKey) = _keyring.Active;
 
         var blobs = await _db.VaultSecrets
-            .Where(b => b.MerchantId == merchantId && b.KeyId != activeId)
+            .Where(b => b.MerchantId == merchantId && b.SecretKey != activeId)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         if (blobs.Count == 0)
@@ -40,9 +40,9 @@ internal sealed class VaultMaintenance : IVaultMaintenance
         {
             foreach (var blob in blobs)
             {
-                var oldKey = _keyring.ResolveOrNull(blob.KeyId)
+                var oldKey = _keyring.ResolveOrNull(blob.SecretKey)
                     ?? throw new InvalidOperationException(
-                        $"Vault key id '{blob.KeyId}' is not in the active keyring; cannot rotate this blob.");
+                        $"Vault key id '{blob.SecretKey}' is not in the active keyring; cannot rotate this blob.");
 
                 var oldKek = VaultEnvelope.DeriveKek(oldKey, merchantId);
                 byte[] dek = [];

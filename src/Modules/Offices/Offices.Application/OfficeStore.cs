@@ -1,9 +1,11 @@
 using BuildingBlocks.Application;
 
+using Offices.Domain;
+
 namespace Offices.Application;
 
 /// <summary>A office row as the management endpoints render it.</summary>
-public sealed record OfficeItem(Guid Id, string Code, string Name, bool IsActive);
+public sealed record OfficeItem(Guid Id, string Code, string Name, OfficeStatus Status);
 
 /// <summary>
 /// Runtime CRUD over the office master list. Simple control-plane reference data, so it deliberately
@@ -20,7 +22,7 @@ public interface IOfficeStore
     Task<OfficeItem> CreateAsync(string code, string name, CancellationToken cancellationToken);
 
     /// <summary>Renames + toggles active on an existing office. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<OfficeItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken);
+    Task<OfficeItem> UpdateAsync(Guid id, string name, OfficeStatus status, CancellationToken cancellationToken);
 
     /// <summary>Reads a single office by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<OfficeItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);

@@ -19,7 +19,7 @@ public sealed class AdminSessionGrantsTests
     {
         await IntegrationDb.ExecAsync(c,
             """
-            INSERT admin.Sessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT admin.Sessions (Id, FamilyId, TokenHash, AdminUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @admin, 0, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, 8, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", Guid.NewGuid()), ("@hash", RandomNumberGenerator.GetBytes(32)), ("@admin", Guid.NewGuid()));

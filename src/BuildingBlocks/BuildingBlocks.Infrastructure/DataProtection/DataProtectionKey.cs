@@ -13,7 +13,7 @@ namespace BuildingBlocks.Infrastructure.DataProtection;
 public sealed class DataProtectionKey
 {
     public int Id { get; set; }
-    public string? FriendlyName { get; set; }
+    public string? SecretKey { get; set; }
     public string Xml { get; set; } = default!;
 }
 
@@ -24,7 +24,7 @@ public sealed class DataProtectionKeyConfiguration : IEntityTypeConfiguration<Da
         builder.ToTable("DataProtectionKeys", SchemaNames.Dbo);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedOnAdd();
-        builder.Property(x => x.FriendlyName).HasMaxLength(256);
+        builder.Property(x => x.SecretKey).HasMaxLength(256);
         builder.Property(x => x.Xml).IsRequired(); // nvarchar(max) — the framework key-ring element
     }
 }

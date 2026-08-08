@@ -25,7 +25,7 @@ public sealed class IamRoleResolutionTests
         FROM merch.RoleAssignments a
         JOIN iam.Roles r ON a.RoleId = r.Id
         JOIN iam.RolePermissions p ON p.RoleId = r.Id
-        WHERE a.MerchantUserId = @u AND a.MerchantId = @m
+        WHERE a.UserId = @u AND a.MerchantId = @m
           AND r.Status = 0 AND r.Scope = 1 AND (r.MerchantId IS NULL OR r.MerchantId = @m);
         """;
 
@@ -37,7 +37,7 @@ public sealed class IamRoleResolutionTests
         FROM admin.RoleAssignments a
         JOIN iam.Roles r ON a.RoleId = r.Id
         JOIN iam.RolePermissions p ON p.RoleId = r.Id
-        WHERE a.PlatformUserId = @u
+        WHERE a.AdminUserId = @u
           AND r.Status = 0 AND r.Scope = 0 AND r.MerchantId IS NULL;
         """;
 
@@ -168,18 +168,17 @@ public sealed class IamRoleResolutionTests
         try
         {
             // Orthogonality (REQ-8.2/8.3): a SCOPED-tier admin (Tier=0) holding platform_admin still resolves the
-            // full 16-key action set (policy-reference-record task 3 grew platform_admin 13->15;
-            // registration-attempt-history added merchants.users.view -> 16) — action comes
+            // full 14-key Platform action set after policy permissions retired — action comes
             // from the role, not the Tier. (Its narrow VISIBILITY under fn_merchant_predicate is the separate
             // axis, covered by RlsIsolationTests.)
             await IntegrationDb.InsertPlatformUserAsync(admin, user, "orth-" + user.ToString("N")[..8],
                 user.ToString("N")[..8] + "@example.com", tier: 0, status: 0);
             await InsertAdminAssignment(admin, user, platformAdminId);
-            Assert.Equal(16, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
+            Assert.Equal(14, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
         finally
         {
-            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE PlatformUserId=@u", ("@u", user));
+            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE AdminUserId=@u", ("@u", user));
         }
     }
 
@@ -210,7 +209,7 @@ public sealed class IamRoleResolutionTests
         }
         finally
         {
-            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE PlatformUserId IN (@a,@b)",
+            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE AdminUserId IN (@a,@b)",
                 ("@a", superNoRole), ("@b", adminWithMerchRole));
             await IntegrationDb.ExecAsync(admin, "DELETE iam.Roles WHERE Id=@id", ("@id", merchRole));
         }
@@ -256,17 +255,16 @@ public sealed class IamRoleResolutionTests
                 user.ToString("N")[..8] + "@example.com", tier: 1, status: 0);
             await InsertAdminAssignment(admin, user, roleId);
 
-            // Idempotent: the unique (PlatformUserId, RoleId) index rejects a second bind of the same role — the
+            // Idempotent: the unique (AdminUserId, RoleId) index rejects a second bind of the same role — the
             // handler's AssignmentExists check + this DB backstop mean a retry/race never double-assigns.
             await Assert.ThrowsAsync<SqlException>(() => InsertAdminAssignment(admin, user, roleId));
 
-            // The bootstrap account is usable immediately: platform_admin's full 16-key action set resolves
-            // (policy-reference-record task 3 grew platform_admin 13->15; registration-attempt-history -> 16).
-            Assert.Equal(16, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
+            // The bootstrap account is usable immediately: platform_admin's full 14-key Platform set resolves.
+            Assert.Equal(14, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
         finally
         {
-            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE PlatformUserId=@u", ("@u", user));
+            await IntegrationDb.ExecAsync(admin, "DELETE admin.RoleAssignments WHERE AdminUserId=@u", ("@u", user));
         }
     }
 
@@ -285,7 +283,7 @@ public sealed class IamRoleResolutionTests
     private static Task InsertMerchAssignment(SqlConnection c, Guid user, Guid role, Guid merchant) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT merch.RoleAssignments (Id, MerchantUserId, RoleId, MerchantId, AssignedById, AssignedAt)
+            INSERT merch.RoleAssignments (Id, UserId, RoleId, MerchantId, AssignedById, AssignedAt)
             VALUES (@id, @u, @r, @m, @by, SYSUTCDATETIME());
             """,
             ("@id", Guid.NewGuid()), ("@u", user), ("@r", role), ("@m", merchant), ("@by", Guid.NewGuid()));
@@ -293,7 +291,7 @@ public sealed class IamRoleResolutionTests
     private static Task InsertAdminAssignment(SqlConnection c, Guid user, Guid role) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT admin.RoleAssignments (Id, PlatformUserId, RoleId, AssignedById, AssignedAt)
+            INSERT admin.RoleAssignments (Id, AdminUserId, RoleId, AssignedById, AssignedAt)
             VALUES (@id, @u, @r, @by, SYSUTCDATETIME());
             """,
             ("@id", Guid.NewGuid()), ("@u", user), ("@r", role), ("@by", user));
@@ -326,7 +324,7 @@ public sealed class IamRoleResolutionTests
 
     private static async Task CleanupMerchUser(SqlConnection c, Guid user, params Guid[] roleIds)
     {
-        await IntegrationDb.ExecAsync(c, "DELETE merch.RoleAssignments WHERE MerchantUserId=@u", ("@u", user));
+        await IntegrationDb.ExecAsync(c, "DELETE merch.RoleAssignments WHERE UserId=@u", ("@u", user));
         foreach (var r in roleIds)
             await IntegrationDb.ExecAsync(c, "DELETE iam.Roles WHERE Id=@id", ("@id", r)); // cascade drops grants
     }

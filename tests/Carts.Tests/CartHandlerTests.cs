@@ -12,14 +12,67 @@ public sealed class CartHandlerTests
     private const string DocB = "00098-69100/กธ/900002-10";
     private const string SaleCode = "77001";
     private const string Group = "VMI";
+    private static readonly CommerceItemMetadata Metadata = new(
+        CommerceItemMetadataCodec.InsuranceDocumentSource, "POLICY", "P-001", null, null);
 
     private static CartAggregate SeededCart(out Guid cartId, out Guid itemId)
     {
-        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
-        cart.AddItem(DocA, SaleCode, Group, 2, Money.Of(150m, "THB"));
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
+        cart.AddItem(DocA, SaleCode, Group, "Motor", 2, Money.Of(150m, "THB"), Metadata);
         cartId = cart.Id;
         itemId = cart.Items.First().Id;
         return cart;
+    }
+
+    [Fact]
+    public async Task CreateCart_snapshots_server_sale_code()
+    {
+        var carts = new FakeCartRepository();
+        var uow = new FakeUnitOfWork();
+        var handler = new CreateCartHandler(carts, uow, new FakeClock(Now));
+
+        var id = await handler.Handle(new CreateCartCommand(Merchant, " 77001 "), default);
+
+        var cart = Assert.Single(carts.Carts);
+        Assert.Equal(id, cart.Id);
+        Assert.Equal("77001", cart.SaleCode);
+        Assert.Equal(1, uow.SaveCount);
+    }
+
+    [Fact]
+    public async Task AddItem_preserves_typed_server_snapshot_and_quantity_total()
+    {
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
+        var uow = new FakeUnitOfWork();
+        var handler = new AddItemToCartHandler(new FakeCartRepository(cart), uow);
+
+        var result = await handler.Handle(new AddItemToCartCommand(
+            cart.Id, Merchant, DocA, SaleCode, Group, "Motor policy", 4,
+            Money.Of(150m, "THB"), Metadata), default);
+
+        var line = Assert.Single(cart.Items);
+        Assert.Equal(DocA, line.ProductCode);
+        Assert.Equal(Group, line.VariantCode);
+        Assert.Equal("Motor policy", line.VariantName);
+        Assert.Equal(Money.Of(600m, "THB"), line.LineTotal);
+        Assert.Equal(CommerceItemMetadataCodec.Serialize(Metadata), line.Metadata);
+        Assert.Equal(Money.Of(600m, "THB"), result.Subtotal);
+        Assert.Equal(1, uow.SaveCount);
+    }
+
+    [Fact]
+    public async Task AddItem_rejects_cart_owned_by_another_merchant_without_saving()
+    {
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
+        var uow = new FakeUnitOfWork();
+        var handler = new AddItemToCartHandler(new FakeCartRepository(cart), uow);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await handler.Handle(
+            new AddItemToCartCommand(cart.Id, Guid.NewGuid(), DocA, SaleCode, Group, "Motor", 1,
+                Money.Of(150m, "THB"), Metadata), default));
+
+        Assert.Empty(cart.Items);
+        Assert.Equal(0, uow.SaveCount);
     }
 
     [Fact]
@@ -100,65 +153,6 @@ public sealed class CartHandlerTests
         var view = await handler.Handle(new ClearCartCommand(cartId, Merchant), default);
 
         Assert.Empty(view.Items);
-    }
-
-    // REQ-2.1/2.5 — the two halves of the cart-checkout cycle the /checkouts endpoints orchestrate: freeze
-    // after a checkout starts, unfreeze after it is abandoned. Each is its own unit of work.
-    [Fact]
-    public async Task MarkCheckedOut_freezes_the_cart_and_saves()
-    {
-        var cart = SeededCart(out var cartId, out _);
-        var uow = new FakeUnitOfWork();
-
-        await new MarkCartCheckedOutHandler(new FakeCartRepository(cart), uow)
-            .Handle(new MarkCartCheckedOutCommand(cartId, Merchant, cart.Version), default);
-
-        Assert.Equal(1, uow.SaveCount);
-        Assert.Throws<InvalidOperationException>(() => cart.Clear());
-    }
-
-    // PR #166 review — the freeze race: an edit that landed after the checkout snapshot was read makes the
-    // cart's Version differ from the command's ExpectedVersion, and the freeze must refuse (409) rather
-    // than freeze a cart whose lines no longer match the session.
-    [Fact]
-    public async Task MarkCheckedOut_with_a_stale_version_is_rejected_and_never_saves()
-    {
-        var cart = SeededCart(out var cartId, out _);
-        var staleVersion = cart.Version;
-        cart.AddItem(DocB, SaleCode, Group, 1, Money.Of(150m, "THB")); // concurrent edit after the snapshot
-        var uow = new FakeUnitOfWork();
-        var handler = new MarkCartCheckedOutHandler(new FakeCartRepository(cart), uow);
-
-        await Assert.ThrowsAsync<BuildingBlocks.Application.ConcurrencyConflictException>(async () =>
-            await handler.Handle(new MarkCartCheckedOutCommand(cartId, Merchant, staleVersion), default));
-
-        Assert.Equal(0, uow.SaveCount);
-        Assert.Equal(nameof(Carts.Domain.CartStatus.Open), cart.Status.ToString());
-    }
-
-    [Fact]
-    public async Task Reopen_unfreezes_the_cart_and_saves()
-    {
-        var cart = SeededCart(out var cartId, out _);
-        cart.MarkCheckedOut();
-        var uow = new FakeUnitOfWork();
-
-        await new ReopenCartHandler(new FakeCartRepository(cart), uow)
-            .Handle(new ReopenCartCommand(cartId, Merchant), default);
-
-        Assert.Equal(1, uow.SaveCount);
-        cart.Clear(); // no longer frozen
-        Assert.Empty(cart.Items);
-    }
-
-    [Fact]
-    public async Task Freezing_a_cart_owned_by_another_merchant_is_rejected()
-    {
-        var cart = SeededCart(out var cartId, out _);
-        var handler = new MarkCartCheckedOutHandler(new FakeCartRepository(cart), new FakeUnitOfWork());
-
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await handler.Handle(new MarkCartCheckedOutCommand(cartId, Guid.NewGuid(), cart.Version), default));
     }
 
     [Fact]

@@ -63,8 +63,8 @@ retrospectives/       # บันทึก retro รายเดือน
 > โค้ดปัจจุบันยังไม่ตาม target หลายจุด: ช่องว่างดู platform-modules.md "ช่องว่างเทียบเป้าหมาย" ข้อ 16-22
 >
 > **API path scheme (as-built, spec `api-route-scheme` 2026-07-05, amended 2026-07-20):** `/api/v1/{area}` —
-> version-first global (`v1` เดียวทั้ง API), segment ที่สอง = domain area (13 area plural: `products`/`carts`/
-> `checkouts`/`orders`/`payments`/`webhooks`/`reports`/`admins`/`merchants`/`positions`/`offices`/`levels`/
+> version-first global (`v1` เดียวทั้ง API), segment ที่สอง = domain area (12 area plural: `products`/`carts`/
+> `orders`/`payments`/`webhooks`/`reports`/`admins`/`merchants`/`positions`/`offices`/`levels`/
 > `divisions`), audience บังคับ per-endpoint ผ่าน `RequireAuthorization` (ไม่อยู่ใน path). infra
 > (`/health/live`,`/health/ready`,`/openapi/*`,`/scalar`) อยู่นอก `/api/v1`. big-bang — route flat เดิมถูกลบ
 > (ไม่ alias); supersede มาตรฐานเดิมแบบ surface-first (audience นำหน้า version). `merchant-users` (rf1) ถูก
@@ -85,11 +85,12 @@ dependency ชี้เข้า domain, command/query แยกผ่าน Med
    → PSP (ใน PCI scope) → เงิน settle เข้าบัญชี merchant ของบริษัทโดยตรง (นอกแพลตฟอร์ม)
 ```
 
-**5 โมดูล (in-process, คุยผ่าน Mediator — ไม่อ้างถึงกันตรง):**
-Products → Cart → Checkout → Orders → Payments. cross-module event ใช้ `INotification` (เช่น `PaymentPaid`).
+**4 โมดูล commerce (in-process, คุยผ่าน Mediator/approved host seam):**
+Products → Carts → Orders → Payments. cross-module event ใช้ `INotification` (เช่น `PaymentPaid`).
 
-**Flow แกน (happy path):** Checkout ล็อก 1 ช่องทางจ่าย → สร้าง Order (`PendingPayment`, ยังไม่แตะ PSP) →
-Orders ส่งลิงก์หน้าสรุป (background) → ลูกค้าเปิด Payments → กดยืนยัน → **Payments แตะ PSP ครั้งแรก** (สร้าง `paymentUri`) →
+**Flow แกน (happy path):** Cart อ่าน product/price/metadata จาก source → `POST /orders` revalidate source แล้ว commit
+Order + items + notification outbox + Cart `CheckedOut` ใน transaction เดียว → Orders ส่งลิงก์หน้าสรุป →
+ลูกค้าเปิด Payments → กดยืนยัน → **Payments แตะ PSP ครั้งแรก** (สร้าง `paymentUri`) →
 redirect → ลูกค้าจ่าย → **webhook = source of truth** (verify + idempotent + fetch-to-confirm) → emit `PaymentPaid` →
 Orders → Paid. จบ ไม่มี issuance.
 
@@ -157,10 +158,10 @@ Orders → Paid. จบ ไม่มี issuance.
   `Users`/`RoleAssignments`) และไม่อยู่ใต้ filter เดียวกัน
 - RBAC catalog — **rf2 (2026-07-13, spec `rf2-iam-rbac`)**: catalog ที่เดิมซ้ำ 2 ชุดต่อ console (schema `admin` + `merch`,
   16 keys/6 groups + 7 keys/3 groups) ยุบเป็น **catalog กลางเดียว module `Iam` schema `iam`** — 4 tables
-  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary = **20 keys /
-  8 groups** โดย `PermissionGroups.Scope ∈ {Platform, Merchant}` ทุก key สืบทอด side จาก group → assign/grant ข้าม side
+  `iam.PermissionGroups`/`Permissions`/`Roles`/`RolePermissions` (PK = dot-notation key string). Vocabulary = **19 keys /
+  7 groups** โดย `PermissionGroups.Scope ∈ {Platform, Merchant}` ทุก key สืบทอด side จาก group → assign/grant ข้าม side
   fail-closed by construction (ปิด cross-side grant hole ที่ 2 catalog เดิม detect ไม่ได้). Seed **4 roles**: `platform_admin`
-  (13 platform keys) / `platform_auditor` (4) / `merchant_manager` (7 merchant keys) / `merchant_staff` (4); anchor ปิด/ลบ
+  (14 platform keys) / `platform_auditor` (4) / `merchant_manager` (5 merchant keys) / `merchant_staff` (2); anchor ปิด/ลบ
   ไม่ได้ = `platform_admin` + `merchant_manager` (แทน anchor เดิม `super_admin`/`merchant_owner`). `Roles.MerchantId` (NULL =
   shared/seed, มีค่า = custom ของ merchant นั้น) ปิด wart เดิมที่ merchant custom role รั่วข้าม merchant. คงต่อ side แค่
   assignment 2 ตาราง (`admin.RoleAssignments`/`merch.RoleAssignments`, FK `RoleId`→`iam.Roles`). `RequirePermission` +

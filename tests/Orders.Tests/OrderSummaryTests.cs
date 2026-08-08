@@ -46,4 +46,23 @@ public sealed class OrderSummaryTests
 
         Assert.Throws<InvalidOperationException>(() => order.ReissueSummary(At));
     }
+
+    [Theory]
+    [InlineData(OrderStatus.Failed)]
+    [InlineData(OrderStatus.Expired)]
+    public void ReissueSummary_is_allowed_for_retryable_payment_status(OrderStatus status)
+    {
+        var order = NewOrder();
+        var sessionId = Guid.NewGuid();
+        order.AttachPaymentAttempt(sessionId, "card");
+        if (status == OrderStatus.Failed)
+            order.MarkPaymentFailed(sessionId);
+        else
+            order.MarkPaymentExpired(sessionId);
+        var previous = order.SummaryToken;
+
+        order.ReissueSummary(At.AddHours(1));
+
+        Assert.NotEqual(previous, order.SummaryToken);
+    }
 }

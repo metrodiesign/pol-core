@@ -58,8 +58,8 @@ file sealed class FakeOrders(List<Order> orders) : IOrderRepository
     public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
         Task.FromResult(orders.FirstOrDefault(o => o.Id == orderId));
 
-    public Task<Order?> GetByCheckoutSessionIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException();
+    public Task<Order?> GetForUpdateAsync(Guid orderId, CancellationToken cancellationToken) =>
+        GetAsync(orderId, cancellationToken);
 
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
@@ -153,8 +153,7 @@ public sealed class OrderCancelEndpointTests
     private static Order NewOrder() => Order.Create(
         Merchant, Amount, DateTime.UtcNow.AddHours(-1),
         [new OrderItemInput(
-            1, Amount, "00098-69100/กธ/037677-10", "VMI", "POLICY", null, null, null,
-            "Somchai", "Jaidee", "1234567890123", new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc))], orderNo: "ORD6900000001");
+            1, Amount, "00098-69100/กธ/037677-10", "VMI", "ประกันรถยนต์")], orderNo: "ORD6900000001");
 
     /// <summary>A chargeless session for <paramref name="order"/>: never redirected, so the confirmation
     /// service can settle it on the clock alone. <paramref name="age"/> past the TTL makes it releasable.</summary>
@@ -216,7 +215,7 @@ public sealed class OrderCancelEndpointTests
         var response = await client.SendAsync(Cancel(order.Id));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal(OrderStatus.AwaitingPayment, order.Status);
+        Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Equal(SessionStatus.Created, session.Status);
     }
 
@@ -225,7 +224,7 @@ public sealed class OrderCancelEndpointTests
     public async Task Cancelling_a_paid_order_is_409()
     {
         var order = NewOrder();
-        order.MarkPaid(Amount, DateTime.UtcNow);
+        order.MarkPaid(Guid.NewGuid(), "card", Amount, DateTime.UtcNow);
         using var factory = new OrderFactory(Merchant, [order], []);
         using var client = factory.CreateClient();
 
@@ -235,16 +234,16 @@ public sealed class OrderCancelEndpointTests
         Assert.Equal(OrderStatus.Paid, order.Status);
     }
 
-    // REQ-4.5 — a repeated cancel (double click, retry after a dropped response) succeeds unchanged.
+    // REQ-9.18 — Cancelled is terminal; repeated cancel is a conflict.
     [Fact]
-    public async Task Cancelling_the_same_order_twice_succeeds()
+    public async Task Cancelling_the_same_order_twice_is_409()
     {
         var order = NewOrder();
         using var factory = new OrderFactory(Merchant, [order], []);
         using var client = factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Cancel(order.Id))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(Cancel(order.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.SendAsync(Cancel(order.Id))).StatusCode);
         Assert.Equal(OrderStatus.Cancelled, order.Status);
     }
 
@@ -292,7 +291,7 @@ public sealed class OrderCancelEndpointTests
         var response = await client.SendAsync(Cancel(order.Id, csrf: false));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-        Assert.Equal(OrderStatus.AwaitingPayment, order.Status);
+        Assert.Equal(OrderStatus.Pending, order.Status);
     }
 
     // ---- purchase-flow-completion REQ-7.3/7.4: GET /orders --------------------------------------------

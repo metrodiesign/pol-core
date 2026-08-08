@@ -56,7 +56,7 @@ internal sealed class MerchantRegistrationAttemptWriter : IRegistrationAttemptWr
 
     public async Task<int> NextAttemptNoAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
         await _db.RegistrationAttempts.AsNoTracking()
-            .Where(a => a.MerchantUserId == merchantUserId)
+            .Where(a => a.UserId == merchantUserId)
             .MaxAsync(a => (int?)a.AttemptNo, cancellationToken).ConfigureAwait(false) + 1 ?? 1;
 
     public void Add(RegistrationAttempt attempt) => _db.RegistrationAttempts.Add(attempt);
@@ -73,7 +73,7 @@ internal sealed class MerchantRegistrationHistoryReader : IRegistrationHistoryRe
     public async Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(
         Guid merchantUserId, CancellationToken cancellationToken) =>
         await _db.RegistrationAttempts.AsNoTracking()
-            .Where(a => a.MerchantUserId == merchantUserId)
+            .Where(a => a.UserId == merchantUserId)
             .OrderBy(a => a.AttemptNo)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
@@ -153,7 +153,7 @@ internal sealed class MerchantRegistrationNoticeWriter : IRegistrationNoticeWrit
     public MerchantRegistrationNoticeWriter(MerchantUserDbContext db) => _db = db;
 
     public Task<bool> ExistsAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
-        _db.RegistrationNotices.AsNoTracking().AnyAsync(n => n.MerchantUserId == merchantUserId, cancellationToken);
+        _db.RegistrationNotices.AsNoTracking().AnyAsync(n => n.UserId == merchantUserId, cancellationToken);
 
     public void Add(RegistrationNotice notice) => _db.RegistrationNotices.Add(notice);
 

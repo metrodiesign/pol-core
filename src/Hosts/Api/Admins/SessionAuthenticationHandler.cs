@@ -84,7 +84,7 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
             case SessionDecision.ReuseRevokeFamily:
                 await _sessions.RevokeFamilyAsync(session.FamilyId, ct);
                 _audit.Append(AuthAudit.For(AuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
-                    session.PlatformUserId, reason: "reuse-detected"));
+                    session.AdminUserId, reason: "reuse-detected"));
                 await _audit.SaveChangesAsync(ct);
                 return AuthenticateResult.Fail("Session reuse detected."); // 401, family killed (REQ-5.3/12.1)
 
@@ -95,7 +95,7 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
         }
 
         // Per-request READ-ONLY resolution (REQ-9.1/9.4): fresh Status/Tier/accessible + Subject by account id.
-        var resolved = await _resolver.ResolveByIdAsync(session.PlatformUserId, ct);
+        var resolved = await _resolver.ResolveByIdAsync(session.AdminUserId, ct);
         if (resolved.Outcome != ResolveOutcome.Resolved || resolved.Resolution is null)
             return AuthenticateResult.Fail("Admin is suspended or no longer exists."); // suspend -> next request 401 (REQ-6.3/9.2)
 
@@ -136,7 +136,7 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
             return;
 
         _sessions.Add(successor);
-        _audit.Append(AuthAudit.For(AuthEventType.Rotated, Context.TraceIdentifier, now, session.PlatformUserId));
+        _audit.Append(AuthAudit.For(AuthEventType.Rotated, Context.TraceIdentifier, now, session.AdminUserId));
         await _sessions.SaveChangesAsync(ct);
         _cookies.Write(Context, newToken, csrfToken); // safe: UseAuthentication runs before the response body
     }

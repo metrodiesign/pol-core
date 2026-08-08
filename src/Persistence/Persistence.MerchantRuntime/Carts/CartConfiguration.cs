@@ -20,6 +20,7 @@ internal sealed class CartConfiguration(MerchantRuntimeDbContext context) : IEnt
         builder.HasKey(x => x.Id);
 
         builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
 

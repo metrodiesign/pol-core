@@ -27,7 +27,7 @@ public enum LoginOutcome { NotFound, PendingApproval, Rejected, Suspended, Activ
 /// so the handler can mint the <c>sale_code</c> claim the catalogue path reads (REQ-4.8); optional because an
 /// account may not have one bound yet, which the catalogue path answers with 403 (REQ-4.9).</summary>
 public sealed record Resolution(
-    Guid MerchantUserId, string Email, Guid MerchantId, IReadOnlySet<string> Permissions, string? SaleCode = null);
+    Guid UserId, string Email, Guid MerchantId, IReadOnlySet<string> Permissions, string? SaleCode = null);
 
 public sealed record LoginResult(LoginOutcome Outcome, Resolution? Resolution)
 {
@@ -73,8 +73,8 @@ public sealed class ResolveLoginHandler : IQueryHandler<ResolveLoginQuery, Login
             return LoginResult.Suspended;
 
         return LoginResult.Active(new Resolution(
-            account.MerchantUserId, account.Email, merchantId,
-            await _roles.ListEffectivePermissionsAsync(account.MerchantUserId, merchantId, cancellationToken),
+            account.UserId, account.Email, merchantId,
+            await _roles.ListEffectivePermissionsAsync(account.UserId, merchantId, cancellationToken),
             account.SaleCode));
     }
 }

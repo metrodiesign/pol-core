@@ -80,4 +80,16 @@ public sealed class MerchantUserScalarSecurityTests
     public async Task The_document_description_mentions_the_merchant_user_surface() =>
         Assert.Contains("MerchantUser BFF",
             (await Document()).GetProperty("info").GetProperty("description").GetString());
+
+    [Fact]
+    public async Task KYC_object_key_and_read_review_status_routes_are_absent_from_public_contract()
+    {
+        var document = await Document();
+        var responseSchema = document.GetProperty("components").GetProperty("schemas")
+            .GetProperty("UserRegisterResponse");
+
+        Assert.False(responseSchema.GetProperty("properties").TryGetProperty("kycPhotoObjectKey", out _));
+        Assert.DoesNotContain(document.GetProperty("paths").EnumerateObject(),
+            path => path.Name.Contains("kyc", StringComparison.OrdinalIgnoreCase));
+    }
 }

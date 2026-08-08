@@ -41,7 +41,7 @@ public sealed class RouteSchemeConventionTests
     // (hierarchical-naming task 8: merchant-users out, merchants in; 2026-07-20: positions/offices/levels/
     // divisions promoted from /admins sub-resources to standalone areas).
     private static readonly Regex ApiScheme = new(
-        @"^/api/v1/(products|carts|checkouts|orders|payments|admins|merchants|webhooks|reports|positions|offices|levels|divisions)(/.*)?$",
+        @"^/api/v1/(products|carts|orders|payments|admins|merchants|webhooks|reports|positions|offices|levels|divisions)(/.*)?$",
         RegexOptions.Compiled);
 
     // REQ-4.3: health/readiness + the OpenAPI document + the Scalar UI are excluded from the area taxonomy.

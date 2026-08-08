@@ -7,6 +7,7 @@ namespace Carts.Tests;
 internal sealed class FakeCartRepository : ICartRepository
 {
     private readonly List<CartAggregate> _carts = [];
+    public IReadOnlyList<CartAggregate> Carts => _carts;
 
     public FakeCartRepository(params CartAggregate[] seed) => _carts.AddRange(seed);
 
@@ -14,6 +15,11 @@ internal sealed class FakeCartRepository : ICartRepository
 
     public Task<CartAggregate?> GetAsync(Guid cartId, CancellationToken cancellationToken) =>
         Task.FromResult(_carts.FirstOrDefault(c => c.Id == cartId));
+}
+
+internal sealed class FakeClock(DateTime now) : IClock
+{
+    public DateTime UtcNow => now;
 }
 
 internal sealed class FakeUnitOfWork : IUnitOfWork

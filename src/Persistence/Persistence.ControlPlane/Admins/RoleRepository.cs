@@ -37,7 +37,7 @@ internal sealed class RoleRepository : IRoleRepository
     public async Task<IReadOnlySet<Guid>> ListRoleIdsForAdminAsync(Guid adminId, CancellationToken cancellationToken)
     {
         var ids = await _db.RoleAssignments
-            .Where(a => a.PlatformUserId == adminId)
+            .Where(a => a.AdminUserId == adminId)
             .Select(a => a.RoleId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();
@@ -45,19 +45,23 @@ internal sealed class RoleRepository : IRoleRepository
 
     public Task<RoleAssignment?> GetAssignmentAsync(Guid adminId, Guid roleId, CancellationToken cancellationToken) =>
         _db.RoleAssignments
-            .FirstOrDefaultAsync(a => a.PlatformUserId == adminId && a.RoleId == roleId, cancellationToken);
+            .FirstOrDefaultAsync(a => a.AdminUserId == adminId && a.RoleId == roleId, cancellationToken);
 
     public Task<bool> AssignmentExistsAsync(Guid adminId, Guid roleId, CancellationToken cancellationToken) =>
-        _db.RoleAssignments.AnyAsync(a => a.PlatformUserId == adminId && a.RoleId == roleId, cancellationToken);
+        _db.RoleAssignments.AnyAsync(a => a.AdminUserId == adminId && a.RoleId == roleId, cancellationToken);
 
     public async Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid adminId, CancellationToken cancellationToken)
     {
         var keys = await _db.RoleAssignments
-            .Where(a => a.PlatformUserId == adminId)
+            .Where(a => a.AdminUserId == adminId)
             .Join(
                 _db.Roles.Where(RoleVisibility.For(Scope.Platform, null)).Where(r => r.Status == RoleStatus.Active),
                 a => a.RoleId, r => r.Id, (a, r) => r.Id)
             .Join(_db.RolePermissions, roleId => roleId, p => p.RoleId, (roleId, p) => p.PermissionKey)
+            .Join(_db.Permissions.Where(p => p.Status == PermissionStatus.Active), key => key, p => p.Key,
+                (key, p) => new { key, p.GroupKey })
+            .Join(_db.PermissionGroups.Where(g => g.Status == PermissionStatus.Active), x => x.GroupKey, g => g.Key,
+                (x, g) => x.key)
             .Distinct()
             .ToListAsync(cancellationToken);
         return keys.ToHashSet(StringComparer.Ordinal);
@@ -66,7 +70,7 @@ internal sealed class RoleRepository : IRoleRepository
     public async Task<IReadOnlyList<string>> ListRoleCodesForAdminAsync(Guid adminId, CancellationToken cancellationToken) =>
         // ALL assigned roles incl. Inactive (assignment truth) — no Active filter, unlike effective perms.
         await _db.RoleAssignments
-            .Where(a => a.PlatformUserId == adminId)
+            .Where(a => a.AdminUserId == adminId)
             .Join(_db.Roles, a => a.RoleId, r => r.Id, (a, r) => r.Code)
             .OrderBy(c => c)
             .ToListAsync(cancellationToken);

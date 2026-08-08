@@ -42,7 +42,6 @@ public sealed class SpInsulationTests
         "Persistence.Provisioning",
         "Admins.Application", "Admins.Domain", "Admins.Infrastructure",
         "Carts.Application", "Carts.Domain", "Carts.Infrastructure",
-        "Checkouts.Application", "Checkouts.Domain", "Checkouts.Infrastructure",
         "Divisions.Application", "Divisions.Domain", "Divisions.Infrastructure",
         "Iam.Application", "Iam.Domain", "Iam.Infrastructure",
         "Levels.Application", "Levels.Domain", "Levels.Infrastructure",

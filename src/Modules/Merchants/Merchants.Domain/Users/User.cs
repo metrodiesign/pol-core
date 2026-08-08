@@ -34,8 +34,8 @@ public sealed class User : AggregateRoot<Guid>
     // Registrant detail fields. FirstName/LastName are required (they compose DisplayName); the rest optional.
     public string FirstName { get; private set; } = default!;
     public string LastName { get; private set; } = default!;
-    public PersonType? PersonType { get; private set; }
-    public string? IdNumber { get; private set; }
+    public IdentityType? IdentityType { get; private set; }
+    public string? IdentityNumber { get; private set; }
 
     /// <summary>The upstream sale code this account sells under — the same field the VCentralPay search
     /// contract calls <c>@SaleCode</c>. Validated to that contract's shape at <see cref="SetDetails"/>
@@ -50,6 +50,9 @@ public sealed class User : AggregateRoot<Guid>
 
     /// <summary>The validated, stored content-type served back with <c>nosniff</c>.</summary>
     public string? PhotoContentType { get; private set; }
+
+    /// <summary>Opaque server-generated key for the optional KYC photo. Never exposed by a public read surface.</summary>
+    public string? KycPhotoObjectKey { get; private set; }
 
     /// <summary>The persisted <c>DisplayName</c> column is 200 chars (see EF config); two 200-char names concatenated
     /// would overflow it, so the computed value is clamped defensively.</summary>
@@ -86,7 +89,7 @@ public sealed class User : AggregateRoot<Guid>
     /// live at this edge rather than at use time: <c>SqlParameter.Size = 20</c> truncates a longer value with no
     /// error, and a non-ASCII character is lost to <c>varchar</c>, so an unchecked value would silently search
     /// under somebody else's code (products-external-source-of-truth REQ-4.10, design decision #8).</summary>
-    public void SetDetails(string firstName, string lastName, PersonType? personType,
+    public void SetDetails(string firstName, string lastName, IdentityType? personType,
         string? idNumber, string? saleCode, string? licenseNumber, string? phone)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
@@ -94,8 +97,8 @@ public sealed class User : AggregateRoot<Guid>
         FirstName = firstName.Trim();
         LastName = lastName.Trim();
         DisplayName = ComposeDisplayName(FirstName, LastName);
-        PersonType = personType;
-        IdNumber = Trim(idNumber);
+        IdentityType = personType;
+        IdentityNumber = Trim(idNumber);
         SaleCode = ValidSaleCode(Trim(saleCode));
         LicenseNumber = Trim(licenseNumber);
         Phone = Trim(phone);
@@ -129,6 +132,13 @@ public sealed class User : AggregateRoot<Guid>
     {
         PhotoObjectKey = Trim(objectKey);
         PhotoContentType = Trim(contentType);
+    }
+
+    /// <summary>Replaces the current KYC photo reference. Object lifecycle is coordinated by the outbox.</summary>
+    public void SetKycPhoto(string objectKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(objectKey);
+        KycPhotoObjectKey = objectKey.Trim();
     }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

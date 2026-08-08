@@ -12,7 +12,7 @@ public sealed class OfficeTests
         var m = Office.Create(" hq ", "  Headquarters  ");
         Assert.Equal("hq", m.Code);
         Assert.Equal("Headquarters", m.Name);
-        Assert.True(m.IsActive);
+        Assert.Equal(OfficeStatus.Active, m.Status);
     }
 
     [Theory]
@@ -32,8 +32,8 @@ public sealed class OfficeTests
         m.Rename(" Head Office ");
         Assert.Equal("Head Office", m.Name);
         m.Deactivate();
-        Assert.False(m.IsActive);
+        Assert.Equal(OfficeStatus.Inactive, m.Status);
         m.Activate();
-        Assert.True(m.IsActive);
+        Assert.Equal(OfficeStatus.Active, m.Status);
     }
 }

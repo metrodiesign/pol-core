@@ -25,7 +25,7 @@ public sealed record ApproveCommand(
     Guid ActingAdminId,
     string CorrelationId) : ICommand<ApproveResult>;
 
-public sealed record ApproveResult(Guid MerchantUserId, UserStatus Status, bool AlreadyActive);
+public sealed record ApproveResult(Guid UserId, UserStatus Status, bool AlreadyActive);
 
 public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResult>
 {
@@ -106,7 +106,7 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
 public sealed record RejectCommand(
     string Subject, string? Reason, string ActingAdminSubject, string CorrelationId) : ICommand<RejectResult>;
 
-public sealed record RejectResult(Guid MerchantUserId, UserStatus Status);
+public sealed record RejectResult(Guid UserId, UserStatus Status);
 
 public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
 {

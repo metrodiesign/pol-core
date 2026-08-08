@@ -23,7 +23,14 @@ WORKDIR /app
 COPY --from=build /app .
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && useradd --uid 10001 --no-create-home appuser
+    && useradd --uid 10001 --no-create-home appuser \
+    # merchant-user-photos (LocalPhotoStore's default PhotoStoreRootPath, HostWiring.cs) must exist +
+    # be appuser-owned BEFORE a volume is mounted over it in prod compose — Docker seeds a fresh named
+    # volume's content/ownership from the image path it's mounted over, so this is what makes the mount
+    # writable by the non-root process (Codex review #191: unmounted, this dir lives in the container's
+    # writable layer and every KYC/photo upload is lost on container recreate).
+    && mkdir -p /app/merchant-user-photos \
+    && chown appuser:appuser /app/merchant-user-photos
 USER appuser
 ARG HOST_DLL
 ENV HOST_DLL=${HOST_DLL} \

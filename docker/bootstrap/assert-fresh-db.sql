@@ -1,105 +1,134 @@
--- Fresh-DB gate (rf1-schema-reset REQ-7.7): asserts every hand-written raw object from the
--- SecurityObjects/SeedData migrations landed on a freshly-migrated DB. Runs AFTER
--- `dotnet ef database update`, BEFORE the test suite — a fast catalog-level smoke check so a
--- silently-partial migration fails here with a precise message instead of surfacing later as a
--- confusing permission-denied buried in Integration.Tests output.
---   sqlcmd -S <server> -U sa -P <pw> -C -b -v DbName=VCentralPay -i assert-fresh-db.sql
--- `-b` makes sqlcmd exit non-zero on the first THROW below.
--- rls-to-query-filter task 8 (RlsTeardownAndOnePrincipal migration): the RLS/5-principal apparatus this
--- file used to assert the PRESENCE of is now torn down — the checks below assert its ABSENCE instead, so
--- a regression that accidentally re-introduces the old apparatus fails CI loudly instead of silently.
+-- SQL Server 2025 fresh-baseline verification. Run after InitialSchema -> SecurityObjects -> SeedData.
+-- sqlcmd -S <server> -U sa -P <pw> -C -b -v DbName=VCentralPay -i assert-fresh-db.sql
 SET NOCOUNT ON;
 USE [$(DbName)];
 GO
 
 DECLARE @fail nvarchar(max) = N'';
+DECLARE @major int = TRY_CONVERT(int, SERVERPROPERTY('ProductMajorVersion'));
+DECLARE @version nvarchar(128) = CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion'));
+DECLARE @build int = TRY_CONVERT(int, PARSENAME(@version, 2));
+DECLARE @revision int = TRY_CONVERT(int, PARSENAME(@version, 1));
 
--- --- Database collation — pinned at CREATE DATABASE (01-principals.sql). The EF dev auto-migrate
--- path (src/Hosts/Api/Program.cs MigrateAsync()) can also create the database itself, without
--- COLLATE, if it races ahead of bootstrap; 01-principals.sql's own gate now catches that case
--- before this script ever runs, so this check is a second, independent floor, not the only one. ---
+IF @major <> 17 OR @build < 4045 OR (@build = 4045 AND @revision < 5)
+    SET @fail += N'engine must be SQL Server 2025 CU5 (17.0.4045.5) or newer; ';
+IF (SELECT compatibility_level FROM sys.databases WHERE name = DB_NAME()) <> 170
+    SET @fail += N'database compatibility level must be 170; ';
 IF ISNULL(CONVERT(nvarchar(128), DATABASEPROPERTYEX(DB_NAME(), N'Collation')), N'') <> N'Thai_100_CI_AS'
-    SET @fail += N'database collation: expected Thai_100_CI_AS; ';
+    SET @fail += N'database collation must be Thai_100_CI_AS; ';
 
--- --- Schemas (6) + dbo ownership (REQ-3.10 — ownership chaining requires dbo) ---
-IF (SELECT COUNT(*) FROM sys.schemas s JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
+IF (SELECT COUNT(*) FROM sys.schemas s
+    JOIN sys.database_principals dp ON dp.principal_id = s.principal_id
     WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'shop', N'txn') AND dp.name = N'dbo') <> 6
-    SET @fail += N'schemas: expected 6 of {admin,cfg,iam,merch,shop,txn} owned by dbo; ';
+    SET @fail += N'application schemas must be six and owned by dbo; ';
 
--- --- sec schema itself must not exist (DropEmptySecSchema — RlsTeardownAndOnePrincipal already
--- tore down every object inside it; this migration drops the now-empty container) ---
-IF EXISTS (SELECT 1 FROM sys.schemas WHERE name = N'sec')
-    SET @fail += N'schema sec must not exist; ';
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
+    WHERE MigrationId LIKE N'%[_]InitialSchema'
+       OR MigrationId LIKE N'%[_]SecurityObjects'
+       OR MigrationId LIKE N'%[_]SeedData') <> 3
+   OR (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 3
+    SET @fail += N'migration history must contain exactly InitialSchema, SecurityObjects, SeedData; ';
 
--- --- Raw table: merch.RegistrationNotices (ExcludeFromMigrations — EF never diffs/creates it) ---
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
-    SET @fail += N'table merch.RegistrationNotices missing; ';
+    SET @fail += N'merch.RegistrationNotices missing; ';
+IF OBJECT_ID(N'shop.OrderNoSeq', N'SO') IS NULL
+    SET @fail += N'shop.OrderNoSeq missing; ';
 
--- --- No RLS predicate function survives (torn down by RlsTeardownAndOnePrincipal) ---
-IF OBJECT_ID(N'sec.fn_merchant_predicate', N'IF') IS NOT NULL
-    SET @fail += N'function sec.fn_merchant_predicate must not exist; ';
-IF OBJECT_ID(N'sec.fn_cartitem_predicate', N'IF') IS NOT NULL
-    SET @fail += N'function sec.fn_cartitem_predicate must not exist; ';
-IF OBJECT_ID(N'sec.fn_outbox_predicate', N'IF') IS NOT NULL
-    SET @fail += N'function sec.fn_outbox_predicate must not exist; ';
+IF OBJECT_ID(N'shop.CheckoutSessions', N'U') IS NOT NULL
+   OR OBJECT_ID(N'shop.OrderItemPolicies', N'U') IS NOT NULL
+   OR OBJECT_ID(N'shop.OrderItemPolicyAudits', N'U') IS NOT NULL
+   OR OBJECT_ID(N'shop.Products', N'U') IS NOT NULL
+    SET @fail += N'retired Checkout/policy/catalogue tables still exist; ';
 
--- --- No EXECUTE-AS resolver/audit-head proc survives (pol_app reads the tables directly now) ---
-IF OBJECT_ID(N'sec.usp_resolve_webhook_merchant', N'P') IS NOT NULL
-    SET @fail += N'proc sec.usp_resolve_webhook_merchant must not exist; ';
-IF OBJECT_ID(N'sec.usp_resolve_order_summary', N'P') IS NOT NULL
-    SET @fail += N'proc sec.usp_resolve_order_summary must not exist; ';
-IF OBJECT_ID(N'sec.usp_vault_audit_head', N'P') IS NOT NULL
-    SET @fail += N'proc sec.usp_vault_audit_head must not exist; ';
+DECLARE @nativeJsonCount int = (
+    SELECT COUNT(*)
+    FROM sys.columns c
+    JOIN sys.tables t ON t.object_id = c.object_id
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+    WHERE ty.name = N'json'
+);
+IF @nativeJsonCount <> 5
+    SET @fail += N'exactly five native json columns required; ';
+IF (SELECT COUNT(*)
+    FROM sys.columns c
+    JOIN sys.tables t ON t.object_id = c.object_id
+    JOIN sys.schemas s ON s.schema_id = t.schema_id
+    JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+    WHERE ty.name = N'json'
+      AND CONCAT(s.name, N'.', t.name, N'.', c.name) IN
+          (N'admin.ProvisioningOperations.Result', N'merch.UserOutbox.Payload',
+           N'merch.Merchants.Metadata', N'shop.CartItems.Metadata', N'shop.OrderItems.Metadata')) <> 5
+    SET @fail += N'native json column allowlist mismatch; ';
 
--- --- No security policy survives ---
-IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = N'MerchantIsolationPolicy')
-    SET @fail += N'sec.MerchantIsolationPolicy must not exist; ';
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'shop.Orders')
+               AND name = N'IX_Orders_OrderNo' AND is_unique = 1)
+   OR NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'txn.PaymentSessions')
+                  AND name = N'IX_PaymentSessions_OrderId_Open' AND is_unique = 1
+                  AND filter_definition IS NOT NULL)
+   OR NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'shop.OrderItems')
+                  AND name = N'IX_OrderItems_ProductCode')
+    SET @fail += N'required commerce indexes missing; ';
 
--- --- 1-principal end state: pol_app is the SOLE runtime principal — no legacy principal and no
--- pol_rls_bypass role survives the collapse (rls-to-query-filter task 8, design.md "Human sign-off
--- item — RESOLVED") ---
-IF EXISTS (SELECT 1 FROM sys.database_principals
-           WHERE name IN (N'pol_admin', N'pol_worker', N'pol_resolver', N'pol_vault_auditor'))
-    SET @fail += N'legacy principal (pol_admin/pol_worker/pol_resolver/pol_vault_auditor) must not exist; ';
-IF EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'pol_rls_bypass' AND type = 'R')
-    SET @fail += N'pol_rls_bypass role must not exist; ';
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_CartItems_Carts_CartId_MerchantId')
+   OR NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_OrderItems_Orders_OrderId_MerchantId')
+   OR NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_RolePermissions_Permissions_PermissionKey')
+    SET @fail += N'required foreign keys missing; ';
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_Roles_ScopeMerchant')
+    SET @fail += N'role scope check constraint missing; ';
 
--- --- Grants: pol_app has >=1 GRANT (floor) ---
-IF (SELECT COUNT(*) FROM sys.database_permissions p
-    JOIN sys.database_principals dp ON dp.principal_id = p.grantee_principal_id
-    WHERE dp.name = N'pol_app' AND p.state = 'G') = 0
-    SET @fail += N'pol_app has zero GRANTs; ';
+IF USER_ID(N'pol_app') IS NULL
+    SET @fail += N'pol_app database user missing; ';
+IF NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+               WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                 AND p.major_id = OBJECT_ID(N'shop.Orders') AND p.permission_name = N'SELECT' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'shop.Orders') AND p.permission_name = N'INSERT' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'shop.OrderNoSeq') AND p.permission_name = N'UPDATE' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'merch.RegistrationNotices') AND p.permission_name = N'INSERT' AND p.state = N'G')
+    SET @fail += N'pol_app required grant matrix incomplete; ';
+IF EXISTS (SELECT 1 FROM sys.database_permissions p
+           WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+             AND p.major_id = OBJECT_ID(N'merch.VaultRevealAudits')
+             AND p.permission_name IN (N'UPDATE', N'DELETE') AND p.state IN (N'G', N'W'))
+    SET @fail += N'append-only vault audit grants widened; ';
 
--- --- Seeds: central RBAC catalog (rf2 — iam.* replaced the two per-side catalogs) + HR master data
--- (exact counts — fixed VALUES lists, no NEWID rows) ---
-IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 9
-    SET @fail += N'iam.PermissionGroups expected 9 rows; ';
-IF (SELECT COUNT(*) FROM iam.Permissions) <> 23
-    SET @fail += N'iam.Permissions expected 23 rows; ';
+IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 7
+    SET @fail += N'iam.PermissionGroups expected 7 rows; ';
+IF (SELECT COUNT(*) FROM iam.Permissions) <> 19
+    SET @fail += N'iam.Permissions expected 19 rows; ';
 IF (SELECT COUNT(*) FROM iam.Roles) <> 4
     SET @fail += N'iam.Roles expected 4 rows; ';
-IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 31
-    SET @fail += N'iam.RolePermissions expected 31 rows; ';
-IF OBJECT_ID(N'admin.Roles', N'U') IS NOT NULL OR OBJECT_ID(N'merch.Roles', N'U') IS NOT NULL
-    SET @fail += N'legacy per-side RBAC catalog tables must not exist (rf2 cutover); ';
--- master data lives in cfg since the masterdata-module cutover (it left the Admins module) —
--- assert the old admin.* copies are gone, so a half-applied schema move fails here, not later
-IF OBJECT_ID(N'admin.Positions', N'U') IS NOT NULL OR OBJECT_ID(N'admin.Offices', N'U') IS NOT NULL
-   OR OBJECT_ID(N'admin.Levels', N'U') IS NOT NULL OR OBJECT_ID(N'admin.Divisions', N'U') IS NOT NULL
-    SET @fail += N'master-data tables must not exist in admin (masterdata-module cutover moved them to cfg); ';
+IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 25
+    SET @fail += N'iam.RolePermissions expected 25 rows; ';
+IF EXISTS (SELECT 1 FROM iam.PermissionGroups WHERE Status <> 0)
+   OR EXISTS (SELECT 1 FROM iam.Permissions WHERE Status <> 0)
+   OR EXISTS (SELECT 1 FROM iam.Roles WHERE Status <> 0)
+    SET @fail += N'IAM bootstrap rows must be Active; ';
+
 IF (SELECT COUNT(*) FROM cfg.Positions) <> 12
-    SET @fail += N'cfg.Positions expected 12 rows; ';
-IF (SELECT COUNT(*) FROM cfg.Offices) <> 8
-    SET @fail += N'cfg.Offices expected 8 rows; ';
-IF (SELECT COUNT(*) FROM cfg.Levels) <> 10
-    SET @fail += N'cfg.Levels expected 10 rows; ';
-IF (SELECT COUNT(*) FROM cfg.Divisions) <> 10
-    SET @fail += N'cfg.Divisions expected 10 rows; ';
--- cfg.* was pol_admin-only pre-collapse (REQ-3.4); post-collapse pol_app is the sole principal and
--- legitimately holds cfg.* grants (RlsTeardownAndOnePrincipal's GRANT block) — no negative check left here.
+   OR (SELECT COUNT(*) FROM cfg.Offices) <> 8
+   OR (SELECT COUNT(*) FROM cfg.Levels) <> 10
+   OR (SELECT COUNT(*) FROM cfg.Divisions) <> 10
+    SET @fail += N'cfg master-data seed counts mismatch; ';
+IF EXISTS (SELECT 1 FROM cfg.Positions WHERE Status <> 0)
+   OR EXISTS (SELECT 1 FROM cfg.Offices WHERE Status <> 0)
+   OR EXISTS (SELECT 1 FROM cfg.Levels WHERE Status <> 0)
+   OR EXISTS (SELECT 1 FROM cfg.Divisions WHERE Status <> 0)
+    SET @fail += N'cfg master-data rows must be Active; ';
+
+IF (SELECT COUNT(*) FROM merch.Merchants WHERE Id = 'e1000000-0000-4000-8000-000000000001') <> 1
+   OR (SELECT COUNT(*) FROM txn.PspConnections WHERE Id = 'e8000000-0000-4000-8000-000000000001'
+       AND IsEnabled = 0) <> 1
+    SET @fail += N'supported synthetic demo merchant/PSP seed missing; ';
 
 IF LEN(@fail) > 0
     THROW 50000, @fail, 1;
 
-PRINT N'assert-fresh-db: OK — schemas, RegistrationNotices, no legacy RLS object/principal survives, pol_app grant floor, iam RBAC catalog + master-data seed counts all verified.';
+PRINT N'assert-fresh-db: OK';
 GO

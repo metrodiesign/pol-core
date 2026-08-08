@@ -31,11 +31,13 @@ public static class ProvisioningRegistration
                 return (DbConnection)connection;
             },
             connection => new ControlPlaneDbContext(
-                new DbContextOptionsBuilder<ControlPlaneDbContext>().UseSqlServer(connection).Options,
+                new DbContextOptionsBuilder<ControlPlaneDbContext>()
+                    .UseSqlServer(connection, sql => sql.UseCompatibilityLevel(170)).Options,
                 provisioningAuthorizer,
                 sp.GetRequiredService<ISecurityTelemetry>()),
             connection => new MerchantRuntimeDbContext(
-                new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlServer(connection).Options,
+                new DbContextOptionsBuilder<MerchantRuntimeDbContext>()
+                    .UseSqlServer(connection, sql => sql.UseCompatibilityLevel(170)).Options,
                 UnboundActorContext.Instance,
                 provisioningAuthorizer,
                 sp.GetRequiredService<ISecurityTelemetry>()),

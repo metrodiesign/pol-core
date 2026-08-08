@@ -38,7 +38,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         var result = await ctx.Handler.Handle(Query("g-sub-1"), default);
 
         var attempt = Assert.Single(result!.Attempts);
-        Assert.Equal("****0123", attempt.IdNumber);          // >4 → **** + last 4 (REQ-3.1)
+        Assert.Equal("****0123", attempt.IdentityNumber);          // >4 → **** + last 4 (REQ-3.1)
         Assert.Equal("****", attempt.LicenseNumber);         // ≤4 → constant ****, no length leak
         Assert.Equal("****5678", attempt.Phone);
         Assert.Equal("s***@example.com", attempt.Email);     // REQ-3.2
@@ -57,7 +57,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         var result = await ctx.Handler.Handle(Query("g-sub-1"), default);
 
         var attempt = Assert.Single(result!.Attempts);
-        Assert.Null(attempt.IdNumber);                       // NULL → NULL (REQ-3.1)
+        Assert.Null(attempt.IdentityNumber);                       // NULL → NULL (REQ-3.1)
         Assert.Null(attempt.LicenseNumber);
         Assert.Null(attempt.Phone);
         Assert.Equal("****", attempt.Email);                 // no '@' → fail-safe full mask
@@ -87,7 +87,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         var result = await ctx.Handler.Handle(Query("g-sub-1", reveal: true), default);
 
         var attempt = Assert.Single(result!.Attempts);
-        Assert.Equal("1234567890123", attempt.IdNumber);     // REQ-3.4: full, response-wide
+        Assert.Equal("1234567890123", attempt.IdentityNumber);     // REQ-3.4: full, response-wide
         Assert.Equal("AB12", attempt.LicenseNumber);
         Assert.Equal("0812345678", attempt.Phone);
         Assert.Equal("somchai@example.com", attempt.Email);
@@ -225,7 +225,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         public void SeedAttempt(User user, int attemptNo, string? idNumber = null, string? licenseNumber = null,
             string? phone = null, string email = "somchai@example.com")
         {
-            user.SetDetails("First", "Last", PersonType.Individual, idNumber, "PC-1", licenseNumber, phone);
+            user.SetDetails("First", "Last", IdentityType.Individual, idNumber, "PC-1", licenseNumber, phone);
             History.Attempts.Add(RegistrationAttempt.Capture(
                 user, attemptNo, TicketPurpose.Registration, email, Now));
         }
@@ -241,7 +241,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
         public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
-            Task.FromResult(_bySubject.Values.FirstOrDefault(s => s.MerchantUserId == id));
+            Task.FromResult(_bySubject.Values.FirstOrDefault(s => s.UserId == id));
     }
 
     /// <summary>Keeps the port's contract (AttemptNo order, no revealed rows) the way the real
@@ -252,7 +252,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         public List<RegistrationAudit> Audits { get; } = [];
         public Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<RegistrationAttempt>>(
-                Attempts.Where(a => a.MerchantUserId == merchantUserId).OrderBy(a => a.AttemptNo).ToList());
+                Attempts.Where(a => a.UserId == merchantUserId).OrderBy(a => a.AttemptNo).ToList());
         public Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(string targetSubject, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<RegistrationAudit>>(
                 Audits.Where(a => a.TargetSubject == targetSubject && a.Action != RegistrationAuditAction.Revealed)

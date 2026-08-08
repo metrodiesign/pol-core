@@ -44,10 +44,12 @@ public sealed class ConfirmPaymentStatusHandler
             ?? throw new NotFoundException($"Order {command.OrderId} not found.");
 
         // Answered from the order itself, with no session read and no PSP call (REQ-8.12).
-        if (order.Status is PayableOrderStatus.Paid)
+        if (order.Status is PayableOrderStatus.Paid or PayableOrderStatus.Refunded)
             return PaymentStatusResult.Paid;
         if (order.Status is PayableOrderStatus.Cancelled)
             return PaymentStatusResult.Cancelled;
+        if (order.Status is PayableOrderStatus.Failed or PayableOrderStatus.Expired)
+            return PaymentStatusResult.Failed;
 
         // No chargeable attempt: nothing has been started, or the last one already ended and left the order
         // payable again. Both read as "not paid yet" to the customer, who can simply pay (REQ-8.12).
@@ -79,10 +81,7 @@ public sealed class ConfirmPaymentStatusHandler
         return outcome switch
         {
             ConfirmationOutcome.Paid or ConfirmationOutcome.AlreadyPaid => PaymentStatusResult.Paid,
-            // Conflicted = the PSP collected for a session that had already gone terminal. The customer is
-            // told this attempt failed (REQ-3.4/3.5); the refund is a manual ops decision, already logged
-            // Critical by the confirmation service.
-            ConfirmationOutcome.Failed or ConfirmationOutcome.Expired or ConfirmationOutcome.Conflicted =>
+            ConfirmationOutcome.Failed or ConfirmationOutcome.Expired =>
                 PaymentStatusResult.Failed,
             _ => PaymentStatusResult.Pending,
         };

@@ -1,13 +1,13 @@
 using BuildingBlocks.Application;
 using Mediator;
 using SharedKernel;
+using System.Text.Json;
 
 namespace Orders.Application;
 
 /// <summary>
-/// Merchant-authenticated single-order read — every item's <see cref="OrderItemDetail.InsuredIdNumber"/> is
-/// returned in FULL (REQ-7.4's detail-read exception to masking), and writes one <see cref="IRevealAuditWriter"/>
-/// row per item returned, BEFORE the response is built (REQ-7.5). Modeled as a command, not a query — like
+/// Merchant-authenticated single-order read. Returning server-owned metadata writes one reveal audit row per
+/// item before response build. Modeled as a command, not a query — like
 /// <see cref="ResendOrderSummaryCommand"/>, it has a real write side effect (the audit rows), so it goes
 /// through <see cref="IUnitOfWork.SaveChangesAsync"/> like any other write. Fail-closed: if that save throws,
 /// the handler throws too and the shared exception handler turns it into a 5xx with no PII in the response —
@@ -17,10 +17,8 @@ public sealed record GetOrderDetailCommand(Guid MerchantId, Guid OrderId, string
     : ICommand<OrderDetailView>, IMerchantScoped;
 
 public sealed record OrderItemDetail(
-    int Quantity, Money UnitPrice, Money Discount,
-    string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
-    DateTime? StartDate, DateTime? EndDate,
-    string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth);
+    string ProductCode, string VariantCode, string? VariantName,
+    int Quantity, Money UnitPrice, Money Discount, JsonElement? Metadata);
 
 /// <summary>The single-order read (purchase-flow-completion REQ-7.3 adds <see cref="OrderNo"/>,
 /// <see cref="PaymentChannel"/> and the buyer's contact to what the merchant sees).</summary>
@@ -56,9 +54,8 @@ public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailComman
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         var lines = order.Items.Select(i => new OrderItemDetail(
-            i.Quantity, i.UnitPrice, i.Discount,
-            i.DocumentNo, i.ProductGroup, i.DocumentType, i.PolicyNumber, i.StartDate, i.EndDate,
-            i.InsuredFirstName, i.InsuredLastName, i.InsuredIdNumber, i.InsuredDateOfBirth)).ToList();
+            i.ProductCode, i.VariantCode, i.VariantName, i.Quantity, i.UnitPrice, i.Discount,
+            i.Metadata is null ? null : CommerceItemMetadataCodec.ToJsonElement(i.Metadata))).ToList();
 
         return new OrderDetailView(
             order.Id, order.OrderNo, order.Status.ToString(), order.Amount, order.PaymentChannel,

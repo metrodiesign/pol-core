@@ -39,7 +39,6 @@ public sealed class ModelDisjointnessTests : IDisposable
         var modules = new ModuleAssemblies([
             typeof(Products.Infrastructure.ProductsModuleRegistration).Assembly,
             typeof(Carts.Infrastructure.CartModuleRegistration).Assembly,
-            typeof(Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
             typeof(Orders.Infrastructure.OrdersModuleRegistration).Assembly,
             typeof(Payments.Infrastructure.PaymentsModuleRegistration).Assembly,
             typeof(global::Merchants.Infrastructure.MerchantsModuleRegistration).Assembly,

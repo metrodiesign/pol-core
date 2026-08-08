@@ -30,6 +30,7 @@ public sealed class User : AggregateRoot<Guid>
     public long AuthorizationVersion { get; private set; }
 
     public DateTime CreatedAt { get; private set; }
+    public DateTime? UpdatedAt { get; private set; }
 
     /// <summary>ตำแหน่ง — FK to <see cref="Position"/>. NULL until set via invite or the profile edit.</summary>
     public Guid? PositionId { get; private set; }

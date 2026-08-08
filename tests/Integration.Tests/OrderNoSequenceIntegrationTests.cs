@@ -94,9 +94,9 @@ public sealed class OrderNoSequenceIntegrationTests
             """
             INSERT shop.Orders
                 (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, CreatedAt,
-                 SummaryToken, SummaryTokenExpiresAt)
+                 SummaryToken, SummaryTokenExpiresAt, CustomerName, CustomerPhone)
             VALUES (@id, @m, @orderNo, 15000, N'THB', 0, SYSUTCDATETIME(),
-                    @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                    @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
             ("@id", orderId), ("@m", IntegrationDb.MerchantA), ("@orderNo", orderNo),
             ("@token", Guid.NewGuid().ToString("N")));

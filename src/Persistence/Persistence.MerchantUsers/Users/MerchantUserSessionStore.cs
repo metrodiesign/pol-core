@@ -78,7 +78,7 @@ internal sealed class MerchantUserSessionStore : ISessionStore
 
     public Task RevokeAllForUserAsync(Guid merchantUserId, CancellationToken cancellationToken) =>
         _db.Sessions
-            .Where(s => s.MerchantUserId == merchantUserId && s.Status != SessionStatus.Revoked)
+            .Where(s => s.UserId == merchantUserId && s.Status != SessionStatus.Revoked)
             .ExecuteUpdateAsync(set => set.SetProperty(s => s.Status, SessionStatus.Revoked), cancellationToken);
 
     // Every session carries an absolute expiry <= 8h out, so deleting past-absolute rows bounds the table for

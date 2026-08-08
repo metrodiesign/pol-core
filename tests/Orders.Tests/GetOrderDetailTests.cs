@@ -6,65 +6,58 @@ using SharedKernel;
 
 namespace Orders.Tests;
 
-/// <summary>Merchant-authenticated single-order detail read — REQ-7.4's full-reveal surface + REQ-7.5's
-/// per-line, fail-closed audit trail.</summary>
 public sealed class GetOrderDetailTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
-    private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static Order TwoLineOrder() =>
-        Order.Create(Merchant, Money.Of(30000m, "THB"), DateTime.UtcNow,
-            [
-                new OrderItemInput(1, Money.Of(15000m, "THB"),
-                    "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null, "Somchai", "Jaidee", "1111111111111", Dob),
-                new OrderItemInput(1, Money.Of(15000m, "THB"),
-                    "00098-69100/กธ/900002-10", "VMI", "POLICY", null, null, null, "Suda", "Meesuk", "2222222222222", Dob),
-            ], orderNo: "ORD6900000001");
-
-    [Fact]
-    public async Task Every_lines_full_InsuredIdNumber_is_returned()
+    private static Order TwoLineOrder()
     {
-        var order = TwoLineOrder();
-        var handler = new GetOrderDetailHandler(new FakeOrderRepository(order), new FakeRevealAuditWriter(), new FakeUnitOfWork());
-
-        var result = await handler.Handle(new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default);
-
-        // REQ-7.3 second surface: the detail view must carry the order's number, not just the lines.
-        Assert.Equal("ORD6900000001", result.OrderNo);
-        Assert.Equal(["1111111111111", "2222222222222"], result.Lines.Select(l => l.InsuredIdNumber));
+        var metadata = new CommerceItemMetadata(
+            CommerceItemMetadataCodec.InsuranceDocumentSource, "POLICY", "POL-1", null, null);
+        return Order.Create(Merchant, Money.Of(30000m, "THB"), DateTime.UtcNow,
+            [
+                new OrderItemInput(1, Money.Of(15000m, "THB"), "DOC-1", "VMI", "One", Metadata: metadata),
+                new OrderItemInput(1, Money.Of(15000m, "THB"), "DOC-2", "VMI", "Two", Metadata: metadata),
+            ], "ORD6900000001");
     }
 
     [Fact]
-    public async Task One_reveal_audit_row_is_appended_per_line_returned()
+    public async Task Detail_returns_server_metadata_after_per_line_audit()
     {
         var order = TwoLineOrder();
         var audits = new FakeRevealAuditWriter();
         var handler = new GetOrderDetailHandler(new FakeOrderRepository(order), audits, new FakeUnitOfWork());
 
-        await handler.Handle(new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default);
+        var result = await handler.Handle(
+            new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default);
 
         Assert.Equal(2, audits.Appended.Count);
-        Assert.Equal(order.Items.Select(i => i.Id).ToArray(), audits.Appended);
+        Assert.All(result.Lines, line =>
+        {
+            Assert.NotNull(line.Metadata);
+            Assert.Equal("insurance_document", line.Metadata.Value.GetProperty("sourceType").GetString());
+        });
     }
 
     [Fact]
     public async Task Unknown_order_throws_NotFoundException()
     {
-        var handler = new GetOrderDetailHandler(new FakeOrderRepository(), new FakeRevealAuditWriter(), new FakeUnitOfWork());
+        var handler = new GetOrderDetailHandler(
+            new FakeOrderRepository(), new FakeRevealAuditWriter(), new FakeUnitOfWork());
 
         await Assert.ThrowsAsync<NotFoundException>(() =>
             handler.Handle(new GetOrderDetailCommand(Merchant, Guid.NewGuid(), "merchant-user", "user-1"), default).AsTask());
     }
 
-    // REQ-7.5 fail-closed: a reveal that cannot be proven audited must not happen.
     [Fact]
-    public async Task A_failing_audit_write_blocks_the_reveal_and_never_saves()
+    public async Task Failing_audit_blocks_response_and_save()
     {
         var order = TwoLineOrder();
         var unitOfWork = new FakeUnitOfWork();
         var handler = new GetOrderDetailHandler(
-            new FakeOrderRepository(order), new FakeRevealAuditWriter { ShouldThrow = true }, unitOfWork);
+            new FakeOrderRepository(order),
+            new FakeRevealAuditWriter { ShouldThrow = true },
+            unitOfWork);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             handler.Handle(new GetOrderDetailCommand(Merchant, order.Id, "merchant-user", "user-1"), default).AsTask());

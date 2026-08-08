@@ -4,139 +4,108 @@ using SharedKernel;
 
 namespace Orders.Tests;
 
-/// <summary>
-/// Pure domain tests for <see cref="Order.Create"/>'s line handling (insurance-pivot REQ-6/7) — no DB.
-/// Covers the line-sum invariant (6.3), empty-lines rejection (6.7), the quantity==1 constraint, and the
-/// insured-person validation on <see cref="Orders.Domain.Items.Item"/> (7.2), including that the thrown
-/// exception never echoes the invalid PII value (7.3).
-/// </summary>
 public sealed class OrderItemsTests
 {
     private static readonly Guid MerchantId = Guid.NewGuid();
     private static readonly DateTime At = new(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
-    private static readonly DateTime Dob = new(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    // Default-param helper so a signature change touches one line, not every call site. The line is now keyed
-    // by DocumentNo (the surrogate ProductId is gone — products-external-source-of-truth REQ-2.2).
     private static OrderItemInput Item(
-        decimal unitPrice, int quantity = 1, string idNumber = "1234567890123",
-        string currency = "THB", DateTime? dob = null,
-        string documentNo = "00098-69100/กธ/900001-10", string productGroup = "VMI", string documentType = "POLICY",
-        string? policyNumber = null, DateTime? startDate = null, DateTime? endDate = null) =>
-        new(quantity, Money.Of(unitPrice, currency),
-            documentNo, productGroup, documentType, policyNumber, startDate, endDate,
-            "Somchai", "Jaidee", idNumber, dob ?? Dob);
+        decimal unitPrice,
+        int quantity = 1,
+        string currency = "THB",
+        string productCode = "DOC-1",
+        string variantCode = "VMI",
+        string? variantName = "ประกันรถยนต์",
+        Money? discount = null,
+        CommerceItemMetadata? metadata = null) =>
+        new(quantity, Money.Of(unitPrice, currency), productCode, variantCode, variantName, discount, metadata);
 
     [Fact]
-    public void Create_with_one_line_matching_the_amount_succeeds()
+    public void Create_snapshots_generic_line_and_pending_status()
     {
-        var order = Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(15000m)], orderNo: "ORD6900000001");
+        var metadata = new CommerceItemMetadata(
+            CommerceItemMetadataCodec.InsuranceDocumentSource, "POLICY", "POL-1",
+            new DateOnly(2026, 7, 1), new DateOnly(2027, 7, 1));
+
+        var order = Order.Create(
+            MerchantId, Money.Of(30000m, "THB"), At,
+            [Item(15000m, quantity: 2, metadata: metadata)], "ORD6900000001", saleCode: "SALE-1");
 
         var item = Assert.Single(order.Items);
-        Assert.Equal("00098-69100/กธ/900001-10", item.DocumentNo);
-        Assert.Equal(order.Id, item.OrderId);
-        Assert.Equal(MerchantId, item.MerchantId);
+        Assert.Equal(OrderStatus.Pending, order.Status);
+        Assert.Equal("SALE-1", order.SaleCode);
+        Assert.Equal("DOC-1", item.ProductCode);
+        Assert.Equal("VMI", item.VariantCode);
+        Assert.Equal("ประกันรถยนต์", item.VariantName);
+        Assert.Equal(2, item.Quantity);
+        Assert.Equal(Money.Zero("THB"), item.Discount);
+        Assert.Equal(metadata, CommerceItemMetadataCodec.Parse(item.Metadata!));
     }
 
     [Fact]
-    public void Create_with_multiple_lines_summing_to_the_amount_succeeds()
+    public void Create_supports_multiple_lines_and_exact_total()
     {
         var order = Order.Create(
             MerchantId, Money.Of(25000m, "THB"), At,
-            [Item(15000m, documentNo: "DOC-A"), Item(10000m, documentNo: "DOC-B")], orderNo: "ORD6900000002");
+            [Item(15000m, productCode: "DOC-A"), Item(10000m, productCode: "DOC-B")],
+            "ORD6900000002");
 
         Assert.Equal(2, order.Items.Count);
     }
 
     [Fact]
-    public void Create_rejects_an_empty_line_list()
-    {
-        var ex = Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [], orderNo: "ORD6900000003"));
-        Assert.Equal("items", ex.ParamName);
-    }
+    public void Create_rejects_empty_lines() =>
+        Assert.Throws<ArgumentException>(() =>
+            Order.Create(MerchantId, Money.Of(1m, "THB"), At, [], "ORD6900000003"));
 
     [Fact]
-    public void Create_rejects_a_line_whose_quantity_is_not_1()
-    {
-        Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(30000m, "THB"), At, [Item(15000m, quantity: 2)], orderNo: "ORD6900000004"));
-    }
+    public void Create_rejects_non_positive_quantity() =>
+        Assert.Throws<ArgumentException>(() =>
+            Order.Create(MerchantId, Money.Of(1m, "THB"), At, [Item(1m, quantity: 0)], "ORD6900000004"));
 
     [Fact]
-    public void Create_rejects_a_line_sum_that_does_not_match_the_amount()
-    {
-        Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(14999m)], orderNo: "ORD6900000005"));
-    }
+    public void Create_rejects_total_mismatch() =>
+        Assert.Throws<ArgumentException>(() =>
+            Order.Create(MerchantId, Money.Of(10m, "THB"), At, [Item(9m)], "ORD6900000005"));
 
     [Fact]
-    public void Create_rejects_a_line_currency_mismatched_with_the_amount()
-    {
-        var mismatched = Item(15000m, currency: "USD");
-
-        Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [mismatched], orderNo: "ORD6900000006"));
-    }
+    public void Create_rejects_currency_mismatch() =>
+        Assert.Throws<ArgumentException>(() =>
+            Order.Create(MerchantId, Money.Of(10m, "THB"), At, [Item(10m, currency: "USD")], "ORD6900000006"));
 
     [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public void Create_rejects_a_blank_insured_IdNumber(string idNumber) =>
-        Assert.Throws<ArgumentException>(
-            () => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [Item(15000m, idNumber: idNumber)], orderNo: "ORD6900000007"));
-
-    [Fact]
-    public void Create_rejects_a_future_date_of_birth()
-    {
-        var futureDob = Item(15000m, dob: At.AddDays(1));
-
-        Assert.Throws<ArgumentException>(() => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [futureDob], orderNo: "ORD6900000008"));
-    }
-
-    [Fact]
-    public void The_thrown_exception_never_echoes_the_invalid_date_of_birth_value()
-    {
-        var distinctiveFutureDob = new DateTime(2099, 3, 14, 0, 0, 0, DateTimeKind.Utc);
-        var bad = Item(15000m, dob: distinctiveFutureDob);
-
-        var ex = Assert.Throws<ArgumentException>(() => Order.Create(MerchantId, Money.Of(15000m, "THB"), At, [bad], orderNo: "ORD6900000009"));
-
-        Assert.DoesNotContain("2099", ex.Message, StringComparison.Ordinal);
-    }
-
-    // checkout-chain-document-fields REQ-1.4 — defense in depth: the same document invariants Checkouts.Item
-    // enforces at checkout-start are re-checked here, at Order.Create.
-    [Theory]
-    [InlineData("", "VMI", "POLICY")]
-    [InlineData("   ", "VMI", "POLICY")]
-    [InlineData("DOC-1", "", "POLICY")]
-    [InlineData("DOC-1", "VMI", "  ")]
-    public void Create_rejects_a_blank_document_field(string documentNo, string productGroup, string documentType) =>
+    [InlineData("", "VMI")]
+    [InlineData("   ", "VMI")]
+    [InlineData("DOC-1", "")]
+    [InlineData("DOC-1", "  ")]
+    public void Create_rejects_blank_generic_keys(string productCode, string variantCode) =>
         Assert.Throws<ArgumentException>(() => Order.Create(
-            MerchantId, Money.Of(15000m, "THB"), At,
-            [Item(15000m, documentNo: documentNo, productGroup: productGroup, documentType: documentType)], orderNo: "ORD6900000010"));
+            MerchantId, Money.Of(10m, "THB"), At,
+            [Item(10m, productCode: productCode, variantCode: variantCode)], "ORD6900000007"));
 
     [Fact]
-    public void Create_rejects_a_start_date_after_the_end_date()
-    {
-        var ex = Assert.Throws<ArgumentException>(() => Order.Create(
-            MerchantId, Money.Of(15000m, "THB"), At,
-            [Item(15000m, startDate: At.AddDays(10), endDate: At)], orderNo: "ORD6900000011"));
-
-        Assert.Equal("startDate", ex.ParamName);
-    }
-
-    [Fact]
-    public void Document_fields_are_trimmed_onto_the_line()
+    public void Generic_fields_are_trimmed()
     {
         var order = Order.Create(
-            MerchantId, Money.Of(15000m, "THB"), At,
-            [Item(15000m, documentNo: "  DOC-1  ", productGroup: " VMI ", documentType: " POLICY ")], orderNo: "ORD6900000012");
+            MerchantId, Money.Of(10m, "THB"), At,
+            [Item(10m, productCode: " DOC-1 ", variantCode: " VMI ", variantName: " Name ")],
+            "ORD6900000008");
 
         var item = Assert.Single(order.Items);
-        Assert.Equal("DOC-1", item.DocumentNo);
-        Assert.Equal("VMI", item.ProductGroup);
-        Assert.Equal("POLICY", item.DocumentType);
+        Assert.Equal("DOC-1", item.ProductCode);
+        Assert.Equal("VMI", item.VariantCode);
+        Assert.Equal("Name", item.VariantName);
+    }
+
+    [Fact]
+    public void Order_item_CLR_surface_has_no_insured_or_policy_specific_properties()
+    {
+        var names = typeof(Item).GetProperties().Select(p => p.Name).ToHashSet(StringComparer.Ordinal);
+
+        Assert.DoesNotContain(names, name => name.StartsWith("Insured", StringComparison.Ordinal));
+        Assert.DoesNotContain("DocumentType", names);
+        Assert.DoesNotContain("PolicyNumber", names);
+        Assert.DoesNotContain("StartDate", names);
+        Assert.DoesNotContain("EndDate", names);
     }
 }

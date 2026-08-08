@@ -44,10 +44,10 @@ public sealed class MerchantUserLoginServiceTests
         await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "google", "/dashboard", default);
 
         var session = Assert.Single(ctx.Sessions.Added);
-        Assert.Equal(UserId, session.MerchantUserId);
+        Assert.Equal(UserId, session.UserId);
         Assert.Equal(SessionStatus.Active, session.Status);
         Assert.Equal(1, ctx.Sessions.SaveCount);
-        Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.MerchantUserId == UserId);
+        Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.UserId == UserId);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);
         Assert.Equal("/dashboard", ctx.Http.Response.Headers.Location);
         Assert.Contains(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("mch_session", StringComparison.Ordinal));
@@ -67,6 +67,7 @@ public sealed class MerchantUserLoginServiceTests
         Assert.Equal(TicketPurpose.Registration, payload.Purpose);
         Assert.Equal("new@org.com", payload.Email);
         Assert.Equal("google-sub-new", payload.Subject);
+        Assert.NotEqual(Guid.Empty, payload.OperationId);
         Assert.DoesNotContain(ctx.Http.Response.Headers.SetCookie, c => c!.Contains("mch_session", StringComparison.Ordinal));
     }
 

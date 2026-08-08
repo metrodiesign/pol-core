@@ -142,7 +142,7 @@ public sealed class ReadFloorTests : IDisposable
     private async Task<Guid> SeedCartAsync(Guid merchantId)
     {
         using var writer = NewMerchantRuntimeContext(FakeActorContext.For(merchantId));
-        var cart = new Cart(Guid.NewGuid(), merchantId, DateTime.UtcNow);
+        var cart = new Cart(Guid.NewGuid(), merchantId, "77001", DateTime.UtcNow);
         writer.Add(cart);
         await writer.SaveChangesAsync();
         return cart.Id;

@@ -30,9 +30,6 @@ public class IamArchitectureTests
         typeof(global::Carts.Domain.Cart).Assembly,
         typeof(global::Carts.Application.ICartRepository).Assembly,
         typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
-        typeof(global::Checkouts.Domain.Session).Assembly,
-        typeof(global::Checkouts.Application.ICheckoutRepository).Assembly,
-        typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(global::Orders.Domain.Order).Assembly,
         typeof(global::Orders.Application.IOrderRepository).Assembly,
         typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
@@ -55,7 +52,6 @@ public class IamArchitectureTests
     [
         typeof(global::Products.Infrastructure.ProductsModuleRegistration).Assembly,
         typeof(global::Carts.Infrastructure.CartModuleRegistration).Assembly,
-        typeof(global::Checkouts.Infrastructure.CheckoutModuleRegistration).Assembly,
         typeof(global::Orders.Infrastructure.OrdersModuleRegistration).Assembly,
         typeof(global::Payments.Infrastructure.Psp.PspAdapterFactory).Assembly,
         typeof(global::Admins.Infrastructure.AdminModuleRegistration).Assembly,
@@ -103,7 +99,6 @@ public class IamArchitectureTests
         [
             "Products.Domain", "Products.Application", "Products.Infrastructure",
             "Carts.Domain", "Carts.Application", "Carts.Infrastructure",
-            "Checkouts.Domain", "Checkouts.Application", "Checkouts.Infrastructure",
             "Orders.Domain", "Orders.Application", "Orders.Infrastructure",
             "Payments.Domain", "Payments.Application", "Payments.Infrastructure",
             "Admins.Domain", "Admins.Application", "Admins.Infrastructure",

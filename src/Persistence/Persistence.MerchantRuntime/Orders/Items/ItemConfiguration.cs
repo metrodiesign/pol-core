@@ -20,6 +20,7 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
         builder.Property(x => x.OrderId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired(); // denormalized from Order
         builder.Property(x => x.Quantity).IsRequired();
+        builder.Property(x => x.Metadata).HasColumnType("json");
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(OrderItem.MerchantId));
         builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
@@ -37,21 +38,13 @@ internal sealed class ItemConfiguration(MerchantRuntimeDbContext context) : IEnt
             p.Property(m => m.Currency).HasColumnName("DiscountCurrency").HasMaxLength(3).IsFixedLength().IsUnicode(false);
         });
 
-        builder.Property(x => x.DocumentNo).HasMaxLength(150).IsRequired();
-        builder.Property(x => x.ProductGroup).HasMaxLength(10).IsUnicode(false).IsRequired();
+        builder.Property(x => x.ProductCode).HasMaxLength(150).IsRequired();
+        builder.Property(x => x.VariantCode).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.VariantName).HasMaxLength(128);
 
         // Mirrors Orders.Infrastructure.Items.ItemConfiguration (products-external-source-of-truth REQ-5.15) —
         // the index DocumentSaleProbe's single read seeks.
-        builder.HasIndex(x => x.DocumentNo, "IX_OrderItems_DocumentNo")
-            .IncludeProperties(x => new { x.OrderId, x.ProductGroup });
-        builder.Property(x => x.DocumentType).HasMaxLength(20).IsUnicode(false).IsRequired();
-        builder.Property(x => x.PolicyNumber).HasMaxLength(150).IsUnicode(false);
-        builder.Property(x => x.StartDate).HasPrecision(0);
-        builder.Property(x => x.EndDate).HasPrecision(0);
-
-        builder.Property(x => x.InsuredFirstName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.InsuredLastName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.InsuredIdNumber).HasMaxLength(20).IsRequired();
-        builder.Property(x => x.InsuredDateOfBirth).IsRequired();
+        builder.HasIndex(x => x.ProductCode, "IX_OrderItems_ProductCode")
+            .IncludeProperties(x => new { x.OrderId, x.VariantCode });
     }
 }

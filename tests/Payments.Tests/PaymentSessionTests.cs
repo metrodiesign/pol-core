@@ -194,13 +194,14 @@ public sealed class PaymentSessionTests
     }
 
     [Fact]
-    public void MarkPaid_cannot_transition_from_terminal_Failed_status()
+    public void MarkPaid_accepts_a_verified_late_payment_from_Failed_status()
     {
         var session = NewSession();
         session.MarkFailed("declined", At);
 
-        Assert.Throws<InvalidOperationException>(() => session.MarkPaid("chrg_abc", At));
-        Assert.Equal(SessionStatus.Failed, session.Status);
+        session.MarkPaid("chrg_abc", At);
+
+        Assert.Equal(SessionStatus.Paid, session.Status);
     }
 
     [Fact]

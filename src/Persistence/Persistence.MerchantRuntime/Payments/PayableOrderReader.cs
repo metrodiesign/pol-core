@@ -28,13 +28,24 @@ internal sealed class PayableOrderReader : IPayableOrderReader
         var row = await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
             .AsNoTracking()
             .Where(o => o.Id == orderId)
-            .Select(o => new { o.Id, o.Amount.Amount, o.Amount.Currency, o.Status })
+            .Select(o => new PayableOrderRow(
+                o.Id,
+                o.Amount.Amount,
+                o.Amount.Currency,
+                o.Status,
+                o.PaymentSessionId,
+                o.PaymentChannel))
             .FirstOrDefaultAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
         return row is null
             ? null
-            : new PayableOrder(row.Id, Money.Of(row.Amount, row.Currency), Map(row.Status));
+            : new PayableOrder(
+                row.Id,
+                Money.Of(row.Amount, row.Currency),
+                Map(row.Status),
+                row.PaymentSessionId,
+                row.PaymentChannel);
     }
 
     public async Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken)
@@ -48,15 +59,33 @@ internal sealed class PayableOrderReader : IPayableOrderReader
         // ToListAsync + Count == 0, not SingleAsync/FirstOrDefaultAsync: those compose the SqlQueryRaw into a
         // derived table, which is exactly what breaks NEXT VALUE FOR in OrderNoSequence (Msg 11719) — this
         // scalar read avoids the same trap by never composing over it.
-        var locked = await PlatformReadGuard.ReadAsync(ct => _db.Database
-            .SqlQueryRaw<Guid>("SELECT Id AS Value FROM shop.Orders WITH (UPDLOCK) WHERE Id = @p0",
-                new SqlParameter("@p0", orderId))
-            .ToListAsync(ct), cancellationToken)
-            .ConfigureAwait(false);
-        if (locked.Count == 0)
-            return null;
+        if (_db.Database.IsSqlServer())
+        {
+            var locked = await PlatformReadGuard.ReadAsync(ct => _db.Database
+                .SqlQueryRaw<Guid>(
+                    "SELECT Id AS Value FROM shop.Orders WITH (UPDLOCK,HOLDLOCK) WHERE Id = @p0 AND MerchantId = @p1",
+                    new SqlParameter("@p0", orderId),
+                    new SqlParameter("@p1", _db.CurrentMerchant))
+                .ToListAsync(ct), cancellationToken)
+                .ConfigureAwait(false);
+            if (locked.Count == 0)
+                return null;
+        }
 
         return await GetAsync(orderId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task AttachAttemptAsync(
+        Guid orderId,
+        Guid paymentSessionId,
+        string method,
+        CancellationToken cancellationToken)
+    {
+        var order = await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
+            .FirstOrDefaultAsync(o => o.Id == orderId, ct), cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Order {orderId} disappeared while attaching payment attempt.");
+
+        order.AttachPaymentAttempt(paymentSessionId, method);
     }
 
     public async Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(
@@ -67,7 +96,7 @@ internal sealed class PayableOrderReader : IPayableOrderReader
         var rows = await PlatformReadGuard.ReadAsync(ct => _db.Set<OrderItem>()
             .AsNoTracking()
             .Where(item => item.OrderId == orderId)
-            .Select(item => new { item.DocumentNo, item.ProductGroup })
+            .Select(item => new { DocumentNo = item.ProductCode, ProductGroup = item.VariantCode })
             .ToListAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
@@ -78,9 +107,20 @@ internal sealed class PayableOrderReader : IPayableOrderReader
     /// added to Orders must fail loudly here rather than fall through to "still payable".</summary>
     private static PayableOrderStatus Map(OrderStatus status) => status switch
     {
-        OrderStatus.AwaitingPayment => PayableOrderStatus.AwaitingPayment,
+        OrderStatus.Pending => PayableOrderStatus.Pending,
         OrderStatus.Paid => PayableOrderStatus.Paid,
+        OrderStatus.Failed => PayableOrderStatus.Failed,
+        OrderStatus.Expired => PayableOrderStatus.Expired,
+        OrderStatus.Refunded => PayableOrderStatus.Refunded,
         OrderStatus.Cancelled => PayableOrderStatus.Cancelled,
         _ => throw new NotSupportedException($"Order status {status} has no payment-path meaning."),
     };
+
+    private sealed record PayableOrderRow(
+        Guid Id,
+        decimal Amount,
+        string Currency,
+        OrderStatus Status,
+        Guid? PaymentSessionId,
+        string? PaymentChannel);
 }

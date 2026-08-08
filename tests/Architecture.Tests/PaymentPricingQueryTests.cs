@@ -55,10 +55,9 @@ public sealed class PaymentPricingQueryTests : IDisposable
     {
         var order = Order.Create(merchantId, Amount, At,
             [new OrderItemInput(
-                1, Amount, "00098-69100/กธ/900001-10", "VMI", "POLICY", null, null, null,
-                "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
+                1, Amount, "00098-69100/กธ/900001-10", "VMI", "ประกันรถยนต์")], orderNo: NextOrderNo());
         if (paid)
-            order.MarkPaid(Amount, At);
+            order.MarkPaid(Guid.NewGuid(), "card", Amount, At);
 
         using var writer = NewContext(merchantId);
         writer.Add(order);
@@ -79,7 +78,7 @@ public sealed class PaymentPricingQueryTests : IDisposable
         Assert.Equal(Amount, payable.Amount);
         Assert.Equal(15000m, payable.Amount.Amount);
         Assert.Equal("THB", payable.Amount.Currency);
-        Assert.True(payable.IsAwaitingPayment);
+        Assert.True(payable.CanOpenPaymentAttempt);
     }
 
     [Fact]
@@ -91,7 +90,7 @@ public sealed class PaymentPricingQueryTests : IDisposable
         var payable = await new PayableOrderReader(db).GetAsync(order.Id, default);
 
         Assert.NotNull(payable);
-        Assert.False(payable!.IsAwaitingPayment);
+        Assert.False(payable!.CanOpenPaymentAttempt);
     }
 
     [Fact]

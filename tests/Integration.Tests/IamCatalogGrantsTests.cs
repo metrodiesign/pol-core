@@ -33,22 +33,16 @@ public sealed class IamCatalogGrantsTests
     {
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
 
-        // 9 groups / 23 keys / 4 roles / 31 grants (REQ-2.1/2.3/10.1; policy-reference-record task 3 added
-        // merchants.policies/policies on top of the rf2 8/20/28 baseline; the orphan catalog group/keys were
-        // retired by RetireCatalogPermissions on top of that, 10/24/34 -> 9/22/30; registration-attempt-history
-        // added merchants.users.view + its platform_admin grant, 9/23/31).
-        Assert.Equal(9, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
-        Assert.Equal(23, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
+        // Checkout/policy retirement leaves 7 groups / 19 keys / 4 roles / 25 grants.
+        Assert.Equal(7, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.PermissionGroups")));
+        Assert.Equal(19, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Permissions")));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.Roles")));
-        Assert.Equal(31, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
+        Assert.Equal(25, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT COUNT(*) FROM iam.RolePermissions")));
 
-        // Per-role grant counts (design matrix): platform_admin 16 (registration-attempt-history added
-        // merchants.users.view), platform_auditor 5, merchant_manager 7,
-        // merchant_staff 3 (each lost product.create/product.update).
-        Assert.Equal(16, await GrantCount(admin, PlatformAdminRoleId));
-        Assert.Equal(5, await GrantCount(admin, PlatformAuditorRoleId));
-        Assert.Equal(7, await GrantCount(admin, MerchantManagerRoleId));
-        Assert.Equal(3, await GrantCount(admin, MerchantStaffRoleId));
+        Assert.Equal(14, await GrantCount(admin, PlatformAdminRoleId));
+        Assert.Equal(4, await GrantCount(admin, PlatformAuditorRoleId));
+        Assert.Equal(5, await GrantCount(admin, MerchantManagerRoleId));
+        Assert.Equal(2, await GrantCount(admin, MerchantStaffRoleId));
 
         // The two anchors are Merchant/Platform as planned; all four seed roles are shared (MerchantId NULL) and
         // Active (Status 0). Scope column: 0 = Platform, 1 = Merchant.
@@ -114,9 +108,9 @@ public sealed class IamCatalogGrantsTests
 
         // The vocabulary (Permissions/PermissionGroups) is SELECT-only for pol_app — a runtime INSERT is refused.
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT iam.Permissions ([Key], GroupKey, LabelTh, SortOrder) VALUES ('x.y','system',N'x',99)"));
+            "INSERT iam.Permissions ([Key], GroupKey, Name, SortOrder) VALUES ('x.y','system',N'x',99)"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT iam.PermissionGroups ([Key], Scope, LabelTh, SortOrder) VALUES ('x', 0, N'x', 99)"));
+            "INSERT iam.PermissionGroups ([Key], Scope, Name, SortOrder) VALUES ('x', 0, N'x', 99)"));
     }
 
     [Fact]

@@ -11,11 +11,13 @@ public sealed class CartTests
     private const string DocB = "00098-69100/กธ/900002-10";
     private const string SaleCode = "77001";
     private const string Group = "VMI";
+    private static readonly CommerceItemMetadata Metadata = new(
+        CommerceItemMetadataCodec.InsuranceDocumentSource, "POLICY", "P-001", null, null);
 
     private static CartAggregate CartWithLine(int quantity = 2)
     {
-        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
-        cart.AddItem(DocA, SaleCode, Group, quantity, Money.Of(100m, "THB"));
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
+        cart.AddItem(DocA, SaleCode, Group, "Motor", quantity, Money.Of(100m, "THB"), Metadata);
         return cart;
     }
 
@@ -25,7 +27,8 @@ public sealed class CartTests
     public void AddItem_rejects_a_duplicate_document()
     {
         var cart = CartWithLine(2);
-        Assert.Throws<ArgumentException>(() => cart.AddItem(DocA, SaleCode, Group, 3, Money.Of(100m, "THB")));
+        Assert.Throws<ArgumentException>(() =>
+            cart.AddItem(DocA, SaleCode, Group, "Motor", 3, Money.Of(100m, "THB"), Metadata));
 
         Assert.Single(cart.Items);
         Assert.Equal(2, cart.Items.First().Quantity);
@@ -35,10 +38,34 @@ public sealed class CartTests
     public void AddItem_adds_a_second_distinct_document()
     {
         var cart = CartWithLine(2);
-        cart.AddItem(DocB, SaleCode, Group, 3, Money.Of(100m, "THB"));
+        cart.AddItem(DocB, SaleCode, Group, "Motor", 3, Money.Of(100m, "THB"), Metadata);
 
         Assert.Equal(2, cart.Items.Count);
         Assert.Equal(500m, cart.Subtotal!.Value.Amount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void AddItem_rejects_non_positive_quantity(int quantity)
+    {
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            cart.AddItem(DocA, SaleCode, Group, "Motor", quantity, Money.Of(100m, "THB"), Metadata));
+        Assert.Empty(cart.Items);
+    }
+
+    [Fact]
+    public void Rejected_source_snapshot_does_not_mutate_cart_version()
+    {
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
+
+        Assert.Throws<ArgumentException>(() =>
+            cart.AddItem(DocA, SaleCode, Group, new string('x', 129), 1, Money.Of(100m, "THB"), Metadata));
+
+        Assert.Empty(cart.Items);
+        Assert.Equal(0, cart.Version);
     }
 
     [Fact]
@@ -92,8 +119,7 @@ public sealed class CartTests
         Assert.Empty(cart.Items);
     }
 
-    // REQ-2.7 — all FOUR mutations, not three: add-item is the one that would otherwise let a merchant grow a
-    // cart whose price snapshot is already frozen inside a live checkout session.
+    // CheckedOut means direct Order creation consumed the Cart; all four mutations stay blocked.
     [Fact]
     public void A_checked_out_cart_rejects_edits()
     {
@@ -101,65 +127,32 @@ public sealed class CartTests
         var itemId = cart.Items.First().Id;
         cart.MarkCheckedOut();
 
-        Assert.Throws<InvalidOperationException>(() => cart.AddItem(DocB, SaleCode, Group, 1, Money.Of(100m, "THB")));
+        Assert.Throws<InvalidOperationException>(() =>
+            cart.AddItem(DocB, SaleCode, Group, "Motor", 1, Money.Of(100m, "THB"), Metadata));
         Assert.Throws<InvalidOperationException>(() => cart.SetItemQuantity(itemId, 1));
         Assert.Throws<InvalidOperationException>(() => cart.RemoveItem(itemId));
         Assert.Throws<InvalidOperationException>(() => cart.Clear());
     }
 
-    // REQ-2.5 — abandoning the checkout hands the cart back, edits and all.
+    // Every mutation must bump Version so optimistic concurrency can reject stale Cart-to-Order snapshots.
     [Fact]
-    public void Reopen_unfreezes_a_checked_out_cart()
+    public void Every_mutation_bumps_the_version()
     {
-        var cart = CartWithLine();
-        var itemId = cart.Items.First().Id;
-        cart.MarkCheckedOut();
-
-        cart.Reopen();
-
-        cart.SetItemQuantity(itemId, 4);
-        Assert.Equal(4, cart.Items.First().Quantity);
-    }
-
-    // REQ-2.9 — abandoning twice must not fail, which is only true if reopening an open cart is a no-op.
-    [Fact]
-    public void Reopen_on_an_open_cart_changes_nothing()
-    {
-        var cart = CartWithLine(2);
-
-        cart.Reopen();
-        cart.Reopen();
-
-        Assert.Single(cart.Items);
-        Assert.Equal(2, cart.Items.First().Quantity);
-        cart.Clear(); // still open for edits
-    }
-
-    // PR #166 review — the freeze-race token: EVERY mutation must bump Version (item edits included, since
-    // they never touch the Carts row on their own), or a writer racing the checkout freeze slips through
-    // the WHERE Version = @original check unnoticed.
-    [Fact]
-    public void Every_mutation_bumps_the_version_and_a_reopen_noop_does_not()
-    {
-        var cart = new CartAggregate(Guid.NewGuid(), Merchant, Now);
+        var cart = new CartAggregate(Guid.NewGuid(), Merchant, SaleCode, Now);
         Assert.Equal(0, cart.Version);
 
-        cart.AddItem(DocA, SaleCode, Group, 2, Money.Of(100m, "THB"));
+        cart.AddItem(DocA, SaleCode, Group, "Motor", 2, Money.Of(100m, "THB"), Metadata);
         Assert.Equal(1, cart.Version);
         var itemId = cart.Items.First().Id;
         cart.SetItemQuantity(itemId, 7);
         Assert.Equal(2, cart.Version);
         cart.RemoveItem(itemId);
         Assert.Equal(3, cart.Version);
-        cart.AddItem(DocA, SaleCode, Group, 1, Money.Of(100m, "THB")); // re-add after remove — no longer a duplicate
+        cart.AddItem(DocA, SaleCode, Group, "Motor", 1, Money.Of(100m, "THB"), Metadata); // re-add after remove
         cart.Clear();
         Assert.Equal(5, cart.Version);
 
         cart.MarkCheckedOut();
         Assert.Equal(6, cart.Version);
-        cart.Reopen();
-        Assert.Equal(7, cart.Version);
-        cart.Reopen(); // no-op on an open cart (REQ-2.9) — no write, no bump
-        Assert.Equal(7, cart.Version);
     }
 }

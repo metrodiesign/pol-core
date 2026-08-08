@@ -112,7 +112,8 @@ public sealed class HandlePspWebhookHandlerTests
         Assert.Equal(OrderId, paid.OrderId);
         Assert.Equal(SessionAmount, paid.Amount);
         Assert.Equal(ChargeId, paid.ExternalChargeId);
-        Assert.Equal(EventId, paid.EventId);
+        Assert.NotEqual(Guid.Empty, paid.EventId);
+        Assert.Equal(EventId, paid.PspEventId);
         Assert.Equal(Now, paid.OccurredAt);
     }
 

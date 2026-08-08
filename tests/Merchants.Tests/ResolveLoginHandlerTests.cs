@@ -66,7 +66,7 @@ public sealed class ResolveLoginHandlerTests
 
         Assert.Equal(LoginOutcome.Active, result.Outcome);
         var resolution = Assert.IsType<Resolution>(result.Resolution);
-        Assert.Equal(account.Id, resolution.MerchantUserId);
+        Assert.Equal(account.Id, resolution.UserId);
         Assert.Equal(MerchantId, resolution.MerchantId);
         Assert.Equal(account.Email, resolution.Email);
         Assert.Equal(new HashSet<string> { "payment.redirect", "payment.create" }, resolution.Permissions);

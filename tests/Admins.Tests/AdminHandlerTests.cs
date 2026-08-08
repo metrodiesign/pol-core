@@ -112,7 +112,7 @@ public sealed class AdminHandlerTests
         var resolution = await handler.Handle(new SelfProvisionSuperCommand("super-1", "ops@org.com", "corr"), default);
 
         var assignment = Assert.Single(roles.Assignments);
-        Assert.Equal(resolution.AdminId, assignment.PlatformUserId);
+        Assert.Equal(resolution.AdminId, assignment.AdminUserId);
         Assert.Equal(seed.Id, assignment.RoleId);
         Assert.Contains(audit.Appended, a => a.Action == AuditAction.RoleAssigned && a.TargetRoleId == seed.Id);
     }
@@ -242,7 +242,7 @@ public sealed class AdminHandlerTests
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await active.Handle(new AssignMerchantCommand(Guid.NewGuid(), merchantId, Guid.NewGuid(), "corr"), default));
 
-        // Duplicate (PlatformUserId, MerchantId) -> 409 (REQ-4.4)
+        // Duplicate (AdminUserId, MerchantId) -> 409 (REQ-4.4)
         await active.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr"), default);
         await Assert.ThrowsAsync<ConflictException>(async () =>
             await active.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr"), default));

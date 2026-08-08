@@ -7,7 +7,7 @@ namespace Admins.Application.Users;
 
 /// <summary>A Super assigns one merchant to a Scoped admin (REQ-4.1). The target admin must exist and be Scoped;
 /// the merchant must exist and be Active (validated via <see cref="IAdminMerchantDirectory"/> -> 409 if not,
-/// REQ-4.3); a duplicate <c>(PlatformUserId, MerchantId)</c> is rejected (409, REQ-4.4). Super-only at the host.</summary>
+/// REQ-4.3); a duplicate <c>(AdminUserId, MerchantId)</c> is rejected (409, REQ-4.4). Super-only at the host.</summary>
 public sealed record AssignMerchantCommand(Guid AdminId, Guid MerchantId, Guid ActingAdminId, string CorrelationId)
     : ICommand<AssignMerchantResult>;
 

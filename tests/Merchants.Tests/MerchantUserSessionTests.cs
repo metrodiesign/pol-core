@@ -31,7 +31,7 @@ public sealed class MerchantUserSessionTests
         Assert.Equal(SessionStatus.Active, s.Status);
         Assert.NotEqual(Guid.Empty, s.Id);
         Assert.NotEqual(Guid.Empty, s.FamilyId);
-        Assert.Equal(UserId, s.MerchantUserId);
+        Assert.Equal(UserId, s.UserId);
         Assert.Equal(Now, s.IssuedAt);
         Assert.Equal(Now.AddMinutes(30), s.IdleExpiresAt);
         Assert.Equal(Now.AddHours(8), s.AbsoluteExpiresAt);
@@ -101,7 +101,7 @@ public sealed class MerchantUserSessionTests
     public void AuthAudit_allows_a_missing_user_but_requires_event_type_and_correlation()
     {
         var denied = AuthAudit.For(AuthEventType.AuthDenied, "corr-1", Now, reason: "state-mismatch");
-        Assert.Null(denied.MerchantUserId);
+        Assert.Null(denied.UserId);
         Assert.Equal("state-mismatch", denied.Reason);
 
         Assert.Throws<ArgumentException>(() => AuthAudit.For("", "corr-1", Now));

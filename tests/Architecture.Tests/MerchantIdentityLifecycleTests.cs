@@ -88,6 +88,12 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
             Task.FromResult("photo-key");
         public Task<(byte[] Bytes, string ContentType)?> GetAsync(string objectKey, CancellationToken cancellationToken) =>
             Task.FromResult<(byte[], string)?>(null);
+        public Task<(string Key, bool CreatedNew)> PutStagedAsync(Guid operationId, ReadOnlyMemory<byte> bytes,
+            string contentType, CancellationToken cancellationToken) =>
+            Task.FromResult(($"{operationId:N}.jpg", true));
+        public Task CommitAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DiscardStagedAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DeleteAsync(string objectKey, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     /// <summary>Mirror of <c>Api.Merchants.HostMerchantRoleRepository</c>: the 5 assignment members delegate
@@ -178,7 +184,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     {
         using var scope = SelfServiceScope();
         var result = await scope.SubmitHandler().Handle(Submission(subject, TicketPurpose.Registration), CancellationToken.None);
-        return result.MerchantUserId;
+        return result.UserId;
     }
 
     /// <summary>Direct state seeding for tests that must not depend on the handlers under test — uses the
@@ -233,7 +239,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         using var scope = SelfServiceScope();
         var result = await scope.SubmitHandler().Handle(Submission("lc-correct", TicketPurpose.Correction), CancellationToken.None);
 
-        Assert.Equal(id, result.MerchantUserId); // same row, never a second account
+        Assert.Equal(id, result.UserId); // same row, never a second account
         var row = await LoadAsync("lc-correct");
         Assert.Equal(UserStatus.PendingApproval, row.Status);
         Assert.Equal("Corrected", row.LastName); // the corrected form values landed
@@ -284,7 +290,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
         Assert.Equal(1, await db.RoleAssignments.IgnoreQueryFilters()
-            .CountAsync(a => a.MerchantUserId == row.Id && a.RoleId == ManagerRoleId));
+            .CountAsync(a => a.UserId == row.Id && a.RoleId == ManagerRoleId));
     }
 
     // ---------------------------------------------------------------- F6: session re-resolution by id
@@ -343,7 +349,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     }
 
     // registration-attempt-history REQ-1.3/1.4/2.1-adjacent/2.3: the same lifecycle, proven through the REAL
-    // EF adapters — every submit freezes one attempt row under the SAME MerchantUserId, and the history
+    // EF adapters — every submit freezes one attempt row under the SAME UserId, and the history
     // handler returns them in order with the full lifecycle timeline (reject reason included).
     [Fact]
     public async Task Lifecycle_captures_one_attempt_per_submit_bound_to_the_same_user_and_serves_the_timeline()
@@ -351,7 +357,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         Guid userId;
         using (var s = SelfServiceScope())
             userId = (await s.SubmitHandler().Handle(
-                Submission("lc-history", TicketPurpose.Registration), CancellationToken.None)).MerchantUserId;
+                Submission("lc-history", TicketPurpose.Registration), CancellationToken.None)).UserId;
 
         using (var s = AdminPlaneScope())
             await s.RejectHandler().Handle(
@@ -377,7 +383,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
             // Both rows hang off the SAME user id — the whole history is the one user's record.
             var attempts = await s.Db.RegistrationAttempts.AsNoTracking().ToListAsync();
-            Assert.All(attempts, a => Assert.Equal(userId, a.MerchantUserId));
+            Assert.All(attempts, a => Assert.Equal(userId, a.UserId));
 
             // Timeline from RegistrationAudits: registered + rejected(reason) + resubmitted. Order-insensitive
             // here — the shared FixedClock stamps every row with the SAME OccurredAt, so ORDER BY OccurredAt
@@ -436,7 +442,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
                 new ApproveCommand("lc-race-approve", MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
                 CancellationToken.None);
 
-        // A DIFFERENT role id than the winner's: the (MerchantUserId, RoleId) unique index therefore cannot
+        // A DIFFERENT role id than the winner's: the (UserId, RoleId) unique index therefore cannot
         // catch this race — only the Status/MerchantId concurrency tokens can (same-role races already die on
         // the unique index as a 409).
         var otherRoleId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
@@ -448,7 +454,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         var row = await LoadAsync("lc-race-approve");
         Assert.Equal(MerchantA, row.MerchantId); // the committed merchant, never overwritten to B
         using var db = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll);
-        Assert.Equal(1, await db.RoleAssignments.IgnoreQueryFilters().CountAsync(a => a.MerchantUserId == row.Id));
+        Assert.Equal(1, await db.RoleAssignments.IgnoreQueryFilters().CountAsync(a => a.UserId == row.Id));
     }
 
     // ---------------------------------------------------------------- pin: WHY the seam split exists (green today)

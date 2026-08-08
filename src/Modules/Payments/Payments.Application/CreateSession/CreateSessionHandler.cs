@@ -66,9 +66,9 @@ public sealed class CreateSessionHandler
         var order = await _orders.GetAsync(command.OrderId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException($"Order {command.OrderId} not found.");
 
-        if (!order.IsAwaitingPayment)
+        if (!order.CanOpenPaymentAttempt)
             throw new InvalidOperationException(
-                $"Order {order.OrderId} is not awaiting payment; no payment session can be opened for it.");
+                $"Order {order.OrderId} cannot open a payment session from status {order.Status}.");
 
         await EnsureNoDocumentSoldElsewhereAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
 
@@ -94,22 +94,10 @@ public sealed class CreateSessionHandler
             // IX_PaymentSessions_OrderId_Open forbids two chargeable rows for an order, and EF's
             // ModificationCommandComparer gives no guarantee that the UPDATE is sent before the INSERT.
             // Betting the money path on that ordering is how this deadlocks into a 409 nobody can clear.
-            return await _unitOfWork.ExecuteInTransactionAsync(
-                async ct =>
-                {
-                    // Verify-first, ALWAYS: a session carrying a PSP charge may be holding the customer's
-                    // money, so only the confirmation service may retire it. Anything other than a session
-                    // that is now provably terminal-without-payment (Expired/Failed) means we do not know it
-                    // is safe to open a second chargeable attempt — refuse rather than risk a second charge.
-                    var outcome = await _confirmation.ConfirmAsync(open, ct).ConfigureAwait(false);
-                    if (outcome is not (ConfirmationOutcome.Expired or ConfirmationOutcome.Failed))
-                        throw new ConflictException(
-                            $"Order {command.OrderId} has a payment session that could not be released ({outcome}).");
-
-                    var lockedAmount = await EnsureStillMintableAsync(command.OrderId, ct).ConfigureAwait(false);
-                    return await MintAsync(command, lockedAmount, method, ct).ConfigureAwait(false);
-                },
+            var staleResult = await _unitOfWork.ExecuteInTransactionAsync(
+                ct => MintUnderOrderLockAsync(command, method, open, ct),
                 cancellationToken).ConfigureAwait(false);
+            return RequireMinted(staleResult, command.OrderId);
         }
 
         if (open is not null)
@@ -124,13 +112,10 @@ public sealed class CreateSessionHandler
                 $"Order {command.OrderId} already has an open payment session on a different channel.");
         }
 
-        return await _unitOfWork.ExecuteInTransactionAsync(
-            async ct =>
-            {
-                var lockedAmount = await EnsureStillMintableAsync(command.OrderId, ct).ConfigureAwait(false);
-                return await MintAsync(command, lockedAmount, method, ct).ConfigureAwait(false);
-            },
+        var result = await _unitOfWork.ExecuteInTransactionAsync(
+            ct => MintUnderOrderLockAsync(command, method, sessionToConfirm: null, ct),
             cancellationToken).ConfigureAwait(false);
+        return RequireMinted(result, command.OrderId);
     }
 
     /// <summary>
@@ -163,33 +148,69 @@ public sealed class CreateSessionHandler
     /// which is what makes them deadlock-free. Returns the locked row's amount so the mint prices from the
     /// same read that proved the order mintable.
     /// </summary>
-    private async Task<Money> EnsureStillMintableAsync(Guid orderId, CancellationToken cancellationToken)
-    {
-        var locked = await _orders.GetForMintAsync(orderId, cancellationToken).ConfigureAwait(false);
-        if (locked is not { IsAwaitingPayment: true })
-            throw new InvalidOperationException(
-                $"Order {orderId} is not awaiting payment; no payment session can be opened for it.");
-
-        return locked.Amount;
-    }
-
-    private async Task<CreateSessionResult> MintAsync(
+    private async Task<MintResult> MintUnderOrderLockAsync(
         CreateSessionCommand command,
-        Money amount,
         string method,
+        Session? sessionToConfirm,
         CancellationToken cancellationToken)
     {
+        var locked = await _orders.GetForMintAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
+        if (locked is not { CanOpenPaymentAttempt: true })
+            throw new InvalidOperationException(
+                $"Order {command.OrderId} cannot open a payment session from its current status.");
+
+        // Lock Order before touching its attached Session. Failed/Expired retries re-confirm that prior
+        // attempt so a late PSP settlement becomes PaymentPaid before another chargeable attempt can exist.
+        if (sessionToConfirm is null && locked.PaymentSessionId is { } attachedSessionId)
+        {
+            sessionToConfirm = await _sessions.GetByIdAsync(attachedSessionId, cancellationToken).ConfigureAwait(false);
+            if (sessionToConfirm is null)
+                throw new ConflictException(
+                    $"Order {command.OrderId} references a payment session that cannot be confirmed.");
+
+            if (sessionToConfirm.Status is SessionStatus.Created or SessionStatus.Redirected)
+            {
+                if (sessionToConfirm.Psp == command.Psp
+                    && string.Equals(sessionToConfirm.Method, method, StringComparison.Ordinal))
+                {
+                    return new MintResult(sessionToConfirm.Id, null);
+                }
+
+                return new MintResult(null, ConfirmationOutcome.Pending);
+            }
+        }
+
+        if (sessionToConfirm is not null)
+        {
+            var outcome = await _confirmation.ConfirmAsync(sessionToConfirm, cancellationToken).ConfigureAwait(false);
+            if (outcome is not (ConfirmationOutcome.Expired or ConfirmationOutcome.Failed))
+                return new MintResult(null, outcome);
+        }
+
         var session = Session.Create(
             command.MerchantId,
             command.OrderId,
-            amount,
+            locked.Amount,
             method,
             command.Psp,
             _clock.UtcNow);
 
+        await _orders.AttachAttemptAsync(
+            command.OrderId, session.Id, method, cancellationToken).ConfigureAwait(false);
         _sessions.Add(session);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return new CreateSessionResult(session.Id);
+        return new MintResult(session.Id, null);
     }
+
+    private static CreateSessionResult RequireMinted(MintResult result, Guid orderId)
+    {
+        if (result.PaymentSessionId is { } paymentSessionId)
+            return new CreateSessionResult(paymentSessionId);
+
+        throw new ConflictException(
+            $"Order {orderId} has a prior payment attempt that blocks retry ({result.BlockingOutcome}).");
+    }
+
+    private sealed record MintResult(Guid? PaymentSessionId, ConfirmationOutcome? BlockingOutcome);
 }

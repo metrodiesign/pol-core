@@ -1,3 +1,5 @@
+using Iam.Domain.Permissions;
+
 namespace Iam.Application.Permissions;
 
 /// <summary>The permission catalog (REQ-1.5/6.4), replacing the two duplicated
@@ -8,6 +10,6 @@ namespace Iam.Application.Permissions;
 public sealed record PermissionCatalogResult(
     IReadOnlyList<PermissionGroupItem> Groups, IReadOnlyList<PermissionItem> Permissions);
 
-public sealed record PermissionGroupItem(string Key, string LabelTh);
+public sealed record PermissionGroupItem(string Key, string Name, PermissionStatus Status);
 
-public sealed record PermissionItem(string Key, string LabelTh, string Resource);
+public sealed record PermissionItem(string Key, string Name, string Resource, PermissionStatus Status);

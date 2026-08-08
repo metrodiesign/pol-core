@@ -3,12 +3,8 @@ using SharedKernel;
 namespace Orders.Domain.Items;
 
 /// <summary>
-/// An item in an <see cref="Order"/> — one purchased insurance plan, quantity constrained to 1 for this
-/// spec (insurance-pivot REQ-6/7). Owned by its order — never loaded or mutated on its own. Carries a
-/// purchase-time snapshot of the insurance document's terms (<see cref="DocumentNo"/>/
-/// <see cref="ProductGroup"/>/<see cref="DocumentType"/>/<see cref="PolicyNumber"/>/<see cref="StartDate"/>/
-/// <see cref="EndDate"/>, copied from the upstream document read at checkout-start, never re-read live) plus the insured
-/// person's data (REQ-7.1) — 1 person per item.
+/// Generic, purchase-time product/variant snapshot owned by one <see cref="Order"/>. Price and metadata are
+/// server-owned. No insured/customer PII is accepted or persisted on a line.
 /// </summary>
 public sealed class Item : Entity<Guid>
 {
@@ -18,7 +14,6 @@ public sealed class Item : Entity<Guid>
     /// <c>Carts.Domain.Items.Item.MerchantId</c>) — enforced against drift by a composite FK.</summary>
     public Guid MerchantId { get; private set; }
 
-    /// <summary>Always 1 for this spec — one insured person per item (insurance-pivot locked decision).</summary>
     public int Quantity { get; private set; }
 
     /// <summary>Premium per unit, from <c>Cart.Item</c> at checkout-start (server, never client).</summary>
@@ -28,63 +23,40 @@ public sealed class Item : Entity<Guid>
     /// (purchase-flow-completion REQ-7.2). Zero when none was given — never null.</summary>
     public Money Discount { get; private set; }
 
-    /// <summary>Document number, snapshotted from the upstream document at checkout-start — the line's
-    /// identifier (products-external-source-of-truth REQ-2.2).</summary>
-    public string DocumentNo { get; private set; } = default!;
+    public string ProductCode { get; private set; } = default!;
+    public string VariantCode { get; private set; } = default!;
+    public string? VariantName { get; private set; }
 
-    /// <summary>Wire value of the document's <c>ProductGroup</c> (no cross-module reference to the enum).</summary>
-    public string ProductGroup { get; private set; } = default!;
-
-    /// <summary>Wire value of the document's <c>DocumentType</c> (no cross-module reference to the enum).</summary>
-    public string DocumentType { get; private set; } = default!;
-
-    public string? PolicyNumber { get; private set; }
-    public DateTime? StartDate { get; private set; }
-    public DateTime? EndDate { get; private set; }
-
-    public string InsuredFirstName { get; private set; } = default!;
-    public string InsuredLastName { get; private set; } = default!;
-    public string InsuredIdNumber { get; private set; } = default!;
-    public DateTime InsuredDateOfBirth { get; private set; }
+    /// <summary>Canonical server-owned business facts. Never accepts arbitrary client JSON.</summary>
+    public string? Metadata { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Item() { }
 
     internal Item(
         Guid id, Guid orderId, Guid merchantId, int quantity, Money unitPrice, Money discount,
-        string documentNo, string productGroup, string documentType, string? policyNumber,
-        DateTime? startDate, DateTime? endDate,
-        string insuredFirstName, string insuredLastName, string insuredIdNumber, DateTime insuredDateOfBirth,
-        DateTime nowUtc)
+        string productCode, string variantCode, string? variantName, CommerceItemMetadata? metadata)
         : base(id)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(documentNo, nameof(documentNo));
-        ArgumentException.ThrowIfNullOrWhiteSpace(productGroup, nameof(productGroup));
-        ArgumentException.ThrowIfNullOrWhiteSpace(documentType, nameof(documentType));
-        if (startDate is not null && endDate is not null && startDate > endDate)
-            throw new ArgumentException("Start date must not be after the end date.", nameof(startDate));
-
-        // REQ-7.3: none of these messages echo the invalid value — only the field name.
-        ArgumentException.ThrowIfNullOrWhiteSpace(insuredFirstName, nameof(insuredFirstName));
-        ArgumentException.ThrowIfNullOrWhiteSpace(insuredLastName, nameof(insuredLastName));
-        ArgumentException.ThrowIfNullOrWhiteSpace(insuredIdNumber, nameof(insuredIdNumber));
-        if (insuredDateOfBirth > nowUtc)
-            throw new ArgumentException("Date of birth must not be in the future.", nameof(insuredDateOfBirth));
+        ArgumentException.ThrowIfNullOrWhiteSpace(productCode, nameof(productCode));
+        ArgumentException.ThrowIfNullOrWhiteSpace(variantCode, nameof(variantCode));
+        if (quantity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be positive.");
+        if (productCode.Trim().Length > 150)
+            throw new ArgumentException("Product code must be at most 150 characters.", nameof(productCode));
+        if (variantCode.Trim().Length > 64)
+            throw new ArgumentException("Variant code must be at most 64 characters.", nameof(variantCode));
+        if (variantName?.Trim().Length > 128)
+            throw new ArgumentException("Variant name must be at most 128 characters.", nameof(variantName));
 
         OrderId = orderId;
         MerchantId = merchantId;
         Quantity = quantity;
         UnitPrice = unitPrice;
         Discount = discount;
-        DocumentNo = documentNo.Trim();
-        ProductGroup = productGroup.Trim();
-        DocumentType = documentType.Trim();
-        PolicyNumber = policyNumber;
-        StartDate = startDate;
-        EndDate = endDate;
-        InsuredFirstName = insuredFirstName.Trim();
-        InsuredLastName = insuredLastName.Trim();
-        InsuredIdNumber = insuredIdNumber.Trim();
-        InsuredDateOfBirth = insuredDateOfBirth;
+        ProductCode = productCode.Trim();
+        VariantCode = variantCode.Trim();
+        VariantName = string.IsNullOrWhiteSpace(variantName) ? null : variantName.Trim();
+        Metadata = metadata is null ? null : CommerceItemMetadataCodec.Serialize(metadata);
     }
 }

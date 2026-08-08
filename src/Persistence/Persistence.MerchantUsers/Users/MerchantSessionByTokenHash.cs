@@ -14,7 +14,7 @@ internal sealed class MerchantSessionByTokenHash(MerchantUserDbContext db) : ISe
         await db.Sessions.AsNoTracking()
             .Where(s => s.TokenHash == tokenHash)
             .Select(s => new SessionLookup(
-                s.Id, s.FamilyId, s.MerchantUserId, (SessionLookupStatus)s.Status,
+                s.Id, s.FamilyId, s.UserId, (SessionLookupStatus)s.Status,
                 s.IdleExpiresAt, s.AbsoluteExpiresAt, s.SupersededAt, s.SupersededBySessionId))
             .FirstOrDefaultAsync(cancellationToken);
 }

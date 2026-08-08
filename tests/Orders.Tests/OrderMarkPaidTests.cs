@@ -13,6 +13,7 @@ public sealed class OrderMarkPaidTests
 {
     private static readonly Guid MerchantId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly DateTime At = new(2026, 6, 21, 9, 0, 0, DateTimeKind.Utc);
+    private static readonly Guid PaymentSessionId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     private static Order NewOrder(decimal amount = 15000m, string currency = "THB") =>
         Order.Create(MerchantId, Money.Of(amount, currency), At, OrderLineInputs.OneLine(Money.Of(amount, currency)), orderNo: "ORD6900000001");
@@ -22,7 +23,7 @@ public sealed class OrderMarkPaidTests
     {
         var order = NewOrder();
 
-        var transitioned = order.MarkPaid(Money.Of(15000, "THB"), At.AddMinutes(1));
+        var transitioned = order.MarkPaid(PaymentSessionId, "card", Money.Of(15000, "THB"), At.AddMinutes(1));
 
         Assert.True(transitioned);
         Assert.Equal(OrderStatus.Paid, order.Status);
@@ -36,9 +37,10 @@ public sealed class OrderMarkPaidTests
     {
         var order = NewOrder(15000, "THB");
 
-        Assert.Throws<InvalidOperationException>(() => order.MarkPaid(Money.Of(14999, "THB"), At));
+        Assert.Throws<InvalidOperationException>(() =>
+            order.MarkPaid(PaymentSessionId, "card", Money.Of(14999, "THB"), At));
 
-        Assert.Equal(OrderStatus.AwaitingPayment, order.Status);
+        Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Empty(order.DomainEvents);
     }
 
@@ -48,9 +50,10 @@ public sealed class OrderMarkPaidTests
         var order = NewOrder(15000, "THB");
 
         // Same numeric minor units, different currency — must not fulfil (PLAN #2).
-        Assert.Throws<InvalidOperationException>(() => order.MarkPaid(Money.Of(15000, "USD"), At));
+        Assert.Throws<InvalidOperationException>(() =>
+            order.MarkPaid(PaymentSessionId, "card", Money.Of(15000, "USD"), At));
 
-        Assert.Equal(OrderStatus.AwaitingPayment, order.Status);
+        Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Empty(order.DomainEvents);
     }
 
@@ -58,15 +61,28 @@ public sealed class OrderMarkPaidTests
     public void MarkPaid_is_idempotent_when_already_Paid()
     {
         var order = NewOrder();
-        Assert.True(order.MarkPaid(Money.Of(15000, "THB"), At));
+        Assert.True(order.MarkPaid(PaymentSessionId, "card", Money.Of(15000, "THB"), At));
         order.ClearDomainEvents();
 
         // A replayed PaymentPaid: no-op, returns false, raises no further event.
-        var transitionedAgain = order.MarkPaid(Money.Of(15000, "THB"), At.AddMinutes(5));
+        var transitionedAgain = order.MarkPaid(
+            PaymentSessionId, "card", Money.Of(15000, "THB"), At.AddMinutes(5));
 
         Assert.False(transitionedAgain);
         Assert.Equal(OrderStatus.Paid, order.Status);
         Assert.Empty(order.DomainEvents);
+    }
+
+    [Fact]
+    public void Replayed_PaymentPaid_still_rejects_mismatched_money()
+    {
+        var order = NewOrder();
+        Assert.True(order.MarkPaid(PaymentSessionId, "card", Money.Of(15000, "THB"), At));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            order.MarkPaid(PaymentSessionId, "card", Money.Of(14999, "THB"), At.AddMinutes(1)));
+
+        Assert.Equal(OrderStatus.Paid, order.Status);
     }
 
     [Fact]
@@ -75,7 +91,8 @@ public sealed class OrderMarkPaidTests
         var order = NewOrder();
         order.Cancel();
 
-        Assert.Throws<InvalidOperationException>(() => order.MarkPaid(Money.Of(15000, "THB"), At));
+        Assert.Throws<InvalidOperationException>(() =>
+            order.MarkPaid(PaymentSessionId, "card", Money.Of(15000, "THB"), At));
         Assert.Equal(OrderStatus.Cancelled, order.Status);
     }
 }

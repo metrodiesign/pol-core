@@ -41,7 +41,7 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             var hint = LastFour(plaintextSecret);
 
             var existing = await _db.VaultSecrets
-                .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, cancellationToken)
+                .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.SecretName == name, cancellationToken)
                 .ConfigureAwait(false);
             if (existing is null)
                 _db.VaultSecrets.Add(new VaultSecretBlob(merchantId, name, activeKeyId, wrappedDek, encryptedSecret, hint, _clock.UtcNow));
@@ -86,14 +86,14 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
     public async Task<string> RevealAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
         var blob = await PlatformReadGuard.ReadAsync(ct => _db.VaultSecrets
-                .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, ct), cancellationToken)
+                .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.SecretName == name, ct), cancellationToken)
                 .ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Vault secret '{name}' not found for the merchant.");
 
         // Fail CLOSED on an unknown/retired key id — never fall back to the active key (that would mask a
-        // custody mistake or let a forged KeyId downgrade to a different key). The id is a non-secret label.
-        var masterKey = _keyring.ResolveOrNull(blob.KeyId)
-            ?? throw new InvalidOperationException($"Vault key id '{blob.KeyId}' is not in the active keyring.");
+        // custody mistake or let a forged SecretKey downgrade to a different key). The id is a non-secret label.
+        var masterKey = _keyring.ResolveOrNull(blob.SecretKey)
+            ?? throw new InvalidOperationException($"Vault key id '{blob.SecretKey}' is not in the active keyring.");
 
         var kek = VaultEnvelope.DeriveKek(masterKey, merchantId);
         byte[] dek = [];
@@ -118,14 +118,14 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
     public async Task<string?> MaskedAsync(Guid merchantId, string name, CancellationToken cancellationToken)
     {
         var blob = await PlatformReadGuard.ReadAsync(ct => _db.VaultSecrets
-            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.Name == name, ct), cancellationToken)
+            .FirstOrDefaultAsync(x => x.MerchantId == merchantId && x.SecretName == name, ct), cancellationToken)
             .ConfigureAwait(false);
         return blob is null ? null : $"****{blob.Hint}";
     }
 
     public async Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken cancellationToken) =>
         await PlatformReadGuard.ReadAsync(ct => _db.VaultSecrets
-            .AnyAsync(x => x.MerchantId == merchantId && x.Name == name, ct), cancellationToken)
+            .AnyAsync(x => x.MerchantId == merchantId && x.SecretName == name, ct), cancellationToken)
             .ConfigureAwait(false);
 
     private static string LastFour(string secret) =>

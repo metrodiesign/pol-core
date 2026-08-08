@@ -43,9 +43,10 @@ public sealed class OrderItemsTests : IDisposable
     private static Order NewOrderWithOneLine() =>
         Order.Create(MerchantA, Money.Of(15000m, "THB"), At,
             [new OrderItemInput(
-                1, Money.Of(15000m, "THB"), "00098-69100/กธ/900001-10", "VMI", "POLICY",
-                "P-900001", At.Date, At.Date.AddYears(1),
-                "Somchai", "Jaidee", "1234567890123", Dob)], orderNo: NextOrderNo());
+                1, Money.Of(15000m, "THB"), "00098-69100/กธ/900001-10", "VMI", "ประกันรถยนต์",
+                Metadata: new CommerceItemMetadata(
+                    CommerceItemMetadataCodec.InsuranceDocumentSource, "POLICY", "P-900001",
+                    DateOnly.FromDateTime(At), DateOnly.FromDateTime(At.AddYears(1))))], orderNo: NextOrderNo());
 
     [Fact]
     public async Task Order_with_a_line_round_trips_through_EF()
@@ -64,16 +65,14 @@ public sealed class OrderItemsTests : IDisposable
         Assert.Equal(order.Id, item.OrderId);
         Assert.Equal(MerchantA, item.MerchantId);
         Assert.Equal(Money.Of(15000m, "THB"), item.UnitPrice);
-        Assert.Equal("00098-69100/กธ/900001-10", item.DocumentNo);
-        Assert.Equal("VMI", item.ProductGroup);
-        Assert.Equal("POLICY", item.DocumentType);
-        Assert.Equal("P-900001", item.PolicyNumber);
-        Assert.Equal(At.Date, item.StartDate);
-        Assert.Equal(At.Date.AddYears(1), item.EndDate);
-        Assert.Equal("Somchai", item.InsuredFirstName);
-        Assert.Equal("Jaidee", item.InsuredLastName);
-        Assert.Equal("1234567890123", item.InsuredIdNumber);
-        Assert.Equal(Dob, item.InsuredDateOfBirth);
+        Assert.Equal("00098-69100/กธ/900001-10", item.ProductCode);
+        Assert.Equal("VMI", item.VariantCode);
+        Assert.Equal("ประกันรถยนต์", item.VariantName);
+        var metadata = CommerceItemMetadataCodec.Parse(item.Metadata!);
+        Assert.Equal("POLICY", metadata.DocumentType);
+        Assert.Equal("P-900001", metadata.PolicyNumber);
+        Assert.Equal(DateOnly.FromDateTime(At), metadata.StartDate);
+        Assert.Equal(DateOnly.FromDateTime(At.AddYears(1)), metadata.EndDate);
     }
 
     [Fact]

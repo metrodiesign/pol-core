@@ -5,7 +5,7 @@
 #     --project src/BuildingBlocks/BuildingBlocks.Infrastructure --startup-project src/Hosts/Api
 services:
   pol-db:
-    image: mcr.microsoft.com/mssql/server:2025-latest
+    image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
     container_name: pol-db
     environment:
       ACCEPT_EULA: "Y"
@@ -26,7 +26,7 @@ services:
   # ("separate databases on separate servers"). Ephemeral on purpose: bootstrap is idempotent and
   # seed-only, so there is nothing here worth persisting across a container recreate — no volume.
   hippo-db:
-    image: mcr.microsoft.com/mssql/server:2025-latest
+    image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
     container_name: pol-hippo-db
     environment:
       ACCEPT_EULA: "Y"
@@ -41,7 +41,7 @@ services:
       retries: 12
 
   mammoth-db:
-    image: mcr.microsoft.com/mssql/server:2025-latest
+    image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
     container_name: pol-mammoth-db
     environment:
       ACCEPT_EULA: "Y"
@@ -63,7 +63,7 @@ services:
   # Exits 0 when done. Every command carries `-b` so a failed self-check — including the collation
   # gate in 01-principals.sql — actually fails this container instead of passing silently.
   pol-db-init:
-    image: mcr.microsoft.com/mssql/server:2025-latest
+    image: mcr.microsoft.com/mssql/server:2025-CU5-ubuntu-24.04@sha256:cee0f4db03b5192de777d37a22455949d1c2c230bb48c0a732b88b0933117a72
     depends_on:
       pol-db:
         condition: service_healthy

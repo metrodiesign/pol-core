@@ -15,8 +15,6 @@
     <ProjectReference Include="..\..\Modules\Products\Products.Application\Products.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Carts\Carts.Domain\Carts.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Carts\Carts.Application\Carts.Application.csproj" />
-    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Domain\Checkouts.Domain.csproj" />
-    <ProjectReference Include="..\..\Modules\Checkouts\Checkouts.Application\Checkouts.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\Orders.Domain\Orders.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\Orders.Application\Orders.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Payments\Payments.Domain\Payments.Domain.csproj" />

@@ -9,7 +9,7 @@
 ## สถานะ
 
 อยู่ระหว่าง implement บน branch `develop` (spec-driven — specs come before code, ALWAYS).
-โมดูลที่ลงแล้ว: Products / Cart / Checkout / Orders / Payments (E2E), Merchants (provisioning +
+โมดูลที่ลงแล้ว: Products / Carts / Orders / Payments (E2E), Merchants (provisioning +
 merchant-user Google SSO + registration, รวม Tenant+Producer เดิม, rf1), Admin (Google SSO + RBAC).
 งานใหม่ผ่าน workflow gates เสมอ.
 
@@ -18,7 +18,7 @@ merchant-user Google SSO + registration, รวม Tenant+Producer เดิม,
 Modular Monolith (Clean Architecture + CQRS) · .NET 10 / ASP.NET Core 10 / C# 14 (LTS) ·
 EF Core 10 + SQL Server 2025 Standard · **martinothamar/Mediator** 3.x (in-process, source-generated)
 
-5 โมดูลคุยกันผ่าน Mediator: Products → Cart → Checkout → Orders → Payments (จบที่ emit `PaymentPaid`).
+4 โมดูล commerce คุยกันผ่าน Mediator: Products → Carts → Orders → Payments (จบที่ emit `PaymentPaid`).
 version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 
 ## โครงสร้าง
@@ -129,29 +129,13 @@ dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL 
    (AI agent: เริ่มที่ `AGENTS.md` หรือ `CLAUDE.md`)
 2. งานใหม่ผ่าน spec workflow เสมอ — ไม่ code ก่อน requirements -> design -> tasks
 
-## Demo seed data (dev only)
+## Baseline seed
 
-DB ที่ migrate เสร็จใหม่มีแค่ IAM catalog กับ master data (`cfg.*`) — ตารางอื่นว่างเปล่า ทำให้เปิด
-console/เรียก API แล้วไม่เห็นอะไร. `docker/bootstrap/seed-demo.sql` เติม demo dataset ครอบคลุมทั้ง
-funnel (merchant -> ผู้ใช้ทั้งสองฝั่ง -> สินค้า -> ตะกร้า -> checkout -> order -> payment session)
-สำหรับ dev/localhost เท่านั้น — **ห้ามรันบน prod**.
+Fresh migration ใส่ IAM catalog 19 permissions/7 groups/4 roles, master data `cfg.*` แบบ Active และ
+synthetic merchant หนึ่งรายพร้อม PSP connection ที่ปิดใช้งาน. Seed ไม่มี credential, login subject, PII,
+Cart, Order หรือ payment data. ไม่มีสคริปต์ demo seed แยก; schema/data baseline อยู่ใน migration chain เดียว.
 
-```bash
-set -a && source .env && set +a
-./scripts/seed-demo.sh          # โหลด/โหลดซ้ำได้เรื่อย ๆ (idempotent, ไม่ TRUNCATE)
-```
-
-- **ไม่ใช่ EF migration** — `dotnet ef database update` ไม่แตะ demo data แม้แต่แถวเดียว; รันแยกด้วยมือ
-  เท่านั้น เพราะ demo data ไม่ควรอยู่ใน schema-migration history ที่วิ่งบน prod ด้วย
-- id ทุกแถวเป็น GUID คงที่ (prefix `e1…`–`ee…` ต่อตาราง) — รันซ้ำ = ลบแถว demo ของตัวเองแล้วใส่ใหม่
-  เท่านั้น ไม่แตะแถวอื่น
-- **login Google จริงไม่ได้** — `Subject`/`sub` ของบัญชี demo ทั้งหมดเป็นค่าปลอม (prefix `demo-adm-`/`demo-mch-`)
-- password อ่านจาก `POL_SA_PASSWORD` หรือ `MSSQL_SA_PASSWORD` เท่านั้น ไม่มี secret ฝังในสคริปต์
-- **guard เป้าหมาย** — สคริปต์ echo `server=… db=…` ก่อนเสมอ และ **ปฏิเสธถ้า `POL_SQL_SERVER` ไม่ใช่
-  localhost** (เผลอ `source` prod env แล้วรัน = ปลูก demo data ลง prod). DB dev/test ที่ไม่ใช่ localhost
-  จริง ๆ ต้องยืนยันด้วย `POL_ALLOW_DEMO_SEED=1 ./scripts/seed-demo.sh`
-- **ไม่ต้องลง `sqlcmd` บน host** — ถ้าไม่มีบน PATH สคริปต์ fall back ไปใช้ตัวใน container `pol-db` ให้เอง
-- รายละเอียด: `.ai/specs/demo-seed-data/{requirements,design}.md`
+Frontend cutover contract: `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md`.
 
 ## กฎที่ขาดไม่ได้
 

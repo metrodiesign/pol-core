@@ -2,7 +2,6 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Outbox;
 using Mediator;
 using Merchants.Application.Users;
-using System.Text.Json;
 
 namespace Persistence.MerchantUsers.Outbox;
 
@@ -57,10 +56,9 @@ internal sealed class MerchantRegistrationOutboxWriter : IRegistrationOutboxWrit
 
     public void Enqueue(INotification notification)
     {
-        ArgumentNullException.ThrowIfNull(notification);
-        var type = notification.GetType();
-        var payload = JsonSerializer.Serialize(notification, type, OutboxSerializer.Options);
+        var serialized = MerchantUserOutboxEventRegistry.Serialize(notification);
         _db.UserOutbox.Add(MerchantUserOutbox.Create(
-            Guid.CreateVersion7(), MerchantRegistrationOutboxSentinel.MerchantId, type.Name, payload, _clock.UtcNow));
+            Guid.CreateVersion7(), MerchantRegistrationOutboxSentinel.MerchantId,
+            serialized.Type, serialized.Payload, _clock.UtcNow));
     }
 }

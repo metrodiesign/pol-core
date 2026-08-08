@@ -1,5 +1,9 @@
 using Admins.Application.Users;
+using Divisions.Domain;
+using Levels.Domain;
 using Microsoft.EntityFrameworkCore;
+using Offices.Domain;
+using Positions.Domain;
 
 namespace Persistence.ControlPlane.Admins;
 
@@ -16,10 +20,10 @@ internal sealed class ProfileLookup : IProfileLookup
     public Task<bool> ExistsActiveAsync(ProfileField field, Guid id, CancellationToken cancellationToken) =>
         field switch
         {
-            ProfileField.Position => _db.Positions.AnyAsync(m => m.Id == id && m.IsActive, cancellationToken),
-            ProfileField.Office => _db.Offices.AnyAsync(m => m.Id == id && m.IsActive, cancellationToken),
-            ProfileField.Level => _db.Levels.AnyAsync(m => m.Id == id && m.IsActive, cancellationToken),
-            ProfileField.Division => _db.Divisions.AnyAsync(m => m.Id == id && m.IsActive, cancellationToken),
+            ProfileField.Position => _db.Positions.AnyAsync(m => m.Id == id && m.Status == PositionStatus.Active, cancellationToken),
+            ProfileField.Office => _db.Offices.AnyAsync(m => m.Id == id && m.Status == OfficeStatus.Active, cancellationToken),
+            ProfileField.Level => _db.Levels.AnyAsync(m => m.Id == id && m.Status == LevelStatus.Active, cancellationToken),
+            ProfileField.Division => _db.Divisions.AnyAsync(m => m.Id == id && m.Status == DivisionStatus.Active, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(field)),
         };
 

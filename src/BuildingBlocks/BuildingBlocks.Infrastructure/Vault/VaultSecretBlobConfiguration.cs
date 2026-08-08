@@ -9,9 +9,9 @@ public sealed class VaultSecretBlobConfiguration : IEntityTypeConfiguration<Vaul
     public void Configure(EntityTypeBuilder<VaultSecretBlob> builder)
     {
         builder.ToTable("VaultSecrets", SchemaNames.Merch);
-        builder.HasKey(x => new { x.MerchantId, x.Name });
-        builder.Property(x => x.Name).HasMaxLength(128);
-        builder.Property(x => x.KeyId).HasMaxLength(64).IsRequired();
+        builder.HasKey(x => new { x.MerchantId, x.SecretName });
+        builder.Property(x => x.SecretName).HasMaxLength(128);
+        builder.Property(x => x.SecretKey).HasMaxLength(64).IsRequired();
         builder.Property(x => x.Hint).HasMaxLength(16).IsRequired();
     }
 }

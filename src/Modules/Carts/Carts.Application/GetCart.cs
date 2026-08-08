@@ -8,22 +8,29 @@ namespace Carts.Application;
 /// another merchant, so the query returns null for both "not found" and "not yours" (no existence leak).</summary>
 public sealed record GetCartQuery(Guid CartId, Guid MerchantId) : IQuery<CartView?>, IMerchantScoped;
 
-/// <summary>One cart line as the merchant sees it. <paramref name="ItemId"/> is what the remove/quantity
-/// routes address (products-external-source-of-truth REQ-9.2), and <paramref name="SaleCode"/>/
-/// <paramref name="ProductGroup"/> are the upstream's own values, which checkout re-reads the document with.</summary>
+/// <summary>One cart line as the merchant sees it. <paramref name="ItemId"/> is the mutation handle;
+/// product, variant, price and metadata are server-owned source snapshots.</summary>
 public sealed record CartLineView(
-    Guid ItemId, string DocumentNo, string SaleCode, string ProductGroup,
-    int Quantity, Money UnitPrice, Money LineTotal);
+    Guid ItemId,
+    string ProductCode,
+    string VariantCode,
+    string? VariantName,
+    int Quantity,
+    Money UnitPrice,
+    Money LineTotal,
+    System.Text.Json.JsonElement? Metadata);
 
 public sealed record CartView(
-    Guid CartId, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal, int Version)
+    Guid CartId, string? SaleCode, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal, int Version)
 {
     public static CartView From(Domain.Cart cart) => new(
         cart.Id,
+        cart.SaleCode,
         cart.Status.ToString(),
         cart.Items
             .Select(i => new CartLineView(
-                i.Id, i.DocumentNo, i.SaleCode, i.ProductGroup, i.Quantity, i.UnitPrice, i.LineTotal))
+                i.Id, i.ProductCode, i.VariantCode, i.VariantName, i.Quantity, i.UnitPrice, i.LineTotal,
+                i.Metadata is null ? null : CommerceItemMetadataCodec.ToJsonElement(i.Metadata)))
             .ToList(),
         cart.Subtotal,
         cart.Version);

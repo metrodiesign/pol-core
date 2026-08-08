@@ -4,7 +4,7 @@ namespace SharedKernel;
 
 /// <summary>
 /// The buyer's contact details, captured at checkout and carried onto the order (purchase-flow-completion
-/// REQ-6.6/6.7/7.2). Lives here next to <see cref="Money"/> because Checkouts and Orders each own a copy of
+/// REQ-6.6/6.7/7.2). Lives here next to <see cref="Money"/> because Order creation and read surfaces share
 /// these three columns and neither module may reference the other — one type here means ONE validation rule
 /// instead of two that drift. Construct through <see cref="Of"/>: the constructor is private, so an
 /// unvalidated contact cannot exist (the one exception is <see cref="Unspecified"/>, which stands for a row

@@ -17,7 +17,7 @@ public sealed class AdminSessionStoreIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid adminId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT admin.Sessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT admin.Sessions (Id, FamilyId, TokenHash, AdminUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @admin, @st, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, @abs, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),

@@ -7,16 +7,22 @@ public sealed class Permission
 {
     public string Key { get; private set; } = default!;
     public string GroupKey { get; private set; } = default!;
-    public string LabelTh { get; private set; } = default!;
+    public string Name { get; private set; } = default!;
+    public PermissionStatus Status { get; private set; }
     public int SortOrder { get; private set; }
 
     private Permission() { }
 
-    public Permission(string key, string groupKey, string labelTh, int sortOrder)
+    public Permission(string key, string groupKey, string name, int sortOrder,
+        PermissionStatus status = PermissionStatus.Active)
     {
         Key = key;
         GroupKey = groupKey;
-        LabelTh = labelTh;
+        Name = name;
         SortOrder = sortOrder;
+        Status = status;
     }
+
+    public void Activate() => Status = PermissionStatus.Active;
+    public void Deactivate() => Status = PermissionStatus.Inactive;
 }

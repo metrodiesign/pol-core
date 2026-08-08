@@ -33,6 +33,16 @@ file sealed class SfsOpenApiFactory : WebApplicationFactory<ApiHost::Program>
 
 public sealed class SfsOpenApiTests
 {
+    private static async Task<JsonElement> OpenApiAsync()
+    {
+        using var factory = new SfsOpenApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/openapi/v1.json");
+        response.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.Clone();
+    }
+
     private static async Task<HashSet<string?>> QueryParameterNamesAsync(string path)
     {
         using var factory = new SfsOpenApiFactory();
@@ -75,13 +85,10 @@ public sealed class SfsOpenApiTests
             StringComparison.OrdinalIgnoreCase);
     }
 
-    // Every endpoint carrying the SfsQueryParamsMarker must declare all five SFS parameters (REQ-13;
-    // admin-account-management REQ-7.6/F2 for the admin directory). These are the four in the host today.
+    // Every active endpoint carrying SfsQueryParamsMarker must declare all five SFS parameters.
     [Theory]
     [InlineData("/api/v1/admins/roles")]
     [InlineData("/api/v1/admins")]
-    [InlineData("/api/v1/reports/policies")]
-    [InlineData("/api/v1/admins/reports/policies")]
     public async Task An_sfs_endpoint_declares_the_sfs_query_parameters(string path)
     {
         var names = await QueryParameterNamesAsync(path);
@@ -104,5 +111,38 @@ public sealed class SfsOpenApiTests
         Assert.DoesNotContain("filters", names);
         Assert.DoesNotContain("sort", names);
         Assert.DoesNotContain("search", names);
+    }
+
+    [Fact]
+    public async Task Published_cart_and_order_contracts_match_the_big_bang_cutover()
+    {
+        var root = await OpenApiAsync();
+        var paths = root.GetProperty("paths");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+
+        var addItem = paths.GetProperty("/api/v1/carts/{cartId}/items").GetProperty("post");
+        Assert.Equal("#/components/schemas/AddItemToCartRequest",
+            addItem.GetProperty("requestBody").GetProperty("content").GetProperty("application/json")
+                .GetProperty("schema").GetProperty("$ref").GetString());
+        var addProperties = schemas.GetProperty("AddItemToCartRequest").GetProperty("properties");
+        Assert.True(addProperties.TryGetProperty("productCode", out _));
+        Assert.True(addProperties.TryGetProperty("variantCode", out _));
+        Assert.True(addProperties.TryGetProperty("quantity", out _));
+        Assert.False(addProperties.TryGetProperty("unitPrice", out _));
+        Assert.False(addProperties.TryGetProperty("metadata", out _));
+
+        var createOrder = paths.GetProperty("/api/v1/orders").GetProperty("post");
+        Assert.Equal("#/components/schemas/CreateOrderFromCartRequest",
+            createOrder.GetProperty("requestBody").GetProperty("content").GetProperty("application/json")
+                .GetProperty("schema").GetProperty("$ref").GetString());
+        Assert.Equal("#/components/schemas/DirectOrderResult",
+            createOrder.GetProperty("responses").GetProperty("201").GetProperty("content")
+                .GetProperty("application/json").GetProperty("schema").GetProperty("$ref").GetString());
+        foreach (var status in new[] { "400", "403", "404", "409", "503" })
+            Assert.True(createOrder.GetProperty("responses").TryGetProperty(status, out _), status);
+
+        Assert.DoesNotContain(paths.EnumerateObject(), path =>
+            path.Name.Contains("checkout", StringComparison.OrdinalIgnoreCase)
+            || path.Name.Contains("policy", StringComparison.OrdinalIgnoreCase));
     }
 }

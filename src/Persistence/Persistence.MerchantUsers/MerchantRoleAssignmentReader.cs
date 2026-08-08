@@ -28,7 +28,7 @@ internal sealed class MerchantRoleAssignmentReader : IMerchantRoleAssignmentRead
         Guid merchantUserId, Guid merchantId, CancellationToken cancellationToken)
     {
         var ids = await _db.RoleAssignments.IgnoreQueryFilters()
-            .Where(a => a.MerchantUserId == merchantUserId && a.MerchantId == merchantId)
+            .Where(a => a.UserId == merchantUserId && a.MerchantId == merchantId)
             .Select(a => a.RoleId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();

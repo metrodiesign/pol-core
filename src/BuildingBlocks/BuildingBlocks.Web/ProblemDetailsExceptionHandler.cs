@@ -66,6 +66,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
             (StatusCodes.Status409Conflict, "Conflict", "A resource with the same identifier already exists."),
         MerchantBindingException =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
+        BadHttpRequestException =>
+            (StatusCodes.Status400BadRequest, "Invalid request", null),
         ArgumentException =>
             (StatusCodes.Status400BadRequest, "Invalid request", null),
         InvalidOperationException =>

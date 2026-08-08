@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 using Mediator;
+using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
@@ -34,6 +35,7 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
     private readonly IVaultSecretStore _vault;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly PaymentConfirmationService _confirmation;
 
     public StartRedirectHandler(
         ISessionRepository sessions,
@@ -41,7 +43,8 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         IPspAdapterFactory adapters,
         IVaultSecretStore vault,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        PaymentConfirmationService confirmation)
     {
         _sessions = sessions;
         _connections = connections;
@@ -49,6 +52,7 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         _vault = vault;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _confirmation = confirmation;
     }
 
     public async ValueTask<StartRedirectResult> Handle(
@@ -111,12 +115,12 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         {
             secret = await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception failure) when (!settlingClaim)
+        catch (Exception) when (!settlingClaim)
         {
             // Nothing has been sent to the PSP yet, so this is definitive: fail the claim rather than leave it
             // standing with no URL, which is the state REQ-7.2 forbids and which the one-open-session index
             // would otherwise make permanent.
-            await FailSessionAsync(session, failure).ConfigureAwait(false);
+            await FailSessionAsync(session, "pre_charge_failure").ConfigureAwait(false);
             throw;
         }
 
@@ -127,12 +131,12 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
                 .CreateRedirectChargeAsync(session, connection.Id, secret, cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch (PspRejectedException rejection) when (!settlingClaim)
+        catch (PspRejectedException) when (!settlingClaim)
         {
             // Proven charge-less: the request never left us or the PSP refused it outright. Failing the session
             // is what lets create-session open a fresh attempt for the order (REQ-7.1/7.4). Every OTHER failure
             // is ambiguous and deliberately uncaught — the claim survives and the next call settles it.
-            await FailSessionAsync(session, rejection).ConfigureAwait(false);
+            await FailSessionAsync(session, "psp_rejected").ConfigureAwait(false);
             throw;
         }
 
@@ -151,12 +155,13 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
     /// is the caller's real answer, and reporting a database error for a charge the PSP refused would hide the
     /// cause and change the status code.
     /// </summary>
-    private async Task FailSessionAsync(Session session, Exception failure)
+    private async Task FailSessionAsync(Session session, string reasonCode)
     {
-        session.MarkFailed($"{failure.GetType().Name}: {failure.Message}", _clock.UtcNow);
         try
         {
-            await _unitOfWork.SaveChangesAsync(CancellationToken.None).ConfigureAwait(false);
+            await _confirmation
+                .MarkFailedAsync(session, reasonCode, _clock.UtcNow, CancellationToken.None)
+                .ConfigureAwait(false);
         }
         catch (Exception)
         {

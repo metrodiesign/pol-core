@@ -47,7 +47,7 @@ public sealed class ConfirmPaymentStatusHandlerTests
     }
 
     private static Harness NewHarness(
-        PayableOrderStatus orderStatus = PayableOrderStatus.AwaitingPayment,
+        PayableOrderStatus orderStatus = PayableOrderStatus.Pending,
         Session? session = null,
         DateTime? now = null,
         PspChargeStatus fetchedStatus = PspChargeStatus.Paid,

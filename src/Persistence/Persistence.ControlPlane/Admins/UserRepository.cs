@@ -39,7 +39,7 @@ internal sealed class UserRepository : IUserRepository
     public async Task<IReadOnlySet<Guid>> ListAssignedMerchantIdsAsync(Guid adminAccountId, CancellationToken cancellationToken)
     {
         var ids = await _db.MerchantAccess
-            .Where(x => x.PlatformUserId == adminAccountId)
+            .Where(x => x.AdminUserId == adminAccountId)
             .Select(x => x.MerchantId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();
@@ -47,7 +47,7 @@ internal sealed class UserRepository : IUserRepository
 
     public Task<MerchantAccess?> GetAssignmentAsync(Guid adminAccountId, Guid merchantId, CancellationToken cancellationToken) =>
         _db.MerchantAccess
-            .FirstOrDefaultAsync(x => x.PlatformUserId == adminAccountId && x.MerchantId == merchantId, cancellationToken);
+            .FirstOrDefaultAsync(x => x.AdminUserId == adminAccountId && x.MerchantId == merchantId, cancellationToken);
 
     public async Task<PagedResult<UserListItem>> ListAsync(PagedQuery query, CancellationToken cancellationToken)
     {

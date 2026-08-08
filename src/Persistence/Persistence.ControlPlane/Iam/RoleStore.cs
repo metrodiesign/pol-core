@@ -82,13 +82,13 @@ internal sealed class RoleStore : IRoleStore
         var groups = await _db.PermissionGroups.AsNoTracking()
             .Where(g => g.Scope == scope)
             .OrderBy(g => g.SortOrder)
-            .Select(g => new PermissionGroupItem(g.Key, g.LabelTh))
+            .Select(g => new PermissionGroupItem(g.Key, g.Name, g.Status))
             .ToListAsync(cancellationToken);
         var permissions = await _db.Permissions.AsNoTracking()
             .Join(_db.PermissionGroups, p => p.GroupKey, g => g.Key, (p, g) => new { p, g.Scope })
             .Where(x => x.Scope == scope)
             .OrderBy(x => x.p.SortOrder)
-            .Select(x => new PermissionItem(x.p.Key, x.p.LabelTh, x.p.GroupKey))
+            .Select(x => new PermissionItem(x.p.Key, x.p.Name, x.p.GroupKey, x.p.Status))
             .ToListAsync(cancellationToken);
         return new PermissionCatalogResult(groups, permissions);
     }

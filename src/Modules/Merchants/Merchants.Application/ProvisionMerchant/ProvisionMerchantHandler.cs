@@ -80,10 +80,10 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
         if (await _merchants.ExistsByCodeAsync(code, cancellationToken))
             throw new ConflictException($"Merchant '{code}' is already provisioned.");
 
-        var merchantMetadata = command.Merchant.Metadata is { } m ? m.GetRawText() : "{}";
+        var merchantMetadata = MerchantMetadataCodec.Serialize(command.Merchant.Metadata);
 
         var provisionSpec = new ProvisionSpec(
-            code, command.Merchant.DisplayName, command.Merchant.LegalEntityId, command.Merchant.Country,
+            code, command.Merchant.Name, command.Merchant.Note, command.Merchant.Country,
             command.Merchant.Currency, command.Merchant.EnabledChannels, merchantMetadata,
             command.AdminSubject, command.CorrelationId,
             [.. prepared.Select(p => new ProvisionConnectionSpec(

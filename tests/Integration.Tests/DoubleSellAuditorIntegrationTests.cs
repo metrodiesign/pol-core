@@ -130,9 +130,9 @@ public sealed class DoubleSellAuditorIntegrationTests
             """
             INSERT shop.Orders
                 (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, CreatedAt,
-                 SummaryToken, SummaryTokenExpiresAt)
+                 SummaryToken, SummaryTokenExpiresAt, CustomerName, CustomerPhone)
             VALUES (@id, @m, @orderNo, 15000, N'THB', @status, SYSUTCDATETIME(),
-                    @token, DATEADD(hour, 72, SYSUTCDATETIME()));
+                    @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
             ("@id", orderId), ("@m", merchantId), ("@orderNo", $"ORD69{Random.Shared.Next(10_000_000, 99_999_999)}"),
             ("@status", status), ("@token", Guid.NewGuid().ToString("N")));
@@ -141,10 +141,8 @@ public sealed class DoubleSellAuditorIntegrationTests
             """
             INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, Quantity, UnitPriceAmount, UnitPriceCurrency,
-                 DiscountAmount, DiscountCurrency, DocumentNo, ProductGroup, DocumentType,
-                 InsuredFirstName, InsuredLastName, InsuredIdNumber, InsuredDateOfBirth)
-            VALUES (@id, @orderId, @m, 1, 15000, N'THB', 0, N'THB', @documentNo, @group, 'POLICY',
-                    N'Somchai', N'Jaidee', N'1234567890123', '1990-01-01');
+                 DiscountAmount, DiscountCurrency, ProductCode, VariantCode, VariantName)
+            VALUES (@id, @orderId, @m, 1, 15000, N'THB', 0, N'THB', @documentNo, @group, N'ประกันรถยนต์');
             """,
             ("@id", Guid.NewGuid()), ("@orderId", orderId), ("@m", merchantId),
             ("@documentNo", documentNo), ("@group", group));

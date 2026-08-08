@@ -18,18 +18,21 @@ public sealed class MerchantUserRegistrationConsumerTests
     private static readonly Guid UserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
     private static MerchantUserRegistrationSubmitted Event() =>
-        new(UserId, "g-sub-1", "p@org.com", "org.com", "Acme Co", Now);
+        new(UserId, Now);
+
+    private static RegistrationConsumer Consumer(FakeNotices notices) =>
+        new(notices, new FakeAccounts(), new FakeClock(Now));
 
     [Fact]
     public async Task A_first_event_records_a_notice()
     {
         var notices = new FakeNotices();
-        var consumer = new RegistrationConsumer(notices, new FakeClock(Now));
+        var consumer = Consumer(notices);
 
         await consumer.Handle(Event(), default);
 
         var notice = Assert.Single(notices.Saved);
-        Assert.Equal(UserId, notice.MerchantUserId);
+        Assert.Equal(UserId, notice.UserId);
         Assert.Equal("Acme Co", notice.DisplayName);
         Assert.Equal(1, notices.SaveCalls);
     }
@@ -39,7 +42,7 @@ public sealed class MerchantUserRegistrationConsumerTests
     {
         var notices = new FakeNotices();
         notices.SeedExisting(UserId);
-        var consumer = new RegistrationConsumer(notices, new FakeClock(Now));
+        var consumer = Consumer(notices);
 
         await consumer.Handle(Event(), default);
 
@@ -51,7 +54,7 @@ public sealed class MerchantUserRegistrationConsumerTests
     public async Task A_concurrent_unique_violation_is_swallowed_not_thrown()
     {
         var notices = new FakeNotices { FailNextSaveAsConflict = true };
-        var consumer = new RegistrationConsumer(notices, new FakeClock(Now));
+        var consumer = Consumer(notices);
 
         // Exists() returned false (race), the insert lost the unique-index race -> TrySave returns false, no throw.
         await consumer.Handle(Event(), default);
@@ -61,6 +64,19 @@ public sealed class MerchantUserRegistrationConsumerTests
     }
 
     private sealed class FakeClock(DateTime now) : IClock { public DateTime UtcNow => now; }
+
+    private sealed class FakeAccounts : IAccountResolver
+    {
+        private static readonly AccountSnapshot Account = new(
+            UserId, "g-sub-1", "p@org.com", null, UserStatus.PendingApproval,
+            DisplayName: "Acme Co");
+
+        public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
+            Task.FromResult<AccountSnapshot?>(Account);
+
+        public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
+            Task.FromResult<AccountSnapshot?>(id == UserId ? Account : null);
+    }
 
     private sealed class FakeNotices : IRegistrationNoticeWriter
     {
@@ -86,7 +102,7 @@ public sealed class MerchantUserRegistrationConsumerTests
             if (_pending is not null)
             {
                 Saved.Add(_pending);
-                _existing.Add(_pending.MerchantUserId);
+                _existing.Add(_pending.UserId);
                 _pending = null;
             }
             return Task.FromResult(true);

@@ -78,7 +78,7 @@ file sealed class FakeHistoryReader : IRegistrationHistoryReader
     public Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken ct)
     {
         var user = MerchantUser.Register("g-sub-1", "somchai@example.com", DateTime.UtcNow);
-        user.SetDetails("Somchai", "Jaidee", PersonType.Individual, "1234567890123", "PC-1", "LN-99999", "0812345678");
+        user.SetDetails("Somchai", "Jaidee", IdentityType.Individual, "1234567890123", "PC-1", "LN-99999", "0812345678");
         return Task.FromResult<IReadOnlyList<RegistrationAttempt>>(
             [RegistrationAttempt.Capture(user, 1, TicketPurpose.Registration, "somchai@example.com", DateTime.UtcNow)]);
     }
@@ -163,7 +163,7 @@ public sealed class RegistrationHistoryEndpointTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var attempt = body.RootElement.GetProperty("attempts")[0];
-        Assert.Equal("****0123", attempt.GetProperty("idNumber").GetString());       // masked default (REQ-3.1)
+        Assert.Equal("****0123", attempt.GetProperty("identityNumber").GetString()); // masked default (REQ-3.1)
         Assert.Equal("****5678", attempt.GetProperty("phone").GetString());
         Assert.Equal("s***@example.com", attempt.GetProperty("email").GetString());  // REQ-3.2
         Assert.Equal("Somchai", attempt.GetProperty("firstName").GetString());       // names full (REQ-3.3)

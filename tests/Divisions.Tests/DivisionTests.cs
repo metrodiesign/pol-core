@@ -12,7 +12,7 @@ public sealed class DivisionTests
         var m = Division.Create(" executive ", "  Executive  ");
         Assert.Equal("executive", m.Code);
         Assert.Equal("Executive", m.Name);
-        Assert.True(m.IsActive);
+        Assert.Equal(DivisionStatus.Active, m.Status);
     }
 
     [Theory]
@@ -32,8 +32,8 @@ public sealed class DivisionTests
         m.Rename(" North Region ");
         Assert.Equal("North Region", m.Name);
         m.Deactivate();
-        Assert.False(m.IsActive);
+        Assert.Equal(DivisionStatus.Inactive, m.Status);
         m.Activate();
-        Assert.True(m.IsActive);
+        Assert.Equal(DivisionStatus.Active, m.Status);
     }
 }

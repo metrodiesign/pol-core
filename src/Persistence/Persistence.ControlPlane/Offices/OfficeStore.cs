@@ -34,7 +34,7 @@ internal sealed class OfficeStore : IOfficeStore
             .OrderBy(m => m.Name)
             .Skip(skip)
             .Take(limit)
-            .Select(m => new OfficeItem(m.Id, m.Code, m.Name, m.IsActive))
+            .Select(m => new OfficeItem(m.Id, m.Code, m.Name, m.Status))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<OfficeItem>(items, page, limit, total);
@@ -49,25 +49,25 @@ internal sealed class OfficeStore : IOfficeStore
                 throw new ConflictException($"A record with code '{entity.Code}' already exists.");
             _db.Offices.Add(entity);
             await _unitOfWork.SaveChangesAsync(ct);
-            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
         }, cancellationToken);
 
-    public Task<OfficeItem> UpdateAsync(Guid id, string name, bool isActive, CancellationToken cancellationToken) =>
+    public Task<OfficeItem> UpdateAsync(Guid id, string name, OfficeStatus status, CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var entity = await _db.Offices.FirstOrDefaultAsync(m => m.Id == id, ct)
                 ?? throw new NotFoundException("The record was not found.");
             entity.Rename(name);
-            if (isActive) entity.Activate(); else entity.Deactivate();
+            if (status == OfficeStatus.Active) entity.Activate(); else entity.Deactivate();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
         }, cancellationToken);
 
     public async Task<OfficeItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         var entity = await _db.Offices.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
             ?? throw new NotFoundException("The record was not found.");
-        return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+        return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
     }
 
     public Task<OfficeItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
@@ -77,6 +77,6 @@ internal sealed class OfficeStore : IOfficeStore
                 ?? throw new NotFoundException("The record was not found.");
             entity.Deactivate();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.IsActive);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
         }, cancellationToken);
 }

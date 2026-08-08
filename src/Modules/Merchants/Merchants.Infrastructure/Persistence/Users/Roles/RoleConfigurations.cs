@@ -17,15 +17,15 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
     {
         builder.ToTable("RoleAssignments", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.MerchantUserId).IsRequired();
+        builder.Property(x => x.UserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.AssignedById).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.MerchantUserId, x.RoleId }).IsUnique();
-        builder.HasIndex(x => new { x.MerchantUserId, x.MerchantId }); // per-request resolution lookup
+        builder.HasIndex(x => new { x.UserId, x.RoleId }).IsUnique();
+        builder.HasIndex(x => new { x.UserId, x.MerchantId }); // per-request resolution lookup
         // Restrict: a role with bound accounts cannot be deleted at the DB either (also checked in the
-        // handler for a clean 409 — Iam.Application's DeleteRoleHandler). MerchantUserId is a soft reference
+        // handler for a clean 409 — Iam.Application's DeleteRoleHandler). UserId is a soft reference
         // (mirrors PlatformMerchantAccess.MerchantId). RoleId now points at the central iam.Roles catalog (rf2).
         builder.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId)
             .OnDelete(DeleteBehavior.Restrict);

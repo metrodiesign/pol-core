@@ -17,10 +17,10 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
     {
         builder.ToTable("RoleAssignments", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.PlatformUserId).IsRequired();
+        builder.Property(x => x.AdminUserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
         builder.Property(x => x.AssignedById).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.PlatformUserId, x.RoleId }).IsUnique();
+        builder.HasIndex(x => new { x.AdminUserId, x.RoleId }).IsUnique();
     }
 }

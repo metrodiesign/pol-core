@@ -16,8 +16,7 @@ namespace Orders.Application;
 /// just the checkout one).
 /// </summary>
 public sealed record CreateOrderCommand(
-    Guid MerchantId, Money Amount, IReadOnlyList<OrderItemInput> Lines, string? Recipient = null,
-    Guid? CheckoutSessionId = null)
+    Guid MerchantId, Money Amount, IReadOnlyList<OrderItemInput> Lines, string? Recipient = null)
     : ICommand<CreateOrderResult>, IMerchantScoped;
 
 /// <summary>The identity of the newly created order.</summary>
@@ -47,7 +46,7 @@ public sealed class CreateOrderHandler : ICommandHandler<CreateOrderCommand, Cre
     {
         var orderNo = await _orderNumbers.NextAsync(cancellationToken).ConfigureAwait(false);
         var order = Order.Create(command.MerchantId, command.Amount, _clock.UtcNow, command.Lines, orderNo,
-            checkoutSessionId: command.CheckoutSessionId, notificationRecipient: command.Recipient);
+            notificationRecipient: command.Recipient);
 
         _orders.Add(order);
 

@@ -17,8 +17,8 @@ public sealed class ProvisionMerchantRequestBindingTests
         {
           "merchant": {
             "code": "vcommerce",
-            "displayName": "vCommerce Co., Ltd.",
-            "legalEntityId": "0105560000000",
+            "name": "vCommerce Co., Ltd.",
+            "note": "commerce merchant",
             "country": "TH",
             "currency": "THB",
             "enabledChannels": ["card", "promptpay", "installment"],
@@ -56,11 +56,9 @@ public sealed class ProvisionMerchantRequestBindingTests
     {
         var req = JsonSerializer.Deserialize<ApiHost::ProvisionMerchantRequest>(DocumentedBody, Web)!;
 
-        var extra = req.Merchant!.Metadata!;
-        Assert.Contains("branding", extra.Keys);
-        Assert.Contains("routing", extra.Keys);
-        Assert.Contains("session", extra.Keys);
-        Assert.DoesNotContain("code", extra.Keys); // scalars stay first-class, not in the overflow
+        Assert.Equal("https://pay.vgroup.internal/logo.png", req.Merchant!.Branding!.LogoUrl);
+        Assert.Equal(["omise", "2c2p"], req.Merchant.Routing!.Installment);
+        Assert.Equal(900, req.Merchant.Session!.TtlSeconds);
     }
 
     [Fact]
@@ -80,5 +78,33 @@ public sealed class ProvisionMerchantRequestBindingTests
         Assert.Contains("frontendReturnUrl", config.Keys);
         Assert.DoesNotContain("secrets", config.Keys); // secrets never leak into stored config
         Assert.DoesNotContain("psp", config.Keys);
+    }
+
+    [Theory]
+    [InlineData("secret")]
+    [InlineData("token")]
+    [InlineData("password")]
+    [InlineData("apiKey")]
+    [InlineData("privateKey")]
+    [InlineData("connectionString")]
+    [InlineData("unknownField")]
+    public void Merchant_metadata_rejects_secret_shaped_and_unknown_fields(string field)
+    {
+        var body = $$"""
+            {
+              "merchant": {
+                "code": "vcommerce",
+                "name": "vCommerce",
+                "country": "TH",
+                "currency": "THB",
+                "enabledChannels": [],
+                "{{field}}": "must-not-bind"
+              },
+              "pspConnections": []
+            }
+            """;
+
+        Assert.Throws<JsonException>(() =>
+            JsonSerializer.Deserialize<ApiHost::ProvisionMerchantRequest>(body, Web));
     }
 }

@@ -17,13 +17,13 @@ public sealed class RoleAssignmentConfiguration : IEntityTypeConfiguration<RoleA
     {
         builder.ToTable("RoleAssignments", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.PlatformUserId).IsRequired();
+        builder.Property(x => x.AdminUserId).IsRequired();
         builder.Property(x => x.RoleId).IsRequired();
         builder.Property(x => x.AssignedById).IsRequired();
         builder.Property(x => x.AssignedAt).IsRequired();
-        builder.HasIndex(x => new { x.PlatformUserId, x.RoleId }).IsUnique(); // REQ-4.1
+        builder.HasIndex(x => new { x.AdminUserId, x.RoleId }).IsUnique(); // REQ-4.1
         // Restrict: a role with bound users cannot be deleted at the DB either (also checked in the handler
-        // for a clean 409 — Iam.Application's DeleteRoleHandler). PlatformUserId is a soft reference (mirrors
+        // for a clean 409 — Iam.Application's DeleteRoleHandler). AdminUserId is a soft reference (mirrors
         // PlatformMerchantAccess.MerchantId). RoleId now points at the central iam.Roles catalog (rf2).
         builder.HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId)
             .OnDelete(DeleteBehavior.Restrict);

@@ -18,7 +18,7 @@ public sealed class AdminAccountManagementIntegrationTests
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid adminId, int status, DateTime issuedAt) =>
         IntegrationDb.ExecAsync(c,
             """
-            INSERT admin.Sessions (Id, FamilyId, TokenHash, PlatformUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
+            INSERT admin.Sessions (Id, FamilyId, TokenHash, AdminUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
             VALUES (@id, @fam, @hash, @admin, @st, @issued, DATEADD(MINUTE, 30, @issued), DATEADD(HOUR, 8, @issued));
             """,
             ("@id", id), ("@fam", familyId), ("@hash", RandomNumberGenerator.GetBytes(32)),
@@ -37,11 +37,11 @@ public sealed class AdminAccountManagementIntegrationTests
         await InsertSessionAsync(conn, newer, Guid.NewGuid(), adminA, Active, now.AddHours(-1));
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), adminB, Active, now);   // a different admin
 
-        // Mirror ListByAdminAsync: WHERE PlatformUserId=@a ORDER BY IssuedAt DESC, Id.
+        // Mirror ListByAdminAsync: WHERE AdminUserId=@a ORDER BY IssuedAt DESC, Id.
         var ids = new List<Guid>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = "SELECT Id FROM admin.Sessions WHERE PlatformUserId=@a ORDER BY IssuedAt DESC, Id";
+            cmd.CommandText = "SELECT Id FROM admin.Sessions WHERE AdminUserId=@a ORDER BY IssuedAt DESC, Id";
             cmd.Parameters.AddWithValue("@a", adminA);
             await using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync()) ids.Add(r.GetGuid(0));

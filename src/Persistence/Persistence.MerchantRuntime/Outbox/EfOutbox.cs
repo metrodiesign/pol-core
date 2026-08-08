@@ -31,10 +31,15 @@ internal sealed class EfOutbox : IOutbox
         if (!_actor.HasActor)
             throw new InvalidOperationException("Cannot enqueue an outbox message without a bound actor.");
 
-        var type = notification.GetType();
-        var payload = JsonSerializer.Serialize(notification, type, OutboxSerializer.Options);
+        var serialized = MerchantRuntimeOutboxEventRegistry.Serialize(notification, _clock.UtcNow);
 
         _db.OutboxMessages.Add(
-            OutboxMessage.Create(Guid.CreateVersion7(), _actor.MerchantId, type.Name, payload, _clock.UtcNow));
+            OutboxMessage.Create(
+                serialized.EventId,
+                _actor.MerchantId,
+                serialized.EventType,
+                serialized.SchemaVersion,
+                serialized.Payload,
+                serialized.OccurredAt));
     }
 }

@@ -9,12 +9,11 @@ namespace Orders.Domain.Items;
 /// wording) — a Domain factory method cannot take an Application-layer parameter type without an illegal
 /// reverse project reference (<c>Orders.Domain.csproj</c> has none to <c>Orders.Application.csproj</c>,
 /// and never should); this is the same primitive-input shape, just placed where it can actually compile.
-/// <paramref name="Discount"/> is optional (purchase-flow-completion REQ-7.2): null means no discount,
-/// which <see cref="Order.Create"/> normalises to zero in the line's own currency.
+/// <paramref name="Discount"/> is optional: null means zero in the line currency. Metadata is a closed,
+/// server-owned contract; callers cannot attach arbitrary JSON or customer/insured PII.
 /// </summary>
 public sealed record OrderItemInput(
     int Quantity, Money UnitPrice,
-    string DocumentNo, string ProductGroup, string DocumentType, string? PolicyNumber,
-    DateTime? StartDate, DateTime? EndDate,
-    string InsuredFirstName, string InsuredLastName, string InsuredIdNumber, DateTime InsuredDateOfBirth,
-    Money? Discount = null);
+    string ProductCode, string VariantCode, string? VariantName,
+    Money? Discount = null,
+    CommerceItemMetadata? Metadata = null);

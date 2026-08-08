@@ -212,13 +212,13 @@ public sealed class MerchantUserTests
     {
         var account = NewPending();
 
-        account.SetDetails(" Acme ", " Co ", PersonType.Juristic, "1234567890123", "PC-1", "LIC-9", "0812345678");
+        account.SetDetails(" Acme ", " Co ", IdentityType.Juristic, "1234567890123", "PC-1", "LIC-9", "0812345678");
 
         Assert.Equal("Acme", account.FirstName);          // trimmed
         Assert.Equal("Co", account.LastName);
         Assert.Equal("Acme Co", account.DisplayName);     // computed from first + last
-        Assert.Equal(PersonType.Juristic, account.PersonType);
-        Assert.Equal("1234567890123", account.IdNumber);
+        Assert.Equal(IdentityType.Juristic, account.IdentityType);
+        Assert.Equal("1234567890123", account.IdentityNumber);
         Assert.Equal("PC-1", account.SaleCode);
         Assert.Equal("LIC-9", account.LicenseNumber);
         Assert.Equal("0812345678", account.Phone);
@@ -276,7 +276,7 @@ public sealed class MerchantUserTests
 
         account.SetDetails("Acme", "Co", null, "  ", "", "   ", null);
 
-        Assert.Null(account.IdNumber);
+        Assert.Null(account.IdentityNumber);
         Assert.Null(account.SaleCode);
         Assert.Null(account.LicenseNumber);
         Assert.Null(account.Phone);

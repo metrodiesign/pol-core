@@ -24,7 +24,7 @@ namespace Api.Merchants;
 /// fallback is retired); a session exists only for an Active merchant user (REQ-10.1), so a suspend/reject denies
 /// the next request (REQ-12.4).
 /// </summary>
-// ponytail: DUPLICATE of Api.AdminSessionAuthenticationHandler (PlatformUserId -> MerchantUserId; admin_tier claim ->
+// ponytail: DUPLICATE of Api.AdminSessionAuthenticationHandler (AdminUserId -> UserId; admin_tier claim ->
 // merchant_id claim) — deliberate debt.
 internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
@@ -92,7 +92,7 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
             case SessionDecision.ReuseRevokeFamily:
                 await _sessions.RevokeFamilyAsync(session.FamilyId, ct);
                 _audit.Append(AuthAudit.For(AuthEventType.FamilyRevokedReuse, Context.TraceIdentifier, now,
-                    session.MerchantUserId, reason: "reuse-detected"));
+                    session.UserId, reason: "reuse-detected"));
                 await _audit.SaveChangesAsync(ct);
                 return AuthenticateResult.Fail("Session reuse detected."); // 401, family killed (REQ-11.3)
 
@@ -103,7 +103,7 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
         }
 
         // Per-request READ-ONLY resolution (REQ-12.4/17.1): a suspend/reject/role-change takes effect within one request.
-        var resolved = await _resolver.ResolveByIdAsync(session.MerchantUserId, ct);
+        var resolved = await _resolver.ResolveByIdAsync(session.UserId, ct);
         if (resolved.Outcome != ByIdOutcome.Resolved || resolved.Resolution is null)
             return AuthenticateResult.Fail("Merchant user is not active or no longer exists."); // suspend -> next request 401
 
@@ -118,7 +118,7 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
         if (!string.IsNullOrEmpty(resolved.Subject))
             identity.AddClaim(new Claim("sub", resolved.Subject));
         identity.AddClaim(new Claim("email", resolution.Email));
-        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, resolution.MerchantUserId.ToString()));
+        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, resolution.UserId.ToString()));
         // The catalogue search runs under the account's own upstream sale code, never one the client picked
         // (REQ-4.8). Re-resolved with the rest of the account on every request, so revoking it takes effect on
         // the next one; absent when the account has none, which the catalogue path answers with 403 (REQ-4.9).
@@ -150,7 +150,7 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
             return;
 
         _sessions.Add(successor);
-        _audit.Append(AuthAudit.For(AuthEventType.Rotated, Context.TraceIdentifier, now, session.MerchantUserId));
+        _audit.Append(AuthAudit.For(AuthEventType.Rotated, Context.TraceIdentifier, now, session.UserId));
         await _sessions.SaveChangesAsync(ct);
         _cookies.Write(Context, newToken, csrfToken); // safe: UseAuthentication runs before the response body
     }

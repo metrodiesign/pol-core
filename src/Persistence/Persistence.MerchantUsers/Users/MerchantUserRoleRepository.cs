@@ -41,7 +41,7 @@ internal sealed class MerchantUserRoleRepository : IRoleRepository
     public async Task<IReadOnlySet<Guid>> ListRoleIdsForUserAsync(Guid merchantUserId, CancellationToken cancellationToken)
     {
         var ids = await _db.RoleAssignments
-            .Where(a => a.MerchantUserId == merchantUserId)
+            .Where(a => a.UserId == merchantUserId)
             .Select(a => a.RoleId)
             .ToListAsync(cancellationToken);
         return ids.ToHashSet();
@@ -49,10 +49,10 @@ internal sealed class MerchantUserRoleRepository : IRoleRepository
 
     public Task<RoleAssignment?> GetAssignmentAsync(Guid merchantUserId, Guid roleId, CancellationToken cancellationToken) =>
         _db.RoleAssignments
-            .FirstOrDefaultAsync(a => a.MerchantUserId == merchantUserId && a.RoleId == roleId, cancellationToken);
+            .FirstOrDefaultAsync(a => a.UserId == merchantUserId && a.RoleId == roleId, cancellationToken);
 
     public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken cancellationToken) =>
-        _db.RoleAssignments.AnyAsync(a => a.MerchantUserId == merchantUserId && a.RoleId == roleId, cancellationToken);
+        _db.RoleAssignments.AnyAsync(a => a.UserId == merchantUserId && a.RoleId == roleId, cancellationToken);
 
     public Task<IReadOnlyDictionary<string, Guid>> GetRoleIdsByCodesAsync(
         Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken cancellationToken) =>

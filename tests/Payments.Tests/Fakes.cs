@@ -25,6 +25,8 @@ internal sealed class FakePayableOrderReader : IPayableOrderReader
     public int Calls { get; private set; }
 
     public int LockedCalls { get; private set; }
+    public Guid? AttachedPaymentSessionId { get; private set; }
+    public string? AttachedMethod { get; private set; }
 
     /// <summary>What the LOCKED re-read reports, when it should differ from <see cref="GetAsync"/> — how a
     /// cancel that landed between the two reads is simulated. Null = same order as the first read.</summary>
@@ -42,6 +44,17 @@ internal sealed class FakePayableOrderReader : IPayableOrderReader
         return OnGetForMint is { } locked
             ? Task.FromResult(locked(orderId))
             : Task.FromResult(_order?.OrderId == orderId ? _order : null);
+    }
+
+    public Task AttachAttemptAsync(
+        Guid orderId,
+        Guid paymentSessionId,
+        string method,
+        CancellationToken cancellationToken)
+    {
+        AttachedPaymentSessionId = paymentSessionId;
+        AttachedMethod = method;
+        return Task.CompletedTask;
     }
 
     /// <summary>The document keys the sold-check probes for this order (products-external-source-of-truth
@@ -247,6 +260,7 @@ internal sealed class FakeVaultSecretStore : IVaultSecretStore
 internal sealed class FakeUnitOfWork : IUnitOfWork
 {
     public int SaveCount { get; private set; }
+    public int TransactionCount { get; private set; }
 
     /// <summary>Returns the exception the Nth save (1-based) must throw, or null to let it succeed — how the
     /// concurrency-loser and the "recording the failure itself fails" paths are driven.</summary>
@@ -261,8 +275,11 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
         return Task.FromResult(0);
     }
 
-    public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken) =>
-        await operation(cancellationToken);
+    public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken)
+    {
+        TransactionCount++;
+        return await operation(cancellationToken);
+    }
 }
 
 internal sealed class FixedClock : IClock

@@ -60,7 +60,7 @@
        AddMerchantRuntimePersistence itself — this only exposes the PUBLIC ports each registration extension
        declares (IMerchantRoleReader, IAdminRoleAssignmentCountReader, IPersistedXmlRepository, ...), never the
        internal ControlPlaneDbContext type itself (still inaccessible — no InternalsVisibleTo(Api) exists).
-       The guard still blocks every module's own Infrastructure project (Products/Carts/Checkouts/Orders/
+       The guard still blocks every module's own Infrastructure project (Products/Carts/Orders/
        Payments/Merchants) from referencing Persistence.ControlPlane, which is the actual REQ-11.8 concern.
        Hosts.Tests is in the allowlist for the same reason as Api: it tests Api's composition root directly
        (extern alias ApiHost) and needs the same public ports (e.g. IAdminRoleAssignmentCountReader) to build

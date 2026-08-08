@@ -26,7 +26,7 @@ public sealed class MerchantRuntimeDbContextFactory : IDesignTimeDbContextFactor
     MerchantRuntimeDbContext IDesignTimeDbContextFactory<MerchantRuntimeDbContext>.CreateDbContext(string[] args)
     {
         var options = new DbContextOptionsBuilder<MerchantRuntimeDbContext>()
-            .UseSqlServer(DesignConnectionString)
+            .UseSqlServer(DesignConnectionString, sql => sql.UseCompatibilityLevel(170))
             .Options;
         return new MerchantRuntimeDbContext(
             options, new DesignTimeUnboundActor(), new DesignTimeAllowAllAuthorizer(), NoOpSecurityTelemetry.Instance);

@@ -29,13 +29,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid>("AdminUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("AssignedAt")
                         .HasColumnType("datetime2");
 
                     b.Property<Guid>("AssignedById")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("PlatformUserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("RoleId")
@@ -45,7 +45,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("RoleId");
 
-                    b.HasIndex("PlatformUserId", "RoleId")
+                    b.HasIndex("AdminUserId", "RoleId")
                         .IsUnique();
 
                     b.ToTable("RoleAssignments", "admin");
@@ -98,6 +98,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("AdminUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("CorrelationId")
                         .IsRequired()
                         .HasMaxLength(128)
@@ -111,9 +114,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("OccurredAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<Guid?>("PlatformUserId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("Reason")
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
@@ -124,7 +124,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("PlatformUserId");
+                    b.HasIndex("AdminUserId");
 
                     b.ToTable("AuthAudits", "admin");
                 });
@@ -133,6 +133,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AdminUserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("AssignedAt")
@@ -144,12 +147,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("PlatformUserId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
-                    b.HasIndex("PlatformUserId", "MerchantId")
+                    b.HasIndex("AdminUserId", "MerchantId")
                         .IsUnique();
 
                     b.ToTable("MerchantAccess", "admin");
@@ -164,9 +164,8 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("AbsoluteExpiresAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CreatedIp")
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)");
+                    b.Property<Guid>("AdminUserId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("FamilyId")
                         .HasColumnType("uniqueidentifier");
@@ -174,11 +173,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("IdleExpiresAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
                     b.Property<DateTime>("IssuedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<Guid>("PlatformUserId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -202,9 +202,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("AbsoluteExpiresAt");
 
-                    b.HasIndex("FamilyId");
+                    b.HasIndex("AdminUserId");
 
-                    b.HasIndex("PlatformUserId");
+                    b.HasIndex("FamilyId");
 
                     b.HasIndex("TokenHash")
                         .IsUnique();
@@ -252,6 +252,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Tier")
                         .HasColumnType("int");
 
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DivisionId");
@@ -280,7 +283,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("FriendlyName")
+                    b.Property<string>("SecretKey")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
@@ -343,7 +346,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Payload")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("json");
 
                     b.Property<DateTime?>("ProcessedAt")
                         .HasColumnType("datetime2");
@@ -393,6 +396,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("ProcessedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("SchemaVersion")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(256)
@@ -434,7 +443,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(64)");
 
                     b.Property<string>("Result")
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("json");
 
                     b.HasKey("Id");
 
@@ -490,7 +499,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("SecretName")
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
@@ -510,7 +519,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("nvarchar(16)");
 
-                    b.Property<string>("KeyId")
+                    b.Property<string>("SecretKey")
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
@@ -518,7 +527,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
-                    b.HasKey("MerchantId", "Name");
+                    b.HasKey("MerchantId", "SecretName");
 
                     b.ToTable("VaultSecrets", "merch");
                 });
@@ -534,6 +543,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SaleCode")
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -557,19 +571,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CartId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("DocumentNo")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("ProductGroup")
+                    b.Property<string>("Metadata")
+                        .HasColumnType("json");
+
+                    b.Property<string>("ProductCode")
                         .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
@@ -579,6 +590,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .IsUnicode(false)
                         .HasColumnType("varchar(20)");
+
+                    b.Property<string>("VariantCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("VariantName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Carts.Domain.Items.Item.UnitPrice#Money", b1 =>
                         {
@@ -605,179 +626,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("CartItems", "shop");
                 });
 
-            modelBuilder.Entity("Checkouts.Domain.Items.Item", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("DocumentNo")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<DateTime?>("EndDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
-
-                    b.Property<DateTime>("InsuredDateOfBirth")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("InsuredFirstName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("InsuredIdNumber")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("InsuredLastName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("PolicyNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("ProductGroup")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("int");
-
-                    b.Property<Guid>("SessionId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("StartDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
-
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Discount", "Checkouts.Domain.Items.Item.Discount#Money", b1 =>
-                        {
-                            b1.IsRequired();
-
-                            b1.Property<decimal>("Amount")
-                                .HasPrecision(19, 4)
-                                .HasColumnType("decimal(19,4)")
-                                .HasColumnName("DiscountAmount");
-
-                            b1.Property<string>("Currency")
-                                .IsRequired()
-                                .HasMaxLength(3)
-                                .IsUnicode(false)
-                                .HasColumnType("char(3)")
-                                .HasColumnName("DiscountCurrency")
-                                .IsFixedLength();
-                        });
-
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "Checkouts.Domain.Items.Item.UnitPrice#Money", b1 =>
-                        {
-                            b1.IsRequired();
-
-                            b1.Property<decimal>("Amount")
-                                .HasPrecision(19, 4)
-                                .HasColumnType("decimal(19,4)")
-                                .HasColumnName("UnitPriceAmount");
-
-                            b1.Property<string>("Currency")
-                                .IsRequired()
-                                .HasMaxLength(3)
-                                .IsUnicode(false)
-                                .HasColumnType("char(3)")
-                                .HasColumnName("UnitPriceCurrency")
-                                .IsFixedLength();
-                        });
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("SessionId", "MerchantId");
-
-                    b.ToTable("CheckoutSessionItems", "shop");
-                });
-
-            modelBuilder.Entity("Checkouts.Domain.Session", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("CartId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Channel")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)")
-                        .HasColumnName("PaymentChannel");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CustomerEmail")
-                        .HasMaxLength(320)
-                        .HasColumnType("nvarchar(320)");
-
-                    b.Property<string>("CustomerName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("CustomerPhone")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Checkouts.Domain.Session.Amount#Money", b1 =>
-                        {
-                            b1.IsRequired();
-
-                            b1.Property<decimal>("Amount")
-                                .HasPrecision(19, 4)
-                                .HasColumnType("decimal(19,4)")
-                                .HasColumnName("AmountAmount");
-
-                            b1.Property<string>("Currency")
-                                .IsRequired()
-                                .HasMaxLength(3)
-                                .IsUnicode(false)
-                                .HasColumnType("char(3)")
-                                .HasColumnName("AmountCurrency")
-                                .IsFixedLength();
-                        });
-
-                    b.HasKey("Id");
-
-                    b.HasIndex(new[] { "CartId" }, "IX_CheckoutSessions_CartId_Open")
-                        .IsUnique()
-                        .HasFilter("[Status] IN (0, 1)");
-
-                    b.ToTable("CheckoutSessions", "shop");
-                });
-
             modelBuilder.Entity("Divisions.Domain.Division", b =>
                 {
                     b.Property<Guid>("Id")
@@ -789,13 +637,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -816,12 +664,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
-                    b.Property<string>("LabelTh")
+                    b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(160)
                         .HasColumnType("nvarchar(160)");
 
                     b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
                         .HasColumnType("int");
 
                     b.HasKey("Key");
@@ -837,7 +688,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
-                    b.Property<string>("LabelTh")
+                    b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
@@ -846,6 +697,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
                         .HasColumnType("int");
 
                     b.HasKey("Key");
@@ -932,13 +786,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -972,23 +826,21 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(3)
                         .HasColumnType("nvarchar(3)");
 
-                    b.Property<string>("DisplayName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
                     b.Property<string>("EnabledChannels")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.Property<string>("LegalEntityId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
                     b.Property<string>("Metadata")
                         .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Note")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Status")
@@ -1050,9 +902,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("nvarchar(32)");
 
-                    b.Property<Guid?>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<DateTime>("OccurredAt")
                         .HasColumnType("datetime2");
 
@@ -1064,9 +913,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("MerchantUserId");
+                    b.HasIndex("UserId");
 
                     b.ToTable("AuthAudits", "merch");
                 });
@@ -1075,9 +927,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("MerchantUserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Provider")
@@ -1089,6 +938,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
@@ -1117,9 +969,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("IdNumber")
+                    b.Property<string>("IdentityNumber")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<int?>("IdentityType")
+                        .HasColumnType("int");
 
                     b.Property<string>("LastName")
                         .IsRequired()
@@ -1129,12 +984,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<string>("LicenseNumber")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int?>("PersonType")
-                        .HasColumnType("int");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(32)
@@ -1159,9 +1008,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("SubmittedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("MerchantUserId", "AttemptNo")
+                    b.HasIndex("UserId", "AttemptNo")
                         .IsUnique();
 
                     b.ToTable("RegistrationAttempts", "merch");
@@ -1236,9 +1088,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
-                    b.Property<Guid>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<DateTime>("OccurredAt")
                         .HasColumnType("datetime2");
 
@@ -1247,9 +1096,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("MerchantUserId")
+                    b.HasIndex("UserId")
                         .IsUnique();
 
                     b.ToTable("RegistrationNotices", "merch", t =>
@@ -1273,19 +1125,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("MerchantUserId")
+                    b.Property<Guid>("RoleId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("RoleId")
+                    b.Property<Guid>("UserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
                     b.HasIndex("RoleId");
 
-                    b.HasIndex("MerchantUserId", "MerchantId");
+                    b.HasIndex("UserId", "MerchantId");
 
-                    b.HasIndex("MerchantUserId", "RoleId")
+                    b.HasIndex("UserId", "RoleId")
                         .IsUnique();
 
                     b.ToTable("RoleAssignments", "merch");
@@ -1300,21 +1152,18 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("AbsoluteExpiresAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("CreatedIp")
-                        .HasMaxLength(45)
-                        .HasColumnType("nvarchar(45)");
-
                     b.Property<Guid>("FamilyId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("IdleExpiresAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("nvarchar(45)");
+
                     b.Property<DateTime>("IssuedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<Guid>("MerchantUserId")
-                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
@@ -1334,16 +1183,19 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AbsoluteExpiresAt");
 
                     b.HasIndex("FamilyId");
 
-                    b.HasIndex("MerchantUserId");
-
                     b.HasIndex("TokenHash")
                         .IsUnique();
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("Sessions", "merch");
                 });
@@ -1372,9 +1224,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("IdNumber")
+                    b.Property<string>("IdentityNumber")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<int?>("IdentityType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("KycPhotoObjectKey")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
 
                     b.Property<string>("LastName")
                         .IsRequired()
@@ -1387,9 +1246,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("MerchantId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<int?>("PersonType")
-                        .HasColumnType("int");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(32)
@@ -1435,13 +1291,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -1457,62 +1313,32 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("DocumentNo")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<string>("DocumentType")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(20)");
-
-                    b.Property<DateTime?>("EndDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
-
-                    b.Property<DateTime>("InsuredDateOfBirth")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("InsuredFirstName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("InsuredIdNumber")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("InsuredLastName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("json");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("PolicyNumber")
-                        .HasMaxLength(150)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(150)");
-
-                    b.Property<string>("ProductGroup")
+                    b.Property<string>("ProductCode")
                         .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)");
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<int>("Quantity")
                         .HasColumnType("int");
 
-                    b.Property<DateTime?>("StartDate")
-                        .HasPrecision(0)
-                        .HasColumnType("datetime2(0)");
+                    b.Property<string>("VariantCode")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("VariantName")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Discount", "Orders.Domain.Items.Item.Discount#Money", b1 =>
                         {
@@ -1554,132 +1380,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OrderId", "MerchantId");
 
-                    b.HasIndex(new[] { "DocumentNo" }, "IX_OrderItems_DocumentNo");
+                    b.HasIndex(new[] { "ProductCode" }, "IX_OrderItems_ProductCode");
 
-                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "DocumentNo" }, "IX_OrderItems_DocumentNo"), new[] { "OrderId", "ProductGroup" });
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex(new[] { "ProductCode" }, "IX_OrderItems_ProductCode"), new[] { "OrderId", "VariantCode" });
 
                     b.ToTable("OrderItems", "shop");
-                });
-
-            modelBuilder.Entity("Orders.Domain.Items.ItemPolicy", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateOnly?>("DeductedAt")
-                        .HasColumnType("date");
-
-                    b.Property<string>("EndorsementNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<decimal?>("GrossPremiumAmount")
-                        .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)");
-
-                    b.Property<string>("GrossPremiumCurrency")
-                        .HasMaxLength(3)
-                        .IsUnicode(false)
-                        .HasColumnType("char(3)")
-                        .IsFixedLength();
-
-                    b.Property<int?>("InsuranceCategory")
-                        .HasColumnType("int");
-
-                    b.Property<string>("InsuredObjectReference")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal?>("NetPremiumAmount")
-                        .HasPrecision(19, 4)
-                        .HasColumnType("decimal(19,4)");
-
-                    b.Property<string>("NetPremiumCurrency")
-                        .HasMaxLength(3)
-                        .IsUnicode(false)
-                        .HasColumnType("char(3)")
-                        .IsFixedLength();
-
-                    b.Property<Guid>("OrderItemId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<int>("PremiumRemittanceStatus")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ReferenceNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<int?>("ReferenceNumberType")
-                        .HasColumnType("int");
-
-                    b.Property<string>("RenewalReminderNumber")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MerchantId");
-
-                    b.HasIndex("OrderItemId")
-                        .IsUnique();
-
-                    b.ToTable("OrderItemPolicies", "shop");
-                });
-
-            modelBuilder.Entity("Orders.Domain.Items.ItemPolicyAudit", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ActorId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<int>("ActorKind")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ChangeSummary")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<string>("CorrelationId")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<Guid>("MerchantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("OccurredAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Operation")
-                        .HasColumnType("int");
-
-                    b.Property<Guid>("OrderItemId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrderItemId");
-
-                    b.HasIndex("MerchantId", "OccurredAt");
-
-                    b.ToTable("OrderItemPolicyAudits", "shop");
                 });
 
             modelBuilder.Entity("Orders.Domain.Items.RevealAudit", b =>
@@ -1726,9 +1431,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("CheckoutSessionId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -1771,6 +1473,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("PaymentSessionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("SaleCode")
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -1801,10 +1508,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         });
 
                     b.HasKey("Id");
-
-                    b.HasIndex("CheckoutSessionId")
-                        .IsUnique()
-                        .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
                     b.HasIndex("MerchantId");
 
@@ -1946,13 +1649,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("bit");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -2004,16 +1707,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("Checkouts.Domain.Items.Item", b =>
-                {
-                    b.HasOne("Checkouts.Domain.Session", null)
-                        .WithMany("Items")
-                        .HasForeignKey("SessionId", "MerchantId")
-                        .HasPrincipalKey("Id", "MerchantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
                 {
                     b.HasOne("Iam.Domain.Permissions.PermissionGroup", null)
@@ -2042,7 +1735,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 {
                     b.HasOne("Merchants.Domain.Users.User", null)
                         .WithMany()
-                        .HasForeignKey("MerchantUserId")
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -2067,11 +1760,6 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Carts.Domain.Cart", b =>
-                {
-                    b.Navigation("Items");
-                });
-
-            modelBuilder.Entity("Checkouts.Domain.Session", b =>
                 {
                     b.Navigation("Items");
                 });

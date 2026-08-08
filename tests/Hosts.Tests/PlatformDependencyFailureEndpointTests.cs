@@ -8,7 +8,6 @@ using System.Text.Encodings.Web;
 using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
 using Carts.Application;
-using Checkouts.Application;
 using Iam.Domain.Permissions;
 using Merchants.Application;
 using Merchants.Application.Users;
@@ -28,7 +27,6 @@ using Payments.Domain.Psp;
 using Products.Application.Ports;
 using SharedKernel;
 using Cart = Carts.Domain.Cart;
-using CheckoutSession = Checkouts.Domain.Session;
 using PaymentSession = Payments.Domain.Session;
 
 namespace Hosts.Tests;
@@ -41,15 +39,15 @@ internal sealed record LogEntry(LogLevel Level, string Category, string Message,
 // probe-dependency-failure-mapping — the two behavioral suites of design.md "Testing Strategy":
 //
 //   Suite 1 (DB DEAD): the host boots with ConnectionStrings:App pointed at a fast-failing endpoint, so
-//   every REAL Persistence.MerchantRuntime read on the money path hits a genuine SqlException. All four
+//   every REAL Persistence.MerchantRuntime read on the money path hits a genuine SqlException. Every active
 //   doors must answer THE SAME 503 (REQ-1.1/1.2), whose body carries no SQL text, server name, order id or
 //   document number (REQ-3.1/3.2/3.4), and the handler's log line must carry the structured {ExceptionType}
 //   property that separates "our DB is down" from "the upstream is down" (REQ-4.1/4.2/4.4).
 //
 //   Suite 2 (DB ALIVE, probe fails): a dead DB can prove nothing about residual state — you cannot count
 //   rows in it (spec-architect B2) — so the sold-check is replaced by a fake that throws the new exception
-//   while every store is an observable in-memory fake: no cart line is added (REQ-2.2), no checkout session
-//   is created (REQ-2.3/2.7), no PSP call is made and no payment-session row is written (REQ-2.4, 2.1).
+//   while every store is an observable in-memory fake: no cart line is added, no PSP call is made and no
+//   payment-session row is written.
 
 file sealed class TestMerchantUserAuthHandler(
     IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
@@ -100,18 +98,6 @@ file sealed class FakeCarts(List<Cart> carts) : ICartRepository
         Task.FromResult(carts.FirstOrDefault(c => c.Id == cartId));
 }
 
-file sealed class FakeCheckouts(List<CheckoutSession> sessions) : ICheckoutRepository
-{
-    public void Add(CheckoutSession session) => sessions.Add(session);
-
-    public Task<CheckoutSession?> GetByIdAsync(Guid checkoutSessionId, CancellationToken cancellationToken) =>
-        Task.FromResult(sessions.FirstOrDefault(s => s.Id == checkoutSessionId));
-
-    public Task<CheckoutSession?> GetOpenForCartAsync(Guid cartId, CancellationToken cancellationToken) =>
-        Task.FromResult(sessions.FirstOrDefault(s => s.CartId == cartId
-            && s.Status is Checkouts.Domain.SessionStatus.Started or Checkouts.Domain.SessionStatus.Confirmed));
-}
-
 file sealed class FakePayableOrders(PayableOrder? order, DocumentKey[] keys) : IPayableOrderReader
 {
     public Task<PayableOrder?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
@@ -119,6 +105,10 @@ file sealed class FakePayableOrders(PayableOrder? order, DocumentKey[] keys) : I
 
     public Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken) =>
         GetAsync(orderId, cancellationToken);
+
+    public Task AttachAttemptAsync(
+        Guid orderId, Guid paymentSessionId, string method, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 
     public Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(Guid orderId, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<DocumentKey>>(keys);
@@ -254,7 +244,7 @@ file sealed class DeadDbFactory(Guid merchantId, SpDocumentItem document, Concur
             services.AddScoped<IUserScope>(_ => new FakeUserScope(merchantId, Keys.PaymentCreate));
             // The upstream is ALIVE — the doors must fail at OUR platform read, not at the gateway.
             services.AddScoped<ISpDocumentGateway>(_ => new FakeSpDocumentGateway(document));
-            // Everything else (carts, checkouts, orders, sessions, probe) stays the host's REAL registration
+            // Everything else (carts, orders, sessions, probe) stays the host's REAL registration
             // over the dead connection string.
         });
     }
@@ -265,7 +255,6 @@ file sealed class FakeProbeFactory(
     Guid merchantId,
     SpDocumentItem document,
     List<Cart> carts,
-    List<CheckoutSession> checkouts,
     List<PaymentSession> paymentSessions,
     CountingPspAdapter adapter,
     PayableOrder? payableOrder = null,
@@ -296,7 +285,6 @@ file sealed class FakeProbeFactory(
             services.AddScoped<ISpDocumentGateway>(_ => new FakeSpDocumentGateway(document));
             services.AddScoped<IDocumentSaleProbe>(_ => new ThrowingProbe());
             services.AddScoped<ICartRepository>(_ => new FakeCarts(carts));
-            services.AddScoped<ICheckoutRepository>(_ => new FakeCheckouts(checkouts));
             services.AddScoped<IPayableOrderReader>(_ => new FakePayableOrders(payableOrder, documentKeys ?? []));
             services.AddScoped<ISessionRepository>(_ => new FakePaymentSessions(paymentSessions));
             services.AddScoped<IConnectionRepository>(_ => new FakeConnections(merchantId, "card,promptpay,installment"));
@@ -352,19 +340,6 @@ public sealed class PlatformDependencyFailureEndpointTests
     }
 
     [Fact]
-    public async Task Starting_a_checkout_with_a_dead_platform_db_is_503_with_a_leak_free_body()
-    {
-        var logs = new ConcurrentQueue<LogEntry>();
-        using var factory = new DeadDbFactory(Merchant, Doc(), logs);
-        using var client = factory.CreateClient();
-
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(Guid.NewGuid())));
-
-        await AssertDependencyUnavailableAsync(response);
-        AssertClassifiedErrorLog(logs);
-    }
-
-    [Fact]
     public async Task Creating_a_payment_session_with_a_dead_platform_db_is_503_with_a_leak_free_body()
     {
         var logs = new ConcurrentQueue<LogEntry>();
@@ -382,8 +357,8 @@ public sealed class PlatformDependencyFailureEndpointTests
     [Fact]
     public async Task A_failed_sold_check_adds_no_cart_line()
     {
-        var cart = new Cart(Guid.CreateVersion7(), Merchant, Now);
-        using var factory = new FakeProbeFactory(Merchant, Doc(), [cart], [], [], new CountingPspAdapter());
+        var cart = new Cart(Guid.CreateVersion7(), Merchant, SaleCode, Now);
+        using var factory = new FakeProbeFactory(Merchant, Doc(), [cart], [], new CountingPspAdapter());
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post($"/api/v1/carts/{cart.Id}/items", AddItemBody()));
@@ -393,31 +368,14 @@ public sealed class PlatformDependencyFailureEndpointTests
     }
 
     [Fact]
-    public async Task A_failed_sold_check_creates_no_checkout_session_and_leaves_the_cart_open()
-    {
-        var document = Doc();
-        var cart = new Cart(Guid.CreateVersion7(), Merchant, Now);
-        cart.AddItem(document.DocumentNo!, document.SaleCode!, Group, 1, Money.Of(1200m, "THB"));
-        var checkouts = new List<CheckoutSession>();
-        using var factory = new FakeProbeFactory(Merchant, document, [cart], checkouts, [], new CountingPspAdapter());
-        using var client = factory.CreateClient();
-
-        var response = await client.SendAsync(Post("/api/v1/checkouts", StartCheckoutBody(cart.Id)));
-
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.Empty(checkouts);   // REQ-2.3 — no session row
-        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);   // REQ-2.7 — the cart was not frozen
-    }
-
-    [Fact]
     public async Task A_failed_sold_check_makes_no_psp_call_and_writes_no_payment_session()
     {
         var orderId = Guid.NewGuid();
         var adapter = new CountingPspAdapter();
         var sessions = new List<PaymentSession>();
         using var factory = new FakeProbeFactory(
-            Merchant, Doc(), [], [], sessions, adapter,
-            payableOrder: new PayableOrder(orderId, Money.Of(1200m, "THB"), PayableOrderStatus.AwaitingPayment),
+            Merchant, Doc(), [], sessions, adapter,
+            payableOrder: new PayableOrder(orderId, Money.Of(1200m, "THB"), PayableOrderStatus.Pending),
             documentKeys: [new DocumentKey(DocumentNo, Group)]);
         using var client = factory.CreateClient();
 
@@ -472,16 +430,7 @@ public sealed class PlatformDependencyFailureEndpointTests
     }
 
     private static string AddItemBody() =>
-        $$"""{"documentNo":"{{DocumentNo}}","productGroup":"{{Group}}","quantity":1}""";
-
-    private static string StartCheckoutBody(Guid cartId) =>
-        $$"""
-        {"cartId":"{{cartId}}","paymentChannel":"CARD",
-         "customer":{"name":"Somchai Jaidee","phone":"0812345678","email":"buyer@example.com"},
-         "insuredPersons":[
-          {"documentNo":"{{DocumentNo}}","firstName":"Somchai","lastName":"Jaidee",
-           "idNumber":"1234567890123","dateOfBirth":"1990-01-01T00:00:00Z"}]}
-        """;
+        $$"""{"productCode":"{{DocumentNo}}","variantCode":"{{Group}}","quantity":1}""";
 
     private static string CreateSessionBody(Guid orderId) =>
         $$"""{"orderId":"{{orderId}}","method":"card","psp":"2c2p"}""";

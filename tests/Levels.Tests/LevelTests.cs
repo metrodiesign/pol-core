@@ -12,7 +12,7 @@ public sealed class LevelTests
         var m = Level.Create(" level_1 ", "  Level 1  ");
         Assert.Equal("level_1", m.Code);
         Assert.Equal("Level 1", m.Name);
-        Assert.True(m.IsActive);
+        Assert.Equal(LevelStatus.Active, m.Status);
     }
 
     [Theory]
@@ -32,8 +32,8 @@ public sealed class LevelTests
         m.Rename(" C-Seven ");
         Assert.Equal("C-Seven", m.Name);
         m.Deactivate();
-        Assert.False(m.IsActive);
+        Assert.Equal(LevelStatus.Inactive, m.Status);
         m.Activate();
-        Assert.True(m.IsActive);
+        Assert.Equal(LevelStatus.Active, m.Status);
     }
 }

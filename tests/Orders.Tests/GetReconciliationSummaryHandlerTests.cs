@@ -13,7 +13,7 @@ public sealed class GetReconciliationSummaryHandlerTests
             Reconciliation =
             [
                 new OrderStatusTotal(OrderStatus.Paid, "THB", 3, 450.00m),
-                new OrderStatusTotal(OrderStatus.AwaitingPayment, "THB", 2, 300.00m),
+                new OrderStatusTotal(OrderStatus.Pending, "THB", 2, 300.00m),
                 new OrderStatusTotal(OrderStatus.Paid, "USD", 1, 9.99m),
             ],
         };

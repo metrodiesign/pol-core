@@ -87,7 +87,7 @@ public sealed class AdminSessionAuthHandlerTests
         Assert.Equal(session.FamilyId, successor.FamilyId);          // same family
         Assert.Equal((session.Id, successor.Id), store.Superseded);  // atomic single-winner supersede
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));
-        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.Rotated && a.PlatformUserId == AdminId);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.Rotated && a.AdminUserId == AdminId);
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public sealed class AdminSessionAuthHandlerTests
 
         Assert.NotNull(result.Failure);
         Assert.Equal(predecessor.FamilyId, store.RevokedFamily);
-        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.FamilyRevokedReuse && a.PlatformUserId == AdminId);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.FamilyRevokedReuse && a.AdminUserId == AdminId);
         Assert.False(scope.IsBound);
     }
 

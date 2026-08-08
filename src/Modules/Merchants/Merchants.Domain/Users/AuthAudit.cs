@@ -21,7 +21,7 @@ public static class AuthEventType
 public sealed class AuthAudit : Entity<Guid>
 {
     public string EventType { get; private set; } = default!;
-    public Guid? MerchantUserId { get; private set; }
+    public Guid? UserId { get; private set; }
     public string? Subject { get; private set; }
     public string? Reason { get; private set; }
     public string CorrelationId { get; private set; } = default!;
@@ -33,7 +33,7 @@ public sealed class AuthAudit : Entity<Guid>
         string correlationId, DateTime occurredAt) : base(id)
     {
         EventType = eventType;
-        MerchantUserId = merchantUserId;
+        UserId = merchantUserId;
         Subject = subject;
         Reason = reason;
         CorrelationId = correlationId;

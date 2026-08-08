@@ -6,8 +6,7 @@ using Orders.Domain;
 namespace Persistence.MerchantRuntime.Orders;
 
 // Runtime (scalar-only) mapping — mirrors Orders.Infrastructure.OrderConfiguration exactly for
-// column/index shape. PaymentSessionId/CheckoutSessionId stay bare scalars (no HasOne — none existed
-// in the source config; PaymentSession is same-cluster here but the relationship was never a real FK).
+// column/index shape. PaymentSessionId stays a bare scalar; the relationship is intentionally not a FK.
 
 internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEntityTypeConfiguration<Order>
 {
@@ -18,8 +17,8 @@ internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEn
         builder.Property(x => x.Id).ValueGeneratedNever();
 
         builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.PaymentSessionId);
-        builder.Property(x => x.CheckoutSessionId);
 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(Order.MerchantId));
         builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
@@ -52,10 +51,6 @@ internal sealed class OrderConfiguration(MerchantRuntimeDbContext context) : IEn
             .HasFilter("[PaymentSessionId] IS NOT NULL");
 
         builder.HasIndex(x => x.SummaryToken).IsUnique();
-
-        builder.HasIndex(x => x.CheckoutSessionId)
-            .IsUnique()
-            .HasFilter("[CheckoutSessionId] IS NOT NULL");
 
         builder.HasIndex(x => x.MerchantId);
 

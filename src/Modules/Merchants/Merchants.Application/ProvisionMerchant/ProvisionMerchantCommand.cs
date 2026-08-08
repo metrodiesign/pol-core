@@ -1,19 +1,19 @@
 using System.Text.Json;
 using Mediator;
+using Merchants.Domain;
 
 namespace Merchants.Application.ProvisionMerchant;
 
 /// <summary>The merchant config the admin submits (reference 2.4 <c>merchant.*</c>). Scalars are first-class;
-/// the flexible part (branding/routing/session/timezone/locale/createdByAdmin) rides in
-/// <see cref="Metadata"/> and is stored verbatim.</summary>
+/// the closed branding/routing/session/timezone/locale contract rides in <see cref="Metadata"/>.</summary>
 public sealed record MerchantSpec(
     string Code,
-    string DisplayName,
-    string LegalEntityId,
+    string Name,
+    string? Note,
     string Country,
     string Currency,
     IReadOnlyList<string> EnabledChannels,
-    JsonElement? Metadata);
+    MerchantMetadata Metadata);
 
 /// <summary>One PSP connection in the submission (reference 2.4 <c>pspConnections[]</c>). <see cref="Secrets"/>
 /// is write-only; <see cref="Config"/> is the non-secret config stored verbatim on the connection.</summary>

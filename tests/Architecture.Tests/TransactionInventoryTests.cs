@@ -39,6 +39,9 @@ public sealed class TransactionInventoryTests
         // Cancel's flip UPDATE and its post-flip re-check for a session minted behind the release must share
         // one transaction — found -> the whole cancel rolls back as a 409.
         ["src/Modules/Orders/Orders.Application/CancelOrder.cs"] = 1,
+        ["src/Modules/Orders/Orders.Application/OrderPaidConsumer.cs"] = 1,
+        ["src/Modules/Orders/Orders.Application/OrderPaymentFailedConsumer.cs"] = 1,
+        ["src/Modules/Orders/Orders.Application/OrderPaymentExpiredConsumer.cs"] = 1,
         ["src/Modules/Admins/Admins.Application/Users/UnassignMerchant.cs"] = 1,                       // row 9
         ["src/Modules/Admins/Admins.Application/Users/ReactivateAdmin.cs"] = 1,                        // row 4
         ["src/Modules/Admins/Admins.Application/Users/RevokeAdminSession.cs"] = 1,                     // row 5
@@ -56,6 +59,7 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Iam/Iam.Application/Roles/UpdateRole.cs"] = 1,                                   // row 13
         ["src/Modules/Iam/Iam.Application/Roles/DeleteRole.cs"] = 1,                                   // row 12
         ["src/Modules/Iam/Iam.Application/Roles/CreateRole.cs"] = 1,                                   // row 11
+        ["src/Hosts/Api/Orders/OrderCreationCoordinator.cs"] = 1,                                    // direct Cart-to-Order shared MerchantRuntime transaction
         ["src/Persistence/Persistence.ControlPlane/Divisions/DivisionStore.cs"] = 3,                   // rows 14+15+24 (masterdata-split typed split + masterdata-full-crud DeactivateAsync)
         ["src/Persistence/Persistence.ControlPlane/Levels/LevelStore.cs"] = 3,                         // rows 14+15+24
         ["src/Persistence/Persistence.ControlPlane/Offices/OfficeStore.cs"] = 3,                       // rows 14+15+24

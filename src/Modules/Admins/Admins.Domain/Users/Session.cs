@@ -24,14 +24,14 @@ public sealed class Session : AggregateRoot<Guid>
 {
     public Guid FamilyId { get; private set; }
     public byte[] TokenHash { get; private set; } = default!;
-    public Guid PlatformUserId { get; private set; }
+    public Guid AdminUserId { get; private set; }
     public SessionStatus Status { get; private set; }
     public DateTime IssuedAt { get; private set; }
     public DateTime IdleExpiresAt { get; private set; }
     public DateTime AbsoluteExpiresAt { get; private set; }
     public DateTime? SupersededAt { get; private set; }
     public Guid? SupersededBySessionId { get; private set; }
-    public string? CreatedIp { get; private set; }
+    public string? IpAddress { get; private set; }
     public string? UserAgent { get; private set; }
 
     private Session() { } // EF materialisation
@@ -41,12 +41,12 @@ public sealed class Session : AggregateRoot<Guid>
     {
         FamilyId = familyId;
         TokenHash = tokenHash;
-        PlatformUserId = adminAccountId;
+        AdminUserId = adminAccountId;
         Status = SessionStatus.Active;
         IssuedAt = issuedAt;
         IdleExpiresAt = idleExpiresAt;
         AbsoluteExpiresAt = absoluteExpiresAt;
-        CreatedIp = createdIp;
+        IpAddress = createdIp;
         UserAgent = userAgent;
     }
 
@@ -55,7 +55,7 @@ public sealed class Session : AggregateRoot<Guid>
         string? createdIp = null, string? userAgent = null)
     {
         if (adminAccountId == Guid.Empty)
-            throw new ArgumentException("PlatformUserId is required.", nameof(adminAccountId));
+            throw new ArgumentException("AdminUserId is required.", nameof(adminAccountId));
         RequireHash(tokenHash);
         return new Session(Guid.NewGuid(), Guid.NewGuid(), tokenHash, adminAccountId, now,
             now + policy.Idle, now + policy.Absolute, createdIp, userAgent);
@@ -68,8 +68,8 @@ public sealed class Session : AggregateRoot<Guid>
     public Session Rotate(byte[] newHash, DateTime now, SessionPolicy policy)
     {
         RequireHash(newHash);
-        var successor = new Session(Guid.NewGuid(), FamilyId, newHash, PlatformUserId, now,
-            now + policy.Idle, AbsoluteExpiresAt, CreatedIp, UserAgent);
+        var successor = new Session(Guid.NewGuid(), FamilyId, newHash, AdminUserId, now,
+            now + policy.Idle, AbsoluteExpiresAt, IpAddress, UserAgent);
         Status = SessionStatus.Superseded;
         SupersededAt = now;
         SupersededBySessionId = successor.Id;
