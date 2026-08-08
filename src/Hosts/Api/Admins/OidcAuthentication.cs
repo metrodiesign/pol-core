@@ -26,6 +26,21 @@ internal static class OidcAuthentication
     /// the OIDC handler needs a resolvable SignInScheme, but we call HandleResponse before sign-in.</summary>
     public const string SignInScheme = "oidc-noop";
 
+    internal const string ReturnToPropertyKey = ".admin.returnTo";
+
+    internal static AuthenticationProperties CreateLoginProperties(string returnTo)
+    {
+        var properties = new AuthenticationProperties { RedirectUri = returnTo };
+        properties.Items[ReturnToPropertyKey] = returnTo;
+        return properties;
+    }
+
+    internal static string? GetReturnTo(AuthenticationProperties? properties) =>
+        properties?.Items.TryGetValue(ReturnToPropertyKey, out var returnTo) == true
+        && !string.IsNullOrEmpty(returnTo)
+            ? returnTo
+            : properties?.RedirectUri;
+
     public static IServiceCollection AddAdminOidcAuthentication(
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
@@ -130,7 +145,7 @@ internal static class OidcAuthentication
                     // Google passed the email_verified gate above; Entra email/preferred_username are unverified,
                     // mutable claims -> display-only, never invite-binding (see CallbackResolver).
                     emailVerified: !isMicrosoft,
-                    context.Properties?.RedirectUri,
+                    GetReturnTo(context.Properties),
                     context.HttpContext.RequestAborted);
                 context.HandleResponse();
             },

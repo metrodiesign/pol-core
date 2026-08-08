@@ -42,6 +42,7 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 ["AdminSession:ReturnUrlAllowlist:0"] = "/",
                 ["AdminSession:ReturnUrlAllowlist:1"] = "/dashboard",
+                ["AdminSession:ReturnUrlAllowlist:2"] = "/scalar",
             });
         });
         builder.ConfigureServices(services =>
@@ -86,6 +87,26 @@ public sealed class AdminAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.False(string.IsNullOrEmpty(query["code_challenge"]));
         Assert.EndsWith("/api/v1/admins/auth/google/callback", query["redirect_uri"].ToString(), StringComparison.Ordinal); // provider-scoped callback
+    }
+
+    [Fact]
+    public async Task Scalar_returnTo_is_preserved_in_the_protected_oidc_state()
+    {
+        using var factory = new LoginFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+
+        var response = await client.GetAsync("/api/v1/admins/auth/google/login?returnTo=/scalar");
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        var location = response.Headers.Location!;
+        var query = QueryHelpers.ParseQuery(location.Query);
+        var options = factory.Services.GetRequiredService<IOptionsMonitor<OpenIdConnectOptions>>()
+            .Get(ApiHost::Api.Admins.OidcAuthentication.SchemePrefix + "Google");
+        var properties = options.StateDataFormat.Unprotect(query["state"]!);
+
+        Assert.NotNull(properties);
+        Assert.Equal("/scalar", properties!.RedirectUri);
+        Assert.Equal("/scalar", properties.Items[ApiHost::Api.Admins.OidcAuthentication.ReturnToPropertyKey]);
     }
 
     [Fact]

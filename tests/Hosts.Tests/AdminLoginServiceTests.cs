@@ -7,6 +7,7 @@ using Admins.Application.Users;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -27,6 +28,23 @@ public sealed class AdminLoginServiceTests
 {
     private static readonly DateTime Now = new(2026, 6, 24, 9, 0, 0, DateTimeKind.Utc);
     private static readonly Guid AdminId = Guid.Parse("a1111111-1111-1111-1111-111111111111");
+
+    [Fact]
+    public void Login_properties_preserve_returnTo_in_a_dedicated_protected_state_item()
+    {
+        var properties = OidcAuthentication.CreateLoginProperties("/scalar");
+
+        Assert.Equal("/scalar", properties.Items[OidcAuthentication.ReturnToPropertyKey]);
+    }
+
+    [Fact]
+    public void Callback_prefers_the_dedicated_returnTo_item_over_redirect_uri_fallback()
+    {
+        var properties = new AuthenticationProperties { RedirectUri = "/dashboard" };
+        properties.Items[OidcAuthentication.ReturnToPropertyKey] = "/scalar";
+
+        Assert.Equal("/scalar", OidcAuthentication.GetReturnTo(properties));
+    }
 
     [Theory]
     [InlineData("/dashboard", "/dashboard")]     // allowlisted -> honored
@@ -116,18 +134,54 @@ public sealed class AdminLoginServiceTests
         Assert.Equal("http://localhost:5200/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
     }
 
+    [Fact]
+    public async Task With_ScalarBaseUrl_the_scalar_returnTo_is_absolute_to_the_api_origin()
+    {
+        var (service, _, _, http) = Build(
+            new ResolveResult(ResolveOutcome.Resolved,
+                new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
+            spaBaseUrl: "http://localhost:5200",
+            scalarBaseUrl: "http://localhost:5100",
+            allowlist: ["/", "/dashboard", "/scalar"],
+            defaultReturnPath: "/dashboard");
+
+        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
+
+        Assert.Equal("http://localhost:5100/scalar", http.Response.Headers.Location);
+    }
+
+    [Fact]
+    public async Task An_unallowlisted_scalar_returnTo_keeps_the_spa_default_fallback()
+    {
+        var (service, _, _, http) = Build(
+            new ResolveResult(ResolveOutcome.Resolved,
+                new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
+            spaBaseUrl: "http://localhost:5200",
+            defaultReturnPath: "/dashboard");
+
+        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
+
+        Assert.Equal("http://localhost:5200/dashboard", http.Response.Headers.Location);
+    }
+
     // --- harness ---
 
     private static (LoginService, FakeSessionStore, FakeAuthAudit, DefaultHttpContext) Build(
-        ResolveResult resolve, string spaBaseUrl = "")
+        ResolveResult resolve,
+        string spaBaseUrl = "",
+        string scalarBaseUrl = "",
+        IReadOnlyCollection<string>? allowlist = null,
+        string defaultReturnPath = "/")
     {
         var store = new FakeSessionStore();
         var audit = new FakeAuthAudit();
         var cookies = new SessionCookies(Options.Create(new AdminSessionOptions()), new Env());
         var sessionOptions = Options.Create(new AdminSessionOptions
         {
-            ReturnUrlAllowlist = ["/", "/dashboard", "/merchants"],
+            DefaultReturnPath = defaultReturnPath,
+            ReturnUrlAllowlist = allowlist?.ToArray() ?? ["/", "/dashboard", "/merchants"],
             SpaBaseUrl = spaBaseUrl,
+            ScalarBaseUrl = scalarBaseUrl,
         });
         var oidcOptions = Options.Create(new AdminAuthOptions { ErrorPath = "/login-error" });
         var provider = new ServiceCollection()

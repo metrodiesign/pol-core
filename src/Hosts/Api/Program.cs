@@ -1136,7 +1136,7 @@ admin.MapGet("/auth/{provider}/login", (
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
-        new AuthenticationProperties { RedirectUri = returnTo },
+        OidcAuthentication.CreateLoginProperties(returnTo),
         [scheme]);
 })
 .AllowAnonymous()

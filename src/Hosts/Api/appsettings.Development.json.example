@@ -16,6 +16,18 @@
   "Merchant": {
     "DevMerchantId": "00000000-0000-0000-0000-000000000001"
   },
+  "AdminSession": {
+    "DefaultReturnPath": "/dashboard",
+    "ReturnUrlAllowlist": [
+      "/",
+      "/main",
+      "/dashboard",
+      "/tenants",
+      "/scalar"
+    ],
+    "SpaBaseUrl": "http://localhost:5200",
+    "ScalarBaseUrl": "http://localhost:5100"
+  },
   "_MerchantAuth_note": "Merchant-user BFF OIDC client (REQ-8/9/14). The section is 'MerchantAuth' with a Providers map keyed by provider name — multi-provider-oidc renamed it away from the old single-client 'MerchantUser:Oidc' shape, which nothing reads anymore. Leave ClientId blank to keep merchant-user login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client to exercise the live flow. Its registered redirect_uri must be <origin the browser actually hits>/api/v1/merchants/auth/google/callback — the SPA proxy origin, not the API port, whenever the SPA proxies /api. RegisterUrl is deliberately left at its relative default ('/register', made absolute against MerchantUser:Session:SpaBaseUrl at redirect time): a committed absolute localhost value is how a localhost redirect ships to production.",
   "MerchantAuth": {
     "Providers": {
