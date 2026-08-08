@@ -1,7 +1,6 @@
 # โมดูล Levels — Reference Master Data (ระดับ)
 
-> **[สร้างครั้งแรก 2026-08-01]** sync กับโค้ดจริงที่ commit ล่าสุดที่แตะโมดูลนี้ (`46bbecd`, full CRUD สำหรับ
-> Positions/Offices/Levels/Divisions, 2026-07-20). แหล่งความจริง: `src/Modules/Levels/**`,
+> As-built 2026-08-07. แหล่งความจริง: `src/Modules/Levels/**`,
 > `src/Persistence/Persistence.ControlPlane/Levels/**`, `src/Hosts/Api/Program.cs` (route mapping)
 
 ## บริบท
@@ -13,7 +12,7 @@ Levels เป็น 1 ใน 4 โมดูล reference master data ที่�
 
 โมดูลพี่น้องที่มีไฟล์ reference แยกแบบนี้เหมือนกัน: [`divisions.md`](divisions.md),
 [`offices.md`](offices.md), [`positions.md`](positions.md) ภาพรวมรวม 4 โมดูลร่วมกันยังอยู่ใน
-[`platform-modules.md`](platform-modules.md#15-divisions--levels--offices--positions-reference-master-data),
+[`platform-modules.md`](platform-modules.md#reference-master-data),
 [`layers-guide.md`](layers-guide.md), [`src-structure.md`](src-structure.md),
 [`entity-fields.md`](entity-fields.md)
 
@@ -25,7 +24,7 @@ Levels เป็น 1 ใน 4 โมดูล reference master data ที่�
 |---|---|---|
 | `Code` | string | ตั้งได้ครั้งเดียวตอน `Create()` — regex `^[a-z0-9_]+$`, immutable ตลอดไป (identity) |
 | `Name` | string | `Rename(name)` |
-| `IsActive` | bool | `Activate()` / `Deactivate()` |
+| `Status` | `LevelStatus` (`Active=0`, `Inactive=1`) | `Activate()` / `Deactivate()` |
 
 Invariant: ไม่มี state machine, ไม่มี concurrency token. `Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
 เป็น `Restrict` (comment ในโค้ดยืนยันตรงๆ ว่า "never a hard delete"). Comment บน aggregate เอง: "standalone
@@ -35,14 +34,14 @@ aggregate since masterdata-split — the retired shared base logic lives inline,
 ## Application layer (`Levels.Application`)
 
 ไม่มี Command/Query/Handler ผ่าน Mediator — **ตั้งใจ bypass Mediator** (reference data control-plane แบบง่าย)
-มีแค่ interface เดียว `ILevelStore` (`LevelStore.cs`) + DTO `LevelItem(Guid Id, string Code, string Name, bool
-IsActive)`:
+มีแค่ interface เดียว `ILevelStore` (`LevelStore.cs`) + DTO `LevelItem(Guid Id, string Code, string Name,
+LevelStatus Status)`:
 
 | Method | คืนอะไร | error |
 |---|---|---|
 | `ListAsync(page, limit, search, ct)` | `PagedResult<LevelItem>` | — |
 | `CreateAsync(code, name, ct)` | `LevelItem` | code ซ้ำ → `ConflictException` 409 |
-| `UpdateAsync(id, name, isActive, ct)` | `LevelItem` | id ไม่พบ → `NotFoundException` 404 |
+| `UpdateAsync(id, name, status, ct)` | `LevelItem` | status ต้อง `Active` หรือ `Inactive`; id ไม่พบ → `NotFoundException` 404 |
 | `GetByIdAsync(id, ct)` | `LevelItem` | id ไม่พบ → 404 |
 | `DeactivateAsync(id, ct)` | `LevelItem` (soft) | id ไม่พบ → 404 |
 
@@ -53,7 +52,7 @@ IsActive)`:
 ## Infrastructure
 
 **Schema `cfg.Levels`** (control-plane, `ControlPlaneDbContext`, ไม่มี query filter/RLS) — คอลัมน์: `Id`
-(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `IsActive` (bit) รายละเอียด field เต็ม:
+(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int) รายละเอียด field เต็ม:
 [`entity-fields.md`](entity-fields.md)
 
 - `Levels.Infrastructure/LevelsModuleRegistration.AddLevelsModule()` คืน `services` เปล่า — เป็นแค่ wiring hook
@@ -79,11 +78,11 @@ Scalar tag = คำไทย `"ระดับ"` (`var tag = thaiLabel`, ไม�
 | GET | `/api/v1/levels` | 200, paged + `q` search (SFS) | — |
 | GET | `/api/v1/levels/{id:guid}` | 200 | 404 ไม่พบ id |
 | POST | `/api/v1/levels` | 201 | 400 code ผิด `^[a-z0-9_]+$`; 409 code ซ้ำ |
-| PUT | `/api/v1/levels/{id:guid}` | 200 (rename + toggle `isActive`, code แก้ไม่ได้) | 404 ไม่พบ id |
+| PUT | `/api/v1/levels/{id:guid}` | 200 (rename + set `Status`, code แก้ไม่ได้) | 400 status ไม่ใช่ 0/1; 404 ไม่พบ id |
 | DELETE | `/api/v1/levels/{id:guid}` | 204 (soft-deactivate เท่านั้น — **ไม่ hard-delete**) | 404 ไม่พบ id |
 
-Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(Code, Name)`, `MasterUpdateRequest(Name, IsActive)`,
-`MasterResponse(Id, Code, Name, IsActive)`
+Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(Code, Name)`, `MasterUpdateRequest(Name, Status)`,
+`MasterResponse(Id, Code, Name, Status)`
 
 `LevelId` ยังโผล่เป็น FK บน endpoint ของ `Admins` module (ไม่ใช่ endpoint ของ Levels เอง): `PUT
 /api/v1/admins/{id}/profile` รับ `levelId` (nullable Guid, full-replace); response DTO ของ admin detail มี
@@ -93,15 +92,15 @@ Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(C
 
 | Migration | ผล |
 |---|---|
-| `20260712185344_InitialSchema` | สร้าง `cfg.Levels` (PK `Id`, unique index `Code`) + FK `admin.Users.LevelId` → Restrict |
-| `20260712185912_SeedData` | seed 10 แถวคงที่ id prefix `c3000000-…` (`level_1`..`level_10`) |
+| `20260807042818_InitialSchema` | สร้าง `cfg.Levels` (PK `Id`, unique index `Code`) + FK `admin.Users.LevelId` → Restrict |
+| `20260807042833_SeedData` | seed 10 แถวคงที่ id prefix `c3000000-…` (`level_1`..`level_10`) |
 
 ไม่มี migration อื่นแก้ schema ของ Levels ต่อจากนั้น
 
 ## Cross-reference
 
 - ภาพรวม 4 โมดูลร่วมกัน (Divisions/Offices/Positions รายละเอียดเดียวกัน):
-  [`platform-modules.md`](platform-modules.md#15-divisions--levels--offices--positions-reference-master-data)
+  [`platform-modules.md`](platform-modules.md#reference-master-data)
   §15, [`layers-guide.md`](layers-guide.md) §10, [`src-structure.md`](src-structure.md) §4.9-4.12
 - Field-level schema เต็ม (คอลัมน์/type/FK/seed row ทั้ง 4 ตาราง): [`entity-fields.md`](entity-fields.md)
 - FK consumer (`admin.Users.LevelId`, profile update endpoint): [`admins.md`](admins.md)
