@@ -271,7 +271,7 @@ async function logout(all = false) {
 path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
 
 **committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
-- dev (`appsettings.Development.json:44-49`): `/`, `/main`, `/dashboard`, `/tenants` (legacy frontend return path; backend API vocabulary is `Merchant`)
+- dev (`appsettings.Development.json:44-51`): `/`, `/main`, `/dashboard`, `/tenants`, `/scalar` (Scalar uses `AdminSession:ScalarBaseUrl=http://localhost:5100`; frontend paths use `SpaBaseUrl=http://localhost:5200`)
 - staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
 
 **สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist

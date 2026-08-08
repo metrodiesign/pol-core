@@ -40,6 +40,8 @@ internal sealed class AdminSessionOptions
     /// deploy behind one host). The value is operator config, never request input — returnTo itself stays an
     /// allowlisted same-origin path, so this adds no open-redirect surface.</summary>
     public string SpaBaseUrl { get; init; } = "";
+    /// <summary>Absolute origin of the Development-only Scalar UI (e.g. <c>http://localhost:5100</c>).</summary>
+    public string ScalarBaseUrl { get; init; } = "";
     /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-1.3). Same-origin paths only.</summary>
     public string[] ReturnUrlAllowlist { get; init; } = [];
 }

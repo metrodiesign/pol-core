@@ -181,10 +181,12 @@ internal sealed class LoginService
     private string SafeReturn(string? returnTo) =>
         ToSpa(ReturnUrlPolicy.Resolve(returnTo, _session.ReturnUrlAllowlist, _session.DefaultReturnPath));
 
-    /// <summary>The callback lands on the API origin, so a relative SPA path must be made absolute against the
-    /// configured SPA origin (blank SpaBaseUrl or an already-absolute path = unchanged).</summary>
+    /// <summary>The callback lands on the API origin, so relative SPA paths use SpaBaseUrl while the exact
+    /// Development-only Scalar path uses ScalarBaseUrl when configured.</summary>
     private string ToSpa(string path) =>
-        path.StartsWith('/') && !string.IsNullOrEmpty(_session.SpaBaseUrl)
+        path == "/scalar" && !string.IsNullOrEmpty(_session.ScalarBaseUrl)
+            ? _session.ScalarBaseUrl.TrimEnd('/') + path
+            : path.StartsWith('/') && !string.IsNullOrEmpty(_session.SpaBaseUrl)
             ? _session.SpaBaseUrl.TrimEnd('/') + path
             : path;
 
