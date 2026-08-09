@@ -252,7 +252,7 @@ receives an already-validated tenant id and lives in `Producer.Application` with
 ### Config keys
 
 `Producer:Oidc:{Authority,ClientId,ClientSecret,CallbackPath=/producer/auth/callback,ErrorPath}`,
-`Producer:Session:{IdleMinutes=30,AbsoluteHours=8,RotationMinutes=15,GraceSeconds=60}`,
+`Producer:Session:{IdleMinutes=1440,AbsoluteHours=168,RotationMinutes=15,GraceSeconds=60}`,
 `Producer:RegisterUrl` (default `http://localhost:5200/register`), `Producer:HostedDomain?`,
 `Producer:SpaOrigin` (CORS, REQ-14.5), `Producer:EnforcePermissionsOnWrites` (default true new envs / false until FE).
 Secret via env `Producer__Oidc__ClientSecret`; `appsettings.Development.json` gitignored.

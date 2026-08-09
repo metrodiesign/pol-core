@@ -37,8 +37,8 @@ internal sealed class UserSessionOptions
 {
     public const string SectionName = "MerchantUser:Session";
 
-    public int IdleMinutes { get; init; } = 30;
-    public int AbsoluteHours { get; init; } = 8;
+    public int IdleMinutes { get; init; } = 1440;
+    public int AbsoluteHours { get; init; } = 168;
     public int RotationMinutes { get; init; } = 15;
     public int GraceSeconds { get; init; } = 60;
     /// <summary>Cookie SameSite: <c>Lax</c> (same-site deploy) or <c>None</c> (cross-site; forces Secure + keeps CSRF).</summary>

@@ -46,6 +46,8 @@ public sealed class MerchantUserLoginServiceTests
         var session = Assert.Single(ctx.Sessions.Added);
         Assert.Equal(UserId, session.UserId);
         Assert.Equal(SessionStatus.Active, session.Status);
+        Assert.Equal(Now.AddHours(24), session.IdleExpiresAt);
+        Assert.Equal(Now.AddDays(7), session.AbsoluteExpiresAt);
         Assert.Equal(1, ctx.Sessions.SaveCount);
         Assert.Contains(ctx.Audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.UserId == UserId);
         Assert.Equal(StatusCodes.Status302Found, ctx.Http.Response.StatusCode);

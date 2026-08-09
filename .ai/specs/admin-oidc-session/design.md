@@ -252,7 +252,7 @@ public interface IAdminSessionStore
 }
 ```
 
-`AdminSessionPolicy` (config `AdminSession:*`): `IdleMinutes`(30), `AbsoluteHours`(8), `RotationMinutes`(15),
+`AdminSessionPolicy` (config `AdminSession:*`): `IdleMinutes`(1440), `AbsoluteHours`(168), `RotationMinutes`(15),
 `GraceSeconds`(60), `SameSite`(Lax|None), `ReturnUrlAllowlist`[]. `PreAuthTtlMinutes`(10) ผูก OIDC correlation.
 
 ### Endpoints (minimal API) — **[P2-5: login/callback AllowAnonymous, ยกเว้น CSRF/credentialed-CORS]**

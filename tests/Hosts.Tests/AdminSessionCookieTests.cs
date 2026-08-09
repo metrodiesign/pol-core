@@ -57,6 +57,8 @@ public sealed class AdminSessionCookieTests
         Assert.Contains("httponly", session, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("samesite=lax", session, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("path=/", session, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("expires=", session, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("max-age=", session, StringComparison.OrdinalIgnoreCase);
 
         // CSRF cookie is JS-readable (double-submit) -> NOT HttpOnly, and not the __Host- session name.
         var csrf = CsrfSetCookie(http);

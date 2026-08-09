@@ -61,7 +61,7 @@ my browser holds no readable token and the server fully controls the session.
 - 3.1 WHEN admin resolution succeeds at callback THE SYSTEM SHALL create a server-side session record holding an opaque-id **hash**, the `AdminAccount` id, a `FamilyId`, issued-at, idle-expiry, absolute-expiry, and `Status = Active` (the raw session id is never persisted).
 - 3.2 THE SYSTEM SHALL set the session cookie with `HttpOnly`, `Secure`, `Path=/`, the `__Host-` prefix, and `SameSite=Lax` for a same-site deploy (`SameSite=None; Secure` when cross-site, per REQ-7.4); the cookie value SHALL be an opaque random token with no identity or claims encoded in it. (F6)
 - 3.3 WHERE the environment is Development over plain http THE SYSTEM SHALL be permitted to omit `Secure`/`__Host-` for localhost only, and SHALL NOT relax them outside Development.
-- 3.4 THE SYSTEM SHALL expire a session at a configurable idle timeout (default 30 minutes) OR a configurable absolute lifetime (default 8 hours), whichever comes first.
+- 3.4 THE SYSTEM SHALL expire a session at a configurable idle timeout (default 24 hours) OR a configurable absolute lifetime (default 7 days), whichever comes first. (amended by `extended-login-session-lifetime`, 2026-08-09)
 - 3.5 WHEN an authenticated request is served THE SYSTEM SHALL slide the idle expiry forward, bounded by the absolute lifetime.
 - 3.6 THE SYSTEM SHALL make session validity independent of the Google id_token lifetime (the id_token is consumed once at callback and not stored).
 

@@ -223,7 +223,7 @@ public sealed record RevokeAdminSessionResult(Guid AdminId, Guid SessionId);
   idempotent when the family is already revoked BUT the rows still exist
   (ExecuteUpdate affects 0 rows → 204, REQ-5.5); emits the structured security-log
   line then the audit, all in one transaction (REQ-5.2). F4 edge: if the session
-  row was pruned (`PruneAsync` deletes rows past `AbsoluteExpiresAt`, i.e. ≥8h old)
+  row was pruned (`PruneAsync` deletes rows past `AbsoluteExpiresAt`; current default = 168h)
   between a list and a delete, `FindByIdAsync` returns null → 404 — acceptable, the
   session no longer exists; REQ-5.5's 204 covers a still-present already-revoked
   family, not a pruned one.

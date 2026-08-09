@@ -30,7 +30,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
     private static readonly Guid UserId = Guid.Parse("c1111111-1111-1111-1111-111111111111");
     private static readonly Guid MerchantId = Guid.Parse("d2222222-2222-2222-2222-222222222222");
     private static readonly SessionPolicy Policy =
-        new(TimeSpan.FromMinutes(30), TimeSpan.FromHours(8), TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60));
+        new(TimeSpan.FromHours(24), TimeSpan.FromDays(7), TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60));
 
     private static ByIdResult Resolved => ResolvedWith(null);
 
@@ -150,7 +150,7 @@ public sealed class MerchantUserSessionAuthHandlerTests
     {
         var token = UserTokens.NewOpaqueToken();
         var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
-        var (handler, _, _, scope, _) = await Make(T0.AddMinutes(31), Resolved, token, session);
+        var (handler, _, _, scope, _) = await Make(T0.AddHours(24).AddMinutes(1), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
 
