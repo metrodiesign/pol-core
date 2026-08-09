@@ -34,9 +34,96 @@ Admin approve/reject uses authorization lease and concurrency checks. Registrati
 
 ## Merchant profile and provisioning
 
-Merchant business/search fields are scalar. Optional extension uses typed metadata allowlist. Provisioning is idempotent
-saga across DB + encrypted vault, with compensation/replay codec and closed outbox contract. PSP credential is write-only,
-encrypted and never returned/logged. Baseline synthetic merchant has disabled PSP connection and no credential/PII.
+`POST /api/v1/merchants` เป็น provisioning endpoint สำหรับ Super admin. Request ต้องผ่าน admin session, CSRF,
+captive Merchant-code allowlist และส่ง PSP connection อย่างน้อยหนึ่งรายการ.
+
+```json
+{
+  "merchant": {
+    "code": "vcommerce",
+    "name": "vCommerce Co., Ltd.",
+    "country": "TH",
+    "currency": "THB",
+    "enabledChannels": ["card", "promptpay"],
+    "branding": { "statementName": "VCOMMERCE" },
+    "routing": { "installment": ["2c2p"] },
+    "session": { "ttlSeconds": 3600 },
+    "timezone": "Asia/Bangkok",
+    "locale": "th-TH"
+  },
+  "pspConnections": [
+    {
+      "psp": "2c2p",
+      "enabledMethods": ["card", "promptpay"],
+      "merchantId": "provider-merchant-id",
+      "secrets": { "secretKey": "write-only-value" },
+      "environment": "production"
+    }
+  ]
+}
+```
+
+Secret-owned fields เช่น `secretKey`, `publicKey` และ `webhookSecret` ต้องอยู่ใน `secrets` เท่านั้น.
+Typed Merchant metadata ปฏิเสธ unknown field; PSP config ที่ไม่ใช่ secret เก็บเป็น readable connection metadata.
+
+Provisioning commit entity set ต่อไปนี้ใน transaction เดียว:
+
+| Entity | Result |
+|---|---|
+| `merch.Merchants` | Merchant สถานะ Active |
+| `txn.PspConnections` | หนึ่งแถวต่อ PSP ที่ส่งมา |
+| `merch.VaultSecrets` | envelope-encrypted credential หนึ่งชุดต่อ connection |
+| `merch.ProvisioningAudits` | actor และ correlation ของ provisioning |
+| `admin.ProvisioningOperations` | idempotency key, request hash และ stored result |
+
+Failure ก่อน commit rollback ทั้งชุด. Replay ด้วย key/payload เดิมคืน stored result โดยไม่สร้าง Merchant ซ้ำ.
+Response คืนเฉพาะ `merchantId`, `pspConnectionId`, PSP code และ masked secret hints รูป `****1234`.
+
+| Condition | HTTP |
+|---|---:|
+| Request validation, unknown PSP/method หรือ secret ผิดตำแหน่ง | 400 |
+| Merchant code ซ้ำ หรือ operation key ถูกใช้กับ payload อื่น | 409 |
+| ไม่มี admin session | 401 |
+| CSRF ไม่ผ่าน, admin ไม่ใช่ Super หรือ permission ไม่พอ | 403 |
+| Runtime dependency ใช้งานไม่ได้ | 503 |
+
+Baseline synthetic merchant มี disabled PSP connection และไม่มี credential/PII.
+
+## Provision, register and approve
+
+Merchant user registration ยังเป็น self-service แบบ ticket-gated และไม่รับ Merchant id จาก client.
+
+1. Super admin provision Merchant และ PSP credentials ผ่าน `POST /api/v1/merchants`.
+2. User ลงทะเบียนเป็น `PendingApproval` โดย `MerchantId` ยังเป็น `NULL`.
+3. Admin เรียก `POST /api/v1/admins/merchants/users/{subject}/approve` พร้อม `merchantCode` และ role codes.
+4. Host resolve Merchant ผ่าน accessible-Merchant boundary ก่อน dispatch approval.
+5. Merchant ไม่พบหรือนอก scope คืน 404; Merchant ไม่ Active คืน 409.
+6. Merchant Active จึง bind `MerchantId`, assign roles, เปลี่ยน user เป็น Active และเขียน registration audit ใน transaction เดียว.
+
+Registration submission อาจเกิดก่อน provisioning; prerequisite บังคับตอน approval. ไม่มี Draft Merchant,
+deferred PSP setup, Merchant CRUD expansion หรือ Vault admin surface.
+
+## Vault custody and reveal audit
+
+`merch.VaultSecrets` เก็บ ciphertext, wrapped DEK, key id, last-four hint และ timestamps. Plaintext ไม่อยู่ใน
+database response, readable config หรือ log. Master-key rotation re-wrap เฉพาะ DEK; ไม่ decrypt/re-encrypt secret payload.
+
+`merch.VaultRevealAudits` ว่างหลัง provisioning และเพิ่มแถวเมื่อ server reveal secret เพื่อเรียก PSP เท่านั้น.
+Reveal ต้องเขียน audit สำเร็จก่อนคืน plaintext ให้ caller; audit failure ทำให้ reveal fail-closed.
+
+แต่ละ Merchant มี append-only SHA-256 hash chain ของตัวเอง. แถว audit เก็บ `MerchantId`, `SecretName`,
+`RevealedAt`, sequence, previous hash และ current hash; ไม่เก็บ plaintext, DEK, KEK หรือ hint. Unique
+`(MerchantId, Seq)` ป้องกัน chain fork และ verifier ตรวจ sequence gap, modified row และ broken linkage.
+
+Logical relationships:
+
+```mermaid
+erDiagram
+    MERCHANTS ||--o{ VAULT_SECRETS : scopes
+    MERCHANTS ||--o{ VAULT_REVEAL_AUDITS : scopes
+```
+
+ทั้งสองความสัมพันธ์ใช้ `MerchantId` เป็น logical scope. ไม่มี physical FK หรือ cascade delete.
 
 ## Commerce routes
 
