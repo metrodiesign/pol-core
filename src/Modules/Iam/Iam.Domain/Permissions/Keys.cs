@@ -6,8 +6,8 @@ namespace Iam.Domain.Permissions;
 /// catalogs had no way to detect.</summary>
 public enum Scope
 {
-    Platform = 0,
-    Merchant = 1,
+    Platform = 1,
+    Merchant = 2,
 }
 
 /// <summary>

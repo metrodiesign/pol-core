@@ -45,11 +45,11 @@ public sealed class IamCatalogGrantsTests
         Assert.Equal(2, await GrantCount(admin, MerchantStaffRoleId));
 
         // The two anchors are Merchant/Platform as planned; all four seed roles are shared (MerchantId NULL) and
-        // Active (Status 0). Scope column: 0 = Platform, 1 = Merchant.
-        Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'platform_admin'")));
-        Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'merchant_manager'")));
+        // Active (Status 1). Scope column: 1 = Platform, 2 = Merchant.
+        Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'platform_admin'")));
+        Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin, "SELECT Scope FROM iam.Roles WHERE Code=N'merchant_manager'")));
         Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
-            "SELECT COUNT(*) FROM iam.Roles WHERE MerchantId IS NULL AND Status=0")));
+            "SELECT COUNT(*) FROM iam.Roles WHERE MerchantId IS NULL AND Status=1")));
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class IamCatalogGrantsTests
         try
         {
             await IntegrationDb.ExecAsync(admin,
-                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @code, N'IT', 0, 0, NULL)",
+                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @code, N'IT', 1, 1, NULL)",
                 ("@id", roleId), ("@code", code));
             await IntegrationDb.ExecAsync(admin,
                 "INSERT iam.RolePermissions (Id, RoleId, PermissionKey) VALUES (@g, @id, 'txn.view')",
@@ -110,7 +110,7 @@ public sealed class IamCatalogGrantsTests
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
             "INSERT iam.Permissions ([Key], GroupKey, Name, SortOrder) VALUES ('x.y','system',N'x',99)"));
         await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-            "INSERT iam.PermissionGroups ([Key], Scope, Name, SortOrder) VALUES ('x', 0, N'x', 99)"));
+                "INSERT iam.PermissionGroups ([Key], Scope, Name, SortOrder) VALUES ('x', 1, N'x', 99)"));
     }
 
     [Fact]
@@ -156,19 +156,19 @@ public sealed class IamCatalogGrantsTests
             // Two SHARED (MerchantId NULL) roles with the same Code collide — the unfiltered unique index
             // (MerchantId, Code) treats NULL as a single equal bucket on SQL Server (HasFilter(null), design P2).
             await IntegrationDb.ExecAsync(admin,
-                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'A', 0, 1, NULL)",
+                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'A', 1, 2, NULL)",
                 ("@id", a), ("@c", code));
             await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(admin,
-                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'B', 0, 1, NULL)",
+                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'B', 1, 2, NULL)",
                 ("@id", b), ("@c", code)));
 
             // But two DIFFERENT merchants may each own a custom role with the same code — distinct buckets, no
             // 409 leak across tenants (REQ-3.2 rationale).
             await IntegrationDb.ExecAsync(admin,
-                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'M1', 0, 1, @m)",
+                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'M1', 1, 2, @m)",
                 ("@id", Guid.NewGuid()), ("@c", code), ("@m", m1));
             await IntegrationDb.ExecAsync(admin,
-                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'M2', 0, 1, @m)",
+                "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'M2', 1, 2, @m)",
                 ("@id", Guid.NewGuid()), ("@c", code), ("@m", m2));
         }
         finally

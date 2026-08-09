@@ -14,9 +14,10 @@ public interface ISessionByTokenHash
 
 public enum SessionLookupStatus
 {
-    Active = 0,
-    Superseded = 1,
-    Revoked = 2,
+    // Mirrors persisted admin.Sessions.Status and merch.Sessions.Status for direct projections.
+    Active = 1,
+    Superseded = 2,
+    Revoked = 3,
 }
 
 public sealed record SessionLookup(

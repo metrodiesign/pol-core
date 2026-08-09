@@ -24,7 +24,7 @@ Divisions เป็น 1 ใน 4 โมดูล reference master data ที�
 |---|---|---|
 | `Code` | string | ตั้งได้ครั้งเดียวตอน `Create()` — regex `^[a-z0-9_]+$`, immutable ตลอดไป (identity) |
 | `Name` | string | `Rename(name)` |
-| `Status` | `DivisionStatus` (`Active=0`, `Inactive=1`) | `Activate()` / `Deactivate()` |
+| `Status` | `DivisionStatus` (`Active=1`, `Inactive=2`) | `Activate()` / `Deactivate()` |
 
 Invariant: ไม่มี state machine, ไม่มี concurrency token. `Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
 เป็น `Restrict` (comment ในโค้ดยืนยันตรงๆ ว่า "never a hard delete"). Comment บน aggregate เอง: "standalone
@@ -82,7 +82,7 @@ Scalar tag = คำไทย `"แผนก"` (`var tag = thaiLabel`, ไม่�
 | GET | `/api/v1/divisions` | 200, paged + `q` search (SFS) | — |
 | GET | `/api/v1/divisions/{id:guid}` | 200 | 404 ไม่พบ id |
 | POST | `/api/v1/divisions` | 201 | 400 code ผิด `^[a-z0-9_]+$`; 409 code ซ้ำ |
-| PUT | `/api/v1/divisions/{id:guid}` | 200 (rename + set `Status`, code แก้ไม่ได้) | 400 status ไม่ใช่ 0/1; 404 ไม่พบ id |
+| PUT | `/api/v1/divisions/{id:guid}` | 200 (rename + set `Status`, code แก้ไม่ได้) | 400 status ไม่ใช่ 1/2; 404 ไม่พบ id |
 | DELETE | `/api/v1/divisions/{id:guid}` | 204 (soft-deactivate เท่านั้น — **ไม่ hard-delete**) | 404 ไม่พบ id |
 
 Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(Code, Name)`, `MasterUpdateRequest(Name, Status)`,

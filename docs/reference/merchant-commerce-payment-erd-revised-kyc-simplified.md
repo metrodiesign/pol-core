@@ -163,11 +163,12 @@ Current root คือ `/api/v1`. Audience ถูกกำหนดด้วย 
 
 ## Migration and raw objects
 
-Migration chain ปัจจุบันมีสามตัว:
+Migration chain ปัจจุบันมีสี่ตัว:
 
 1. `20260807042818_InitialSchema`
 2. `20260807042828_SecurityObjects`
 3. `20260807042833_SeedData`
+4. `20260808161508_OneBasedPersistedEnumStorage`
 
 Raw objects สำคัญ:
 
@@ -191,6 +192,7 @@ Production rollback ใช้ verified backup/restore ตาม runbook; ไม�
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042818_InitialSchema.cs`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
+- `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
 - `docs/reference/entity-fields.md`
 - `src/Hosts/Api/Program.cs`

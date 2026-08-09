@@ -12,7 +12,7 @@ namespace Integration.Tests;
 [Trait("Category", "Integration")]
 public sealed class AdminSessionStoreIntegrationTests
 {
-    private const int Active = 0, Superseded = 1, Revoked = 2;
+    private const int Active = 1, Superseded = 2, Revoked = 3;
 
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid adminId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
@@ -24,7 +24,7 @@ public sealed class AdminSessionStoreIntegrationTests
             ("@admin", adminId), ("@st", status), ("@abs", absHours));
 
     private const string Supersede =
-        "UPDATE admin.Sessions SET Status=1, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=0";
+        "UPDATE admin.Sessions SET Status=2, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=1";
 
     [Fact]
     public async Task Supersede_is_a_single_winner()
@@ -33,7 +33,7 @@ public sealed class AdminSessionStoreIntegrationTests
         await using var admin = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await InsertSessionAsync(admin, id, Guid.NewGuid(), Guid.NewGuid(), Active, 8);
 
-        // Two conditional updates race for the one Active row; only the first matches Status=0 (REQ-5.5).
+        // Two conditional updates race for the one Active row; only the first matches Status=1 (REQ-5.5).
         var first = await IntegrationDb.ExecAsync(admin, Supersede, ("@s", Guid.NewGuid()), ("@id", id));
         var second = await IntegrationDb.ExecAsync(admin, Supersede, ("@s", Guid.NewGuid()), ("@id", id));
 
@@ -51,11 +51,11 @@ public sealed class AdminSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Superseded, 8);
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE admin.Sessions SET Status=2 WHERE FamilyId=@f AND Status<>2", ("@f", family));
+            "UPDATE admin.Sessions SET Status=3 WHERE FamilyId=@f AND Status<>3", ("@f", family));
 
         Assert.Equal(2, revoked);
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status<>2", ("@f", family))));
+            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status<>3", ("@f", family))));
     }
 
     [Fact]
@@ -91,11 +91,11 @@ public sealed class AdminSessionStoreIntegrationTests
 
         // Exactly one Active -> the store returns that id.
         Assert.Equal(active, await IntegrationDb.ScalarAsync(conn,
-            "SELECT Id FROM admin.Sessions WHERE FamilyId=@f AND Status=0", ("@f", family)));
+            "SELECT Id FROM admin.Sessions WHERE FamilyId=@f AND Status=1", ("@f", family)));
 
         // A second Active in the same family -> the store's Take(2) count != 1 -> "no single active" (fail-closed).
         await InsertSessionAsync(conn, Guid.NewGuid(), family, admin, Active, 8);
         Assert.Equal(2, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status=0", ("@f", family))));
+            "SELECT COUNT(*) FROM admin.Sessions WHERE FamilyId=@f AND Status=1", ("@f", family))));
     }
 }

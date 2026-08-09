@@ -22,7 +22,7 @@ public sealed class OrderSummaryReaderIntegrationTests
             INSERT shop.Orders
                 (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, CreatedAt,
                  SummaryToken, SummaryTokenExpiresAt, CustomerName, CustomerPhone)
-            VALUES (@id, @m, @orderNo, 15000, N'THB', 0, 'PROMPTPAY_QR', SYSUTCDATETIME(),
+            VALUES (@id, @m, @orderNo, 15000, N'THB', 1, 'PROMPTPAY_QR', SYSUTCDATETIME(),
                     @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
             ("@id", orderId), ("@m", merchantId), ("@orderNo", orderNo), ("@token", token));

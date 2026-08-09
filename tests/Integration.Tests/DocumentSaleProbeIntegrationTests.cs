@@ -328,12 +328,12 @@ public sealed class DocumentSaleProbeIntegrationTests
 
     // ---- harness -------------------------------------------------------------------------------------
 
-    private const int OrderStatusAwaitingPayment = 0;
-    private const int OrderStatusPaid = 1;
-    private const int OrderStatusCancelled = 5;
+    private const int OrderStatusAwaitingPayment = 1;
+    private const int OrderStatusPaid = 2;
+    private const int OrderStatusCancelled = 6;
 
-    private const int SessionStatusCreated = 0;
-    private const int SessionStatusPaid = 2;
+    private const int SessionStatusCreated = 1;
+    private const int SessionStatusPaid = 3;
 
     /// <summary>Run-unique so parallel runs (and leftovers from a crashed run) cannot answer for each other.</summary>
     private static string NewDocumentNo() => $"69100/{Guid.NewGuid():N}";
@@ -378,7 +378,7 @@ public sealed class DocumentSaleProbeIntegrationTests
             INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, Quantity, UnitPriceAmount, UnitPriceCurrency,
                  DiscountAmount, DiscountCurrency, ProductCode, VariantCode, VariantName)
-            VALUES (@id, @orderId, @m, 1, 15000, N'THB', 0, N'THB', @documentNo, @group, N'ประกันรถยนต์');
+            VALUES (@id, @orderId, @m, 1, 15000, N'THB', 1, N'THB', @documentNo, @group, N'ประกันรถยนต์');
             """,
             ("@id", Guid.NewGuid()), ("@orderId", orderId), ("@m", merchantId),
             ("@documentNo", documentNo), ("@group", group));
@@ -393,7 +393,7 @@ public sealed class DocumentSaleProbeIntegrationTests
             """
             INSERT txn.PaymentSessions
                 (Id, MerchantId, OrderId, Method, Psp, Status, CreatedAt, UpdatedAt, AmountAmount, AmountCurrency)
-            VALUES (@id, @m, @orderId, N'card', 0, @status, DATEADD(hour, @age, SYSUTCDATETIME()),
+            VALUES (@id, @m, @orderId, N'card', 1, @status, DATEADD(hour, @age, SYSUTCDATETIME()),
                     SYSUTCDATETIME(), 15000, N'THB');
             """,
             ("@id", sessionId), ("@m", IntegrationDb.MerchantA), ("@orderId", orderId), ("@status", status),

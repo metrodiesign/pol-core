@@ -23,7 +23,7 @@ public sealed class UserRegistrationFormTests
     public void The_sale_code_field_binds_from_the_saleCode_key()
     {
         var form = UserRegistrationForm.From(
-            Form(("firstName", "Somchai"), ("lastName", "Jaidee"), ("saleCode", "77001")));
+            Form(("firstName", "Somchai"), ("lastName", "Jaidee"), ("personType", "Individual"), ("saleCode", "77001")));
 
         Assert.Equal("77001", form.SaleCode);
     }
@@ -32,8 +32,36 @@ public sealed class UserRegistrationFormTests
     public void The_retired_producerCode_key_binds_nothing()
     {
         var form = UserRegistrationForm.From(
-            Form(("firstName", "Somchai"), ("lastName", "Jaidee"), ("producerCode", "77001")));
+            Form(("firstName", "Somchai"), ("lastName", "Jaidee"), ("personType", "Individual"), ("producerCode", "77001")));
 
         Assert.Null(form.SaleCode); // not accepted under the old name (REQ-10.3) — and no other field takes it
+    }
+
+    [Fact]
+    public void Missing_person_type_is_rejected()
+    {
+        Assert.Throws<ArgumentException>(() => UserRegistrationForm.From(
+            Form(("firstName", "Somchai"), ("lastName", "Jaidee"))));
+    }
+
+    [Theory]
+    [InlineData("Unknown")]
+    [InlineData("0")]
+    [InlineData("3")]
+    public void Unsupported_person_type_is_rejected(string value)
+    {
+        Assert.Throws<ArgumentException>(() => UserRegistrationForm.From(
+            Form(("firstName", "Somchai"), ("lastName", "Jaidee"), ("personType", value))));
+    }
+
+    [Theory]
+    [InlineData("Individual", 1)]
+    [InlineData("Juristic", 2)]
+    public void Valid_person_type_binds_one_based_value(string value, int expected)
+    {
+        var form = UserRegistrationForm.From(
+            Form(("firstName", "Somchai"), ("lastName", "Jaidee"), ("personType", value)));
+
+        Assert.Equal(expected, (int)form.IdentityType);
     }
 }

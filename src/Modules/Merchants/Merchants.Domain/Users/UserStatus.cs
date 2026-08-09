@@ -6,8 +6,8 @@ namespace Merchants.Domain.Users;
 /// an active account may later be <see cref="Suspended"/>. Stored as int.</summary>
 public enum UserStatus
 {
-    PendingApproval = 0,
-    Active = 1,
-    Rejected = 2,
-    Suspended = 3,
+    PendingApproval = 1,
+    Active = 2,
+    Rejected = 3,
+    Suspended = 4,
 }

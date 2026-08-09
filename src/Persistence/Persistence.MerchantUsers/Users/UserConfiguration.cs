@@ -41,7 +41,7 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
         builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired(); // server-computed from first/last name
         builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.IdentityType).HasConversion<int>();
+        builder.Property(x => x.IdentityType).HasConversion<int>().IsRequired();
         builder.Property(x => x.IdentityNumber).HasMaxLength(64);
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.LicenseNumber).HasMaxLength(64);
@@ -101,7 +101,7 @@ public sealed class RegistrationAttemptConfiguration : IEntityTypeConfiguration<
         builder.Property(x => x.Purpose).HasConversion<int>().IsRequired();
         builder.Property(x => x.FirstName).HasMaxLength(200).IsRequired();
         builder.Property(x => x.LastName).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.IdentityType).HasConversion<int>();
+        builder.Property(x => x.IdentityType).HasConversion<int>().IsRequired();
         builder.Property(x => x.IdentityNumber).HasMaxLength(64);
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.LicenseNumber).HasMaxLength(64);

@@ -5,6 +5,6 @@ namespace Admins.Domain.Users;
 /// <see cref="Suspended"/> revokes access (REQ-5.6).</summary>
 public enum UserStatus
 {
-    Active = 0,
-    Suspended = 1,
+    Active = 1,
+    Suspended = 2,
 }

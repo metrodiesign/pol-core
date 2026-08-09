@@ -15,7 +15,7 @@ namespace Integration.Tests;
 [Trait("Category", "Integration")]
 public sealed class MerchantUserSessionStoreIntegrationTests
 {
-    private const int Active = 0, Superseded = 1, Revoked = 2;
+    private const int Active = 1, Superseded = 2, Revoked = 3;
 
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid userId, int status, int absHours) =>
         IntegrationDb.ExecAsync(c,
@@ -27,7 +27,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
             ("@user", userId), ("@st", status), ("@abs", absHours));
 
     private const string Supersede =
-        "UPDATE merch.Sessions SET Status=1, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=0";
+        "UPDATE merch.Sessions SET Status=2, SupersededAt=SYSUTCDATETIME(), SupersededBySessionId=@s WHERE Id=@id AND Status=1";
 
     [Fact]
     public async Task Supersede_is_a_single_winner()
@@ -53,11 +53,11 @@ public sealed class MerchantUserSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), family, user, Superseded, 8);
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE merch.Sessions SET Status=2 WHERE FamilyId=@f AND Status<>2", ("@f", family));
+            "UPDATE merch.Sessions SET Status=3 WHERE FamilyId=@f AND Status<>3", ("@f", family));
 
         Assert.Equal(2, revoked);
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(conn,
-            "SELECT COUNT(*) FROM merch.Sessions WHERE FamilyId=@f AND Status<>2", ("@f", family))));
+            "SELECT COUNT(*) FROM merch.Sessions WHERE FamilyId=@f AND Status<>3", ("@f", family))));
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public sealed class MerchantUserSessionStoreIntegrationTests
         await InsertSessionAsync(conn, Guid.NewGuid(), Guid.NewGuid(), user, Active, 8);      // device 2
 
         var revoked = await IntegrationDb.ExecAsync(conn,
-            "UPDATE merch.Sessions SET Status=2 WHERE UserId=@u AND Status<>2", ("@u", user));
+            "UPDATE merch.Sessions SET Status=3 WHERE UserId=@u AND Status<>3", ("@u", user));
 
         Assert.Equal(2, revoked);
     }

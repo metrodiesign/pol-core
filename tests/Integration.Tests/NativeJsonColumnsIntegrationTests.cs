@@ -42,7 +42,7 @@ public sealed class NativeJsonColumnsIntegrationTests
 
         await ExecuteAsync(connection, transaction, """
             INSERT merch.Merchants (Id, Code, Name, Note, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
-            VALUES (@merchant, @code, N'JSON probe', NULL, 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), @json);
+            VALUES (@merchant, @code, N'JSON probe', NULL, 1, N'TH', N'THB', N'card', SYSUTCDATETIME(), @json);
             INSERT shop.Carts (Id, MerchantId, SaleCode, Status, CreatedAt, Version)
             VALUES (@cart, @merchant, '77001', N'Open', SYSUTCDATETIME(), 0);
             INSERT shop.Orders
@@ -50,7 +50,7 @@ public sealed class NativeJsonColumnsIntegrationTests
                  SummaryToken, SummaryTokenExpiresAt, NotificationRecipient, PaymentChannel,
                  CustomerName, CustomerPhone, CustomerEmail, AmountAmount, AmountCurrency)
             VALUES
-                (@order, @merchant, @orderNo, '77001', NULL, 0, SYSUTCDATETIME(), NULL,
+                (@order, @merchant, @orderNo, '77001', NULL, 1, SYSUTCDATETIME(), NULL,
                  @token, DATEADD(day, 1, SYSUTCDATETIME()), NULL, NULL,
                  N'JSON Probe', '0800000000', NULL, 10.0000, 'THB');
             """,
@@ -96,7 +96,7 @@ public sealed class NativeJsonColumnsIntegrationTests
         {
             """
             INSERT merch.Merchants (Id, Code, Name, Note, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
-            VALUES (NEWID(), @key, N'bad', NULL, 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), @json);
+            VALUES (NEWID(), @key, N'bad', NULL, 1, N'TH', N'THB', N'card', SYSUTCDATETIME(), @json);
             """,
             validStatements[0].Item1,
             validStatements[1].Item1,

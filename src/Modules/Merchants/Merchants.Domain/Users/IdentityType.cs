@@ -1,9 +1,8 @@
 namespace Merchants.Domain.Users;
 
-/// <summary>Whether the registrant is a natural person or a registered company. Stored as int;
-/// nullable on the profile until the form supplies it.</summary>
+/// <summary>Whether the registrant is a natural person or a registered company. Stored as a required int.</summary>
 public enum IdentityType
 {
-    Individual = 0,
-    Juristic = 1,
+    Individual = 1,
+    Juristic = 2,
 }

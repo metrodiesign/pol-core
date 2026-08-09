@@ -98,8 +98,8 @@ public sealed class DoubleSellAuditorIntegrationTests
 
     // ---- harness -------------------------------------------------------------------------------------
 
-    private const int OrderStatusAwaitingPayment = 0;
-    private const int OrderStatusPaid = 1;
+    private const int OrderStatusAwaitingPayment = 1;
+    private const int OrderStatusPaid = 2;
 
     /// <summary>Run-unique so parallel runs (and leftovers from a crashed run) cannot answer for each other.</summary>
     private static string NewDocumentNo() => $"69100/{Guid.NewGuid():N}";
@@ -142,7 +142,7 @@ public sealed class DoubleSellAuditorIntegrationTests
             INSERT shop.OrderItems
                 (Id, OrderId, MerchantId, Quantity, UnitPriceAmount, UnitPriceCurrency,
                  DiscountAmount, DiscountCurrency, ProductCode, VariantCode, VariantName)
-            VALUES (@id, @orderId, @m, 1, 15000, N'THB', 0, N'THB', @documentNo, @group, N'ประกันรถยนต์');
+            VALUES (@id, @orderId, @m, 1, 15000, N'THB', 1, N'THB', @documentNo, @group, N'ประกันรถยนต์');
             """,
             ("@id", Guid.NewGuid()), ("@orderId", orderId), ("@m", merchantId),
             ("@documentNo", documentNo), ("@group", group));

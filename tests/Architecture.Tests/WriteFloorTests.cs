@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Merchants.Domain.Users;
 using Orders.Domain.Items;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
@@ -204,7 +205,7 @@ public sealed class WriteFloorTests : IDisposable
         {
             await seed.Database.EnsureCreatedAsync();
             var user = MerchantUserAccount.Register("attempt-subject", "attempt@example.com", DateTime.UtcNow);
-            user.SetDetails("First", "Last", null, null, null, null, null);
+            user.SetDetails("First", "Last", IdentityType.Individual, null, null, null, null);
             seed.Add(user);
             seed.Add(Merchants.Domain.Users.RegistrationAttempt.Capture(
                 user, 1, Merchants.Domain.Users.TicketPurpose.Registration, "attempt@example.com", DateTime.UtcNow));

@@ -49,6 +49,6 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
         // validated against, and a divergence is invisible to the unit suite (REQ-2.6 asserts both).
         builder.HasIndex(x => x.OrderId, "IX_PaymentSessions_OrderId_Open")
             .IsUnique()
-            .HasFilter("[Status] IN (0, 1)");
+            .HasFilter("[Status] IN (1, 2)");
     }
 }

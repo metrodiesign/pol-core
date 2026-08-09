@@ -104,6 +104,7 @@ Migration chain ปัจจุบัน:
 1. `20260807042818_InitialSchema`
 2. `20260807042828_SecurityObjects`
 3. `20260807042833_SeedData`
+4. `20260808161508_OneBasedPersistedEnumStorage`
 
 ## 5. Modules
 
@@ -133,7 +134,7 @@ Products ไม่ persist catalogue. Cart add-item และ order creation loo
 ### Master data
 
 `Divisions`, `Levels`, `Offices`, `Positions` เป็น control-plane reference modules. Domain field ใช้ `Status`
-enum (`Active=0`, `Inactive=1`), ไม่ใช่ `IsActive`. Store implementation อยู่ `Persistence.ControlPlane`;
+enum (`Active=1`, `Inactive=2`), ไม่ใช่ `IsActive`. Store implementation อยู่ `Persistence.ControlPlane`;
 route เป็น top-level `/api/v1/{divisions|levels|offices|positions}`.
 
 ### Merchants and KYC

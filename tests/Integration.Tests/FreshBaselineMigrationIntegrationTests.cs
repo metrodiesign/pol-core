@@ -24,7 +24,7 @@ public sealed class FreshBaselineMigrationIntegrationTests
 
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
             {
-                Assert.Equal(3, Convert.ToInt32(await IntegrationDb.ScalarAsync(
+                Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(
                     connection, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
                 Assert.Equal("json", await IntegrationDb.ScalarAsync(connection, """
                     SELECT ty.name FROM sys.columns c
@@ -35,6 +35,28 @@ public sealed class FreshBaselineMigrationIntegrationTests
                     connection, "SELECT OBJECT_ID(N'merch.RegistrationNotices', N'U');"));
                 Assert.NotNull(await IntegrationDb.ScalarAsync(
                     connection, "SELECT OBJECT_ID(N'shop.OrderNoSeq', N'SO');"));
+                Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    SELECT Status FROM merch.Merchants
+                    WHERE Id = 'e1000000-0000-4000-8000-000000000001';
+                    """)));
+                Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    SELECT Psp FROM txn.PspConnections
+                    WHERE Id = 'e8000000-0000-4000-8000-000000000001';
+                    """)));
+                Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    SELECT is_nullable FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'merch.Users') AND name = N'IdentityType';
+                    """)));
+                Assert.Contains("[Status]", Convert.ToString(await IntegrationDb.ScalarAsync(connection, """
+                    SELECT filter_definition FROM sys.indexes
+                    WHERE object_id = OBJECT_ID(N'txn.PaymentSessions')
+                      AND name = N'IX_PaymentSessions_OrderId_Open';
+                    """)));
+                Assert.DoesNotContain("0", Convert.ToString(await IntegrationDb.ScalarAsync(connection, """
+                    SELECT filter_definition FROM sys.indexes
+                    WHERE object_id = OBJECT_ID(N'txn.PaymentSessions')
+                      AND name = N'IX_PaymentSessions_OrderId_Open';
+                    """)));
             }
 
             await migrator.MigrateAsync("0");

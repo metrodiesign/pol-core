@@ -177,7 +177,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
     private static SubmitRegistrationCommand Submission(string subject, TicketPurpose purpose) => new(
         subject, $"{subject}@example.com", HostedDomain: null, purpose,
-        new RegistrationForm("First", purpose == TicketPurpose.Registration ? "Version" : "Corrected"),
+        new RegistrationForm("First", purpose == TicketPurpose.Registration ? "Version" : "Corrected", IdentityType.Individual),
         PhotoBytes: null, PhotoContentType: null, CorrelationId: $"corr-{subject}-{purpose}");
 
     private async Task<Guid> SeedViaSubmitAsync(string subject)

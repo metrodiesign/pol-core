@@ -4,9 +4,9 @@ namespace Admins.Domain.Users;
 
 public enum SessionStatus
 {
-    Active = 0,
-    Superseded = 1,
-    Revoked = 2,
+    Active = 1,
+    Superseded = 2,
+    Revoked = 3,
 }
 
 /// <summary>Session lifetime knobs the domain needs (REQ-3/5). A pure value object — the host binds it from

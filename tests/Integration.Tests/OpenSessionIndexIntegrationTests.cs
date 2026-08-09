@@ -22,15 +22,15 @@ public sealed class OpenSessionIndexIntegrationTests
 {
     private const string IndexName = "IX_PaymentSessions_OrderId_Open";
 
-    // SessionStatus: Created=0, Redirected=1, Paid=2, Failed=3, Expired=4 — 0/1 are the chargeable ones the
-    // index filters on. Psp=0 (2C2P), matching seed-demo.sql. PspExternalChargeId stays NULL so the sibling
+    // SessionStatus: Created=1, Redirected=2, Paid=3, Failed=4, Expired=5 — 1/2 are the chargeable ones the
+    // index filters on. Psp=1 (2C2P). PspExternalChargeId stays NULL so the sibling
     // unique index on (Psp, PspExternalChargeId) cannot be the one that fires.
     private static Task InsertSessionAsync(SqlConnection c, Guid orderId, int status) =>
         IntegrationDb.ExecAsync(c,
             """
             INSERT txn.PaymentSessions
                 (Id, MerchantId, OrderId, Method, Psp, Status, CreatedAt, UpdatedAt, AmountAmount, AmountCurrency)
-            VALUES (@id, @m, @orderId, N'card', 0, @status, SYSUTCDATETIME(), SYSUTCDATETIME(), 15000, N'THB');
+            VALUES (@id, @m, @orderId, N'card', 1, @status, SYSUTCDATETIME(), SYSUTCDATETIME(), 15000, N'THB');
             """,
             ("@id", Guid.NewGuid()), ("@m", IntegrationDb.MerchantA), ("@orderId", orderId), ("@status", status));
 
@@ -61,8 +61,8 @@ public sealed class OpenSessionIndexIntegrationTests
         Assert.True(await reader.ReadAsync(), $"{IndexName} does not exist on txn.PaymentSessions.");
         Assert.True(reader.GetBoolean(0), "index is not unique");
         Assert.True(reader.GetBoolean(1), "index is not filtered");
-        // SQL Server normalises the configured predicate "[Status] IN (0, 1)" when it stores it.
-        Assert.Equal("([Status] IN ((0), (1)))", reader.GetString(2));
+        // SQL Server normalises the configured predicate "[Status] IN (1, 2)" when it stores it.
+        Assert.Equal("([Status] IN ((1), (2)))", reader.GetString(2));
         Assert.Equal(1, reader.GetInt32(3));
         Assert.Equal("OrderId", reader.GetString(4));
     }
@@ -72,11 +72,11 @@ public sealed class OpenSessionIndexIntegrationTests
     {
         var orderId = Guid.NewGuid();
         await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        await InsertSessionAsync(c, orderId, status: 0); // Created
+        await InsertSessionAsync(c, orderId, status: 1); // Created
 
         // A concurrent request that got past the handler's open-session pre-check: Redirected is the other
         // chargeable status, so the index must reject it too, not just an exact status repeat.
-        var ex = await Assert.ThrowsAsync<SqlException>(() => InsertSessionAsync(c, orderId, status: 1));
+        var ex = await Assert.ThrowsAsync<SqlException>(() => InsertSessionAsync(c, orderId, status: 2));
 
         Assert.True(ex.Number is 2627 or 2601,
             $"expected SQL 2627/2601 (what MerchantRuntimeUnitOfWork translates to ConflictException/409), got {ex.Number}");
@@ -91,14 +91,14 @@ public sealed class OpenSessionIndexIntegrationTests
 
         // Paid/Failed/Expired all sit outside the filter, so they may coexist without limit — a declined
         // attempt must never kill the order (REQ-7.4).
-        await InsertSessionAsync(c, orderId, status: 3); // Failed
-        await InsertSessionAsync(c, orderId, status: 4); // Expired
-        await InsertSessionAsync(c, orderId, status: 2); // Paid
+        await InsertSessionAsync(c, orderId, status: 4); // Failed
+        await InsertSessionAsync(c, orderId, status: 5); // Expired
+        await InsertSessionAsync(c, orderId, status: 3); // Paid
 
-        await InsertSessionAsync(c, orderId, status: 0); // Created — the retry the index must allow
+        await InsertSessionAsync(c, orderId, status: 1); // Created — the retry the index must allow
 
         var open = (int)(await IntegrationDb.ScalarAsync(c,
-            "SELECT COUNT(*) FROM txn.PaymentSessions WHERE OrderId = @orderId AND Status IN (0, 1);",
+            "SELECT COUNT(*) FROM txn.PaymentSessions WHERE OrderId = @orderId AND Status IN (1, 2);",
             ("@orderId", orderId)))!;
         Assert.Equal(1, open);
     }

@@ -10,9 +10,9 @@ fail() {
 
 mapfile -t migration_files < <(find src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations \
   -maxdepth 1 -type f -name '*.cs' -print | sort)
-[ "${#migration_files[@]}" -eq 7 ] || fail "expected 3 migrations, 3 designers, and 1 snapshot"
+[ "${#migration_files[@]}" -eq 9 ] || fail "expected 4 migrations, 4 designers, and 1 snapshot"
 
-for suffix in InitialSchema SecurityObjects SeedData; do
+for suffix in InitialSchema SecurityObjects SeedData OneBasedPersistedEnumStorage; do
   [ "$(printf '%s\n' "${migration_files[@]}" | grep -c "_${suffix}\.cs$")" -eq 1 ] \
     || fail "missing or duplicate ${suffix} migration"
 done
@@ -53,4 +53,3 @@ if [ -n "${POL_SA_PASSWORD:-}" ]; then
 fi
 
 echo "assert-fresh-db.test: OK"
-

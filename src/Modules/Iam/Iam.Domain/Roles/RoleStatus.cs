@@ -4,6 +4,6 @@ namespace Iam.Domain.Roles;
 /// permission union (REQ-4.6). Stored as int.</summary>
 public enum RoleStatus
 {
-    Active = 0,
-    Inactive = 1,
+    Active = 1,
+    Inactive = 2,
 }
