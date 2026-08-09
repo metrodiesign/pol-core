@@ -109,13 +109,13 @@ internal static class IntegrationDb
         ExecAsync(c,
             """
             INSERT merch.Merchants (Id, Code, Name, Note, Status, Country, Currency, EnabledChannels, CreatedAt, Metadata)
-            VALUES (@id, @code, N'probe', NULL, 0, N'TH', N'THB', N'card', SYSUTCDATETIME(), N'{}');
+            VALUES (@id, @code, N'probe', NULL, 1, N'TH', N'THB', N'card', SYSUTCDATETIME(), N'{}');
             """,
             ("@id", id), ("@code", code));
 
     /// <summary>Inserts a platform user (control-plane admin account). A null <paramref name="subject"/> models an
     /// invited Scoped account before its first login binds it (the filtered unique index exempts NULL subjects).
-    /// Tier: Scoped=0, Super=1. Status: Active=0, Suspended=1.</summary>
+    /// Tier: Scoped=1, Super=2. Status: Active=1, Suspended=2.</summary>
     public static Task InsertPlatformUserAsync(SqlConnection c, Guid id, string? subject, string email, int tier, int status) =>
         ExecAsync(c,
             """

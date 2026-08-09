@@ -8,8 +8,8 @@ namespace Payments.Domain.Psp;
 /// </summary>
 public enum Code
 {
-    TwoCTwoP = 0,
-    Omise = 1,
+    TwoCTwoP = 1,
+    Omise = 2,
 }
 
 /// <summary>Helpers to map <see cref="Code"/> to and from its stable code string ("2c2p"/"omise").</summary>

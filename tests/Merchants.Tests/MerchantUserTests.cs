@@ -224,6 +224,13 @@ public sealed class MerchantUserTests
         Assert.Equal("0812345678", account.Phone);
     }
 
+    [Fact]
+    public void SetDetails_rejects_an_undefined_identity_type()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            NewPending().SetDetails("Acme", "Co", (IdentityType)0, null, null, null, null));
+    }
+
     [Theory]
     [InlineData(null, "Co")]
     [InlineData("", "Co")]
@@ -232,7 +239,7 @@ public sealed class MerchantUserTests
     [InlineData("Acme", " ")]
     public void SetDetails_rejects_a_blank_first_or_last_name(string? first, string? last) =>
         Assert.ThrowsAny<ArgumentException>(() =>
-            NewPending().SetDetails(first!, last!, null, null, null, null, null));
+            NewPending().SetDetails(first!, last!, IdentityType.Individual, null, null, null, null));
 
     [Fact]
     public void SetDetails_clamps_the_computed_display_name_to_200_chars()
@@ -241,7 +248,7 @@ public sealed class MerchantUserTests
         var first = new string('a', 200);
         var last = new string('b', 200);
 
-        account.SetDetails(first, last, null, null, null, null, null); // 401 chars composed, must not throw
+        account.SetDetails(first, last, IdentityType.Individual, null, null, null, null); // 401 chars composed, must not throw
 
         Assert.Equal(200, account.DisplayName.Length);
     }
@@ -257,14 +264,14 @@ public sealed class MerchantUserTests
     [InlineData("SALE-CODE-\u00E9")]             // Latin-1 'e' with acute: short enough, still not ASCII
     public void SetDetails_rejects_a_sale_code_the_upstream_parameter_cannot_carry(string saleCode) =>
         Assert.ThrowsAny<ArgumentException>(() =>
-            NewPending().SetDetails("Acme", "Co", null, null, saleCode, null, null));
+            NewPending().SetDetails("Acme", "Co", IdentityType.Individual, null, saleCode, null, null));
 
     [Fact]
     public void SetDetails_accepts_a_20_character_ascii_sale_code_after_trimming()
     {
         var account = NewPending();
 
-        account.SetDetails("Acme", "Co", null, null, "  12345678901234567890  ", null, null);
+        account.SetDetails("Acme", "Co", IdentityType.Individual, null, "  12345678901234567890  ", null, null);
 
         Assert.Equal("12345678901234567890", account.SaleCode); // 20 after trim: the boundary is allowed
     }
@@ -274,7 +281,7 @@ public sealed class MerchantUserTests
     {
         var account = NewPending();
 
-        account.SetDetails("Acme", "Co", null, "  ", "", "   ", null);
+        account.SetDetails("Acme", "Co", IdentityType.Individual, "  ", "", "   ", null);
 
         Assert.Null(account.IdentityNumber);
         Assert.Null(account.SaleCode);

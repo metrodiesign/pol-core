@@ -24,7 +24,7 @@ namespace Architecture.Tests;
 public sealed class OpenSessionIndexTests : IDisposable
 {
     private const string IndexName = "IX_PaymentSessions_OrderId_Open";
-    private const string Filter = "[Status] IN (0, 1)";
+    private const string Filter = "[Status] IN (1, 2)";
 
     private readonly SqliteConnection _ownerConnection = OpenSqlite();
     private readonly SqliteConnection _runtimeConnection = OpenSqlite();
@@ -71,7 +71,7 @@ public sealed class OpenSessionIndexTests : IDisposable
 
         Assert.Equal("OrderId", index.Properties.Single().Name);
         Assert.True(index.IsUnique);
-        // Status 0/1 = Created/Redirected. Paid/Failed/Expired sit outside the filter on purpose (REQ-7.4):
+        // Status 1/2 = Created/Redirected. Paid/Failed/Expired sit outside the filter on purpose (REQ-7.4):
         // a declined attempt must still let the same order open a fresh session.
         Assert.Equal(Filter, index.GetFilter());
     }

@@ -5,6 +5,6 @@ namespace Merchants.Domain.Users;
 /// Carried in the signed wire-ticket payload.</summary>
 public enum TicketPurpose
 {
-    Registration = 0,
-    Correction = 1,
+    Registration = 1,
+    Correction = 2,
 }

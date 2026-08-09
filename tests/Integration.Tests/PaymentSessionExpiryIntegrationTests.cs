@@ -23,7 +23,7 @@ public sealed class PaymentSessionExpiryIntegrationTests
 {
     private const string IndexName = "IX_PaymentSessions_OrderId_Open";
 
-    // SessionStatus: Created=0, Redirected=1, Paid=2, Failed=3, Expired=4 — 0/1 are the chargeable ones the
+    // SessionStatus: Created=1, Redirected=2, Paid=3, Failed=4, Expired=5 — 1/2 are the chargeable ones the
     // index filters on. PspExternalChargeId stays NULL so the sibling unique index on (Psp, ExternalChargeId)
     // cannot be the one that fires.
     private static Task InsertSessionAsync(SqlConnection c, SqlTransaction tx, Guid id, Guid orderId, int status) =>
@@ -31,13 +31,13 @@ public sealed class PaymentSessionExpiryIntegrationTests
             """
             INSERT txn.PaymentSessions
                 (Id, MerchantId, OrderId, Method, Psp, Status, CreatedAt, UpdatedAt, AmountAmount, AmountCurrency)
-            VALUES (@id, @m, @orderId, N'card', 0, @status, DATEADD(hour, -48, SYSUTCDATETIME()), SYSUTCDATETIME(), 15000, N'THB');
+            VALUES (@id, @m, @orderId, N'card', 1, @status, DATEADD(hour, -48, SYSUTCDATETIME()), SYSUTCDATETIME(), 15000, N'THB');
             """,
             ("@id", id), ("@m", IntegrationDb.MerchantA), ("@orderId", orderId), ("@status", status));
 
     private static Task ExpireAsync(SqlConnection c, SqlTransaction tx, Guid id) =>
         ExecAsync(c, tx,
-            "UPDATE txn.PaymentSessions SET Status = 4, UpdatedAt = SYSUTCDATETIME() WHERE Id = @id;",
+            "UPDATE txn.PaymentSessions SET Status = 5, UpdatedAt = SYSUTCDATETIME() WHERE Id = @id;",
             ("@id", id));
 
     private static async Task<int> ExecAsync(SqlConnection c, SqlTransaction tx, string sql, params (string, object)[] args)
@@ -59,7 +59,7 @@ public sealed class PaymentSessionExpiryIntegrationTests
         await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await using (var seed = (SqlTransaction)await c.BeginTransactionAsync())
         {
-            await InsertSessionAsync(c, seed, staleId, orderId, status: 1); // Redirected, 48h old
+            await InsertSessionAsync(c, seed, staleId, orderId, status: 2); // Redirected, 48h old
             await seed.CommitAsync();
         }
 
@@ -67,17 +67,17 @@ public sealed class PaymentSessionExpiryIntegrationTests
         await using (var tx = (SqlTransaction)await c.BeginTransactionAsync())
         {
             await ExpireAsync(c, tx, staleId);
-            await InsertSessionAsync(c, tx, freshId, orderId, status: 0);
+            await InsertSessionAsync(c, tx, freshId, orderId, status: 1);
             await tx.CommitAsync();
         }
 
         var open = (int)(await IntegrationDb.ScalarAsync(c,
-            "SELECT COUNT(*) FROM txn.PaymentSessions WHERE OrderId = @orderId AND Status IN (0, 1);",
+            "SELECT COUNT(*) FROM txn.PaymentSessions WHERE OrderId = @orderId AND Status IN (1, 2);",
             ("@orderId", orderId)))!;
         Assert.Equal(1, open);
 
         var replacement = (Guid)(await IntegrationDb.ScalarAsync(c,
-            "SELECT Id FROM txn.PaymentSessions WHERE OrderId = @orderId AND Status IN (0, 1);",
+            "SELECT Id FROM txn.PaymentSessions WHERE OrderId = @orderId AND Status IN (1, 2);",
             ("@orderId", orderId)))!;
         Assert.Equal(freshId, replacement);
     }
@@ -94,14 +94,14 @@ public sealed class PaymentSessionExpiryIntegrationTests
         await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
         await using (var seed = (SqlTransaction)await c.BeginTransactionAsync())
         {
-            await InsertSessionAsync(c, seed, staleId, orderId, status: 1);
+            await InsertSessionAsync(c, seed, staleId, orderId, status: 2);
             await seed.CommitAsync();
         }
 
         await using var tx = (SqlTransaction)await c.BeginTransactionAsync();
 
         var ex = await Assert.ThrowsAsync<SqlException>(() =>
-            InsertSessionAsync(c, tx, Guid.NewGuid(), orderId, status: 0));
+            InsertSessionAsync(c, tx, Guid.NewGuid(), orderId, status: 1));
 
         Assert.True(ex.Number is 2627 or 2601,
             $"expected SQL 2627/2601 (what MerchantRuntimeUnitOfWork translates to ConflictException/409), got {ex.Number}");

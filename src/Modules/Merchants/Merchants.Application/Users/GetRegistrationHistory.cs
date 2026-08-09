@@ -34,7 +34,7 @@ public sealed record RegistrationHistoryResult(
 /// applicant); IdentityNumber/LicenseNumber/Phone/Email are masked unless the request revealed.</summary>
 public sealed record AttemptView(
     int AttemptNo, TicketPurpose Purpose, DateTime SubmittedAt,
-    string FirstName, string LastName, IdentityType? IdentityType,
+    string FirstName, string LastName, IdentityType IdentityType,
     string? IdentityNumber, string? SaleCode, string? LicenseNumber, string? Phone,
     string Email, string? PhotoObjectKey, string? PhotoContentType);
 

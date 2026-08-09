@@ -1,0 +1,46 @@
+# Implementation Tasks: One-Based Persisted Enum Storage
+
+> Status: approved 2026-08-08
+
+> แต่ละ task เป็น slice ที่แก้และตรวจสอบได้ครบในรอบเดียว โดยคง historical migrations และเปลี่ยนเฉพาะ current runtime/database contract
+
+- [x] 1. เปลี่ยน persisted domain enum และ merchant registration contract — กำหนดค่าตัวเลข one-based ครบทุก enum ที่อยู่ใน scope, ทำ `IdentityType` ของ registration/profile เป็น required, เพิ่ม validation ที่ API/domain และปรับ unit tests ที่เกี่ยวข้อง
+  Satisfies: REQ-1 (all criteria), REQ-3.3-REQ-3.4. Verify: `dotnet test tests/Merchants.Tests/Merchants.Tests.csproj --no-restore` และ `dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --no-restore`
+  Evidence:
+    - test: `dotnet test tests/Merchants.Tests/Merchants.Tests.csproj --no-restore` -> Passed: 156, Failed: 0
+    - test: `dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --no-restore --filter FullyQualifiedName~UserRegistrationFormTests` -> Passed: 8, Failed: 0
+    - test: `dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --no-restore --filter FullyQualifiedName~OneBasedEnumContractTests` -> Passed: 3, Failed: 0
+    - viewports: n/a — logic-only
+    - deviations: full `Hosts.Tests` run stalled after build and was cancelled; focused registration-form suite passed
+- [x] 2. ทำ runtime persistence และ SQL consumers ให้ตรง contract ใหม่ — อัปเดต EF configurations ทั้ง migration-owner/runtime contexts, required columns, IAM role check, payment open-session filter, seed/runtime queries และ raw SQL/test literals โดยไม่แตะ non-target enums
+  Satisfies: REQ-2 (all criteria), REQ-3.1-REQ-3.2. Depends on: 1. Verify: `dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --no-restore` และ `rg -n "(Scope|Status|Psp|IdentityType) IN? \(0|= 0|= 1\)" src tests`
+- Evidence:
+  - test: `dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --no-restore --filter "FullyQualifiedName~OpenSessionIndexTests|FullyQualifiedName~OneBasedPersistenceContractTests|FullyQualifiedName~OneBasedEnumContractTests"` -> Passed: 8, Failed: 0
+  - check: `git diff --check` -> passed
+  - viewports: n/a — persistence/query contract
+  - deviations: live SQL integration suite deferred to task 3; current source/test SQL consumers were updated and focused model contracts passed
+- [x] 3. เพิ่ม forward/reverse migration แบบ fail-safe — สร้าง migration ใหม่และ model snapshot/designer, preflight `NULL`/legacy invalid values ก่อน data/schema change, แปลงค่าทุก field แบบ explicit, อัปเดต nullability/check/index และเพิ่ม migration integration tests รวม rollback
+  Satisfies: REQ-4 (all criteria). Depends on: 2. Verify: `dotnet test tests/Integration.Tests/Integration.Tests.csproj --no-restore` และ migration shape/preflight tests
+- Evidence:
+  - migration: `20260808161508_OneBasedPersistedEnumStorage` with explicit forward/reverse `CASE` mappings for 22 target fields, NULL/invalid preflight, NN IdentityType, role check, and payment open-session filter
+  - test: `dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --no-restore --filter "FullyQualifiedName~OneBasedMigrationShapeTests|FullyQualifiedName~OneBasedPersistenceContractTests|FullyQualifiedName~OneBasedEnumContractTests|FullyQualifiedName~OpenSessionIndexTests"` -> Passed: 10, Failed: 0
+  - test: `dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --no-restore --filter FullyQualifiedName~ModelConsistencyTests` -> Passed: 1, Failed: 0
+  - check: `./scripts/check-migration-lineage.sh` -> passed; `git diff --check` -> passed
+  - test: `set -a; source .env; export POL_DB=VCentralPayCodexShip; dotnet test pol-core.slnx --no-build --filter "Category=Integration"` -> Passed: 144, Failed: 0, Skipped: 0
+  - check: `POL_DB=VCentralPayCodexShip bash docker/bootstrap/assert-fresh-db.test.sh` -> `assert-fresh-db.test: OK`; `./scripts/check-migration-lineage.sh` -> passed
+  - viewports: n/a — database migration
+  - deviations: existing local `VCentralPay` contained mixed legacy/current values from earlier test runs; the migration refused before mutation as designed. Live SQL evidence ran against a fresh scratch database after applying the complete migration chain.
+- [x] 4. อัปเดต current Entity and Field Reference และ verification — แก้ mappings, SQL type/nullability, master-data references, filtered-index/migration-chain docs และเพิ่ม parity checks ให้ docs, model และ migration แสดง contract เดียวกัน
+  Satisfies: REQ-5 (all criteria). Depends on: 1, 2, 3. Verify: `scripts/spec-trace.sh enum-one-based-storage`, `git diff --check` และ docs/reference parity checks
+- Evidence:
+  - docs: updated `docs/reference/entity-fields.md` and current master-data/payment/migration-chain references with all 22 mappings, `int`/NN contract, preflight policy, filter, check constraint, and fourth migration
+  - test: `dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --no-restore --filter "FullyQualifiedName~OneBasedReferenceParityTests|FullyQualifiedName~OneBasedMigrationShapeTests|FullyQualifiedName~OneBasedPersistenceContractTests|FullyQualifiedName~OneBasedEnumContractTests"` -> Passed: 8, Failed: 0
+  - check: `scripts/spec-trace.sh enum-one-based-storage` -> passed, 41 criteria and EARS lint passed
+  - check: `bash docker/bootstrap/assert-fresh-db.test.sh` -> `assert-fresh-db.test: OK`
+  - check: `git diff --check` -> passed; docs old-value scan -> no matches
+  - test: `dotnet build pol-core.slnx --no-restore` -> Build succeeded, 0 warnings, 0 errors
+  - viewports: n/a — documentation and contract parity
+
+## Suggested execution batches
+
+งานนี้ coupled ผ่าน domain, EF model, migration และ SQL consumers ควรรัน tasks `1-4` ใน session เดียวตามลำดับ เพื่อรักษา model/snapshot/migration parity

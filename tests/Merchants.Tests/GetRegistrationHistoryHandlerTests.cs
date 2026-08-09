@@ -217,7 +217,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         public User SeedUser(string subject)
         {
             var user = User.Register(subject, "somchai@example.com", Now);
-            user.SetDetails("First", "Last", null, null, null, null, null);
+            user.SetDetails("First", "Last", IdentityType.Individual, null, null, null, null);
             Accounts.Seed(user);
             return user;
         }

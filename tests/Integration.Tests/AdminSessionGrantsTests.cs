@@ -20,7 +20,7 @@ public sealed class AdminSessionGrantsTests
         await IntegrationDb.ExecAsync(c,
             """
             INSERT admin.Sessions (Id, FamilyId, TokenHash, AdminUserId, Status, IssuedAt, IdleExpiresAt, AbsoluteExpiresAt)
-            VALUES (@id, @fam, @hash, @admin, 0, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, 8, SYSUTCDATETIME()));
+            VALUES (@id, @fam, @hash, @admin, 1, SYSUTCDATETIME(), DATEADD(MINUTE, 30, SYSUTCDATETIME()), DATEADD(HOUR, 8, SYSUTCDATETIME()));
             """,
             ("@id", id), ("@fam", Guid.NewGuid()), ("@hash", RandomNumberGenerator.GetBytes(32)), ("@admin", Guid.NewGuid()));
     }
@@ -36,7 +36,7 @@ public sealed class AdminSessionGrantsTests
             "SELECT COUNT(*) FROM admin.Sessions WHERE Id=@id", ("@id", id))));
 
         // rotate/revoke == UPDATE, prune == DELETE — both granted.
-        await IntegrationDb.ExecAsync(app, "UPDATE admin.Sessions SET Status=2 WHERE Id=@id", ("@id", id));
+        await IntegrationDb.ExecAsync(app, "UPDATE admin.Sessions SET Status=3 WHERE Id=@id", ("@id", id));
         await IntegrationDb.ExecAsync(app, "DELETE admin.Sessions WHERE Id=@id", ("@id", id));
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(app,
             "SELECT COUNT(*) FROM admin.Sessions WHERE Id=@id", ("@id", id))));

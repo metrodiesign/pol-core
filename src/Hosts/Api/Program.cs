@@ -2087,8 +2087,8 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
 
     parent.MapPut($"/{segment}/{{id:guid}}", async (Guid id, MasterUpdateRequest body, TStore store, CancellationToken ct) =>
     {
-        if (body.Status is not 0 and not 1)
-            throw new ArgumentException("Status must be Active=0 or Inactive=1.", nameof(body.Status));
+        if (body.Status is not 1 and not 2)
+            throw new ArgumentException("Status must be Active=1 or Inactive=2.", nameof(body.Status));
         var item = await update(store, id, body.Name ?? "", body.Status, ct);
         return Results.Ok(toWire(item));
     }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)

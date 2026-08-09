@@ -38,6 +38,6 @@ denials/reconciliation events to Seq; logs exclude secrets and PII.
 
 ## Migration safety
 
-Fresh chain: `InitialSchema -> SecurityObjects -> SeedData`. Preflight rejects non-empty/legacy target before DDL.
+Fresh chain: `InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage`. Preflight rejects non-empty/legacy target before DDL.
 Production wrapper requires exact `host:port/VCentralPay`, explicit approval, backup URI/SHA-256 and rollback evidence.
 Production rollback restores backup; migration Down is non-production proof only.

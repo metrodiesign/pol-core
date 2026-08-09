@@ -18,13 +18,13 @@ public sealed class MerchantUserAccountControlPlaneTests
 {
     private static int AsInt(object? o) => (int)o!;
 
-    // MerchantUserStatus: PendingApproval=0, Active=1.
-    private const int PendingApproval = 0;
-    private const int Active = 1;
+    // MerchantUserStatus: PendingApproval=1, Active=2. IdentityType: Individual=1.
+    private const int PendingApproval = 1;
+    private const int Active = 2;
 
     private const string InsertAccount =
-        "INSERT merch.Users (Id, Subject, Email, Status, MerchantId, DisplayName, FirstName, LastName, CreatedAt) " +
-        "VALUES (@id, @sub, @email, @status, @merchant, N'Name', N'First', N'Last', SYSUTCDATETIME())";
+        "INSERT merch.Users (Id, Subject, Email, Status, IdentityType, MerchantId, DisplayName, FirstName, LastName, CreatedAt) " +
+        "VALUES (@id, @sub, @email, @status, 1, @merchant, N'Name', N'First', N'Last', SYSUTCDATETIME())";
 
     private static (string, object)[] AccountArgs(Guid id, string subject, int status, Guid? merchantId = null) =>
     [

@@ -26,7 +26,7 @@ public sealed class IamRoleResolutionTests
         JOIN iam.Roles r ON a.RoleId = r.Id
         JOIN iam.RolePermissions p ON p.RoleId = r.Id
         WHERE a.UserId = @u AND a.MerchantId = @m
-          AND r.Status = 0 AND r.Scope = 1 AND (r.MerchantId IS NULL OR r.MerchantId = @m);
+          AND r.Status = 1 AND r.Scope = 2 AND (r.MerchantId IS NULL OR r.MerchantId = @m);
         """;
 
     // Mirrors Admins.Infrastructure...RoleRepository.ListEffectivePermissionsAsync (RoleVisibility.For(Platform,null)
@@ -38,7 +38,7 @@ public sealed class IamRoleResolutionTests
         JOIN iam.Roles r ON a.RoleId = r.Id
         JOIN iam.RolePermissions p ON p.RoleId = r.Id
         WHERE a.AdminUserId = @u
-          AND r.Status = 0 AND r.Scope = 0 AND r.MerchantId IS NULL;
+          AND r.Status = 1 AND r.Scope = 1 AND r.MerchantId IS NULL;
         """;
 
     [Fact]
@@ -53,8 +53,8 @@ public sealed class IamRoleResolutionTests
         try
         {
             // One Active custom role (payment.redirect) + one Inactive one (payment.create), both this merchant's own.
-            await InsertMerchRole(admin, activeRole, "res_a_" + activeRole.ToString("N")[..6], status: 0, merchant);
-            await InsertMerchRole(admin, inactiveRole, "res_i_" + inactiveRole.ToString("N")[..6], status: 1, merchant);
+            await InsertMerchRole(admin, activeRole, "res_a_" + activeRole.ToString("N")[..6], status: 1, merchant);
+            await InsertMerchRole(admin, inactiveRole, "res_i_" + inactiveRole.ToString("N")[..6], status: 2, merchant);
             await Grant(admin, activeRole, "payment.redirect");
             await Grant(admin, inactiveRole, "payment.create");
             await InsertMerchAssignment(admin, user, activeRole, merchant);
@@ -80,13 +80,13 @@ public sealed class IamRoleResolutionTests
 
         try
         {
-            await InsertMerchRole(admin, role, "rev_" + role.ToString("N")[..6], status: 0, merchant);
+            await InsertMerchRole(admin, role, "rev_" + role.ToString("N")[..6], status: 1, merchant);
             await Grant(admin, role, "payment.create");
             await InsertMerchAssignment(admin, user, role, merchant);
             Assert.Equal(new[] { "payment.create" }, await Effective(admin, MerchEffectiveSql, user, merchant));
 
             // No cache: deactivating the role removes it from the very next resolution (REQ-4.4).
-            await IntegrationDb.ExecAsync(admin, "UPDATE iam.Roles SET Status=1 WHERE Id=@id", ("@id", role));
+            await IntegrationDb.ExecAsync(admin, "UPDATE iam.Roles SET Status=2 WHERE Id=@id", ("@id", role));
             Assert.Empty(await Effective(admin, MerchEffectiveSql, user, merchant));
         }
         finally
@@ -105,7 +105,7 @@ public sealed class IamRoleResolutionTests
         try
         {
             // Role owned by Merchant B, but an assignment row (bypassing validation) says the user is in Merchant A.
-            await InsertMerchRole(admin, role, "did_" + role.ToString("N")[..6], status: 0, IntegrationDb.MerchantB);
+            await InsertMerchRole(admin, role, "did_" + role.ToString("N")[..6], status: 1, IntegrationDb.MerchantB);
             await Grant(admin, role, "payment.create");
             await InsertMerchAssignment(admin, user, role, IntegrationDb.MerchantA);
 
@@ -128,7 +128,7 @@ public sealed class IamRoleResolutionTests
 
         try
         {
-            await InsertMerchRole(admin, roleA, code, status: 0, IntegrationDb.MerchantA);
+            await InsertMerchRole(admin, roleA, code, status: 1, IntegrationDb.MerchantA);
 
             // The merchant-side visible set (RoleVisibility.For(Merchant, m) = Scope=Merchant AND MerchantId IN
             // {NULL, m}) — REQ-3.6. B does not see A's custom role; A does; both see the shared seeds.
@@ -167,12 +167,12 @@ public sealed class IamRoleResolutionTests
 
         try
         {
-            // Orthogonality (REQ-8.2/8.3): a SCOPED-tier admin (Tier=0) holding platform_admin still resolves the
+            // Orthogonality (REQ-8.2/8.3): a SCOPED-tier admin (Tier=1) holding platform_admin still resolves the
             // full 14-key Platform action set after policy permissions retired — action comes
             // from the role, not the Tier. (Its narrow VISIBILITY under fn_merchant_predicate is the separate
             // axis, covered by RlsIsolationTests.)
             await IntegrationDb.InsertPlatformUserAsync(admin, user, "orth-" + user.ToString("N")[..8],
-                user.ToString("N")[..8] + "@example.com", tier: 0, status: 0);
+                user.ToString("N")[..8] + "@example.com", tier: 1, status: 1);
             await InsertAdminAssignment(admin, user, platformAdminId);
             Assert.Equal(14, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
@@ -194,15 +194,15 @@ public sealed class IamRoleResolutionTests
         {
             // A SUPER user with no role assignment has zero effective permissions — no Super-bypass (REQ-8.3).
             await IntegrationDb.InsertPlatformUserAsync(admin, superNoRole, "sup-" + superNoRole.ToString("N")[..8],
-                superNoRole.ToString("N")[..8] + "@example.com", tier: 1, status: 0);
+                superNoRole.ToString("N")[..8] + "@example.com", tier: 2, status: 1);
             Assert.Empty(await Effective(admin, AdminEffectiveSql, superNoRole, Guid.Empty));
 
             // And even if a Merchant-scope role were assigned via admin.RoleAssignments (a bypassed write), the
-            // Platform resolution's Scope=0 filter drops it — the platform side can never resolve a merchant role
+            // Platform resolution's Scope=1 filter drops it — the platform side can never resolve a merchant role
             // (REQ-3.4 floor).
             await IntegrationDb.InsertPlatformUserAsync(admin, adminWithMerchRole, "amr-" + adminWithMerchRole.ToString("N")[..8],
-                adminWithMerchRole.ToString("N")[..8] + "@example.com", tier: 1, status: 0);
-            await InsertMerchRole(admin, merchRole, "amr_" + merchRole.ToString("N")[..6], status: 0, merchantId: null);
+                adminWithMerchRole.ToString("N")[..8] + "@example.com", tier: 2, status: 1);
+            await InsertMerchRole(admin, merchRole, "amr_" + merchRole.ToString("N")[..6], status: 1, merchantId: null);
             await Grant(admin, merchRole, "payment.create");
             await InsertAdminAssignment(admin, adminWithMerchRole, merchRole);
             Assert.Empty(await Effective(admin, AdminEffectiveSql, adminWithMerchRole, Guid.Empty));
@@ -228,13 +228,13 @@ public sealed class IamRoleResolutionTests
             """
             SELECT COUNT(*) FROM admin.RoleAssignments a
             JOIN iam.Roles r ON a.RoleId = r.Id
-            WHERE r.Scope <> 0;
+            WHERE r.Scope <> 1;
             """)));
         Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(admin,
             """
             SELECT COUNT(*) FROM merch.RoleAssignments a
             JOIN iam.Roles r ON a.RoleId = r.Id
-            WHERE r.Scope <> 1 OR (r.MerchantId IS NOT NULL AND r.MerchantId <> a.MerchantId);
+            WHERE r.Scope <> 2 OR (r.MerchantId IS NOT NULL AND r.MerchantId <> a.MerchantId);
             """)));
     }
 
@@ -248,11 +248,11 @@ public sealed class IamRoleResolutionTests
         {
             // Bootstrap resolves the seed anchor BY CODE through the Platform visible set (REQ-8.1), then assigns.
             var roleId = (Guid)(await IntegrationDb.ScalarAsync(admin,
-                "SELECT Id FROM iam.Roles WHERE Code=@c AND Scope=0 AND MerchantId IS NULL",
+                "SELECT Id FROM iam.Roles WHERE Code=@c AND Scope=1 AND MerchantId IS NULL",
                 ("@c", Role.PlatformAdminCode)))!;
 
             await IntegrationDb.InsertPlatformUserAsync(admin, user, "boot-" + user.ToString("N")[..8],
-                user.ToString("N")[..8] + "@example.com", tier: 1, status: 0);
+                user.ToString("N")[..8] + "@example.com", tier: 2, status: 1);
             await InsertAdminAssignment(admin, user, roleId);
 
             // Idempotent: the unique (AdminUserId, RoleId) index rejects a second bind of the same role — the
@@ -272,7 +272,7 @@ public sealed class IamRoleResolutionTests
 
     private static Task InsertMerchRole(SqlConnection c, Guid id, string code, int status, Guid? merchantId) =>
         IntegrationDb.ExecAsync(c,
-            "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'probe', @s, 1, @m)",
+            "INSERT iam.Roles (Id, Code, Name, Status, Scope, MerchantId) VALUES (@id, @c, N'probe', @s, 2, @m)",
             ("@id", id), ("@c", code), ("@s", status), ("@m", (object?)merchantId ?? DBNull.Value));
 
     private static Task Grant(SqlConnection c, Guid roleId, string key) =>
@@ -314,7 +314,7 @@ public sealed class IamRoleResolutionTests
     {
         var set = new HashSet<string>(StringComparer.Ordinal);
         await using var cmd = c.CreateCommand();
-        cmd.CommandText = "SELECT Code FROM iam.Roles WHERE Scope=1 AND (MerchantId IS NULL OR MerchantId=@m)";
+        cmd.CommandText = "SELECT Code FROM iam.Roles WHERE Scope=2 AND (MerchantId IS NULL OR MerchantId=@m)";
         cmd.Parameters.AddWithValue("@m", merchant);
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())

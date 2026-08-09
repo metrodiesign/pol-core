@@ -33,7 +33,7 @@ dotnet ef database update --context PolDbContext \
 scripts/check-migration-lineage.sh
 ```
 
-Chain must be `InitialSchema -> SecurityObjects -> SeedData`. Fresh seed includes IAM/cfg and one synthetic disabled
+Chain must be `InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage`. Fresh seed includes IAM/cfg and one synthetic disabled
 merchant/PSP only. No standalone demo seed script.
 
 ## 4. Run API

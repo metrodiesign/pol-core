@@ -22,7 +22,7 @@ public sealed class RegistrationAttempt : Entity<Guid>
 
     public string LastName { get; private set; } = default!;
 
-    public IdentityType? IdentityType { get; private set; }
+    public IdentityType IdentityType { get; private set; }
 
     public string? IdentityNumber { get; private set; }
 
@@ -43,10 +43,12 @@ public sealed class RegistrationAttempt : Entity<Guid>
     private RegistrationAttempt() { }
 
     private RegistrationAttempt(Guid id, Guid merchantUserId, int attemptNo, TicketPurpose purpose,
-        string firstName, string lastName, IdentityType? personType, string? idNumber, string? saleCode,
+        string firstName, string lastName, IdentityType personType, string? idNumber, string? saleCode,
         string? licenseNumber, string? phone, string email, string? photoObjectKey, string? photoContentType,
         DateTime submittedAt) : base(id)
     {
+        if (personType is not IdentityType.Individual and not IdentityType.Juristic)
+            throw new ArgumentOutOfRangeException(nameof(personType), personType, "Unknown identity type.");
         UserId = merchantUserId;
         AttemptNo = attemptNo;
         Purpose = purpose;

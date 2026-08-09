@@ -38,7 +38,7 @@ Commerce flow: `Products -> Carts -> Orders -> Payments`. No Checkouts project. 
 ## Persistence
 
 `PolDbContext` owns migrations only. Runtime contexts are ControlPlane, MerchantUsers and MerchantRuntime. Fresh migration
-folder contains exactly InitialSchema, SecurityObjects, SeedData plus snapshot. EF configuration remains colocated with
+folder contains InitialSchema, SecurityObjects, SeedData, OneBasedPersistedEnumStorage plus snapshot. EF configuration remains colocated with
 module Infrastructure or runtime persistence adapter according to ownership.
 
 ## API

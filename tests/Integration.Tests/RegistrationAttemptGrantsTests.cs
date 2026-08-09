@@ -17,8 +17,8 @@ public sealed class RegistrationAttemptGrantsTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT merch.Users
-                (Id, Subject, Email, Status, CreatedAt, DisplayName, FirstName, LastName)
-            VALUES (@id, @subject, N'attempt@example.com', 0, SYSUTCDATETIME(), N'First Last', N'First', N'Last');
+                (Id, Subject, Email, Status, IdentityType, CreatedAt, DisplayName, FirstName, LastName)
+            VALUES (@id, @subject, N'attempt@example.com', 1, 1, SYSUTCDATETIME(), N'First Last', N'First', N'Last');
             """,
             ("@id", userId), ("@subject", subject));
 
@@ -26,8 +26,8 @@ public sealed class RegistrationAttemptGrantsTests
         IntegrationDb.ExecAsync(c,
             """
             INSERT merch.RegistrationAttempts
-                (Id, UserId, AttemptNo, Purpose, FirstName, LastName, Email, SubmittedAt)
-            VALUES (@id, @userId, @no, 0, N'First', N'Last', N'attempt@example.com', SYSUTCDATETIME());
+                (Id, UserId, AttemptNo, Purpose, FirstName, LastName, IdentityType, Email, SubmittedAt)
+            VALUES (@id, @userId, @no, 1, N'First', N'Last', 1, N'attempt@example.com', SYSUTCDATETIME());
             """,
             ("@id", attemptId), ("@userId", userId), ("@no", attemptNo));
 

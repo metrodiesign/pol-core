@@ -1,4 +1,4 @@
--- SQL Server 2025 fresh-baseline verification. Run after InitialSchema -> SecurityObjects -> SeedData.
+-- SQL Server 2025 fresh-baseline verification. Run after InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage.
 -- sqlcmd -S <server> -U sa -P <pw> -C -b -v DbName=VCentralPay -i assert-fresh-db.sql
 SET NOCOUNT ON;
 USE [$(DbName)];
@@ -25,9 +25,10 @@ IF (SELECT COUNT(*) FROM sys.schemas s
 IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
     WHERE MigrationId LIKE N'%[_]InitialSchema'
        OR MigrationId LIKE N'%[_]SecurityObjects'
-       OR MigrationId LIKE N'%[_]SeedData') <> 3
-   OR (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 3
-    SET @fail += N'migration history must contain exactly InitialSchema, SecurityObjects, SeedData; ';
+       OR MigrationId LIKE N'%[_]SeedData'
+       OR MigrationId LIKE N'%[_]OneBasedPersistedEnumStorage') <> 4
+   OR (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 4
+    SET @fail += N'migration history must contain exactly InitialSchema, SecurityObjects, SeedData, OneBasedPersistedEnumStorage; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -106,9 +107,9 @@ IF (SELECT COUNT(*) FROM iam.Roles) <> 4
     SET @fail += N'iam.Roles expected 4 rows; ';
 IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 25
     SET @fail += N'iam.RolePermissions expected 25 rows; ';
-IF EXISTS (SELECT 1 FROM iam.PermissionGroups WHERE Status <> 0)
-   OR EXISTS (SELECT 1 FROM iam.Permissions WHERE Status <> 0)
-   OR EXISTS (SELECT 1 FROM iam.Roles WHERE Status <> 0)
+IF EXISTS (SELECT 1 FROM iam.PermissionGroups WHERE Status <> 1)
+   OR EXISTS (SELECT 1 FROM iam.Permissions WHERE Status <> 1)
+   OR EXISTS (SELECT 1 FROM iam.Roles WHERE Status <> 1)
     SET @fail += N'IAM bootstrap rows must be Active; ';
 
 IF (SELECT COUNT(*) FROM cfg.Positions) <> 12
@@ -116,10 +117,10 @@ IF (SELECT COUNT(*) FROM cfg.Positions) <> 12
    OR (SELECT COUNT(*) FROM cfg.Levels) <> 10
    OR (SELECT COUNT(*) FROM cfg.Divisions) <> 10
     SET @fail += N'cfg master-data seed counts mismatch; ';
-IF EXISTS (SELECT 1 FROM cfg.Positions WHERE Status <> 0)
-   OR EXISTS (SELECT 1 FROM cfg.Offices WHERE Status <> 0)
-   OR EXISTS (SELECT 1 FROM cfg.Levels WHERE Status <> 0)
-   OR EXISTS (SELECT 1 FROM cfg.Divisions WHERE Status <> 0)
+IF EXISTS (SELECT 1 FROM cfg.Positions WHERE Status <> 1)
+   OR EXISTS (SELECT 1 FROM cfg.Offices WHERE Status <> 1)
+   OR EXISTS (SELECT 1 FROM cfg.Levels WHERE Status <> 1)
+   OR EXISTS (SELECT 1 FROM cfg.Divisions WHERE Status <> 1)
     SET @fail += N'cfg master-data rows must be Active; ';
 
 IF (SELECT COUNT(*) FROM merch.Merchants WHERE Id = 'e1000000-0000-4000-8000-000000000001') <> 1

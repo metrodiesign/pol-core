@@ -14,9 +14,9 @@ namespace Integration.Tests;
 [Trait("Category", "Integration")]
 public sealed class AdminIsolationIntegrationTests
 {
-    private const int Super = 1;
-    private const int Scoped = 0;
-    private const int Active = 0;
+    private const int Super = 2;
+    private const int Scoped = 1;
+    private const int Active = 1;
 
     private static int AsInt(object? o) => (int)o!;
     private static string UniqueSubject() => "g-" + Guid.NewGuid().ToString("N")[..16];

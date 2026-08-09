@@ -195,6 +195,7 @@ Migration chain ปัจจุบัน:
 1. `20260807042818_InitialSchema`
 2. `20260807042828_SecurityObjects`
 3. `20260807042833_SeedData`
+4. `20260808161508_OneBasedPersistedEnumStorage`
 
 ไม่มี SQL RLS; merchant isolation ใช้ app query filter และ guarded write.
 

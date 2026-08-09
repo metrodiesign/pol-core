@@ -16,7 +16,7 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
     public void Configure(EntityTypeBuilder<Role> builder)
     {
         builder.ToTable("Roles", SchemaNames.Iam, t => t.HasCheckConstraint(
-            "CK_Roles_ScopeMerchant", "([Scope] = 0 AND [MerchantId] IS NULL) OR [Scope] = 1"));
+            "CK_Roles_ScopeMerchant", "([Scope] = 1 AND [MerchantId] IS NULL) OR [Scope] = 2"));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(x => x.Name).HasMaxLength(128).IsRequired();

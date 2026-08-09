@@ -9,9 +9,9 @@ namespace Payments.Domain;
 /// </summary>
 public enum SessionStatus
 {
-    Created = 0,
-    Redirected = 1,
-    Paid = 2,
-    Failed = 3,
-    Expired = 4,
+    Created = 1,
+    Redirected = 2,
+    Paid = 3,
+    Failed = 4,
+    Expired = 5,
 }

@@ -13,7 +13,7 @@ namespace Integration.Tests;
 [Trait("Category", "Integration")]
 public sealed class AdminAccountManagementIntegrationTests
 {
-    private const int Active = 0, Revoked = 2;
+    private const int Active = 1, Revoked = 3;
 
     private static Task InsertSessionAsync(SqlConnection c, Guid id, Guid familyId, Guid adminId, int status, DateTime issuedAt) =>
         IntegrationDb.ExecAsync(c,

@@ -5,6 +5,6 @@ namespace Admins.Domain.Users;
 /// (<see cref="MerchantAccess"/>).</summary>
 public enum Tier
 {
-    Scoped = 0,
-    Super = 1,
+    Scoped = 1,
+    Super = 2,
 }

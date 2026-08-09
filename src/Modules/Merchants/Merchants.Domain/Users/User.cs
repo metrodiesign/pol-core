@@ -34,7 +34,7 @@ public sealed class User : AggregateRoot<Guid>
     // Registrant detail fields. FirstName/LastName are required (they compose DisplayName); the rest optional.
     public string FirstName { get; private set; } = default!;
     public string LastName { get; private set; } = default!;
-    public IdentityType? IdentityType { get; private set; }
+    public IdentityType IdentityType { get; private set; }
     public string? IdentityNumber { get; private set; }
 
     /// <summary>The upstream sale code this account sells under — the same field the VCentralPay search
@@ -89,11 +89,13 @@ public sealed class User : AggregateRoot<Guid>
     /// live at this edge rather than at use time: <c>SqlParameter.Size = 20</c> truncates a longer value with no
     /// error, and a non-ASCII character is lost to <c>varchar</c>, so an unchecked value would silently search
     /// under somebody else's code (products-external-source-of-truth REQ-4.10, design decision #8).</summary>
-    public void SetDetails(string firstName, string lastName, IdentityType? personType,
+    public void SetDetails(string firstName, string lastName, IdentityType personType,
         string? idNumber, string? saleCode, string? licenseNumber, string? phone)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
         ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
+        if (personType is not IdentityType.Individual and not IdentityType.Juristic)
+            throw new ArgumentOutOfRangeException(nameof(personType), personType, "Unknown identity type.");
         FirstName = firstName.Trim();
         LastName = lastName.Trim();
         DisplayName = ComposeDisplayName(FirstName, LastName);

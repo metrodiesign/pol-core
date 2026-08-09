@@ -6,13 +6,13 @@ using Merchants.Domain.Users;
 
 namespace Merchants.Application.Users;
 
-/// <summary>The registration form fields (REQ-7.1). FirstName/LastName are required (they compose the DisplayName);
-/// the remaining merchant-user detail fields are optional (format validation deferred — open question in the spec).
-/// Identity (subject/email/hd) is NEVER taken from here — it comes only from the verified ticket (REQ-4.2).</summary>
+/// <summary>The registration form fields (REQ-7.1). FirstName/LastName/IdentityType are required; the remaining
+/// merchant-user detail fields are optional. Identity (subject/email/hd) is NEVER taken from here — it comes only
+/// from the verified ticket (REQ-4.2).</summary>
 public sealed record RegistrationForm(
     string FirstName,
     string LastName,
-    IdentityType? IdentityType = null,
+    IdentityType IdentityType,
     string? IdentityNumber = null,
     string? SaleCode = null,
     string? LicenseNumber = null,

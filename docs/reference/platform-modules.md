@@ -53,7 +53,7 @@ role ต้องมี owner.
 สี่โมดูลมี shape เดียวกัน:
 
 - aggregate มี `Code`, `Name`, `Status`
-- `Status` เป็น enum `Active=0`, `Inactive=1`
+- `Status` เป็น enum `Active=1`, `Inactive=2`
 - `Code` immutable, unique, regex `^[a-z0-9_]+$`
 - PUT เปลี่ยนชื่อและ status; DELETE เป็น soft-deactivate
 - store อยู่ `Persistence.ControlPlane`; migration owner คือ `PolDbContext`
@@ -153,6 +153,7 @@ Schemas:
 1. `20260807042818_InitialSchema`
 2. `20260807042828_SecurityObjects`
 3. `20260807042833_SeedData`
+4. `20260808161508_OneBasedPersistedEnumStorage`
 
 ไม่มี SQL RLS. Isolation floor อยู่ app layer: query filters, actor binding, tenant-key validation และ guarded
 write. Intentional cross-merchant probe ใช้ explicit `IgnoreQueryFilters()` ที่มี test/allowlist รองรับ.

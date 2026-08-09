@@ -15,10 +15,10 @@ namespace Api.Merchants;
 /// <summary>The 201 body for a submitted registration.</summary>
 public sealed record UserRegisterResponse(Guid UserId, string Status);
 
-/// <summary>Maps the posted multipart fields onto a <see cref="RegistrationForm"/> (REQ-7.1). Identity fields are
-/// NOT read here — they come only from the verified ticket (REQ-4.2). Blank fields normalise to null (empty string
-/// for the required first/last name, caught by the host's required-field check); an unknown personType normalises to
-/// null (no hard failure on an optional field). DisplayName is not a form field — the domain computes it.</summary>
+/// <summary>Maps the posted multipart fields onto a <see cref="RegistrationForm"/> (REQ-7.1). Verified identity
+/// fields (subject/email/hosted domain) come only from the ticket; personType is a required form field. Blank fields
+/// normalise to null (empty string for required first/last name, caught by the host's required-field check).
+/// DisplayName is not a form field — the domain computes it.</summary>
 internal static class UserRegistrationForm
 {
     public static RegistrationForm From(IFormCollection form) => new(
@@ -36,8 +36,13 @@ internal static class UserRegistrationForm
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
-    private static IdentityType? ParsePersonType(string? value) =>
-        Enum.TryParse<IdentityType>(value, ignoreCase: true, out var personType) ? personType : null;
+    private static IdentityType ParsePersonType(string? value)
+    {
+        if (!Enum.TryParse<IdentityType>(value, ignoreCase: true, out var personType)
+            || personType is not IdentityType.Individual and not IdentityType.Juristic)
+            throw new ArgumentException("personType is required and must be Individual or Juristic.", nameof(value));
+        return personType;
+    }
 }
 
 /// <summary>Merchant-user registration tuning (REQ-3.2/7.4). TTL default 10 min, photo cap default 2 MB.</summary>

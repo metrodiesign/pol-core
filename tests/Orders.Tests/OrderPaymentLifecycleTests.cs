@@ -33,12 +33,12 @@ public sealed class OrderPaymentLifecycleTests
     [Fact]
     public void OrderStatus_values_match_approved_persistence_contract()
     {
-        Assert.Equal(0, (int)OrderStatus.Pending);
-        Assert.Equal(1, (int)OrderStatus.Paid);
-        Assert.Equal(2, (int)OrderStatus.Failed);
-        Assert.Equal(3, (int)OrderStatus.Expired);
-        Assert.Equal(4, (int)OrderStatus.Refunded);
-        Assert.Equal(5, (int)OrderStatus.Cancelled);
+        Assert.Equal(1, (int)OrderStatus.Pending);
+        Assert.Equal(2, (int)OrderStatus.Paid);
+        Assert.Equal(3, (int)OrderStatus.Failed);
+        Assert.Equal(4, (int)OrderStatus.Expired);
+        Assert.Equal(5, (int)OrderStatus.Refunded);
+        Assert.Equal(6, (int)OrderStatus.Cancelled);
         Assert.Equal(6, Enum.GetNames<OrderStatus>().Length);
     }
 

@@ -191,7 +191,7 @@ public sealed class SubmitRegistrationHandlerTests
     private static User RejectedUserWithKyc(string key)
     {
         var user = User.Register("g-sub-1", "p@org.com", Now);
-        user.SetDetails("Old", "Name", null, null, null, null, null);
+        user.SetDetails("Old", "Name", IdentityType.Individual, null, null, null, null);
         user.SetKycPhoto(key);
         user.Reject(Now);
         return user;
@@ -202,7 +202,7 @@ public sealed class SubmitRegistrationHandlerTests
     {
         var ctx = new Ctx();
         var existing = User.Register("g-sub-1", "p@org.com", Now);
-        existing.SetDetails("Old", "Name", null, null, null, null, null);
+        existing.SetDetails("Old", "Name", IdentityType.Individual, null, null, null, null);
         existing.Reject(Now);                            // PendingApproval -> Rejected
         ctx.Users.Seed(existing);
 
@@ -225,7 +225,7 @@ public sealed class SubmitRegistrationHandlerTests
     {
         var ctx = new Ctx();
         var active = User.Register("g-sub-1", "p@org.com", Now);
-        active.SetDetails("Name", "User", null, null, null, null, null);
+        active.SetDetails("Name", "User", IdentityType.Individual, null, null, null, null);
         active.Approve(Guid.NewGuid(), Now); // -> Active
         ctx.Users.Seed(active);
 
@@ -272,7 +272,7 @@ public sealed class SubmitRegistrationHandlerTests
     {
         var ctx = new Ctx();
         var existing = User.Register("g-sub-1", "p@org.com", Now);
-        existing.SetDetails("Old", "Name", null, null, null, null, null);
+        existing.SetDetails("Old", "Name", IdentityType.Individual, null, null, null, null);
         ctx.Users.Seed(existing);
         // Attempt 1 already captured by the original registration.
         ctx.Attempts.Add(RegistrationAttempt.Capture(existing, 1, TicketPurpose.Registration, "p@org.com", Now));
@@ -312,7 +312,7 @@ public sealed class SubmitRegistrationHandlerTests
         Email: "p@org.com",
         HostedDomain: "org.com",
         Purpose: TicketPurpose.Registration,
-        Form: new RegistrationForm(firstName, lastName),
+        Form: new RegistrationForm(firstName, lastName, IdentityType.Individual),
         PhotoBytes: null,
         PhotoContentType: null,
         CorrelationId: "corr-1");

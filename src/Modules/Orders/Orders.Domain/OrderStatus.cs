@@ -5,10 +5,10 @@ namespace Orders.Domain;
 /// to <see cref="Cancelled"/> when abandoned. Transitions are one-way out of a terminal state.</summary>
 public enum OrderStatus
 {
-    Pending = 0,
-    Paid = 1,
-    Failed = 2,
-    Expired = 3,
-    Refunded = 4,
-    Cancelled = 5,
+    Pending = 1,
+    Paid = 2,
+    Failed = 3,
+    Expired = 4,
+    Refunded = 5,
+    Cancelled = 6,
 }
