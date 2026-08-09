@@ -20,6 +20,8 @@ Products อ่านจาก upstream แบบ live. ไม่มี `shop.Pr
 ```mermaid
 erDiagram
     MERCHANTS ||--o{ MERCHANT_USERS : owns
+    MERCHANTS ||--o{ VAULT_SECRETS : scopes
+    MERCHANTS ||--o{ VAULT_REVEAL_AUDITS : scopes
     MERCHANTS ||--o{ CARTS : scopes
     CARTS ||--o{ CART_ITEMS : contains
     MERCHANTS ||--o{ ORDERS : scopes
@@ -32,6 +34,8 @@ erDiagram
 
 เส้น `CARTS → ORDERS` เป็น business transition ใน `OrderCreationCoordinator`; ไม่มี Checkout aggregate คั่นกลาง.
 ความสัมพันธ์ข้าม context ที่ใช้ authorization หรือ event ไม่ได้หมายความว่ามี physical FK ทุกเส้น.
+ความสัมพันธ์ `MERCHANTS → VAULT_SECRETS` และ `MERCHANTS → VAULT_REVEAL_AUDITS` เป็น logical scope ผ่าน
+`MerchantId`; ไม่มี physical FK หรือ cascade delete.
 
 ## Schema inventory
 

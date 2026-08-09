@@ -139,6 +139,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
         Assert.Equal(1, await mr.Merchants.IgnoreQueryFilters().CountAsync(m => m.Id == result.MerchantId));
         Assert.Equal(1, await mr.PspConnections.IgnoreQueryFilters().CountAsync(c => c.MerchantId == result.MerchantId));
         Assert.Equal(1, await mr.VaultSecrets.IgnoreQueryFilters().CountAsync(v => v.MerchantId == result.MerchantId));
+        Assert.Equal(0, await mr.VaultRevealAudits.IgnoreQueryFilters().CountAsync(a => a.MerchantId == result.MerchantId));
         Assert.Equal(1, await mr.ProvisioningAudits.IgnoreQueryFilters().CountAsync(a => a.MerchantId == result.MerchantId));
 
         await using var cp = ControlPlaneFactory(connection);
