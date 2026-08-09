@@ -72,6 +72,8 @@ public sealed class AdminLoginServiceTests
         var session = Assert.Single(store.Added);
         Assert.Equal(AdminId, session.AdminUserId);
         Assert.Equal(SessionStatus.Active, session.Status);
+        Assert.Equal(Now.AddHours(24), session.IdleExpiresAt);
+        Assert.Equal(Now.AddDays(7), session.AbsoluteExpiresAt);
         Assert.Equal(1, store.SaveCount);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.AdminUserId == AdminId);
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);

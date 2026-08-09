@@ -58,6 +58,8 @@ public sealed class MerchantUserSessionCookieTests
         Assert.Contains("httponly", session, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("samesite=lax", session, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("path=/", session, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("expires=", session, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("max-age=", session, StringComparison.OrdinalIgnoreCase);
 
         var csrf = CsrfSetCookie(http);
         Assert.Contains("mch_csrf=csrf-token", csrf, StringComparison.Ordinal);

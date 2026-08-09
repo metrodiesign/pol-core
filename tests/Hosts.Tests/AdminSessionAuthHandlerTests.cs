@@ -27,7 +27,7 @@ public sealed class AdminSessionAuthHandlerTests
     private static readonly DateTime T0 = new(2026, 6, 24, 8, 0, 0, DateTimeKind.Utc);
     private static readonly Guid AdminId = Guid.Parse("a1111111-1111-1111-1111-111111111111");
     private static readonly SessionPolicy Policy =
-        new(TimeSpan.FromMinutes(30), TimeSpan.FromHours(8), TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60));
+        new(TimeSpan.FromHours(24), TimeSpan.FromDays(7), TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(60));
 
     private static ByIdResult Resolved =>
         ByIdResult.Of(new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All), "google-sub-1");
@@ -111,7 +111,7 @@ public sealed class AdminSessionAuthHandlerTests
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
-        var (handler, _, _, scope, http) = await Make(T0.AddMinutes(31), Resolved, token, session); // past idle (30m)
+        var (handler, _, _, scope, http) = await Make(T0.AddHours(24).AddMinutes(1), Resolved, token, session);
 
         var result = await handler.AuthenticateAsync();
 

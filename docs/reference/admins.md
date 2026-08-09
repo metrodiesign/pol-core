@@ -44,7 +44,7 @@ Flow login:
 
 | Cookie | อ่านจาก JS ได้ | อายุ/พฤติกรรม |
 |---|---|---|
-| `__Host-adm_session` (dev-http: `adm_session`) | **ไม่** (HttpOnly) | opaque 256-bit; server เก็บแค่ SHA-256 hash; idle 30m, absolute 8h |
+| `__Host-adm_session` (dev-http: `adm_session`) | **ไม่** (HttpOnly) | opaque 256-bit; server เก็บแค่ SHA-256 hash; idle 24h, absolute 7d |
 | `adm_csrf` | ได้ (ไม่ HttpOnly) | คู่กับ session; ใช้ทำ double-submit (ดูล่าง) |
 
 - **Rotation:** server หมุน session cookie ให้เองเป็นระยะ (ทุก ~15m) ผ่าน `Set-Cookie` ใน response ปกติ —

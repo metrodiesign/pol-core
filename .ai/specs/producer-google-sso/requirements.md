@@ -151,7 +151,7 @@ Google API access / offline refresh token; Google RP-initiated logout; step-up M
 - 10.1 WHEN — and ONLY when — the resolved TenantUser is `Active` THE SYSTEM SHALL create a server-side session record holding an opaque-id **hash**, the TenantUser id, a `FamilyId`, issued-at, idle-expiry, absolute-expiry, and `Status = Active` (the raw id is never persisted).
 - 10.2 THE SYSTEM SHALL set the session cookie `HttpOnly`, `Secure`, `Path=/`, `__Host-` prefix, `SameSite=Lax` same-site (`None; Secure` cross-site, REQ-13.4), value an opaque random token with no identity encoded; the cookie name SHALL be distinct from the Admin session cookie (REQ-14.4).
 - 10.3 WHERE the environment is Development over plain http THE SYSTEM SHALL be permitted to omit `Secure`/`__Host-` for localhost only, and SHALL NOT relax them outside Development.
-- 10.4 THE SYSTEM SHALL expire a session at a configurable idle timeout (default 30 min) OR absolute lifetime (default 8 h), whichever first, sliding idle forward (bounded by absolute) on each served request, independent of the id_token lifetime.
+- 10.4 THE SYSTEM SHALL expire a session at a configurable idle timeout (default 24 h) OR absolute lifetime (default 7 days), whichever first, sliding idle forward (bounded by absolute) on each served request, independent of the id_token lifetime. (amended by `extended-login-session-lifetime`, 2026-08-09)
 
 ## REQ-11: Session rotation + reuse / theft detection
 **User Story:** As a security reviewer, I want rotating session ids with reuse detection, so that a stolen cookie is detected and the whole session family is killed.
