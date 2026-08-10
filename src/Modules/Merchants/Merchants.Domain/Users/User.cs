@@ -83,6 +83,16 @@ public sealed class User : AggregateRoot<Guid>
         return new User(Guid.NewGuid(), subject.Trim(), email.Trim(), now);
     }
 
+    /// <summary>Registers an invited applicant already bound to the invitation's merchant.</summary>
+    public static User RegisterInvited(string subject, string email, Guid merchantId, DateTime now)
+    {
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
+        var user = Register(subject, email, now);
+        user.MerchantId = merchantId;
+        return user;
+    }
+
     /// <summary>Sets/overwrites the registrant detail fields from the (corrected) registration form.
     /// DisplayName is recomputed from the required first/last name. <paramref name="saleCode"/> is validated
     /// against the upstream contract here — this is the ONLY way a value reaches the field, and the check must
@@ -101,6 +111,19 @@ public sealed class User : AggregateRoot<Guid>
         DisplayName = ComposeDisplayName(FirstName, LastName);
         IdentityType = personType;
         IdentityNumber = Trim(idNumber);
+        SaleCode = ValidSaleCode(Trim(saleCode));
+        LicenseNumber = Trim(licenseNumber);
+        Phone = Trim(phone);
+    }
+
+    /// <summary>Updates only manager-editable profile fields; identity and lifecycle fields stay immutable.</summary>
+    public void UpdateProfile(string firstName, string lastName, string? saleCode, string? licenseNumber, string? phone)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(firstName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(lastName);
+        FirstName = firstName.Trim();
+        LastName = lastName.Trim();
+        DisplayName = ComposeDisplayName(FirstName, LastName);
         SaleCode = ValidSaleCode(Trim(saleCode));
         LicenseNumber = Trim(licenseNumber);
         Phone = Trim(phone);
@@ -193,5 +216,12 @@ public sealed class User : AggregateRoot<Guid>
         if (Status != UserStatus.Active)
             throw new InvalidOperationException($"Cannot suspend an account in status {Status}; it must be Active.");
         Status = UserStatus.Suspended;
+    }
+
+    public void Reactivate(DateTime now)
+    {
+        if (Status != UserStatus.Suspended)
+            throw new InvalidOperationException($"Cannot reactivate an account in status {Status}; it must be Suspended.");
+        Status = UserStatus.Active;
     }
 }

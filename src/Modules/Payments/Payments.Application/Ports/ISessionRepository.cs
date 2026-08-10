@@ -1,3 +1,4 @@
+using BuildingBlocks.Application;
 using Payments.Domain;
 using Payments.Domain.Psp;
 
@@ -13,6 +14,8 @@ public interface ISessionRepository
     void Add(Session session);
 
     Task<Session?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken);
+
+    Task<PagedResult<Session>> ListAsync(PagedQuery query, CancellationToken cancellationToken);
 
     /// <summary>Looks a session up by the (PSP, external charge id) pair the webhook path resolves on.</summary>
     Task<Session?> GetByExternalChargeAsync(Code psp, string externalChargeId, CancellationToken cancellationToken);

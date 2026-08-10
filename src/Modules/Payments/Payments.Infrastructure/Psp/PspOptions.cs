@@ -10,6 +10,9 @@ public sealed class PspOptions
 {
     public const string SectionName = "Psp";
 
+    /// <summary>Stable PSP code selected for customer payment links.</summary>
+    public string DefaultCode { get; set; } = "2c2p";
+
     /// <summary>When true, adapters target each PSP's sandbox/test surface. Default true (safe).</summary>
     public bool UseSandbox { get; set; } = true;
 

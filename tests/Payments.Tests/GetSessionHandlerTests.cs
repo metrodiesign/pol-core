@@ -42,4 +42,22 @@ public sealed class GetSessionHandlerTests
         Assert.Equal(SessionStatus.Redirected, view.Status);
         Assert.Equal("INV-1", view.PspExternalChargeId);
     }
+
+    [Fact]
+    public async Task Session_list_returns_paged_wire_projection()
+    {
+        var first = Session.Create(
+            MerchantId, OrderId, Money.Of(100m, "THB"), PaymentMethods.Card, Code.TwoCTwoP, Created);
+        var second = Session.Create(
+            MerchantId, Guid.NewGuid(), Money.Of(200m, "THB"), PaymentMethods.PromptPay, Code.TwoCTwoP, Created);
+        var handler = new ListSessionsHandler(new FakeSessionRepository(first, second));
+
+        var page = await handler.Handle(new ListSessionsQuery { Page = 2, Limit = 1 }, default);
+
+        Assert.Equal(2, page.Total);
+        Assert.Equal(2, page.Page);
+        var item = Assert.Single(page.Items);
+        Assert.Equal(second.Id, item.PaymentSessionId);
+        Assert.Equal(PaymentMethods.PromptPay, item.Method);
+    }
 }

@@ -44,11 +44,21 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         else
             _logger.LogWarning(exception, "Handled {ExceptionType} mapped to {Status}", exception.GetType().Name, status);
 
+        var problem = new ProblemDetails { Status = status, Title = title, Detail = detail };
+        var code = exception switch
+        {
+            ConflictException { Code: { } conflictCode } => conflictCode,
+            InvalidRequestException invalidRequest => invalidRequest.Code,
+            _ => null,
+        };
+        if (code is not null)
+            problem.Extensions["code"] = code;
+
         httpContext.Response.StatusCode = status;
         return await _problemDetails.TryWriteAsync(new ProblemDetailsContext
         {
             HttpContext = httpContext,
-            ProblemDetails = new ProblemDetails { Status = status, Title = title, Detail = detail },
+            ProblemDetails = problem,
         });
     }
 

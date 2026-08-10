@@ -27,6 +27,16 @@ public sealed class SfsQueryParserTests
         return ApiHost::Api.SfsQueryParser.Parse(new QueryCollection(store));
     }
 
+    private static (int Page, int Limit, IReadOnlyList<FilterOption> Filters,
+                    IReadOnlyList<SortOption> Sort, SearchOption? Search) ParseWithMax(
+        int maxLimit,
+        params (string Key, string Value)[] kv)
+    {
+        var store = new Dictionary<string, StringValues>();
+        foreach (var (key, value) in kv) store[key] = value;
+        return ApiHost::Api.SfsQueryParser.Parse(new QueryCollection(store), maxLimit);
+    }
+
     [Fact]
     public void Absent_parameters_fall_back_to_defaults()
     {
@@ -51,6 +61,15 @@ public sealed class SfsQueryParserTests
     public void Limit_is_clamped_into_1_to_25(string limit, int expected)
     {
         Assert.Equal(expected, Parse(("limit", limit)).Limit);
+    }
+
+    [Theory]
+    [InlineData("100", 100)]
+    [InlineData("101", 100)]
+    [InlineData("0", 1)]
+    public void Endpoint_can_raise_limit_cap_to_100(string limit, int expected)
+    {
+        Assert.Equal(expected, ParseWithMax(100, ("limit", limit)).Limit);
     }
 
     [Theory]

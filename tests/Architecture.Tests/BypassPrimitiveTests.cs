@@ -29,6 +29,7 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantAccountResolver.cs", // bugfix-merchant-prebind-wiring: pre-bind login-by-subject/by-id read (IAccountResolver, narrow projection)
         "src/Persistence/Persistence.MerchantUsers/Outbox/MerchantUserOutboxDrain.cs", // task 5 per-owner outbox drain (cross-owner lease scan)
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantAccountStore.cs", // bugfix-merchant-prebind-wiring: pre-bind tracked target load for registration/correction/approve/reject (IAccountStore) — read-filter bypass only, the write floor still authorizes every staged change
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantInvitationRepository.cs", // merchant real-API invitation flow: exact hash/id pre-bind reads only; caller rechecks pending/expiry/email before tenant binding
         "src/Persistence/Persistence.MerchantUsers/Users/MerchantUserSessionStore.cs", // task 8.5.2 mirror of the old Merchants.Infrastructure SessionStore (deleted)
         "src/Persistence/Persistence.MerchantUsers/MerchantRoleAssignmentCountReader.cs", // task 8.5.2 cross-merchant role-assignment count (mirrors IRoleAssignmentCounter)
         "src/Persistence/Persistence.MerchantUsers/MerchantRoleAssignmentReader.cs", // task 8.5.7 cross-context role-id read for HostMerchantRoleRepository (explicit merchantId param, not ambient state)

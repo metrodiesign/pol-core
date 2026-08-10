@@ -17,7 +17,7 @@ public enum Scope
 /// <c>iam.Permissions</c>/<c>iam.PermissionGroups</c> FROM this same vocabulary, and an integration test
 /// asserts the seeded rows equal <see cref="All"/> so code and DB never drift. The boot parity guard checks
 /// every gated key against <see cref="AllKeys"/> AND its <see cref="KeySide"/> against the endpoint's policy
-/// (REQ-5.1/5.4) without touching the database. 19 keys / 7 groups (REQ-8.15/8.16) — the old admin-only
+/// (REQ-5.1/5.4) without touching the database. 22 keys / 7 groups — the old admin-only
 /// <c>invoice.view</c>/<c>invoice.manage</c>/<c>settlement.run</c> (group <c>finance</c>) are dropped
 /// (REQ-2.2: ungated and colliding with the settlement/billing Non-Goals). Policy groups/keys were retired
 /// with their API/data surfaces. <c>product.create</c>/<c>product.update</c> (group <c>catalog</c>) were retired
@@ -52,8 +52,11 @@ public static class Keys
     public const string MerchantUserApprove = "merchants.users.approve";
     public const string MerchantUserReject = "merchants.users.reject";
     public const string MerchantUserView = "merchants.users.view";
+    public const string PaymentView = "payment.view";
     public const string PaymentCreate = "payment.create";
     public const string PaymentRedirect = "payment.redirect";
+    public const string UsersView = "users.view";
+    public const string UsersManage = "users.manage";
     public const string RolesView = "roles.view";
     public const string RolesManage = "roles.manage";
     // Distinct C# member from UserRoles above: same-looking literal families ("user.roles" vs "users.roles")
@@ -88,7 +91,8 @@ public static class Keys
         (AuditView, GroupSystem), (SettingsManage, GroupSystem), (ApiKeyManage, GroupSystem),
         (MerchantUserApprove, GroupMerchantUsers), (MerchantUserReject, GroupMerchantUsers),
         (MerchantUserView, GroupMerchantUsers),
-        (PaymentCreate, GroupPayment), (PaymentRedirect, GroupPayment),
+        (PaymentView, GroupPayment), (PaymentCreate, GroupPayment), (PaymentRedirect, GroupPayment),
+        (UsersView, GroupRoles), (UsersManage, GroupRoles),
         (RolesView, GroupRoles), (RolesManage, GroupRoles), (UsersRoles, GroupRoles),
     ];
 

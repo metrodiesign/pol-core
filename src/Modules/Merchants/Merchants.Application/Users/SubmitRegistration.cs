@@ -37,7 +37,8 @@ public sealed record SubmitRegistrationCommand(
     string Provider = ExternalLogin.Google,
     byte[]? KycPhotoBytes = null,
     string? KycPhotoContentType = null,
-    Guid KycOperationId = default) : ICommand<SubmitRegistrationResult>;
+    Guid KycOperationId = default,
+    Guid? InvitationId = null) : ICommand<SubmitRegistrationResult>;
 
 public sealed record SubmitRegistrationResult(Guid UserId, UserStatus Status);
 
@@ -59,6 +60,8 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
     private readonly IRegistrationOutboxWriter _outbox;
     private readonly IRegistrationUnitOfWork _unitOfWork;
     private readonly IPhotoStore _photos;
+    private readonly IInvitationRepository _invitations;
+    private readonly IManagementAuditWriter _managementAudits;
     private readonly IClock _clock;
 
     // IAccountStore, never IUserRepository: this endpoint is anonymous (ticket-gated) — no actor is bound, and
@@ -72,6 +75,8 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
         IRegistrationOutboxWriter outbox,
         IRegistrationUnitOfWork unitOfWork,
         IPhotoStore photos,
+        IInvitationRepository invitations,
+        IManagementAuditWriter managementAudits,
         IClock clock)
     {
         _accounts = accounts;
@@ -81,7 +86,37 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
         _outbox = outbox;
         _unitOfWork = unitOfWork;
         _photos = photos;
+        _invitations = invitations;
+        _managementAudits = managementAudits;
         _clock = clock;
+    }
+
+    public SubmitRegistrationHandler(
+        IAccountStore accounts,
+        IExternalLoginRepository logins,
+        IRegistrationAuditWriter audits,
+        IRegistrationAttemptWriter attempts,
+        IRegistrationOutboxWriter outbox,
+        IRegistrationUnitOfWork unitOfWork,
+        IPhotoStore photos,
+        IClock clock)
+        : this(accounts, logins, audits, attempts, outbox, unitOfWork, photos,
+            NoInvitationRepository.Instance, NoManagementAuditWriter.Instance, clock) { }
+
+    private sealed class NoInvitationRepository : IInvitationRepository
+    {
+        public static readonly NoInvitationRepository Instance = new();
+        public Task<MerchantUserInvitation?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult<MerchantUserInvitation?>(null);
+        public Task<MerchantUserInvitation?> FindPendingByNormalizedEmailAsync(string email, CancellationToken ct) => Task.FromResult<MerchantUserInvitation?>(null);
+        public Task<MerchantUserInvitation?> FindByTokenHashUnfilteredAsync(string hash, CancellationToken ct) => Task.FromResult<MerchantUserInvitation?>(null);
+        public Task<MerchantUserInvitation?> FindByIdUnfilteredAsync(Guid id, CancellationToken ct) => Task.FromResult<MerchantUserInvitation?>(null);
+        public void Add(MerchantUserInvitation invitation) => throw new NotSupportedException();
+    }
+
+    private sealed class NoManagementAuditWriter : IManagementAuditWriter
+    {
+        public static readonly NoManagementAuditWriter Instance = new();
+        public void Append(MerchantUserManagementAudit audit) { }
     }
 
     public async ValueTask<SubmitRegistrationResult> Handle(
@@ -121,9 +156,38 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                     // wire ticket is stateless; a duplicate subject (a replayed still-valid token or a concurrent second
                     // tab) violates the unique (Subject)/(Provider,Subject) index and the unit of work turns it into a
                     // 409 (REQ-4.6/S9).
-                    account = User.Register(command.Subject, command.Email, now);
+                    if (await _accounts.FindBySubjectAsync(command.Subject, ct) is not null)
+                        throw new ConflictException(
+                            "A registration already exists for this identity.", "already-registered");
+
+                    MerchantUserInvitation? invitation = null;
+                    if (command.InvitationId is { } invitationId)
+                    {
+                        invitation = await _invitations.FindByIdUnfilteredAsync(invitationId, ct)
+                            ?? throw new InvalidRequestException(
+                                "The invitation is invalid or expired.", "invitation-invalid");
+                        if (invitation.AcceptedAt is not null)
+                            throw new ConflictException(
+                                "The invitation has already been used.", "invitation-used");
+                        if (!invitation.IsPending(now)
+                            || !string.Equals(invitation.NormalizedEmail,
+                                MerchantUserInvitation.NormalizeEmail(command.Email), StringComparison.Ordinal))
+                            throw new InvalidRequestException(
+                                "The invitation is invalid or expired.", "invitation-invalid");
+                    }
+
+                    account = invitation is null
+                        ? User.Register(command.Subject, command.Email, now)
+                        : User.RegisterInvited(command.Subject, command.Email, invitation.MerchantId, now);
                     _accounts.Add(account);
                     _logins.Add(ExternalLogin.Create(command.Subject, account.Id, command.Provider));
+                    if (invitation is not null)
+                    {
+                        invitation.Accept(account.Id, command.Email, now);
+                        _managementAudits.Append(MerchantUserManagementAudit.For(
+                            invitation.MerchantId, null, account.Id, invitation.Id,
+                            MerchantUserManagementAudit.Actions.InviteAccept, command.CorrelationId, now));
+                    }
                     action = RegistrationAuditAction.Registered;
                 }
                 else
@@ -164,7 +228,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 return new SubmitRegistrationResult(account.Id, UserStatus.PendingApproval);
             }, cancellationToken);
         }
-        catch
+        catch (Exception exception)
         {
             // Only discard a key THIS call staged fresh. A retry that resolved to an already-staged (or already
             // committed) key from a different attempt must never delete it — that attempt may have already
@@ -183,6 +247,15 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 }
             }
 
+            if (command.InvitationId is not null && exception is ConcurrencyConflictException)
+                throw new ConflictException(
+                    "The invitation was consumed concurrently.", "invitation-used", exception);
+            if (command.InvitationId is not null && exception is ConflictException { Code: null })
+                throw new ConflictException(
+                    "The invitation was consumed concurrently.", "invitation-used", exception);
+            if (command.InvitationId is null && exception is ConflictException { Code: null })
+                throw new ConflictException(
+                    "A registration already exists for this identity.", "already-registered", exception);
             throw;
         }
     }

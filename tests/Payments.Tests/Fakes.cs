@@ -217,6 +217,13 @@ internal sealed class FakeSessionRepository : ISessionRepository
     public Task<Session?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
         Task.FromResult(_sessions.FirstOrDefault(s => s.Id == paymentSessionId));
 
+    public Task<PagedResult<Session>> ListAsync(PagedQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult(new PagedResult<Session>(
+            _sessions.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList(),
+            query.Page,
+            query.Limit,
+            _sessions.Count));
+
     public Task<Session?> GetByExternalChargeAsync(Code psp, string externalChargeId, CancellationToken cancellationToken) =>
         Task.FromResult(_sessions.FirstOrDefault(s => s.Psp == psp && s.PspExternalChargeId == externalChargeId));
 

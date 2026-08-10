@@ -89,6 +89,8 @@ public sealed class SfsOpenApiTests
     [Theory]
     [InlineData("/api/v1/admins/roles")]
     [InlineData("/api/v1/admins")]
+    [InlineData("/api/v1/orders")]
+    [InlineData("/api/v1/payments/sessions")]
     public async Task An_sfs_endpoint_declares_the_sfs_query_parameters(string path)
     {
         var names = await QueryParameterNamesAsync(path);
@@ -98,6 +100,70 @@ public sealed class SfsOpenApiTests
         Assert.Contains("filters", names);
         Assert.Contains("sort", names);
         Assert.Contains("search", names);
+    }
+
+    [Fact]
+    public async Task Money_product_and_checkout_schemas_publish_real_wire_contracts()
+    {
+        var root = await OpenApiAsync();
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+
+        var money = schemas.GetProperty("Money");
+        Assert.Equal("object", money.GetProperty("type").GetString());
+        var amount = money.GetProperty("properties").GetProperty("amount");
+        Assert.Equal("string", amount.GetProperty("type").GetString());
+        Assert.Equal(@"^\d+\.\d{4}$", amount.GetProperty("pattern").GetString());
+        Assert.Equal("string", money.GetProperty("properties").GetProperty("currency").GetProperty("type").GetString());
+
+        var product = schemas.GetProperty("ProductListItem").GetProperty("properties");
+        Assert.True(product.TryGetProperty("productCode", out _));
+        Assert.True(product.TryGetProperty("variantCode", out _));
+
+        var productSchema = schemas.GetProperty("ProductListItem");
+        var productRequired = productSchema.GetProperty("required").EnumerateArray()
+            .Select(x => x.GetString()).ToHashSet();
+        Assert.Contains("productCode", productRequired);
+        Assert.Contains("variantCode", productRequired);
+        Assert.Equal("string", product.GetProperty("productCode").GetProperty("type").GetString());
+        Assert.Equal("string", product.GetProperty("variantCode").GetProperty("type").GetString());
+
+        foreach (var paged in schemas.EnumerateObject().Where(x => x.Name.StartsWith("PagedResultOf", StringComparison.Ordinal)))
+        {
+            var required = paged.Value.GetProperty("required").EnumerateArray()
+                .Select(x => x.GetString()).ToHashSet();
+            Assert.Contains("totalPages", required);
+            Assert.Equal("integer", paged.Value.GetProperty("properties")
+                .GetProperty("totalPages").GetProperty("type").GetString());
+        }
+
+        var checkout = schemas.GetProperty("CreateOrderFromCartRequest").GetProperty("properties");
+        Assert.True(checkout.TryGetProperty("paymentMethod", out _));
+        Assert.False(checkout.TryGetProperty("amount", out _));
+    }
+
+    [Fact]
+    public async Task Registration_multipart_schema_uses_producerCode_and_requires_photo()
+    {
+        var root = await OpenApiAsync();
+        var operation = root.GetProperty("paths").GetProperty("/api/v1/merchants/users/register").GetProperty("post");
+        var schema = operation.GetProperty("requestBody").GetProperty("content")
+            .GetProperty("multipart/form-data").GetProperty("schema");
+        var reference = schema.GetProperty("$ref").GetString()!;
+        var name = reference[(reference.LastIndexOf('/') + 1)..];
+        var request = root.GetProperty("components").GetProperty("schemas").GetProperty(name);
+        var properties = request.GetProperty("properties");
+        var required = request.GetProperty("required").EnumerateArray().Select(x => x.GetString()).ToHashSet();
+
+        Assert.True(properties.TryGetProperty("producerCode", out _));
+        Assert.False(properties.TryGetProperty("saleCode", out _));
+        Assert.True(properties.TryGetProperty("photo", out var photo));
+        var photoReference = photo.GetProperty("$ref").GetString()!;
+        var photoSchema = root.GetProperty("components").GetProperty("schemas")
+            .GetProperty(photoReference[(photoReference.LastIndexOf('/') + 1)..]);
+        Assert.Equal("string", photoSchema.GetProperty("type").GetString());
+        Assert.Equal("binary", photoSchema.GetProperty("format").GetString());
+        Assert.Contains("producerCode", required);
+        Assert.Contains("photo", required);
     }
 
     // REQ-7.4: the document list left the SFS surface — it declares page/limit/productFilters and must not
@@ -140,6 +206,10 @@ public sealed class SfsOpenApiTests
                 .GetProperty("application/json").GetProperty("schema").GetProperty("$ref").GetString());
         foreach (var status in new[] { "400", "403", "404", "409", "503" })
             Assert.True(createOrder.GetProperty("responses").TryGetProperty(status, out _), status);
+
+        var createOrderProperties = schemas.GetProperty("CreateOrderFromCartRequest").GetProperty("properties");
+        Assert.True(createOrderProperties.TryGetProperty("paymentMethod", out _));
+        Assert.False(createOrderProperties.TryGetProperty("amount", out _));
 
         Assert.DoesNotContain(paths.EnumerateObject(), path =>
             path.Name.Contains("checkout", StringComparison.OrdinalIgnoreCase)

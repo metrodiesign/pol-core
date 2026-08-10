@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using ApiHost::Api;
 using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
@@ -203,6 +204,46 @@ public sealed class MerchantUserSessionAuthHandlerTests
 
         Assert.NotNull(result.Failure); // REQ-12.4: suspension takes effect within one request
         Assert.False(scope.IsBound);
+    }
+
+    [Theory]
+    [InlineData(UserStatus.PendingApproval, "awaiting-approval")]
+    [InlineData(UserStatus.Rejected, "rejected")]
+    [InlineData(UserStatus.Suspended, "suspended")]
+    public async Task A_known_live_session_for_an_inactive_account_challenges_with_a_safe_403_code(
+        UserStatus status, string code)
+    {
+        var token = UserTokens.NewOpaqueToken();
+        var session = Session.Start(UserId, UserTokens.Hash(token), T0, Policy);
+        var inactive = ByIdResult.Inactive(status, MerchantId, "google-sub-1");
+        var (handler, _, _, scope, http) = await Make(T0.AddSeconds(30), inactive, token, session);
+        http.Response.Body = new MemoryStream();
+
+        Assert.NotNull((await handler.AuthenticateAsync()).Failure);
+        await handler.ChallengeAsync(new AuthenticationProperties());
+
+        Assert.Equal(StatusCodes.Status403Forbidden, http.Response.StatusCode);
+        Assert.Equal("application/problem+json", http.Response.ContentType);
+        http.Response.Body.Position = 0;
+        var body = await JsonDocument.ParseAsync(http.Response.Body);
+        Assert.Equal(code, body.RootElement.GetProperty("code").GetString());
+        Assert.False(scope.IsBound);
+    }
+
+    [Fact]
+    public async Task An_unknown_session_challenge_stays_401_without_a_lifecycle_code()
+    {
+        var token = UserTokens.NewOpaqueToken();
+        var (handler, store, _, _, http) = await Make(T0, Resolved, token);
+        store.Seeded = null;
+        http.Response.Body = new MemoryStream();
+
+        Assert.NotNull((await handler.AuthenticateAsync()).Failure);
+        await handler.ChallengeAsync(new AuthenticationProperties());
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, http.Response.StatusCode);
+        http.Response.Body.Position = 0;
+        Assert.DoesNotContain("\"code\"", await new StreamReader(http.Response.Body).ReadToEndAsync());
     }
 
     // --- harness ---

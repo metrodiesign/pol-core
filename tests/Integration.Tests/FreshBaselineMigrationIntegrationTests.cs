@@ -24,7 +24,7 @@ public sealed class FreshBaselineMigrationIntegrationTests
 
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
             {
-                Assert.Equal(4, Convert.ToInt32(await IntegrationDb.ScalarAsync(
+                Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(
                     connection, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
                 Assert.Equal("json", await IntegrationDb.ScalarAsync(connection, """
                     SELECT ty.name FROM sys.columns c

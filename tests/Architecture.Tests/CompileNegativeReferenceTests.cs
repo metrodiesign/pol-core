@@ -20,7 +20,7 @@ public sealed class CompileNegativeReferenceTests
             "ForbiddenControlPlaneReference", "Bad.csproj");
         Assert.True(File.Exists(fixturePath), $"Fixture project not found at {fixturePath}");
 
-        var psi = new ProcessStartInfo("dotnet", $"build \"{fixturePath}\" --nologo")
+        var psi = new ProcessStartInfo("dotnet", $"build \"{fixturePath}\" --nologo --disable-build-servers")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -29,7 +29,7 @@ public sealed class CompileNegativeReferenceTests
         using var process = Process.Start(psi)!;
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        process.WaitForExit();
         var stdout = await stdoutTask;
         var stderr = await stderrTask;
 

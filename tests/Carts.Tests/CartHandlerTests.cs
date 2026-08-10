@@ -4,6 +4,7 @@ using CartAggregate = Carts.Domain.Cart;
 
 namespace Carts.Tests;
 
+/// <summary>Merchant real API REQ-5.10/6.1/6.5/6.6/6.7/6.8/6.21: authoritative cart state.</summary>
 public sealed class CartHandlerTests
 {
     private static readonly DateTime Now = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
@@ -57,6 +58,8 @@ public sealed class CartHandlerTests
         Assert.Equal(Money.Of(600m, "THB"), line.LineTotal);
         Assert.Equal(CommerceItemMetadataCodec.Serialize(Metadata), line.Metadata);
         Assert.Equal(Money.Of(600m, "THB"), result.Subtotal);
+        Assert.Single(result.Items);
+        Assert.Equal(line.Id, result.Items[0].ItemId);
         Assert.Equal(1, uow.SaveCount);
     }
 

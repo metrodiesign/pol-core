@@ -16,15 +16,8 @@ namespace Hosts.Tests;
 // REQ-10.4's specific worry) is caught at test time rather than in production. Supersedes the old narrower
 // MerchantUserWritePermissionsTests (3 of the 7 merchant-user sites only).
 //
-// 26 gate SITES in source (REQ-4.5: merchant-user 8 + admin 18 — the policy-reference-record write/read pairs
-// from tasks 5/6, minus the retired POST /products, plus registration-attempt-history's admin registration
-// history read) map to more than 26 physical ROUTES at runtime
-// because the reference master-data CRUD (positions/offices/levels/divisions, standalone areas since
-// 2026-07-20) instantiates the SAME generic MapMasterCrud<TStore, TItem> body four times, now 5 verbs each
-// (List/Get/Create/Update/Deactivate). This inventory pins one representative segment ("positions") for that
-// generic body — the other three segments are the identical generic instantiation, not independent gate sites
-// — landing back on exactly 26 pinned endpoints (8 + 18). PermissionParityTests.RealGateSites is the
-// source-level completeness check (14 distinct (key, policy) pairs covering all call sites incl. duplicates).
+// Pins every physical route carrying RequiredPermission metadata. The completeness test compares this inventory
+// with EndpointDataSource, so adding, retiring, or changing a gated route cannot leave this table stale.
 
 file sealed class GateFactory : WebApplicationFactory<ApiHost::Program>
 {
@@ -51,8 +44,36 @@ public sealed class PermissionGateSitesTests
     private static readonly Site[] Sites =
     [
         // --- merchant-user ---
+        new("GET", "/api/v1/products", "merchant-user", "payment.view"),
+        new("POST", "/api/v1/carts", "merchant-user", "payment.create"),
+        new("GET", "/api/v1/carts/{cartId:guid}", "merchant-user", "payment.view"),
+        new("POST", "/api/v1/carts/{cartId:guid}/items", "merchant-user", "payment.create"),
+        new("PUT", "/api/v1/carts/{cartId:guid}/items/{itemId:guid}", "merchant-user", "payment.create"),
+        new("DELETE", "/api/v1/carts/{cartId:guid}/items/{itemId:guid}", "merchant-user", "payment.create"),
+        new("POST", "/api/v1/carts/{cartId:guid}/clear", "merchant-user", "payment.create"),
         new("POST", "/api/v1/payments/sessions", "merchant-user", "payment.create"),
+        new("GET", "/api/v1/payments/sessions", "merchant-user", "payment.view"),
+        new("GET", "/api/v1/payments/sessions/{paymentSessionId:guid}", "merchant-user", "payment.view"),
         new("POST", "/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "merchant-user", "payment.redirect"),
+        new("POST", "/api/v1/orders", "merchant-user", "payment.create"),
+        new("GET", "/api/v1/orders", "merchant-user", "payment.view"),
+        new("GET", "/api/v1/orders/{orderId:guid}", "merchant-user", "payment.view"),
+        new("POST", "/api/v1/orders/{orderId:guid}/cancel", "merchant-user", "payment.create"),
+        new("POST", "/api/v1/orders/{orderId:guid}/summary/resend", "merchant-user", "payment.create"),
+        new("GET", "/api/v1/reports/reconciliation", "merchant-user", "payment.view"),
+        new("GET", "/api/v1/merchants/users/", "merchant-user", "users.view"),
+        new("GET", "/api/v1/merchants/users/{merchantUserId:guid}", "merchant-user", "users.view"),
+        new("GET", "/api/v1/merchants/users/{merchantUserId:guid}/edit", "merchant-user", "users.manage"),
+        new("PUT", "/api/v1/merchants/users/{merchantUserId:guid}", "merchant-user", "users.manage"),
+        new("POST", "/api/v1/merchants/users/invitations", "merchant-user", "users.manage"),
+        new("DELETE", "/api/v1/merchants/users/invitations/{invitationId:guid}", "merchant-user", "users.manage"),
+        new("POST", "/api/v1/merchants/users/{merchantUserId:guid}/approve", "merchant-user", "users.manage"),
+        new("POST", "/api/v1/merchants/users/{merchantUserId:guid}/reject", "merchant-user", "users.manage"),
+        new("POST", "/api/v1/merchants/users/{merchantUserId:guid}/suspend", "merchant-user", "users.manage"),
+        new("POST", "/api/v1/merchants/users/{merchantUserId:guid}/reactivate", "merchant-user", "users.manage"),
+        new("GET", "/api/v1/merchants/users/permissions", "merchant-user", "roles.view"),
+        new("GET", "/api/v1/merchants/users/roles", "merchant-user", "roles.view"),
+        new("GET", "/api/v1/merchants/users/roles/{code}", "merchant-user", "roles.view"),
         new("POST", "/api/v1/merchants/users/roles", "merchant-user", "roles.manage"),
         new("PUT", "/api/v1/merchants/users/roles/{code}", "merchant-user", "roles.manage"),
         new("DELETE", "/api/v1/merchants/users/roles/{code}", "merchant-user", "roles.manage"),
@@ -71,35 +92,62 @@ public sealed class PermissionGateSitesTests
         new("POST", "/api/v1/positions", "admin", "user.manage"),
         new("PUT", "/api/v1/positions/{id:guid}", "admin", "user.manage"),
         new("DELETE", "/api/v1/positions/{id:guid}", "admin", "user.manage"),
+        new("GET", "/api/v1/offices", "admin", "user.manage"),
+        new("GET", "/api/v1/offices/{id:guid}", "admin", "user.manage"),
+        new("POST", "/api/v1/offices", "admin", "user.manage"),
+        new("PUT", "/api/v1/offices/{id:guid}", "admin", "user.manage"),
+        new("DELETE", "/api/v1/offices/{id:guid}", "admin", "user.manage"),
+        new("GET", "/api/v1/levels", "admin", "user.manage"),
+        new("GET", "/api/v1/levels/{id:guid}", "admin", "user.manage"),
+        new("POST", "/api/v1/levels", "admin", "user.manage"),
+        new("PUT", "/api/v1/levels/{id:guid}", "admin", "user.manage"),
+        new("DELETE", "/api/v1/levels/{id:guid}", "admin", "user.manage"),
+        new("GET", "/api/v1/divisions", "admin", "user.manage"),
+        new("GET", "/api/v1/divisions/{id:guid}", "admin", "user.manage"),
+        new("POST", "/api/v1/divisions", "admin", "user.manage"),
+        new("PUT", "/api/v1/divisions/{id:guid}", "admin", "user.manage"),
+        new("DELETE", "/api/v1/divisions/{id:guid}", "admin", "user.manage"),
         new("POST", "/api/v1/admins/roles", "admin", "user.roles"),
         new("PUT", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
         new("DELETE", "/api/v1/admins/roles/{code}", "admin", "user.roles"),
         new("PUT", "/api/v1/admins/{id:guid}/roles", "admin", "user.roles"),
     ];
 
-    public static IEnumerable<object[]> SiteCases() => Sites.Select(s => new object[] { s });
-
-    [Theory]
-    [MemberData(nameof(SiteCases))]
-    public void Gate_site_carries_the_expected_key_and_policy(Site site)
+    [Fact]
+    public void Every_active_gate_site_is_pinned_with_expected_policy_and_key()
     {
         using var factory = new GateFactory();
-        using var _ = factory.CreateClient(); // force full startup so the endpoints are mapped
+        using var _ = factory.CreateClient();
 
-        var endpoint = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+        var expected = Sites.Select(s => (s.Method, s.Route, s.Policy, s.Key)).ToHashSet();
+        var actual = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
-            .Single(e => e.RoutePattern.RawText == site.Route
-                && (e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains(site.Method) ?? false));
+            .SelectMany(endpoint => endpoint.Metadata.OfType<ApiHost::Api.Iam.RequiredPermission>()
+                .SelectMany(required => (endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods
+                    ?? Array.Empty<string>())
+                    .Select(method => (
+                        Method: method,
+                        Route: endpoint.RoutePattern.RawText!,
+                        Policy: endpoint.Metadata.OfType<IAuthorizeData>()
+                            .Select(a => a.Policy).Last(p => !string.IsNullOrEmpty(p))!,
+                        Key: required.Permission))))
+            .ToHashSet();
 
-        var policy = endpoint.Metadata.OfType<IAuthorizeData>().Select(a => a.Policy).LastOrDefault(p => !string.IsNullOrEmpty(p));
-        Assert.Equal(site.Policy, policy);
+        var missing = actual.Except(expected)
+            .OrderBy(s => s.Route, StringComparer.Ordinal)
+            .ThenBy(s => s.Method, StringComparer.Ordinal)
+            .Select(s => $"{s.Method} {s.Route} -> {s.Policy}/{s.Key}");
+        var retired = expected.Except(actual)
+            .OrderBy(s => s.Route, StringComparer.Ordinal)
+            .ThenBy(s => s.Method, StringComparer.Ordinal)
+            .Select(s => $"{s.Method} {s.Route} -> {s.Policy}/{s.Key}");
 
-        var required = Assert.Single(endpoint.Metadata.OfType<ApiHost::Api.Iam.RequiredPermission>());
-        Assert.Equal(site.Key, required.Permission);
+        Assert.True(actual.SetEquals(expected),
+            $"Missing:\n{string.Join('\n', missing)}\nRetired:\n{string.Join('\n', retired)}");
     }
 
     [Fact]
-    public void Exactly_22_active_gate_sites_are_pinned() => Assert.Equal(22, Sites.Length);
+    public void Exactly_65_active_gate_sites_are_pinned() => Assert.Equal(65, Sites.Length);
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

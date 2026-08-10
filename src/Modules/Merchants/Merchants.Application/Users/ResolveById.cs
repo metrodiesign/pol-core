@@ -19,10 +19,14 @@ public sealed record ResolveByIdQuery(Guid UserId) : IQuery<ByIdResult>;
 
 public enum ByIdOutcome { Resolved, NotActive, NotFound }
 
-public sealed record ByIdResult(ByIdOutcome Outcome, Resolution? Resolution, string? Subject)
+public sealed record ByIdResult(
+    ByIdOutcome Outcome, Resolution? Resolution, string? Subject,
+    UserStatus? Status = null, Guid? MerchantId = null)
 {
     public static readonly ByIdResult NotFound = new(ByIdOutcome.NotFound, null, null);
     public static readonly ByIdResult NotActive = new(ByIdOutcome.NotActive, null, null);
+    public static ByIdResult Inactive(UserStatus status, Guid? merchantId, string subject) =>
+        new(ByIdOutcome.NotActive, null, subject, status, merchantId);
     public static ByIdResult Of(Resolution resolution, string subject) =>
         new(ByIdOutcome.Resolved, resolution, subject);
 }
@@ -48,9 +52,9 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
         // Only an Active account with MerchantId set gets a live request; a suspend/reject denies the NEXT request
         // (REQ-12.4) without waiting for cookie expiry — sessions exist only for Active accounts (REQ-10.1).
         if (account.Status != UserStatus.Active)
-            return ByIdResult.NotActive;
+            return ByIdResult.Inactive(account.Status, account.MerchantId, account.Subject);
         if (account.MerchantId is not { } merchantId)
-            return ByIdResult.NotActive;
+            return ByIdResult.Inactive(account.Status, null, account.Subject);
         var permissions = await _roles.ListEffectivePermissionsAsync(account.UserId, merchantId, cancellationToken);
         return ByIdResult.Of(
             new Resolution(account.UserId, account.Email, merchantId, permissions, account.SaleCode),

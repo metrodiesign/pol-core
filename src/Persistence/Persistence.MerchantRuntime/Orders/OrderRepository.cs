@@ -1,5 +1,8 @@
+using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Application;
 using Orders.Domain;
 
@@ -14,8 +17,16 @@ namespace Persistence.MerchantRuntime.Orders;
 internal sealed class OrderRepository : IOrderRepository, IOrderStore
 {
     private readonly MerchantRuntimeDbContext _db;
+    private readonly ILogger<OrderRepository> _logger;
 
-    public OrderRepository(MerchantRuntimeDbContext db) => _db = db;
+    public OrderRepository(MerchantRuntimeDbContext db, ILogger<OrderRepository> logger)
+    {
+        _db = db;
+        _logger = logger;
+    }
+
+    internal OrderRepository(MerchantRuntimeDbContext db)
+        : this(db, NullLogger<OrderRepository>.Instance) { }
 
     public Task<Order?> GetAsync(Guid orderId, CancellationToken cancellationToken) =>
         PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
@@ -47,13 +58,30 @@ internal sealed class OrderRepository : IOrderRepository, IOrderStore
             .Select(g => new OrderStatusTotal(g.Key.Status, g.Key.Currency, g.Count(), g.Sum(o => o.Amount.Amount)))
             .ToListAsync(ct), cancellationToken);
 
-    public async Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken) =>
-        await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
+    public async Task<PagedResult<Order>> ListAsync(
+        Guid merchantId,
+        PagedQuery query,
+        CancellationToken cancellationToken)
+    {
+        var source = _db.Set<Order>()
+            .AsNoTracking()
             .Where(o => o.MerchantId == merchantId)
-            .Where(o => orderNo == null || o.OrderNo == orderNo)
-            .Include(o => o.Items)
-            .OrderByDescending(o => o.CreatedAt)
-            .ToListAsync(ct), cancellationToken);
+            .ApplyFilters(query.Filters, _logger);
+
+        var total = await PlatformReadGuard.ReadAsync(
+            ct => source.LongCountAsync(ct), cancellationToken).ConfigureAwait(false);
+        var skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);
+        var items = await PlatformReadGuard.ReadAsync(ct => source
+                .ApplySort(query.Sort, _logger)
+                .Skip(skip)
+                .Take(query.Limit)
+                .Include(o => o.Items)
+                .AsSplitQuery()
+                .ToListAsync(ct), cancellationToken)
+            .ConfigureAwait(false);
+
+        return new PagedResult<Order>(items, query.Page, query.Limit, total);
+    }
 
     public void Add(Order order) => _db.Set<Order>().Add(order);
 }

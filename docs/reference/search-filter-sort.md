@@ -11,7 +11,7 @@ Parser อยู่ที่ `src/Hosts/Api/SfsQueryParser.cs` และแป�
 | Parameter | รูปแบบ | กฎ |
 |---|---|---|
 | `page` | integer | default `1`, clamp เป็นอย่างน้อย 1 และไม่เกิน offset ceiling |
-| `limit` | integer | default `25`, clamp ช่วง `1..25` |
+| `limit` | integer | default `25`, clamp ตาม endpoint cap; ค่าเริ่มต้นของ parser คือ `25` |
 | `filters` | JSON array ของ `FilterOption` | สูงสุด 50 clauses; values สูงสุด 200 ต่อ clause |
 | `sort` | JSON array ของ `SortOption` | สูงสุด 10 keys |
 | `search` | JSON object `SearchOption` | endpoint เป็นผู้กำหนด field whitelist |
@@ -74,15 +74,19 @@ dynamic. ค่า filter ถูก parse เป็น type ของ field แ�
 
 ### Merchant order list
 
-`GET /api/v1/orders` parse SFS แต่ใช้เฉพาะ `filters` field `orderNo` + operator `eq`. `page`, `limit`, `sort`
-และ `search` ไม่ถูกนำไปใช้กับ query นี้ใน current contract; field/operator อื่นถูกทิ้งตาม contract ที่ host
-ประกาศไว้.
+`GET /api/v1/orders` ใช้ `page`/`limit` สูงสุด `100`, filters `orderNo:eq/contains`, `status:eq/in`,
+`paymentChannel:eq/in` และ sort `createdAt`/`orderNo`. Default sort คือ `createdAt DESC, id ASC`.
 
 ตัวอย่าง:
 
 ```text
 GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD6900000001"}]
 ```
+
+### Merchant payment-session list
+
+`GET /api/v1/payments/sessions` ใช้ `page`/`limit` สูงสุด `100`, filters `status:eq/in`, `method:eq/in`,
+`psp:eq/in` และ sort `createdAt`/`updatedAt`. Default sort คือ `createdAt DESC, id ASC`.
 
 ### Master data
 
@@ -103,7 +107,7 @@ GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD69000
 - ห้ามเอา field หรือ SQL fragment จาก client ต่อ string เป็น SQL
 - escape `%`, `_` และ escape character เมื่อใช้ `LIKE`; helper อยู่ `BuildingBlocks.Application/SfsLike.cs`
 - จำกัดจำนวน filters, values และ sort keys ตาม parser
-- ทุก list route จำกัด `limit` ไม่เกิน 25
+- endpoint ทั่วไปจำกัด `limit` ไม่เกิน 25; Merchant order/payment-session/user list ประกาศ cap `100`
 - error response ไม่คืน SQL, connection string, merchant อื่น หรือ internal stack trace
 
 ## Current implementation map

@@ -1,11 +1,8 @@
 namespace Architecture.Tests;
 
 /// <summary>
-/// products-external-source-of-truth REQ-10.4 — the old <c>ProducerCode</c>/<c>producerCode</c> spelling is gone
-/// from live code, tests and the bootstrap/seed scripts. Two names for one thing is exactly what the rename set
-/// out to remove, and a leftover is not always a compile error: the wire spellings live in string literals
-/// (form keys, SQL column lists), which the repo's rename gate deliberately strips before matching and therefore
-/// cannot see. A plain text scan is the only thing that does.
+/// Core model/storage keeps <c>SaleCode</c>. Merchant registration deliberately uses canonical wire field
+/// <c>producerCode</c>; this gate confines that compatibility spelling to the registration HTTP/DTO boundary.
 /// <para>Applied migrations are excluded on purpose: a shipped migration is a frozen record of the schema as it
 /// stood, and the column really was called <c>ProducerCode</c> then — including the rename migration itself,
 /// which must name both spellings to do its job.</para>
@@ -14,19 +11,20 @@ public sealed class SaleCodeRenameCompletenessTests
 {
     private static readonly string[] Roots = ["src", "tests", "docker"];
 
-    /// <summary>The only files allowed to spell the retired name: the tests whose whole job is to prove it is
-    /// retired, which cannot do that without naming it. Each pins one half of the rename — the wire contract in
-    /// both directions (REQ-10.7) and the column rename that carries the data over (REQ-10.2). Nothing else
-    /// belongs here; a production file needing an exception means the rename is not finished.</summary>
+    /// <summary>Exact registration boundary plus tests that pin its wire name.</summary>
     private static readonly string[] Allowed =
     [
         "tests/Architecture.Tests/SaleCodeRenameCompletenessTests.cs",       // this ban itself
-        "tests/Hosts.Tests/UserRegistrationFormTests.cs",                    // the old form key binds nothing
-        "tests/Hosts.Tests/RegistrationHistoryEndpointTests.cs"              // the old JSON key is absent
+        "src/Hosts/Api/Program.cs",                                           // multipart/request DTO wire contract
+        "src/Hosts/Api/Merchants/UserRegistration.cs",                        // producerCode -> SaleCode mapper
+        "src/Modules/Merchants/Merchants.Application/Users/ManageMerchantUsers.cs", // manager edit wire DTO
+        "tests/Hosts.Tests/UserRegistrationFormTests.cs",                     // canonical key + legacy key rejection
+        "tests/Hosts.Tests/SfsOpenApiTests.cs",                               // published multipart schema
+        "tests/Hosts.Tests/RegistrationHistoryEndpointTests.cs"               // history stays saleCode
     ];
 
     [Fact]
-    public void No_file_outside_the_migration_history_still_says_ProducerCode()
+    public void ProducerCode_stays_confined_to_the_registration_wire_boundary()
     {
         var repoRoot = FindRepoRoot();
         var offenders = new List<string>();
@@ -45,8 +43,7 @@ public sealed class SaleCodeRenameCompletenessTests
             }
 
         Assert.True(offenders.Count == 0,
-            "The retired ProducerCode/producerCode spelling is still present — the field is called SaleCode "
-            + "everywhere now, on the wire and in the database (REQ-10.4). Offenders: "
+            "ProducerCode/producerCode escaped the approved registration wire boundary; core model/storage uses SaleCode. Offenders: "
             + string.Join(", ", offenders));
     }
 
@@ -63,7 +60,7 @@ public sealed class SaleCodeRenameCompletenessTests
             .ToList();
 
         Assert.True(stale.Count == 0,
-            "Allowlisted for naming the retired ProducerCode spelling, but no longer does — drop the entry. "
+            "Allowlisted for the registration producerCode boundary, but no longer names it — drop the entry. "
             + string.Join(", ", stale));
     }
 

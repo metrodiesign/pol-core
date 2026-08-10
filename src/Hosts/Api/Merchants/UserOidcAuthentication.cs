@@ -136,7 +136,9 @@ internal static class UserOidcAuthentication
                     principal?.FindFirst("hd")?.Value,
                     providerSlug,
                     context.Properties?.RedirectUri,
-                    context.HttpContext.RequestAborted);
+                    context.HttpContext.RequestAborted,
+                    context.Properties?.Items.TryGetValue("merchant_invitation_id", out var invitationId) == true
+                        && Guid.TryParse(invitationId, out var parsedInvitationId) ? parsedInvitationId : null);
                 context.HandleResponse();
             },
 

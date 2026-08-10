@@ -14,6 +14,7 @@ internal static class MerchantUserOutboxEventRegistry
         {
             [nameof(MerchantUserRegistrationSubmitted)] = typeof(MerchantUserRegistrationSubmitted),
             [nameof(KycPhotoLifecycleRequested)] = typeof(KycPhotoLifecycleRequested),
+            [nameof(MerchantUserInvitationDeliveryRequested)] = typeof(MerchantUserInvitationDeliveryRequested),
         };
 
     private static readonly JsonSerializerOptions Options = NewOptions();

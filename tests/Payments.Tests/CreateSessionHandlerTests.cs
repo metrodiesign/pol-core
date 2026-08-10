@@ -221,9 +221,10 @@ public sealed class CreateSessionHandlerTests
     {
         var harness = NewHarness(connections: []);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
             await harness.Handler.Handle(Command(), default));
 
+        Assert.Equal("psp-unavailable", ex.Code);
         AssertNothingWasPersisted(harness);
     }
 
@@ -232,9 +233,10 @@ public sealed class CreateSessionHandlerTests
     {
         var harness = NewHarness(connections: [Disabled(NewConnection())]);
 
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
             await harness.Handler.Handle(Command(), default));
 
+        Assert.Equal("psp-unavailable", ex.Code);
         Assert.Contains("disabled", ex.Message, StringComparison.Ordinal);
         AssertNothingWasPersisted(harness);
     }
@@ -244,9 +246,10 @@ public sealed class CreateSessionHandlerTests
     {
         var harness = NewHarness(connections: [NewConnection(enabledMethods: PaymentMethods.PromptPay)]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
             await harness.Handler.Handle(Command(PaymentMethods.Card), default));
 
+        Assert.Equal("psp-unavailable", ex.Code);
         AssertNothingWasPersisted(harness);
     }
 
@@ -261,9 +264,10 @@ public sealed class CreateSessionHandlerTests
             connections: [NewConnection(enabledMethods: "card,promptpay")],
             adapterMethods: [PaymentMethods.Card]);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        var ex = await Assert.ThrowsAsync<ConflictException>(async () =>
             await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
 
+        Assert.Equal("psp-unavailable", ex.Code);
         AssertNothingWasPersisted(harness);
     }
 

@@ -120,6 +120,15 @@ services:
       # redirects must be made absolute to each SPA's origin — same values as the CORS origins above.
       AdminSession__SpaBaseUrl: ${ADMIN_FRONTEND_ORIGIN}
       MerchantUser__Session__SpaBaseUrl: ${MERCHANT_USER_FRONTEND_ORIGIN}
+      MerchantUser__Session__DefaultReturnPath: /dashboard
+      MerchantUser__Session__ReturnUrlAllowlist__1: /dashboard
+      ForwardedHeaders__KnownNetworks__0: ${FORWARDED_HEADERS_KNOWN_NETWORK:?set trusted proxy CIDR in .env}
+      MerchantUser__Invitation__Smtp__Host: ${MERCHANT_INVITATION_SMTP_HOST:?set SMTP host in .env}
+      MerchantUser__Invitation__Smtp__Port: ${MERCHANT_INVITATION_SMTP_PORT:-587}
+      MerchantUser__Invitation__Smtp__EnableSsl: ${MERCHANT_INVITATION_SMTP_ENABLE_SSL:-true}
+      MerchantUser__Invitation__Smtp__FromAddress: ${MERCHANT_INVITATION_SMTP_FROM:?set SMTP from address in .env}
+      MerchantUser__Invitation__Smtp__Username: ${MERCHANT_INVITATION_SMTP_USERNAME:?set SMTP username in .env}
+      MerchantUser__Invitation__Smtp__PasswordFile: /run/secrets/merchant_invitation_smtp_password
       # Non-secret PSP operational config (Payments.Infrastructure/Psp/PspOptions.cs) — UseSandbox
       # defaults true (safe) so going live with real PSP credentials is an explicit .env opt-in. The
       # return URL/URI values are platform-wide redirect targets, required like the vars above: a
@@ -130,13 +139,14 @@ services:
       # docs/runbooks/deploy-self-host.md). The host also fails fast at boot when this is blank or not an
       # absolute http(s) URI, so it must be set before `up`.
       Psp__UseSandbox: ${PSP_USE_SANDBOX:-true}
+      Psp__DefaultCode: ${PSP_DEFAULT_CODE:-2c2p}
       Psp__PublicBaseUrl: ${PSP_PUBLIC_BASE_URL:?set PSP_PUBLIC_BASE_URL in .env}
       Psp__TwoCTwoP__FrontendReturnUrl: ${PSP_TWOCTWOP_FRONTEND_RETURN_URL:?set PSP_TWOCTWOP_FRONTEND_RETURN_URL in .env}
       Psp__Omise__ReturnUri: ${PSP_OMISE_RETURN_URI:?set PSP_OMISE_RETURN_URI in .env}
       # REQ-13.4: not a secret (Seq ingestion is same-network only, no public exposure) — the sink degrades
       # to log-only (never blocks a request) if Seq is unreachable, so this is safe to default.
       Seq__IngestionUrl: ${SEQ_INGESTION_URL:-http://seq:80}
-    secrets: [pol_app_password, hippo_app_password, mammoth_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, db_ca_cert]
+    secrets: [pol_app_password, hippo_app_password, mammoth_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, merchant_invitation_smtp_password, db_ca_cert]
     # Codex review #191: without this, KYC/registration photos are written into the container's writable
     # layer (the default PhotoStoreRootPath, /app/merchant-user-photos) and are lost on every recreate —
     # this survives that for the single-host self-host target this compose file serves. A horizontally
@@ -189,5 +199,7 @@ secrets:
     file: ./secrets/admin_entra_client_secret
   merchant_entra_client_secret:
     file: ./secrets/merchant_entra_client_secret
+  merchant_invitation_smtp_password:
+    file: ./secrets/merchant_invitation_smtp_password
   db_ca_cert:
     file: ./secrets/db_ca_cert

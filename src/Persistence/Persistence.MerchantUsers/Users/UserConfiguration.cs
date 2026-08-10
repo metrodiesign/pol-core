@@ -137,3 +137,46 @@ public sealed class RegistrationNoticeConfiguration : IEntityTypeConfiguration<R
         builder.HasIndex(x => x.UserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
     }
 }
+
+internal sealed class MerchantUserInvitationConfiguration(MerchantUserDbContext context)
+    : IEntityTypeConfiguration<MerchantUserInvitation>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserInvitation> builder)
+    {
+        builder.ToTable("MerchantUserInvitations", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        TenantKeyDescriptor.Require(builder.Metadata, nameof(MerchantUserInvitation.MerchantId));
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.TokenHash).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.ExpiresAt).IsRequired();
+        builder.Property(x => x.CreatedByUserId).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.RowVersion).IsRowVersion();
+        builder.HasIndex(x => x.TokenHash).IsUnique();
+        builder.HasIndex(x => new { x.MerchantId, x.NormalizedEmail }).IsUnique()
+            .HasFilter("[AcceptedAt] IS NULL AND [RevokedAt] IS NULL");
+    }
+}
+
+internal sealed class MerchantUserManagementAuditConfiguration(MerchantUserDbContext context)
+    : IEntityTypeConfiguration<MerchantUserManagementAudit>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserManagementAudit> builder)
+    {
+        builder.ToTable("MerchantUserManagementAudits", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        TenantKeyDescriptor.Require(builder.Metadata, nameof(MerchantUserManagementAudit.MerchantId));
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        builder.Property(x => x.Action).HasMaxLength(32).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.OccurredAt).IsRequired();
+        builder.HasIndex(x => new { x.MerchantId, x.OccurredAt });
+        builder.ToTable(table => table.HasCheckConstraint("CK_MerchantUserManagementAudits_Target",
+            "[TargetUserId] IS NOT NULL OR [InvitationId] IS NOT NULL"));
+        AppendOnlyDescriptor.Mark(builder.Metadata);
+    }
+}

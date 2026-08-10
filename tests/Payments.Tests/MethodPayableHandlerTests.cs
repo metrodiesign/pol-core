@@ -1,4 +1,5 @@
 using Payments.Application.MethodPayable;
+using Payments.Application.Ports;
 using Payments.Domain;
 using Payments.Domain.Psp;
 
@@ -29,7 +30,8 @@ public sealed class MethodPayableHandlerTests
                 Code.TwoCTwoP,
                 adapterMethods.Length == 0
                     ? [PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment]
-                    : adapterMethods)));
+                    : adapterMethods)),
+            new DefaultPspSelection(Code.TwoCTwoP));
     }
 
     /// <summary><see cref="Connection"/> has no Disable() — IsEnabled only ever goes false by EF
@@ -116,5 +118,19 @@ public sealed class MethodPayableHandlerTests
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await handler.Handle(new MethodPayableQuery(MerchantId, "paypal"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Eligibility_uses_configured_default_psp_without_fallback()
+    {
+        var connection = Connection.Create(
+            MerchantId, Code.Omise, "card", "psp/demo/omise", Now);
+        var handler = new MethodPayableHandler(
+            new FakeConnectionRepository(connection),
+            new FakePspAdapterFactory(new FakePspAdapter(Code.Omise, PaymentMethods.Card)),
+            new DefaultPspSelection(Code.Omise));
+
+        Assert.True(await handler.Handle(
+            new MethodPayableQuery(MerchantId, PaymentMethods.Card), CancellationToken.None));
     }
 }

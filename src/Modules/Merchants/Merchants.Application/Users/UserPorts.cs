@@ -20,7 +20,39 @@ public interface IUserRepository
 {
     Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+    Task<PagedResult<User>> ListAsync(PagedQuery query, Guid? roleId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
     void Add(User account);
+}
+
+public interface IInvitationRepository
+{
+    Task<MerchantUserInvitation?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindPendingByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindByTokenHashUnfilteredAsync(string tokenHash, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindByIdUnfilteredAsync(Guid id, CancellationToken cancellationToken);
+    void Add(MerchantUserInvitation invitation);
+}
+
+public interface IManagementAuditWriter
+{
+    void Append(MerchantUserManagementAudit audit);
+}
+
+public interface IActiveManagerGuard
+{
+    Task<int> CountActiveUsersWithRoleAsync(Guid merchantId, Guid roleId, CancellationToken cancellationToken);
+}
+
+public interface IInvitationDeliveryProtector
+{
+    string Protect(string rawToken);
+    bool TryUnprotect(string protectedToken, out string rawToken);
+}
+
+public interface IInvitationEmailSender
+{
+    Task SendAsync(string email, string rawToken, CancellationToken cancellationToken);
 }
 
 /// <summary>The narrow pre-bind projection of a merchant-user account — never the tracked aggregate.

@@ -307,6 +307,46 @@ public sealed class SubmitRegistrationHandlerTests
         Assert.Empty(ctx.Outbox.Enqueued);
     }
 
+    [Fact]
+    public async Task An_invitation_registration_binds_the_user_and_consumes_the_invitation_atomically()
+    {
+        var ctx = new Ctx();
+        var merchantId = Guid.NewGuid();
+        var invitation = MerchantUserInvitation.Create(
+            merchantId, "p@org.com", InvitationTokens.Hash(InvitationTokens.New()),
+            Now.AddHours(1), Guid.NewGuid(), Now);
+        ctx.Invitations.Seed(invitation);
+
+        var result = await ctx.Handler.Handle(
+            RegistrationCommand() with { InvitationId = invitation.Id }, default);
+
+        var account = Assert.Single(ctx.Users.Added);
+        Assert.Equal(merchantId, account.MerchantId);
+        Assert.Equal(account.Id, invitation.AcceptedByUserId);
+        Assert.Equal(Now, invitation.AcceptedAt);
+        var audit = Assert.Single(ctx.ManagementAudits.Appended);
+        Assert.Equal(MerchantUserManagementAudit.Actions.InviteAccept, audit.Action);
+        Assert.Equal(invitation.Id, audit.InvitationId);
+        Assert.Equal(result.UserId, audit.TargetUserId);
+    }
+
+    [Fact]
+    public async Task An_already_consumed_invitation_returns_the_stable_invitation_used_conflict()
+    {
+        var ctx = new Ctx();
+        var invitation = MerchantUserInvitation.Create(
+            Guid.NewGuid(), "p@org.com", InvitationTokens.Hash(InvitationTokens.New()),
+            Now.AddHours(1), Guid.NewGuid(), Now);
+        invitation.Accept(Guid.NewGuid(), "p@org.com", Now);
+        ctx.Invitations.Seed(invitation);
+
+        var exception = await Assert.ThrowsAsync<ConflictException>(() => ctx.Handler.Handle(
+            RegistrationCommand() with { InvitationId = invitation.Id }, default).AsTask());
+
+        Assert.Equal("invitation-used", exception.Code);
+        Assert.Empty(ctx.Users.Added);
+    }
+
     private static SubmitRegistrationCommand RegistrationCommand(string firstName = "Acme", string lastName = "Co") => new(
         Subject: "g-sub-1",
         Email: "p@org.com",
@@ -328,10 +368,13 @@ public sealed class SubmitRegistrationHandlerTests
         public FakeOutbox Outbox { get; } = new();
         public FakeUow Uow { get; } = new();
         public FakePhotos Photos { get; } = new();
+        public FakeInvitations Invitations { get; } = new();
+        public FakeManagementAudits ManagementAudits { get; } = new();
         public SubmitRegistrationHandler Handler { get; }
 
         public Ctx() => Handler = new SubmitRegistrationHandler(
-            Users, Logins, Audits, Attempts, Outbox, Uow, Photos, new FakeClock(Now));
+            Users, Logins, Audits, Attempts, Outbox, Uow, Photos,
+            Invitations, ManagementAudits, new FakeClock(Now));
     }
 
     private sealed class FakeClock(DateTime now) : IClock { public DateTime UtcNow => now; }
@@ -374,6 +417,27 @@ public sealed class SubmitRegistrationHandlerTests
     {
         public List<INotification> Enqueued { get; } = [];
         public void Enqueue(INotification notification) => Enqueued.Add(notification);
+    }
+
+    private sealed class FakeInvitations : IInvitationRepository
+    {
+        private readonly Dictionary<Guid, MerchantUserInvitation> _items = [];
+        public void Seed(MerchantUserInvitation invitation) => _items[invitation.Id] = invitation;
+        public Task<MerchantUserInvitation?> FindByIdAsync(Guid id, CancellationToken ct) =>
+            Task.FromResult(_items.GetValueOrDefault(id));
+        public Task<MerchantUserInvitation?> FindPendingByNormalizedEmailAsync(string email, CancellationToken ct) =>
+            Task.FromResult(_items.Values.FirstOrDefault(x => x.NormalizedEmail == email));
+        public Task<MerchantUserInvitation?> FindByTokenHashUnfilteredAsync(string hash, CancellationToken ct) =>
+            Task.FromResult(_items.Values.FirstOrDefault(x => x.TokenHash == hash));
+        public Task<MerchantUserInvitation?> FindByIdUnfilteredAsync(Guid id, CancellationToken ct) =>
+            Task.FromResult(_items.GetValueOrDefault(id));
+        public void Add(MerchantUserInvitation invitation) => Seed(invitation);
+    }
+
+    private sealed class FakeManagementAudits : IManagementAuditWriter
+    {
+        public List<MerchantUserManagementAudit> Appended { get; } = [];
+        public void Append(MerchantUserManagementAudit audit) => Appended.Add(audit);
     }
 
     private sealed class FakeUow : IRegistrationUnitOfWork

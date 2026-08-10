@@ -13,9 +13,10 @@ namespace Merchants.Application.Users;
 /// as the actor (else 404 — no cross-merchant existence leak). Role codes are resolved to ids; an unknown code -> 400.
 /// New assignments are stamped with the acting merchant + the acting merchant user as the assigner. Gated
 /// <c>users.roles</c> at the host (S8).</summary>
-// ponytail: DUPLICATE-shaped of Admins.Application.SetAdminRoles (+ merchant scoping; no audit — not in REQ-21) — deliberate.
+// ponytail: DUPLICATE-shaped of Admins.Application.SetAdminRoles (+ merchant scoping and management audit) — deliberate.
 public sealed record SetRolesCommand(
-    Guid TargetMerchantUserId, IReadOnlyList<string> RoleCodes, Guid ActingMerchantId, Guid ActingMerchantUserId)
+    Guid TargetMerchantUserId, IReadOnlyList<string> RoleCodes, Guid ActingMerchantId, Guid ActingMerchantUserId,
+    string? CorrelationId = null)
     : ICommand<SetRolesResult>;
 
 public sealed record SetRolesResult(Guid UserId, IReadOnlyList<string> RoleCodes);
@@ -25,14 +26,19 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
     private readonly IUserRepository _accounts;
     private readonly IRoleRepository _roles;
     private readonly IUserUnitOfWork _unitOfWork;
+    private readonly IActiveManagerGuard _managerGuard;
+    private readonly IManagementAuditWriter _audits;
     private readonly IClock _clock;
 
     public SetRolesHandler(
-        IUserRepository accounts, IRoleRepository roles, IUserUnitOfWork unitOfWork, IClock clock)
+        IUserRepository accounts, IRoleRepository roles, IUserUnitOfWork unitOfWork,
+        IActiveManagerGuard managerGuard, IManagementAuditWriter audits, IClock clock)
     {
         _accounts = accounts;
         _roles = roles;
         _unitOfWork = unitOfWork;
+        _managerGuard = managerGuard;
+        _audits = audits;
         _clock = clock;
     }
 
@@ -59,6 +65,14 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
             var desired = resolved.Values.ToHashSet();
             var current = await _roles.ListRoleIdsForUserAsync(command.TargetMerchantUserId, ct);
 
+            var manager = await _roles.GetActiveRoleIdsByCodesAsync(
+                command.ActingMerchantId, ["merchant_manager"], ct);
+            if (manager.TryGetValue("merchant_manager", out var managerRoleId)
+                && current.Contains(managerRoleId) && !desired.Contains(managerRoleId)
+                && await _managerGuard.CountActiveUsersWithRoleAsync(
+                    command.ActingMerchantId, managerRoleId, ct) <= 1)
+                throw new ConflictException("The last active merchant manager cannot be downgraded.");
+
             foreach (var roleId in desired.Where(id => !current.Contains(id)))
                 _roles.AddAssignment(RoleAssignment.Create(
                     command.TargetMerchantUserId, roleId, command.ActingMerchantId, command.ActingMerchantUserId, _clock.UtcNow));
@@ -69,6 +83,12 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
                 if (assignment is not null)
                     _roles.RemoveAssignment(assignment);
             }
+
+            _audits.Append(MerchantUserManagementAudit.For(
+                command.ActingMerchantId, command.ActingMerchantUserId, command.TargetMerchantUserId, null,
+                MerchantUserManagementAudit.Actions.SetRoles,
+                string.IsNullOrWhiteSpace(command.CorrelationId) ? CorrelationId.Current : command.CorrelationId,
+                _clock.UtcNow));
 
             await _unitOfWork.SaveChangesAsync(ct);
             return true;

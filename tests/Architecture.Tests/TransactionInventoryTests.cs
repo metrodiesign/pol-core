@@ -3,9 +3,9 @@ using System.Text.RegularExpressions;
 namespace Architecture.Tests;
 
 /// <summary>
-/// Static scan gate for rls-to-query-filter REQ-2.12: the design's transaction inventory (24 rows — 22 from
+/// Static scan gate for rls-to-query-filter REQ-2.12: the design's transaction inventory (28 rows — 22 from
 /// the original v7 design + row 23 (task 4's ChangeAdminTier flow) + row 24 (masterdata-full-crud's
-/// reference-list DeactivateAsync, one new call site per store))
+/// reference-list DeactivateAsync, one new call site per store) + rows 25-28 (merchant-user management))
 /// (design.md §"Transaction inventory") classifies EVERY transaction API call site in the codebase as
 /// single-context or (for exactly one, ProvisionMerchant) cross-context. A NEW call site that shows up here
 /// without a corresponding design classification is exactly the failure mode the prior review loop hit
@@ -56,6 +56,7 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs"] = 2,                    // rows 17+18
         ["src/Modules/Merchants/Merchants.Application/Users/SubmitRegistration.cs"] = 1,               // row 20
         ["src/Modules/Merchants/Merchants.Application/Users/SetUserRoles.cs"] = 1,                     // row 19
+        ["src/Modules/Merchants/Merchants.Application/Users/ManageMerchantUsers.cs"] = 4,             // rows 25-28
         ["src/Modules/Iam/Iam.Application/Roles/UpdateRole.cs"] = 1,                                   // row 13
         ["src/Modules/Iam/Iam.Application/Roles/DeleteRole.cs"] = 1,                                   // row 12
         ["src/Modules/Iam/Iam.Application/Roles/CreateRole.cs"] = 1,                                   // row 11

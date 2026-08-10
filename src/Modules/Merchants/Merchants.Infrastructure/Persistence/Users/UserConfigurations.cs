@@ -122,3 +122,39 @@ public sealed class RegistrationNoticeConfiguration : IEntityTypeConfiguration<R
         builder.HasIndex(x => x.UserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
     }
 }
+
+public sealed class MerchantUserInvitationConfiguration : IEntityTypeConfiguration<MerchantUserInvitation>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserInvitation> builder)
+    {
+        builder.ToTable("MerchantUserInvitations", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.TokenHash).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.ExpiresAt).IsRequired();
+        builder.Property(x => x.CreatedByUserId).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.RowVersion).IsRowVersion();
+        builder.HasIndex(x => x.TokenHash).IsUnique();
+        builder.HasIndex(x => new { x.MerchantId, x.NormalizedEmail }).IsUnique()
+            .HasFilter("[AcceptedAt] IS NULL AND [RevokedAt] IS NULL");
+    }
+}
+
+public sealed class MerchantUserManagementAuditConfiguration : IEntityTypeConfiguration<MerchantUserManagementAudit>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserManagementAudit> builder)
+    {
+        builder.ToTable("MerchantUserManagementAudits", SchemaNames.Merch, table =>
+            table.HasCheckConstraint("CK_MerchantUserManagementAudits_Target",
+                "[TargetUserId] IS NOT NULL OR [InvitationId] IS NOT NULL"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.Action).HasMaxLength(32).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.OccurredAt).IsRequired();
+        builder.HasIndex(x => new { x.MerchantId, x.OccurredAt });
+    }
+}

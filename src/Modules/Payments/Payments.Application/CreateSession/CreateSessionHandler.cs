@@ -73,16 +73,25 @@ public sealed class CreateSessionHandler
         await EnsureNoDocumentSoldElsewhereAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
 
         var connection = await _connections.GetAsync(command.MerchantId, command.Psp, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
-                $"No PSP connection for merchant {command.MerchantId} and PSP {command.Psp}.");
+            ?? throw new ConflictException(
+                $"No PSP connection for merchant {command.MerchantId} and PSP {command.Psp}.",
+                "psp-unavailable");
 
         // The company's commercial arrangement (connection) and what our adapter can actually drive today
         // are two different sets; a method has to clear both, or the customer gets sent down another channel.
-        connection.EnsureEligible(method);
+        try
+        {
+            connection.EnsureEligible(method);
+        }
+        catch (InvalidOperationException exception)
+        {
+            throw new ConflictException(exception.Message, "psp-unavailable", exception);
+        }
 
         if (!_adapters.For(command.Psp).SupportedMethods.Contains(method))
-            throw new InvalidOperationException(
-                $"The {command.Psp} adapter cannot honour method '{method}'.");
+            throw new ConflictException(
+                $"The {command.Psp} adapter cannot honour method '{method}'.",
+                "psp-unavailable");
 
         var open = await _sessions.GetOpenForOrderAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
 

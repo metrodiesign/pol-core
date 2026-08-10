@@ -70,8 +70,10 @@ public sealed class PermissionParityTests
     // every one must pass parity: catalogued, and on the side its policy implies.
     private static readonly (string Key, string? Policy)[] RealGateSites =
     [
-        ("payment.create", "merchant-user"), ("payment.redirect", "merchant-user"),
-        ("roles.manage", "merchant-user"), ("users.roles", "merchant-user"),
+        ("payment.view", "merchant-user"), ("payment.create", "merchant-user"),
+        ("payment.redirect", "merchant-user"), ("roles.view", "merchant-user"),
+        ("roles.manage", "merchant-user"), ("users.view", "merchant-user"),
+        ("users.manage", "merchant-user"), ("users.roles", "merchant-user"),
         ("merchants.users.approve", "admin"), ("merchants.users.reject", "admin"),
         ("merchants.users.view", "admin"),
         ("user.view", "admin"), ("user.manage", "admin"), ("user.roles", "admin"),

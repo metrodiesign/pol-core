@@ -8,7 +8,7 @@ namespace Carts.Application;
 /// Loads the open cart, adds the document line, and commits. Rejects an unknown cart, one owned by another
 /// merchant, or a document the cart already holds (<c>Cart.AddItem</c> -> 400, REQ-9.4).
 /// </summary>
-public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand, AddItemResult>
+public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand, CartView>
 {
     private readonly ICartRepository _carts;
     private readonly IUnitOfWork _unitOfWork;
@@ -19,7 +19,7 @@ public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand,
         _unitOfWork = unitOfWork;
     }
 
-    public async ValueTask<AddItemResult> Handle(AddItemToCartCommand command, CancellationToken cancellationToken)
+    public async ValueTask<CartView> Handle(AddItemToCartCommand command, CancellationToken cancellationToken)
     {
         var cart = await _carts.GetAsync(command.CartId, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Cart {command.CartId} was not found.");
@@ -33,7 +33,6 @@ public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand,
 
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        var subtotal = cart.Subtotal ?? Money.Zero(command.UnitPrice.Currency);
-        return new AddItemResult(cart.Id, cart.Items.Count, subtotal);
+        return CartView.From(cart);
     }
 }

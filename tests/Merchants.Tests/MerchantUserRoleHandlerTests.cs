@@ -14,7 +14,7 @@ namespace Merchants.Tests;
 /// absorbed), an unknown role code is 400, and an in-merchant Active target's assignments are set to exactly the
 /// requested set. Role CRUD (create/update/delete) moved to <c>Iam.Application.Roles</c> (rf2) —
 /// <c>Iam.Tests.CreateRoleHandlerTests</c>/<c>UpdateRoleHandlerTests</c>/<c>DeleteRoleHandlerTests</c> cover those
-/// guards on the unified handlers now.
+/// guards on the unified handlers now. Merchant real API REQ-9.22 also pins the last-active-manager guard.
 /// </summary>
 public sealed class MerchantUserRoleHandlerTests
 {
@@ -30,7 +30,8 @@ public sealed class MerchantUserRoleHandlerTests
         var target = Approved(MerchantB, users); // different merchant
         var roles = new FakeRoles();
         roles.SeedRole("merchant_member");
-        var handler = new SetRolesHandler(users, roles, new FakeUow(), new FakeClock());
+        var handler = new SetRolesHandler(
+            users, roles, new FakeUow(), new FakeManagerGuard(), new FakeAuditWriter(), new FakeClock());
 
         await Assert.ThrowsAsync<NotFoundException>(() => handler.Handle(
             new SetRolesCommand(target.Id, ["merchant_member"], MerchantA, Actor), default).AsTask());
@@ -41,7 +42,8 @@ public sealed class MerchantUserRoleHandlerTests
     {
         var users = new FakeUsers();
         var target = Approved(MerchantA, users);
-        var handler = new SetRolesHandler(users, new FakeRoles(), new FakeUow(), new FakeClock());
+        var handler = new SetRolesHandler(
+            users, new FakeRoles(), new FakeUow(), new FakeManagerGuard(), new FakeAuditWriter(), new FakeClock());
 
         await Assert.ThrowsAsync<ArgumentException>(() => handler.Handle(
             new SetRolesCommand(target.Id, ["ghost_role"], MerchantA, Actor), default).AsTask());
@@ -57,7 +59,8 @@ public sealed class MerchantUserRoleHandlerTests
         var finance = roles.SeedRole("finance");
         // pre-existing assignment to `member`; request only `finance` -> add finance, remove member.
         roles.Assignments.Add(RoleAssignment.Create(target.Id, member, MerchantA, Actor, Now));
-        var handler = new SetRolesHandler(users, roles, new FakeUow(), new FakeClock());
+        var handler = new SetRolesHandler(
+            users, roles, new FakeUow(), new FakeManagerGuard(), new FakeAuditWriter(), new FakeClock());
 
         await handler.Handle(new SetRolesCommand(target.Id, ["finance"], MerchantA, Actor), default);
 
@@ -65,6 +68,24 @@ public sealed class MerchantUserRoleHandlerTests
         Assert.Equal(new HashSet<Guid> { finance }, roleIds);
         Assert.All(roles.Assignments.Where(a => a.UserId == target.Id), a => Assert.Equal(MerchantA, a.MerchantId));
         Assert.All(roles.Assignments.Where(a => a.UserId == target.Id), a => Assert.Equal(Actor, a.AssignedById));
+    }
+
+    [Fact]
+    public async Task SetUserRoles_rejects_removing_the_last_active_manager()
+    {
+        var users = new FakeUsers();
+        var target = Approved(MerchantA, users);
+        var roles = new FakeRoles();
+        var manager = roles.SeedRole("merchant_manager");
+        roles.Assignments.Add(RoleAssignment.Create(target.Id, manager, MerchantA, Actor, Now));
+        var handler = new SetRolesHandler(
+            users, roles, new FakeUow(), new FakeManagerGuard(1), new FakeAuditWriter(), new FakeClock());
+
+        await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(
+            new SetRolesCommand(target.Id, [], MerchantA, Actor), default).AsTask());
+
+        Assert.Contains(roles.Assignments, assignment =>
+            assignment.UserId == target.Id && assignment.RoleId == manager);
     }
 
     private static User Approved(Guid merchantId, FakeUsers users)
@@ -82,6 +103,17 @@ public sealed class MerchantUserRoleHandlerTests
     }
 
     private sealed class FakeClock : IClock { public DateTime UtcNow => Now; }
+
+    private sealed class FakeManagerGuard(int activeManagers = int.MaxValue) : IActiveManagerGuard
+    {
+        public Task<int> CountActiveUsersWithRoleAsync(Guid merchantId, Guid roleId, CancellationToken ct) =>
+            Task.FromResult(activeManagers);
+    }
+
+    private sealed class FakeAuditWriter : IManagementAuditWriter
+    {
+        public void Append(MerchantUserManagementAudit audit) { }
+    }
 
     private sealed class FakeUsers : IUserRepository
     {
@@ -120,7 +152,8 @@ public sealed class MerchantUserRoleHandlerTests
 
         // Unused by the handlers under test.
         public Task<IReadOnlyDictionary<string, Guid>> GetActiveRoleIdsByCodesAsync(
-            Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) => throw new NotSupportedException();
+            Guid merchantId, IReadOnlyCollection<string> codes, CancellationToken ct) =>
+            GetRoleIdsByCodesAsync(merchantId, codes, ct);
         public Task<bool> AssignmentExistsAsync(Guid merchantUserId, Guid roleId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlySet<string>> ListEffectivePermissionsAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<string>> ListActiveRoleCodesForUserAsync(Guid merchantUserId, Guid merchantId, CancellationToken ct) => throw new NotSupportedException();
