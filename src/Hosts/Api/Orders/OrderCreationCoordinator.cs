@@ -27,7 +27,8 @@ public sealed record CommitOrderFromCartRequest(
     string SaleCode,
     CustomerContact Customer,
     string PaymentMethod,
-    IReadOnlyList<ValidatedProductSnapshot> Products);
+    IReadOnlyList<ValidatedProductSnapshot> Products,
+    Guid? OriginatorId = null);
 
 public sealed record DirectOrderResult(Guid OrderId, string OrderNo, string Status, Money Amount);
 
@@ -79,7 +80,23 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         string saleCode,
         CustomerContact customer,
         string paymentMethod,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Guid? originatorId = null)
+    {
+        var request = await PrepareAsync(
+            merchantId, cartId, saleCode, customer, paymentMethod, cancellationToken, originatorId)
+            .ConfigureAwait(false);
+        return await CommitAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<CommitOrderFromCartRequest> PrepareAsync(
+        Guid merchantId,
+        Guid cartId,
+        string saleCode,
+        CustomerContact customer,
+        string paymentMethod,
+        CancellationToken cancellationToken,
+        Guid? originatorId = null)
     {
         paymentMethod = PaymentMethods.Normalize(paymentMethod);
         var cart = await _mediator.Send(new GetCartQuery(cartId, merchantId), cancellationToken)
@@ -89,6 +106,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
             throw new InvalidOperationException("Cart is not open.");
         if (cart.Items.Count == 0 || cart.Subtotal is null)
             throw new ArgumentException("Cannot create an order from an empty cart.", nameof(cartId));
+        if (originatorId != cart.OriginatorId)
+            throw new ConflictException("Cart originator does not match the requested originator.", "state_conflict");
 
         var products = new List<ValidatedProductSnapshot>(cart.Items.Count);
         foreach (var line in cart.Items)
@@ -124,9 +143,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         if (saleStatuses.Count > 0)
             throw new InvalidOperationException("Cart product is no longer available.");
 
-        return await CommitAsync(new CommitOrderFromCartRequest(
-            merchantId, cartId, cart.Version, saleCode, customer, paymentMethod, products), cancellationToken)
-            .ConfigureAwait(false);
+        return new CommitOrderFromCartRequest(
+            merchantId, cartId, cart.Version, saleCode, customer, paymentMethod, products, cart.OriginatorId);
     }
 
     public Task<DirectOrderResult> CommitAsync(
@@ -182,7 +200,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
                 notificationRecipient: request.Customer.NotificationRecipient,
                 paymentChannel: paymentMethod,
                 customer: request.Customer,
-                saleCode: request.SaleCode);
+                saleCode: request.SaleCode,
+                originatorId: request.OriginatorId);
             _orders.Add(order);
 
             _outbox.Enqueue(new CustomerOrderNotification(

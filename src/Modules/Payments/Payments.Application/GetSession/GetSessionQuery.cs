@@ -22,4 +22,5 @@ public sealed record SessionView(
     string? PspExternalChargeId,
     string? RedirectUrl,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    [property: System.Text.Json.Serialization.JsonIgnore] long Version = 0);

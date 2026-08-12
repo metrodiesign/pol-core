@@ -19,7 +19,7 @@ namespace Persistence.MerchantUsers.Users;
 /// (<c>IAccountStore</c>), wired by bugfix-merchant-prebind-wiring; this class is for ordinary BOUND-actor
 /// call sites only (e.g. <c>SetUserRoles</c>).
 /// </summary>
-internal sealed class MerchantUserRepository : IUserRepository
+internal sealed partial class MerchantUserRepository : IUserRepository
 {
     private readonly MerchantUserDbContext _db;
     private readonly Microsoft.Extensions.Logging.ILogger<MerchantUserRepository> _logger;

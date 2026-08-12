@@ -97,6 +97,8 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       Vault__ActiveKeyId: v1
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
+      AuditAnchor__Path: /var/lib/pol-core/audit/anchors.jsonl
+      AuditAnchor__SigningKeyFile: /run/secrets/audit_anchor_signing_key
       # One API, two browser SPAs, BOTH server-side OIDC BFFs (T5 retired the Google id-token Bearer scheme
       # entirely) — each its own CONFIDENTIAL client (id + secret, the secret via a mounted file secret),
       # fully isolated scheme/cookie/callback names. CORS is split: merchant-user origin + admin origin, both
@@ -146,7 +148,7 @@ services:
       # REQ-13.4: not a secret (Seq ingestion is same-network only, no public exposure) — the sink degrades
       # to log-only (never blocks a request) if Seq is unreachable, so this is safe to default.
       Seq__IngestionUrl: ${SEQ_INGESTION_URL:-http://seq:80}
-    secrets: [pol_app_password, hippo_app_password, mammoth_app_password, vault_master_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, merchant_invitation_smtp_password, db_ca_cert]
+    secrets: [pol_app_password, hippo_app_password, mammoth_app_password, vault_master_key, audit_anchor_signing_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, merchant_invitation_smtp_password, db_ca_cert]
     # Codex review #191: without this, KYC/registration photos are written into the container's writable
     # layer (the default PhotoStoreRootPath, /app/merchant-user-photos) and are lost on every recreate —
     # this survives that for the single-host self-host target this compose file serves. A horizontally
@@ -154,6 +156,7 @@ services:
     # here — a new external dependency, its own spec per this repo's spec-driven constitution).
     volumes:
       - merchant-user-photos:/app/merchant-user-photos
+      - audit-anchors:/var/lib/pol-core/audit
     ports:
       # Published API port = 5100 (the Backend API port). Container speaks http on 8080 internally; HTTPS
       # (5101) is terminated by a TLS reverse proxy in front — see the runbook ceiling.
@@ -174,6 +177,7 @@ services:
 volumes:
   seq-data:
   merchant-user-photos:
+  audit-anchors:
 
 # File-based secrets — the files live under ./secrets/ (gitignored, chmod 600). The vault master key is the
 # long-lived crypto root; the principal passwords gate DB access — one per DB tier, never shared:
@@ -191,6 +195,8 @@ secrets:
     file: ./secrets/mammoth_app_password
   vault_master_key:
     file: ./secrets/vault_master_key
+  audit_anchor_signing_key:
+    file: ./secrets/audit_anchor_signing_key
   admin_oidc_client_secret:
     file: ./secrets/admin_oidc_client_secret
   merchant_user_oidc_client_secret:

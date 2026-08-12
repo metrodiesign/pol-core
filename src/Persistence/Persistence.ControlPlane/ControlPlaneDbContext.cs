@@ -13,10 +13,14 @@ using Offices.Domain;
 using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.Iam;
 using Positions.Domain;
+using Governance.Domain;
 using Persistence.ControlPlane.Divisions;
 using Persistence.ControlPlane.Levels;
 using Persistence.ControlPlane.Offices;
 using Persistence.ControlPlane.Positions;
+using Persistence.ControlPlane.Governance;
+using Iam.Domain.ApiClients;
+using Notifications.Domain;
 
 namespace Persistence.ControlPlane;
 
@@ -56,6 +60,20 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
 
     public DbSet<ProvisioningOperation> ProvisioningOperations => Set<ProvisioningOperation>();
 
+    public DbSet<ApprovalRequest> ApprovalRequests => Set<ApprovalRequest>();
+    public DbSet<ApprovalEvent> ApprovalEvents => Set<ApprovalEvent>();
+    public DbSet<OperationRecord> OperationRecords => Set<OperationRecord>();
+    public DbSet<AuditHead> AuditHeads => Set<AuditHead>();
+    public DbSet<AuditRecord> AuditRecords => Set<AuditRecord>();
+    public DbSet<GovernanceOutboxMessage> GovernanceOutboxMessages => Set<GovernanceOutboxMessage>();
+    public DbSet<ApiClient> ApiClients => Set<ApiClient>();
+    public DbSet<OneTimeSecretTicket> OneTimeSecretTickets => Set<OneTimeSecretTicket>();
+    public DbSet<WebhookEndpoint> WebhookEndpoints => Set<WebhookEndpoint>();
+    public DbSet<WebhookDelivery> WebhookDeliveries => Set<WebhookDelivery>();
+    public DbSet<NotificationRule> NotificationRules => Set<NotificationRule>();
+    public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
+    public DbSet<DeliverySecretVersion> DeliverySecretVersions => Set<DeliverySecretVersion>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new UserConfiguration());
@@ -77,6 +95,20 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
 
         modelBuilder.ApplyConfiguration(new DataProtectionKeyConfiguration());
         modelBuilder.ApplyConfiguration(new ProvisioningOperationConfiguration());
+
+        modelBuilder.ApplyConfiguration(new ApprovalRequestConfiguration());
+        modelBuilder.ApplyConfiguration(new ApprovalEventConfiguration());
+        modelBuilder.ApplyConfiguration(new OperationRecordConfiguration());
+        modelBuilder.ApplyConfiguration(new AuditHeadConfiguration());
+        modelBuilder.ApplyConfiguration(new AuditRecordConfiguration());
+        modelBuilder.ApplyConfiguration(new GovernanceOutboxMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new Iam.ApiClientConfiguration());
+        modelBuilder.ApplyConfiguration(new Iam.OneTimeSecretTicketConfiguration());
+        modelBuilder.ApplyConfiguration(new Notifications.WebhookEndpointConfiguration());
+        modelBuilder.ApplyConfiguration(new Notifications.WebhookDeliveryConfiguration());
+        modelBuilder.ApplyConfiguration(new Notifications.NotificationRuleConfiguration());
+        modelBuilder.ApplyConfiguration(new Notifications.NotificationDeliveryConfiguration());
+        modelBuilder.ApplyConfiguration(new Notifications.DeliverySecretVersionConfiguration());
 
         base.OnModelCreating(modelBuilder);
     }

@@ -79,6 +79,24 @@
 | 26 | RevokeMerchantUserInvitation | merch.UserInvitations + merch.UserManagementAudits | no | MerchantUser single |
 | 27 | UpdateMerchantUser | merch.Users + merch.UserManagementAudits | no | MerchantUser single |
 | 28 | ChangeMerchantUserLifecycle | merch.Users + merch.RoleAssignments + merch.Sessions + merch.UserManagementAudits | no | MerchantUser single; serializable last-manager guard |
+| 29 | DecideApproval | admin.ApprovalRequests + admin.ApprovalEvents + admin.OperationRecords + admin.AuditHeads/AuditRecords + admin.GovernanceOutboxMessages | no | ControlPlane single; checker/version/idempotency locks are transaction-owned |
+| 30 | ReceiveApprovalRequested | admin.ApprovalRequests + admin.ApprovalEvents + admin.AuditHeads/AuditRecords | no | ControlPlane single; source-event and audit-chain locks are transaction-owned |
+| 31 | ReceiveApprovalExecutionReported | admin.ApprovalRequests + admin.ApprovalEvents + admin.AuditHeads/AuditRecords | no | ControlPlane single; source-event and audit-chain locks are transaction-owned |
+| 32 | UpdateMerchant | merch.Merchants + txn.AdminOperationRecords | no | MerchantRuntime single; idempotency result and merchant version commit together |
+| 33 | ChangeMerchantStatus | merch.Merchants + txn.AdminOperationRecords | no | MerchantRuntime single; status/version and idempotency result commit together |
+| 34 | CreatePspConnection | txn.PspConnections + merch.VaultSecretVersions + txn.AdminOperationRecords | no | MerchantRuntime single; encrypted credential version and active pointer commit together |
+| 35 | UpdatePspConnection | txn.PspConnections + txn.AdminOperationRecords | no | MerchantRuntime single; config/version and idempotency result commit together |
+| 36 | RequestPspCredentialChange | txn.PspConnections + merch.VaultSecretVersions + txn.AdminOperationRecords + MerchantRuntimeOutbox | no | MerchantRuntime single; staged credential, pending pointer, ledger, and approval event commit together |
+| 37 | RequestRoutingActivation | txn.RoutingRulesets + txn.AdminOperationRecords + MerchantRuntimeOutbox | no | MerchantRuntime single; pending state, ledger, and approval event commit together |
+| 38 | ExecuteRoutingApproval | txn.RoutingRulesets + MerchantRuntimeOutbox | no | MerchantRuntime single; supersede, activate, and execution report commit together |
+| 39 | ExecutePspCredentialApproval | txn.PspConnections + merch.VaultSecretVersions + MerchantRuntimeOutbox | no | MerchantRuntime single; retire/activate credential and execution report commit together |
+| 40 | AdminOperationExecutor | txn.AdminOperationRecords plus owner Cart/Order/PaymentSession state | no | MerchantRuntime single; one atomic transaction path, or separate recoverable claim and result transactions around owner payment lifecycle |
+| 41 | ControlPlaneOperationExecutor | admin.OperationRecords plus API-client/Webhook/Notification owner state | no | ControlPlane single; idempotency lock, owner mutation, and durable result commit together |
+| 42 | ExecuteApiClientApproval | iam.ApiClients + iam.OneTimeSecretTickets + admin.GovernanceOutboxMessages | no | ControlPlane single; approve/reject, staged secret activation, and execution report commit together |
+| 43 | RevealApiClientSecret | iam.OneTimeSecretTickets (consume) + iam.ApiClients (read) | no | ControlPlane single; one-time consume and reveal decision serialize in one transaction |
+| 44 | ReplayWebhookDelivery | admin.WebhookDeliveries | no | ControlPlane single; eligibility check and replay row commit together under unique replay key |
+| 45 | EnqueueDeliveryEvent | admin.WebhookEndpoints + admin.WebhookDeliveries + admin.NotificationRules/Deliveries | no | ControlPlane single; source-event deduplication and all eligible delivery rows commit together |
+| 46 | WebhookDeliveryDispatcher lease claim (`BeginTransactionAsync`) | admin.WebhookDeliveries | no | ControlPlane single background lease; bounded pending/expired-processing row is selected and claimed atomically |
 
 > **Inventory gate covers ALL transaction APIs** (R1-v7 #6), not only `ExecuteInTransactionAsync`: also
 > `BeginTransaction(Async)`, `UseTransaction`, `TransactionScope`, raw-connection transactions — a CI scan fails on any

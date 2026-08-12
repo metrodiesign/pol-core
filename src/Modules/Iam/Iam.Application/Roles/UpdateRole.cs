@@ -15,7 +15,7 @@ namespace Iam.Application.Roles;
 /// <c>user.roles</c> (admin) / <c>roles.manage</c> (merchant) at the host.</summary>
 public sealed record UpdateRoleCommand(
     RoleSideContext Context, string Code, string Name, string? Description, string? Color, RoleStatus Status,
-    IReadOnlyList<string> PermissionKeys, string CorrelationId) : ICommand<RoleListItem>;
+    IReadOnlyList<string> PermissionKeys, string CorrelationId, long? ExpectedVersion = null) : ICommand<RoleListItem>;
 
 public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, RoleListItem>
 {
@@ -44,6 +44,8 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, RoleL
             // shared seed is the only case today, since the visible set otherwise contains only own-merchant rows.
             if (command.Context.Scope == Scope.Merchant && role.MerchantId != command.Context.MerchantId)
                 throw new ConflictException($"Role '{command.Code}' cannot be modified by this merchant.");
+            if (command.ExpectedVersion is { } expectedVersion && role.Version != expectedVersion)
+                throw new ConflictException("The role changed after it was loaded.", "state_conflict");
 
             // Recovery-anchor guard (REQ-2.4): a clean 409 before the domain backstop would throw.
             if (role.IsSeedAnchor && command.Status == RoleStatus.Inactive)
@@ -57,12 +59,13 @@ public sealed class UpdateRoleHandler : ICommandHandler<UpdateRoleCommand, RoleL
                 role.Activate();
             else
                 role.Deactivate();
+            role.BumpVersion();
 
             _audit.RoleUpdated(role.Id, command.CorrelationId);
             await _unitOfWork.SaveChangesAsync(ct);
 
             var userCount = await _counter.CountAsync(command.Context, role.Id, ct);
             return new RoleListItem(role.Id, role.Code, role.Name, role.Description, role.Color, role.Status,
-                Shared: role.MerchantId is null, [.. role.PermissionKeys], userCount);
+                Shared: role.MerchantId is null, [.. role.PermissionKeys], role.Version, userCount);
         }, cancellationToken);
 }

@@ -8,10 +8,11 @@ namespace Admins.Application.Users;
 /// <summary>A Super assigns one merchant to a Scoped admin (REQ-4.1). The target admin must exist and be Scoped;
 /// the merchant must exist and be Active (validated via <see cref="IAdminMerchantDirectory"/> -> 409 if not,
 /// REQ-4.3); a duplicate <c>(AdminUserId, MerchantId)</c> is rejected (409, REQ-4.4). Super-only at the host.</summary>
-public sealed record AssignMerchantCommand(Guid AdminId, Guid MerchantId, Guid ActingAdminId, string CorrelationId)
+public sealed record AssignMerchantCommand(
+    Guid AdminId, Guid MerchantId, Guid ActingAdminId, string CorrelationId, long ExpectedVersion)
     : ICommand<AssignMerchantResult>;
 
-public sealed record AssignMerchantResult(Guid AssignmentId);
+public sealed record AssignMerchantResult(Guid AssignmentId, long Version);
 
 public sealed class AssignMerchantHandler : ICommandHandler<AssignMerchantCommand, AssignMerchantResult>
 {
@@ -41,10 +42,12 @@ public sealed class AssignMerchantHandler : ICommandHandler<AssignMerchantComman
         if (!await _merchants.IsActiveMerchantAsync(command.MerchantId, cancellationToken))
             throw new ConflictException("The selected merchant does not exist or is not active.");
 
-        var assignmentId = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var state = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var admin = await _admins.GetByIdAsync(command.AdminId, ct)
                 ?? throw new NotFoundException("The admin account was not found.");
+            if (admin.Version != command.ExpectedVersion)
+                throw new ConflictException("The admin account changed after it was loaded.", "state_conflict");
             if (admin.Tier != Tier.Scoped)
                 throw new ConflictException("Merchant assignments apply only to Scoped admins; a Super already has unrestricted reach.");
 
@@ -53,13 +56,15 @@ public sealed class AssignMerchantHandler : ICommandHandler<AssignMerchantComman
 
             var assignment = MerchantAccess.Create(command.AdminId, command.MerchantId, command.ActingAdminId, _clock.UtcNow);
             _admins.AddAssignment(assignment);
+            admin.BumpAuthorizationVersion();
+            admin.BumpResourceVersion();
             _audit.Append(Audit.For(
                 AuditAction.AssignMerchant, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.AdminId, merchantId: command.MerchantId));
             await _unitOfWork.SaveChangesAsync(ct);
-            return assignment.Id;
+            return (assignment.Id, admin.Version);
         }, cancellationToken);
 
-        return new AssignMerchantResult(assignmentId);
+        return new AssignMerchantResult(state.Id, state.Version);
     }
 }

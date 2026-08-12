@@ -24,7 +24,7 @@ public sealed class FreshBaselineMigrationIntegrationTests
 
             await using (var connection = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
             {
-                Assert.Equal(5, Convert.ToInt32(await IntegrationDb.ScalarAsync(
+                Assert.Equal(context.Database.GetMigrations().Count(), Convert.ToInt32(await IntegrationDb.ScalarAsync(
                     connection, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
                 Assert.Equal("json", await IntegrationDb.ScalarAsync(connection, """
                     SELECT ty.name FROM sys.columns c
@@ -56,6 +56,27 @@ public sealed class FreshBaselineMigrationIntegrationTests
                     SELECT filter_definition FROM sys.indexes
                     WHERE object_id = OBJECT_ID(N'txn.PaymentSessions')
                       AND name = N'IX_PaymentSessions_OrderId_Open';
+                    """)));
+                Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    EXECUTE AS USER = 'pol_app';
+                    SELECT HAS_PERMS_BY_NAME(N'txn.AdminOperationRecords', N'OBJECT', N'UPDATE');
+                    REVERT;
+                    """)));
+                Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    EXECUTE AS USER = 'pol_app';
+                    SELECT COUNT(*)
+                    FROM (VALUES
+                        (N'iam.ApiClients', N'SELECT'), (N'iam.ApiClients', N'INSERT'), (N'iam.ApiClients', N'UPDATE'),
+                        (N'iam.OneTimeSecretTickets', N'SELECT'), (N'iam.OneTimeSecretTickets', N'INSERT'), (N'iam.OneTimeSecretTickets', N'UPDATE'),
+                        (N'admin.DeliverySecretVersions', N'SELECT'), (N'admin.DeliverySecretVersions', N'INSERT'), (N'admin.DeliverySecretVersions', N'UPDATE'),
+                        (N'txn.InboundWebhookEvents', N'SELECT'), (N'txn.InboundWebhookEvents', N'INSERT'), (N'txn.InboundWebhookEvents', N'UPDATE'),
+                        (N'admin.NotificationDeliveries', N'SELECT'), (N'admin.NotificationDeliveries', N'INSERT'),
+                        (N'admin.NotificationRules', N'SELECT'), (N'admin.NotificationRules', N'INSERT'), (N'admin.NotificationRules', N'UPDATE'), (N'admin.NotificationRules', N'DELETE'),
+                        (N'admin.WebhookDeliveries', N'SELECT'), (N'admin.WebhookDeliveries', N'INSERT'), (N'admin.WebhookDeliveries', N'UPDATE'),
+                        (N'admin.WebhookEndpoints', N'SELECT'), (N'admin.WebhookEndpoints', N'INSERT'), (N'admin.WebhookEndpoints', N'UPDATE'), (N'admin.WebhookEndpoints', N'DELETE')
+                    ) required(ObjectName, PermissionName)
+                    WHERE HAS_PERMS_BY_NAME(ObjectName, N'OBJECT', PermissionName) <> 1;
+                    REVERT;
                     """)));
             }
 
@@ -164,6 +185,8 @@ public sealed class FreshBaselineMigrationIntegrationTests
         typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
         typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
         typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
+        typeof(Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
+        typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
     ]);
 
     private static async Task CreateScratchDatabaseAsync(string database)

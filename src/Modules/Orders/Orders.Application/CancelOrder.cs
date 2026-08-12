@@ -7,7 +7,8 @@ namespace Orders.Application;
 /// the lookup to the bound merchant, so another company's order reads as absent (404). Releasing whatever
 /// payment session is holding the order happens BEFORE this, at the endpoint — an order is only cancellable
 /// once no money can still arrive for it.</summary>
-public sealed record CancelOrderCommand(Guid OrderId) : ICommand<CancelOrderResult>, IMerchantScoped;
+public sealed record CancelOrderCommand(Guid OrderId, long? ExpectedVersion = null)
+    : ICommand<CancelOrderResult>, IMerchantScoped;
 
 public sealed record CancelOrderResult(Guid OrderId, string Status);
 
@@ -32,6 +33,10 @@ public sealed class CancelOrderHandler : ICommandHandler<CancelOrderCommand, Can
                 var order = await _orders.GetForUpdateAsync(command.OrderId, ct).ConfigureAwait(false)
                     ?? throw new NotFoundException($"Order {command.OrderId} was not found.");
 
+                if (order.Status == Domain.OrderStatus.Cancelled && command.ExpectedVersion is not null)
+                    return new CancelOrderResult(order.Id, order.Status.ToString());
+                if (command.ExpectedVersion is { } expected && order.Version != expected)
+                    throw new ConcurrencyConflictException("Order changed after it was read.");
                 if (order.Status != Domain.OrderStatus.Pending)
                     throw new ConflictException(
                         $"Order {command.OrderId} cannot be cancelled from status {order.Status}.");
@@ -40,7 +45,7 @@ public sealed class CancelOrderHandler : ICommandHandler<CancelOrderCommand, Can
                     throw new ConflictException(
                         $"Order {command.OrderId} has an active payment session and cannot be cancelled.");
 
-                order.Cancel();
+                order.Cancel(DateTime.UtcNow);
                 await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
 
                 return new CancelOrderResult(order.Id, order.Status.ToString());

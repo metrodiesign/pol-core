@@ -2,6 +2,12 @@ using SharedKernel;
 
 namespace Merchants.Domain.Users;
 
+public enum InvitationActorAudience
+{
+    Merchant = 1,
+    Admin = 2,
+}
+
 public sealed class MerchantUserInvitation : Entity<Guid>
 {
     public Guid MerchantId { get; private set; }
@@ -13,13 +19,16 @@ public sealed class MerchantUserInvitation : Entity<Guid>
     public Guid? AcceptedByUserId { get; private set; }
     public DateTime? RevokedAt { get; private set; }
     public Guid CreatedByUserId { get; private set; }
+    public InvitationActorAudience CreatedByAudience { get; private set; }
+    public string IntendedRoleCodesJson { get; private set; } = "[]";
     public DateTime CreatedAt { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
 
     private MerchantUserInvitation() { }
 
     private MerchantUserInvitation(Guid id, Guid merchantId, string email, string tokenHash,
-        DateTime expiresAt, Guid createdByUserId, DateTime createdAt) : base(id)
+        DateTime expiresAt, Guid createdByUserId, InvitationActorAudience createdByAudience,
+        string intendedRoleCodesJson, DateTime createdAt) : base(id)
     {
         MerchantId = merchantId;
         Email = email;
@@ -27,11 +36,15 @@ public sealed class MerchantUserInvitation : Entity<Guid>
         TokenHash = tokenHash;
         ExpiresAt = expiresAt;
         CreatedByUserId = createdByUserId;
+        CreatedByAudience = createdByAudience;
+        IntendedRoleCodesJson = intendedRoleCodesJson;
         CreatedAt = createdAt;
     }
 
     public static MerchantUserInvitation Create(Guid merchantId, string email, string tokenHash,
-        DateTime expiresAt, Guid createdByUserId, DateTime now)
+        DateTime expiresAt, Guid createdByUserId, DateTime now,
+        InvitationActorAudience createdByAudience = InvitationActorAudience.Merchant,
+        IReadOnlyList<string>? intendedRoleCodes = null)
     {
         if (merchantId == Guid.Empty || createdByUserId == Guid.Empty)
             throw new ArgumentException("Merchant and actor are required.");
@@ -44,8 +57,23 @@ public sealed class MerchantUserInvitation : Entity<Guid>
             throw new ArgumentException("A valid invitation email is required.", nameof(email));
         if (expiresAt <= now)
             throw new ArgumentException("Invitation expiry must be in the future.", nameof(expiresAt));
-        return new MerchantUserInvitation(Guid.CreateVersion7(), merchantId, trimmed, tokenHash, expiresAt, createdByUserId, now);
+        if (createdByAudience is not InvitationActorAudience.Merchant and not InvitationActorAudience.Admin)
+            throw new ArgumentOutOfRangeException(nameof(createdByAudience));
+        var roles = (intendedRoleCodes ?? [])
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var roleJson = System.Text.Json.JsonSerializer.Serialize(roles);
+        if (roleJson.Length > 2_000)
+            throw new ArgumentException("Invitation role metadata is too large.", nameof(intendedRoleCodes));
+        return new MerchantUserInvitation(Guid.CreateVersion7(), merchantId, trimmed, tokenHash, expiresAt,
+            createdByUserId, createdByAudience, roleJson, now);
     }
+
+    public IReadOnlyList<string> IntendedRoleCodes() =>
+        System.Text.Json.JsonSerializer.Deserialize<string[]>(IntendedRoleCodesJson) ?? [];
 
     public bool IsPending(DateTime now) => AcceptedAt is null && RevokedAt is null && now < ExpiresAt;
 

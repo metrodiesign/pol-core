@@ -239,6 +239,14 @@ file sealed class DeadDbFactory(Guid merchantId, SpDocumentItem document, Concur
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestMerchantUserAuthHandler>(
                     TestMerchantUserAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<PolicySchemeOptions>(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName,
+                options => options.ForwardDefaultSelector = context =>
+                {
+                    context.Features.Set(new ApiHost::Api.Iam.SelectedConsoleAudience(
+                        ApiHost::Api.Iam.ConsoleAudience.Merchant));
+                    return TestMerchantUserAuthHandler.SchemeName;
+                });
             services.PostConfigure<AuthorizationOptions>(o => o.AddPolicy("merchant-user", p => p
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
@@ -279,6 +287,14 @@ file sealed class FakeProbeFactory(
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestMerchantUserAuthHandler>(
                     TestMerchantUserAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<PolicySchemeOptions>(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName,
+                options => options.ForwardDefaultSelector = context =>
+                {
+                    context.Features.Set(new ApiHost::Api.Iam.SelectedConsoleAudience(
+                        ApiHost::Api.Iam.ConsoleAudience.Merchant));
+                    return TestMerchantUserAuthHandler.SchemeName;
+                });
             services.PostConfigure<AuthorizationOptions>(o => o.AddPolicy("merchant-user", p => p
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));

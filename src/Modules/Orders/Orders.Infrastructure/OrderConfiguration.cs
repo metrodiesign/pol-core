@@ -20,6 +20,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(x => x.Id).ValueGeneratedNever();
 
         builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.OriginatorId);
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.PaymentSessionId);
 
@@ -31,7 +32,9 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(x => x.Status).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.UpdatedAt).HasDefaultValueSql("SYSUTCDATETIME()").IsRequired();
         builder.Property(x => x.PaidAt);
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         builder.Property(x => x.SummaryToken).HasMaxLength(64).IsRequired();
         builder.Property(x => x.SummaryTokenExpiresAt).IsRequired();

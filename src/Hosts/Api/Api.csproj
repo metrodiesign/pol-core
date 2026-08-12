@@ -27,6 +27,11 @@
     <ProjectReference Include="..\..\Modules\Offices\Offices.Infrastructure\Offices.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Positions\Positions.Application\Positions.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Positions\Positions.Infrastructure\Positions.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Governance\Governance.Application\Governance.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Governance\Governance.Infrastructure\Governance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Reporting\Reporting.Application\Reporting.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
     <ProjectReference Include="..\..\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />

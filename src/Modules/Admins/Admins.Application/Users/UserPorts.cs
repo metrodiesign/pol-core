@@ -36,7 +36,7 @@ public interface IUserRepository
 /// are the enums; the host projects them to lowercase wire strings (no global enum converter, B2).
 /// <see cref="SubjectBound"/> = the invite has been claimed (Subject != null, REQ-1.2).</summary>
 public sealed record UserListItem(
-    Guid AdminId, string Email, Tier Tier, UserStatus Status, DateTime CreatedAt, bool SubjectBound);
+    Guid AdminId, string Email, Tier Tier, UserStatus Status, DateTime CreatedAt, bool SubjectBound, long Version);
 
 /// <summary>Stages an append-only <see cref="Audit"/> in the current transaction (REQ-10.2).</summary>
 public interface IAuditWriter

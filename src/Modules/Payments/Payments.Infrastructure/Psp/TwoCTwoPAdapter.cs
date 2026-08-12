@@ -41,6 +41,25 @@ public sealed class TwoCTwoPAdapter : PspAdapterBase
         ? Options.TwoCTwoP.SandboxBaseUrl
         : Options.TwoCTwoP.ProductionBaseUrl;
 
+    public override async Task<PspProbeResult> TestConnectionAsync(
+        string secret, CancellationToken cancellationToken)
+    {
+        var creds = ParseSecret(secret);
+        var claims = JsonSerializer.Serialize(new
+        {
+            merchantID = creds.MerchantId,
+            invoiceNo = $"connection-test-{Guid.CreateVersion7():N}",
+            locale = "en",
+        });
+        var responseJwt = await PostPayloadWithRetryAsync(
+            "paymentInquiry", claims, creds.SecretKey, cancellationToken).ConfigureAwait(false);
+        if (!TryReadVerifiedJwtHs256(responseJwt, creds.SecretKey, out var response)
+            || GetString(response, "merchantID") != creds.MerchantId
+            || string.IsNullOrWhiteSpace(GetString(response, "respCode")))
+            throw new PspRejectedException("2c2p connection probe failed response verification.");
+        return new PspProbeResult("authenticated", "Authenticated paymentInquiry response verified.");
+    }
+
     public override async Task<PspCharge> CreateRedirectChargeAsync(
         Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken)
     {

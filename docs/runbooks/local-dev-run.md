@@ -39,7 +39,17 @@ merchant/PSP only. No standalone demo seed script.
 ## 4. Run API
 
 ```bash
+set -a && source .env && set +a
 dotnet watch --project src/Hosts/Api/Api.csproj run
+```
+
+### Important
+
+- Run `source .env` and `dotnet watch` in the same terminal. Exported configuration does not cross shell sessions.
+- Do not start a second API while port `5100` is already in use. Find the current listener before restarting:
+
+```bash
+lsof -nP -iTCP:5100 -sTCP:LISTEN
 ```
 
 - API: `http://localhost:5100`

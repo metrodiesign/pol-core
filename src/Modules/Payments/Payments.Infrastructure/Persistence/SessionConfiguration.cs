@@ -34,6 +34,7 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<Session>
         builder.Property(x => x.RedirectUrl).HasMaxLength(2048);
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.UpdatedAt).IsRequired();
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         // Optimistic concurrency: serialises the redirect claim (PLAN #11).
         builder.Property(x => x.RowVersion).IsRowVersion();

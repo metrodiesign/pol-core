@@ -29,6 +29,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // native concurrency-token WHERE clause (WHERE Id=@caller AND AuthorizationVersion=@expected) to get
         // exactly-one-row-or-throw for free — mirrors the tenant-key concurrency-token pattern from task 3.
         builder.Property(x => x.AuthorizationVersion).IsConcurrencyToken();
+        builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
         builder.Property(x => x.PositionId);
         builder.Property(x => x.OfficeId);
         builder.Property(x => x.LevelId);

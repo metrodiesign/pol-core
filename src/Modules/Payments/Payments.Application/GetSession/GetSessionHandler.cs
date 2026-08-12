@@ -33,6 +33,7 @@ public sealed class GetSessionHandler : IQueryHandler<GetSessionQuery, SessionVi
             session.PspExternalChargeId,
             session.RedirectUrl,
             session.CreatedAt,
-            session.UpdatedAt);
+            session.UpdatedAt,
+            session.Version);
     }
 }

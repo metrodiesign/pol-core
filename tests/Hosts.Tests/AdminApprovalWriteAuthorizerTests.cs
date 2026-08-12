@@ -8,13 +8,15 @@ using HttpMerchantWriteAuthorizer = ApiHost::Api.Persistence.HttpMerchantWriteAu
 using MerchantUserAccount = Merchants.Domain.Users.User;
 using MerchantRoleAssignment = Merchants.Domain.Users.Roles.RoleAssignment;
 using MerchantRegistrationAudit = Merchants.Domain.Users.RegistrationAudit;
+using MerchantEntity = Merchants.Domain.Merchant;
+using Payments.Domain.Psp;
+using Payments.Domain.Routing;
 
 namespace Hosts.Tests;
 
 /// <summary>
-/// bugfix-merchant-prebind-wiring T3 (F3, B3): the admin approval write capability — allows exactly the
-/// approve/reject write set, confines a non-Empty target merchant to the admin's accessible set, and denies
-/// everything else (product-plane types, deletes, out-of-scope merchants).
+/// The admin merchant-control write capability allows only its explicit control-plane write set, confines a
+/// non-Empty target merchant to the admin's accessible set, and denies everything else.
 /// </summary>
 public sealed class AdminApprovalWriteAuthorizerTests
 {
@@ -37,6 +39,7 @@ public sealed class AdminApprovalWriteAuthorizerTests
         // Approve: User NULL→MerchantA transition + role assignment + audit append.
         Assert.True(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Update, MerchantA));
         Assert.True(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Insert, MerchantA));
+        Assert.True(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Delete, MerchantA));
         Assert.True(floor.CanWrite(typeof(MerchantRegistrationAudit), WriteOperation.Insert, Guid.Empty));
 
         // Reject: the target row keeps a NULL tenant key → targetMerchant == Guid.Empty.
@@ -51,6 +54,7 @@ public sealed class AdminApprovalWriteAuthorizerTests
 
         Assert.False(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Update, MerchantB));
         Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Insert, MerchantB));
+        Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Delete, MerchantB));
     }
 
     [Fact]
@@ -60,9 +64,26 @@ public sealed class AdminApprovalWriteAuthorizerTests
 
         Assert.False(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Insert, Guid.Empty)); // self-service, not admin
         Assert.False(floor.CanWrite(typeof(MerchantUserAccount), WriteOperation.Delete, MerchantA));
-        Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Delete, MerchantA));
+        Assert.False(floor.CanWrite(typeof(MerchantRoleAssignment), WriteOperation.Update, MerchantA));
         Assert.False(floor.CanWrite(typeof(SharedKernel.Money), WriteOperation.Insert, MerchantA)); // not an owned entity type
         Assert.False(floor.CanWrite(typeof(MerchantRegistrationAudit), WriteOperation.Update, Guid.Empty)); // append-only
+    }
+
+    [Fact]
+    public void Task4_control_plane_writes_are_allowed_only_inside_the_accessible_scope()
+    {
+        var floor = new AdminApprovalWriteAuthorizer(
+            new StubAdminScope(bound: true, AccessibleMerchants.Of(new HashSet<Guid> { MerchantA })));
+
+        Assert.True(floor.CanWrite(typeof(MerchantEntity), WriteOperation.Update, MerchantA));
+        Assert.True(floor.CanWrite(typeof(Merchants.Domain.Originator), WriteOperation.Insert, MerchantA));
+        Assert.True(floor.CanWrite(typeof(Connection), WriteOperation.Update, MerchantA));
+        Assert.True(floor.CanWrite(typeof(RoutingRuleset), WriteOperation.Insert, MerchantA));
+        Assert.True(floor.CanWrite(typeof(RoutingRule), WriteOperation.Delete, MerchantA));
+
+        Assert.False(floor.CanWrite(typeof(MerchantEntity), WriteOperation.Update, MerchantB));
+        Assert.False(floor.CanWrite(typeof(Connection), WriteOperation.Insert, MerchantB));
+        Assert.False(floor.CanWrite(typeof(RoutingRuleset), WriteOperation.Delete, MerchantB));
     }
 }
 

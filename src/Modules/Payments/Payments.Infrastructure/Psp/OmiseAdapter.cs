@@ -39,6 +39,24 @@ public sealed class OmiseAdapter : PspAdapterBase
     public override IReadOnlySet<string> SupportedMethods { get; } =
         new HashSet<string>(StringComparer.Ordinal) { PaymentMethods.Card };
 
+    public override async Task<PspProbeResult> TestConnectionAsync(
+        string secret, CancellationToken cancellationToken)
+    {
+        var creds = ParseSecret(secret);
+        GuardKeyEnvironment(creds.SecretKey);
+        var body = await SendWithRetryAsync(() =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, $"{Options.Omise.ApiBaseUrl}/account");
+            request.Headers.Authorization = BasicAuth(creds.SecretKey);
+            return request;
+        }, cancellationToken).ConfigureAwait(false);
+        using var document = JsonDocument.Parse(body);
+        var root = document.RootElement;
+        if (GetString(root, "object") != "account" || string.IsNullOrWhiteSpace(GetString(root, "id")))
+            throw new PspRejectedException("Omise connection probe returned an invalid account response.");
+        return new PspProbeResult("authenticated", "Authenticated account response verified.");
+    }
+
     /// <summary><paramref name="pspConnectionId"/> is unused here by design: Omise takes its webhook
     /// endpoint from the dashboard, not from the charge request, so the per-connection callback URL is an ops
     /// step in the deploy runbook rather than a request field (REQ-4.5).</summary>

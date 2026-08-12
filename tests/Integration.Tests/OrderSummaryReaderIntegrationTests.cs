@@ -22,7 +22,7 @@ public sealed class OrderSummaryReaderIntegrationTests
             INSERT shop.Orders
                 (Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, CreatedAt,
                  SummaryToken, SummaryTokenExpiresAt, CustomerName, CustomerPhone)
-            VALUES (@id, @m, @orderNo, 15000, N'THB', 1, 'PROMPTPAY_QR', SYSUTCDATETIME(),
+            VALUES (@id, @m, @orderNo, 15000, N'THB', 1, 'promptpay', SYSUTCDATETIME(),
                     @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
             ("@id", orderId), ("@m", merchantId), ("@orderNo", orderNo), ("@token", token));
@@ -46,41 +46,49 @@ public sealed class OrderSummaryReaderIntegrationTests
         var token = Guid.NewGuid().ToString("N");
         var orderNo = $"ORD69{Random.Shared.Next(80_000_000, 89_999_999)}";
         await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
-        await InsertOrderAsync(c, orderId, IntegrationDb.MerchantA, token, orderNo);
-        await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA);
+        await IntegrationDb.ExecAsync(c, "BEGIN TRANSACTION;");
+        try
+        {
+            await InsertOrderAsync(c, orderId, IntegrationDb.MerchantA, token, orderNo);
+            await InsertOrderLineAsync(c, Guid.NewGuid(), orderId, IntegrationDb.MerchantA);
 
-        // Exactly the reader's first query (OrderSummaryReader.cs, column-for-column — purchase-flow-completion
-        // REQ-7.3 added OrderNo, REQ-8 swapped PaymentSessionId for PaymentChannel); only the parameter syntax
-        // differs ({0} -> @token). The channel is what the customer pay endpoint charges through, so a column
-        // that does not exist (or is misspelled) has to fail HERE, not at a customer's first payment.
-        await using var orderCmd = c.CreateCommand();
-        orderCmd.CommandText =
-            "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, "
-            + "SummaryTokenExpiresAt FROM shop.Orders WHERE SummaryToken = @token";
-        orderCmd.Parameters.AddWithValue("@token", token);
-        await using var orderReader = await orderCmd.ExecuteReaderAsync();
-        Assert.True(await orderReader.ReadAsync());
-        var resolvedOrderId = orderReader.GetGuid(0);
-        Assert.Equal(orderId, resolvedOrderId);
-        Assert.Equal(orderNo, orderReader.GetString(2));
-        Assert.Equal("PROMPTPAY_QR", orderReader.GetString(6));
-        await orderReader.CloseAsync();
+            // Exactly the reader's first query (OrderSummaryReader.cs, column-for-column — purchase-flow-completion
+            // REQ-7.3 added OrderNo, REQ-8 swapped PaymentSessionId for PaymentChannel); only the parameter syntax
+            // differs ({0} -> @token). The channel is what the customer pay endpoint charges through, so a column
+            // that does not exist (or is misspelled) has to fail HERE, not at a customer's first payment.
+            await using var orderCmd = c.CreateCommand();
+            orderCmd.CommandText =
+                "SELECT TOP 1 Id, MerchantId, OrderNo, AmountAmount, AmountCurrency, Status, PaymentChannel, "
+                + "SummaryTokenExpiresAt FROM shop.Orders WHERE SummaryToken = @token";
+            orderCmd.Parameters.AddWithValue("@token", token);
+            await using var orderReader = await orderCmd.ExecuteReaderAsync();
+            Assert.True(await orderReader.ReadAsync());
+            var resolvedOrderId = orderReader.GetGuid(0);
+            Assert.Equal(orderId, resolvedOrderId);
+            Assert.Equal(orderNo, orderReader.GetString(2));
+            Assert.Equal("promptpay", orderReader.GetString(6));
+            await orderReader.CloseAsync();
 
-        // Exactly the reader's second query — deliberately does NOT select Metadata.
-        await using var lineCmd = c.CreateCommand();
-        lineCmd.CommandText =
-            "SELECT ProductCode, VariantCode, VariantName, Quantity, UnitPriceAmount, UnitPriceCurrency "
-            + "FROM shop.OrderItems WHERE OrderId = @orderId";
-        lineCmd.Parameters.AddWithValue("@orderId", resolvedOrderId);
-        await using var reader = await lineCmd.ExecuteReaderAsync();
-        Assert.True(await reader.ReadAsync());
+            // Exactly the reader's second query — deliberately does NOT select Metadata.
+            await using var lineCmd = c.CreateCommand();
+            lineCmd.CommandText =
+                "SELECT ProductCode, VariantCode, VariantName, Quantity, UnitPriceAmount, UnitPriceCurrency "
+                + "FROM shop.OrderItems WHERE OrderId = @orderId";
+            lineCmd.Parameters.AddWithValue("@orderId", resolvedOrderId);
+            await using var reader = await lineCmd.ExecuteReaderAsync();
+            Assert.True(await reader.ReadAsync());
 
-        Assert.Equal("00098-69100/กธ/900001-10", reader.GetString(0));
-        Assert.Equal("VMI", reader.GetString(1));
-        Assert.Equal("ประกันรถยนต์", reader.GetString(2));
-        Assert.Equal(1, reader.GetInt32(3));
-        Assert.Equal(15000m, reader.GetDecimal(4));
-        Assert.Equal("THB", reader.GetString(5));
-        Assert.Equal(6, reader.FieldCount);
+            Assert.Equal("00098-69100/กธ/900001-10", reader.GetString(0));
+            Assert.Equal("VMI", reader.GetString(1));
+            Assert.Equal("ประกันรถยนต์", reader.GetString(2));
+            Assert.Equal(1, reader.GetInt32(3));
+            Assert.Equal(15000m, reader.GetDecimal(4));
+            Assert.Equal("THB", reader.GetString(5));
+            Assert.Equal(6, reader.FieldCount);
+        }
+        finally
+        {
+            await IntegrationDb.ExecAsync(c, "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;");
+        }
     }
 }

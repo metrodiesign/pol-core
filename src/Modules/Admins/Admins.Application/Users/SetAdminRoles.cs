@@ -11,10 +11,10 @@ namespace Admins.Application.Users;
 /// extra ones, idempotently. Role codes are resolved to ids; an unknown code -> 400 (S7). Unknown admin -> 404.
 /// Each add/remove is audited (REQ-10). Gated <c>user.roles</c> at the host.</summary>
 public sealed record SetRolesCommand(
-    Guid AdminId, IReadOnlyList<string> RoleCodes, Guid ActingAdminId, string CorrelationId)
+    Guid AdminId, IReadOnlyList<string> RoleCodes, Guid ActingAdminId, string CorrelationId, long ExpectedVersion)
     : ICommand<SetRolesResult>;
 
-public sealed record SetRolesResult(Guid AdminId, IReadOnlyList<string> RoleCodes);
+public sealed record SetRolesResult(Guid AdminId, IReadOnlyList<string> RoleCodes, long Version);
 
 public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesResult>
 {
@@ -46,10 +46,12 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var version = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            if (await _admins.GetByIdAsync(command.AdminId, ct) is null)
-                throw new NotFoundException("The admin account was not found.");
+            var admin = await _admins.GetByIdAsync(command.AdminId, ct)
+                ?? throw new NotFoundException("The admin account was not found.");
+            if (admin.Version != command.ExpectedVersion)
+                throw new ConflictException("The admin account changed after it was loaded.", "state_conflict");
 
             var resolved = await _roles.GetRoleIdsByCodesAsync(requestedCodes, ct);
             var unknown = requestedCodes.Where(c => !resolved.ContainsKey(c)).ToList();
@@ -78,10 +80,16 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
                     targetAdminId: command.AdminId, targetRoleId: roleId));
             }
 
+            if (!desired.SetEquals(current))
+            {
+                admin.BumpAuthorizationVersion();
+                admin.BumpResourceVersion();
+            }
+
             await _unitOfWork.SaveChangesAsync(ct);
-            return command.AdminId;
+            return admin.Version;
         }, cancellationToken);
 
-        return new SetRolesResult(command.AdminId, requestedCodes);
+        return new SetRolesResult(command.AdminId, requestedCodes, version);
     }
 }

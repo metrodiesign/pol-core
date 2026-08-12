@@ -22,6 +22,13 @@ public interface IUserRepository
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
     Task<PagedResult<User>> ListAsync(PagedQuery query, Guid? roleId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
+    Task<PagedResult<User>> ListForAdminAsync(
+        PagedQuery query, Guid? roleId, Guid? merchantId, bool isUnrestricted,
+        IReadOnlySet<Guid> accessibleMerchantIds, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+    Task<User?> FindByIdForAdminAsync(
+        Guid id, bool isUnrestricted, IReadOnlySet<Guid> accessibleMerchantIds,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
     void Add(User account);
 }
 
@@ -31,7 +38,17 @@ public interface IInvitationRepository
     Task<MerchantUserInvitation?> FindPendingByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken);
     Task<MerchantUserInvitation?> FindByTokenHashUnfilteredAsync(string tokenHash, CancellationToken cancellationToken);
     Task<MerchantUserInvitation?> FindByIdUnfilteredAsync(Guid id, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindAcceptedByUserIdAsync(Guid userId, CancellationToken cancellationToken) =>
+        Task.FromResult<MerchantUserInvitation?>(null);
     void Add(MerchantUserInvitation invitation);
+}
+
+public interface IAdminUserOperationStore
+{
+    Task<AdminUserOperationRecord?> FindAsync(
+        Guid? merchantId, Guid actorId, string operation, string idempotencyKey,
+        CancellationToken cancellationToken);
+    void Add(AdminUserOperationRecord record);
 }
 
 public interface IManagementAuditWriter
@@ -87,6 +104,7 @@ public interface IAccountResolver
 public interface IAccountStore
 {
     Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<User?>(null);
     void Add(User account);
 }
 

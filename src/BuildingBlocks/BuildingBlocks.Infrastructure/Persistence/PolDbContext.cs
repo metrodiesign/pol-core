@@ -27,7 +27,9 @@ public sealed class PolDbContext : DbContext
     public DbSet<MerchantUserOutbox> MerchantUserOutbox => Set<MerchantUserOutbox>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<VaultSecretBlob> VaultSecrets => Set<VaultSecretBlob>();
+    public DbSet<VaultSecretVersion> VaultSecretVersions => Set<VaultSecretVersion>();
     public DbSet<VaultRevealAudit> VaultRevealAudits => Set<VaultRevealAudit>();
+    public DbSet<AdminOperationRecord> AdminOperationRecords => Set<AdminOperationRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,7 +37,9 @@ public sealed class PolDbContext : DbContext
         modelBuilder.ApplyConfiguration(new MerchantUserOutboxConfiguration());
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration());
         modelBuilder.ApplyConfiguration(new VaultSecretBlobConfiguration());
+        modelBuilder.ApplyConfiguration(new VaultSecretVersionConfiguration());
         modelBuilder.ApplyConfiguration(new VaultRevealAuditConfiguration());
+        modelBuilder.ApplyConfiguration(new AdminOperationRecordConfiguration());
         modelBuilder.ApplyConfiguration(new DataProtectionKeyConfiguration());
 
         foreach (var assembly in _modules.Modules)

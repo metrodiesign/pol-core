@@ -25,7 +25,15 @@ public sealed record OrderItemDetail(
 public sealed record OrderDetailView(
     Guid OrderId, string OrderNo, string Status, Money Amount, string? PaymentChannel,
     string CustomerName, string CustomerPhone, string? CustomerEmail,
-    IReadOnlyList<OrderItemDetail> Lines);
+    IReadOnlyList<OrderItemDetail> Lines,
+    [property: System.Text.Json.Serialization.JsonIgnore] Guid MerchantId = default,
+    [property: System.Text.Json.Serialization.JsonIgnore] Guid? OriginatorId = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] Guid? PaymentSessionId = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] DateTime CreatedAt = default,
+    [property: System.Text.Json.Serialization.JsonIgnore] DateTime UpdatedAt = default,
+    [property: System.Text.Json.Serialization.JsonIgnore] DateTime SummaryTokenExpiresAt = default,
+    [property: System.Text.Json.Serialization.JsonIgnore] DateTime? PaidAt = null,
+    [property: System.Text.Json.Serialization.JsonIgnore] long Version = 0);
 
 public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailCommand, OrderDetailView>
 {
@@ -59,6 +67,8 @@ public sealed class GetOrderDetailHandler : ICommandHandler<GetOrderDetailComman
 
         return new OrderDetailView(
             order.Id, order.OrderNo, order.Status.ToString(), order.Amount, order.PaymentChannel,
-            order.CustomerName, order.CustomerPhone, order.CustomerEmail, lines);
+            order.CustomerName, order.CustomerPhone, order.CustomerEmail, lines,
+            order.MerchantId, order.OriginatorId, order.PaymentSessionId,
+            order.CreatedAt, order.UpdatedAt, order.SummaryTokenExpiresAt, order.PaidAt, order.Version);
     }
 }

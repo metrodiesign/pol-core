@@ -17,6 +17,13 @@ internal sealed record SfsQueryParamsMarker(int MaxLimit = 25);
 /// </summary>
 internal sealed class ProductQueryParamsMarker;
 
+/// <summary>Declares one query value read directly from <see cref="HttpRequest.Query"/>.</summary>
+internal sealed record RawQueryParamMarker(
+    string Name,
+    string Description,
+    bool Required = true,
+    JsonSchemaType Type = JsonSchemaType.String);
+
 internal static class SfsOpenApi
 {
     /// <summary>Declares the five SFS query parameters on an operation so they appear in the OpenAPI document
@@ -46,6 +53,15 @@ internal static class SfsOpenApi
             required: true));
     }
 
+    public static void AddRawQueryParameter(OpenApiOperation operation, RawQueryParamMarker marker)
+    {
+        var parameters = operation.Parameters ??= [];
+        if (parameters.Any(x => x.In == ParameterLocation.Query
+                                && string.Equals(x.Name, marker.Name, StringComparison.OrdinalIgnoreCase)))
+            return;
+        parameters.Add(Param(marker.Name, marker.Type, marker.Description, marker.Required));
+    }
+
     private static IList<IOpenApiParameter> AddPagingParameters(OpenApiOperation operation, int maxLimit)
     {
         var parameters = operation.Parameters ??= [];
@@ -57,11 +73,11 @@ internal static class SfsOpenApi
 
     private static OpenApiParameter Param(string name, JsonSchemaType type, string description,
         bool required = false) => new()
-    {
-        Name = name,
-        In = ParameterLocation.Query,
-        Required = required,
-        Description = description,
-        Schema = new OpenApiSchema { Type = type },
-    };
+        {
+            Name = name,
+            In = ParameterLocation.Query,
+            Required = required,
+            Description = description,
+            Schema = new OpenApiSchema { Type = type },
+        };
 }

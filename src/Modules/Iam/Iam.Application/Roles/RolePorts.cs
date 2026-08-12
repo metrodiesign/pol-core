@@ -56,4 +56,4 @@ public interface IRoleStore
 /// it; only the merchant wire projection surfaces it, since only merchant roles can be merchant-owned.</summary>
 public sealed record RoleListItem(
     Guid Id, string Code, string Name, string? Description, string? Color,
-    RoleStatus Status, bool Shared, IReadOnlyList<string> PermissionKeys, int UserCount);
+    RoleStatus Status, bool Shared, IReadOnlyList<string> PermissionKeys, long Version, int UserCount);

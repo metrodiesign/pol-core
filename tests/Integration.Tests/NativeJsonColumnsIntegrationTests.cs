@@ -171,6 +171,8 @@ public sealed class NativeJsonColumnsIntegrationTests
             typeof(Levels.Infrastructure.LevelsModuleRegistration).Assembly,
             typeof(Offices.Infrastructure.OfficesModuleRegistration).Assembly,
             typeof(Positions.Infrastructure.PositionsModuleRegistration).Assembly,
+            typeof(Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
+            typeof(Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);
 
         public async ValueTask DisposeAsync()

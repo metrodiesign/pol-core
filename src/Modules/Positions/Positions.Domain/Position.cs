@@ -18,6 +18,7 @@ public sealed class Position : AggregateRoot<Guid>
     public string Code { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public PositionStatus Status { get; private set; }
+    public long Version { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Position() { }
@@ -32,6 +33,7 @@ public sealed class Position : AggregateRoot<Guid>
         Code = code;
         Name = name.Trim();
         Status = PositionStatus.Active;
+        Version = 1;
     }
 
     public static Position Create(string code, string name) => new(Guid.NewGuid(), code, name);
@@ -45,4 +47,5 @@ public sealed class Position : AggregateRoot<Guid>
 
     public void Activate() => Status = PositionStatus.Active;
     public void Deactivate() => Status = PositionStatus.Inactive;
+    public void BumpVersion() => Version++;
 }

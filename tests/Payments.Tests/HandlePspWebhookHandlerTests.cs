@@ -34,10 +34,43 @@ public sealed class HandlePspWebhookHandlerTests
         Session Session,
         FakeOutbox Outbox,
         FakeUnitOfWork UnitOfWork,
-        FakeIdempotencyStore Idempotency)
+        FakeIdempotencyStore Idempotency,
+        FakeInboundWebhookRecorder InboundEvents)
     {
-        public async ValueTask<WebhookOutcome> Deliver() =>
-            (await Handler.Handle(new HandlePspWebhookCommand(ConnectionId, RawPayload, "sig"), default)).Outcome;
+        public async ValueTask<WebhookOutcome> Deliver(string payload = RawPayload) =>
+            (await Handler.Handle(new HandlePspWebhookCommand(ConnectionId, payload, "sig"), default)).Outcome;
+    }
+
+    private sealed class FakeInboundWebhookRecorder : IInboundWebhookRecorder
+    {
+        private readonly Dictionary<(Guid ConnectionId, string ExternalEventId), InboundWebhookEvent> _events = [];
+        public int RejectedCount { get; private set; }
+
+        public Task RecordRejectedAsync(Guid connectionId, Guid merchantId, string pspCode,
+            string payloadFingerprint, bool signatureValid, string failureCode, CancellationToken cancellationToken)
+        {
+            RejectedCount++;
+            var entity = InboundWebhookEvent.Reject(
+                connectionId, merchantId, pspCode, payloadFingerprint, signatureValid, failureCode, Now);
+            _events.TryAdd((connectionId, entity.ExternalEventId), entity);
+            return Task.CompletedTask;
+        }
+
+        public Task<InboundWebhookClaim> ClaimAsync(Guid connectionId, Guid merchantId, string pspCode,
+            string externalEventId, string payloadFingerprint, CancellationToken cancellationToken)
+        {
+            if (!_events.TryGetValue((connectionId, externalEventId), out var entity))
+            {
+                entity = InboundWebhookEvent.Receive(
+                    connectionId, merchantId, pspCode, externalEventId, payloadFingerprint, Now);
+                _events.Add((connectionId, externalEventId), entity);
+            }
+
+            return Task.FromResult(new InboundWebhookClaim(entity.Id, entity.Status, entity.PayloadFingerprint));
+        }
+
+        public Task<InboundWebhookEvent> LoadAsync(Guid eventId, CancellationToken cancellationToken) =>
+            Task.FromResult(_events.Values.Single(x => x.Id == eventId));
     }
 
     /// <summary>Default world: a session that has already redirected and carries the PSP's charge id, a
@@ -46,7 +79,8 @@ public sealed class HandlePspWebhookHandlerTests
     private static Harness NewHarness(
         Money? confirmedAmount,
         PspChargeStatus fetchedStatus = PspChargeStatus.Paid,
-        Func<string, PspChargeConfirmation>? onFetchCharge = null)
+        Func<string, PspChargeConfirmation>? onFetchCharge = null,
+        bool webhookVerifies = true)
     {
         var connection = Connection.Create(MerchantId, Code.TwoCTwoP, PaymentMethods.Card, "psp/secret-ref", Now);
 
@@ -61,12 +95,13 @@ public sealed class HandlePspWebhookHandlerTests
         var connections = new FakeConnectionRepository(connection);
         var adapters = new FakePspAdapterFactory(new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card)
         {
-            WebhookVerifies = true,
+            WebhookVerifies = webhookVerifies,
             ParsedWebhook = new WebhookEvent(EventId, ChargeId, PspChargeStatus.Paid),
             OnFetchCharge = onFetchCharge ?? (_ => new PspChargeConfirmation(fetchedStatus, confirmedAmount)),
         });
         var vault = new FakeVaultSecretStore();
         var clock = new FixedClock { UtcNow = Now };
+        var inboundEvents = new FakeInboundWebhookRecorder();
 
         var handler = new HandlePspWebhookHandler(
             connections,
@@ -82,18 +117,20 @@ public sealed class HandlePspWebhookHandlerTests
                 outbox,
                 unitOfWork,
                 clock,
-                new RecordingLogger<PaymentConfirmationService>()));
+                new RecordingLogger<PaymentConfirmationService>()),
+            inboundEvents,
+            clock);
 
-        return new Harness(handler, connection.Id, session, outbox, unitOfWork, idempotency);
+        return new Harness(handler, connection.Id, session, outbox, unitOfWork, idempotency, inboundEvents);
     }
 
     /// <summary>An unconfirmed collection must not move the session, must not publish, and must not commit —
     /// asserting the outcome alone would pass on a handler that returned Ignored AFTER marking it paid.</summary>
-    private static void AssertNotPaid(Harness harness)
+    private static void AssertNotPaid(Harness harness, int expectedSaves = 1)
     {
         Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
         Assert.Empty(harness.Outbox.Enqueued);
-        Assert.Equal(0, harness.UnitOfWork.SaveCount);
+        Assert.Equal(expectedSaves, harness.UnitOfWork.SaveCount);
     }
 
     [Fact]
@@ -104,7 +141,7 @@ public sealed class HandlePspWebhookHandlerTests
         Assert.Equal(WebhookOutcome.Processed, await harness.Deliver());
 
         Assert.Equal(SessionStatus.Paid, harness.Session.Status);
-        Assert.Equal(1, harness.UnitOfWork.SaveCount);
+        Assert.Equal(2, harness.UnitOfWork.SaveCount);
         // REQ-8.4: the event's own contract is untouched — same fields, same amount, published in the
         // same transaction as the transition.
         var paid = Assert.IsType<PaymentPaid>(Assert.Single(harness.Outbox.Enqueued));
@@ -190,7 +227,7 @@ public sealed class HandlePspWebhookHandlerTests
         Assert.Equal(WebhookOutcome.Ignored, await harness.Deliver());
         Assert.Equal(WebhookOutcome.Ignored, await harness.Deliver());
 
-        AssertNotPaid(harness);
+        AssertNotPaid(harness, expectedSaves: 2);
         Assert.Empty(harness.Idempotency.Claims);
     }
 
@@ -214,5 +251,31 @@ public sealed class HandlePspWebhookHandlerTests
 
         // And a further redelivery of the settled event is the duplicate now.
         Assert.Equal(WebhookOutcome.Duplicate, await harness.Deliver());
+    }
+
+    [Fact]
+    public async Task Invalid_signature_is_recorded_without_parsing_or_changing_payment_state()
+    {
+        var harness = NewHarness(SessionAmount, webhookVerifies: false);
+
+        Assert.Equal(WebhookOutcome.Rejected, await harness.Deliver());
+
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
+        Assert.Empty(harness.Outbox.Enqueued);
+        Assert.Equal(1, harness.InboundEvents.RejectedCount);
+        Assert.Equal(0, harness.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task Same_event_id_with_different_payload_is_rejected()
+    {
+        var harness = NewHarness(SessionAmount, PspChargeStatus.Pending);
+        Assert.Equal(WebhookOutcome.Ignored, await harness.Deliver());
+
+        Assert.Equal(WebhookOutcome.Rejected, await harness.Deliver("{\"changed\":true}"));
+
+        Assert.Equal(SessionStatus.Redirected, harness.Session.Status);
+        Assert.Equal(1, harness.InboundEvents.RejectedCount);
+        Assert.Empty(harness.Idempotency.Claims);
     }
 }

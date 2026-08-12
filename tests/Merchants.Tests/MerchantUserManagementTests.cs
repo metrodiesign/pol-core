@@ -48,6 +48,32 @@ public sealed class MerchantUserManagementTests
         Assert.NotEqual("user@example.com", result.MaskedEmail);
     }
 
+    [Fact]
+    public async Task Admin_invitation_persists_audience_roles_and_replays_same_idempotency_key()
+    {
+        var invitations = new FakeInvitations();
+        var outbox = new FakeOutbox();
+        var roles = new FakeRoles();
+        roles.Seed("merchant_staff");
+        var operations = new FakeAdminOperations();
+        var handler = new CreateInvitationHandler(
+            invitations, new FakeAudits(), outbox, new FakeProtector(), new FakeUow(), new FakeClock(),
+            operations, roles);
+        var command = new CreateInvitationCommand(
+            "admin-invite@example.com", MerchantId, ActorId, "corr-admin", 24,
+            InvitationActorAudience.Admin, ["merchant_staff"], "invite-key-1");
+
+        var created = await handler.Handle(command, default);
+        var replay = await handler.Handle(command, default);
+
+        Assert.Equal(created, replay);
+        var invitation = Assert.Single(invitations.Items);
+        Assert.Equal(InvitationActorAudience.Admin, invitation.CreatedByAudience);
+        Assert.Equal(["merchant_staff"], invitation.IntendedRoleCodes());
+        Assert.Single(outbox.Events);
+        Assert.Single(operations.Items);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("short")]
@@ -178,6 +204,16 @@ public sealed class MerchantUserManagementTests
     {
         public List<INotification> Events { get; } = [];
         public void Enqueue(INotification notification) => Events.Add(notification);
+    }
+
+    private sealed class FakeAdminOperations : IAdminUserOperationStore
+    {
+        public List<AdminUserOperationRecord> Items { get; } = [];
+        public Task<AdminUserOperationRecord?> FindAsync(
+            Guid? merchantId, Guid actorId, string operation, string idempotencyKey, CancellationToken ct) =>
+            Task.FromResult(Items.SingleOrDefault(x => x.MerchantId == merchantId && x.ActorId == actorId
+                && x.Operation == operation && x.IdempotencyKey == idempotencyKey));
+        public void Add(AdminUserOperationRecord record) => Items.Add(record);
     }
 
     private sealed class FakeProtector : IInvitationDeliveryProtector

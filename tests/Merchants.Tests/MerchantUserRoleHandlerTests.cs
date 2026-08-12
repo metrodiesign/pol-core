@@ -62,12 +62,18 @@ public sealed class MerchantUserRoleHandlerTests
         var handler = new SetRolesHandler(
             users, roles, new FakeUow(), new FakeManagerGuard(), new FakeAuditWriter(), new FakeClock());
 
-        await handler.Handle(new SetRolesCommand(target.Id, ["finance"], MerchantA, Actor), default);
+        var before = target.Version;
+        var result = await handler.Handle(
+            new SetRolesCommand(target.Id, ["finance"], MerchantA, Actor, ExpectedVersion: before), default);
 
         var roleIds = roles.Assignments.Where(a => a.UserId == target.Id).Select(a => a.RoleId).ToHashSet();
         Assert.Equal(new HashSet<Guid> { finance }, roleIds);
         Assert.All(roles.Assignments.Where(a => a.UserId == target.Id), a => Assert.Equal(MerchantA, a.MerchantId));
         Assert.All(roles.Assignments.Where(a => a.UserId == target.Id), a => Assert.Equal(Actor, a.AssignedById));
+        Assert.Equal(before + 1, result.Version);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Handle(
+            new SetRolesCommand(target.Id, ["finance"], MerchantA, Actor, ExpectedVersion: before), default).AsTask());
     }
 
     [Fact]

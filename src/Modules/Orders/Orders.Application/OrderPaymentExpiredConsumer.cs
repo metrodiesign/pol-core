@@ -27,7 +27,7 @@ public sealed class OrderPaymentExpiredConsumer : INotificationHandler<PaymentEx
                 if (order.MerchantId != notification.MerchantId)
                     throw new InvalidOperationException("Payment event merchant does not match Order merchant.");
 
-                var changed = order.MarkPaymentExpired(notification.PaymentSessionId);
+                var changed = order.MarkPaymentExpired(notification.PaymentSessionId, notification.OccurredAt);
                 if (changed)
                     await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
                 return changed;

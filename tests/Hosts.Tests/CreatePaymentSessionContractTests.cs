@@ -54,7 +54,8 @@ public sealed class CreatePaymentSessionContractTests
             .Select(p => p.Name)
             .ToArray();
 
-        Assert.Equal(["OrderId", "Method", "Psp"], members);
+        Assert.Equal(["OrderId", "Method", "Psp", "MerchantId"], members);
+        Assert.Null(typeof(ApiHost::CreatePaymentSessionRequest).GetProperty("Amount"));
     }
 
     [Fact]

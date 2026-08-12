@@ -28,6 +28,9 @@ public sealed class User : AggregateRoot<Guid>
 
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>Optimistic resource version for Admin/Merchant profile, lifecycle, and role mutations.</summary>
+    public long Version { get; private set; }
+
     /// <summary>Server-computed as <c>"{FirstName} {LastName}"</c> — never supplied by the form.</summary>
     public string DisplayName { get; private set; } = default!;
 
@@ -66,6 +69,7 @@ public sealed class User : AggregateRoot<Guid>
         Email = email;
         Status = UserStatus.PendingApproval;
         CreatedAt = createdAt;
+        Version = 1;
         // SetDetails runs immediately after Register in the handler and fills these; the blank-name guard there
         // throws before any blank ever persists. "" keeps the NOT NULL columns valid in the transient window.
         FirstName = string.Empty;
@@ -127,6 +131,7 @@ public sealed class User : AggregateRoot<Guid>
         SaleCode = ValidSaleCode(Trim(saleCode));
         LicenseNumber = Trim(licenseNumber);
         Phone = Trim(phone);
+        Version++;
     }
 
     /// <summary>The upstream contract's <c>varchar(20)</c>: at most 20 printable-ASCII characters (REQ-4.10).
@@ -190,6 +195,7 @@ public sealed class User : AggregateRoot<Guid>
 
         Status = UserStatus.Active;
         MerchantId = merchantId;
+        Version++;
     }
 
     /// <summary>Rejects a pending applicant (PendingApproval→Rejected). Any other source state throws.</summary>
@@ -198,6 +204,7 @@ public sealed class User : AggregateRoot<Guid>
         if (Status != UserStatus.PendingApproval)
             throw new InvalidOperationException($"Cannot reject an account in status {Status}; it must be PendingApproval.");
         Status = UserStatus.Rejected;
+        Version++;
     }
 
     /// <summary>Re-opens a rejected applicant for review on a corrected resubmission (Rejected→PendingApproval).
@@ -207,6 +214,7 @@ public sealed class User : AggregateRoot<Guid>
         if (Status != UserStatus.Rejected)
             throw new InvalidOperationException($"Cannot resubmit an account in status {Status}; it must be Rejected.");
         Status = UserStatus.PendingApproval;
+        Version++;
     }
 
     /// <summary>Suspends an active account (Active→Suspended) — the session-killer transition. Any other
@@ -216,6 +224,7 @@ public sealed class User : AggregateRoot<Guid>
         if (Status != UserStatus.Active)
             throw new InvalidOperationException($"Cannot suspend an account in status {Status}; it must be Active.");
         Status = UserStatus.Suspended;
+        Version++;
     }
 
     public void Reactivate(DateTime now)
@@ -223,5 +232,14 @@ public sealed class User : AggregateRoot<Guid>
         if (Status != UserStatus.Suspended)
             throw new InvalidOperationException($"Cannot reactivate an account in status {Status}; it must be Suspended.");
         Status = UserStatus.Active;
+        Version++;
     }
+
+    public void EnsureVersion(long expectedVersion)
+    {
+        if (Version != expectedVersion)
+            throw new InvalidOperationException("The merchant user changed after it was loaded.");
+    }
+
+    public void BumpVersion() => Version++;
 }

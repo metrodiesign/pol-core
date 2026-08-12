@@ -38,7 +38,7 @@ internal sealed class FakePlatformUserRepository : IUserRepository
     {
         var all = Accounts
             .OrderByDescending(a => a.CreatedAt).ThenBy(a => a.Id)
-            .Select(a => new UserListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject is not null))
+            .Select(a => new UserListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject is not null, a.Version))
             .ToList();
         var items = all.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList();
         return Task.FromResult(new PagedResult<UserListItem>(items, query.Page, query.Limit, all.Count));
@@ -74,6 +74,24 @@ internal sealed class FakePlatformUserSessionStore : ISessionStore
             Sessions.Where(s => s.AdminUserId == adminAccountId).OrderByDescending(s => s.IssuedAt).ThenBy(s => s.Id).ToList());
     public Task<Session?> FindByIdAsync(Guid sessionId, CancellationToken ct) =>
         Task.FromResult(Sessions.FirstOrDefault(s => s.Id == sessionId));
+}
+
+internal sealed class FakeAdminOperationStore : IAdminOperationStore
+{
+    private readonly Dictionary<(Guid ActorId, string Operation, string Key), AdminOperationReplay> _records = [];
+    public int Count => _records.Count;
+
+    public Task AcquireAsync(Guid actorId, string operation, string idempotencyKey, CancellationToken ct) =>
+        Task.CompletedTask;
+
+    public Task<AdminOperationReplay?> FindAsync(
+        Guid actorId, string operation, string idempotencyKey, CancellationToken ct) =>
+        Task.FromResult(_records.GetValueOrDefault((actorId, operation, idempotencyKey)));
+
+    public void AddSucceeded(
+        Guid actorId, string operation, string idempotencyKey, string requestHash,
+        string responseBody, DateTime now) =>
+        _records.Add((actorId, operation, idempotencyKey), new AdminOperationReplay(requestHash, responseBody, false));
 }
 
 /// <summary>Stands in for the central iam.Roles catalog (rf2) — <see cref="Roles"/> holds

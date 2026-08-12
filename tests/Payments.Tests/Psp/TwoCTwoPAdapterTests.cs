@@ -62,6 +62,32 @@ public sealed class TwoCTwoPAdapterTests
     }
 
     [Fact]
+    public async Task TestConnection_uses_authenticated_inquiry_without_creating_a_charge()
+    {
+        var inquiry = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { merchantID = "M123", respCode = "2002" }), Key)));
+        var (adapter, handler) = Build((_, _) => inquiry);
+
+        var result = await adapter.TestConnectionAsync(Secret, CancellationToken.None);
+
+        Assert.Equal("authenticated", result.Code);
+        Assert.Single(handler.Calls);
+        Assert.EndsWith("/payment/4.3/paymentInquiry", handler.Calls[0].Uri!.AbsolutePath);
+        Assert.DoesNotContain("paymentToken", handler.Calls[0].Uri!.AbsolutePath, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TestConnection_rejects_a_response_bound_to_another_merchant()
+    {
+        var inquiry = StubHttpMessageHandler.Json(JwtTestHelper.Envelope(JwtTestHelper.EncodeHs256(
+            JsonSerializer.Serialize(new { merchantID = "OTHER", respCode = "2002" }), Key)));
+        var (adapter, _) = Build((_, _) => inquiry);
+
+        await Assert.ThrowsAsync<PspRejectedException>(() =>
+            adapter.TestConnectionAsync(Secret, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task CreateRedirectCharge_returns_hosted_url_and_stable_invoiceNo_key()
     {
         var session = MakeSession();

@@ -3,6 +3,7 @@ using Admins.Application.Users;
 using BuildingBlocks.Application;
 using Divisions.Application;
 using Iam.Application.Roles;
+using Iam.Application.ApiClients;
 using Levels.Application;
 using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -13,7 +14,11 @@ using Persistence.ControlPlane.Admins;
 using Persistence.ControlPlane.DataProtection;
 using Persistence.ControlPlane.Iam;
 using Positions.Application;
+using Governance.Application;
+using Persistence.ControlPlane.Governance;
 using IamRoleStore = Persistence.ControlPlane.Iam.RoleStore;
+using Notifications.Application;
+using Persistence.ControlPlane.Notifications;
 
 namespace Persistence.ControlPlane;
 
@@ -51,6 +56,30 @@ public static class ControlPlanePersistenceRegistration
 
         services.AddScoped<IRoleStore>(sp => new IamRoleStore(
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ILogger<IamRoleStore>>()));
+        services.AddScoped<IApiClientStore>(sp => new ApiClientStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<BuildingBlocks.Infrastructure.Vault.VaultKeyring>(),
+            sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(),
+            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
+            sp.GetRequiredService<ControlPlaneOperationExecutor>()));
+        services.AddScoped<IApprovalDecisionExecutor>(sp => new ApiClientApprovalExecutor(
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
+            sp.GetRequiredService<BuildingBlocks.Infrastructure.Vault.VaultKeyring>(),
+            sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>()));
+        services.AddScoped<ISafeDestinationValidator, SafeDestinationValidator>();
+        services.AddScoped<IDeliveryControlStore>(sp => new DeliveryControlStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(),
+            sp.GetRequiredService<ISafeDestinationValidator>(),
+            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
+            sp.GetRequiredService<ControlPlaneOperationExecutor>()));
+        services.AddScoped<IDeliveryEventSink>(sp =>
+            (DeliveryControlStore)sp.GetRequiredService<IDeliveryControlStore>());
+        services.AddHostedService<WebhookDeliveryDispatcher>();
 
         services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) =>
             new ControlPlaneUnitOfWork(
@@ -72,6 +101,20 @@ public static class ControlPlanePersistenceRegistration
 
         services.AddScoped<IMerchantRoleReader>(sp =>
             new MerchantRoleReader(sp.GetRequiredService<ControlPlaneDbContext>()));
+
+        services.AddScoped<GovernanceSqlLockManager>();
+        services.AddScoped(sp => new ControlPlaneOperationExecutor(
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
+            sp.GetRequiredService<GovernanceSqlLockManager>()));
+        services.AddScoped<IAdminOperationStore, AdminOperationStore>();
+        services.AddScoped<IGovernanceStore>(sp => new GovernanceStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
+            sp.GetRequiredService<IClock>(),
+            sp.GetRequiredService<IAuditAnchorStore>(),
+            sp.GetRequiredService<GovernanceSqlLockManager>()));
 
         services.AddSingleton<EfCoreXmlRepository>();
         services.AddSingleton<IXmlRepository>(sp => sp.GetRequiredService<EfCoreXmlRepository>());

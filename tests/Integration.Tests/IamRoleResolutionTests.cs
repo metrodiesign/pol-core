@@ -168,13 +168,13 @@ public sealed class IamRoleResolutionTests
         try
         {
             // Orthogonality (REQ-8.2/8.3): a SCOPED-tier admin (Tier=1) holding platform_admin still resolves the
-            // full 14-key Platform action set after policy permissions retired — action comes
+            // full 18-key Platform action set after Admin console permissions land — action comes
             // from the role, not the Tier. (Its narrow VISIBILITY under fn_merchant_predicate is the separate
             // axis, covered by RlsIsolationTests.)
             await IntegrationDb.InsertPlatformUserAsync(admin, user, "orth-" + user.ToString("N")[..8],
                 user.ToString("N")[..8] + "@example.com", tier: 1, status: 1);
             await InsertAdminAssignment(admin, user, platformAdminId);
-            Assert.Equal(14, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
+            Assert.Equal(18, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
         finally
         {
@@ -259,8 +259,8 @@ public sealed class IamRoleResolutionTests
             // handler's AssignmentExists check + this DB backstop mean a retry/race never double-assigns.
             await Assert.ThrowsAsync<SqlException>(() => InsertAdminAssignment(admin, user, roleId));
 
-            // The bootstrap account is usable immediately: platform_admin's full 14-key Platform set resolves.
-            Assert.Equal(14, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
+            // The bootstrap account is usable immediately: platform_admin's full 18-key Platform set resolves.
+            Assert.Equal(18, (await Effective(admin, AdminEffectiveSql, user, Guid.Empty)).Length);
         }
         finally
         {

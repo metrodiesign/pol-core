@@ -126,4 +126,14 @@ public sealed class RoleTests
         role.Activate();
         Assert.Equal(RoleStatus.Active, role.Status);
     }
+
+    [Fact]
+    public void Resource_version_starts_at_one_and_bumps_monotonically()
+    {
+        var role = Role.Create("r", "R", null, null, RoleStatus.Active, Scope.Platform, null, [], Catalog);
+
+        Assert.Equal(1, role.Version);
+        role.BumpVersion();
+        Assert.Equal(2, role.Version);
+    }
 }

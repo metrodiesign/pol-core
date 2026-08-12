@@ -15,7 +15,8 @@ public sealed record MerchantView(
     string EnabledChannels,
     JsonElement? Metadata,
     DateTime CreatedAt,
-    IReadOnlyList<MerchantConnectionView> Connections);
+    IReadOnlyList<MerchantConnectionView> Connections,
+    long Version = 1);
 
 /// <summary><see cref="EnabledMethods"/> + <see cref="Config"/> + <see cref="MerchantId"/> are the verbatim
 /// non-secret PSP config stored at provisioning (REQ-9.1 read-back); <see cref="MaskedSecrets"/> never

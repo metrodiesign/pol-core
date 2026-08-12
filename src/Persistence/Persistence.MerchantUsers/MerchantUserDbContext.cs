@@ -44,6 +44,7 @@ internal sealed class MerchantUserDbContext : GuardedRuntimeDbContext
     public DbSet<RoleAssignment> RoleAssignments => Set<RoleAssignment>();
     public DbSet<MerchantUserInvitation> Invitations => Set<MerchantUserInvitation>();
     public DbSet<MerchantUserManagementAudit> ManagementAudits => Set<MerchantUserManagementAudit>();
+    public DbSet<AdminUserOperationRecord> AdminUserOperationRecords => Set<AdminUserOperationRecord>();
 
     public DbSet<MerchantUserOutbox> UserOutbox => Set<MerchantUserOutbox>();
 
@@ -59,6 +60,7 @@ internal sealed class MerchantUserDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new RoleAssignmentConfiguration(this));
         modelBuilder.ApplyConfiguration(new MerchantUserInvitationConfiguration(this));
         modelBuilder.ApplyConfiguration(new MerchantUserManagementAuditConfiguration(this));
+        modelBuilder.ApplyConfiguration(new AdminUserOperationRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new MerchantUserOutboxConfiguration(this));
 
         base.OnModelCreating(modelBuilder);

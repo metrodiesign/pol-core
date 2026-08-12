@@ -5,7 +5,7 @@ using Divisions.Domain;
 namespace Divisions.Application;
 
 /// <summary>A division row as the management endpoints render it.</summary>
-public sealed record DivisionItem(Guid Id, string Code, string Name, DivisionStatus Status);
+public sealed record DivisionItem(Guid Id, string Code, string Name, DivisionStatus Status, long Version);
 
 /// <summary>
 /// Runtime CRUD over the division master list. Simple control-plane reference data, so it deliberately
@@ -22,12 +22,12 @@ public interface IDivisionStore
     Task<DivisionItem> CreateAsync(string code, string name, CancellationToken cancellationToken);
 
     /// <summary>Renames + toggles active on an existing division. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<DivisionItem> UpdateAsync(Guid id, string name, DivisionStatus status, CancellationToken cancellationToken);
+    Task<DivisionItem> UpdateAsync(Guid id, string name, DivisionStatus status, long expectedVersion, CancellationToken cancellationToken);
 
     /// <summary>Reads a single division by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<DivisionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>Soft-deactivates (sets IsActive=false) without touching Code/Name — never a hard delete (the
     /// <c>AdminAccount</c> FK is Restrict). Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<DivisionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken);
+    Task<DivisionItem> DeactivateAsync(Guid id, long expectedVersion, CancellationToken cancellationToken);
 }

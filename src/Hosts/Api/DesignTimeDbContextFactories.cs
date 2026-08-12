@@ -29,6 +29,8 @@ internal static class HostModuleAssemblies
         typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
         typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
         typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
+        typeof(global::Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
+        typeof(global::Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
     ];
 
     // ponytail: design-time only — real env-driven connection string is supplied via POL_DESIGN_SQL;

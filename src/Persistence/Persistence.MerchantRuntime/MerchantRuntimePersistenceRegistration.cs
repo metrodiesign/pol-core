@@ -2,11 +2,16 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
 using Carts.Application;
 using Merchants.Application;
+using Merchants.Application.AdminControlPlane;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Orders.Application;
+using Governance.Application;
+using Payments.Application;
+using Payments.Application.AdminControlPlane;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
+using Payments.Application.HandlePspWebhook;
 using Persistence.MerchantRuntime.Carts;
 using Persistence.MerchantRuntime.Idempotency;
 using Persistence.MerchantRuntime.Merchants;
@@ -15,9 +20,11 @@ using Persistence.MerchantRuntime.Orders.Items;
 using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantRuntime.Payments;
 using Persistence.MerchantRuntime.Payments.Psp;
+using Persistence.MerchantRuntime.Reporting;
 using Persistence.MerchantRuntime.Vault;
 using Persistence.MerchantRuntime.Webhooks;
 using Products.Application;
+using Reporting.Application;
 
 namespace Persistence.MerchantRuntime;
 
@@ -48,9 +55,11 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<CartRepository>();
         services.AddScoped<ICartRepository>(sp => sp.GetRequiredService<CartRepository>());
         services.AddScoped<ICartForOrderStore>(sp => sp.GetRequiredService<CartRepository>());
+        services.AddScoped<IAdminCartReader, AdminCartReader>();
         services.AddScoped<OrderRepository>();
         services.AddScoped<IOrderRepository>(sp => sp.GetRequiredService<OrderRepository>());
         services.AddScoped<IOrderStore>(sp => sp.GetRequiredService<OrderRepository>());
+        services.AddScoped<IAdminOrderReader, AdminOrderReader>();
         services.AddScoped<IOrderSummaryReader, OrderSummaryReader>();
         services.AddScoped<IOrderNoSequence, OrderNoSequence>();
         services.AddScoped<IPaymentSessionProbe, PaymentSessionProbe>();
@@ -58,14 +67,25 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<IDoubleSellAuditor, DoubleSellAuditor>();
         services.AddScoped<IRevealAuditWriter, RevealAuditWriter>();
         services.AddScoped<IConnectionRepository, ConnectionRepository>();
+        services.AddScoped<InboundWebhookStore>();
+        services.AddScoped<IInboundWebhookRecorder>(sp => sp.GetRequiredService<InboundWebhookStore>());
+        services.AddScoped<IAdminInboundWebhookReader>(sp => sp.GetRequiredService<InboundWebhookStore>());
+        services.AddScoped<IAdminPaymentsControlStore, AdminPaymentsControlStore>();
+        services.AddScoped<IApprovalDecisionExecutor, AdminPaymentsApprovalExecutor>();
         services.AddScoped<ISessionRepository, SessionRepository>();
+        services.AddScoped<AdminPaymentSessionReader>();
+        services.AddScoped<IAdminPaymentSessionReader>(sp => sp.GetRequiredService<AdminPaymentSessionReader>());
+        services.AddScoped<IAdminPaymentRoutingSelector>(sp => sp.GetRequiredService<AdminPaymentSessionReader>());
+        services.AddScoped<IAdminReportingReader, AdminReportingReader>();
         services.AddScoped<IPayableOrderReader, PayableOrderReader>();
         services.AddScoped<MerchantRepository>();
         services.AddScoped<IMerchantRepository>(sp => sp.GetRequiredService<MerchantRepository>());
         services.AddScoped<IMerchantDirectoryReader>(sp => sp.GetRequiredService<MerchantRepository>());
+        services.AddScoped<IAdminMerchantControlStore, AdminMerchantControlStore>();
 
         services.AddScoped<IOutbox, EfOutbox>();
         services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
+        services.AddScoped<IAdminOperationExecutor, AdminOperationExecutor>();
         services.AddScoped<IWebhookMerchantResolver, WebhookMerchantResolver>();
 
         services.AddScoped<IVaultSecretStore, LocalEnvelopeVaultStore>();

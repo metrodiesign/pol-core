@@ -61,6 +61,8 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
     {
         var session = await _sessions.GetByIdAsync(command.PaymentSessionId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException($"PaymentSession {command.PaymentSessionId} not found.");
+        if (command.ExpectedVersion is { } expected && session.Version != expected)
+            throw new ConcurrencyConflictException("Payment session changed after it was read.");
 
         // Idempotent re-entry: a session already redirected (e.g. a retried click) returns its existing
         // hosted URL — never a second PSP charge.
@@ -113,7 +115,9 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         string secret;
         try
         {
-            secret = await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+            secret = connection.ActiveSecretVersionId is { } versionId
+                ? await _vault.ReadVersionForServerAsync(session.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
+                : await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception) when (!settlingClaim)
         {

@@ -255,6 +255,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
                     b.HasKey("Id");
 
                     b.HasIndex("DivisionId");
@@ -294,6 +300,63 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("DataProtectionKeys", "dbo");
+                });
+
+            modelBuilder.Entity("BuildingBlocks.Infrastructure.Idempotency.AdminOperationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("HttpStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("IntentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("ResourceId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Result")
+                        .HasMaxLength(16384)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("MerchantId", "ActorId", "Operation", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("AdminOperationRecords", "txn");
                 });
 
             modelBuilder.Entity("BuildingBlocks.Infrastructure.Idempotency.IdempotencyRecord", b =>
@@ -532,6 +595,68 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("VaultSecrets", "merch");
                 });
 
+            modelBuilder.Entity("BuildingBlocks.Infrastructure.Vault.VaultSecretVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ActivatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("EncryptedDek")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<byte[]>("EncryptedSecret")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Hint")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("RetiredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SecretKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("SecretName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "SecretName", "State")
+                        .IsUnique()
+                        .HasFilter("[State] = 2");
+
+                    b.HasIndex("MerchantId", "SecretName", "Version")
+                        .IsUnique();
+
+                    b.ToTable("VaultSecretVersions", "merch");
+                });
+
             modelBuilder.Entity("Carts.Domain.Cart", b =>
                 {
                     b.Property<Guid>("Id")
@@ -542,6 +667,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OriginatorId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("SaleCode")
@@ -645,12 +773,577 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
                         .IsUnique();
 
                     b.ToTable("Divisions", "cfg");
+                });
+
+            modelBuilder.Entity("Governance.Domain.ApprovalEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(40)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ScopeKind")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("SourceEventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceEventId")
+                        .IsUnique();
+
+                    b.HasIndex("ApprovalId", "OccurredAt");
+
+                    b.ToTable("ApprovalEvents", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_ApprovalEvents_Scope", "([ScopeKind] = 1 AND [MerchantId] IS NULL) OR ([ScopeKind] = 2 AND [MerchantId] IS NOT NULL)");
+                        });
+
+                    b
+                        .HasAnnotation("Pol:AppendOnly", true)
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Governance.Domain.ApprovalRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<Guid?>("CheckerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("ExecutedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ExecutionOutcome")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("MakerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RequiredPermission")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<int>("ScopeKind")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TargetId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<string>("TargetVersion")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "CreatedAt");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("ApprovalRequests", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_ApprovalRequests_Scope", "([ScopeKind] = 1 AND [MerchantId] IS NULL) OR ([ScopeKind] = 2 AND [MerchantId] IS NOT NULL)");
+                        });
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Governance.Domain.AuditHead", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("ScopeKey");
+
+                    b.Property<byte[]>("LastHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<long>("LastSequence")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ScopeKind")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScopeKind")
+                        .IsUnique()
+                        .HasDatabaseName("UX_AuditHeads_PlatformScope")
+                        .HasFilter("[MerchantId] IS NULL");
+
+                    b.HasIndex("ScopeKind", "MerchantId")
+                        .IsUnique()
+                        .HasFilter("[MerchantId] IS NOT NULL");
+
+                    b.ToTable("AuditHeads", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_AuditHeads_Scope", "([ScopeKind] = 1 AND [MerchantId] IS NULL) OR ([ScopeKind] = 2 AND [MerchantId] IS NOT NULL)");
+                        });
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Governance.Domain.AuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Changes")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CorrelationId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(128)");
+
+                    b.Property<byte[]>("Hash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<byte[]>("PreviousHash")
+                        .IsRequired()
+                        .HasColumnType("binary(32)");
+
+                    b.Property<string>("ResourceId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ResourceType")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<string>("ResourceVersion")
+                        .HasMaxLength(200)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)");
+
+                    b.Property<string>("ScopeKey")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)");
+
+                    b.Property<int>("ScopeKind")
+                        .HasColumnType("int");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Action", "OccurredAt");
+
+                    b.HasIndex("ActorId", "OccurredAt");
+
+                    b.HasIndex("ScopeKey", "PreviousHash")
+                        .IsUnique();
+
+                    b.HasIndex("ScopeKey", "Sequence")
+                        .IsUnique();
+
+                    b.ToTable("AuditRecords", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_AuditRecords_Scope", "([ScopeKind] = 1 AND [MerchantId] IS NULL) OR ([ScopeKind] = 2 AND [MerchantId] IS NOT NULL)");
+                        });
+
+                    b
+                        .HasAnnotation("Pol:AppendOnly", true)
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Governance.Domain.GovernanceOutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SchemaVersion")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)");
+
+                    b.Property<int>("ScopeKind")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessedAt", "LeaseExpiresAt");
+
+                    b.ToTable("GovernanceOutboxMessages", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_GovernanceOutboxMessages_Scope", "([ScopeKind] = 1 AND [MerchantId] IS NULL) OR ([ScopeKind] = 2 AND [MerchantId] IS NOT NULL)");
+                        });
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Governance.Domain.OperationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(200)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(120)");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<string>("ResponseBody")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("ResponseStatus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ScopeKind")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("ActorId", "Operation", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("OperationRecords", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_OperationRecords_Scope", "([ScopeKind] = 1 AND [MerchantId] IS NULL) OR ([ScopeKind] = 2 AND [MerchantId] IS NOT NULL)");
+                        });
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Iam.Domain.ApiClients.ApiClient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("IpPolicy")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<Guid?>("OriginatorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("PendingRotationApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("PendingRotationTicketId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PublicClientId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("ScopesCsv")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<byte[]>("SecretHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varbinary(32)");
+
+                    b.Property<string>("SecretHint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PendingRotationApprovalId")
+                        .IsUnique()
+                        .HasFilter("[PendingRotationApprovalId] IS NOT NULL");
+
+                    b.HasIndex("PublicClientId")
+                        .IsUnique();
+
+                    b.HasIndex("MerchantId", "Status");
+
+                    b.ToTable("ApiClients", "iam");
+                });
+
+            modelBuilder.Entity("Iam.Domain.ApiClients.OneTimeSecretTicket", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ApiClientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ConsumedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProtectedSecret")
+                        .HasMaxLength(4096)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("TicketHash")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("varbinary(32)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalId")
+                        .IsUnique()
+                        .HasFilter("[ApprovalId] IS NOT NULL");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("TicketHash")
+                        .IsUnique();
+
+                    b.ToTable("OneTimeSecretTickets", "iam");
                 });
 
             modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
@@ -740,6 +1433,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
                     b.HasKey("Id");
 
                     b.HasIndex("MerchantId", "Code")
@@ -794,6 +1493,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
@@ -846,12 +1551,66 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
                         .IsUnique();
 
                     b.ToTable("Merchants", "merch");
+                });
+
+            modelBuilder.Entity("Merchants.Domain.Originator", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ApiClientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SaleCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("Originators", "merch");
                 });
 
             modelBuilder.Entity("Merchants.Domain.ProvisioningAudit", b =>
@@ -884,6 +1643,63 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("ProvisioningAudits", "merch");
+                });
+
+            modelBuilder.Entity("Merchants.Domain.Users.AdminUserOperationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("HttpStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("IntentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(16384)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("ActorId", "Operation", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[MerchantId] IS NULL");
+
+                    b.HasIndex("MerchantId", "ActorId", "Operation", "IdempotencyKey")
+                        .IsUnique()
+                        .HasFilter("[MerchantId] IS NOT NULL");
+
+                    b.ToTable("AdminUserOperationRecords", "merch");
                 });
 
             modelBuilder.Entity("Merchants.Domain.Users.AuthAudit", b =>
@@ -965,6 +1781,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("CreatedByAudience")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uniqueidentifier");
 
@@ -975,6 +1796,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("IntendedRoleCodesJson")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
 
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
@@ -1375,12 +2201,317 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
 
                     b.HasIndex("Subject")
                         .IsUnique();
 
                     b.ToTable("Users", "merch");
+                });
+
+            modelBuilder.Entity("Notifications.Domain.DeliverySecretVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ActivatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("OwnerType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ProtectedSecret")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("RetiredAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerType", "OwnerId", "State");
+
+                    b.ToTable("DeliverySecretVersions", "admin");
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Notifications.Domain.NotificationDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<string>("DestinationMasked")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("SourceEventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "SentAt");
+
+                    b.HasIndex("RuleId", "SourceEventId")
+                        .IsUnique();
+
+                    b.ToTable("NotificationDeliveries", "admin");
+
+                    b
+                        .HasAnnotation("Pol:AppendOnly", true)
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Notifications.Domain.NotificationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Destination")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Threshold")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "Enabled");
+
+                    b.ToTable("NotificationRules", "admin");
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Notifications.Domain.WebhookDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("EndpointId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("LatencyMs")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("LeaseExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("NextAttemptAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("OriginalDeliveryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ReplayKey")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("SourceEventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TransactionId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EndpointId", "SourceEventId")
+                        .IsUnique()
+                        .HasFilter("[OriginalDeliveryId] IS NULL");
+
+                    b.HasIndex("OriginalDeliveryId", "ReplayKey")
+                        .IsUnique()
+                        .HasFilter("[OriginalDeliveryId] IS NOT NULL");
+
+                    b.HasIndex("MerchantId", "Status", "CreatedAt");
+
+                    b.HasIndex("Status", "NextAttemptAt", "LeaseExpiresAt");
+
+                    b.ToTable("WebhookDeliveries", "admin");
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
+                });
+
+            modelBuilder.Entity("Notifications.Domain.WebhookEndpoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActiveSecretVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("EventsCsv")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<Guid>("MerchantId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("SecretHint")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("nvarchar(2048)");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "Enabled");
+
+                    b.ToTable("WebhookEndpoints", "admin");
+
+                    b
+                        .HasAnnotation("Pol:TenantKey", "MerchantId")
+                        .HasAnnotation("Pol:TenantKeyAllowNullToValue", false);
                 });
 
             modelBuilder.Entity("Offices.Domain.Office", b =>
@@ -1401,6 +2532,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
 
                     b.HasKey("Id");
 
@@ -1565,6 +2702,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnicode(false)
                         .HasColumnType("varchar(13)");
 
+                    b.Property<Guid?>("OriginatorId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("datetime2");
 
@@ -1591,6 +2731,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("SummaryTokenExpiresAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Orders.Domain.Order.Amount#Money", b1 =>
                         {
@@ -1626,10 +2775,83 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Orders", "shop");
                 });
 
+            modelBuilder.Entity("Payments.Domain.InboundWebhookEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ExternalEventId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("PayloadFingerprint")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("PaymentSessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PspCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<Guid>("PspConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("SignatureValid")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "PspConnectionId");
+
+                    b.HasIndex("MerchantId", "ReceivedAt");
+
+                    b.HasIndex("PspConnectionId", "ExternalEventId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "ReceivedAt");
+
+                    b.ToTable("InboundWebhookEvents", "txn");
+                });
+
             modelBuilder.Entity("Payments.Domain.Psp.Connection", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ActiveSecretVersionId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
@@ -1640,14 +2862,30 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<int>("Health")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("bit");
+
+                    b.Property<string>("LastTestResult")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("LastTestedAt")
+                        .HasColumnType("datetime2");
 
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Metadata")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("PendingApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("PendingSecretVersionId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Psp")
                         .HasColumnType("int");
@@ -1657,12 +2895,112 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "ActiveSecretVersionId");
+
+                    b.HasIndex("MerchantId", "PendingSecretVersionId");
 
                     b.HasIndex("MerchantId", "Psp")
                         .IsUnique();
 
                     b.ToTable("PspConnections", "txn");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Routing.RoutingRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("FallbackConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("MaxAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<decimal?>("MinAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid?>("OriginatorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("RulesetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TargetConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "FallbackConnectionId");
+
+                    b.HasIndex("MerchantId", "OriginatorId");
+
+                    b.HasIndex("MerchantId", "TargetConnectionId");
+
+                    b.HasIndex("MerchantId", "RulesetId", "Priority")
+                        .IsUnique();
+
+                    b.ToTable("RoutingRules", "txn");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Routing.RoutingRuleset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ApprovalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "Status")
+                        .IsUnique()
+                        .HasFilter("[Status] = 3");
+
+                    b.ToTable("RoutingRulesets", "txn");
                 });
 
             modelBuilder.Entity("Payments.Domain.Session", b =>
@@ -1707,6 +3045,10 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Amount", "Payments.Domain.Session.Amount#Money", b1 =>
                         {
@@ -1760,6 +3102,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
@@ -1810,6 +3158,24 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Governance.Domain.ApprovalEvent", b =>
+                {
+                    b.HasOne("Governance.Domain.ApprovalRequest", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Governance.Domain.AuditRecord", b =>
+                {
+                    b.HasOne("Governance.Domain.AuditHead", null)
+                        .WithMany()
+                        .HasForeignKey("ScopeKey")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Iam.Domain.Permissions.Permission", b =>
                 {
                     b.HasOne("Iam.Domain.Permissions.PermissionGroup", null)
@@ -1831,6 +3197,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .WithMany("Permissions")
                         .HasForeignKey("RoleId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Merchants.Domain.Originator", b =>
+                {
+                    b.HasOne("Merchants.Domain.Merchant", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -1862,6 +3237,60 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Payments.Domain.InboundWebhookEvent", b =>
+                {
+                    b.HasOne("Payments.Domain.Psp.Connection", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "PspConnectionId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Psp.Connection", b =>
+                {
+                    b.HasOne("BuildingBlocks.Infrastructure.Vault.VaultSecretVersion", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "ActiveSecretVersionId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("BuildingBlocks.Infrastructure.Vault.VaultSecretVersion", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "PendingSecretVersionId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Payments.Domain.Routing.RoutingRule", b =>
+                {
+                    b.HasOne("Payments.Domain.Psp.Connection", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "FallbackConnectionId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Merchants.Domain.Originator", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "OriginatorId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Payments.Domain.Routing.RoutingRuleset", null)
+                        .WithMany("Rules")
+                        .HasForeignKey("MerchantId", "RulesetId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Psp.Connection", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "TargetConnectionId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Carts.Domain.Cart", b =>
                 {
                     b.Navigation("Items");
@@ -1875,6 +3304,11 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Orders.Domain.Order", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Routing.RoutingRuleset", b =>
+                {
+                    b.Navigation("Rules");
                 });
 #pragma warning restore 612, 618
         }

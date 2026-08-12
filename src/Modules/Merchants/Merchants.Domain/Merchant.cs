@@ -31,6 +31,9 @@ public sealed class Merchant : AggregateRoot<Guid>
 
     public DateTime CreatedAt { get; private set; }
 
+    /// <summary>Monotonic optimistic-concurrency token for Admin control-plane mutations.</summary>
+    public long Version { get; private set; }
+
     /// <summary>Allowlisted non-secret config as canonical JSON.</summary>
     public string Metadata { get; private set; } = default!;
 
@@ -49,6 +52,7 @@ public sealed class Merchant : AggregateRoot<Guid>
         Metadata = MerchantMetadataCodec.Canonicalize(metadata);
         Status = MerchantStatus.Active;
         CreatedAt = createdAt;
+        Version = 1;
     }
 
     /// <summary>
@@ -90,6 +94,34 @@ public sealed class Merchant : AggregateRoot<Guid>
 
         return new Merchant(id, normalizedCode, name.Trim(), Trim(note),
             normalizedCountry, normalizedCurrency, channels, metadataJson ?? "{}", createdAt);
+    }
+
+    public void Update(string name, string? note, IReadOnlyList<string>? enabledChannels, string? metadataJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        Name = name.Trim();
+        Note = Trim(note);
+        EnabledChannels = enabledChannels is null
+            ? string.Empty
+            : string.Join(',', enabledChannels.Select(c => c.Trim()).Where(c => c.Length > 0));
+        Metadata = MerchantMetadataCodec.Canonicalize(metadataJson ?? "{}");
+        Version++;
+    }
+
+    public void Suspend()
+    {
+        if (Status == MerchantStatus.Inactive)
+            return;
+        Status = MerchantStatus.Inactive;
+        Version++;
+    }
+
+    public void Reactivate()
+    {
+        if (Status == MerchantStatus.Active)
+            return;
+        Status = MerchantStatus.Active;
+        Version++;
     }
 
     private static string? Trim(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

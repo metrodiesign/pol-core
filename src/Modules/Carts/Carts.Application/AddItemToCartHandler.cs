@@ -26,6 +26,8 @@ public sealed class AddItemToCartHandler : ICommandHandler<AddItemToCartCommand,
 
         if (cart.MerchantId != command.MerchantId)
             throw new InvalidOperationException($"Cart {command.CartId} does not belong to the requesting merchant.");
+        if (command.ExpectedVersion is { } expected && cart.Version != expected)
+            throw new ConcurrencyConflictException("Cart changed after it was read.");
 
         cart.AddItem(
             command.ProductCode, command.SaleCode, command.VariantCode, command.VariantName,

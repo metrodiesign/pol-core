@@ -41,8 +41,10 @@ public sealed class GetMerchantHandler : IQueryHandler<GetMerchantQuery, Merchan
             .ToList();
 
         return new MerchantView(merchant.Id, merchant.Code, merchant.Name, merchant.Note,
-            merchant.Status.ToString(), merchant.Country, merchant.Currency, merchant.EnabledChannels,
-            MerchantMetadataCodec.ToJsonElement(merchant.Metadata), merchant.CreatedAt, connectionViews);
+            merchant.Status == MerchantStatus.Active ? "active" : "suspended",
+            merchant.Country, merchant.Currency, merchant.EnabledChannels,
+            MerchantMetadataCodec.ToJsonElement(merchant.Metadata), merchant.CreatedAt, connectionViews,
+            merchant.Version);
     }
 
     /// <summary>Projects the connection's stored metadata for read-back (REQ-9.1): the non-secret config +

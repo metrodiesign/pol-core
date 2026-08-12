@@ -27,11 +27,16 @@ Production hosts should use managed/external SQL tiers. Compose DB services are 
 pinned to SQL Server 2025 CU5 plus immutable digest in compose and CI.
 
 Create local secret files under `./secrets/` with mode `0600`. Never commit them. Required production files include
-runtime DB passwords, OIDC client secrets, PSP credentials where configured and vault keyring files. `.env` and
-`.env.*` remain gitignored; only `.env.example` is committed.
+runtime DB passwords, OIDC client secrets, PSP credentials where configured, vault keyring files and
+`audit_anchor_signing_key`. Generate that audit key independently with `openssl rand -base64 32`; never reuse a Vault
+or OIDC key. `.env` and `.env.*` remain gitignored; only `.env.example` is committed.
 
 Vault uses file-backed keyring in production. Keep active key ID and historical decrypt keys available through rotation.
 Do not set legacy `Vault__MasterKeyBase64` together with keyring settings.
+
+Audit high-water checkpoints live in the separate `audit-anchors` volume. Back up and retain that append-only artifact
+with database evidence. A database restore whose audit heads fall behind signed checkpoints intentionally leaves
+`/health/ready` unhealthy; restore matching database and anchor artifacts instead of deleting or rewriting the anchor.
 
 ## 3. Release evidence inputs
 

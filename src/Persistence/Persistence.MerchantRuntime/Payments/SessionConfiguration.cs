@@ -35,6 +35,7 @@ internal sealed class SessionConfiguration(MerchantRuntimeDbContext context) : I
         builder.Property(x => x.RedirectUrl).HasMaxLength(2048);
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.UpdatedAt).IsRequired();
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         builder.Property(x => x.RowVersion).IsRowVersion();
 

@@ -26,5 +26,8 @@ internal sealed class MerchantInvitationRepository(MerchantUserDbContext db) : I
     public Task<MerchantUserInvitation?> FindByIdUnfilteredAsync(Guid id, CancellationToken cancellationToken) =>
         db.Invitations.IgnoreQueryFilters().FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
+    public Task<MerchantUserInvitation?> FindAcceptedByUserIdAsync(Guid userId, CancellationToken cancellationToken) =>
+        db.Invitations.FirstOrDefaultAsync(x => x.AcceptedByUserId == userId, cancellationToken);
+
     public void Add(MerchantUserInvitation invitation) => db.Invitations.Add(invitation);
 }

@@ -85,7 +85,7 @@ internal sealed class PayableOrderReader : IPayableOrderReader
             .FirstOrDefaultAsync(o => o.Id == orderId, ct), cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Order {orderId} disappeared while attaching payment attempt.");
 
-        order.AttachPaymentAttempt(paymentSessionId, method);
+        order.AttachPaymentAttempt(paymentSessionId, method, DateTime.UtcNow);
     }
 
     public async Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(

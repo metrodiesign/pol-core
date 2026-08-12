@@ -14,6 +14,7 @@ public sealed class Cart : AggregateRoot<Guid>
     private readonly List<Item> _items = [];
 
     public Guid MerchantId { get; private set; }
+    public Guid? OriginatorId { get; private set; }
     public string? SaleCode { get; private set; }
     public CartStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
@@ -33,12 +34,15 @@ public sealed class Cart : AggregateRoot<Guid>
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Cart() { }
 
-    public Cart(Guid id, Guid merchantId, string? saleCode, DateTime createdAt)
+    public Cart(Guid id, Guid merchantId, string? saleCode, DateTime createdAt, Guid? originatorId = null)
         : base(id)
     {
+        if (originatorId == Guid.Empty)
+            throw new ArgumentException("Originator id cannot be empty.", nameof(originatorId));
         if (saleCode?.Trim().Length > 20)
             throw new ArgumentException("Sale code must be at most 20 characters.", nameof(saleCode));
         MerchantId = merchantId;
+        OriginatorId = originatorId;
         SaleCode = string.IsNullOrWhiteSpace(saleCode) ? null : saleCode.Trim();
         Status = CartStatus.Open;
         CreatedAt = createdAt;

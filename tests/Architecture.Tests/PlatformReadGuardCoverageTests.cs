@@ -53,6 +53,8 @@ public sealed class PlatformReadGuardCoverageTests
         // Outbox-consumer / maintenance callers — background, verified against real call sites.
         ["src/Persistence/Persistence.MerchantRuntime/Orders/DoubleSellAuditor.cs"] = ["*"],
         ["src/Persistence/Persistence.MerchantRuntime/Vault/VaultMaintenance.cs"] = ["*"],
+        // Hourly bounded cleanup — background service, never request path.
+        ["src/Persistence/Persistence.MerchantRuntime/AdminControlMaintenanceService.cs"] = ["*"],
     };
 
     private static readonly Regex MethodDeclaration = new(

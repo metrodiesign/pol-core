@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Mediator;
 using SharedKernel;
+using System.Text.Json.Serialization;
 
 namespace Orders.Application;
 
@@ -18,7 +19,13 @@ public sealed record OrderItemListItem(
 public sealed record OrderListItem(
     Guid OrderId, string OrderNo, string Status, Money Amount, DateTime CreatedAt, string? PaymentChannel,
     string CustomerName, string CustomerPhone, string? CustomerEmail,
-    IReadOnlyList<OrderItemListItem> Lines);
+    IReadOnlyList<OrderItemListItem> Lines,
+    [property: JsonIgnore] Guid MerchantId = default,
+    [property: JsonIgnore] Guid? OriginatorId = null,
+    [property: JsonIgnore] Guid? PaymentSessionId = null,
+    [property: JsonIgnore] DateTime UpdatedAt = default,
+    [property: JsonIgnore] DateTime? PaidAt = null,
+    [property: JsonIgnore] long Version = 0);
 
 public sealed class GetOrdersHandler : IQueryHandler<GetOrdersQuery, PagedResult<OrderListItem>>
 {
@@ -37,7 +44,8 @@ public sealed class GetOrdersHandler : IQueryHandler<GetOrdersQuery, PagedResult
             o.CustomerName, o.CustomerPhone, o.CustomerEmail,
             o.Items.Select(i => new OrderItemListItem(
                 i.ProductCode, i.VariantCode, i.VariantName, i.Quantity, i.UnitPrice, i.Discount))
-                .ToList()))
+                .ToList(),
+            o.MerchantId, o.OriginatorId, o.PaymentSessionId, o.UpdatedAt, o.PaidAt, o.Version))
             .ToList();
 
         return new PagedResult<OrderListItem>(items, orders.Page, orders.Limit, orders.Total);

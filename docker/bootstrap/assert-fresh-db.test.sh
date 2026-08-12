@@ -8,9 +8,25 @@ fail() {
   exit 1
 }
 
-mapfile -t migration_files < <(find src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations \
-  -maxdepth 1 -type f -name '*.cs' -print | sort)
-[ "${#migration_files[@]}" -eq 9 ] || fail "expected 4 migrations, 4 designers, and 1 snapshot"
+migration_dir=src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations
+mapfile -t migration_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*.cs' \
+  ! -name '*.Designer.cs' ! -name '*ModelSnapshot.cs' -print | sort)
+mapfile -t designer_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*.Designer.cs' -print | sort)
+mapfile -t snapshot_files < <(find "$migration_dir" -maxdepth 1 -type f -name '*ModelSnapshot.cs' -print | sort)
+
+[ "${#migration_files[@]}" -ge 4 ] || fail "expected at least the four baseline migrations"
+[ "${#snapshot_files[@]}" -eq 1 ] || fail "expected exactly one model snapshot"
+
+for designer in "${designer_files[@]}"; do
+  migration="${designer%.Designer.cs}.cs"
+  [ -f "$migration" ] || fail "orphan migration designer: $designer"
+done
+
+for migration in "${migration_files[@]}"; do
+  designer="${migration%.cs}.Designer.cs"
+  [ -f "$designer" ] || grep -q '\[Migration("' "$migration" \
+    || fail "migration lacks designer and inline Migration attribute: $migration"
+done
 
 for suffix in InitialSchema SecurityObjects SeedData OneBasedPersistedEnumStorage; do
   [ "$(printf '%s\n' "${migration_files[@]}" | grep -c "_${suffix}\.cs$")" -eq 1 ] \
@@ -18,7 +34,7 @@ for suffix in InitialSchema SecurityObjects SeedData OneBasedPersistedEnumStorag
 done
 
 if grep -rnE 'CheckoutSession|ItemPolicy|product\.create|product\.update|2025-latest' \
-  src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations \
+  "$migration_dir" \
   docker-compose.yml .github/workflows/ci.yml >/dev/null; then
   fail "retired migration surface or floating SQL image remains"
 fi

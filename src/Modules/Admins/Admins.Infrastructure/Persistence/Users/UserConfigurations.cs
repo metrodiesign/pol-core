@@ -28,6 +28,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // UserConfiguration — the authorization lease's conditional no-op UPDATE relies on EF's native
         // concurrency-token WHERE clause (WHERE Id=@caller AND AuthorizationVersion=@expected).
         builder.Property(x => x.AuthorizationVersion).IsConcurrencyToken();
+        builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
         // Filtered unique: one account per bound subject; invited (NULL-subject) rows are exempt (REQ-3.1).
         builder.HasIndex(x => x.Subject).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique(); // the invite key before a subject is bound

@@ -46,6 +46,6 @@ public sealed class CreateRoleHandler : ICommandHandler<CreateRoleCommand, RoleL
             await _unitOfWork.SaveChangesAsync(ct);
 
             return new RoleListItem(role.Id, role.Code, role.Name, role.Description, role.Color, role.Status,
-                Shared: role.MerchantId is null, [.. role.PermissionKeys], UserCount: 0);
+                Shared: role.MerchantId is null, [.. role.PermissionKeys], role.Version, UserCount: 0);
         }, cancellationToken);
 }

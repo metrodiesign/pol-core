@@ -75,4 +75,36 @@ public sealed class AdminCorsGuardTests
                 "(CorsExtensions.cs) is out of sync with the route.");
         }
     }
+
+    [Fact]
+    public async Task Every_dual_console_endpoint_resolves_to_the_dual_CORS_policy()
+    {
+        using var factory = new CorsGuardFactory();
+        using var _ = factory.CreateClient();
+
+        var dualPolicy = factory.Services.GetRequiredService<IOptions<CorsOptions>>().Value
+            .GetPolicy(CorsExtensions.DualConsolePolicyName);
+        var provider = factory.Services.GetRequiredService<ICorsPolicyProvider>();
+        var endpoints = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .OfType<RouteEndpoint>()
+            .Where(e => e.Metadata.OfType<IAuthorizeData>().Any(a => a.Policy == "dual-console"))
+            .ToList();
+
+        Assert.NotEmpty(endpoints);
+        foreach (var endpoint in endpoints)
+        {
+            foreach (var method in endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [])
+            {
+                var http = new DefaultHttpContext();
+                http.Request.Path = endpoint.RoutePattern.RawText!;
+                http.Request.Method = method;
+
+                var resolved = await provider.GetPolicyAsync(http, policyName: null);
+
+                Assert.True(ReferenceEquals(dualPolicy, resolved),
+                    $"'{method} {endpoint.RoutePattern.RawText}' requires the dual-console policy, but "
+                    + "PolCorsPolicyProvider does not route it to the dual CORS policy.");
+            }
+        }
+    }
 }

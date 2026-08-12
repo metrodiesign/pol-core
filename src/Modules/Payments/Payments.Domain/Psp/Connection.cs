@@ -28,6 +28,14 @@ public sealed class Connection : Entity<Guid>
 
     public DateTime CreatedAt { get; private set; }
 
+    public Guid? ActiveSecretVersionId { get; private set; }
+    public Guid? PendingSecretVersionId { get; private set; }
+    public Guid? PendingApprovalId { get; private set; }
+    public PspConnectionHealth Health { get; private set; }
+    public DateTime? LastTestedAt { get; private set; }
+    public string? LastTestResult { get; private set; }
+    public long Version { get; private set; }
+
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Connection() { }
 
@@ -48,6 +56,70 @@ public sealed class Connection : Entity<Guid>
         Metadata = metadata;
         IsEnabled = true;
         CreatedAt = createdAt;
+        Health = PspConnectionHealth.Unknown;
+        Version = 1;
+    }
+
+    public void Update(string enabledMethods, string? metadata, bool isEnabled)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(enabledMethods);
+        EnabledMethods = enabledMethods.Trim();
+        Metadata = metadata;
+        IsEnabled = isEnabled;
+        Version++;
+    }
+
+    public void SetInitialSecretVersion(Guid versionId)
+    {
+        if (versionId == Guid.Empty)
+            throw new ArgumentException("Secret version is required.", nameof(versionId));
+        if (ActiveSecretVersionId is not null)
+            throw new InvalidOperationException("An active secret version already exists.");
+        ActiveSecretVersionId = versionId;
+        Version++;
+    }
+
+    public void StageSecretVersion(Guid versionId, Guid approvalId)
+    {
+        if (versionId == Guid.Empty)
+            throw new ArgumentException("Secret version is required.", nameof(versionId));
+        if (approvalId == Guid.Empty)
+            throw new ArgumentException("ApprovalId is required.", nameof(approvalId));
+        if (PendingSecretVersionId is not null)
+            throw new InvalidOperationException("A credential change is already pending.");
+        PendingSecretVersionId = versionId;
+        PendingApprovalId = approvalId;
+        Version++;
+    }
+
+    public Guid ActivatePendingSecretVersion()
+    {
+        var candidate = PendingSecretVersionId
+            ?? throw new InvalidOperationException("No credential change is pending.");
+        ActiveSecretVersionId = candidate;
+        PendingSecretVersionId = null;
+        PendingApprovalId = null;
+        Version++;
+        return candidate;
+    }
+
+    public Guid RejectPendingSecretVersion()
+    {
+        var candidate = PendingSecretVersionId
+            ?? throw new InvalidOperationException("No credential change is pending.");
+        PendingSecretVersionId = null;
+        PendingApprovalId = null;
+        Version++;
+        return candidate;
+    }
+
+    public void RecordTest(bool succeeded, string result, DateTime testedAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(result);
+        LastTestResult = result.Trim().Length <= 500 ? result.Trim() : result.Trim()[..500];
+        LastTestedAt = testedAt;
+        Health = succeeded ? PspConnectionHealth.Healthy : PspConnectionHealth.Failed;
+        Version++;
     }
 
     /// <summary>Creates an enabled PSP connection for a merchant.</summary>
@@ -99,4 +171,11 @@ public sealed class Connection : Entity<Guid>
 
         return false;
     }
+}
+
+public enum PspConnectionHealth
+{
+    Unknown = 1,
+    Healthy = 2,
+    Failed = 3,
 }

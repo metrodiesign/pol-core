@@ -32,10 +32,23 @@ public sealed class GetMerchantHandlerTests
         var view = await handler.Handle(new GetMerchantQuery("VCommerce"), default);
 
         Assert.Equal("vcommerce", view.Code);
-        Assert.Equal("Active", view.Status);
+        Assert.Equal("active", view.Status);
         var c = Assert.Single(view.Connections);
         Assert.Equal("omise", c.Psp);
         Assert.Equal("****5678", c.MaskedSecrets["secretKey"]);
+    }
+
+    [Fact]
+    public async Task Inactive_merchant_uses_the_canonical_suspended_wire_status()
+    {
+        var merchant = Merchant.Create("vcommerce", "vCommerce", null, "TH", "THB", ["card"], null, Now);
+        merchant.Suspend();
+        var handler = new GetMerchantHandler(
+            new FakeMerchantRepository { ByCode = merchant }, new FakePspConnectionRepository());
+
+        var view = await handler.Handle(new GetMerchantQuery("vcommerce"), default);
+
+        Assert.Equal("suspended", view.Status);
     }
 
     [Fact]

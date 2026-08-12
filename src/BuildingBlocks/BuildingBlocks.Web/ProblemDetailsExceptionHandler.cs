@@ -47,8 +47,10 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         var problem = new ProblemDetails { Status = status, Title = title, Detail = detail };
         var code = exception switch
         {
+            ConcurrencyConflictException concurrency => concurrency.Code,
             ConflictException { Code: { } conflictCode } => conflictCode,
             InvalidRequestException invalidRequest => invalidRequest.Code,
+            AccessDeniedException denied => denied.Code,
             _ => null,
         };
         if (code is not null)
@@ -74,6 +76,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
             (StatusCodes.Status409Conflict, "Conflict", "The resource was modified concurrently; please retry."),
         ConflictException =>
             (StatusCodes.Status409Conflict, "Conflict", "A resource with the same identifier already exists."),
+        AccessDeniedException =>
+            (StatusCodes.Status403Forbidden, "Forbidden", "You do not have access to this resource."),
         MerchantBindingException =>
             (StatusCodes.Status500InternalServerError, "An unexpected error occurred", null),
         BadHttpRequestException =>

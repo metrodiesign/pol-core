@@ -19,8 +19,9 @@ namespace BuildingBlocks.Web;
 /// <c>AllowCredentials</c>, which the spec forbids pairing with a wildcard origin: the origins are pinned
 /// explicitly.</item>
 /// <item><see cref="AdminPolicyName"/> is the admin SPA — also cookie (credentialed) XHR, its own pinned origin
-/// set. Applied to <c>/api/v1/admins/*</c> PLUS the two admin-provisioned merchant endpoints that moved out of
-/// that group (hierarchical-naming D9): <c>/api/v1/merchants</c> and <c>/api/v1/merchants/{code}</c> — but NOT
+/// set. Applied to <c>/api/v1/admins/*</c>, the Governance areas, PLUS the two admin-provisioned merchant endpoints
+/// that moved out of that group (hierarchical-naming D9): <c>/api/v1/merchants</c> and
+/// <c>/api/v1/merchants/{code}</c> — but NOT
 /// <c>/api/v1/merchants/users/*</c>, which is the merchant-user plane and stays on the default policy.</item>
 /// </list>
 /// Origins come from config (<c>Cors:AllowedOrigins</c> merchant-user, <c>Cors:AdminOrigins</c> admin); never
@@ -31,6 +32,7 @@ namespace BuildingBlocks.Web;
 public static class CorsExtensions
 {
     public const string AdminPolicyName = "pol-admin-spa";
+    public const string DualConsolePolicyName = "pol-dual-console-spa";
 
     public static IServiceCollection AddPolCors(this IServiceCollection services, IConfiguration configuration)
     {
@@ -52,6 +54,16 @@ public static class CorsExtensions
                 if (origins.Length == 0)
                     return; // no admin origin configured -> no cross-origin admin XHR
                 policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // admin: cookie XHR
+            });
+
+            options.AddPolicy(DualConsolePolicyName, policy =>
+            {
+                var origins = (configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+                    .Concat(configuration.GetSection("Cors:AdminOrigins").Get<string[]>() ?? [])
+                    .Distinct(StringComparer.Ordinal).ToArray();
+                if (origins.Length == 0)
+                    return;
+                policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
             });
         });
 
@@ -78,9 +90,42 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
 
     public Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
-        var name = IsAdminPlane(context.Request.Path) ? CorsExtensions.AdminPolicyName : _options.DefaultPolicyName;
+        var name = IsDualConsole(context.Request)
+            ? CorsExtensions.DualConsolePolicyName
+            : IsAdminPlane(context.Request.Path) ? CorsExtensions.AdminPolicyName : _options.DefaultPolicyName;
         return Task.FromResult(_options.GetPolicy(name));
     }
+
+    private static bool IsDualConsole(HttpRequest request)
+    {
+        var path = request.Path;
+        if (path.StartsWithSegments("/api/v1/reports/reconciliation"))
+            return true;
+        if (path.StartsWithSegments("/api/v1/carts"))
+            return true;
+        if (path.StartsWithSegments("/api/v1/payments/sessions", out var paymentRest))
+            return string.Equals(request.Method, HttpMethods.Post, StringComparison.OrdinalIgnoreCase)
+                || IsGuidOrRouteParameter(paymentRest.Value?.Trim('/').Split('/')[0]);
+        if (path.StartsWithSegments("/api/v1/orders", out var orderRest))
+        {
+            var segments = orderRest.Value?.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries) ?? [];
+            if (segments.Length == 0)
+                return true;
+            if (!IsGuidOrRouteParameter(segments[0]))
+                return false;
+            return segments.Length == 1
+                || segments is [_, "cancel"]
+                || segments is [_, "summary", "resend"];
+        }
+        if (!path.StartsWithSegments("/api/v1/merchants/users", out var rest))
+            return false;
+        var value = rest.Value?.Trim('/') ?? string.Empty;
+        return value.Length == 0 || (!value.Contains('/') && IsGuidOrRouteParameter(value));
+    }
+
+    private static bool IsGuidOrRouteParameter(string? value) =>
+        Guid.TryParse(value, out _)
+        || (value?.StartsWith('{') == true && value.EndsWith('}'));
 
     // admin plane = /api/v1/admins/** + /api/v1/merchants and /api/v1/merchants/{code} (D9) — but NOT
     // /api/v1/merchants/users/** or /api/v1/merchants/auth/**, which are the merchant-user plane (REQ-8.2; auth
@@ -95,5 +140,19 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
         || path.StartsWithSegments("/api/v1/positions")
         || path.StartsWithSegments("/api/v1/offices")
         || path.StartsWithSegments("/api/v1/levels")
-        || path.StartsWithSegments("/api/v1/divisions");
+        || path.StartsWithSegments("/api/v1/divisions")
+        || path.StartsWithSegments("/api/v1/approvals")
+        || path.StartsWithSegments("/api/v1/audits")
+        || path.StartsWithSegments("/api/v1/originators")
+        || path.StartsWithSegments("/api/v1/products/documents")
+        || path.StartsWithSegments("/api/v1/orders/export")
+        || path.StartsWithSegments("/api/v1/api-clients")
+        || path.StartsWithSegments("/api/v1/notifications")
+        || path.StartsWithSegments("/api/v1/reports")
+        || path.StartsWithSegments("/api/v1/webhooks/endpoints")
+        || path.StartsWithSegments("/api/v1/webhooks/deliveries")
+        || path.StartsWithSegments("/api/v1/webhooks/inbound-events")
+        || path.StartsWithSegments("/api/v1/payments/transactions")
+        || path.StartsWithSegments("/api/v1/payments/psp-connections")
+        || path.StartsWithSegments("/api/v1/payments/routing-rulesets");
 }

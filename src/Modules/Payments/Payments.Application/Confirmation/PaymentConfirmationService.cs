@@ -278,7 +278,9 @@ public sealed class PaymentConfirmationService
             ?? throw new InvalidOperationException(
                 $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
 
-        var secret = await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+        var secret = connection.ActiveSecretVersionId is { } versionId
+            ? await _vault.ReadVersionForServerAsync(session.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
+            : await _vault.RevealAsync(session.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
 
         return new PspAccess(connection, secret);
     }

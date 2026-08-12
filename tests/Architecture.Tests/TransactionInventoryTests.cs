@@ -5,7 +5,8 @@ namespace Architecture.Tests;
 /// <summary>
 /// Static scan gate for rls-to-query-filter REQ-2.12: the design's transaction inventory (28 rows — 22 from
 /// the original v7 design + row 23 (task 4's ChangeAdminTier flow) + row 24 (masterdata-full-crud's
-/// reference-list DeactivateAsync, one new call site per store) + rows 25-28 (merchant-user management))
+/// reference-list DeactivateAsync, one new call site per store) + rows 25-28 (merchant-user management)
+/// + rows 29-31 (Governance decision and inbound-event writes))
 /// (design.md §"Transaction inventory") classifies EVERY transaction API call site in the codebase as
 /// single-context or (for exactly one, ProvisionMerchant) cross-context. A NEW call site that shows up here
 /// without a corresponding design classification is exactly the failure mode the prior review loop hit
@@ -65,6 +66,15 @@ public sealed class TransactionInventoryTests
         ["src/Persistence/Persistence.ControlPlane/Levels/LevelStore.cs"] = 3,                         // rows 14+15+24
         ["src/Persistence/Persistence.ControlPlane/Offices/OfficeStore.cs"] = 3,                       // rows 14+15+24
         ["src/Persistence/Persistence.ControlPlane/Positions/PositionStore.cs"] = 3,                   // rows 14+15+24
+        ["src/Persistence/Persistence.ControlPlane/Governance/GovernanceStore.cs"] = 3,              // rows 29-31
+        ["src/Persistence/Persistence.MerchantRuntime/Merchants/AdminMerchantControlStore.cs"] = 2, // rows 32-33
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 4,  // rows 34-37
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsApprovalExecutor.cs"] = 2, // rows 38-39
+        ["src/Persistence/Persistence.MerchantRuntime/Idempotency/AdminOperationExecutor.cs"] = 3, // row 40: atomic flow + recoverable claim/result
+        ["src/Persistence/Persistence.ControlPlane/Governance/ControlPlaneOperationExecutor.cs"] = 1, // row 41
+        ["src/Persistence/Persistence.ControlPlane/Iam/ApiClientApprovalExecutor.cs"] = 1, // row 42
+        ["src/Persistence/Persistence.ControlPlane/Iam/ApiClientStore.cs"] = 1, // row 43
+        ["src/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs"] = 2, // rows 44-45
     };
 
     // The three IUnitOfWork implementations (task 8.5's "1 principal" collapse — one per runtime cluster) —
@@ -89,6 +99,7 @@ public sealed class TransactionInventoryTests
         // own single-context ExecuteInTransactionAsync call site (formerly row 16) is gone — the coordinator
         // is now the ONLY transaction this flow opens.
         ["src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs"] = 1,
+        ["src/Persistence/Persistence.ControlPlane/Notifications/WebhookDeliveryDispatcher.cs"] = 1, // row 46
     };
 
     private static readonly Regex ExecuteInTransactionAsyncCallSite = new(@"\.ExecuteInTransactionAsync\(", RegexOptions.Compiled);

@@ -83,7 +83,8 @@ public sealed class ProfileValidationTests
     {
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await ProfileHandler(new FakePlatformUserRepository(), new FakeProfileLookup(), new FakePlatformUserAuditWriter())
-                .Handle(new UpdateProfileCommand(Guid.NewGuid(), null, null, null, null, Actor, "corr"), default));
+                .Handle(new UpdateProfileCommand(
+                    Guid.NewGuid(), null, null, null, null, Actor, "corr", 1), default));
     }
 
     [Fact]
@@ -97,7 +98,8 @@ public sealed class ProfileValidationTests
         var audit = new FakePlatformUserAuditWriter();
 
         await ProfileHandler(admins, masters, audit)
-            .Handle(new UpdateProfileCommand(acc.Id, null, null, null, divId, Actor, "corr"), default);
+            .Handle(new UpdateProfileCommand(
+                acc.Id, null, null, null, divId, Actor, "corr", acc.Version), default);
 
         Assert.Equal(divId, acc.DivisionId);
         var row = Assert.Single(audit.Appended);
@@ -116,7 +118,8 @@ public sealed class ProfileValidationTests
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await ProfileHandler(admins, masters, new FakePlatformUserAuditWriter())
-                .Handle(new UpdateProfileCommand(acc.Id, null, null, null, divId, Actor, "corr"), default));
+                .Handle(new UpdateProfileCommand(
+                    acc.Id, null, null, null, divId, Actor, "corr", acc.Version), default));
     }
 
     // ===== Detail exposes resolved refs =====

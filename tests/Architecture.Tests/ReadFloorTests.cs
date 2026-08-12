@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantUsers;
 using Carts.Domain;
+using Merchants.Domain;
+using Persistence.MerchantRuntime.Merchants;
 using SharedKernel;
 using MerchantUserAccount = Merchants.Domain.Users.User;
 
@@ -72,6 +74,28 @@ public sealed class ReadFloorTests : IDisposable
         var visible = await unbound.Carts.ToListAsync();
 
         Assert.Empty(visible);
+    }
+
+    [Fact]
+    public async Task Admin_merchant_ports_resolve_explicit_targets_while_ordinary_unbound_reads_stay_empty()
+    {
+        using (var writer = NewMerchantRuntimeContext(FakeActorContext.For(MerchantA)))
+        {
+            writer.Merchants.Add(Merchant.CreateWithId(MerchantA, "vcommerce", "Merchant A", null,
+                "TH", "THB", ["web"], "{}", DateTime.UtcNow));
+            await writer.SaveChangesAsync();
+        }
+
+        using var unbound = NewMerchantRuntimeContext(FakeActorContext.Unbound);
+        Assert.Empty(await unbound.Merchants.ToListAsync());
+
+        var repository = new MerchantRepository(unbound);
+        Assert.Equal(MerchantA, (await repository.GetByCodeAsync("vcommerce", default))?.Id);
+        Assert.True(await repository.ExistsByCodeAsync("vcommerce", default));
+        Assert.True(await repository.IsActiveMerchantAsync(MerchantA, default));
+        Assert.Equal(MerchantA, await repository.GetIdByCodeAsync("VCommerce", default));
+        Assert.Equal("vcommerce", (await repository.GetCodesByIdsAsync(
+            new HashSet<Guid> { MerchantA }, default))[MerchantA]);
     }
 
     [Fact]

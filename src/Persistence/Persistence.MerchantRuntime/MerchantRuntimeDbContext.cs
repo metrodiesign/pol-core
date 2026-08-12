@@ -6,6 +6,7 @@ using BuildingBlocks.Infrastructure.Vault;
 using Merchants.Domain;
 using Microsoft.EntityFrameworkCore;
 using Payments.Domain.Psp;
+using Payments.Domain.Routing;
 using Persistence.MerchantRuntime.Carts;
 using Persistence.MerchantRuntime.Carts.Items;
 using Persistence.MerchantRuntime.Merchants;
@@ -14,6 +15,7 @@ using Persistence.MerchantRuntime.Payments.Psp;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using PaymentSession = Payments.Domain.Session;
+using InboundWebhookEvent = Payments.Domain.InboundWebhookEvent;
 using OrderAggregate = Orders.Domain.Order;
 using OrderItem = Orders.Domain.Items.Item;
 using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
@@ -24,8 +26,10 @@ using OrderItemRevealAuditConfiguration = Persistence.MerchantRuntime.Orders.Ite
 // above (BuildingBlocks.Infrastructure.Idempotency/Outbox/Vault) — this context uses its OWN filtered
 // configs for these four BuildingBlocks-owned entities, not the migration-owner's unfiltered ones.
 using IdempotencyRecordConfiguration = Persistence.MerchantRuntime.Idempotency.IdempotencyRecordConfiguration;
+using AdminOperationRecordConfiguration = Persistence.MerchantRuntime.Idempotency.AdminOperationRecordConfiguration;
 using OutboxMessageConfiguration = Persistence.MerchantRuntime.Outbox.OutboxMessageConfiguration;
 using VaultSecretBlobConfiguration = Persistence.MerchantRuntime.Vault.VaultSecretBlobConfiguration;
+using VaultSecretVersionConfiguration = Persistence.MerchantRuntime.Vault.VaultSecretVersionConfiguration;
 using VaultRevealAuditConfiguration = Persistence.MerchantRuntime.Vault.VaultRevealAuditConfiguration;
 
 namespace Persistence.MerchantRuntime;
@@ -62,12 +66,18 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     public DbSet<OrderItemRevealAudit> OrderItemRevealAudits => Set<OrderItemRevealAudit>();
 
     public DbSet<PaymentSession> PaymentSessions => Set<PaymentSession>();
+    public DbSet<InboundWebhookEvent> InboundWebhookEvents => Set<InboundWebhookEvent>();
     public DbSet<Connection> PspConnections => Set<Connection>();
+    public DbSet<RoutingRuleset> RoutingRulesets => Set<RoutingRuleset>();
+    public DbSet<RoutingRule> RoutingRules => Set<RoutingRule>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
+    public DbSet<AdminOperationRecord> AdminOperationRecords => Set<AdminOperationRecord>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     public DbSet<Merchant> Merchants => Set<Merchant>();
+    public DbSet<Originator> Originators => Set<Originator>();
     public DbSet<VaultSecretBlob> VaultSecrets => Set<VaultSecretBlob>();
+    public DbSet<VaultSecretVersion> VaultSecretVersions => Set<VaultSecretVersion>();
     public DbSet<VaultRevealAudit> VaultRevealAudits => Set<VaultRevealAudit>();
     public DbSet<ProvisioningAudit> ProvisioningAudits => Set<ProvisioningAudit>();
 
@@ -80,12 +90,18 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new OrderItemRevealAuditConfiguration(this));
 
         modelBuilder.ApplyConfiguration(new PaymentSessionConfiguration(this));
+        modelBuilder.ApplyConfiguration(new Payments.InboundWebhookEventConfiguration(this));
         modelBuilder.ApplyConfiguration(new ConnectionConfiguration(this));
+        modelBuilder.ApplyConfiguration(new Payments.Routing.RoutingRulesetConfiguration(this));
+        modelBuilder.ApplyConfiguration(new Payments.Routing.RoutingRuleConfiguration(this));
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration(this));
+        modelBuilder.ApplyConfiguration(new AdminOperationRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration(this));
 
         modelBuilder.ApplyConfiguration(new MerchantConfiguration(this));
+        modelBuilder.ApplyConfiguration(new OriginatorConfiguration(this));
         modelBuilder.ApplyConfiguration(new VaultSecretBlobConfiguration(this));
+        modelBuilder.ApplyConfiguration(new VaultSecretVersionConfiguration(this));
         modelBuilder.ApplyConfiguration(new VaultRevealAuditConfiguration(this));
         modelBuilder.ApplyConfiguration(new ProvisioningAuditConfiguration(this));
 

@@ -16,10 +16,10 @@ namespace Merchants.Application.Users;
 // ponytail: DUPLICATE-shaped of Admins.Application.SetAdminRoles (+ merchant scoping and management audit) — deliberate.
 public sealed record SetRolesCommand(
     Guid TargetMerchantUserId, IReadOnlyList<string> RoleCodes, Guid ActingMerchantId, Guid ActingMerchantUserId,
-    string? CorrelationId = null)
+    string? CorrelationId = null, long? ExpectedVersion = null)
     : ICommand<SetRolesResult>;
 
-public sealed record SetRolesResult(Guid UserId, IReadOnlyList<string> RoleCodes);
+public sealed record SetRolesResult(Guid UserId, IReadOnlyList<string> RoleCodes, long Version);
 
 public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesResult>
 {
@@ -50,12 +50,14 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var version = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var target = await _accounts.FindByIdAsync(command.TargetMerchantUserId, ct);
             // Same-merchant Active target only; anything else is invisible to the acting user (REQ-16.3 / no leak).
             if (target is null || target.Status != UserStatus.Active || target.MerchantId != command.ActingMerchantId)
                 throw new NotFoundException("The merchant user was not found in your merchant.");
+            if (command.ExpectedVersion is { } expectedVersion)
+                target.EnsureVersion(expectedVersion);
 
             var resolved = await _roles.GetRoleIdsByCodesAsync(command.ActingMerchantId, requestedCodes, ct);
             var unknown = requestedCodes.Where(c => !resolved.ContainsKey(c)).ToList();
@@ -84,6 +86,8 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
                     _roles.RemoveAssignment(assignment);
             }
 
+            target.BumpVersion();
+
             _audits.Append(MerchantUserManagementAudit.For(
                 command.ActingMerchantId, command.ActingMerchantUserId, command.TargetMerchantUserId, null,
                 MerchantUserManagementAudit.Actions.SetRoles,
@@ -91,9 +95,9 @@ public sealed class SetRolesHandler : ICommandHandler<SetRolesCommand, SetRolesR
                 _clock.UtcNow));
 
             await _unitOfWork.SaveChangesAsync(ct);
-            return true;
+            return target.Version;
         }, cancellationToken);
 
-        return new SetRolesResult(command.TargetMerchantUserId, requestedCodes);
+        return new SetRolesResult(command.TargetMerchantUserId, requestedCodes, version);
     }
 }

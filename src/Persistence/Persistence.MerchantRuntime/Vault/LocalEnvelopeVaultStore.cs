@@ -128,6 +128,106 @@ internal sealed class LocalEnvelopeVaultStore : IVaultSecretStore
             .AnyAsync(x => x.MerchantId == merchantId && x.SecretName == name, ct), cancellationToken)
             .ConfigureAwait(false);
 
+    public async Task<Guid> StageVersionAsync(
+        Guid merchantId,
+        string name,
+        string plaintextSecret,
+        string maskedHint,
+        DateTime? expiresAt,
+        CancellationToken cancellationToken)
+    {
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(plaintextSecret);
+        ArgumentException.ThrowIfNullOrWhiteSpace(maskedHint);
+
+        var nextVersion = await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions.IgnoreQueryFilters()
+            .Where(x => x.MerchantId == merchantId && x.SecretName == name)
+            .Select(x => (int?)x.Version).MaxAsync(ct), cancellationToken) + 1 ?? 1;
+        var (activeKeyId, masterKey) = _keyring.Active;
+        var kek = VaultEnvelope.DeriveKek(masterKey, merchantId);
+        var dek = RandomNumberGenerator.GetBytes(32);
+        try
+        {
+            var id = Guid.CreateVersion7();
+            var encryptedSecret = VaultEnvelope.Encrypt(dek, Encoding.UTF8.GetBytes(plaintextSecret));
+            var wrappedDek = VaultEnvelope.Encrypt(kek, dek);
+            _db.VaultSecretVersions.Add(new VaultSecretVersion(
+                id, merchantId, name, nextVersion, activeKeyId, wrappedDek, encryptedSecret,
+                maskedHint, _clock.UtcNow, expiresAt));
+            return id;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(dek);
+            CryptographicOperations.ZeroMemory(kek);
+        }
+    }
+
+    public async Task<string> ReadVersionForServerAsync(
+        Guid merchantId, Guid versionId, CancellationToken cancellationToken)
+    {
+        var version = await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions
+            .IgnoreQueryFilters().AsNoTracking()
+            .SingleOrDefaultAsync(x => x.Id == versionId && x.MerchantId == merchantId, ct), cancellationToken)
+            ?? throw new KeyNotFoundException("Vault secret version was not found.");
+        if (version.State is VaultSecretVersionState.Discarded
+            || version.ExpiresAt is { } expiry && expiry <= _clock.UtcNow)
+            throw new InvalidOperationException("Vault secret version is not readable.");
+
+        var masterKey = _keyring.ResolveOrNull(version.SecretKey)
+            ?? throw new InvalidOperationException("Vault key is unavailable.");
+        var kek = VaultEnvelope.DeriveKek(masterKey, merchantId);
+        byte[] dek = [];
+        byte[] plaintext = [];
+        try
+        {
+            dek = VaultEnvelope.Decrypt(kek, version.EncryptedDek);
+            plaintext = VaultEnvelope.Decrypt(dek, version.EncryptedSecret);
+            await _auditWriter.AppendAsync(merchantId, version.SecretName, cancellationToken).ConfigureAwait(false);
+            return Encoding.UTF8.GetString(plaintext);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+            CryptographicOperations.ZeroMemory(dek);
+            CryptographicOperations.ZeroMemory(kek);
+        }
+    }
+
+    public async Task ActivateVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken)
+    {
+        var version = await LoadVersionAsync(merchantId, versionId, cancellationToken);
+        version.Activate(_clock.UtcNow);
+    }
+
+    public async Task RetireVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken)
+    {
+        var version = await LoadVersionAsync(merchantId, versionId, cancellationToken);
+        version.Retire(_clock.UtcNow);
+    }
+
+    public async Task DiscardVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken)
+    {
+        var version = await LoadVersionAsync(merchantId, versionId, cancellationToken);
+        version.Discard(_clock.UtcNow);
+    }
+
+    public async Task<string?> MaskedVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions.IgnoreQueryFilters().AsNoTracking()
+            .Where(x => x.Id == versionId && x.MerchantId == merchantId)
+            .Select(x => x.Hint).SingleOrDefaultAsync(ct), cancellationToken);
+
+    private async Task<VaultSecretVersion> LoadVersionAsync(
+        Guid merchantId, Guid versionId, CancellationToken cancellationToken)
+    {
+        var tracked = _db.VaultSecretVersions.Local.SingleOrDefault(x => x.Id == versionId && x.MerchantId == merchantId);
+        return tracked ?? await PlatformReadGuard.ReadAsync(ct => _db.VaultSecretVersions.IgnoreQueryFilters()
+            .SingleOrDefaultAsync(x => x.Id == versionId && x.MerchantId == merchantId, ct), cancellationToken)
+            ?? throw new KeyNotFoundException("Vault secret version was not found.");
+    }
+
     private static string LastFour(string secret) =>
         secret.Length <= 4 ? new string('*', secret.Length) : secret[^4..];
 }

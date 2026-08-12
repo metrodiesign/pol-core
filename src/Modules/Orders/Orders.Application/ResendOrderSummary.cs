@@ -7,7 +7,7 @@ namespace Orders.Application;
 /// <summary>Merchant-user-triggered resend of a customer's summary link: rotates the order's token and extends
 /// its TTL, invalidating the old link, and re-notifies the customer when a recipient was captured (REQ-2.5).
 /// Merchant-scoped; RLS confines the lookup to the bound merchant.</summary>
-public sealed record ResendOrderSummaryCommand(Guid OrderId, Guid MerchantId)
+public sealed record ResendOrderSummaryCommand(Guid OrderId, Guid MerchantId, long? ExpectedVersion = null)
     : ICommand<ResendOrderSummaryResult>, IMerchantScoped;
 
 public sealed record ResendOrderSummaryResult(string SummaryToken, DateTime ExpiresAt);
@@ -31,6 +31,8 @@ public sealed class ResendOrderSummaryHandler : ICommandHandler<ResendOrderSumma
     {
         var order = await _orders.GetAsync(command.OrderId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException($"Order {command.OrderId} was not found.");
+        if (command.ExpectedVersion is { } expected && order.Version != expected)
+            throw new ConcurrencyConflictException("Order changed after it was read.");
 
         order.ReissueSummary(_clock.UtcNow); // rejects a non-awaiting order -> InvalidOperationException -> 409
 
