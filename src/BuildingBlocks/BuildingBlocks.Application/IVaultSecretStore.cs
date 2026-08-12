@@ -28,4 +28,26 @@ public interface IVaultSecretStore
     Task<string?> MaskedAsync(Guid merchantId, string name, CancellationToken cancellationToken);
 
     Task<bool> ExistsAsync(Guid merchantId, string name, CancellationToken cancellationToken);
+
+    Task<Guid> StageVersionAsync(
+        Guid merchantId,
+        string name,
+        string plaintextSecret,
+        string maskedHint,
+        DateTime? expiresAt,
+        CancellationToken cancellationToken) =>
+        Task.FromException<Guid>(new NotSupportedException("Versioned vault storage is not implemented."));
+
+    Task<string> ReadVersionForServerAsync(
+        Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        Task.FromException<string>(new NotSupportedException("Versioned vault storage is not implemented."));
+
+    Task ActivateVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        Task.FromException(new NotSupportedException("Versioned vault storage is not implemented."));
+    Task RetireVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        Task.FromException(new NotSupportedException("Versioned vault storage is not implemented."));
+    Task DiscardVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        Task.FromException(new NotSupportedException("Versioned vault storage is not implemented."));
+    Task<string?> MaskedVersionAsync(Guid merchantId, Guid versionId, CancellationToken cancellationToken) =>
+        Task.FromException<string?>(new NotSupportedException("Versioned vault storage is not implemented."));
 }

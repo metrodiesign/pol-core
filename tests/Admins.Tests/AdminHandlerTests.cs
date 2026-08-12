@@ -207,7 +207,7 @@ public sealed class AdminHandlerTests
         var actingSuper = Guid.NewGuid();
         var handler = new AssignMerchantHandler(admins, new FakeAdminMerchantDirectory { ActiveResult = true }, audit, new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new AssignMerchantCommand(scoped.Id, merchantId, actingSuper, "corr"), default);
+        await handler.Handle(new AssignMerchantCommand(scoped.Id, merchantId, actingSuper, "corr", scoped.Version), default);
 
         var assignment = Assert.Single(admins.Assignments);
         Assert.Equal(merchantId, assignment.MerchantId);
@@ -230,22 +230,22 @@ public sealed class AdminHandlerTests
         // Inactive/unknown merchant -> 409 (REQ-4.3)
         var inactive = new AssignMerchantHandler(admins, new FakeAdminMerchantDirectory { ActiveResult = false }, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
         await Assert.ThrowsAsync<ConflictException>(async () =>
-            await inactive.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr"), default));
+            await inactive.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr", scoped.Version), default));
 
         var active = new AssignMerchantHandler(admins, new FakeAdminMerchantDirectory { ActiveResult = true }, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 
         // Assigning to a Super -> 409 (a Super already has unrestricted reach)
         await Assert.ThrowsAsync<ConflictException>(async () =>
-            await active.Handle(new AssignMerchantCommand(super.Id, merchantId, Guid.NewGuid(), "corr"), default));
+            await active.Handle(new AssignMerchantCommand(super.Id, merchantId, Guid.NewGuid(), "corr", super.Version), default));
 
         // Unknown admin -> 404
         await Assert.ThrowsAsync<NotFoundException>(async () =>
-            await active.Handle(new AssignMerchantCommand(Guid.NewGuid(), merchantId, Guid.NewGuid(), "corr"), default));
+            await active.Handle(new AssignMerchantCommand(Guid.NewGuid(), merchantId, Guid.NewGuid(), "corr", 1), default));
 
         // Duplicate (AdminUserId, MerchantId) -> 409 (REQ-4.4)
-        await active.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr"), default);
+        await active.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr", scoped.Version), default);
         await Assert.ThrowsAsync<ConflictException>(async () =>
-            await active.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr"), default));
+            await active.Handle(new AssignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr", scoped.Version), default));
     }
 
     // ---- UnassignMerchant ----
@@ -261,7 +261,8 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new UnassignMerchantHandler(admins, audit, new FakeUnitOfWork(), new FixedClock());
 
-        await handler.Handle(new UnassignMerchantCommand(scoped.Id, merchantId, Guid.NewGuid(), "corr"), default);
+        await handler.Handle(new UnassignMerchantCommand(
+            scoped.Id, merchantId, Guid.NewGuid(), "corr", scoped.Version), default);
 
         Assert.Empty(admins.Assignments);
         Assert.Equal(AuditAction.UnassignMerchant, Assert.Single(audit.Appended).Action);
@@ -274,7 +275,8 @@ public sealed class AdminHandlerTests
         var handler = new UnassignMerchantHandler(admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<NotFoundException>(async () =>
-            await handler.Handle(new UnassignMerchantCommand(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "corr"), default));
+            await handler.Handle(new UnassignMerchantCommand(
+                Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "corr", 1), default));
     }
 
     // ---- SuspendAdmin ----
@@ -288,11 +290,28 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new SuspendHandler(admins, audit, new FakeUnitOfWork(), new FixedClock());
 
-        var result = await handler.Handle(new SuspendCommand(target.Id, Guid.NewGuid(), "corr"), default);
+        var result = await handler.Handle(new SuspendCommand(target.Id, Guid.NewGuid(), "corr", target.Version), default);
 
         Assert.Equal("Suspended", result.Status);
         Assert.Equal(UserStatus.Suspended, admins.Accounts[0].Status);
         Assert.Equal(AuditAction.Suspend, Assert.Single(audit.Appended).Action);
+    }
+
+    [Fact]
+    public async Task Suspend_rejects_a_stale_resource_version_without_mutation()
+    {
+        var admins = new FakePlatformUserRepository();
+        var target = User.CreateScoped("scoped@org.com", Now);
+        admins.Add(target);
+        var handler = new SuspendHandler(
+            admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() => handler.Handle(
+            new SuspendCommand(target.Id, Guid.NewGuid(), "corr", target.Version + 1), default).AsTask());
+
+        Assert.Equal("state_conflict", error.Code);
+        Assert.Equal(UserStatus.Active, target.Status);
+        Assert.Equal(1, target.Version);
     }
 
     [Fact]
@@ -304,9 +323,9 @@ public sealed class AdminHandlerTests
         var handler = new SuspendHandler(admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await handler.Handle(new SuspendCommand(self.Id, self.Id, "corr"), default));
+            await handler.Handle(new SuspendCommand(self.Id, self.Id, "corr", self.Version), default));
         await Assert.ThrowsAsync<NotFoundException>(async () =>
-            await handler.Handle(new SuspendCommand(Guid.NewGuid(), Guid.NewGuid(), "corr"), default));
+            await handler.Handle(new SuspendCommand(Guid.NewGuid(), Guid.NewGuid(), "corr", 1), default));
     }
 
     // ---- ChangeAdminTier ----
@@ -320,7 +339,8 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new ChangeAdminTierHandler(admins, audit, new FakeUnitOfWork(), new FixedClock());
 
-        var result = await handler.Handle(new ChangeAdminTierCommand(target.Id, Tier.Super, Guid.NewGuid(), "corr"), default);
+        var result = await handler.Handle(new ChangeAdminTierCommand(
+            target.Id, Tier.Super, Guid.NewGuid(), "corr", target.Version), default);
 
         Assert.Equal("Super", result.Tier);
         Assert.Equal(Tier.Super, admins.Accounts[0].Tier);
@@ -336,8 +356,10 @@ public sealed class AdminHandlerTests
         var handler = new ChangeAdminTierHandler(admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await handler.Handle(new ChangeAdminTierCommand(self.Id, Tier.Scoped, self.Id, "corr"), default));
+            await handler.Handle(new ChangeAdminTierCommand(
+                self.Id, Tier.Scoped, self.Id, "corr", self.Version), default));
         await Assert.ThrowsAsync<NotFoundException>(async () =>
-            await handler.Handle(new ChangeAdminTierCommand(Guid.NewGuid(), Tier.Super, Guid.NewGuid(), "corr"), default));
+            await handler.Handle(new ChangeAdminTierCommand(
+                Guid.NewGuid(), Tier.Super, Guid.NewGuid(), "corr", 1), default));
     }
 }

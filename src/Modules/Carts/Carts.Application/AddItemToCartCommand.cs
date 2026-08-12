@@ -14,4 +14,5 @@ public sealed record AddItemToCartCommand(
     string? VariantName,
     int Quantity,
     Money UnitPrice,
-    CommerceItemMetadata Metadata) : ICommand<AddItemResult>, IMerchantScoped;
+    CommerceItemMetadata Metadata,
+    int? ExpectedVersion = null) : ICommand<CartView>, IMerchantScoped;

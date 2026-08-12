@@ -29,6 +29,10 @@ public sealed class User : AggregateRoot<Guid>
     /// config explicitly ignores this property until then, so setting it today is a safe no-op there.</summary>
     public long AuthorizationVersion { get; private set; }
 
+    /// <summary>Monotonic resource version for Admin Console ETag/If-Match concurrency. Separate from
+    /// <see cref="AuthorizationVersion"/> so profile-only edits never invalidate live sessions.</summary>
+    public long Version { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
     public DateTime? UpdatedAt { get; private set; }
 
@@ -59,6 +63,7 @@ public sealed class User : AggregateRoot<Guid>
         OfficeId = officeId;
         LevelId = levelId;
         DivisionId = divisionId;
+        Version = 1;
     }
 
     /// <summary>The first Super Admin bootstrapping from the config allowlist on first login (REQ-5.1). The
@@ -91,6 +96,7 @@ public sealed class User : AggregateRoot<Guid>
         if (Subject is not null)
             throw new InvalidOperationException("This admin account already has a bound subject.");
         Subject = subject.Trim();
+        BumpResourceVersion();
     }
 
     /// <summary>Revokes access. <paramref name="actingAdminId"/> is the admin performing the suspension;
@@ -99,8 +105,11 @@ public sealed class User : AggregateRoot<Guid>
     {
         if (actingAdminId == Id)
             throw new InvalidOperationException("An admin cannot suspend their own account.");
+        if (Status == UserStatus.Suspended)
+            return;
         Status = UserStatus.Suspended;
         BumpAuthorizationVersion();
+        BumpResourceVersion();
     }
 
     /// <summary>Restores access (admin-account-management REQ-3). Idempotent: an already-Active account stays
@@ -109,8 +118,11 @@ public sealed class User : AggregateRoot<Guid>
     /// responsibility — the handler owns the transaction and the session store (REQ-3.5).</summary>
     public void Reactivate()
     {
+        if (Status == UserStatus.Active)
+            return;
         Status = UserStatus.Active;
         BumpAuthorizationVersion();
+        BumpResourceVersion();
     }
 
     /// <summary>Promotes/demotes between Scoped and Super (rls-to-query-filter REQ-4.11 invalidation-matrix
@@ -126,6 +138,7 @@ public sealed class User : AggregateRoot<Guid>
             return;
         Tier = newTier;
         BumpAuthorizationVersion();
+        BumpResourceVersion();
     }
 
     /// <summary>Invalidates every authorization lease this admin currently holds. Called directly for
@@ -135,13 +148,18 @@ public sealed class User : AggregateRoot<Guid>
     /// update/delete) calls this explicitly on the loaded admin in the same transaction.</summary>
     public void BumpAuthorizationVersion() => AuthorizationVersion++;
 
+    public void BumpResourceVersion() => Version++;
+
     /// <summary>Full replace of the org-profile FKs (a NULL clears that dimension). The caller validates that
     /// each non-null FK references an existing, active master before calling — the aggregate only stores ids.</summary>
     public void UpdateProfile(Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId)
     {
+        if (PositionId == positionId && OfficeId == officeId && LevelId == levelId && DivisionId == divisionId)
+            return;
         PositionId = positionId;
         OfficeId = officeId;
         LevelId = levelId;
         DivisionId = divisionId;
+        BumpResourceVersion();
     }
 }

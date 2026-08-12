@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -30,6 +31,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc.ApiExplorer;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Application;
@@ -39,18 +41,21 @@ using Payments.Application.ConfirmPaymentStatus;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
 using Payments.Application.MethodPayable;
+using Payments.Application.Ports;
 using Payments.Application.ReleaseOpenSession;
 using Payments.Application.StartRedirect;
 using Payments.Domain.Psp;
 using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 using Merchants.Application;
+using Merchants.Application.AdminControlPlane;
 using Merchants.Domain;
 using Merchants.Infrastructure;
 using Products.Application;
 using Products.Domain;
 using Products.Infrastructure;
 using Products.Infrastructure.Sp;
+using Payments.Application;
 // Scalar.AspNetCore also has a DocumentType — the wire enum below is the domain's.
 using DocumentType = Products.Domain.DocumentType;
 // Payments.Domain cannot be imported wholesale here (its SessionStatus collides with the admin one).
@@ -62,6 +67,8 @@ using OrderStatus = Orders.Domain.OrderStatus;
 // admin one, the same way Payments.Domain's SessionStatus does.
 using GetPaymentSessionQuery = Payments.Application.GetSession.GetSessionQuery;
 using PaymentSessionView = Payments.Application.GetSession.SessionView;
+using ListPaymentSessionsQuery = Payments.Application.GetSession.ListSessionsQuery;
+using PaymentSessionListItem = Payments.Application.GetSession.PaymentSessionListItem;
 using Merchants.Application.GetMerchant;
 using Merchants.Application.ProvisionMerchant;
 // L6 (hierarchical-naming): Admins.*.Users/.Roles and Merchants.*.Users/.Roles now share bare names (User,
@@ -76,12 +83,30 @@ using RejectCommand = Merchants.Application.Users.RejectCommand;
 using SubmitRegistrationCommand = Merchants.Application.Users.SubmitRegistrationCommand;
 using GetRegistrationHistoryQuery = Merchants.Application.Users.GetRegistrationHistoryQuery;
 using RegistrationHistoryResult = Merchants.Application.Users.RegistrationHistoryResult;
+using ResolveInvitationTokenQuery = Merchants.Application.Users.ResolveInvitationTokenQuery;
+using ResolveInvitationByIdQuery = Merchants.Application.Users.ResolveInvitationByIdQuery;
+using ListMerchantUsersQuery = Merchants.Application.Users.ListMerchantUsersQuery;
+using MerchantUserListItem = Merchants.Application.Users.MerchantUserListItem;
+using GetMerchantUserQuery = Merchants.Application.Users.GetMerchantUserQuery;
+using MerchantUserDetail = Merchants.Application.Users.MerchantUserDetail;
+using GetMerchantUserEditQuery = Merchants.Application.Users.GetMerchantUserEditQuery;
+using MerchantUserEditView = Merchants.Application.Users.MerchantUserEditView;
+using CreateMerchantUserInvitationCommand = Merchants.Application.Users.CreateInvitationCommand;
+using CreateMerchantUserInvitationResult = Merchants.Application.Users.CreateInvitationResult;
+using RevokeMerchantUserInvitationCommand = Merchants.Application.Users.RevokeInvitationCommand;
+using UpdateMerchantUserCommand = Merchants.Application.Users.UpdateMerchantUserCommand;
+using ChangeMerchantUserLifecycleCommand = Merchants.Application.Users.ChangeMerchantUserLifecycleCommand;
+using MerchantUserLifecycleAction = Merchants.Application.Users.MerchantUserLifecycleAction;
+using SubmitRegistrationResult = Merchants.Application.Users.SubmitRegistrationResult;
+using IInvitationDeliveryProtector = Merchants.Application.Users.IInvitationDeliveryProtector;
+using IInvitationEmailSender = Merchants.Application.Users.IInvitationEmailSender;
 using IMerchantSessionStore = Merchants.Application.Users.ISessionStore;
 using IMerchantAuthAuditWriter = Merchants.Application.Users.IAuthAuditWriter;
 using IMerchantRoleRepository = Merchants.Application.Users.Roles.IRoleRepository;
 using MerchantSetRolesCommand = Merchants.Application.Users.SetRolesCommand;
 using MerchantAuthAudit = Merchants.Domain.Users.AuthAudit;
 using MerchantAuthEventType = Merchants.Domain.Users.AuthEventType;
+using MerchantUserInvitation = Merchants.Domain.Users.MerchantUserInvitation;
 using Iam.Application.Roles;
 using Iam.Domain.Permissions;
 // Microsoft.OpenApi also declares a `Scope` type — alias to disambiguate the two call sites that need
@@ -93,11 +118,16 @@ using Api.Admins;
 using Api.BackgroundDispatch;
 using Api.Customers;
 using Api.Iam;
+using Api.Governance;
+using Api.ControlPlane;
 using Api.Merchants;
 using Api.Orders;
+using Api.Reporting;
 using Api.Persistence;
 using Api.Webhooks;
+using Api.Notifications;
 using Persistence.ControlPlane;
+using Persistence.ControlPlane.Governance;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantUsers;
@@ -148,6 +178,8 @@ builder.Services.AddSingleton(new ModuleAssemblies(HostModuleAssemblies.All));
 builder.Services.Configure<VaultOptions>(builder.Configuration.GetSection(VaultOptions.SectionName));
 // Non-secret PSP endpoint/environment config for the real 2C2P + Omise adapters (UseSandbox defaults true).
 builder.Services.Configure<PspOptions>(builder.Configuration.GetSection(PspOptions.SectionName));
+builder.Services.AddSingleton(sp => new DefaultPspSelection(Codes.FromCode(
+    sp.GetRequiredService<IOptions<PspOptions>>().Value.DefaultCode)));
 
 // Document-search upstream. Connection strings come from section SpDocument ONLY — no derive/
 // fallback (external-sim-separate-containers supersedes products-sp-gateway REQ-3.4: hippodb/
@@ -192,8 +224,14 @@ if (!builder.Environment.IsDevelopment())
 // (ControlPlaneDbContext), an ordinary merchant request (MerchantUserDbContext/MerchantRuntimeDbContext), or
 // the ONE cross-context provisioning writer — a single instance, since ProvisioningCoordinator constructs
 // its own context instances per attempt rather than resolving them from this container.
-builder.Services.AddControlPlanePersistence(
-    appConnString, sp => new ControlPlaneAdminWriteAuthorizer(sp.GetRequiredService<IAdminScope>()));
+builder.Services.AddControlPlanePersistence(appConnString, ResolveControlPlaneWriteAuthorizer)
+    .AddGovernanceOutboxDispatcher()
+    .AddGovernanceAuditAnchoring();
+
+static IWriteAuthorizer ResolveControlPlaneWriteAuthorizer(IServiceProvider sp) =>
+    BackgroundDispatchScope.IsHttpRequest(sp)
+        ? new ControlPlaneAdminWriteAuthorizer(sp.GetRequiredService<IAdminScope>())
+        : new ControlPlaneWorkerWriteAuthorizer();
 
 // multi-tier-deployment task 1: the outbox dispatchers (formerly the standalone Worker host's hosted
 // services, PLAN "Worker merge") now run in THIS process, draining from a background-created scope with no
@@ -231,6 +269,13 @@ builder.Services.AddAdminIdentity();
 
 builder.Services.Configure<UserRegistrationOptions>(
     builder.Configuration.GetSection(UserRegistrationOptions.SectionName));
+builder.Services.Configure<UserInvitationOptions>(
+    builder.Configuration.GetSection(UserInvitationOptions.SectionName));
+builder.Services.AddSingleton<IInvitationDeliveryProtector, InvitationDeliveryProtector>();
+if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+    builder.Services.AddSingleton<IInvitationEmailSender, CaptureInvitationEmailSender>();
+else
+    builder.Services.AddSingleton<IInvitationEmailSender, SmtpInvitationEmailSender>();
 builder.Services.AddMerchantsIdentity();
 
 // Central IAM audit bridge + assignment counter (rf2) — IRoleStore itself comes from
@@ -280,9 +325,9 @@ builder.Services.AddScoped<IActorContext>(sp =>
         : sp.GetRequiredService<WorkerActorContext>());
 
 // Google id-token Bearer is retired for the funnel (T11 — rf1 big-bang, no legacy audience). The
-// MerchantUserSession cookie scheme is the explicit default (each protected group still pins its own scheme via
-// its policy — the default only matters for UseAuthentication's principal-population pass).
-builder.Services.AddAuthentication(UserSessionAuthenticationHandler.SchemeName);
+// ConsoleSession policy scheme is the default. Existing protected groups still pin their own scheme; dual-console
+// routes use endpoint metadata plus cookie presence to select exactly one audience without cross-audience fallback.
+builder.Services.AddAuthentication(ConsoleSessionAuthentication.SchemeName);
 
 // Admin BFF: confidential OIDC clients (Authorization Code + PKCE) for the server-side admin login.
 // Adds the "Admin{Provider}" OIDC + "oidc-noop" sign-in schemes WITHOUT changing the default set above.
@@ -292,6 +337,7 @@ builder.Services.AddAdminOidcAuthentication(builder.Configuration, builder.Envir
 // Admin BFF session scheme: authenticate every /api/v1/admins/* request via the __Host-adm_session cookie and
 // REDEFINE the "admin" authorization policy to pin it — retiring the Bearer "admin" audience (REQ-4/5/9/10).
 builder.Services.AddPlatformUserSessionScheme();
+builder.Services.AddConsoleSessionAuthentication();
 
 // Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
 builder.Services.AddHostedService<SessionPruneService>();
@@ -303,105 +349,162 @@ builder.Services.AddPolCors(builder.Configuration);
 // document also declares the two auth schemes (merchant-user session cookie + admin session cookie) and tags
 // each operation with the scheme its authorization policy requires, so other teams can authenticate straight
 // from the Scalar reference UI.
-builder.Services.AddOpenApi(options =>
+Action<OpenApiOptions> configureOpenApi = options =>
 {
     options.AddSchemaTransformer((schema, context, _) =>
     {
         // PspCode has a custom JsonConverter the schema generator can't introspect, so it would emit an
         // empty schema. Describe the real wire shape: the stable string codes from the PspCodes mapping.
-        if (context.JsonTypeInfo.Type == typeof(Code))
+        if (context.JsonTypeInfo.Type == typeof(Code)
+            || Nullable.GetUnderlyingType(context.JsonTypeInfo.Type) == typeof(Code))
         {
             schema.Type = JsonSchemaType.String;
             schema.Enum = Enum.GetValues<Code>().Select(p => (JsonNode)JsonValue.Create(p.ToCode())).ToList();
+        }
+        if (context.JsonTypeInfo.Type == typeof(Money))
+        {
+            schema.Type = JsonSchemaType.Object;
+            schema.Properties = new Dictionary<string, IOpenApiSchema>
+            {
+                ["amount"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.String,
+                    Pattern = @"^\d+\.\d{4}$",
+                    Example = JsonValue.Create("1500.0000"),
+                },
+                ["currency"] = new OpenApiSchema
+                {
+                    Type = JsonSchemaType.String,
+                    Pattern = "^[A-Z]{3}$",
+                    Example = JsonValue.Create("THB"),
+                },
+            };
+            schema.Required = new HashSet<string>(StringComparer.Ordinal) { "amount", "currency" };
+        }
+        if (context.JsonTypeInfo.Type == typeof(ProductListItem))
+        {
+            schema.Required ??= new HashSet<string>(StringComparer.Ordinal);
+            schema.Required.Add("productCode");
+            schema.Required.Add("variantCode");
+            if (schema.Properties?["productCode"] is OpenApiSchema productCode)
+                productCode.Type = JsonSchemaType.String;
+            if (schema.Properties?["variantCode"] is OpenApiSchema variantCode)
+                variantCode.Type = JsonSchemaType.String;
+        }
+        if (context.JsonTypeInfo.Type.IsGenericType
+            && context.JsonTypeInfo.Type.GetGenericTypeDefinition() == typeof(PagedResult<>))
+        {
+            schema.Required ??= new HashSet<string>(StringComparer.Ordinal);
+            schema.Required.Add("totalPages");
+            if (schema.Properties?["totalPages"] is OpenApiSchema totalPages)
+            {
+                totalPages.Type = JsonSchemaType.Integer;
+                totalPages.Pattern = null;
+            }
         }
         return Task.CompletedTask;
     });
 
     // Operation-level: SFS endpoints read page/limit/filters/sort/search from the raw query string, so ASP.NET
     // emits no parameters for them. Declare them wherever the SfsQueryParamsMarker is present (REQ-13).
-    options.AddOperationTransformer((operation, context, _) =>
+    options.AddOperationTransformer(async (operation, context, cancellationToken) =>
     {
-        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<SfsQueryParamsMarker>().Any())
-            SfsOpenApi.AddQueryParameters(operation);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<SfsQueryParamsMarker>().FirstOrDefault()
+            is { } sfs)
+            SfsOpenApi.AddQueryParameters(operation, sfs.MaxLimit);
         // Products reads only page/limit + its own typed productFilters — no SFS surface to advertise (REQ-7.4).
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<ProductQueryParamsMarker>().Any())
             SfsOpenApi.AddProductQueryParameters(operation);
-        return Task.CompletedTask;
+        foreach (var query in context.Description.ActionDescriptor.EndpointMetadata.OfType<RawQueryParamMarker>())
+            SfsOpenApi.AddRawQueryParameter(operation, query);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<IfMatchMutationMarker>().FirstOrDefault()
+            is { } mutation)
+            ConcurrencyOpenApi.Apply(operation, mutation);
+        else if (context.Description.ActionDescriptor.EndpointMetadata.OfType<EtagResponseMarker>().FirstOrDefault()
+                 is { } etagResponse)
+            ConcurrencyOpenApi.Apply(operation, etagResponse);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<IdempotencyMutationMarker>().FirstOrDefault()
+            is { } idempotency)
+            ConcurrencyOpenApi.Apply(operation, idempotency);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AdminIfMatchMutationMarker>().FirstOrDefault()
+            is { } adminMutation)
+            ConcurrencyOpenApi.Apply(operation, adminMutation);
+        else if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AdminEtagResponseMarker>().FirstOrDefault()
+                 is { } adminEtag)
+            ConcurrencyOpenApi.Apply(operation, adminEtag);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AdminIdempotencyMutationMarker>().Any())
+            ConcurrencyOpenApi.Apply(operation, new AdminIdempotencyMutationMarker());
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AudienceRequestBodyMarker>().FirstOrDefault()
+            is { } audienceRequest)
+            await AudienceOpenApi.ApplyAsync(operation, context, audienceRequest, cancellationToken);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AudienceResponseMarker>().FirstOrDefault()
+            is { } audienceResponse)
+            await AudienceOpenApi.ApplyAsync(operation, context, audienceResponse, cancellationToken);
+        if (context.Description.ActionDescriptor.EndpointMetadata.OfType<GovernanceDecisionMarker>().FirstOrDefault()
+            is { } decision)
+            GovernanceOpenApi.Apply(operation, decision);
+        else if (context.Description.ActionDescriptor.EndpointMetadata.OfType<GovernanceEtagMarker>().FirstOrDefault()
+                 is { } etag)
+            GovernanceOpenApi.Apply(operation, etag);
     });
 
     // Document-level: title/description + the security schemes other teams pick from Scalar's auth dropdown,
     // plus the per-operation security requirement each route's authorization policy implies.
     options.AddDocumentTransformer((document, context, _) =>
     {
-        document.Info.Title = "pol-core API";
+        document.Info.Title = OpenApiDocuments.Title(context.DocumentName);
         document.Info.Version = "v1";
-        document.Info.Description =
-            "ระบบจัดการการชำระเงินแบบ captive (redirect-only, PCI SAQ A) ประกอบด้วยหน้าร้านฝั่ง Merchant, Admin BFF และ MerchantUser BFF";
+        document.Info.Description = OpenApiDocuments.Description(context.DocumentName);
 
-        // x-tagGroups: nest the 18 route tags under the 12 src/Modules/* business modules that back them
-        // (see docs/reference/src-structure.md §4 for the tag-to-module map), instead of a flat tag list.
-        // Webhooks rides on Payments and Auth/MerchantUser Auth ride on the Admins/Merchants identity
-        // modules (their BFF plumbing lives in Hosts/Api/*, but the operations are that module's concern) —
-        // both have no module folder of their own, so they group under the module whose data they touch.
-        // Group/tag display names are Thai (Scalar sidebar content); "Webhooks" and "Iam" stay English —
-        // established protocol/security acronyms, not translated business content.
+        // x-tagGroups nests active route tags under their src/Modules/* owner instead of a flat tag list.
+        // OpenApiDocuments owns the canonical map and removes groups/tags absent from this audience document.
         document.Extensions ??= new Dictionary<string, IOpenApiExtension>();
-        document.Extensions["x-tagGroups"] = new JsonNodeExtension(JsonNode.Parse("""
-            [
-              { "name": "ผลิตภัณฑ์", "tags": ["ผลิตภัณฑ์"] },
-              { "name": "ตะกร้าสินค้า", "tags": ["ตะกร้าสินค้า"] },
-              { "name": "เช็คเอาต์", "tags": ["เช็คเอาต์"] },
-              { "name": "คำสั่งซื้อ", "tags": ["คำสั่งซื้อ", "คำสั่งซื้อ (ผู้ดูแลระบบ)"] },
-              { "name": "การชำระเงิน", "tags": ["การชำระเงิน", "Webhooks"] },
-              { "name": "ร้านค้า", "tags": ["ร้านค้า (ผู้ดูแลระบบ)", "การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)", "ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)"] },
-              { "name": "ผู้ดูแลระบบ", "tags": ["ผู้ดูแลระบบ", "การเข้าสู่ระบบ"] },
-              { "name": "Iam", "tags": ["บทบาท (ผู้ดูแลระบบ)", "บทบาท (ผู้ใช้ร้านค้า)"] },
-              { "name": "แผนก", "tags": ["แผนก"] },
-              { "name": "ระดับ", "tags": ["ระดับ"] },
-              { "name": "สำนักงาน", "tags": ["สำนักงาน"] },
-              { "name": "ตำแหน่ง", "tags": ["ตำแหน่ง"] }
-            ]
-            """)!);
+        document.Extensions["x-tagGroups"] = OpenApiDocuments.CreateTagGroups(document);
 
         document.Components ??= new OpenApiComponents();
         document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
-        document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
-        {
-            Type = SecuritySchemeType.ApiKey,
-            In = ParameterLocation.Cookie,
-            // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
-            // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
-            // see the cookie they actually have.
-            Name = SessionCookies.SessionCookieNameDevHttp,
-            Description = "คุกกี้ session ของ Admin BFF ที่ออกโดย OIDC login flow (GET /api/v1/admins/auth/login) "
-                + "ตั้งค่าให้อัตโนมัติในเบราว์เซอร์ บน production (HTTPS) จะใช้ชื่อคุกกี้ `__Host-adm_session`",
-        };
-        document.Components.SecuritySchemes["MerchantUserSession"] = new OpenApiSecurityScheme
-        {
-            Type = SecuritySchemeType.ApiKey,
-            In = ParameterLocation.Cookie,
-            Name = UserSessionCookies.SessionCookieNameDevHttp,
-            Description = "คุกกี้ session ของ MerchantUser BFF ที่ออกโดย OIDC login flow (GET /api/v1/merchants/users/auth/login) "
-                + "ตั้งค่าให้อัตโนมัติในเบราว์เซอร์ บน production (HTTPS) จะใช้ชื่อคุกกี้ `__Host-mch_session` (T11 — "
-                + "single-scheme แล้ว ของเดิมที่ fallback เป็น Bearer ถูก retired ไปแล้ว)",
-        };
+        if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, "AdminSession"))
+            document.Components.SecuritySchemes["AdminSession"] = new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.ApiKey,
+                In = ParameterLocation.Cookie,
+                // Scalar/OpenAPI serve in Development only, where the default host is dev HTTP and the handler
+                // writes the non-__Host cookie. Document that name, not the prod one, so admins testing in /scalar
+                // see the cookie they actually have.
+                Name = SessionCookies.SessionCookieNameDevHttp,
+                Description = "คุกกี้ session ของ Admin Console ที่ browser ได้รับอัตโนมัติหลังเข้าสู่ระบบผ่าน "
+                    + "GET /api/v1/admins/auth/{provider}/login โดย provider คือ google หรือ microsoft; "
+                    + "บน production (HTTPS) ใช้ชื่อ `__Host-adm_session`",
+            };
+        if (OpenApiDocuments.IncludesSecurityScheme(context.DocumentName, "MerchantUserSession"))
+            document.Components.SecuritySchemes["MerchantUserSession"] = new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.ApiKey,
+                In = ParameterLocation.Cookie,
+                Name = UserSessionCookies.SessionCookieNameDevHttp,
+                Description = "คุกกี้ session ของ Merchant Console ที่ browser ได้รับอัตโนมัติหลังเข้าสู่ระบบผ่าน "
+                    + "GET /api/v1/merchants/auth/{provider}/login โดย provider คือ google หรือ microsoft; "
+                    + "บน production (HTTPS) ใช้ชื่อ `__Host-mch_session`",
+            };
 
         // Per-operation: attach the scheme each route's authorization policy requires so Scalar shows the right
         // auth on the right endpoint (merchant-user -> MerchantUserSession, admin -> AdminSession). The host
         // document is passed so the requirement serialises as a $ref into components.securitySchemes. Anonymous
         // routes (order summary link, admin login, webhook) carry no requirement.
-        var schemeByRoute = new Dictionary<(string Path, string Method), string>();
+        var schemesByRoute = new Dictionary<(string Path, string Method), IReadOnlyList<string>>();
         foreach (var d in context.ApplicationServices
                      .GetRequiredService<IApiDescriptionGroupCollectionProvider>()
                      .ApiDescriptionGroups.Items.SelectMany(g => g.Items))
         {
-            var schemeId = SecuritySchemeForEndpoint(d.ActionDescriptor.EndpointMetadata);
-            if (schemeId is not null && d.RelativePath is not null && d.HttpMethod is not null)
+            var schemeIds = AuthPolicyScheme.SecuritySchemeIdsFor(d.ActionDescriptor.EndpointMetadata);
+            if (schemeIds.Count > 0 && d.RelativePath is not null && d.HttpMethod is not null)
             {
                 // RelativePath keeps route constraints ("{cartId:guid}"); the OpenAPI path strips them
                 // ("{cartId}"). Normalise so the two keys match.
                 var path = RouteConstraintRegex().Replace("/" + d.RelativePath.TrimStart('/'), "{$1}");
-                schemeByRoute[(path, d.HttpMethod.ToUpperInvariant())] = schemeId;
+                if (path.Length > 1)
+                    path = path.TrimEnd('/');
+                schemesByRoute[(path, d.HttpMethod.ToUpperInvariant())] = schemeIds;
             }
         }
         foreach (var (pathKey, pathItem) in document.Paths)
@@ -409,40 +512,33 @@ builder.Services.AddOpenApi(options =>
             if (pathItem.Operations is null)
                 continue;
             foreach (var (method, operation) in pathItem.Operations)
-                if (schemeByRoute.TryGetValue((pathKey, method.Method.ToUpperInvariant()), out var schemeId))
+                if (schemesByRoute.TryGetValue((pathKey, method.Method.ToUpperInvariant()), out var schemeIds))
                 {
+                    schemeIds = OpenApiDocuments.SecuritySchemeIds(context.DocumentName, schemeIds);
                     operation.Security ??= [];
-                    operation.Security.Add(new OpenApiSecurityRequirement
-                    {
-                        [new OpenApiSecuritySchemeReference(schemeId, document)] = [],
-                    });
+                    foreach (var schemeId in schemeIds)
+                        operation.Security.Add(new OpenApiSecurityRequirement
+                        {
+                            [new OpenApiSecuritySchemeReference(schemeId, document)] = [],
+                        });
                 }
         }
         return Task.CompletedTask;
     });
-});
+};
 
-// merchant-user routes gate on the "merchant-user" policy (session cookie, T11 single-scheme); admin routes on
-// "admin" (session cookie). AllowAnonymous endpoints and the unauthenticated webhook get no security requirement
-// in the doc. Assumption: the only IAuthorizeData on an endpoint is the named policy from .RequireAuthorization(...).
-// RequirePlatformUserTier/RequirePermission use endpoint filters + WithMetadata (Api.Iam.PermissionAuthorization),
-// NOT IAuthorizeData, so exactly one non-empty policy is present and LastOrDefault is unambiguous. The
-// policy->scheme mapping itself lives in AuthPolicyScheme (rf2) — shared with the boot parity guard below so the
-// two can never drift apart.
-static string? SecuritySchemeForEndpoint(IEnumerable<object> metadata)
-{
-    if (metadata.OfType<IAllowAnonymous>().Any())
-        return null;
-    var policy = metadata.OfType<IAuthorizeData>()
-        .Select(a => a.Policy)
-        .LastOrDefault(p => !string.IsNullOrEmpty(p));
-    return AuthPolicyScheme.For(policy)?.SchemeId;
-}
+foreach (var documentName in OpenApiDocuments.All)
+    builder.Services.AddOpenApi(documentName, options =>
+    {
+        options.ShouldInclude = description => OpenApiDocuments.ShouldInclude(documentName, description);
+        configureOpenApi(options);
+    });
 
 // PspCode crosses the wire as its stable code ("2c2p"/"omise") via the domain's PspCodes mapping —
 // not as an int or the C# member name. An unknown code fails body binding -> 400.
 builder.Services.ConfigureHttpJsonOptions(o =>
 {
+    o.SerializerOptions.Converters.Add(new UtcDateTimeJsonConverter());
     o.SerializerOptions.Converters.Add(new PspCodeJsonConverter());
     o.SerializerOptions.Converters.Add(new MoneyJsonConverter());
     // Product document enums (ProductGroup/DocumentType/PaymentStatus) cross the wire as their uppercase
@@ -474,6 +570,9 @@ if (builder.Environment.IsDevelopment())
 
 var app = builder.Build();
 
+if (!app.Environment.IsDevelopment())
+    UserInvitationOptions.RequireProduction(app.Configuration);
+
 // Dev convenience: auto-apply pending EF migrations at boot so a freshly merged migration can't leave the
 // local DB desynced from the code (the symptom is a runtime "Invalid object name" -> resolve-failed login).
 // The runtime pol_app/pol_admin logins have no DDL rights, so this runs on the privileged Migrator
@@ -497,6 +596,9 @@ else if (app.Environment.IsDevelopment())
 // boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
 // singletons, so this explicit resolve is what delivers the boot-time custody guarantee.
 _ = app.Services.GetRequiredService<VaultKeyring>();
+// Same guarantee for customer-payment PSP selection: read final host configuration after Build, then reject
+// unknown codes before readiness instead of waiting for the first payment request.
+_ = app.Services.GetRequiredService<DefaultPspSelection>();
 
 // Outside Development, the OIDC correlation cookies must ride a persisted, shared key ring — never the
 // framework's default ephemeral one (REQ-8.2). Assert it now so a misconfigured key store crash-loops at boot.
@@ -529,8 +631,15 @@ var forwardedHeaders = new ForwardedHeadersOptions
     ForwardedHeaders = ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto,
 };
 foreach (var cidr in app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
-    if (!string.IsNullOrWhiteSpace(cidr)) // an unset `${VAR:-}` env expands to a blank entry — skip, don't Parse("")
-        forwardedHeaders.KnownIPNetworks.Add(System.Net.IPNetwork.Parse(cidr.Trim()));
+{
+    if (string.IsNullOrWhiteSpace(cidr)) // an unset env expands to a blank entry — skip, don't Parse("")
+        continue;
+
+    var network = System.Net.IPNetwork.Parse(cidr.Trim());
+    if (network.PrefixLength == 0)
+        throw new InvalidOperationException("ForwardedHeaders:KnownNetworks must not trust a wildcard network.");
+    forwardedHeaders.KnownIPNetworks.Add(network);
+}
 foreach (var proxy in app.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
     if (!string.IsNullOrWhiteSpace(proxy))
         forwardedHeaders.KnownProxies.Add(System.Net.IPAddress.Parse(proxy.Trim()));
@@ -575,11 +684,13 @@ app.MapPolHealthChecks();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    // Scalar reference UI over /openapi/v1.json — anonymous like the health checks. Other teams browse the
-    // grouped endpoints and try them with the right auth straight from /scalar. Dev-only, same as MapOpenApi.
-    // No preferred scheme: Scalar auto-selects each operation's own security (Bearer for merchant routes,
-    // Session for admin routes) instead of defaulting every endpoint to one.
-    app.MapScalarApiReference(options => options.WithTitle("pol-core API"));
+    // Scalar reference UI over the audience documents — anonymous like the health checks. The combined v1
+    // document remains available at its old URL for generated-client compatibility but stays out of the selector.
+    app.MapScalarApiReference(options => options
+        .WithTitle("pol-core API")
+        .AddDocument(OpenApiDocuments.Merchant, "Merchant API", isDefault: true)
+        .AddDocument(OpenApiDocuments.Admin, "Admin API")
+        .AddDocument(OpenApiDocuments.Integration, "Integration API"));
 }
 
 // --- /api/v1 route scheme (api-route-scheme REQ-1/2) ---
@@ -594,6 +705,26 @@ if (app.Environment.IsDevelopment())
 // carry the area path + their filters per-endpoint instead. Infra (health, openapi, scalar) is mapped ABOVE this
 // and stays OUTSIDE /api/v1 (REQ-4).
 var api = app.MapGroup("/api/v1");
+var requiredMerchantQuery = new RawQueryParamMarker(
+    "merchantId", "Merchant UUID required for the AdminSession branch.");
+var optionalMerchantQuery = requiredMerchantQuery with
+{
+    Description = "Optional merchant UUID filter within the AdminSession scope.",
+    Required = false,
+};
+var requiredOriginatorQuery = new RawQueryParamMarker(
+    "originatorId", "Originator UUID required for the AdminSession branch.");
+var requiredExportFromQuery = new RawQueryParamMarker(
+    "from", "Inclusive UTC export-window start.");
+var requiredExportToQuery = new RawQueryParamMarker(
+    "to", "Inclusive UTC export-window end; maximum window is 31 days.");
+api.MapGovernanceEndpoints();
+api.MapAdminControlEndpoints();
+api.MapApiClientEndpoints();
+api.MapDeliveryEndpoints();
+api.MapInboundWebhookEndpoints();
+api.MapAdminMerchantIdentityEndpoints();
+api.MapAdminReportingEndpoints();
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT merchant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
@@ -649,7 +780,9 @@ api.MapPost("/webhooks/{pspConnectionId:guid}", async (
 api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
 {
     if (string.IsNullOrEmpty(actor.SaleCode))
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "No sale code is bound to this merchant user.");
+        return Results.Problem(statusCode: StatusCodes.Status403Forbidden,
+            title: "No sale code is bound to this merchant user.",
+            extensions: new Dictionary<string, object?> { ["code"] = "sale-code-missing" });
     var p = SfsQueryParser.ParsePaging(http.Request.Query);
     var result = await mediator.Send(new ListProductsQuery
     {
@@ -660,7 +793,7 @@ api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator 
     }, ct);
     return Results.Ok(result);
 })
-    .RequireAuthorization("merchant-user")
+    .RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentView)
     .WithMetadata(new ProductQueryParamsMarker())
     .WithTags("ผลิตภัณฑ์")
     .WithName("ListProducts")
@@ -672,87 +805,165 @@ api.MapGet("/products", async (HttpContext http, IActorContext actor, IMediator 
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+api.MapGet("/products/documents", async (
+    HttpContext http,
+    IAdminScope adminScope,
+    IAdminMerchantControlStore merchants,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var originatorId = RequireCommerceQueryGuid(http, "originatorId");
+    var originator = await RequireCommerceOriginatorAsync(
+        merchants, adminScope, merchantId, originatorId, ct);
+    var paging = SfsQueryParser.ParsePaging(http.Request.Query);
+    var result = await mediator.Send(new ListProductsQuery
+    {
+        Page = paging.Page,
+        Limit = paging.Limit,
+        SaleCode = originator.SaleCode!,
+        ProductFilters = ProductFilterDto.Parse(http.Request.Query["productFilters"]),
+    }, ct);
+    return Results.Ok(AdminProductPage.From(merchantId, originatorId, result));
+}).RequireAuthorization("admin").RequirePermission(Keys.TxnView)
+    .WithMetadata(
+        new ProductQueryParamsMarker(),
+        requiredMerchantQuery,
+        requiredOriginatorQuery)
+    .WithTags("ผลิตภัณฑ์")
+    .WithName("ListAdminProductDocuments")
+    .WithSummary("รายการเอกสารประกันสำหรับผู้ดูแลระบบ")
+    .WithDescription("อ่านเอกสารสดด้วย merchantId และ originatorId ที่อยู่ใน Admin scope; saleCode มาจาก Originator ฝั่ง server")
+    .Produces<AdminProductPage>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
 // Cart — open, add/merge lines, review, adjust, clear. Merchant comes from the principal; the commands are
 // IMerchantScoped so RLS + the merchant guard confine every cart to the bound merchant.
-api.MapPost("/carts", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
+api.MapPost("/carts", async (
+    HttpContext http,
+    IActorContext actor,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminMerchantControlStore merchants,
+    IAdminOperationExecutor operations,
+    IMediator mediator,
+    CancellationToken ct) =>
 {
-    var id = await mediator.Send(new CreateCartCommand(actor.MerchantId, actor.SaleCode), ct);
-    return TypedResults.Ok(new CreateCartResponse(id));
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    if (!IsAdminCommerceRequest(http))
+    {
+        var id = await mediator.Send(new CreateCartCommand(actor.MerchantId, actor.SaleCode), ct);
+        return Results.Ok(new CreateCartResponse(id));
+    }
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var originatorId = RequireCommerceQueryGuid(http, "originatorId");
+    var originator = await RequireCommerceOriginatorAsync(
+        merchants, adminScope, merchantId, originatorId, ct);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "cart.create", IdempotencyKeys.Require(http),
+        new { merchantId, originatorId }, 200,
+        async token => new CreateCartResponse(await mediator.Send(
+            new CreateCartCommand(merchantId, originator.SaleCode, originatorId), token)),
+        value => value.CartId.ToString("D"), ct);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery,
+        requiredOriginatorQuery)
     .WithTags("ตะกร้าสินค้า")
     .WithName("CreateCart")
     .WithSummary("เปิดตะกร้าสินค้า")
-    .WithDescription("เปิดตะกร้าสินค้าเปล่าใหม่ให้กับร้านค้าที่ยืนยันตัวตนแล้ว")
+    .WithDescription("Merchant Console เปิดตะกร้าด้วยร้านค้าและ saleCode จาก session; Admin Console ต้องส่ง merchantId และ originatorId แล้วระบบใช้ saleCode ของ Originator ฝั่ง server")
     .Produces<CreateCartResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
 api.MapPost("/carts/{cartId:guid}/items", async (
-    Guid cartId, AddItemToCartRequest body, IActorContext actor, IMediator mediator,
-    IDocumentSaleProbe documentSales, CancellationToken ct) =>
+    Guid cartId,
+    AddItemToCartRequest body,
+    HttpContext http,
+    IActorContext actor,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminCartReader adminCarts,
+    IAdminMerchantControlStore merchants,
+    IAdminOperationExecutor operations,
+    IMediator mediator,
+    IDocumentSaleProbe documentSales,
+    CancellationToken ct) =>
 {
-    // REQ-4.9 — a user with no sale code cannot use the catalogue at all.
-    if (string.IsNullOrEmpty(actor.SaleCode))
-        return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "No sale code is bound to this merchant user.");
-    if (body.Quantity <= 0)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Quantity must be positive.");
+    var admin = IsAdminCommerceRequest(http);
+    if (!admin)
+    {
+        var command = await BuildAddCartItemCommandAsync(
+            cartId, actor.MerchantId, actor.SaleCode, body, null, false, mediator, documentSales, ct);
+        return Results.Ok(await mediator.Send(command, ct));
+    }
 
-    // variantCode only routes to the Motor vs Non-Motor procedure; returned document carries the authoritative
-    // group. Match by name because raw Enum.TryParse also accepts numeric values such as "0".
-    if (!Enum.GetNames<ProductGroup>().Contains(body.VariantCode, StringComparer.Ordinal)
-        || !Enum.TryParse<ProductGroup>(body.VariantCode, out var productGroup))
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unsupported variant code.");
-
-    // The unit price is the upstream's TotalPremium, NEVER the client's: read the document live and price the
-    // line from it (REQ-4.1/4.2). saleCode is the merchant user's own (REQ-4.8). Not found -> 400 (REQ-4.5);
-    // upstream unreachable -> 503 (REQ-7.1); a blank/over-length/ambiguous number -> 400, all via the shared
-    // ProblemDetails handler.
-    var doc = await mediator.Send(new LookupDocumentQuery(body.ProductCode, productGroup, actor.SaleCode), ct);
-    if (doc is null)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Unknown document.");
-
-    // REQ-5.3 — the upstream itself reports the document PAID, so it can never be sold again.
-    if (doc.PaymentStatus == PaymentStatus.PAID)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The document is not available for sale.");
-
-    // REQ-5.4 — an order on this platform (possibly another merchant's) already sold it or is mid-payment for
-    // it. The message names no other merchant or order (REQ-5.7).
-    var statuses = await documentSales.ProbeAsync(
-        [new DocumentKey(doc.DocumentNo, doc.ProductGroup.ToString())], ct);
-    if (statuses.Count > 0)
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The document is not available for sale.");
-
-    // The single currency boundary: the view carries a bare decimal (§5.2), while Cart/Order/
-    // PaymentSession stay Money{Amount,Currency}, so THB is minted here and nowhere else (REQ-4.3). The
-    // ProductCode/SaleCode/VariantCode stored are authoritative upstream values. Duplicate product -> 400.
-    var variantCode = doc.ProductGroup.ToString();
-    var metadata = new CommerceItemMetadata(
-        CommerceItemMetadataCodec.InsuranceDocumentSource,
-        doc.DocumentType.ToString(),
-        doc.PolicyNumber,
-        doc.StartDate is { } start ? DateOnly.FromDateTime(start) : null,
-        doc.EndDate is { } end ? DateOnly.FromDateTime(end) : null);
-    var result = await mediator.Send(new AddItemToCartCommand(
-        cartId, actor.MerchantId, doc.DocumentNo, doc.SaleCode, variantCode,
-        string.IsNullOrWhiteSpace(doc.ShowName) ? variantCode : doc.ShowName,
-        body.Quantity, Money.Of(doc.TotalPremium, "THB"), metadata), ct);
-    return Results.Ok(result);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var cart = await RequireAdminCartAsync(
+        adminCarts, adminScope, cartId, merchantId, mutation: true, ct);
+    if (cart.OriginatorId is not { } originatorId)
+        throw new ConflictException("Cart has no originator.", "state_conflict");
+    var originator = await RequireCommerceOriginatorAsync(
+        merchants, adminScope, merchantId, originatorId, ct);
+    var adminCommand = await BuildAddCartItemCommandAsync(
+        cartId, merchantId, originator.SaleCode, body, null, true, mediator, documentSales, ct);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "cart.item.add", IdempotencyKeys.Require(http),
+        new { cartId, merchantId, body.ProductCode, body.VariantCode, body.Quantity }, 200,
+        token => mediator.Send(adminCommand, token).AsTask(),
+        _ => cartId.ToString("D"), ct);
+    VersionEtags.Set(http, result.Value.Version);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminEtagResponseMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("ตะกร้าสินค้า")
     .WithName("AddCartItem")
     .WithSummary("เพิ่มรายการสินค้าในตะกร้า")
     .WithDescription("เพิ่มเอกสารประกันเข้าตะกร้าด้วย productCode + variantCode + quantity โดยอ่านเอกสารสดจากต้นทางเพื่อตั้งราคา ชื่อ variant และ metadata ฝั่ง server; ไม่รับราคา/metadata จาก client; ไม่พบหรือไม่พร้อมขาย -> 400, ไม่มี saleCode -> 403, ต้นทางล่ม -> 503")
-    .Produces<AddItemResult>(StatusCodes.Status200OK)
+    .Produces<CartView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapGet("/carts/{cartId:guid}", async (
-    Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid cartId,
+    HttpContext http,
+    IActorContext actor,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminCartReader adminCarts,
+    IMediator mediator,
+    CancellationToken ct) =>
 {
-    var view = await mediator.Send(new GetCartQuery(cartId, actor.MerchantId), ct);
+    if (!IsAdminCommerceRequest(http))
+    {
+        var merchantView = await mediator.Send(new GetCartQuery(cartId, actor.MerchantId), ct);
+        return merchantView is null ? Results.NotFound() : Results.Ok(merchantView);
+    }
+
+    var cart = await RequireAdminCartAsync(
+        adminCarts, adminScope, cartId, expectedMerchantId: null, mutation: false, ct);
+    using var actorBinding = actorScope.Begin(cart.MerchantId);
+    var view = await mediator.Send(new GetCartQuery(cartId, cart.MerchantId), ct);
+    if (view is not null)
+        VersionEtags.Set(http, view.Version);
     return view is null ? Results.NotFound() : Results.Ok(view);
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .WithMetadata(new AdminEtagResponseMarker("200"))
     .WithTags("ตะกร้าสินค้า")
     .WithName("GetCart")
     .WithSummary("ดูตะกร้าสินค้า")
@@ -763,11 +974,32 @@ api.MapGet("/carts/{cartId:guid}", async (
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapDelete("/carts/{cartId:guid}/items/{itemId:guid}", async (
-    Guid cartId, Guid itemId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, Guid itemId, HttpContext http, IActorContext actor, IActorScope actorScope,
+    IAdminScope adminScope, IAdminCartReader adminCarts, IAdminOperationExecutor operations,
+    IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new RemoveItemFromCartCommand(cartId, actor.MerchantId, itemId), ct);
-    return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    if (!IsAdminCommerceRequest(http))
+        return Results.Ok(await mediator.Send(
+            new RemoveItemFromCartCommand(cartId, actor.MerchantId, itemId), ct));
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var cart = await RequireAdminCartAsync(adminCarts, adminScope, cartId, merchantId, true, ct);
+    var expected = RequireCartVersion(http);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "cart.item.remove", IdempotencyKeys.Require(http),
+        new { cartId, itemId, merchantId, expected }, 200,
+        token => mediator.Send(
+            new RemoveItemFromCartCommand(cartId, merchantId, itemId, expected), token).AsTask(),
+        _ => cart.CartId.ToString("D"), ct);
+    VersionEtags.Set(http, result.Value.Version);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIfMatchMutationMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("ตะกร้าสินค้า")
     .WithName("RemoveCartItem")
     .WithSummary("ลบรายการในตะกร้า")
@@ -778,11 +1010,33 @@ api.MapDelete("/carts/{cartId:guid}/items/{itemId:guid}", async (
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPut("/carts/{cartId:guid}/items/{itemId:guid}", async (
-    Guid cartId, Guid itemId, SetCartItemQuantityRequest body, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, Guid itemId, SetCartItemQuantityRequest body, HttpContext http,
+    IActorContext actor, IActorScope actorScope, IAdminScope adminScope,
+    IAdminCartReader adminCarts, IAdminOperationExecutor operations,
+    IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new SetCartItemQuantityCommand(cartId, actor.MerchantId, itemId, body.Quantity), ct);
-    return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    if (!IsAdminCommerceRequest(http))
+        return Results.Ok(await mediator.Send(
+            new SetCartItemQuantityCommand(cartId, actor.MerchantId, itemId, body.Quantity), ct));
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var cart = await RequireAdminCartAsync(adminCarts, adminScope, cartId, merchantId, true, ct);
+    var expected = RequireCartVersion(http);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "cart.item.quantity", IdempotencyKeys.Require(http),
+        new { cartId, itemId, merchantId, body.Quantity, expected }, 200,
+        token => mediator.Send(new SetCartItemQuantityCommand(
+            cartId, merchantId, itemId, body.Quantity, expected), token).AsTask(),
+        _ => cart.CartId.ToString("D"), ct);
+    VersionEtags.Set(http, result.Value.Version);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIfMatchMutationMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("ตะกร้าสินค้า")
     .WithName("SetCartItemQuantity")
     .WithSummary("ปรับจำนวนรายการในตะกร้า")
@@ -793,11 +1047,30 @@ api.MapPut("/carts/{cartId:guid}/items/{itemId:guid}", async (
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPost("/carts/{cartId:guid}/clear", async (
-    Guid cartId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid cartId, HttpContext http, IActorContext actor, IActorScope actorScope,
+    IAdminScope adminScope, IAdminCartReader adminCarts, IAdminOperationExecutor operations,
+    IMediator mediator, CancellationToken ct) =>
 {
-    var view = await mediator.Send(new ClearCartCommand(cartId, actor.MerchantId), ct);
-    return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    if (!IsAdminCommerceRequest(http))
+        return Results.Ok(await mediator.Send(new ClearCartCommand(cartId, actor.MerchantId), ct));
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var cart = await RequireAdminCartAsync(adminCarts, adminScope, cartId, merchantId, true, ct);
+    var expected = RequireCartVersion(http);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "cart.clear", IdempotencyKeys.Require(http),
+        new { cartId, merchantId, expected }, 200,
+        token => mediator.Send(new ClearCartCommand(cartId, merchantId, expected), token).AsTask(),
+        _ => cart.CartId.ToString("D"), ct);
+    VersionEtags.Set(http, result.Value.Version);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIfMatchMutationMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("ตะกร้าสินค้า")
     .WithName("ClearCart")
     .WithSummary("ล้างตะกร้าสินค้า")
@@ -808,19 +1081,55 @@ api.MapPost("/carts/{cartId:guid}/clear", async (
 
 var createPaymentSession = api.MapPost("/payments/sessions", async (
     CreatePaymentSessionRequest body,
+    HttpContext http,
     IActorContext actor,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminOrderReader adminOrders,
+    IAdminPaymentRoutingSelector routing,
+    IAdminOperationExecutor operations,
     IMediator mediator,
     CancellationToken ct) =>
 {
-    var result = await mediator.Send(new CreateSessionCommand(
-        body.OrderId, actor.MerchantId, body.Method, body.Psp), ct);
-    return TypedResults.Ok(new CreatePaymentSessionResponse(result.PaymentSessionId));
+    if (!IsAdminCommerceRequest(http))
+    {
+        if (body.MerchantId is not null || body.Psp is null)
+            throw new InvalidRequestException(
+                "Merchant payment session requires psp and forbids merchantId.", "validation_failed");
+        var merchantResult = await mediator.Send(new CreateSessionCommand(
+            body.OrderId, actor.MerchantId, body.Method, body.Psp.Value), ct);
+        return Results.Ok(new CreatePaymentSessionResponse(merchantResult.PaymentSessionId));
+    }
+
+    if (body.MerchantId is not { } merchantId || merchantId == Guid.Empty || body.Psp is not null)
+        throw new InvalidRequestException(
+            "Admin payment session requires merchantId and forbids psp.", "validation_failed");
+    var order = await RequireAdminOrderAsync(
+        adminOrders, adminScope, body.OrderId, merchantId, mutation: true, ct);
+    var psp = await routing.SelectAsync(merchantId, order.OrderId, body.Method, ct);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "payment-session.create", IdempotencyKeys.Require(http),
+        new { body.OrderId, body.Method, merchantId }, 200,
+        async token =>
+        {
+            var created = await mediator.Send(
+                new CreateSessionCommand(body.OrderId, merchantId, body.Method, psp), token);
+            return new CreatePaymentSessionResponse(created.PaymentSessionId);
+        },
+        value => value.PaymentSessionId.ToString("D"), ct);
+    return Results.Ok(result.Value);
 });
-createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentCreate).RequireUserCsrf()
+createPaymentSession.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIdempotencyMutationMarker(),
+        new AudienceRequestBodyMarker(
+            typeof(MerchantCreatePaymentSessionRequest), typeof(AdminCreatePaymentSessionRequest)))
     .WithTags("การชำระเงิน")
     .WithName("CreatePaymentSession")
     .WithSummary("สร้าง payment session")
-    .WithDescription("เปิด payment session ให้คำสั่งซื้อตาม method/PSP ที่เลือก โดยยอดเงินอ่านจากแถว order ฝั่ง server เท่านั้น (ไม่รับจาก body) ต้องมี merchant-user policy + สิทธิ์ payment.create หาก method ไม่ใช่รหัส canonical (card/promptpay/installment) -> 400, ไม่พบคำสั่งซื้อ -> 404, คำสั่งซื้อไม่ได้รอชำระ/ไม่มี PSP connection/connection ปิดหรือไม่เปิด method นั้น/adapter ยังรับ method นั้นไม่ได้/มี session ที่เปิดอยู่ด้วยช่องทางอื่น -> 409 (ช่องทางเดิมคืน session ใบเดิม)")
+    .WithDescription("เปิด payment session โดยอ่านยอดจาก Order ฝั่ง server เท่านั้น Merchant Console ส่ง psp; Admin Console ส่ง merchantId และระบบเลือก PSP จาก routing หาก method ไม่ใช่ card/promptpay/installment -> 400, ไม่พบ Order -> 404, สถานะหรือ PSP connection ใช้งานไม่ได้ -> 409")
     .Produces<CreatePaymentSessionResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -829,22 +1138,86 @@ createPaymentSession.RequireAuthorization("merchant-user").RequirePermission(Key
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+api.MapGet("/payments/sessions", async (
+    HttpContext http,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var parsed = SfsQueryParser.Parse(http.Request.Query, maxLimit: 100);
+    var result = await mediator.Send(new ListPaymentSessionsQuery
+    {
+        Page = parsed.Page,
+        Limit = parsed.Limit,
+        Filters = parsed.Filters,
+        Sort = parsed.Sort,
+        Search = parsed.Search,
+    }, ct);
+    return Results.Ok(result);
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentView)
+    .WithMetadata(new SfsQueryParamsMarker(100))
+    .WithTags("การชำระเงิน")
+    .WithName("ListPaymentSessions")
+    .WithSummary("รายการ payment session ของร้านค้า")
+    .WithDescription("คืนรายการแบบแบ่งหน้า รองรับ filters status/method/psp และ sort createdAt/updatedAt; ค่าเริ่มต้น 25 สูงสุด 100")
+    .Produces<PagedResult<PaymentSessionListItem>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
 // Claims-then-charges redirect (PLAN #11). Merchant scoping is automatic: the command is IMerchantScoped, so
 // MerchantGuardBehavior + RLS resolve the session for the authenticated merchant only. Errors flow through the
 // shared ProblemDetails handler (not found -> 404, illegal state / concurrent claim -> 409).
 var startRedirect = api.MapPost("/payments/sessions/{paymentSessionId:guid}/redirect", async (
     Guid paymentSessionId,
+    HttpContext http,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminPaymentSessionReader adminSessions,
+    IAdminOperationExecutor operations,
     IMediator mediator,
     CancellationToken ct) =>
 {
-    var result = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
-    return TypedResults.Ok(new StartRedirectResponse(result.RedirectUrl));
+    if (!IsAdminCommerceRequest(http))
+    {
+        var merchantResult = await mediator.Send(new StartRedirectCommand(paymentSessionId), ct);
+        return Results.Ok(new StartRedirectResponse(merchantResult.RedirectUrl));
+    }
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var resource = await adminSessions.ResolveAsync(
+        paymentSessionId, adminScope.Accessible.IsUnrestricted, adminScope.Accessible.Merchants, ct)
+        ?? throw new NotFoundException("Payment session was not found.");
+    if (resource.MerchantId != merchantId)
+        throw new AccessDeniedException(
+            "Payment session does not belong to the selected merchant.", "merchant_scope_forbidden");
+    var expected = VersionEtags.Require(http);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteRecoverableAdminCommerceAsync(
+        operations, adminScope, merchantId, "payment-session.redirect", IdempotencyKeys.Require(http),
+        new { paymentSessionId, merchantId, expected }, 200,
+        async token =>
+        {
+            var redirect = await mediator.Send(new StartRedirectCommand(paymentSessionId, expected), token);
+            return new StartRedirectResponse(redirect.RedirectUrl);
+        },
+        _ => paymentSessionId.ToString("D"), ct);
+    var updated = await adminSessions.ResolveAsync(
+        paymentSessionId, adminScope.Accessible.IsUnrestricted, adminScope.Accessible.Merchants, ct)
+        ?? throw new NotFoundException("Payment session was not found.");
+    VersionEtags.Set(http, updated.Version);
+    return Results.Ok(result.Value);
 });
-startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.PaymentRedirect).RequireUserCsrf()
+startRedirect.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentRedirect).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIfMatchMutationMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("การชำระเงิน")
     .WithName("StartPaymentRedirect")
     .WithSummary("เริ่ม redirect ไปยัง PSP")
-    .WithDescription("claim แล้ว charge: คืน URL redirect ของ PSP สำหรับ payment session ต้องมี merchant-user policy + สิทธิ์ payment.redirect หากไม่พบ -> 404, สถานะไม่ถูกต้อง/ชนกัน -> 409")
+    .WithDescription("claim payment session แล้วสร้าง URL redirect ของ PSP Merchant Console ใช้สิทธิ์ payment.redirect; Admin Console ใช้ txn.manage พร้อม merchantId, If-Match และ Idempotency-Key หากไม่พบ -> 404, version หรือสถานะชนกัน -> 409")
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -857,17 +1230,33 @@ startRedirect.RequireAuthorization("merchant-user").RequirePermission(Keys.Payme
 // handler raises NotFoundException rather than the InvalidOperationException that used to answer 409.
 var getPaymentSession = api.MapGet("/payments/sessions/{paymentSessionId:guid}", async (
     Guid paymentSessionId,
+    HttpContext http,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminPaymentSessionReader adminSessions,
     IMediator mediator,
     CancellationToken ct) =>
 {
+    if (!IsAdminCommerceRequest(http))
+        return Results.Ok(await mediator.Send(new GetPaymentSessionQuery(paymentSessionId), ct));
+
+    var resource = await adminSessions.ResolveAsync(
+        paymentSessionId, adminScope.Accessible.IsUnrestricted, adminScope.Accessible.Merchants, ct)
+        ?? throw new NotFoundException("Payment session was not found.");
+    using var actorBinding = actorScope.Begin(resource.MerchantId);
     var view = await mediator.Send(new GetPaymentSessionQuery(paymentSessionId), ct);
-    return TypedResults.Ok(view);
+    VersionEtags.Set(http, view.Version);
+    return Results.Ok(AdminPaymentSession(view));
 });
-getPaymentSession.RequireAuthorization("merchant-user")
+getPaymentSession.RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .WithMetadata(
+        new AdminEtagResponseMarker("200"),
+        new AudienceResponseMarker("200", typeof(PaymentSessionView), typeof(AdminPaymentSessionResponse)))
     .WithTags("การชำระเงิน")
     .WithName("GetPaymentSession")
     .WithSummary("อ่าน payment session")
-    .WithDescription("คืนสถานะของ payment session ของร้านค้าที่ล็อกอินอยู่ ต้องมี merchant-user policy หากไม่พบ (หรือเป็นของร้านค้าอื่น) -> 404")
+    .WithDescription("Merchant Console อ่าน session ของร้านค้าที่ล็อกอิน; Admin Console อ่าน session ภายใน merchant scope และได้ ETag หากไม่พบหรือนอก scope -> 404")
     .Produces<PaymentSessionView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -877,8 +1266,10 @@ getPaymentSession.RequireAuthorization("merchant-user")
 // a bypass proc (no merchant binding). Unknown token -> 404; expired -> 410. A merchant-user can resend (rotates
 // the token + extends the TTL), which is merchant-scoped.
 api.MapGet("/orders/{token}/summary", async (
-    string token, IOrderSummaryReader reader, IClock clock, CancellationToken ct) =>
+    string token, HttpContext http, IOrderSummaryReader reader, IClock clock, CancellationToken ct) =>
 {
+    http.Response.Headers["Cache-Control"] = "no-store";
+    http.Response.Headers["Referrer-Policy"] = "no-referrer";
     var summary = await reader.GetByTokenAsync(token, ct);
     if (summary is null)
         return Results.NotFound();
@@ -913,12 +1304,16 @@ api.MapGet("/orders/{token}/summary", async (
 // double click or a second tab lands on the same charge instead of a second one.
 api.MapPost("/orders/{token}/pay", async (
     string token,
+    HttpContext http,
     IOrderSummaryReader reader,
     IActorScope actorScope,
     IMediator mediator,
+    DefaultPspSelection defaultPsp,
     IClock clock,
     CancellationToken ct) =>
 {
+    http.Response.Headers["Cache-Control"] = "no-store";
+    http.Response.Headers["Referrer-Policy"] = "no-referrer";
     var summary = await reader.GetByTokenAsync(token, ct);
     if (summary is null || clock.UtcNow >= summary.ExpiresAt)
         return Results.NotFound();
@@ -939,14 +1334,13 @@ api.MapPost("/orders/{token}/pay", async (
 
     using var actorBinding = actorScope.Begin(summary.MerchantId);
 
-    // 2C2P only: the customer is redirected, and Omise drives no redirect channel here (design: the
-    // customer-side PSP choice). An ineligible or missing connection surfaces as the handler's own 409.
+    // The configured PSP is server-owned. Missing/disabled/unsupported connection state surfaces as 409.
     var session = await mediator.Send(
         new CreateSessionCommand(
             summary.OrderId,
             summary.MerchantId,
             PaymentMethods.FromOrderSnapshot(channel),
-            Code.TwoCTwoP), ct);
+            defaultPsp.Psp), ct);
     var redirect = await mediator.Send(new StartRedirectCommand(session.PaymentSessionId), ct);
 
     return Results.Ok(new StartRedirectResponse(redirect.RedirectUrl));
@@ -954,7 +1348,7 @@ api.MapPost("/orders/{token}/pay", async (
     .WithTags("คำสั่งซื้อ")
     .WithName("PayOrder")
     .WithSummary("ลูกค้าชำระเงินผ่านลิงก์")
-    .WithDescription("เปิด payment session ตามช่องทางที่ร้านค้าเลือกไว้ แล้วคืน URL redirect ของ 2C2P ใช้ opaque token เป็น capability ไม่ต้องมี session/CSRF เรียกซ้ำขณะ session เดิมยังเปิดอยู่จะได้ URL เดิม หากไม่พบ token/token หมดอายุ/คำสั่งซื้อถูกยกเลิก -> 404, คำสั่งซื้อชำระแล้ว/ไม่มีช่องทางชำระบันทึกไว้/ไม่มี connection ที่ชาร์จช่องทางนั้นได้ -> 409")
+    .WithDescription("เปิด payment session ตามช่องทางที่ร้านค้าเลือกไว้และ PSP ที่ backend config แล้วคืน URL redirect ใช้ opaque token เป็น capability ไม่ต้องมี session/CSRF เรียกซ้ำขณะ session เดิมยังเปิดอยู่จะได้ URL เดิม หากไม่พบ token/token หมดอายุ/คำสั่งซื้อถูกยกเลิก -> 404, คำสั่งซื้อชำระแล้ว/ไม่มีช่องทางชำระบันทึกไว้/ไม่มี connection ที่ชาร์จช่องทางนั้นได้ -> 409")
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -967,12 +1361,15 @@ api.MapPost("/orders/{token}/pay", async (
 // merchant, no charge id (REQ-8.4).
 api.MapPost("/orders/{token}/payment-status", async (
     string token,
+    HttpContext http,
     IOrderSummaryReader reader,
     IActorScope actorScope,
     IMediator mediator,
     IClock clock,
     CancellationToken ct) =>
 {
+    http.Response.Headers["Cache-Control"] = "no-store";
+    http.Response.Headers["Referrer-Policy"] = "no-referrer";
     var summary = await reader.GetByTokenAsync(token, ct);
     if (summary is null || clock.UtcNow >= summary.ExpiresAt)
         return Results.NotFound();
@@ -992,11 +1389,34 @@ api.MapPost("/orders/{token}/payment-status", async (
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 api.MapPost("/orders/{orderId:guid}/summary/resend", async (
-    Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid orderId, HttpContext http, IActorContext actor, IActorScope actorScope,
+    IAdminScope adminScope, IAdminOrderReader adminOrders, IAdminOperationExecutor operations,
+    IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new ResendOrderSummaryCommand(orderId, actor.MerchantId), ct);
-    return Results.Ok(result);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    if (!IsAdminCommerceRequest(http))
+        return Results.Ok(await mediator.Send(
+            new ResendOrderSummaryCommand(orderId, actor.MerchantId), ct));
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var order = await RequireAdminOrderAsync(adminOrders, adminScope, orderId, merchantId, true, ct);
+    var expected = VersionEtags.Require(http);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "order.summary.resend", IdempotencyKeys.Require(http),
+        new { orderId, merchantId, expected }, 200,
+        token => mediator.Send(new ResendOrderSummaryCommand(
+            orderId, merchantId, expected), token).AsTask(),
+        _ => order.OrderId.ToString("D"), ct);
+    var updated = await RequireAdminOrderAsync(
+        adminOrders, adminScope, orderId, merchantId, true, ct);
+    VersionEtags.Set(http, updated.Version);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIfMatchMutationMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("คำสั่งซื้อ")
     .WithName("ResendOrderSummary")
     .WithSummary("ส่งลิงก์สรุปคำสั่งซื้อซ้ำ")
@@ -1014,12 +1434,39 @@ api.MapPost("/orders/{orderId:guid}/summary/resend", async (
 // transaction after taking the order row's lock, and a mint holds that same row locked while it verifies the
 // order is still AwaitingPayment (REQ-3.6/4.7) — so one of the two always sees the other and answers 409.
 api.MapPost("/orders/{orderId:guid}/cancel", async (
-    Guid orderId, IMediator mediator, CancellationToken ct) =>
+    Guid orderId, HttpContext http, IActorScope actorScope, IAdminScope adminScope,
+    IAdminOrderReader adminOrders, IAdminOperationExecutor operations,
+    IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new ReleaseOpenSessionCommand(orderId), ct);
-    var result = await mediator.Send(new CancelOrderCommand(orderId), ct);
-    return Results.Ok(result);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    if (!IsAdminCommerceRequest(http))
+    {
+        await mediator.Send(new ReleaseOpenSessionCommand(orderId), ct);
+        return Results.Ok(await mediator.Send(new CancelOrderCommand(orderId), ct));
+    }
+
+    var merchantId = RequireCommerceQueryGuid(http, "merchantId");
+    var order = await RequireAdminOrderAsync(adminOrders, adminScope, orderId, merchantId, true, ct);
+    var expected = VersionEtags.Require(http);
+    using var actorBinding = actorScope.Begin(merchantId);
+    var result = await ExecuteRecoverableAdminCommerceAsync(
+        operations, adminScope, merchantId, "order.cancel", IdempotencyKeys.Require(http),
+        new { orderId, merchantId, expected }, 200,
+        async token =>
+        {
+            await mediator.Send(new ReleaseOpenSessionCommand(orderId), token);
+            return await mediator.Send(new CancelOrderCommand(orderId, expected), token);
+        },
+        _ => order.OrderId.ToString("D"), ct);
+    var updated = await RequireAdminOrderAsync(
+        adminOrders, adminScope, orderId, merchantId, true, ct);
+    VersionEtags.Set(http, updated.Version);
+    return Results.Ok(result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(
+        new AdminIfMatchMutationMarker("200"),
+        new AdminIdempotencyMutationMarker(),
+        requiredMerchantQuery)
     .WithTags("คำสั่งซื้อ")
     .WithName("CancelOrder")
     .WithSummary("ยกเลิกคำสั่งซื้อ")
@@ -1034,20 +1481,51 @@ api.MapPost("/orders/{orderId:guid}/cancel", async (
 // the Cart and atomically writes Order + lines + notification outbox + CheckedOut state.
 api.MapPost("/orders", async (
     CreateOrderFromCartRequest body,
+    HttpContext http,
     IActorContext actor,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminCartReader adminCarts,
+    IAdminMerchantControlStore merchants,
+    IAdminOperationExecutor operations,
     OrderCreationCoordinator coordinator,
     CancellationToken ct) =>
 {
-    if (string.IsNullOrEmpty(actor.SaleCode))
-        return Results.Problem(
-            statusCode: StatusCodes.Status403Forbidden,
-            title: "No sale code is bound to this merchant user.");
-
     var customer = CustomerContact.Of(body.Customer?.Name, body.Customer?.Phone, body.Customer?.Email);
-    var result = await coordinator.CreateAsync(
-        actor.MerchantId, body.CartId, actor.SaleCode, customer, body.Amount, ct);
-    return Results.Created($"/api/v1/orders/{result.OrderId}", result);
-}).RequireAuthorization("merchant-user").RequireUserCsrf()
+    var paymentMethod = PaymentMethods.Normalize(body.PaymentMethod);
+    if (!IsAdminCommerceRequest(http))
+    {
+        if (body.MerchantId is not null || body.OriginatorId is not null)
+            throw new InvalidRequestException(
+                "Merchant order creation forbids merchantId and originatorId.", "validation_failed");
+        if (string.IsNullOrWhiteSpace(actor.SaleCode))
+            throw new AccessDeniedException("No sale code is bound to this merchant user.", "sale-code-missing");
+        var merchantResult = await coordinator.CreateAsync(
+            actor.MerchantId, body.CartId, actor.SaleCode, customer, paymentMethod, ct);
+        return Results.Created($"/api/v1/orders/{merchantResult.OrderId}", merchantResult);
+    }
+
+    if (body.MerchantId is not { } merchantId || merchantId == Guid.Empty
+        || body.OriginatorId is not { } originatorId || originatorId == Guid.Empty)
+        throw new InvalidRequestException(
+            "Admin order creation requires merchantId and originatorId.", "validation_failed");
+    var originator = await RequireCommerceOriginatorAsync(
+        merchants, adminScope, merchantId, originatorId, ct);
+    var cart = await RequireAdminCartAsync(adminCarts, adminScope, body.CartId, merchantId, true, ct);
+    if (cart.OriginatorId != originatorId)
+        throw new ConflictException("Cart originator does not match the request.", "state_conflict");
+    using var actorBinding = actorScope.Begin(merchantId);
+    var prepared = await coordinator.PrepareAsync(
+        merchantId, body.CartId, originator.SaleCode!, customer, paymentMethod, ct, originatorId);
+    var result = await ExecuteAdminCommerceAsync(
+        operations, adminScope, merchantId, "order.create", IdempotencyKeys.Require(http),
+        new { body.CartId, merchantId, originatorId, body.Customer, paymentMethod }, 201,
+        token => coordinator.CommitAsync(prepared, token),
+        value => value.OrderId.ToString("D"), ct);
+    return Results.Created($"/api/v1/orders/{result.Value.OrderId}", result.Value);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnManage, Keys.PaymentCreate).RequireAudienceCsrf()
+    .WithMetadata(new AdminIdempotencyMutationMarker())
     .WithTags("คำสั่งซื้อ")
     .WithName("CreateOrderFromCart")
     .WithSummary("สร้างคำสั่งซื้อจากตะกร้า")
@@ -1060,39 +1538,182 @@ api.MapPost("/orders", async (
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
-// Merchant-authenticated order list. Generic lines omit metadata; detail is audited before metadata reveal.
-// purchase-flow-completion REQ-7.4 adopts the SFS `filters` contract for ONE field, orderNo/eq; every other
-// field or operator is silently dropped, which is what the SFS whitelist rule prescribes. Paging/sort/search
-// are NOT adopted here yet (a separate piece of work), so no SfsQueryParamsMarker is declared.
-api.MapGet("/orders", async (HttpContext http, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+// Merchant-authenticated paged order list. Generic lines omit metadata; detail is audited before metadata reveal.
+// SFS allowlists orderNo (eq/contains), status (eq/in), paymentChannel (eq/in), and sort
+// createdAt/orderNo. Unknown fields/operators are dropped by the shared SFS contract.
+api.MapGet("/orders", async (
+    HttpContext http, IActorContext actor, IAdminScope adminScope,
+    IAdminOrderReader adminOrders, IMediator mediator, CancellationToken ct) =>
 {
-    var (_, _, filters, _, _) = SfsQueryParser.Parse(http.Request.Query);
-    var orderNo = filters
-        .FirstOrDefault(f =>
-            string.Equals(f.Field, "orderNo", StringComparison.OrdinalIgnoreCase)
-            && f.Operator == FilterOperator.Equals)
-        ?.Value?.GetString();
+    var parsed = SfsQueryParser.Parse(http.Request.Query, maxLimit: 100);
+    if (!IsAdminCommerceRequest(http))
+    {
+        var merchantResult = await mediator.Send(new GetOrdersQuery(actor.MerchantId)
+        {
+            Page = parsed.Page,
+            Limit = parsed.Limit,
+            Filters = parsed.Filters,
+            Sort = parsed.Sort,
+            Search = parsed.Search,
+        }, ct);
+        return Results.Ok(merchantResult);
+    }
 
-    var result = await mediator.Send(new GetOrdersQuery(actor.MerchantId, orderNo), ct);
-    return Results.Ok(result);
-}).RequireAuthorization("merchant-user")
+    Guid? merchantId = null;
+    if (http.Request.Query.TryGetValue("merchantId", out var rawMerchant)
+        && !string.IsNullOrWhiteSpace(rawMerchant))
+    {
+        if (!Guid.TryParse(rawMerchant, out var parsedMerchant) || parsedMerchant == Guid.Empty)
+            throw new InvalidRequestException("merchantId must be a non-empty UUID.", "invalid_filter");
+        merchantId = parsedMerchant;
+    }
+    var result = await adminOrders.ListAsync(new AdminOrderQuery(
+        merchantId, CommerceOrderAccess(adminScope))
+    {
+        Page = parsed.Page,
+        Limit = parsed.Limit,
+        Filters = parsed.Filters,
+        Sort = parsed.Sort,
+        Search = parsed.Search,
+    }, ct);
+    return Results.Ok(new PagedResult<AdminOrderListResponse>(
+        result.Items.Select(AdminOrderList).ToArray(), result.Page, result.Limit, result.Total));
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .WithMetadata(
+        new SfsQueryParamsMarker(100),
+        optionalMerchantQuery,
+        new AudienceResponseMarker("200", typeof(PagedResult<OrderListItem>),
+            typeof(PagedResult<AdminOrderListResponse>)))
     .WithTags("คำสั่งซื้อ")
     .WithName("ListOrders")
-    .WithSummary("รายการคำสั่งซื้อของร้านค้าที่ผูกอยู่")
-    .WithDescription("คืน generic product/variant lines โดยไม่คืน metadata กรองด้วยเลขคำสั่งซื้อได้ผ่าน filters=[{\"field\":\"orderNo\",\"operator\":\"eq\",\"value\":\"ORD6900000001\"}] (field/operator อื่นจะถูกทิ้งเงียบตามสัญญา SFS)")
-    .Produces<OrdersListView>(StatusCodes.Status200OK)
+    .WithSummary("รายการคำสั่งซื้อ")
+    .WithDescription("Merchant Console เห็นเฉพาะร้านค้าที่ผูกกับ session; Admin Console เห็นร้านค้าใน scope และกรอง merchantId ได้ คืนรายการแบบแบ่งหน้าโดยไม่คืน metadata รองรับ sort createdAt/orderNo และ filter orderNo, status, paymentChannel")
+    .Produces<PagedResult<OrderListItem>>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+api.MapGet("/orders/export", async (
+    HttpContext http,
+    IAdminScope adminScope,
+    IAdminOrderReader adminOrders,
+    CancellationToken ct) =>
+{
+    var window = RequireExportWindow(http);
+    var parsed = SfsQueryParser.Parse(http.Request.Query, maxLimit: 100);
+    Guid? merchantId = null;
+    if (http.Request.Query.TryGetValue("merchantId", out var rawMerchant)
+        && !string.IsNullOrWhiteSpace(rawMerchant))
+    {
+        if (!Guid.TryParse(rawMerchant, out var parsedMerchant) || parsedMerchant == Guid.Empty)
+            throw new InvalidRequestException("merchantId must be a non-empty UUID.", "invalid_filter");
+        merchantId = parsedMerchant;
+    }
+    var filters = parsed.Filters.Concat(
+    [
+        new FilterOption("createdAt", FilterOperator.GreaterThanOrEqual,
+            JsonSerializer.SerializeToElement(window.From.ToString("O"))),
+        new FilterOption("createdAt", FilterOperator.LessThanOrEqual,
+            JsonSerializer.SerializeToElement(window.To.ToString("O"))),
+    ]).ToArray();
+    var result = await adminOrders.ListAsync(new AdminOrderQuery(
+        merchantId, CommerceOrderAccess(adminScope))
+    {
+        Page = 1,
+        Limit = 10_001,
+        Filters = filters,
+        Sort = parsed.Sort,
+        Search = parsed.Search,
+    }, ct);
+    if (result.Total > 10_000)
+        return Results.Problem(
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            title: "Export contains too many rows.",
+            extensions: new Dictionary<string, object?> { ["code"] = "export_too_large" });
+
+    var csv = new StringBuilder();
+    csv.AppendLine("orderId,orderNo,merchantId,originatorId,amount,currency,status,itemCount,createdAt,updatedAt");
+    foreach (var item in result.Items)
+    {
+        csv.AppendLine(string.Join(',', new[]
+        {
+            CsvCell(item.OrderId.ToString("D")), CsvCell(item.OrderNo),
+            CsvCell(item.MerchantId.ToString("D")), CsvCell(item.OriginatorId?.ToString("D")),
+            CsvCell(FixedMoney(item.Amount.Amount)), CsvCell(item.Amount.Currency), CsvCell(item.Status),
+            CsvCell(item.Lines.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            CsvCell(item.CreatedAt.ToUniversalTime().ToString("O")),
+            CsvCell(item.UpdatedAt.ToUniversalTime().ToString("O")),
+        }));
+    }
+    return Results.File(Encoding.UTF8.GetBytes(csv.ToString()), "text/csv; charset=utf-8",
+        $"orders-{window.From:yyyyMMdd}-{window.To:yyyyMMdd}.csv");
+}).RequireAuthorization("admin").RequirePermission(Keys.TxnExport)
+    .WithMetadata(
+        new SfsQueryParamsMarker(100),
+        requiredExportFromQuery,
+        requiredExportToQuery,
+        optionalMerchantQuery)
+    .WithTags("คำสั่งซื้อ")
+    .WithName("ExportOrders")
+    .WithSummary("ส่งออกรายการคำสั่งซื้อ")
+    .WithDescription("ต้องระบุ from/to ช่วงไม่เกิน 31 วัน ใช้ filters/sort/search ชุดเดียวกับรายการ และส่งออกได้สูงสุด 10,000 แถว")
+    .Produces(StatusCodes.Status200OK, contentType: "text/csv")
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+
 // Merchant-authenticated detail: one RevealAudit row per metadata-bearing line, fail-closed before response.
 api.MapGet("/orders/{orderId:guid}", async (
-    Guid orderId, IActorContext actor, IMediator mediator, CancellationToken ct) =>
+    Guid orderId,
+    HttpContext http,
+    IActorContext actor,
+    IActorScope actorScope,
+    IAdminScope adminScope,
+    IAdminOrderReader adminOrders,
+    IClock clock,
+    IMediator mediator,
+    CancellationToken ct) =>
 {
-    var result = await mediator.Send(
-        new GetOrderDetailCommand(actor.MerchantId, orderId, "merchant-user", actor.UserId!.Value.ToString()), ct);
-    return Results.Ok(result);
-}).RequireAuthorization("merchant-user")
+    if (!IsAdminCommerceRequest(http))
+    {
+        var merchantResult = await mediator.Send(
+            new GetOrderDetailCommand(actor.MerchantId, orderId, "merchant-user", actor.UserId!.Value.ToString()), ct);
+        return Results.Ok(merchantResult);
+    }
+
+    var resource = await RequireAdminOrderAsync(
+        adminOrders, adminScope, orderId, expectedMerchantId: null, mutation: false, ct);
+    using var actorBinding = actorScope.Begin(resource.MerchantId);
+    var result = await mediator.Send(new GetOrderDetailCommand(
+        resource.MerchantId, orderId, "admin", adminScope.Current.AdminId.ToString("D")), ct);
+    PaymentSessionView? session = null;
+    if (result.PaymentSessionId is { } sessionId)
+        session = await mediator.Send(new GetPaymentSessionQuery(sessionId), ct);
+    VersionEtags.Set(http, result.Version);
+    var lifecycle = new List<CommerceLifecycleResponse>
+    {
+        new("created", result.CreatedAt),
+    };
+    if (result.UpdatedAt != result.CreatedAt)
+        lifecycle.Add(new(result.Status.ToLowerInvariant(), result.UpdatedAt));
+    return Results.Ok(new AdminOrderDetailResponse(
+        result.OrderId, result.OrderNo, result.MerchantId, result.OriginatorId,
+        AdminMoney(result.Amount), result.Status, result.Lines.Count, result.PaymentChannel,
+        result.PaymentSessionId, result.CreatedAt, result.UpdatedAt,
+        result.Lines.Select(line => new AdminOrderLineResponse(
+            line.ProductCode, line.VariantCode, line.VariantName, line.Quantity,
+            AdminMoney(line.UnitPrice), AdminMoney(line.Discount), line.Metadata)).ToArray(),
+        MaskCustomerReference(result.CustomerEmail, result.CustomerPhone),
+        clock.UtcNow >= result.SummaryTokenExpiresAt ? "expired" : "active",
+        session is null ? null : AdminPaymentSession(session), lifecycle,
+        OrderCapabilities(result.Status), result.Version));
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .WithMetadata(
+        new AdminEtagResponseMarker("200"),
+        new AudienceResponseMarker("200", typeof(OrderDetailView), typeof(AdminOrderDetailResponse)))
     .WithTags("คำสั่งซื้อ")
     .WithName("GetOrderDetail")
     .WithSummary("อ่านคำสั่งซื้อแบบเต็มพร้อม audit trail")
@@ -1103,15 +1724,39 @@ api.MapGet("/orders/{orderId:guid}", async (
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 // Reconciliation report: the bound merchant's orders grouped by status + currency (count + total).
-api.MapGet("/reports/reconciliation", async (IActorContext actor, IMediator mediator, CancellationToken ct) =>
+api.MapGet("/reports/reconciliation", async (
+    HttpContext http,
+    IActorContext actor,
+    IAdminScope adminScope,
+    IAdminOrderReader adminOrders,
+    IMediator mediator,
+    CancellationToken ct) =>
 {
-    var view = await mediator.Send(new GetReconciliationSummaryQuery(actor.MerchantId), ct);
-    return TypedResults.Ok(view);
-}).RequireAuthorization("merchant-user")
+    if (!IsAdminCommerceRequest(http))
+    {
+        var merchantView = await mediator.Send(new GetReconciliationSummaryQuery(actor.MerchantId), ct);
+        return Results.Ok(merchantView);
+    }
+
+    Guid? merchantId = null;
+    if (http.Request.Query.TryGetValue("merchantId", out var rawMerchant)
+        && !string.IsNullOrWhiteSpace(rawMerchant))
+    {
+        if (!Guid.TryParse(rawMerchant, out var parsedMerchant) || parsedMerchant == Guid.Empty)
+            throw new InvalidRequestException("merchantId must be a non-empty UUID.", "invalid_filter");
+        merchantId = parsedMerchant;
+    }
+    var totals = await adminOrders.ReconciliationAsync(
+        CommerceOrderAccess(adminScope), merchantId, ct);
+    return Results.Ok(new ReconciliationView(totals.Select(x => new ReconciliationLine(
+        x.Status.ToString(), x.Currency, x.Count, x.Total)).ToArray()));
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.TxnView, Keys.PaymentView)
+    .WithMetadata(optionalMerchantQuery)
     .WithTags("คำสั่งซื้อ")
     .WithName("GetReconciliationReport")
     .WithSummary("รายงาน reconciliation")
-    .WithDescription("คำสั่งซื้อของร้านค้าที่ผูกอยู่ จัดกลุ่มตามสถานะและสกุลเงิน (จำนวน + ยอดรวม)")
+    .WithDescription("จัดกลุ่มคำสั่งซื้อตามสถานะและสกุลเงิน พร้อมจำนวนและยอดรวม Merchant Console เห็นร้านค้าที่ผูกกับ session; Admin Console เห็นร้านค้าใน scope และกรอง merchantId ได้")
     .Produces<ReconciliationView>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -1263,14 +1908,18 @@ api.MapPost("/merchants", async (
 // unconstrained (REQ-6.5) — adding a route constraint here would itself be a behavior change.
 api.MapGet("/merchants/{code}", async (
     string code,
+    HttpContext http,
     IAdminQuery adminQuery,
     CancellationToken ct) =>
 {
     var view = await adminQuery.GetMerchantByCodeAsync(code, ct);
+    if (view is not null)
+        VersionEtags.Set(http, view.Version);
     return view is null
         ? Results.Problem(statusCode: StatusCodes.Status404NotFound)
         : Results.Ok(view);
-}).RequireCsrf().RequireAuthorization("admin") // GET is CSRF-exempt by design; attached for REQ-7.1
+}).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView) // GET is CSRF-exempt by design; attached for REQ-7.1
+    .WithMetadata(new EtagResponseMarker("200"))
     .WithTags("ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("GetMerchant")
     .WithSummary("อ่านข้อมูลร้านค้าตามรหัส")
@@ -1315,6 +1964,29 @@ merchantAuthAnon.MapGet("/{provider}/login", (
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
+merchantAuthAnon.MapPost("/invitations/start", async (
+    HttpRequest request, UserOidcProviders providers, IMediator mediator, CancellationToken ct) =>
+{
+    if (!request.HasFormContentType || !providers.TryGetValue("google", out var scheme))
+        return Results.NotFound();
+    var form = await request.ReadFormAsync(ct);
+    var invitation = await mediator.Send(new ResolveInvitationTokenQuery(form["token"].ToString()), ct);
+    if (invitation is null)
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invitation is invalid or expired.",
+            extensions: new Dictionary<string, object?> { ["code"] = "invitation-invalid" });
+    var properties = new AuthenticationProperties { RedirectUri = "/dashboard" };
+    properties.Items["merchant_invitation_id"] = invitation.InvitationId.ToString("D");
+    return Results.Challenge(properties, [scheme]);
+}).AllowAnonymous().DisableAntiforgery().RequireRateLimiting(UserAuthRateLimiting.PolicyName)
+    .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
+    .WithName("StartMerchantUserInvitation")
+    .WithSummary("เริ่ม Google SSO จาก invitation token")
+    .WithDescription("รับ invitation token แบบ form, ตรวจว่า invitation ยังใช้ได้ แล้วเริ่ม Google OIDC โดยผูก invitationId ใน authentication state หาก token ไม่ถูกต้องหรือหมดอายุ -> 400")
+    .Produces(StatusCodes.Status302Found)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
 // --- MerchantUser self-service registration entry (REQ-3.7) ---
 // The anonymous pre-session register endpoint stays under /merchants/users — it creates the user resource, so it is
 // resource-shaped, not auth-shaped.
@@ -1332,6 +2004,7 @@ merchantUsersAnon.MapPost("/register", async (
     UserRegistrationTickets tickets,
     IOptions<UserRegistrationOptions> registrationOptions,
     IMediator mediator,
+    IActorScope actorScope,
     HttpContext http,
     CancellationToken ct) =>
 {
@@ -1358,12 +2031,15 @@ merchantUsersAnon.MapPost("/register", async (
 
     if (!tickets.TryUnprotect(form["ticket"].ToString(), out var ticket))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest,
-            title: "The registration ticket is missing, invalid, or expired.");
+            title: "The registration ticket is missing, invalid, or expired.",
+            extensions: new Dictionary<string, object?> { ["code"] = "registration-link-invalid" });
 
-    // Optional photo: validate type + magic bytes + size BEFORE it is stored (REQ-7.3/7.4); store nothing on reject.
+    // Required photo: validate type + magic bytes + size BEFORE it is stored; store nothing on reject.
     byte[]? photoBytes = null;
     string? photoContentType = null;
     var file = form.Files["photo"];
+    if (file is not { Length: > 0 })
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "photo is required.");
     if (file is { Length: > 0 })
     {
         if (file.Length > opts.PhotoMaxBytes)
@@ -1399,13 +2075,37 @@ merchantUsersAnon.MapPost("/register", async (
     }
 
     var formModel = UserRegistrationForm.From(form);
-    if (string.IsNullOrWhiteSpace(formModel.FirstName) || string.IsNullOrWhiteSpace(formModel.LastName))
-        return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "firstName and lastName are required.");
+    if (string.IsNullOrWhiteSpace(formModel.FirstName) || string.IsNullOrWhiteSpace(formModel.LastName)
+        || string.IsNullOrWhiteSpace(formModel.IdentityNumber)
+        || string.IsNullOrWhiteSpace(formModel.SaleCode)
+        || string.IsNullOrWhiteSpace(formModel.Phone))
+        return Results.Problem(statusCode: StatusCodes.Status400BadRequest,
+            title: "firstName, lastName, idNumber, producerCode, phone, and photo are required.");
 
-    var result = await mediator.Send(new SubmitRegistrationCommand(
-        ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
-        formModel, photoBytes, photoContentType, http.TraceIdentifier, ticket.Provider,
-        kycPhotoBytes, kycPhotoContentType, ticket.OperationId), ct);
+    IDisposable? invitationBinding = null;
+    if (ticket.InvitationId is { } invitationId)
+    {
+        var invitation = await mediator.Send(new ResolveInvitationByIdQuery(invitationId), ct);
+        if (invitation is null || !string.Equals(invitation.NormalizedEmail,
+                MerchantUserInvitation.NormalizeEmail(ticket.Email), StringComparison.Ordinal))
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest,
+                title: "Invitation is invalid or expired.",
+                extensions: new Dictionary<string, object?> { ["code"] = "invitation-invalid" });
+        invitationBinding = actorScope.Begin(invitation.MerchantId);
+    }
+
+    SubmitRegistrationResult result;
+    try
+    {
+        result = await mediator.Send(new SubmitRegistrationCommand(
+            ticket.Subject, ticket.Email, ticket.HostedDomain, ticket.Purpose,
+            formModel, photoBytes, photoContentType, http.TraceIdentifier, ticket.Provider,
+            kycPhotoBytes, kycPhotoContentType, ticket.OperationId, ticket.InvitationId), ct);
+    }
+    finally
+    {
+        invitationBinding?.Dispose();
+    }
 
     return Results.Created($"/api/v1/merchants/users/{result.UserId}",
         new UserRegisterResponse(result.UserId, result.Status.ToString()));
@@ -1416,8 +2116,8 @@ merchantUsersAnon.MapPost("/register", async (
     .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("MerchantUserRegister")
     .WithSummary("ส่งคำขอลงทะเบียนผู้ใช้ร้านค้า")
-    .WithDescription("ส่งข้อมูลแบบ multipart โดยไม่ต้องยืนยันตัวตน แต่ต้องมี ticket กำกับ (form + รูปถ่ายและ kycPhoto ไม่บังคับ) สร้าง MerchantUser สถานะ PendingApproval แล้ว enqueue registration event หาก ticket ไม่ถูกต้อง/หมดอายุ -> 400; ส่งซ้ำ/replay (unique Subject index) -> 409; ไฟล์ใหญ่เกินไป -> 413")
-    .Accepts<IFormFile>("multipart/form-data")
+    .WithDescription("ส่งข้อมูลแบบ multipart โดยไม่ต้องยืนยันตัวตน แต่ต้องมี ticket, firstName, lastName, personType, idNumber, producerCode, phone และ photo; kycPhoto ไม่บังคับ สร้าง MerchantUser สถานะ PendingApproval แล้ว enqueue registration event หาก ticket ไม่ถูกต้อง/หมดอายุ -> 400 registration-link-invalid; ส่งซ้ำ/replay -> 409; ไฟล์ใหญ่เกินไป -> 413")
+    .Accepts<UserRegistrationMultipartRequest>("multipart/form-data")
     .Produces<UserRegisterResponse>(StatusCodes.Status201Created)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1497,10 +2197,177 @@ merchantUsers.MapGet("/me", async (IUserScope scope, IMerchantRoleRepository rol
     .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("GetMerchantUserMe")
     .WithSummary("อ่านข้อมูลผู้ใช้ร้านค้าปัจจุบัน")
-    .WithDescription("ให้ SPA อ่านตัวตนของตัวเอง: ร้านค้า, active role code, และสิทธิ์ที่มีผลจริง (effective permissions) หากยังไม่ผูก (merchant-Bearer) -> 403")
+    .WithDescription("คืน merchantUserId, email, merchantId, active role codes และ effective permissions จาก session ปัจจุบัน บัญชีที่ยังไม่ผูกกับร้านค้าหรือไม่ Active ใช้งาน endpoint นี้ไม่ได้")
     .Produces<MerchantUserMeResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+merchantUsers.MapGet("", async (
+    HttpContext http, IUserScope scope, IAdminScope adminScope, IMediator mediator, CancellationToken ct) =>
+{
+    var parsed = SfsQueryParser.Parse(http.Request.Query, maxLimit: 100);
+    var adminRead = http.Features.Get<SelectedConsoleAudience>()?.Value == ConsoleAudience.Admin;
+    var merchantId = adminRead ? Guid.Empty : scope.Current.MerchantId;
+    if (adminRead && http.Request.Query.TryGetValue("merchantId", out var selectedMerchant)
+        && !string.IsNullOrWhiteSpace(selectedMerchant))
+    {
+        if (!Guid.TryParse(selectedMerchant, out merchantId))
+            throw new InvalidRequestException("merchantId must be a UUID.", "invalid_filter");
+        if (!adminScope.Accessible.Allows(merchantId))
+            return Results.NotFound();
+    }
+    var result = await mediator.Send(new ListMerchantUsersQuery(
+        merchantId, adminRead, adminRead && adminScope.Accessible.IsUnrestricted,
+        adminRead ? adminScope.Accessible.Merchants : null)
+    {
+        Page = parsed.Page,
+        Limit = parsed.Limit,
+        Filters = parsed.Filters,
+        Sort = parsed.Sort,
+        Search = parsed.Search,
+    }, ct);
+    return Results.Ok(result);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.MerchantUserView, Keys.UsersView)
+    .WithMetadata(new SfsQueryParamsMarker(100))
+    .WithTags("ผู้ใช้ร้านค้า")
+    .WithName("ListMerchantUsers")
+    .WithSummary("รายการผู้ใช้ร้านค้า")
+    .WithDescription("คืนรายการแบบแบ่งหน้า รองรับ SFS Merchant Console เห็นเฉพาะร้านค้าจาก session; Admin Console เห็นร้านค้าใน scope และเลือก merchantId ได้")
+    .Produces<PagedResult<MerchantUserListItem>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+merchantUsers.MapGet("/{merchantUserId:guid}", async (
+    Guid merchantUserId, HttpContext http, IUserScope scope, IAdminScope adminScope,
+    IMediator mediator, CancellationToken ct) =>
+{
+    var adminRead = http.Features.Get<SelectedConsoleAudience>()?.Value == ConsoleAudience.Admin;
+    var result = await mediator.Send(new GetMerchantUserQuery(
+        merchantUserId, adminRead ? Guid.Empty : scope.Current.MerchantId,
+        adminRead, adminRead && adminScope.Accessible.IsUnrestricted,
+        adminRead ? adminScope.Accessible.Merchants : null), ct);
+    if (result is null)
+        return Results.NotFound();
+    VersionEtags.Set(http, result.Version);
+    return Results.Ok(result);
+}).RequireAuthorization(ConsoleSessionAuthentication.PolicyName)
+    .RequireAudiencePermission(Keys.MerchantUserView, Keys.UsersView)
+    .WithMetadata(new EtagResponseMarker("200"))
+    .WithTags("ผู้ใช้ร้านค้า")
+    .WithName("GetMerchantUser")
+    .WithSummary("อ่านผู้ใช้ร้านค้า")
+    .WithDescription("คืน profile ที่ mask ข้อมูลอ่อนไหว พร้อม role codes, effective permissions และ ETag หากไม่พบหรือนอก merchant scope -> 404")
+    .Produces<MerchantUserDetail>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+merchantUsers.MapGet("/{merchantUserId:guid}/edit", async (
+    Guid merchantUserId, IUserScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var me = scope.Current;
+    var result = await mediator.Send(new GetMerchantUserEditQuery(
+        merchantUserId, me.MerchantId, me.UserId, http.TraceIdentifier), ct);
+    return result is null ? Results.NotFound() : Results.Ok(result);
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersManage)
+    .WithTags("ผู้ใช้ร้านค้า")
+    .WithName("GetMerchantUserEdit")
+    .WithSummary("อ่านข้อมูลผู้ใช้ร้านค้าสำหรับแก้ไข")
+    .WithDescription("คืนเฉพาะ firstName, lastName, producerCode, licenseNumber และ phone ของผู้ใช้ในร้านค้าเดียวกัน หากไม่พบ -> 404")
+    .Produces<MerchantUserEditView>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+merchantUsers.MapPost("/invitations", async (
+    CreateMerchantUserInvitationRequest body, IUserScope scope, HttpContext http,
+    IOptions<UserInvitationOptions> options, IMediator mediator, CancellationToken ct) =>
+{
+    var me = scope.Current;
+    var result = await mediator.Send(new CreateMerchantUserInvitationCommand(
+        body.Email, me.MerchantId, me.UserId, http.TraceIdentifier, options.Value.TtlHours), ct);
+    return Results.Created($"/api/v1/merchants/users/invitations/{result.InvitationId}", result);
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersManage)
+    .WithTags("ผู้ใช้ร้านค้า")
+    .WithName("CreateMerchantUserInvitation")
+    .WithSummary("เชิญผู้ใช้เข้าร้านค้า")
+    .WithDescription("สร้าง invitation แบบ tenant-bound สำหรับอีเมลที่ระบุ และ enqueue การส่งลิงก์ลงทะเบียน ไม่คืน raw token หากอีเมลมี invitation ที่ยังใช้ได้ -> 409")
+    .Produces<CreateMerchantUserInvitationResult>(StatusCodes.Status201Created)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+merchantUsers.MapDelete("/invitations/{invitationId:guid}", async (
+    Guid invitationId, IUserScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
+{
+    var me = scope.Current;
+    await mediator.Send(new RevokeMerchantUserInvitationCommand(
+        invitationId, me.MerchantId, me.UserId, http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersManage)
+    .WithTags("ผู้ใช้ร้านค้า")
+    .WithName("RevokeMerchantUserInvitation")
+    .WithSummary("เพิกถอนคำเชิญผู้ใช้ร้านค้า")
+    .WithDescription("เพิกถอน invitation ที่ยังไม่ถูกใช้ของร้านค้าปัจจุบัน หากไม่พบ -> 404, ใช้แล้วหรือหมดอายุ -> 409")
+    .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+merchantUsers.MapPut("/{merchantUserId:guid}", async (
+    Guid merchantUserId, UpdateMerchantUserRequest body, IUserScope scope, HttpContext http,
+    IMediator mediator, CancellationToken ct) =>
+{
+    var me = scope.Current;
+    await mediator.Send(new UpdateMerchantUserCommand(merchantUserId, me.MerchantId, me.UserId,
+        body.FirstName, body.LastName, body.ProducerCode, body.LicenseNumber, body.Phone,
+        http.TraceIdentifier), ct);
+    return Results.NoContent();
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersManage)
+    .WithTags("ผู้ใช้ร้านค้า")
+    .WithName("UpdateMerchantUser")
+    .WithSummary("แก้ไขข้อมูลผู้ใช้ร้านค้า")
+    .WithDescription("แก้เฉพาะ firstName, lastName, producerCode, licenseNumber และ phone ของผู้ใช้ในร้านค้าเดียวกัน หากไม่พบ -> 404, สถานะไม่อนุญาต -> 409")
+    .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden);
+
+static RouteHandlerBuilder MapMerchantUserLifecycle(
+    RouteGroupBuilder group, string route, string operationName, MerchantUserLifecycleAction action) =>
+    group.MapPost(route, async (Guid merchantUserId, IUserScope scope, HttpContext http,
+        IMediator mediator, CancellationToken ct) =>
+    {
+        var me = scope.Current;
+        await mediator.Send(new ChangeMerchantUserLifecycleCommand(
+            merchantUserId, me.MerchantId, me.UserId, action, http.TraceIdentifier), ct);
+        return Results.NoContent();
+    }).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersManage)
+      .WithTags("ผู้ใช้ร้านค้า").WithName(operationName)
+      .WithSummary(action switch
+      {
+          MerchantUserLifecycleAction.Approve => "อนุมัติผู้ใช้ร้านค้า",
+          MerchantUserLifecycleAction.Reject => "ปฏิเสธผู้ใช้ร้านค้า",
+          MerchantUserLifecycleAction.Suspend => "ระงับผู้ใช้ร้านค้า",
+          _ => "เปิดใช้งานผู้ใช้ร้านค้าอีกครั้ง",
+      })
+      .WithDescription("เปลี่ยน lifecycle ของผู้ใช้ภายในร้านค้าเดียวกันและเพิกถอน session เมื่อสถานะกำหนด หากไม่พบ -> 404, transition ใช้ไม่ได้ -> 409")
+      .Produces(StatusCodes.Status204NoContent)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .ProducesProblem(StatusCodes.Status409Conflict)
+      .ProducesProblem(StatusCodes.Status401Unauthorized)
+      .ProducesProblem(StatusCodes.Status403Forbidden);
+
+MapMerchantUserLifecycle(merchantUsers, "/{merchantUserId:guid}/approve", "ApproveMerchantUserByManager", MerchantUserLifecycleAction.Approve);
+MapMerchantUserLifecycle(merchantUsers, "/{merchantUserId:guid}/reject", "RejectMerchantUserByManager", MerchantUserLifecycleAction.Reject);
+MapMerchantUserLifecycle(merchantUsers, "/{merchantUserId:guid}/suspend", "SuspendMerchantUser", MerchantUserLifecycleAction.Suspend);
+MapMerchantUserLifecycle(merchantUsers, "/{merchantUserId:guid}/reactivate", "ReactivateMerchantUser", MerchantUserLifecycleAction.Reactivate);
 
 // --- MerchantUser Role RBAC (REQ-3/6) ---
 // Reads need only an authenticated merchant-user (REQ-3.6); role mutations gate on roles.manage and the
@@ -1526,7 +2393,7 @@ merchantUsers.MapGet("/permissions", async (IMediator mediator, CancellationToke
     return Results.Ok(new MerchantUserPermissionCatalogResponse(
         catalog.Groups.Select(g => new MerchantUserPermissionGroupResponse(g.Key, g.Name)).ToArray(),
         catalog.Permissions.Select(p => new MerchantUserPermissionItemResponse(p.Key, p.Name, p.Resource)).ToArray()));
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesView)
     .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("ListMerchantUserPermissions")
     .WithSummary("แคตตาล็อกสิทธิ์ของ MerchantUser")
@@ -1540,7 +2407,7 @@ merchantUsers.MapGet("/roles", async (IUserScope scope, IMediator mediator, Canc
     var result = await mediator.Send(new ListRolesQuery { Context = context, Limit = int.MaxValue }, ct);
     return Results.Ok(result.Items.Select(MerchantUserRoleToWire));
 })
-    .RequireAuthorization("merchant-user")
+    .RequireAuthorization("merchant-user").RequirePermission(Keys.RolesView)
     .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("ListMerchantUserRoles")
     .WithSummary("รายการบทบาทผู้ใช้ร้านค้า")
@@ -1553,7 +2420,7 @@ merchantUsers.MapGet("/roles/{code}", async (string code, IUserScope scope, IMed
     var context = RoleSideContextResolver.ForMerchantUser(scope);
     var role = await mediator.Send(new GetRoleQuery(context, code), ct);
     return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(MerchantUserRoleToWire(role));
-}).RequireAuthorization("merchant-user")
+}).RequireAuthorization("merchant-user").RequirePermission(Keys.RolesView)
     .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("GetMerchantUserRole")
     .WithSummary("อ่านบทบาทผู้ใช้ร้านค้าตามรหัส")
@@ -1619,16 +2486,18 @@ merchantUsers.MapDelete("/roles/{code}", async (
 // Set another merchant-user's roles to exactly the given set, within the acting merchant-user's merchant (REQ-16.3). Unknown
 // role code -> 400; a target outside the acting merchant -> 404 (no existence leak).
 merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
-    Guid merchantUserId, SetMerchantUserRolesRequest body, IUserScope scope, IMediator mediator, CancellationToken ct) =>
+    Guid merchantUserId, SetMerchantUserRolesRequest body, IUserScope scope, HttpContext http,
+    IMediator mediator, CancellationToken ct) =>
 {
     var me = scope.Current;
-    await mediator.Send(new MerchantSetRolesCommand(merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.UserId), ct);
+    await mediator.Send(new MerchantSetRolesCommand(
+        merchantUserId, body.RoleCodes ?? [], me.MerchantId, me.UserId, http.TraceIdentifier), ct);
     return Results.NoContent();
 }).RequireAuthorization("merchant-user").RequirePermission(Keys.UsersRoles)
     .WithTags("บทบาท (ผู้ใช้ร้านค้า)")
     .WithName("SetMerchantUserUserRoles")
     .WithSummary("กำหนดบทบาทของผู้ใช้ร้านค้า")
-    .WithDescription("ต้องมีสิทธิ์ merchant-user.user.roles แทนที่บทบาทของผู้ใช้ร้านค้าด้วยชุดที่ระบุมาทั้งหมด จำกัดเฉพาะร้านค้าของคุณ หากไม่รู้จัก role code -> 400; เป้าหมายไม่อยู่ร้านค้าคุณ -> 404")
+    .WithDescription("ต้องมีสิทธิ์ users.roles แทนที่บทบาทของผู้ใช้ร้านค้าด้วยชุดที่ระบุมาทั้งหมด จำกัดเฉพาะร้านค้าของคุณ หากไม่รู้จัก role code -> 400; เป้าหมายไม่อยู่ร้านค้าคุณ -> 404")
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1641,7 +2510,7 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
 // merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + Session policy apply.
 admin.MapPost("/merchants/users/{subject}/approve", async (
     string subject, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
-    HttpContext http, IMediator mediator, CancellationToken ct) =>
+    HttpContext http, IActorScope actorScope, IMediator mediator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(body.MerchantCode))
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "A merchant code is required to approve.");
@@ -1654,15 +2523,19 @@ admin.MapPost("/merchants/users/{subject}/approve", async (
     if (!string.Equals(merchant.Status, "Active", StringComparison.OrdinalIgnoreCase))
         return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "The selected merchant is not active.");
 
+    using var binding = actorScope.Begin(merchant.Id, scope.Current.AdminId);
     var result = await mediator.Send(new ApproveCommand(
         subject, merchant.Id, body.RoleCodes ?? [],
-        http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier), ct);
+        http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier,
+        VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.Ok(new ApproveMerchantUserResponse(result.UserId, result.Status.ToString(), result.AlreadyActive));
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserApprove)
+    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
     .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("ApproveMerchantUser")
     .WithSummary("อนุมัติผู้ใช้ร้านค้าเข้าร้านค้าหนึ่ง")
-    .WithDescription("ต้องมีสิทธิ์ merchant-user.approve ผูกผู้ใช้ร้านค้าเข้ากับร้านค้าที่อยู่ใน accessible set ของ admin + กำหนดบทบาท + เปิดใช้งาน ในทรานแซกชันเดียว หาก Active อยู่แล้ว -> idempotent 200; ไม่พบเป้าหมาย -> 404; ร้านค้าไม่ active/นอก scope -> 409/404; role ไม่รู้จัก/ไม่ active หรือเป้าหมายไม่ใช่ Pending -> 409")
+    .WithDescription("ต้องมีสิทธิ์ merchants.users.approve ผูกผู้ใช้ร้านค้าเข้ากับร้านค้าที่อยู่ใน accessible set ของ admin + กำหนดบทบาท + เปิดใช้งาน ในทรานแซกชันเดียว หาก Active อยู่แล้ว -> idempotent 200; ไม่พบเป้าหมาย -> 404; ร้านค้าไม่ active/นอก scope -> 409/404; role ไม่รู้จัก/ไม่ active หรือเป้าหมายไม่ใช่ Pending -> 409")
     .Produces<ApproveMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -1671,16 +2544,20 @@ admin.MapPost("/merchants/users/{subject}/approve", async (
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
 admin.MapPost("/merchants/users/{subject}/reject", async (
-    string subject, RejectMerchantUserRequest body, HttpContext http, IMediator mediator, CancellationToken ct) =>
+    string subject, RejectMerchantUserRequest body, IAdminScope scope, HttpContext http,
+    IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new RejectCommand(
-        subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier), ct);
+        subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
+        scope.Current.AdminId, VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.Ok(new RejectMerchantUserResponse(result.UserId, result.Status.ToString()));
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserReject)
+    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
     .WithTags("ผู้ใช้ร้านค้า (ผู้ดูแลระบบ)")
     .WithName("RejectMerchantUser")
     .WithSummary("ปฏิเสธผู้ใช้ร้านค้าที่รอดำเนินการ")
-    .WithDescription("ต้องมีสิทธิ์ merchant-user.reject ตั้งสถานะผู้ใช้ร้านค้าเป็น Rejected และเพิกถอน session ที่ยัง live อยู่ ไม่พบเป้าหมาย -> 404; เป้าหมายไม่ใช่ Pending -> 409")
+    .WithDescription("ต้องมีสิทธิ์ merchants.users.reject ตั้งสถานะผู้ใช้ร้านค้าเป็น Rejected และเพิกถอน session ที่ยัง live อยู่ ไม่พบเป้าหมาย -> 404; เป้าหมายไม่ใช่ Pending -> 409")
     .Produces<RejectMerchantUserResponse>(StatusCodes.Status200OK)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
@@ -1789,7 +2666,7 @@ static string SessionStatusToWire(SessionStatus s) => s switch
     _ => "revoked",
 };
 static AdminListItemResponse AdminToWire(UserListItem a) =>
-    new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound);
+    new(a.AdminId, a.Email, TierToWire(a.Tier), AccountStatusToWire(a.Status), a.CreatedAt, a.SubjectBound, a.Version);
 static MasterRefResponse? MasterRefToWire(ProfileRef? r) => r is null ? null : new(r.Id, r.Code, r.Name);
 static PlatformUserSessionResponse SessionToWire(SessionView v) =>
     new(v.SessionId, v.FamilyId, SessionStatusToWire(v.Status), v.IssuedAt, v.IdleExpiresAt, v.AbsoluteExpiresAt,
@@ -1827,7 +2704,8 @@ api.MapGet("/admins", async (HttpContext http, IMediator mediator, CancellationT
 
 // One admin's full detail (REQ-2). Accessible merchants are mapped id->code in the host, byte-for-byte the /me
 // pattern, so the query handler stays free of the merchant directory. Unknown id -> 404.
-admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IMediator mediator, CancellationToken ct) =>
+admin.MapGet("/{id:guid}", async (
+    Guid id, HttpContext http, IAdminMerchantDirectory merchants, IMediator mediator, CancellationToken ct) =>
 {
     var detail = await mediator.Send(new GetAdminByIdQuery(id), ct);
     if (detail is null)
@@ -1847,12 +2725,15 @@ admin.MapGet("/{id:guid}", async (Guid id, IAdminMerchantDirectory merchants, IM
                 .Select(tid => new AdminAccessibleMerchantResponse(tid, codes.GetValueOrDefault(tid))).ToArray());
     }
 
-    return Results.Ok(new AdminDetailResponse(
+    var response = new AdminDetailResponse(
         detail.AdminId, detail.Email, TierToWire(detail.Tier), AccountStatusToWire(detail.Status),
         detail.CreatedAt, detail.SubjectBound, accessible, detail.RoleCodes,
         MasterRefToWire(detail.Position), MasterRefToWire(detail.Office),
-        MasterRefToWire(detail.Level), MasterRefToWire(detail.Division)));
+        MasterRefToWire(detail.Level), MasterRefToWire(detail.Division), detail.Version);
+    VersionEtags.Set(http, detail.Version);
+    return Results.Ok(response);
 }).RequireAuthorization("admin").RequirePermission(Keys.UserView)
+    .WithMetadata(new EtagResponseMarker("200"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("GetAdmin")
     .WithSummary("อ่านบัญชีผู้ดูแลระบบ")
@@ -1882,14 +2763,18 @@ admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator media
 admin.MapPost("/{id:guid}/merchants", async (
     Guid id, AssignMerchantRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    var result = await mediator.Send(new AssignMerchantCommand(id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new AssignMerchantCommand(
+        id, body.MerchantId, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.Ok(result);
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithMetadata(new IfMatchMutationMarker("200"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("AssignMerchantToAdmin")
     .WithSummary("มอบสิทธิ์ร้านค้าให้ผู้ดูแลระบบ")
     .WithDescription("เฉพาะ Super ให้สิทธิ์ Scoped admin เข้าถึงร้านค้าหนึ่ง ร้านค้าไม่ active/ไม่รู้จัก หรือซ้ำ -> 409")
     .Produces<AssignMerchantResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1898,14 +2783,19 @@ admin.MapPost("/{id:guid}/merchants", async (
 admin.MapDelete("/{id:guid}/merchants/{merchantId:guid}", async (
     Guid id, Guid merchantId, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new UnassignMerchantCommand(id, merchantId, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new UnassignMerchantCommand(
+        id, merchantId, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithMetadata(new IfMatchMutationMarker("204"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("UnassignMerchantFromAdmin")
     .WithSummary("ถอนสิทธิ์ร้านค้าจากผู้ดูแลระบบ")
     .WithDescription("เฉพาะ Super ลบแถว merchant assignment แบบถาวร ไม่พบ assignment -> 404")
     .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1916,14 +2806,19 @@ admin.MapPost("/{id:guid}/suspend", async (
 {
     if (id == scope.Current.AdminId)
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot suspend their own account.");
-    await mediator.Send(new SuspendCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new SuspendCommand(
+        id, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithMetadata(new IfMatchMutationMarker("204"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("SuspendAdmin")
     .WithSummary("ระงับใช้งานผู้ดูแลระบบ")
     .WithDescription("เฉพาะ Super ระงับใช้งานผู้ดูแลระบบคนอื่น ระงับบัญชีตัวเองไม่ได้ (403) เพื่อไม่ให้ oversight ถูกล็อกออก")
     .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -1932,14 +2827,19 @@ admin.MapPost("/{id:guid}/suspend", async (
 admin.MapPost("/{id:guid}/reactivate", async (
     Guid id, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new ReactivateCommand(id, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new ReactivateCommand(
+        id, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithMetadata(new IfMatchMutationMarker("204"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("ReactivateAdmin")
     .WithSummary("เปิดใช้งานผู้ดูแลระบบที่ถูกระงับ")
     .WithDescription("เฉพาะ Super คืนสถานะผู้ดูแลระบบที่ถูกระงับกลับเป็น Active และเพิกถอน session เดิม (ต้อง login ใหม่) idempotent ถ้า Active อยู่แล้ว หากไม่พบ id -> 404")
     .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -1953,9 +2853,12 @@ admin.MapPost("/{id:guid}/tier", async (
         return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "An admin cannot change their own tier.");
     if (WireToTier(body.Tier) is not { } newTier)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: $"Unknown tier '{body.Tier}'.");
-    var result = await mediator.Send(new ChangeAdminTierCommand(id, newTier, scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new ChangeAdminTierCommand(
+        id, newTier, scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.Ok(result);
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithMetadata(new IfMatchMutationMarker("200"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("ChangeAdminTier")
     .WithSummary("เลื่อนหรือลด tier ของผู้ดูแลระบบ")
@@ -1972,11 +2875,13 @@ admin.MapPost("/{id:guid}/tier", async (
 admin.MapPut("/{id:guid}/profile", async (
     Guid id, UpdateAdminProfileRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new UpdateProfileCommand(
+    var result = await mediator.Send(new UpdateProfileCommand(
         id, body.PositionId, body.OfficeId, body.LevelId, body.DivisionId,
-        scope.Current.AdminId, http.TraceIdentifier), ct);
+        scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    .WithMetadata(new IfMatchMutationMarker("204"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("UpdateAdminProfile")
     .WithSummary("แก้ไขข้อมูลองค์กรของผู้ดูแลระบบ")
@@ -1984,6 +2889,7 @@ admin.MapPut("/{id:guid}/profile", async (
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -2000,37 +2906,37 @@ MapMasterCrud<IPositionStore, PositionItem>(api, "positions", "ตำแหน�
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, ct) => s.UpdateAsync(id, n, (PositionStatus)a, ct),
-    (s, id, ct) => s.DeactivateAsync(id, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status));
+    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (PositionStatus)a, v, ct),
+    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
 MapMasterCrud<IOfficeStore, OfficeItem>(api, "offices", "สำนักงาน",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, ct) => s.UpdateAsync(id, n, (OfficeStatus)a, ct),
-    (s, id, ct) => s.DeactivateAsync(id, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status));
+    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (OfficeStatus)a, v, ct),
+    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
 MapMasterCrud<ILevelStore, LevelItem>(api, "levels", "ระดับ",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, ct) => s.UpdateAsync(id, n, (LevelStatus)a, ct),
-    (s, id, ct) => s.DeactivateAsync(id, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status));
+    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (LevelStatus)a, v, ct),
+    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
 MapMasterCrud<IDivisionStore, DivisionItem>(api, "divisions", "แผนก",
     (s, p, l, q, ct) => s.ListAsync(p, l, q, ct),
     (s, id, ct) => s.GetByIdAsync(id, ct),
     (s, c, n, ct) => s.CreateAsync(c, n, ct),
-    (s, id, n, a, ct) => s.UpdateAsync(id, n, (DivisionStatus)a, ct),
-    (s, id, ct) => s.DeactivateAsync(id, ct),
-    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status));
+    (s, id, n, a, v, ct) => s.UpdateAsync(id, n, (DivisionStatus)a, v, ct),
+    (s, id, v, ct) => s.DeactivateAsync(id, v, ct),
+    m => new MasterResponse(m.Id, m.Code, m.Name, (int)m.Status, m.Version));
 
 static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segment, string thaiLabel,
     Func<TStore, int, int, string?, CancellationToken, Task<PagedResult<TItem>>> list,
     Func<TStore, Guid, CancellationToken, Task<TItem>> getById,
     Func<TStore, string, string, CancellationToken, Task<TItem>> create,
-    Func<TStore, Guid, string, int, CancellationToken, Task<TItem>> update,
-    Func<TStore, Guid, CancellationToken, Task<TItem>> deactivate,
+    Func<TStore, Guid, string, int, long, CancellationToken, Task<TItem>> update,
+    Func<TStore, Guid, long, CancellationToken, Task<TItem>> deactivate,
     Func<TItem, MasterResponse> toWire) where TStore : class
 {
     // Each of the 4 standalone modules (masterdata-split) gets its own Scalar group — its own Thai noun, no
@@ -2047,34 +2953,41 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
         return Results.Ok(new PagedResult<MasterResponse>(
             [.. result.Items.Select(toWire)],
             result.Page, result.Limit, result.Total));
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserView)
+        .WithMetadata(new SfsQueryParamsMarker())
         .WithTags(tag)
         .WithName($"List{segment}")
         .WithSummary($"รายการ{thaiLabel}ทั้งหมด")
+        .WithDescription($"คืนรายการ{thaiLabel}แบบแบ่งหน้า รองรับ page, limit และ search; ต้องมีสิทธิ์ user.view")
         .Produces<PagedResult<MasterResponse>>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    parent.MapGet($"/{segment}/{{id:guid}}", async (Guid id, TStore store, CancellationToken ct) =>
+    parent.MapGet($"/{segment}/{{id:guid}}", async (Guid id, HttpContext http, TStore store, CancellationToken ct) =>
     {
         var item = await getById(store, id, ct);
-        return Results.Ok(toWire(item));
-    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        var wire = toWire(item);
+        VersionEtags.Set(http, wire.Version);
+        return Results.Ok(wire);
+    }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserView)
+        .WithMetadata(new EtagResponseMarker("200"))
         .WithTags(tag)
         .WithName($"Get{segment}")
         .WithSummary($"อ่านข้อมูล{thaiLabel}ตาม id")
-        .WithDescription("ต้องมีสิทธิ์ user.manage หากไม่พบ id -> 404")
+        .WithDescription("ต้องมีสิทธิ์ user.view หากไม่พบ id -> 404")
         .Produces<MasterResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    parent.MapPost($"/{segment}", async (MasterWriteRequest body, TStore store, CancellationToken ct) =>
+    parent.MapPost($"/{segment}", async (MasterWriteRequest body, HttpContext http, TStore store, CancellationToken ct) =>
     {
         var item = await create(store, body.Code ?? "", body.Name ?? "", ct);
         var wire = toWire(item);
+        VersionEtags.Set(http, wire.Version);
         return Results.Created($"/api/v1/{segment}/{wire.Id}", wire);
     }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithMetadata(new EtagResponseMarker("201"))
         .WithTags(tag)
         .WithName($"Create{segment}")
         .WithSummary($"สร้าง{thaiLabel}ใหม่")
@@ -2085,13 +2998,17 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    parent.MapPut($"/{segment}/{{id:guid}}", async (Guid id, MasterUpdateRequest body, TStore store, CancellationToken ct) =>
+    parent.MapPut($"/{segment}/{{id:guid}}", async (
+        Guid id, MasterUpdateRequest body, HttpContext http, TStore store, CancellationToken ct) =>
     {
         if (body.Status is not 1 and not 2)
             throw new ArgumentException("Status must be Active=1 or Inactive=2.", nameof(body.Status));
-        var item = await update(store, id, body.Name ?? "", body.Status, ct);
-        return Results.Ok(toWire(item));
+        var item = await update(store, id, body.Name ?? "", body.Status, VersionEtags.Require(http), ct);
+        var wire = toWire(item);
+        VersionEtags.Set(http, wire.Version);
+        return Results.Ok(wire);
     }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithMetadata(new IfMatchMutationMarker("200"))
         .WithTags(tag)
         .WithName($"Update{segment}")
         .WithSummary($"เปลี่ยนชื่อหรือเปิด/ปิดการใช้งาน{thaiLabel}")
@@ -2099,20 +3016,25 @@ static void MapMasterCrud<TStore, TItem>(RouteGroupBuilder parent, string segmen
         .Produces<MasterResponse>(StatusCodes.Status200OK)
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 
-    parent.MapDelete($"/{segment}/{{id:guid}}", async (Guid id, TStore store, CancellationToken ct) =>
+    parent.MapDelete($"/{segment}/{{id:guid}}", async (Guid id, HttpContext http, TStore store, CancellationToken ct) =>
     {
-        await deactivate(store, id, ct);
+        var item = await deactivate(store, id, VersionEtags.Require(http), ct);
+        VersionEtags.Set(http, toWire(item).Version);
         return Results.NoContent();
     }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.UserManage)
+        .WithMetadata(new IfMatchMutationMarker("204"))
         .WithTags(tag)
         .WithName($"Deactivate{segment}")
         .WithSummary($"ปิดการใช้งาน{thaiLabel}")
         .WithDescription("ต้องมีสิทธิ์ user.manage เป็นการปิดการใช้งานแบบ soft เท่านั้น (ตั้ง isActive=false) ข้อมูลที่ถูกอ้างอิงอยู่ (FK Restrict) ยังใช้ได้ ไม่ใช่การลบถาวร หากไม่พบ id -> 404")
         .Produces(StatusCodes.Status204NoContent)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
         .ProducesProblem(StatusCodes.Status404NotFound)
+        .ProducesProblem(StatusCodes.Status409Conflict)
         .ProducesProblem(StatusCodes.Status401Unauthorized)
         .ProducesProblem(StatusCodes.Status403Forbidden);
 }
@@ -2142,19 +3064,23 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
     ILoggerFactory loggerFactory, CancellationToken ct) =>
 {
     var result = await mediator.Send(
-        new RevokeSessionCommand(id, sessionId, scope.Current.AdminId, http.TraceIdentifier), ct);
+        new RevokeSessionCommand(
+            id, sessionId, scope.Current.AdminId, http.TraceIdentifier, IdempotencyKeys.Require(http)), ct);
     // Security-log the specifics the append-only audit table has no column for (REQ-5.2), keyed by correlation id.
     loggerFactory.CreateLogger("Admin.SessionManagement").LogInformation(
         "Admin session family revoked: sessionId={SessionId} familyId={FamilyId} targetAdminId={TargetAdminId} correlationId={CorrelationId}",
         result.SessionId, result.FamilyId, result.AdminId, http.TraceIdentifier);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .WithMetadata(new IdempotencyMutationMarker())
     .WithTags("ผู้ดูแลระบบ")
     .WithName("RevokePlatformUserSession")
     .WithSummary("เพิกถอน session ของผู้ดูแลระบบ")
     .WithDescription("เฉพาะ Super เพิกถอนทั้ง rotation family ของ session ไม่พบ session หรือ session เป็นของผู้ดูแลระบบคนอื่น -> 404 idempotent (เพิกถอนไปแล้ว -> 204)")
     .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -2167,7 +3093,7 @@ admin.MapDelete("/{id:guid}/sessions/{sessionId:guid}", async (
 static RoleResponse RoleToWire(RoleListItem r) => new(
     r.Code, r.Name, r.Description, r.Color,
     r.Status == RoleStatus.Active ? "active" : "inactive",
-    r.PermissionKeys, r.UserCount);
+    r.PermissionKeys, r.UserCount, r.Version);
 // Strict: an unrecognized value (typo, blank, null) is a 400 — never a silent default to Active (B2).
 static RoleStatus ParseRoleStatus(string? status) => status?.ToLowerInvariant() switch
 {
@@ -2217,11 +3143,16 @@ admin.MapGet("/roles", async (HttpContext http, IAdminScope scope, IMediator med
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-admin.MapGet("/roles/{code}", async (string code, IAdminScope scope, IMediator mediator, CancellationToken ct) =>
+admin.MapGet("/roles/{code}", async (
+    string code, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct) =>
 {
     var role = await mediator.Send(new GetRoleQuery(RoleSideContextResolver.ForAdmin(scope), code), ct);
-    return role is null ? Results.Problem(statusCode: StatusCodes.Status404NotFound) : Results.Ok(RoleToWire(role));
+    if (role is null)
+        return Results.Problem(statusCode: StatusCodes.Status404NotFound);
+    VersionEtags.Set(http, role.Version);
+    return Results.Ok(RoleToWire(role));
 }).RequireAuthorization("admin")
+    .WithMetadata(new EtagResponseMarker("200"))
     .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("GetRole")
     .WithSummary("อ่านบทบาทตามรหัส")
@@ -2237,8 +3168,10 @@ admin.MapPost("/roles", async (
     var result = await mediator.Send(new CreateRoleCommand(
         RoleSideContextResolver.ForAdmin(scope), body.Code ?? "", body.Name ?? "", body.Description, body.Color,
         ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.Created($"/api/v1/admins/roles/{result.Code}", RoleToWire(result));
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
+    .WithMetadata(new EtagResponseMarker("201"))
     .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("CreateRole")
     .WithSummary("สร้างบทบาท")
@@ -2255,9 +3188,11 @@ admin.MapPut("/roles/{code}", async (
 {
     var result = await mediator.Send(new UpdateRoleCommand(
         RoleSideContextResolver.ForAdmin(scope), code, body.Name ?? "", body.Description, body.Color,
-        ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier), ct);
+        ParseRoleStatus(body.Status), body.Permissions ?? [], http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.Ok(RoleToWire(result));
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
+    .WithMetadata(new IfMatchMutationMarker("200"))
     .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("UpdateRole")
     .WithSummary("แก้ไขบทบาท")
@@ -2272,14 +3207,17 @@ admin.MapPut("/roles/{code}", async (
 admin.MapDelete("/roles/{code}", async (
     string code, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new DeleteRoleCommand(RoleSideContextResolver.ForAdmin(scope), code, http.TraceIdentifier), ct);
+    await mediator.Send(new DeleteRoleCommand(
+        RoleSideContextResolver.ForAdmin(scope), code, http.TraceIdentifier, VersionEtags.Require(http)), ct);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
+    .WithMetadata(new IfMatchMutationMarker("204", EmitsEtag: false))
     .WithTags("บทบาท (ผู้ดูแลระบบ)")
     .WithName("DeleteRole")
     .WithSummary("ลบบทบาท")
     .WithDescription("ต้องมีสิทธิ์ user.roles บทบาทที่ยังมีผู้ใช้ผูกอยู่ลบไม่ได้ -> 409")
     .Produces(StatusCodes.Status204NoContent)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -2288,9 +3226,12 @@ admin.MapDelete("/roles/{code}", async (
 admin.MapPut("/{id:guid}/roles", async (
     Guid id, SetAdminRolesRequest body, IAdminScope scope, HttpContext http, IMediator mediator, CancellationToken ct) =>
 {
-    await mediator.Send(new SetRolesCommand(id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier), ct);
+    var result = await mediator.Send(new SetRolesCommand(
+        id, body.RoleCodes ?? [], scope.Current.AdminId, http.TraceIdentifier, VersionEtags.Require(http)), ct);
+    VersionEtags.Set(http, result.Version);
     return Results.NoContent();
 }).RequireAuthorization("admin").RequirePermission(Keys.UserRoles)
+    .WithMetadata(new IfMatchMutationMarker("204"))
     .WithTags("ผู้ดูแลระบบ")
     .WithName("SetAdminRoles")
     .WithSummary("กำหนดบทบาทของผู้ดูแลระบบ")
@@ -2298,6 +3239,7 @@ admin.MapPut("/{id:guid}/roles", async (
     .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -2312,6 +3254,250 @@ CsrfParity.Assert(app);
 
 app.Run();
 
+static bool IsAdminCommerceRequest(HttpContext http) =>
+    http.Features.Get<SelectedConsoleAudience>()?.Value == ConsoleAudience.Admin;
+
+static Guid RequireCommerceQueryGuid(HttpContext http, string name)
+{
+    var raw = http.Request.Query[name].ToString();
+    if (!Guid.TryParse(raw, out var value) || value == Guid.Empty)
+        throw new InvalidRequestException($"{name} must be a non-empty UUID.", "invalid_filter");
+    return value;
+}
+
+static int RequireCartVersion(HttpContext http)
+{
+    var version = VersionEtags.Require(http);
+    if (version > int.MaxValue)
+        throw new InvalidRequestException("Cart ETag version is out of range.", "invalid_etag");
+    return (int)version;
+}
+
+static AdminMerchantAccess CommerceMerchantAccess(IAdminScope scope) => new(
+    scope.Current.AdminId, scope.Accessible.IsUnrestricted, scope.Accessible.Merchants);
+
+static AdminOrderAccess CommerceOrderAccess(IAdminScope scope) => new(
+    scope.Accessible.IsUnrestricted, scope.Accessible.Merchants);
+
+static void RequireCommerceMerchantAccess(IAdminScope scope, Guid merchantId)
+{
+    if (!scope.Accessible.Allows(merchantId))
+        throw new AccessDeniedException(
+            "Merchant is outside the current admin scope.", "merchant_scope_forbidden");
+}
+
+static async Task<OriginatorView> RequireCommerceOriginatorAsync(
+    IAdminMerchantControlStore store,
+    IAdminScope scope,
+    Guid merchantId,
+    Guid originatorId,
+    CancellationToken ct)
+{
+    RequireCommerceMerchantAccess(scope, merchantId);
+    var originator = await store.GetOriginatorAsync(
+        originatorId, merchantId, CommerceMerchantAccess(scope), ct);
+    if (originator is null
+        || !string.Equals(originator.Status, "active", StringComparison.Ordinal)
+        || string.IsNullOrWhiteSpace(originator.SaleCode))
+        throw new AccessDeniedException(
+            "Originator is unavailable for this merchant.", "originator_scope_forbidden");
+    return originator;
+}
+
+static async Task<AdminCartResource> RequireAdminCartAsync(
+    IAdminCartReader carts,
+    IAdminScope scope,
+    Guid cartId,
+    Guid? expectedMerchantId,
+    bool mutation,
+    CancellationToken ct)
+{
+    var cart = await carts.ResolveAsync(
+        cartId, scope.Accessible.IsUnrestricted, scope.Accessible.Merchants, ct);
+    if (cart is null)
+        throw new NotFoundException("Cart was not found.");
+    if (expectedMerchantId is { } merchantId && merchantId != cart.MerchantId)
+    {
+        if (mutation)
+            throw new AccessDeniedException(
+                "Cart does not belong to the selected merchant.", "merchant_scope_forbidden");
+        throw new NotFoundException("Cart was not found.");
+    }
+    return cart;
+}
+
+static async Task<AdminOrderResource> RequireAdminOrderAsync(
+    IAdminOrderReader orders,
+    IAdminScope scope,
+    Guid orderId,
+    Guid? expectedMerchantId,
+    bool mutation,
+    CancellationToken ct)
+{
+    var order = await orders.ResolveAsync(orderId, CommerceOrderAccess(scope), ct);
+    if (order is null)
+        throw new NotFoundException("Order was not found.");
+    if (expectedMerchantId is { } merchantId && merchantId != order.MerchantId)
+    {
+        if (mutation)
+            throw new AccessDeniedException(
+                "Order does not belong to the selected merchant.", "merchant_scope_forbidden");
+        throw new NotFoundException("Order was not found.");
+    }
+    return order;
+}
+
+static async Task<AddItemToCartCommand> BuildAddCartItemCommandAsync(
+    Guid cartId,
+    Guid merchantId,
+    string? saleCode,
+    AddItemToCartRequest body,
+    int? expectedVersion,
+    bool admin,
+    IMediator mediator,
+    IDocumentSaleProbe documentSales,
+    CancellationToken ct)
+{
+    if (string.IsNullOrWhiteSpace(saleCode))
+        throw new AccessDeniedException(
+            "No sale code is bound to this commerce actor.", "sale-code-missing");
+    if (body.Quantity <= 0)
+        throw new InvalidRequestException("Quantity must be positive.", "validation_failed");
+    if (!Enum.GetNames<ProductGroup>().Contains(body.VariantCode, StringComparer.Ordinal)
+        || !Enum.TryParse<ProductGroup>(body.VariantCode, out var productGroup))
+        throw new InvalidRequestException("Unsupported variant code.", "validation_failed");
+
+    var document = await mediator.Send(
+        new LookupDocumentQuery(body.ProductCode, productGroup, saleCode), ct);
+    if (document is null || document.PaymentStatus == PaymentStatus.PAID)
+    {
+        if (admin)
+            throw new ConflictException("The document is not available for sale.", "product_unpayable");
+        throw new InvalidRequestException("The document is not available for sale.", "product_unpayable");
+    }
+    var statuses = await documentSales.ProbeAsync(
+        [new DocumentKey(document.DocumentNo, document.ProductGroup.ToString())], ct);
+    if (statuses.Count > 0)
+    {
+        if (admin)
+            throw new ConflictException("The document is not available for sale.", "product_unpayable");
+        throw new InvalidRequestException("The document is not available for sale.", "product_unpayable");
+    }
+
+    var variantCode = document.ProductGroup.ToString();
+    var metadata = new CommerceItemMetadata(
+        CommerceItemMetadataCodec.InsuranceDocumentSource,
+        document.DocumentType.ToString(),
+        document.PolicyNumber,
+        document.StartDate is { } start ? DateOnly.FromDateTime(start) : null,
+        document.EndDate is { } end ? DateOnly.FromDateTime(end) : null);
+    return new AddItemToCartCommand(
+        cartId, merchantId, document.DocumentNo, document.SaleCode, variantCode,
+        string.IsNullOrWhiteSpace(document.ShowName) ? variantCode : document.ShowName,
+        body.Quantity, Money.Of(document.TotalPremium, "THB"), metadata, expectedVersion);
+}
+
+static Task<AdminOperationResult<T>> ExecuteAdminCommerceAsync<T>(
+    IAdminOperationExecutor operations,
+    IAdminScope scope,
+    Guid merchantId,
+    string operation,
+    string idempotencyKey,
+    object intent,
+    int status,
+    Func<CancellationToken, Task<T>> action,
+    Func<T, string?> resourceId,
+    CancellationToken ct) =>
+    operations.ExecuteAsync(
+        new AdminOperationRequest(
+            merchantId, scope.Current.AdminId, operation, idempotencyKey,
+            JsonSerializer.Serialize(intent), status),
+        action, resourceId, ct);
+
+static Task<AdminOperationResult<T>> ExecuteRecoverableAdminCommerceAsync<T>(
+    IAdminOperationExecutor operations,
+    IAdminScope scope,
+    Guid merchantId,
+    string operation,
+    string idempotencyKey,
+    object intent,
+    int status,
+    Func<CancellationToken, Task<T>> action,
+    Func<T, string?> resourceId,
+    CancellationToken ct) =>
+    operations.ExecuteRecoverableAsync(
+        new AdminOperationRequest(
+            merchantId, scope.Current.AdminId, operation, idempotencyKey,
+            JsonSerializer.Serialize(intent), status),
+        action, resourceId, ct);
+
+static string FixedMoney(decimal value) =>
+    value.ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture);
+
+static AdminMoneyResponse AdminMoney(Money value) => new(FixedMoney(value.Amount), value.Currency);
+
+static AdminOrderListResponse AdminOrderList(OrderListItem item) => new(
+    item.OrderId, item.OrderNo, item.MerchantId, item.OriginatorId,
+    AdminMoney(item.Amount), item.Status, item.Lines.Count,
+    item.PaymentChannel, item.PaymentSessionId, item.CreatedAt, item.UpdatedAt);
+
+static AdminPaymentSessionResponse AdminPaymentSession(PaymentSessionView session) => new(
+    session.PaymentSessionId, session.OrderId, session.MerchantId, AdminMoney(session.Amount),
+    session.Method, session.Psp.ToCode(), session.Status.ToString(), session.RedirectUrl,
+    session.CreatedAt, session.UpdatedAt, session.Version);
+
+static string MaskCustomerReference(string? email, string phone)
+{
+    if (!string.IsNullOrWhiteSpace(email))
+    {
+        var at = email.IndexOf('@');
+        return at > 0 ? $"{email[0]}***{email[at..]}" : "***";
+    }
+    var digits = new string(phone.Where(char.IsDigit).ToArray());
+    return digits.Length >= 4 ? $"***{digits[^4..]}" : "***";
+}
+
+static (DateTime From, DateTime To) RequireExportWindow(HttpContext http)
+{
+    static DateTime Parse(string value, string name)
+    {
+        if (!DateTime.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal
+                | System.Globalization.DateTimeStyles.AdjustToUniversal, out var parsed))
+            throw new InvalidRequestException($"{name} must be an ISO-8601 instant.", "invalid_filter");
+        return parsed;
+    }
+
+    var from = Parse(http.Request.Query["from"].ToString(), "from");
+    var to = Parse(http.Request.Query["to"].ToString(), "to");
+    if (to < from || to - from > TimeSpan.FromDays(31))
+        throw new InvalidRequestException(
+            "Export range must be ordered and no longer than 31 days.", "invalid_filter");
+    return (from, to);
+}
+
+static string CsvCell(string? value)
+{
+    value ??= string.Empty;
+    if (value.Length > 0 && "=+-@".Contains(value[0]))
+        value = "'" + value;
+    return $"\"{value.Replace("\"", "\"\"")}\"";
+}
+
+static IReadOnlyList<CommerceCapabilityResponse> OrderCapabilities(string status) =>
+[
+    new("cancel", string.Equals(status, nameof(OrderStatus.Pending), StringComparison.OrdinalIgnoreCase), false,
+        string.Equals(status, nameof(OrderStatus.Pending), StringComparison.OrdinalIgnoreCase) ? null : "state_conflict"),
+    new("resend_link", string.Equals(status, nameof(OrderStatus.Pending), StringComparison.OrdinalIgnoreCase), false,
+        string.Equals(status, nameof(OrderStatus.Pending), StringComparison.OrdinalIgnoreCase) ? null : "state_conflict"),
+    new("extend_link", false, false, "capability_unavailable"),
+    new("cancel_link", false, false, "capability_unavailable"),
+    new("capture", false, false, "capability_unavailable"),
+    new("void", false, false, "capability_unavailable"),
+    new("refund", false, true, "capability_unavailable"),
+    new("receipt", false, false, "capability_unavailable"),
+];
+
 internal sealed record CreateRoleRequest(
     string? Code, string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
 internal sealed record UpdateRoleRequest(
@@ -2325,6 +3511,11 @@ internal sealed record CreateMerchantUserRoleRequest(
 internal sealed record UpdateMerchantUserRoleRequest(
     string? Name, string? Description, string? Color, string? Status, IReadOnlyList<string>? Permissions);
 internal sealed record SetMerchantUserRolesRequest(IReadOnlyList<string>? RoleCodes);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record CreateMerchantUserInvitationRequest(string Email);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record UpdateMerchantUserRequest(
+    string FirstName, string LastName, string? ProducerCode, string? LicenseNumber, string? Phone);
 // `Roles` = the merchant-user's ACTIVE role codes (the multi-role model's read of REQ-17.5's `role`).
 internal sealed record MerchantUserMeResponse(
     Guid UserId, string Email, Guid MerchantId, IReadOnlyList<string> Roles, IReadOnlySet<string> Permissions);
@@ -2346,7 +3537,11 @@ internal sealed record RejectMerchantUserResponse(Guid UserId, string Status);
 // No Amount: the charge is priced from the order row server-side (a body that still sends "amount" is
 // simply ignored — the platform never mints a charge the order does not back).
 internal sealed record CreatePaymentSessionRequest(
-    Guid OrderId, string Method, Code Psp);
+    Guid OrderId, string Method, Code? Psp, Guid? MerchantId);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record MerchantCreatePaymentSessionRequest(Guid OrderId, string Method, Code Psp);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record AdminCreatePaymentSessionRequest(Guid OrderId, string Method, Guid MerchantId);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record AddItemToCartRequest(string ProductCode, string VariantCode, int Quantity);
 internal sealed record SetCartItemQuantityRequest(int Quantity);
@@ -2355,7 +3550,8 @@ internal sealed record CreateCartResponse(Guid CartId);
 internal sealed record CreateOrderCustomerRequest(string? Name, string? Phone, string? Email);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record CreateOrderFromCartRequest(
-    Guid CartId, CreateOrderCustomerRequest? Customer, Money? Amount);
+    Guid CartId, CreateOrderCustomerRequest? Customer, string PaymentMethod,
+    Guid? MerchantId, Guid? OriginatorId);
 internal sealed record OrderSummaryLineResponse(
     string ProductCode, string VariantCode, string? VariantName, int Quantity, Money UnitPrice);
 internal sealed record OrderSummaryResponse(
@@ -2526,10 +3722,76 @@ internal sealed record ChangeAdminTierRequest(string Tier);
 internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);
 internal sealed record MasterWriteRequest(string? Code, string? Name);
 internal sealed record MasterUpdateRequest(string? Name, int Status);
-internal sealed record MasterResponse(Guid Id, string Code, string Name, int Status);
+internal sealed record MasterResponse(Guid Id, string Code, string Name, int Status, long Version);
 internal sealed record MasterRefResponse(Guid Id, string Code, string Name);
 
 internal sealed record CreatePaymentSessionResponse(Guid PaymentSessionId);
+
+internal sealed record AdminMoneyResponse(string Amount, string Currency);
+internal sealed record AdminOrderListResponse(
+    Guid OrderId, string OrderNo, Guid MerchantId, Guid? OriginatorId,
+    AdminMoneyResponse Amount, string Status, int ItemCount, string? PaymentChannel,
+    Guid? PaymentSessionId, DateTime CreatedAt, DateTime UpdatedAt);
+internal sealed record AdminOrderLineResponse(
+    string ProductCode, string VariantCode, string? VariantName, int Quantity,
+    AdminMoneyResponse UnitPrice, AdminMoneyResponse Discount, JsonElement? Metadata);
+internal sealed record CommerceCapabilityResponse(
+    string Code, bool Available, bool RequiresApproval, string? ReasonCode);
+internal sealed record CommerceLifecycleResponse(string Status, DateTime At);
+internal sealed record AdminPaymentSessionResponse(
+    Guid PaymentSessionId, Guid OrderId, Guid MerchantId, AdminMoneyResponse Amount,
+    string Method, string Psp, string Status, string? RedirectUrl,
+    DateTime CreatedAt, DateTime UpdatedAt, long Version);
+internal sealed record AdminOrderDetailResponse(
+    Guid OrderId, string OrderNo, Guid MerchantId, Guid? OriginatorId,
+    AdminMoneyResponse Amount, string Status, int ItemCount, string? PaymentChannel,
+    Guid? PaymentSessionId, DateTime CreatedAt, DateTime UpdatedAt,
+    IReadOnlyList<AdminOrderLineResponse> Lines, string CustomerReference,
+    string SummaryLinkState,
+    [property: JsonPropertyName("paymentSession")] AdminPaymentSessionResponse? Session,
+    IReadOnlyList<CommerceLifecycleResponse> Lifecycle,
+    IReadOnlyList<CommerceCapabilityResponse> Capabilities, long Version);
+
+internal sealed record AdminProductListItem(
+    string ProductGroup, string DocumentType, string DocumentNo, string? PolicyYear,
+    string? ReferenceBranch, string? ReferencePre, string? PolicySequenceNo, string? ReferenceYear,
+    string? ReferenceNo, string? PolicyBranch, string? PolicyType, string SaleCode,
+    string? SaleFullName, string? BrokerCode, string? BrokerName, string? PolicyNumber,
+    string? ApplicationNumber, string? PreviousPolicyNumber, string? EndorsementNumber,
+    DateTime? StartDate, DateTime? EndDate, string? ShowName,
+    string? NetPremium, string? Stamp, string? TaxVat, string TotalPremium,
+    string? CommissionPercent, string? CommissionAmount, DateTime? PaidDate,
+    string? LicensePlateNumber, string PaymentStatus, bool SoldByPlatform,
+    string ProductCode, string VariantCode, string InsuranceType)
+{
+    public static AdminProductListItem From(ProductListItem item) => new(
+        item.ProductGroup.ToString(), item.DocumentType.ToString(), item.DocumentNo, item.PolicyYear,
+        item.ReferenceBranch, item.ReferencePre, item.PolicySequenceNo, item.ReferenceYear,
+        item.ReferenceNo, item.PolicyBranch, item.PolicyType, item.SaleCode, item.SaleFullName,
+        item.BrokerCode, item.BrokerName, item.PolicyNumber, item.ApplicationNumber,
+        item.PreviousPolicyNumber, item.EndorsementNumber, item.StartDate, item.EndDate,
+        item.ShowName, item.NetPremium is { } net ? Fixed(net) : null,
+        item.Stamp is { } stamp ? Fixed(stamp) : null,
+        item.TaxVat is { } tax ? Fixed(tax) : null, Fixed(item.TotalPremium),
+        item.CommissionPercent is { } percent ? Fixed(percent) : null,
+        item.CommissionAmount is { } commission ? Fixed(commission) : null,
+        item.PaidDate, item.LicensePlateNumber, item.PaymentStatus.ToString(), item.SoldByPlatform,
+        item.ProductCode, item.VariantCode, item.InsuranceType.ToString());
+
+    private static string Fixed(decimal value) =>
+        value.ToString("0.0000", System.Globalization.CultureInfo.InvariantCulture);
+}
+
+internal sealed record AdminProductPage(
+    Guid MerchantId, Guid OriginatorId, IReadOnlyList<AdminProductListItem> Items,
+    long? TotalRows, long? TotalPages, int PageNo, int PageSize,
+    bool HasNextPage, bool HasPreviousPage, string CountMode, int SearchWindowMonths)
+{
+    public static AdminProductPage From(Guid merchantId, Guid originatorId, ProductPage page) => new(
+        merchantId, originatorId, page.Items.Select(AdminProductListItem.From).ToArray(),
+        page.TotalRows, page.TotalPages, page.PageNo, page.PageSize,
+        page.HasNextPage, page.HasPreviousPage, page.CountMode, page.SearchWindowMonths);
+}
 internal sealed record StartRedirectResponse(string RedirectUrl);
 internal sealed record WebhookResponse(string Outcome);
 
@@ -2546,13 +3808,14 @@ internal sealed record AdminAccessibleResponse(
 internal sealed record AdminAccessibleMerchantResponse(Guid Id, string? Code);
 // admin-account-management REQ-1.2/1.6: one admin directory row; tier/status are lowercase wire strings.
 internal sealed record AdminListItemResponse(
-    Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound);
+    Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound, long Version);
 // admin-account-management REQ-2.1: full detail. The accessible-merchants field is named AccessibleMerchants to match
 // GET /me's AdminMeResponse exactly (same nested DTO AND same JSON key), so a client can share one renderer.
 internal sealed record AdminDetailResponse(
     Guid AdminId, string Email, string Tier, string Status, DateTime CreatedAt, bool SubjectBound,
     AdminAccessibleResponse AccessibleMerchants, IReadOnlyList<string> RoleCodes,
-    MasterRefResponse? Position, MasterRefResponse? Office, MasterRefResponse? Level, MasterRefResponse? Division);
+    MasterRefResponse? Position, MasterRefResponse? Office, MasterRefResponse? Level, MasterRefResponse? Division,
+    long Version);
 // admin-account-management REQ-4.2: one session row; status is a lowercase wire string; NO token material.
 internal sealed record PlatformUserSessionResponse(
     Guid SessionId, Guid FamilyId, string Status, DateTime IssuedAt, DateTime IdleExpiresAt,
@@ -2563,7 +3826,7 @@ internal sealed record PermissionGroupResponse(string Key, string Label);
 internal sealed record PermissionItemResponse(string Key, string Label, string Resource);
 internal sealed record RoleResponse(
     string Code, string Name, string? Description, string? Color, string Status,
-    IReadOnlyList<string> Permissions, int UserCount);
+    IReadOnlyList<string> Permissions, int UserCount, long Version);
 
 // Bridges PspCode <-> its stable wire code via the domain's single-source-of-truth PspCodes mapping,
 // so the host owns the serialization concern and the domain enum stays attribute-free.
@@ -2578,6 +3841,25 @@ internal sealed class PspCodeJsonConverter : JsonConverter<Code>
 
     public override void Write(Utf8JsonWriter writer, Code value, JsonSerializerOptions options) =>
         writer.WriteStringValue(value.ToCode());
+}
+
+// SQL Server datetime2 does not preserve DateTime.Kind. Every persisted timestamp in this system is UTC,
+// so normalize at the single public JSON boundary instead of making each endpoint repair EF materialization.
+internal sealed class UtcDateTimeJsonConverter : JsonConverter<DateTime>
+{
+    public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+        reader.GetDateTime();
+
+    public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options)
+    {
+        var utc = value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        };
+        writer.WriteStringValue(utc);
+    }
 }
 
 /// <summary>Exposed so <c>WebApplicationFactory&lt;Program&gt;</c> can boot the host in tests.</summary>

@@ -18,6 +18,7 @@ public sealed class OfficeConfiguration : IEntityTypeConfiguration<Office>
         builder.Property(x => x.Code).HasMaxLength(64).IsRequired();
         builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
+        builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
         builder.HasIndex(x => x.Code).IsUnique();
     }
 }

@@ -50,6 +50,23 @@ public sealed class CancelOrderHandlerTests
             () => handler.Handle(new CancelOrderCommand(order.Id), default).AsTask());
     }
 
+    // admin-console-real-api REQ-15.13 — a recoverable Admin replay carries its original version. If the
+    // target commit won but the operation-ledger completion was interrupted, retry returns persisted state.
+    [Fact]
+    public async Task Admin_recovery_of_an_already_cancelled_order_returns_state_without_saving()
+    {
+        var order = NewOrder();
+        var originalVersion = order.Version;
+        order.Cancel();
+        var (handler, uow, _) = NewHandler(orders: order);
+
+        var result = await handler.Handle(
+            new CancelOrderCommand(order.Id, originalVersion), default);
+
+        Assert.Equal(nameof(OrderStatus.Cancelled), result.Status);
+        Assert.Equal(0, uow.SaveCount);
+    }
+
     // REQ-4.4 — money has been collected for this order; cancelling it is never on the table.
     [Fact]
     public async Task Cancelling_a_paid_order_is_rejected()

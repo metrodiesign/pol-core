@@ -19,5 +19,8 @@ internal sealed class MerchantAccountStore(MerchantUserDbContext db) : IAccountS
     public Task<MerchantUserAccount?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
         db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
 
+    public Task<MerchantUserAccount?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
+        db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+
     public void Add(MerchantUserAccount account) => db.Users.Add(account);
 }

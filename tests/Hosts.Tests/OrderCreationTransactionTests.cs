@@ -120,6 +120,25 @@ public sealed class OrderCreationTransactionTests : IDisposable
         Assert.Equal(Carts.Domain.CartStatus.CheckedOut, cart.Status);
     }
 
+    [Fact]
+    public async Task Commit_prices_from_cart_and_persists_canonical_payment_channel()
+    {
+        var cart = NewCart();
+        await using (var seed = NewContext())
+        {
+            seed.Add(cart);
+            await seed.SaveChangesAsync();
+        }
+
+        await using (var db = NewContext())
+            await Coordinator(db, "ORD6900000003").CommitAsync(Request(cart), default);
+
+        await using var verify = NewContext();
+        var order = await verify.Orders.SingleAsync();
+        Assert.Equal(Money.Of(100m, "THB"), order.Amount);
+        Assert.Equal("promptpay", order.PaymentChannel);
+    }
+
     private static async Task<Exception?> Attempt(Func<Task> action)
     {
         try { await action(); return null; }
@@ -148,7 +167,7 @@ public sealed class OrderCreationTransactionTests : IDisposable
         var item = cart.Items.Single();
         return new DirectRequest(
             Merchant, cart.Id, cart.Version, "SALE-1",
-            CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com"), null,
+            CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com"), "promptpay",
             [new ProductSnapshot(item.Id, item.ProductCode, item.VariantCode, item.VariantName, item.Quantity, Metadata)]);
     }
 

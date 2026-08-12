@@ -43,6 +43,22 @@ public sealed class UpdateRoleHandlerTests
     }
 
     [Fact]
+    public async Task Update_rejects_a_stale_resource_version_without_mutating_the_role()
+    {
+        var role = Seed("ops");
+        var roles = new FakeRoleStore { ByCode = role };
+
+        var error = await Assert.ThrowsAsync<ConflictException>(() => Handler(roles).Handle(
+            new UpdateRoleCommand(
+                Platform, "ops", "Changed", null, null, RoleStatus.Active, [], "corr", role.Version + 1),
+            default).AsTask());
+
+        Assert.Equal("state_conflict", error.Code);
+        Assert.Equal("ops", role.Name);
+        Assert.Equal(1, role.Version);
+    }
+
+    [Fact]
     public async Task A_merchant_updating_a_role_owned_by_another_merchant_is_invisible_not_found()
     {
         // A role owned by a DIFFERENT specific merchant is outside RoleVisibility entirely -> 404, no leak.

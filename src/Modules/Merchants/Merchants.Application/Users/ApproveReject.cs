@@ -3,6 +3,9 @@ using Mediator;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 using Merchants.Application.Users.Roles;
 
@@ -23,9 +26,11 @@ public sealed record ApproveCommand(
     IReadOnlyList<string> RoleCodes,
     string ActingAdminSubject,
     Guid ActingAdminId,
-    string CorrelationId) : ICommand<ApproveResult>;
+    string CorrelationId,
+    long? ExpectedVersion = null,
+    string? IdempotencyKey = null) : ICommand<ApproveResult>;
 
-public sealed record ApproveResult(Guid UserId, UserStatus Status, bool AlreadyActive);
+public sealed record ApproveResult(Guid UserId, UserStatus Status, bool AlreadyActive, long Version = 1);
 
 public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResult>
 {
@@ -34,27 +39,60 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
     private readonly IRegistrationAuditWriter _audit;
     private readonly IUserUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IInvitationRepository? _invitations;
+    private readonly IAdminUserOperationStore? _operations;
 
     // IAccountStore, never IUserRepository: an admin-plane request has no bound merchant actor, and the
     // PendingApproval target row's MerchantId is NULL — invisible to the filtered repository either way
     // (bugfix-merchant-prebind-wiring F3).
     public ApproveHandler(
         IAccountStore accounts, IRoleRepository roles, IRegistrationAuditWriter audit,
-        IUserUnitOfWork unitOfWork, IClock clock)
+        IUserUnitOfWork unitOfWork, IClock clock,
+        IInvitationRepository? invitations = null, IAdminUserOperationStore? operations = null)
     {
         _accounts = accounts;
         _roles = roles;
         _audit = audit;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _invitations = invitations;
+        _operations = operations;
     }
 
     public ValueTask<ApproveResult> Handle(ApproveCommand command, CancellationToken cancellationToken) =>
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var now = _clock.UtcNow;
-            var account = await _accounts.FindBySubjectAsync(command.Subject, ct)
+            var account = await FindAccountAsync(command.Subject, ct)
                 ?? throw new NotFoundException("The merchant-user registration was not found."); // 404 (REQ-22.2)
+
+            var roleCodes = command.RoleCodes
+                .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            if (roleCodes.Count == 0 && _invitations is not null)
+            {
+                var invitation = await _invitations.FindAcceptedByUserIdAsync(account.Id, ct);
+                roleCodes = invitation?.IntendedRoleCodes().ToList() ?? [];
+            }
+
+            const string operation = "merchant-user.approve";
+            var intentHash = AdminUserOperationReplay.Hash(new
+            {
+                command.Subject,
+                command.ValidatedMerchantId,
+                RoleCodes = roleCodes,
+                command.ExpectedVersion,
+            });
+            if (command.IdempotencyKey is { } idempotencyKey)
+            {
+                var store = _operations ?? throw new InvalidOperationException("Admin operation store is required.");
+                var replay = await store.FindAsync(
+                    command.ValidatedMerchantId, command.ActingAdminId, operation, idempotencyKey, ct);
+                if (replay is not null)
+                    return AdminUserOperationReplay.Read<ApproveResult>(replay, intentHash);
+            }
+            if (command.ExpectedVersion is { } expectedVersion)
+                account.EnsureVersion(expectedVersion);
 
             // Idempotent no-op for an already-Active target ONLY when bound to the same merchant (REQ-6.4); re-approving
             // onto a different merchant is rejected. User.Approve enforces both — a different-merchant re-approve
@@ -63,16 +101,21 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
             if (account.Status == UserStatus.Active)
             {
                 account.Approve(command.ValidatedMerchantId, now);
-                return new ApproveResult(account.Id, account.Status, AlreadyActive: true);
+                var alreadyActive = new ApproveResult(account.Id, account.Status, AlreadyActive: true, account.Version);
+                if (command.IdempotencyKey is { } replayKey)
+                {
+                    _operations!.Add(AdminUserOperationRecord.Succeeded(
+                        command.ValidatedMerchantId, command.ActingAdminId, operation, replayKey,
+                        intentHash, JsonSerializer.Serialize(alreadyActive), 200, now));
+                    await _unitOfWork.SaveChangesAsync(ct);
+                }
+                return alreadyActive;
             }
 
             if (account.Status != UserStatus.PendingApproval)
                 throw new ConflictException(
                     $"Cannot approve a merchant user in status {account.Status}; it must be PendingApproval (a rejected user must resubmit first)."); // 409 (REQ-6.5)
 
-            var roleCodes = command.RoleCodes
-                .Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim())
-                .Distinct(StringComparer.Ordinal).ToList();
             if (roleCodes.Count == 0)
                 throw new ArgumentException("At least one role must be assigned at approval."); // 400 (REQ-6.2)
 
@@ -93,9 +136,19 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
             _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Approved, account.Subject, command.CorrelationId, now,
                 actorSubject: command.ActingAdminSubject, role: string.Join(", ", roleCodes), merchantId: command.ValidatedMerchantId));
 
+            var result = new ApproveResult(account.Id, UserStatus.Active, AlreadyActive: false, account.Version);
+            if (command.IdempotencyKey is { } key)
+                _operations!.Add(AdminUserOperationRecord.Succeeded(
+                    command.ValidatedMerchantId, command.ActingAdminId, operation, key, intentHash,
+                    JsonSerializer.Serialize(result), 200, now));
             await _unitOfWork.SaveChangesAsync(ct);
-            return new ApproveResult(account.Id, UserStatus.Active, AlreadyActive: false);
+            return result;
         }, cancellationToken));
+
+    private Task<User?> FindAccountAsync(string subjectOrId, CancellationToken cancellationToken) =>
+        Guid.TryParse(subjectOrId, out var id)
+            ? _accounts.FindByIdAsync(id, cancellationToken)
+            : _accounts.FindBySubjectAsync(subjectOrId, cancellationToken);
 }
 
 /// <summary>
@@ -104,9 +157,11 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
 /// pol_admin transaction. A non-PendingApproval target is a 409; an unknown target is a 404 (REQ-22.2).
 /// </summary>
 public sealed record RejectCommand(
-    string Subject, string? Reason, string ActingAdminSubject, string CorrelationId) : ICommand<RejectResult>;
+    string Subject, string? Reason, string ActingAdminSubject, string CorrelationId,
+    Guid ActingAdminId = default, long? ExpectedVersion = null, string? IdempotencyKey = null)
+    : ICommand<RejectResult>;
 
-public sealed record RejectResult(Guid UserId, UserStatus Status);
+public sealed record RejectResult(Guid UserId, UserStatus Status, long Version = 1);
 
 public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
 {
@@ -115,25 +170,49 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
     private readonly IRegistrationAuditWriter _audit;
     private readonly IUserUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IAdminUserOperationStore? _operations;
 
     // IAccountStore for the same pre-bind reason as ApproveHandler (bugfix-merchant-prebind-wiring F4).
     public RejectHandler(
         IAccountStore accounts, ISessionStore sessions, IRegistrationAuditWriter audit,
-        IUserUnitOfWork unitOfWork, IClock clock)
+        IUserUnitOfWork unitOfWork, IClock clock, IAdminUserOperationStore? operations = null)
     {
         _accounts = accounts;
         _sessions = sessions;
         _audit = audit;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _operations = operations;
     }
 
     public ValueTask<RejectResult> Handle(RejectCommand command, CancellationToken cancellationToken) =>
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var now = _clock.UtcNow;
-            var account = await _accounts.FindBySubjectAsync(command.Subject, ct)
+            var account = await FindAccountAsync(command.Subject, ct)
                 ?? throw new NotFoundException("The merchant-user registration was not found."); // 404 (REQ-22.2)
+
+            const string operation = "merchant-user.reject";
+            var reason = NormalizeReason(command.Reason);
+            var intentHash = AdminUserOperationReplay.Hash(new
+            {
+                command.Subject,
+                MerchantId = account.MerchantId,
+                Reason = reason,
+                command.ExpectedVersion,
+            });
+            if (command.IdempotencyKey is { } idempotencyKey)
+            {
+                if (command.ActingAdminId == Guid.Empty)
+                    throw new ArgumentException("Acting Admin is required for idempotent rejection.");
+                var store = _operations ?? throw new InvalidOperationException("Admin operation store is required.");
+                var replay = await store.FindAsync(
+                    account.MerchantId, command.ActingAdminId, operation, idempotencyKey, ct);
+                if (replay is not null)
+                    return AdminUserOperationReplay.Read<RejectResult>(replay, intentHash);
+            }
+            if (command.ExpectedVersion is { } expectedVersion)
+                account.EnsureVersion(expectedVersion);
 
             if (account.Status != UserStatus.PendingApproval)
                 throw new ConflictException($"Cannot reject a merchant user in status {account.Status}; it must be PendingApproval."); // 409
@@ -142,11 +221,21 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
             await _sessions.RevokeAllForUserAsync(account.Id, ct); // kill any live sessions (REQ-12.3)
 
             _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, account.Subject, command.CorrelationId, now,
-                actorSubject: command.ActingAdminSubject, reason: NormalizeReason(command.Reason))); // record the rationale (REQ-5.1)
+                actorSubject: command.ActingAdminSubject, reason: reason)); // record the rationale (REQ-5.1)
 
+            var result = new RejectResult(account.Id, UserStatus.Rejected, account.Version);
+            if (command.IdempotencyKey is { } key)
+                _operations!.Add(AdminUserOperationRecord.Succeeded(
+                    account.MerchantId, command.ActingAdminId, operation, key, intentHash,
+                    JsonSerializer.Serialize(result), 200, now));
             await _unitOfWork.SaveChangesAsync(ct);
-            return new RejectResult(account.Id, UserStatus.Rejected);
+            return result;
         }, cancellationToken));
+
+    private Task<User?> FindAccountAsync(string subjectOrId, CancellationToken cancellationToken) =>
+        Guid.TryParse(subjectOrId, out var id)
+            ? _accounts.FindByIdAsync(id, cancellationToken)
+            : _accounts.FindBySubjectAsync(subjectOrId, cancellationToken);
 
     // Blank -> NULL (no rationale given); trim + cap to the audit column width (REQ-5.1).
     private static string? NormalizeReason(string? reason)
@@ -155,5 +244,21 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
             return null;
         var trimmed = reason.Trim();
         return trimmed.Length <= 1024 ? trimmed : trimmed[..1024];
+    }
+}
+
+internal static class AdminUserOperationReplay
+{
+    public static string Hash<T>(T value) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value)))).ToLowerInvariant();
+
+    public static T Read<T>(AdminUserOperationRecord record, string expectedHash)
+    {
+        if (!CryptographicOperations.FixedTimeEquals(
+                Encoding.ASCII.GetBytes(record.IntentHash), Encoding.ASCII.GetBytes(expectedHash)))
+            throw new ConflictException(
+                "Idempotency key was reused with a different intent.", "idempotency_key_reused");
+        return JsonSerializer.Deserialize<T>(record.Result)
+            ?? throw new InvalidOperationException("Stored Admin user operation result is invalid.");
     }
 }

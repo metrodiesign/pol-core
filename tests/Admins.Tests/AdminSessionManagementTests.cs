@@ -71,37 +71,41 @@ public sealed class PlatformUserSessionManagementTests
 
     // ===== REQ-5: revoke session =====
     private static (RevokeSessionHandler H, FakePlatformUserRepository Accounts, FakePlatformUserSessionStore Sessions,
-        FakePlatformUserAuditWriter Audit) NewHandler()
+        FakePlatformUserAuditWriter Audit, FakeAdminOperationStore Operations) NewHandler()
     {
         var accounts = new FakePlatformUserRepository();
         var sessions = new FakePlatformUserSessionStore();
         var audit = new FakePlatformUserAuditWriter();
-        var h = new RevokeSessionHandler(accounts, sessions, audit, new FakeUnitOfWork(), new FixedClock());
-        return (h, accounts, sessions, audit);
+        var operations = new FakeAdminOperationStore();
+        var h = new RevokeSessionHandler(
+            accounts, sessions, audit, operations, new FakeUnitOfWork(), new FixedClock());
+        return (h, accounts, sessions, audit, operations);
     }
 
     [Fact]
     public async Task Revoke_unknown_admin_throws_NotFound()
     {
-        var (h, _, _, _) = NewHandler();
+        var (h, _, _, _, _) = NewHandler();
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            h.Handle(new RevokeSessionCommand(Guid.NewGuid(), Guid.NewGuid(), Actor, "corr"), default).AsTask());
+            h.Handle(new RevokeSessionCommand(
+                Guid.NewGuid(), Guid.NewGuid(), Actor, "corr", "key-1"), default).AsTask());
     }
 
     [Fact]
     public async Task Revoke_unknown_session_throws_NotFound()
     {
-        var (h, accounts, _, _) = NewHandler();
+        var (h, accounts, _, _, _) = NewHandler();
         var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            h.Handle(new RevokeSessionCommand(admin.Id, Guid.NewGuid(), Actor, "corr"), default).AsTask());
+            h.Handle(new RevokeSessionCommand(
+                admin.Id, Guid.NewGuid(), Actor, "corr", "key-1"), default).AsTask());
     }
 
     [Fact]
     public async Task Revoke_session_owned_by_another_admin_throws_NotFound()
     {
-        var (h, accounts, sessions, _) = NewHandler();
+        var (h, accounts, sessions, _, _) = NewHandler();
         var routeAdmin = User.CreateScoped("route@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         var otherAdmin = User.CreateScoped("other@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(routeAdmin);
@@ -111,20 +115,22 @@ public sealed class PlatformUserSessionManagementTests
 
         // route admin exists, but the session belongs to otherAdmin -> 404, no existence leak.
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            h.Handle(new RevokeSessionCommand(routeAdmin.Id, foreign.Id, Actor, "corr"), default).AsTask());
+            h.Handle(new RevokeSessionCommand(
+                routeAdmin.Id, foreign.Id, Actor, "corr", "key-1"), default).AsTask());
         Assert.Empty(sessions.RevokedFamilies);
     }
 
     [Fact]
     public async Task Revoke_revokes_whole_family_audits_and_surfaces_familyId()
     {
-        var (h, accounts, sessions, audit) = NewHandler();
+        var (h, accounts, sessions, audit, operations) = NewHandler();
         var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         var session = MakeSession(admin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         sessions.Add(session);
 
-        var result = await h.Handle(new RevokeSessionCommand(admin.Id, session.Id, Actor, "corr-42"), default);
+        var result = await h.Handle(new RevokeSessionCommand(
+            admin.Id, session.Id, Actor, "corr-42", "key-1"), default);
 
         Assert.Equal(new[] { session.FamilyId }, sessions.RevokedFamilies);   // whole family (REQ-5.1)
         Assert.Single(audit.Appended);
@@ -134,20 +140,41 @@ public sealed class PlatformUserSessionManagementTests
         Assert.Equal(session.Id, result.SessionId);
         Assert.Equal(session.FamilyId, result.FamilyId);
         Assert.Equal(admin.Id, result.AdminId);
+        Assert.Equal(1, operations.Count);
     }
 
     [Fact]
     public async Task Revoke_is_idempotent_across_repeated_calls()
     {
-        var (h, accounts, sessions, _) = NewHandler();
+        var (h, accounts, sessions, audit, _) = NewHandler();
         var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         accounts.Add(admin);
         var session = MakeSession(admin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
         sessions.Add(session);
 
-        await h.Handle(new RevokeSessionCommand(admin.Id, session.Id, Actor, "c"), default);
-        await h.Handle(new RevokeSessionCommand(admin.Id, session.Id, Actor, "c"), default);   // no throw
+        await h.Handle(new RevokeSessionCommand(admin.Id, session.Id, Actor, "c", "same-key"), default);
+        await h.Handle(new RevokeSessionCommand(admin.Id, session.Id, Actor, "c", "same-key"), default);
 
-        Assert.Equal(2, sessions.RevokedFamilies.Count);   // family-revoke is a no-op-safe repeat (REQ-5.5)
+        Assert.Single(sessions.RevokedFamilies);
+        Assert.Single(audit.Appended);
+    }
+
+    [Fact]
+    public async Task Revoke_rejects_reusing_a_key_for_a_different_session()
+    {
+        var (h, accounts, sessions, _, _) = NewHandler();
+        var admin = User.CreateScoped("a@x", new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        accounts.Add(admin);
+        var first = MakeSession(admin.Id, new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        var second = MakeSession(admin.Id, new DateTime(2026, 7, 6, 1, 0, 0, DateTimeKind.Utc));
+        sessions.Add(first);
+        sessions.Add(second);
+
+        await h.Handle(new RevokeSessionCommand(admin.Id, first.Id, Actor, "c", "same-key"), default);
+        var error = await Assert.ThrowsAsync<ConflictException>(() => h.Handle(
+            new RevokeSessionCommand(admin.Id, second.Id, Actor, "c", "same-key"), default).AsTask());
+
+        Assert.Equal("idempotency_key_reused", error.Code);
+        Assert.Equal(new[] { first.FamilyId }, sessions.RevokedFamilies);
     }
 }

@@ -3,7 +3,7 @@ using Iam.Domain.Permissions;
 namespace Architecture.Tests;
 
 /// <summary>REQ-8/13.12-13.13: Checkout and policy implementation stay physically retired, while IAM
-/// vocabulary remains exactly 19 keys across 7 groups.</summary>
+/// vocabulary remains exactly 26 keys across 7 groups.</summary>
 public sealed class RetiredCommerceSurfaceTests
 {
     private static readonly string[] ForbiddenProductionTokens =
@@ -45,9 +45,9 @@ public sealed class RetiredCommerceSurfaceTests
     }
 
     [Fact]
-    public void Permission_catalog_is_exactly_19_keys_and_7_groups_without_retired_policy_keys()
+    public void Permission_catalog_is_exactly_26_keys_and_7_groups_without_retired_policy_keys()
     {
-        Assert.Equal(19, Keys.AllKeys.Count);
+        Assert.Equal(26, Keys.AllKeys.Count);
         Assert.Equal(7, Keys.GroupKeys.Count);
         Assert.DoesNotContain(Keys.AllKeys, key => key.Contains("policies", StringComparison.Ordinal));
         Assert.DoesNotContain(Keys.GroupKeys, key => key.Contains("policies", StringComparison.Ordinal));

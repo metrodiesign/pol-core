@@ -50,7 +50,7 @@ public sealed class PlatformUserCommandTests
     {
         var (h, _, _, _) = NewHandler();
         await Assert.ThrowsAsync<NotFoundException>(() =>
-            h.Handle(new ReactivateCommand(Guid.NewGuid(), Actor, "corr"), default).AsTask());
+            h.Handle(new ReactivateCommand(Guid.NewGuid(), Actor, "corr", 1), default).AsTask());
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public sealed class PlatformUserCommandTests
         target.Suspend(Actor);
         accounts.Add(target);
 
-        var result = await h.Handle(new ReactivateCommand(target.Id, Actor, "corr"), default);
+        var result = await h.Handle(new ReactivateCommand(target.Id, Actor, "corr", target.Version), default);
 
         Assert.Equal(nameof(UserStatus.Active), result.Status);
         Assert.Equal(UserStatus.Active, target.Status);
@@ -78,7 +78,7 @@ public sealed class PlatformUserCommandTests
         var target = User.CreateScoped("t@x", T0);   // already Active
         accounts.Add(target);
 
-        await h.Handle(new ReactivateCommand(target.Id, Actor, "corr"), default);
+        await h.Handle(new ReactivateCommand(target.Id, Actor, "corr", target.Version), default);
 
         Assert.Empty(sessions.RevokedAdmins);               // idempotent: no revoke (REQ-3.6)
         Assert.Single(audit.Appended);                      // but still audits (REQ-3.3)

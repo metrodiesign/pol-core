@@ -10,10 +10,10 @@ namespace Admins.Application.Users;
 /// (REQ-3.5); the already-Active case is an idempotent no-revoke (REQ-3.6). The account load, the revoke, the
 /// status flip, and the audit run in ONE keyed "admin" transaction so they commit or roll back together
 /// (REQ-3.2). Unknown target -> 404. Super-only at the host.</summary>
-public sealed record ReactivateCommand(Guid TargetAdminId, Guid ActingAdminId, string CorrelationId)
+public sealed record ReactivateCommand(Guid TargetAdminId, Guid ActingAdminId, string CorrelationId, long ExpectedVersion)
     : ICommand<ReactivateResult>;
 
-public sealed record ReactivateResult(Guid AdminId, string Status);
+public sealed record ReactivateResult(Guid AdminId, string Status, long Version);
 
 public sealed class ReactivateHandler : ICommandHandler<ReactivateCommand, ReactivateResult>
 {
@@ -39,11 +39,13 @@ public sealed class ReactivateHandler : ICommandHandler<ReactivateCommand, React
 
     public async ValueTask<ReactivateResult> Handle(ReactivateCommand command, CancellationToken cancellationToken)
     {
-        var status = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var state = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             // Load INSIDE the lambda so an execution-strategy retry re-loads a fresh entity (mirrors SuspendAdmin).
             var admin = await _admins.GetByIdAsync(command.TargetAdminId, ct)
                 ?? throw new NotFoundException("The admin account was not found.");
+            if (admin.Version != command.ExpectedVersion)
+                throw new ConflictException("The admin account changed after it was loaded.", "state_conflict");
 
             bool wasSuspended = admin.Status == UserStatus.Suspended;
             admin.Reactivate();
@@ -56,9 +58,9 @@ public sealed class ReactivateHandler : ICommandHandler<ReactivateCommand, React
                 AuditAction.Reactivate, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.TargetAdminId));
             await _unitOfWork.SaveChangesAsync(ct);
-            return admin.Status;
+            return (admin.Status, admin.Version);
         }, cancellationToken);
 
-        return new ReactivateResult(command.TargetAdminId, status.ToString());
+        return new ReactivateResult(command.TargetAdminId, state.Status.ToString(), state.Version);
     }
 }

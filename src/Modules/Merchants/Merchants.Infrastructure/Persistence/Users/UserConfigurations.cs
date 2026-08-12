@@ -21,6 +21,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.MerchantId); // NULL until admin approval sets it (REQ-2.3)
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
         // The registrant's own person details (REQ-7.1) live on the account — a "merchant" is the company/app, not
         // the person, so this data belongs to the person's record, not a merchant-scoped profile.
@@ -120,5 +121,66 @@ public sealed class RegistrationNoticeConfiguration : IEntityTypeConfiguration<R
         builder.Property(x => x.OccurredAt).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.HasIndex(x => x.UserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
+    }
+}
+
+public sealed class MerchantUserInvitationConfiguration : IEntityTypeConfiguration<MerchantUserInvitation>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserInvitation> builder)
+    {
+        builder.ToTable("MerchantUserInvitations", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.TokenHash).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.ExpiresAt).IsRequired();
+        builder.Property(x => x.CreatedByUserId).IsRequired();
+        builder.Property(x => x.CreatedByAudience).HasConversion<string>().HasMaxLength(32).IsRequired();
+        builder.Property(x => x.IntendedRoleCodesJson).HasMaxLength(2_000).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.RowVersion).IsRowVersion();
+        builder.HasIndex(x => x.TokenHash).IsUnique();
+        builder.HasIndex(x => new { x.MerchantId, x.NormalizedEmail }).IsUnique()
+            .HasFilter("[AcceptedAt] IS NULL AND [RevokedAt] IS NULL");
+    }
+}
+
+public sealed class AdminUserOperationRecordConfiguration : IEntityTypeConfiguration<AdminUserOperationRecord>
+{
+    public void Configure(EntityTypeBuilder<AdminUserOperationRecord> builder)
+    {
+        builder.ToTable("AdminUserOperationRecords", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId);
+        builder.Property(x => x.ActorId).IsRequired();
+        builder.Property(x => x.Operation).HasMaxLength(120).IsRequired();
+        builder.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.IntentHash).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.Result).HasMaxLength(16_384).IsRequired();
+        builder.Property(x => x.HttpStatus).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.ExpiresAt).IsRequired();
+        builder.HasIndex(x => new { x.MerchantId, x.ActorId, x.Operation, x.IdempotencyKey }).IsUnique();
+        builder.HasIndex(x => new { x.ActorId, x.Operation, x.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("[MerchantId] IS NULL");
+        builder.HasIndex(x => x.ExpiresAt);
+    }
+}
+
+public sealed class MerchantUserManagementAuditConfiguration : IEntityTypeConfiguration<MerchantUserManagementAudit>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserManagementAudit> builder)
+    {
+        builder.ToTable("MerchantUserManagementAudits", SchemaNames.Merch, table =>
+            table.HasCheckConstraint("CK_MerchantUserManagementAudits_Target",
+                "[TargetUserId] IS NOT NULL OR [InvitationId] IS NOT NULL"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        builder.Property(x => x.Action).HasMaxLength(32).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.OccurredAt).IsRequired();
+        builder.HasIndex(x => new { x.MerchantId, x.OccurredAt });
     }
 }

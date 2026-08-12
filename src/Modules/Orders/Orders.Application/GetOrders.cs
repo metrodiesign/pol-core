@@ -1,14 +1,15 @@
 using BuildingBlocks.Application;
 using Mediator;
 using SharedKernel;
+using System.Text.Json.Serialization;
 
 namespace Orders.Application;
 
 /// <summary>Merchant-authenticated order list — the masked read surface REQ-7.4 names alongside the
 /// detail read. Merchant-scoped via <see cref="IMerchantScoped"/> + the query filter floor.
-/// <paramref name="OrderNo"/> is the one filter this surface takes (purchase-flow-completion REQ-7.4),
-/// parsed at the host from the SFS <c>filters</c> contract; null = no filter.</summary>
-public sealed record GetOrdersQuery(Guid MerchantId, string? OrderNo = null) : IQuery<OrdersListView>, IMerchantScoped;
+/// Paging, filtering and sorting use the shared SFS contract with a deny-by-default repository whitelist.</summary>
+public sealed record GetOrdersQuery(Guid MerchantId)
+    : PagedQuery, IQuery<PagedResult<OrderListItem>>, IMerchantScoped;
 
 /// <summary>Generic list line. Metadata is intentionally absent.</summary>
 public sealed record OrderItemListItem(
@@ -17,27 +18,36 @@ public sealed record OrderItemListItem(
 
 public sealed record OrderListItem(
     Guid OrderId, string OrderNo, string Status, Money Amount, DateTime CreatedAt, string? PaymentChannel,
-    IReadOnlyList<OrderItemListItem> Lines);
+    string CustomerName, string CustomerPhone, string? CustomerEmail,
+    IReadOnlyList<OrderItemListItem> Lines,
+    [property: JsonIgnore] Guid MerchantId = default,
+    [property: JsonIgnore] Guid? OriginatorId = null,
+    [property: JsonIgnore] Guid? PaymentSessionId = null,
+    [property: JsonIgnore] DateTime UpdatedAt = default,
+    [property: JsonIgnore] DateTime? PaidAt = null,
+    [property: JsonIgnore] long Version = 0);
 
-public sealed record OrdersListView(IReadOnlyList<OrderListItem> Orders);
-
-public sealed class GetOrdersHandler : IQueryHandler<GetOrdersQuery, OrdersListView>
+public sealed class GetOrdersHandler : IQueryHandler<GetOrdersQuery, PagedResult<OrderListItem>>
 {
     private readonly IOrderRepository _orders;
 
     public GetOrdersHandler(IOrderRepository orders) => _orders = orders;
 
-    public async ValueTask<OrdersListView> Handle(GetOrdersQuery query, CancellationToken cancellationToken)
+    public async ValueTask<PagedResult<OrderListItem>> Handle(
+        GetOrdersQuery query,
+        CancellationToken cancellationToken)
     {
-        var orders = await _orders.ListAsync(query.MerchantId, query.OrderNo, cancellationToken).ConfigureAwait(false);
+        var orders = await _orders.ListAsync(query.MerchantId, query, cancellationToken).ConfigureAwait(false);
 
-        var items = orders.Select(o => new OrderListItem(
+        var items = orders.Items.Select(o => new OrderListItem(
             o.Id, o.OrderNo, o.Status.ToString(), o.Amount, o.CreatedAt, o.PaymentChannel,
+            o.CustomerName, o.CustomerPhone, o.CustomerEmail,
             o.Items.Select(i => new OrderItemListItem(
                 i.ProductCode, i.VariantCode, i.VariantName, i.Quantity, i.UnitPrice, i.Discount))
-                .ToList()))
+                .ToList(),
+            o.MerchantId, o.OriginatorId, o.PaymentSessionId, o.UpdatedAt, o.PaidAt, o.Version))
             .ToList();
 
-        return new OrdersListView(items);
+        return new PagedResult<OrderListItem>(items, orders.Page, orders.Limit, orders.Total);
     }
 }

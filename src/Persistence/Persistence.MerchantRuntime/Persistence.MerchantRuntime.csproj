@@ -21,6 +21,8 @@
     <ProjectReference Include="..\..\Modules\Payments\Payments.Application\Payments.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Merchants\Merchants.Domain\Merchants.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Merchants\Merchants.Application\Merchants.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Governance\Governance.Application\Governance.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Reporting\Reporting.Application\Reporting.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

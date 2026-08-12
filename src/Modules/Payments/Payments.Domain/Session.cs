@@ -40,6 +40,9 @@ public sealed class Session : AggregateRoot<Guid>
 
     public DateTime UpdatedAt { get; private set; }
 
+    /// <summary>Application-managed resource version exposed as Admin ETag.</summary>
+    public long Version { get; private set; }
+
     /// <summary>Optimistic-concurrency token (mapped as a SQL Server rowversion). It serialises the
     /// redirect claim so two concurrent <c>StartRedirect</c> requests cannot both create a PSP charge
     /// (PLAN #11).</summary>
@@ -66,6 +69,7 @@ public sealed class Session : AggregateRoot<Guid>
         Status = SessionStatus.Created;
         CreatedAt = createdAt;
         UpdatedAt = createdAt;
+        Version = 1;
     }
 
     /// <summary>
@@ -103,6 +107,7 @@ public sealed class Session : AggregateRoot<Guid>
 
         Status = SessionStatus.Redirected;
         UpdatedAt = occurredAt;
+        Version++;
     }
 
     /// <summary>
@@ -125,6 +130,7 @@ public sealed class Session : AggregateRoot<Guid>
         PspExternalChargeId = externalChargeId;
         RedirectUrl = redirectUrl;
         UpdatedAt = occurredAt;
+        Version++;
     }
 
     /// <summary>
@@ -157,6 +163,7 @@ public sealed class Session : AggregateRoot<Guid>
 
         Status = SessionStatus.Paid;
         UpdatedAt = occurredAt;
+        Version++;
     }
 
     /// <summary>Guarded transition to <see cref="SessionStatus.Failed"/> from a non-terminal state.</summary>
@@ -170,6 +177,7 @@ public sealed class Session : AggregateRoot<Guid>
 
         Status = SessionStatus.Failed;
         UpdatedAt = occurredAt;
+        Version++;
     }
 
     /// <summary>
@@ -192,5 +200,6 @@ public sealed class Session : AggregateRoot<Guid>
 
         Status = SessionStatus.Expired;
         UpdatedAt = occurredAt;
+        Version++;
     }
 }

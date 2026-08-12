@@ -17,12 +17,16 @@ namespace Api.Merchants;
 internal interface IUserCallbackResolver
 {
     Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken);
+    Task<InvitationResolution?> ResolveInvitationAsync(Guid invitationId, CancellationToken cancellationToken) =>
+        Task.FromResult<InvitationResolution?>(null);
 }
 
 internal sealed class UserCallbackResolver(IMediator mediator) : IUserCallbackResolver
 {
     public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken cancellationToken) =>
         mediator.Send(new ResolveLoginQuery(subject), cancellationToken).AsTask();
+    public Task<InvitationResolution?> ResolveInvitationAsync(Guid invitationId, CancellationToken cancellationToken) =>
+        mediator.Send(new ResolveInvitationByIdQuery(invitationId), cancellationToken).AsTask();
 }
 
 /// <summary>
@@ -83,11 +87,25 @@ internal sealed class UserLoginService
     /// id_token's (REQ-9.3); the form/request can never override it.</summary>
     public async Task HandleCallbackAsync(
         HttpContext http, string? subject, string? email, string? hostedDomain, string provider, string? returnTo,
-        CancellationToken ct)
+        CancellationToken ct, Guid? invitationId = null)
     {
         if (string.IsNullOrEmpty(subject) || string.IsNullOrEmpty(email))
         {
             await DenyAsync(http, "missing-identity", subject, ct);
+            return;
+        }
+
+        if (invitationId is { } invitedBy)
+        {
+            var invitation = await _resolver.ResolveInvitationAsync(invitedBy, ct);
+            if (invitation is null || !string.Equals(invitation.NormalizedEmail,
+                    MerchantUserInvitation.NormalizeEmail(email), StringComparison.Ordinal))
+            {
+                await DenyAsync(http, "invitation-invalid", subject, ct);
+                return;
+            }
+            await IssueTicketAndRedirectAsync(http, subject, email, hostedDomain, provider,
+                TicketPurpose.Registration, ct, invitation.InvitationId);
             return;
         }
 
@@ -161,13 +179,13 @@ internal sealed class UserLoginService
     /// repeated callback simply mints a fresh, harmless token.</summary>
     private async Task IssueTicketAndRedirectAsync(
         HttpContext http, string subject, string email, string? hostedDomain, string provider, TicketPurpose purpose,
-        CancellationToken ct)
+        CancellationToken ct, Guid? invitationId = null)
     {
         string wireTicket;
         try
         {
             wireTicket = _ticketProtector.Protect(new UserTicketPayload(
-                subject, email, hostedDomain, purpose, provider, Guid.CreateVersion7()));
+                subject, email, hostedDomain, purpose, provider, Guid.CreateVersion7(), invitationId));
         }
         catch (Exception ex)
         {

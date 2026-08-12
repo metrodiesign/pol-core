@@ -90,6 +90,19 @@ public sealed class ListProductsHandlerTests
         new ListProductsHandler(gateway, probe, NullLogger<ListProductsHandler>.Instance)
             .Handle(query, CancellationToken.None).AsTask();
 
+    [Fact]
+    public async Task Product_identity_is_derived_from_authoritative_document_fields()
+    {
+        var result = await HandleAsync(
+            new FakeGateway(FullPage, Row("DOC-42", sourceSystem: "VMI")),
+            new FakeProbe(),
+            Query(Filters(ProductGroup.VMI)));
+
+        var item = Assert.Single(result.Items);
+        Assert.Equal("DOC-42", item.ProductCode);
+        Assert.Equal("VMI", item.VariantCode);
+    }
+
     // The routing table of design.md, row by row (REQ-3.2). The two catalogues are separate procedures
     // with separate paging, so exactly one side has to be resolvable from the filter.
     [Theory]

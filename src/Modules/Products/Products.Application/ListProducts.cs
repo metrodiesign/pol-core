@@ -52,6 +52,12 @@ public sealed record ProductListItem(
     DomainPaymentStatus PaymentStatus,
     bool SoldByPlatform)
 {
+    /// <summary>Stable cart identifier derived from the upstream document number.</summary>
+    public string ProductCode => DocumentNo;
+
+    /// <summary>Stable cart variant derived from the upstream product group.</summary>
+    public string VariantCode => ProductGroup.ToString();
+
     /// <summary>§5.2 <c>InsuranceType</c> — derived from <see cref="ProductGroup"/>, never stored.</summary>
     public InsuranceType InsuranceType =>
         ProductGroup is ProductGroup.CMI or ProductGroup.VMI ? InsuranceType.Motor : InsuranceType.NonMotor;

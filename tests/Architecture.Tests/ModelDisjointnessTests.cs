@@ -48,6 +48,8 @@ public sealed class ModelDisjointnessTests : IDisposable
             typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
             typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
             typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
+            typeof(global::Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
+            typeof(global::Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);
         _pol = new PolDbContext(
             new DbContextOptionsBuilder<PolDbContext>().UseSqlite(_polConnection)

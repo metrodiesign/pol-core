@@ -7,23 +7,29 @@ namespace BuildingBlocks.Infrastructure.Persistence;
 /// REQ-11.7, Codex round-2/round-3 findings). Resolves via <see cref="IMutableEntityType.FindProperty"/> —
 /// NOT the fluent <c>Property(x =&gt; x.Y)</c> API, which silently CREATES a shadow property on a typo
 /// instead of failing — and rejects a shadow property, the wrong CLR type, or (unless the caller explicitly
-/// opts in for the <c>merch.Users</c> pending-approval carve-out) a nullable <c>Guid</c>. Call this BEFORE
+/// opts in) a nullable <c>Guid</c>. Call this BEFORE
 /// wiring <c>HasQueryFilter</c> so a misconfigured tenant key fails loud the first time the context's model
 /// is built, instead of silently becoming a 0-row read floor.
 /// <para>
 /// Task 3 (write floor, REQ-2.6/REQ-2.9): also configures the property as an EF concurrency token — a
 /// forged detached write targets 0 rows and throws <see cref="Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException"/>
 /// — and stamps an annotation <see cref="GuardedRuntimeDbContext"/> reads at save time to reject
-/// <see cref="Guid.Empty"/> and enforce immutability after insert. The nullable pending-approval carve-out
-/// needs no separate flag: <c>allowNullable</c> is the only way a tenant key's CLR type can be <c>Guid?</c>
-/// at all, so "the original value was null" already uniquely identifies that one legitimate transition.
+/// <see cref="Guid.Empty"/> and enforce immutability after insert. Nullable platform-or-merchant rows use
+/// <paramref name="allowNullable"/> only; the one pending-user binding flow also opts into
+/// <paramref name="allowNullToValue"/>. Keeping those flags separate prevents a platform-scoped Governance
+/// row from being retargeted to a merchant through EF's change tracker.
 /// </para>
 /// </summary>
 public static class TenantKeyDescriptor
 {
     internal const string AnnotationName = "Pol:TenantKey";
+    internal const string AllowNullToValueAnnotationName = "Pol:TenantKeyAllowNullToValue";
 
-    public static void Require(IMutableEntityType entityType, string propertyName, bool allowNullable = false)
+    public static void Require(
+        IMutableEntityType entityType,
+        string propertyName,
+        bool allowNullable = false,
+        bool allowNullToValue = false)
     {
         var property = entityType.FindProperty(propertyName);
         if (property is null)
@@ -44,10 +50,14 @@ public static class TenantKeyDescriptor
 
         if (isNullableGuid && !allowNullable)
             throw new InvalidOperationException(
-                $"{entityType.ClrType.Name}: tenant key '{propertyName}' is nullable Guid — only the merch.Users "
-                + "pending-approval carve-out may be nullable (pass allowNullable: true for that one case).");
+                $"{entityType.ClrType.Name}: tenant key '{propertyName}' is nullable Guid — pass allowNullable: true explicitly.");
+
+        if (allowNullToValue && (!allowNullable || !isNullableGuid))
+            throw new InvalidOperationException(
+                $"{entityType.ClrType.Name}: allowNullToValue requires a nullable Guid tenant key.");
 
         property.IsConcurrencyToken = true;
         entityType.SetAnnotation(AnnotationName, propertyName);
+        entityType.SetAnnotation(AllowNullToValueAnnotationName, allowNullToValue);
     }
 }

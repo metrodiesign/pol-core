@@ -18,6 +18,7 @@ public sealed class Office : AggregateRoot<Guid>
     public string Code { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public OfficeStatus Status { get; private set; }
+    public long Version { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Office() { }
@@ -32,6 +33,7 @@ public sealed class Office : AggregateRoot<Guid>
         Code = code;
         Name = name.Trim();
         Status = OfficeStatus.Active;
+        Version = 1;
     }
 
     public static Office Create(string code, string name) => new(Guid.NewGuid(), code, name);
@@ -45,4 +47,5 @@ public sealed class Office : AggregateRoot<Guid>
 
     public void Activate() => Status = OfficeStatus.Active;
     public void Deactivate() => Status = OfficeStatus.Inactive;
+    public void BumpVersion() => Version++;
 }

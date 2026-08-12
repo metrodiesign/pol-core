@@ -46,4 +46,14 @@ public sealed class CsrfParityTests
     [Fact]
     public void An_unsafe_endpoint_with_its_own_sides_marker_passes() =>
         Assert.Empty(Find(("/api/v1/carts", ["POST"], "merchant-user", ["MerchantUserSession"])));
+
+    [Fact]
+    public void An_unsafe_dual_console_endpoint_requires_both_audience_markers() =>
+        Assert.Contains(Find(("/api/v1/carts", ["POST"], "dual-console", ["AdminSession"])),
+            p => p.Contains("no MerchantUserSession", StringComparison.Ordinal));
+
+    [Fact]
+    public void An_unsafe_dual_console_endpoint_with_both_markers_passes() =>
+        Assert.Empty(Find(("/api/v1/carts", ["POST"], "dual-console",
+            ["AdminSession", "MerchantUserSession"])));
 }

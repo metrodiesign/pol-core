@@ -30,12 +30,14 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
         // migration) — PolDbContext (migration owner, never registered at runtime) is deliberately untouched.
         builder.Property(x => x.Status).HasConversion<int>().IsConcurrencyToken().IsRequired();
         builder.Property(x => x.MerchantId).IsConcurrencyToken(); // NULL until admin approval sets it (REQ-2.3)
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         // Pending-approval carve-out (rls-to-query-filter REQ-11.7): MerchantId may be NULL. A NULL never
         // equals CurrentMerchant in SQL, so this filter naturally hides pending rows from every merchant
         // actor without special-casing — they become visible only through the approve write port (task 5),
         // which suppresses this filter explicitly.
-        TenantKeyDescriptor.Require(builder.Metadata, nameof(User.MerchantId), allowNullable: true);
+        TenantKeyDescriptor.Require(
+            builder.Metadata, nameof(User.MerchantId), allowNullable: true, allowNullToValue: true);
         builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.Property(x => x.DisplayName).HasMaxLength(200).IsRequired(); // server-computed from first/last name
@@ -135,5 +137,77 @@ public sealed class RegistrationNoticeConfiguration : IEntityTypeConfiguration<R
         builder.Property(x => x.OccurredAt).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
         builder.HasIndex(x => x.UserId).IsUnique(); // one notice per registration (idempotent, REQ-20.4)
+    }
+}
+
+internal sealed class MerchantUserInvitationConfiguration(MerchantUserDbContext context)
+    : IEntityTypeConfiguration<MerchantUserInvitation>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserInvitation> builder)
+    {
+        builder.ToTable("MerchantUserInvitations", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        TenantKeyDescriptor.Require(builder.Metadata, nameof(MerchantUserInvitation.MerchantId));
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.TokenHash).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.ExpiresAt).IsRequired();
+        builder.Property(x => x.CreatedByUserId).IsRequired();
+        builder.Property(x => x.CreatedByAudience).HasConversion<string>().HasMaxLength(32).IsRequired();
+        builder.Property(x => x.IntendedRoleCodesJson).HasMaxLength(2_000).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.RowVersion).IsRowVersion();
+        builder.HasIndex(x => x.TokenHash).IsUnique();
+        builder.HasIndex(x => new { x.MerchantId, x.NormalizedEmail }).IsUnique()
+            .HasFilter("[AcceptedAt] IS NULL AND [RevokedAt] IS NULL");
+    }
+}
+
+internal sealed class AdminUserOperationRecordConfiguration(MerchantUserDbContext context)
+    : IEntityTypeConfiguration<AdminUserOperationRecord>
+{
+    public void Configure(EntityTypeBuilder<AdminUserOperationRecord> builder)
+    {
+        builder.ToTable("AdminUserOperationRecords", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId);
+        TenantKeyDescriptor.Require(builder.Metadata, nameof(AdminUserOperationRecord.MerchantId), allowNullable: true);
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        builder.Property(x => x.ActorId).IsRequired();
+        builder.Property(x => x.Operation).HasMaxLength(120).IsRequired();
+        builder.Property(x => x.IdempotencyKey).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.IntentHash).HasMaxLength(64).IsUnicode(false).IsRequired();
+        builder.Property(x => x.Result).HasMaxLength(16_384).IsRequired();
+        builder.Property(x => x.HttpStatus).IsRequired();
+        builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.ExpiresAt).IsRequired();
+        builder.HasIndex(x => new { x.MerchantId, x.ActorId, x.Operation, x.IdempotencyKey }).IsUnique();
+        builder.HasIndex(x => new { x.ActorId, x.Operation, x.IdempotencyKey })
+            .IsUnique()
+            .HasFilter("[MerchantId] IS NULL");
+        builder.HasIndex(x => x.ExpiresAt);
+        AppendOnlyDescriptor.Mark(builder.Metadata);
+    }
+}
+
+internal sealed class MerchantUserManagementAuditConfiguration(MerchantUserDbContext context)
+    : IEntityTypeConfiguration<MerchantUserManagementAudit>
+{
+    public void Configure(EntityTypeBuilder<MerchantUserManagementAudit> builder)
+    {
+        builder.ToTable("MerchantUserManagementAudits", SchemaNames.Merch);
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.MerchantId).IsRequired();
+        TenantKeyDescriptor.Require(builder.Metadata, nameof(MerchantUserManagementAudit.MerchantId));
+        builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
+        builder.Property(x => x.Action).HasMaxLength(32).IsUnicode(false).IsRequired();
+        builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
+        builder.Property(x => x.OccurredAt).IsRequired();
+        builder.HasIndex(x => new { x.MerchantId, x.OccurredAt });
+        builder.ToTable(table => table.HasCheckConstraint("CK_MerchantUserManagementAudits_Target",
+            "[TargetUserId] IS NOT NULL OR [InvitationId] IS NOT NULL"));
+        AppendOnlyDescriptor.Mark(builder.Metadata);
     }
 }

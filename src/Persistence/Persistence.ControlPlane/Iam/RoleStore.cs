@@ -95,5 +95,5 @@ internal sealed class RoleStore : IRoleStore
 
     private static RoleListItem ToListItem(Role role, int userCount) =>
         new(role.Id, role.Code, role.Name, role.Description, role.Color, role.Status,
-            Shared: role.MerchantId is null, [.. role.PermissionKeys], userCount);
+            Shared: role.MerchantId is null, [.. role.PermissionKeys], role.Version, userCount);
 }

@@ -61,10 +61,21 @@ internal sealed class FakeOrderRepository : IOrderRepository
     public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken ct) =>
         Task.FromResult(Reconciliation);
 
-    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken ct) =>
-        Task.FromResult<IReadOnlyList<Order>>(
-            _orders.Where(o => o.MerchantId == merchantId && (orderNo is null || o.OrderNo == orderNo))
-                .OrderByDescending(o => o.CreatedAt).ToList());
+    public Task<PagedResult<Order>> ListAsync(Guid merchantId, PagedQuery query, CancellationToken ct)
+    {
+        var source = _orders.Where(o => o.MerchantId == merchantId).ToList();
+        var orderNo = query.Filters.FirstOrDefault(f =>
+            f.Field == "orderNo" && f.Operator == FilterOperator.Equals)?.Value?.GetString();
+        if (orderNo is not null)
+            source = source.Where(o => o.OrderNo == orderNo).ToList();
+
+        var total = source.Count;
+        var items = source.OrderByDescending(o => o.CreatedAt)
+            .Skip((query.Page - 1) * query.Limit)
+            .Take(query.Limit)
+            .ToList();
+        return Task.FromResult(new PagedResult<Order>(items, query.Page, query.Limit, total));
+    }
 
     public void Add(Order order) => _orders.Add(order);
 }

@@ -68,7 +68,8 @@ file sealed class FakeOfficeStore : IOfficeStore
         Page = page;
         Limit = limit;
         return Task.FromResult(new BuildingBlocks.Application.PagedResult<OfficeItem>(
-            [new OfficeItem(Guid.Parse("b2000000-0000-4000-8000-000000000001"), "hq", "สำนักงานใหญ่", OfficeStatus.Active)],
+            [new OfficeItem(
+                Guid.Parse("b2000000-0000-4000-8000-000000000001"), "hq", "สำนักงานใหญ่", OfficeStatus.Active, 1)],
             page, limit, 1));
     }
 
@@ -76,17 +77,17 @@ file sealed class FakeOfficeStore : IOfficeStore
         throw new NotSupportedException();
 
     public Task<OfficeItem> UpdateAsync(
-        Guid id, string name, OfficeStatus status, CancellationToken cancellationToken) =>
+        Guid id, string name, OfficeStatus status, long expectedVersion, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
     public Task<OfficeItem> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
-    public Task<OfficeItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+    public Task<OfficeItem> DeactivateAsync(Guid id, long expectedVersion, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 }
 
-file sealed class OfficeAuthorizationFactory(bool grantUserManage)
+file sealed class OfficeAuthorizationFactory(bool grantUserView)
     : WebApplicationFactory<ApiHost::Program>
 {
     private const string UnusedConnection =
@@ -121,8 +122,8 @@ file sealed class OfficeAuthorizationFactory(bool grantUserManage)
                 .AddAuthenticationSchemes(OfficeTestAdminAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
 
-            IReadOnlySet<string> permissions = grantUserManage
-                ? new HashSet<string>([Keys.UserManage], StringComparer.Ordinal)
+            IReadOnlySet<string> permissions = grantUserView
+                ? new HashSet<string>([Keys.UserView], StringComparer.Ordinal)
                 : new HashSet<string>(StringComparer.Ordinal);
             services.AddScoped<IAdminScope>(_ => new OfficeAdminScope(permissions));
             services.AddScoped<IOfficeStore>(_ => Store);
@@ -135,9 +136,9 @@ public sealed class OfficeAuthorizationEndpointTests
     private const string Route = "/api/v1/offices?page=1&limit=25";
 
     [Fact]
-    public async Task Authenticated_admin_with_user_manage_gets_200_without_csrf()
+    public async Task Authenticated_admin_with_user_view_gets_200_without_csrf()
     {
-        using var factory = new OfficeAuthorizationFactory(grantUserManage: true);
+        using var factory = new OfficeAuthorizationFactory(grantUserView: true);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(OfficeTestAdminAuthHandler.HeaderName, "1");
 
@@ -154,9 +155,9 @@ public sealed class OfficeAuthorizationEndpointTests
     }
 
     [Fact]
-    public async Task Authenticated_super_without_user_manage_gets_403_before_store()
+    public async Task Authenticated_super_without_user_view_gets_403_before_store()
     {
-        using var factory = new OfficeAuthorizationFactory(grantUserManage: false);
+        using var factory = new OfficeAuthorizationFactory(grantUserView: false);
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add(OfficeTestAdminAuthHandler.HeaderName, "1");
 
@@ -169,7 +170,7 @@ public sealed class OfficeAuthorizationEndpointTests
     [Fact]
     public async Task Request_without_admin_session_gets_401_before_store()
     {
-        using var factory = new OfficeAuthorizationFactory(grantUserManage: true);
+        using var factory = new OfficeAuthorizationFactory(grantUserView: true);
         using var client = factory.CreateClient();
 
         var response = await client.GetAsync(Route);
@@ -183,9 +184,9 @@ public sealed class OfficeAuthorizationEndpointTests
     [InlineData("/api/v1/offices")]
     [InlineData("/api/v1/levels")]
     [InlineData("/api/v1/divisions")]
-    public void Every_master_data_list_keeps_admin_and_user_manage_gates(string route)
+    public void Every_master_data_list_keeps_admin_and_user_view_gates(string route)
     {
-        using var factory = new OfficeAuthorizationFactory(grantUserManage: true);
+        using var factory = new OfficeAuthorizationFactory(grantUserView: true);
         using var _ = factory.CreateClient();
 
         var endpoint = factory.Services.GetRequiredService<EndpointDataSource>().Endpoints
@@ -198,6 +199,6 @@ public sealed class OfficeAuthorizationEndpointTests
             .Last(value => !string.IsNullOrEmpty(value));
         Assert.Equal("admin", policy);
         var required = Assert.Single(endpoint.Metadata.OfType<ApiHost::Api.Iam.RequiredPermission>());
-        Assert.Equal(Keys.UserManage, required.Permission);
+        Assert.Equal(Keys.UserView, required.Permission);
     }
 }

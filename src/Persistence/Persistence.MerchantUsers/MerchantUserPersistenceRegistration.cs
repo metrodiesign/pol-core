@@ -39,7 +39,13 @@ public static class MerchantUserPersistenceRegistration
                 sp.GetRequiredService<ISecurityTelemetry>());
         });
 
-        services.AddScoped<IUserRepository>(sp => new MerchantUserRepository(sp.GetRequiredService<MerchantUserDbContext>()));
+        services.AddScoped<IUserRepository>(sp => new MerchantUserRepository(
+            sp.GetRequiredService<MerchantUserDbContext>(),
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<MerchantUserRepository>>()));
+        services.AddScoped<IInvitationRepository>(sp => new MerchantInvitationRepository(sp.GetRequiredService<MerchantUserDbContext>()));
+        services.AddScoped<IManagementAuditWriter>(sp => new MerchantManagementAuditWriter(sp.GetRequiredService<MerchantUserDbContext>()));
+        services.AddScoped<IAdminUserOperationStore>(sp => new AdminUserOperationStore(sp.GetRequiredService<MerchantUserDbContext>()));
+        services.AddScoped<IActiveManagerGuard>(sp => new ActiveManagerGuard(sp.GetRequiredService<MerchantUserDbContext>()));
         // The pre-bind seams (bugfix-merchant-prebind-wiring): the task-5 escape-hatch ports, finally DI-wired.
         // ResolveLogin/ResolveById read through IAccountResolver; SubmitRegistration/Approve/Reject load their
         // target through IAccountStore — the filtered IUserRepository above serves BOUND in-session flows only.

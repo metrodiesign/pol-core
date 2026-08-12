@@ -24,7 +24,7 @@ public sealed record GetAdminByIdQuery(Guid AdminId) : IQuery<Detail?>;
 public sealed record Detail(
     Guid AdminId, string Email, Tier Tier, UserStatus Status, DateTime CreatedAt,
     bool SubjectBound, AccessibleMerchants Accessible, IReadOnlyList<string> RoleCodes,
-    ProfileRef? Position, ProfileRef? Office, ProfileRef? Level, ProfileRef? Division);
+    ProfileRef? Position, ProfileRef? Office, ProfileRef? Level, ProfileRef? Division, long Version);
 
 public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository roles, IProfileLookup masters)
     : IQueryHandler<GetAdminByIdQuery, Detail?>
@@ -48,7 +48,7 @@ public sealed class GetAdminByIdHandler(IUserRepository admins, IRoleRepository 
         return new Detail(
             account.Id, account.Email, account.Tier, account.Status, account.CreatedAt,
             account.Subject is not null, accessible, roleCodes,
-            position, office, level, division);
+            position, office, level, division, account.Version);
     }
 }
 

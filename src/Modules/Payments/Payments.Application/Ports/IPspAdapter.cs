@@ -22,6 +22,10 @@ public interface IPspAdapter
     /// </summary>
     IReadOnlySet<string> SupportedMethods { get; }
 
+    /// <summary>Runs a read-only authenticated provider probe. No fake success and no charge creation.</summary>
+    Task<PspProbeResult> TestConnectionAsync(string secret, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This PSP adapter does not implement a connection probe.");
+
     /// <summary>
     /// Creates a hosted charge for the session and returns its external id + hosted redirect URL.
     /// <paramref name="secret"/> is revealed from the vault by the caller, used here, never logged.
@@ -45,3 +49,5 @@ public interface IPspAdapter
     /// <summary>Parses a verified webhook payload into the normalized <see cref="WebhookEvent"/>.</summary>
     WebhookEvent ParseWebhook(string rawPayload);
 }
+
+public sealed record PspProbeResult(string Code, string Detail);

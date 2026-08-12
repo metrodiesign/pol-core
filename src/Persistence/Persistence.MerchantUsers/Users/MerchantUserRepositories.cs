@@ -19,10 +19,18 @@ namespace Persistence.MerchantUsers.Users;
 /// (<c>IAccountStore</c>), wired by bugfix-merchant-prebind-wiring; this class is for ordinary BOUND-actor
 /// call sites only (e.g. <c>SetUserRoles</c>).
 /// </summary>
-internal sealed class MerchantUserRepository : IUserRepository
+internal sealed partial class MerchantUserRepository : IUserRepository
 {
     private readonly MerchantUserDbContext _db;
-    public MerchantUserRepository(MerchantUserDbContext db) => _db = db;
+    private readonly Microsoft.Extensions.Logging.ILogger<MerchantUserRepository> _logger;
+    public MerchantUserRepository(MerchantUserDbContext db,
+        Microsoft.Extensions.Logging.ILogger<MerchantUserRepository> logger)
+    {
+        _db = db;
+        _logger = logger;
+    }
+    internal MerchantUserRepository(MerchantUserDbContext db)
+        : this(db, Microsoft.Extensions.Logging.Abstractions.NullLogger<MerchantUserRepository>.Instance) { }
 
     public Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
@@ -30,7 +38,33 @@ internal sealed class MerchantUserRepository : IUserRepository
     public Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
 
+    public async Task<PagedResult<User>> ListAsync(PagedQuery query, Guid? roleId, CancellationToken cancellationToken)
+    {
+        IQueryable<User> source = _db.Users.AsNoTracking().ApplyFilters(query.Filters, _logger);
+        if (roleId is { } id)
+            source = id == Guid.Empty
+                ? source.Where(_ => false)
+                : source.Where(user => _db.RoleAssignments.Any(a => a.UserId == user.Id && a.RoleId == id));
+        var total = await source.LongCountAsync(cancellationToken);
+        var skip = (int)Math.Min((long)(query.Page - 1) * query.Limit, int.MaxValue);
+        var items = await source.ApplySort(query.Sort, _logger).Skip(skip).Take(query.Limit)
+            .ToListAsync(cancellationToken);
+        return new PagedResult<User>(items, query.Page, query.Limit, total);
+    }
+
     public void Add(User account) => _db.Users.Add(account);
+}
+
+internal sealed class MerchantManagementAuditWriter(MerchantUserDbContext db) : IManagementAuditWriter
+{
+    public void Append(MerchantUserManagementAudit audit) => db.ManagementAudits.Add(audit);
+}
+
+internal sealed class ActiveManagerGuard(MerchantUserDbContext db) : IActiveManagerGuard
+{
+    public Task<int> CountActiveUsersWithRoleAsync(Guid merchantId, Guid roleId, CancellationToken cancellationToken) =>
+        db.Users.CountAsync(user => user.MerchantId == merchantId && user.Status == UserStatus.Active
+            && db.RoleAssignments.Any(a => a.UserId == user.Id && a.RoleId == roleId), cancellationToken);
 }
 
 internal sealed class MerchantExternalLoginRepository : IExternalLoginRepository
@@ -139,7 +173,8 @@ internal sealed class MerchantUserUnitOfWork : IRegistrationUnitOfWork, IUserUni
         return await strategy.ExecuteAsync(async () =>
         {
             _db.ChangeTracker.Clear(); // each attempt starts clean (the conditional ticket consume rolls back with the tx)
-            await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = await _db.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable, cancellationToken).ConfigureAwait(false);
             var result = await operation(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return result;

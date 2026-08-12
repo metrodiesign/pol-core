@@ -7,6 +7,7 @@ using Orders.Domain;
 using Orders.Domain.Items;
 using Products.Application;
 using Products.Domain;
+using Payments.Domain;
 using SharedKernel;
 
 namespace Api.Orders;
@@ -25,8 +26,9 @@ public sealed record CommitOrderFromCartRequest(
     int ExpectedCartVersion,
     string SaleCode,
     CustomerContact Customer,
-    Money? ClaimedAmount,
-    IReadOnlyList<ValidatedProductSnapshot> Products);
+    string PaymentMethod,
+    IReadOnlyList<ValidatedProductSnapshot> Products,
+    Guid? OriginatorId = null);
 
 public sealed record DirectOrderResult(Guid OrderId, string OrderNo, string Status, Money Amount);
 
@@ -77,9 +79,26 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         Guid cartId,
         string saleCode,
         CustomerContact customer,
-        Money? claimedAmount,
-        CancellationToken cancellationToken)
+        string paymentMethod,
+        CancellationToken cancellationToken,
+        Guid? originatorId = null)
     {
+        var request = await PrepareAsync(
+            merchantId, cartId, saleCode, customer, paymentMethod, cancellationToken, originatorId)
+            .ConfigureAwait(false);
+        return await CommitAsync(request, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<CommitOrderFromCartRequest> PrepareAsync(
+        Guid merchantId,
+        Guid cartId,
+        string saleCode,
+        CustomerContact customer,
+        string paymentMethod,
+        CancellationToken cancellationToken,
+        Guid? originatorId = null)
+    {
+        paymentMethod = PaymentMethods.Normalize(paymentMethod);
         var cart = await _mediator.Send(new GetCartQuery(cartId, merchantId), cancellationToken)
             .ConfigureAwait(false)
             ?? throw new NotFoundException("Cart was not found.");
@@ -87,6 +106,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
             throw new InvalidOperationException("Cart is not open.");
         if (cart.Items.Count == 0 || cart.Subtotal is null)
             throw new ArgumentException("Cannot create an order from an empty cart.", nameof(cartId));
+        if (originatorId != cart.OriginatorId)
+            throw new ConflictException("Cart originator does not match the requested originator.", "state_conflict");
 
         var products = new List<ValidatedProductSnapshot>(cart.Items.Count);
         foreach (var line in cart.Items)
@@ -122,9 +143,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         if (saleStatuses.Count > 0)
             throw new InvalidOperationException("Cart product is no longer available.");
 
-        return await CommitAsync(new CommitOrderFromCartRequest(
-            merchantId, cartId, cart.Version, saleCode, customer, claimedAmount, products), cancellationToken)
-            .ConfigureAwait(false);
+        return new CommitOrderFromCartRequest(
+            merchantId, cartId, cart.Version, saleCode, customer, paymentMethod, products, cart.OriginatorId);
     }
 
     public Task<DirectOrderResult> CommitAsync(
@@ -155,8 +175,7 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
 
             var total = cart.Subtotal
                 ?? throw new ArgumentException("Cannot create an order from an empty cart.", nameof(request));
-            if (request.ClaimedAmount is { } claimed && claimed != total)
-                throw new ArgumentException("Claimed amount does not match cart total.", nameof(request));
+            var paymentMethod = PaymentMethods.Normalize(request.PaymentMethod);
 
             var inputs = cart.Items.Select(line =>
             {
@@ -179,8 +198,10 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
                 inputs,
                 orderNo,
                 notificationRecipient: request.Customer.NotificationRecipient,
+                paymentChannel: paymentMethod,
                 customer: request.Customer,
-                saleCode: request.SaleCode);
+                saleCode: request.SaleCode,
+                originatorId: request.OriginatorId);
             _orders.Add(order);
 
             _outbox.Enqueue(new CustomerOrderNotification(

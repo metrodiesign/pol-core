@@ -38,6 +38,11 @@
     <Project Path="src/Modules/Iam/Iam.Domain/Iam.Domain.csproj" />
     <Project Path="src/Modules/Iam/Iam.Infrastructure/Iam.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Governance/">
+    <Project Path="src/Modules/Governance/Governance.Application/Governance.Application.csproj" />
+    <Project Path="src/Modules/Governance/Governance.Domain/Governance.Domain.csproj" />
+    <Project Path="src/Modules/Governance/Governance.Infrastructure/Governance.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Levels/">
     <Project Path="src/Modules/Levels/Levels.Application/Levels.Application.csproj" />
     <Project Path="src/Modules/Levels/Levels.Domain/Levels.Domain.csproj" />
@@ -47,6 +52,11 @@
     <Project Path="src/Modules/Merchants/Merchants.Application/Merchants.Application.csproj" />
     <Project Path="src/Modules/Merchants/Merchants.Domain/Merchants.Domain.csproj" />
     <Project Path="src/Modules/Merchants/Merchants.Infrastructure/Merchants.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Notifications/">
+    <Project Path="src/Modules/Notifications/Notifications.Application/Notifications.Application.csproj" />
+    <Project Path="src/Modules/Notifications/Notifications.Domain/Notifications.Domain.csproj" />
+    <Project Path="src/Modules/Notifications/Notifications.Infrastructure/Notifications.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Offices/">
     <Project Path="src/Modules/Offices/Offices.Application/Offices.Application.csproj" />
@@ -73,6 +83,9 @@
     <Project Path="src/Modules/Products/Products.Domain/Products.Domain.csproj" />
     <Project Path="src/Modules/Products/Products.Infrastructure/Products.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Reporting/">
+    <Project Path="src/Modules/Reporting/Reporting.Application/Reporting.Application.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Admins.Tests/Admins.Tests.csproj" />
     <Project Path="tests/Architecture.Tests/Architecture.Tests.csproj" />
@@ -80,6 +93,7 @@
     <Project Path="tests/Carts.Tests/Carts.Tests.csproj" />
     <Project Path="tests/Divisions.Tests/Divisions.Tests.csproj" />
     <Project Path="tests/Hosts.Tests/Hosts.Tests.csproj" />
+    <Project Path="tests/Governance.Tests/Governance.Tests.csproj" />
     <Project Path="tests/Iam.Tests/Iam.Tests.csproj" />
     <Project Path="tests/Integration.Tests/Integration.Tests.csproj" />
     <Project Path="tests/Levels.Tests/Levels.Tests.csproj" />

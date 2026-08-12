@@ -28,6 +28,7 @@
   <ItemGroup>
     <Compile Remove="Fixtures/**/bin/**" />
     <Compile Remove="Fixtures/**/obj/**" />
+    <Compile Include="..\Governance.Tests\GovernanceStoreTests.cs" Link="GovernanceStoreTests.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -68,6 +69,12 @@
     <ProjectReference Include="..\..\src\Modules\Positions\Positions.Domain\Positions.Domain.csproj" />
     <ProjectReference Include="..\..\src\Modules\Positions\Positions.Application\Positions.Application.csproj" />
     <ProjectReference Include="..\..\src\Modules\Positions\Positions.Infrastructure\Positions.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Governance\Governance.Domain\Governance.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Governance\Governance.Application\Governance.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Governance\Governance.Infrastructure\Governance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Domain\Notifications.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.ControlPlane\Persistence.ControlPlane.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />

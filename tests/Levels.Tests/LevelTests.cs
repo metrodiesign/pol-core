@@ -36,4 +36,13 @@ public sealed class LevelTests
         m.Activate();
         Assert.Equal(LevelStatus.Active, m.Status);
     }
+
+    [Fact]
+    public void Resource_version_starts_at_one_and_bumps_monotonically()
+    {
+        var m = Level.Create("level_1", "Level 1");
+        Assert.Equal(1, m.Version);
+        m.BumpVersion();
+        Assert.Equal(2, m.Version);
+    }
 }

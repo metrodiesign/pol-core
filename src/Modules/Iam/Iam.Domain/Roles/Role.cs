@@ -34,6 +34,7 @@ public sealed class Role : AggregateRoot<Guid>
     public string? Description { get; private set; }
     public string? Color { get; private set; }
     public RoleStatus Status { get; private set; }
+    public long Version { get; private set; }
 
     /// <summary>Which console this role belongs to (REQ-3.1). Immutable — set only at <see cref="Create"/>.</summary>
     public Scope Scope { get; private set; }
@@ -70,6 +71,7 @@ public sealed class Role : AggregateRoot<Guid>
         Status = status;
         Scope = scope;
         MerchantId = merchantId;
+        Version = 1;
     }
 
     /// <summary>Creates a role with a validated permission subset. <paramref name="catalog"/> maps every valid
@@ -112,6 +114,8 @@ public sealed class Role : AggregateRoot<Guid>
         if (IsSeedAnchor)
             throw new InvalidOperationException($"The {Code} role cannot be deleted.");
     }
+
+    public void BumpVersion() => Version++;
 
     /// <summary>Replaces the granted permissions with the validated, de-duplicated subset of
     /// <paramref name="catalog"/>'s keys. Any key outside the catalog, OR whose side does not match this role's

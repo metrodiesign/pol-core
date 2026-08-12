@@ -11,10 +11,11 @@ namespace Admins.Application.Users;
 /// could strand oversight) as a defense-in-depth invariant; the host also rejects it up front with a 403,
 /// same pattern as <see cref="SuspendCommand"/>. Idempotent: setting the current tier is a no-op. An
 /// unknown target -> 404. Super-only at the host.</summary>
-public sealed record ChangeAdminTierCommand(Guid TargetAdminId, Tier NewTier, Guid ActingAdminId, string CorrelationId)
+public sealed record ChangeAdminTierCommand(
+    Guid TargetAdminId, Tier NewTier, Guid ActingAdminId, string CorrelationId, long ExpectedVersion)
     : ICommand<ChangeAdminTierResult>;
 
-public sealed record ChangeAdminTierResult(Guid AdminId, string Tier);
+public sealed record ChangeAdminTierResult(Guid AdminId, string Tier, long Version);
 
 public sealed class ChangeAdminTierHandler : ICommandHandler<ChangeAdminTierCommand, ChangeAdminTierResult>
 {
@@ -37,19 +38,21 @@ public sealed class ChangeAdminTierHandler : ICommandHandler<ChangeAdminTierComm
 
     public async ValueTask<ChangeAdminTierResult> Handle(ChangeAdminTierCommand command, CancellationToken cancellationToken)
     {
-        var tier = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var state = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var admin = await _admins.GetByIdAsync(command.TargetAdminId, ct)
                 ?? throw new NotFoundException("The admin account was not found.");
+            if (admin.Version != command.ExpectedVersion)
+                throw new ConflictException("The admin account changed after it was loaded.", "state_conflict");
 
             admin.ChangeTier(command.NewTier, command.ActingAdminId); // throws on self-change
             _audit.Append(Audit.For(
                 AuditAction.TierChanged, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.TargetAdminId));
             await _unitOfWork.SaveChangesAsync(ct);
-            return admin.Tier;
+            return (admin.Tier, admin.Version);
         }, cancellationToken);
 
-        return new ChangeAdminTierResult(command.TargetAdminId, tier.ToString());
+        return new ChangeAdminTierResult(command.TargetAdminId, state.Tier.ToString(), state.Version);
     }
 }

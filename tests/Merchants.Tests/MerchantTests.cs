@@ -26,6 +26,24 @@ public sealed class MerchantTests
         Assert.Equal(MerchantStatus.Active, m.Status);
         Assert.Equal("card,promptpay", m.EnabledChannels);
         Assert.Equal(Now, m.CreatedAt);
+        Assert.Equal(1, m.Version);
+    }
+
+    [Fact]
+    public void Admin_mutations_advance_version_only_when_state_changes()
+    {
+        var merchant = CreateValid();
+
+        merchant.Update(" Updated ", " note ", ["card"], "{}");
+        merchant.Suspend();
+        merchant.Suspend();
+        merchant.Reactivate();
+        merchant.Reactivate();
+
+        Assert.Equal("Updated", merchant.Name);
+        Assert.Equal("note", merchant.Note);
+        Assert.Equal(MerchantStatus.Active, merchant.Status);
+        Assert.Equal(4, merchant.Version);
     }
 
     [Fact]

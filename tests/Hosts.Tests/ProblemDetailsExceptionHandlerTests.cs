@@ -101,6 +101,39 @@ public sealed class ProblemDetailsExceptionHandlerTests
         Assert.False(handled);
     }
 
+    [Fact]
+    public async Task A_coded_conflict_emits_only_its_stable_machine_code()
+    {
+        var (handler, context) = Build();
+
+        await handler.TryHandleAsync(
+            context,
+            new ConflictException("merchant and connection details stay server-side", "psp-unavailable"),
+            CancellationToken.None);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("\"code\":\"psp-unavailable\"", body);
+        Assert.DoesNotContain("merchant and connection details", body);
+    }
+
+    [Fact]
+    public async Task A_coded_invalid_request_emits_400_and_its_stable_machine_code()
+    {
+        var (handler, context) = Build();
+
+        await handler.TryHandleAsync(
+            context,
+            new InvalidRequestException("raw invitation detail", "invitation-invalid"),
+            CancellationToken.None);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
+        Assert.Contains("\"code\":\"invitation-invalid\"", body);
+        Assert.DoesNotContain("raw invitation detail", body);
+    }
+
     private static (ProblemDetailsExceptionHandler Handler, DefaultHttpContext Context) Build()
     {
         var services = new ServiceCollection();

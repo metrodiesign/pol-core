@@ -92,4 +92,36 @@ public sealed class ConnectionEligibilityTests
 
         Assert.Contains("disabled", ex.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Secret_rotation_keeps_one_active_and_one_pending_version()
+    {
+        var connection = NewConnection();
+        var active = Guid.NewGuid();
+        var candidate = Guid.NewGuid();
+        var approval = Guid.NewGuid();
+
+        connection.SetInitialSecretVersion(active);
+        connection.StageSecretVersion(candidate, approval);
+
+        Assert.Equal(active, connection.ActiveSecretVersionId);
+        Assert.Equal(candidate, connection.PendingSecretVersionId);
+        Assert.Equal(approval, connection.PendingApprovalId);
+
+        Assert.Equal(candidate, connection.ActivatePendingSecretVersion());
+        Assert.Equal(candidate, connection.ActiveSecretVersionId);
+        Assert.Null(connection.PendingSecretVersionId);
+        Assert.Null(connection.PendingApprovalId);
+        Assert.Equal(4, connection.Version);
+    }
+
+    [Fact]
+    public void A_second_pending_secret_is_rejected()
+    {
+        var connection = NewConnection();
+        connection.StageSecretVersion(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            connection.StageSecretVersion(Guid.NewGuid(), Guid.NewGuid()));
+    }
 }

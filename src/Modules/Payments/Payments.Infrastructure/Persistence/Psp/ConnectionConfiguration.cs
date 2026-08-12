@@ -2,6 +2,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using Payments.Domain.Psp;
+using BuildingBlocks.Infrastructure.Vault;
 
 namespace Payments.Infrastructure.Persistence.Psp;
 
@@ -25,7 +26,17 @@ public sealed class ConnectionConfiguration : IEntityTypeConfiguration<Connectio
         builder.Property(x => x.Metadata).HasColumnType("nvarchar(max)");
         builder.Property(x => x.IsEnabled).IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.Health).HasConversion<int>().IsRequired();
+        builder.Property(x => x.LastTestResult).HasMaxLength(500);
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         builder.HasIndex(x => new { x.MerchantId, x.Psp }).IsUnique();
+        builder.HasAlternateKey(x => new { x.MerchantId, x.Id });
+        builder.HasOne<VaultSecretVersion>().WithMany()
+            .HasForeignKey(x => new { x.MerchantId, x.ActiveSecretVersionId })
+            .HasPrincipalKey(x => new { x.MerchantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<VaultSecretVersion>().WithMany()
+            .HasForeignKey(x => new { x.MerchantId, x.PendingSecretVersionId })
+            .HasPrincipalKey(x => new { x.MerchantId, x.Id }).OnDelete(DeleteBehavior.Restrict);
     }
 }

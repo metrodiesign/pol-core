@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Mediator;
 using SharedKernel;
+using System.Text.Json.Serialization;
 
 namespace Carts.Application;
 
@@ -21,7 +22,8 @@ public sealed record CartLineView(
     System.Text.Json.JsonElement? Metadata);
 
 public sealed record CartView(
-    Guid CartId, string? SaleCode, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal, int Version)
+    Guid CartId, string? SaleCode, string Status, IReadOnlyList<CartLineView> Items, Money? Subtotal, int Version,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? OriginatorId = null)
 {
     public static CartView From(Domain.Cart cart) => new(
         cart.Id,
@@ -33,7 +35,8 @@ public sealed record CartView(
                 i.Metadata is null ? null : CommerceItemMetadataCodec.ToJsonElement(i.Metadata)))
             .ToList(),
         cart.Subtotal,
-        cart.Version);
+        cart.Version,
+        cart.OriginatorId);
 }
 
 public sealed class GetCartHandler : IQueryHandler<GetCartQuery, CartView?>

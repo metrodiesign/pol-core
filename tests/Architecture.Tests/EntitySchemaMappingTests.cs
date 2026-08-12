@@ -53,6 +53,8 @@ public sealed class EntitySchemaMappingTests : IDisposable
             typeof(global::Levels.Infrastructure.LevelsModuleRegistration).Assembly,
             typeof(global::Offices.Infrastructure.OfficesModuleRegistration).Assembly,
             typeof(global::Positions.Infrastructure.PositionsModuleRegistration).Assembly,
+            typeof(global::Governance.Infrastructure.GovernanceModuleRegistration).Assembly,
+            typeof(global::Notifications.Infrastructure.NotificationsModuleRegistration).Assembly,
         ]);
         _db = new PolDbContext(options, modules);
     }
@@ -109,13 +111,17 @@ public sealed class EntitySchemaMappingTests : IDisposable
             + string.Join(", ", offenders));
 
         // Fail loud if the Iam catalog silently disappeared from the model (a vacuous pass otherwise):
-        // the four catalog tables Permissions/PermissionGroups/Roles/RolePermissions must all be present.
+        // the RBAC catalog plus API-client credential owner tables must all be present.
         var iamTables = _db.Model.GetEntityTypes()
             .Where(e => IsIamDomain(e.ClrType) && e.GetTableName() is not null)
             .Select(e => e.GetTableName()!)
             .ToHashSet();
         Assert.Equal(
-            new HashSet<string> { "Permissions", "PermissionGroups", "Roles", "RolePermissions" },
+            new HashSet<string>
+            {
+                "ApiClients", "OneTimeSecretTickets",
+                "Permissions", "PermissionGroups", "Roles", "RolePermissions",
+            },
             iamTables);
     }
 

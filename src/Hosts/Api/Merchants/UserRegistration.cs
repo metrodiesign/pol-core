@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using System.Net;
+using System.Net.Mail;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using Merchants.Application;
 using Merchants.Application.Users;
@@ -15,6 +18,21 @@ namespace Api.Merchants;
 /// <summary>The 201 body for a submitted registration.</summary>
 public sealed record UserRegisterResponse(Guid UserId, string Status);
 
+/// <summary>OpenAPI-only multipart shape. Runtime reads the form directly to bound upload size first.</summary>
+public sealed class UserRegistrationMultipartRequest
+{
+    [Required] public string Ticket { get; init; } = "";
+    [Required] public string FirstName { get; init; } = "";
+    [Required] public string LastName { get; init; } = "";
+    [Required] public string PersonType { get; init; } = "";
+    [Required] public string IdNumber { get; init; } = "";
+    [Required, MaxLength(User.SaleCodeMaxLength)] public string ProducerCode { get; init; } = "";
+    public string? LicenseNumber { get; init; }
+    [Required] public string Phone { get; init; } = "";
+    [Required] public IFormFile Photo { get; init; } = null!;
+    public IFormFile? KycPhoto { get; init; }
+}
+
 /// <summary>Maps the posted multipart fields onto a <see cref="RegistrationForm"/> (REQ-7.1). Verified identity
 /// fields (subject/email/hosted domain) come only from the ticket; personType is a required form field. Blank fields
 /// normalise to null (empty string for required first/last name, caught by the host's required-field check).
@@ -26,7 +44,7 @@ internal static class UserRegistrationForm
         LastName: Value(form, "lastName") ?? string.Empty,
         IdentityType: ParsePersonType(Value(form, "personType")),
         IdentityNumber: Value(form, "idNumber"),
-        SaleCode: Value(form, "saleCode"),
+        SaleCode: Value(form, "producerCode"),
         LicenseNumber: Value(form, "licenseNumber"),
         Phone: Value(form, "phone"));
 
@@ -70,7 +88,8 @@ public sealed record UserTicketPayload(
     string? HostedDomain,
     TicketPurpose Purpose,
     string Provider = ExternalLogin.Google,
-    Guid OperationId = default);
+    Guid OperationId = default,
+    Guid? InvitationId = null);
 
 /// <summary>
 /// Signs+encrypts the registration/correction wire ticket with ASP.NET Core Data Protection under a purpose string
@@ -123,5 +142,87 @@ internal sealed class UserRegistrationTickets
         {
             return false; // decrypted to a non-payload shape
         }
+    }
+}
+
+public sealed class UserInvitationOptions
+{
+    public const string SectionName = "MerchantUser:Invitation";
+    public int TtlHours { get; init; } = 24;
+    public SmtpOptions Smtp { get; init; } = new();
+
+    public sealed class SmtpOptions
+    {
+        public string Host { get; init; } = "";
+        public int Port { get; init; } = 587;
+        public bool EnableSsl { get; init; } = true;
+        public string FromAddress { get; init; } = "";
+        public string Username { get; init; } = "";
+        public string PasswordFile { get; init; } = "";
+    }
+
+    public static void RequireProduction(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(SectionName).Get<UserInvitationOptions>() ?? new();
+        if (options.TtlHours is < 1 or > 168 || string.IsNullOrWhiteSpace(options.Smtp.Host)
+            || options.Smtp.Port is < 1 or > 65535 || string.IsNullOrWhiteSpace(options.Smtp.FromAddress)
+            || string.IsNullOrWhiteSpace(options.Smtp.Username) || string.IsNullOrWhiteSpace(options.Smtp.PasswordFile))
+            throw new InvalidOperationException("MerchantUser:Invitation SMTP configuration is required in production.");
+    }
+}
+
+internal sealed class InvitationDeliveryProtector : IInvitationDeliveryProtector
+{
+    private readonly IDataProtector _protector;
+    public InvitationDeliveryProtector(IDataProtectionProvider provider) =>
+        _protector = provider.CreateProtector("MerchantUser.InvitationDelivery.v1");
+    public string Protect(string rawToken) => _protector.Protect(rawToken);
+    public bool TryUnprotect(string protectedToken, out string rawToken)
+    {
+        rawToken = "";
+        try { rawToken = _protector.Unprotect(protectedToken); return !string.IsNullOrWhiteSpace(rawToken); }
+        catch (CryptographicException) { return false; }
+    }
+}
+
+internal sealed class CaptureInvitationEmailSender : IInvitationEmailSender
+{
+    public Task SendAsync(string email, string rawToken, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class SmtpInvitationEmailSender : IInvitationEmailSender
+{
+    private readonly UserInvitationOptions _options;
+    private readonly UserSessionOptions _session;
+
+    public SmtpInvitationEmailSender(IOptions<UserInvitationOptions> options, IOptions<UserSessionOptions> session)
+    {
+        _options = options.Value;
+        _session = session.Value;
+    }
+
+    public async Task SendAsync(string email, string rawToken, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(_session.SpaBaseUrl, UriKind.Absolute, out var baseUri)
+            || baseUri.Scheme is not ("http" or "https"))
+            throw new InvalidOperationException("MerchantUser:Session:SpaBaseUrl must be an absolute HTTP(S) origin.");
+        var smtp = _options.Smtp;
+        var password = (await File.ReadAllTextAsync(smtp.PasswordFile, cancellationToken)).Trim();
+        if (password.Length == 0)
+            throw new InvalidOperationException("Invitation SMTP password file is empty.");
+
+        var link = $"{baseUri.ToString().TrimEnd('/')}/invite#token={Uri.EscapeDataString(rawToken)}";
+        using var message = new MailMessage(smtp.FromAddress, email)
+        {
+            Subject = "Merchant invitation",
+            Body = $"Open this one-time invitation link:\n\n{link}",
+            IsBodyHtml = false,
+        };
+        using var client = new SmtpClient(smtp.Host, smtp.Port)
+        {
+            EnableSsl = smtp.EnableSsl,
+            Credentials = new NetworkCredential(smtp.Username, password),
+        };
+        await client.SendMailAsync(message, cancellationToken);
     }
 }

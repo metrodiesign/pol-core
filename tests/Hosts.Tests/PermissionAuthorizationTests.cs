@@ -59,6 +59,26 @@ public sealed class PermissionAuthorizationTests
         // documenting the fixed precedence rather than leaving it to call order.
         Assert.True(ApiHost::Api.Iam.PermissionAuthorization.IsAllowed(
             AdminBoundScope("user.roles"), UserBoundScope(), "user.roles"));
+
+    [Fact]
+    public void Audience_gate_uses_the_selected_admin_key_even_when_both_scopes_are_bound() =>
+        Assert.True(ApiHost::Api.Iam.AudiencePermissionAuthorization.IsAllowed(
+            new ApiHost::Api.Iam.SelectedConsoleAudience(ApiHost::Api.Iam.ConsoleAudience.Admin),
+            AdminBoundScope("txn.manage"), UserBoundScope("payment.create"),
+            "txn.manage", "payment.create"));
+
+    [Fact]
+    public void Audience_gate_uses_the_selected_merchant_key() =>
+        Assert.True(ApiHost::Api.Iam.AudiencePermissionAuthorization.IsAllowed(
+            new ApiHost::Api.Iam.SelectedConsoleAudience(ApiHost::Api.Iam.ConsoleAudience.Merchant),
+            AdminBoundScope(), UserBoundScope("payment.create"),
+            "txn.manage", "payment.create"));
+
+    [Fact]
+    public void Audience_gate_fails_closed_without_a_selected_audience() =>
+        Assert.False(ApiHost::Api.Iam.AudiencePermissionAuthorization.IsAllowed(
+            selected: null, AdminBoundScope("txn.manage"), UserBoundScope("payment.create"),
+            "txn.manage", "payment.create"));
 }
 
 /// <summary>The boot parity guard (rf2 REQ-5.1/5.4), side-aware: a gate key must be catalogued AND its side
@@ -70,8 +90,10 @@ public sealed class PermissionParityTests
     // every one must pass parity: catalogued, and on the side its policy implies.
     private static readonly (string Key, string? Policy)[] RealGateSites =
     [
-        ("payment.create", "merchant-user"), ("payment.redirect", "merchant-user"),
-        ("roles.manage", "merchant-user"), ("users.roles", "merchant-user"),
+        ("payment.view", "merchant-user"), ("payment.create", "merchant-user"),
+        ("payment.redirect", "merchant-user"), ("roles.view", "merchant-user"),
+        ("roles.manage", "merchant-user"), ("users.view", "merchant-user"),
+        ("users.manage", "merchant-user"), ("users.roles", "merchant-user"),
         ("merchants.users.approve", "admin"), ("merchants.users.reject", "admin"),
         ("merchants.users.view", "admin"),
         ("user.view", "admin"), ("user.manage", "admin"), ("user.roles", "admin"),
@@ -105,4 +127,20 @@ public sealed class PermissionParityTests
     public void A_null_policy_ie_no_authorization_data_is_flagged() =>
         Assert.Contains(ApiHost::Api.Iam.PermissionParity.FindProblems([("user.roles", null)]),
             p => p.Contains("unrecognized", StringComparison.Ordinal));
+
+    [Fact]
+    public void A_valid_dual_console_permission_pair_passes_parity() =>
+        Assert.Empty(ApiHost::Api.Iam.PermissionParity.FindAudienceProblems(
+            [("txn.manage", "payment.create", "dual-console")]));
+
+    [Fact]
+    public void A_swapped_dual_console_permission_pair_is_flagged() =>
+        Assert.NotEmpty(ApiHost::Api.Iam.PermissionParity.FindAudienceProblems(
+            [("payment.create", "txn.manage", "dual-console")]));
+
+    [Fact]
+    public void An_audience_pair_on_a_single_console_policy_is_flagged() =>
+        Assert.Contains(ApiHost::Api.Iam.PermissionParity.FindAudienceProblems(
+                [("txn.manage", "payment.create", "admin")]),
+            p => p.Contains("dual-console", StringComparison.Ordinal));
 }

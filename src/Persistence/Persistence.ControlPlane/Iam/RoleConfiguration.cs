@@ -23,6 +23,7 @@ public sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
         builder.Property(x => x.Description).HasMaxLength(256);
         builder.Property(x => x.Color).HasMaxLength(16);
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
+        builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
         builder.Property(x => x.Scope).HasConversion<int>().IsRequired();
         builder.Property(x => x.MerchantId);
         builder.HasIndex(x => new { x.MerchantId, x.Code }).IsUnique().HasFilter(null);

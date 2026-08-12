@@ -27,7 +27,7 @@ public sealed class OrderPaymentFailedConsumer : INotificationHandler<PaymentFai
                 if (order.MerchantId != notification.MerchantId)
                     throw new InvalidOperationException("Payment event merchant does not match Order merchant.");
 
-                var changed = order.MarkPaymentFailed(notification.PaymentSessionId);
+                var changed = order.MarkPaymentFailed(notification.PaymentSessionId, notification.OccurredAt);
                 if (changed)
                     await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
                 return changed;

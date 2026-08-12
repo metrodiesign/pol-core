@@ -62,6 +62,9 @@ file sealed class FakePaymentSessions(List<PaymentSession> sessions) : ISessionR
     public Task<PaymentSession?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
         Task.FromResult(sessions.FirstOrDefault(s => s.Id == paymentSessionId));
 
+    public Task<PagedResult<PaymentSession>> ListAsync(PagedQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult(new PagedResult<PaymentSession>(sessions, query.Page, query.Limit, sessions.Count));
+
     public Task<PaymentSession?> GetByExternalChargeAsync(Code psp, string externalChargeId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 

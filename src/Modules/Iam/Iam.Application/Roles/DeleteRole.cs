@@ -10,7 +10,8 @@ namespace Iam.Application.Roles;
 /// (REQ-3.8). A seed anchor is undeletable (409, REQ-2.4). A role with ≥1 bound assignment on EITHER side is
 /// undeletable (409, REQ-6.3) — cascade removes the role's own permission grants. Gated <c>user.roles</c>
 /// (admin) / <c>roles.manage</c> (merchant) at the host.</summary>
-public sealed record DeleteRoleCommand(RoleSideContext Context, string Code, string CorrelationId)
+public sealed record DeleteRoleCommand(
+    RoleSideContext Context, string Code, string CorrelationId, long? ExpectedVersion = null)
     : ICommand<DeleteRoleResult>;
 
 public sealed record DeleteRoleResult(string Code);
@@ -41,6 +42,8 @@ public sealed class DeleteRoleHandler : ICommandHandler<DeleteRoleCommand, Delet
 
             if (command.Context.Scope == Scope.Merchant && role.MerchantId != command.Context.MerchantId)
                 throw new ConflictException($"Role '{command.Code}' cannot be deleted by this merchant.");
+            if (command.ExpectedVersion is { } expectedVersion && role.Version != expectedVersion)
+                throw new ConflictException("The role changed after it was loaded.", "state_conflict");
             if (role.IsSeedAnchor)
                 throw new ConflictException($"The {role.Code} role cannot be deleted.");
             if (await _counter.CountAsync(command.Context, role.Id, ct) > 0)

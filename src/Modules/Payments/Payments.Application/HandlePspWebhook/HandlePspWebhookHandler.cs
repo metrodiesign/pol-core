@@ -1,9 +1,13 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using BuildingBlocks.Application;
 using Contracts;
 using Mediator;
 using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
+using Payments.Domain;
 using Payments.Domain.Psp;
 
 namespace Payments.Application.HandlePspWebhook;
@@ -30,6 +34,8 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
     private readonly IVaultSecretStore _vault;
     private readonly IUnitOfWork _unitOfWork;
     private readonly PaymentConfirmationService _confirmation;
+    private readonly IInboundWebhookRecorder _inboundEvents;
+    private readonly IClock _clock;
 
     public HandlePspWebhookHandler(
         IConnectionRepository connections,
@@ -37,7 +43,9 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
         IPspAdapterFactory adapters,
         IVaultSecretStore vault,
         IUnitOfWork unitOfWork,
-        PaymentConfirmationService confirmation)
+        PaymentConfirmationService confirmation,
+        IInboundWebhookRecorder inboundEvents,
+        IClock clock)
     {
         _connections = connections;
         _sessions = sessions;
@@ -45,6 +53,8 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
         _vault = vault;
         _unitOfWork = unitOfWork;
         _confirmation = confirmation;
+        _inboundEvents = inboundEvents;
+        _clock = clock;
     }
 
     public async ValueTask<WebhookHandled> Handle(
@@ -55,30 +65,67 @@ public sealed class HandlePspWebhookHandler : ICommandHandler<HandlePspWebhookCo
             ?? throw new InvalidOperationException($"PSP connection {command.PspConnectionId} not found.");
 
         var adapter = _adapters.For(connection.Psp);
-        var secret = await _vault.RevealAsync(connection.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+        var secret = connection.ActiveSecretVersionId is { } versionId
+            ? await _vault.ReadVersionForServerAsync(connection.MerchantId, versionId, cancellationToken).ConfigureAwait(false)
+            : await _vault.RevealAsync(connection.MerchantId, connection.SecretRefName, cancellationToken).ConfigureAwait(false);
+        var pspCode = connection.Psp.ToCode();
+        var fingerprint = Fingerprint(command.RawPayload);
 
         if (!adapter.VerifyWebhook(command.RawPayload, command.Signature, secret))
+        {
+            await _inboundEvents.RecordRejectedAsync(connection.Id, connection.MerchantId, pspCode,
+                fingerprint, signatureValid: false, "invalid_signature", cancellationToken).ConfigureAwait(false);
             return new WebhookHandled(WebhookOutcome.Rejected);
+        }
 
-        var outcome = await _unitOfWork.ExecuteInTransactionAsync(
+        WebhookEvent webhookEvent;
+        try
+        {
+            webhookEvent = adapter.ParseWebhook(command.RawPayload);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            await _inboundEvents.RecordRejectedAsync(connection.Id, connection.MerchantId, pspCode,
+                fingerprint, signatureValid: true, "invalid_payload", cancellationToken).ConfigureAwait(false);
+            return new WebhookHandled(WebhookOutcome.Rejected);
+        }
+
+        return await _unitOfWork.ExecuteInTransactionAsync(
             async ct =>
             {
-                var evt = adapter.ParseWebhook(command.RawPayload);
+                var claim = await _inboundEvents.ClaimAsync(connection.Id, connection.MerchantId, pspCode,
+                    webhookEvent.EventId, fingerprint, ct).ConfigureAwait(false);
+                if (!CryptographicOperations.FixedTimeEquals(
+                        Convert.FromHexString(claim.PayloadFingerprint), Convert.FromHexString(fingerprint)))
+                {
+                    await _inboundEvents.RecordRejectedAsync(connection.Id, connection.MerchantId, pspCode,
+                        fingerprint, signatureValid: true, "event_id_reuse", ct).ConfigureAwait(false);
+                    return new WebhookHandled(WebhookOutcome.Rejected);
+                }
+                if (claim.Status is not (InboundWebhookStatus.Received or InboundWebhookStatus.Ignored))
+                    return new WebhookHandled(WebhookOutcome.Duplicate);
 
                 // Throwing here (rather than answering 200) is deliberate: a notification can beat our own
                 // SetPspCharge commit, and a redelivery is how that race resolves.
-                var session = await _sessions.GetByExternalChargeAsync(connection.Psp, evt.ExternalChargeId, ct).ConfigureAwait(false)
+                var session = await _sessions.GetByExternalChargeAsync(
+                        connection.Psp, webhookEvent.ExternalChargeId, ct).ConfigureAwait(false)
                     ?? throw new InvalidOperationException(
-                        $"No PaymentSession for {connection.Psp.ToCode()} charge {evt.ExternalChargeId}.");
+                        $"No PaymentSession for {pspCode} charge {webhookEvent.ExternalChargeId}.");
 
-                return await _confirmation
-                    .ConfirmAsync(session, new PspAccess(connection, secret), evt.EventId, ct)
+                var confirmation = await _confirmation
+                    .ConfirmAsync(session, new PspAccess(connection, secret), webhookEvent.EventId, ct)
                     .ConfigureAwait(false);
+                var outcome = Map(confirmation);
+                var inboundEvent = await _inboundEvents.LoadAsync(claim.EventId, ct).ConfigureAwait(false);
+                inboundEvent.Complete(session.Id, session.OrderId, outcome.ToString().ToLowerInvariant(), _clock.UtcNow);
+                await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
+                return new WebhookHandled(outcome);
             },
             cancellationToken).ConfigureAwait(false);
-
-        return new WebhookHandled(Map(outcome));
     }
+
+    private static string Fingerprint(string payload) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
 
     /// <summary>
     /// The PSP only ever needs to know whether to redeliver. Everything the service decided — including the

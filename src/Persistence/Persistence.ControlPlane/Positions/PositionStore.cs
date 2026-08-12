@@ -34,7 +34,7 @@ internal sealed class PositionStore : IPositionStore
             .OrderBy(m => m.Name)
             .Skip(skip)
             .Take(limit)
-            .Select(m => new PositionItem(m.Id, m.Code, m.Name, m.Status))
+            .Select(m => new PositionItem(m.Id, m.Code, m.Name, m.Status, m.Version))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<PositionItem>(items, page, limit, total);
@@ -46,37 +46,44 @@ internal sealed class PositionStore : IPositionStore
             var entity = Position.Create(code, name);   // slug/trim invariants -> ArgumentException -> 400, as before
             // Pre-check for a clean 409 message; the unique Code index is the race-safe backstop.
             if (await _db.Positions.AnyAsync(m => m.Code == entity.Code, ct))
-                throw new ConflictException($"A record with code '{entity.Code}' already exists.");
+                throw new ConflictException($"A record with code '{entity.Code}' already exists.", "immutable_code");
             _db.Positions.Add(entity);
             await _unitOfWork.SaveChangesAsync(ct);
-            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status);
+            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
         }, cancellationToken);
 
-    public Task<PositionItem> UpdateAsync(Guid id, string name, PositionStatus status, CancellationToken cancellationToken) =>
+    public Task<PositionItem> UpdateAsync(
+        Guid id, string name, PositionStatus status, long expectedVersion, CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var entity = await _db.Positions.FirstOrDefaultAsync(m => m.Id == id, ct)
                 ?? throw new NotFoundException("The record was not found.");
+            if (entity.Version != expectedVersion)
+                throw new ConflictException("The record changed after it was loaded.", "state_conflict");
             entity.Rename(name);
             if (status == PositionStatus.Active) entity.Activate(); else entity.Deactivate();
+            entity.BumpVersion();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status);
+            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
         }, cancellationToken);
 
     public async Task<PositionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         var entity = await _db.Positions.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
             ?? throw new NotFoundException("The record was not found.");
-        return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status);
+        return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
     }
 
-    public Task<PositionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+    public Task<PositionItem> DeactivateAsync(Guid id, long expectedVersion, CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var entity = await _db.Positions.FirstOrDefaultAsync(m => m.Id == id, ct)
                 ?? throw new NotFoundException("The record was not found.");
+            if (entity.Version != expectedVersion)
+                throw new ConflictException("The record changed after it was loaded.", "state_conflict");
             entity.Deactivate();
+            entity.BumpVersion();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status);
+            return new PositionItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
         }, cancellationToken);
 }

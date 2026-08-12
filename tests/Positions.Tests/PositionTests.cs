@@ -36,4 +36,13 @@ public sealed class PositionTests
         m.Activate();
         Assert.Equal(PositionStatus.Active, m.Status);
     }
+
+    [Fact]
+    public void Resource_version_starts_at_one_and_bumps_monotonically()
+    {
+        var m = Position.Create("ceo", "Chief Executive");
+        Assert.Equal(1, m.Version);
+        m.BumpVersion();
+        Assert.Equal(2, m.Version);
+    }
 }

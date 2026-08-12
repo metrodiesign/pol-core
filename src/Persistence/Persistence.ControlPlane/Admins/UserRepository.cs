@@ -66,7 +66,7 @@ internal sealed class UserRepository : IUserRepository
             .ApplySort(query.Sort, _logger)
             .Skip(skip)
             .Take(query.Limit)
-            .Select(a => new UserListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject != null))
+            .Select(a => new UserListItem(a.Id, a.Email, a.Tier, a.Status, a.CreatedAt, a.Subject != null, a.Version))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<UserListItem>(items, query.Page, query.Limit, total);

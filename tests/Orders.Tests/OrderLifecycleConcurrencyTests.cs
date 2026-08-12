@@ -66,9 +66,9 @@ public sealed class OrderLifecycleConcurrencyTests
         public Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(
             Guid merchantId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<OrderStatusTotal>>([]);
-        public Task<IReadOnlyList<Order>> ListAsync(
-            Guid merchantId, string? orderNo, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<Order>>([order]);
+        public Task<PagedResult<Order>> ListAsync(
+            Guid merchantId, PagedQuery query, CancellationToken cancellationToken) =>
+            Task.FromResult(new PagedResult<Order>([order], query.Page, query.Limit, 1));
         public void Add(Order value) => throw new NotSupportedException();
     }
 

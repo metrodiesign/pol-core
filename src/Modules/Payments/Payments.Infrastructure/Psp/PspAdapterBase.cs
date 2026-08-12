@@ -40,6 +40,9 @@ public abstract class PspAdapterBase : IPspAdapter
     /// exists to prevent. Every adapter states its own truth next to the code that implements it.</summary>
     public abstract IReadOnlySet<string> SupportedMethods { get; }
 
+    public abstract Task<PspProbeResult> TestConnectionAsync(
+        string secret, CancellationToken cancellationToken);
+
     public abstract Task<PspCharge> CreateRedirectChargeAsync(
         Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken);
 

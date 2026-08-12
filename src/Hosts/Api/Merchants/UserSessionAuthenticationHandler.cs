@@ -9,6 +9,7 @@ using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 namespace Api.Merchants;
@@ -80,6 +81,26 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
         var now = _clock.UtcNow;
         var policy = Policy;
 
+        // Expired known tokens stay 401. Lifecycle is resolved only for a token still inside both windows.
+        if (now >= session.IdleExpiresAt || now >= session.AbsoluteExpiresAt)
+            return AuthenticateResult.Fail("Session is expired.");
+
+        var resolved = await _resolver.ResolveByIdAsync(session.UserId, ct);
+        if (resolved.Outcome != ByIdOutcome.Resolved || resolved.Resolution is null)
+        {
+            var code = resolved.Status switch
+            {
+                UserStatus.PendingApproval => "awaiting-approval",
+                UserStatus.Rejected => "rejected",
+                UserStatus.Suspended => "suspended",
+                UserStatus.Active when resolved.MerchantId is null => "unbound",
+                _ => null,
+            };
+            if (code is not null)
+                Context.Features.Set(new MerchantLifecycleChallenge(code));
+            return AuthenticateResult.Fail("Merchant user is not active or no longer exists.");
+        }
+
         var familyActiveId = session.Status == SessionStatus.Superseded
             ? await _sessions.GetFamilyActiveSessionIdAsync(session.FamilyId, ct)
             : null;
@@ -101,11 +122,6 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
             default:
                 break;
         }
-
-        // Per-request READ-ONLY resolution (REQ-12.4/17.1): a suspend/reject/role-change takes effect within one request.
-        var resolved = await _resolver.ResolveByIdAsync(session.UserId, ct);
-        if (resolved.Outcome != ByIdOutcome.Resolved || resolved.Resolution is null)
-            return AuthenticateResult.Fail("Merchant user is not active or no longer exists."); // suspend -> next request 401
 
         var resolution = resolved.Resolution;
         _scope.Set(resolution); // bind IMerchantUserScope so RequirePermission + /merchants/users/me read scope.Current
@@ -138,6 +154,26 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 
+    protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        if (Context.Features.Get<MerchantLifecycleChallenge>() is not { } lifecycle)
+        {
+            await base.HandleChallengeAsync(properties);
+            return;
+        }
+
+        Context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        var details = new ProblemDetails
+        {
+            Status = StatusCodes.Status403Forbidden,
+            Title = "Merchant user account is not active",
+        };
+        details.Extensions["code"] = lifecycle.Code;
+        details.Extensions["traceId"] = Context.TraceIdentifier;
+        await Context.Response.WriteAsJsonAsync(
+            details, options: null, contentType: "application/problem+json", cancellationToken: Context.RequestAborted);
+    }
+
     private async Task TryRotateAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)
     {
         var newToken = UserTokens.NewOpaqueToken();
@@ -167,6 +203,8 @@ internal sealed class UserSessionAuthenticationHandler : AuthenticationHandler<A
         await _sessions.SlideIdleAsync(session.Id, newIdle, ct);
     }
 }
+
+internal sealed record MerchantLifecycleChallenge(string Code);
 
 /// <summary>READ-ONLY per-request merchant-user resolution behind the source-generated mediator, so the auth
 /// handler's decision/principal/rotation logic can be unit-tested without it (mirrors

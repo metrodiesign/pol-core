@@ -16,7 +16,7 @@ public sealed class ListRolesHandlerTests
     private static readonly RoleSideContext Platform = RoleSideContext.Platform();
 
     private static RoleListItem Item(Guid id, string code) =>
-        new(id, code, code, null, null, RoleStatus.Active, Shared: false, [], UserCount: 0);
+        new(id, code, code, null, null, RoleStatus.Active, Shared: false, [], Version: 1, UserCount: 0);
 
     [Fact]
     public async Task List_fills_in_the_real_count_per_role_from_the_counter()

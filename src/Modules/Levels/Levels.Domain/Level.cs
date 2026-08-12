@@ -18,6 +18,7 @@ public sealed class Level : AggregateRoot<Guid>
     public string Code { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public LevelStatus Status { get; private set; }
+    public long Version { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Level() { }
@@ -32,6 +33,7 @@ public sealed class Level : AggregateRoot<Guid>
         Code = code;
         Name = name.Trim();
         Status = LevelStatus.Active;
+        Version = 1;
     }
 
     public static Level Create(string code, string name) => new(Guid.NewGuid(), code, name);
@@ -45,4 +47,5 @@ public sealed class Level : AggregateRoot<Guid>
 
     public void Activate() => Status = LevelStatus.Active;
     public void Deactivate() => Status = LevelStatus.Inactive;
+    public void BumpVersion() => Version++;
 }

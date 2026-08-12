@@ -36,4 +36,13 @@ public sealed class DivisionTests
         m.Activate();
         Assert.Equal(DivisionStatus.Active, m.Status);
     }
+
+    [Fact]
+    public void Resource_version_starts_at_one_and_bumps_monotonically()
+    {
+        var m = Division.Create("executive", "Executive");
+        Assert.Equal(1, m.Version);
+        m.BumpVersion();
+        Assert.Equal(2, m.Version);
+    }
 }

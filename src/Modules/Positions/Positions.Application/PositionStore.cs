@@ -5,7 +5,7 @@ using Positions.Domain;
 namespace Positions.Application;
 
 /// <summary>A position row as the management endpoints render it.</summary>
-public sealed record PositionItem(Guid Id, string Code, string Name, PositionStatus Status);
+public sealed record PositionItem(Guid Id, string Code, string Name, PositionStatus Status, long Version);
 
 /// <summary>
 /// Runtime CRUD over the position master list. Simple control-plane reference data, so it deliberately
@@ -22,12 +22,12 @@ public interface IPositionStore
     Task<PositionItem> CreateAsync(string code, string name, CancellationToken cancellationToken);
 
     /// <summary>Renames + toggles active on an existing position. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<PositionItem> UpdateAsync(Guid id, string name, PositionStatus status, CancellationToken cancellationToken);
+    Task<PositionItem> UpdateAsync(Guid id, string name, PositionStatus status, long expectedVersion, CancellationToken cancellationToken);
 
     /// <summary>Reads a single position by id. Unknown id -> <see cref="NotFoundException"/> 404.</summary>
     Task<PositionItem> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>Soft-deactivates (sets IsActive=false) without touching Code/Name — never a hard delete (the
     /// <c>AdminAccount</c> FK is Restrict). Unknown id -> <see cref="NotFoundException"/> 404.</summary>
-    Task<PositionItem> DeactivateAsync(Guid id, CancellationToken cancellationToken);
+    Task<PositionItem> DeactivateAsync(Guid id, long expectedVersion, CancellationToken cancellationToken);
 }

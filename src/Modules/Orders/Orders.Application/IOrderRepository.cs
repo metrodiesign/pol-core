@@ -1,3 +1,4 @@
+using BuildingBlocks.Application;
 using Orders.Domain;
 
 namespace Orders.Application;
@@ -19,11 +20,11 @@ public interface IOrderRepository
     /// <summary>Reconciliation read: the bound merchant's orders grouped by status + currency (count + total).</summary>
     Task<IReadOnlyList<OrderStatusTotal>> GetReconciliationAsync(Guid merchantId, CancellationToken cancellationToken);
 
-    /// <summary>Lists the bound merchant's orders, newest first, with their lines loaded (REQ-7.4 masked
-    /// list surface — masking itself happens at the read-model projection, not here). A non-null
-    /// <paramref name="orderNo"/> narrows the list to the exact order number (purchase-flow-completion
-    /// REQ-7.4).</summary>
-    Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken);
+    /// <summary>Lists a stable, filtered page of the bound merchant's orders with their lines loaded.</summary>
+    Task<PagedResult<Order>> ListAsync(
+        Guid merchantId,
+        PagedQuery query,
+        CancellationToken cancellationToken);
 
     /// <summary>Tracks a new order for insertion on the next unit-of-work save.</summary>
     void Add(Order order);

@@ -3,8 +3,9 @@ using Merchants.Domain;
 namespace Merchants.Application;
 
 /// <summary>
-/// Persistence port for the <see cref="Merchant"/> master record. Provisioning + admin read-back
-/// only — bound to the pol_admin (RLS-bypass) connection by the host, so reads/writes see every merchant.
+/// Persistence port for the <see cref="Merchant"/> master record. Provisioning + admin read-back only.
+/// Runtime uses one DB principal; the persistence adapter is therefore a narrow, allowlisted query-filter
+/// escape hatch. Permission and accessible-merchant checks remain at the Admin host seam.
 /// </summary>
 public interface IMerchantRepository
 {

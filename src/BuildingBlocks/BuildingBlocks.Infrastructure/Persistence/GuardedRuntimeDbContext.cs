@@ -107,7 +107,9 @@ public abstract class GuardedRuntimeDbContext : DbContext
         if (entry.State == EntityState.Modified)
         {
             var original = (Guid?)property.OriginalValue;
-            var isPendingApprovalTransition = original is null && current is not null;
+            var allowNullToValue = entry.Metadata.FindAnnotation(TenantKeyDescriptor.AllowNullToValueAnnotationName)?.Value
+                is true;
+            var isPendingApprovalTransition = allowNullToValue && original is null && current is not null;
             if (original != current && !isPendingApprovalTransition)
             {
                 Emit(DenialCategory.GuardDenial, entityTypeName, "Update", current,

@@ -54,7 +54,7 @@ gate: `SDD_TYPECHECK_CMD="dotnet build -warnaserror"` · `SDD_TEST_CMD="dotnet t
   `ProductCode`/`VariantCode`; `Orders.Domain.Items.Item` เป็น immutable snapshot;
   `Payments.Domain.Session` คือ payment attempt ปัจจุบัน. ไม่มี Checkouts หรือ OrderItem policy type.
   Database tablesใช้ `shop.CartItems`/`Orders`/`OrderItems`, `txn.PaymentSessions` และ
-  `txn.PspConnections`. IAM catalogกลางมี 19 permissions/7 groups; Active-only resolution.
+  `txn.PspConnections`. IAM catalogกลางมี 26 permissions/7 groups; Active-only resolution.
   Registrationใช้ `IdentityType`; KYC persistenceเก็บ private object keyเท่านั้น.
 - ถ้าจะใช้ snake_case ใน DB → ตั้ง global convention ครั้งเดียว (`UseSnakeCaseNamingConvention()`) อย่าสลับมือทีละตาราง
 - **target entities (normative target — ยังไม่ใช่ as-built):** `Payment` · `PaymentAttempt` · `WebhookDelivery` (+ read model `Transaction`) และ canonical payment status 7 ค่า — นิยามใน `docs/reference/payment-orchestration-modules.md` ภาค 8 + `docs/reference/platform-modules.md`; ชื่อจริงในโค้ดวันนี้คือ `Payments.Domain.Session` + `SessionStatus` 4 ค่า (post hierarchical-naming; table `txn.PaymentSessions` คงเดิม) จนกว่า migration (rename ผ่าน ADR — rf6)

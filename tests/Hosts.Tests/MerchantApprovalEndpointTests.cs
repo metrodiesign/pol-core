@@ -200,6 +200,8 @@ public sealed class MerchantApprovalEndpointTests
         var cookieName = ApiHost::Api.Admins.SessionCookies.CsrfCookieName;
         request.Headers.Add("Cookie", $"{cookieName}={csrf}");
         request.Headers.Add(ApiHost::Api.Admins.CsrfFilter.HeaderName, csrf);
+        request.Headers.Add("If-Match", "\"v1\"");
+        request.Headers.Add("Idempotency-Key", "approval-test-key");
         return request;
     }
 

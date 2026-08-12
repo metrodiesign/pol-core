@@ -20,7 +20,56 @@ public interface IUserRepository
 {
     Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+    Task<PagedResult<User>> ListAsync(PagedQuery query, Guid? roleId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+    Task<PagedResult<User>> ListForAdminAsync(
+        PagedQuery query, Guid? roleId, Guid? merchantId, bool isUnrestricted,
+        IReadOnlySet<Guid> accessibleMerchantIds, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+    Task<User?> FindByIdForAdminAsync(
+        Guid id, bool isUnrestricted, IReadOnlySet<Guid> accessibleMerchantIds,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
     void Add(User account);
+}
+
+public interface IInvitationRepository
+{
+    Task<MerchantUserInvitation?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindPendingByNormalizedEmailAsync(string normalizedEmail, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindByTokenHashUnfilteredAsync(string tokenHash, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindByIdUnfilteredAsync(Guid id, CancellationToken cancellationToken);
+    Task<MerchantUserInvitation?> FindAcceptedByUserIdAsync(Guid userId, CancellationToken cancellationToken) =>
+        Task.FromResult<MerchantUserInvitation?>(null);
+    void Add(MerchantUserInvitation invitation);
+}
+
+public interface IAdminUserOperationStore
+{
+    Task<AdminUserOperationRecord?> FindAsync(
+        Guid? merchantId, Guid actorId, string operation, string idempotencyKey,
+        CancellationToken cancellationToken);
+    void Add(AdminUserOperationRecord record);
+}
+
+public interface IManagementAuditWriter
+{
+    void Append(MerchantUserManagementAudit audit);
+}
+
+public interface IActiveManagerGuard
+{
+    Task<int> CountActiveUsersWithRoleAsync(Guid merchantId, Guid roleId, CancellationToken cancellationToken);
+}
+
+public interface IInvitationDeliveryProtector
+{
+    string Protect(string rawToken);
+    bool TryUnprotect(string protectedToken, out string rawToken);
+}
+
+public interface IInvitationEmailSender
+{
+    Task SendAsync(string email, string rawToken, CancellationToken cancellationToken);
 }
 
 /// <summary>The narrow pre-bind projection of a merchant-user account — never the tracked aggregate.
@@ -55,6 +104,7 @@ public interface IAccountResolver
 public interface IAccountStore
 {
     Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<User?>(null);
     void Add(User account);
 }
 

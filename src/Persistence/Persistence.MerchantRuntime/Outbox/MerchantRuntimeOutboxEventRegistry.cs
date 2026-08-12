@@ -16,6 +16,8 @@ internal static class MerchantRuntimeOutboxEventRegistry
         new(PaymentPaid.EventType, PaymentPaid.SchemaVersion, typeof(PaymentPaid)),
         new(PaymentFailed.EventType, PaymentFailed.SchemaVersion, typeof(PaymentFailed)),
         new(PaymentExpired.EventType, PaymentExpired.SchemaVersion, typeof(PaymentExpired)),
+        new(ApprovalRequested.EventType, ApprovalRequested.SchemaVersion, typeof(ApprovalRequested)),
+        new(ApprovalExecutionReported.EventType, ApprovalExecutionReported.SchemaVersion, typeof(ApprovalExecutionReported)),
         new(nameof(CustomerOrderNotification), CustomerOrderNotification.SchemaVersion, typeof(CustomerOrderNotification)),
     ];
 
@@ -38,6 +40,8 @@ internal static class MerchantRuntimeOutboxEventRegistry
             PaymentPaid x => (x.EventId, x.OccurredAt),
             PaymentFailed x => (x.EventId, x.OccurredAt),
             PaymentExpired x => (x.EventId, x.OccurredAt),
+            ApprovalRequested x => (x.EventId, x.OccurredAt),
+            ApprovalExecutionReported x => (x.EventId, x.OccurredAt),
             CustomerOrderNotification x => (Guid.CreateVersion7(), x.OccurredAt),
             _ => (Guid.CreateVersion7(), fallbackOccurredAt),
         };

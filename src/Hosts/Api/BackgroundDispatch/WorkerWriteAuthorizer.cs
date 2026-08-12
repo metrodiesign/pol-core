@@ -1,5 +1,9 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Outbox;
+using BuildingBlocks.Infrastructure.Vault;
+using BuildingBlocks.Infrastructure.Idempotency;
+using Payments.Domain.Psp;
+using Payments.Domain.Routing;
 using MerchantRegistrationNotice = Merchants.Domain.Users.RegistrationNotice;
 using OrderAggregate = Orders.Domain.Order;
 
@@ -28,9 +32,12 @@ internal sealed class WorkerWriteAuthorizer : IWriteAuthorizer
     private static readonly HashSet<Type> DrainableOutboxTypes = [typeof(OutboxMessage), typeof(MerchantUserOutbox)];
     private static readonly HashSet<Type> MidDispatchInsertTypes =
         [typeof(MerchantRegistrationNotice), typeof(OutboxMessage)];
-    private static readonly HashSet<Type> MidDispatchUpdateTypes = [typeof(OrderAggregate)];
+    private static readonly HashSet<Type> MidDispatchUpdateTypes =
+        [typeof(OrderAggregate), typeof(Connection), typeof(RoutingRuleset), typeof(VaultSecretVersion)];
 
     public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
         (operation == WriteOperation.Update && (DrainableOutboxTypes.Contains(entityType) || MidDispatchUpdateTypes.Contains(entityType)))
-        || (operation == WriteOperation.Insert && MidDispatchInsertTypes.Contains(entityType));
+        || (operation == WriteOperation.Insert
+            && (MidDispatchInsertTypes.Contains(entityType) || entityType == typeof(VaultRevealAudit)))
+        || (operation == WriteOperation.Delete && entityType == typeof(AdminOperationRecord));
 }

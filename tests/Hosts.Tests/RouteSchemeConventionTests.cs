@@ -37,11 +37,11 @@ file sealed class RouteSchemeFactory : WebApplicationFactory<ApiHost::Program>
 
 public sealed class RouteSchemeConventionTests
 {
-    // REQ-1.5: LITERAL /api/v1 (fail-closed) — NOT v\d+. The thirteen areas are the REQ-2.1 taxonomy
+    // REQ-1.5: LITERAL /api/v1 (fail-closed) — NOT v\d+. The fourteen areas are the REQ-2.1 taxonomy
     // (hierarchical-naming task 8: merchant-users out, merchants in; 2026-07-20: positions/offices/levels/
     // divisions promoted from /admins sub-resources to standalone areas).
     private static readonly Regex ApiScheme = new(
-        @"^/api/v1/(products|carts|orders|payments|admins|merchants|webhooks|reports|positions|offices|levels|divisions)(/.*)?$",
+        @"^/api/v1/(products|carts|orders|payments|admins|merchants|originators|webhooks|reports|positions|offices|levels|divisions|approvals|audits|api-clients|notifications)(/.*)?$",
         RegexOptions.Compiled);
 
     // REQ-4.3: health/readiness + the OpenAPI document + the Scalar UI are excluded from the area taxonomy.

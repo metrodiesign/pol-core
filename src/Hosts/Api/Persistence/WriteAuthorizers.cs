@@ -14,10 +14,13 @@ using AdminAuthAudit = Admins.Domain.Users.AuthAudit;
 using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
+using Iam.Domain.ApiClients;
 using Divisions.Domain;
 using Levels.Domain;
 using Offices.Domain;
 using Positions.Domain;
+using Governance.Domain;
+using Notifications.Domain;
 using Merchants.Domain;
 using MerchantEntity = Merchants.Domain.Merchant;
 using MerchantUser = Merchants.Domain.Users.User;
@@ -27,11 +30,16 @@ using MerchantAuthAudit = Merchants.Domain.Users.AuthAudit;
 using MerchantRegistrationAudit = Merchants.Domain.Users.RegistrationAudit;
 using MerchantRegistrationAttempt = Merchants.Domain.Users.RegistrationAttempt;
 using MerchantRegistrationNotice = Merchants.Domain.Users.RegistrationNotice;
+using MerchantInvitation = Merchants.Domain.Users.MerchantUserInvitation;
+using MerchantManagementAudit = Merchants.Domain.Users.MerchantUserManagementAudit;
+using MerchantAdminOperation = Merchants.Domain.Users.AdminUserOperationRecord;
 using MerchantRoleAssignment = Merchants.Domain.Users.Roles.RoleAssignment;
 using Payments.Domain.Psp;
+using Payments.Domain.Routing;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using PaymentSession = Payments.Domain.Session;
+using InboundWebhookEvent = Payments.Domain.InboundWebhookEvent;
 using OrderAggregate = Orders.Domain.Order;
 using OrderItem = Orders.Domain.Items.Item;
 using OrderItemRevealAudit = Orders.Domain.Items.RevealAudit;
@@ -86,12 +94,12 @@ internal sealed class MerchantRequestWriteAuthorizer : IWriteAuthorizer
         // MerchantUserDbContext
         typeof(MerchantUser), typeof(MerchantSession), typeof(MerchantExternalLogin), typeof(MerchantAuthAudit),
         typeof(MerchantRegistrationAudit), typeof(MerchantRegistrationAttempt), typeof(MerchantRegistrationNotice),
-        typeof(MerchantRoleAssignment),
+        typeof(MerchantRoleAssignment), typeof(MerchantInvitation), typeof(MerchantManagementAudit),
         typeof(MerchantUserOutbox),
         // MerchantRuntimeDbContext
         typeof(CartAggregate), typeof(CartItem),
         typeof(OrderAggregate), typeof(OrderItem), typeof(OrderItemRevealAudit),
-        typeof(PaymentSession), typeof(Connection), typeof(IdempotencyRecord), typeof(OutboxMessage),
+        typeof(PaymentSession), typeof(InboundWebhookEvent), typeof(Connection), typeof(IdempotencyRecord), typeof(OutboxMessage),
         typeof(MerchantEntity), typeof(VaultSecretBlob), typeof(VaultRevealAudit), typeof(ProvisioningAudit),
     ];
 
@@ -127,7 +135,42 @@ internal sealed class AdminApprovalWriteAuthorizer : IWriteAuthorizer
     [
         (typeof(MerchantUser), WriteOperation.Update),
         (typeof(MerchantRoleAssignment), WriteOperation.Insert),
+        (typeof(MerchantRoleAssignment), WriteOperation.Delete),
         (typeof(MerchantRegistrationAudit), WriteOperation.Insert),
+        (typeof(MerchantInvitation), WriteOperation.Insert),
+        (typeof(MerchantInvitation), WriteOperation.Update),
+        (typeof(MerchantManagementAudit), WriteOperation.Insert),
+        (typeof(MerchantUserOutbox), WriteOperation.Insert),
+        (typeof(MerchantAdminOperation), WriteOperation.Insert),
+        (typeof(MerchantEntity), WriteOperation.Update),
+        (typeof(Originator), WriteOperation.Insert),
+        (typeof(Originator), WriteOperation.Update),
+        (typeof(Originator), WriteOperation.Delete),
+        (typeof(Connection), WriteOperation.Insert),
+        (typeof(Connection), WriteOperation.Update),
+        (typeof(RoutingRuleset), WriteOperation.Insert),
+        (typeof(RoutingRuleset), WriteOperation.Update),
+        (typeof(RoutingRuleset), WriteOperation.Delete),
+        (typeof(RoutingRule), WriteOperation.Insert),
+        (typeof(RoutingRule), WriteOperation.Update),
+        (typeof(RoutingRule), WriteOperation.Delete),
+        (typeof(VaultSecretVersion), WriteOperation.Insert),
+        (typeof(VaultSecretVersion), WriteOperation.Update),
+        (typeof(VaultRevealAudit), WriteOperation.Insert),
+        (typeof(AdminOperationRecord), WriteOperation.Insert),
+        (typeof(AdminOperationRecord), WriteOperation.Update),
+        (typeof(CartAggregate), WriteOperation.Insert),
+        (typeof(CartAggregate), WriteOperation.Update),
+        (typeof(CartItem), WriteOperation.Insert),
+        (typeof(CartItem), WriteOperation.Update),
+        (typeof(CartItem), WriteOperation.Delete),
+        (typeof(OrderAggregate), WriteOperation.Insert),
+        (typeof(OrderAggregate), WriteOperation.Update),
+        (typeof(OrderItem), WriteOperation.Insert),
+        (typeof(OrderItemRevealAudit), WriteOperation.Insert),
+        (typeof(PaymentSession), WriteOperation.Insert),
+        (typeof(PaymentSession), WriteOperation.Update),
+        (typeof(OutboxMessage), WriteOperation.Insert),
     ];
 
     private readonly IAdminScope _scope;
@@ -228,6 +271,15 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         typeof(AdminRoleAssignment),
         typeof(Role), typeof(RolePermission), typeof(PermissionGroup), typeof(Permission),
         typeof(Position), typeof(Office), typeof(Level), typeof(Division),
+        typeof(ApiClient), typeof(OneTimeSecretTicket),
+        typeof(WebhookEndpoint), typeof(WebhookDelivery), typeof(NotificationRule),
+        typeof(NotificationDelivery), typeof(DeliverySecretVersion),
+    ];
+
+    private static readonly HashSet<Type> GovernanceTypes =
+    [
+        typeof(ApprovalRequest), typeof(ApprovalEvent), typeof(OperationRecord),
+        typeof(AuditHead), typeof(AuditRecord), typeof(GovernanceOutboxMessage),
     ];
 
     // The callback-time login flow, and nothing else: allowlist bootstrap (User+Audit+RoleAssignment),
@@ -256,7 +308,36 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         if (entityType == typeof(DataProtectionKey))
             return true;
         if (_scope.IsBound)
-            return BoundOnlyTypes.Contains(entityType);
+            return GovernanceTypes.Contains(entityType)
+                ? targetMerchant == Guid.Empty
+                    ? _scope.Accessible.IsUnrestricted
+                    : _scope.Accessible.Allows(targetMerchant)
+                : BoundOnlyTypes.Contains(entityType);
         return UnboundLoginFlowWrites.Contains((entityType, operation));
     }
+}
+
+/// <summary>Background capability for Governance inbox/outbox processing; exact entity/operation allowlist.</summary>
+internal sealed class ControlPlaneWorkerWriteAuthorizer : IWriteAuthorizer
+{
+    private static readonly HashSet<(Type, WriteOperation)> Allowed =
+    [
+        (typeof(ApprovalRequest), WriteOperation.Insert),
+        (typeof(ApprovalRequest), WriteOperation.Update),
+        (typeof(ApprovalEvent), WriteOperation.Insert),
+        (typeof(AuditHead), WriteOperation.Insert),
+        (typeof(AuditHead), WriteOperation.Update),
+        (typeof(AuditRecord), WriteOperation.Insert),
+        (typeof(GovernanceOutboxMessage), WriteOperation.Update),
+        (typeof(GovernanceOutboxMessage), WriteOperation.Insert),
+        (typeof(OperationRecord), WriteOperation.Delete),
+        (typeof(ApiClient), WriteOperation.Update),
+        (typeof(OneTimeSecretTicket), WriteOperation.Update),
+        (typeof(WebhookDelivery), WriteOperation.Insert),
+        (typeof(WebhookDelivery), WriteOperation.Update),
+        (typeof(NotificationDelivery), WriteOperation.Insert),
+    ];
+
+    public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>
+        entityType == typeof(DataProtectionKey) || Allowed.Contains((entityType, operation));
 }

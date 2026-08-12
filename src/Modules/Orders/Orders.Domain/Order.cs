@@ -17,6 +17,7 @@ public sealed class Order : AggregateRoot<Guid>
     private readonly List<Item> _items = [];
 
     public Guid MerchantId { get; private set; }
+    public Guid? OriginatorId { get; private set; }
 
     /// <summary>The human-readable order number the merchant quotes to the customer (purchase-flow-completion
     /// REQ-7.1): <c>ORD</c> + 2-digit Buddhist year + 8-digit running number, minted from a SQL sequence by
@@ -35,7 +36,12 @@ public sealed class Order : AggregateRoot<Guid>
 
     public DateTime CreatedAt { get; private set; }
 
+    public DateTime UpdatedAt { get; private set; }
+
     public DateTime? PaidAt { get; private set; }
+
+    /// <summary>Application-managed resource version for Admin optimistic concurrency.</summary>
+    public long Version { get; private set; }
 
     /// <summary>Opaque, unguessable token for the customer's summary link (capability, not a secret —
     /// just hard to guess). Rotated by <see cref="ReissueSummary"/>.</summary>
@@ -77,10 +83,13 @@ public sealed class Order : AggregateRoot<Guid>
 
     private Order(Guid id, Guid merchantId, string orderNo, string? saleCode, Guid? paymentSessionId,
         Money amount, string? paymentChannel, CustomerContact customer, string? notificationRecipient,
-        DateTime createdAt)
+        DateTime createdAt, Guid? originatorId)
         : base(id)
     {
+        if (originatorId == Guid.Empty)
+            throw new ArgumentException("Originator id cannot be empty.", nameof(originatorId));
         MerchantId = merchantId;
+        OriginatorId = originatorId;
         OrderNo = orderNo;
         SaleCode = string.IsNullOrWhiteSpace(saleCode) ? null : saleCode.Trim();
         PaymentSessionId = paymentSessionId;
@@ -94,6 +103,8 @@ public sealed class Order : AggregateRoot<Guid>
         NotificationRecipient = customer.NotificationRecipient ?? notificationRecipient;
         Status = OrderStatus.Pending;
         CreatedAt = createdAt;
+        UpdatedAt = createdAt;
+        Version = 1;
         SummaryToken = Guid.NewGuid().ToString("N");
         SummaryTokenExpiresAt = createdAt + SummaryTokenTtl;
     }
@@ -110,6 +121,8 @@ public sealed class Order : AggregateRoot<Guid>
 
         SummaryToken = Guid.NewGuid().ToString("N");
         SummaryTokenExpiresAt = now + SummaryTokenTtl;
+        UpdatedAt = now;
+        Version++;
     }
 
     /// <summary>
@@ -125,7 +138,7 @@ public sealed class Order : AggregateRoot<Guid>
     public static Order Create(Guid merchantId, Money amount, DateTime createdAt, IReadOnlyList<OrderItemInput> items,
         string orderNo, Guid? paymentSessionId = null,
         string? notificationRecipient = null, string? paymentChannel = null, CustomerContact? customer = null,
-        string? saleCode = null)
+        string? saleCode = null, Guid? originatorId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(orderNo, nameof(orderNo));
         if (items is null || items.Count == 0)
@@ -151,7 +164,7 @@ public sealed class Order : AggregateRoot<Guid>
 
         var order = new Order(
             Guid.NewGuid(), merchantId, orderNo.Trim(), saleCode, paymentSessionId, amount, paymentChannel,
-            customer ?? CustomerContact.Unspecified, notificationRecipient, createdAt);
+            customer ?? CustomerContact.Unspecified, notificationRecipient, createdAt, originatorId);
 
         for (var i = 0; i < items.Count; i++)
         {
@@ -169,7 +182,7 @@ public sealed class Order : AggregateRoot<Guid>
     /// PaymentPaid consumer resolves orders by the event's <c>OrderId</c>, not by this value
     /// (bugfix-order-paid-link F2).
     /// </summary>
-    public void AttachPaymentAttempt(Guid paymentSessionId, string method)
+    public void AttachPaymentAttempt(Guid paymentSessionId, string method, DateTime? occurredAt = null)
     {
         if (paymentSessionId == Guid.Empty)
             throw new ArgumentException("PaymentSessionId is required.", nameof(paymentSessionId));
@@ -182,6 +195,9 @@ public sealed class Order : AggregateRoot<Guid>
         PaymentSessionId = paymentSessionId;
         PaymentChannel = method.Trim();
         Status = OrderStatus.Pending;
+        if (occurredAt is { } attachedAt)
+            UpdatedAt = attachedAt;
+        Version++;
     }
 
     /// <summary>
@@ -215,11 +231,13 @@ public sealed class Order : AggregateRoot<Guid>
         PaymentSessionId = paymentSessionId;
         PaymentChannel = method.Trim();
         PaidAt = occurredAt;
+        UpdatedAt = occurredAt;
+        Version++;
         Raise(new OrderPaid(Id, occurredAt));
         return true;
     }
 
-    public bool MarkPaymentFailed(Guid paymentSessionId)
+    public bool MarkPaymentFailed(Guid paymentSessionId, DateTime? occurredAt = null)
     {
         if (Status == OrderStatus.Failed && PaymentSessionId == paymentSessionId)
             return false;
@@ -227,10 +245,13 @@ public sealed class Order : AggregateRoot<Guid>
             return false;
 
         Status = OrderStatus.Failed;
+        if (occurredAt is { } failedAt)
+            UpdatedAt = failedAt;
+        Version++;
         return true;
     }
 
-    public bool MarkPaymentExpired(Guid paymentSessionId)
+    public bool MarkPaymentExpired(Guid paymentSessionId, DateTime? occurredAt = null)
     {
         if (Status == OrderStatus.Expired && PaymentSessionId == paymentSessionId)
             return false;
@@ -238,15 +259,21 @@ public sealed class Order : AggregateRoot<Guid>
             return false;
 
         Status = OrderStatus.Expired;
+        if (occurredAt is { } expiredAt)
+            UpdatedAt = expiredAt;
+        Version++;
         return true;
     }
 
     /// <summary>Cancels an Order only while Pending; every other status is a conflict.</summary>
-    public void Cancel()
+    public void Cancel(DateTime? occurredAt = null)
     {
         if (Status != OrderStatus.Pending)
             throw new InvalidOperationException($"Cannot cancel an order in status {Status}.");
 
         Status = OrderStatus.Cancelled;
+        if (occurredAt is { } cancelledAt)
+            UpdatedAt = cancelledAt;
+        Version++;
     }
 }

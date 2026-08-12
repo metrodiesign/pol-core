@@ -8,6 +8,9 @@ using System.Text.Json;
 using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
 using Carts.Application;
+using Iam.Domain.Permissions;
+using Merchants.Application;
+using Merchants.Application.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -48,12 +51,16 @@ file sealed class TestMerchantUserAuthHandler(
     }
 }
 
-file sealed class BoundActor(Guid merchantId, string? saleCode) : IActorContext
+file sealed class BoundActor(Guid merchantId, string? saleCode) : IActorContext, IUserScope
 {
+    private static readonly Guid MerchantUserId = Guid.Parse("44444444-4444-4444-4444-444444444444");
     public Guid MerchantId => merchantId;
-    public Guid? UserId => null;
+    public Guid? UserId => MerchantUserId;
     public bool HasActor => true;
     public string? SaleCode => saleCode;
+    public bool IsBound => true;
+    public Resolution Current => new(MerchantUserId, "merchant@test.local", merchantId,
+        new HashSet<string>([Keys.PaymentView, Keys.PaymentCreate, Keys.PaymentRedirect], StringComparer.Ordinal), saleCode);
 }
 
 // Reports every document sellable — add-item/order sold-checks pass, so these tests exercise the rest of the
@@ -178,6 +185,14 @@ file sealed class CartFactory(
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestMerchantUserAuthHandler>(
                     TestMerchantUserAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<PolicySchemeOptions>(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName,
+                options => options.ForwardDefaultSelector = context =>
+                {
+                    context.Features.Set(new ApiHost::Api.Iam.SelectedConsoleAudience(
+                        ApiHost::Api.Iam.ConsoleAudience.Merchant));
+                    return TestMerchantUserAuthHandler.SchemeName;
+                });
             services.PostConfigure<AuthorizationOptions>(o => o.AddPolicy("merchant-user", p => p
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
@@ -188,6 +203,7 @@ file sealed class CartFactory(
             services.AddScoped<ISpDocumentGateway>(_ => new FakeSpDocumentGateway(document is null ? [] : [document]));
             services.AddScoped<IDocumentSaleProbe>(_ => saleProbe ?? new AlwaysSellableProbe());
             services.AddScoped<IActorContext>(_ => new BoundActor(merchantId, saleCode));
+            services.AddScoped<IUserScope>(_ => new BoundActor(merchantId, saleCode));
             services.AddScoped<FakeCarts>(_ => new FakeCarts(carts));
             services.AddScoped<ICartRepository>(sp => sp.GetRequiredService<FakeCarts>());
             services.AddScoped<ICartForOrderStore>(sp => sp.GetRequiredService<FakeCarts>());
@@ -257,7 +273,8 @@ public sealed class MerchantLifecycleEndpointTests
     private static string CreateOrderBody(Cart cart, string? amount = null) =>
         $$"""
         {"cartId":"{{cart.Id}}",
-         "customer":{"name":"Somchai Jaidee","phone":"0812345678","email":"buyer@example.com"}
+         "customer":{"name":"Somchai Jaidee","phone":"0812345678","email":"buyer@example.com"},
+         "paymentMethod":"card"
          {{(amount is null ? "" : $",\"amount\":{amount}")}}}
         """;
 
@@ -285,6 +302,7 @@ public sealed class MerchantLifecycleEndpointTests
         Assert.Equal("2400.0000", payload.GetProperty("amount").GetProperty("amount").GetString());
         Assert.Equal(Carts.Domain.CartStatus.CheckedOut, cart.Status);
         Assert.Equal(SaleCode, order.SaleCode);
+        Assert.Equal("card", order.PaymentChannel);
         var line = Assert.Single(order.Items);
         Assert.Equal(DocumentNo, line.ProductCode);
         Assert.Equal(Group, line.VariantCode);
@@ -489,6 +507,8 @@ public sealed class MerchantLifecycleEndpointTests
         var response = await client.GetAsync("/api/v1/products");
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("sale-code-missing", problem.RootElement.GetProperty("code").GetString());
     }
 
     // REQ-4.9 — the sale-code gate runs BEFORE the body is parsed: an add-item request with a product group that
@@ -503,6 +523,8 @@ public sealed class MerchantLifecycleEndpointTests
             $"/api/v1/carts/{Guid.NewGuid()}/items", AddItemBody(variantCode: "not-a-group")));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("sale-code-missing", problem.RootElement.GetProperty("code").GetString());
     }
 
 }

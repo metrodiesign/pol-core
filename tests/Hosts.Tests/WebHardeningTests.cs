@@ -332,6 +332,30 @@ public sealed class ForwardedHeadersConfigTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
+
+    [Theory]
+    [InlineData("0.0.0.0/0")]
+    [InlineData("::/0")]
+    public void Wildcard_known_network_is_rejected_during_startup(string cidr)
+    {
+        using var factory = new HardeningFactory<ApiHost::Program>().WithWebHostBuilder(builder =>
+            builder.UseSetting("ForwardedHeaders:KnownNetworks:0", cidr));
+
+        var failure = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains("must not trust a wildcard network", failure.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Unknown_default_psp_is_rejected_during_startup()
+    {
+        using var factory = new HardeningFactory<ApiHost::Program>().WithWebHostBuilder(builder =>
+            builder.UseSetting("Psp:DefaultCode", "unknown-psp"));
+
+        var failure = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains("Unknown PSP code", failure.ToString(), StringComparison.Ordinal);
+    }
 }
 
 file static class FactoryExtensions

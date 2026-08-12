@@ -5,6 +5,9 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using ApiHost::Api.Merchants;
 using BuildingBlocks.Application;
+using Iam.Domain.Permissions;
+using Merchants.Application;
+using Merchants.Application.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -46,11 +49,15 @@ file sealed class TestMerchantUserAuthHandler(
     }
 }
 
-file sealed class BoundActor(Guid merchantId) : IActorContext
+file sealed class BoundActor(Guid merchantId) : IActorContext, IUserScope
 {
+    private static readonly Guid MerchantUserId = Guid.Parse("44444444-4444-4444-4444-444444444444");
     public Guid MerchantId => merchantId;
-    public Guid? UserId => Guid.Parse("44444444-4444-4444-4444-444444444444");
+    public Guid? UserId => MerchantUserId;
     public bool HasActor => true;
+    public bool IsBound => true;
+    public Resolution Current => new(MerchantUserId, "merchant@test.local", merchantId,
+        new HashSet<string>([Keys.PaymentView, Keys.PaymentCreate, Keys.PaymentRedirect], StringComparer.Ordinal));
 }
 
 file sealed class FakeOrders(List<Order> orders) : IOrderRepository
@@ -68,11 +75,15 @@ file sealed class FakeOrders(List<Order> orders) : IOrderRepository
     /// thing from "filter that matched nothing" and is exactly what the SFS parse can get wrong.</summary>
     public static string? LastOrderNoFilter { get; private set; }
 
-    public Task<IReadOnlyList<Order>> ListAsync(Guid merchantId, string? orderNo, CancellationToken cancellationToken)
+    public Task<PagedResult<Order>> ListAsync(
+        Guid merchantId,
+        PagedQuery query,
+        CancellationToken cancellationToken)
     {
-        LastOrderNoFilter = orderNo;
-        return Task.FromResult<IReadOnlyList<Order>>(
-            orders.Where(o => orderNo is null || o.OrderNo == orderNo).ToList());
+        LastOrderNoFilter = query.Filters.FirstOrDefault(f =>
+            f.Field == "orderNo" && f.Operator == FilterOperator.Equals)?.Value?.GetString();
+        var items = orders.Where(o => LastOrderNoFilter is null || o.OrderNo == LastOrderNoFilter).ToList();
+        return Task.FromResult(new PagedResult<Order>(items, query.Page, query.Limit, items.Count));
     }
 
     public void Add(Order order) => orders.Add(order);
@@ -84,6 +95,9 @@ file sealed class FakePaymentSessions(List<PaymentSession> sessions) : ISessionR
 
     public Task<PaymentSession?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
         Task.FromResult(sessions.FirstOrDefault(s => s.Id == paymentSessionId));
+
+    public Task<PagedResult<PaymentSession>> ListAsync(PagedQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult(new PagedResult<PaymentSession>(sessions, query.Page, query.Limit, sessions.Count));
 
     public Task<PaymentSession?> GetByExternalChargeAsync(Code psp, string externalChargeId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
@@ -130,6 +144,14 @@ file sealed class OrderFactory(Guid merchantId, List<Order> orders, List<Payment
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestMerchantUserAuthHandler>(
                     TestMerchantUserAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<PolicySchemeOptions>(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName,
+                options => options.ForwardDefaultSelector = context =>
+                {
+                    context.Features.Set(new ApiHost::Api.Iam.SelectedConsoleAudience(
+                        ApiHost::Api.Iam.ConsoleAudience.Merchant));
+                    return TestMerchantUserAuthHandler.SchemeName;
+                });
             services.PostConfigure<AuthorizationOptions>(o => o.AddPolicy("merchant-user", p => p
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
@@ -137,6 +159,7 @@ file sealed class OrderFactory(Guid merchantId, List<Order> orders, List<Payment
             // Last-registered wins. The aggregates live in the lists, so a "save" is a no-op while mutations
             // survive across requests exactly as committed rows would.
             services.AddScoped<IActorContext>(_ => new BoundActor(merchantId));
+            services.AddScoped<IUserScope>(_ => new BoundActor(merchantId));
             services.AddScoped<IOrderRepository>(_ => new FakeOrders(orders));
             services.AddScoped<ISessionRepository>(_ => new FakePaymentSessions(sessions));
             services.AddScoped<IPaymentSessionProbe>(_ => new FakeSessionProbe(sessions));

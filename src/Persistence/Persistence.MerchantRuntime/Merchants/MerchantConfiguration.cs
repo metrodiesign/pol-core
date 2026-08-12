@@ -31,6 +31,7 @@ internal sealed class MerchantConfiguration(MerchantRuntimeDbContext context) : 
         builder.Property(x => x.EnabledChannels).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Metadata).HasColumnType("json").IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
+        builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         builder.HasIndex(x => x.Code).IsUnique();
     }

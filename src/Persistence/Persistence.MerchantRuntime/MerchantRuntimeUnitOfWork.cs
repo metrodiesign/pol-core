@@ -64,6 +64,9 @@ internal sealed class MerchantRuntimeUnitOfWork : IUnitOfWork
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
     {
+        if (_db.Database.CurrentTransaction is not null)
+            return await operation(cancellationToken).ConfigureAwait(false);
+
         var strategy = _db.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {

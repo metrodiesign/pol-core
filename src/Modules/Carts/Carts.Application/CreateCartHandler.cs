@@ -20,7 +20,8 @@ public sealed class CreateCartHandler : ICommandHandler<CreateCartCommand, Guid>
 
     public async ValueTask<Guid> Handle(CreateCartCommand command, CancellationToken cancellationToken)
     {
-        var cart = new CartAggregate(Guid.CreateVersion7(), command.MerchantId, command.SaleCode, _clock.UtcNow);
+        var cart = new CartAggregate(
+            Guid.CreateVersion7(), command.MerchantId, command.SaleCode, _clock.UtcNow, command.OriginatorId);
         _carts.Add(cart);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return cart.Id;

@@ -8,10 +8,10 @@ namespace Admins.Application.Users;
 /// <summary>A Super suspends another admin (REQ-8). The domain blocks self-suspension (REQ-8.2) as a
 /// defense-in-depth invariant; the host also rejects it up front with a 403. An unknown target -> 404.
 /// Super-only at the host.</summary>
-public sealed record SuspendCommand(Guid TargetAdminId, Guid ActingAdminId, string CorrelationId)
+public sealed record SuspendCommand(Guid TargetAdminId, Guid ActingAdminId, string CorrelationId, long ExpectedVersion)
     : ICommand<SuspendResult>;
 
-public sealed record SuspendResult(Guid AdminId, string Status);
+public sealed record SuspendResult(Guid AdminId, string Status, long Version);
 
 public sealed class SuspendHandler : ICommandHandler<SuspendCommand, SuspendResult>
 {
@@ -34,19 +34,21 @@ public sealed class SuspendHandler : ICommandHandler<SuspendCommand, SuspendResu
 
     public async ValueTask<SuspendResult> Handle(SuspendCommand command, CancellationToken cancellationToken)
     {
-        var status = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+        var state = await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var admin = await _admins.GetByIdAsync(command.TargetAdminId, ct)
                 ?? throw new NotFoundException("The admin account was not found.");
+            if (admin.Version != command.ExpectedVersion)
+                throw new ConflictException("The admin account changed after it was loaded.", "state_conflict");
 
             admin.Suspend(command.ActingAdminId); // throws on self-suspend (REQ-8.2)
             _audit.Append(Audit.For(
                 AuditAction.Suspend, command.ActingAdminId, command.CorrelationId, _clock.UtcNow,
                 targetAdminId: command.TargetAdminId));
             await _unitOfWork.SaveChangesAsync(ct);
-            return admin.Status;
+            return (admin.Status, admin.Version);
         }, cancellationToken);
 
-        return new SuspendResult(command.TargetAdminId, status.ToString());
+        return new SuspendResult(command.TargetAdminId, state.Status.ToString(), state.Version);
     }
 }

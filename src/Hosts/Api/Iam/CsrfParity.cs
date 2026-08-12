@@ -25,6 +25,28 @@ internal static class CsrfProtection
 
     public static TBuilder RequireUserCsrf<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
         => builder.WithMetadata(new CsrfProtected("MerchantUserSession")).AddEndpointFilter<TBuilder, UserCsrfFilter>();
+
+    public static TBuilder RequireAudienceCsrf<TBuilder>(this TBuilder builder) where TBuilder : IEndpointConventionBuilder
+    {
+        builder.WithMetadata(new CsrfProtected("AdminSession"), new CsrfProtected("MerchantUserSession"));
+        return builder.AddEndpointFilter<TBuilder, AudienceCsrfFilter>();
+    }
+}
+
+internal sealed class AudienceCsrfFilter : IEndpointFilter
+{
+    private static readonly CsrfFilter Admin = new();
+    private static readonly UserCsrfFilter Merchant = new();
+
+    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
+        context.HttpContext.Features.Get<SelectedConsoleAudience>()?.Value switch
+        {
+            ConsoleAudience.Admin => Admin.InvokeAsync(context, next),
+            ConsoleAudience.Merchant => Merchant.InvokeAsync(context, next),
+            _ => ValueTask.FromResult<object?>(Results.Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "No authenticated console audience is bound.")),
+        };
 }
 
 /// <summary>
@@ -68,15 +90,17 @@ internal static class CsrfParity
         var problems = new List<string>();
         foreach (var (pattern, methods, policy, schemes) in endpoints)
         {
-            var mapped = AuthPolicyScheme.For(policy);
-            if (mapped is null)
+            var mapped = AuthPolicyScheme.AllFor(policy);
+            if (mapped.Count == 0)
                 continue;
-            var required = mapped.Value.SchemeId;
-            foreach (var wrong in schemes.Where(s => s != required))
+            var required = mapped.Select(x => x.SchemeId).ToHashSet(StringComparer.Ordinal);
+            foreach (var wrong in schemes.Where(s => !required.Contains(s)))
                 problems.Add($"'{pattern}' (policy '{policy}') carries a {wrong} CSRF filter — wrong side.");
             var hasUnsafe = methods is null || methods.Any(m => !SafeMethods.Contains(m));
-            if (hasUnsafe && !schemes.Contains(required))
-                problems.Add($"'{string.Join(",", methods ?? ["*"])} {pattern}' (policy '{policy}') has no {required} CSRF filter.");
+            if (!hasUnsafe)
+                continue;
+            foreach (var missing in required.Where(s => !schemes.Contains(s)))
+                problems.Add($"'{string.Join(",", methods ?? ["*"])} {pattern}' (policy '{policy}') has no {missing} CSRF filter.");
         }
         return problems;
     }

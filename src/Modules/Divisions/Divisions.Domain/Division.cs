@@ -18,6 +18,7 @@ public sealed class Division : AggregateRoot<Guid>
     public string Code { get; private set; } = default!;
     public string Name { get; private set; } = default!;
     public DivisionStatus Status { get; private set; }
+    public long Version { get; private set; }
 
     /// <summary>Parameterless ctor for EF Core materialisation only.</summary>
     private Division() { }
@@ -32,6 +33,7 @@ public sealed class Division : AggregateRoot<Guid>
         Code = code;
         Name = name.Trim();
         Status = DivisionStatus.Active;
+        Version = 1;
     }
 
     public static Division Create(string code, string name) => new(Guid.NewGuid(), code, name);
@@ -45,4 +47,5 @@ public sealed class Division : AggregateRoot<Guid>
 
     public void Activate() => Status = DivisionStatus.Active;
     public void Deactivate() => Status = DivisionStatus.Inactive;
+    public void BumpVersion() => Version++;
 }

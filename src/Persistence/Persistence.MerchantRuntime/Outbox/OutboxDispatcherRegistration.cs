@@ -13,6 +13,7 @@ public static class OutboxDispatcherRegistration
     public static IServiceCollection AddMerchantRuntimeOutboxDispatcher(this IServiceCollection services)
     {
         services.AddHostedService<OutboxDispatcher>();
+        services.AddHostedService<AdminControlMaintenanceService>();
         return services;
     }
 }

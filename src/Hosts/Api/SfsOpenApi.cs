@@ -8,7 +8,7 @@ namespace Api;
 /// emit no OpenAPI parameters for raw-query reads, so the OpenAPI operation transformer (Program.cs
 /// <c>AddOperationTransformer</c>) adds their declarations wherever it finds this marker. (REQ-13)
 /// </summary>
-internal sealed class SfsQueryParamsMarker;
+internal sealed record SfsQueryParamsMarker(int MaxLimit = 25);
 
 /// <summary>
 /// Metadata marker for an endpoint that reads only <c>page</c>/<c>limit</c> from the raw query string plus its
@@ -17,13 +17,20 @@ internal sealed class SfsQueryParamsMarker;
 /// </summary>
 internal sealed class ProductQueryParamsMarker;
 
+/// <summary>Declares one query value read directly from <see cref="HttpRequest.Query"/>.</summary>
+internal sealed record RawQueryParamMarker(
+    string Name,
+    string Description,
+    bool Required = true,
+    JsonSchemaType Type = JsonSchemaType.String);
+
 internal static class SfsOpenApi
 {
     /// <summary>Declares the five SFS query parameters on an operation so they appear in the OpenAPI document
     /// (and therefore in Scalar) even though they are bound from <c>HttpContext.Request.Query</c>.</summary>
-    public static void AddQueryParameters(OpenApiOperation operation)
+    public static void AddQueryParameters(OpenApiOperation operation, int maxLimit = 25)
     {
-        var parameters = AddPagingParameters(operation);
+        var parameters = AddPagingParameters(operation, maxLimit);
         parameters.Add(Param("filters", JsonSchemaType.String,
             "JSON array ของเงื่อนไข filter แบบ URL-encoded: [{\"field\",\"operator\",\"value\"|\"values\"}]"));
         parameters.Add(Param("sort", JsonSchemaType.String,
@@ -36,7 +43,7 @@ internal static class SfsOpenApi
     /// object, and deliberately none of the three SFS parameters (REQ-7.4).</summary>
     public static void AddProductQueryParameters(OpenApiOperation operation)
     {
-        AddPagingParameters(operation).Add(Param("productFilters", JsonSchemaType.String,
+        AddPagingParameters(operation, 25).Add(Param("productFilters", JsonSchemaType.String,
             "JSON object ของตัวกรองเอกสารแบบ URL-encoded (บังคับ — ต้องระบุ productGroup หรือ insuranceType อย่างน้อยหนึ่ง"
             + " เพื่อเลือกฝั่ง Motor/NonMotor; รหัสผู้ขายกำหนดโดย server เองจากผู้ใช้ที่ยืนยันตัวตนแล้ว ไม่ใช่ member ที่นี่): {\"searchText\",\"insuredName\","
             + "\"policyNo\",\"applicationNo\",\"documentType\",\"productGroup\",\"paymentStatus\":\"UNPAID\"|\"PAID\"|\"ALL\","
@@ -46,21 +53,31 @@ internal static class SfsOpenApi
             required: true));
     }
 
-    private static IList<IOpenApiParameter> AddPagingParameters(OpenApiOperation operation)
+    public static void AddRawQueryParameter(OpenApiOperation operation, RawQueryParamMarker marker)
+    {
+        var parameters = operation.Parameters ??= [];
+        if (parameters.Any(x => x.In == ParameterLocation.Query
+                                && string.Equals(x.Name, marker.Name, StringComparison.OrdinalIgnoreCase)))
+            return;
+        parameters.Add(Param(marker.Name, marker.Type, marker.Description, marker.Required));
+    }
+
+    private static IList<IOpenApiParameter> AddPagingParameters(OpenApiOperation operation, int maxLimit)
     {
         var parameters = operation.Parameters ??= [];
         parameters.Add(Param("page", JsonSchemaType.Integer, "เลขหน้าแบบเริ่มที่ 1 (ค่าเริ่มต้น 1; clamp ไม่ให้ต่ำกว่า 1)"));
-        parameters.Add(Param("limit", JsonSchemaType.Integer, "จำนวนรายการต่อหน้า (ค่าเริ่มต้น 25; clamp ในช่วง 1 ถึง 25)"));
+        parameters.Add(Param("limit", JsonSchemaType.Integer,
+            $"จำนวนรายการต่อหน้า (ค่าเริ่มต้น 25; clamp ในช่วง 1 ถึง {maxLimit})"));
         return parameters;
     }
 
     private static OpenApiParameter Param(string name, JsonSchemaType type, string description,
         bool required = false) => new()
-    {
-        Name = name,
-        In = ParameterLocation.Query,
-        Required = required,
-        Description = description,
-        Schema = new OpenApiSchema { Type = type },
-    };
+        {
+            Name = name,
+            In = ParameterLocation.Query,
+            Required = required,
+            Description = description,
+            Schema = new OpenApiSchema { Type = type },
+        };
 }

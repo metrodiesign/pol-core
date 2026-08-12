@@ -134,6 +134,10 @@ jobs:
           ADMIN_OIDC_CLIENT_ID: ci-placeholder
           MERCHANT_USER_FRONTEND_ORIGIN: https://ci.example.com
           ADMIN_FRONTEND_ORIGIN: https://ci-admin.example.com
+          FORWARDED_HEADERS_KNOWN_NETWORK: 172.18.0.0/16
+          MERCHANT_INVITATION_SMTP_HOST: smtp.example.internal
+          MERCHANT_INVITATION_SMTP_FROM: no-reply@example.com
+          MERCHANT_INVITATION_SMTP_USERNAME: ci-placeholder
           PSP_PUBLIC_BASE_URL: https://ci-api.example.com
           PSP_TWOCTWOP_FRONTEND_RETURN_URL: https://ci.example.com/return
           PSP_OMISE_RETURN_URI: https://ci.example.com/return

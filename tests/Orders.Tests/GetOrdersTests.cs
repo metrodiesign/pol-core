@@ -21,7 +21,7 @@ public sealed class GetOrdersTests
 
         var result = await handler.Handle(new GetOrdersQuery(Merchant), default);
 
-        var line = Assert.Single(Assert.Single(result.Orders).Lines);
+        var line = Assert.Single(Assert.Single(result.Items).Lines);
         Assert.Equal("DOC-1", line.ProductCode);
         Assert.Equal("VMI", line.VariantCode);
         Assert.Equal("ประกันรถยนต์", line.VariantName);
@@ -37,7 +37,7 @@ public sealed class GetOrdersTests
 
         var result = await handler.Handle(new GetOrdersQuery(Merchant), default);
 
-        Assert.Single(result.Orders);
+        Assert.Single(result.Items);
     }
 
     [Fact]
@@ -47,8 +47,29 @@ public sealed class GetOrdersTests
             Build(Merchant, "DOC-1", "ORD6900000001"),
             Build(Merchant, "DOC-2", "ORD6900000002")));
 
-        var filtered = await handler.Handle(new GetOrdersQuery(Merchant, "ORD6900000002"), default);
+        var filtered = await handler.Handle(new GetOrdersQuery(Merchant)
+        {
+            Filters = [new BuildingBlocks.Application.FilterOption(
+                "orderNo",
+                BuildingBlocks.Application.FilterOperator.Equals,
+                System.Text.Json.JsonSerializer.SerializeToElement("ORD6900000002"))],
+        }, default);
 
-        Assert.Equal("ORD6900000002", Assert.Single(filtered.Orders).OrderNo);
+        Assert.Equal("ORD6900000002", Assert.Single(filtered.Items).OrderNo);
+    }
+
+    [Fact]
+    public async Task List_returns_page_envelope_and_customer_fields()
+    {
+        var first = Build(Merchant, "DOC-1", "ORD6900000001");
+        var second = Build(Merchant, "DOC-2", "ORD6900000002");
+        var result = await new GetOrdersHandler(new FakeOrderRepository(first, second))
+            .Handle(new GetOrdersQuery(Merchant) { Page = 2, Limit = 1 }, default);
+
+        Assert.Equal(2, result.Page);
+        Assert.Equal(1, result.Limit);
+        Assert.Equal(2, result.Total);
+        Assert.Single(result.Items);
+        Assert.NotNull(result.Items[0].CustomerName);
     }
 }

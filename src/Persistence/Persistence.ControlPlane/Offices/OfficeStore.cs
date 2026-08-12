@@ -34,7 +34,7 @@ internal sealed class OfficeStore : IOfficeStore
             .OrderBy(m => m.Name)
             .Skip(skip)
             .Take(limit)
-            .Select(m => new OfficeItem(m.Id, m.Code, m.Name, m.Status))
+            .Select(m => new OfficeItem(m.Id, m.Code, m.Name, m.Status, m.Version))
             .ToListAsync(cancellationToken);
 
         return new PagedResult<OfficeItem>(items, page, limit, total);
@@ -46,37 +46,44 @@ internal sealed class OfficeStore : IOfficeStore
             var entity = Office.Create(code, name);   // slug/trim invariants -> ArgumentException -> 400, as before
             // Pre-check for a clean 409 message; the unique Code index is the race-safe backstop.
             if (await _db.Offices.AnyAsync(m => m.Code == entity.Code, ct))
-                throw new ConflictException($"A record with code '{entity.Code}' already exists.");
+                throw new ConflictException($"A record with code '{entity.Code}' already exists.", "immutable_code");
             _db.Offices.Add(entity);
             await _unitOfWork.SaveChangesAsync(ct);
-            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
         }, cancellationToken);
 
-    public Task<OfficeItem> UpdateAsync(Guid id, string name, OfficeStatus status, CancellationToken cancellationToken) =>
+    public Task<OfficeItem> UpdateAsync(
+        Guid id, string name, OfficeStatus status, long expectedVersion, CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var entity = await _db.Offices.FirstOrDefaultAsync(m => m.Id == id, ct)
                 ?? throw new NotFoundException("The record was not found.");
+            if (entity.Version != expectedVersion)
+                throw new ConflictException("The record changed after it was loaded.", "state_conflict");
             entity.Rename(name);
             if (status == OfficeStatus.Active) entity.Activate(); else entity.Deactivate();
+            entity.BumpVersion();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
         }, cancellationToken);
 
     public async Task<OfficeItem> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         var entity = await _db.Offices.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, cancellationToken)
             ?? throw new NotFoundException("The record was not found.");
-        return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
+        return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
     }
 
-    public Task<OfficeItem> DeactivateAsync(Guid id, CancellationToken cancellationToken) =>
+    public Task<OfficeItem> DeactivateAsync(Guid id, long expectedVersion, CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var entity = await _db.Offices.FirstOrDefaultAsync(m => m.Id == id, ct)
                 ?? throw new NotFoundException("The record was not found.");
+            if (entity.Version != expectedVersion)
+                throw new ConflictException("The record changed after it was loaded.", "state_conflict");
             entity.Deactivate();
+            entity.BumpVersion();
             await _unitOfWork.SaveChangesAsync(ct);
-            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status);
+            return new OfficeItem(entity.Id, entity.Code, entity.Name, entity.Status, entity.Version);
         }, cancellationToken);
 }

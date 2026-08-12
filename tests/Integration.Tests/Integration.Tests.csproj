@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\Modules\Admins\Admins.Infrastructure\Admins.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Carts\Carts.Infrastructure\Carts.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Divisions\Divisions.Infrastructure\Divisions.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Governance\Governance.Infrastructure\Governance.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Iam\Iam.Infrastructure\Iam.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Levels\Levels.Infrastructure\Levels.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Offices\Offices.Infrastructure\Offices.Infrastructure.csproj" />
@@ -38,6 +39,7 @@
          simulated upstream, so the test drives the production type rather than a copy of it. -->
     <ProjectReference Include="..\..\src\Modules\Products\Products.Infrastructure\Products.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Modules\Merchants\Merchants.Infrastructure\Merchants.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Notifications\Notifications.Infrastructure\Notifications.Infrastructure.csproj" />
     <!-- products-sp-gateway task 6: the ONE test here that is not raw-connection-only. The upsert's
          unique-index retry is EF change-tracker behaviour against a real SQL Server, so it needs the real
          ProductRepository/MerchantRuntimeDbContext (internal — via that project's InternalsVisibleTo grant).

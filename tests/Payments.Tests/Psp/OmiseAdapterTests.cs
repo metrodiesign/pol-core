@@ -46,6 +46,31 @@ public sealed class OmiseAdapterTests
     }
 
     [Fact]
+    public async Task TestConnection_reads_authenticated_account_without_creating_a_charge()
+    {
+        var (adapter, handler) = Build((_, _) =>
+            StubHttpMessageHandler.Json("""{"object":"account","id":"acct_test_1"}"""));
+
+        var result = await adapter.TestConnectionAsync(CardSecret, CancellationToken.None);
+
+        Assert.Equal("authenticated", result.Code);
+        Assert.Single(handler.Calls);
+        Assert.Equal(HttpMethod.Get, handler.Calls[0].Method);
+        Assert.EndsWith("/account", handler.Calls[0].Uri!.AbsolutePath);
+        Assert.StartsWith("Basic ", handler.Calls[0].Authorization);
+    }
+
+    [Fact]
+    public async Task TestConnection_rejects_a_non_account_response()
+    {
+        var (adapter, _) = Build((_, _) =>
+            StubHttpMessageHandler.Json("""{"object":"charge","id":"chrg_test_1"}"""));
+
+        await Assert.ThrowsAsync<PspRejectedException>(() =>
+            adapter.TestConnectionAsync(CardSecret, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Card_charge_returns_hosted_authorize_uri_with_idempotency_key_and_minor_unit_amount()
     {
         var session = MakeSession("card");

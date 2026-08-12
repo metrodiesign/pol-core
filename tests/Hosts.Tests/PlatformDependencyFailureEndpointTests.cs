@@ -121,6 +121,9 @@ file sealed class FakePaymentSessions(List<PaymentSession> sessions) : ISessionR
     public Task<PaymentSession?> GetByIdAsync(Guid paymentSessionId, CancellationToken cancellationToken) =>
         Task.FromResult(sessions.FirstOrDefault(s => s.Id == paymentSessionId));
 
+    public Task<PagedResult<PaymentSession>> ListAsync(PagedQuery query, CancellationToken cancellationToken) =>
+        Task.FromResult(new PagedResult<PaymentSession>(sessions, query.Page, query.Limit, sessions.Count));
+
     public Task<PaymentSession?> GetByExternalChargeAsync(Code psp, string externalChargeId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
@@ -236,12 +239,20 @@ file sealed class DeadDbFactory(Guid merchantId, SpDocumentItem document, Concur
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestMerchantUserAuthHandler>(
                     TestMerchantUserAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<PolicySchemeOptions>(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName,
+                options => options.ForwardDefaultSelector = context =>
+                {
+                    context.Features.Set(new ApiHost::Api.Iam.SelectedConsoleAudience(
+                        ApiHost::Api.Iam.ConsoleAudience.Merchant));
+                    return TestMerchantUserAuthHandler.SchemeName;
+                });
             services.PostConfigure<AuthorizationOptions>(o => o.AddPolicy("merchant-user", p => p
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
 
             services.AddScoped<IActorContext>(_ => new BoundActor(merchantId, PlatformDependencyFailureEndpointTests.SaleCode));
-            services.AddScoped<IUserScope>(_ => new FakeUserScope(merchantId, Keys.PaymentCreate));
+            services.AddScoped<IUserScope>(_ => new FakeUserScope(merchantId, Keys.PaymentCreate, Keys.PaymentView));
             // The upstream is ALIVE — the doors must fail at OUR platform read, not at the gateway.
             services.AddScoped<ISpDocumentGateway>(_ => new FakeSpDocumentGateway(document));
             // Everything else (carts, orders, sessions, probe) stays the host's REAL registration
@@ -276,12 +287,20 @@ file sealed class FakeProbeFactory(
             services.AddAuthentication()
                 .AddScheme<AuthenticationSchemeOptions, TestMerchantUserAuthHandler>(
                     TestMerchantUserAuthHandler.SchemeName, _ => { });
+            services.PostConfigure<PolicySchemeOptions>(
+                ApiHost::Api.Iam.ConsoleSessionAuthentication.SchemeName,
+                options => options.ForwardDefaultSelector = context =>
+                {
+                    context.Features.Set(new ApiHost::Api.Iam.SelectedConsoleAudience(
+                        ApiHost::Api.Iam.ConsoleAudience.Merchant));
+                    return TestMerchantUserAuthHandler.SchemeName;
+                });
             services.PostConfigure<AuthorizationOptions>(o => o.AddPolicy("merchant-user", p => p
                 .AddAuthenticationSchemes(TestMerchantUserAuthHandler.SchemeName)
                 .RequireAuthenticatedUser()));
 
             services.AddScoped<IActorContext>(_ => new BoundActor(merchantId, PlatformDependencyFailureEndpointTests.SaleCode));
-            services.AddScoped<IUserScope>(_ => new FakeUserScope(merchantId, Keys.PaymentCreate));
+            services.AddScoped<IUserScope>(_ => new FakeUserScope(merchantId, Keys.PaymentCreate, Keys.PaymentView));
             services.AddScoped<ISpDocumentGateway>(_ => new FakeSpDocumentGateway(document));
             services.AddScoped<IDocumentSaleProbe>(_ => new ThrowingProbe());
             services.AddScoped<ICartRepository>(_ => new FakeCarts(carts));

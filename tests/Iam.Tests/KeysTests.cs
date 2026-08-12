@@ -9,21 +9,23 @@ public sealed class KeysTests
     private static readonly string[] ExpectedKeys =
     [
         "txn.view", "txn.refund", "txn.export",
+        "txn.manage",
         "merchant.view", "merchant.manage",
         "user.view", "user.manage", "user.roles",
         "audit.view", "settings.manage", "apikey.manage",
         "merchants.users.approve", "merchants.users.reject", "merchants.users.view",
-        "payment.create", "payment.redirect",
-        "roles.view", "roles.manage", "users.roles",
+        "merchants.users.manage", "merchants.roles.view", "merchants.roles.manage",
+        "payment.view", "payment.create", "payment.redirect",
+        "users.view", "users.manage", "roles.view", "roles.manage", "users.roles",
     ];
 
     private static readonly string[] ExpectedGroups =
         ["txn", "merchant", "user", "system", "merchants.users", "payment", "roles"];
 
     [Fact]
-    public void All_has_exactly_19_keys_across_7_groups()
+    public void All_has_exactly_26_keys_across_7_groups()
     {
-        Assert.Equal(19, Keys.AllKeys.Count);
+        Assert.Equal(26, Keys.AllKeys.Count);
         Assert.Equal(7, Keys.GroupKeys.Count);
         Assert.Equal(ExpectedKeys.ToHashSet(StringComparer.Ordinal), Keys.AllKeys);
         Assert.Equal(ExpectedGroups.ToHashSet(StringComparer.Ordinal), Keys.GroupKeys.ToHashSet(StringComparer.Ordinal));
@@ -61,10 +63,19 @@ public sealed class KeysTests
     }
 
     [Fact]
-    public void Platform_side_has_14_keys_and_merchant_side_has_5()
+    public void Platform_side_has_18_keys_and_merchant_side_has_8()
     {
-        Assert.Equal(14, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
-        Assert.Equal(5, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
+        Assert.Equal(18, Keys.KeySide.Count(kv => kv.Value == Scope.Platform));
+        Assert.Equal(8, Keys.KeySide.Count(kv => kv.Value == Scope.Merchant));
+    }
+
+    [Fact]
+    public void Admin_commerce_and_merchant_management_keys_are_platform_scoped()
+    {
+        Assert.Equal(Scope.Platform, Keys.KeySide[Keys.TxnManage]);
+        Assert.Equal(Scope.Platform, Keys.KeySide[Keys.MerchantUserManage]);
+        Assert.Equal(Scope.Platform, Keys.KeySide[Keys.MerchantRolesView]);
+        Assert.Equal(Scope.Platform, Keys.KeySide[Keys.MerchantRolesManage]);
     }
 
     // user.roles (admin) and users.roles (merchant) are near-identical literals that used to live in two separate
