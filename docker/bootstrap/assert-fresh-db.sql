@@ -1,4 +1,4 @@
--- SQL Server 2025 fresh-baseline verification. Run after InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage.
+-- SQL Server 2025 fresh-database verification. Run after all EF migrations.
 -- sqlcmd -S <server> -U sa -P <pw> -C -b -v DbName=VCentralPay -i assert-fresh-db.sql
 SET NOCOUNT ON;
 USE [$(DbName)];
@@ -22,13 +22,35 @@ IF (SELECT COUNT(*) FROM sys.schemas s
     WHERE s.name IN (N'admin', N'cfg', N'iam', N'merch', N'shop', N'txn') AND dp.name = N'dbo') <> 6
     SET @fail += N'application schemas must be six and owned by dbo; ';
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory
-    WHERE MigrationId LIKE N'%[_]InitialSchema'
-       OR MigrationId LIKE N'%[_]SecurityObjects'
-       OR MigrationId LIKE N'%[_]SeedData'
-       OR MigrationId LIKE N'%[_]OneBasedPersistedEnumStorage') <> 4
-   OR (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 4
-    SET @fail += N'migration history must contain exactly InitialSchema, SecurityObjects, SeedData, OneBasedPersistedEnumStorage; ';
+DECLARE @expectedMigrations TABLE (MigrationId nvarchar(150) PRIMARY KEY);
+INSERT INTO @expectedMigrations (MigrationId) VALUES
+    (N'20260807042818_InitialSchema'),
+    (N'20260807042828_SecurityObjects'),
+    (N'20260807042833_SeedData'),
+    (N'20260808161508_OneBasedPersistedEnumStorage'),
+    (N'20260809183210_MerchantRealApiIdentity'),
+    (N'20260810041211_AdminConsolePermissionKeys'),
+    (N'20260810055607_GovernanceFoundation'),
+    (N'20260810055818_GovernancePlatformHeadUniqueness'),
+    (N'20260810074055_AdminConsoleResourceVersions'),
+    (N'20260810112718_AdminTenantPspRoutingControlPlane'),
+    (N'20260810133139_AdminMerchantIdentityControl'),
+    (N'20260810150130_AdminCommerceLifecycle'),
+    (N'20260810153008_AdminCommerceUpdatedAtDefault'),
+    (N'20260810162000_AdminCommerceOperationUpdateGrant'),
+    (N'20260810184403_AdminDeliveryControlAndInboundWebhook'),
+    (N'20260811024015_AdminDeliveryRuntimeGrants');
+
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 16
+   OR EXISTS (
+       SELECT MigrationId FROM @expectedMigrations
+       EXCEPT
+       SELECT MigrationId FROM dbo.__EFMigrationsHistory)
+   OR EXISTS (
+       SELECT MigrationId FROM dbo.__EFMigrationsHistory
+       EXCEPT
+       SELECT MigrationId FROM @expectedMigrations)
+    SET @fail += N'migration history must contain exactly 16 expected migrations through AdminDeliveryRuntimeGrants; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
@@ -101,12 +123,12 @@ IF EXISTS (SELECT 1 FROM sys.database_permissions p
 
 IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 7
     SET @fail += N'iam.PermissionGroups expected 7 rows; ';
-IF (SELECT COUNT(*) FROM iam.Permissions) <> 19
-    SET @fail += N'iam.Permissions expected 19 rows; ';
+IF (SELECT COUNT(*) FROM iam.Permissions) <> 26
+    SET @fail += N'iam.Permissions expected 26 rows; ';
 IF (SELECT COUNT(*) FROM iam.Roles) <> 4
     SET @fail += N'iam.Roles expected 4 rows; ';
-IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 25
-    SET @fail += N'iam.RolePermissions expected 25 rows; ';
+IF (SELECT COUNT(*) FROM iam.RolePermissions) <> 33
+    SET @fail += N'iam.RolePermissions expected 33 rows; ';
 IF EXISTS (SELECT 1 FROM iam.PermissionGroups WHERE Status <> 1)
    OR EXISTS (SELECT 1 FROM iam.Permissions WHERE Status <> 1)
    OR EXISTS (SELECT 1 FROM iam.Roles WHERE Status <> 1)
