@@ -1,6 +1,6 @@
 # Merchant–Commerce–Payment ERD Reference
 
-> As-built 2026-08-07. เอกสารนี้อ้างอิง persisted model และ migration ปัจจุบัน ไม่ใช่ target design.
+> As-built 2026-08-13. เอกสารนี้อ้างอิง persisted model และ migration ปัจจุบัน ไม่ใช่ target design.
 
 ## Current flow
 
@@ -11,6 +11,7 @@ flowchart LR
     C --> O["shop.Orders + shop.OrderItems"]
     O --> S["txn.PaymentSessions"]
     S --> E["txn.OutboxMessages"]
+    O --> R["Admin reporting projection"]
 ```
 
 Products อ่านจาก upstream แบบ live. ไม่มี `shop.Products` และไม่มี persisted Checkout.
@@ -22,6 +23,7 @@ erDiagram
     MERCHANTS ||--o{ MERCHANT_USERS : owns
     MERCHANTS ||--o{ VAULT_SECRETS : scopes
     MERCHANTS ||--o{ VAULT_REVEAL_AUDITS : scopes
+    MERCHANTS ||--o{ ORIGINATORS : owns
     MERCHANTS ||--o{ CARTS : scopes
     CARTS ||--o{ CART_ITEMS : contains
     MERCHANTS ||--o{ ORDERS : scopes
@@ -41,12 +43,12 @@ erDiagram
 
 | Schema | Current tables | Context/owner |
 |---|---|---|
-| `admin` | `Users`, `Sessions`, `RoleAssignments`, `MerchantAccess`, `AuthAudits`, `UserAudits`, `ProvisioningOperations` | `ControlPlaneDbContext` |
-| `iam` | `PermissionGroups`, `Permissions`, `Roles`, `RolePermissions` | `ControlPlaneDbContext` |
+| `admin` | `Users`, `Sessions`, `RoleAssignments`, `MerchantAccess`, `AuthAudits`, `UserAudits`, `ProvisioningOperations`, governance, operation, webhook/notification delivery tables | `ControlPlaneDbContext` |
+| `iam` | `PermissionGroups`, `Permissions`, `Roles`, `RolePermissions`, `ApiClients`, `OneTimeSecretTickets` | `ControlPlaneDbContext` |
 | `cfg` | `Divisions`, `Levels`, `Offices`, `Positions` | `ControlPlaneDbContext` |
-| `merch` | `Merchants`, `Users`, `Sessions`, `ExternalLogins`, `RoleAssignments`, `AuthAudits`, `RegistrationAttempts`, `RegistrationAudits`, `RegistrationNotices`, `ProvisioningAudits`, `UserOutbox`, `VaultSecrets`, `VaultRevealAudits` | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
+| `merch` | `Merchants`, `Users`, `Sessions`, `ExternalLogins`, `RoleAssignments`, `MerchantUserInvitations`, `MerchantUserManagementAudits`, `AdminUserOperationRecords`, `Originators`, `RegistrationAttempts`, `RegistrationAudits`, `RegistrationNotices`, `ProvisioningAudits`, `UserOutbox`, `VaultSecrets`, `VaultSecretVersions`, `VaultRevealAudits` | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
 | `shop` | `Carts`, `CartItems`, `Orders`, `OrderItems`, `OrderItemRevealAudits` | `MerchantRuntimeDbContext` |
-| `txn` | `PaymentSessions`, `PspConnections`, `IdempotencyRecords`, `OutboxMessages` | `MerchantRuntimeDbContext` |
+| `txn` | `PaymentSessions`, `PspConnections`, `AdminOperationRecords`, `RoutingRulesets`, `RoutingRules`, `InboundWebhookEvents`, `IdempotencyRecords`, `OutboxMessages` | `MerchantRuntimeDbContext` |
 | `dbo` | `DataProtectionKeys` | migration owner / ASP.NET Core |
 
 `PolDbContext` เป็น migration owner เท่านั้น. Runtime ใช้ `ControlPlaneDbContext`, `MerchantUserDbContext` และ
@@ -90,6 +92,7 @@ API/history/log ไม่คืน object key, path, credential หรือ PII
 | Field | ความหมาย |
 |---|---|
 | `MerchantId`, `SaleCode` | actor/server binding |
+| `OriginatorId` | nullable originator binding |
 | `Status` | `Open` หรือ `CheckedOut` |
 | `CreatedAt` | เวลาสร้าง |
 | `Version` | application-managed concurrency token |
@@ -110,25 +113,27 @@ API/history/log ไม่คืน object key, path, credential หรือ PII
 
 ### `shop.Orders` and `shop.OrderItems`
 
-Order stores merchant, order number, sale code, amount, payment attempt/status, customer contact and summary-link
-fields. `OrderItems` stores `ProductCode`, `VariantCode`, `VariantName`, quantity, unit price, discount and typed
-metadata. It does not store upstream document payload as arbitrary columns.
+Order stores merchant, order number, sale code, nullable `OriginatorId`, amount, payment attempt/status, `UpdatedAt`,
+`Version`, customer contact and summary-link fields. `OrderItems` stores `ProductCode`, `VariantCode`, `VariantName`,
+quantity, unit price, discount and typed metadata. It does not store upstream document payload as arbitrary columns.
 
 Order status values:
 
 | Value | Wire name |
 |---:|---|
-| 0 | `Pending` |
-| 1 | `Paid` |
-| 2 | `Failed` |
-| 3 | `Expired` |
-| 4 | `Refunded` |
-| 5 | `Cancelled` |
+| 1 | `Pending` |
+| 2 | `Paid` |
+| 3 | `Failed` |
+| 4 | `Expired` |
+| 5 | `Refunded` |
+| 6 | `Cancelled` |
 
 ## Payment
 
 `txn.PaymentSessions` belongs to `OrderId + MerchantId` and stores payment method, PSP connection, amount/currency,
-status, correlation and concurrency fields. Open-session uniqueness prevents more than one payable attempt per Order.
+status, correlation and concurrency fields. `txn.InboundWebhookEvents` records verified PSP event linkage and
+fingerprint without retaining raw payload/signature. Open-session uniqueness prevents more than one payable attempt
+per Order.
 
 Payment lifecycle publishes versioned `PaymentPaid`, `PaymentFailed` and `PaymentExpired`. Order state changes are
 serialized with order-row locking; stale event correlation is ignored. Webhook verification is idempotent and uses
@@ -161,18 +166,15 @@ Current root คือ `/api/v1`. Audience ถูกกำหนดด้วย 
 | Order | `/api/v1/orders...` |
 | Payment | `/api/v1/payments/sessions...` |
 | Merchant user | `/api/v1/merchants/auth...`, `/api/v1/merchants/users...` |
-| Admin | `/api/v1/admins...` |
+| Admin identity | `/api/v1/admins...`, `/api/v1/merchants/{merchantId}/...` |
+| Admin control plane | `/api/v1/originators...`, `/api/v1/payments/...`, `/api/v1/approvals...`, `/api/v1/audits...`, `/api/v1/api-clients...`, `/api/v1/webhooks/...`, `/api/v1/notifications/...`, `/api/v1/reports/...` |
 
 ไม่มี current route สำหรับ `/api/admin/v1`, `/api/producer/v1` หรือ `/api/v1/checkouts*`.
 
 ## Migration and raw objects
 
-Migration chain ปัจจุบันมีสี่ตัว:
-
-1. `20260807042818_InitialSchema`
-2. `20260807042828_SecurityObjects`
-3. `20260807042833_SeedData`
-4. `20260808161508_OneBasedPersistedEnumStorage`
+Migration chain ปัจจุบันถึง `20260811024015_AdminDeliveryRuntimeGrants`; รายการเต็มอยู่ใน
+[`entity-fields.md`](entity-fields.md).
 
 Raw objects สำคัญ:
 
@@ -197,6 +199,7 @@ Production rollback ใช้ verified backup/restore ตาม runbook; ไม�
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
+- migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
 - `docs/reference/entity-fields.md`
 - `src/Hosts/Api/Program.cs`

@@ -1,6 +1,7 @@
 # Merchants Module Reference
 
-> As-built 2026-08-07. Covers merchant profile, merchant-user OIDC BFF, registration/KYC and commerce actor binding.
+> As-built 2026-08-13. Covers merchant profile, merchant-user OIDC BFF, registration/KYC, commerce actor binding
+> และ Admin control plane ที่จัดการ merchant identity, originator และ PSP/routing.
 
 ## Identity and session
 
@@ -100,12 +101,13 @@ Merchant user registration ยังเป็น self-service แบบ ticket-g
 5. Merchant ไม่พบหรือนอก scope คืน 404; Merchant ไม่ Active คืน 409.
 6. Merchant Active จึง bind `MerchantId`, assign roles, เปลี่ยน user เป็น Active และเขียน registration audit ใน transaction เดียว.
 
-Registration submission อาจเกิดก่อน provisioning; prerequisite บังคับตอน approval. ไม่มี Draft Merchant,
-deferred PSP setup, Merchant CRUD expansion หรือ Vault admin surface.
+Registration submission อาจเกิดก่อน provisioning; prerequisite บังคับตอน approval. Merchant lifecycle, originator,
+PSP connection, routing และ merchant-user/role management มี top-level Admin routes แล้ว ดู
+[`admin-control-plane.md`](admin-control-plane.md) สำหรับ route, permission, approval และ concurrency contract.
 
 ## Vault custody and reveal audit
 
-`merch.VaultSecrets` เก็บ ciphertext, wrapped DEK, key id, last-four hint และ timestamps. Plaintext ไม่อยู่ใน
+`merch.VaultSecrets` และ `merch.VaultSecretVersions` เก็บ ciphertext, wrapped DEK, key id, hint และ timestamps. Plaintext ไม่อยู่ใน
 database response, readable config หรือ log. Master-key rotation re-wrap เฉพาะ DEK; ไม่ decrypt/re-encrypt secret payload.
 
 `merch.VaultRevealAudits` ว่างหลัง provisioning และเพิ่มแถวเมื่อ server reveal secret เพื่อเรียก PSP เท่านั้น.
@@ -144,8 +146,10 @@ horizontal or multi-host deployment.
 
 ## Persistence boundaries
 
-- Merchant identity/session/outbox: `MerchantUserDbContext`
-- Merchant profile/vault/Carts/Orders/Payments: `MerchantRuntimeDbContext`
+- Merchant identity/session/invitation/outbox: `MerchantUserDbContext`
+- Merchant profile/vault/originator/Carts/Orders/Payments: `MerchantRuntimeDbContext`
+- Admin control-plane operation records: `ControlPlaneDbContext`, `MerchantUserDbContext` หรือ `MerchantRuntimeDbContext`
+  ตาม aggregate ที่ถูกแก้
 - global query filters deny unbound/wrong merchant
 - sealed write guard rechecks tenant key and operation authority
 - `PolDbContext` is migration owner only

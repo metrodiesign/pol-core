@@ -1,6 +1,6 @@
 # คู่มือ 6 Layers ของ pol-core
 
-> As-built 2026-08-07. อ้างอิงโค้ดปัจจุบันและ solution ที่ tracked; `docs/reference/src-structure.md` ใช้ดู path
+> As-built 2026-08-13. อ้างอิงโค้ดปัจจุบันและ solution ที่ tracked; `docs/reference/src-structure.md` ใช้ดู path
 > รายละเอียดรายไฟล์.
 
 ## สรุป
@@ -8,10 +8,10 @@
 | Layer | หน้าที่ |
 |---|---|
 | 1. `SharedKernel` | `Entity`, `AggregateRoot`, `Money`, currency และ JSON converter กลาง |
-| 2. `Contracts` | published event contracts ข้ามโมดูล เช่น payment และ notification |
+| 2. `Contracts` | published event contracts ข้ามโมดูล เช่น payment, notification และ governance |
 | 3. `BuildingBlocks` | actor context, authorization/merchant guard, ports, persistence primitives, web middleware |
 | 4. `Persistence` | EF contexts, mappings, repositories, transaction/outbox adapters และ isolation floor |
-| 5. `Modules` | domain/application/infrastructure ของ business module แต่ละตัว |
+| 5. `Modules` | domain/application/infrastructure ของ business และ control-plane module แต่ละตัว |
 | 6. `Hosts` | composition root และ HTTP/background runtime; ปัจจุบันมี `Api` เป็น host ที่ใช้งาน |
 
 Dependency direction: outer layer reference inner layer. `Domain` ห้าม reference `Infrastructure` หรือ EF Core.
@@ -20,19 +20,22 @@ ports หรือ host composition.
 
 ## Current module set
 
-Current tracked modules มี 11 ตัว:
+Current tracked modules มี 14 ตัว:
 
 1. `Admins`
 2. `Carts`
 3. `Divisions`
-4. `Iam`
-5. `Levels`
-6. `Merchants`
-7. `Offices`
-8. `Orders`
-9. `Payments`
-10. `Positions`
-11. `Products`
+4. `Governance`
+5. `Iam`
+6. `Levels`
+7. `Merchants`
+8. `Notifications`
+9. `Offices`
+10. `Orders`
+11. `Payments`
+12. `Positions`
+13. `Products`
+14. `Reporting`
 
 ไม่มี current `Checkouts`, `MasterData`, `Producer` หรือ local product catalogue contract ใน source ที่ใช้งาน.
 
@@ -56,6 +59,7 @@ Contracts เป็น event/data seam ไม่ใช่บ้านของ H
 - `PaymentPaid`, `PaymentFailed`, `PaymentExpired`
 - customer order notification
 - merchant-user registration/KYC lifecycle
+- governance approval/audit delivery
 
 Outbox enqueue เกิดใน transaction owner; background dispatcher เป็นผู้ส่ง event ภายหลัง.
 
@@ -84,7 +88,7 @@ Current persistence projects:
 
 | Project | ขอบเขต |
 |---|---|
-| `Persistence.ControlPlane` | admin/IAM/master data และ control-plane stores |
+| `Persistence.ControlPlane` | admin/IAM/master data, governance, API clients และ delivery control-plane stores |
 | `Persistence.MerchantUsers` | merchant-user identity, sessions, registration/KYC user rows |
 | `Persistence.MerchantRuntime` | merchants, carts, orders, payments, outbox, photo/runtime stores |
 | `Persistence.Provisioning` | merchant provisioning และ encrypted vault operations |
@@ -99,12 +103,8 @@ Isolation ปัจจุบันไม่ใช่ SQL RLS:
 3. sealed write guard ตรวจ tenant key และ operation authority ก่อน commit
 4. intentional cross-merchant probes ใช้ explicit escape hatch และเหตุผลใน code/test
 
-Migration chain ปัจจุบัน:
-
-1. `20260807042818_InitialSchema`
-2. `20260807042828_SecurityObjects`
-3. `20260807042833_SeedData`
-4. `20260808161508_OneBasedPersistedEnumStorage`
+Migration ล่าสุด: `20260811024015_AdminDeliveryRuntimeGrants`. รายการเต็มอยู่ใน
+[`entity-fields.md`](entity-fields.md); การ migrate ทั้งหมดเป็นเจ้าของโดย `PolDbContext`.
 
 ## 5. Modules
 
@@ -129,7 +129,9 @@ flowchart LR
 
 Products ไม่ persist catalogue. Cart add-item และ order creation lookup upstream สด; Order creation revalidate
 ทุก line ก่อน transaction. Order transaction เขียน Order, OrderItems, notification outbox และ `CheckedOut` Cart
-พร้อมกัน. Payment events update order state แบบ versioned/idempotent.
+พร้อมกัน. Payment events update order state แบบ versioned/idempotent. `Governance` ทำ maker-checker และ
+append-only audit hash chain. `Notifications` ทำ webhook/notification delivery และ replay. `Reporting` ทำ
+dashboard กับ transaction projection จาก Order/PaymentSession/lifecycle เดิม โดยไม่มี ledger เพิ่ม.
 
 ### Master data
 
@@ -155,8 +157,8 @@ Path: `src/Hosts/Api`.
 `Program.cs` เป็น composition root ของ current API:
 
 - root route `/api/v1`
-- public products, merchant-user, admin และ merchant-provisioning areas อยู่ใน host เดียว
-- background outbox dispatch และ photo staging prune ทำงานใน process ของ `Api`
+- public products, merchant-user, admin, Admin control-plane และ merchant-provisioning areas อยู่ใน host เดียว
+- background outbox dispatch, governance outbox, delivery และ photo staging prune ทำงานใน process ของ `Api`
 - ไม่มี current tracked `Worker` host ที่เป็น runtime dependency
 
 Route audience ใช้ authorization policy เช่น `merchant-user` หรือ `admin`; ไม่ใช้ audience-first prefix อย่าง
@@ -168,8 +170,9 @@ Test projects ปัจจุบันแยกตาม module และ bounda
 
 - `Architecture.Tests` — dependency direction และ forbidden reference
 - `BuildingBlocks.Tests`, `SharedKernel.Tests` — primitives/guards
-- `Admins.Tests`, `Carts.Tests`, `Divisions.Tests`, `Iam.Tests`, `Levels.Tests`, `Merchants.Tests`,
+- `Admins.Tests`, `Carts.Tests`, `Divisions.Tests`, `Governance.Tests`, `Iam.Tests`, `Levels.Tests`, `Merchants.Tests`,
   `Offices.Tests`, `Orders.Tests`, `Payments.Tests`, `Positions.Tests`, `Products.Tests`
+- `Hosts.Tests` ครอบ Admin control-plane, OpenAPI documents, ETag/idempotency และ delivery/reporting contracts
 - `Hosts.Tests` — route composition, policy/CSRF gates, host behavior
 - `Integration.Tests` — persistence/migration/integration paths
 

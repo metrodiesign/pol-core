@@ -1,6 +1,6 @@
 # Payment Orchestration Reference
 
-> As-built 2026-08-07. เอกสารนี้อธิบาย `Payments` ตามโค้ดปัจจุบัน ไม่ใช่ canonical target design ใน spec เก่า.
+> As-built 2026-08-13. เอกสารนี้อธิบาย `Payments` ตามโค้ดปัจจุบัน ไม่ใช่ canonical target design ใน spec เก่า.
 
 ## ขอบเขต
 
@@ -146,6 +146,11 @@ Events ที่ current code ใช้:
 `Orders.Application` consume event ด้วย `OrderId` เป็น join key. `Order.PaymentSessionId` ไม่ใช่ production event
 join key.
 
+Admin control plane จัดการ PSP connection health/test, encrypted credential version, routing-ruleset draft และ
+activation approval. Admin transaction/report surface อ่าน projection จาก Order, PaymentSession และ lifecycle
+events; ไม่สร้าง ledger หรือเปลี่ยน redirect-only flow. ดู route matrix ที่
+[`admin-control-plane.md`](admin-control-plane.md).
+
 ## Customer capability routes
 
 | Route | Behavior |
@@ -187,15 +192,15 @@ Connection eligibility และ adapter capability เป็นคนละ gat
 - merchant query filter
 - indexes สำหรับ `OrderId` และ external charge lookup
 
+Admin control เพิ่ม `Version` ให้ PaymentSession และเพิ่ม health/test/secret-version/approval fields ให้
+PspConnection. `txn.RoutingRulesets`, `txn.RoutingRules`, `txn.AdminOperationRecords` และ
+`txn.InboundWebhookEvents` เป็น persisted control/inspection data ใน runtime context.
+
 `txn.OutboxMessages.Payload` เป็น `nvarchar(max)` ไม่ใช่ native JSON column. Native JSON allowlist ดู
 [`entity-fields.md`](entity-fields.md).
 
-Migration chain ปัจจุบัน:
-
-1. `20260807042818_InitialSchema`
-2. `20260807042828_SecurityObjects`
-3. `20260807042833_SeedData`
-4. `20260808161508_OneBasedPersistedEnumStorage`
+Migration ล่าสุด: `20260811024015_AdminDeliveryRuntimeGrants`; field-level chain อยู่ใน
+[`entity-fields.md`](entity-fields.md).
 
 ไม่มี SQL RLS; merchant isolation ใช้ app query filter และ guarded write.
 

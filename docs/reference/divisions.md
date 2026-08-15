@@ -1,6 +1,6 @@
 # โมดูล Divisions — Reference Master Data (แผนก)
 
-> As-built 2026-08-07. แหล่งความจริง: `src/Modules/Divisions/**`,
+> As-built 2026-08-13. แหล่งความจริง: `src/Modules/Divisions/**`,
 > `src/Persistence/Persistence.ControlPlane/Divisions/**`, `src/Hosts/Api/Program.cs` (route mapping)
 
 ## บริบท
@@ -26,7 +26,8 @@ Divisions เป็น 1 ใน 4 โมดูล reference master data ที�
 | `Name` | string | `Rename(name)` |
 | `Status` | `DivisionStatus` (`Active=1`, `Inactive=2`) | `Activate()` / `Deactivate()` |
 
-Invariant: ไม่มี state machine, ไม่มี concurrency token. `Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
+Invariant: ไม่มี state machine. `Version` เป็น optimistic concurrency token สำหรับ Admin control plane.
+`Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
 เป็น `Restrict` (comment ในโค้ดยืนยันตรงๆ ว่า "never a hard delete"). Comment บน aggregate เอง: "standalone
 aggregate since masterdata-split — the retired shared base logic lives inline, verbatim" (เคยมี base class
 กลางที่ retire ไปแล้ว)
@@ -52,7 +53,8 @@ Name, DivisionStatus Status)`:
 ## Infrastructure
 
 **Schema `cfg.Divisions`** (control-plane, `ControlPlaneDbContext`, ไม่มี query filter/RLS) — คอลัมน์: `Id`
-(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int) รายละเอียด field เต็ม:
+(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int), `Version` (bigint)
+รายละเอียด field เต็ม:
 [`entity-fields.md`](entity-fields.md)
 
 - `Divisions.Infrastructure/DivisionsModuleRegistration.AddDivisionsModule()` คืน `services` เปล่า — เป็นแค่
@@ -99,7 +101,8 @@ Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(C
 | `20260807042818_InitialSchema` | สร้าง `cfg.Divisions` (PK `Id`, unique index `Code`) + FK `admin.Users.DivisionId` → Restrict |
 | `20260807042833_SeedData` | seed 10 แถวคงที่ id prefix `d4000000-…` (`executive`, `finance`, `technology`, `operations`, `product`, `sales_marketing`, `risk_compliance`, `legal`, `hr`, `customer_service`) |
 
-ไม่มี migration อื่นแก้ schema ของ Divisions ต่อจากนั้น
+`20260810074055_AdminConsoleResourceVersions` เพิ่ม `Version`; ไม่มี migration หลังจากนี้แก้ shape ของ Divisions.
+Latest chain marker คือ `20260811024015_AdminDeliveryRuntimeGrants`.
 
 ## Cross-reference
 

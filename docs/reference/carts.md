@@ -1,6 +1,6 @@
 # โมดูล Carts
 
-> As-built 2026-08-07. Cart เป็น aggregate ของ merchant สำหรับเก็บรายการก่อนสร้าง Order โดยตรง.
+> As-built 2026-08-13. Cart เป็น aggregate ของ merchant สำหรับเก็บรายการก่อนสร้าง Order โดยตรง.
 
 ## ขอบเขตปัจจุบัน
 
@@ -13,7 +13,7 @@
 
 ## Domain
 
-`Cart` เก็บ `MerchantId`, nullable `SaleCode`, `Status`, `CreatedAt`, `Version` และ `Items`.
+`Cart` เก็บ `MerchantId`, nullable `SaleCode`, nullable `OriginatorId`, `Status`, `CreatedAt`, `Version` และ `Items`.
 
 `Cart.AddItem` รับค่าที่ server resolve แล้ว:
 
@@ -94,12 +94,8 @@ document สดและ probe ซ้ำก่อนเปิด transaction. �
 `Quantity`, `UnitPriceAmount`, `UnitPriceCurrency` และ `Metadata` native `json`. มี composite parent boundary
 `(CartId, MerchantId)` และ line `Id` ไม่ generated โดย database.
 
-Current migration chain:
-
-1. `20260807042818_InitialSchema`
-2. `20260807042828_SecurityObjects`
-3. `20260807042833_SeedData`
-4. `20260808161508_OneBasedPersistedEnumStorage`
+Current migration chain ถึง `20260811024015_AdminDeliveryRuntimeGrants`; รายการเต็มอยู่ใน
+[`entity-fields.md`](entity-fields.md).
 
 ไม่มี SQL RLS; isolation ใช้ app query filter, actor context และ sealed write guard.
 

@@ -1,6 +1,6 @@
 # โมดูล Positions — Reference Master Data (ตำแหน่ง)
 
-> As-built 2026-08-07. แหล่งความจริง: `src/Modules/Positions/**`,
+> As-built 2026-08-13. แหล่งความจริง: `src/Modules/Positions/**`,
 > `src/Persistence/Persistence.ControlPlane/Positions/**`, `src/Hosts/Api/Program.cs` (route mapping)
 
 ## บริบท
@@ -26,7 +26,8 @@ Positions เป็น 1 ใน 4 โมดูล reference master data ที�
 | `Name` | string | `Rename(name)` |
 | `Status` | `PositionStatus` (`Active=1`, `Inactive=2`) | `Activate()` / `Deactivate()` |
 
-Invariant: ไม่มี state machine, ไม่มี concurrency token. `Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
+Invariant: ไม่มี state machine. `Version` เป็น optimistic concurrency token สำหรับ Admin control plane.
+`Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
 เป็น `Restrict` (comment ในโค้ดยืนยันตรงๆ ว่า "never a hard delete"). Comment บน aggregate เอง: "standalone
 aggregate since masterdata-split — the retired shared base logic lives inline, verbatim" (เคยมี base class
 กลางที่ retire ไปแล้ว)
@@ -52,7 +53,8 @@ cross-module `.Domain` reference ใดๆ. Lookup ของ FK บน admin pro
 ## Infrastructure
 
 **Schema `cfg.Positions`** (control-plane, `ControlPlaneDbContext`, ไม่มี query filter/RLS) — คอลัมน์: `Id`
-(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int) รายละเอียด field เต็ม:
+(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int), `Version` (bigint)
+รายละเอียด field เต็ม:
 [`entity-fields.md`](entity-fields.md)
 
 - `Positions.Infrastructure/PositionsModuleRegistration.AddPositionsModule()` คืน `services` เปล่า — เป็นแค่
@@ -101,7 +103,8 @@ Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(C
 | `20260807042818_InitialSchema` | สร้าง `cfg.Positions` (PK `Id`, unique index `Code`) + FK `admin.Users.PositionId` → Restrict |
 | `20260807042833_SeedData` | seed 12 แถวคงที่ id prefix `a1000000-…` (`ceo`, `coo`, `cfo`, `cto`, `director`, `deputy_director`, `manager`, `assistant_manager`, `supervisor`, `senior_officer`, `officer`, `staff`) |
 
-ไม่มี migration อื่นแก้ schema ของ Positions ต่อจากนั้น
+`20260810074055_AdminConsoleResourceVersions` เพิ่ม `Version`; ไม่มี migration หลังจากนี้แก้ shape ของ Positions.
+Latest chain marker คือ `20260811024015_AdminDeliveryRuntimeGrants`.
 
 ## Cross-reference
 

@@ -1,6 +1,6 @@
 # Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> As-built 2026-08-07. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
+> As-built 2026-08-13. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
 > `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
@@ -18,7 +18,8 @@
 **Ports (dev):** API `http://localhost:5100` · Admin Console `http://localhost:5200` · Merchant-user Console
 `http://localhost:5300` (`Cors:AdminOrigins` / `Cors:AllowedOrigins` ใน `appsettings.Development.json`)
 
-**โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) §3.1 โมดูล Admin (บทบาท/สถานะ as-built/target API).
+**โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) และ
+[admin-control-plane.md](admin-control-plane.md) สำหรับ top-level admin operations.
 
 ## หลักการ (อ่านก่อนเขียนโค้ด)
 
@@ -66,6 +67,15 @@ module.exports = {
       { source: '/api/v1/admins/:path*', destination: 'http://localhost:5100/api/v1/admins/:path*' },
       // merchant provisioning ย้ายออกจาก prefix /admins แล้ว — ต้อง proxy เส้นนี้ด้วย (ดู Endpoints)
       { source: '/api/v1/merchants/:path*', destination: 'http://localhost:5100/api/v1/merchants/:path*' },
+      // admin control plane: merchant, originator, PSP, routing, identity, governance, reporting, delivery
+      { source: '/api/v1/originators/:path*', destination: 'http://localhost:5100/api/v1/originators/:path*' },
+      { source: '/api/v1/payments/:path*', destination: 'http://localhost:5100/api/v1/payments/:path*' },
+      { source: '/api/v1/reports/:path*', destination: 'http://localhost:5100/api/v1/reports/:path*' },
+      { source: '/api/v1/approvals/:path*', destination: 'http://localhost:5100/api/v1/approvals/:path*' },
+      { source: '/api/v1/audits/:path*', destination: 'http://localhost:5100/api/v1/audits/:path*' },
+      { source: '/api/v1/api-clients/:path*', destination: 'http://localhost:5100/api/v1/api-clients/:path*' },
+      { source: '/api/v1/webhooks/:path*', destination: 'http://localhost:5100/api/v1/webhooks/:path*' },
+      { source: '/api/v1/notifications/:path*', destination: 'http://localhost:5100/api/v1/notifications/:path*' },
       // master-data reference lists (profile FK ของ admin) เป็น top-level area แยกของตัวเอง ไม่อยู่ใต้ /admins —
       // ไม่ proxy ด้วยจะโดน 404 จาก frontend server แทนที่จะถึง API (ดู Dev / CORS)
       { source: '/api/v1/positions/:path*', destination: 'http://localhost:5100/api/v1/positions/:path*' },
@@ -226,10 +236,11 @@ reads gate ด้วย permission `user.view` (single-key ไม่ใช่ ti
 
 ### Role & permission management (RBAC, scheme `/api/v1/admins`)
 
-Permission catalog ฝั่ง platform (admin console) ที่ endpoint กลุ่มนี้ใช้จริง: **6 กลุ่ม / 15 keys** — `txn`,
-`merchant`, `user`, `system`, `merchants.users`, `merchants.policies` (ยืนยันจาก
-`Iam.Domain.Permissions.Keys.cs`). Catalog เต็มระบบ (รวมฝั่ง merchant-user, rf2: 22 keys/9 groups) + บริบท
-migration ดู [`platform-modules.md`](platform-modules.md) §3.2 — ไม่ทำตารางซ้ำที่นี่.
+Permission catalog ล่าสุดมี **7 กลุ่ม / 26 keys** แบ่งเป็น Platform 5 กลุ่ม / 18 keys และ Merchant 2 กลุ่ม /
+8 keys. Platform groups คือ `txn`, `merchant`, `user`, `system`, `merchants.users`; Merchant groups คือ
+`payment`, `roles`. รายการและ seed grants อยู่ใน [`iam.md`](iam.md). Endpoint กลุ่มนี้ใช้ Platform keys
+ตาม gate ของแต่ละ route; top-level admin operations ใช้ catalog เดียวกัน ดู
+[`admin-control-plane.md`](admin-control-plane.md).
 
 อ่าน (`GET /permissions`, `GET /roles`, `GET /roles/{code}`) เปิดให้ admin ที่ login แล้วทุกคน (ไม่ต้องมี
 permission key เฉพาะ); เขียน (create/update/delete role, set role ของ admin) gate ด้วย `user.roles`.
@@ -246,6 +257,13 @@ permission key เฉพาะ); เขียน (create/update/delete role, set
 
 `RoleResponse`: `{ code, name, description, color, status, permissions: string[], userCount }` — `status` เป็น
 lowercase wire string เหมือน admin tier/status.
+
+### Admin control plane
+
+Top-level routes สำหรับ merchant lifecycle, originator, PSP/routing, merchant users/roles, governance/audit,
+API clients, webhook/notification delivery และ reporting ใช้ `AdminSession` + CSRF ตาม path แต่ไม่ mount ใต้
+`/api/v1/admins`. Route, permission, `If-Match`, `Idempotency-Key`, one-time secret และ export limits อยู่ใน
+[`admin-control-plane.md`](admin-control-plane.md).
 
 ### หมายเหตุ: endpoint อื่นใต้ prefix เดียวกัน แต่ไม่ใช่ของโมดูลนี้
 
@@ -361,6 +379,14 @@ FE code ไม่ต้องเปลี่ยน (ยัง `credentials: 'inc
 - cookies (session + CSRF): `src/Hosts/Api/Admins/SessionCookies.cs`; CSRF filter: `src/Hosts/Api/Admins/CsrfFilter.cs`
 - auth rate limiting: `src/Hosts/Api/Admins/AuthRateLimiting.cs`
 - routes (`/api/v1/admins` group + `/api/v1/merchants` provisioning): `src/Hosts/Api/Program.cs`
+- top-level admin control routes: `src/Hosts/Api/ControlPlane/AdminControlEndpoints.cs`,
+  `src/Hosts/Api/ControlPlane/AdminMerchantIdentityEndpoints.cs`
+- governance/approval/audit: `src/Hosts/Api/Governance/GovernanceEndpoints.cs`
+- API clients/secrets: `src/Hosts/Api/Iam/ApiClientEndpoints.cs`
+- webhook/notification delivery: `src/Hosts/Api/Notifications/DeliveryEndpoints.cs`,
+  `src/Hosts/Api/Webhooks/InboundWebhookEndpoints.cs`
+- reporting/transaction projection: `src/Hosts/Api/Reporting/AdminReportingEndpoints.cs`
+- OpenAPI audience documents: `src/Hosts/Api/OpenApiDocuments.cs`
 - CORS split + path-based policy selection: `src/BuildingBlocks/BuildingBlocks.Web/CorsExtensions.cs`
 - tier enum: `src/Modules/Admins/Admins.Domain/Users/Tier.cs` (CLR name `Tier` ไม่ใช่ `AdminTier` แล้ว)
 - accessible-merchants value object: `src/Modules/Admins/Admins.Application/Users/AccessibleMerchants.cs`
