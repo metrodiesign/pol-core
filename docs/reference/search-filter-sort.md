@@ -1,6 +1,6 @@
 # Search / Filter / Sort (SFS) Reference
 
-> As-built 2026-08-07. SFS เป็น shared query contract สำหรับ endpoint ที่ประกาศใช้เท่านั้น; Products และ
+> As-built 2026-08-13. SFS เป็น shared query contract สำหรับ endpoint ที่ประกาศใช้เท่านั้น; Products และ
 > master-data CRUD ใช้ typed surface ของตนเอง.
 
 ## Generic contract
@@ -100,6 +100,17 @@ GET /api/v1/orders?filters=[{"field":"orderNo","operator":"eq","value":"ORD69000
 
 `productFilters` ไม่มี local entity filter; ส่งต่อไปยัง upstream stored procedure หลัง validation. รายละเอียดอยู่
 ที่ [`products.md`](products.md).
+
+### Admin transaction reporting
+
+`GET /api/v1/payments/transactions` และ export ใช้ generic SFS โดย `limit` สูงสุด `100`:
+
+- filters: `status`, `method`, `psp`, `merchantId`, `originatorId`, `createdAt`
+- sort: `createdAt`, `updatedAt`, `transactionId`, `orderNo`, `amount`, `status`
+- search: `transactionId`, `orderNo`, `externalChargeId`, `customer`
+- default period: `createdAt` ย้อนหลัง 7 วัน; export ต้องส่ง `from` และ `to` ไม่เกิน 31 วัน
+
+Dashboard และ operations report ใช้ `from`, `to`, `merchantId` แบบ typed query; ไม่ใช่ generic `filters`/`sort`.
 
 ## Security and query cost
 

@@ -9,8 +9,9 @@
 ## สถานะ
 
 อยู่ระหว่าง implement บน branch `develop` (spec-driven — specs come before code, ALWAYS).
-โมดูลที่ลงแล้ว: Products / Carts / Orders / Payments (E2E), Merchants (provisioning +
-merchant-user Google SSO + registration, รวม Tenant+Producer เดิม, rf1), Admin (Google SSO + RBAC).
+โมดูลที่ลงแล้ว: commerce E2E (Products / Carts / Orders / Payments), Merchants, Admins + IAM,
+Governance, Notifications และ Reporting. Admin control plane รองรับ tenant/originator, PSP/routing,
+merchant-user management, API clients, webhook delivery และ transaction/report projection.
 งานใหม่ผ่าน workflow gates เสมอ.
 
 ## Stack
@@ -19,6 +20,7 @@ Modular Monolith (Clean Architecture + CQRS) · .NET 10 / ASP.NET Core 10 / C# 1
 EF Core 10 + SQL Server 2025 Standard · **martinothamar/Mediator** 3.x (in-process, source-generated)
 
 4 โมดูล commerce คุยกันผ่าน Mediator: Products → Carts → Orders → Payments (จบที่ emit `PaymentPaid`).
+Governance, Notifications และ Reporting เป็น control-plane/runtime support ของ Admin API.
 version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 
 ## โครงสร้าง
@@ -29,7 +31,7 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 | `.ai/specs/<feature>/` | spec artifact ต่อ feature: requirements → design → tasks |
 | `.claude/` · `.codex/` · `.opencode/` | per-agent adapter (commands, hooks, agents) |
 | `.githooks/` · `.github/` | enforcement floor: pre-commit/pre-push + CI |
-| `docs/reference/` | สเปกอ้างอิงเต็มของ Payments module |
+| `docs/reference/` | เอกสารอ้างอิง as-built ของ modules, API, schema และ runbook link |
 
 ## การรัน (Local Dev)
 
@@ -91,7 +93,7 @@ dotnet ef database update --context PolDbContext \
 |---|---|---|---|
 | SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
 | API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
-| FE admin console (repo แยก) | `5200` | — | Next.js, proxy `/api/v1/admins/*` -> `:5100` |
+| FE admin console (repo แยก) | `5200` | — | Next.js, proxy Admin routes ไป `:5100` ตาม [Admin control plane reference](docs/reference/admin-control-plane.md) |
 | FE merchant-user console (repo แยก) | `5300` | — | Next.js, proxy `/api/v1/merchants/*` -> `:5100` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
@@ -131,7 +133,7 @@ dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL 
 
 ## Baseline seed
 
-Fresh migration ใส่ IAM catalog 19 permissions/7 groups/4 roles, master data `cfg.*` แบบ Active และ
+Fresh migration ใส่ IAM catalog 26 permissions/7 groups/4 roles/33 grants, master data `cfg.*` แบบ Active และ
 synthetic merchant หนึ่งรายพร้อม PSP connection ที่ปิดใช้งาน. Seed ไม่มี credential, login subject, PII,
 Cart, Order หรือ payment data. ไม่มีสคริปต์ demo seed แยก; schema/data baseline อยู่ใน migration chain เดียว.
 

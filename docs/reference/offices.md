@@ -1,6 +1,6 @@
 # โมดูล Offices — Reference Master Data (สำนักงาน)
 
-> As-built 2026-08-07. แหล่งความจริง: `src/Modules/Offices/**`,
+> As-built 2026-08-13. แหล่งความจริง: `src/Modules/Offices/**`,
 > `src/Persistence/Persistence.ControlPlane/Offices/**`, `src/Hosts/Api/Program.cs` (route mapping)
 
 ## บริบท
@@ -26,7 +26,8 @@ Offices เป็น 1 ใน 4 โมดูล reference master data ที่�
 | `Name` | string | `Rename(name)` |
 | `Status` | `OfficeStatus` (`Active=1`, `Inactive=2`) | `Activate()` / `Deactivate()` |
 
-Invariant: ไม่มี state machine, ไม่มี concurrency token. `Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
+Invariant: ไม่มี state machine. `Version` เป็น optimistic concurrency token สำหรับ Admin control plane.
+`Deactivate()` **ไม่ใช่การลบ** — FK จาก `admin.Users`
 เป็น `Restrict` (comment ในโค้ดยืนยันตรงๆ ว่า "never a hard delete"). Comment บน aggregate เอง: "standalone
 aggregate since masterdata-split — the retired shared base logic lives inline, verbatim" (เคยมี base class
 กลางที่ retire ไปแล้ว)
@@ -52,7 +53,8 @@ OfficeStatus Status)`:
 ## Infrastructure
 
 **Schema `cfg.Offices`** (control-plane, `ControlPlaneDbContext`, ไม่มี query filter/RLS) — คอลัมน์: `Id`
-(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int) รายละเอียด field เต็ม:
+(PK), `Code` (nvarchar(64), unique index), `Name` (nvarchar(200)), `Status` (int), `Version` (bigint)
+รายละเอียด field เต็ม:
 [`entity-fields.md`](entity-fields.md)
 
 - `Offices.Infrastructure/OfficesModuleRegistration.AddOfficesModule()` คืน `services` เปล่า — เป็นแค่ wiring
@@ -98,7 +100,8 @@ Wire DTO ร่วมกับอีก 3 โมดูล: `MasterWriteRequest(C
 | `20260807042818_InitialSchema` | สร้าง `cfg.Offices` (PK `Id`, unique index `Code`) + FK `admin.Users.OfficeId` → Restrict |
 | `20260807042833_SeedData` | seed 8 แถวคงที่ id prefix `b2000000-…` (`hq`, `north`, `northeast`, `central`, `east`, `west`, `south`, `remote`) |
 
-ไม่มี migration อื่นแก้ schema ของ Offices ต่อจากนั้น
+`20260810074055_AdminConsoleResourceVersions` เพิ่ม `Version`; ไม่มี migration หลังจากนี้แก้ shape ของ Offices.
+Latest chain marker คือ `20260811024015_AdminDeliveryRuntimeGrants`.
 
 ## Cross-reference
 

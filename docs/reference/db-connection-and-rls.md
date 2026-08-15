@@ -1,6 +1,6 @@
 # Database Connections and Isolation Floor
 
-> As-built 2026-08-07. SQL RLS was retired. Current floor is app-layer query filter + sealed write guard.
+> As-built 2026-08-13. SQL RLS was retired. Current floor is app-layer query filter + sealed write guard.
 
 ## Connections
 

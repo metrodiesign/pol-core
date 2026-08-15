@@ -1,6 +1,6 @@
 # pol-core Platform Modules
 
-> As-built 2026-08-07. หน้านี้สรุป current tracked implementation; target design และ migration history อยู่ใน
+> As-built 2026-08-13. หน้านี้สรุป current tracked implementation; target design และ migration history อยู่ใน
 > `.ai/specs/` แยกต่างหาก.
 
 ## ภาพรวม
@@ -13,34 +13,43 @@ flowchart LR
     C --> O["Orders"]
     O --> T["Payments"]
     T --> X["Outbox events"]
+    A["Admin control plane"] --> G["Governance / Reporting / Notifications"]
 ```
 
-ไม่มี persisted Checkout, local product catalogue หรือ audience-first route.
+ไม่มี persisted Checkout, local product catalogue หรือ audience-first route. Admin control plane อ่านและแก้
+resource ผ่าน owner module เดิม ไม่สร้าง Transaction ledger หรือ aggregate ซ้ำ.
 
 ## Current module set
 
 | Module | หน้าที่ปัจจุบัน | Boundary หลัก |
 |---|---|---|
 | `Admins` | platform admin identity, sessions, profile และ admin operations | control plane |
+| `Governance` | maker-checker approvals, append-only audit hash chain และ governance outbox | control plane `admin` |
 | `Iam` | permissions, groups, roles และ role grants | control plane |
 | `Divisions` | reference division CRUD | control plane `cfg` |
 | `Levels` | reference level CRUD | control plane `cfg` |
 | `Offices` | reference office CRUD | control plane `cfg` |
 | `Positions` | reference position CRUD | control plane `cfg` |
 | `Merchants` | merchant profile, merchant-user OIDC BFF, registration/KYC, provisioning | merchant identity/runtime |
+| `Notifications` | outbound webhook endpoints/deliveries และ notification rules/deliveries | control plane `admin` |
 | `Products` | live upstream insurance-document search/lookup | external source |
 | `Carts` | open cart, server-resolved lines, optimistic concurrency | merchant runtime `shop` |
 | `Orders` | direct Cart-to-Order, order lifecycle, summary/reveal | merchant runtime `shop` |
 | `Payments` | payment session, PSP redirect/webhook/status orchestration | merchant runtime `txn` |
+| `Reporting` | Admin dashboard, transaction projection และ CSV exports | read projection |
 
-รวม 11 โมดูล. ไม่มี current `Checkouts`, `MasterData`, `Producer` หรือ `Tenant` module ใน tracked implementation.
+รวม 14 โมดูล. ไม่มี current `Checkouts`, `MasterData`, `Producer` หรือ `Tenant` module ใน tracked implementation.
 
 ## Module details
 
 ### Admins + IAM
 
 `Admins` จัดการ platform admin account, session, profile และ accessible merchant binding.
-`Iam` เป็น catalog ของ permission/group/role และ role-permission grants.
+`Iam` เป็น catalog ของ permission/group/role, role-permission grants และ API client credentials.
+
+Admin control-plane routes ครอบคลุม merchant/originator, PSP/routing, merchant-user management, API clients,
+governance, webhook/notification delivery และ reporting. รายละเอียด route/permission อยู่ใน
+[`admin-control-plane.md`](admin-control-plane.md).
 
 Current admin routes อยู่ใต้ `/api/v1/admins...`; master-data routes เป็น top-level `/api/v1/positions`,
 `/offices`, `/levels`, `/divisions`. Authorization ใช้ policy `admin`, permission key และ CSRF สำหรับ mutations.
@@ -130,30 +139,36 @@ Customer summary ใช้ opaque token มี TTL; merchant detail metadata rev
 Webhook verify, idempotency และ fetch-to-confirm. Payment events ใช้ `PaymentPaid`, `PaymentFailed`,
 `PaymentExpired`; stale correlation ถูก ignore และ state transition ของ Order serialize ด้วย row lock.
 
+Admin branch เพิ่ม PSP connection health/test, encrypted credential versioning, routing-ruleset draft/activation
+และ inbound webhook inspection โดยไม่เปลี่ยน redirect-only payment flow. Transaction report อ่าน projection จาก
+`Order` + `PaymentSession` + lifecycle events.
+
+### Governance, Notifications และ Reporting
+
+- `Governance` เก็บ approval request/decision/execution, append-only audit hash chain และ durable outbox
+- `Notifications` เก็บ outbound webhook endpoint, delivery/replay, notification rule และ delivery history
+- `Reporting` รวม dashboard, transaction list/detail และ export จากข้อมูล commerce เดิม; ไม่มี ledger ใหม่
+
 ## Persistence topology
 
 | Project | Current responsibility |
 |---|---|
-| `Persistence.ControlPlane` | admin, IAM, cfg reference data |
+| `Persistence.ControlPlane` | admin, IAM, cfg reference data, governance, API-client และ delivery control-plane stores |
 | `Persistence.MerchantUsers` | merchant-user identity/session/registration rows |
-| `Persistence.MerchantRuntime` | merchant profile, carts, orders, payments, outbox, photo store |
+| `Persistence.MerchantRuntime` | merchant profile, carts, orders, payments, outbox, photo store และ runtime readers |
 | `Persistence.Provisioning` | provisioning/vault workflow |
 
 Schemas:
 
-- `admin`: platform users/session/role/access/audit/provisioning
-- `iam`: permission catalog and grants
+- `admin`: platform users/session/role/access/audit/provisioning, governance, delivery และ notification tables
+- `iam`: permission catalog, grants, API clients และ one-time secret tickets
 - `cfg`: four master-data tables
-- `merch`: merchants, users, sessions, registration, vault, user outbox
+- `merch`: merchants, originators, users, invitations, sessions, registration, vault, user outbox และ Admin operation records
 - `shop`: carts, cart items, orders, order items, reveal audits
-- `txn`: payment sessions, PSP connections, idempotency, outbox
+- `txn`: payment sessions, PSP connections, routing, inbound webhook events, idempotency และ outbox
 
-`PolDbContext` เป็น migration owner. Current migrations:
-
-1. `20260807042818_InitialSchema`
-2. `20260807042828_SecurityObjects`
-3. `20260807042833_SeedData`
-4. `20260808161508_OneBasedPersistedEnumStorage`
+`PolDbContext` เป็น migration owner. Latest migration คือ `20260811024015_AdminDeliveryRuntimeGrants`.
+Migration chain เต็มและ field-level schema อยู่ใน [`entity-fields.md`](entity-fields.md).
 
 ไม่มี SQL RLS. Isolation floor อยู่ app layer: query filters, actor binding, tenant-key validation และ guarded
 write. Intentional cross-merchant probe ใช้ explicit `IgnoreQueryFilters()` ที่มี test/allowlist รองรับ.
@@ -180,7 +195,14 @@ implementation. Host composition เป็นจุดเดียวที่�
 | Merchant users | `/api/v1/merchants/auth...`, `/api/v1/merchants/users...` |
 | Merchant provisioning | `/api/v1/merchants...` |
 | Master data | `/api/v1/positions`, `/offices`, `/levels`, `/divisions` |
-| Reconciliation | `GET /api/v1/reports/reconciliation` |
+| Admin control | `/api/v1/merchants`, `/originators`, `/payments/psp-connections`, `/payments/routing-rulesets` |
+| Admin identity | `/api/v1/merchants/{merchantId}/users`, `/roles`, `/permissions` |
+| Governance | `/api/v1/approvals`, `/api/v1/audits` |
+| Notifications | `/api/v1/webhooks/endpoints`, `/api/v1/webhooks/deliveries`, `/api/v1/notifications/*` |
+| API clients | `/api/v1/api-clients` |
+| Reporting | `/api/v1/reports/dashboard`, `/api/v1/reports/operations`, `/api/v1/payments/transactions` |
+| Inbound webhook audit | `/api/v1/webhooks/inbound-events` |
+| Reconciliation | `GET /api/v1/reports/reconciliation` (merchant flow เดิม) |
 
 Authorization policy แยก audience; path ไม่ใช้ `/api/admin/v1` หรือ `/api/producer/v1`.
 
@@ -193,6 +215,7 @@ Authorization policy แยก audience; path ไม่ใช้ `/api/admin/v1`
 - policy entity/audit/report routes
 - SQL RLS/security policy/bypass principal
 - standalone `Worker` runtime host
+- separate `Transaction` ledger หรือ payment capability ที่ไม่มี owner จริง
 
 ถ้าเอกสารเก่าหรือ client ยังใช้ surface เหล่านี้ ให้ยึด code และ
 `.ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md` เป็น migration map.
@@ -204,5 +227,6 @@ Authorization policy แยก audience; path ไม่ใช้ `/api/admin/v1`
 - `src/Persistence/*`
 - `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/`
 - [`entity-fields.md`](entity-fields.md)
+- [`admin-control-plane.md`](admin-control-plane.md)
 - [`layers-guide.md`](layers-guide.md)
 - [`db-connection-and-rls.md`](db-connection-and-rls.md)

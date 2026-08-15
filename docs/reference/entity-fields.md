@@ -1,6 +1,6 @@
 # Entity and Field Reference
 
-เอกสารนี้คือ persisted schema ปัจจุบันของ `VCentralPay` ตาม migration chain วันที่ 2026-08-08. ครอบคลุมทุก table, field, key, foreign key และ index ที่ระบบสร้างเอง; ไม่รวมข้อมูลจาก upstream product catalogue.
+เอกสารนี้คือ persisted schema ปัจจุบันของ `VCentralPay` ตาม migration chain ถึงวันที่ 2026-08-11. ครอบคลุมทุก table, field, key, foreign key และ index ที่ระบบสร้างเอง; ไม่รวมข้อมูลจาก upstream product catalogue.
 
 ## Database baseline
 
@@ -9,7 +9,7 @@
 | Engine | SQL Server 2025 build `17.0.4045.5` ขึ้นไป |
 | Compatibility level | `170` |
 | Collation | `Thai_100_CI_AS` |
-| Migration chain | `20260807042818_InitialSchema` → `20260807042828_SecurityObjects` → `20260807042833_SeedData` → `20260808161508_OneBasedPersistedEnumStorage` |
+| Migration chain | `20260807042818_InitialSchema` → `20260807042828_SecurityObjects` → `20260807042833_SeedData` → `20260808161508_OneBasedPersistedEnumStorage` → `20260809183210_MerchantRealApiIdentity` → `20260810041211_AdminConsolePermissionKeys` → `20260810055607_GovernanceFoundation` → `20260810055818_GovernancePlatformHeadUniqueness` → `20260810074055_AdminConsoleResourceVersions` → `20260810112718_AdminTenantPspRoutingControlPlane` → `20260810133139_AdminMerchantIdentityControl` → `20260810150130_AdminCommerceLifecycle` → `20260810153008_AdminCommerceUpdatedAtDefault` → `20260810162000_AdminCommerceOperationUpdateGrant` → `20260810184403_AdminDeliveryControlAndInboundWebhook` → `20260811024015_AdminDeliveryRuntimeGrants` |
 | Runtime principal | `pol_app` |
 | Runtime contexts | `ControlPlaneDbContext`, `MerchantUserDbContext`, `MerchantRuntimeDbContext` |
 | Migration context | `PolDbContext` เท่านั้น |
@@ -26,12 +26,12 @@
 
 | Schema | Tables | Runtime owner |
 |---|---|---|
-| `admin` | platform users, sessions, access, role assignments, audit, provisioning ledger | `ControlPlaneDbContext` |
-| `iam` | permission groups, permissions, roles, grants | `ControlPlaneDbContext` |
+| `admin` | platform users, sessions, access, role assignments, governance, audit, operation ledger, webhook/notification delivery | `ControlPlaneDbContext` |
+| `iam` | permission groups, permissions, roles, grants, API clients, one-time secret tickets | `ControlPlaneDbContext` |
 | `cfg` | positions, offices, levels, divisions | `ControlPlaneDbContext` |
-| `merch` | merchants, merchant users, registration, vault, user outbox | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
+| `merch` | merchants, merchant users, invitations, originators, registration, vault, admin operation ledger, user outbox | `MerchantUserDbContext` / `MerchantRuntimeDbContext` |
 | `shop` | carts, cart items, orders, order items, reveal audit | `MerchantRuntimeDbContext` |
-| `txn` | payment sessions, PSP connections, idempotency, outbox | `MerchantRuntimeDbContext` |
+| `txn` | payment sessions, PSP connections, routing, inbound webhooks, admin operation ledger, idempotency, outbox | `MerchantRuntimeDbContext` |
 | `dbo` | ASP.NET Data Protection keys, EF migration history | framework / migration owner |
 
 ## `admin` schema
@@ -128,6 +128,197 @@
 | `OfficeId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Offices.Id` |
 | `LevelId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Levels.Id` |
 | `DivisionId` | `uniqueidentifier` | NULL, FK | อ้าง `cfg.Divisions.Id` |
+| `Version` | `bigint` | NN | application-managed optimistic concurrency |
+
+### `admin.ApprovalRequests`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | approval request id |
+| `ScopeKind` | `int` | NN | `Platform=1`, `Merchant=2` |
+| `MerchantId` | `uniqueidentifier` | NULL | tenant scope; platform scope ต้องเป็น `NULL` |
+| `Action` | `varchar(120)` | NN | operation ที่รออนุมัติ |
+| `RequiredPermission` | `varchar(120)` | NN | permission ที่ checker ต้องมี |
+| `MakerId` | `uniqueidentifier` | NN | ผู้สร้างคำขอ |
+| `TargetType` | `varchar(120)` | NN | ประเภท resource |
+| `TargetId` | `nvarchar(200)` | NN | resource identifier |
+| `TargetVersion` | `varchar(200)` | NN | version ที่ maker อ่านมา |
+| `Status` | `int` | NN | pending/approved/rejected/executed state |
+| `CheckerId` | `uniqueidentifier` | NULL | ผู้ตัดสินใจ |
+| `DecisionReason` | `nvarchar(1000)` | NULL | เหตุผลการตัดสินใจ |
+| `DecidedAt` | `datetime2` | NULL | เวลาตัดสินใจ |
+| `ExecutionOutcome` | `nvarchar(1000)` | NULL | ผลการ execute |
+| `ExecutedAt` | `datetime2` | NULL | เวลา execute |
+| `CorrelationId` | `varchar(128)` | NN | request correlation |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `admin.ApprovalEvents`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | event id |
+| `SourceEventId` | `uniqueidentifier` | NN | source event; unique |
+| `ApprovalId` | `uniqueidentifier` | NN, FK | อ้าง `admin.ApprovalRequests.Id` |
+| `ScopeKind` | `int` | NN | scope ของ approval |
+| `MerchantId` | `uniqueidentifier` | NULL | merchant scope |
+| `Kind` | `varchar(40)` | NN | approval event kind |
+| `ActorId` | `uniqueidentifier` | NULL | actor ถ้ามี |
+| `Detail` | `nvarchar(1000)` | NULL | รายละเอียด |
+| `CorrelationId` | `varchar(128)` | NN | request correlation |
+| `OccurredAt` | `datetime2` | NN | เวลาเกิด event |
+
+### `admin.AuditHeads`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `ScopeKey` | `varchar(80)` | NN, PK | hash-chain scope key |
+| `ScopeKind` | `int` | NN | scope ของ audit chain |
+| `MerchantId` | `uniqueidentifier` | NULL | merchant scope |
+| `LastSequence` | `bigint` | NN | sequence ล่าสุด |
+| `LastHash` | `binary(32)` | NN | hash ล่าสุด |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด |
+
+### `admin.AuditRecords`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | audit row id |
+| `ScopeKey` | `varchar(80)` | NN, FK | อ้าง `admin.AuditHeads.ScopeKey` |
+| `ScopeKind` | `int` | NN | scope ของ audit |
+| `MerchantId` | `uniqueidentifier` | NULL | merchant scope |
+| `Sequence` | `bigint` | NN | sequence ใน chain |
+| `ActorId` | `uniqueidentifier` | NN | actor id |
+| `Action` | `varchar(120)` | NN | action |
+| `ResourceType` | `varchar(120)` | NN | resource type |
+| `ResourceId` | `nvarchar(200)` | NN | resource id |
+| `Result` | `varchar(80)` | NN | ผลลัพธ์ |
+| `Changes` | `nvarchar(max)` | NN | structured change payload |
+| `ApprovalId` | `uniqueidentifier` | NULL | approval ที่เกี่ยวข้อง |
+| `ResourceVersion` | `varchar(200)` | NULL | resource version |
+| `CorrelationId` | `varchar(128)` | NN | request correlation |
+| `OccurredAt` | `datetime2` | NN | เวลาเกิด action |
+| `PreviousHash` | `binary(32)` | NN | hash ก่อนหน้า |
+| `Hash` | `binary(32)` | NN | hash ของ row |
+
+### `admin.GovernanceOutboxMessages`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | message id |
+| `ScopeKind` | `int` | NN | scope ของ governance event |
+| `MerchantId` | `uniqueidentifier` | NULL | merchant scope |
+| `Type` | `varchar(200)` | NN | event type |
+| `SchemaVersion` | `varchar(16)` | NN | event schema version |
+| `Payload` | `nvarchar(max)` | NN | serialized event payload |
+| `OccurredAt` | `datetime2` | NN | เวลาเกิด event |
+| `ProcessedAt` | `datetime2` | NULL | เวลาประมวลผลสำเร็จ |
+| `Attempts` | `int` | NN | จำนวนครั้งที่พยายามส่ง |
+| `Error` | `nvarchar(1000)` | NULL | error ล่าสุด |
+| `LeaseExpiresAt` | `datetime2` | NULL | lease expiry |
+| `LeaseOwner` | `nvarchar(200)` | NULL | worker ที่ถือ lease |
+
+### `admin.OperationRecords`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | operation id |
+| `ActorId` | `uniqueidentifier` | NN | actor id |
+| `Operation` | `varchar(120)` | NN | operation name |
+| `IdempotencyKey` | `varchar(200)` | NN | idempotency key |
+| `RequestHash` | `varchar(64)` | NN | request hash |
+| `ScopeKind` | `int` | NN | scope ของ operation |
+| `MerchantId` | `uniqueidentifier` | NULL | merchant scope |
+| `Status` | `int` | NN | operation state |
+| `ResponseStatus` | `int` | NULL | HTTP status ที่ cache ไว้ |
+| `ResponseBody` | `nvarchar(max)` | NULL | response ที่ cache ไว้ |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `ExpiresAt` | `datetime2` | NN | เวลา expiry |
+| `CompletedAt` | `datetime2` | NULL | เวลาสำเร็จ/จบ |
+
+### `admin.DeliverySecretVersions`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | secret version id |
+| `OwnerId` | `uniqueidentifier` | NN | owner resource id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `OwnerType` | `nvarchar(64)` | NN | owner discriminator |
+| `ProtectedSecret` | `nvarchar(max)` | NN | protected secret; ไม่ใช่ plaintext contract |
+| `State` | `int` | NN | pending/active/retired state |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `ActivatedAt` | `datetime2` | NULL | เวลา activate |
+| `RetiredAt` | `datetime2` | NULL | เวลา retire |
+
+### `admin.WebhookEndpoints`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | endpoint id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `Name` | `nvarchar(160)` | NN | endpoint name |
+| `Url` | `nvarchar(2048)` | NN | destination URL; ตรวจ SSRF ก่อนบันทึก |
+| `EventsCsv` | `nvarchar(2000)` | NN | event subscriptions |
+| `Enabled` | `bit` | NN | เปิดใช้งานหรือไม่ |
+| `ActiveSecretVersionId` | `uniqueidentifier` | NN | active delivery secret |
+| `SecretHint` | `nvarchar(32)` | NN | non-secret hint |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `admin.WebhookDeliveries`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | delivery id |
+| `EndpointId` | `uniqueidentifier` | NN | endpoint เป้าหมาย |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `SourceEventId` | `uniqueidentifier` | NN | source event id |
+| `OriginalDeliveryId` | `uniqueidentifier` | NULL | delivery เดิมเมื่อ replay |
+| `ReplayKey` | `nvarchar(200)` | NULL | replay idempotency key |
+| `EventType` | `nvarchar(160)` | NN | event type |
+| `TransactionId` | `nvarchar(200)` | NULL | transaction reference |
+| `Payload` | `nvarchar(max)` | NN | delivery payload |
+| `Status` | `int` | NN | delivery state |
+| `AttemptCount` | `int` | NN | จำนวน attempts |
+| `NextAttemptAt` | `datetime2` | NN | retry schedule |
+| `LastAttemptAt` | `datetime2` | NULL | attempt ล่าสุด |
+| `LeaseExpiresAt` | `datetime2` | NULL | lease expiry |
+| `LeaseOwner` | `nvarchar(200)` | NULL | worker ที่ถือ lease |
+| `LatencyMs` | `int` | NULL | latency ล่าสุด |
+| `FailureCode` | `nvarchar(120)` | NULL | failure code |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `CompletedAt` | `datetime2` | NULL | เวลาสำเร็จ/จบ |
+
+### `admin.NotificationRules`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | rule id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `EventType` | `nvarchar(160)` | NN | event ที่ trigger |
+| `Channel` | `nvarchar(32)` | NN | notification channel |
+| `Destination` | `nvarchar(2048)` | NN | destination |
+| `Threshold` | `nvarchar(200)` | NULL | optional threshold |
+| `Enabled` | `bit` | NN | เปิดใช้งานหรือไม่ |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `admin.NotificationDeliveries`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | delivery id |
+| `RuleId` | `uniqueidentifier` | NN | rule เป้าหมาย |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `SourceEventId` | `uniqueidentifier` | NN | source event id |
+| `EventType` | `nvarchar(160)` | NN | event type |
+| `Channel` | `nvarchar(32)` | NN | channel |
+| `DestinationMasked` | `nvarchar(256)` | NN | masked destination |
+| `Status` | `int` | NN | delivery state |
+| `FailureCode` | `nvarchar(120)` | NULL | failure code |
+| `SentAt` | `datetime2` | NN | เวลาส่ง |
 
 ## `iam` schema
 
@@ -171,12 +362,50 @@
 | `Status` | `int` | NN | `Active=1`, `Inactive=2` |
 | `Scope` | `int` | NN | `Platform=1`, `Merchant=2` |
 | `MerchantId` | `uniqueidentifier` | NULL | owner merchant; platform role ต้องเป็น `NULL` |
+| `Version` | `bigint` | NN | optimistic concurrency |
 
 Check constraint: `CK_Roles_ScopeMerchant` บังคับ `Scope=1` ต้องมี `MerchantId IS NULL`; `Scope=2` ต้องเป็น merchant role.
 
+### `iam.ApiClients`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | API client id |
+| `PublicClientId` | `nvarchar(80)` | NN | public client identifier; unique |
+| `Name` | `nvarchar(160)` | NN | client name |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `OriginatorId` | `uniqueidentifier` | NULL | optional originator binding |
+| `ScopesCsv` | `nvarchar(1000)` | NN | granted scopes |
+| `IpPolicy` | `nvarchar(2000)` | NULL | optional IP policy |
+| `SecretHash` | `varbinary(32)` | NN | hash ของ client secret |
+| `SecretHint` | `nvarchar(32)` | NN | non-secret hint |
+| `Status` | `int` | NN | client state |
+| `PendingRotationApprovalId` | `uniqueidentifier` | NULL | pending rotation approval |
+| `PendingRotationTicketId` | `uniqueidentifier` | NULL | pending one-time secret ticket |
+| `LastUsedAt` | `datetime2` | NULL | เวลาใช้งานล่าสุด |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `iam.OneTimeSecretTickets`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | ticket id |
+| `ApiClientId` | `uniqueidentifier` | NN | API client เจ้าของ ticket |
+| `ApprovalId` | `uniqueidentifier` | NULL | approval ที่เกี่ยวข้อง |
+| `TicketHash` | `varbinary(32)` | NN | hash ของ one-time ticket |
+| `ProtectedSecret` | `nvarchar(max)` | NULL | protected secret ที่รอ reveal |
+| `Status` | `int` | NN | ticket state |
+| `ExpiresAt` | `datetime2` | NN | ticket expiry |
+| `ConsumedAt` | `datetime2` | NULL | เวลาใช้ ticket |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
 ## `cfg` schema
 
-`cfg.Positions`, `cfg.Offices`, `cfg.Levels` และ `cfg.Divisions` มี field shape เดียวกัน.
+`cfg.Positions`, `cfg.Offices`, `cfg.Levels` และ `cfg.Divisions` มี field shape เดียวกัน และมี
+`Version` (`bigint`, NN) สำหรับ optimistic concurrency เพิ่มจากตารางด้านล่าง.
 
 ### `cfg.Positions`
 
@@ -251,6 +480,90 @@ Check constraint: `CK_Roles_ScopeMerchant` บังคับ `Scope=1` ต้�
 | `EnabledChannels` | `nvarchar(256)` | NN | enabled payment channels |
 | `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
 | `Metadata` | `json` | NN | typed merchant extension; ห้ามเก็บ secret/PII ที่ไม่จำเป็น |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `merch.MerchantUserInvitations`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | invitation id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `Email` | `nvarchar(320)` | NN | invited email |
+| `NormalizedEmail` | `nvarchar(320)` | NN | normalized email |
+| `TokenHash` | `varchar(64)` | NN | hash ของ invitation token |
+| `ExpiresAt` | `datetime2` | NN | invitation expiry |
+| `AcceptedAt` | `datetime2` | NULL | เวลารับ invitation |
+| `AcceptedByUserId` | `uniqueidentifier` | NULL | user ที่รับ invitation |
+| `RevokedAt` | `datetime2` | NULL | เวลายกเลิก |
+| `CreatedByUserId` | `uniqueidentifier` | NN | actor เดิมจาก merchant-user plane |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `RowVersion` | `rowversion` | NN, ROWVERSION | optimistic concurrency |
+| `CreatedByAudience` | `nvarchar(32)` | NN | `MerchantUser` หรือ `Admin` |
+| `IntendedRoleCodesJson` | `nvarchar(2000)` | NN | role codes ที่ตั้งใจมอบ |
+
+### `merch.MerchantUserManagementAudits`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | audit row id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `ActorUserId` | `uniqueidentifier` | NULL | merchant user actor ถ้ามี |
+| `TargetUserId` | `uniqueidentifier` | NULL | target user ถ้ามี |
+| `InvitationId` | `uniqueidentifier` | NULL | target invitation ถ้ามี |
+| `Action` | `varchar(32)` | NN | management action |
+| `CorrelationId` | `nvarchar(128)` | NN | request correlation |
+| `OccurredAt` | `datetime2` | NN | เวลาเกิด action |
+
+อย่างน้อยหนึ่งใน `TargetUserId` หรือ `InvitationId` ต้องไม่เป็น `NULL`.
+
+### `merch.AdminUserOperationRecords`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | operation id |
+| `MerchantId` | `uniqueidentifier` | NULL | merchant scope; platform operation อาจเป็น `NULL` |
+| `ActorId` | `uniqueidentifier` | NN | admin actor |
+| `Operation` | `nvarchar(120)` | NN | operation name |
+| `IdempotencyKey` | `nvarchar(200)` | NN | idempotency key |
+| `IntentHash` | `varchar(64)` | NN | request intent hash |
+| `Result` | `nvarchar(max)` | NN | cached result |
+| `HttpStatus` | `int` | NN | cached HTTP status |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `ExpiresAt` | `datetime2` | NN | เวลา expiry |
+
+### `merch.Originators`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | originator id |
+| `MerchantId` | `uniqueidentifier` | NN, FK | อ้าง `merch.Merchants.Id` |
+| `Code` | `nvarchar(64)` | NN | immutable originator code |
+| `Name` | `nvarchar(200)` | NN | display name |
+| `Type` | `int` | NN | `branch`, `agent`, `broker`, `staff`, `app` domain value |
+| `SaleCode` | `nvarchar(100)` | NULL | optional sale code |
+| `ApiClientId` | `uniqueidentifier` | NULL | optional API client binding |
+| `Status` | `int` | NN | enabled/disabled state |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `merch.VaultSecretVersions`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | secret version id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `SecretName` | `nvarchar(128)` | NN | secret name |
+| `Version` | `int` | NN | version number ต่อ secret |
+| `SecretKey` | `nvarchar(64)` | NN | key reference |
+| `EncryptedDek` | `varbinary(max)` | NN | encrypted data-encryption key |
+| `EncryptedSecret` | `varbinary(max)` | NN | encrypted credential payload |
+| `Hint` | `nvarchar(512)` | NN | non-secret hint |
+| `State` | `int` | NN | pending/active/retired state |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `ExpiresAt` | `datetime2` | NULL | เวลา expiry |
+| `ActivatedAt` | `datetime2` | NULL | เวลา activate |
+| `RetiredAt` | `datetime2` | NULL | เวลา retire |
 
 ### `merch.ProvisioningAudits`
 
@@ -378,6 +691,7 @@ Check constraint: `CK_Roles_ScopeMerchant` บังคับ `Scope=1` ต้�
 | `PhotoObjectKey` | `nvarchar(256)` | NULL | opaque profile photo key; ไม่ใช่ binary/path |
 | `PhotoContentType` | `nvarchar(128)` | NULL | validated media type |
 | `KycPhotoObjectKey` | `nvarchar(256)` | NULL | opaque KYC photo key; binary อยู่ object store |
+| `Version` | `bigint` | NN | optimistic concurrency |
 
 ### `merch.VaultRevealAudits`
 
@@ -415,6 +729,7 @@ Check constraint: `CK_Roles_ScopeMerchant` บังคับ `Scope=1` ต้�
 | `SaleCode` | `varchar(20)` | NULL | actor/server sale code |
 | `Status` | `nvarchar(16)` | NN | `Open` หรือ `CheckedOut` |
 | `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `OriginatorId` | `uniqueidentifier` | NULL | originator ที่สร้าง cart |
 | `Version` | `int` | NN | application-managed optimistic concurrency |
 
 Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key.
@@ -451,6 +766,9 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `SummaryTokenExpiresAt` | `datetime2` | NN | token expiry |
 | `NotificationRecipient` | `nvarchar(320)` | NULL | recipient สำหรับ notification |
 | `PaymentChannel` | `varchar(20)` | NULL | payment channel snapshot |
+| `OriginatorId` | `uniqueidentifier` | NULL | originator ที่สร้าง order |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด; default ใหม่ `SYSUTCDATETIME()`, legacy rows backfill จาก `CreatedAt` |
+| `Version` | `bigint` | NN | optimistic concurrency |
 | `CustomerName` | `nvarchar(200)` | NN | customer PII |
 | `CustomerPhone` | `varchar(20)` | NN | customer PII |
 | `CustomerEmail` | `nvarchar(320)` | NULL | customer PII |
@@ -543,6 +861,7 @@ Alternate key: `(Id, MerchantId)` สำหรับ composite child foreign key
 | `RowVersion` | `rowversion` | NN, ROWVERSION | optimistic concurrency token |
 | `AmountAmount` | `decimal(19,4)` | NN | session amount จาก order |
 | `AmountCurrency` | `char(3)` | NN | session currency |
+| `Version` | `bigint` | NN | application-managed optimistic concurrency |
 
 Filtered unique index `(OrderId)` จำกัด open session ที่ `Status IN (1, 2)` เหลือไม่เกินหนึ่งรายการต่อ order.
 
@@ -558,8 +877,80 @@ Filtered unique index `(OrderId)` จำกัด open session ที่ `Status
 | `Metadata` | `nvarchar(max)` | NULL | PSP-specific metadata; ไม่ใช่ native JSON contract |
 | `IsEnabled` | `bit` | NN | เปิดใช้งานหรือไม่ |
 | `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `ActiveSecretVersionId` | `uniqueidentifier` | NULL | active vault secret version |
+| `Health` | `int` | NN | connection health state |
+| `LastTestResult` | `nvarchar(500)` | NULL | ผลการ test ล่าสุด |
+| `LastTestedAt` | `datetime2` | NULL | เวลา test ล่าสุด |
+| `PendingApprovalId` | `uniqueidentifier` | NULL | pending credential/config approval |
+| `PendingSecretVersionId` | `uniqueidentifier` | NULL | secret version ที่รอ activate |
+| `Version` | `bigint` | NN | optimistic concurrency |
 
 Unique index `(MerchantId, Psp)` จำกัดหนึ่ง connection ต่อ PSP ต่อ merchant.
+
+### `txn.AdminOperationRecords`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | operation id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `ActorId` | `uniqueidentifier` | NN | admin actor |
+| `Operation` | `nvarchar(120)` | NN | operation name |
+| `IdempotencyKey` | `nvarchar(200)` | NN | idempotency key |
+| `IntentHash` | `nvarchar(64)` | NN | request intent hash |
+| `State` | `int` | NN | operation state |
+| `HttpStatus` | `int` | NULL | cached HTTP status |
+| `Result` | `nvarchar(max)` | NULL | cached result |
+| `ResourceId` | `nvarchar(200)` | NULL | affected resource id |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `ExpiresAt` | `datetime2` | NN | เวลา expiry |
+
+### `txn.RoutingRulesets`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | ruleset id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `Name` | `nvarchar(200)` | NN | ruleset name |
+| `Status` | `int` | NN | draft/active/inactive state |
+| `ApprovalId` | `uniqueidentifier` | NULL | activation approval |
+| `CreatedAt` | `datetime2` | NN | เวลาสร้าง |
+| `UpdatedAt` | `datetime2` | NN | เวลาแก้ไขล่าสุด |
+| `Version` | `bigint` | NN | optimistic concurrency |
+
+### `txn.RoutingRules`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | rule id |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `RulesetId` | `uniqueidentifier` | NN, FK | อ้าง `txn.RoutingRulesets` แบบ composite tenant FK |
+| `Priority` | `int` | NN | ลำดับ rule |
+| `Method` | `nvarchar(30)` | NN | payment method |
+| `OriginatorId` | `uniqueidentifier` | NULL, FK | อ้าง `merch.Originators` แบบ composite tenant FK |
+| `MinAmount` | `decimal(18,2)` | NULL | lower amount bound |
+| `MaxAmount` | `decimal(18,2)` | NULL | upper amount bound |
+| `TargetConnectionId` | `uniqueidentifier` | NN, FK | target PSP connection |
+| `FallbackConnectionId` | `uniqueidentifier` | NULL, FK | fallback PSP connection |
+| `Enabled` | `bit` | NN | เปิดใช้งานหรือไม่ |
+
+### `txn.InboundWebhookEvents`
+
+| Field | SQL type | Null | ความหมาย |
+|---|---|---|---|
+| `Id` | `uniqueidentifier` | NN, PK | inbound event id |
+| `PspConnectionId` | `uniqueidentifier` | NN, FK | อ้าง `txn.PspConnections` แบบ composite tenant FK |
+| `MerchantId` | `uniqueidentifier` | NN | tenant boundary |
+| `PaymentSessionId` | `uniqueidentifier` | NULL | matched payment session |
+| `OrderId` | `uniqueidentifier` | NULL | matched order |
+| `PspCode` | `varchar(32)` | NN | PSP code |
+| `ExternalEventId` | `nvarchar(256)` | NN | PSP event id |
+| `PayloadFingerprint` | `varchar(64)` | NN | fingerprint ของ payload |
+| `SignatureValid` | `bit` | NN | signature validation result |
+| `Status` | `int` | NN | received/processed/failed state |
+| `FailureCode` | `varchar(64)` | NULL | failure code |
+| `ReceivedAt` | `datetime2` | NN | เวลารับ event |
+| `ProcessedAt` | `datetime2` | NULL | เวลาประมวลผล |
+| `Version` | `bigint` | NN | optimistic concurrency |
 
 ## `dbo` schema
 
@@ -598,6 +989,16 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `FK_RegistrationAttempts_Users_UserId` | `merch.RegistrationAttempts.UserId` | `merch.Users.Id` | `RESTRICT` |
 | `FK_RolePermissions_Permissions_PermissionKey` | `iam.RolePermissions.PermissionKey` | `iam.Permissions.Key` | `RESTRICT` |
 | `FK_RolePermissions_Roles_RoleId` | `iam.RolePermissions.RoleId` | `iam.Roles.Id` | `CASCADE` |
+| `FK_ApprovalEvents_ApprovalRequests_ApprovalId` | `admin.ApprovalEvents.ApprovalId` | `admin.ApprovalRequests.Id` | `RESTRICT` |
+| `FK_AuditRecords_AuditHeads_ScopeKey` | `admin.AuditRecords.ScopeKey` | `admin.AuditHeads.ScopeKey` | `RESTRICT` |
+| `FK_Originators_Merchants_MerchantId` | `merch.Originators.MerchantId` | `merch.Merchants.Id` | `RESTRICT` |
+| `FK_PspConnections_VaultSecretVersions_MerchantId_ActiveSecretVersionId` | `txn.PspConnections (MerchantId, ActiveSecretVersionId)` | `merch.VaultSecretVersions (MerchantId, Id)` | `RESTRICT` |
+| `FK_PspConnections_VaultSecretVersions_MerchantId_PendingSecretVersionId` | `txn.PspConnections (MerchantId, PendingSecretVersionId)` | `merch.VaultSecretVersions (MerchantId, Id)` | `RESTRICT` |
+| `FK_RoutingRules_Originators_MerchantId_OriginatorId` | `txn.RoutingRules (MerchantId, OriginatorId)` | `merch.Originators (MerchantId, Id)` | `RESTRICT` |
+| `FK_RoutingRules_PspConnections_MerchantId_FallbackConnectionId` | `txn.RoutingRules (MerchantId, FallbackConnectionId)` | `txn.PspConnections (MerchantId, Id)` | `RESTRICT` |
+| `FK_RoutingRules_PspConnections_MerchantId_TargetConnectionId` | `txn.RoutingRules (MerchantId, TargetConnectionId)` | `txn.PspConnections (MerchantId, Id)` | `RESTRICT` |
+| `FK_RoutingRules_RoutingRulesets_MerchantId_RulesetId` | `txn.RoutingRules (MerchantId, RulesetId)` | `txn.RoutingRulesets (MerchantId, Id)` | `CASCADE` |
+| `FK_InboundWebhookEvents_PspConnections_MerchantId_PspConnectionId` | `txn.InboundWebhookEvents (MerchantId, PspConnectionId)` | `txn.PspConnections (MerchantId, Id)` | `RESTRICT` |
 
 `MerchantId`, `UserId`, `OrderId`, `PaymentSessionId`, `PspConnectionId` และ audit references ที่ไม่มีรายการด้านบนเป็น scalar/application relationships ไม่ใช่ physical FK.
 
@@ -624,6 +1025,26 @@ EF Core สร้างและดูแล table นี้นอก `InitialSc
 | `merch.RoleAssignments` | `IX_RoleAssignments_UserId_RoleId` | `(UserId, RoleId)` unique |
 | `merch.Sessions` | `IX_Sessions_TokenHash` | `TokenHash` unique |
 | `merch.VaultRevealAudits` | `IX_VaultRevealAudits_MerchantId_Seq` | `(MerchantId, Seq)` unique |
+| `admin.ApprovalEvents` | `IX_ApprovalEvents_SourceEventId` | `SourceEventId` unique |
+| `admin.AuditHeads` | `IX_AuditHeads_ScopeKind_MerchantId` | `(ScopeKind, MerchantId)` unique, filter merchant scope |
+| `admin.AuditHeads` | `UX_AuditHeads_PlatformScope` | `ScopeKind` unique, filter platform scope |
+| `admin.AuditRecords` | `IX_AuditRecords_ScopeKey_PreviousHash` | `(ScopeKey, PreviousHash)` unique |
+| `admin.AuditRecords` | `IX_AuditRecords_ScopeKey_Sequence` | `(ScopeKey, Sequence)` unique |
+| `admin.OperationRecords` | `IX_OperationRecords_ActorId_Operation_IdempotencyKey` | `(ActorId, Operation, IdempotencyKey)` unique |
+| `iam.ApiClients` | `IX_ApiClients_PendingRotationApprovalId` | `PendingRotationApprovalId` unique, filter non-null |
+| `iam.ApiClients` | `IX_ApiClients_PublicClientId` | `PublicClientId` unique |
+| `iam.OneTimeSecretTickets` | `IX_OneTimeSecretTickets_ApprovalId` | `ApprovalId` unique, filter non-null |
+| `iam.OneTimeSecretTickets` | `IX_OneTimeSecretTickets_TicketHash` | `TicketHash` unique |
+| `merch.Originators` | `IX_Originators_MerchantId_Code` | `(MerchantId, Code)` unique |
+| `merch.VaultSecretVersions` | `IX_VaultSecretVersions_MerchantId_SecretName_State` | `(MerchantId, SecretName, State)` unique, filter active |
+| `merch.VaultSecretVersions` | `IX_VaultSecretVersions_MerchantId_SecretName_Version` | `(MerchantId, SecretName, Version)` unique |
+| `txn.AdminOperationRecords` | `IX_AdminOperationRecords_MerchantId_ActorId_Operation_IdempotencyKey` | `(MerchantId, ActorId, Operation, IdempotencyKey)` unique |
+| `txn.RoutingRules` | `IX_RoutingRules_MerchantId_RulesetId_Priority` | `(MerchantId, RulesetId, Priority)` unique |
+| `txn.RoutingRulesets` | `IX_RoutingRulesets_MerchantId_Status` | `(MerchantId, Status)` unique, filter active |
+| `txn.InboundWebhookEvents` | `IX_InboundWebhookEvents_PspConnectionId_ExternalEventId` | `(PspConnectionId, ExternalEventId)` unique |
+| `admin.NotificationDeliveries` | `IX_NotificationDeliveries_RuleId_SourceEventId` | `(RuleId, SourceEventId)` unique |
+| `admin.WebhookDeliveries` | `IX_WebhookDeliveries_EndpointId_SourceEventId` | `(EndpointId, SourceEventId)` unique, filter original delivery |
+| `admin.WebhookDeliveries` | `IX_WebhookDeliveries_OriginalDeliveryId_ReplayKey` | `(OriginalDeliveryId, ReplayKey)` unique, filter replay |
 | `shop.Carts` | `AK_Carts_Id_MerchantId` | `(Id, MerchantId)` alternate key |
 | `shop.Orders` | `AK_Orders_Id_MerchantId` | `(Id, MerchantId)` alternate key |
 | `shop.Orders` | `IX_Orders_OrderNo` | `OrderNo` unique |
@@ -655,6 +1076,23 @@ Non-unique lookup indexes:
 | `shop.Orders` | `IX_Orders_MerchantId` |
 | `txn.OutboxMessages` | `IX_OutboxMessages_ProcessedAt_LeaseExpiresAt` |
 | `txn.PaymentSessions` | `IX_PaymentSessions_OrderId` |
+| `admin.ApprovalEvents` | `IX_ApprovalEvents_ApprovalId_OccurredAt` |
+| `admin.ApprovalRequests` | `IX_ApprovalRequests_MerchantId_CreatedAt`, `IX_ApprovalRequests_Status_CreatedAt` |
+| `admin.AuditRecords` | `IX_AuditRecords_Action_OccurredAt`, `IX_AuditRecords_ActorId_OccurredAt` |
+| `admin.GovernanceOutboxMessages` | `IX_GovernanceOutboxMessages_ProcessedAt_LeaseExpiresAt` |
+| `admin.OperationRecords` | `IX_OperationRecords_ExpiresAt` |
+| `admin.WebhookEndpoints` | `IX_WebhookEndpoints_MerchantId_Enabled` |
+| `admin.WebhookDeliveries` | `IX_WebhookDeliveries_MerchantId_Status_CreatedAt`, `IX_WebhookDeliveries_Status_NextAttemptAt_LeaseExpiresAt` |
+| `iam.ApiClients` | `IX_ApiClients_MerchantId_Status` |
+| `iam.OneTimeSecretTickets` | `IX_OneTimeSecretTickets_ExpiresAt` |
+| `admin.DeliverySecretVersions` | `IX_DeliverySecretVersions_OwnerType_OwnerId_State` |
+| `admin.NotificationDeliveries` | `IX_NotificationDeliveries_MerchantId_SentAt` |
+| `admin.NotificationRules` | `IX_NotificationRules_MerchantId_Enabled` |
+| `merch.AdminUserOperationRecords` | `IX_AdminUserOperationRecords_ActorId_Operation_IdempotencyKey`, `IX_AdminUserOperationRecords_ExpiresAt`, `IX_AdminUserOperationRecords_MerchantId_ActorId_Operation_IdempotencyKey` |
+| `txn.AdminOperationRecords` | `IX_AdminOperationRecords_ExpiresAt` |
+| `txn.InboundWebhookEvents` | `IX_InboundWebhookEvents_MerchantId_PspConnectionId`, `IX_InboundWebhookEvents_MerchantId_ReceivedAt`, `IX_InboundWebhookEvents_Status_ReceivedAt` |
+| `txn.PspConnections` | `IX_PspConnections_MerchantId_ActiveSecretVersionId`, `IX_PspConnections_MerchantId_PendingSecretVersionId` |
+| `txn.RoutingRules` | `IX_RoutingRules_MerchantId_FallbackConnectionId`, `IX_RoutingRules_MerchantId_OriginatorId`, `IX_RoutingRules_MerchantId_TargetConnectionId` |
 
 ## Native JSON and retired surfaces
 
@@ -678,7 +1116,8 @@ Native SQL Server `json` columns มี exactly 5 จุด:
 2. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042828_SecurityObjects.cs`
 3. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260807042833_SeedData.cs`
 4. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/20260808161508_OneBasedPersistedEnumStorage.cs`
-5. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
-6. EF configurations ใต้ `src/Persistence/` และ module infrastructure
+5. Migrations `20260809183210_MerchantRealApiIdentity` ถึง `20260811024015_AdminDeliveryRuntimeGrants` ในโฟลเดอร์เดียวกัน
+6. `src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/Migrations/PolDbContextModelSnapshot.cs`
+7. EF configurations ใต้ `src/Persistence/` และ module infrastructure
 
 เมื่อ schema เปลี่ยน ต้องอัปเดต migration, model snapshot และเอกสารนี้พร้อมกัน.

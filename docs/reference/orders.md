@@ -1,6 +1,6 @@
 # Orders Module Reference
 
-> As-built 2026-08-07. Order เกิดตรงจาก Cart; ไม่มี Checkout หรือ policy surface.
+> As-built 2026-08-13. Order เกิดตรงจาก Cart; ไม่มี Checkout หรือ policy surface.
 
 ## Creation
 
@@ -18,7 +18,8 @@ missing `404`, no SaleCode `403`, concurrency/state `409`, dependency `503`.
 
 ## Aggregate
 
-Order owns customer/contact scalars, SaleCode, amount, status, summary capability and item snapshots. Item fields:
+Order owns customer/contact scalars, SaleCode, nullable `OriginatorId`, amount, status, `UpdatedAt`, `Version`,
+summary capability and item snapshots. Item fields:
 `ProductCode`, `VariantCode`, `VariantName`, quantity, unit price, zero discount and typed PII-free metadata.
 Generic summary/listไม่คืน metadataหรือ customer PII. Merchant detail reveal audited and fail-closed.
 
@@ -37,6 +38,7 @@ PSP state.
 - `shop.OrderItems`
 - `shop.OrderItemRevealAudits`
 - `shop.OrderNoSeq` raw sequence
+- Admin transaction projection reads `shop.Orders` + `txn.PaymentSessions` + lifecycle evidence; ไม่มี transaction ledger แยก
 - owner ports `IOrderRepository`, `IOrderStore`, `IOrderSummaryReader`
 - shared write seams limited by architecture allowlist
 
