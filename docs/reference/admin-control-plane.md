@@ -17,6 +17,8 @@ Admin control plane ใช้ route root `/api/v1` และ `AdminSession` เ�
 
 | Capability | Routes | Permission | พฤติกรรมสำคัญ |
 |---|---|---|---|
+| Provision merchant | `POST /merchants` | `Super` tier | สร้าง merchant พร้อม PSP connection; รับ CSRF, ใช้ captive code allowlist และเก็บ secret ใน vault โดยไม่คืน plaintext |
+| Merchant lookup | `GET /merchants/{code}` | `merchant.view` | Scoped admin เห็นเฉพาะ merchant ที่ assign; นอก scope หรือไม่พบคืน `404`, response คืน `ETag` |
 | Merchant | `GET /merchants` · `PUT /merchants/{merchantId}` · `POST /merchants/{merchantId}/suspend` · `POST /merchants/{merchantId}/reactivate` | `merchant.view` / `merchant.manage` | list แบ่งหน้า; mutation ใช้ `If-Match` และ `Idempotency-Key` |
 | Originator | `GET|POST /originators` · `GET|PUT|DELETE /originators/{originatorId}` · `POST /originators/{originatorId}/enable` · `POST /originators/{originatorId}/disable` | `merchant.view` / `merchant.manage` | รองรับ `branch`, `agent`, `broker`, `staff`, `app`; `code` เปลี่ยนไม่ได้; รายการที่ถูกอ้างอิงลบไม่ได้ |
 | PSP connection | `GET|POST /payments/psp-connections` · `GET|PUT /payments/psp-connections/{connectionId}` · `POST /payments/psp-connections/{connectionId}/test` · `POST /payments/psp-connections/{connectionId}/credential-change-requests` | `settings.manage` | config อ่านได้, credential ไม่อ่านกลับ; test บันทึก health; credential change ต้อง maker-checker |
