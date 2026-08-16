@@ -110,6 +110,10 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
+        // Pin the SPA base urls: deny redirects are SpaBaseUrl + ErrorPath, and Reason() reads the absolute
+        // Location's query. On CI there is no appsettings.Development.json to supply them (host-test-config-precedence).
+        builder.UseSetting("AdminSession:SpaBaseUrl", "http://localhost:5200");
+        builder.UseSetting("MerchantUser:Session:SpaBaseUrl", "http://localhost:5300");
         builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
