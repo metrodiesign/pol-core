@@ -29,7 +29,7 @@ public sealed class PreBindWritePortTests
             await setup.Database.EnsureCreatedAsync();
 
         using var db = NewControlPlaneContext(connection);
-        var outcome = await new AdminSelfProvisionWriter(db).ProvisionAsync("g-sub-1", "boot@example.com", DateTime.UtcNow, CancellationToken.None);
+        var outcome = await new AdminSelfProvisionWriter(db).ProvisionAsync("google", "g-sub-1", "boot@example.com", DateTime.UtcNow, CancellationToken.None);
 
         Assert.False(outcome.AlreadyExisted);
         Assert.Equal("boot@example.com", outcome.Email);
@@ -50,10 +50,10 @@ public sealed class PreBindWritePortTests
 
         Guid firstId;
         using (var first = NewControlPlaneContext(connection))
-            firstId = (await new AdminSelfProvisionWriter(first).ProvisionAsync("g-sub-2", "a@example.com", DateTime.UtcNow, CancellationToken.None)).AdminId;
+            firstId = (await new AdminSelfProvisionWriter(first).ProvisionAsync("google", "g-sub-2", "a@example.com", DateTime.UtcNow, CancellationToken.None)).AdminId;
 
         using var replay = NewControlPlaneContext(connection);
-        var outcome = await new AdminSelfProvisionWriter(replay).ProvisionAsync("g-sub-2", "a@example.com", DateTime.UtcNow, CancellationToken.None);
+        var outcome = await new AdminSelfProvisionWriter(replay).ProvisionAsync("google", "g-sub-2", "a@example.com", DateTime.UtcNow, CancellationToken.None);
 
         Assert.True(outcome.AlreadyExisted);
         Assert.Equal(firstId, outcome.AdminId);
@@ -77,7 +77,7 @@ public sealed class PreBindWritePortTests
         }
 
         using var db = NewControlPlaneContext(connection);
-        var outcome = await new AdminBindInvitedIdentityWriter(db).BindAsync("g-sub-3", "invited@example.com", CancellationToken.None);
+        var outcome = await new AdminBindInvitedIdentityWriter(db).BindAsync("google", "g-sub-3", "invited@example.com", CancellationToken.None);
 
         Assert.Equal(BindInvitedOutcome.Bound, outcome);
         using var reader = NewControlPlaneContext(connection);
@@ -94,7 +94,7 @@ public sealed class PreBindWritePortTests
             await setup.Database.EnsureCreatedAsync();
 
         using var db = NewControlPlaneContext(connection);
-        var outcome = await new AdminBindInvitedIdentityWriter(db).BindAsync("g-sub-4", "nobody@example.com", CancellationToken.None);
+        var outcome = await new AdminBindInvitedIdentityWriter(db).BindAsync("google", "g-sub-4", "nobody@example.com", CancellationToken.None);
 
         Assert.Equal(BindInvitedOutcome.NoInviteFound, outcome);
     }
@@ -113,10 +113,10 @@ public sealed class PreBindWritePortTests
             await writer.SaveChangesAsync();
         }
         using (var first = NewControlPlaneContext(connection))
-            await new AdminBindInvitedIdentityWriter(first).BindAsync("g-sub-5", "invited2@example.com", CancellationToken.None);
+            await new AdminBindInvitedIdentityWriter(first).BindAsync("google", "g-sub-5", "invited2@example.com", CancellationToken.None);
 
         using var replay = NewControlPlaneContext(connection);
-        var outcome = await new AdminBindInvitedIdentityWriter(replay).BindAsync("g-sub-5-again", "invited2@example.com", CancellationToken.None);
+        var outcome = await new AdminBindInvitedIdentityWriter(replay).BindAsync("google", "g-sub-5-again", "invited2@example.com", CancellationToken.None);
 
         Assert.Equal(BindInvitedOutcome.AlreadyBound, outcome);
     }

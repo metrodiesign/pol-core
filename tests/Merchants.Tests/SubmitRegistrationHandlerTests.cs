@@ -190,7 +190,7 @@ public sealed class SubmitRegistrationHandlerTests
 
     private static User RejectedUserWithKyc(string key)
     {
-        var user = User.Register("g-sub-1", "p@org.com", Now);
+        var user = User.Register("google", "g-sub-1", "p@org.com", Now);
         user.SetDetails("Old", "Name", IdentityType.Individual, null, null, null, null);
         user.SetKycPhoto(key);
         user.Reject(Now);
@@ -201,7 +201,7 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_ticket_resubmits_the_existing_rejected_account_without_a_second_login()
     {
         var ctx = new Ctx();
-        var existing = User.Register("g-sub-1", "p@org.com", Now);
+        var existing = User.Register("google", "g-sub-1", "p@org.com", Now);
         existing.SetDetails("Old", "Name", IdentityType.Individual, null, null, null, null);
         existing.Reject(Now);                            // PendingApproval -> Rejected
         ctx.Users.Seed(existing);
@@ -224,7 +224,7 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_ticket_for_a_non_rejected_account_is_refused_and_emits_no_event()
     {
         var ctx = new Ctx();
-        var active = User.Register("g-sub-1", "p@org.com", Now);
+        var active = User.Register("google", "g-sub-1", "p@org.com", Now);
         active.SetDetails("Name", "User", IdentityType.Individual, null, null, null, null);
         active.Approve(Guid.NewGuid(), Now); // -> Active
         ctx.Users.Seed(active);
@@ -271,7 +271,7 @@ public sealed class SubmitRegistrationHandlerTests
     public async Task A_correction_captures_the_next_attempt_number_on_the_same_user()
     {
         var ctx = new Ctx();
-        var existing = User.Register("g-sub-1", "p@org.com", Now);
+        var existing = User.Register("google", "g-sub-1", "p@org.com", Now);
         existing.SetDetails("Old", "Name", IdentityType.Individual, null, null, null, null);
         ctx.Users.Seed(existing);
         // Attempt 1 already captured by the original registration.
@@ -384,7 +384,7 @@ public sealed class SubmitRegistrationHandlerTests
         public List<User> Added { get; } = [];
         private readonly Dictionary<string, User> _bySubject = [];
         public void Seed(User u) => _bySubject[u.Subject] = u;
-        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) =>
+        public Task<User?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
         public void Add(User account) { Added.Add(account); _bySubject[account.Subject] = account; }
     }

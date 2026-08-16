@@ -26,7 +26,7 @@ public sealed class ControlPlaneUnitOfWorkTests
         // The operation stages an entity, then fails at commit time (what a unique-violation does).
         await Assert.ThrowsAsync<ConflictException>(() => uow.ExecuteInTransactionAsync<int>(async ct =>
         {
-            db.Users.Add(Admins.Domain.Users.User.SelfProvision("race-loser-sub", "loser@org.com", DateTime.UtcNow));
+            db.Users.Add(Admins.Domain.Users.User.SelfProvision("google", "race-loser-sub", "loser@org.com", DateTime.UtcNow));
             await db.SaveChangesAsync(ct);
             throw new ConflictException("simulated unique-key violation surfaced by SaveChangesAsync");
         }, default));

@@ -60,32 +60,32 @@ file sealed class FakeResolver : IAccountResolver
     public static readonly Guid ActiveUserId = Guid.NewGuid();
     public static readonly Guid ActiveMerchantId = Guid.NewGuid();
 
-    public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken ct) =>
-        Task.FromResult<AccountSnapshot?>(subject switch
+    public Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
+        Task.FromResult<AccountSnapshot?>(null);
+    public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
+        Task.FromResult<AccountSnapshot?>(id switch
         {
-            "g-sub-1" => new AccountSnapshot(UserId, subject, "somchai@example.com", null,
+            _ when id == UserId => new AccountSnapshot(UserId, "g-sub-1", "somchai@example.com", null,
                 MerchantUserStatus.PendingApproval),
-            "g-sub-active" => new AccountSnapshot(ActiveUserId, subject, "somchai@example.com", ActiveMerchantId,
-                MerchantUserStatus.Active),
+            _ when id == ActiveUserId => new AccountSnapshot(ActiveUserId, "g-sub-active", "somchai@example.com",
+                ActiveMerchantId, MerchantUserStatus.Active),
             _ => null,
         });
-    public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
-        Task.FromResult<AccountSnapshot?>(null);
 }
 
 file sealed class FakeHistoryReader : IRegistrationHistoryReader
 {
     public Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken ct)
     {
-        var user = MerchantUser.Register("g-sub-1", "somchai@example.com", DateTime.UtcNow);
+        var user = MerchantUser.Register("google", "g-sub-1", "somchai@example.com", DateTime.UtcNow);
         user.SetDetails("Somchai", "Jaidee", IdentityType.Individual, "1234567890123", "PC-1", "LN-99999", "0812345678");
         return Task.FromResult<IReadOnlyList<RegistrationAttempt>>(
             [RegistrationAttempt.Capture(user, 1, TicketPurpose.Registration, "somchai@example.com", DateTime.UtcNow)]);
     }
 
-    public Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(string targetSubject, CancellationToken ct) =>
+    public Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(Guid targetUserId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<RegistrationAudit>>(
-            [RegistrationAudit.For(RegistrationAuditAction.Registered, targetSubject, "corr-a", DateTime.UtcNow)]);
+            [RegistrationAudit.For(RegistrationAuditAction.Registered, targetUserId, "g-sub-1", "corr-a", DateTime.UtcNow)]);
 }
 
 file sealed class FakeAuditWriter : IRegistrationAuditWriter
@@ -139,7 +139,7 @@ file sealed class HistoryFactory(bool grantViewKey, AccessibleMerchants? accessi
 
 public sealed class RegistrationHistoryEndpointTests
 {
-    private const string Route = "/api/v1/admins/merchants/users/g-sub-1/registrations";
+    private static readonly string Route = $"/api/v1/admins/merchants/users/{FakeResolver.UserId}/registrations";
 
     [Fact]
     public async Task Without_the_view_key_the_gate_returns_403()
@@ -198,7 +198,7 @@ public sealed class RegistrationHistoryEndpointTests
         using var factory = new HistoryFactory(grantViewKey: true);
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/v1/admins/merchants/users/missing/registrations");
+        var response = await client.GetAsync($"/api/v1/admins/merchants/users/{Guid.NewGuid()}/registrations");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode); // REQ-2.5
     }
@@ -212,7 +212,7 @@ public sealed class RegistrationHistoryEndpointTests
             accessible: AccessibleMerchants.Of(new HashSet<Guid> { Guid.NewGuid() }));
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/v1/admins/merchants/users/g-sub-active/registrations?reveal=true");
+        var response = await client.GetAsync($"/api/v1/admins/merchants/users/{FakeResolver.ActiveUserId}/registrations?reveal=true");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
@@ -224,7 +224,7 @@ public sealed class RegistrationHistoryEndpointTests
             accessible: AccessibleMerchants.Of(new HashSet<Guid> { FakeResolver.ActiveMerchantId }));
         using var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/v1/admins/merchants/users/g-sub-active/registrations");
+        var response = await client.GetAsync($"/api/v1/admins/merchants/users/{FakeResolver.ActiveUserId}/registrations");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

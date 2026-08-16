@@ -22,7 +22,7 @@ namespace Merchants.Application.Users;
 /// </para>
 /// </summary>
 public sealed record GetRegistrationHistoryQuery(
-    string Subject, bool Reveal, string ActorSubject, string CorrelationId,
+    Guid MerchantUserId, bool Reveal, string ActorSubject, Guid ActorAdminId, string CorrelationId,
     bool IsUnrestrictedAdmin, IReadOnlySet<Guid> AccessibleMerchantIds)
     : IQuery<RegistrationHistoryResult?>;
 
@@ -70,9 +70,7 @@ public sealed class GetRegistrationHistoryHandler
     {
         // IAccountResolver (filter-free): the target row may still carry a NULL MerchantId (pending/rejected),
         // which the ordinary query-filtered repository would hide (REQ-2.4).
-        var account = Guid.TryParse(query.Subject, out var userId)
-            ? await _accounts.FindByIdAsync(userId, cancellationToken).ConfigureAwait(false)
-            : await _accounts.FindBySubjectAsync(query.Subject, cancellationToken).ConfigureAwait(false);
+        var account = await _accounts.FindByIdAsync(query.MerchantUserId, cancellationToken).ConfigureAwait(false);
         if (account is null)
             return null; // host → 404; no audit of any kind (REQ-2.5/3.6)
 
@@ -84,7 +82,7 @@ public sealed class GetRegistrationHistoryHandler
             return null;
 
         var attempts = await _history.ListAttemptsAsync(account.UserId, cancellationToken).ConfigureAwait(false);
-        var audits = await _history.ListAuditsAsync(account.Subject, cancellationToken).ConfigureAwait(false);
+        var audits = await _history.ListAuditsAsync(account.UserId, cancellationToken).ConfigureAwait(false);
 
         if (query.Reveal)
         {
@@ -92,7 +90,8 @@ public sealed class GetRegistrationHistoryHandler
             // if this save throws, the shared exception handler returns a 5xx and no PII leaves the handler.
             // Written on every revealed 200, including an empty attempts list (G2).
             _audits.Append(RegistrationAudit.For(
-                RegistrationAuditAction.Revealed, account.Subject, query.CorrelationId, _clock.UtcNow,
+                RegistrationAuditAction.Revealed, account.UserId, account.Subject, query.CorrelationId, _clock.UtcNow,
+                actorAdminId: query.ActorAdminId == Guid.Empty ? null : query.ActorAdminId,
                 actorSubject: query.ActorSubject));
             await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }

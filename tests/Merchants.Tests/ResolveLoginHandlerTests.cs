@@ -74,17 +74,17 @@ public sealed class ResolveLoginHandlerTests
         Assert.Equal((account.Id, MerchantId), roles.LastQuery);
     }
 
-    private static User Pending() => User.Register("google-sub", "p@org.com", Now);
+    private static User Pending() => User.Register("google", "google-sub", "p@org.com", Now);
 
     private static Task<LoginResult> Handle(User? account, FakeRoles? roles = null) =>
         new ResolveLoginHandler(new FakeAccounts(account), roles ?? new FakeRoles())
-            .Handle(new ResolveLoginQuery("google-sub"), default).AsTask();
+            .Handle(new ResolveLoginQuery("google", "google-sub"), default).AsTask();
 
     private sealed class FakeAccounts(User? account) : IAccountResolver
     {
         private static AccountSnapshot? Snapshot(User? u) =>
             u is null ? null : new AccountSnapshot(u.Id, u.Subject, u.Email, u.MerchantId, u.Status);
-        public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken ct) =>
+        public Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
             Task.FromResult(Snapshot(account));
         public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
             Task.FromResult(Snapshot(account));

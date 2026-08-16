@@ -14,7 +14,7 @@ namespace Admins.Application.Users;
 /// exactly one row wins and both requests resolve (REQ-5.2). The allowlist gate itself is enforced by the
 /// host BEFORE this command is sent.
 /// </summary>
-public sealed record SelfProvisionSuperCommand(string Subject, string Email, string CorrelationId)
+public sealed record SelfProvisionSuperCommand(string Provider, string Subject, string Email, string CorrelationId)
     : ICommand<Resolution>;
 
 public sealed class SelfProvisionSuperHandler : ICommandHandler<SelfProvisionSuperCommand, Resolution>
@@ -45,7 +45,7 @@ public sealed class SelfProvisionSuperHandler : ICommandHandler<SelfProvisionSup
         {
             return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
             {
-                var account = User.SelfProvision(command.Subject, command.Email, _clock.UtcNow);
+                var account = User.SelfProvision(command.Provider, command.Subject, command.Email, _clock.UtcNow);
                 _admins.Add(account);
                 _audit.Append(Audit.For(
                     AuditAction.SelfProvision, account.Id, command.CorrelationId, _clock.UtcNow, targetAdminId: account.Id));
@@ -60,7 +60,7 @@ public sealed class SelfProvisionSuperHandler : ICommandHandler<SelfProvisionSup
         {
             // Concurrent first-login race (REQ-5.2): the other request inserted the row first. Re-read it so
             // both requests resolve the single winning account.
-            var existing = await _admins.GetBySubjectAsync(command.Subject, cancellationToken)
+            var existing = await _admins.GetBySubjectAsync(command.Provider, command.Subject, cancellationToken)
                 ?? throw new ConflictException("Self-provision raced but no admin account was found on re-read.");
             var accessible = await ResolveHandler.ResolveAccessibleAsync(existing, _admins, cancellationToken);
             var permissions = await _roles.ListEffectivePermissionsAsync(existing.Id, cancellationToken);

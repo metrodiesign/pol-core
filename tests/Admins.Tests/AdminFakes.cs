@@ -18,8 +18,8 @@ internal sealed class FakePlatformUserRepository : IUserRepository
     public void AddAssignment(MerchantAccess assignment) => Assignments.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => Assignments.RemoveAll(a => a.Id == assignment.Id);
 
-    public Task<User?> GetBySubjectAsync(string subject, CancellationToken ct) =>
-        Task.FromResult(Accounts.FirstOrDefault(a => a.Subject == subject));
+    public Task<User?> GetBySubjectAsync(string provider, string subject, CancellationToken ct) =>
+        Task.FromResult(Accounts.FirstOrDefault(a => a.Provider == provider && a.Subject == subject));
     public Task<User?> GetByEmailAsync(string email, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Email == email));
     public Task<User?> GetByIdAsync(Guid id, CancellationToken ct) =>

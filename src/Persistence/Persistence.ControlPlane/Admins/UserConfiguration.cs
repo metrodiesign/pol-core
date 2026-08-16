@@ -19,6 +19,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     {
         builder.ToTable("Users", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue("google");
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
@@ -34,7 +35,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.OfficeId);
         builder.Property(x => x.LevelId);
         builder.Property(x => x.DivisionId);
-        builder.HasIndex(x => x.Subject).IsUnique().HasFilter("[Subject] IS NOT NULL");
+        builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique();
     }
 }

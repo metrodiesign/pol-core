@@ -1,7 +1,4 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using Microsoft.IdentityModel.JsonWebTokens;
-using Microsoft.IdentityModel.Tokens;
 
 namespace Api;
 
@@ -20,17 +17,20 @@ internal sealed class OidcProviderOptions
     public string CallbackPath { get; init; } = "";
     /// <summary>Google-only: hosted-domain (<c>hd</c>) guard; blank = any verified Google account.</summary>
     public string HostedDomain { get; init; } = "";
-    /// <summary>Microsoft-only: allowlisted Entra tenant ids (<c>tid</c>); empty = any tenant the Authority admits.</summary>
+    /// <summary>Microsoft-only: OPTIONAL extra <c>tid</c> allowlist layered on top of the tenant-pinned Authority;
+    /// empty = no tid gate (tenant isolation already comes from issuer == discovery metadata issuer).</summary>
     public string[] AllowedTenants { get; init; } = [];
 }
 
 /// <summary>
 /// The Microsoft Entra ID (v2.0) deltas from the Google wiring, shared by both BFF sides:
 /// <list type="bullet">
-/// <item><b>Issuer</b>: the v2 issuer is per-tenant (<c>https://login.microsoftonline.com/{tid}/v2.0</c>), and for a
-/// multi-tenant Authority (<c>organizations</c>/<c>common</c>) the metadata issuer is a TEMPLATE — a literal
-/// ValidIssuers list can never match. Validate the token's issuer against its OWN <c>tid</c> claim instead (+ the
-/// optional AllowedTenants gate); single-tenant is already enforced by the Authority itself.</item>
+/// <item><b>Issuer</b>: framework default — the handler compares the token's <c>iss</c> against the issuer in the
+/// Authority's discovery metadata. The Authority MUST be tenant-pinned (workforce
+/// <c>login.microsoftonline.com/{tenantId}/v2.0</c> or CIAM <c>{name}.ciamlogin.com/{tenantId}/v2.0</c>) so that
+/// metadata issuer is a literal, giving tenant isolation with NO custom validator. Do not reintroduce an
+/// <c>IssuerValidator</c>: multi-tenant Authorities are rejected at boot (RequireOidcProviders), so the template
+/// -issuer problem the old custom validator solved no longer exists.</item>
 /// <item><b>Subject</b>: use <c>oid</c> (stable per user) — Entra's <c>sub</c> is pairwise PER APP REGISTRATION, so
 /// recreating the app registration would orphan every account keyed on it.</item>
 /// <item><b>Email</b>: Entra emits no <c>email_verified</c>, and <c>email</c> only when the optional claim is
@@ -45,22 +45,18 @@ internal static class MicrosoftOidc
     public static bool Is(string providerName) =>
         string.Equals(providerName, ProviderName, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Valid iff issuer == <c>https://login.microsoftonline.com/{tid}/v2.0</c> for the token's own
-    /// <c>tid</c>, and tid passes <paramref name="allowedTenants"/> (empty = any).</summary>
-    public static string ValidateIssuer(string issuer, SecurityToken token, string[] allowedTenants)
+    /// <summary>The OPTIONAL AllowedTenants gate, run in <c>OnTokenValidated</c> (both planes). Active only when
+    /// the allowlist is non-empty — a tenant-pinned Authority with an empty allowlist must admit its tenant's
+    /// logins (tenant isolation already comes from issuer validation). Returns the failure reason, or null to
+    /// admit.</summary>
+    public static string? TenantGate(ClaimsPrincipal? principal, string[] allowedTenants)
     {
-        var tid = token switch
-        {
-            JsonWebToken jwt when jwt.TryGetPayloadValue<string>("tid", out var value) => value,
-            JwtSecurityToken jwt => jwt.Claims.FirstOrDefault(c => c.Type == "tid")?.Value,
-            _ => null,
-        };
-        if (string.IsNullOrEmpty(tid)
-            || !string.Equals(issuer, $"https://login.microsoftonline.com/{tid}/v2.0", StringComparison.Ordinal)
-            || (allowedTenants.Length > 0 && !allowedTenants.Contains(tid, StringComparer.OrdinalIgnoreCase)))
-            throw new SecurityTokenInvalidIssuerException("The id_token issuer does not match its tid claim, or the tenant is not allowed.")
-            { InvalidIssuer = issuer };
-        return issuer;
+        if (allowedTenants.Length == 0)
+            return null;
+        var tid = principal?.FindFirst("tid")?.Value;
+        if (string.IsNullOrEmpty(tid))
+            return "tid-required";
+        return allowedTenants.Contains(tid, StringComparer.OrdinalIgnoreCase) ? null : "tenant-not-allowed";
     }
 
     /// <summary>Entra subject = <c>oid</c> (never <c>sub</c> — pairwise per app registration).</summary>

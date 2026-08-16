@@ -162,7 +162,7 @@ public sealed class MerchantUserManagementTests
 
     private static User PendingInvited()
     {
-        var user = User.RegisterInvited("google-sub", "person@example.com", MerchantId, Now);
+        var user = User.RegisterInvited("google", "google-sub", "person@example.com", MerchantId, Now);
         user.SetDetails("First", "Last", IdentityType.Individual, null, "SALE-1", null, null);
         return user;
     }

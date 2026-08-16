@@ -71,7 +71,7 @@ public sealed class MerchantUserRegistrationConsumerTests
             UserId, "g-sub-1", "p@org.com", null, UserStatus.PendingApproval,
             DisplayName: "Acme Co");
 
-        public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
+        public Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken cancellationToken) =>
             Task.FromResult<AccountSnapshot?>(Account);
 
         public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>

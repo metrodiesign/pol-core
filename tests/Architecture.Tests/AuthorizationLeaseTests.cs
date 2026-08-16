@@ -88,7 +88,7 @@ public sealed class AuthorizationLeaseTests : IDisposable
     private async Task<Guid> SeedAdminAsync()
     {
         using var writer = NewContext();
-        var admin = User.SelfProvision($"g-sub-{Guid.NewGuid():N}", "ops@example.com", DateTime.UtcNow);
+        var admin = User.SelfProvision("google", $"g-sub-{Guid.NewGuid():N}", "ops@example.com", DateTime.UtcNow);
         writer.Users.Add(admin);
         await writer.SaveChangesAsync();
         return admin.Id;

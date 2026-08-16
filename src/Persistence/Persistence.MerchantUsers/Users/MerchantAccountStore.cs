@@ -16,8 +16,9 @@ namespace Persistence.MerchantUsers.Users;
 /// </summary>
 internal sealed class MerchantAccountStore(MerchantUserDbContext db) : IAccountStore
 {
-    public Task<MerchantUserAccount?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
+    public Task<MerchantUserAccount?> FindBySubjectAsync(string provider, string subject, CancellationToken cancellationToken) =>
+        db.Users.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Provider == provider && u.Subject == subject, cancellationToken);
 
     public Task<MerchantUserAccount?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
         db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);

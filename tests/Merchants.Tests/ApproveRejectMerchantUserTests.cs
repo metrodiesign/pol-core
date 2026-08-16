@@ -36,7 +36,7 @@ public sealed class ApproveRejectMerchantUserTests
         var u = Pending(); u.Reject(Now); // Rejected
         users.Seed(u);
         var roles = new FakeRoles(); roles.SeedActive("merchant_member");
-        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "merchant_member", roles, u.Subject));
+        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "merchant_member", roles, u.Id));
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public sealed class ApproveRejectMerchantUserTests
         users.Seed(u);
         var roles = new FakeRoles(); roles.SeedActive("merchant_member");
 
-        var result = await Approve(users, "merchant_member", roles, u.Subject);
+        var result = await Approve(users, "merchant_member", roles, u.Id);
 
         Assert.True(result.AlreadyActive);
         Assert.Empty(roles.Assignments);      // no re-assignment (REQ-6.4)
@@ -62,14 +62,14 @@ public sealed class ApproveRejectMerchantUserTests
 
         // MerchantUser.Approve itself throws InvalidOperationException, mapped 409 by the host — the handler
         // does not catch it, so the assertion is on the domain-level exception type here.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Approve(users, "merchant_member", roles, u.Subject));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Approve(users, "merchant_member", roles, u.Id));
     }
 
     [Fact]
     public async Task Approve_with_no_roles_is_400()
     {
         var users = new FakeUsers(); var u = Pending(); users.Seed(u);
-        await Assert.ThrowsAsync<ArgumentException>(() => Approve(users, roleCodes: [], subject: u.Subject));
+        await Assert.ThrowsAsync<ArgumentException>(() => Approve(users, roleCodes: [], merchantUserId: u.Id));
     }
 
     [Fact]
@@ -78,8 +78,8 @@ public sealed class ApproveRejectMerchantUserTests
         var users = new FakeUsers(); var u = Pending(); users.Seed(u);
         var roles = new FakeRoles(); roles.SeedInactive("retired_role");
 
-        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "ghost", roles, u.Subject));      // unknown
-        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "retired_role", roles, u.Subject)); // inactive
+        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "ghost", roles, u.Id));      // unknown
+        await Assert.ThrowsAsync<ConflictException>(() => Approve(users, "retired_role", roles, u.Id)); // inactive
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class ApproveRejectMerchantUserTests
         var roles = new FakeRoles(); var member = roles.SeedActive("merchant_member");
         var audit = new FakeAudit();
 
-        var result = await Approve(users, "merchant_member", roles, u.Subject, audit);
+        var result = await Approve(users, "merchant_member", roles, u.Id, audit);
 
         Assert.False(result.AlreadyActive);
         Assert.Equal(UserStatus.Active, u.Status);
@@ -111,7 +111,7 @@ public sealed class ApproveRejectMerchantUserTests
     public async Task Reject_a_non_pending_target_is_409()
     {
         var users = new FakeUsers(); var u = Pending(); u.Approve(Merchant, Now); users.Seed(u);
-        await Assert.ThrowsAsync<ConflictException>(() => Reject(users, new FakeSessions(), u.Subject));
+        await Assert.ThrowsAsync<ConflictException>(() => Reject(users, new FakeSessions(), u.Id));
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class ApproveRejectMerchantUserTests
         var sessions = new FakeSessions();
         var audit = new FakeAudit();
 
-        await Reject(users, sessions, u.Subject, audit, reason: "Incomplete tax documents");
+        await Reject(users, sessions, u.Id, audit, reason: "Incomplete tax documents");
 
         Assert.Equal(UserStatus.Rejected, u.Status);
         Assert.Equal(u.Id, sessions.RevokedUser);
@@ -135,28 +135,28 @@ public sealed class ApproveRejectMerchantUserTests
         var users = new FakeUsers(); var u = Pending(); users.Seed(u);
         var audit = new FakeAudit();
 
-        await Reject(users, new FakeSessions(), u.Subject, audit, reason: "   ");
+        await Reject(users, new FakeSessions(), u.Id, audit, reason: "   ");
 
         Assert.Null(Assert.Single(audit.Rows).Reason);
     }
 
     // --- harness ---
 
-    private static User Pending() => User.Register("google-sub-" + Guid.NewGuid().ToString("N")[..6], "p@org.com", Now);
+    private static User Pending() => User.Register("google", "google-sub-" + Guid.NewGuid().ToString("N")[..6], "p@org.com", Now);
 
     private static Task<ApproveResult> Approve(
-        FakeUsers users, string roleCode, FakeRoles? roles = null, string subject = "google-sub", FakeAudit? audit = null) =>
-        Approve(users, [roleCode], subject, audit, roles);
+        FakeUsers users, string roleCode, FakeRoles? roles = null, Guid? merchantUserId = null, FakeAudit? audit = null) =>
+        Approve(users, [roleCode], merchantUserId, audit, roles);
 
     private static Task<ApproveResult> Approve(
-        FakeUsers users, IReadOnlyList<string> roleCodes, string subject, FakeAudit? audit = null, FakeRoles? roles = null) =>
+        FakeUsers users, IReadOnlyList<string> roleCodes, Guid? merchantUserId, FakeAudit? audit = null, FakeRoles? roles = null) =>
         new ApproveHandler(users, roles ?? new FakeRoles(), audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
-            .Handle(new ApproveCommand(subject, Merchant, roleCodes, "admin-sub", AdminId, "corr"), default).AsTask();
+            .Handle(new ApproveCommand(merchantUserId ?? Guid.NewGuid(), Merchant, roleCodes, "admin-sub", AdminId, "corr"), default).AsTask();
 
     private static Task<RejectResult> Reject(
-        FakeUsers users, FakeSessions sessions, string subject = "google-sub", FakeAudit? audit = null, string? reason = "reason") =>
+        FakeUsers users, FakeSessions sessions, Guid? merchantUserId = null, FakeAudit? audit = null, string? reason = "reason") =>
         new RejectHandler(users, sessions, audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
-            .Handle(new RejectCommand(subject, reason, "admin-sub", "corr"), default).AsTask();
+            .Handle(new RejectCommand(merchantUserId ?? Guid.NewGuid(), reason, "admin-sub", "corr"), default).AsTask();
 
     private sealed class FakeUow : IUserUnitOfWork
     {
@@ -168,9 +168,11 @@ public sealed class ApproveRejectMerchantUserTests
 
     private sealed class FakeUsers : IAccountStore
     {
-        private readonly Dictionary<string, User> _bySubject = [];
-        public void Seed(User u) => _bySubject[u.Subject] = u;
-        public Task<User?> FindBySubjectAsync(string subject, CancellationToken ct) => Task.FromResult(_bySubject.GetValueOrDefault(subject));
+        private readonly Dictionary<Guid, User> _byId = [];
+        public void Seed(User u) => _byId[u.Id] = u;
+        public Task<User?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
+            Task.FromResult(_byId.Values.FirstOrDefault(u => u.Provider == provider && u.Subject == subject));
+        public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult(_byId.GetValueOrDefault(id));
         public void Add(User account) => throw new NotSupportedException();
     }
 

@@ -18,7 +18,6 @@ namespace Merchants.Application.Users;
 /// </summary>
 public interface IUserRepository
 {
-    Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
     Task<PagedResult<User>> ListAsync(PagedQuery query, Guid? roleId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
@@ -90,7 +89,7 @@ public sealed record AccountSnapshot(
 /// </summary>
 public interface IAccountResolver
 {
-    Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken cancellationToken);
     Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
 }
 
@@ -103,7 +102,7 @@ public interface IAccountResolver
 /// </summary>
 public interface IAccountStore
 {
-    Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<User?> FindBySubjectAsync(string provider, string subject, CancellationToken cancellationToken);
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<User?>(null);
     void Add(User account);
 }
@@ -143,10 +142,11 @@ public interface IRegistrationHistoryReader
     /// <summary>All attempts for the user, ORDER BY AttemptNo ascending (REQ-2.2).</summary>
     Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken cancellationToken);
 
-    /// <summary>Lifecycle timeline rows for the subject, ORDER BY OccurredAt ascending, EXCLUDING
+    /// <summary>Lifecycle timeline rows for the user (canonical internal id — subjects are not unique across
+    /// providers, microsoft-oidc-ciam-alignment REQ-4.8), ORDER BY OccurredAt ascending, EXCLUDING
     /// <see cref="RegistrationAuditAction.Revealed"/> — reveal records access, not lifecycle, and keeping it
     /// would make every reveal grow the unpaginated timeline it returns (REQ-2.3/M2).</summary>
-    Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(string targetSubject, CancellationToken cancellationToken);
+    Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(Guid targetUserId, CancellationToken cancellationToken);
 }
 
 /// <summary>

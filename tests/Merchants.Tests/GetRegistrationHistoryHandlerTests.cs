@@ -20,7 +20,7 @@ public sealed class GetRegistrationHistoryHandlerTests
     {
         var ctx = new Ctx();
 
-        var result = await ctx.Handler.Handle(Query("missing", reveal: true), default);
+        var result = await ctx.Handler.Handle(Query(Guid.NewGuid(), reveal: true), default);
 
         Assert.Null(result);
         Assert.Empty(ctx.Audits.Appended);       // REQ-3.6: a 404 reveal writes nothing
@@ -35,7 +35,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         ctx.SeedAttempt(user, 1, idNumber: "1234567890123", licenseNumber: "AB12", phone: "0812345678",
             email: "somchai@example.com");
 
-        var result = await ctx.Handler.Handle(Query("g-sub-1"), default);
+        var result = await ctx.Handler.Handle(Query(user.Id), default);
 
         var attempt = Assert.Single(result!.Attempts);
         Assert.Equal("****0123", attempt.IdentityNumber);          // >4 → **** + last 4 (REQ-3.1)
@@ -54,7 +54,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         var user = ctx.SeedUser("g-sub-1");
         ctx.SeedAttempt(user, 1, idNumber: null, licenseNumber: null, phone: null, email: "not-an-email");
 
-        var result = await ctx.Handler.Handle(Query("g-sub-1"), default);
+        var result = await ctx.Handler.Handle(Query(user.Id), default);
 
         var attempt = Assert.Single(result!.Attempts);
         Assert.Null(attempt.IdentityNumber);                       // NULL → NULL (REQ-3.1)
@@ -71,7 +71,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         ctx.SeedAttempt(user, 2, email: "a@b.com");
         ctx.SeedAttempt(user, 1, email: "a@b.com");
 
-        var result = await ctx.Handler.Handle(Query("g-sub-1"), default);
+        var result = await ctx.Handler.Handle(Query(user.Id), default);
 
         Assert.Equal([1, 2], result!.Attempts.Select(a => a.AttemptNo)); // REQ-2.2 (reader contract kept by the fake)
     }
@@ -84,7 +84,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         ctx.SeedAttempt(user, 1, idNumber: "1234567890123", licenseNumber: "AB12", phone: "0812345678",
             email: "somchai@example.com");
 
-        var result = await ctx.Handler.Handle(Query("g-sub-1", reveal: true), default);
+        var result = await ctx.Handler.Handle(Query(user.Id, reveal: true), default);
 
         var attempt = Assert.Single(result!.Attempts);
         Assert.Equal("1234567890123", attempt.IdentityNumber);     // REQ-3.4: full, response-wide
@@ -104,9 +104,9 @@ public sealed class GetRegistrationHistoryHandlerTests
     public async Task Reveal_on_an_empty_attempts_list_still_persists_the_audit()
     {
         var ctx = new Ctx();
-        ctx.SeedUser("g-sub-1"); // registered before this feature deployed — no attempt rows (REQ-2.6)
+        var user = ctx.SeedUser("g-sub-1"); // registered before this feature deployed — no attempt rows (REQ-2.6)
 
-        var result = await ctx.Handler.Handle(Query("g-sub-1", reveal: true), default);
+        var result = await ctx.Handler.Handle(Query(user.Id, reveal: true), default);
 
         Assert.NotNull(result);
         Assert.Empty(result!.Attempts);
@@ -123,7 +123,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         ctx.Uow.ThrowOnSave = new InvalidOperationException("audit save failed");
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => ctx.Handler.Handle(Query("g-sub-1", reveal: true), default).AsTask()); // REQ-3.7 fail-closed
+            () => ctx.Handler.Handle(Query(user.Id, reveal: true), default).AsTask()); // REQ-3.7 fail-closed
     }
 
     [Fact]
@@ -133,12 +133,12 @@ public sealed class GetRegistrationHistoryHandlerTests
         var user = ctx.SeedUser("g-sub-1");
         ctx.SeedAttempt(user, 1, email: "a@b.com");
         ctx.History.Audits.Add(RegistrationAudit.For(
-            RegistrationAuditAction.Registered, "g-sub-1", "corr-a", Now));
+            RegistrationAuditAction.Registered, user.Id, "g-sub-1", "corr-a", Now));
         ctx.History.Audits.Add(RegistrationAudit.For(
-            RegistrationAuditAction.Rejected, "g-sub-1", "corr-b", Now.AddMinutes(5),
-            actorSubject: "admin-1", reason: "photo unreadable"));
+            RegistrationAuditAction.Rejected, user.Id, "g-sub-1", "corr-b", Now.AddMinutes(5),
+            actorAdminId: Guid.NewGuid(), actorSubject: "admin-1", reason: "photo unreadable"));
 
-        var result = await ctx.Handler.Handle(Query("g-sub-1"), default);
+        var result = await ctx.Handler.Handle(Query(user.Id), default);
 
         Assert.Equal(
             [RegistrationAuditAction.Registered, RegistrationAuditAction.Rejected],
@@ -159,7 +159,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         ctx.Accounts.Seed(user);     // re-project the snapshot with the bound MerchantId
 
         var result = await ctx.Handler.Handle(
-            Query("g-sub-1", reveal: true, unrestricted: false, accessible: new HashSet<Guid> { Guid.NewGuid() }),
+            Query(user.Id, reveal: true, unrestricted: false, accessible: new HashSet<Guid> { Guid.NewGuid() }),
             default);
 
         Assert.Null(result);                 // same 404 as not-found — no existence leak
@@ -178,7 +178,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         ctx.Accounts.Seed(user);
 
         var result = await ctx.Handler.Handle(
-            Query("g-sub-1", unrestricted: false, accessible: new HashSet<Guid> { merchant }), default);
+            Query(user.Id, unrestricted: false, accessible: new HashSet<Guid> { merchant }), default);
 
         Assert.NotNull(result);
         Assert.Single(result!.Attempts);
@@ -188,18 +188,20 @@ public sealed class GetRegistrationHistoryHandlerTests
     public async Task A_scoped_admin_still_reads_a_pending_target_with_no_merchant_bound()
     {
         var ctx = new Ctx();
-        ctx.SeedUser("g-sub-1"); // PendingApproval — MerchantId NULL, not merchant-bound yet
+        var user = ctx.SeedUser("g-sub-1"); // PendingApproval — MerchantId NULL, not merchant-bound yet
 
         var result = await ctx.Handler.Handle(
-            Query("g-sub-1", unrestricted: false, accessible: new HashSet<Guid>()), default);
+            Query(user.Id, unrestricted: false, accessible: new HashSet<Guid>()), default);
 
         Assert.NotNull(result); // pending/rejected stay unrestricted (REQ-2.7)
     }
 
     private static GetRegistrationHistoryQuery Query(
-        string subject, bool reveal = false, bool unrestricted = true, IReadOnlySet<Guid>? accessible = null) =>
-        new(subject, reveal, ActorSubject: "admin-1", CorrelationId: "corr-1",
+        Guid merchantUserId, bool reveal = false, bool unrestricted = true, IReadOnlySet<Guid>? accessible = null) =>
+        new(merchantUserId, reveal, ActorSubject: "admin-1", ActorAdminId: ActorId, CorrelationId: "corr-1",
             IsUnrestrictedAdmin: unrestricted, AccessibleMerchantIds: accessible ?? new HashSet<Guid>());
+
+    private static readonly Guid ActorId = Guid.NewGuid();
 
     // --- fakes ---
 
@@ -216,7 +218,7 @@ public sealed class GetRegistrationHistoryHandlerTests
 
         public User SeedUser(string subject)
         {
-            var user = User.Register(subject, "somchai@example.com", Now);
+            var user = User.Register("google", subject, "somchai@example.com", Now);
             user.SetDetails("First", "Last", IdentityType.Individual, null, null, null, null);
             Accounts.Seed(user);
             return user;
@@ -238,7 +240,7 @@ public sealed class GetRegistrationHistoryHandlerTests
         private readonly Dictionary<string, AccountSnapshot> _bySubject = [];
         public void Seed(User user) => _bySubject[user.Subject] =
             new AccountSnapshot(user.Id, user.Subject, user.Email, user.MerchantId, user.Status);
-        public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken ct) =>
+        public Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
             Task.FromResult(_bySubject.GetValueOrDefault(subject));
         public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
             Task.FromResult(_bySubject.Values.FirstOrDefault(s => s.UserId == id));
@@ -253,9 +255,9 @@ public sealed class GetRegistrationHistoryHandlerTests
         public Task<IReadOnlyList<RegistrationAttempt>> ListAttemptsAsync(Guid merchantUserId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<RegistrationAttempt>>(
                 Attempts.Where(a => a.UserId == merchantUserId).OrderBy(a => a.AttemptNo).ToList());
-        public Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(string targetSubject, CancellationToken ct) =>
+        public Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(Guid targetUserId, CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<RegistrationAudit>>(
-                Audits.Where(a => a.TargetSubject == targetSubject && a.Action != RegistrationAuditAction.Revealed)
+                Audits.Where(a => a.TargetUserId == targetUserId && a.Action != RegistrationAuditAction.Revealed)
                     .OrderBy(a => a.OccurredAt).ToList());
     }
 

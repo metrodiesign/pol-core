@@ -21,7 +21,7 @@ namespace Merchants.Application.Users;
 /// must resubmit first) is a 409 (REQ-6.5).
 /// </summary>
 public sealed record ApproveCommand(
-    string Subject,
+    Guid MerchantUserId,
     Guid ValidatedMerchantId,
     IReadOnlyList<string> RoleCodes,
     string ActingAdminSubject,
@@ -63,7 +63,9 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var now = _clock.UtcNow;
-            var account = await FindAccountAsync(command.Subject, ct)
+            // FindByIdAsync ONLY (microsoft-oidc-ciam-alignment REQ-4.7): the route contract is the internal id —
+            // subject dispatch is gone (an Entra oid is a GUID and would have been eaten as an id).
+            var account = await _accounts.FindByIdAsync(command.MerchantUserId, ct)
                 ?? throw new NotFoundException("The merchant-user registration was not found."); // 404 (REQ-22.2)
 
             var roleCodes = command.RoleCodes
@@ -78,7 +80,7 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
             const string operation = "merchant-user.approve";
             var intentHash = AdminUserOperationReplay.Hash(new
             {
-                command.Subject,
+                command.MerchantUserId,
                 command.ValidatedMerchantId,
                 RoleCodes = roleCodes,
                 command.ExpectedVersion,
@@ -133,8 +135,9 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
                 _roles.AddAssignment(RoleAssignment.Create(
                     account.Id, roleId, command.ValidatedMerchantId, command.ActingAdminId, now));
 
-            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Approved, account.Subject, command.CorrelationId, now,
-                actorSubject: command.ActingAdminSubject, role: string.Join(", ", roleCodes), merchantId: command.ValidatedMerchantId));
+            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Approved, account.Id, account.Subject, command.CorrelationId, now,
+                actorAdminId: command.ActingAdminId, actorSubject: command.ActingAdminSubject,
+                role: string.Join(", ", roleCodes), merchantId: command.ValidatedMerchantId));
 
             var result = new ApproveResult(account.Id, UserStatus.Active, AlreadyActive: false, account.Version);
             if (command.IdempotencyKey is { } key)
@@ -144,11 +147,6 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
             await _unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken));
-
-    private Task<User?> FindAccountAsync(string subjectOrId, CancellationToken cancellationToken) =>
-        Guid.TryParse(subjectOrId, out var id)
-            ? _accounts.FindByIdAsync(id, cancellationToken)
-            : _accounts.FindBySubjectAsync(subjectOrId, cancellationToken);
 }
 
 /// <summary>
@@ -157,7 +155,7 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
 /// pol_admin transaction. A non-PendingApproval target is a 409; an unknown target is a 404 (REQ-22.2).
 /// </summary>
 public sealed record RejectCommand(
-    string Subject, string? Reason, string ActingAdminSubject, string CorrelationId,
+    Guid MerchantUserId, string? Reason, string ActingAdminSubject, string CorrelationId,
     Guid ActingAdminId = default, long? ExpectedVersion = null, string? IdempotencyKey = null)
     : ICommand<RejectResult>;
 
@@ -189,14 +187,14 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             var now = _clock.UtcNow;
-            var account = await FindAccountAsync(command.Subject, ct)
+            var account = await _accounts.FindByIdAsync(command.MerchantUserId, ct)
                 ?? throw new NotFoundException("The merchant-user registration was not found."); // 404 (REQ-22.2)
 
             const string operation = "merchant-user.reject";
             var reason = NormalizeReason(command.Reason);
             var intentHash = AdminUserOperationReplay.Hash(new
             {
-                command.Subject,
+                command.MerchantUserId,
                 MerchantId = account.MerchantId,
                 Reason = reason,
                 command.ExpectedVersion,
@@ -220,7 +218,8 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
             account.Reject(now); // PendingApproval -> Rejected (REQ-5.1)
             await _sessions.RevokeAllForUserAsync(account.Id, ct); // kill any live sessions (REQ-12.3)
 
-            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, account.Subject, command.CorrelationId, now,
+            _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, account.Id, account.Subject, command.CorrelationId, now,
+                actorAdminId: command.ActingAdminId == Guid.Empty ? null : command.ActingAdminId,
                 actorSubject: command.ActingAdminSubject, reason: reason)); // record the rationale (REQ-5.1)
 
             var result = new RejectResult(account.Id, UserStatus.Rejected, account.Version);
@@ -231,11 +230,6 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
             await _unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken));
-
-    private Task<User?> FindAccountAsync(string subjectOrId, CancellationToken cancellationToken) =>
-        Guid.TryParse(subjectOrId, out var id)
-            ? _accounts.FindByIdAsync(id, cancellationToken)
-            : _accounts.FindBySubjectAsync(subjectOrId, cancellationToken);
 
     // Blank -> NULL (no rationale given); trim + cap to the audit column width (REQ-5.1).
     private static string? NormalizeReason(string? reason)

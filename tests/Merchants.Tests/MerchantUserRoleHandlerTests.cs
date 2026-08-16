@@ -96,7 +96,7 @@ public sealed class MerchantUserRoleHandlerTests
 
     private static User Approved(Guid merchantId, FakeUsers users)
     {
-        var a = User.Register(Guid.NewGuid().ToString(), "p@org.com", Now);
+        var a = User.Register("google", Guid.NewGuid().ToString(), "p@org.com", Now);
         a.Approve(merchantId, Now);
         users.Seed(a);
         return a;

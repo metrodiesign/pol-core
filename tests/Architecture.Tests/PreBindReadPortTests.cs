@@ -35,7 +35,7 @@ public sealed class PreBindReadPortTests
         Guid sessionId, adminId;
         using (var writer = NewContext())
         {
-            var admin = User.SelfProvision("g-sub-1", "ops@example.com", DateTime.UtcNow);
+            var admin = User.SelfProvision("google", "g-sub-1", "ops@example.com", DateTime.UtcNow);
             writer.Users.Add(admin);
             var session = Session.Start(admin.Id, hash, DateTime.UtcNow,
                 new SessionPolicy(TimeSpan.FromMinutes(30), TimeSpan.FromHours(12), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1)));
@@ -69,7 +69,7 @@ public sealed class PreBindReadPortTests
         Guid sessionId, userId;
         using (var writer = NewContext())
         {
-            var user = MerchantUserAccount.Register("m-sub-1", "merchant@example.com", DateTime.UtcNow);
+            var user = MerchantUserAccount.Register("google", "m-sub-1", "merchant@example.com", DateTime.UtcNow);
             writer.Users.Add(user);
             var session = Merchants.Domain.Users.Session.Start(user.Id, hash, DateTime.UtcNow,
                 new Merchants.Domain.Users.SessionPolicy(TimeSpan.FromMinutes(30), TimeSpan.FromHours(12), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1)));
@@ -89,31 +89,6 @@ public sealed class PreBindReadPortTests
     }
 
     [Fact]
-    public async Task Admin_login_by_subject_resolves_without_any_actor_bound()
-    {
-        using var connection = new SqliteConnection("DataSource=:memory:");
-        connection.Open();
-        ControlPlaneDbContext NewContext() =>
-            new(new DbContextOptionsBuilder<ControlPlaneDbContext>().UseSqlite(connection).Options,
-                FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
-        using (var setup = NewContext())
-            await setup.Database.EnsureCreatedAsync();
-
-        using (var writer = NewContext())
-        {
-            writer.Users.Add(User.SelfProvision("g-sub-2", "ops2@example.com", DateTime.UtcNow));
-            await writer.SaveChangesAsync();
-        }
-
-        using var reader = NewContext();
-        var lookup = await new AdminResolveLoginBySubject(reader).FindBySubjectAsync("g-sub-2", CancellationToken.None);
-
-        Assert.NotNull(lookup);
-        Assert.Equal("ops2@example.com", lookup!.Email);
-        Assert.Equal(Tier.Super, lookup.Tier);
-    }
-
-    [Fact]
     public async Task Merchant_login_by_subject_resolves_a_still_pending_applicant()
     {
         // REQ-11.7-adjacent: a pending row (MerchantId NULL) is normally invisible under the read floor to
@@ -130,17 +105,41 @@ public sealed class PreBindReadPortTests
 
         using (var writer = NewContext())
         {
-            writer.Users.Add(MerchantUserAccount.Register("m-sub-2", "pending@example.com", DateTime.UtcNow));
+            writer.Users.Add(MerchantUserAccount.Register("google", "m-sub-2", "pending@example.com", DateTime.UtcNow));
             await writer.SaveChangesAsync();
         }
 
         using var reader = NewContext();
-        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("m-sub-2", CancellationToken.None);
+        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("google", "m-sub-2", CancellationToken.None);
 
         Assert.NotNull(lookup);
         Assert.Equal("pending@example.com", lookup!.Email);
         Assert.Null(lookup.MerchantId);
         Assert.Equal(Merchants.Domain.Users.UserStatus.PendingApproval, lookup.Status);
+    }
+
+    [Fact]
+    public async Task The_same_subject_under_a_different_provider_never_matches()
+    {
+        // REQ-4.2 (microsoft-oidc-ciam-alignment): identity is the PAIR (Provider, Subject) — a Google sub
+        // that happens to equal an Entra oid string must not resolve to the other provider's account.
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+        MerchantUserDbContext NewContext() =>
+            new(new DbContextOptionsBuilder<MerchantUserDbContext>().UseSqlite(connection).Options,
+                FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll, NoOpSecurityTelemetry.Instance);
+        using (var setup = NewContext())
+            await setup.Database.EnsureCreatedAsync();
+
+        using (var writer = NewContext())
+        {
+            writer.Users.Add(MerchantUserAccount.Register("google", "shared-subject", "g@example.com", DateTime.UtcNow));
+            await writer.SaveChangesAsync();
+        }
+
+        using var reader = NewContext();
+        Assert.NotNull(await new MerchantAccountResolver(reader).FindBySubjectAsync("google", "shared-subject", CancellationToken.None));
+        Assert.Null(await new MerchantAccountResolver(reader).FindBySubjectAsync("microsoft", "shared-subject", CancellationToken.None));
     }
 
     [Fact]
@@ -159,7 +158,7 @@ public sealed class PreBindReadPortTests
         Guid userId;
         using (var writer = NewContext())
         {
-            var user = MerchantUserAccount.Register("m-sub-4", "byid@example.com", DateTime.UtcNow);
+            var user = MerchantUserAccount.Register("google", "m-sub-4", "byid@example.com", DateTime.UtcNow);
             user.Approve(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"), DateTime.UtcNow);
             writer.Users.Add(user);
             await writer.SaveChangesAsync();
@@ -188,7 +187,7 @@ public sealed class PreBindReadPortTests
 
         using (var writer = NewContext())
         {
-            var user = MerchantUserAccount.Register("m-sub-3", "bound@example.com", DateTime.UtcNow);
+            var user = MerchantUserAccount.Register("google", "m-sub-3", "bound@example.com", DateTime.UtcNow);
             user.Approve(merchantA, DateTime.UtcNow);
             writer.Users.Add(user);
             await writer.SaveChangesAsync();
@@ -197,7 +196,7 @@ public sealed class PreBindReadPortTests
         // A totally unbound caller (no merchant claim at all) must still resolve this — the whole point of
         // login-by-subject is DISCOVERING which merchant, before any actor is bound.
         using var reader = NewContext();
-        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("m-sub-3", CancellationToken.None);
+        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("google", "m-sub-3", CancellationToken.None);
 
         Assert.NotNull(lookup);
         Assert.Equal(merchantA, lookup!.MerchantId);

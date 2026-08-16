@@ -152,7 +152,7 @@ public sealed class ReadFloorTests : IDisposable
 
         using (var write = NewContext(FakeActorContext.Unbound))
         {
-            write.Add(MerchantUserAccount.Register("pending-subject", "pending@example.com", DateTime.UtcNow));
+            write.Add(MerchantUserAccount.Register("google", "pending-subject", "pending@example.com", DateTime.UtcNow));
             await write.SaveChangesAsync();
         }
 

@@ -40,7 +40,7 @@ public sealed class PlatformUserSessionManagementTests
         var now = new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc);
         var accounts = new FakePlatformUserRepository();
         var sessions = new FakePlatformUserSessionStore();
-        var admin = User.SelfProvision("sub", "a@x", now);
+        var admin = User.SelfProvision("google", "sub", "a@x", now);
         accounts.Add(admin);
         sessions.Add(MakeSession(admin.Id, now));                 // live (issued now)
         sessions.Add(MakeSession(admin.Id, now.AddHours(-10)));   // absolute-expired (now-10h + 8h < now) -> not live

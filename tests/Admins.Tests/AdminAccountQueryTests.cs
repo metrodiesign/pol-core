@@ -33,7 +33,7 @@ public sealed class PlatformUserQueryTests
     {
         var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var super = User.SelfProvision("sub-1", "super@x", T0);
+        var super = User.SelfProvision("google", "sub-1", "super@x", T0);
         accounts.Add(super);
 
         var active = MakeRole("ops", RoleStatus.Active, "txn.view");
@@ -83,7 +83,7 @@ public sealed class PlatformUserQueryTests
     {
         var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var admin = User.SelfProvision("sub-2", "a@x", T0);
+        var admin = User.SelfProvision("google", "sub-2", "a@x", T0);
         accounts.Add(admin);
 
         // Active role grants keys in NON-sorted order; an Inactive role's key must NOT appear.
@@ -104,7 +104,7 @@ public sealed class PlatformUserQueryTests
     {
         var accounts = new FakePlatformUserRepository();
         var roles = new FakeAdminRoleRepository();
-        var admin = User.SelfProvision("sub-3", "s@x", T0);
+        var admin = User.SelfProvision("google", "sub-3", "s@x", T0);
         admin.Suspend(Actor);                              // suspension blocks sign-in, not role grants
         accounts.Add(admin);
         var active = MakeRole("ops", RoleStatus.Active, "txn.view");

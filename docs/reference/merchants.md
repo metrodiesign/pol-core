@@ -96,7 +96,7 @@ Merchant user registration ยังเป็น self-service แบบ ticket-g
 
 1. Super admin provision Merchant และ PSP credentials ผ่าน `POST /api/v1/merchants`.
 2. User ลงทะเบียนเป็น `PendingApproval` โดย `MerchantId` ยังเป็น `NULL`.
-3. Admin เรียก `POST /api/v1/admins/merchants/users/{subject}/approve` พร้อม `merchantCode` และ role codes.
+3. Admin เรียก `POST /api/v1/admins/merchants/users/{merchantUserId}/approve` พร้อม `merchantCode` และ role codes.
 4. Host resolve Merchant ผ่าน accessible-Merchant boundary ก่อน dispatch approval.
 5. Merchant ไม่พบหรือนอก scope คืน 404; Merchant ไม่ Active คืน 409.
 6. Merchant Active จึง bind `MerchantId`, assign roles, เปลี่ยน user เป็น Active และเขียน registration audit ใน transaction เดียว.

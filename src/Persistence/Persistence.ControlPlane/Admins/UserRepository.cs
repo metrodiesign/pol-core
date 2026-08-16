@@ -24,8 +24,8 @@ internal sealed class UserRepository : IUserRepository
     public void AddAssignment(MerchantAccess assignment) => _db.MerchantAccess.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => _db.MerchantAccess.Remove(assignment);
 
-    public Task<User?> GetBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        _db.Users.FirstOrDefaultAsync(x => x.Subject == subject, cancellationToken);
+    public Task<User?> GetBySubjectAsync(string provider, string subject, CancellationToken cancellationToken) =>
+        _db.Users.FirstOrDefaultAsync(x => x.Provider == provider && x.Subject == subject, cancellationToken);
 
     public Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);

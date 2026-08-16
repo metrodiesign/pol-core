@@ -270,7 +270,7 @@ API clients, webhook/notification delivery และ reporting ใช้ `AdminS
 route ต่อไปนี้ mount อยู่ใต้ `/api/v1/admins/*` (ผ่าน CSRF filter + policy `admin` เดียวกัน) ด้วยเหตุผล
 auth เท่านั้น — เป็น business action ของโมดูลอื่น เอกสารเต็มอยู่คนละที่ ไม่ copy รายละเอียดมาซ้ำที่นี่:
 
-- `POST /api/v1/admins/merchants/users/{subject}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
+- `POST /api/v1/admins/merchants/users/{merchantUserId}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
   ใหม่ ดู [`merchants.md`](merchants.md) §8 (sequence diagram เต็ม)
 - ไม่มี current policy-reference endpoint ใต้ `/api/v1/admins`; policy entity/report surface ถูก retire แล้ว.
 

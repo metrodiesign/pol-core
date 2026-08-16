@@ -32,9 +32,6 @@ internal sealed partial class MerchantUserRepository : IUserRepository
     internal MerchantUserRepository(MerchantUserDbContext db)
         : this(db, Microsoft.Extensions.Logging.Abstractions.NullLogger<MerchantUserRepository>.Instance) { }
 
-    public Task<User?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        _db.Users.FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
-
     public Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
 
@@ -112,9 +109,9 @@ internal sealed class MerchantRegistrationHistoryReader : IRegistrationHistoryRe
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
     public async Task<IReadOnlyList<RegistrationAudit>> ListAuditsAsync(
-        string targetSubject, CancellationToken cancellationToken) =>
+        Guid targetUserId, CancellationToken cancellationToken) =>
         await _db.RegistrationAudits.AsNoTracking()
-            .Where(a => a.TargetSubject == targetSubject && a.Action != RegistrationAuditAction.Revealed)
+            .Where(a => a.TargetUserId == targetUserId && a.Action != RegistrationAuditAction.Revealed)
             .OrderBy(a => a.OccurredAt)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 }

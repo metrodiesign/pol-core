@@ -12,7 +12,13 @@ namespace Admins.Domain.Users;
 /// </summary>
 public sealed class User : AggregateRoot<Guid>
 {
-    /// <summary>Stable Google subject. NULL until an invited Scoped account's first login binds it; unique once set.</summary>
+    /// <summary>The identity provider slug ("google"/"microsoft") the <see cref="Subject"/> came from — identity is
+    /// the PAIR <c>(Provider, Subject)</c>, never the subject alone (microsoft-oidc-ciam-alignment REQ-4.1).
+    /// Defaults to "google" for rows created before the discriminator existed.</summary>
+    public string Provider { get; private set; } = "google";
+
+    /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>). NULL until an invited Scoped
+    /// account's first login binds it; unique per provider once set.</summary>
     public string? Subject { get; private set; }
 
     /// <summary>Verified email. Unique — the invite key before a <see cref="Subject"/> is bound.</summary>
@@ -51,9 +57,10 @@ public sealed class User : AggregateRoot<Guid>
     private User() { }
 
     private User(
-        Guid id, string? subject, string email, Tier tier, DateTime createdAt,
+        Guid id, string provider, string? subject, string email, Tier tier, DateTime createdAt,
         Guid? positionId, Guid? officeId, Guid? levelId, Guid? divisionId) : base(id)
     {
+        Provider = provider;
         Subject = subject;
         Email = email;
         Tier = tier;
@@ -68,11 +75,12 @@ public sealed class User : AggregateRoot<Guid>
 
     /// <summary>The first Super Admin bootstrapping from the config allowlist on first login (REQ-5.1). The
     /// subject is bound immediately (the caller has authenticated).</summary>
-    public static User SelfProvision(string subject, string email, DateTime createdAt)
+    public static User SelfProvision(string provider, string subject, string email, DateTime createdAt)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new User(Guid.NewGuid(), subject.Trim(), email.Trim(), Tier.Super, createdAt,
+        return new User(Guid.NewGuid(), provider.Trim(), subject.Trim(), email.Trim(), Tier.Super, createdAt,
             positionId: null, officeId: null, levelId: null, divisionId: null);
     }
 
@@ -84,17 +92,19 @@ public sealed class User : AggregateRoot<Guid>
         Guid? positionId = null, Guid? officeId = null, Guid? levelId = null, Guid? divisionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new User(Guid.NewGuid(), subject: null, email.Trim(), Tier.Scoped, createdAt,
+        return new User(Guid.NewGuid(), provider: "google", subject: null, email.Trim(), Tier.Scoped, createdAt,
             positionId, officeId, levelId, divisionId);
     }
 
-    /// <summary>Binds the Google subject to an invited account on its first login (REQ-3.5). Idempotent
-    /// re-binding is rejected — a bound account is resolved by subject, never re-bound.</summary>
-    public void BindSubject(string subject)
+    /// <summary>Binds the provider identity to an invited account on its first login (REQ-3.5). Idempotent
+    /// re-binding is rejected — a bound account is resolved by (provider, subject), never re-bound.</summary>
+    public void BindSubject(string provider, string subject)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         if (Subject is not null)
             throw new InvalidOperationException("This admin account already has a bound subject.");
+        Provider = provider.Trim();
         Subject = subject.Trim();
         BumpResourceVersion();
     }

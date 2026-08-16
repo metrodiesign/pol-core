@@ -14,7 +14,7 @@ namespace Merchants.Application.Users;
 /// pol_admin. The callback NEVER self-provisions (REQ-9.6): an unknown subject is <see cref="LoginOutcome.NotFound"/>,
 /// eligible only for a registration ticket, never an account or a session.
 /// </summary>
-public sealed record ResolveLoginQuery(string Subject) : IQuery<LoginResult>;
+public sealed record ResolveLoginQuery(string Provider, string Subject) : IQuery<LoginResult>;
 
 /// <summary>The login branches (REQ-9.4): <see cref="NotFound"/> → registration ticket; <see cref="Rejected"/> →
 /// correction ticket; <see cref="Active"/> → session; <see cref="PendingApproval"/> → 403 "awaiting approval".
@@ -54,7 +54,7 @@ public sealed class ResolveLoginHandler : IQueryHandler<ResolveLoginQuery, Login
 
     public async ValueTask<LoginResult> Handle(ResolveLoginQuery query, CancellationToken cancellationToken)
     {
-        var account = await _accounts.FindBySubjectAsync(query.Subject, cancellationToken);
+        var account = await _accounts.FindBySubjectAsync(query.Provider, query.Subject, cancellationToken);
         if (account is null)
             return LoginResult.NotFound; // unknown subject → registration ticket only, no self-provision (REQ-9.6)
 

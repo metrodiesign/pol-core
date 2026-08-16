@@ -14,7 +14,7 @@ namespace Admins.Application.Users;
 /// REQ-5.6). Checked BEFORE allowlist self-provision so an invited email never collides with the unique Email
 /// index.
 /// </summary>
-public sealed record BindInvitedCommand(string Subject, string Email, string CorrelationId)
+public sealed record BindInvitedCommand(string Provider, string Subject, string Email, string CorrelationId)
     : ICommand<ResolveResult>;
 
 public sealed class BindInvitedHandler : ICommandHandler<BindInvitedCommand, ResolveResult>
@@ -38,7 +38,7 @@ public sealed class BindInvitedHandler : ICommandHandler<BindInvitedCommand, Res
             if (account is null || account.Subject is not null)
                 return ResolveResult.NotFound; // no invite, or already bound (resolved by subject, not here)
 
-            account.BindSubject(command.Subject); // REQ-3.5; no audit — not in REQ-10.1's audited action set
+            account.BindSubject(command.Provider, command.Subject); // REQ-3.5; no audit — not in REQ-10.1's audited action set
             await _unitOfWork.SaveChangesAsync(ct);
 
             if (account.Status == UserStatus.Suspended)

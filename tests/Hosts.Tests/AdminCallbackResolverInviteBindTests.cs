@@ -18,7 +18,7 @@ public sealed class AdminCallbackResolverInviteBindTests
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator, EmptyConfig());
 
         var result = await resolver.ResolveAtCallbackAsync(
-            "entra-oid-1", "victim-invite@org.com", emailVerified: false, "corr-1", default);
+            "microsoft", "entra-oid-1", "victim-invite@org.com", emailVerified: false, "corr-1", default);
 
         Assert.Equal(ResolveOutcome.NotFound, result.Outcome); // no bind, no self-provision (empty allowlist)
         Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
@@ -31,7 +31,7 @@ public sealed class AdminCallbackResolverInviteBindTests
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator, EmptyConfig());
 
         await resolver.ResolveAtCallbackAsync(
-            "google-sub-1", "invited@org.com", emailVerified: true, "corr-1", default);
+            "google", "google-sub-1", "invited@org.com", emailVerified: true, "corr-1", default);
 
         var bind = Assert.Single(mediator.Sent.OfType<BindInvitedCommand>());
         Assert.Equal("invited@org.com", bind.Email);

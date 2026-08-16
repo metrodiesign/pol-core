@@ -205,7 +205,7 @@ public sealed class MerchantUserLoginServiceTests
 
     private sealed class FakeResolver(LoginResult result) : IUserCallbackResolver
     {
-        public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken ct) => Task.FromResult(result);
+        public Task<LoginResult> ResolveAtCallbackAsync(string provider, string subject, CancellationToken ct) => Task.FromResult(result);
     }
 
     private sealed class FakeSessionStore : ISessionStore

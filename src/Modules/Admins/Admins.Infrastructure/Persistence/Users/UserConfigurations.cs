@@ -18,6 +18,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     {
         builder.ToTable("Users", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
+        // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
+        // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue("google");
         builder.Property(x => x.Subject).HasMaxLength(256); // nullable until an invited Scoped account binds it
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
@@ -29,8 +32,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // concurrency-token WHERE clause (WHERE Id=@caller AND AuthorizationVersion=@expected).
         builder.Property(x => x.AuthorizationVersion).IsConcurrencyToken();
         builder.Property(x => x.Version).HasDefaultValue(1L).IsConcurrencyToken();
-        // Filtered unique: one account per bound subject; invited (NULL-subject) rows are exempt (REQ-3.1).
-        builder.HasIndex(x => x.Subject).IsUnique().HasFilter("[Subject] IS NOT NULL");
+        // Filtered unique: one account per bound (Provider, Subject) pair; invited (NULL-subject) rows are
+        // exempt (REQ-3.1, B2 — SQL Server treats NULLs as equal in an unfiltered unique index).
+        builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique(); // the invite key before a subject is bound
 
         // Org-profile FKs to the master lists. Nullable (unknown at invite); Restrict so a referenced master

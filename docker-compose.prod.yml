@@ -107,14 +107,16 @@ services:
       MERCHANT_USER_OIDC_CLIENT_SECRET_FILE: /run/secrets/merchant_user_oidc_client_secret
       AdminAuth__Providers__Google__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
       ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
-      # Microsoft Entra (opt-in): a blank ClientId skips the scheme, the host boots Google-only. Admin is
-      # single-tenant (the boot guard rejects a multi-tenant admin Authority without AllowedTenants — pinning
-      # the tenant id here satisfies it); merchant-user keeps the /organizations Authority from appsettings.json.
+      # Microsoft Entra (opt-in): a blank ClientId skips the scheme, the host boots Google-only. BOTH planes
+      # must be tenant-pinned (the boot guard rejects any multi-tenant Authority): admin = the org's workforce
+      # tenant, merchant-user = the viriyahexternal Entra External ID (CIAM) tenant. Authorities and tenant ids
+      # are public identifiers — override only to point at a different tenant, never to common/organizations.
       # Secret files must exist even when Entra is off (empty placeholder) — same rule as db_ca_cert below.
       AdminAuth__Providers__Microsoft__ClientId: ${ADMIN_ENTRA_CLIENT_ID:-}
-      AdminAuth__Providers__Microsoft__Authority: https://login.microsoftonline.com/${ADMIN_ENTRA_TENANT_ID:-REPLACE_WITH_TENANT_ID}/v2.0
+      AdminAuth__Providers__Microsoft__Authority: https://login.microsoftonline.com/${ADMIN_ENTRA_TENANT_ID:-05ab044e-e2c5-47dc-bbfb-fd7ea077fa71}/v2.0
       ADMIN_ENTRA_CLIENT_SECRET_FILE: /run/secrets/admin_entra_client_secret
       MerchantAuth__Providers__Microsoft__ClientId: ${MERCHANT_ENTRA_CLIENT_ID:-}
+      MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0}
       MERCHANT_ENTRA_CLIENT_SECRET_FILE: /run/secrets/merchant_entra_client_secret
       Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
