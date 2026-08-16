@@ -108,27 +108,11 @@ public sealed class InvitationStartProviderTests
     }
 }
 
-file sealed class InvitationAnsweringMediator : IMediator
+file sealed class InvitationAnsweringMediator : AnsweringMediator
 {
-    private ValueTask<T> Answer<T>(object message)
-    {
-        object? answer = message is ResolveInvitationTokenQuery
+    protected override object? Answer(object message) =>
+        message is ResolveInvitationTokenQuery
             ? new InvitationResolution(InvitationStartFactory.InvitationId, Guid.NewGuid(),
                 "invited@example.com", "invited@example.com")
             : null;
-        return new ValueTask<T>((T)answer!);
-    }
-
-    public ValueTask<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken ct = default) => Answer<TResponse>(request);
-    public ValueTask<TResponse> Send<TResponse>(ICommand<TResponse> command, CancellationToken ct = default) => Answer<TResponse>(command);
-    public ValueTask<TResponse> Send<TResponse>(IQuery<TResponse> query, CancellationToken ct = default) => Answer<TResponse>(query);
-    public ValueTask<object?> Send(object message, CancellationToken ct = default) => Answer<object?>(message);
-
-    public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamRequest<TResponse> request, CancellationToken ct = default) => throw new NotSupportedException();
-    public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamCommand<TResponse> command, CancellationToken ct = default) => throw new NotSupportedException();
-    public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamQuery<TResponse> query, CancellationToken ct = default) => throw new NotSupportedException();
-    public IAsyncEnumerable<object?> CreateStream(object message, CancellationToken ct = default) => throw new NotSupportedException();
-
-    public ValueTask Publish<TNotification>(TNotification n, CancellationToken ct = default) where TNotification : INotification => throw new NotSupportedException();
-    public ValueTask Publish(object n, CancellationToken ct = default) => throw new NotSupportedException();
 }

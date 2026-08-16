@@ -74,9 +74,9 @@ file sealed class RecordingAdminResolver : ApiHost::Api.Admins.ICallbackResolver
 {
     public AdminResolved? Resolved;
     public Task<ResolveResult> ResolveAtCallbackAsync(
-        string provider, string subject, string email, bool emailVerified, string correlationId, CancellationToken ct)
+        SharedKernel.ProviderIdentity identity, string email, bool emailVerified, string correlationId, CancellationToken ct)
     {
-        Resolved = new AdminResolved(provider, subject, email, emailVerified);
+        Resolved = new AdminResolved(identity.Provider, identity.Subject, email, emailVerified);
         return Task.FromResult(ResolveResult.NotFound);
     }
 }
@@ -84,9 +84,9 @@ file sealed class RecordingAdminResolver : ApiHost::Api.Admins.ICallbackResolver
 file sealed class RecordingUserResolver : ApiHost::Api.Merchants.IUserCallbackResolver
 {
     public (string Provider, string Subject)? Resolved;
-    public Task<LoginResult> ResolveAtCallbackAsync(string provider, string subject, CancellationToken ct)
+    public Task<LoginResult> ResolveAtCallbackAsync(SharedKernel.ProviderIdentity identity, CancellationToken ct)
     {
-        Resolved = (provider, subject);
+        Resolved = (identity.Provider, identity.Subject);
         return Task.FromResult(LoginResult.NotFound);
     }
 }

@@ -19,7 +19,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     {
         builder.ToTable("Users", SchemaNames.Admin);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue("google");
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();

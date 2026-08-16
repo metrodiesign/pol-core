@@ -22,6 +22,7 @@ using Microsoft.Extensions.Options;
 using Resolution = Admins.Application.Users.Resolution;
 using MerchantUser = Merchants.Domain.Users.User;
 using MerchantUserStatus = Merchants.Domain.Users.UserStatus;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -60,7 +61,7 @@ file sealed class FakeResolver : IAccountResolver
     public static readonly Guid ActiveUserId = Guid.NewGuid();
     public static readonly Guid ActiveMerchantId = Guid.NewGuid();
 
-    public Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
+    public Task<AccountSnapshot?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
         Task.FromResult<AccountSnapshot?>(null);
     public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
         Task.FromResult<AccountSnapshot?>(id switch

@@ -15,6 +15,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -205,7 +206,7 @@ public sealed class MerchantUserLoginServiceTests
 
     private sealed class FakeResolver(LoginResult result) : IUserCallbackResolver
     {
-        public Task<LoginResult> ResolveAtCallbackAsync(string provider, string subject, CancellationToken ct) => Task.FromResult(result);
+        public Task<LoginResult> ResolveAtCallbackAsync(ProviderIdentity identity, CancellationToken ct) => Task.FromResult(result);
     }
 
     private sealed class FakeSessionStore : ISessionStore

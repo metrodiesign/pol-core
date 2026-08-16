@@ -8,6 +8,7 @@ using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Api.Merchants;
 
@@ -16,15 +17,15 @@ namespace Api.Merchants;
 /// (mirrors <c>IAdminCallbackResolver</c>). The callback NEVER self-provisions (REQ-9.6).</summary>
 internal interface IUserCallbackResolver
 {
-    Task<LoginResult> ResolveAtCallbackAsync(string provider, string subject, CancellationToken cancellationToken);
+    Task<LoginResult> ResolveAtCallbackAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<InvitationResolution?> ResolveInvitationAsync(Guid invitationId, CancellationToken cancellationToken) =>
         Task.FromResult<InvitationResolution?>(null);
 }
 
 internal sealed class UserCallbackResolver(IMediator mediator) : IUserCallbackResolver
 {
-    public Task<LoginResult> ResolveAtCallbackAsync(string provider, string subject, CancellationToken cancellationToken) =>
-        mediator.Send(new ResolveLoginQuery(provider, subject), cancellationToken).AsTask();
+    public Task<LoginResult> ResolveAtCallbackAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
+        mediator.Send(new ResolveLoginQuery(identity), cancellationToken).AsTask();
     public Task<InvitationResolution?> ResolveInvitationAsync(Guid invitationId, CancellationToken cancellationToken) =>
         mediator.Send(new ResolveInvitationByIdQuery(invitationId), cancellationToken).AsTask();
 }
@@ -112,7 +113,7 @@ internal sealed class UserLoginService
         LoginResult result;
         try
         {
-            result = await _resolver.ResolveAtCallbackAsync(provider, subject, ct);
+            result = await _resolver.ResolveAtCallbackAsync(new ProviderIdentity(provider, subject), ct);
         }
         catch (Exception ex)
         {

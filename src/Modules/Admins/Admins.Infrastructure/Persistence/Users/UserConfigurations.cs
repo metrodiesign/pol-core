@@ -20,7 +20,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.HasKey(x => x.Id);
         // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
         // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue("google");
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
         builder.Property(x => x.Subject).HasMaxLength(256); // nullable until an invited Scoped account binds it
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();

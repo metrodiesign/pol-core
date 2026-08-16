@@ -1,5 +1,6 @@
 using Admins.Domain.Users;
 using Microsoft.EntityFrameworkCore;
+using SharedKernel;
 
 namespace Persistence.ControlPlane.Admins;
 
@@ -10,7 +11,7 @@ namespace Persistence.ControlPlane.Admins;
 /// the deleted <c>AdminResolveLoginBySubject</c>'s trust model: this port trusts an already-verified Subject).
 /// <c>admin.Users</c> carries no query filter (control-plane, no merchant predicate — REQ-3.2), so no
 /// <c>IgnoreQueryFilters()</c> escape hatch is needed here, unlike the MerchantUser-side write ports. Idempotent
-/// on a concurrent first-login race via the unique <c>Subject</c> index (mirrors
+/// on a concurrent first-login race via the unique <c>(Provider, Subject)</c> index (mirrors
 /// <c>SelfProvisionSuperHandler</c>'s catch-and-reread pattern, one level lower). Scoped to ONLY the
 /// <c>admin.Users</c> insert; role-assignment/audit compose around this port at the transaction-orchestration
 /// layer (task 8's wiring), same discipline as the MerchantUser approve/reject ports.
@@ -19,14 +20,15 @@ internal readonly record struct SelfProvisionOutcome(Guid AdminId, string Email,
 
 internal interface ISelfProvisionSuperWriter
 {
-    Task<SelfProvisionOutcome> ProvisionAsync(string provider, string subject, string email, DateTime now, CancellationToken cancellationToken);
+    Task<SelfProvisionOutcome> ProvisionAsync(ProviderIdentity identity, string email, DateTime now, CancellationToken cancellationToken);
 }
 
 internal sealed class AdminSelfProvisionWriter(ControlPlaneDbContext db) : ISelfProvisionSuperWriter
 {
     public async Task<SelfProvisionOutcome> ProvisionAsync(
-        string provider, string subject, string email, DateTime now, CancellationToken cancellationToken)
+        ProviderIdentity identity, string email, DateTime now, CancellationToken cancellationToken)
     {
+        var (provider, subject) = identity;
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);

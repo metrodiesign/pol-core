@@ -83,7 +83,8 @@ public sealed class User : AggregateRoot<Guid>
         DisplayName = string.Empty;
     }
 
-    /// <summary>A new applicant registering after Google sign-in. Starts <see cref="UserStatus.PendingApproval"/>
+    /// <summary>A new applicant registering after provider sign-in (identity = the verified
+    /// <paramref name="provider"/>/<paramref name="subject"/> pair). Starts <see cref="UserStatus.PendingApproval"/>
     /// with <see cref="MerchantId"/> unset; an admin sets the merchant at approval. The person details are
     /// applied next via <see cref="SetDetails"/> / <see cref="SetPhoto"/> so the registration handler controls them.</summary>
     public static User Register(string provider, string subject, string email, DateTime now)

@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using Mediator;
 using Merchants.Domain;
 using Merchants.Domain.Users;
+using SharedKernel;
 
 namespace Merchants.Application.Users;
 
@@ -89,7 +90,7 @@ public sealed record AccountSnapshot(
 /// </summary>
 public interface IAccountResolver
 {
-    Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken cancellationToken);
+    Task<AccountSnapshot?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken);
 }
 
@@ -102,7 +103,7 @@ public interface IAccountResolver
 /// </summary>
 public interface IAccountStore
 {
-    Task<User?> FindBySubjectAsync(string provider, string subject, CancellationToken cancellationToken);
+    Task<User?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<User?> FindByIdAsync(Guid id, CancellationToken cancellationToken) => Task.FromResult<User?>(null);
     void Add(User account);
 }

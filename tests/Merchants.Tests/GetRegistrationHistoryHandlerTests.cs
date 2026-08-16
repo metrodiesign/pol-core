@@ -1,6 +1,7 @@
 using BuildingBlocks.Application;
 using Merchants.Application.Users;
 using Merchants.Domain.Users;
+using SharedKernel;
 
 namespace Merchants.Tests;
 
@@ -240,8 +241,8 @@ public sealed class GetRegistrationHistoryHandlerTests
         private readonly Dictionary<string, AccountSnapshot> _bySubject = [];
         public void Seed(User user) => _bySubject[user.Subject] =
             new AccountSnapshot(user.Id, user.Subject, user.Email, user.MerchantId, user.Status);
-        public Task<AccountSnapshot?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
-            Task.FromResult(_bySubject.GetValueOrDefault(subject));
+        public Task<AccountSnapshot?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
+            Task.FromResult(_bySubject.GetValueOrDefault(identity.Subject));
         public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken ct) =>
             Task.FromResult(_bySubject.Values.FirstOrDefault(s => s.UserId == id));
     }

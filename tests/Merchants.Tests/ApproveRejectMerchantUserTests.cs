@@ -5,6 +5,7 @@ using Merchants.Application.Users.Roles;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
+using SharedKernel;
 
 namespace Merchants.Tests;
 
@@ -170,8 +171,8 @@ public sealed class ApproveRejectMerchantUserTests
     {
         private readonly Dictionary<Guid, User> _byId = [];
         public void Seed(User u) => _byId[u.Id] = u;
-        public Task<User?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
-            Task.FromResult(_byId.Values.FirstOrDefault(u => u.Provider == provider && u.Subject == subject));
+        public Task<User?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
+            Task.FromResult(_byId.Values.FirstOrDefault(u => u.Provider == identity.Provider && u.Subject == identity.Subject));
         public Task<User?> FindByIdAsync(Guid id, CancellationToken ct) => Task.FromResult(_byId.GetValueOrDefault(id));
         public void Add(User account) => throw new NotSupportedException();
     }

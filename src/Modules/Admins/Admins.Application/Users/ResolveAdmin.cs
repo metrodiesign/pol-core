@@ -1,6 +1,7 @@
 using Admins.Application.Roles;
 using Admins.Domain.Users;
 using Mediator;
+using SharedKernel;
 
 namespace Admins.Application.Users;
 
@@ -11,7 +12,7 @@ namespace Admins.Application.Users;
 /// <see cref="ResolveOutcome.Suspended"/> (deny, never re-provision — REQ-5.6/5.7). Runs under the
 /// pol_admin (RLS-bypass) connection because admin tables are control-plane.
 /// </summary>
-public sealed record ResolveQuery(string Provider, string Subject) : IQuery<ResolveResult>;
+public sealed record ResolveQuery(ProviderIdentity Identity) : IQuery<ResolveResult>;
 
 public enum ResolveOutcome { Resolved, Suspended, NotFound }
 
@@ -46,7 +47,7 @@ public sealed class ResolveHandler : IQueryHandler<ResolveQuery, ResolveResult>
 
     public async ValueTask<ResolveResult> Handle(ResolveQuery query, CancellationToken cancellationToken)
     {
-        var account = await _admins.GetBySubjectAsync(query.Provider, query.Subject, cancellationToken);
+        var account = await _admins.GetByIdentityAsync(query.Identity, cancellationToken);
         if (account is null)
             return ResolveResult.NotFound;
         if (account.Status == UserStatus.Suspended)

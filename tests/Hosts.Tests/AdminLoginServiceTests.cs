@@ -14,6 +14,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -201,7 +202,7 @@ public sealed class AdminLoginServiceTests
 
     private sealed class FakeResolver(ResolveResult result) : ICallbackResolver
     {
-        public Task<ResolveResult> ResolveAtCallbackAsync(string provider, string subject, string email, bool emailVerified, string correlationId, CancellationToken ct) =>
+        public Task<ResolveResult> ResolveAtCallbackAsync(ProviderIdentity identity, string email, bool emailVerified, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);
     }
 

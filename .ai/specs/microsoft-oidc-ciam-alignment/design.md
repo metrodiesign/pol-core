@@ -158,7 +158,7 @@ AdminAuth__Providers__Microsoft__Authority: ${ADMIN_ENTRA_AUTHORITY:-}
 MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-}
 ```
 
-`.env.prod.example` มี `ADMIN_ENTRA_AUTHORITY=`/`MERCHANT_ENTRA_AUTHORITY=` + comment ระบุรูป tenant-id `/v2.0` (ห้ามรูป domain `.onmicrosoft.com` — resolve v1 metadata แล้ว issuer validation fail); ตัวแปร optional (`:-`) render-check ไม่ต้องเพิ่ม placeholder
+`.env.prod.example` มี `ADMIN_ENTRA_AUTHORITY=`/`MERCHANT_ENTRA_AUTHORITY=` + comment ระบุรูป tenant-id `/v2.0` เป็นค่าแนะนำ; ตัวแปร optional (`:-`) render-check ไม่ต้องเพิ่ม placeholder (amended U2 2026-08-17: รูป domain `.onmicrosoft.com` ใช้ได้เช่นกันเมื่อลงท้าย `/v2.0` — พิสูจน์ด้วย curl discovery กับ tenant จริง; ตัวตัดสินคือ suffix `/v2.0` ไม่ใช่รูป path — ไม่มี `/v2.0` ทุกรูป resolve v1 metadata แล้ว issuer validation fail; tenant-id ยังเป็นรูปแนะนำตามเหตุผล A3 ไม่ผูกชื่อ domain ที่เปลี่ยนได้)
 
 ### Invitation endpoint
 

@@ -3,6 +3,7 @@ using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
+using SharedKernel;
 using BuildingBlocks.Application;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
@@ -22,7 +23,7 @@ public sealed class AdminHandlerTests
         admins.Add(User.SelfProvision("google", "super-1", "ops@org.com", Now));
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
-        var result = await handler.Handle(new ResolveQuery("google", "super-1"), default);
+        var result = await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "super-1")), default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.True(result.Resolution!.Accessible.IsUnrestricted);
@@ -40,7 +41,7 @@ public sealed class AdminHandlerTests
         admins.AddAssignment(MerchantAccess.Create(scoped.Id, merchantX, Guid.NewGuid(), Now));
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
-        var result = await handler.Handle(new ResolveQuery("google", "scoped-1"), default);
+        var result = await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "scoped-1")), default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.False(result.Resolution!.Accessible.IsUnrestricted);
@@ -57,8 +58,8 @@ public sealed class AdminHandlerTests
         admins.Add(suspended);
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
-        Assert.Equal(ResolveOutcome.Suspended, (await handler.Handle(new ResolveQuery("google", "suspended-1"), default)).Outcome);
-        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new ResolveQuery("google", "ghost"), default)).Outcome);
+        Assert.Equal(ResolveOutcome.Suspended, (await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "suspended-1")), default)).Outcome);
+        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "ghost")), default)).Outcome);
     }
 
     // ---- SelfProvisionSuperAdmin ----
@@ -70,7 +71,7 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new SelfProvisionSuperHandler(admins, new FakeAdminRoleRepository(), audit, new FakeUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand("google", "super-1", "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         var account = Assert.Single(admins.Accounts);
         Assert.Equal(Tier.Super, account.Tier);
@@ -91,7 +92,7 @@ public sealed class AdminHandlerTests
         admins.Add(existing);
         var handler = new SelfProvisionSuperHandler(admins, new FakeAdminRoleRepository(), new FakePlatformUserAuditWriter(), new ConflictingUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand("google", "super-1", "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         Assert.Equal(existing.Id, resolution.AdminId);
         Assert.True(resolution.Accessible.IsUnrestricted);
@@ -109,7 +110,7 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new SelfProvisionSuperHandler(admins, roles, audit, new FakeUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand("google", "super-1", "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         var assignment = Assert.Single(roles.Assignments);
         Assert.Equal(resolution.AdminId, assignment.AdminUserId);
@@ -126,7 +127,7 @@ public sealed class AdminHandlerTests
         admins.Add(User.CreateScoped("scoped@org.com", Now));
         var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
 
-        var result = await handler.Handle(new BindInvitedCommand("google", "scoped-1", "scoped@org.com", "corr"), default);
+        var result = await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "scoped-1"), "scoped@org.com", "corr"), default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.Equal("scoped-1", admins.Accounts[0].Subject);
@@ -142,8 +143,8 @@ public sealed class AdminHandlerTests
         admins.Add(bound);
         var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
 
-        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand("google", "x", "missing@org.com", "c"), default)).Outcome);
-        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand("google", "x", "bound@org.com", "c"), default)).Outcome);
+        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "x"), "missing@org.com", "c"), default)).Outcome);
+        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "x"), "bound@org.com", "c"), default)).Outcome);
     }
 
     [Fact]
@@ -155,7 +156,7 @@ public sealed class AdminHandlerTests
         admins.Add(invite);
         var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
 
-        var result = await handler.Handle(new BindInvitedCommand("google", "scoped-1", "scoped@org.com", "corr"), default);
+        var result = await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "scoped-1"), "scoped@org.com", "corr"), default);
 
         Assert.Equal(ResolveOutcome.Suspended, result.Outcome);
         Assert.Equal("scoped-1", admins.Accounts[0].Subject); // subject bound so future logins resolve by subject

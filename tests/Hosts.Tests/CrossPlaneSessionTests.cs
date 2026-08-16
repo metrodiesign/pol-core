@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using AdminSessions = Admins.Application.Users;
 using AdminUsers = Admins.Application.Users;
 using AdminDomain = Admins.Domain.Users;
 using MerchantApp = Merchants.Application.Users;
@@ -33,7 +32,7 @@ file static class Tokens
         new(TimeSpan.FromMinutes(30), TimeSpan.FromHours(12), TimeSpan.FromMinutes(10), TimeSpan.FromMinutes(1));
 }
 
-file sealed class FakeAdminSessions : AdminSessions.ISessionStore
+file sealed class FakeAdminSessions : AdminUsers.ISessionStore
 {
     public Task<AdminDomain.Session?> FindByTokenHashAsync(byte[] tokenHash, CancellationToken ct) =>
         Task.FromResult(tokenHash.SequenceEqual(ApiHost::Api.Admins.SessionTokens.Hash(Tokens.AdminToken))
@@ -121,7 +120,7 @@ file sealed class CrossPlaneFactory : WebApplicationFactory<ApiHost::Program>
         builder.ConfigureServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
-            services.AddScoped<AdminSessions.ISessionStore, FakeAdminSessions>();
+            services.AddScoped<AdminUsers.ISessionStore, FakeAdminSessions>();
             services.AddScoped<ApiHost::Api.Admins.ISessionResolver, FakeAdminSessionResolver>();
             services.AddScoped<MerchantApp.ISessionStore, FakeMerchantSessions>();
             services.AddScoped<ApiHost::Api.Merchants.IUserSessionResolver, FakeMerchantSessionResolver>();

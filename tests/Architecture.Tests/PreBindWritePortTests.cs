@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Persistence.ControlPlane;
 using Persistence.ControlPlane.Admins;
+using SharedKernel;
 
 namespace Architecture.Tests;
 
@@ -29,7 +30,7 @@ public sealed class PreBindWritePortTests
             await setup.Database.EnsureCreatedAsync();
 
         using var db = NewControlPlaneContext(connection);
-        var outcome = await new AdminSelfProvisionWriter(db).ProvisionAsync("google", "g-sub-1", "boot@example.com", DateTime.UtcNow, CancellationToken.None);
+        var outcome = await new AdminSelfProvisionWriter(db).ProvisionAsync(new ProviderIdentity("google", "g-sub-1"), "boot@example.com", DateTime.UtcNow, CancellationToken.None);
 
         Assert.False(outcome.AlreadyExisted);
         Assert.Equal("boot@example.com", outcome.Email);
@@ -50,10 +51,10 @@ public sealed class PreBindWritePortTests
 
         Guid firstId;
         using (var first = NewControlPlaneContext(connection))
-            firstId = (await new AdminSelfProvisionWriter(first).ProvisionAsync("google", "g-sub-2", "a@example.com", DateTime.UtcNow, CancellationToken.None)).AdminId;
+            firstId = (await new AdminSelfProvisionWriter(first).ProvisionAsync(new ProviderIdentity("google", "g-sub-2"), "a@example.com", DateTime.UtcNow, CancellationToken.None)).AdminId;
 
         using var replay = NewControlPlaneContext(connection);
-        var outcome = await new AdminSelfProvisionWriter(replay).ProvisionAsync("google", "g-sub-2", "a@example.com", DateTime.UtcNow, CancellationToken.None);
+        var outcome = await new AdminSelfProvisionWriter(replay).ProvisionAsync(new ProviderIdentity("google", "g-sub-2"), "a@example.com", DateTime.UtcNow, CancellationToken.None);
 
         Assert.True(outcome.AlreadyExisted);
         Assert.Equal(firstId, outcome.AdminId);

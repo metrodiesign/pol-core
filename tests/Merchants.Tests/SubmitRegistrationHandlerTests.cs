@@ -7,6 +7,7 @@ using Merchants.Application.Users.Roles;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
+using SharedKernel;
 
 namespace Merchants.Tests;
 
@@ -384,8 +385,8 @@ public sealed class SubmitRegistrationHandlerTests
         public List<User> Added { get; } = [];
         private readonly Dictionary<string, User> _bySubject = [];
         public void Seed(User u) => _bySubject[u.Subject] = u;
-        public Task<User?> FindBySubjectAsync(string provider, string subject, CancellationToken ct) =>
-            Task.FromResult(_bySubject.GetValueOrDefault(subject));
+        public Task<User?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
+            Task.FromResult(_bySubject.GetValueOrDefault(identity.Subject));
         public void Add(User account) { Added.Add(account); _bySubject[account.Subject] = account; }
     }
 

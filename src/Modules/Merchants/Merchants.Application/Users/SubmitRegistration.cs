@@ -3,6 +3,7 @@ using Contracts;
 using Mediator;
 using Merchants.Domain;
 using Merchants.Domain.Users;
+using SharedKernel;
 
 namespace Merchants.Application.Users;
 
@@ -156,7 +157,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                     // wire ticket is stateless; a duplicate subject (a replayed still-valid token or a concurrent second
                     // tab) violates the unique (Subject)/(Provider,Subject) index and the unit of work turns it into a
                     // 409 (REQ-4.6/S9).
-                    if (await _accounts.FindBySubjectAsync(command.Provider, command.Subject, ct) is not null)
+                    if (await _accounts.FindByIdentityAsync(new ProviderIdentity(command.Provider, command.Subject), ct) is not null)
                         throw new ConflictException(
                             "A registration already exists for this identity.", "already-registered");
 
@@ -194,7 +195,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 {
                     // Correction resubmission (REQ-5.3/5.4/5.5): edit the EXISTING record bound to the subject —
                     // never a second user/login. Resubmit() enforces the source state is Rejected (else throws → 409).
-                    account = await _accounts.FindBySubjectAsync(command.Provider, command.Subject, ct)
+                    account = await _accounts.FindByIdentityAsync(new ProviderIdentity(command.Provider, command.Subject), ct)
                         ?? throw new InvalidOperationException("No registration exists for this subject to correct.");
                     account.Resubmit(now);
                     action = RegistrationAuditAction.Resubmitted;

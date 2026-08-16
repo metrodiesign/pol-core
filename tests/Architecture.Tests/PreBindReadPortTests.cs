@@ -7,6 +7,7 @@ using Persistence.ControlPlane.Admins;
 using Persistence.MerchantUsers;
 using Persistence.MerchantUsers.Users;
 using MerchantUserAccount = Merchants.Domain.Users.User;
+using SharedKernel;
 
 namespace Architecture.Tests;
 
@@ -110,7 +111,7 @@ public sealed class PreBindReadPortTests
         }
 
         using var reader = NewContext();
-        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("google", "m-sub-2", CancellationToken.None);
+        var lookup = await new MerchantAccountResolver(reader).FindByIdentityAsync(new ProviderIdentity("google", "m-sub-2"), CancellationToken.None);
 
         Assert.NotNull(lookup);
         Assert.Equal("pending@example.com", lookup!.Email);
@@ -138,8 +139,8 @@ public sealed class PreBindReadPortTests
         }
 
         using var reader = NewContext();
-        Assert.NotNull(await new MerchantAccountResolver(reader).FindBySubjectAsync("google", "shared-subject", CancellationToken.None));
-        Assert.Null(await new MerchantAccountResolver(reader).FindBySubjectAsync("microsoft", "shared-subject", CancellationToken.None));
+        Assert.NotNull(await new MerchantAccountResolver(reader).FindByIdentityAsync(new ProviderIdentity("google", "shared-subject"), CancellationToken.None));
+        Assert.Null(await new MerchantAccountResolver(reader).FindByIdentityAsync(new ProviderIdentity("microsoft", "shared-subject"), CancellationToken.None));
     }
 
     [Fact]
@@ -196,7 +197,7 @@ public sealed class PreBindReadPortTests
         // A totally unbound caller (no merchant claim at all) must still resolve this — the whole point of
         // login-by-subject is DISCOVERING which merchant, before any actor is bound.
         using var reader = NewContext();
-        var lookup = await new MerchantAccountResolver(reader).FindBySubjectAsync("google", "m-sub-3", CancellationToken.None);
+        var lookup = await new MerchantAccountResolver(reader).FindByIdentityAsync(new ProviderIdentity("google", "m-sub-3"), CancellationToken.None);
 
         Assert.NotNull(lookup);
         Assert.Equal(merchantA, lookup!.MerchantId);

@@ -1,6 +1,6 @@
 # Requirements: Microsoft OIDC CIAM Alignment
 
-> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน)
+> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน; U2: จาก code review — reconcile รูป authority ให้ตรงผล curl จริง: ตัวบังคับคือ suffix `/v2.0` รูป domain ใช้ได้)
 
 ## Overview
 
@@ -14,7 +14,7 @@
 
 **Acceptance Criteria (EARS):**
 
-- 1.1 THE SYSTEM SHALL รับ `MerchantAuth:Providers:Microsoft:Authority` ผ่าน env (`MERCHANT_ENTRA_AUTHORITY` -> `MerchantAuth__Providers__Microsoft__Authority`) โดย appsettings commit ค่าว่าง — ค่าที่ตั้งต้องเป็นรูป tenant-id path `/v2.0` เช่น `https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0` (decision A3; amended U1)
+- 1.1 THE SYSTEM SHALL รับ `MerchantAuth:Providers:Microsoft:Authority` ผ่าน env (`MERCHANT_ENTRA_AUTHORITY` -> `MerchantAuth__Providers__Microsoft__Authority`) โดย appsettings commit ค่าว่าง — ค่าที่ตั้งต้องลงท้าย `/v2.0` เสมอ รูปแนะนำคือ tenant-id path เช่น `https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0` (decision A3; amended U1; amended U2: รูป domain `.onmicrosoft.com/v2.0` ใช้ได้เช่นกัน — พิสูจน์ curl กับ tenant จริง 2026-08-17)
 - 1.2 WHEN merchant user เรียก `GET /api/v1/merchants/auth/microsoft/login` (โดย ClientId ถูก config แล้ว) THE SYSTEM SHALL challenge ไปยัง authorization endpoint ที่ได้จาก discovery metadata ของ Authority ตาม 1.1
 - 1.3 WHEN id_token จาก CIAM มี `iss` ตรงกับ `issuer` ใน discovery metadata ของ Authority ที่ config THE SYSTEM SHALL ยอมรับ issuer นั้น — ใช้ default issuer validation ของ framework (เทียบ metadata issuer) ห้าม hardcode host และห้ามใช้ custom `IssuerValidator`
 - 1.4 IF id_token มี `iss` ไม่ตรงกับ issuer จาก discovery metadata ของ Authority THEN THE SYSTEM SHALL ปฏิเสธ token (`SecurityTokenInvalidIssuerException`) และจบที่ error redirect ตาม flow deny เดิม
@@ -107,6 +107,7 @@
 | A5 | REQ-5.2 vs 5.3: default `google` ชนเคส Google ถูกปิด | เลือก ก — คง default `google` | deployment จริงมี Google เสมอ เคสชนเป็น hypothetical |
 | A6 | REQ-6.5: convention test blast radius กว้าง | เลือก ก — คลุมทุก endpoint + baseline allowlist | ปิด gap ทั้งระบบตามเจตนา audit โดยจุดเก่าไม่บล็อกงานนี้ |
 | U1 | (2026-08-17, user หลัง implement) ค่า authority/tenant ถูก commit เป็น default ใน appsettings/compose | ย้ายเป็น env-inject ล้วน: appsettings ว่าง, compose passthrough `ADMIN_ENTRA_AUTHORITY`/`MERCHANT_ENTRA_AUTHORITY` ไม่มี default (supersede ส่วน "commit default" ของ A3/REQ-1.1/2.1/3.2) | user ต้องการเปลี่ยนค่าได้สะดวกโดยไม่แตะโค้ด; blank+blank = provider ปิด, guard tenant-pinned ยังบังคับตอนเปิดใช้ |
+| U2 | (2026-08-17, spec review หลัง CI) `.env.prod.example` รับรองรูป domain `.onmicrosoft.com/v2.0` จากผล curl จริง แต่ design/REQ-1.1 ยังเขียนห้ามรูป domain — เอกสารขัดกัน | reconcile: ตัวบังคับคือ suffix `/v2.0` (ไม่มี = v1 metadata ทุกรูป) รูป domain + `/v2.0` ใช้ได้เท่ารูป tenant-id; tenant-id ยังเป็นรูปแนะนำ (เหตุผล A3 เดิม) | curl discovery กับ CIAM tenant จริง 2026-08-17: domain เปล่า = v1 issuer, domain + `/v2.0` = v2 ถูกต้อง — spec ต้องตรงพฤติกรรมจริง ไม่ใช่ตรงข้อสันนิษฐาน |
 
 ### Findings log (spec-architect critique 2026-08-16 บน design.md draft — amendment รอบสอง)
 

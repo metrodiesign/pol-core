@@ -4,6 +4,7 @@ using BuildingBlocks.Application;
 using Mediator;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Api.Admins;
 
@@ -13,7 +14,7 @@ namespace Api.Admins;
 internal interface ICallbackResolver
 {
     Task<ResolveResult> ResolveAtCallbackAsync(
-        string provider, string subject, string email, bool emailVerified, string correlationId,
+        ProviderIdentity identity, string email, bool emailVerified, string correlationId,
         CancellationToken cancellationToken);
 }
 
@@ -29,10 +30,10 @@ internal sealed class CallbackResolver : ICallbackResolver
     }
 
     public async Task<ResolveResult> ResolveAtCallbackAsync(
-        string provider, string subject, string email, bool emailVerified, string correlationId,
+        ProviderIdentity identity, string email, bool emailVerified, string correlationId,
         CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(new ResolveQuery(provider, subject), cancellationToken);
+        var result = await _mediator.Send(new ResolveQuery(identity), cancellationToken);
         if (result.Outcome != ResolveOutcome.NotFound)
             return result;
 
@@ -43,7 +44,7 @@ internal sealed class CallbackResolver : ICallbackResolver
         // Microsoft invites need a (tid, oid)-based bind flow (separate spec) and fail closed here.
         if (!string.IsNullOrEmpty(email) && emailVerified)
         {
-            var bound = await _mediator.Send(new BindInvitedCommand(provider, subject, email, correlationId), cancellationToken);
+            var bound = await _mediator.Send(new BindInvitedCommand(identity, email, correlationId), cancellationToken);
             if (bound.Outcome != ResolveOutcome.NotFound)
                 return bound;
         }
@@ -51,21 +52,21 @@ internal sealed class CallbackResolver : ICallbackResolver
         // Allowlist entries are "provider:subject"; a bare entry (no prefix) means "google" for backward compat
         // (REQ-4.3). The CURRENT login's provider must match the entry's prefix before self-provision (REQ-4.4).
         var allowlist = _configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? [];
-        if (allowlist.Any(entry => AllowlistEntryMatches(entry, provider, subject)))
+        if (allowlist.Any(entry => AllowlistEntryMatches(entry, identity)))
             return ResolveResult.Of(await _mediator.Send(
-                new SelfProvisionSuperCommand(provider, subject, email, correlationId), cancellationToken));
+                new SelfProvisionSuperCommand(identity, email, correlationId), cancellationToken));
 
         return ResolveResult.NotFound;
     }
 
-    internal static bool AllowlistEntryMatches(string entry, string provider, string subject)
+    internal static bool AllowlistEntryMatches(string entry, ProviderIdentity identity)
     {
         var separator = entry.IndexOf(':');
         var (entryProvider, entrySubject) = separator < 0
-            ? ("google", entry)
+            ? (User.GoogleProvider, entry)
             : (entry[..separator].ToLowerInvariant(), entry[(separator + 1)..]);
-        return string.Equals(entryProvider, provider, StringComparison.Ordinal)
-            && string.Equals(entrySubject, subject, StringComparison.Ordinal);
+        return string.Equals(entryProvider, identity.Provider, StringComparison.Ordinal)
+            && string.Equals(entrySubject, identity.Subject, StringComparison.Ordinal);
     }
 }
 
@@ -133,7 +134,8 @@ internal sealed class LoginService
         ResolveResult result;
         try
         {
-            result = await _resolver.ResolveAtCallbackAsync(provider, subject, email ?? string.Empty, emailVerified, correlationId, ct);
+            result = await _resolver.ResolveAtCallbackAsync(
+                new ProviderIdentity(provider, subject), email ?? string.Empty, emailVerified, correlationId, ct);
         }
         catch (Exception ex)
         {

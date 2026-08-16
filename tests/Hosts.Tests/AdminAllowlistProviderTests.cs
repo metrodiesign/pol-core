@@ -2,6 +2,7 @@ extern alias ApiHost;
 using Admins.Application.Users;
 using Mediator;
 using Microsoft.Extensions.Configuration;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -20,7 +21,7 @@ public sealed class AdminAllowlistProviderTests
     [InlineData("microsoft:entra-oid-1", "microsoft", "entra-oid-2", false)]
     public void An_allowlist_entry_matches_only_its_own_provider_and_subject(
         string entry, string provider, string subject, bool expected) =>
-        Assert.Equal(expected, ApiHost::Api.Admins.CallbackResolver.AllowlistEntryMatches(entry, provider, subject));
+        Assert.Equal(expected, ApiHost::Api.Admins.CallbackResolver.AllowlistEntryMatches(entry, new ProviderIdentity(provider, subject)));
 
     [Fact]
     public async Task A_matching_subject_under_the_wrong_provider_is_not_provisioned()
@@ -30,7 +31,7 @@ public sealed class AdminAllowlistProviderTests
 
         // Same subject string arriving via microsoft must NOT satisfy the bare (=google) entry (REQ-4.4).
         var result = await resolver.ResolveAtCallbackAsync(
-            "microsoft", "google-sub-1", "ops@org.com", emailVerified: false, "corr-1", default);
+            new ProviderIdentity("microsoft", "google-sub-1"), "ops@org.com", emailVerified: false, "corr-1", default);
 
         Assert.Equal(ResolveOutcome.NotFound, result.Outcome);
         Assert.DoesNotContain(mediator.Sent, m => m is SelfProvisionSuperCommand);
@@ -43,12 +44,11 @@ public sealed class AdminAllowlistProviderTests
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator, Config("microsoft:entra-oid-1"));
 
         var result = await resolver.ResolveAtCallbackAsync(
-            "microsoft", "entra-oid-1", "ops@org.com", emailVerified: false, "corr-1", default);
+            new ProviderIdentity("microsoft", "entra-oid-1"), "ops@org.com", emailVerified: false, "corr-1", default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         var provision = Assert.Single(mediator.Sent.OfType<SelfProvisionSuperCommand>());
-        Assert.Equal("microsoft", provision.Provider);
-        Assert.Equal("entra-oid-1", provision.Subject);
+        Assert.Equal(new ProviderIdentity("microsoft", "entra-oid-1"), provision.Identity);
     }
 
     private static IConfiguration Config(params string[] entries)
@@ -58,30 +58,16 @@ public sealed class AdminAllowlistProviderTests
     }
 
     /// <summary>Answers NotFound for resolve/bind and a Resolution for self-provision, recording every Send.</summary>
-    private sealed class RecordingMediator : IMediator
+    private sealed class RecordingMediator : AnsweringMediator
     {
         public List<object> Sent { get; } = [];
 
-        private ValueTask<T> Record<T>(object message)
+        protected override object? Answer(object message)
         {
             Sent.Add(message);
-            object answer = message is SelfProvisionSuperCommand
+            return message is SelfProvisionSuperCommand
                 ? new Resolution(Guid.NewGuid(), "ops@org.com", Admins.Domain.Users.Tier.Super, AccessibleMerchants.All)
                 : ResolveResult.NotFound;
-            return new ValueTask<T>((T)answer);
         }
-
-        public ValueTask<TResponse> Send<TResponse>(IRequest<TResponse> request, CancellationToken ct = default) => Record<TResponse>(request);
-        public ValueTask<TResponse> Send<TResponse>(ICommand<TResponse> command, CancellationToken ct = default) => Record<TResponse>(command);
-        public ValueTask<TResponse> Send<TResponse>(IQuery<TResponse> query, CancellationToken ct = default) => Record<TResponse>(query);
-        public ValueTask<object?> Send(object message, CancellationToken ct = default) => Record<object?>(message);
-
-        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamRequest<TResponse> request, CancellationToken ct = default) => throw new NotSupportedException();
-        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamCommand<TResponse> command, CancellationToken ct = default) => throw new NotSupportedException();
-        public IAsyncEnumerable<TResponse> CreateStream<TResponse>(IStreamQuery<TResponse> query, CancellationToken ct = default) => throw new NotSupportedException();
-        public IAsyncEnumerable<object?> CreateStream(object message, CancellationToken ct = default) => throw new NotSupportedException();
-
-        public ValueTask Publish<TNotification>(TNotification n, CancellationToken ct = default) where TNotification : INotification => throw new NotSupportedException();
-        public ValueTask Publish(object n, CancellationToken ct = default) => throw new NotSupportedException();
     }
 }

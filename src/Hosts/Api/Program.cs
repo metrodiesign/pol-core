@@ -1972,8 +1972,10 @@ merchantAuthAnon.MapPost("/invitations/start", async (
     var form = await request.ReadFormAsync(ct);
     // ponytail: verified-email allowlist ตอนนี้มี google ตัวเดียว — Microsoft เข้าได้เมื่อมีกลไก pre-bind
     // (provider, subject) เป็น spec แยก (B3: Entra email เป็น mutable claim จับคู่ invitation ไม่ได้)
-    var slug = form["provider"].ToString() is { Length: > 0 } requested ? requested.ToLowerInvariant() : "google";
-    if (slug is not "google" || !providers.TryGetValue(slug, out var scheme))
+    var slug = form["provider"].ToString() is { Length: > 0 } requested
+        ? requested.ToLowerInvariant()
+        : Merchants.Domain.Users.ExternalLogin.Google;
+    if (slug is not Merchants.Domain.Users.ExternalLogin.Google || !providers.TryGetValue(slug, out var scheme))
         return Results.NotFound();
     var invitation = await mediator.Send(new ResolveInvitationTokenQuery(form["token"].ToString()), ct);
     if (invitation is null)

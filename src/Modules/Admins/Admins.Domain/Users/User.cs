@@ -12,10 +12,15 @@ namespace Admins.Domain.Users;
 /// </summary>
 public sealed class User : AggregateRoot<Guid>
 {
+    /// <summary>Provider slugs. The admin module cannot reference <c>Merchants.Domain.Users.ExternalLogin</c>
+    /// (module boundary), so the canonical slugs are mirrored here for the admin plane.</summary>
+    public const string GoogleProvider = "google";
+    public const string MicrosoftProvider = "microsoft";
+
     /// <summary>The identity provider slug ("google"/"microsoft") the <see cref="Subject"/> came from — identity is
     /// the PAIR <c>(Provider, Subject)</c>, never the subject alone (microsoft-oidc-ciam-alignment REQ-4.1).
     /// Defaults to "google" for rows created before the discriminator existed.</summary>
-    public string Provider { get; private set; } = "google";
+    public string Provider { get; private set; } = GoogleProvider;
 
     /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>). NULL until an invited Scoped
     /// account's first login binds it; unique per provider once set.</summary>
@@ -92,7 +97,7 @@ public sealed class User : AggregateRoot<Guid>
         Guid? positionId = null, Guid? officeId = null, Guid? levelId = null, Guid? divisionId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new User(Guid.NewGuid(), provider: "google", subject: null, email.Trim(), Tier.Scoped, createdAt,
+        return new User(Guid.NewGuid(), provider: GoogleProvider, subject: null, email.Trim(), Tier.Scoped, createdAt,
             positionId, officeId, levelId, divisionId);
     }
 

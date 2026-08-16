@@ -17,7 +17,7 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
     {
         builder.ToTable("Users", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
-        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue("google");
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Google);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         // Status + MerchantId are concurrency tokens (bugfix-merchant-prebind-wiring, Codex P1): every tracked
