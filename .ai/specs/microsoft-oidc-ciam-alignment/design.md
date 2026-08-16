@@ -144,21 +144,21 @@ Test 3 เคสบังคับ: empty allowlist + missing tid = ผ่าน
 
 ### Config defaults
 
+(amended U1 2026-08-17 — env-inject ล้วน ไม่ commit ค่าใด)
+
 ```jsonc
-// appsettings.json
-"AdminAuth":    { "Providers": { "Microsoft": {
-    "Authority": "https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0" } } }
-"MerchantAuth": { "Providers": { "Microsoft": {
-    "Authority": "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0" } } }
+// appsettings.json — authority ว่างทั้งสอง plane; blank + blank ClientId = provider ปิด
+"AdminAuth":    { "Providers": { "Microsoft": { "Authority": "" } } }
+"MerchantAuth": { "Providers": { "Microsoft": { "Authority": "" } } }
 ```
 
 ```yaml
-# docker-compose.prod.yml — เพิ่มบรรทัด (ADMIN ฝั่ง authority มีแล้ว แค่เปลี่ยน default เป็น tenant จริง)
-AdminAuth__Providers__Microsoft__Authority: https://login.microsoftonline.com/${ADMIN_ENTRA_TENANT_ID:-05ab044e-e2c5-47dc-bbfb-fd7ea077fa71}/v2.0
-MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0}
+# docker-compose.prod.yml — passthrough จาก .env ไม่มี default ฝัง
+AdminAuth__Providers__Microsoft__Authority: ${ADMIN_ENTRA_AUTHORITY:-}
+MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-}
 ```
 
-`.env.prod.example` เพิ่ม `MERCHANT_ENTRA_AUTHORITY=` (optional, public) + comment แยก public/secret; compose ที่แตะ render-check ทั้ง 2 CI ต้องเพิ่ม placeholder ตาม trap เดิม (multi-tier-deployment)
+`.env.prod.example` มี `ADMIN_ENTRA_AUTHORITY=`/`MERCHANT_ENTRA_AUTHORITY=` + comment ระบุรูป tenant-id `/v2.0` (ห้ามรูป domain `.onmicrosoft.com` — resolve v1 metadata แล้ว issuer validation fail); ตัวแปร optional (`:-`) render-check ไม่ต้องเพิ่ม placeholder
 
 ### Invitation endpoint
 

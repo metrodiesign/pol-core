@@ -1,12 +1,12 @@
 # Requirements: Microsoft OIDC CIAM Alignment
 
-> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log)
+> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน)
 
 ## Overview
 
 ผล audit (2026-08-16) พบว่า Microsoft OIDC ฝั่ง merchant ไม่ตรงเป้าหมายจริง: ระบบต้องใช้ Microsoft Entra External ID (CIAM, tenant `1aee3cad-1e4d-4de5-9e25-424d0d12520b` บน `viriyahexternal.ciamlogin.com`) แต่โค้ดปัจจุบัน config เป็น workforce `/organizations` (เปิดรับทุก Entra tenant) และ `MicrosoftOidc.ValidateIssuer` hardcode host `login.microsoftonline.com` ทำให้ CIAM token ไม่มีทางผ่าน validation ได้ (`src/Hosts/Api/OidcProviderOptions.cs:59`) — feature นี้แก้ให้ issuer validation ยึด discovery metadata ของ Authority ที่ config จริง (framework default), บังคับ tenant-pinned Authority ทั้งสอง plane (ตัด multi-tenant ออก), เพิ่ม provider discriminator ให้ identity mapping, แก้ invitation flow ที่ hardcode `google`, และเติม test ช่องว่างที่ audit ชี้ สอดคล้องหลัก deny-default และ identity isolation ของ platform (`.ai/shared/SECURITY_RULES.md`)
 
-ค่า public identifiers ที่ commit ได้ (tenant id, client id, authority URL) กำหนดใน appsettings.json เป็น default; client id override ได้ผ่าน env และ ClientSecret inject ตอน runtime เท่านั้นตาม pattern เดิม
+ค่า config ของ Microsoft provider ทุกตัว (authority, client id) inject ผ่าน env เท่านั้น — ไม่ commit ค่าใดใน appsettings/compose (amended U1 2026-08-17; เดิมให้ commit เป็น default); ClientSecret inject ตอน runtime ตาม pattern เดิม; blank ทั้งคู่ = provider ปิด
 
 ## REQ-1: Merchant Microsoft = Entra External ID (CIAM) single tenant
 
@@ -14,7 +14,7 @@
 
 **Acceptance Criteria (EARS):**
 
-- 1.1 THE SYSTEM SHALL กำหนด default `MerchantAuth:Providers:Microsoft:Authority` ใน `appsettings.json` เป็น `https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0` (รูป tenant-id path — decision A3)
+- 1.1 THE SYSTEM SHALL รับ `MerchantAuth:Providers:Microsoft:Authority` ผ่าน env (`MERCHANT_ENTRA_AUTHORITY` -> `MerchantAuth__Providers__Microsoft__Authority`) โดย appsettings commit ค่าว่าง — ค่าที่ตั้งต้องเป็นรูป tenant-id path `/v2.0` เช่น `https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0` (decision A3; amended U1)
 - 1.2 WHEN merchant user เรียก `GET /api/v1/merchants/auth/microsoft/login` (โดย ClientId ถูก config แล้ว) THE SYSTEM SHALL challenge ไปยัง authorization endpoint ที่ได้จาก discovery metadata ของ Authority ตาม 1.1
 - 1.3 WHEN id_token จาก CIAM มี `iss` ตรงกับ `issuer` ใน discovery metadata ของ Authority ที่ config THE SYSTEM SHALL ยอมรับ issuer นั้น — ใช้ default issuer validation ของ framework (เทียบ metadata issuer) ห้าม hardcode host และห้ามใช้ custom `IssuerValidator`
 - 1.4 IF id_token มี `iss` ไม่ตรงกับ issuer จาก discovery metadata ของ Authority THEN THE SYSTEM SHALL ปฏิเสธ token (`SecurityTokenInvalidIssuerException`) และจบที่ error redirect ตาม flow deny เดิม
@@ -28,7 +28,7 @@
 
 **Acceptance Criteria (EARS):**
 
-- 2.1 THE SYSTEM SHALL กำหนด default `AdminAuth:Providers:Microsoft:Authority` ใน `appsettings.json` เป็น `https://login.microsoftonline.com/05ab044e-e2c5-47dc-bbfb-fd7ea077fa71/v2.0` (แทน placeholder `REPLACE_WITH_TENANT_ID`)
+- 2.1 THE SYSTEM SHALL รับ `AdminAuth:Providers:Microsoft:Authority` ผ่าน env (`ADMIN_ENTRA_AUTHORITY` -> `AdminAuth__Providers__Microsoft__Authority`) โดย appsettings commit ค่าว่าง (แทน placeholder `REPLACE_WITH_TENANT_ID` เดิม) — ค่าที่ตั้งต้องเป็นรูป tenant-id path `/v2.0` ของ workforce tenant (amended U1)
 - 2.2 THE SYSTEM SHALL validate `iss` ของ id_token ฝั่ง admin กับ issuer จาก discovery metadata ของ Authority (default ของ framework — แนวเดียวกับ 1.3)
   (เกณฑ์ 2.3 เดิมถอดออก — decision A1: เหตุผลเดียวกับ 1.5; เลข 2.3 เว้นไว้ไม่ reuse)
 - 2.4 WHERE `AllowedTenants` ถูกตั้งค่าไม่ว่าง THE SYSTEM SHALL บังคับ `tid` อยู่ใน allowlist เพิ่มจากเงื่อนไข issuer (gate ซ้อนแบบ optional ไม่ใช่ด่านหลัก)
@@ -41,7 +41,7 @@
 **Acceptance Criteria (EARS):**
 
 - 3.1 IF section ใด (`AdminAuth` หรือ `MerchantAuth`) config Microsoft ด้วย multi-tenant Authority (`/common`, `/organizations`, `/consumers`) THEN THE SYSTEM SHALL fail fast ตอน boot นอก Development ไม่ว่า `AllowedTenants` จะตั้งไว้หรือไม่ (decision A2 + H4 — guard `RequireOidcProviders` คง scope non-Development เดิม)
-- 3.2 THE SYSTEM SHALL เพิ่ม env mapping ใน `docker-compose.prod.yml` สำหรับ `MerchantAuth__Providers__Microsoft__Authority` (default = ค่า CIAM ตาม 1.1) เพื่อให้ prod override ได้โดยไม่แก้ image
+- 3.2 THE SYSTEM SHALL เพิ่ม env mapping ใน `docker-compose.prod.yml` สำหรับ authority ทั้งสอง plane (`ADMIN_ENTRA_AUTHORITY`/`MERCHANT_ENTRA_AUTHORITY`, ไม่มี default ฝังใน compose — amended U1) เพื่อให้ prod กำหนดค่าจาก `.env` ล้วน
 - 3.3 THE SYSTEM SHALL อัพเดท `.env.prod.example` ให้มี key ฝั่ง merchant ครบ (client id + authority) พร้อมคำอธิบายว่าค่าใดเป็น public / ค่าใดเป็น secret
 - 3.4 THE SYSTEM SHALL คงพฤติกรรม blank ClientId = ข้าม scheme (ไม่ fault host) ไว้ตามเดิม
 
@@ -106,6 +106,7 @@
 | A4 | REQ-4.1 vs 4.6: admin ไม่มี schema เทียบเท่า ExternalLogins | เลือก ก — `Provider` column สอง plane + unique `(Provider, Subject)` + drop `merch.ExternalLogins` | กลไกเดียวสมมาตร ไม่ maintain สองแบบ |
 | A5 | REQ-5.2 vs 5.3: default `google` ชนเคส Google ถูกปิด | เลือก ก — คง default `google` | deployment จริงมี Google เสมอ เคสชนเป็น hypothetical |
 | A6 | REQ-6.5: convention test blast radius กว้าง | เลือก ก — คลุมทุก endpoint + baseline allowlist | ปิด gap ทั้งระบบตามเจตนา audit โดยจุดเก่าไม่บล็อกงานนี้ |
+| U1 | (2026-08-17, user หลัง implement) ค่า authority/tenant ถูก commit เป็น default ใน appsettings/compose | ย้ายเป็น env-inject ล้วน: appsettings ว่าง, compose passthrough `ADMIN_ENTRA_AUTHORITY`/`MERCHANT_ENTRA_AUTHORITY` ไม่มี default (supersede ส่วน "commit default" ของ A3/REQ-1.1/2.1/3.2) | user ต้องการเปลี่ยนค่าได้สะดวกโดยไม่แตะโค้ด; blank+blank = provider ปิด, guard tenant-pinned ยังบังคับตอนเปิดใช้ |
 
 ### Findings log (spec-architect critique 2026-08-16 บน design.md draft — amendment รอบสอง)
 
