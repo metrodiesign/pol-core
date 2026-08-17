@@ -1,6 +1,7 @@
 # Self-host Deployment Runbook
 
-> Current runbook for merchant-commerce ERD reset. Production deploy must pass staging and release assembly gate.
+> Current runbook for the complete self-host release. Production deploy must pass staging, migration, authentication
+> and release assembly gates.
 
 ## 1. Non-negotiable gates
 
@@ -10,6 +11,8 @@
 - SQL Server must be 2025 build `17.0.4045.5` or newer; database compatibility level 170.
 - Fresh baseline accepts empty target only. Existing tables, objects or migration history fail before DDL.
 - Production reset requires human approval, exact target, verified backup URI/checksum and rollback evidence.
+- Stop old API instances before applying a schema that changes identity uniqueness from `Subject` to
+  `(Provider, Subject)`; do not run old and new identity code against the upgraded DB together.
 - Never deploy production Friday evening or before long holiday except approved emergency hotfix.
 - Never run migration `Down` in production. Production rollback restores verified backup.
 
@@ -75,7 +78,7 @@ Use isolated staging DB. Never point rehearsal at production.
 3. Record explicit reset approval.
 4. Stop application traffic and background dispatchers.
 5. DBA resets only approved staging `VCentralPay` target using organization procedure.
-6. Run bootstrap and four migrations: `InitialSchema -> SecurityObjects -> SeedData -> OneBasedPersistedEnumStorage`.
+6. Run all 17 migrations in timestamp order through `20260816162306_MicrosoftOidcProviderDiscriminator`.
 7. Run `docker/bootstrap/assert-fresh-db.sql`.
 8. Start API and run smoke path below.
 9. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.
@@ -97,7 +100,146 @@ Required staging smoke:
 Repository rehearsal evidence: `.ai/specs/merchant-commerce-erd-reset/STAGING-EVIDENCE.md`. Production approval needs
 fresh environment-specific evidence URI; repository evidence is not substitute.
 
-## 5. Deploy
+## 5. Microsoft Entra rollout preflight
+
+Microsoft Entra is opt-in in `docker-compose.prod.yml`. Current compose still requires both Google client IDs and
+Google secret files; enabling Microsoft adds a provider, it does not remove Google. Any provider removal needs a
+separate reviewed change and user-impact plan.
+
+### 5.1 Identity and frontend contract
+
+Complete these checks before changing production:
+
+1. Admin SPA approval, rejection and registration-history routes send internal `merchantUserId` GUID.
+2. Admin SPA does not send Entra `oid`, Google `sub` or raw `Subject` as `{merchantUserId}`.
+3. Existing Google identities remain Google identities; migration backfills `Provider=google`.
+4. Google and Microsoft identities are not linked automatically, even when email addresses match.
+5. First-admin Microsoft allowlist uses `microsoft:<oid>`; a bare allowlist value means Google.
+6. Tier 0 has an employee test account already provisioned or explicitly allowlisted.
+7. Tier 1 has a full test identity that can register, wait for approval, receive approval and login again.
+
+Do not enable Microsoft for existing users until product/operations decides how duplicate cross-provider accounts are
+handled. Matching by email is intentionally not used because the Microsoft email claim is mutable and unverified.
+
+### 5.2 Runtime configuration
+
+| Tier | Compose variables | Mounted secret file | Public callback |
+|---|---|---|---|
+| Tier 0 Admin | `ADMIN_ENTRA_CLIENT_ID`, `ADMIN_ENTRA_AUTHORITY` | `secrets/admin_entra_client_secret` | `https://<api-origin>/api/v1/admins/auth/microsoft/callback` |
+| Tier 1 Merchant | `MERCHANT_ENTRA_CLIENT_ID`, `MERCHANT_ENTRA_AUTHORITY` | `secrets/merchant_entra_client_secret` | `https://<api-origin>/api/v1/merchants/auth/microsoft/callback` |
+
+Authority rules:
+
+- Admin: `https://login.microsoftonline.com/<tenant-id>/v2.0`.
+- Merchant: `https://<tenant>.ciamlogin.com/<tenant-id>/v2.0`.
+- Authority must pin one tenant and end with `/v2.0`.
+- `/common`, `/organizations` and `/consumers` are forbidden.
+
+Secret rules:
+
+- Store client secret `Value`, never `Secret ID`.
+- Create each secret file with one value and no explanatory text.
+- Set file mode `0600`; never put secret value in `.env`, compose, image, log, ticket or release evidence.
+- Revoke any secret previously shown in chat, terminal transcript, screenshot or source history.
+- Secret files must exist even when Entra is disabled; empty placeholders are allowed only while matching Client ID is blank.
+
+Verify file presence without printing content:
+
+```bash
+test -f secrets/admin_entra_client_secret
+test -f secrets/merchant_entra_client_secret
+test -s secrets/admin_entra_client_secret
+test -s secrets/merchant_entra_client_secret
+```
+
+Azure application configuration:
+
+1. Register each callback as platform type `Web`, not `SPA` or public client.
+2. Match scheme, host, port, path and case exactly.
+3. Tier 1 sign-up/sign-in user flow must be linked to the Merchant application.
+4. Tier 1 must enable the intended identity provider and Email one-time passcode policy.
+5. Tier 1 token must contain `oid` and either `email` or email-shaped `preferred_username`; `tid` is required when
+   `AllowedTenants` is configured.
+6. Test through the application's `/login` endpoint; Portal `Run user flow` alone does not prove backend correlation,
+   code redemption or session creation.
+
+### 5.3 Reverse proxy and cookies
+
+OIDC creates callback URLs from the browser-facing request. The reverse proxy must:
+
+- terminate TLS on the public HTTPS origin;
+- preserve the public `Host`;
+- send `X-Forwarded-Proto=https` and `X-Forwarded-Host`;
+- be the exact trusted proxy/network configured by `FORWARDED_HEADERS_KNOWN_NETWORK` or `KnownProxies`;
+- allow `POST` to both Microsoft callback paths because OIDC uses `response_mode=form_post`;
+- preserve `Set-Cookie` and callback `Cookie` headers without rewriting their security attributes;
+- never trust wildcard proxy CIDRs such as `0.0.0.0/0` or `::/0`.
+
+Admin and Merchant SPA origins must match `ADMIN_FRONTEND_ORIGIN` and `MERCHANT_USER_FRONTEND_ORIGIN`. Outside
+Development, Data Protection keys must persist in the control-plane DB and be shared by every API instance; otherwise
+correlation cookies and sessions fail across restart/instance boundaries.
+
+### 5.4 Database preflight
+
+Run these read-only queries against the exact target before backup and migration:
+
+```sql
+SELECT COUNT_BIG(*) AS OrphanTargetAudits
+FROM merch.RegistrationAudits ra
+LEFT JOIN merch.Users u ON u.Subject = ra.TargetSubject
+WHERE u.Id IS NULL;
+
+SELECT COUNT_BIG(*) AS OrphanAdminActors
+FROM merch.RegistrationAudits ra
+LEFT JOIN admin.Users a ON a.Subject = ra.ActorSubject
+WHERE ra.Action IN (N'approved', N'rejected', N'revealed', N'suspended')
+  AND a.Id IS NULL;
+
+SELECT COUNT_BIG(*) AS RegistrationAuditRows
+FROM merch.RegistrationAudits;
+```
+
+Both orphan counts must be `0`. The migration stops before completing if either count is non-zero. Record the audit-row
+count to size the migration window; the migration backfills `TargetUserId` and `ActorAdminId`, changes identity indexes
+to `(Provider, Subject)`, then adds a foreign key.
+
+Rollout order:
+
+1. Prove the same migration and OIDC flow on a restored staging copy.
+2. Verify frontend contract and both public callback URIs.
+3. Close incoming traffic and stop every old API/background dispatcher.
+4. Create and verify the production backup and checksum.
+5. Apply all migrations once with the one-shot `migrate` service.
+6. Start only the new API version and verify health.
+7. Open traffic gradually and run the authentication smoke below.
+
+Do not use a rolling mixed-version deployment for this migration. After two providers share the same subject, migration
+`Down` intentionally blocks because the old subject-only unique index cannot be restored. Production rollback restores
+the verified backup and previous compatible application tag.
+
+### 5.5 Staging authentication smoke
+
+Tier 1 must prove the complete lifecycle, not only the Entra consent page:
+
+1. Start at `/api/v1/merchants/auth/microsoft/login`.
+2. Complete email/OTP and consent in one browser session.
+3. New identity redirects to Merchant SPA `/register?ticket=<redacted>`.
+4. Submit registration and verify `201` with `PendingApproval`.
+5. Admin approves using internal `merchantUserId`.
+6. Login again and verify dashboard redirect, session cookie and authenticated
+   `/api/v1/merchants/users/me` response.
+
+Tier 0 must prove:
+
+1. Start at `/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
+2. Login with workforce-tenant employee account.
+3. Verify tenant/issuer rejection using an account outside the pinned tenant.
+4. Verify dashboard redirect, admin session and permission-scoped `/api/v1/admins/me` response.
+
+Capture status, `Location`, correlation ID, Entra error code and timestamp only. Redact query tickets, authorization code,
+state, nonce, cookies, ID token, OTP and client secret.
+
+## 6. Deploy
 
 Render config before changing environment:
 
@@ -129,7 +271,7 @@ assertion, secret check or health check.
 After boot, rerun production-safe smoke reads and one approved synthetic transaction. Do not use real customer PII.
 Record deployment SHA/tag, migration history, health output, smoke result and operator in release evidence.
 
-## 6. Rollback
+## 7. Rollback
 
 Trigger rollback when migration, health, authorization, payment or smoke gate fails.
 
@@ -151,19 +293,19 @@ dotnet ef database update 0 --context PolDbContext \
 
 Production rollback is backup restore, never this command.
 
-## 7. Seq and operational telemetry
+## 8. Seq and operational telemetry
 
 Seq is required startup dependency for denial/authz telemetry. Keep it internal, authenticated and retained per policy.
 Alert on authorization denials, reconciliation-required payment events, migration refusal, outbox poison and repeated
 dependency failure. Logs must not contain token, password, credential, KYC object key or customer PII.
 
-## 8. Credential rotation
+## 9. Credential rotation
 
 Runtime uses `pol_app`; `sa` is bootstrap/migration only. Rotate DB passwords and vault keys through secret manager,
 update secret files atomically, restart service and verify health. Keep previous vault decrypt key until all blobs are
 re-encrypted and audited. Credential incident requires rotate/revoke; deleting Git history is insufficient.
 
-## 9. Consumer cutover
+## 10. Consumer cutover
 
 Frontend changes happen in separate frontend repositories and PRs. Contract package:
 
