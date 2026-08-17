@@ -242,6 +242,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("PositionId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("google");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -274,7 +281,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PositionId");
 
-                    b.HasIndex("Subject")
+                    b.HasIndex("Provider", "Subject")
                         .IsUnique()
                         .HasFilter("[Subject] IS NOT NULL");
 
@@ -1959,6 +1966,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<Guid?>("ActorAdminId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("ActorSubject")
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
@@ -1987,9 +1997,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<Guid>("TargetUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("TargetSubject");
+                    b.HasIndex("TargetUserId");
 
                     b.ToTable("RegistrationAudits", "merch");
                 });
@@ -2188,6 +2201,13 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("google");
+
                     b.Property<string>("SaleCode")
                         .HasMaxLength(20)
                         .IsUnicode(false)
@@ -2207,7 +2227,7 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Subject")
+                    b.HasIndex("Provider", "Subject")
                         .IsUnique();
 
                     b.ToTable("Users", "merch");
@@ -3214,6 +3234,15 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasOne("Merchants.Domain.Users.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Merchants.Domain.Users.RegistrationAudit", b =>
+                {
+                    b.HasOne("Merchants.Domain.Users.User", null)
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

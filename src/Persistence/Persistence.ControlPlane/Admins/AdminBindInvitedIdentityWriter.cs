@@ -19,13 +19,14 @@ internal enum BindInvitedOutcome
 
 internal interface IBindInvitedAdminIdentity
 {
-    Task<BindInvitedOutcome> BindAsync(string subject, string email, CancellationToken cancellationToken);
+    Task<BindInvitedOutcome> BindAsync(string provider, string subject, string email, CancellationToken cancellationToken);
 }
 
 internal sealed class AdminBindInvitedIdentityWriter(ControlPlaneDbContext db) : IBindInvitedAdminIdentity
 {
-    public async Task<BindInvitedOutcome> BindAsync(string subject, string email, CancellationToken cancellationToken)
+    public async Task<BindInvitedOutcome> BindAsync(string provider, string subject, string email, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
 
@@ -35,7 +36,7 @@ internal sealed class AdminBindInvitedIdentityWriter(ControlPlaneDbContext db) :
         if (account.Subject is not null)
             return BindInvitedOutcome.AlreadyBound;
 
-        account.BindSubject(subject);
+        account.BindSubject(provider, subject);
         await db.SaveChangesAsync(cancellationToken);
         return BindInvitedOutcome.Bound;
     }

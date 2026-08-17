@@ -9,6 +9,7 @@ using Persistence.MerchantUsers;
 using Persistence.MerchantUsers.Outbox;
 using Persistence.MerchantUsers.Users;
 using MerchantUserAccount = Merchants.Domain.Users.User;
+using SharedKernel;
 
 namespace Architecture.Tests;
 
@@ -211,7 +212,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         await SeedViaSubmitAsync("lc-pending");
 
         using var scope = SelfServiceScope();
-        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-pending"), CancellationToken.None);
+        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-pending")), CancellationToken.None);
 
         Assert.Equal(LoginOutcome.PendingApproval, result.Outcome);
     }
@@ -223,7 +224,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         await MutateSeededAsync("lc-rejected", a => a.Reject(DateTime.UtcNow));
 
         using var scope = SelfServiceScope();
-        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-rejected"), CancellationToken.None);
+        var result = await scope.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-rejected")), CancellationToken.None);
 
         Assert.Equal(LoginOutcome.Rejected, result.Outcome);
     }
@@ -255,11 +256,12 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     [Fact]
     public async Task An_admin_reject_finds_the_pending_target_and_records_the_reason()
     {
-        await SeedViaSubmitAsync("lc-adm-reject");
+        var targetId = await SeedViaSubmitAsync("lc-adm-reject");
 
         using var scope = AdminPlaneScope();
         var result = await scope.RejectHandler().Handle(
-            new RejectCommand("lc-adm-reject", "incomplete documents", "admin-sub", "corr-reject"), CancellationToken.None);
+            new RejectCommand(targetId, "incomplete documents", "admin-sub", "corr-reject", ActingAdminId),
+            CancellationToken.None);
 
         Assert.Equal(UserStatus.Rejected, result.Status);
         var row = await LoadAsync("lc-adm-reject");
@@ -276,11 +278,11 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     [Fact]
     public async Task An_admin_approve_activates_binds_the_merchant_and_assigns_the_role()
     {
-        await SeedViaSubmitAsync("lc-adm-approve");
+        var targetId = await SeedViaSubmitAsync("lc-adm-approve");
 
         using var scope = AdminPlaneScope();
         var result = await scope.ApproveHandler().Handle(
-            new ApproveCommand("lc-adm-approve", MerchantA, ["merchant_manager"], "admin-sub", ActingAdminId, "corr-approve"),
+            new ApproveCommand(targetId, MerchantA, ["merchant_manager"], "admin-sub", ActingAdminId, "corr-approve"),
             CancellationToken.None);
 
         Assert.Equal(UserStatus.Active, result.Status);
@@ -313,36 +315,39 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     [Fact]
     public async Task Full_lifecycle_register_reject_resubmit_approve_ends_active()
     {
+        Guid fullId;
         using (var s = SelfServiceScope())
-            await s.SubmitHandler().Handle(Submission("lc-full", TicketPurpose.Registration), CancellationToken.None);
+            fullId = (await s.SubmitHandler().Handle(
+                Submission("lc-full", TicketPurpose.Registration), CancellationToken.None)).UserId;
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.PendingApproval,
-                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None)).Outcome);
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None)).Outcome);
 
         using (var s = AdminPlaneScope())
             await s.RejectHandler().Handle(
-                new RejectCommand("lc-full", "photo unreadable", "admin-sub", "corr-1"), CancellationToken.None);
+                new RejectCommand(fullId, "photo unreadable", "admin-sub", "corr-1", ActingAdminId),
+                CancellationToken.None);
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.Rejected,
-                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None)).Outcome);
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None)).Outcome);
 
         using (var s = SelfServiceScope())
             await s.SubmitHandler().Handle(Submission("lc-full", TicketPurpose.Correction), CancellationToken.None);
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.PendingApproval,
-                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None)).Outcome);
+                (await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None)).Outcome);
 
         using (var s = AdminPlaneScope())
             await s.ApproveHandler().Handle(
-                new ApproveCommand("lc-full", MerchantB, ["merchant_manager"], "admin-sub", ActingAdminId, "corr-2"),
+                new ApproveCommand(fullId, MerchantB, ["merchant_manager"], "admin-sub", ActingAdminId, "corr-2"),
                 CancellationToken.None);
 
         using (var s = SelfServiceScope())
         {
-            var final = await s.ResolveLoginHandler().Handle(new ResolveLoginQuery("lc-full"), CancellationToken.None);
+            var final = await s.ResolveLoginHandler().Handle(new ResolveLoginQuery(new ProviderIdentity("google", "lc-full")), CancellationToken.None);
             Assert.Equal(LoginOutcome.Active, final.Outcome);
             Assert.Equal(MerchantB, final.Resolution!.MerchantId);
         }
@@ -361,7 +366,8 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using (var s = AdminPlaneScope())
             await s.RejectHandler().Handle(
-                new RejectCommand("lc-history", "photo unreadable", "admin-sub", "corr-1"), CancellationToken.None);
+                new RejectCommand(userId, "photo unreadable", "admin-sub", "corr-1", ActingAdminId),
+                CancellationToken.None);
 
         using (var s = SelfServiceScope())
             await s.SubmitHandler().Handle(Submission("lc-history", TicketPurpose.Correction), CancellationToken.None);
@@ -369,7 +375,7 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         using (var s = AdminPlaneScope())
         {
             var history = await s.HistoryHandler().Handle(
-                new GetRegistrationHistoryQuery("lc-history", Reveal: false, "admin-sub", "corr-h",
+                new GetRegistrationHistoryQuery(userId, Reveal: false, "admin-sub", ActingAdminId, "corr-h",
                     IsUnrestrictedAdmin: true, AccessibleMerchantIds: new HashSet<Guid>()),
                 CancellationToken.None);
 
@@ -405,19 +411,20 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
         // Two admin requests load the SAME pending subject concurrently. The reject's snapshot is stale by
         // the time it saves (the approve committed first) — the Status/MerchantId concurrency tokens must
         // fail its WHOLE transaction, never let it stamp Rejected over an Active, merchant-bound account.
-        await SeedViaSubmitAsync("lc-race-reject");
+        var raceRejectId = await SeedViaSubmitAsync("lc-race-reject");
 
         using var staleScope = AdminPlaneScope();
-        var stale = await staleScope.Store.FindBySubjectAsync("lc-race-reject", CancellationToken.None);
+        var stale = await staleScope.Store.FindByIdentityAsync(new ProviderIdentity("google", "lc-race-reject"), CancellationToken.None);
 
         using (var winner = AdminPlaneScope())
             await winner.ApproveHandler().Handle(
-                new ApproveCommand("lc-race-reject", MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
+                new ApproveCommand(raceRejectId, MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
                 CancellationToken.None);
 
         stale!.Reject(DateTime.UtcNow);
         staleScope.Audits.Append(RegistrationAudit.For(
-            RegistrationAuditAction.Rejected, "lc-race-reject", "corr-l", DateTime.UtcNow, actorSubject: "admin-2"));
+            RegistrationAuditAction.Rejected, stale.Id, "lc-race-reject", "corr-l", DateTime.UtcNow,
+            actorAdminId: ActingAdminId, actorSubject: "admin-2"));
         await Assert.ThrowsAsync<ConcurrencyConflictException>(
             () => staleScope.UnitOfWork.SaveChangesAsync(CancellationToken.None));
 
@@ -432,14 +439,14 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     [Fact]
     public async Task A_stale_second_approve_cannot_double_bind_merchants()
     {
-        await SeedViaSubmitAsync("lc-race-approve");
+        var raceApproveId = await SeedViaSubmitAsync("lc-race-approve");
 
         using var staleScope = AdminPlaneScope();
-        var stale = await staleScope.Store.FindBySubjectAsync("lc-race-approve", CancellationToken.None);
+        var stale = await staleScope.Store.FindByIdentityAsync(new ProviderIdentity("google", "lc-race-approve"), CancellationToken.None);
 
         using (var winner = AdminPlaneScope())
             await winner.ApproveHandler().Handle(
-                new ApproveCommand("lc-race-approve", MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
+                new ApproveCommand(raceApproveId, MerchantA, ["merchant_manager"], "admin-1", ActingAdminId, "corr-w"),
                 CancellationToken.None);
 
         // A DIFFERENT role id than the winner's: the (UserId, RoleId) unique index therefore cannot
@@ -462,23 +469,24 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
     [Fact]
     public async Task The_filtered_repository_hides_null_merchant_rows_from_every_actor_by_design()
     {
-        await SeedViaSubmitAsync("lc-pin-pending");
+        var pendingId = await SeedViaSubmitAsync("lc-pin-pending");
 
         // Unbound (CurrentMerchant == Guid.Empty) and bound both miss a NULL-MerchantId row: this is the
         // deny-default read floor working as specified — which is exactly why pre-bind flows need their own
-        // filter-free seam instead of IUserRepository.
+        // filter-free seam instead of IUserRepository. (Lookup is by id — the subject-only repository lookup
+        // was retired with the (Provider, Subject) discriminator; the filter, not the key, is the pin here.)
         using (var unbound = NewContext(FakeActorContext.Unbound, FakeWriteAuthorizer.AllowAll))
-            Assert.Null(await new MerchantUserRepository(unbound).FindBySubjectAsync("lc-pin-pending", CancellationToken.None));
+            Assert.Null(await new MerchantUserRepository(unbound).FindByIdAsync(pendingId, CancellationToken.None));
         using (var bound = NewContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
-            Assert.Null(await new MerchantUserRepository(bound).FindBySubjectAsync("lc-pin-pending", CancellationToken.None));
+            Assert.Null(await new MerchantUserRepository(bound).FindByIdAsync(pendingId, CancellationToken.None));
 
         // B2: a bound in-session actor sees its OWN merchant's rows and nobody else's.
-        await SeedViaSubmitAsync("lc-pin-active");
+        var activeId = await SeedViaSubmitAsync("lc-pin-active");
         await MutateSeededAsync("lc-pin-active", a => a.Approve(MerchantA, DateTime.UtcNow));
 
         using (var own = NewContext(FakeActorContext.For(MerchantA), FakeWriteAuthorizer.AllowAll))
-            Assert.NotNull(await new MerchantUserRepository(own).FindBySubjectAsync("lc-pin-active", CancellationToken.None));
+            Assert.NotNull(await new MerchantUserRepository(own).FindByIdAsync(activeId, CancellationToken.None));
         using (var other = NewContext(FakeActorContext.For(MerchantB), FakeWriteAuthorizer.AllowAll))
-            Assert.Null(await new MerchantUserRepository(other).FindBySubjectAsync("lc-pin-active", CancellationToken.None));
+            Assert.Null(await new MerchantUserRepository(other).FindByIdAsync(activeId, CancellationToken.None));
     }
 }

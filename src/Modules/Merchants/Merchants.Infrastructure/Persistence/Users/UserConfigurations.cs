@@ -17,6 +17,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
     {
         builder.ToTable("Users", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
+        // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
+        // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Google);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
@@ -36,7 +39,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
         builder.Property(x => x.PhotoContentType).HasMaxLength(128);
         builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
-        builder.HasIndex(x => x.Subject).IsUnique(); // a subject maps to at most one account (REQ-1.4)
+        builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // one account per provider identity (REQ-4.6)
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
     }
 }
@@ -61,6 +64,10 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.ToTable("RegistrationAudits", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasMaxLength(64).IsRequired();
+        // Canonical target key (microsoft-oidc-ciam-alignment REQ-4.8) — subjects are no longer unique across
+        // providers, so the timeline reads by internal id; the FK proves every audit row points at a real user.
+        builder.Property(x => x.TargetUserId).IsRequired();
+        builder.Property(x => x.ActorAdminId); // canonical actor for admin actions (REQ-4.9); NULL = self-service
         builder.Property(x => x.ActorSubject).HasMaxLength(256);
         builder.Property(x => x.TargetSubject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Role).HasMaxLength(64);
@@ -68,9 +75,10 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.MerchantId);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
-        // The registration-history timeline filters by TargetSubject on every request; the audit table grows
+        builder.HasOne<User>().WithMany().HasForeignKey(x => x.TargetUserId).OnDelete(DeleteBehavior.Restrict);
+        // The registration-history timeline filters by TargetUserId on every request; the audit table grows
         // platform-wide, so an unindexed scan would degrade with total registrations, not per-user history.
-        builder.HasIndex(x => x.TargetSubject);
+        builder.HasIndex(x => x.TargetUserId);
     }
 }
 

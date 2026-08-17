@@ -27,7 +27,7 @@ public sealed class PlatformUserSfsTests
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     private static User Super(string email, DateTime createdAt) =>
-        User.SelfProvision(Guid.NewGuid().ToString("N"), email, createdAt);
+        User.SelfProvision("google", Guid.NewGuid().ToString("N"), email, createdAt);
     private static User Scoped(string email, DateTime createdAt) =>
         User.CreateScoped(email, createdAt);
 

@@ -75,7 +75,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
         await using var db = ControlPlaneFactory(connection);
 
         var admin = tier == Tier.Super
-            ? User.SelfProvision($"sub-{Guid.NewGuid():N}", $"{Guid.NewGuid():N}@example.com", DateTime.UtcNow)
+            ? User.SelfProvision("google", $"sub-{Guid.NewGuid():N}", $"{Guid.NewGuid():N}@example.com", DateTime.UtcNow)
             : User.CreateScoped($"{Guid.NewGuid():N}@example.com", DateTime.UtcNow);
         db.Users.Add(admin);
         await db.SaveChangesAsync();

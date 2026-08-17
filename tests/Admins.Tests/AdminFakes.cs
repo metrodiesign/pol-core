@@ -6,6 +6,7 @@ using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
+using SharedKernel;
 
 namespace Admins.Tests;
 
@@ -18,8 +19,8 @@ internal sealed class FakePlatformUserRepository : IUserRepository
     public void AddAssignment(MerchantAccess assignment) => Assignments.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => Assignments.RemoveAll(a => a.Id == assignment.Id);
 
-    public Task<User?> GetBySubjectAsync(string subject, CancellationToken ct) =>
-        Task.FromResult(Accounts.FirstOrDefault(a => a.Subject == subject));
+    public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
+        Task.FromResult(Accounts.FirstOrDefault(a => a.Provider == identity.Provider && a.Subject == identity.Subject));
     public Task<User?> GetByEmailAsync(string email, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Email == email));
     public Task<User?> GetByIdAsync(Guid id, CancellationToken ct) =>

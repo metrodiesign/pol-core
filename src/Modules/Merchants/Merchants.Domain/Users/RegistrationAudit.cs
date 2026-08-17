@@ -19,17 +19,25 @@ public static class RegistrationAuditAction
 
 /// <summary>
 /// Append-only record of a sensitive merchant-user identity/assignment change. Registration, approval,
-/// rejection, and suspension are all traceable: <see cref="ActorSubject"/> is the acting admin's subject (NULL
-/// for a self-service registration with no admin actor), <see cref="TargetSubject"/> is the merchant user acted on.
-/// Control-plane (no merchant predicate); insert-only; never holds a secret, token, or ticket.
+/// rejection, and suspension are all traceable: <see cref="TargetUserId"/> is the canonical target key (subjects
+/// are no longer unique across providers — microsoft-oidc-ciam-alignment REQ-4.8), <see cref="ActorAdminId"/> the
+/// canonical actor for admin-performed actions (REQ-4.9). <see cref="ActorSubject"/>/<see cref="TargetSubject"/>
+/// remain display-only. Control-plane (no merchant predicate); insert-only; never holds a secret, token, or ticket.
 /// </summary>
 public sealed class RegistrationAudit : Entity<Guid>
 {
     public string Action { get; private set; } = default!;
 
-    /// <summary>The acting admin's subject; NULL for an actor-less self-service registration.</summary>
+    /// <summary>The merchant user acted on — the canonical read key of the history timeline (REQ-4.8).</summary>
+    public Guid TargetUserId { get; private set; }
+
+    /// <summary>The acting admin's internal id; NULL only for actor-less self-service actions (REQ-4.9).</summary>
+    public Guid? ActorAdminId { get; private set; }
+
+    /// <summary>Display-only — the acting admin's subject; NULL for an actor-less self-service registration.</summary>
     public string? ActorSubject { get; private set; }
 
+    /// <summary>Display-only — the target's subject at the time of the action.</summary>
     public string TargetSubject { get; private set; } = default!;
 
     /// <summary>The role assigned at approval; NULL for non-approval events.</summary>
@@ -46,10 +54,13 @@ public sealed class RegistrationAudit : Entity<Guid>
 
     private RegistrationAudit() { }
 
-    private RegistrationAudit(Guid id, string action, string? actorSubject, string targetSubject, string? role,
-        string? reason, Guid? merchantId, string correlationId, DateTime occurredAt) : base(id)
+    private RegistrationAudit(Guid id, string action, Guid targetUserId, Guid? actorAdminId, string? actorSubject,
+        string targetSubject, string? role, string? reason, Guid? merchantId, string correlationId,
+        DateTime occurredAt) : base(id)
     {
         Action = action;
+        TargetUserId = targetUserId;
+        ActorAdminId = actorAdminId;
         ActorSubject = actorSubject;
         TargetSubject = targetSubject;
         Role = role;
@@ -59,14 +70,22 @@ public sealed class RegistrationAudit : Entity<Guid>
         OccurredAt = occurredAt;
     }
 
-    /// <summary>Builds an audit row for one of <see cref="RegistrationAuditAction"/>.</summary>
-    public static RegistrationAudit For(string action, string targetSubject, string correlationId, DateTime occurredAt,
-        string? actorSubject = null, string? role = null, Guid? merchantId = null, string? reason = null)
+    /// <summary>Builds an audit row for one of <see cref="RegistrationAuditAction"/>. <paramref name="actorAdminId"/>
+    /// is REQUIRED for admin-performed actions (approve/reject/reveal/suspend) — null only for self-service.</summary>
+    public static RegistrationAudit For(string action, Guid targetUserId, string targetSubject, string correlationId,
+        DateTime occurredAt, Guid? actorAdminId = null, string? actorSubject = null, string? role = null,
+        Guid? merchantId = null, string? reason = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetSubject);
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
-        return new RegistrationAudit(Guid.NewGuid(), action, actorSubject, targetSubject, role, reason, merchantId,
-            correlationId, occurredAt);
+        if (targetUserId == Guid.Empty)
+            throw new ArgumentException("TargetUserId is required.", nameof(targetUserId));
+        if (action is RegistrationAuditAction.Approved or RegistrationAuditAction.Rejected
+                or RegistrationAuditAction.Revealed or RegistrationAuditAction.Suspended
+            && actorAdminId.GetValueOrDefault() == Guid.Empty)
+            throw new ArgumentException("ActorAdminId is required for admin-performed actions.", nameof(actorAdminId));
+        return new RegistrationAudit(Guid.NewGuid(), action, targetUserId, actorAdminId, actorSubject, targetSubject,
+            role, reason, merchantId, correlationId, occurredAt);
     }
 }

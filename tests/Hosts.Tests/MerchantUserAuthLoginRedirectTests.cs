@@ -33,6 +33,7 @@ file sealed class MerchantUserLoginFactory : WebApplicationFactory<ApiHost::Prog
         builder.UseSetting("MerchantAuth:Providers:Google:ClientId", ClientId);
         builder.UseSetting("MerchantAuth:Providers:Google:ClientSecret", "test-secret");
         builder.UseSetting("MerchantAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", "");
         builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) =>

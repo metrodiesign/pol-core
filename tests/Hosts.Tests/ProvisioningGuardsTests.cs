@@ -78,7 +78,7 @@ public sealed class ProvisioningGuardsTests
     [Theory]
     [InlineData("https://api.example.com")]
     [InlineData("https://api.example.com/")]   // trailing slash is the adapter's problem, not the guard's
-    [InlineData("http://localhost:5100")]      // a non-prod deploy behind a plain-http proxy still boots
+    [InlineData("http://api.internal:8080")]  // a non-prod deploy behind a plain-http proxy still boots
     public void An_absolute_public_base_url_passes(string publicBaseUrl)
     {
         ApiHost::ProvisioningGuards.RequirePublicBaseUrl(Psp(publicBaseUrl));
@@ -122,7 +122,7 @@ public sealed class ProvisioningGuardsTests
         var config = Oidc(
             ("MerchantAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
             ("MerchantAuth:Providers:Microsoft:ClientSecret", clientSecret),
-            ("MerchantAuth:Providers:Microsoft:Authority", "https://login.microsoftonline.com/organizations/v2.0"),
+            ("MerchantAuth:Providers:Microsoft:Authority", "https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0"),
             ("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback"));
         Assert.Throws<InvalidOperationException>(() =>
             ApiHost::ProvisioningGuards.RequireOidcProviders(config, "MerchantAuth", requireAtLeastOne: false));
@@ -166,29 +166,43 @@ public sealed class ProvisioningGuardsTests
             ApiHost::ProvisioningGuards.RequireOidcProviders(duplicated, "AdminAuth", requireAtLeastOne: true));
     }
 
-    [Fact]
-    public void An_admin_microsoft_multi_tenant_authority_requires_an_allowed_tenants_allowlist()
+    // REQ-3.1/6.6: issuer validation is the framework default against the Authority's metadata issuer, so a
+    // multi-tenant Authority would admit ANY Entra tenant — rejected for BOTH planes, and AllowedTenants (an
+    // optional EXTRA gate) does not excuse it.
+    [Theory]
+    [InlineData("AdminAuth", "/common")]
+    [InlineData("AdminAuth", "/organizations")]
+    [InlineData("AdminAuth", "/consumers")]
+    [InlineData("MerchantAuth", "/common")]
+    [InlineData("MerchantAuth", "/organizations")]
+    [InlineData("MerchantAuth", "/consumers")]
+    public void A_microsoft_multi_tenant_authority_is_rejected_for_both_planes(string section, string tenantSegment)
     {
         (string, string?)[] Base(string authority, params (string, string?)[] extra) =>
         [
-            ("AdminAuth:Providers:Microsoft:ClientId", "an-entra-app-id"),
-            ("AdminAuth:Providers:Microsoft:ClientSecret", "an-injected-secret"),
-            ("AdminAuth:Providers:Microsoft:Authority", authority),
-            ("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback"),
+            ($"{section}:Providers:Microsoft:ClientId", "an-entra-app-id"),
+            ($"{section}:Providers:Microsoft:ClientSecret", "an-injected-secret"),
+            ($"{section}:Providers:Microsoft:Authority", authority),
+            ($"{section}:Providers:Microsoft:CallbackPath", "/api/v1/x/auth/microsoft/callback"),
             .. extra,
         ];
+        var authority = $"https://login.microsoftonline.com{tenantSegment}/v2.0";
 
         Assert.Throws<InvalidOperationException>(() => ApiHost::ProvisioningGuards.RequireOidcProviders(
-            Oidc(Base("https://login.microsoftonline.com/organizations/v2.0")), "AdminAuth", requireAtLeastOne: true));
+            Oidc(Base(authority)), section, requireAtLeastOne: false));
 
-        // ...allowed with an explicit tid allowlist, or with a tenant-pinned Authority.
-        ApiHost::ProvisioningGuards.RequireOidcProviders(
-            Oidc(Base("https://login.microsoftonline.com/organizations/v2.0",
-                ("AdminAuth:Providers:Microsoft:AllowedTenants:0", "3f2504e0-4f89-11d3-9a0c-0305e82c3301"))),
-            "AdminAuth", requireAtLeastOne: true);
+        // AllowedTenants does NOT rescue a multi-tenant Authority (REQ-6.6).
+        Assert.Throws<InvalidOperationException>(() => ApiHost::ProvisioningGuards.RequireOidcProviders(
+            Oidc(Base(authority, ($"{section}:Providers:Microsoft:AllowedTenants:0", "3f2504e0-4f89-11d3-9a0c-0305e82c3301"))),
+            section, requireAtLeastOne: false));
+
+        // Tenant-pinned passes: workforce for admin, CIAM for merchant.
         ApiHost::ProvisioningGuards.RequireOidcProviders(
             Oidc(Base("https://login.microsoftonline.com/3f2504e0-4f89-11d3-9a0c-0305e82c3301/v2.0")),
-            "AdminAuth", requireAtLeastOne: true);
+            section, requireAtLeastOne: false);
+        ApiHost::ProvisioningGuards.RequireOidcProviders(
+            Oidc(Base("https://viriyahexternal.ciamlogin.com/1aee3cad-1e4d-4de5-9e25-424d0d12520b/v2.0")),
+            section, requireAtLeastOne: false);
     }
 
     [Fact]

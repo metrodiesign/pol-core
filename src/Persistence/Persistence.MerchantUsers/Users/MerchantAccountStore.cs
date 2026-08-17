@@ -1,5 +1,6 @@
 using Merchants.Application.Users;
 using Microsoft.EntityFrameworkCore;
+using SharedKernel;
 using MerchantUserAccount = Merchants.Domain.Users.User;
 
 namespace Persistence.MerchantUsers.Users;
@@ -16,8 +17,9 @@ namespace Persistence.MerchantUsers.Users;
 /// </summary>
 internal sealed class MerchantAccountStore(MerchantUserDbContext db) : IAccountStore
 {
-    public Task<MerchantUserAccount?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Subject == subject, cancellationToken);
+    public Task<MerchantUserAccount?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
+        db.Users.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.Provider == identity.Provider && u.Subject == identity.Subject, cancellationToken);
 
     public Task<MerchantUserAccount?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>
         db.Users.IgnoreQueryFilters().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);

@@ -14,6 +14,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -67,7 +68,7 @@ public sealed class AdminLoginServiceTests
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)));
 
-        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
 
         var session = Assert.Single(store.Added);
         Assert.Equal(AdminId, session.AdminUserId);
@@ -86,7 +87,7 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.Suspended);
 
-        await service.EstablishSessionAsync(http, "google-sub-2", "ops@org.com", emailVerified: true, "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-2", "ops@org.com", emailVerified: true, "/dashboard", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
@@ -101,7 +102,7 @@ public sealed class AdminLoginServiceTests
         // the resolver returns NotFound (not an existing admin, not invited, not allowlisted)
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, "google-sub-3", "stranger@org.com", emailVerified: true, "/", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-3", "stranger@org.com", emailVerified: true, "/", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "not-provisioned");
@@ -112,7 +113,7 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, subject: null, email: "x@org.com", emailVerified: true, returnTo: "/", ct: default);
+        await service.EstablishSessionAsync(http, provider: "google", subject: null, email: "x@org.com", emailVerified: true, returnTo: "/", ct: default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
@@ -127,13 +128,13 @@ public sealed class AdminLoginServiceTests
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
-            spaBaseUrl: "http://localhost:5200");
-        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
-        Assert.Equal("http://localhost:5200/dashboard", http.Response.Headers.Location);
+            spaBaseUrl: "https://localhost:3001");
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
+        Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
 
-        var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "http://localhost:5200");
-        await denied.EstablishSessionAsync(deniedHttp, "google-sub-2", "ops@org.com", emailVerified: true, "/", default);
-        Assert.Equal("http://localhost:5200/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
+        var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "https://localhost:3001");
+        await denied.EstablishSessionAsync(deniedHttp, "google", "google-sub-2", "ops@org.com", emailVerified: true, "/", default);
+        Assert.Equal("https://localhost:3001/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
     }
 
     [Fact]
@@ -142,14 +143,14 @@ public sealed class AdminLoginServiceTests
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
-            spaBaseUrl: "http://localhost:5200",
-            scalarBaseUrl: "http://localhost:5100",
+            spaBaseUrl: "https://localhost:3001",
+            scalarBaseUrl: "https://localhost:5001",
             allowlist: ["/", "/dashboard", "/scalar"],
             defaultReturnPath: "/dashboard");
 
-        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
 
-        Assert.Equal("http://localhost:5100/scalar", http.Response.Headers.Location);
+        Assert.Equal("https://localhost:5001/scalar", http.Response.Headers.Location);
     }
 
     [Fact]
@@ -158,12 +159,12 @@ public sealed class AdminLoginServiceTests
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
-            spaBaseUrl: "http://localhost:5200",
+            spaBaseUrl: "https://localhost:3001",
             defaultReturnPath: "/dashboard");
 
-        await service.EstablishSessionAsync(http, "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
 
-        Assert.Equal("http://localhost:5200/dashboard", http.Response.Headers.Location);
+        Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
     }
 
     // --- harness ---
@@ -201,7 +202,7 @@ public sealed class AdminLoginServiceTests
 
     private sealed class FakeResolver(ResolveResult result) : ICallbackResolver
     {
-        public Task<ResolveResult> ResolveAtCallbackAsync(string subject, string email, bool emailVerified, string correlationId, CancellationToken ct) =>
+        public Task<ResolveResult> ResolveAtCallbackAsync(ProviderIdentity identity, string email, bool emailVerified, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);
     }
 

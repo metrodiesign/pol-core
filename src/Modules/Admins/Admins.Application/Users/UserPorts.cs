@@ -1,5 +1,6 @@
 using Admins.Domain.Users;
 using BuildingBlocks.Application;
+using SharedKernel;
 
 namespace Admins.Application.Users;
 
@@ -16,7 +17,7 @@ public interface IUserRepository
     void AddAssignment(MerchantAccess assignment);
     void RemoveAssignment(MerchantAccess assignment);
 
-    Task<User?> GetBySubjectAsync(string subject, CancellationToken cancellationToken);
+    Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken);
     Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 

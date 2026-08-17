@@ -34,6 +34,13 @@ cost tracking และ retrospective. อ่านตามลำดับส�
 - [ระบบดึงข้อมูลกรมธรรม์จากอีก 2 บริษัท (ฉบับไม่ใช้ศัพท์เทคนิค)](reference/products.md) —
   อธิบาย `Products.Application/Ports` แบบให้คนที่ไม่ได้เขียนโค้ดเข้าใจว่าทำอะไร/ทำไมต้องมี
 
+## คู่มือรันและ Deploy
+
+- [Local Development](runbooks/local-dev-run.md) — ตั้งค่า DB, migration, HTTPS, API/SPA,
+  Google/Microsoft Entra OIDC, live login, test และ troubleshooting
+- [Self-host Deployment](runbooks/deploy-self-host.md) — staging, backup, migration, Entra preflight,
+  production deploy, smoke test และ rollback
+
 ## แหล่งความจริง (source of truth) — ห้ามขัดกับไฟล์เหล่านี้
 
 | เรื่อง                                                    | ไฟล์                                             |

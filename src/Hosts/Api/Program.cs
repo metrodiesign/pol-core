@@ -342,7 +342,7 @@ builder.Services.AddConsoleSessionAuthentication();
 // Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
 builder.Services.AddHostedService<SessionPruneService>();
 
-// CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
+// CORS for the two credentialed console SPAs; the customer SPA uses a same-origin /api proxy.
 builder.Services.AddPolCors(builder.Configuration);
 
 // OpenAPI document so the SPA teams have a machine-readable contract (served in Development only). The
@@ -618,7 +618,7 @@ if (!app.Environment.IsDevelopment()
 
 // Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
 // browser-facing host/scheme, not this process's. The admin SPA dev server proxies /api/v1/admins/* here, so the OIDC
-// redirect_uri must be the SPA origin (e.g. localhost:5200) to match the registered Google redirect URI; the
+// redirect_uri must be the SPA origin (e.g. https://localhost:3001) to match the registered Google redirect URI; the
 // same applies to a TLS-terminating reverse proxy in prod (scheme must read https). Default trust = loopback
 // only, which covers the localhost dev proxy. A containerized prod proxy connects from the (non-loopback)
 // docker/private network, and .NET only honours forwarded headers from a TRUSTED peer — otherwise it silently
@@ -1967,9 +1967,16 @@ merchantAuthAnon.MapGet("/{provider}/login", (
 merchantAuthAnon.MapPost("/invitations/start", async (
     HttpRequest request, UserOidcProviders providers, IMediator mediator, CancellationToken ct) =>
 {
-    if (!request.HasFormContentType || !providers.TryGetValue("google", out var scheme))
+    if (!request.HasFormContentType)
         return Results.NotFound();
     var form = await request.ReadFormAsync(ct);
+    // ponytail: verified-email allowlist ตอนนี้มี google ตัวเดียว — Microsoft เข้าได้เมื่อมีกลไก pre-bind
+    // (provider, subject) เป็น spec แยก (B3: Entra email เป็น mutable claim จับคู่ invitation ไม่ได้)
+    var slug = form["provider"].ToString() is { Length: > 0 } requested
+        ? requested.ToLowerInvariant()
+        : Merchants.Domain.Users.ExternalLogin.Google;
+    if (slug is not Merchants.Domain.Users.ExternalLogin.Google || !providers.TryGetValue(slug, out var scheme))
+        return Results.NotFound();
     var invitation = await mediator.Send(new ResolveInvitationTokenQuery(form["token"].ToString()), ct);
     if (invitation is null)
         return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Invitation is invalid or expired.",
@@ -1980,8 +1987,8 @@ merchantAuthAnon.MapPost("/invitations/start", async (
 }).AllowAnonymous().DisableAntiforgery().RequireRateLimiting(UserAuthRateLimiting.PolicyName)
     .WithTags("การเข้าสู่ระบบ (ผู้ใช้ร้านค้า)")
     .WithName("StartMerchantUserInvitation")
-    .WithSummary("เริ่ม Google SSO จาก invitation token")
-    .WithDescription("รับ invitation token แบบ form, ตรวจว่า invitation ยังใช้ได้ แล้วเริ่ม Google OIDC โดยผูก invitationId ใน authentication state หาก token ไม่ถูกต้องหรือหมดอายุ -> 400")
+    .WithSummary("เริ่ม SSO จาก invitation token")
+    .WithDescription("รับ invitation token แบบ form พร้อม provider (ไม่ระบุ = google; รับเฉพาะ provider ที่ email verified — ปัจจุบัน google ตัวเดียว, provider อื่นหรือยังไม่ได้ตั้งค่า -> 404), ตรวจว่า invitation ยังใช้ได้ แล้วเริ่ม OIDC โดยผูก invitationId ใน authentication state หาก token ไม่ถูกต้องหรือหมดอายุ -> 400")
     .Produces(StatusCodes.Status302Found)
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status404NotFound)
@@ -2508,8 +2515,11 @@ merchantUsers.MapPut("/{merchantUserId:guid}/roles", async (
 // The Admin permission (merchant-user.approve/reject) + the accessible-merchant floor (IAdminQuery) run HERE, at the host,
 // before crossing into the MerchantUser module (critique B3) — the dispatched command receives an already-validated
 // merchant id and carries no Admin import. On the admin group, so the admin CSRF filter + Session policy apply.
-admin.MapPost("/merchants/users/{subject}/approve", async (
-    string subject, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
+// Route contract is the INTERNAL id (microsoft-oidc-ciam-alignment REQ-4.7/R1): Entra oids are GUIDs, so a
+// subject-or-id dual dispatch would eat a Microsoft subject as an internal id -> 404. A non-GUID value now
+// 404s at the route constraint; the admin SPA sends merchantUserId (rollout phase 1 done before this shipped).
+admin.MapPost("/merchants/users/{merchantUserId:guid}/approve", async (
+    Guid merchantUserId, ApproveMerchantUserRequest body, IAdminScope scope, IAdminQuery adminQuery,
     HttpContext http, IActorScope actorScope, IMediator mediator, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(body.MerchantCode))
@@ -2525,7 +2535,7 @@ admin.MapPost("/merchants/users/{subject}/approve", async (
 
     using var binding = actorScope.Begin(merchant.Id, scope.Current.AdminId);
     var result = await mediator.Send(new ApproveCommand(
-        subject, merchant.Id, body.RoleCodes ?? [],
+        merchantUserId, merchant.Id, body.RoleCodes ?? [],
         http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier,
         VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
     VersionEtags.Set(http, result.Version);
@@ -2543,12 +2553,12 @@ admin.MapPost("/merchants/users/{subject}/approve", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden);
 
-admin.MapPost("/merchants/users/{subject}/reject", async (
-    string subject, RejectMerchantUserRequest body, IAdminScope scope, HttpContext http,
+admin.MapPost("/merchants/users/{merchantUserId:guid}/reject", async (
+    Guid merchantUserId, RejectMerchantUserRequest body, IAdminScope scope, HttpContext http,
     IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new RejectCommand(
-        subject, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
+        merchantUserId, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
         scope.Current.AdminId, VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
     VersionEtags.Set(http, result.Version);
     return Results.Ok(new RejectMerchantUserResponse(result.UserId, result.Status.ToString()));
@@ -2569,14 +2579,14 @@ admin.MapPost("/merchants/users/{subject}/reject", async (
 // BEFORE building the response (fail-closed). `reveal` must keep its default — without one, a request that
 // omits ?reveal= would 400 and kill the primary masked path (B4). Returns the Application record directly:
 // enums serialize as strings via the global JsonStringEnumConverter, nothing needs reshaping (m4).
-admin.MapGet("/merchants/users/{subject}/registrations", async (
-    string subject, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct,
+admin.MapGet("/merchants/users/{merchantUserId:guid}/registrations", async (
+    Guid merchantUserId, HttpContext http, IAdminScope scope, IMediator mediator, CancellationToken ct,
     bool reveal = false) =>
 {
     // Accessible-merchant floor (REQ-2.7): threaded as primitives —
     // a merchant-bound target outside the admin's scope reads as 404 inside the handler (no existence leak).
     var result = await mediator.Send(new GetRegistrationHistoryQuery(
-        subject, reveal, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
+        merchantUserId, reveal, http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier,
         scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
     return result is null ? Results.NotFound() : Results.Ok(result);
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
@@ -3688,18 +3698,17 @@ internal static class ProvisioningGuards
                     $"{sectionName}:Providers:{provider.Key}:CallbackPath must be set and unique per provider — " +
                     "two providers sharing a callback would race the same middleware path.");
 
-            // The admin console must never accept EVERY Entra tenant: a multi-tenant Authority
-            // (common/organizations/consumers) needs an explicit AllowedTenants allowlist.
-            if (sectionName == "AdminAuth"
-                && string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)
+            // NO plane may accept EVERY Entra tenant: issuer validation is the framework default (iss == the
+            // tenant-pinned Authority's metadata issuer), so a multi-tenant Authority (common/organizations/
+            // consumers) would admit any tenant — AllowedTenants is only an OPTIONAL extra gate, not a substitute.
+            if (string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)
                 && (authority.Contains("/common", StringComparison.OrdinalIgnoreCase)
                     || authority.Contains("/organizations", StringComparison.OrdinalIgnoreCase)
-                    || authority.Contains("/consumers", StringComparison.OrdinalIgnoreCase))
-                && !provider.GetSection("AllowedTenants").GetChildren().Any(t => !string.IsNullOrWhiteSpace(t.Value)))
+                    || authority.Contains("/consumers", StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException(
-                    "AdminAuth:Providers:Microsoft with a multi-tenant Authority requires a non-empty AllowedTenants " +
-                    "allowlist — the admin console must not accept every Entra tenant. Pin the Authority to your " +
-                    "tenant id, or set AdminAuth__Providers__Microsoft__AllowedTenants__0.");
+                    $"{sectionName}:Providers:Microsoft:Authority is multi-tenant (common/organizations/consumers) — " +
+                    "not allowed: issuer validation pins the tenant via the Authority's discovery metadata. Pin it to " +
+                    $"a tenant, e.g. {sectionName}__Providers__Microsoft__Authority=https://login.microsoftonline.com/<tenant-id>/v2.0.");
 
             anyConfigured = true;
         }

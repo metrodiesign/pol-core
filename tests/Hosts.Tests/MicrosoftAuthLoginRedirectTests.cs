@@ -34,7 +34,7 @@ file sealed class MicrosoftLoginFactory : WebApplicationFactory<ApiHost::Program
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientId", AdminClientId);
         builder.UseSetting("AdminAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback");
-        builder.UseSetting("MerchantAuth:Providers:Microsoft:Authority", "https://login.microsoftonline.com/organizations/v2.0");
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:Authority", $"https://login.microsoftonline.com/{Tenant}/v2.0");
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", MerchantClientId);
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback");

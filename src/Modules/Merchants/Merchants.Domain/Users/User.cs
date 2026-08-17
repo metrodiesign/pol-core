@@ -15,7 +15,12 @@ namespace Merchants.Domain.Users;
 /// </summary>
 public sealed class User : AggregateRoot<Guid>
 {
-    /// <summary>Stable Google subject; unique across all accounts.</summary>
+    /// <summary>The identity provider slug (<see cref="ExternalLogin.Google"/>/<see cref="ExternalLogin.Microsoft"/>)
+    /// the <see cref="Subject"/> came from — identity is the PAIR <c>(Provider, Subject)</c>, never the subject alone
+    /// (microsoft-oidc-ciam-alignment REQ-4.2).</summary>
+    public string Provider { get; private set; } = default!;
+
+    /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>); unique per provider.</summary>
     public string Subject { get; private set; } = default!;
 
     /// <summary>Verified email captured from the id_token. Informational — <see cref="Subject"/> is the key.</summary>
@@ -63,8 +68,9 @@ public sealed class User : AggregateRoot<Guid>
 
     private User() { }
 
-    private User(Guid id, string subject, string email, DateTime createdAt) : base(id)
+    private User(Guid id, string provider, string subject, string email, DateTime createdAt) : base(id)
     {
+        Provider = provider;
         Subject = subject;
         Email = email;
         Status = UserStatus.PendingApproval;
@@ -77,22 +83,24 @@ public sealed class User : AggregateRoot<Guid>
         DisplayName = string.Empty;
     }
 
-    /// <summary>A new applicant registering after Google sign-in. Starts <see cref="UserStatus.PendingApproval"/>
+    /// <summary>A new applicant registering after provider sign-in (identity = the verified
+    /// <paramref name="provider"/>/<paramref name="subject"/> pair). Starts <see cref="UserStatus.PendingApproval"/>
     /// with <see cref="MerchantId"/> unset; an admin sets the merchant at approval. The person details are
     /// applied next via <see cref="SetDetails"/> / <see cref="SetPhoto"/> so the registration handler controls them.</summary>
-    public static User Register(string subject, string email, DateTime now)
+    public static User Register(string provider, string subject, string email, DateTime now)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(subject);
         ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        return new User(Guid.NewGuid(), subject.Trim(), email.Trim(), now);
+        return new User(Guid.NewGuid(), provider.Trim(), subject.Trim(), email.Trim(), now);
     }
 
     /// <summary>Registers an invited applicant already bound to the invitation's merchant.</summary>
-    public static User RegisterInvited(string subject, string email, Guid merchantId, DateTime now)
+    public static User RegisterInvited(string provider, string subject, string email, Guid merchantId, DateTime now)
     {
         if (merchantId == Guid.Empty)
             throw new ArgumentException("MerchantId is required.", nameof(merchantId));
-        var user = Register(subject, email, now);
+        var user = Register(provider, subject, email, now);
         user.MerchantId = merchantId;
         return user;
     }

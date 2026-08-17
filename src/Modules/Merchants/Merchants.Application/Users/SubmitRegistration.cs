@@ -3,6 +3,7 @@ using Contracts;
 using Mediator;
 using Merchants.Domain;
 using Merchants.Domain.Users;
+using SharedKernel;
 
 namespace Merchants.Application.Users;
 
@@ -156,7 +157,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                     // wire ticket is stateless; a duplicate subject (a replayed still-valid token or a concurrent second
                     // tab) violates the unique (Subject)/(Provider,Subject) index and the unit of work turns it into a
                     // 409 (REQ-4.6/S9).
-                    if (await _accounts.FindBySubjectAsync(command.Subject, ct) is not null)
+                    if (await _accounts.FindByIdentityAsync(new ProviderIdentity(command.Provider, command.Subject), ct) is not null)
                         throw new ConflictException(
                             "A registration already exists for this identity.", "already-registered");
 
@@ -177,8 +178,8 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                     }
 
                     account = invitation is null
-                        ? User.Register(command.Subject, command.Email, now)
-                        : User.RegisterInvited(command.Subject, command.Email, invitation.MerchantId, now);
+                        ? User.Register(command.Provider, command.Subject, command.Email, now)
+                        : User.RegisterInvited(command.Provider, command.Subject, command.Email, invitation.MerchantId, now);
                     _accounts.Add(account);
                     _logins.Add(ExternalLogin.Create(command.Subject, account.Id, command.Provider));
                     if (invitation is not null)
@@ -194,7 +195,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 {
                     // Correction resubmission (REQ-5.3/5.4/5.5): edit the EXISTING record bound to the subject —
                     // never a second user/login. Resubmit() enforces the source state is Rejected (else throws → 409).
-                    account = await _accounts.FindBySubjectAsync(command.Subject, ct)
+                    account = await _accounts.FindByIdentityAsync(new ProviderIdentity(command.Provider, command.Subject), ct)
                         ?? throw new InvalidOperationException("No registration exists for this subject to correct.");
                     account.Resubmit(now);
                     action = RegistrationAuditAction.Resubmitted;
@@ -221,7 +222,7 @@ public sealed class SubmitRegistrationHandler : ICommandHandler<SubmitRegistrati
                 // Audit + outbox event in the SAME transaction (REQ-20.2/21.1). The event carries a sentinel merchant
                 // (stamped by the writer); no actor subject — this is a self-service action. DisplayName is the
                 // domain-computed value, not a form field.
-                _audits.Append(RegistrationAudit.For(action, command.Subject, command.CorrelationId, now));
+                _audits.Append(RegistrationAudit.For(action, account.Id, command.Subject, command.CorrelationId, now));
                 _outbox.Enqueue(new MerchantUserRegistrationSubmitted(account.Id, now));
 
                 await _unitOfWork.SaveChangesAsync(ct);

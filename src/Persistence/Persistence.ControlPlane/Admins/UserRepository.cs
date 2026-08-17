@@ -3,6 +3,7 @@ using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using SharedKernel;
 
 namespace Persistence.ControlPlane.Admins;
 
@@ -24,8 +25,8 @@ internal sealed class UserRepository : IUserRepository
     public void AddAssignment(MerchantAccess assignment) => _db.MerchantAccess.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => _db.MerchantAccess.Remove(assignment);
 
-    public Task<User?> GetBySubjectAsync(string subject, CancellationToken cancellationToken) =>
-        _db.Users.FirstOrDefaultAsync(x => x.Subject == subject, cancellationToken);
+    public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
+        _db.Users.FirstOrDefaultAsync(x => x.Provider == identity.Provider && x.Subject == identity.Subject, cancellationToken);
 
     public Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);

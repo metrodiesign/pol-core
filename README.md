@@ -35,7 +35,8 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 
 ## การรัน (Local Dev)
 
-คู่มือฉบับเต็ม (Google SSO setup, troubleshooting, DB cheatsheet): `docs/runbooks/local-dev-run.md`.
+คู่มือฉบับเต็ม (DB, HTTPS, Google/Microsoft Entra OIDC, live login, testing และ troubleshooting):
+[`docs/runbooks/local-dev-run.md`](docs/runbooks/local-dev-run.md).
 ด้านล่างคือทางลัดให้รันได้เร็ว.
 
 ### Prerequisites
@@ -44,13 +45,13 @@ version pin เต็มดู `.ai/shared/CODING_STANDARDS.md`
 |---|---|
 | .NET SDK | 10.x (`dotnet --version`) |
 | Docker + Compose | ล่าสุด (รัน SQL Server 2025) |
-| `dotnet-ef` | `dotnet tool install --global dotnet-ef` |
+| `dotnet-ef` | `10.0.8` (`dotnet tool install --global dotnet-ef --version 10.0.8`) |
 
 ### First-time setup (ครั้งเดียว)
 
 ```bash
-# 1) env — copy template, ใส่ค่า LOCAL (ห้าม secret จริง). .env เป็น gitignored.
-cp .env.example .env
+# 1) env — copy template เฉพาะเมื่อยังไม่มีไฟล์ แล้วใส่ค่า local. ห้ามใช้ production secret; .env เป็น gitignored.
+test -f .env || cp .env.example .env
 #    แก้: MSSQL_SA_PASSWORD + POL_SA_PASSWORD (ค่าเดียวกัน), POL_APP_PASSWORD (ห้ามมีชื่อ login อยู่ในรหัส
 #    — pol_admin/pol_worker ถูกยุบเข้า pol_app แล้ว), POL_HIPPO_APP_PASSWORD + POL_MAMMOTH_APP_PASSWORD
 #    (principal ของ sim DB คนละตัว คนละค่ากับ pol_app — sim-db-separate-logins) รวมรหัส DB 4 ตัว,
@@ -60,7 +61,7 @@ cp .env.example .env
 #
 #    .env ที่มีอยู่ก่อน sim-db-separate-logins ต้องเติม POL_HIPPO_APP_PASSWORD/POL_MAMMOTH_APP_PASSWORD
 #    เองก่อน docker compose up (.env gitignored ไม่ sync ให้ — ค่าว่างทำให้ bootstrap sim ตายกลางคัน,
-#    ดู docs/runbooks/local-dev-run.md §2.1)
+#    ดู docs/runbooks/local-dev-run.md §3.1)
 
 # 2) git hooks (enforcement floor)
 git config core.hooksPath .githooks
@@ -92,14 +93,15 @@ dotnet ef database update --context PolDbContext \
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
 | SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
-| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
-| FE admin console (repo แยก) | `5200` | — | Next.js, proxy Admin routes ไป `:5100` ตาม [Admin control plane reference](docs/reference/admin-control-plane.md) |
-| FE merchant-user console (repo แยก) | `5300` | — | Next.js, proxy `/api/v1/merchants/*` -> `:5100` |
+| API (`src/Hosts/Api`) | `5001` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
+| FE customer (repo แยก) | `3000` (https) | — | Customer checkout/return, proxy `/api` -> `https://localhost:5001` |
+| FE admin console (repo แยก) | `3001` (https) | — | Next.js, proxy Admin routes ไป `https://localhost:5001` ตาม [Admin control plane reference](docs/reference/admin-control-plane.md) |
+| FE merchant-user console (repo แยก) | `3002` (https) | — | Next.js, proxy `/api/v1/merchants/*` -> `https://localhost:5001` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
 `App`=pol_app (connection string เดียวของ runtime, ทุก plane) · `Migrator`=sa (DDL, Dev auto-migrate).
 ไม่มี `Admin`/`Worker` แล้ว (ถอดพร้อม RLS teardown — spec `rls-to-query-filter` — และ Worker host retirement;
-รายละเอียด: `docs/runbooks/local-dev-run.md` §3/§4.3).
+รายละเอียด: `docs/runbooks/local-dev-run.md` §3-§6).
 
 > ชื่อคีย์คือ **`App`** — rf1 rename มาจาก `Producer` แล้ว (`Program.cs` เรียก `GetConnectionString("App")`).
 > คีย์เก่าที่ค้างใน `.env` / `appsettings.Development.json` ของเครื่องใครจะ **ไม่ถูกอ่านเลย** และ `App` จะตกไป
@@ -110,18 +112,19 @@ connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>
 
 ```bash
 docker compose up -d                                      # DB (ถ้ายังไม่ขึ้น)
-dotnet watch --project src/Hosts/Api/Api.csproj run       # API :5100 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
+dotnet dev-certs https --trust                            # ครั้งแรกของเครื่อง
+dotnet watch --project src/Hosts/Api/Api.csproj run       # API https://localhost:5001 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
 ```
 
 > config change (`appsettings.*.json`) / DI ต้อง **restart เต็ม** (hot reload ไม่จับ).
 > รัน API ค้างใน terminal ของคุณเอง — อย่ารันผ่าน agent background (ถูก kill).
-> Google SSO (Admin + Producer OIDC, Google Console redirect URI) ดู runbook §5.
+> Google/Microsoft Entra OIDC, local secret injection, Azure redirect URI และ live login ดู runbook §7-§11.
 
 ### เทส
 
 ```bash
 dotnet test pol-core.slnx --filter "Category!=Integration"   # unit (ไม่ต้องใช้ DB)
-source .env.integration                                      # gitignored — สร้างเอง (runbook §6)
+source .env.integration                                      # gitignored — สร้างเอง (runbook §12)
 dotnet test pol-core.slnx --filter "Category=Integration"    # integration (SQL :11433)
 ```
 

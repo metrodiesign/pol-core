@@ -166,7 +166,7 @@ public sealed class WriteFloorTests : IDisposable
         Guid userId;
         using (var write = NewContext())
         {
-            var user = MerchantUserAccount.Register("pending-subject", "pending@example.com", DateTime.UtcNow);
+            var user = MerchantUserAccount.Register("google", "pending-subject", "pending@example.com", DateTime.UtcNow);
             write.Add(user);
             await write.SaveChangesAsync(); // insert with MerchantId still NULL must succeed
             userId = user.Id;
@@ -204,7 +204,7 @@ public sealed class WriteFloorTests : IDisposable
         using (var seed = NewContext())
         {
             await seed.Database.EnsureCreatedAsync();
-            var user = MerchantUserAccount.Register("attempt-subject", "attempt@example.com", DateTime.UtcNow);
+            var user = MerchantUserAccount.Register("google", "attempt-subject", "attempt@example.com", DateTime.UtcNow);
             user.SetDetails("First", "Last", IdentityType.Individual, null, null, null, null);
             seed.Add(user);
             seed.Add(Merchants.Domain.Users.RegistrationAttempt.Capture(

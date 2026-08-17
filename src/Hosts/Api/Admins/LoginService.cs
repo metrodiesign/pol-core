@@ -4,6 +4,7 @@ using BuildingBlocks.Application;
 using Mediator;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Api.Admins;
 
@@ -13,7 +14,8 @@ namespace Api.Admins;
 internal interface ICallbackResolver
 {
     Task<ResolveResult> ResolveAtCallbackAsync(
-        string subject, string email, bool emailVerified, string correlationId, CancellationToken cancellationToken);
+        ProviderIdentity identity, string email, bool emailVerified, string correlationId,
+        CancellationToken cancellationToken);
 }
 
 internal sealed class CallbackResolver : ICallbackResolver
@@ -28,9 +30,10 @@ internal sealed class CallbackResolver : ICallbackResolver
     }
 
     public async Task<ResolveResult> ResolveAtCallbackAsync(
-        string subject, string email, bool emailVerified, string correlationId, CancellationToken cancellationToken)
+        ProviderIdentity identity, string email, bool emailVerified, string correlationId,
+        CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(new ResolveQuery(subject), cancellationToken);
+        var result = await _mediator.Send(new ResolveQuery(identity), cancellationToken);
         if (result.Outcome != ResolveOutcome.NotFound)
             return result;
 
@@ -41,16 +44,29 @@ internal sealed class CallbackResolver : ICallbackResolver
         // Microsoft invites need a (tid, oid)-based bind flow (separate spec) and fail closed here.
         if (!string.IsNullOrEmpty(email) && emailVerified)
         {
-            var bound = await _mediator.Send(new BindInvitedCommand(subject, email, correlationId), cancellationToken);
+            var bound = await _mediator.Send(new BindInvitedCommand(identity, email, correlationId), cancellationToken);
             if (bound.Outcome != ResolveOutcome.NotFound)
                 return bound;
         }
 
+        // Allowlist entries are "provider:subject"; a bare entry (no prefix) means "google" for backward compat
+        // (REQ-4.3). The CURRENT login's provider must match the entry's prefix before self-provision (REQ-4.4).
         var allowlist = _configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? [];
-        if (allowlist.Contains(subject, StringComparer.Ordinal))
-            return ResolveResult.Of(await _mediator.Send(new SelfProvisionSuperCommand(subject, email, correlationId), cancellationToken));
+        if (allowlist.Any(entry => AllowlistEntryMatches(entry, identity)))
+            return ResolveResult.Of(await _mediator.Send(
+                new SelfProvisionSuperCommand(identity, email, correlationId), cancellationToken));
 
         return ResolveResult.NotFound;
+    }
+
+    internal static bool AllowlistEntryMatches(string entry, ProviderIdentity identity)
+    {
+        var separator = entry.IndexOf(':');
+        var (entryProvider, entrySubject) = separator < 0
+            ? (User.GoogleProvider, entry)
+            : (entry[..separator].ToLowerInvariant(), entry[(separator + 1)..]);
+        return string.Equals(entryProvider, identity.Provider, StringComparison.Ordinal)
+            && string.Equals(entrySubject, identity.Subject, StringComparison.Ordinal);
     }
 }
 
@@ -102,10 +118,11 @@ internal sealed class LoginService
         TimeSpan.FromSeconds(_session.GraceSeconds));
 
     /// <summary>Establishes a session for a verified provider identity, or denies (REQ-2.5/2.6/2.7/3.1/12.1).
+    /// <paramref name="provider"/> = the lowercase provider slug ("google"/"microsoft") the identity came from.
     /// <paramref name="emailVerified"/> = the provider attested the email (Google's email_verified gate); an
     /// unverified email (Entra) is display-only and never binds an invite.</summary>
     public async Task EstablishSessionAsync(
-        HttpContext http, string? subject, string? email, bool emailVerified, string? returnTo, CancellationToken ct)
+        HttpContext http, string provider, string? subject, string? email, bool emailVerified, string? returnTo, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(subject))
         {
@@ -117,7 +134,8 @@ internal sealed class LoginService
         ResolveResult result;
         try
         {
-            result = await _resolver.ResolveAtCallbackAsync(subject, email ?? string.Empty, emailVerified, correlationId, ct);
+            result = await _resolver.ResolveAtCallbackAsync(
+                new ProviderIdentity(provider, subject), email ?? string.Empty, emailVerified, correlationId, ct);
         }
         catch (Exception ex)
         {

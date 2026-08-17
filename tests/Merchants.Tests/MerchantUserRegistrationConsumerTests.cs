@@ -6,6 +6,7 @@ using Merchants.Application.Users.Roles;
 using Merchants.Domain;
 using Merchants.Domain.Users;
 using Merchants.Domain.Users.Roles;
+using SharedKernel;
 
 namespace Merchants.Tests;
 
@@ -71,7 +72,7 @@ public sealed class MerchantUserRegistrationConsumerTests
             UserId, "g-sub-1", "p@org.com", null, UserStatus.PendingApproval,
             DisplayName: "Acme Co");
 
-        public Task<AccountSnapshot?> FindBySubjectAsync(string subject, CancellationToken cancellationToken) =>
+        public Task<AccountSnapshot?> FindByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
             Task.FromResult<AccountSnapshot?>(Account);
 
         public Task<AccountSnapshot?> FindByIdAsync(Guid id, CancellationToken cancellationToken) =>

@@ -39,9 +39,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260810153008_AdminCommerceUpdatedAtDefault'),
     (N'20260810162000_AdminCommerceOperationUpdateGrant'),
     (N'20260810184403_AdminDeliveryControlAndInboundWebhook'),
-    (N'20260811024015_AdminDeliveryRuntimeGrants');
+    (N'20260811024015_AdminDeliveryRuntimeGrants'),
+    (N'20260816162306_MicrosoftOidcProviderDiscriminator');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 16
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 17
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -50,7 +51,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 16
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 16 expected migrations through AdminDeliveryRuntimeGrants; ';
+    SET @fail += N'migration history must contain exactly 17 expected migrations through MicrosoftOidcProviderDiscriminator; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

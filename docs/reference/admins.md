@@ -15,8 +15,9 @@
 > `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section `AdminAuth:Providers:Microsoft`).
 > เอกสารนี้ตัวอย่างส่วนใหญ่ใช้ `google` ตาม scope เดิม — provider ที่ไม่รู้จัก/ไม่ได้ config -> 404.
 
-**Ports (dev):** API `http://localhost:5100` · Admin Console `http://localhost:5200` · Merchant-user Console
-`http://localhost:5300` (`Cors:AdminOrigins` / `Cors:AllowedOrigins` ใน `appsettings.Development.json`)
+**Ports (dev):** API `https://localhost:5001` · Customer SPA `https://localhost:3000` · Admin Console
+`https://localhost:3001` · Merchant-user Console `https://localhost:3002` (`Cors:AdminOrigins` /
+`Cors:AllowedOrigins` ใน `appsettings.Development.json`)
 
 **โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) และ
 [admin-control-plane.md](admin-control-plane.md) สำหรับ top-level admin operations.
@@ -64,30 +65,32 @@ backend redirect หลัง login = path บน origin เดียว แล�
 module.exports = {
   async rewrites() {
     return [
-      { source: '/api/v1/admins/:path*', destination: 'http://localhost:5100/api/v1/admins/:path*' },
+      { source: '/api/v1/admins/:path*', destination: 'https://localhost:5001/api/v1/admins/:path*' },
       // merchant provisioning ย้ายออกจาก prefix /admins แล้ว — ต้อง proxy เส้นนี้ด้วย (ดู Endpoints)
-      { source: '/api/v1/merchants/:path*', destination: 'http://localhost:5100/api/v1/merchants/:path*' },
+      { source: '/api/v1/merchants/:path*', destination: 'https://localhost:5001/api/v1/merchants/:path*' },
       // admin control plane: merchant, originator, PSP, routing, identity, governance, reporting, delivery
-      { source: '/api/v1/originators/:path*', destination: 'http://localhost:5100/api/v1/originators/:path*' },
-      { source: '/api/v1/payments/:path*', destination: 'http://localhost:5100/api/v1/payments/:path*' },
-      { source: '/api/v1/reports/:path*', destination: 'http://localhost:5100/api/v1/reports/:path*' },
-      { source: '/api/v1/approvals/:path*', destination: 'http://localhost:5100/api/v1/approvals/:path*' },
-      { source: '/api/v1/audits/:path*', destination: 'http://localhost:5100/api/v1/audits/:path*' },
-      { source: '/api/v1/api-clients/:path*', destination: 'http://localhost:5100/api/v1/api-clients/:path*' },
-      { source: '/api/v1/webhooks/:path*', destination: 'http://localhost:5100/api/v1/webhooks/:path*' },
-      { source: '/api/v1/notifications/:path*', destination: 'http://localhost:5100/api/v1/notifications/:path*' },
+      { source: '/api/v1/originators/:path*', destination: 'https://localhost:5001/api/v1/originators/:path*' },
+      { source: '/api/v1/payments/:path*', destination: 'https://localhost:5001/api/v1/payments/:path*' },
+      { source: '/api/v1/reports/:path*', destination: 'https://localhost:5001/api/v1/reports/:path*' },
+      { source: '/api/v1/approvals/:path*', destination: 'https://localhost:5001/api/v1/approvals/:path*' },
+      { source: '/api/v1/audits/:path*', destination: 'https://localhost:5001/api/v1/audits/:path*' },
+      { source: '/api/v1/api-clients/:path*', destination: 'https://localhost:5001/api/v1/api-clients/:path*' },
+      { source: '/api/v1/webhooks/:path*', destination: 'https://localhost:5001/api/v1/webhooks/:path*' },
+      { source: '/api/v1/notifications/:path*', destination: 'https://localhost:5001/api/v1/notifications/:path*' },
       // master-data reference lists (profile FK ของ admin) เป็น top-level area แยกของตัวเอง ไม่อยู่ใต้ /admins —
       // ไม่ proxy ด้วยจะโดน 404 จาก frontend server แทนที่จะถึง API (ดู Dev / CORS)
-      { source: '/api/v1/positions/:path*', destination: 'http://localhost:5100/api/v1/positions/:path*' },
-      { source: '/api/v1/offices/:path*', destination: 'http://localhost:5100/api/v1/offices/:path*' },
-      { source: '/api/v1/levels/:path*', destination: 'http://localhost:5100/api/v1/levels/:path*' },
-      { source: '/api/v1/divisions/:path*', destination: 'http://localhost:5100/api/v1/divisions/:path*' },
+      { source: '/api/v1/positions/:path*', destination: 'https://localhost:5001/api/v1/positions/:path*' },
+      { source: '/api/v1/offices/:path*', destination: 'https://localhost:5001/api/v1/offices/:path*' },
+      { source: '/api/v1/levels/:path*', destination: 'https://localhost:5001/api/v1/levels/:path*' },
+      { source: '/api/v1/divisions/:path*', destination: 'https://localhost:5001/api/v1/divisions/:path*' },
     ]
   },
 }
 ```
 
 Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — backend honor แล้ว (`UseForwardedHeaders`) ไม่ต้องทำเพิ่ม.
+เครื่อง dev ต้อง trust ASP.NET Core HTTPS certificate (`dotnet dev-certs https --trust`) ก่อนให้ Next.js proxy ไป `:5001`;
+ถ้า Node.js ยังไม่อ่าน system CA ให้รัน frontend ด้วย `NODE_OPTIONS=--use-system-ca`.
 
 ## Setup ฝั่ง FE
 
@@ -270,7 +273,7 @@ API clients, webhook/notification delivery และ reporting ใช้ `AdminS
 route ต่อไปนี้ mount อยู่ใต้ `/api/v1/admins/*` (ผ่าน CSRF filter + policy `admin` เดียวกัน) ด้วยเหตุผล
 auth เท่านั้น — เป็น business action ของโมดูลอื่น เอกสารเต็มอยู่คนละที่ ไม่ copy รายละเอียดมาซ้ำที่นี่:
 
-- `POST /api/v1/admins/merchants/users/{subject}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
+- `POST /api/v1/admins/merchants/users/{merchantUserId}/approve|reject` — admin อนุมัติ/ปฏิเสธ merchant-user สมัคร
   ใหม่ ดู [`merchants.md`](merchants.md) §8 (sequence diagram เต็ม)
 - ไม่มี current policy-reference endpoint ใต้ `/api/v1/admins`; policy entity/report surface ถูก retire แล้ว.
 
@@ -289,7 +292,7 @@ async function logout(all = false) {
 path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
 
 **committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
-- dev (`appsettings.Development.json:44-51`): `/`, `/main`, `/dashboard`, `/tenants`, `/scalar` (Scalar uses `AdminSession:ScalarBaseUrl=http://localhost:5100`; frontend paths use `SpaBaseUrl=http://localhost:5200`)
+- dev (`appsettings.Development.json:44-51`): `/`, `/main`, `/dashboard`, `/tenants`, `/scalar` (Scalar uses `AdminSession:ScalarBaseUrl=https://localhost:5001`; frontend paths use `SpaBaseUrl=https://localhost:3001`)
 - staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
 
 **สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
@@ -343,8 +346,8 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 ## Dev / CORS
 
 - API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
-  merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `http://localhost:5200`), merchant-user =
-  `Cors__AllowedOrigins` (dev `http://localhost:5300`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
+  merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `https://localhost:3001`), merchant-user =
+  `Cors__AllowedOrigins` (dev `https://localhost:3002`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
   `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ `/api/v1/positions`, `/offices`,
   `/levels`, `/divisions` ด้วย (4 master-data reference list ที่ profile FK อ้างถึง — ย้ายออกจาก `/admins`
   group เป็น top-level area ของตัวเองตั้งแต่ 2026-07-20, gate `user.manage` ทั้งหมด; บทบาทของแต่ละตาราง ดู
@@ -358,7 +361,7 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish
 
 **backend ทำให้แล้ว (FE ไม่ต้องแตะ):**
-- CORS allow `http://localhost:5200`
+- CORS allow `https://localhost:3001`
 - honor `X-Forwarded-Host` → `redirect_uri` ออกมาเป็น origin ของ FE
 - Google redirect URI registration (ฝั่ง ops/backend)
 

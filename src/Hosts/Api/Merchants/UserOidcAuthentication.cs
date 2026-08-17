@@ -92,27 +92,25 @@ internal static class UserOidcAuthentication
         options.TokenValidationParameters.ValidateIssuer = true;
         // The library default skew (5 min) is generous for short-lived id_tokens; servers run NTP — 2 min covers real drift.
         options.TokenValidationParameters.ClockSkew = TimeSpan.FromMinutes(2);
-        if (isMicrosoft)
-            // The Entra v2 issuer is per-tenant (a template in multi-tenant metadata) — validate it against the
-            // token's own tid claim + the AllowedTenants gate (MicrosoftOidc).
-            options.TokenValidationParameters.IssuerValidator = (issuer, token, _) =>
-                MicrosoftOidc.ValidateIssuer(issuer, token, oidc.AllowedTenants);
-        else
+        // Microsoft issuer validation is the FRAMEWORK DEFAULT: iss is compared to the tenant-pinned Authority's
+        // discovery metadata issuer (multi-tenant Authorities are rejected at boot) — no custom IssuerValidator.
+        if (!isMicrosoft)
             options.TokenValidationParameters.ValidIssuers = ["https://accounts.google.com", "accounts.google.com"];
         // aud is validated against ClientId by the handler; nonce + signature + lifetime too (REQ-9.2).
 
         options.Events = new OpenIdConnectEvents
         {
             // REQ-9.2: the provider-specific gates the JWKS/iss/aud/nonce checks don't cover. Google: verified-email +
-            // hosted-domain. Microsoft: require tid (Entra emits NO email_verified — that gate would reject every
-            // Entra login); the issuer validator above already checked tid consistency + AllowedTenants.
+            // hosted-domain. Microsoft: the OPTIONAL AllowedTenants tid gate — active only when the allowlist is
+            // non-empty (tenant isolation already comes from issuer == metadata issuer; Entra emits NO
+            // email_verified, so the Google gate would reject every Entra login).
             OnTokenValidated = context =>
             {
                 var principal = context.Principal;
                 if (isMicrosoft)
                 {
-                    if (principal?.FindFirst("tid")?.Value is null or "")
-                        context.Fail("tid-required");
+                    if (MicrosoftOidc.TenantGate(principal, oidc.AllowedTenants) is { } reason)
+                        context.Fail(reason);
                 }
                 else if (principal?.FindFirst("email_verified")?.Value is not "true")
                     context.Fail("email_verified-required");
@@ -165,6 +163,7 @@ internal static class UserOidcAuthentication
         "email_verified-required" => "email-unverified",
         "hd-not-allowed" => "hd-mismatch",
         "tid-required" => "tenant-missing",
+        "tenant-not-allowed" => "tenant-not-allowed",
         _ => "auth-failed",
     };
 }

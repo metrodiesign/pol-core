@@ -15,7 +15,7 @@
 # without dashes (TwoCTwoPAdapter uses session.Id.ToString("N")). respCode defaults to 0000.
 set -euo pipefail
 
-API_BASE="${POL_API_BASE:-http://localhost:5100}"
+API_BASE="${POL_API_BASE:-https://localhost:5001}"
 
 if [[ $# -lt 2 ]]; then
     echo "usage: $0 <pspConnectionId> <paymentSessionId> [respCode]" >&2

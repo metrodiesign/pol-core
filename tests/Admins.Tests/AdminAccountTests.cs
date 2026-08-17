@@ -10,7 +10,7 @@ public sealed class PlatformUserTests
     [Fact]
     public void SelfProvision_creates_an_active_super_with_a_bound_subject()
     {
-        var admin = User.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = User.SelfProvision("google", "g-sub-1", "ops@org.com", Now);
 
         Assert.Equal(Tier.Super, admin.Tier);
         Assert.Equal(UserStatus.Active, admin.Status);
@@ -34,7 +34,7 @@ public sealed class PlatformUserTests
     {
         var admin = User.CreateScoped("scoped@org.com", Now);
 
-        admin.BindSubject("g-sub-2");
+        admin.BindSubject("google", "g-sub-2");
 
         Assert.Equal("g-sub-2", admin.Subject);
     }
@@ -42,9 +42,9 @@ public sealed class PlatformUserTests
     [Fact]
     public void BindSubject_rejects_rebinding_a_bound_account()
     {
-        var admin = User.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = User.SelfProvision("google", "g-sub-1", "ops@org.com", Now);
 
-        Assert.Throws<InvalidOperationException>(() => admin.BindSubject("g-sub-other"));
+        Assert.Throws<InvalidOperationException>(() => admin.BindSubject("google", "g-sub-other"));
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public sealed class PlatformUserTests
     [Fact]
     public void Suspend_rejects_self_suspension()
     {
-        var admin = User.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = User.SelfProvision("google", "g-sub-1", "ops@org.com", Now);
 
         // Oversight can never be locked out — an admin cannot suspend itself (REQ-8.2).
         Assert.Throws<InvalidOperationException>(() => admin.Suspend(admin.Id));
@@ -125,7 +125,7 @@ public sealed class PlatformUserTests
     [Fact]
     public void ChangeTier_rejects_changing_ones_own_tier()
     {
-        var admin = User.SelfProvision("g-sub-1", "ops@org.com", Now);
+        var admin = User.SelfProvision("google", "g-sub-1", "ops@org.com", Now);
 
         // Mirrors Suspend's self-guard (REQ-8.2) — a lone Super demoting itself could strand oversight.
         Assert.Throws<InvalidOperationException>(() => admin.ChangeTier(Tier.Scoped, admin.Id));
@@ -138,7 +138,7 @@ public sealed class PlatformUserTests
     [InlineData("")]
     [InlineData("   ")]
     public void SelfProvision_rejects_a_blank_subject(string? subject) =>
-        Assert.ThrowsAny<ArgumentException>(() => User.SelfProvision(subject!, "ops@org.com", Now));
+        Assert.ThrowsAny<ArgumentException>(() => User.SelfProvision("google", subject!, "ops@org.com", Now));
 
     [Theory]
     [InlineData(null)]

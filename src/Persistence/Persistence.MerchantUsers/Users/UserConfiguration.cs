@@ -17,6 +17,7 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
     {
         builder.ToTable("Users", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
+        builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Google);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
         // Status + MerchantId are concurrency tokens (bugfix-merchant-prebind-wiring, Codex P1): every tracked
@@ -51,7 +52,7 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
         builder.Property(x => x.PhotoObjectKey).HasMaxLength(256); // opaque key, not bytes (REQ-7.2)
         builder.Property(x => x.PhotoContentType).HasMaxLength(128);
         builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
-        builder.HasIndex(x => x.Subject).IsUnique(); // a subject maps to at most one account (REQ-1.4)
+        builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // one account per provider identity (REQ-4.6)
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
     }
 }
@@ -76,6 +77,8 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.ToTable("RegistrationAudits", SchemaNames.Merch);
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Action).HasMaxLength(64).IsRequired();
+        builder.Property(x => x.TargetUserId).IsRequired(); // canonical target key (REQ-4.8)
+        builder.Property(x => x.ActorAdminId); // canonical actor for admin actions (REQ-4.9); NULL = self-service
         builder.Property(x => x.ActorSubject).HasMaxLength(256);
         builder.Property(x => x.TargetSubject).HasMaxLength(256).IsRequired();
         builder.Property(x => x.Role).HasMaxLength(64);
@@ -83,8 +86,11 @@ public sealed class RegistrationAuditConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.MerchantId);
         builder.Property(x => x.CorrelationId).HasMaxLength(128).IsRequired();
         builder.Property(x => x.OccurredAt).IsRequired();
-        // Mirrors the migration-owner index — the registration-history timeline filters by TargetSubject.
-        builder.HasIndex(x => x.TargetSubject);
+        // Declared on BOTH configs (mirrors RegistrationAttempt's B3 rationale): migration-owner for the DDL
+        // FK, here for INSERT ordering — registration writes the user + its audit in ONE SaveChanges.
+        builder.HasOne<User>().WithMany().HasForeignKey(x => x.TargetUserId).OnDelete(DeleteBehavior.Restrict);
+        // Mirrors the migration-owner index — the registration-history timeline filters by TargetUserId.
+        builder.HasIndex(x => x.TargetUserId);
         AppendOnlyDescriptor.Mark(builder.Metadata); // rls-to-query-filter REQ-2.4-adjacent: append-only audit
     }
 }

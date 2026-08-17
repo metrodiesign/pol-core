@@ -3,6 +3,7 @@ using Admins.Application.Roles;
 using Admins.Application.Users;
 using Admins.Domain.Roles;
 using Admins.Domain.Users;
+using SharedKernel;
 using BuildingBlocks.Application;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
@@ -19,10 +20,10 @@ public sealed class AdminHandlerTests
     public async Task Resolve_returns_unrestricted_for_an_active_super()
     {
         var admins = new FakePlatformUserRepository();
-        admins.Add(User.SelfProvision("super-1", "ops@org.com", Now));
+        admins.Add(User.SelfProvision("google", "super-1", "ops@org.com", Now));
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
-        var result = await handler.Handle(new ResolveQuery("super-1"), default);
+        var result = await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "super-1")), default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.True(result.Resolution!.Accessible.IsUnrestricted);
@@ -34,13 +35,13 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakePlatformUserRepository();
         var scoped = User.CreateScoped("scoped@org.com", Now);
-        scoped.BindSubject("scoped-1");
+        scoped.BindSubject("google", "scoped-1");
         admins.Add(scoped);
         var merchantX = Guid.NewGuid();
         admins.AddAssignment(MerchantAccess.Create(scoped.Id, merchantX, Guid.NewGuid(), Now));
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
-        var result = await handler.Handle(new ResolveQuery("scoped-1"), default);
+        var result = await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "scoped-1")), default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.False(result.Resolution!.Accessible.IsUnrestricted);
@@ -52,13 +53,13 @@ public sealed class AdminHandlerTests
     public async Task Resolve_denies_a_suspended_admin_and_reports_unknown_as_not_found()
     {
         var admins = new FakePlatformUserRepository();
-        var suspended = User.SelfProvision("suspended-1", "s@org.com", Now);
+        var suspended = User.SelfProvision("google", "suspended-1", "s@org.com", Now);
         suspended.Suspend(Guid.NewGuid());
         admins.Add(suspended);
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
-        Assert.Equal(ResolveOutcome.Suspended, (await handler.Handle(new ResolveQuery("suspended-1"), default)).Outcome);
-        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new ResolveQuery("ghost"), default)).Outcome);
+        Assert.Equal(ResolveOutcome.Suspended, (await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "suspended-1")), default)).Outcome);
+        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "ghost")), default)).Outcome);
     }
 
     // ---- SelfProvisionSuperAdmin ----
@@ -70,7 +71,7 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new SelfProvisionSuperHandler(admins, new FakeAdminRoleRepository(), audit, new FakeUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand("super-1", "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         var account = Assert.Single(admins.Accounts);
         Assert.Equal(Tier.Super, account.Tier);
@@ -87,11 +88,11 @@ public sealed class AdminHandlerTests
     {
         // The other request won the insert; the unit of work surfaces a ConflictException -> re-read existing.
         var admins = new FakePlatformUserRepository();
-        var existing = User.SelfProvision("super-1", "ops@org.com", Now);
+        var existing = User.SelfProvision("google", "super-1", "ops@org.com", Now);
         admins.Add(existing);
         var handler = new SelfProvisionSuperHandler(admins, new FakeAdminRoleRepository(), new FakePlatformUserAuditWriter(), new ConflictingUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand("super-1", "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         Assert.Equal(existing.Id, resolution.AdminId);
         Assert.True(resolution.Accessible.IsUnrestricted);
@@ -109,7 +110,7 @@ public sealed class AdminHandlerTests
         var audit = new FakePlatformUserAuditWriter();
         var handler = new SelfProvisionSuperHandler(admins, roles, audit, new FakeUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand("super-1", "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         var assignment = Assert.Single(roles.Assignments);
         Assert.Equal(resolution.AdminId, assignment.AdminUserId);
@@ -126,7 +127,7 @@ public sealed class AdminHandlerTests
         admins.Add(User.CreateScoped("scoped@org.com", Now));
         var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
 
-        var result = await handler.Handle(new BindInvitedCommand("scoped-1", "scoped@org.com", "corr"), default);
+        var result = await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "scoped-1"), "scoped@org.com", "corr"), default);
 
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.Equal("scoped-1", admins.Accounts[0].Subject);
@@ -138,12 +139,12 @@ public sealed class AdminHandlerTests
     {
         var admins = new FakePlatformUserRepository();
         var bound = User.CreateScoped("bound@org.com", Now);
-        bound.BindSubject("someone-else");
+        bound.BindSubject("google", "someone-else");
         admins.Add(bound);
         var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
 
-        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand("x", "missing@org.com", "c"), default)).Outcome);
-        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand("x", "bound@org.com", "c"), default)).Outcome);
+        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "x"), "missing@org.com", "c"), default)).Outcome);
+        Assert.Equal(ResolveOutcome.NotFound, (await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "x"), "bound@org.com", "c"), default)).Outcome);
     }
 
     [Fact]
@@ -155,7 +156,7 @@ public sealed class AdminHandlerTests
         admins.Add(invite);
         var handler = new BindInvitedHandler(admins, new FakeUnitOfWork());
 
-        var result = await handler.Handle(new BindInvitedCommand("scoped-1", "scoped@org.com", "corr"), default);
+        var result = await handler.Handle(new BindInvitedCommand(new ProviderIdentity("google", "scoped-1"), "scoped@org.com", "corr"), default);
 
         Assert.Equal(ResolveOutcome.Suspended, result.Outcome);
         Assert.Equal("scoped-1", admins.Accounts[0].Subject); // subject bound so future logins resolve by subject
@@ -223,7 +224,7 @@ public sealed class AdminHandlerTests
         var admins = new FakePlatformUserRepository();
         var scoped = User.CreateScoped("scoped@org.com", Now);
         admins.Add(scoped);
-        var super = User.SelfProvision("super-1", "ops@org.com", Now);
+        var super = User.SelfProvision("google", "super-1", "ops@org.com", Now);
         admins.Add(super);
         var merchantId = Guid.NewGuid();
 
@@ -318,7 +319,7 @@ public sealed class AdminHandlerTests
     public async Task Suspend_rejects_self_suspension_and_an_unknown_target()
     {
         var admins = new FakePlatformUserRepository();
-        var self = User.SelfProvision("super-1", "ops@org.com", Now);
+        var self = User.SelfProvision("google", "super-1", "ops@org.com", Now);
         admins.Add(self);
         var handler = new SuspendHandler(admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 
@@ -351,7 +352,7 @@ public sealed class AdminHandlerTests
     public async Task ChangeTier_rejects_changing_ones_own_tier_and_an_unknown_target()
     {
         var admins = new FakePlatformUserRepository();
-        var self = User.SelfProvision("super-1", "ops@org.com", Now);
+        var self = User.SelfProvision("google", "super-1", "ops@org.com", Now);
         admins.Add(self);
         var handler = new ChangeAdminTierHandler(admins, new FakePlatformUserAuditWriter(), new FakeUnitOfWork(), new FixedClock());
 

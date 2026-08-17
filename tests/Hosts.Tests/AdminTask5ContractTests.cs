@@ -41,13 +41,13 @@ public sealed class AdminTask5ContractTests
         AssertHeader(AssertOperation(paths, "/api/v1/merchants/{merchantId}/users/{merchantUserId}/roles", "put",
             "SetAdminMerchantUserRoles"), "If-Match");
 
-        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{subject}/approve", "post",
+        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{merchantUserId}/approve", "post",
             "ApproveMerchantUser"), "If-Match");
-        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{subject}/approve", "post",
+        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{merchantUserId}/approve", "post",
             "ApproveMerchantUser"), "Idempotency-Key");
-        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{subject}/reject", "post",
+        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{merchantUserId}/reject", "post",
             "RejectMerchantUser"), "If-Match");
-        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{subject}/reject", "post",
+        AssertHeader(AssertOperation(paths, "/api/v1/admins/merchants/users/{merchantUserId}/reject", "post",
             "RejectMerchantUser"), "Idempotency-Key");
     }
 

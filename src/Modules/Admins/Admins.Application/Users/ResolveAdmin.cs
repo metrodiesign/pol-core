@@ -1,17 +1,18 @@
 using Admins.Application.Roles;
 using Admins.Domain.Users;
 using Mediator;
+using SharedKernel;
 
 namespace Admins.Application.Users;
 
 /// <summary>
-/// Runtime resolution of an authenticated admin Google subject -> its ACTIVE <see cref="User"/> with
+/// Runtime resolution of an authenticated admin provider identity <c>(Provider, Subject)</c> -> its ACTIVE <see cref="User"/> with
 /// the accessible-merchant set materialized (REQ-6). The outcome distinguishes <see cref="ResolveOutcome.NotFound"/>
 /// (no account — the host may bootstrap from the allowlist or bind an invite) from
 /// <see cref="ResolveOutcome.Suspended"/> (deny, never re-provision — REQ-5.6/5.7). Runs under the
 /// pol_admin (RLS-bypass) connection because admin tables are control-plane.
 /// </summary>
-public sealed record ResolveQuery(string Subject) : IQuery<ResolveResult>;
+public sealed record ResolveQuery(ProviderIdentity Identity) : IQuery<ResolveResult>;
 
 public enum ResolveOutcome { Resolved, Suspended, NotFound }
 
@@ -46,7 +47,7 @@ public sealed class ResolveHandler : IQueryHandler<ResolveQuery, ResolveResult>
 
     public async ValueTask<ResolveResult> Handle(ResolveQuery query, CancellationToken cancellationToken)
     {
-        var account = await _admins.GetBySubjectAsync(query.Subject, cancellationToken);
+        var account = await _admins.GetByIdentityAsync(query.Identity, cancellationToken);
         if (account is null)
             return ResolveResult.NotFound;
         if (account.Status == UserStatus.Suspended)

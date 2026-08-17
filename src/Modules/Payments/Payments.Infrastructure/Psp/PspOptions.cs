@@ -37,7 +37,7 @@ public sealed class TwoCTwoPOptions
     public string ProductionBaseUrl { get; set; } = "https://pgw.2c2p.com";
 
     /// <summary>Where 2C2P sends the customer's browser back after the hosted page (UX only). Stays
-    /// platform-wide: the Merchant Console is one app shared by all three companies. The backend
+    /// platform-wide: the customer SPA is one app shared by all three companies. The backend
     /// notification URL is NOT here — it is derived per connection from
     /// <see cref="PspOptions.PublicBaseUrl"/>.</summary>
     public string FrontendReturnUrl { get; set; } = "";

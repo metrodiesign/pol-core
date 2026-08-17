@@ -15,6 +15,7 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using SharedKernel;
 
 namespace Hosts.Tests;
 
@@ -160,19 +161,19 @@ public sealed class MerchantUserLoginServiceTests
     public async Task With_SpaBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_spa_origin()
     {
         var (service, ctx) = Build(LoginResult.Active(
-            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string>())), spaBaseUrl: "http://localhost:5300");
+            new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string>())), spaBaseUrl: "https://localhost:3002");
         await service.HandleCallbackAsync(ctx.Http, "google-sub-1", "p@org.com", null, "google", "/dashboard", default);
-        Assert.Equal("http://localhost:5300/dashboard", ctx.Http.Response.Headers.Location);
+        Assert.Equal("https://localhost:3002/dashboard", ctx.Http.Response.Headers.Location);
 
-        var (pending, pendingCtx) = Build(LoginResult.Pending, spaBaseUrl: "http://localhost:5300");
+        var (pending, pendingCtx) = Build(LoginResult.Pending, spaBaseUrl: "https://localhost:3002");
         await pending.HandleCallbackAsync(pendingCtx.Http, "google-sub-2", "p@org.com", null, "google", "/", default);
-        Assert.Equal("http://localhost:5300/login-error?reason=awaiting-approval", pendingCtx.Http.Response.Headers.Location);
+        Assert.Equal("https://localhost:3002/login-error?reason=awaiting-approval", pendingCtx.Http.Response.Headers.Location);
 
         // The committed RegisterUrl default is now RELATIVE ("/register") — the ticket redirect must go absolute
         // too, or production would 404 the applicant on the API origin.
-        var (applicant, applicantCtx) = Build(LoginResult.NotFound, spaBaseUrl: "http://localhost:5300", registerUrl: "/register");
+        var (applicant, applicantCtx) = Build(LoginResult.NotFound, spaBaseUrl: "https://localhost:3002", registerUrl: "/register");
         await applicant.HandleCallbackAsync(applicantCtx.Http, "google-sub-3", "new@org.com", null, "google", "/", default);
-        Assert.StartsWith("http://localhost:5300/register?ticket=", applicantCtx.Http.Response.Headers.Location.ToString());
+        Assert.StartsWith("https://localhost:3002/register?ticket=", applicantCtx.Http.Response.Headers.Location.ToString());
     }
 
     private static (UserLoginService, Ctx) Build(LoginResult resolve, string spaBaseUrl = "", string registerUrl = RegisterUrl)
@@ -205,7 +206,7 @@ public sealed class MerchantUserLoginServiceTests
 
     private sealed class FakeResolver(LoginResult result) : IUserCallbackResolver
     {
-        public Task<LoginResult> ResolveAtCallbackAsync(string subject, CancellationToken ct) => Task.FromResult(result);
+        public Task<LoginResult> ResolveAtCallbackAsync(ProviderIdentity identity, CancellationToken ct) => Task.FromResult(result);
     }
 
     private sealed class FakeSessionStore : ISessionStore

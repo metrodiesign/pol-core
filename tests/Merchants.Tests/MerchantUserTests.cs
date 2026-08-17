@@ -13,7 +13,7 @@ public sealed class MerchantUserTests
     private static readonly DateTime Now = new(2026, 6, 25, 0, 0, 0, DateTimeKind.Utc);
     private static readonly Guid MerchantId = Guid.Parse("d2222222-2222-2222-2222-222222222222");
 
-    private static User NewPending() => User.Register("g-sub-1", "p@org.com", Now);
+    private static User NewPending() => User.Register("google", "g-sub-1", "p@org.com", Now);
 
     [Fact]
     public void Register_creates_a_pending_account()
@@ -31,13 +31,13 @@ public sealed class MerchantUserTests
     [InlineData("")]
     [InlineData("   ")]
     public void Register_rejects_a_blank_subject(string? subject) =>
-        Assert.ThrowsAny<ArgumentException>(() => User.Register(subject!, "p@org.com", Now));
+        Assert.ThrowsAny<ArgumentException>(() => User.Register("google", subject!, "p@org.com", Now));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     public void Register_rejects_a_blank_email(string? email) =>
-        Assert.ThrowsAny<ArgumentException>(() => User.Register("g-sub-1", email!, Now));
+        Assert.ThrowsAny<ArgumentException>(() => User.Register("google", "g-sub-1", email!, Now));
 
     // --- Approve (PendingApproval -> Active) ---
 

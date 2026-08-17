@@ -143,7 +143,24 @@ file sealed class MerchantApprovalFactory(MerchantView? merchant) : WebApplicati
 public sealed class MerchantApprovalEndpointTests
 {
     private static readonly Guid MerchantId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
-    private const string Route = "/api/v1/admins/merchants/users/pending-subject/approve";
+    private static readonly Guid PendingUserId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+    private static readonly string Route = $"/api/v1/admins/merchants/users/{PendingUserId}/approve";
+
+    [Fact]
+    public async Task A_legacy_subject_value_in_the_route_is_404_at_the_guid_constraint()
+    {
+        // REQ-4.7/R1: the route contract is {merchantUserId:guid} — a non-GUID (old subject-style) value never
+        // reaches the endpoint, so it cannot be misread as either a subject or an id.
+        using var factory = new MerchantApprovalFactory(Merchant("Active"));
+        using var client = factory.CreateClient();
+
+        var request = ApproveRequest();
+        request.RequestUri = new Uri("/api/v1/admins/merchants/users/google-sub-12345/approve", UriKind.Relative);
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Null(factory.Mediator.Command);
+    }
 
     [Fact]
     public async Task Unknown_or_out_of_scope_merchant_returns_404_without_dispatching_approval()
@@ -181,7 +198,7 @@ public sealed class MerchantApprovalEndpointTests
         Assert.Equal("vcommerce", factory.AdminQuery.RequestedCode);
         var command = Assert.IsType<ApproveCommand>(factory.Mediator.Command);
         Assert.Equal(MerchantId, command.ValidatedMerchantId);
-        Assert.Equal("pending-subject", command.Subject);
+        Assert.Equal(PendingUserId, command.MerchantUserId);
         Assert.Equal(["merchant_manager"], command.RoleCodes);
         Assert.Equal("admin-sub-1", command.ActingAdminSubject);
         Assert.Equal(new ApprovalBoundAdminScope().Current.AdminId, command.ActingAdminId);
