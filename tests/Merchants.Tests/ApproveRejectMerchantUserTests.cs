@@ -99,7 +99,8 @@ public sealed class ApproveRejectMerchantUserTests
         Assert.Equal(member, assignment.RoleId);
         Assert.Equal(Merchant, assignment.MerchantId);
         Assert.Equal(AdminId, assignment.AssignedById);
-        Assert.Contains(audit.Rows, a => a.Action == RegistrationAuditAction.Approved && a.TargetSubject == u.Subject);
+        Assert.Contains(audit.Rows, a => a.Action == RegistrationAuditAction.Approved
+            && a.TargetSubject == u.Subject && a.ActorAdminId == AdminId);
     }
 
     // --- reject ---
@@ -128,6 +129,7 @@ public sealed class ApproveRejectMerchantUserTests
         Assert.Equal(u.Id, sessions.RevokedUser);
         var row = Assert.Single(audit.Rows, a => a.Action == RegistrationAuditAction.Rejected && a.TargetSubject == u.Subject);
         Assert.Equal("Incomplete tax documents", row.Reason); // REQ-5.1: the rationale is recorded
+        Assert.Equal(AdminId, row.ActorAdminId);
     }
 
     [Fact]
@@ -139,6 +141,15 @@ public sealed class ApproveRejectMerchantUserTests
         await Reject(users, new FakeSessions(), u.Id, audit, reason: "   ");
 
         Assert.Null(Assert.Single(audit.Rows).Reason);
+    }
+
+    [Fact]
+    public void An_admin_audit_action_requires_the_canonical_actor_id()
+    {
+        var error = Assert.Throws<ArgumentException>(() => RegistrationAudit.For(
+            RegistrationAuditAction.Rejected, Guid.NewGuid(), "merchant-sub", "corr", Now));
+
+        Assert.Equal("actorAdminId", error.ParamName);
     }
 
     // --- harness ---
@@ -157,7 +168,7 @@ public sealed class ApproveRejectMerchantUserTests
     private static Task<RejectResult> Reject(
         FakeUsers users, FakeSessions sessions, Guid? merchantUserId = null, FakeAudit? audit = null, string? reason = "reason") =>
         new RejectHandler(users, sessions, audit ?? new FakeAudit(), new FakeUow(), new FakeClock())
-            .Handle(new RejectCommand(merchantUserId ?? Guid.NewGuid(), reason, "admin-sub", "corr"), default).AsTask();
+            .Handle(new RejectCommand(merchantUserId ?? Guid.NewGuid(), reason, "admin-sub", "corr", AdminId), default).AsTask();
 
     private sealed class FakeUow : IUserUnitOfWork
     {

@@ -13,7 +13,7 @@
 | test 1 project | `dotnet test tests/<Project>.Tests` |
 | test 1 case | `dotnet test --filter "FullyQualifiedName~<Namespace>.<Class>.<Method>"` |
 | format | `dotnet format` (CI ใช้ `dotnet format --verify-no-changes`) |
-| run API | `dotnet run --project src/Hosts/Api` (Backend API เดียว, dev http :5100) |
+| run API | `dotnet run --project src/Hosts/Api` (Backend API เดียว, dev `https://localhost:5001`) |
 | run worker | `dotnet run --project src/Hosts/Worker` |
 
 **Task gate** (`.ai/bin/gate-task.sh` อ่านจาก env) — ตั้งให้ flip task เป็น `[x]` พิสูจน์เขียวจริง:

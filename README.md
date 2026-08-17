@@ -92,9 +92,10 @@ dotnet ef database update --context PolDbContext \
 | host | port | principal | ใช้ทำอะไร |
 |---|---|---|---|
 | SQL Server (dev + integration) | `11433` | — | DB หลัก `VCentralPay` — container เดียวเสิร์ฟทั้ง dev และ Integration suite (`.env.integration`) ตั้งแต่ rf1 cutover 2026-07-12 |
-| API (`src/Hosts/Api`) | `5100` / `5101` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
-| FE admin console (repo แยก) | `5200` | — | Next.js, proxy Admin routes ไป `:5100` ตาม [Admin control plane reference](docs/reference/admin-control-plane.md) |
-| FE merchant-user console (repo แยก) | `5300` | — | Next.js, proxy `/api/v1/merchants/*` -> `:5100` |
+| API (`src/Hosts/Api`) | `5001` (https) | `pol_app` (เดียว) | REST + BFF auth + background dispatch in-process — **ไม่มี Worker host แยกแล้ว** (ถอดทั้งก้อน 2026-07-30, commit `cf48bf9`; dispatcher อยู่ `src/Hosts/Api/BackgroundDispatch/`) |
+| FE customer (repo แยก) | `3000` (https) | — | Customer checkout/return, proxy `/api` -> `https://localhost:5001` |
+| FE admin console (repo แยก) | `3001` (https) | — | Next.js, proxy Admin routes ไป `https://localhost:5001` ตาม [Admin control plane reference](docs/reference/admin-control-plane.md) |
+| FE merchant-user console (repo แยก) | `3002` (https) | — | Next.js, proxy `/api/v1/merchants/*` -> `https://localhost:5001` |
 
 connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>`):
 `App`=pol_app (connection string เดียวของ runtime, ทุก plane) · `Migrator`=sa (DDL, Dev auto-migrate).
@@ -110,7 +111,8 @@ connection strings (map `ConnectionStrings__<Name>` -> `ConnectionStrings:<Name>
 
 ```bash
 docker compose up -d                                      # DB (ถ้ายังไม่ขึ้น)
-dotnet watch --project src/Hosts/Api/Api.csproj run       # API :5100 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
+dotnet dev-certs https --trust                            # ครั้งแรกของเครื่อง
+dotnet watch --project src/Hosts/Api/Api.csproj run       # API https://localhost:5001 (hot reload) — outbox dispatcher รันในตัวเดียวกัน
 ```
 
 > config change (`appsettings.*.json`) / DI ต้อง **restart เต็ม** (hot reload ไม่จับ).

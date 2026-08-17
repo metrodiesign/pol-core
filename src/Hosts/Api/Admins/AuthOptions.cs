@@ -34,13 +34,13 @@ internal sealed class AdminSessionOptions
     public string SameSite { get; init; } = "Lax";
     public int PreAuthTtlMinutes { get; init; } = 10;
     public string DefaultReturnPath { get; init; } = "/";
-    /// <summary>Absolute origin of the admin SPA the callback redirects back to (e.g. <c>http://localhost:5200</c>).
+    /// <summary>Absolute origin of the admin SPA the callback redirects back to (e.g. <c>https://localhost:3001</c>).
     /// The IdP callback lands on the API origin directly (provider-scoped OIDC), so a RELATIVE returnTo/ErrorPath
     /// would otherwise resolve against the API host — a JSON 404, not the SPA. Blank = keep relative (same-origin
     /// deploy behind one host). The value is operator config, never request input — returnTo itself stays an
     /// allowlisted same-origin path, so this adds no open-redirect surface.</summary>
     public string SpaBaseUrl { get; init; } = "";
-    /// <summary>Absolute origin of the Development-only Scalar UI (e.g. <c>http://localhost:5100</c>).</summary>
+    /// <summary>Absolute origin of the Development-only Scalar UI (e.g. <c>https://localhost:5001</c>).</summary>
     public string ScalarBaseUrl { get; init; } = "";
     /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-1.3). Same-origin paths only.</summary>
     public string[] ReturnUrlAllowlist { get; init; } = [];

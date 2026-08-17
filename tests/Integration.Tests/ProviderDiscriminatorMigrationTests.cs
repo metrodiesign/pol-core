@@ -42,8 +42,11 @@ public sealed class ProviderDiscriminatorMigrationTests
                         LastName, IdentityType)
                     VALUES ('{userId}', N'g-user-sub-1', N'somchai@example.com', 0, 1, SYSUTCDATETIME(),
                         N'Somchai Jaidee', N'Somchai', N'Jaidee', 1);
-                    INSERT merch.RegistrationAudits (Id, Action, TargetSubject, CorrelationId, OccurredAt)
-                    VALUES ('{Guid.NewGuid()}', N'registered', N'g-user-sub-1', N'corr-up-1', SYSUTCDATETIME());
+                    INSERT merch.RegistrationAudits
+                        (Id, Action, ActorSubject, TargetSubject, CorrelationId, OccurredAt)
+                    VALUES
+                        ('{Guid.NewGuid()}', N'registered', NULL, N'g-user-sub-1', N'corr-up-self', SYSUTCDATETIME()),
+                        ('{Guid.NewGuid()}', N'rejected', N'g-admin-sub-1', N'g-user-sub-1', N'corr-up-admin', SYSUTCDATETIME());
                     """);
             }
 
@@ -55,12 +58,14 @@ public sealed class ProviderDiscriminatorMigrationTests
                     $"SELECT Provider FROM admin.Users WHERE Id = '{adminId}';")));
                 Assert.Equal("google", Convert.ToString(await IntegrationDb.ScalarAsync(verify,
                     $"SELECT Provider FROM merch.Users WHERE Id = '{userId}';")));
-                // REQ-4.5: the pre-existing login still resolves by its (google, subject) pair.
-                Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(verify,
-                    "SELECT COUNT(*) FROM merch.Users WHERE Provider = N'google' AND Subject = N'g-user-sub-1';")));
                 // REQ-4.8: backfilled to the matching user, then locked NOT NULL + FK.
                 Assert.Equal(userId.ToString().ToLowerInvariant(), Convert.ToString(await IntegrationDb.ScalarAsync(verify,
-                    "SELECT LOWER(CONVERT(nvarchar(36), TargetUserId)) FROM merch.RegistrationAudits WHERE CorrelationId = N'corr-up-1';")));
+                    "SELECT LOWER(CONVERT(nvarchar(36), TargetUserId)) FROM merch.RegistrationAudits WHERE CorrelationId = N'corr-up-admin';")));
+                // REQ-4.9: admin actions receive the canonical actor id; self-service stays actor-less.
+                Assert.Equal(adminId.ToString().ToLowerInvariant(), Convert.ToString(await IntegrationDb.ScalarAsync(verify,
+                    "SELECT LOWER(CONVERT(nvarchar(36), ActorAdminId)) FROM merch.RegistrationAudits WHERE CorrelationId = N'corr-up-admin';")));
+                Assert.Equal(DBNull.Value, await IntegrationDb.ScalarAsync(verify,
+                    "SELECT ActorAdminId FROM merch.RegistrationAudits WHERE CorrelationId = N'corr-up-self';"));
                 Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(verify, """
                     SELECT is_nullable FROM sys.columns
                     WHERE object_id = OBJECT_ID(N'merch.RegistrationAudits') AND name = N'TargetUserId';
@@ -73,6 +78,16 @@ public sealed class ProviderDiscriminatorMigrationTests
                     WHERE object_id = OBJECT_ID(N'admin.Users') AND name = N'IX_Users_Provider_Subject';
                     """)));
             }
+
+            // REQ-4.5/6.7: current EF mappings still resolve both legacy identities by (provider, subject).
+            context.ChangeTracker.Clear();
+            var admin = await context.Set<Admins.Domain.Users.User>().AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Provider == "google" && x.Subject == "g-admin-sub-1");
+            Assert.Equal(adminId, admin?.Id);
+
+            var merchant = await context.Set<Merchants.Domain.Users.User>().AsNoTracking()
+                .SingleOrDefaultAsync(x => x.Provider == "google" && x.Subject == "g-user-sub-1");
+            Assert.Equal(userId, merchant?.Id);
         }
         finally
         {

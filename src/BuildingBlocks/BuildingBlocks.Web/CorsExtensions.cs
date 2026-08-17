@@ -9,7 +9,8 @@ using Microsoft.Extensions.Options;
 namespace BuildingBlocks.Web;
 
 /// <summary>
-/// CORS for the two browser SPA frontends served by the one API (REQ-10.5). They have DIFFERENT origins but the
+/// CORS for the two authenticated console SPAs served by the one API (REQ-10.5). The customer SPA uses a
+/// same-origin API proxy and is not granted console-cookie CORS. The consoles have DIFFERENT origins but the
 /// SAME credential posture now: T5 collapsed the old Bearer "tenant" scheme into the merchant-user session
 /// cookie, which the WHOLE funnel authenticates with (not just <c>/merchants/users/*</c> — every endpoint that
 /// used to gate on policy <c>tenant</c>: products/carts/orders/payments/reports), so there is no more
@@ -24,7 +25,7 @@ namespace BuildingBlocks.Web;
 /// <c>/api/v1/merchants/{code}</c> — but NOT
 /// <c>/api/v1/merchants/users/*</c>, which is the merchant-user plane and stays on the default policy.</item>
 /// </list>
-/// Origins come from config (<c>Cors:AllowedOrigins</c> merchant-user, <c>Cors:AdminOrigins</c> admin); never
+/// Console origins come from config (<c>Cors:AllowedOrigins</c> merchant-user, <c>Cors:AdminOrigins</c> admin); never
 /// <c>AllowAnyOrigin</c>. When a list is empty the policy allows no cross-origin request (safe default — prod
 /// must set it). Splitting the two keeps enabling admin cookies from changing the merchant-user posture
 /// (REQ-10.5/4.5).

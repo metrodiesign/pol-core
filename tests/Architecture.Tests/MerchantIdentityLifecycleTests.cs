@@ -260,7 +260,8 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using var scope = AdminPlaneScope();
         var result = await scope.RejectHandler().Handle(
-            new RejectCommand(targetId, "incomplete documents", "admin-sub", "corr-reject"), CancellationToken.None);
+            new RejectCommand(targetId, "incomplete documents", "admin-sub", "corr-reject", ActingAdminId),
+            CancellationToken.None);
 
         Assert.Equal(UserStatus.Rejected, result.Status);
         var row = await LoadAsync("lc-adm-reject");
@@ -325,7 +326,8 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using (var s = AdminPlaneScope())
             await s.RejectHandler().Handle(
-                new RejectCommand(fullId, "photo unreadable", "admin-sub", "corr-1"), CancellationToken.None);
+                new RejectCommand(fullId, "photo unreadable", "admin-sub", "corr-1", ActingAdminId),
+                CancellationToken.None);
 
         using (var s = SelfServiceScope())
             Assert.Equal(LoginOutcome.Rejected,
@@ -364,7 +366,8 @@ public sealed class MerchantIdentityLifecycleTests : IDisposable
 
         using (var s = AdminPlaneScope())
             await s.RejectHandler().Handle(
-                new RejectCommand(userId, "photo unreadable", "admin-sub", "corr-1"), CancellationToken.None);
+                new RejectCommand(userId, "photo unreadable", "admin-sub", "corr-1", ActingAdminId),
+                CancellationToken.None);
 
         using (var s = SelfServiceScope())
             await s.SubmitHandler().Handle(Submission("lc-history", TicketPurpose.Correction), CancellationToken.None);

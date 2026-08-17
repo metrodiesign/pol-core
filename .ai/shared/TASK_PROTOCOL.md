@@ -50,7 +50,13 @@ Size tasks as **cohesive, independently verifiable slices of behavior — NOT
 micro-steps.** Assume you can hold the whole feature in context and implement a
 complete task end-to-end in one pass, even when it spans many files.
 
-- A typical feature is about **5-10 tasks, not 20-30**.
+- Task count is an outcome, not a quota. Many features land around **5-10 tasks**,
+  but there is no minimum or maximum at the spec level.
+- If the count exceeds 10, review whether the feature is too broad or tasks are
+  micro-steps. Keep any count when every task remains cohesive, independently
+  verifiable, traceable to requirements, and feasible to implement and verify in one
+  pass. Never split cohesive behavior or merge unrelated behaviors solely to hit a
+  target count.
 - Do NOT pre-split a task into `1.1` / `1.2` sub-steps inside `tasks.md`. Decompose
   into working steps yourself at execution time using your own internal TODO list.
 - Prefer **vertical slices** (model -> API -> validation -> tests) over horizontal

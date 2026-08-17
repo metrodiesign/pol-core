@@ -66,6 +66,16 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                 JOIN merch.Users u ON u.Subject = ra.TargetSubject;
                 IF EXISTS (SELECT 1 FROM merch.RegistrationAudits WHERE TargetUserId IS NULL)
                     THROW 50001, 'Migration blocked: merch.RegistrationAudits has rows whose TargetSubject matches no merch.Users row - resolve the orphans before upgrading.', 1;
+
+                UPDATE ra SET ra.ActorAdminId = a.Id
+                FROM merch.RegistrationAudits ra
+                JOIN admin.Users a ON a.Subject = ra.ActorSubject
+                WHERE ra.ActorSubject IS NOT NULL;
+                IF EXISTS (
+                    SELECT 1 FROM merch.RegistrationAudits
+                    WHERE Action IN (N'approved', N'rejected', N'revealed', N'suspended')
+                      AND ActorAdminId IS NULL)
+                    THROW 50001, 'Migration blocked: an admin-performed merch.RegistrationAudits row has no matching admin.Users actor - resolve the actor before upgrading.', 1;
                 """);
 
             migrationBuilder.AlterColumn<Guid>(

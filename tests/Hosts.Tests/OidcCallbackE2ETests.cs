@@ -33,9 +33,9 @@ file static class TestOidc
     public static readonly RsaSecurityKey SigningKey = new(Rsa) { KeyId = "e2e-test-key" };
 
     public const string WorkforceTenant = "05ab044e-e2c5-47dc-bbfb-fd7ea077fa71";
-    public const string CiamTenant = "1aee3cad-1e4d-4de5-9e25-424d0d12520b";
+    public const string CiamTenant = "2a6d4554-88f1-4089-a995-0bf31c622493";
     public const string WorkforceIssuer = $"https://login.microsoftonline.com/{WorkforceTenant}/v2.0";
-    public const string CiamIssuer = $"https://{CiamTenant}.ciamlogin.com/{CiamTenant}/v2.0";
+    public const string CiamIssuer = $"https://vcpexternaldev.ciamlogin.com/{CiamTenant}/v2.0";
     public const string GoogleIssuer = "https://accounts.google.com";
 
     public static string CreateIdToken(string issuer, string audience, string nonce,
@@ -112,8 +112,8 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseEnvironment(Environments.Development);
         // Pin the SPA base urls: deny redirects are SpaBaseUrl + ErrorPath, and Reason() reads the absolute
         // Location's query. On CI there is no appsettings.Development.json to supply them (host-test-config-precedence).
-        builder.UseSetting("AdminSession:SpaBaseUrl", "http://localhost:5200");
-        builder.UseSetting("MerchantUser:Session:SpaBaseUrl", "http://localhost:5300");
+        builder.UseSetting("AdminSession:SpaBaseUrl", "https://localhost:3001");
+        builder.UseSetting("MerchantUser:Session:SpaBaseUrl", "https://localhost:3002");
         builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
@@ -127,7 +127,7 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("MerchantAuth:Providers:Google:ClientId", MerchantGoogleClient);
         builder.UseSetting("MerchantAuth:Providers:Google:ClientSecret", "test-secret");
         builder.UseSetting("MerchantAuth:Providers:Google:CallbackPath", "/api/v1/merchants/auth/google/callback");
-        builder.UseSetting("MerchantAuth:Providers:Microsoft:Authority", $"https://viriyahexternal.ciamlogin.com/{TestOidc.CiamTenant}/v2.0");
+        builder.UseSetting("MerchantAuth:Providers:Microsoft:Authority", TestOidc.CiamIssuer);
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientId", MerchantMicrosoftClient);
         builder.UseSetting("MerchantAuth:Providers:Microsoft:ClientSecret", "test-secret");
         builder.UseSetting("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback");
@@ -236,6 +236,36 @@ public sealed class OidcCallbackE2ETests
         // REQ-1.3/6.3: the CIAM issuer from (static) discovery metadata passed the FRAMEWORK-DEFAULT validation.
         Assert.Equal(("microsoft", "entra-oid-e2e"), factory.UserResolver.Resolved);
         Assert.Contains("/register?ticket=", response.Headers.Location!.ToString());
+    }
+
+    [Fact]
+    public async Task Merchant_microsoft_local_https_origin_uses_vcp_external_dev_web_callback()
+    {
+        const string clientId = "dd7d2f17-60dc-4bd9-99a4-e2a93077bc9a";
+        using var factory = new OidcE2EFactory(new Dictionary<string, string?>
+        {
+            ["MerchantAuth:Providers:Microsoft:Authority"] = TestOidc.CiamIssuer,
+            ["MerchantAuth:Providers:Microsoft:ClientId"] = clientId,
+            ["MerchantAuth:Providers:Microsoft:CallbackPath"] = "/api/v1/merchants/auth/microsoft/callback",
+        });
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            BaseAddress = new Uri("https://localhost:5001"),
+        });
+
+        var response = await client.GetAsync("/api/v1/merchants/auth/microsoft/login");
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        var query = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
+        Assert.Equal(clientId, query["client_id"].ToString());
+        Assert.Equal("https://localhost:5001/api/v1/merchants/auth/microsoft/callback",
+            query["redirect_uri"].ToString());
+        Assert.Equal("code", query["response_type"].ToString());
+        Assert.Equal("S256", query["code_challenge_method"].ToString());
+        Assert.False(string.IsNullOrWhiteSpace(query["state"].ToString()));
+        Assert.False(string.IsNullOrWhiteSpace(query["nonce"].ToString()));
+        Assert.DoesNotContain("client_secret", query.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]

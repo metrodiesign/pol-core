@@ -78,7 +78,7 @@ public sealed class ProvisioningGuardsTests
     [Theory]
     [InlineData("https://api.example.com")]
     [InlineData("https://api.example.com/")]   // trailing slash is the adapter's problem, not the guard's
-    [InlineData("http://localhost:5100")]      // a non-prod deploy behind a plain-http proxy still boots
+    [InlineData("http://api.internal:8080")]  // a non-prod deploy behind a plain-http proxy still boots
     public void An_absolute_public_base_url_passes(string publicBaseUrl)
     {
         ApiHost::ProvisioningGuards.RequirePublicBaseUrl(Psp(publicBaseUrl));

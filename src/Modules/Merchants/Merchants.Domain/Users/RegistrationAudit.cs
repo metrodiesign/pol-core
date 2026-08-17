@@ -81,6 +81,10 @@ public sealed class RegistrationAudit : Entity<Guid>
         ArgumentException.ThrowIfNullOrWhiteSpace(correlationId);
         if (targetUserId == Guid.Empty)
             throw new ArgumentException("TargetUserId is required.", nameof(targetUserId));
+        if (action is RegistrationAuditAction.Approved or RegistrationAuditAction.Rejected
+                or RegistrationAuditAction.Revealed or RegistrationAuditAction.Suspended
+            && actorAdminId.GetValueOrDefault() == Guid.Empty)
+            throw new ArgumentException("ActorAdminId is required for admin-performed actions.", nameof(actorAdminId));
         return new RegistrationAudit(Guid.NewGuid(), action, targetUserId, actorAdminId, actorSubject, targetSubject,
             role, reason, merchantId, correlationId, occurredAt);
     }

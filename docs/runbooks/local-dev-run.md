@@ -39,6 +39,7 @@ merchant/PSP only. No standalone demo seed script.
 ## 4. Run API
 
 ```bash
+dotnet dev-certs https --trust
 set -a && source .env && set +a
 dotnet watch --project src/Hosts/Api/Api.csproj run
 ```
@@ -46,13 +47,16 @@ dotnet watch --project src/Hosts/Api/Api.csproj run
 ### Important
 
 - Run `source .env` and `dotnet watch` in the same terminal. Exported configuration does not cross shell sessions.
-- Do not start a second API while port `5100` is already in use. Find the current listener before restarting:
+- Do not start a second API while port `5001` is already in use. Find the current listener before restarting:
 
 ```bash
-lsof -nP -iTCP:5100 -sTCP:LISTEN
+lsof -nP -iTCP:5001 -sTCP:LISTEN
 ```
 
-- API: `http://localhost:5100`
+- API: `https://localhost:5001`
+- Customer SPA: `https://localhost:3000`
+- Admin SPA: `https://localhost:3001`
+- Merchant SPA: `https://localhost:3002`
 - OpenAPI: `/openapi/v1.json` in Development
 - Scalar: `/scalar`
 - health: `/health/live`, `/health/ready`

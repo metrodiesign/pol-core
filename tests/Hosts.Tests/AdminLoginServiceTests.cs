@@ -128,13 +128,13 @@ public sealed class AdminLoginServiceTests
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
-            spaBaseUrl: "http://localhost:5200");
+            spaBaseUrl: "https://localhost:3001");
         await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
-        Assert.Equal("http://localhost:5200/dashboard", http.Response.Headers.Location);
+        Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
 
-        var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "http://localhost:5200");
+        var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "https://localhost:3001");
         await denied.EstablishSessionAsync(deniedHttp, "google", "google-sub-2", "ops@org.com", emailVerified: true, "/", default);
-        Assert.Equal("http://localhost:5200/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
+        Assert.Equal("https://localhost:3001/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
     }
 
     [Fact]
@@ -143,14 +143,14 @@ public sealed class AdminLoginServiceTests
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
-            spaBaseUrl: "http://localhost:5200",
-            scalarBaseUrl: "http://localhost:5100",
+            spaBaseUrl: "https://localhost:3001",
+            scalarBaseUrl: "https://localhost:5001",
             allowlist: ["/", "/dashboard", "/scalar"],
             defaultReturnPath: "/dashboard");
 
         await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
 
-        Assert.Equal("http://localhost:5100/scalar", http.Response.Headers.Location);
+        Assert.Equal("https://localhost:5001/scalar", http.Response.Headers.Location);
     }
 
     [Fact]
@@ -159,12 +159,12 @@ public sealed class AdminLoginServiceTests
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
-            spaBaseUrl: "http://localhost:5200",
+            spaBaseUrl: "https://localhost:3001",
             defaultReturnPath: "/dashboard");
 
         await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
 
-        Assert.Equal("http://localhost:5200/dashboard", http.Response.Headers.Location);
+        Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
     }
 
     // --- harness ---

@@ -342,7 +342,7 @@ builder.Services.AddConsoleSessionAuthentication();
 // Background sweep: delete sessions past their absolute expiry so the store does not grow unbounded (REQ-11.5).
 builder.Services.AddHostedService<SessionPruneService>();
 
-// CORS for the separate browser SPA frontends (both allowlisted origins from Cors:AllowedOrigins).
+// CORS for the two credentialed console SPAs; the customer SPA uses a same-origin /api proxy.
 builder.Services.AddPolCors(builder.Configuration);
 
 // OpenAPI document so the SPA teams have a machine-readable contract (served in Development only). The
@@ -618,7 +618,7 @@ if (!app.Environment.IsDevelopment()
 
 // Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
 // browser-facing host/scheme, not this process's. The admin SPA dev server proxies /api/v1/admins/* here, so the OIDC
-// redirect_uri must be the SPA origin (e.g. localhost:5200) to match the registered Google redirect URI; the
+// redirect_uri must be the SPA origin (e.g. https://localhost:3001) to match the registered Google redirect URI; the
 // same applies to a TLS-terminating reverse proxy in prod (scheme must read https). Default trust = loopback
 // only, which covers the localhost dev proxy. A containerized prod proxy connects from the (non-loopback)
 // docker/private network, and .NET only honours forwarded headers from a TRUSTED peer — otherwise it silently

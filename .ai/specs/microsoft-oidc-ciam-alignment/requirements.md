@@ -1,6 +1,6 @@
 # Requirements: Microsoft OIDC CIAM Alignment
 
-> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน; U2: จาก code review — reconcile รูป authority ให้ตรงผล curl จริง: ตัวบังคับคือ suffix `/v2.0` รูป domain ใช้ได้)
+> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน; U2: จาก code review — reconcile รูป authority ให้ตรงผล curl จริง: ตัวบังคับคือ suffix `/v2.0` รูป domain ใช้ได้; U3: local API origin ย้ายเป็น `https://localhost:5001` ตาม `local-api-port-5001`)
 
 ## Overview
 
@@ -94,7 +94,7 @@
 - **AdminAllowlist entry เดิม**: ค่าปัจจุบันเป็น Google sub ไม่มี prefix — 4.3 ครอบแล้ว แต่ต้องมี test ยืนยันว่า login Google เดิมไม่หลุด
 - **Session เดิมระหว่าง deploy**: การแก้ identity key (4.5) ต้องไม่ revoke session ที่ active อยู่ — session lookup ใช้ opaque token ไม่ผูก subject โดยตรง design ต้องยืนยัน
 - **เปิด question (ยกเป็น pre-rollout gate — critique M8)**: app registration `fb0e40a7-...` ฝั่ง portal ต้องยืนยันเป็น client ของ CIAM tenant พร้อม redirect URIs (`https://localhost:5001/...`, `https://vcentralpaydev-api.viriyah.co.th/...`) และ **optional claim `email` ต้องถูกเปิด** — ถ้า CIAM ไม่ส่ง `email` และ `preferred_username` ไม่มี `@` ทุก login ฝั่ง merchant จะตายหลัง validate ผ่านด้วย reason `missing-identity` (hard-fail ที่ `UserLoginService.cs:92-95`) — ต้องยืนยันใน portal + E2E จริงก่อนประกาศเปิดใช้
-- **เปิด question**: dev host จริงรัน `:5100` แต่ expected redirect ระบุ `:5001` — ต้อง confirm ว่า portal ลงทะเบียน URI ไหนให้ตรงกับ environment จริง
+- **Resolved 2026-08-17**: dev host ใช้ `https://localhost:5001` ให้ตรง redirect URI ที่ลงทะเบียนใน portal (`local-api-port-5001`)
 
 ### Findings log (/spec-analyze 2026-08-16, anchor: fa48da0 — ไฟล์ยัง untracked ตอน analyze รอบแรก)
 

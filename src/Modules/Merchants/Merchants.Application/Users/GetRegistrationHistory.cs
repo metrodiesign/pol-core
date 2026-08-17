@@ -91,7 +91,7 @@ public sealed class GetRegistrationHistoryHandler
             // Written on every revealed 200, including an empty attempts list (G2).
             _audits.Append(RegistrationAudit.For(
                 RegistrationAuditAction.Revealed, account.UserId, account.Subject, query.CorrelationId, _clock.UtcNow,
-                actorAdminId: query.ActorAdminId == Guid.Empty ? null : query.ActorAdminId,
+                actorAdminId: query.ActorAdminId,
                 actorSubject: query.ActorSubject));
             await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }

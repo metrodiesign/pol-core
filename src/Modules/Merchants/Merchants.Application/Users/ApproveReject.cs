@@ -156,7 +156,7 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
 /// </summary>
 public sealed record RejectCommand(
     Guid MerchantUserId, string? Reason, string ActingAdminSubject, string CorrelationId,
-    Guid ActingAdminId = default, long? ExpectedVersion = null, string? IdempotencyKey = null)
+    Guid ActingAdminId, long? ExpectedVersion = null, string? IdempotencyKey = null)
     : ICommand<RejectResult>;
 
 public sealed record RejectResult(Guid UserId, UserStatus Status, long Version = 1);
@@ -219,7 +219,7 @@ public sealed class RejectHandler : ICommandHandler<RejectCommand, RejectResult>
             await _sessions.RevokeAllForUserAsync(account.Id, ct); // kill any live sessions (REQ-12.3)
 
             _audit.Append(RegistrationAudit.For(RegistrationAuditAction.Rejected, account.Id, account.Subject, command.CorrelationId, now,
-                actorAdminId: command.ActingAdminId == Guid.Empty ? null : command.ActingAdminId,
+                actorAdminId: command.ActingAdminId,
                 actorSubject: command.ActingAdminSubject, reason: reason)); // record the rationale (REQ-5.1)
 
             var result = new RejectResult(account.Id, UserStatus.Rejected, account.Version);
