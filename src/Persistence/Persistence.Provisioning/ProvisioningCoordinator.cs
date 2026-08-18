@@ -8,9 +8,12 @@ using BuildingBlocks.Infrastructure.Vault;
 using Merchants.Domain;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Payments.Domain;
+using Payments.Domain.Capabilities;
 using Payments.Domain.Psp;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
+using Persistence.MerchantRuntime.Payments;
 
 namespace Persistence.Provisioning;
 
@@ -116,6 +119,8 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
 
         // Step 4: idempotency ledger — immediate parameterized raw INSERT, not a deferred DbSet.Add.
         var mintedMerchantId = Guid.NewGuid();
+        await new PaymentAuthorizationSqlLockManager(merchantRuntime)
+            .AcquireMerchantExclusiveAsync(mintedMerchantId, cancellationToken).ConfigureAwait(false);
         var ledgerRow = ProvisioningOperation.Create(
             operationKey, callerAdminId, expectedAuthorizationVersion, requestHash, mintedMerchantId, _clock.UtcNow);
         var inserted = await TryInsertLedgerRowAsync(controlPlane, ledgerRow, cancellationToken).ConfigureAwait(false);
@@ -140,13 +145,25 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
         merchantRuntime.Merchants.Add(merchant);
 
         var connectionResults = new List<ProvisionedConnectionWrite>(spec.Connections.Count);
+        var accountMethodIds = new HashSet<Guid>();
         var (activeKeyId, masterKey) = _keyring.Active;
         foreach (var c in spec.Connections)
         {
             var psp = Codes.FromCode(c.Psp);
+            var providerId = ProviderId(psp);
             var pspConnection = Connection.Create(
                 mintedMerchantId, psp, c.EnabledMethods, c.SecretName, _clock.UtcNow, c.ConnectionMetadataJson);
+            pspConnection.BindPaymentProvider(providerId);
             merchantRuntime.PspConnections.Add(pspConnection);
+
+            foreach (var method in c.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var methodId = MethodId(method);
+                merchantRuntime.MerchantProviderAccountMethods.Add(MerchantProviderAccountMethod.Create(
+                    mintedMerchantId, pspConnection.Id, providerId, ProviderMethodId(providerId, methodId),
+                    methodId, callerAdminId, _clock.UtcNow));
+                accountMethodIds.Add(methodId);
+            }
 
             var kek = VaultEnvelope.DeriveKek(masterKey, mintedMerchantId);
             var dek = RandomNumberGenerator.GetBytes(32);
@@ -164,6 +181,15 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
             }
 
             connectionResults.Add(new ProvisionedConnectionWrite(pspConnection.Id, c.Psp, c.MaskedSecretHints));
+        }
+
+        foreach (var method in (spec.EnabledChannels ?? []).Select(PaymentMethods.Normalize))
+        {
+            var methodId = MethodId(method);
+            if (!accountMethodIds.Contains(methodId))
+                throw new InvalidOperationException($"Merchant method '{method}' has no qualifying PSP connection.");
+            merchantRuntime.MerchantPaymentMethods.Add(MerchantPaymentMethod.Create(
+                mintedMerchantId, methodId, true, callerAdminId, _clock.UtcNow));
         }
 
         merchantRuntime.ProvisioningAudits.Add(
@@ -291,6 +317,34 @@ internal sealed class ProvisioningCoordinator : IProvisioningWriter
     };
 
     private static string LastFour(string secret) => secret.Length <= 4 ? new string('*', secret.Length) : secret[^4..];
+
+    private static Guid ProviderId(Code psp) => psp switch
+    {
+        Code.TwoCTwoP => PaymentCapabilityIds.TwoCTwoP,
+        Code.Omise => PaymentCapabilityIds.Omise,
+        _ => throw new ArgumentOutOfRangeException(nameof(psp)),
+    };
+
+    private static Guid MethodId(string method) => PaymentMethods.Normalize(method) switch
+    {
+        PaymentMethods.Card => PaymentCapabilityIds.Card,
+        PaymentMethods.PromptPay => PaymentCapabilityIds.PromptPay,
+        PaymentMethods.Installment => PaymentCapabilityIds.Installment,
+        _ => throw new ArgumentOutOfRangeException(nameof(method)),
+    };
+
+    private static Guid ProviderMethodId(Guid providerId, Guid methodId) => (providerId, methodId) switch
+    {
+        var (provider, method) when provider == PaymentCapabilityIds.TwoCTwoP
+            && method == PaymentCapabilityIds.Card => PaymentCapabilityIds.TwoCTwoPCard,
+        var (provider, method) when provider == PaymentCapabilityIds.TwoCTwoP
+            && method == PaymentCapabilityIds.PromptPay => PaymentCapabilityIds.TwoCTwoPPromptPay,
+        var (provider, method) when provider == PaymentCapabilityIds.TwoCTwoP
+            && method == PaymentCapabilityIds.Installment => PaymentCapabilityIds.TwoCTwoPInstallment,
+        var (provider, method) when provider == PaymentCapabilityIds.Omise
+            && method == PaymentCapabilityIds.Card => PaymentCapabilityIds.OmiseCard,
+        _ => throw new InvalidOperationException("PSP method is outside the canonical provider catalog."),
+    };
 
     // GetSchemaQualifiedTableName() is provider-agnostic MODEL metadata — it returns "admin.Users" regardless
     // of provider, but SQLite's EnsureCreated() physically ignores the schema and creates a bare "Users"

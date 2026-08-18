@@ -19,6 +19,9 @@ using Persistence.ControlPlane.Governance;
 using IamRoleStore = Persistence.ControlPlane.Iam.RoleStore;
 using Notifications.Application;
 using Persistence.ControlPlane.Notifications;
+using Payments.Application.AdminControlPlane;
+using Payments.Application.Ports;
+using Persistence.ControlPlane.Payments;
 
 namespace Persistence.ControlPlane;
 
@@ -103,11 +106,19 @@ public static class ControlPlanePersistenceRegistration
             new MerchantRoleReader(sp.GetRequiredService<ControlPlaneDbContext>()));
 
         services.AddScoped<GovernanceSqlLockManager>();
+        services.AddScoped<PaymentAuthorizationSqlLockManager>();
         services.AddScoped(sp => new ControlPlaneOperationExecutor(
             sp.GetRequiredService<ControlPlaneDbContext>(),
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
             sp.GetRequiredService<GovernanceSqlLockManager>()));
+        services.AddScoped<IGlobalPaymentCapabilityControlStore>(sp =>
+            new GlobalPaymentCapabilityControlStore(
+                sp.GetRequiredService<ControlPlaneDbContext>(),
+                sp.GetRequiredService<IClock>(),
+                sp.GetRequiredService<IPspAdapterFactory>(),
+                sp.GetRequiredService<ControlPlaneOperationExecutor>(),
+                sp.GetRequiredService<PaymentAuthorizationSqlLockManager>()));
         services.AddScoped<IAdminOperationStore, AdminOperationStore>();
         services.AddScoped<IGovernanceStore>(sp => new GovernanceStore(
             sp.GetRequiredService<ControlPlaneDbContext>(),

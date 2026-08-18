@@ -55,6 +55,11 @@ public sealed class BypassPrimitiveTests
         "src/Persistence/Persistence.MerchantRuntime/Reporting/AdminReportingReader.cs", // admin-console Task 7: read-only transaction/report projection constrained by explicit Admin merchant scope
         "src/Persistence/Persistence.MerchantRuntime/Payments/InboundWebhookStore.cs", // admin-console Task 8: sanitized event queries constrained by explicit Admin merchant scope; claims remain connection/event keyed
         "src/Persistence/Persistence.ControlPlane/Notifications/WebhookDeliveryDispatcher.cs", // admin-console Task 8: bounded background lease claim constrained to pending/expired-processing rows
+        "src/Persistence/Persistence.ControlPlane/Payments/PaymentAuthorizationSqlLockManager.cs", // merchant-user-payment-method-access: transaction-owned global applock used only by migration cutover
+        "src/Persistence/Persistence.MerchantRuntime/Payments/PaymentAuthorizationSqlLockManager.cs", // merchant-user-payment-method-access: transaction-owned global/merchant applocks with explicit merchant key
+        "src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs", // canonical resolver: exact subject, merchant, method, provider and account predicates
+        "src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs", // operator-only deterministic backfill/cutover/rollback under exclusive global lock
+        "src/Persistence/Persistence.MerchantUsers/Users/MerchantUserRepositories.cs", // merchant-user UoW: transaction-owned payment-authorization applock with explicit merchant key
     ];
 
     private static readonly Regex BypassPrimitive = new(

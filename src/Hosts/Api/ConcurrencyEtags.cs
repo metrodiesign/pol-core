@@ -20,7 +20,7 @@ internal static class VersionEtags
         var value = http.Request.Headers.IfMatch.ToString();
         if (value.Length < 4 || value[0] != '"' || value[^1] != '"' || value[1] != 'v'
             || !long.TryParse(value.AsSpan(2, value.Length - 3), NumberStyles.None,
-                CultureInfo.InvariantCulture, out var version) || version < 1)
+                CultureInfo.InvariantCulture, out var version) || version < 0)
             throw new InvalidRequestException("If-Match must contain a current strong resource ETag.", "invalid_etag");
         return version;
     }
@@ -82,7 +82,7 @@ internal static class ConcurrencyOpenApi
             Description = required
                 ? "Optimistic resource version for If-Match."
                 : "Present for AdminSession responses; use as If-Match on Admin mutations.",
-            Schema = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^\\\"v[1-9][0-9]*\\\"$" },
+            Schema = new OpenApiSchema { Type = JsonSchemaType.String, Pattern = "^\\\"v[0-9]+\\\"$" },
         };
     }
 

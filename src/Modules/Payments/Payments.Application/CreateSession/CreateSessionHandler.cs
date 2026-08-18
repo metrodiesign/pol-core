@@ -1,9 +1,11 @@
 using BuildingBlocks.Application;
 using Mediator;
+using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
+using Payments.Domain.Psp;
 using SharedKernel;
 
 namespace Payments.Application.CreateSession;
@@ -33,6 +35,8 @@ public sealed class CreateSessionHandler
     private readonly IDocumentSaleProbe _documentSales;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IPaymentAuthorizationLockManager _authorizationLocks;
+    private readonly IEffectivePaymentCapabilityResolver _capabilities;
 
     public CreateSessionHandler(
         IPayableOrderReader orders,
@@ -42,7 +46,9 @@ public sealed class CreateSessionHandler
         PaymentConfirmationService confirmation,
         IDocumentSaleProbe documentSales,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IPaymentAuthorizationLockManager authorizationLocks,
+        IEffectivePaymentCapabilityResolver capabilities)
     {
         _orders = orders;
         _connections = connections;
@@ -52,6 +58,8 @@ public sealed class CreateSessionHandler
         _documentSales = documentSales;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _authorizationLocks = authorizationLocks;
+        _capabilities = capabilities;
     }
 
     public async ValueTask<CreateSessionResult> Handle(
@@ -65,6 +73,10 @@ public sealed class CreateSessionHandler
         // belonging to another company cannot be probed for existence.
         var order = await _orders.GetAsync(command.OrderId, cancellationToken).ConfigureAwait(false)
             ?? throw new NotFoundException($"Order {command.OrderId} not found.");
+        if (order.MerchantId != command.MerchantId)
+            throw new NotFoundException($"Order {command.OrderId} not found.");
+        var orderMethod = RequireOrderMethod(order);
+        EnsureMethodMatches(method, orderMethod);
 
         if (!order.CanOpenPaymentAttempt)
             throw new InvalidOperationException(
@@ -113,8 +125,15 @@ public sealed class CreateSessionHandler
         {
             // Same channel: hand back the existing session instead of minting a second chargeable one. A
             // customer who abandoned the PSP page can then resume on the very same hosted charge.
-            if (string.Equals(open.Method, method, StringComparison.Ordinal) && open.Psp == command.Psp)
-                return new CreateSessionResult(open.Id);
+            if (string.Equals(open.Method, orderMethod, StringComparison.Ordinal) && open.Psp == command.Psp)
+            {
+                if (open.Status == SessionStatus.Redirected)
+                    return new CreateSessionResult(open.Id);
+                var resumed = await _unitOfWork.ExecuteInTransactionAsync(
+                    ct => ResumeCreatedUnderOrderLockAsync(command, method, open.Id, ct),
+                    cancellationToken).ConfigureAwait(false);
+                return RequireMinted(resumed, command.OrderId);
+            }
 
             // Different channel: there is no void/cancel at the PSP, so the open attempt cannot be replaced.
             throw new ConflictException(
@@ -163,10 +182,16 @@ public sealed class CreateSessionHandler
         Session? sessionToConfirm,
         CancellationToken cancellationToken)
     {
+        await _authorizationLocks.AcquireMerchantSharedAsync(command.MerchantId, cancellationToken)
+            .ConfigureAwait(false);
         var locked = await _orders.GetForMintAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
         if (locked is not { CanOpenPaymentAttempt: true })
             throw new InvalidOperationException(
                 $"Order {command.OrderId} cannot open a payment session from its current status.");
+        if (locked.MerchantId != command.MerchantId)
+            throw new NotFoundException($"Order {command.OrderId} not found.");
+        var orderMethod = RequireOrderMethod(locked);
+        EnsureMethodMatches(method, orderMethod);
 
         // Lock Order before touching its attached Session. Failed/Expired retries re-confirm that prior
         // attempt so a late PSP settlement becomes PaymentPaid before another chargeable attempt can exist.
@@ -180,8 +205,10 @@ public sealed class CreateSessionHandler
             if (sessionToConfirm.Status is SessionStatus.Created or SessionStatus.Redirected)
             {
                 if (sessionToConfirm.Psp == command.Psp
-                    && string.Equals(sessionToConfirm.Method, method, StringComparison.Ordinal))
+                    && string.Equals(sessionToConfirm.Method, orderMethod, StringComparison.Ordinal))
                 {
+                    if (sessionToConfirm.Status == SessionStatus.Created)
+                        await EnsureAuthorizedAsync(locked, command.Psp, cancellationToken);
                     return new MintResult(sessionToConfirm.Id, null);
                 }
 
@@ -196,19 +223,49 @@ public sealed class CreateSessionHandler
                 return new MintResult(null, outcome);
         }
 
+        await EnsureAuthorizedAsync(locked, command.Psp, cancellationToken);
+
         var session = Session.Create(
             command.MerchantId,
             command.OrderId,
             locked.Amount,
-            method,
+            orderMethod,
             command.Psp,
             _clock.UtcNow);
 
         await _orders.AttachAttemptAsync(
-            command.OrderId, session.Id, method, cancellationToken).ConfigureAwait(false);
+            command.OrderId, session.Id, cancellationToken).ConfigureAwait(false);
         _sessions.Add(session);
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
+        return new MintResult(session.Id, null);
+    }
+
+    private async Task<MintResult> ResumeCreatedUnderOrderLockAsync(
+        CreateSessionCommand command,
+        string method,
+        Guid sessionId,
+        CancellationToken cancellationToken)
+    {
+        await _authorizationLocks.AcquireMerchantSharedAsync(command.MerchantId, cancellationToken)
+            .ConfigureAwait(false);
+        var locked = await _orders.GetForMintAsync(command.OrderId, cancellationToken).ConfigureAwait(false);
+        if (locked is not { CanOpenPaymentAttempt: true })
+            throw new InvalidOperationException(
+                $"Order {command.OrderId} cannot open a payment session from its current status.");
+        if (locked.MerchantId != command.MerchantId)
+            throw new NotFoundException($"Order {command.OrderId} not found.");
+        EnsureMethodMatches(method, RequireOrderMethod(locked));
+
+        var session = await _sessions.GetByIdAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        if (session is null
+            || session.Status != SessionStatus.Created
+            || session.Psp != command.Psp
+            || !string.Equals(session.Method, method, StringComparison.Ordinal))
+            throw new ConflictException(
+                $"Order {command.OrderId} no longer has the requested open payment session.");
+
+        await EnsureAuthorizedAsync(locked, command.Psp, cancellationToken).ConfigureAwait(false);
         return new MintResult(session.Id, null);
     }
 
@@ -219,6 +276,40 @@ public sealed class CreateSessionHandler
 
         throw new ConflictException(
             $"Order {orderId} has a prior payment attempt that blocks retry ({result.BlockingOutcome}).");
+    }
+
+    private async Task EnsureAuthorizedAsync(PayableOrder order, Code psp, CancellationToken ct)
+    {
+        var subject = order.InitiatingAudience switch
+        {
+            PaymentAudience.User when order.InitiatingMerchantUserId is not null =>
+                new PaymentCapabilitySubject(order.MerchantId, PaymentAudience.User,
+                    order.InitiatingMerchantUserId),
+            PaymentAudience.PlatformAdmin when order.InitiatingMerchantUserId is null =>
+                new PaymentCapabilitySubject(order.MerchantId, PaymentAudience.PlatformAdmin, null),
+            _ => throw new ConflictException(
+                "Order has no trusted payment authorization context.", "payment_authorization_context_missing"),
+        };
+        var decision = await _capabilities.ResolveMethodAsync(
+            new ResolvePaymentMethod(subject, RequireOrderMethod(order), psp.ToCode()), ct);
+        if (decision.Allowed)
+            return;
+        if (decision.Denial is PaymentCapabilityDenial.UserNotActive or PaymentCapabilityDenial.UserPolicyDenied)
+            throw new AccessDeniedException(
+                "Payment method is not allowed for this Merchant User.", "payment_method_not_allowed");
+        throw new ConflictException(
+            "Payment method capability is unavailable.", "payment_capability_unavailable");
+    }
+
+    private static string RequireOrderMethod(PayableOrder order) => order.PaymentChannel
+        ?? throw new ConflictException(
+            "Order has no authoritative payment method.", "payment_authorization_context_missing");
+
+    private static void EnsureMethodMatches(string requested, string orderMethod)
+    {
+        if (!string.Equals(requested, orderMethod, StringComparison.Ordinal))
+            throw new ConflictException(
+                "Payment Session method must match the Order method.", "payment_method_mismatch");
     }
 
     private sealed record MintResult(Guid? PaymentSessionId, ConfirmationOutcome? BlockingOutcome);

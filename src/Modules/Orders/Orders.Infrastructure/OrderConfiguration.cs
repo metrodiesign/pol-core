@@ -15,12 +15,22 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 {
     public void Configure(EntityTypeBuilder<Order> builder)
     {
-        builder.ToTable("Orders", SchemaNames.Shop);
+        builder.ToTable("Orders", SchemaNames.Shop, table =>
+        {
+            table.HasCheckConstraint("CK_Orders_InitiatingAudience",
+                "([InitiatingAudience] IS NULL AND [InitiatingMerchantUserId] IS NULL) OR " +
+                "([InitiatingAudience] = 1 AND [InitiatingMerchantUserId] IS NOT NULL AND [OriginatorId] IS NULL) OR " +
+                "([InitiatingAudience] = 2 AND [InitiatingMerchantUserId] IS NULL AND [OriginatorId] IS NOT NULL)");
+            table.HasCheckConstraint("CK_Orders_PaymentChannel_Canonical",
+                "[PaymentChannel] IS NULL OR [PaymentChannel] IN ('card', 'promptpay', 'installment')");
+        });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Id).ValueGeneratedNever();
 
         builder.Property(x => x.MerchantId).IsRequired();
         builder.Property(x => x.OriginatorId);
+        builder.Property(x => x.InitiatingAudience).HasConversion<int>();
+        builder.Property(x => x.InitiatingMerchantUserId);
         builder.Property(x => x.SaleCode).HasMaxLength(20).IsUnicode(false);
         builder.Property(x => x.PaymentSessionId);
 
@@ -74,6 +84,8 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         // RLS predicate uses MerchantId; index supports the merchant-scoped reads.
         builder.HasIndex(x => x.MerchantId);
+
+        builder.HasIndex(x => new { x.InitiatingMerchantUserId, x.MerchantId });
 
         // The order number is the platform-wide human key (REQ-7.1) and the filter GET /orders takes
         // (REQ-7.4) — unique, not filtered: every order has one.

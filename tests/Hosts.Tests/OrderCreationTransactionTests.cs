@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Orders.Application;
 using Orders.Domain;
 using Orders.Domain.Items;
+using Payments.Application.Capabilities;
+using Payments.Application.Ports;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Carts;
 using Persistence.MerchantRuntime.Orders;
@@ -106,7 +108,8 @@ public sealed class OrderCreationTransactionTests : IDisposable
         var outbox = new InMemoryOutbox();
         var unitOfWork = new SerialUnitOfWork();
         var coordinator = new DirectCoordinator(
-            null!, null!, carts, orders, new IncrementingOrderNo(), outbox, unitOfWork, new FixedTestClock());
+            null!, null!, carts, orders, new IncrementingOrderNo(), outbox, unitOfWork, new FixedTestClock(),
+            new NoOpAuthorizationLocks(), new AllowCapabilities());
         var request = Request(cart);
 
         var results = await Task.WhenAll(
@@ -139,6 +142,26 @@ public sealed class OrderCreationTransactionTests : IDisposable
         Assert.Equal("promptpay", order.PaymentChannel);
     }
 
+    [Fact]
+    public async Task OrderPaymentAuthorization_denies_before_order_cart_and_outbox_writes()
+    {
+        var cart = NewCart();
+        var orders = new InMemoryOrderStore();
+        var outbox = new InMemoryOutbox();
+        var coordinator = new DirectCoordinator(
+            null!, null!, new InMemoryCartStore(cart), orders, new IncrementingOrderNo(), outbox,
+            new SerialUnitOfWork(), new FixedTestClock(), new NoOpAuthorizationLocks(),
+            new DenyCapabilities(PaymentCapabilityDenial.UserPolicyDenied));
+
+        var exception = await Assert.ThrowsAsync<AccessDeniedException>(() =>
+            coordinator.CommitAsync(Request(cart), default));
+
+        Assert.Equal("payment_method_not_allowed", exception.Code);
+        Assert.Empty(orders.Orders);
+        Assert.Empty(outbox.Events);
+        Assert.Equal(Carts.Domain.CartStatus.Open, cart.Status);
+    }
+
     private static async Task<Exception?> Attempt(Func<Task> action)
     {
         try { await action(); return null; }
@@ -152,7 +175,8 @@ public sealed class OrderCreationTransactionTests : IDisposable
         return new DirectCoordinator(
             null!, null!, new CartRepository(db), new OrderRepository(db), new FixedOrderNo(orderNo),
             new EfOutbox(db, clock, actor),
-            new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), clock);
+            new MerchantRuntimeUnitOfWork(db, NoOpSecurityTelemetry.Instance), clock,
+            new NoOpAuthorizationLocks(), new AllowCapabilities());
     }
 
     private static Carts.Domain.Cart NewCart()
@@ -168,7 +192,8 @@ public sealed class OrderCreationTransactionTests : IDisposable
         return new DirectRequest(
             Merchant, cart.Id, cart.Version, "SALE-1",
             CustomerContact.Of("Somchai Jaidee", "0812345678", "buyer@example.com"), "promptpay",
-            [new ProductSnapshot(item.Id, item.ProductCode, item.VariantCode, item.VariantName, item.Quantity, Metadata)]);
+            [new ProductSnapshot(item.Id, item.ProductCode, item.VariantCode, item.VariantName, item.Quantity, Metadata)],
+            OrderInitiatingAudience.User, Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
     }
 
     private MerchantRuntimeDbContext NewContext() => new(
@@ -188,6 +213,39 @@ public sealed class OrderCreationTransactionTests : IDisposable
     private sealed class AllowAllWrites : IWriteAuthorizer
     {
         public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) => true;
+    }
+
+    private sealed class NoOpAuthorizationLocks : IPaymentAuthorizationLockManager
+    {
+        public Task AcquireGlobalExclusiveAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task AcquireMerchantSharedAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task AcquireMerchantExclusiveAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class AllowCapabilities : IEffectivePaymentCapabilityResolver
+    {
+        public Task<PaymentMethodDecision> ResolveMethodAsync(
+            ResolvePaymentMethod request, CancellationToken cancellationToken) => Task.FromResult(
+            new PaymentMethodDecision(true, request.Method, PaymentCapabilityDenial.None, Guid.NewGuid()));
+        public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+            PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+        public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+            ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
+    }
+
+    private sealed class DenyCapabilities(PaymentCapabilityDenial denial) : IEffectivePaymentCapabilityResolver
+    {
+        public Task<PaymentMethodDecision> ResolveMethodAsync(
+            ResolvePaymentMethod request, CancellationToken cancellationToken) => Task.FromResult(
+            new PaymentMethodDecision(false, request.Method, denial, null));
+        public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+            PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+        public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+            ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
     }
 
     private sealed class FixedTestClock : IClock

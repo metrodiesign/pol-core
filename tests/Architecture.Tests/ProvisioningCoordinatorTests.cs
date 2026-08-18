@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.DependencyInjection;
+using Payments.Domain.Capabilities;
 using Persistence.ControlPlane;
 using Persistence.MerchantRuntime;
 using Persistence.Provisioning;
@@ -96,7 +97,7 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
         Note: null,
         Country: "TH",
         Currency: "THB",
-        EnabledChannels: ["web"],
+        EnabledChannels: ["card"],
         MerchantMetadataJson: "{}",
         AdminSubject: "admin-sub",
         CorrelationId: "corr-1",
@@ -138,6 +139,12 @@ public sealed class ProvisioningCoordinatorTests : IDisposable
         await using var mr = MerchantRuntimeFactory(connection);
         Assert.Equal(1, await mr.Merchants.IgnoreQueryFilters().CountAsync(m => m.Id == result.MerchantId));
         Assert.Equal(1, await mr.PspConnections.IgnoreQueryFilters().CountAsync(c => c.MerchantId == result.MerchantId));
+        Assert.Equal(1, await mr.MerchantProviderAccountMethods.IgnoreQueryFilters()
+            .CountAsync(c => c.MerchantId == result.MerchantId));
+        Assert.Equal(1, await mr.MerchantPaymentMethods.IgnoreQueryFilters()
+            .CountAsync(c => c.MerchantId == result.MerchantId));
+        Assert.Equal(PaymentCapabilityIds.Omise, await mr.PspConnections.IgnoreQueryFilters()
+            .Where(c => c.MerchantId == result.MerchantId).Select(c => c.PaymentProviderId).SingleAsync());
         Assert.Equal(1, await mr.VaultSecrets.IgnoreQueryFilters().CountAsync(v => v.MerchantId == result.MerchantId));
         Assert.Equal(0, await mr.VaultRevealAudits.IgnoreQueryFilters().CountAsync(a => a.MerchantId == result.MerchantId));
         Assert.Equal(1, await mr.ProvisioningAudits.IgnoreQueryFilters().CountAsync(a => a.MerchantId == result.MerchantId));

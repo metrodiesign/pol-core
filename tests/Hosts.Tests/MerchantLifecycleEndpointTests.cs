@@ -20,7 +20,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Payments.Application.Capabilities;
+using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
+using Payments.Domain;
 using Payments.Domain.Psp;
 using Products.Application.Ports;
 using SharedKernel;
@@ -138,6 +141,28 @@ file sealed class NoOpUnitOfWork : IUnitOfWork
         await operation(cancellationToken);
 }
 
+file sealed class NoOpPaymentAuthorizationLocks : IPaymentAuthorizationLockManager
+{
+    public Task AcquireGlobalExclusiveAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantSharedAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantExclusiveAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+file sealed class AllowPaymentCapabilities : IEffectivePaymentCapabilityResolver
+{
+    public Task<PaymentMethodDecision> ResolveMethodAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) => Task.FromResult(
+        new PaymentMethodDecision(true, request.Method, PaymentCapabilityDenial.None, Guid.NewGuid()));
+
+    public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+        PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+
+    public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
+}
+
 // The merchant's 2C2P connection. A null method list
 // stands for a merchant with no connection at all. The adapter behind the gate is the REAL TwoCTwoPAdapter
 // the host registers — SupportedMethods needs no HTTP — so these tests see the production capability set.
@@ -208,6 +233,8 @@ file sealed class CartFactory(
             services.AddScoped<ICartRepository>(sp => sp.GetRequiredService<FakeCarts>());
             services.AddScoped<ICartForOrderStore>(sp => sp.GetRequiredService<FakeCarts>());
             services.AddScoped<IUnitOfWork>(_ => new NoOpUnitOfWork());
+            services.AddScoped<IPaymentAuthorizationLockManager>(_ => new NoOpPaymentAuthorizationLocks());
+            services.AddScoped<IEffectivePaymentCapabilityResolver>(_ => new AllowPaymentCapabilities());
             services.AddScoped<IOrderStore>(_ => new LifecycleOrderStore(orders ?? []));
             services.AddScoped<IOrderNoSequence>(_ => new LifecycleOrderNoSequence());
             services.AddScoped<IOutbox>(_ => orderOutbox ?? new LifecycleOutbox());

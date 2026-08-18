@@ -12,6 +12,8 @@ internal sealed partial class MerchantUserRepository
         IReadOnlySet<Guid> accessibleMerchantIds, CancellationToken cancellationToken)
     {
         IQueryable<User> source = _db.Users.IgnoreQueryFilters().AsNoTracking();
+        source = source.Where(user => user.MerchantId.HasValue
+            && (user.Status == UserStatus.Active || user.Status == UserStatus.Suspended));
         source = merchantId is { } selected
             ? source.Where(user => user.MerchantId == selected)
             : isUnrestricted

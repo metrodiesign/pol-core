@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Payments.Application.Capabilities;
 using SharedKernel;
 
 namespace Payments.Application.Ports;
@@ -26,7 +27,10 @@ public sealed record PayableOrder(
     Money Amount,
     PayableOrderStatus Status,
     Guid? PaymentSessionId = null,
-    string? PaymentChannel = null)
+    string? PaymentChannel = null,
+    Guid MerchantId = default,
+    PaymentAudience? InitiatingAudience = null,
+    Guid? InitiatingMerchantUserId = null)
 {
     /// <summary>The only distinction create-session needs; the customer's status check needs the full
     /// three, which is why the status itself is what crosses the port.</summary>
@@ -60,7 +64,6 @@ public interface IPayableOrderReader
     Task AttachAttemptAsync(
         Guid orderId,
         Guid paymentSessionId,
-        string method,
         CancellationToken cancellationToken);
 
     /// <summary>

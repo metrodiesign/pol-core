@@ -7,6 +7,8 @@ using Merchants.Domain;
 using Microsoft.EntityFrameworkCore;
 using Payments.Domain.Psp;
 using Payments.Domain.Routing;
+using Payments.Domain.Capabilities;
+using Persistence.MerchantRuntime.Payments.Capabilities;
 using Persistence.MerchantRuntime.Carts;
 using Persistence.MerchantRuntime.Carts.Items;
 using Persistence.MerchantRuntime.Merchants;
@@ -70,6 +72,12 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
     public DbSet<Connection> PspConnections => Set<Connection>();
     public DbSet<RoutingRuleset> RoutingRulesets => Set<RoutingRuleset>();
     public DbSet<RoutingRule> RoutingRules => Set<RoutingRule>();
+    public DbSet<MerchantProviderAccountMethod> MerchantProviderAccountMethods =>
+        Set<MerchantProviderAccountMethod>();
+    public DbSet<MerchantProviderAccountMethodOption> MerchantProviderAccountMethodOptions =>
+        Set<MerchantProviderAccountMethodOption>();
+    public DbSet<MerchantPaymentMethod> MerchantPaymentMethods => Set<MerchantPaymentMethod>();
+    public DbSet<MerchantUserPaymentMethod> MerchantUserPaymentMethods => Set<MerchantUserPaymentMethod>();
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<AdminOperationRecord> AdminOperationRecords => Set<AdminOperationRecord>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
@@ -94,6 +102,10 @@ internal sealed class MerchantRuntimeDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new ConnectionConfiguration(this));
         modelBuilder.ApplyConfiguration(new Payments.Routing.RoutingRulesetConfiguration(this));
         modelBuilder.ApplyConfiguration(new Payments.Routing.RoutingRuleConfiguration(this));
+        modelBuilder.ApplyConfiguration(new MerchantProviderAccountMethodConfiguration(this));
+        modelBuilder.ApplyConfiguration(new MerchantProviderAccountMethodOptionConfiguration(this));
+        modelBuilder.ApplyConfiguration(new MerchantPaymentMethodConfiguration(this));
+        modelBuilder.ApplyConfiguration(new MerchantUserPaymentMethodConfiguration(this));
         modelBuilder.ApplyConfiguration(new IdempotencyRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new AdminOperationRecordConfiguration(this));
         modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration(this));

@@ -7,6 +7,8 @@ using Orders.Domain;
 using Orders.Domain.Items;
 using Products.Application;
 using Products.Domain;
+using Payments.Application.Capabilities;
+using Payments.Application.Ports;
 using Payments.Domain;
 using SharedKernel;
 
@@ -28,6 +30,8 @@ public sealed record CommitOrderFromCartRequest(
     CustomerContact Customer,
     string PaymentMethod,
     IReadOnlyList<ValidatedProductSnapshot> Products,
+    OrderInitiatingAudience InitiatingAudience,
+    Guid? InitiatingMerchantUserId,
     Guid? OriginatorId = null);
 
 public sealed record DirectOrderResult(Guid OrderId, string OrderNo, string Status, Money Amount);
@@ -53,6 +57,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
     private readonly IOutbox _outbox;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
+    private readonly IPaymentAuthorizationLockManager _authorizationLocks;
+    private readonly IEffectivePaymentCapabilityResolver _capabilities;
 
     public OrderCreationCoordinator(
         IMediator mediator,
@@ -62,7 +68,9 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         IOrderNoSequence orderNumbers,
         IOutbox outbox,
         IUnitOfWork unitOfWork,
-        IClock clock)
+        IClock clock,
+        IPaymentAuthorizationLockManager authorizationLocks,
+        IEffectivePaymentCapabilityResolver capabilities)
     {
         _mediator = mediator;
         _documentSales = documentSales;
@@ -72,6 +80,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         _outbox = outbox;
         _unitOfWork = unitOfWork;
         _clock = clock;
+        _authorizationLocks = authorizationLocks;
+        _capabilities = capabilities;
     }
 
     public async Task<DirectOrderResult> CreateAsync(
@@ -80,11 +90,14 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         string saleCode,
         CustomerContact customer,
         string paymentMethod,
+        OrderInitiatingAudience initiatingAudience,
+        Guid? initiatingMerchantUserId,
         CancellationToken cancellationToken,
         Guid? originatorId = null)
     {
         var request = await PrepareAsync(
-            merchantId, cartId, saleCode, customer, paymentMethod, cancellationToken, originatorId)
+            merchantId, cartId, saleCode, customer, paymentMethod, initiatingAudience,
+            initiatingMerchantUserId, cancellationToken, originatorId)
             .ConfigureAwait(false);
         return await CommitAsync(request, cancellationToken).ConfigureAwait(false);
     }
@@ -95,6 +108,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         string saleCode,
         CustomerContact customer,
         string paymentMethod,
+        OrderInitiatingAudience initiatingAudience,
+        Guid? initiatingMerchantUserId,
         CancellationToken cancellationToken,
         Guid? originatorId = null)
     {
@@ -144,7 +159,8 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
             throw new InvalidOperationException("Cart product is no longer available.");
 
         return new CommitOrderFromCartRequest(
-            merchantId, cartId, cart.Version, saleCode, customer, paymentMethod, products, cart.OriginatorId);
+            merchantId, cartId, cart.Version, saleCode, customer, paymentMethod, products,
+            initiatingAudience, initiatingMerchantUserId, cart.OriginatorId);
     }
 
     public Task<DirectOrderResult> CommitAsync(
@@ -152,6 +168,22 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
         CancellationToken cancellationToken) =>
         _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
+            await _authorizationLocks.AcquireMerchantSharedAsync(request.MerchantId, ct);
+            var subject = request.InitiatingAudience switch
+            {
+                OrderInitiatingAudience.User => new PaymentCapabilitySubject(
+                    request.MerchantId, PaymentAudience.User,
+                    request.InitiatingMerchantUserId
+                    ?? throw new InvalidRequestException("Merchant User initiator is required.", "validation_failed")),
+                OrderInitiatingAudience.PlatformAdmin when request.InitiatingMerchantUserId is null =>
+                    new PaymentCapabilitySubject(request.MerchantId, PaymentAudience.PlatformAdmin, null),
+                _ => throw new InvalidRequestException(
+                    "Order initiating audience and identity are inconsistent.", "validation_failed"),
+            };
+            var paymentMethod = PaymentMethods.Normalize(request.PaymentMethod);
+            EnsureAllowed(await _capabilities.ResolveMethodAsync(
+                new ResolvePaymentMethod(subject, paymentMethod, null), ct));
+
             var cart = await _carts.ReloadTrackedAsync(request.CartId, ct).ConfigureAwait(false)
                 ?? throw new NotFoundException("Cart was not found.");
             if (cart.MerchantId != request.MerchantId)
@@ -175,8 +207,6 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
 
             var total = cart.Subtotal
                 ?? throw new ArgumentException("Cannot create an order from an empty cart.", nameof(request));
-            var paymentMethod = PaymentMethods.Normalize(request.PaymentMethod);
-
             var inputs = cart.Items.Select(line =>
             {
                 var snapshot = snapshots[line.Id];
@@ -201,7 +231,9 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
                 paymentChannel: paymentMethod,
                 customer: request.Customer,
                 saleCode: request.SaleCode,
-                originatorId: request.OriginatorId);
+                originatorId: request.OriginatorId,
+                initiatingAudience: request.InitiatingAudience,
+                initiatingMerchantUserId: request.InitiatingMerchantUserId);
             _orders.Add(order);
 
             _outbox.Enqueue(new CustomerOrderNotification(
@@ -216,4 +248,15 @@ internal sealed class OrderCreationCoordinator : IOrderCreationTransactionCoordi
             await _unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
             return new DirectOrderResult(order.Id, order.OrderNo, nameof(OrderStatus.Pending), order.Amount);
         }, cancellationToken);
+
+    private static void EnsureAllowed(PaymentMethodDecision decision)
+    {
+        if (decision.Allowed)
+            return;
+        if (decision.Denial is PaymentCapabilityDenial.UserNotActive or PaymentCapabilityDenial.UserPolicyDenied)
+            throw new AccessDeniedException(
+                "Payment method is not allowed for this Merchant User.", "payment_method_not_allowed");
+        throw new ConflictException(
+            "Payment method capability is unavailable.", "payment_capability_unavailable");
+    }
 }

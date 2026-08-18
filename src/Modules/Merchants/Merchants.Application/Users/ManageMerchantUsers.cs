@@ -358,6 +358,10 @@ public sealed class ChangeMerchantUserLifecycleHandler : ICommandHandler<ChangeM
     {
         await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
+            if (command.Action is MerchantUserLifecycleAction.Approve
+                or MerchantUserLifecycleAction.Suspend
+                or MerchantUserLifecycleAction.Reactivate)
+                await _unitOfWork.AcquirePaymentAuthorizationExclusiveAsync(command.MerchantId, ct);
             var user = await _users.FindByIdAsync(command.UserId, ct) ?? throw new NotFoundException("Merchant user not found.");
             if (command.UserId == command.ActorUserId
                 && command.Action is MerchantUserLifecycleAction.Reject or MerchantUserLifecycleAction.Suspend)

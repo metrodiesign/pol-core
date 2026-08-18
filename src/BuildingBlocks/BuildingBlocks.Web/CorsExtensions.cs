@@ -153,6 +153,10 @@ public sealed class PolCorsPolicyProvider : ICorsPolicyProvider
         || path.StartsWithSegments("/api/v1/webhooks/endpoints")
         || path.StartsWithSegments("/api/v1/webhooks/deliveries")
         || path.StartsWithSegments("/api/v1/webhooks/inbound-events")
+        || path.StartsWithSegments("/api/v1/payments/providers")
+        || path.StartsWithSegments("/api/v1/payments/merchants")
+        || (path.StartsWithSegments("/api/v1/payments/methods", out var methodRest)
+            && methodRest.Value?.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 1)
         || path.StartsWithSegments("/api/v1/payments/transactions")
         || path.StartsWithSegments("/api/v1/payments/psp-connections")
         || path.StartsWithSegments("/api/v1/payments/routing-rulesets");

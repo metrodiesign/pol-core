@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Payments.Application.Capabilities;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
@@ -107,7 +108,7 @@ file sealed class FakePayableOrders(PayableOrder? order, DocumentKey[] keys) : I
         GetAsync(orderId, cancellationToken);
 
     public Task AttachAttemptAsync(
-        Guid orderId, Guid paymentSessionId, string method, CancellationToken cancellationToken) =>
+        Guid orderId, Guid paymentSessionId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
     public Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(Guid orderId, CancellationToken cancellationToken) =>
@@ -187,6 +188,28 @@ file sealed class NoOpUnitOfWork : IUnitOfWork
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation, CancellationToken cancellationToken) =>
         await operation(cancellationToken);
+}
+
+file sealed class NoOpPaymentAuthorizationLocks : IPaymentAuthorizationLockManager
+{
+    public Task AcquireGlobalExclusiveAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantSharedAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantExclusiveAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+file sealed class AllowPaymentCapabilities : IEffectivePaymentCapabilityResolver
+{
+    public Task<PaymentMethodDecision> ResolveMethodAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) => Task.FromResult(
+        new PaymentMethodDecision(true, request.Method, PaymentCapabilityDenial.None, Guid.NewGuid()));
+
+    public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+        PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+
+    public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
 }
 
 file sealed class StructuredCapturingLoggerProvider(ConcurrentQueue<LogEntry> sink) : ILoggerProvider
@@ -309,6 +332,8 @@ file sealed class FakeProbeFactory(
             services.AddScoped<IConnectionRepository>(_ => new FakeConnections(merchantId, "card,promptpay,installment"));
             services.AddScoped<IPspAdapterFactory>(_ => new FakeAdapterFactory(adapter));
             services.AddScoped<IUnitOfWork>(_ => new NoOpUnitOfWork());
+            services.AddScoped<IPaymentAuthorizationLockManager>(_ => new NoOpPaymentAuthorizationLocks());
+            services.AddScoped<IEffectivePaymentCapabilityResolver>(_ => new AllowPaymentCapabilities());
         });
     }
 }
@@ -394,7 +419,12 @@ public sealed class PlatformDependencyFailureEndpointTests
         var sessions = new List<PaymentSession>();
         using var factory = new FakeProbeFactory(
             Merchant, Doc(), [], sessions, adapter,
-            payableOrder: new PayableOrder(orderId, Money.Of(1200m, "THB"), PayableOrderStatus.Pending),
+            payableOrder: new PayableOrder(
+                orderId, Money.Of(1200m, "THB"), PayableOrderStatus.Pending,
+                PaymentChannel: PaymentMethods.Card,
+                MerchantId: Merchant,
+                InitiatingAudience: PaymentAudience.User,
+                InitiatingMerchantUserId: Guid.NewGuid()),
             documentKeys: [new DocumentKey(DocumentNo, Group)]);
         using var client = factory.CreateClient();
 

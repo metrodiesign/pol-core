@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Orders.Domain;
+using Payments.Application.Capabilities;
 using Payments.Application.Ports;
 using SharedKernel;
 using OrderItem = Orders.Domain.Items.Item;
@@ -30,11 +31,14 @@ internal sealed class PayableOrderReader : IPayableOrderReader
             .Where(o => o.Id == orderId)
             .Select(o => new PayableOrderRow(
                 o.Id,
+                o.MerchantId,
                 o.Amount.Amount,
                 o.Amount.Currency,
                 o.Status,
                 o.PaymentSessionId,
-                o.PaymentChannel))
+                o.PaymentChannel,
+                o.InitiatingAudience,
+                o.InitiatingMerchantUserId))
             .FirstOrDefaultAsync(ct), cancellationToken)
             .ConfigureAwait(false);
 
@@ -45,7 +49,10 @@ internal sealed class PayableOrderReader : IPayableOrderReader
                 Money.Of(row.Amount, row.Currency),
                 Map(row.Status),
                 row.PaymentSessionId,
-                row.PaymentChannel);
+                row.PaymentChannel,
+                row.MerchantId,
+                MapAudience(row.InitiatingAudience),
+                row.InitiatingMerchantUserId);
     }
 
     public async Task<PayableOrder?> GetForMintAsync(Guid orderId, CancellationToken cancellationToken)
@@ -78,14 +85,13 @@ internal sealed class PayableOrderReader : IPayableOrderReader
     public async Task AttachAttemptAsync(
         Guid orderId,
         Guid paymentSessionId,
-        string method,
         CancellationToken cancellationToken)
     {
         var order = await PlatformReadGuard.ReadAsync(ct => _db.Set<Order>()
             .FirstOrDefaultAsync(o => o.Id == orderId, ct), cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"Order {orderId} disappeared while attaching payment attempt.");
 
-        order.AttachPaymentAttempt(paymentSessionId, method, DateTime.UtcNow);
+        order.AttachPaymentAttempt(paymentSessionId, DateTime.UtcNow);
     }
 
     public async Task<IReadOnlyList<DocumentKey>> GetDocumentKeysAsync(
@@ -116,11 +122,22 @@ internal sealed class PayableOrderReader : IPayableOrderReader
         _ => throw new NotSupportedException($"Order status {status} has no payment-path meaning."),
     };
 
+    private static PaymentAudience? MapAudience(OrderInitiatingAudience? audience) => audience switch
+    {
+        null => null,
+        OrderInitiatingAudience.User => PaymentAudience.User,
+        OrderInitiatingAudience.PlatformAdmin => PaymentAudience.PlatformAdmin,
+        _ => throw new NotSupportedException($"Order audience {audience} has no payment-path meaning."),
+    };
+
     private sealed record PayableOrderRow(
         Guid Id,
+        Guid MerchantId,
         decimal Amount,
         string Currency,
         OrderStatus Status,
         Guid? PaymentSessionId,
-        string? PaymentChannel);
+        string? PaymentChannel,
+        OrderInitiatingAudience? InitiatingAudience,
+        Guid? InitiatingMerchantUserId);
 }

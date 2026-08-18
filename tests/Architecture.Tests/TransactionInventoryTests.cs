@@ -35,7 +35,10 @@ public sealed class TransactionInventoryTests
         // the pair — hence its own transaction rather than one batched SaveChanges. Second site (REQ-3.6,
         // review PR #167): the fresh-mint path's own transaction, so the UPDLOCK order re-read and the INSERT
         // commit together — "still AwaitingPayment" must hold at commit, not merely at the unlocked read.
-        ["src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs"] = 2,
+        ["src/Modules/Payments/Payments.Application/CreateSession/CreateSessionHandler.cs"] = 3,
+        // merchant-user-payment-method-access: authorization lock + effective resolver + session write share
+        // the MerchantRuntime transaction, so policy cannot change between decision and persistence.
+        ["src/Modules/Payments/Payments.Application/StartRedirect/StartRedirectHandler.cs"] = 1,
         // purchase-flow-completion design.md (REQ-4.7, review PR #167): single-context (txn data plane only).
         // Cancel's flip UPDATE and its post-flip re-check for a session minted behind the release must share
         // one transaction — found -> the whole cancel rolls back as a 409.
@@ -68,7 +71,9 @@ public sealed class TransactionInventoryTests
         ["src/Persistence/Persistence.ControlPlane/Positions/PositionStore.cs"] = 3,                   // rows 14+15+24
         ["src/Persistence/Persistence.ControlPlane/Governance/GovernanceStore.cs"] = 3,              // rows 29-31
         ["src/Persistence/Persistence.MerchantRuntime/Merchants/AdminMerchantControlStore.cs"] = 2, // rows 32-33
-        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 4,  // rows 34-37
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsControlStore.cs"] = 8,  // rows 34-37 + capability mutations
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/EffectivePaymentCapabilityResolver.cs"] = 1, // request-scoped authorization snapshot
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs"] = 3, // backfill, cutover, rollback
         ["src/Persistence/Persistence.MerchantRuntime/Payments/AdminPaymentsApprovalExecutor.cs"] = 2, // rows 38-39
         ["src/Persistence/Persistence.MerchantRuntime/Idempotency/AdminOperationExecutor.cs"] = 3, // row 40: atomic flow + recoverable claim/result
         ["src/Persistence/Persistence.ControlPlane/Governance/ControlPlaneOperationExecutor.cs"] = 1, // row 41

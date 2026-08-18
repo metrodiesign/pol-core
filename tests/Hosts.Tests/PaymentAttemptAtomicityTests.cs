@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Orders.Domain;
 using Orders.Domain.Items;
+using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
 using Payments.Application.CreateSession;
 using Payments.Application.Ports;
@@ -39,7 +40,10 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
             amount,
             Now,
             [new OrderItemInput(1, amount, "DOC-1", "VMI", "ประกันรถยนต์")],
-            orderNo: "ORD6900000001");
+            orderNo: "ORD6900000001",
+            paymentChannel: PaymentMethods.Card,
+            initiatingAudience: OrderInitiatingAudience.User,
+            initiatingMerchantUserId: Guid.NewGuid());
         await using (var seed = NewContext())
         {
             seed.Add(order);
@@ -70,7 +74,9 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
                 confirmation,
                 new AvailableDocuments(),
                 unitOfWork,
-                clock);
+                clock,
+                new NoOpAuthorizationLocks(),
+                new AllowCapabilities());
 
             // SQLite cannot generate SQL Server rowversion for PaymentSession. Its NOT NULL insert failure
             // occurs after Order.AttachPaymentAttempt, inside the shared transaction.
@@ -83,7 +89,7 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
         var persisted = await verify.Orders.SingleAsync(x => x.Id == order.Id);
         Assert.Equal(OrderStatus.Pending, persisted.Status);
         Assert.Null(persisted.PaymentSessionId);
-        Assert.Null(persisted.PaymentChannel);
+        Assert.Equal(PaymentMethods.Card, persisted.PaymentChannel);
         Assert.Empty(await verify.PaymentSessions.ToListAsync());
     }
 
@@ -148,6 +154,26 @@ public sealed class PaymentAttemptAtomicityTests : IDisposable
         public Task<IReadOnlyList<DocumentSaleStatus>> ProbeAsync(
             IReadOnlyCollection<DocumentKey> keys, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<DocumentSaleStatus>>([]);
+    }
+
+    private sealed class NoOpAuthorizationLocks : IPaymentAuthorizationLockManager
+    {
+        public Task AcquireGlobalExclusiveAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task AcquireMerchantSharedAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task AcquireMerchantExclusiveAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class AllowCapabilities : IEffectivePaymentCapabilityResolver
+    {
+        public Task<PaymentMethodDecision> ResolveMethodAsync(
+            ResolvePaymentMethod request, CancellationToken cancellationToken) => Task.FromResult(
+            new PaymentMethodDecision(true, request.Method, PaymentCapabilityDenial.None, Guid.NewGuid()));
+        public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+            PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+        public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+            ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
     }
 
     private sealed class NeverClaimedIdempotency : IIdempotencyStore

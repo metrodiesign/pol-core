@@ -41,6 +41,7 @@ using Payments.Application.ConfirmPaymentStatus;
 using Payments.Application.CreateSession;
 using Payments.Application.HandlePspWebhook;
 using Payments.Application.MethodPayable;
+using Api.PaymentCapabilities;
 using Payments.Application.Ports;
 using Payments.Application.ReleaseOpenSession;
 using Payments.Application.StartRedirect;
@@ -63,6 +64,7 @@ using PaymentMethods = Payments.Domain.PaymentMethods;
 // The order summary carries its status as the wire STRING; this is what those strings are named after, so
 // the customer endpoints branch on nameof(...) instead of on literals.
 using OrderStatus = Orders.Domain.OrderStatus;
+using OrderInitiatingAudience = Orders.Domain.OrderInitiatingAudience;
 // Payments.Application.GetSession cannot be imported wholesale either — its SessionView collides with the
 // admin one, the same way Payments.Domain's SessionStatus does.
 using GetPaymentSessionQuery = Payments.Application.GetSession.GetSessionQuery;
@@ -725,6 +727,7 @@ api.MapDeliveryEndpoints();
 api.MapInboundWebhookEndpoints();
 api.MapAdminMerchantIdentityEndpoints();
 api.MapAdminReportingEndpoints();
+api.MapPaymentCapabilityEndpoints();
 
 // Webhook = source of truth. Routed by the trusted PSP connection id (NOT merchant/PSP parsed from the
 // URL before the signature is verified — security rules). The raw body + signature header are handed
@@ -1294,9 +1297,10 @@ api.MapGet("/orders/{token}/summary", async (
 
 // The customer's pay button. Anonymous by design: the opaque summary token IS the capability, so there is
 // no session cookie and no CSRF token to present (REQ-8.1) — which is exactly why the rate limit is per
-// source IP and tight. Every refusal below answers 404 or 409 only; the token is never told apart from a
-// well-formed one that does not exist (REQ-8.2), and an expired one is 404 here rather than the summary
-// read's 410, because a customer endpoint that distinguishes them hands out an oracle.
+// source IP and tight. Token lookup/lifecycle refusals below answer 404 or 409; authorization revalidation
+// can answer 403 after resolving a valid Order. An invalid token is never told apart from a well-formed one
+// that does not exist (REQ-8.2), and an expired one is 404 here rather than the summary read's 410, because a
+// customer endpoint that distinguishes them hands out an oracle.
 //
 // The merchant comes from the ORDER, never from the request, and is bound before any merchant-scoped work
 // exactly as the webhook does it. Resume (REQ-8.10) is not implemented here at all: create-session hands
@@ -1348,8 +1352,9 @@ api.MapPost("/orders/{token}/pay", async (
     .WithTags("คำสั่งซื้อ")
     .WithName("PayOrder")
     .WithSummary("ลูกค้าชำระเงินผ่านลิงก์")
-    .WithDescription("เปิด payment session ตามช่องทางที่ร้านค้าเลือกไว้และ PSP ที่ backend config แล้วคืน URL redirect ใช้ opaque token เป็น capability ไม่ต้องมี session/CSRF เรียกซ้ำขณะ session เดิมยังเปิดอยู่จะได้ URL เดิม หากไม่พบ token/token หมดอายุ/คำสั่งซื้อถูกยกเลิก -> 404, คำสั่งซื้อชำระแล้ว/ไม่มีช่องทางชำระบันทึกไว้/ไม่มี connection ที่ชาร์จช่องทางนั้นได้ -> 409")
+    .WithDescription("เปิด payment session ตามช่องทางที่ร้านค้าเลือกไว้และ PSP ที่ backend config แล้วคืน URL redirect ใช้ opaque token เป็น capability ไม่ต้องมี session/CSRF เรียกซ้ำขณะ session เดิมยังเปิดอยู่จะได้ URL เดิม หาก Merchant User ผู้สร้างถูก revoke/suspend หรือไม่ได้รับอนุญาต method -> 403, ไม่พบ token/token หมดอายุ/คำสั่งซื้อถูกยกเลิก -> 404, คำสั่งซื้อชำระแล้ว/ไม่มีช่องทางชำระบันทึกไว้/Merchant, Provider หรือ Account capability ไม่พร้อม -> 409")
     .Produces<StartRedirectResponse>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status409Conflict)
     .ProducesProblem(StatusCodes.Status429TooManyRequests)
@@ -1500,8 +1505,11 @@ api.MapPost("/orders", async (
                 "Merchant order creation forbids merchantId and originatorId.", "validation_failed");
         if (string.IsNullOrWhiteSpace(actor.SaleCode))
             throw new AccessDeniedException("No sale code is bound to this merchant user.", "sale-code-missing");
+        var merchantUserId = actor.UserId
+            ?? throw new AccessDeniedException("No Merchant User identity is bound.", "merchant-user-unbound");
         var merchantResult = await coordinator.CreateAsync(
-            actor.MerchantId, body.CartId, actor.SaleCode, customer, paymentMethod, ct);
+            actor.MerchantId, body.CartId, actor.SaleCode, customer, paymentMethod,
+            OrderInitiatingAudience.User, merchantUserId, ct);
         return Results.Created($"/api/v1/orders/{merchantResult.OrderId}", merchantResult);
     }
 
@@ -1516,7 +1524,8 @@ api.MapPost("/orders", async (
         throw new ConflictException("Cart originator does not match the request.", "state_conflict");
     using var actorBinding = actorScope.Begin(merchantId);
     var prepared = await coordinator.PrepareAsync(
-        merchantId, body.CartId, originator.SaleCode!, customer, paymentMethod, ct, originatorId);
+        merchantId, body.CartId, originator.SaleCode!, customer, paymentMethod,
+        OrderInitiatingAudience.PlatformAdmin, null, ct, originatorId);
     var result = await ExecuteAdminCommerceAsync(
         operations, adminScope, merchantId, "order.create", IdempotencyKeys.Require(http),
         new { body.CartId, merchantId, originatorId, body.Customer, paymentMethod }, 201,

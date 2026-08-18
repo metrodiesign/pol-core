@@ -15,6 +15,9 @@ public sealed class Connection : Entity<Guid>
 
     public Code Psp { get; private set; }
 
+    /// <summary>Normalized provider identity. Nullable only during expand/backfill compatibility.</summary>
+    public Guid? PaymentProviderId { get; private set; }
+
     /// <summary>Comma-separated verbatim method codes this connection enables (e.g. "card,promptpay").</summary>
     public string EnabledMethods { get; private set; } = default!;
 
@@ -66,6 +69,30 @@ public sealed class Connection : Entity<Guid>
         EnabledMethods = enabledMethods.Trim();
         Metadata = metadata;
         IsEnabled = isEnabled;
+        Version++;
+    }
+
+    /// <summary>Writes the deterministic compatibility projection; normalized account rows stay canonical.</summary>
+    public void ProjectEnabledMethods(IEnumerable<string> methods)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        var projected = string.Join(',', methods.Select(PaymentMethods.Normalize)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        if (string.Equals(EnabledMethods, projected, StringComparison.Ordinal))
+            return;
+        EnabledMethods = projected;
+        Version++;
+    }
+
+    public void BindPaymentProvider(Guid paymentProviderId)
+    {
+        if (paymentProviderId == Guid.Empty)
+            throw new ArgumentException("PaymentProviderId is required.", nameof(paymentProviderId));
+        if (PaymentProviderId is { } current && current != paymentProviderId)
+            throw new InvalidOperationException("The PSP connection is already bound to another payment provider.");
+        if (PaymentProviderId == paymentProviderId)
+            return;
+        PaymentProviderId = paymentProviderId;
         Version++;
     }
 

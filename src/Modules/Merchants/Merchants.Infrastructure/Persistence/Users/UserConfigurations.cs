@@ -15,7 +15,9 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("Users", SchemaNames.Merch);
+        builder.ToTable("Users", SchemaNames.Merch, table =>
+            table.HasCheckConstraint("CK_Users_ActorMerchant",
+                "[Status] NOT IN (2, 4) OR ([MerchantId] IS NOT NULL AND [MerchantId] <> '00000000-0000-0000-0000-000000000000')"));
         builder.HasKey(x => x.Id);
         // Provider slug ("google"/"microsoft"): identity is the PAIR (Provider, Subject) — DEFAULT 'google'
         // backfills pre-discriminator rows in-place (microsoft-oidc-ciam-alignment REQ-4.5/4.6).
@@ -40,6 +42,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.PhotoContentType).HasMaxLength(128);
         builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // one account per provider identity (REQ-4.6)
+        builder.HasIndex(x => new { x.Id, x.MerchantId }).IsUnique();
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
     }
 }

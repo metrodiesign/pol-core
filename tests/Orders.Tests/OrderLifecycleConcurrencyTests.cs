@@ -18,9 +18,10 @@ public sealed class OrderLifecycleConcurrencyTests
             amount,
             DateTime.UtcNow,
             OrderLineInputs.OneLine(amount),
-            orderNo: "ORD6900000001");
+            orderNo: "ORD6900000001",
+            paymentChannel: "card");
         var paymentSessionId = Guid.NewGuid();
-        order.AttachPaymentAttempt(paymentSessionId, "card");
+        order.AttachPaymentAttempt(paymentSessionId);
 
         var repository = new SharedRepository(order);
         var unitOfWork = new SerialUnitOfWork();

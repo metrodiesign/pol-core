@@ -1,5 +1,6 @@
 using System.Text.Json;
 using BuildingBlocks.Application;
+using Payments.Application.Capabilities;
 
 namespace Payments.Application.AdminControlPlane;
 
@@ -12,6 +13,8 @@ public sealed record AdminPaymentsAccess(
 }
 
 public sealed class AdminPaymentsAccessDeniedException(string message) : Exception(message);
+public sealed class PaymentCapabilityUnavailableException(string message) : Exception(message);
+public sealed class PaymentAuthorizationBusyException(string message) : Exception(message);
 public sealed class PspConnectionTestFailedException(PspConnectionView connection) : Exception("PSP connection test failed.")
 {
     public PspConnectionView Connection { get; } = connection;
@@ -80,6 +83,123 @@ public sealed record RequestPspCredentialChangeIntent(
 
 public sealed record PspConnectionMutationResult(PspConnectionView Connection, bool Replayed);
 public sealed record PspCredentialChangeResult(Guid ApprovalId, Guid CandidateVersionId, string Status, bool Replayed);
+
+public sealed record GlobalPaymentCapabilityView(
+    string Kind,
+    string Code,
+    string? Provider,
+    string? Method,
+    string? Option,
+    bool Enabled,
+    bool AdapterSupported,
+    Guid? UpdatedBy,
+    DateTime? UpdatedAt,
+    long Version);
+
+public sealed record AccountPaymentCapabilityView(
+    string Kind,
+    Guid PspConnectionId,
+    Guid MerchantId,
+    string Provider,
+    string Method,
+    string? Option,
+    bool Enabled,
+    Guid? UpdatedBy,
+    DateTime? UpdatedAt,
+    long Version);
+
+public sealed record SetGlobalPaymentCapabilityIntent(
+    string Code,
+    string? Provider,
+    string? Method,
+    string? Option,
+    bool Enabled,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    AdminPaymentsAccess Access);
+
+public sealed record SetAccountPaymentCapabilityIntent(
+    Guid PspConnectionId,
+    string Method,
+    string? Option,
+    bool Enabled,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    AdminPaymentsAccess Access);
+
+public sealed record PaymentCapabilityMutationResult<T>(T Value, bool Replayed);
+
+public sealed record MerchantPaymentMethodView(
+    Guid MerchantId,
+    string Method,
+    bool Enabled,
+    bool Effective,
+    Guid? UpdatedBy,
+    DateTime? UpdatedAt,
+    long Version);
+
+public sealed record MerchantUserPaymentMethodView(
+    Guid MerchantUserId,
+    Guid MerchantId,
+    string Method,
+    bool Enabled,
+    bool Effective,
+    Guid? UpdatedBy,
+    DateTime? UpdatedAt,
+    long Version);
+
+public sealed record UserPaymentMethodResolutionView(string Method, string Resolution);
+
+public sealed record SetMerchantPaymentCapabilityIntent(
+    Guid MerchantId,
+    string Method,
+    bool Enabled,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    AdminPaymentsAccess Access);
+
+public sealed record SetMerchantUserPaymentCapabilityIntent(
+    Guid MerchantId,
+    Guid MerchantUserId,
+    string Method,
+    bool Enabled,
+    long ExpectedVersion,
+    string IdempotencyKey,
+    AdminPaymentsAccess Access);
+
+public interface IGlobalPaymentCapabilityControlStore
+{
+    Task<GlobalPaymentCapabilityView?> GetMethodAsync(
+        string method, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<GlobalPaymentCapabilityView?> GetProviderAsync(
+        string provider, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<GlobalPaymentCapabilityView?> GetProviderMethodAsync(
+        string provider, string method, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<GlobalPaymentCapabilityView?> GetProviderMethodOptionAsync(
+        string provider, string method, string option, AdminPaymentsAccess access,
+        CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<GlobalPaymentCapabilityView>> SetMethodAsync(
+        SetGlobalPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<GlobalPaymentCapabilityView>> SetProviderAsync(
+        SetGlobalPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<GlobalPaymentCapabilityView>> SetProviderMethodAsync(
+        SetGlobalPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<GlobalPaymentCapabilityView>> SetProviderMethodOptionAsync(
+        SetGlobalPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+}
+
+public interface IAccountPaymentCapabilityControlStore
+{
+    Task<AccountPaymentCapabilityView?> GetAccountMethodAsync(
+        Guid connectionId, string method, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<AccountPaymentCapabilityView?> GetAccountMethodOptionAsync(
+        Guid connectionId, string method, string option, AdminPaymentsAccess access,
+        CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<AccountPaymentCapabilityView>> SetAccountMethodAsync(
+        SetAccountPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<AccountPaymentCapabilityView>> SetAccountMethodOptionAsync(
+        SetAccountPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+}
 
 public sealed record RoutingRuleInput(
     int Priority,
@@ -152,6 +272,26 @@ public interface IAdminPaymentsControlStore
     Task<PspConnectionMutationResult> UpdateConnectionAsync(UpdatePspConnectionIntent intent, CancellationToken cancellationToken);
     Task<PspConnectionMutationResult> TestConnectionAsync(TestPspConnectionIntent intent, CancellationToken cancellationToken);
     Task<PspCredentialChangeResult> RequestCredentialChangeAsync(RequestPspCredentialChangeIntent intent, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<EffectivePaymentMethod>?> ListMerchantMethodsAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<MerchantPaymentMethodView?> GetMerchantMethodAsync(
+        Guid merchantId, string method, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<MerchantPaymentMethodView>> SetMerchantMethodAsync(
+        SetMerchantPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+    Task<IReadOnlyList<MerchantUserPaymentMethodView>?> ListMerchantUserMethodsAsync(
+        Guid merchantId, Guid merchantUserId, AdminPaymentsAccess access, CancellationToken cancellationToken);
+    Task<MerchantUserPaymentMethodView?> GetMerchantUserMethodAsync(
+        Guid merchantId, Guid merchantUserId, string method, AdminPaymentsAccess access,
+        CancellationToken cancellationToken);
+    Task<PaymentCapabilityMutationResult<MerchantUserPaymentMethodView>> SetMerchantUserMethodAsync(
+        SetMerchantUserPaymentCapabilityIntent intent, CancellationToken cancellationToken);
+    Task<UserPaymentMethodResolutionView?> ResolveMerchantUserMethodAsync(
+        Guid merchantId, Guid merchantUserId, string method, AdminPaymentsAccess access,
+        CancellationToken cancellationToken);
+    Task<IReadOnlyList<EffectivePaymentOption>?> ResolveMerchantUserOptionsAsync(
+        Guid merchantId, Guid merchantUserId, string method, string provider,
+        AdminPaymentsAccess access, CancellationToken cancellationToken);
 
     Task<PagedResult<RoutingRulesetView>> ListRulesetsAsync(RoutingRulesetQuery query, CancellationToken cancellationToken);
     Task<RoutingRulesetView?> GetRulesetAsync(Guid rulesetId, Guid? merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken);

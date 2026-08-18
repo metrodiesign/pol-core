@@ -55,6 +55,10 @@ public sealed class PlatformReadGuardCoverageTests
         ["src/Persistence/Persistence.MerchantRuntime/Vault/VaultMaintenance.cs"] = ["*"],
         // Hourly bounded cleanup — background service, never request path.
         ["src/Persistence/Persistence.MerchantRuntime/AdminControlMaintenanceService.cs"] = ["*"],
+        // Transaction-owned applock acquisition is synchronization infrastructure, not a data read.
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/PaymentAuthorizationSqlLockManager.cs"] = ["*"],
+        // Operator-only expand/backfill/cutover/rollback workflow; never reachable from request endpoints.
+        ["src/Persistence/Persistence.MerchantRuntime/Payments/Capabilities/PaymentCapabilityMigrationService.cs"] = ["*"],
     };
 
     private static readonly Regex MethodDeclaration = new(

@@ -36,6 +36,7 @@ using MerchantAdminOperation = Merchants.Domain.Users.AdminUserOperationRecord;
 using MerchantRoleAssignment = Merchants.Domain.Users.Roles.RoleAssignment;
 using Payments.Domain.Psp;
 using Payments.Domain.Routing;
+using Payments.Domain.Capabilities;
 using CartAggregate = Carts.Domain.Cart;
 using CartItem = Carts.Domain.Items.Item;
 using PaymentSession = Payments.Domain.Session;
@@ -148,6 +149,14 @@ internal sealed class AdminApprovalWriteAuthorizer : IWriteAuthorizer
         (typeof(Originator), WriteOperation.Delete),
         (typeof(Connection), WriteOperation.Insert),
         (typeof(Connection), WriteOperation.Update),
+        (typeof(MerchantProviderAccountMethod), WriteOperation.Insert),
+        (typeof(MerchantProviderAccountMethod), WriteOperation.Update),
+        (typeof(MerchantProviderAccountMethodOption), WriteOperation.Insert),
+        (typeof(MerchantProviderAccountMethodOption), WriteOperation.Update),
+        (typeof(MerchantPaymentMethod), WriteOperation.Insert),
+        (typeof(MerchantPaymentMethod), WriteOperation.Update),
+        (typeof(MerchantUserPaymentMethod), WriteOperation.Insert),
+        (typeof(MerchantUserPaymentMethod), WriteOperation.Update),
         (typeof(RoutingRuleset), WriteOperation.Insert),
         (typeof(RoutingRuleset), WriteOperation.Update),
         (typeof(RoutingRuleset), WriteOperation.Delete),
@@ -274,6 +283,9 @@ internal sealed class ControlPlaneAdminWriteAuthorizer : IWriteAuthorizer
         typeof(ApiClient), typeof(OneTimeSecretTicket),
         typeof(WebhookEndpoint), typeof(WebhookDelivery), typeof(NotificationRule),
         typeof(NotificationDelivery), typeof(DeliverySecretVersion),
+        typeof(PaymentMethod), typeof(PaymentMethodOptionGroup), typeof(PaymentMethodOption),
+        typeof(PaymentProvider), typeof(PaymentProviderMethod), typeof(PaymentProviderMethodOption),
+        typeof(PaymentAuthorizationState), typeof(PaymentCapabilityMigrationConflict),
     ];
 
     private static readonly HashSet<Type> GovernanceTypes =

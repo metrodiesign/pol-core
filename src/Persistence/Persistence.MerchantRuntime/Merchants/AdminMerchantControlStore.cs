@@ -6,16 +6,25 @@ using BuildingBlocks.Infrastructure.Idempotency;
 using Merchants.Application.AdminControlPlane;
 using Merchants.Domain;
 using Microsoft.EntityFrameworkCore;
+using Payments.Application.AdminControlPlane;
+using Payments.Application.Ports;
+using Payments.Domain;
+using Payments.Domain.Capabilities;
 using Payments.Domain.Routing;
+using Persistence.MerchantRuntime.Payments;
 
 namespace Persistence.MerchantRuntime.Merchants;
 
 internal sealed class AdminMerchantControlStore(
     MerchantRuntimeDbContext db,
     IClock clock,
-    IUnitOfWork unitOfWork) : IAdminMerchantControlStore
+    IUnitOfWork unitOfWork,
+    IPspAdapterFactory adapterFactory,
+    PaymentAuthorizationSqlLockManager? authorizationLocks = null) : IAdminMerchantControlStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private PaymentAuthorizationSqlLockManager AuthorizationLocks { get; } =
+        authorizationLocks ?? new PaymentAuthorizationSqlLockManager(db);
 
     public async Task<PagedResult<AdminMerchantListItem>> ListMerchantsAsync(
         AdminMerchantListQuery query, CancellationToken cancellationToken)
@@ -45,6 +54,7 @@ internal sealed class AdminMerchantControlStore(
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             EnsureAccess(mutation.Access, mutation.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(mutation.MerchantId, ct);
             var intentHash = Hash(new
             {
                 mutation.MerchantId,
@@ -63,7 +73,10 @@ internal sealed class AdminMerchantControlStore(
             EnsureVersion(merchant.Version, mutation.ExpectedVersion);
             var operation = BeginOperation(mutation.MerchantId, mutation.Access.ActorId,
                 "merchant.update", mutation.IdempotencyKey, intentHash);
-            merchant.Update(mutation.Name, mutation.Note, mutation.EnabledChannels,
+            var channels = mutation.EnabledChannels.Select(PaymentMethods.Normalize)
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+            await SyncMerchantPoliciesAsync(merchant.Id, channels, mutation.Access.ActorId, ct);
+            merchant.Update(mutation.Name, mutation.Note, channels,
                 mutation.Metadata?.GetRawText());
             var view = Project(merchant);
             operation.Succeed(200, JsonSerializer.Serialize(view, Json), merchant.Id.ToString("D"));
@@ -76,6 +89,7 @@ internal sealed class AdminMerchantControlStore(
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             EnsureAccess(mutation.Access, mutation.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(mutation.MerchantId, ct);
             var operationName = mutation.Activate ? "merchant.reactivate" : "merchant.suspend";
             var intentHash = Hash(new { mutation.MerchantId, mutation.Activate, mutation.ExpectedVersion });
             var prior = await FindOperationAsync(mutation.MerchantId, mutation.Access.ActorId,
@@ -219,6 +233,73 @@ internal sealed class AdminMerchantControlStore(
         await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters()
             .SingleOrDefaultAsync(x => x.Id == merchantId, token), ct)
         ?? throw new NotFoundException("Merchant was not found.");
+
+    private async Task SyncMerchantPoliciesAsync(
+        Guid merchantId,
+        IReadOnlyCollection<string> channels,
+        Guid actorId,
+        CancellationToken ct)
+    {
+        // SQLite-only unit tests do not carry cfg catalog tables. SQL Server rollout always runs additive
+        // backfill before compatibility binary accepts this legacy facade.
+        if (!db.Database.IsSqlServer())
+            return;
+
+        var requested = channels.Select(MethodId).ToHashSet();
+        foreach (var channel in channels)
+        {
+            var methodId = MethodId(channel);
+            var accounts = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+                .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == merchantId
+                    && x.PaymentMethodId == methodId && x.IsEnabled).ToListAsync(token), ct);
+            var qualifying = false;
+            foreach (var account in accounts)
+            {
+                var connection = await PlatformReadGuard.ReadAsync(token => db.PspConnections
+                    .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.Id == account.PspConnectionId
+                        && x.MerchantId == merchantId && x.IsEnabled
+                        && x.PaymentProviderId == account.PaymentProviderId, token), ct);
+                if (connection is null || !adapterFactory.For(connection.Psp).SupportedMethods.Contains(channel))
+                    continue;
+                var query = db.Database.SqlQuery<int>($"""
+                    SELECT COUNT(*) AS [Value]
+                    FROM [cfg].[PaymentMethods] m
+                    JOIN [cfg].[PaymentProviders] p ON p.[Id] = {account.PaymentProviderId}
+                    JOIN [cfg].[PaymentProviderMethods] pm
+                      ON pm.[Id] = {account.PaymentProviderMethodId}
+                     AND pm.[PaymentProviderId] = p.[Id]
+                     AND pm.[PaymentMethodId] = m.[Id]
+                    WHERE m.[Id] = {methodId} AND m.[IsActive] = CAST(1 AS bit)
+                      AND p.[IsEnabled] = CAST(1 AS bit) AND pm.[IsActive] = CAST(1 AS bit)
+                    """);
+                var active = await PlatformReadGuard.ReadAsync(token => query.SingleAsync(token), ct);
+                if (active == 1)
+                {
+                    qualifying = true;
+                    break;
+                }
+            }
+            if (!qualifying)
+                throw new PaymentCapabilityUnavailableException(
+                    $"Merchant method '{channel}' has no active qualifying provider account.");
+        }
+
+        var existing = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
+            .IgnoreQueryFilters().Where(x => x.MerchantId == merchantId).ToListAsync(token), ct);
+        foreach (var row in existing)
+            row.SetEnabled(requested.Remove(row.PaymentMethodId), actorId, clock.UtcNow);
+        foreach (var methodId in requested)
+            db.MerchantPaymentMethods.Add(MerchantPaymentMethod.Create(
+                merchantId, methodId, true, actorId, clock.UtcNow));
+    }
+
+    private static Guid MethodId(string method) => method switch
+    {
+        PaymentMethods.Card => PaymentCapabilityIds.Card,
+        PaymentMethods.PromptPay => PaymentCapabilityIds.PromptPay,
+        PaymentMethods.Installment => PaymentCapabilityIds.Installment,
+        _ => throw new ArgumentOutOfRangeException(nameof(method)),
+    };
 
     private async Task EnsureMerchantExistsAsync(Guid merchantId, CancellationToken ct)
     {
