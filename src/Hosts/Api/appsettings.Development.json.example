@@ -26,10 +26,10 @@
       "/tenants",
       "/scalar"
     ],
-    "SpaBaseUrl": "https://localhost:3001",
+    "WebAppBaseUrl": "https://localhost:3001",
     "ScalarBaseUrl": "https://localhost:5001"
   },
-  "_MerchantAuth_note": "Merchant-user BFF OIDC client (REQ-8/9/14). The section is 'MerchantAuth' with a Providers map keyed by provider name — multi-provider-oidc renamed it away from the old single-client 'MerchantUser:Oidc' shape, which nothing reads anymore. Leave ClientId blank to keep merchant-user login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client to exercise the live flow. Its registered redirect_uri must be <origin the browser actually hits>/api/v1/merchants/auth/google/callback — the SPA proxy origin, not the API port, whenever the SPA proxies /api. RegisterUrl is deliberately left at its relative default ('/register', made absolute against MerchantUser:Session:SpaBaseUrl at redirect time): a committed absolute localhost value is how a localhost redirect ships to production.",
+  "_MerchantAuth_note": "Merchant-user BFF OIDC client (REQ-8/9/14). The section is 'MerchantAuth' with a Providers map keyed by provider name — multi-provider-oidc renamed it away from the old single-client 'MerchantUser:Oidc' shape, which nothing reads anymore. Leave ClientId blank to keep merchant-user login disabled locally (the scheme is skipped); set both to a real 'Web application' Google client to exercise the live flow. Its registered redirect_uri must be <origin the browser actually hits>/api/v1/merchants/auth/google/callback — the SPA proxy origin, not the API port, whenever the SPA proxies /api. RegisterUrl is deliberately left at its relative default ('/register', made absolute against MerchantSession:WebAppBaseUrl at redirect time): a committed absolute localhost value is how a localhost redirect ships to production.",
   "MerchantAuth": {
     "Providers": {
       "Google": {
@@ -38,14 +38,12 @@
       }
     }
   },
-  "MerchantUser": {
-    "Session": {
-      "SpaBaseUrl": "https://localhost:3002"
-    }
+  "MerchantSession": {
+    "WebAppBaseUrl": "https://localhost:3002"
   },
   "Cors": {
-    "_note": "Three dev SPAs, two credentialed console CORS policies (BuildingBlocks.Web/CorsExtensions.cs): customer :3000 uses a same-origin /api proxy and PSP browser return; AllowedOrigins = merchant-user console :3002 (default policy); AdminOrigins = admin console :3001 (/api/v1/admins/* only). Each SPA proxies /api to https://localhost:5001; register the origin actually used to start login (the console origin through its proxy, or :5001 for a direct API test).",
-    "AllowedOrigins": ["https://localhost:3002"],
+    "_note": "Three dev SPAs, two credentialed console CORS policies (BuildingBlocks.Web/CorsExtensions.cs): customer :3000 uses a same-origin /api proxy and PSP browser return; MerchantOrigins = merchant-user console :3002 (default policy); AdminOrigins = admin console :3001 (/api/v1/admins/* only). Each SPA proxies /api to https://localhost:5001; register the origin actually used to start login (the console origin through its proxy, or :5001 for a direct API test).",
+    "MerchantOrigins": ["https://localhost:3002"],
     "AdminOrigins": ["https://localhost:3001"]
   },
   "Psp": {

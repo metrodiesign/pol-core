@@ -110,10 +110,10 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
-        // Pin the SPA base urls: deny redirects are SpaBaseUrl + ErrorPath, and Reason() reads the absolute
+        // Pin the web-app base URLs: deny redirects are WebAppBaseUrl + ErrorPath, and Reason() reads the absolute
         // Location's query. On CI there is no appsettings.Development.json to supply them (host-test-config-precedence).
-        builder.UseSetting("AdminSession:SpaBaseUrl", "https://localhost:3001");
-        builder.UseSetting("MerchantUser:Session:SpaBaseUrl", "https://localhost:3002");
+        builder.UseSetting("AdminSession:WebAppBaseUrl", "https://localhost:3001");
+        builder.UseSetting("MerchantSession:WebAppBaseUrl", "https://localhost:3002");
         builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
@@ -133,13 +133,18 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("MerchantAuth:Providers:Microsoft:CallbackPath", "/api/v1/merchants/auth/microsoft/callback");
         foreach (var (key, value) in _extraSettings)
             builder.UseSetting(key, value);
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
-            new Dictionary<string, string?>
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.IgnoreMachineLocalDevelopmentSettings();
+            config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["AdminSession:ReturnUrlAllowlist:0"] = "/dashboard",
-                ["MerchantUser:Session:ReturnUrlAllowlist:0"] = "/dashboard",
-            }));
+                ["AdminSession:ReturnUrlAllowlist:0"] = "/",
+                ["AdminSession:ReturnUrlAllowlist:1"] = "/dashboard",
+                ["MerchantSession:ReturnUrlAllowlist:0"] = "/",
+                ["MerchantSession:ReturnUrlAllowlist:1"] = "/dashboard",
+            });
+        });
         builder.ConfigureServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();

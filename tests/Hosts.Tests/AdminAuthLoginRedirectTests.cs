@@ -37,6 +37,7 @@ file sealed class LoginFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) =>
         {
+            config.IgnoreMachineLocalDevelopmentSettings();
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",

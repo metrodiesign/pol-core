@@ -33,10 +33,11 @@ file sealed class CorsFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) =>
         {
+            config.IgnoreMachineLocalDevelopmentSettings();
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["Cors:AllowedOrigins:0"] = MerchantUserSpaOrigin, // merchant-user (default policy, credentialed)
+                ["Cors:MerchantOrigins:0"] = MerchantUserSpaOrigin, // merchant-user (default policy, credentialed)
                 ["Cors:AdminOrigins:0"] = AdminSpaOrigin,          // admin (credentialed, /api/v1/admins group only)
             });
         });
@@ -86,6 +87,20 @@ public sealed class CorsTests
         var response = await client.SendAsync(Preflight(CorsFactory.MerchantUserSpaOrigin, "/api/v1/merchant-users/me"));
 
         Assert.Equal(CorsFactory.MerchantUserSpaOrigin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
+        Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
+    }
+
+    [Theory]
+    [InlineData(CorsFactory.MerchantUserSpaOrigin)]
+    [InlineData(CorsFactory.AdminSpaOrigin)]
+    public async Task Each_console_origin_is_allowed_with_credentials_on_a_dual_console_route(string origin)
+    {
+        using var factory = new CorsFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Preflight(origin, "/api/v1/carts"));
+
+        Assert.Equal(origin, Assert.Single(response.Headers.GetValues("Access-Control-Allow-Origin")));
         Assert.Equal("true", Assert.Single(response.Headers.GetValues("Access-Control-Allow-Credentials")));
     }
 

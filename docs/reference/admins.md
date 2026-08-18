@@ -17,7 +17,7 @@
 
 **Ports (dev):** API `https://localhost:5001` · Customer SPA `https://localhost:3000` · Admin Console
 `https://localhost:3001` · Merchant-user Console `https://localhost:3002` (`Cors:AdminOrigins` /
-`Cors:AllowedOrigins` ใน `appsettings.Development.json`)
+`Cors:MerchantOrigins` ใน `appsettings.Development.json`)
 
 **โมดูลในแผนที่แพลตฟอร์ม:** ดู [platform-modules.md](platform-modules.md) และ
 [admin-control-plane.md](admin-control-plane.md) สำหรับ top-level admin operations.
@@ -292,7 +292,7 @@ async function logout(all = false) {
 path นอก list — และ absolute URL — ถูก fallback เป็น `AdminSession:DefaultReturnPath`.
 
 **committed default = `["/"]` เท่านั้น** (conservative). route ปลายทางจริงของ FE ตั้งต่อ deployment:
-- dev (`appsettings.Development.json:44-51`): `/`, `/main`, `/dashboard`, `/tenants`, `/scalar` (Scalar uses `AdminSession:ScalarBaseUrl=https://localhost:5001`; frontend paths use `SpaBaseUrl=https://localhost:3001`)
+- dev (`appsettings.Development.json`): `/`, `/main`, `/dashboard`, `/tenants`, `/scalar` (Scalar uses `AdminSession:ScalarBaseUrl=https://localhost:5001`; frontend paths use `AdminSession:WebAppBaseUrl=https://localhost:3001`)
 - staging/prod: env `AdminSession__ReturnUrlAllowlist__0=/`, `__1=/dashboard`, ... (ดู deploy runbook)
 
 **สำคัญ:** helper ด้านล่าง default `returnTo='/dashboard'` → deployment นั้นต้องมี `/dashboard` ใน allowlist
@@ -347,7 +347,7 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 
 - API เดียว serve ทั้ง 2 console, **CORS แยก policy แต่ credentialed ทั้งคู่** (cookie XHR เหมือนกัน — ตั้งแต่
   merchant-user ย้ายมา BFF): admin = `Cors__AdminOrigins` (dev `https://localhost:3001`), merchant-user =
-  `Cors__AllowedOrigins` (dev `https://localhost:3002`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
+  `Cors__MerchantOrigins` (dev `https://localhost:3002`, เป็น default policy). เลือก policy **ตาม path** ผ่าน
   `PolCorsPolicyProvider` ไม่ใช่ตาม origin. path table (`IsAdminPlane`) ครอบ `/api/v1/positions`, `/offices`,
   `/levels`, `/divisions` ด้วย (4 master-data reference list ที่ profile FK อ้างถึง — ย้ายออกจาก `/admins`
   group เป็น top-level area ของตัวเองตั้งแต่ 2026-07-20, gate `user.manage` ทั้งหมด; บทบาทของแต่ละตาราง ดู

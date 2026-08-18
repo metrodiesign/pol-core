@@ -203,15 +203,12 @@ internal sealed class SmtpInvitationEmailSender : IInvitationEmailSender
 
     public async Task SendAsync(string email, string rawToken, CancellationToken cancellationToken)
     {
-        if (!Uri.TryCreate(_session.SpaBaseUrl, UriKind.Absolute, out var baseUri)
-            || baseUri.Scheme is not ("http" or "https"))
-            throw new InvalidOperationException("MerchantUser:Session:SpaBaseUrl must be an absolute HTTP(S) origin.");
+        var link = BuildLink(_session.WebAppBaseUrl, rawToken);
         var smtp = _options.Smtp;
         var password = (await File.ReadAllTextAsync(smtp.PasswordFile, cancellationToken)).Trim();
         if (password.Length == 0)
             throw new InvalidOperationException("Invitation SMTP password file is empty.");
 
-        var link = $"{baseUri.ToString().TrimEnd('/')}/invite#token={Uri.EscapeDataString(rawToken)}";
         using var message = new MailMessage(smtp.FromAddress, email)
         {
             Subject = "Merchant invitation",
@@ -224,5 +221,13 @@ internal sealed class SmtpInvitationEmailSender : IInvitationEmailSender
             Credentials = new NetworkCredential(smtp.Username, password),
         };
         await client.SendMailAsync(message, cancellationToken);
+    }
+
+    internal static string BuildLink(string webAppBaseUrl, string rawToken)
+    {
+        if (!Uri.TryCreate(webAppBaseUrl, UriKind.Absolute, out var baseUri)
+            || baseUri.Scheme is not ("http" or "https"))
+            throw new InvalidOperationException("MerchantSession:WebAppBaseUrl must be an absolute HTTP(S) origin.");
+        return $"{baseUri.ToString().TrimEnd('/')}/invite#token={Uri.EscapeDataString(rawToken)}";
     }
 }

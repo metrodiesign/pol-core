@@ -25,7 +25,7 @@ public sealed class LocalDevelopmentOriginTests
         Assert.Equal(ApiOrigin, profile.Value.GetProperty("applicationUrl").GetString());
         var launchEnvironment = profile.Value.GetProperty("environmentVariables");
         Assert.Equal(MerchantOrigin,
-            launchEnvironment.GetProperty("MerchantUser__Session__SpaBaseUrl").GetString());
+            launchEnvironment.GetProperty("MerchantSession__WebAppBaseUrl").GetString());
         Assert.Equal(MerchantMicrosoftAuthority,
             launchEnvironment.GetProperty("MerchantAuth__Providers__Microsoft__Authority").GetString());
         Assert.Equal(MerchantMicrosoftClientId,
@@ -37,11 +37,11 @@ public sealed class LocalDevelopmentOriginTests
 
         using var settings = ReadJson(root, "src/Hosts/Api/appsettings.Development.json.example");
         var config = settings.RootElement;
-        Assert.Equal(AdminOrigin, config.GetProperty("AdminSession").GetProperty("SpaBaseUrl").GetString());
+        Assert.Equal(AdminOrigin, config.GetProperty("AdminSession").GetProperty("WebAppBaseUrl").GetString());
         Assert.Equal(ApiOrigin, config.GetProperty("AdminSession").GetProperty("ScalarBaseUrl").GetString());
         Assert.Equal(MerchantOrigin,
-            config.GetProperty("MerchantUser").GetProperty("Session").GetProperty("SpaBaseUrl").GetString());
-        Assert.Equal([MerchantOrigin], Strings(config.GetProperty("Cors").GetProperty("AllowedOrigins")));
+            config.GetProperty("MerchantSession").GetProperty("WebAppBaseUrl").GetString());
+        Assert.Equal([MerchantOrigin], Strings(config.GetProperty("Cors").GetProperty("MerchantOrigins")));
         Assert.Equal([AdminOrigin], Strings(config.GetProperty("Cors").GetProperty("AdminOrigins")));
 
         var psp = config.GetProperty("Psp");
@@ -52,14 +52,39 @@ public sealed class LocalDevelopmentOriginTests
             psp.GetProperty("Omise").GetProperty("ReturnUri").GetString());
 
         var envExample = File.ReadAllText(Path.Combine(root, ".env.example"));
-        Assert.Contains($"AdminSession__SpaBaseUrl={AdminOrigin}", envExample, StringComparison.Ordinal);
-        Assert.Contains($"MerchantUser__Session__SpaBaseUrl={MerchantOrigin}", envExample, StringComparison.Ordinal);
+        Assert.Contains($"AdminSession__WebAppBaseUrl={AdminOrigin}", envExample, StringComparison.Ordinal);
+        Assert.Contains("AdminSession__ReturnUrlAllowlist__0=/", envExample, StringComparison.Ordinal);
+        Assert.Contains("AdminSession__ReturnUrlAllowlist__1=/dashboard", envExample, StringComparison.Ordinal);
+        Assert.Contains("Cors__AdminOrigins__0=", envExample, StringComparison.Ordinal);
+        Assert.Contains($"MerchantSession__WebAppBaseUrl={MerchantOrigin}", envExample, StringComparison.Ordinal);
+        Assert.Contains("MerchantSession__ReturnUrlAllowlist__0=/", envExample, StringComparison.Ordinal);
+        Assert.Contains("MerchantSession__ReturnUrlAllowlist__1=/dashboard", envExample, StringComparison.Ordinal);
+        Assert.Contains("Cors__MerchantOrigins__0=", envExample, StringComparison.Ordinal);
+        foreach (var side in new[] { "AdminAuth", "MerchantAuth" })
+        {
+            Assert.Contains($"{side}__Providers__Microsoft__Authority", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__Providers__Microsoft__ClientId", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__Providers__Microsoft__ClientSecret", envExample, StringComparison.Ordinal);
+            Assert.Contains($"{side}__Providers__Microsoft__CallbackPath", envExample, StringComparison.Ordinal);
+        }
         Assert.Contains($"Psp__TwoCTwoP__FrontendReturnUrl={CustomerOrigin}/checkout/return", envExample,
             StringComparison.Ordinal);
         Assert.Contains($"Psp__Omise__ReturnUri={CustomerOrigin}/checkout/return", envExample,
             StringComparison.Ordinal);
         Assert.DoesNotContain("localhost:5200", envExample, StringComparison.Ordinal);
         Assert.DoesNotContain("localhost:5300", envExample, StringComparison.Ordinal);
+        Assert.DoesNotContain("AdminSession__SpaBaseUrl", envExample, StringComparison.Ordinal);
+        Assert.DoesNotContain("MerchantUser__Session", envExample, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cors__AllowedOrigins", envExample, StringComparison.Ordinal);
+
+        var compose = File.ReadAllText(Path.Combine(root, "docker-compose.prod.yml"));
+        Assert.Contains("AdminSession__WebAppBaseUrl: ${ADMIN_FRONTEND_ORIGIN}", compose, StringComparison.Ordinal);
+        Assert.Contains("MerchantSession__WebAppBaseUrl: ${MERCHANT_USER_FRONTEND_ORIGIN}", compose, StringComparison.Ordinal);
+        Assert.Contains("Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN", compose, StringComparison.Ordinal);
+        Assert.Contains("Cors__MerchantOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("AdminSession__SpaBaseUrl", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("MerchantUser__Session", compose, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cors__AllowedOrigins", compose, StringComparison.Ordinal);
     }
 
     private static string[] Strings(JsonElement array) =>

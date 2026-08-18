@@ -18,7 +18,7 @@ internal sealed class UserOidcOptions
     public string ErrorPath { get; init; } = "/login-error";
 
     /// <summary>The merchant-user SPA registration page the callback redirects an applicant to, carrying a signed
-    /// ticket (REQ-9.4). A RELATIVE path is made absolute against <c>UserSessionOptions.SpaBaseUrl</c> at redirect
+    /// ticket (REQ-9.4). A RELATIVE path is made absolute against <c>UserSessionOptions.WebAppBaseUrl</c> at redirect
     /// time (an absolute URL is honored as-is) — a committed absolute localhost default would silently ship a
     /// localhost redirect to production.</summary>
     public string RegisterUrl { get; init; } = "/register";
@@ -35,7 +35,7 @@ internal sealed class UserOidcOptions
 // ponytail: DUPLICATE-shaped of AdminSessionOptions (distinct section) — deliberate.
 internal sealed class UserSessionOptions
 {
-    public const string SectionName = "MerchantUser:Session";
+    public const string SectionName = "MerchantSession";
 
     public int IdleMinutes { get; init; } = 1440;
     public int AbsoluteHours { get; init; } = 168;
@@ -47,6 +47,6 @@ internal sealed class UserSessionOptions
     /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-8.3). Same-origin paths only.</summary>
     public string[] ReturnUrlAllowlist { get; init; } = [];
     /// <summary>Absolute origin of the merchant-user SPA the callback redirects back to (e.g.
-    /// <c>https://localhost:3002</c>). Blank = keep relative. Mirrors <c>AdminSessionOptions.SpaBaseUrl</c>.</summary>
-    public string SpaBaseUrl { get; init; } = "";
+    /// <c>https://localhost:3002</c>). Blank = keep relative. Mirrors <c>AdminSessionOptions.WebAppBaseUrl</c>.</summary>
+    public string WebAppBaseUrl { get; init; } = "";
 }

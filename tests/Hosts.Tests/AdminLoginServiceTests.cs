@@ -119,11 +119,11 @@ public sealed class AdminLoginServiceTests
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
     }
 
-    // With the provider callback landing on the API origin (provider-scoped OIDC), a configured SpaBaseUrl makes
+    // With the provider callback landing on the API origin (provider-scoped OIDC), a configured WebAppBaseUrl makes
     // both the post-login returnTo and the error redirect absolute to the SPA origin — the browser must never
     // land on the API host's JSON 404.
     [Fact]
-    public async Task With_SpaBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_spa_origin()
+    public async Task With_WebAppBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_web_app_origin()
     {
         var (service, _, _, http) = Build(
             new ResolveResult(ResolveOutcome.Resolved,
@@ -183,7 +183,7 @@ public sealed class AdminLoginServiceTests
         {
             DefaultReturnPath = defaultReturnPath,
             ReturnUrlAllowlist = allowlist?.ToArray() ?? ["/", "/dashboard", "/merchants"],
-            SpaBaseUrl = spaBaseUrl,
+            WebAppBaseUrl = spaBaseUrl,
             ScalarBaseUrl = scalarBaseUrl,
         });
         var oidcOptions = Options.Create(new AdminAuthOptions { ErrorPath = "/login-error" });

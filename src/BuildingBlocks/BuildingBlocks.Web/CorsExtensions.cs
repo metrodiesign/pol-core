@@ -1,12 +1,17 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace BuildingBlocks.Web;
+
+public sealed class PolCorsOptions
+{
+    public string[] AdminOrigins { get; init; } = [];
+    public string[] MerchantOrigins { get; init; } = [];
+}
 
 /// <summary>
 /// CORS for the two authenticated console SPAs served by the one API (REQ-10.5). The customer SPA uses a
@@ -25,7 +30,8 @@ namespace BuildingBlocks.Web;
 /// <c>/api/v1/merchants/{code}</c> — but NOT
 /// <c>/api/v1/merchants/users/*</c>, which is the merchant-user plane and stays on the default policy.</item>
 /// </list>
-/// Console origins come from config (<c>Cors:AllowedOrigins</c> merchant-user, <c>Cors:AdminOrigins</c> admin); never
+/// Console origins come from the validated configuration snapshot (<c>Cors:MerchantOrigins</c> merchant-user,
+/// <c>Cors:AdminOrigins</c> admin); never
 /// <c>AllowAnyOrigin</c>. When a list is empty the policy allows no cross-origin request (safe default — prod
 /// must set it). Splitting the two keeps enabling admin cookies from changing the merchant-user posture
 /// (REQ-10.5/4.5).
@@ -35,36 +41,34 @@ public static class CorsExtensions
     public const string AdminPolicyName = "pol-admin-spa";
     public const string DualConsolePolicyName = "pol-dual-console-spa";
 
-    public static IServiceCollection AddPolCors(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddPolCors(this IServiceCollection services)
     {
-        // Origins are read INSIDE each policy builder (lazy): CorsOptions is built on the first CORS request, by
-        // which time every config source is layered — eager-reading here would miss late-bound overrides.
-        services.AddCors(options =>
+        services.AddCors();
+        services.AddOptions<CorsOptions>().Configure<IOptions<PolCorsOptions>>((options, configured) =>
         {
+            var origins = configured.Value;
             options.AddDefaultPolicy(policy =>
             {
-                var origins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
-                if (origins.Length == 0)
+                if (origins.MerchantOrigins.Length == 0)
                     return; // no origins configured -> no cross-origin request is allowed
-                policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // merchant-user: cookie XHR
+                policy.WithOrigins(origins.MerchantOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // merchant-user: cookie XHR
             });
 
             options.AddPolicy(AdminPolicyName, policy =>
             {
-                var origins = configuration.GetSection("Cors:AdminOrigins").Get<string[]>() ?? [];
-                if (origins.Length == 0)
+                if (origins.AdminOrigins.Length == 0)
                     return; // no admin origin configured -> no cross-origin admin XHR
-                policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // admin: cookie XHR
+                policy.WithOrigins(origins.AdminOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials(); // admin: cookie XHR
             });
 
             options.AddPolicy(DualConsolePolicyName, policy =>
             {
-                var origins = (configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
-                    .Concat(configuration.GetSection("Cors:AdminOrigins").Get<string[]>() ?? [])
+                var combined = origins.MerchantOrigins
+                    .Concat(origins.AdminOrigins)
                     .Distinct(StringComparer.Ordinal).ToArray();
-                if (origins.Length == 0)
+                if (combined.Length == 0)
                     return;
-                policy.WithOrigins(origins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+                policy.WithOrigins(combined).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
             });
         });
 

@@ -61,10 +61,14 @@ test -f .env || cp .env.example .env
 ถ้ารัน SPA ให้ uncomment หรือตั้งค่า local origins ต่อไปนี้ใน `.env`:
 
 ```text
-AdminSession__SpaBaseUrl=https://localhost:3001
+AdminSession__WebAppBaseUrl=https://localhost:3001
+AdminSession__ReturnUrlAllowlist__0=/
+AdminSession__ReturnUrlAllowlist__1=/dashboard
 AdminSession__ScalarBaseUrl=https://localhost:5001
-MerchantUser__Session__SpaBaseUrl=https://localhost:3002
-Cors__AllowedOrigins__0=https://localhost:3002
+MerchantSession__WebAppBaseUrl=https://localhost:3002
+MerchantSession__ReturnUrlAllowlist__0=/
+MerchantSession__ReturnUrlAllowlist__1=/dashboard
+Cors__MerchantOrigins__0=https://localhost:3002
 Cors__AdminOrigins__0=https://localhost:3001
 Psp__PublicBaseUrl=https://localhost:5001
 Psp__TwoCTwoP__FrontendReturnUrl=https://localhost:3000/checkout/return
@@ -291,6 +295,25 @@ Development endpoints:
 การเปลี่ยน `appsettings.*`, environment หรือ DI ต้องหยุด process แล้วเริ่มใหม่. Hot reload ไม่รับประกันการโหลด config
 และ OIDC scheme ใหม่.
 
+### ย้ายชื่อ session และ CORS config
+
+Compatibility aliases ด้านล่างรองรับชั่วคราวหนึ่ง tagged release. ย้ายทุก environment ให้เสร็จ แล้ว restart API.
+หากตั้งชื่อเก่าและใหม่พร้อมกัน ค่า normalized ต้องเท่ากัน; ถ้าต่างกัน startup จะหยุดเพื่อกัน silent fallback.
+
+| ชื่อเก่า | ชื่อใหม่ |
+|---|---|
+| `AdminSession__SpaBaseUrl` | `AdminSession__WebAppBaseUrl` |
+| `MerchantUser__Session__*` | `MerchantSession__*` |
+| `MerchantUser__Session__SpaBaseUrl` | `MerchantSession__WebAppBaseUrl` |
+| `Cors__AllowedOrigins__*` | `Cors__MerchantOrigins__*` |
+
+API ไม่อ่าน `.env` เอง. หลังแก้ไฟล์ ให้ export เข้า process แล้วเริ่ม API ใหม่:
+
+```bash
+set -a && source .env && set +a
+dotnet run --project src/Hosts/Api --launch-profile https
+```
+
 ## 9. รัน SPA
 
 Frontend อยู่คนละ repository. ใช้คำสั่งของแต่ละ frontend แต่ต้องรักษา contract นี้:
@@ -299,10 +322,10 @@ Frontend อยู่คนละ repository. ใช้คำสั่งขอ�
 |---|---|---|---|
 | Customer | `https://localhost:3000` | `/api` ไป `https://localhost:5001` | ไม่ใช้ console-cookie CORS |
 | Admin | `https://localhost:3001` | Admin routes ไป `https://localhost:5001` | `Cors__AdminOrigins__0` |
-| Merchant | `https://localhost:3002` | Merchant routes ไป `https://localhost:5001` | `Cors__AllowedOrigins__0` |
+| Merchant | `https://localhost:3002` | Merchant routes ไป `https://localhost:5001` | `Cors__MerchantOrigins__0` |
 
 OIDC callback ลงที่ API origin `5001`; backend จึง redirect ผลลัพธ์ต่อไปยัง SPA origin ที่กำหนดใน
-`AdminSession__SpaBaseUrl` หรือ `MerchantUser__Session__SpaBaseUrl`.
+`AdminSession__WebAppBaseUrl` หรือ `MerchantSession__WebAppBaseUrl`.
 
 ## 10. ทดสอบ Microsoft login จริง
 
