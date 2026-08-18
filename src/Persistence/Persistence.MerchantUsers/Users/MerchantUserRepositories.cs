@@ -3,6 +3,7 @@ using Merchants.Application.Users;
 using Merchants.Domain.Users;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Payments.Application.AdminControlPlane;
 
 namespace Persistence.MerchantUsers.Users;
 
@@ -176,6 +177,30 @@ internal sealed class MerchantUserUnitOfWork : IRegistrationUnitOfWork, IUserUni
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return result;
         }).ConfigureAwait(false);
+    }
+
+    public async Task AcquirePaymentAuthorizationExclusiveAsync(
+        Guid merchantId, CancellationToken cancellationToken)
+    {
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
+        if (!_db.Database.IsSqlServer())
+            return;
+        var resources = new[] { "payment-authz:global", $"payment-authz:merchant:{merchantId:D}" };
+        foreach (var resource in resources)
+        {
+            var mode = resource.EndsWith(merchantId.ToString("D"), StringComparison.Ordinal)
+                ? "Exclusive" : "Shared";
+            var results = await _db.Database.SqlQueryRaw<int>(
+                """
+                DECLARE @lock int;
+                EXEC @lock = sp_getapplock @Resource = {0}, @LockMode = {1},
+                    @LockOwner = N'Transaction', @LockTimeout = 15000;
+                SELECT @lock AS Value;
+                """, resource, mode).ToListAsync(cancellationToken);
+            if (results.Single() < 0)
+                throw new PaymentAuthorizationBusyException("Payment authorization state is busy.");
+        }
     }
 }
 

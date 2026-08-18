@@ -1,4 +1,7 @@
 using BuildingBlocks.Application;
+using Payments.Application.Ports;
+using Payments.Domain;
+using Payments.Domain.Psp;
 using Payments.Infrastructure.Psp;
 using Merchants.Application.ProvisionMerchant;
 using Merchants.Domain;
@@ -14,7 +17,7 @@ public sealed class ProvisionMerchantHandlerTests
         new MerchantSpec(code, "vCommerce Co., Ltd.", "0105560000000", "TH", "THB", ["card", "promptpay"],
             new MerchantMetadata()),
         [
-            new PspConnectionSpec("2c2p", ["card"], "merchant-1",
+            new PspConnectionSpec("2c2p", ["card", "promptpay"], "merchant-1",
                 new Dictionary<string, string> { ["secretKey"] = "sk2c2pAAAA1234" }, null),
             new PspConnectionSpec("omise", ["card"], null,
                 new Dictionary<string, string> { ["secretKey"] = "skey_test_BBBB5678" }, null),
@@ -25,8 +28,35 @@ public sealed class ProvisionMerchantHandlerTests
     {
         var merchants = new FakeMerchantRepository();
         var writer = new FakeProvisioningWriter();
-        var handler = new ProvisionMerchantHandler(merchants, writer, new PspSecretEnvelopeFactory(), new FixedClock());
+        var handler = new ProvisionMerchantHandler(
+            merchants, writer, new PspSecretEnvelopeFactory(), new AdapterFactory(), new FixedClock());
         return (handler, merchants, writer);
+    }
+
+    private sealed class AdapterFactory : IPspAdapterFactory
+    {
+        private readonly Dictionary<Code, IPspAdapter> _adapters = new()
+        {
+            [Code.TwoCTwoP] = new Adapter(Code.TwoCTwoP,
+                PaymentMethods.Card, PaymentMethods.PromptPay, PaymentMethods.Installment),
+            [Code.Omise] = new Adapter(Code.Omise, PaymentMethods.Card),
+        };
+
+        public IPspAdapter For(Code psp) => _adapters[psp];
+    }
+
+    private sealed class Adapter(Code psp, params string[] methods) : IPspAdapter
+    {
+        public Code Psp { get; } = psp;
+        public IReadOnlySet<string> SupportedMethods { get; } = methods.ToHashSet(StringComparer.Ordinal);
+        public Task<PspCharge> CreateRedirectChargeAsync(
+            Session session, Guid pspConnectionId, string secret, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+        public bool VerifyWebhook(string rawPayload, string signature, string secret) => false;
+        public Task<PspChargeConfirmation> FetchChargeAsync(
+            string externalChargeId, string secret, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+        public WebhookEvent ParseWebhook(string rawPayload) => throw new NotSupportedException();
     }
 
     [Fact]
@@ -104,7 +134,37 @@ public sealed class ProvisionMerchantHandlerTests
         await handler.Handle(command, default);
 
         var connection = Assert.Single(Assert.Single(writer.Calls).Spec.Connections);
-        Assert.Equal("card,promptpay,installment", connection.EnabledMethods);
+        Assert.Equal("card,installment,promptpay", connection.EnabledMethods);
+    }
+
+    [Fact]
+    public async Task Rejects_method_outside_adapter_ceiling_without_writing()
+    {
+        var (handler, _, writer) = NewHandler();
+        var command = ValidCommand() with
+        {
+            Merchant = ValidCommand().Merchant with { EnabledChannels = ["promptpay"] },
+            PspConnections = [new PspConnectionSpec("omise", ["promptpay"], null,
+                new Dictionary<string, string> { ["secretKey"] = "skey_test_BBBB5678" }, null)],
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await handler.Handle(command, default));
+
+        Assert.Empty(writer.Calls);
+    }
+
+    [Fact]
+    public async Task Rejects_merchant_method_without_qualifying_connection_without_writing()
+    {
+        var (handler, _, writer) = NewHandler();
+        var command = ValidCommand() with
+        {
+            Merchant = ValidCommand().Merchant with { EnabledChannels = ["installment"] },
+        };
+
+        await Assert.ThrowsAsync<ArgumentException>(async () => await handler.Handle(command, default));
+
+        Assert.Empty(writer.Calls);
     }
 
     [Fact]

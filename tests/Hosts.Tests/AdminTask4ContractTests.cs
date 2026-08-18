@@ -14,6 +14,127 @@ namespace Hosts.Tests;
 public sealed class AdminTask4ContractTests
 {
     [Fact]
+    public async Task PaymentCapabilityQueries_pin_five_admin_queries_and_policy_mutations()
+    {
+        using var factory = new AdminTask4Factory();
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/openapi/v1.json");
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var paths = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("paths");
+
+        AssertOperation(paths, "/api/v1/merchants/users", "get", "ListMerchantUsers");
+        AssertOperation(paths, "/api/v1/payments/merchants/{merchantId}/methods", "get",
+            "ListMerchantPaymentMethods");
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/merchants/{merchantId}/users/{userId}/methods", "get",
+            "ListMerchantUserPaymentMethods"), "200");
+        AssertOperation(paths,
+            "/api/v1/payments/merchants/{merchantId}/users/{userId}/methods/{method}/resolution", "get",
+            "ResolveMerchantUserPaymentMethod");
+        var options = AssertOperation(paths,
+            "/api/v1/payments/merchants/{merchantId}/users/{userId}/methods/{method}/options", "get",
+            "ResolveMerchantUserPaymentOptions");
+        Assert.Contains(options.GetProperty("parameters").EnumerateArray(), x =>
+            x.GetProperty("name").GetString() == "provider" && x.GetProperty("required").GetBoolean());
+
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/merchants/{merchantId}/methods/{method}", "get",
+            "GetMerchantPaymentMethodPolicy"), "200");
+        AssertMutation(paths, "/api/v1/payments/merchants/{merchantId}/methods/{method}", "put",
+            "SetMerchantPaymentMethodPolicy", etag: true, idempotency: true);
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/merchants/{merchantId}/users/{userId}/methods/{method}", "get",
+            "GetMerchantUserPaymentMethodPolicy"), "200");
+        AssertMutation(paths,
+            "/api/v1/payments/merchants/{merchantId}/users/{userId}/methods/{method}", "put",
+            "SetMerchantUserPaymentMethodPolicy", etag: true, idempotency: true);
+    }
+
+    [Fact]
+    public async Task PaymentProviderCapability_routes_pin_paired_get_put_etag_and_idempotency()
+    {
+        using var factory = new AdminTask4Factory();
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/openapi/v1.json");
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var paths = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("paths");
+
+        AssertResponseEtag(AssertOperation(paths, "/api/v1/payments/methods/{method}", "get",
+            "GetPaymentMethodCapability"), "200");
+        AssertMutation(paths, "/api/v1/payments/methods/{method}", "put",
+            "SetPaymentMethodCapability", etag: true, idempotency: true);
+        AssertResponseEtag(AssertOperation(paths, "/api/v1/payments/providers/{providerCode}", "get",
+            "GetPaymentProviderCapability"), "200");
+        AssertMutation(paths, "/api/v1/payments/providers/{providerCode}", "put",
+            "SetPaymentProviderCapability", etag: true, idempotency: true);
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/providers/{providerCode}/methods/{method}", "get",
+            "GetPaymentProviderMethodCapability"), "200");
+        AssertMutation(paths, "/api/v1/payments/providers/{providerCode}/methods/{method}", "put",
+            "SetPaymentProviderMethodCapability", etag: true, idempotency: true);
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/providers/{providerCode}/methods/{method}/options/{option}", "get",
+            "GetPaymentProviderMethodOptionCapability"), "200");
+        AssertMutation(paths,
+            "/api/v1/payments/providers/{providerCode}/methods/{method}/options/{option}", "put",
+            "SetPaymentProviderMethodOptionCapability", etag: true, idempotency: true);
+    }
+
+    [Fact]
+    public async Task PaymentAccountCapability_routes_pin_scoped_get_put_without_credentials()
+    {
+        using var factory = new AdminTask4Factory();
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/openapi/v1.json");
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var paths = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("paths");
+
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/psp-connections/{connectionId}/methods/{method}", "get",
+            "GetPaymentAccountMethodCapability"), "200");
+        AssertMutation(paths, "/api/v1/payments/psp-connections/{connectionId}/methods/{method}", "put",
+            "SetPaymentAccountMethodCapability", etag: true, idempotency: true);
+        AssertResponseEtag(AssertOperation(paths,
+            "/api/v1/payments/psp-connections/{connectionId}/methods/{method}/options/{option}", "get",
+            "GetPaymentAccountMethodOptionCapability"), "200");
+        AssertMutation(paths,
+            "/api/v1/payments/psp-connections/{connectionId}/methods/{method}/options/{option}", "put",
+            "SetPaymentAccountMethodOptionCapability", etag: true, idempotency: true);
+
+        var names = typeof(AccountPaymentCapabilityView).GetProperties()
+            .Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Secret", names);
+        Assert.DoesNotContain("SecretRefName", names);
+        Assert.DoesNotContain("Config", names);
+    }
+
+    [Fact]
+    public async Task MerchantPaymentSelfRead_uses_server_identity_and_exposes_get_only_contracts()
+    {
+        using var factory = new AdminTask4Factory();
+        using var client = factory.CreateClient();
+        var response = await client.GetAsync("/openapi/v1.json");
+        Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        var paths = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("paths");
+        var methodsPath = paths.GetProperty("/api/v1/payments/methods");
+        var optionsPath = paths.GetProperty("/api/v1/payments/methods/{method}/options");
+
+        var methods = methodsPath.GetProperty("get");
+        var options = optionsPath.GetProperty("get");
+        Assert.Equal("ListMyEffectivePaymentMethods", methods.GetProperty("operationId").GetString());
+        Assert.Equal("ListMyEffectivePaymentOptions", options.GetProperty("operationId").GetString());
+        Assert.False(methodsPath.TryGetProperty("put", out _));
+        Assert.False(optionsPath.TryGetProperty("put", out _));
+        Assert.True(Requires(methods, "MerchantUserSession"));
+        Assert.True(Requires(options, "MerchantUserSession"));
+        var parameters = options.GetProperty("parameters").EnumerateArray().Select(x =>
+            x.GetProperty("name").GetString()).ToArray();
+        Assert.Contains("provider", parameters);
+        Assert.DoesNotContain("merchantId", parameters);
+        Assert.DoesNotContain("userId", parameters);
+    }
+
+    [Fact]
     public async Task OpenApi_pins_tenant_originator_psp_and_routing_mutation_contracts()
     {
         using var factory = new AdminTask4Factory();
@@ -119,6 +240,10 @@ public sealed class AdminTask4ContractTests
     private static void AssertResponseEtag(JsonElement operation, string status) =>
         Assert.True(operation.GetProperty("responses").GetProperty(status)
             .GetProperty("headers").TryGetProperty("ETag", out _));
+
+    private static bool Requires(JsonElement operation, string scheme) =>
+        operation.GetProperty("security").EnumerateArray()
+            .Any(requirement => requirement.EnumerateObject().Any(x => x.Name == scheme));
 }
 
 file sealed class AdminTask4Factory : WebApplicationFactory<ApiHost::Program>

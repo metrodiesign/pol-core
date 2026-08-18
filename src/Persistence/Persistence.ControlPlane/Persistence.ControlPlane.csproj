@@ -31,6 +31,8 @@
     <ProjectReference Include="..\..\Modules\Governance\Governance.Application\Governance.Application.csproj" />
     <ProjectReference Include="..\..\Modules\Notifications\Notifications.Domain\Notifications.Domain.csproj" />
     <ProjectReference Include="..\..\Modules\Notifications\Notifications.Application\Notifications.Application.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\Payments.Domain\Payments.Domain.csproj" />
+    <ProjectReference Include="..\..\Modules\Payments\Payments.Application\Payments.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

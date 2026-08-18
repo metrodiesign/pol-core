@@ -21,6 +21,7 @@ internal sealed class ConnectionConfiguration(MerchantRuntimeDbContext context) 
         TenantKeyDescriptor.Require(builder.Metadata, nameof(Connection.MerchantId));
         builder.HasQueryFilter(x => x.MerchantId == context.CurrentMerchant);
         builder.Property(x => x.Psp).IsRequired();
+        builder.Property(x => x.PaymentProviderId);
         builder.Property(x => x.EnabledMethods).HasMaxLength(256).IsRequired();
         builder.Property(x => x.SecretRefName).HasMaxLength(128).IsRequired();
         // No explicit HasColumnType: an unconstrained `string` property already defaults to nvarchar(max)
@@ -35,6 +36,9 @@ internal sealed class ConnectionConfiguration(MerchantRuntimeDbContext context) 
         builder.Property(x => x.Version).IsConcurrencyToken().IsRequired();
 
         builder.HasIndex(x => new { x.MerchantId, x.Psp }).IsUnique();
+        builder.HasIndex(x => new { x.MerchantId, x.PaymentProviderId }).IsUnique()
+            .HasFilter("[PaymentProviderId] IS NOT NULL");
+        builder.HasIndex(x => new { x.Id, x.MerchantId, x.PaymentProviderId }).IsUnique();
         builder.HasAlternateKey(x => new { x.MerchantId, x.Id });
         builder.HasOne<VaultSecretVersion>().WithMany()
             .HasForeignKey(x => new { x.MerchantId, x.ActiveSecretVersionId })

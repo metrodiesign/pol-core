@@ -134,6 +134,31 @@ public sealed class AudienceOpenApiDocumentTests
         Assert.DoesNotContain("\"url\":\"openapi/v1.json\"", scalar, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task PayOrder_documents_publish_runtime_authorization_responses()
+    {
+        using var factory = new OpenApiDocumentFactory();
+        using var client = factory.CreateClient();
+
+        foreach (var documentName in new[] { "v1", "merchant", "integration" })
+        {
+            var document = await DocumentAsync(client, documentName);
+            var operation = document.GetProperty("paths")
+                .GetProperty("/api/v1/orders/{token}/pay")
+                .GetProperty("post");
+            Assert.Contains("-> 403", operation.GetProperty("description").GetString(),
+                StringComparison.Ordinal);
+            var responses = operation.GetProperty("responses");
+
+            foreach (var status in new[] { "200", "403", "404", "409", "429", "503" })
+                Assert.True(responses.TryGetProperty(status, out _),
+                    $"{documentName} PayOrder is missing the documented {status} response.");
+        }
+
+        var admin = await DocumentAsync(client, "admin");
+        Assert.False(admin.GetProperty("paths").TryGetProperty("/api/v1/orders/{token}/pay", out _));
+    }
+
     private static async Task<JsonElement> DocumentAsync(HttpClient client, string name)
     {
         using var response = await client.GetAsync($"/openapi/{name}.json");

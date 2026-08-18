@@ -1,12 +1,49 @@
 using BuildingBlocks.Application;
 using Mediator;
 using Microsoft.Extensions.Logging;
+using Payments.Application.Capabilities;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
 using Payments.Domain.Psp;
 
 namespace Payments.Tests;
+
+internal sealed class FakePaymentAuthorizationLocks : IPaymentAuthorizationLockManager
+{
+    public int MerchantSharedCalls { get; private set; }
+    public Task AcquireGlobalExclusiveAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantSharedAsync(Guid merchantId, CancellationToken cancellationToken)
+    {
+        MerchantSharedCalls++;
+        return Task.CompletedTask;
+    }
+    public Task AcquireMerchantExclusiveAsync(Guid merchantId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class FakeEffectivePaymentCapabilities(
+    PaymentCapabilityDenial denial = PaymentCapabilityDenial.None) : IEffectivePaymentCapabilityResolver
+{
+    public int ResolveCalls { get; private set; }
+
+    public Task<PaymentMethodDecision> ResolveMethodAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken)
+    {
+        ResolveCalls++;
+        return Task.FromResult(denial == PaymentCapabilityDenial.None
+            ? new PaymentMethodDecision(true, request.Method, denial, Guid.NewGuid())
+            : new PaymentMethodDecision(false, request.Method, denial, null));
+    }
+
+    public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+        PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+
+    public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
+}
 
 /// <summary>
 /// First set of in-memory doubles for the Payments handlers (mirrors <c>tests/Carts.Tests/Fakes.cs</c> and
@@ -26,7 +63,6 @@ internal sealed class FakePayableOrderReader : IPayableOrderReader
 
     public int LockedCalls { get; private set; }
     public Guid? AttachedPaymentSessionId { get; private set; }
-    public string? AttachedMethod { get; private set; }
 
     /// <summary>What the LOCKED re-read reports, when it should differ from <see cref="GetAsync"/> — how a
     /// cancel that landed between the two reads is simulated. Null = same order as the first read.</summary>
@@ -49,11 +85,9 @@ internal sealed class FakePayableOrderReader : IPayableOrderReader
     public Task AttachAttemptAsync(
         Guid orderId,
         Guid paymentSessionId,
-        string method,
         CancellationToken cancellationToken)
     {
         AttachedPaymentSessionId = paymentSessionId;
-        AttachedMethod = method;
         return Task.CompletedTask;
     }
 

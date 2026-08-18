@@ -55,7 +55,8 @@ public sealed class WorkerWriteFloorTests : IDisposable
         {
             var order = OrderAggregate.Create(
                 MerchantA, Money.Of(100m, "THB"), DateTime.UtcNow,
-                OneOrderLine(Money.Of(100m, "THB")), orderNo: "ORD6900000001");
+                OneOrderLine(Money.Of(100m, "THB")), orderNo: "ORD6900000001",
+                paymentChannel: "card");
             orderId = order.Id;
             db.Add(order);
             await db.SaveChangesAsync();

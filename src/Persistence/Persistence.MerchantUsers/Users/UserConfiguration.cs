@@ -15,7 +15,9 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("Users", SchemaNames.Merch);
+        builder.ToTable("Users", SchemaNames.Merch, table =>
+            table.HasCheckConstraint("CK_Users_ActorMerchant",
+                "[Status] NOT IN (2, 4) OR ([MerchantId] IS NOT NULL AND [MerchantId] <> '00000000-0000-0000-0000-000000000000')"));
         builder.HasKey(x => x.Id);
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(ExternalLogin.Google);
         builder.Property(x => x.Subject).HasMaxLength(256).IsRequired();
@@ -53,6 +55,7 @@ internal sealed class UserConfiguration(MerchantUserDbContext context) : IEntity
         builder.Property(x => x.PhotoContentType).HasMaxLength(128);
         builder.Property(x => x.KycPhotoObjectKey).HasMaxLength(256);
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique(); // one account per provider identity (REQ-4.6)
+        builder.HasIndex(x => new { x.Id, x.MerchantId }).IsUnique();
         builder.Ignore(x => x.DomainEvents); // events are enqueued by the handler in-tx (REQ-20), not via the aggregate
     }
 }

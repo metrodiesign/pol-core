@@ -57,6 +57,8 @@ public sealed class PermissionGateSitesTests
         new("GET", "/api/v1/payments/sessions", "merchant-user", "payment.view"),
         new("GET", "/api/v1/payments/sessions/{paymentSessionId:guid}", "merchant-user", "payment.view"),
         new("POST", "/api/v1/payments/sessions/{paymentSessionId:guid}/redirect", "merchant-user", "payment.redirect"),
+        new("GET", "/api/v1/payments/methods", "merchant-user", "payment.view"),
+        new("GET", "/api/v1/payments/methods/{method}/options", "merchant-user", "payment.view"),
         new("POST", "/api/v1/orders", "merchant-user", "payment.create"),
         new("GET", "/api/v1/orders", "merchant-user", "payment.view"),
         new("GET", "/api/v1/orders/{orderId:guid}", "merchant-user", "payment.view"),
@@ -150,6 +152,22 @@ public sealed class PermissionGateSitesTests
         new("PUT", "/api/v1/merchants/{merchantId:guid}", "admin", "merchant.manage"),
         new("POST", "/api/v1/merchants/{merchantId:guid}/suspend", "admin", "merchant.manage"),
         new("POST", "/api/v1/merchants/{merchantId:guid}/reactivate", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/methods/{method}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/methods/{method}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/providers/{providerCode}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/providers/{providerCode}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/providers/{providerCode}/methods/{method}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/providers/{providerCode}/methods/{method}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/providers/{providerCode}/methods/{method}/options/{option}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/providers/{providerCode}/methods/{method}/options/{option}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/merchants/{merchantId:guid}/methods", "admin", "merchant.view"),
+        new("GET", "/api/v1/payments/merchants/{merchantId:guid}/methods/{method}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/merchants/{merchantId:guid}/methods/{method}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods", "admin", "merchants.users.view"),
+        new("GET", "/api/v1/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}", "admin", "merchants.users.view"),
+        new("PUT", "/api/v1/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}", "admin", "merchants.users.manage"),
+        new("GET", "/api/v1/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}/options", "admin", "merchants.users.view"),
+        new("GET", "/api/v1/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}/resolution", "admin", "merchants.users.view"),
         new("GET", "/api/v1/originators", "admin", "merchant.view"),
         new("GET", "/api/v1/originators/{originatorId:guid}", "admin", "merchant.view"),
         new("POST", "/api/v1/originators", "admin", "merchant.manage"),
@@ -160,7 +178,13 @@ public sealed class PermissionGateSitesTests
         new("GET", "/api/v1/payments/psp-connections", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/psp-connections/{connectionId:guid}", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/psp-connections", "admin", "settings.manage"),
+        new("POST", "/api/v1/payments/psp-connections", "admin", "merchant.manage"),
         new("PUT", "/api/v1/payments/psp-connections/{connectionId:guid}", "admin", "settings.manage"),
+        new("PUT", "/api/v1/payments/psp-connections/{connectionId:guid}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/psp-connections/{connectionId:guid}/methods/{method}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/psp-connections/{connectionId:guid}/methods/{method}", "admin", "merchant.manage"),
+        new("GET", "/api/v1/payments/psp-connections/{connectionId:guid}/methods/{method}/options/{option}", "admin", "merchant.view"),
+        new("PUT", "/api/v1/payments/psp-connections/{connectionId:guid}/methods/{method}/options/{option}", "admin", "merchant.manage"),
         new("POST", "/api/v1/payments/psp-connections/{connectionId:guid}/test", "admin", "settings.manage"),
         new("POST", "/api/v1/payments/psp-connections/{connectionId:guid}/credential-change-requests", "admin", "settings.manage"),
         new("GET", "/api/v1/payments/routing-rulesets", "admin", "settings.manage"),
@@ -252,7 +276,7 @@ public sealed class PermissionGateSitesTests
     }
 
     [Fact]
-    public void Exactly_154_active_gate_sites_are_pinned() => Assert.Equal(154, Sites.Length);
+    public void Exactly_178_active_gate_sites_are_pinned() => Assert.Equal(178, Sites.Length);
 
     // REQ-10.3: the scheme ids themselves — a rename here would be a breaking contract change for both SPAs.
     [Fact]

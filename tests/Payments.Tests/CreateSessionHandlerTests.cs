@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
 using Payments.Application.CreateSession;
 using Payments.Application.Ports;
@@ -18,10 +19,20 @@ public sealed class CreateSessionHandlerTests
 {
     private static readonly Guid MerchantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid MerchantUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Money OrderAmount = Money.Of(15000m, "THB");
     private static readonly DateTime Now = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
 
-    private static PayableOrder AwaitingOrder() => new(OrderId, OrderAmount, PayableOrderStatus.Pending);
+    private static PayableOrder TestOrder(
+        PayableOrderStatus status = PayableOrderStatus.Pending,
+        Guid? paymentSessionId = null,
+        Money? amount = null,
+        Guid? orderId = null,
+        string method = PaymentMethods.Card) => new(
+        orderId ?? OrderId, amount ?? OrderAmount, status, paymentSessionId, method,
+        MerchantId, PaymentAudience.User, MerchantUserId);
+
+    private static PayableOrder AwaitingOrder() => TestOrder();
 
     private static Connection NewConnection(string enabledMethods = "card,promptpay", Code psp = Code.TwoCTwoP) =>
         Connection.Create(MerchantId, psp, enabledMethods, "psp/secret-ref/merchant-1", Now);
@@ -55,7 +66,8 @@ public sealed class CreateSessionHandlerTests
         Session[]? existingSessions = null,
         DateTime? now = null,
         Func<string, PspChargeConfirmation>? onFetchCharge = null,
-        IDocumentSaleProbe? documentSales = null)
+        IDocumentSaleProbe? documentSales = null,
+        PaymentCapabilityDenial capabilityDenial = PaymentCapabilityDenial.None)
     {
         var orders = new FakePayableOrderReader(order ?? AwaitingOrder());
         var methods = adapterMethods ?? [PaymentMethods.Card];
@@ -89,7 +101,9 @@ public sealed class CreateSessionHandlerTests
                 new RecordingLogger<PaymentConfirmationService>()),
             documentSales ?? new FakeDocumentSaleProbe(),
             unitOfWork,
-            clock);
+            clock,
+            new FakePaymentAuthorizationLocks(),
+            new FakeEffectivePaymentCapabilities(capabilityDenial));
 
         return harness = new Harness(handler, orders, sessions, unitOfWork, outbox);
     }
@@ -128,7 +142,7 @@ public sealed class CreateSessionHandlerTests
     {
         // The reader returns null both for a missing order and for another company's order (its query filter
         // makes them indistinguishable) — so this is the 404 path for both, with no "exists elsewhere" hint.
-        var harness = NewHarness(order: new PayableOrder(Guid.NewGuid(), OrderAmount, PayableOrderStatus.Pending));
+        var harness = NewHarness(order: TestOrder(orderId: Guid.NewGuid()));
 
         await Assert.ThrowsAsync<NotFoundException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -143,7 +157,7 @@ public sealed class CreateSessionHandlerTests
     {
         // Covers the already-paid order too: it is no longer AwaitingPayment, so this is the path that stops
         // a second charge against a settled order.
-        var harness = NewHarness(order: new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Paid));
+        var harness = NewHarness(order: TestOrder(PayableOrderStatus.Paid));
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -157,7 +171,7 @@ public sealed class CreateSessionHandlerTests
     [InlineData(PayableOrderStatus.Cancelled)]
     public async Task A_terminal_order_cannot_open_a_payment_attempt(PayableOrderStatus status)
     {
-        var harness = NewHarness(order: new PayableOrder(OrderId, OrderAmount, status));
+        var harness = NewHarness(order: TestOrder(status));
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -261,6 +275,7 @@ public sealed class CreateSessionHandlerTests
         // The real seed enables promptpay on 2C2P while the 2C2P adapter can only drive card. Without this
         // step the customer would be redirected to a CARD page after choosing PromptPay.
         var harness = NewHarness(
+            order: TestOrder(method: PaymentMethods.PromptPay),
             connections: [NewConnection(enabledMethods: "card,promptpay")],
             adapterMethods: [PaymentMethods.Card]);
 
@@ -268,6 +283,18 @@ public sealed class CreateSessionHandlerTests
             await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
 
         Assert.Equal("psp-unavailable", ex.Code);
+        AssertNothingWasPersisted(harness);
+    }
+
+    [Fact]
+    public async Task CreateSessionAuthorization_denies_missing_User_policy_before_session_insert()
+    {
+        var harness = NewHarness(capabilityDenial: PaymentCapabilityDenial.UserPolicyDenied);
+
+        var ex = await Assert.ThrowsAsync<AccessDeniedException>(async () =>
+            await harness.Handler.Handle(Command(), default));
+
+        Assert.Equal("payment_method_not_allowed", ex.Code);
         AssertNothingWasPersisted(harness);
     }
 
@@ -352,14 +379,13 @@ public sealed class CreateSessionHandlerTests
         paid.SetPspCharge("paid-charge", "https://psp.test/paid", Now.AddMinutes(-9));
         paid.MarkPaid("paid-charge", Now.AddMinutes(-1));
         var harness = NewHarness(
-            order: new PayableOrder(
-                OrderId, OrderAmount, PayableOrderStatus.Pending, paid.Id, PaymentMethods.Card),
+            order: TestOrder(paymentSessionId: paid.Id),
             existingSessions: [paid],
             adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay],
             onFetchCharge: _ => new PspChargeConfirmation(PspChargeStatus.Paid, OrderAmount));
 
         await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
+            await harness.Handler.Handle(Command(PaymentMethods.Card), default));
 
         Assert.Empty(harness.Sessions.Added);
         Assert.Null(harness.Orders.AttachedPaymentSessionId);
@@ -379,14 +405,14 @@ public sealed class CreateSessionHandlerTests
         else
             prior.MarkExpired(Now);
         var harness = NewHarness(
-            order: new PayableOrder(OrderId, OrderAmount, orderStatus, prior.Id, PaymentMethods.Card),
+            order: TestOrder(orderStatus, prior.Id),
             existingSessions: [prior],
             adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay]);
 
-        var result = await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default);
+        var result = await harness.Handler.Handle(Command(PaymentMethods.Card), default);
 
         Assert.Equal(result.PaymentSessionId, harness.Orders.AttachedPaymentSessionId);
-        Assert.Equal(PaymentMethods.PromptPay, harness.Orders.AttachedMethod);
+        Assert.Equal(PaymentMethods.Card, Assert.Single(harness.Sessions.Added).Method);
         Assert.Equal(result.PaymentSessionId, Assert.Single(harness.Sessions.Added).Id);
         Assert.Equal(1, harness.UnitOfWork.TransactionCount);
     }
@@ -406,13 +432,13 @@ public sealed class CreateSessionHandlerTests
         else
             prior.MarkExpired(Now.AddMinutes(-5));
         var harness = NewHarness(
-            order: new PayableOrder(OrderId, OrderAmount, orderStatus, prior.Id, PaymentMethods.Card),
+            order: TestOrder(orderStatus, prior.Id),
             existingSessions: [prior],
             adapterMethods: [PaymentMethods.Card, PaymentMethods.PromptPay],
             onFetchCharge: _ => new PspChargeConfirmation(PspChargeStatus.Paid, OrderAmount));
 
         await Assert.ThrowsAsync<ConflictException>(async () =>
-            await harness.Handler.Handle(Command(PaymentMethods.PromptPay), default));
+            await harness.Handler.Handle(Command(PaymentMethods.Card), default));
 
         Assert.Equal(SessionStatus.Paid, prior.Status);
         Assert.IsType<Contracts.PaymentPaid>(Assert.Single(harness.Outbox.Enqueued));
@@ -539,7 +565,7 @@ public sealed class CreateSessionHandlerTests
     public async Task An_order_cancelled_between_the_first_read_and_the_mint_is_refused()
     {
         var harness = NewHarness();
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Cancelled);
+        harness.Orders.OnGetForMint = _ => TestOrder(PayableOrderStatus.Cancelled);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -555,7 +581,7 @@ public sealed class CreateSessionHandlerTests
         // commit. The expire may proceed (it frees the dead session either way) but the MINT must not.
         var stale = StaleSession(withCharge: false);
         var harness = NewHarness(existingSessions: [stale]);
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Cancelled);
+        harness.Orders.OnGetForMint = _ => TestOrder(PayableOrderStatus.Cancelled);
 
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await harness.Handler.Handle(Command(), default));
@@ -570,7 +596,7 @@ public sealed class CreateSessionHandlerTests
         // session's amount to the LOCKED read pins which of the two the mint trusts.
         var lockedAmount = Money.Of(20000m, "THB");
         var harness = NewHarness();
-        harness.Orders.OnGetForMint = _ => new PayableOrder(OrderId, lockedAmount, PayableOrderStatus.Pending);
+        harness.Orders.OnGetForMint = _ => TestOrder(amount: lockedAmount);
 
         await harness.Handler.Handle(Command(), default);
 
@@ -596,7 +622,7 @@ public sealed class CreateSessionHandlerTests
         Assert.Equal(SessionStatus.Created, session.Status);
         Assert.Equal(1, harness.UnitOfWork.SaveCount);
         Assert.Equal(session.Id, harness.Orders.AttachedPaymentSessionId);
-        Assert.Equal(PaymentMethods.Card, harness.Orders.AttachedMethod);
+        Assert.Equal(PaymentMethods.Card, session.Method);
         Assert.Equal(1, harness.UnitOfWork.TransactionCount);
     }
 

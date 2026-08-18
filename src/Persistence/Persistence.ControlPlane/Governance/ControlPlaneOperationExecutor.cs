@@ -23,11 +23,39 @@ internal sealed class ControlPlaneOperationExecutor(
         object intent,
         int successStatus,
         Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken) => ExecuteScopedAsync(
+            actorId, GovernanceScopeKind.Merchant, merchantId, operation, idempotencyKey,
+            intent, successStatus, null, action, cancellationToken);
+
+    public Task<(T Value, bool Replayed)> ExecutePlatformAsync<T>(
+        Guid actorId,
+        string operation,
+        string idempotencyKey,
+        object intent,
+        int successStatus,
+        Func<CancellationToken, Task> acquireAuthorizationLock,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken) => ExecuteScopedAsync(
+            actorId, GovernanceScopeKind.Platform, null, operation, idempotencyKey,
+            intent, successStatus, acquireAuthorizationLock, action, cancellationToken);
+
+    private Task<(T Value, bool Replayed)> ExecuteScopedAsync<T>(
+        Guid actorId,
+        GovernanceScopeKind scopeKind,
+        Guid? merchantId,
+        string operation,
+        string idempotencyKey,
+        object intent,
+        int successStatus,
+        Func<CancellationToken, Task>? acquireAuthorizationLock,
+        Func<CancellationToken, Task<T>> action,
         CancellationToken cancellationToken) =>
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             ValidateKey(idempotencyKey);
             var hash = Hash(intent);
+            if (acquireAuthorizationLock is not null)
+                await acquireAuthorizationLock(ct);
             await locks.AcquireAsync($"admin-operation:{actorId:D}:{operation}:{HashKey(idempotencyKey)}", ct);
             var prior = await db.OperationRecords.SingleOrDefaultAsync(x =>
                 x.ActorId == actorId && x.Operation == operation && x.IdempotencyKey == idempotencyKey, ct);
@@ -44,7 +72,7 @@ internal sealed class ControlPlaneOperationExecutor(
             }
 
             var record = OperationRecord.Create(actorId, operation, idempotencyKey, hash,
-                GovernanceScopeKind.Merchant, merchantId, clock.UtcNow, clock.UtcNow.AddHours(24));
+                scopeKind, merchantId, clock.UtcNow, clock.UtcNow.AddHours(24));
             db.OperationRecords.Add(record);
             var value = await action(ct);
             record.Complete(successStatus, JsonSerializer.Serialize(value, Json), succeeded: true, clock.UtcNow);

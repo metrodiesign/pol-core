@@ -1,6 +1,8 @@
 using BuildingBlocks.Application;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Payments.Application.Ports;
 using Persistence.MerchantRuntime;
 using Persistence.MerchantRuntime.Payments;
@@ -23,14 +25,20 @@ public sealed class PayableOrderReaderIntegrationTests
     [Fact]
     public async Task GetForMintAsync_locks_and_returns_the_real_order_through_EF()
     {
+        var database = $"pol_payable_{Guid.NewGuid():N}";
+        var merchantId = Guid.NewGuid();
         var orderId = Guid.NewGuid();
         var orderNo = $"ORD69{Random.Shared.Next(60_000_000, 69_999_999)}";
-        await using var c = await IntegrationDb.OpenAsync(IntegrationDb.AppConn);
+        await PaymentCapabilitySchemaIntegrationTests.CreateScratchDatabaseAsync(database);
         try
         {
-            await InsertOrderAsync(c, orderId, orderNo);
+            await using (var migration = PaymentCapabilitySchemaIntegrationTests.CreateContext(database))
+                await migration.GetService<IMigrator>().MigrateAsync();
+            await using var c = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database));
+            await IntegrationDb.InsertMerchantAsync(c, merchantId, $"payable-{Guid.NewGuid():N}"[..24]);
+            await InsertOrderAsync(c, orderId, merchantId, orderNo);
 
-            await using var db = NewContext();
+            await using var db = NewContext(database, merchantId);
             var sut = new PayableOrderReader(db);
 
             var payable = await sut.GetForMintAsync(orderId, CancellationToken.None);
@@ -42,16 +50,17 @@ public sealed class PayableOrderReaderIntegrationTests
         }
         finally
         {
-            await IntegrationDb.ExecAsync(c, "DELETE shop.Orders WHERE Id = @id;", ("@id", orderId));
+            await PaymentCapabilitySchemaIntegrationTests.DropScratchDatabaseAsync(database);
         }
     }
 
-    private static MerchantRuntimeDbContext NewContext() =>
-        new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>().UseSqlServer(IntegrationDb.AppConn).Options,
-            new FakeActor(IntegrationDb.MerchantA), AllowAllWriteAuthorizer.Instance, NoOpSecurityTelemetry.Instance);
+    private static MerchantRuntimeDbContext NewContext(string database, Guid merchantId) =>
+        new(new DbContextOptionsBuilder<MerchantRuntimeDbContext>()
+                .UseSqlServer(IntegrationDb.SaConnFor(database), sql => sql.UseCompatibilityLevel(170)).Options,
+            new FakeActor(merchantId), AllowAllWriteAuthorizer.Instance, NoOpSecurityTelemetry.Instance);
 
     // Mirrors OrderNoSequenceIntegrationTests.InsertOrderAsync — same required columns, run-unique OrderNo.
-    private static Task InsertOrderAsync(SqlConnection c, Guid orderId, string orderNo) =>
+    private static Task InsertOrderAsync(SqlConnection c, Guid orderId, Guid merchantId, string orderNo) =>
         IntegrationDb.ExecAsync(c,
             """
             INSERT shop.Orders
@@ -60,7 +69,7 @@ public sealed class PayableOrderReaderIntegrationTests
             VALUES (@id, @m, @orderNo, 15000, N'THB', 1, SYSUTCDATETIME(),
                     @token, DATEADD(hour, 72, SYSUTCDATETIME()), N'Probe', '0800000000');
             """,
-            ("@id", orderId), ("@m", IntegrationDb.MerchantA), ("@orderNo", orderNo),
+            ("@id", orderId), ("@m", merchantId), ("@orderNo", orderNo),
             ("@token", Guid.NewGuid().ToString("N")));
 
     private sealed class FakeActor(Guid merchantId) : IActorContext

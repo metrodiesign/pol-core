@@ -17,8 +17,299 @@ internal static class AdminControlEndpoints
         var routes = api.MapGroup(string.Empty).AddEndpointFilter(HandleKnownErrors);
         MapMerchants(routes);
         MapOriginators(routes);
+        MapPaymentCapabilities(routes);
         MapPspConnections(routes);
         MapRouting(routes);
+    }
+
+    private static void MapPaymentCapabilities(RouteGroupBuilder api)
+    {
+        api.MapGet("/payments/methods/{method}", async (
+            string method, HttpContext http, IAdminScope scope,
+            IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetMethodAsync(method, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetPaymentMethodCapability")
+            .WithSummary("อ่านสถานะ payment method")
+            .WithDescription("คืนสถานะเปิดใช้งานของ payment method ระดับ platform พร้อม ETag")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/methods/{method}", async (
+            string method, SetPaymentCapabilityRequest body, HttpContext http, IAdminScope scope,
+            IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
+        {
+            var result = await store.SetMethodAsync(new SetGlobalPaymentCapabilityIntent(
+                method, null, method, null, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetPaymentMethodCapability")
+            .WithSummary("กำหนดสถานะ payment method")
+            .WithDescription("เปิดหรือปิด payment method ระดับ platform โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/providers/{providerCode}", async (
+            string providerCode, HttpContext http, IAdminScope scope,
+            IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetProviderAsync(providerCode, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetPaymentProviderCapability")
+            .WithSummary("อ่านสถานะ payment provider")
+            .WithDescription("คืนสถานะเปิดใช้งานของ payment provider พร้อม ETag")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/providers/{providerCode}", async (
+            string providerCode, SetPaymentCapabilityRequest body, HttpContext http, IAdminScope scope,
+            IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
+        {
+            var result = await store.SetProviderAsync(new SetGlobalPaymentCapabilityIntent(
+                providerCode, providerCode, null, null, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetPaymentProviderCapability")
+            .WithSummary("กำหนดสถานะ payment provider")
+            .WithDescription("เปิดหรือปิด payment provider โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/providers/{providerCode}/methods/{method}", async (
+            string providerCode, string method, HttpContext http, IAdminScope scope,
+            IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetProviderMethodAsync(
+                providerCode, method, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetPaymentProviderMethodCapability")
+            .WithSummary("อ่าน method ของ payment provider")
+            .WithDescription("คืนสถานะที่ provider รองรับ payment method พร้อม ETag")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/providers/{providerCode}/methods/{method}", async (
+            string providerCode, string method, SetPaymentCapabilityRequest body,
+            HttpContext http, IAdminScope scope, IGlobalPaymentCapabilityControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.SetProviderMethodAsync(new SetGlobalPaymentCapabilityIntent(
+                method, providerCode, method, null, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetPaymentProviderMethodCapability")
+            .WithSummary("กำหนด method ของ payment provider")
+            .WithDescription("เปิดหรือปิด payment method ของ provider โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/providers/{providerCode}/methods/{method}/options/{option}", async (
+            string providerCode, string method, string option, HttpContext http, IAdminScope scope,
+            IGlobalPaymentCapabilityControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetProviderMethodOptionAsync(
+                providerCode, method, option, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetPaymentProviderMethodOptionCapability")
+            .WithSummary("อ่าน option ของ provider method")
+            .WithDescription("คืนสถานะ payment option ที่ provider method รองรับ พร้อม ETag")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/providers/{providerCode}/methods/{method}/options/{option}", async (
+            string providerCode, string method, string option, SetPaymentCapabilityRequest body,
+            HttpContext http, IAdminScope scope, IGlobalPaymentCapabilityControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.SetProviderMethodOptionAsync(new SetGlobalPaymentCapabilityIntent(
+                option, providerCode, method, option, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetPaymentProviderMethodOptionCapability")
+            .WithSummary("กำหนด option ของ provider method")
+            .WithDescription("เปิดหรือปิด payment option ของ provider method โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<GlobalPaymentCapabilityView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/psp-connections/{connectionId:guid}/methods/{method}", async (
+            Guid connectionId, string method, HttpContext http, IAdminScope scope,
+            IAccountPaymentCapabilityControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetAccountMethodAsync(
+                connectionId, method, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetPaymentAccountMethodCapability")
+            .WithSummary("อ่าน method ของ PSP connection")
+            .WithDescription("คืนสถานะ payment method ของ PSP connection ภายใน Admin scope พร้อม ETag")
+            .Produces<AccountPaymentCapabilityView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/psp-connections/{connectionId:guid}/methods/{method}", async (
+            Guid connectionId, string method, SetPaymentCapabilityRequest body,
+            HttpContext http, IAdminScope scope, IAccountPaymentCapabilityControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.SetAccountMethodAsync(new SetAccountPaymentCapabilityIntent(
+                connectionId, method, null, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetPaymentAccountMethodCapability")
+            .WithSummary("กำหนด method ของ PSP connection")
+            .WithDescription("เปิดหรือปิด payment method ของ PSP connection โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<AccountPaymentCapabilityView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/psp-connections/{connectionId:guid}/methods/{method}/options/{option}", async (
+            Guid connectionId, string method, string option, HttpContext http, IAdminScope scope,
+            IAccountPaymentCapabilityControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetAccountMethodOptionAsync(
+                connectionId, method, option, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetPaymentAccountMethodOptionCapability")
+            .WithSummary("อ่าน option ของ PSP connection")
+            .WithDescription("คืนสถานะ payment option ของ PSP connection ภายใน Admin scope พร้อม ETag")
+            .Produces<AccountPaymentCapabilityView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/psp-connections/{connectionId:guid}/methods/{method}/options/{option}", async (
+            Guid connectionId, string method, string option, SetPaymentCapabilityRequest body,
+            HttpContext http, IAdminScope scope, IAccountPaymentCapabilityControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.SetAccountMethodOptionAsync(new SetAccountPaymentCapabilityIntent(
+                connectionId, method, option, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetPaymentAccountMethodOptionCapability")
+            .WithSummary("กำหนด option ของ PSP connection")
+            .WithDescription("เปิดหรือปิด payment option ของ PSP connection โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<AccountPaymentCapabilityView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/merchants/{merchantId:guid}/methods", async (
+            Guid merchantId, IAdminScope scope, IAdminPaymentsControlStore store, CancellationToken ct) =>
+        {
+            var value = await store.ListMerchantMethodsAsync(merchantId, PaymentsAccess(scope), ct);
+            return value is null ? Results.NotFound() : Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithTags("Payment capability").WithName("ListMerchantPaymentMethods")
+            .WithSummary("รายการ effective method ของร้านค้า")
+            .WithDescription("คืน payment method ที่ร้านค้าใช้ได้หลังรวม platform, provider และ account policy")
+            .Produces<IReadOnlyList<Payments.Application.Capabilities.EffectivePaymentMethod>>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapGet("/payments/merchants/{merchantId:guid}/methods/{method}", async (
+            Guid merchantId, string method, HttpContext http, IAdminScope scope,
+            IAdminPaymentsControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetMerchantMethodAsync(
+                merchantId, method, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetMerchantPaymentMethodPolicy")
+            .WithSummary("อ่าน payment method policy ของร้านค้า")
+            .WithDescription("คืน policy ของ payment method สำหรับร้านค้าใน Admin scope พร้อม ETag")
+            .Produces<MerchantPaymentMethodView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/merchants/{merchantId:guid}/methods/{method}", async (
+            Guid merchantId, string method, SetPaymentCapabilityRequest body,
+            HttpContext http, IAdminScope scope, IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.SetMerchantMethodAsync(new SetMerchantPaymentCapabilityIntent(
+                merchantId, method, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetMerchantPaymentMethodPolicy")
+            .WithSummary("กำหนด payment method policy ของร้านค้า")
+            .WithDescription("เปิดหรือปิด payment method ของร้านค้าโดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<MerchantPaymentMethodView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods", async (
+            Guid merchantId, Guid userId, HttpContext http, IAdminScope scope,
+            IAdminPaymentsControlStore store, CancellationToken ct) =>
+        {
+            var value = await store.ListMerchantUserMethodsAsync(
+                merchantId, userId, PaymentsAccess(scope), ct);
+            if (value is null)
+                return Results.NotFound();
+            VersionEtags.Set(http, value.Sum(x => x.Version));
+            return Results.Ok(value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("ListMerchantUserPaymentMethods")
+            .WithSummary("รายการ method ของ Merchant User")
+            .WithDescription("คืน payment method policy ทั้งหมดของ Merchant User ภายในร้านค้าที่ Admin เข้าถึงได้")
+            .Produces<IReadOnlyList<MerchantUserPaymentMethodView>>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapGet("/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}", async (
+            Guid merchantId, Guid userId, string method, HttpContext http, IAdminScope scope,
+            IAdminPaymentsControlStore store, CancellationToken ct) =>
+            CapabilityResult(http, await store.GetMerchantUserMethodAsync(
+                merchantId, userId, method, PaymentsAccess(scope), ct)))
+            .RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            .WithMetadata(new EtagResponseMarker("200"))
+            .WithTags("Payment capability").WithName("GetMerchantUserPaymentMethodPolicy")
+            .WithSummary("อ่าน method policy ของ Merchant User")
+            .WithDescription("คืน payment method policy ของ Merchant User พร้อม ETag")
+            .Produces<MerchantUserPaymentMethodView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapPut("/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}", async (
+            Guid merchantId, Guid userId, string method, SetPaymentCapabilityRequest body,
+            HttpContext http, IAdminScope scope, IAdminPaymentsControlStore store,
+            CancellationToken ct) =>
+        {
+            var result = await store.SetMerchantUserMethodAsync(new SetMerchantUserPaymentCapabilityIntent(
+                merchantId, userId, method, body.Enabled, VersionEtags.Require(http),
+                IdempotencyKeys.Require(http), PaymentsAccess(scope)), ct);
+            VersionEtags.Set(http, result.Value.Version);
+            return Results.Ok(result.Value);
+        }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserManage)
+            .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+            .WithTags("Payment capability").WithName("SetMerchantUserPaymentMethodPolicy")
+            .WithSummary("กำหนด method policy ของ Merchant User")
+            .WithDescription("เปิดหรือปิด payment method ของ Merchant User โดยต้องส่ง If-Match และ Idempotency-Key")
+            .Produces<MerchantUserPaymentMethodView>().ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet(
+            "/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}/resolution",
+            async (Guid merchantId, Guid userId, string method, IAdminScope scope,
+                IAdminPaymentsControlStore store, CancellationToken ct) =>
+            {
+                var value = await store.ResolveMerchantUserMethodAsync(
+                    merchantId, userId, method, PaymentsAccess(scope), ct);
+                return value is null ? Results.NotFound() : Results.Ok(value);
+            }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            .WithTags("Payment capability").WithName("ResolveMerchantUserPaymentMethod")
+            .WithSummary("ตรวจ effective method ของ Merchant User")
+            .WithDescription("คืนผล intersection และ denial reason ของ payment method สำหรับ Merchant User")
+            .Produces<UserPaymentMethodResolutionView>().ProducesProblem(StatusCodes.Status404NotFound);
+
+        api.MapGet(
+            "/payments/merchants/{merchantId:guid}/users/{userId:guid}/methods/{method}/options",
+            async (Guid merchantId, Guid userId, string method, string provider, IAdminScope scope,
+                IAdminPaymentsControlStore store, CancellationToken ct) =>
+            {
+                var value = await store.ResolveMerchantUserOptionsAsync(
+                    merchantId, userId, method, provider, PaymentsAccess(scope), ct);
+                return value is null ? Results.NotFound() : Results.Ok(value);
+            }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
+            .WithTags("Payment capability").WithName("ResolveMerchantUserPaymentOptions")
+            .WithSummary("รายการ effective option ของ Merchant User")
+            .WithDescription("คืน payment option ที่ผ่าน provider และ account policy สำหรับ Merchant User")
+            .Produces<IReadOnlyList<Payments.Application.Capabilities.EffectivePaymentOption>>()
+            .ProducesProblem(StatusCodes.Status404NotFound);
     }
 
     private static void MapMerchants(RouteGroupBuilder api)
@@ -314,6 +605,7 @@ internal static class AdminControlEndpoints
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Created($"/api/v1/payments/psp-connections/{result.Connection.PspConnectionId:D}", result.Connection);
         }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .RequirePermission(Keys.MerchantManage)
             .WithMetadata(new EtagResponseMarker("201"), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("CreatePspConnection")
             .WithSummary("สร้าง PSP connection")
@@ -339,6 +631,7 @@ internal static class AdminControlEndpoints
             VersionEtags.Set(http, result.Connection.Version);
             return Results.Ok(result.Connection);
         }).RequireCsrf().RequireAuthorization("admin").RequirePermission(Keys.SettingsManage)
+            .RequirePermission(Keys.MerchantManage)
             .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
             .WithTags("การเชื่อมต่อ PSP").WithName("UpdatePspConnection")
             .WithSummary("แก้ไข PSP connection")
@@ -564,6 +857,30 @@ internal static class AdminControlEndpoints
         {
             return Problem(context.HttpContext, 502, "psp_test_failed");
         }
+        catch (PaymentCapabilityUnavailableException)
+        {
+            return Problem(context.HttpContext, 409, "payment_capability_unavailable");
+        }
+        catch (PaymentAuthorizationBusyException)
+        {
+            return Problem(context.HttpContext, 409, "payment_authorization_busy");
+        }
+    }
+
+    private static IResult CapabilityResult<T>(HttpContext http, T? value) where T : class
+    {
+        if (value is null)
+            return Results.Problem(statusCode: StatusCodes.Status404NotFound);
+        var version = value switch
+        {
+            GlobalPaymentCapabilityView global => global.Version,
+            AccountPaymentCapabilityView account => account.Version,
+            MerchantPaymentMethodView merchant => merchant.Version,
+            MerchantUserPaymentMethodView user => user.Version,
+            _ => throw new InvalidOperationException("Capability response does not expose a version."),
+        };
+        VersionEtags.Set(http, version);
+        return Results.Ok(value);
     }
 
     private static IResult Problem(HttpContext http, int status, string code) => Results.Problem(
@@ -615,6 +932,8 @@ internal sealed record UpdateMerchantRequest(
     string? Note,
     IReadOnlyList<string>? EnabledChannels,
     JsonElement? Metadata);
+
+internal sealed record SetPaymentCapabilityRequest(bool Enabled);
 
 internal sealed record MerchantStatusRequest(Guid MerchantId);
 

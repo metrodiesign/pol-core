@@ -62,6 +62,8 @@ public sealed class ApproveHandler : ICommandHandler<ApproveCommand, ApproveResu
     public ValueTask<ApproveResult> Handle(ApproveCommand command, CancellationToken cancellationToken) =>
         new(_unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
+            await _unitOfWork.AcquirePaymentAuthorizationExclusiveAsync(
+                command.ValidatedMerchantId, ct);
             var now = _clock.UtcNow;
             // FindByIdAsync ONLY (microsoft-oidc-ciam-alignment REQ-4.7): the route contract is the internal id —
             // subject dispatch is gone (an Entra oid is a GUID and would have been eaten as an id).

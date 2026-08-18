@@ -18,6 +18,8 @@ public sealed class Order : AggregateRoot<Guid>
 
     public Guid MerchantId { get; private set; }
     public Guid? OriginatorId { get; private set; }
+    public OrderInitiatingAudience? InitiatingAudience { get; private set; }
+    public Guid? InitiatingMerchantUserId { get; private set; }
 
     /// <summary>The human-readable order number the merchant quotes to the customer (purchase-flow-completion
     /// REQ-7.1): <c>ORD</c> + 2-digit Buddhist year + 8-digit running number, minted from a SQL sequence by
@@ -83,18 +85,24 @@ public sealed class Order : AggregateRoot<Guid>
 
     private Order(Guid id, Guid merchantId, string orderNo, string? saleCode, Guid? paymentSessionId,
         Money amount, string? paymentChannel, CustomerContact customer, string? notificationRecipient,
-        DateTime createdAt, Guid? originatorId)
+        DateTime createdAt, Guid? originatorId, OrderInitiatingAudience? initiatingAudience,
+        Guid? initiatingMerchantUserId)
         : base(id)
     {
+        if (merchantId == Guid.Empty)
+            throw new ArgumentException("MerchantId is required.", nameof(merchantId));
         if (originatorId == Guid.Empty)
             throw new ArgumentException("Originator id cannot be empty.", nameof(originatorId));
+        ValidateInitiator(initiatingAudience, initiatingMerchantUserId, originatorId);
         MerchantId = merchantId;
         OriginatorId = originatorId;
+        InitiatingAudience = initiatingAudience;
+        InitiatingMerchantUserId = initiatingMerchantUserId;
         OrderNo = orderNo;
         SaleCode = string.IsNullOrWhiteSpace(saleCode) ? null : saleCode.Trim();
         PaymentSessionId = paymentSessionId;
         Amount = amount;
-        PaymentChannel = paymentChannel;
+        PaymentChannel = NormalizePaymentChannel(paymentChannel);
         CustomerName = customer.Name;
         CustomerPhone = customer.Phone;
         CustomerEmail = customer.Email;
@@ -138,7 +146,8 @@ public sealed class Order : AggregateRoot<Guid>
     public static Order Create(Guid merchantId, Money amount, DateTime createdAt, IReadOnlyList<OrderItemInput> items,
         string orderNo, Guid? paymentSessionId = null,
         string? notificationRecipient = null, string? paymentChannel = null, CustomerContact? customer = null,
-        string? saleCode = null, Guid? originatorId = null)
+        string? saleCode = null, Guid? originatorId = null,
+        OrderInitiatingAudience? initiatingAudience = null, Guid? initiatingMerchantUserId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(orderNo, nameof(orderNo));
         if (items is null || items.Count == 0)
@@ -164,7 +173,8 @@ public sealed class Order : AggregateRoot<Guid>
 
         var order = new Order(
             Guid.NewGuid(), merchantId, orderNo.Trim(), saleCode, paymentSessionId, amount, paymentChannel,
-            customer ?? CustomerContact.Unspecified, notificationRecipient, createdAt, originatorId);
+            customer ?? CustomerContact.Unspecified, notificationRecipient, createdAt, originatorId,
+            initiatingAudience, initiatingMerchantUserId);
 
         for (var i = 0; i < items.Count; i++)
         {
@@ -182,18 +192,18 @@ public sealed class Order : AggregateRoot<Guid>
     /// PaymentPaid consumer resolves orders by the event's <c>OrderId</c>, not by this value
     /// (bugfix-order-paid-link F2).
     /// </summary>
-    public void AttachPaymentAttempt(Guid paymentSessionId, string method, DateTime? occurredAt = null)
+    public void AttachPaymentAttempt(Guid paymentSessionId, DateTime? occurredAt = null)
     {
         if (paymentSessionId == Guid.Empty)
             throw new ArgumentException("PaymentSessionId is required.", nameof(paymentSessionId));
-        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        if (PaymentChannel is null)
+            throw new InvalidOperationException("Order has no authoritative payment method.");
 
         if (Status is OrderStatus.Paid or OrderStatus.Cancelled or OrderStatus.Refunded)
             throw new InvalidOperationException(
                 $"Cannot attach a payment attempt to an order in status {Status}.");
 
         PaymentSessionId = paymentSessionId;
-        PaymentChannel = method.Trim();
         Status = OrderStatus.Pending;
         if (occurredAt is { } attachedAt)
             UpdatedAt = attachedAt;
@@ -210,7 +220,11 @@ public sealed class Order : AggregateRoot<Guid>
     {
         if (paymentSessionId == Guid.Empty)
             throw new ArgumentException("PaymentSessionId is required.", nameof(paymentSessionId));
-        ArgumentException.ThrowIfNullOrWhiteSpace(method);
+        var confirmedMethod = NormalizePaymentChannel(method)
+            ?? throw new ArgumentException("Payment method is required.", nameof(method));
+        if (!string.Equals(PaymentChannel, confirmedMethod, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Paid method {confirmedMethod} does not match order method {PaymentChannel ?? "<missing>"}.");
 
         if (!paidAmount.SameCurrencyAs(Amount) || paidAmount.Amount != Amount.Amount)
             throw new InvalidOperationException(
@@ -229,12 +243,39 @@ public sealed class Order : AggregateRoot<Guid>
 
         Status = OrderStatus.Paid;
         PaymentSessionId = paymentSessionId;
-        PaymentChannel = method.Trim();
         PaidAt = occurredAt;
         UpdatedAt = occurredAt;
         Version++;
         Raise(new OrderPaid(Id, occurredAt));
         return true;
+    }
+
+    private static void ValidateInitiator(
+        OrderInitiatingAudience? audience, Guid? merchantUserId, Guid? originatorId)
+    {
+        if (merchantUserId == Guid.Empty)
+            throw new ArgumentException("Initiating Merchant User id cannot be empty.", nameof(merchantUserId));
+        switch (audience)
+        {
+            case null when merchantUserId is null:
+                return; // legacy rows and migration fixtures only
+            case OrderInitiatingAudience.User when merchantUserId is not null && originatorId is null:
+                return;
+            case OrderInitiatingAudience.PlatformAdmin when merchantUserId is null && originatorId is not null:
+                return;
+            default:
+                throw new ArgumentException("Order initiating audience and identity are inconsistent.");
+        }
+    }
+
+    private static string? NormalizePaymentChannel(string? value)
+    {
+        if (value is null)
+            return null;
+        var normalized = value.Trim().ToLowerInvariant();
+        return normalized is "card" or "promptpay" or "installment"
+            ? normalized
+            : throw new ArgumentException("Payment method is not canonical.", nameof(value));
     }
 
     public bool MarkPaymentFailed(Guid paymentSessionId, DateTime? occurredAt = null)
@@ -276,4 +317,10 @@ public sealed class Order : AggregateRoot<Guid>
             UpdatedAt = cancelledAt;
         Version++;
     }
+}
+
+public enum OrderInitiatingAudience
+{
+    User = 1,
+    PlatformAdmin = 2,
 }

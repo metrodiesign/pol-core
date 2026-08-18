@@ -12,7 +12,9 @@ public sealed class OrderSummaryTests
     private static readonly DateTime At = new(2026, 6, 23, 0, 0, 0, DateTimeKind.Utc);
 
     private static Order NewOrder() =>
-        Order.Create(MerchantId, Money.Of(15000, "THB"), At, OrderLineInputs.OneLine(Money.Of(15000, "THB")), orderNo: "ORD6900000001");
+        Order.Create(MerchantId, Money.Of(15000, "THB"), At,
+            OrderLineInputs.OneLine(Money.Of(15000, "THB")), orderNo: "ORD6900000001",
+            paymentChannel: "card");
 
     [Fact]
     public void Create_issues_a_token_expiring_after_the_ttl()
@@ -54,7 +56,7 @@ public sealed class OrderSummaryTests
     {
         var order = NewOrder();
         var sessionId = Guid.NewGuid();
-        order.AttachPaymentAttempt(sessionId, "card");
+        order.AttachPaymentAttempt(sessionId);
         if (status == OrderStatus.Failed)
             order.MarkPaymentFailed(sessionId);
         else

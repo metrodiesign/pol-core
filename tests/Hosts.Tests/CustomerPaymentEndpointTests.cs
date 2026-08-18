@@ -11,6 +11,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Orders.Application;
+using Payments.Application.Capabilities;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
@@ -46,7 +47,7 @@ file sealed class FakePayableOrders(PayableOrder? order) : IPayableOrderReader
         GetAsync(orderId, cancellationToken);
 
     public Task AttachAttemptAsync(
-        Guid orderId, Guid paymentSessionId, string method, CancellationToken cancellationToken) =>
+        Guid orderId, Guid paymentSessionId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
     // These tests do not exercise the pre-charge sold-check, so the order carries no document keys.
@@ -177,13 +178,39 @@ file sealed class NoOpUnitOfWork : IUnitOfWork
         await operation(cancellationToken);
 }
 
+file sealed class NoOpPaymentAuthorizationLocks : IPaymentAuthorizationLockManager
+{
+    public Task AcquireGlobalExclusiveAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantSharedAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task AcquireMerchantExclusiveAsync(Guid merchantId, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+file sealed class FakePaymentCapabilities(PaymentCapabilityDenial denial)
+    : IEffectivePaymentCapabilityResolver
+{
+    public Task<PaymentMethodDecision> ResolveMethodAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) => Task.FromResult(
+        denial == PaymentCapabilityDenial.None
+            ? new PaymentMethodDecision(true, request.Method, denial, Guid.NewGuid())
+            : new PaymentMethodDecision(false, request.Method, denial, null));
+
+    public Task<IReadOnlyList<EffectivePaymentMethod>> ListMethodsAsync(
+        PaymentCapabilitySubject subject, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentMethod>>([]);
+
+    public Task<IReadOnlyList<EffectivePaymentOption>> ResolveOptionsAsync(
+        ResolvePaymentMethod request, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<EffectivePaymentOption>>([]);
+}
+
 file sealed class CustomerFactory(
     OrderSummary? summary,
     PayableOrder? order,
     List<PaymentSession> sessions,
     IPspAdapter adapter,
     List<INotification> published,
-    string? enabledMethods = "card,promptpay,installment")
+    string? enabledMethods = "card,promptpay,installment",
+    PaymentCapabilityDenial capabilityDenial = PaymentCapabilityDenial.None)
     : WebApplicationFactory<ApiHost::Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -211,6 +238,9 @@ file sealed class CustomerFactory(
             services.AddScoped<IIdempotencyStore>(_ => new FakeIdempotency());
             services.AddScoped<IOutbox>(_ => new FakeOutbox(published));
             services.AddScoped<IUnitOfWork>(_ => new NoOpUnitOfWork());
+            services.AddScoped<IPaymentAuthorizationLockManager>(_ => new NoOpPaymentAuthorizationLocks());
+            services.AddScoped<IEffectivePaymentCapabilityResolver>(_ =>
+                new FakePaymentCapabilities(capabilityDenial));
         });
     }
 }
@@ -219,6 +249,7 @@ public sealed class CustomerPaymentEndpointTests
 {
     private static readonly Guid Merchant = Guid.NewGuid();
     private static readonly Guid Order = Guid.NewGuid();
+    private static readonly Guid MerchantUserId = Guid.NewGuid();
     private static readonly Money Amount = Money.Of(15000m, "THB");
 
     private static OrderSummary Summary(
@@ -227,8 +258,11 @@ public sealed class CustomerPaymentEndpointTests
             DateTime.UtcNow + (expiresIn ?? TimeSpan.FromHours(24)),
             [new OrderSummaryLine("00098-69100/กธ/900001-10", "VMI", "ประกันรถยนต์", 1, Amount)]);
 
-    private static PayableOrder Payable(PayableOrderStatus status = PayableOrderStatus.Pending) =>
-        new(Order, Amount, status);
+    private static PayableOrder Payable(
+        PayableOrderStatus status = PayableOrderStatus.Pending,
+        string method = PaymentMethods.Card) =>
+        new(Order, Amount, status, PaymentChannel: method, MerchantId: Merchant,
+            InitiatingAudience: PaymentAudience.User, InitiatingMerchantUserId: MerchantUserId);
 
     private static HttpRequestMessage Post(string action) =>
         new(HttpMethod.Post, $"/api/v1/orders/{FakeCustomerSummaryReader.Token}/{action}");
@@ -264,13 +298,54 @@ public sealed class CustomerPaymentEndpointTests
     {
         List<PaymentSession> sessions = [];
         using var factory = new CustomerFactory(
-            Summary(channel: channel), Payable(), sessions, new FakeCustomerPspAdapter(PspChargeStatus.Pending, Amount), []);
+            Summary(channel: channel), Payable(method: method), sessions,
+            new FakeCustomerPspAdapter(PspChargeStatus.Pending, Amount), []);
         using var client = factory.CreateClient();
 
         var response = await client.SendAsync(Post("pay"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(method, sessions[0].Method);
+    }
+
+    [Fact]
+    public async Task AnonymousPaymentAuthorization_revoked_initiator_blocks_before_first_charge()
+    {
+        var adapter = new FakeCustomerPspAdapter(PspChargeStatus.Pending, Amount);
+        List<PaymentSession> sessions = [];
+        using var factory = new CustomerFactory(
+            Summary(), Payable(), sessions, adapter, [],
+            capabilityDenial: PaymentCapabilityDenial.UserNotActive);
+        using var client = factory.CreateClient();
+
+        var response = await client.SendAsync(Post("pay"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(sessions);
+        Assert.Equal(0, adapter.Charges);
+    }
+
+    [Fact]
+    public async Task Anonymous_pay_ignores_client_identity_and_method_overrides()
+    {
+        List<PaymentSession> sessions = [];
+        using var factory = new CustomerFactory(
+            Summary(channel: PaymentMethods.Card), Payable(), sessions,
+            new FakeCustomerPspAdapter(PspChargeStatus.Pending, Amount), []);
+        using var client = factory.CreateClient();
+        var request = Post("pay");
+        request.Content = JsonContent.Create(new
+        {
+            merchantId = Guid.NewGuid(), merchantUserId = Guid.NewGuid(),
+            initiatingAudience = "PlatformAdmin", method = PaymentMethods.PromptPay,
+        });
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Single(sessions);
+        Assert.Equal(Merchant, sessions[0].MerchantId);
+        Assert.Equal(PaymentMethods.Card, sessions[0].Method);
     }
 
     // REQ-8.10 — double click / second tab. One session, one charge, the same URL back.

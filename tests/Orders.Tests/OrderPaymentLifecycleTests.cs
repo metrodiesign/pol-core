@@ -16,7 +16,8 @@ public sealed class OrderPaymentLifecycleTests
         Amount,
         At,
         OrderLineInputs.OneLine(Amount),
-        orderNo: "ORD6900000001");
+        orderNo: "ORD6900000001",
+        paymentChannel: "card");
 
     private static PaymentPaid Paid(Order order, Guid sessionId, string method = "card") => new(
         Guid.NewGuid(),
@@ -47,18 +48,18 @@ public sealed class OrderPaymentLifecycleTests
     {
         var order = NewOrder();
         var first = Guid.NewGuid();
-        order.AttachPaymentAttempt(first, "card");
+        order.AttachPaymentAttempt(first);
         Assert.True(order.MarkPaymentFailed(first));
 
         var second = Guid.NewGuid();
-        order.AttachPaymentAttempt(second, "promptpay");
+        order.AttachPaymentAttempt(second);
         Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Equal(second, order.PaymentSessionId);
-        Assert.Equal("promptpay", order.PaymentChannel);
+        Assert.Equal("card", order.PaymentChannel);
 
         Assert.True(order.MarkPaymentExpired(second));
         var third = Guid.NewGuid();
-        order.AttachPaymentAttempt(third, "installment");
+        order.AttachPaymentAttempt(third);
         Assert.Equal(OrderStatus.Pending, order.Status);
         Assert.Equal(third, order.PaymentSessionId);
     }
@@ -68,7 +69,7 @@ public sealed class OrderPaymentLifecycleTests
     {
         var order = NewOrder();
         var current = Guid.NewGuid();
-        order.AttachPaymentAttempt(current, "card");
+        order.AttachPaymentAttempt(current);
         var repository = new FakeOrderRepository(order);
         var unitOfWork = new FakeUnitOfWork();
         var consumer = new OrderPaymentFailedConsumer(repository, unitOfWork);
@@ -94,7 +95,7 @@ public sealed class OrderPaymentLifecycleTests
     {
         var order = NewOrder();
         var current = Guid.NewGuid();
-        order.AttachPaymentAttempt(current, "card");
+        order.AttachPaymentAttempt(current);
         var repository = new FakeOrderRepository(order);
         var unitOfWork = new FakeUnitOfWork();
         var consumer = new OrderPaymentExpiredConsumer(repository, unitOfWork);
@@ -115,7 +116,7 @@ public sealed class OrderPaymentLifecycleTests
     {
         var order = NewOrder();
         var sessionId = Guid.NewGuid();
-        order.AttachPaymentAttempt(sessionId, "card");
+        order.AttachPaymentAttempt(sessionId);
         if (retryableStatus == OrderStatus.Failed)
             order.MarkPaymentFailed(sessionId);
         else
@@ -124,11 +125,11 @@ public sealed class OrderPaymentLifecycleTests
         var unitOfWork = new FakeUnitOfWork();
         await new OrderPaidConsumer(
             new FakeOrderRepository(order), unitOfWork, new FakeDoubleSellAuditor())
-            .Handle(Paid(order, sessionId, "promptpay"), default);
+            .Handle(Paid(order, sessionId, "card"), default);
 
         Assert.Equal(OrderStatus.Paid, order.Status);
         Assert.Equal(sessionId, order.PaymentSessionId);
-        Assert.Equal("promptpay", order.PaymentChannel);
+        Assert.Equal("card", order.PaymentChannel);
         Assert.Equal(1, unitOfWork.SaveCount);
     }
 

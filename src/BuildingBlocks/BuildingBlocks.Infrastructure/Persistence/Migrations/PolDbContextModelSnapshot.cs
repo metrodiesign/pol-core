@@ -2227,10 +2227,17 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Id", "MerchantId")
+                        .IsUnique()
+                        .HasFilter("[MerchantId] IS NOT NULL");
+
                     b.HasIndex("Provider", "Subject")
                         .IsUnique();
 
-                    b.ToTable("Users", "merch");
+                    b.ToTable("Users", "merch", t =>
+                        {
+                            t.HasCheckConstraint("CK_Users_ActorMerchant", "[Status] NOT IN (2, 4) OR ([MerchantId] IS NOT NULL AND [MerchantId] <> '00000000-0000-0000-0000-000000000000')");
+                        });
                 });
 
             modelBuilder.Entity("Notifications.Domain.DeliverySecretVersion", b =>
@@ -2709,6 +2716,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsUnicode(false)
                         .HasColumnType("varchar(20)");
 
+                    b.Property<int?>("InitiatingAudience")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("InitiatingMerchantUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("MerchantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2792,7 +2805,645 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.HasIndex("SummaryToken")
                         .IsUnique();
 
-                    b.ToTable("Orders", "shop");
+                    b.HasIndex("InitiatingMerchantUserId", "MerchantId");
+
+                    b.ToTable("Orders", "shop", t =>
+                        {
+                            t.HasCheckConstraint("CK_Orders_InitiatingAudience", "([InitiatingAudience] IS NULL AND [InitiatingMerchantUserId] IS NULL) OR ([InitiatingAudience] = 1 AND [InitiatingMerchantUserId] IS NOT NULL AND [OriginatorId] IS NULL) OR ([InitiatingAudience] = 2 AND [InitiatingMerchantUserId] IS NULL AND [OriginatorId] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Orders_PaymentChannel_Canonical", "[PaymentChannel] IS NULL OR [PaymentChannel] IN ('card', 'promptpay', 'installment')");
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantPaymentMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentMethodId");
+
+                    b.ToTable("MerchantPaymentMethods", "txn");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantProviderAccountMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PspConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentMethodId");
+
+                    b.HasIndex("MerchantId", "PspConnectionId");
+
+                    b.HasIndex("PspConnectionId", "PaymentMethodId")
+                        .IsUnique();
+
+                    b.HasIndex("PaymentProviderMethodId", "PaymentProviderId", "PaymentMethodId");
+
+                    b.ToTable("MerchantProviderAccountMethods", "txn");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantProviderAccountMethodOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MerchantProviderAccountMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodOptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderMethodOptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PspConnectionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantProviderAccountMethodId", "PaymentMethodOptionId")
+                        .IsUnique();
+
+                    b.HasIndex("PaymentProviderMethodOptionId", "PaymentProviderMethodId", "PaymentMethodId", "PaymentMethodOptionId");
+
+                    b.HasIndex("MerchantProviderAccountMethodId", "MerchantId", "PspConnectionId", "PaymentProviderId", "PaymentProviderMethodId", "PaymentMethodId");
+
+                    b.ToTable("MerchantProviderAccountMethodOptions", "txn");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantUserPaymentMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MerchantUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MerchantId", "PaymentMethodId");
+
+                    b.HasIndex("MerchantUserId", "PaymentMethodId")
+                        .IsUnique();
+
+                    b.ToTable("MerchantUserPaymentMethods", "txn");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentAuthorizationState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CutoffAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Mode")
+                        .HasColumnType("int");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PaymentAuthorizationStates", "cfg", t =>
+                        {
+                            t.HasCheckConstraint("CK_PaymentAuthorizationStates_Singleton", "[Id] = 'f9000000-0000-4000-8000-000000000001'");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f9000000-0000-4000-8000-000000000001"),
+                            Mode = 1,
+                            Version = 1L
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentCapabilityMigrationConflict", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTime>("DetectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(64)");
+
+                    b.Property<Guid?>("MerchantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ResolvedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ResolvedAt", "Kind");
+
+                    b.ToTable("PaymentCapabilityMigrationConflicts", "cfg");
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("PaymentMethods", "cfg");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f1000000-0000-4000-8000-000000000001"),
+                            Code = "card",
+                            IsActive = true,
+                            Name = "Card",
+                            Version = 1L
+                        },
+                        new
+                        {
+                            Id = new Guid("f1000000-0000-4000-8000-000000000002"),
+                            Code = "promptpay",
+                            IsActive = true,
+                            Name = "PromptPay",
+                            Version = 1L
+                        },
+                        new
+                        {
+                            Id = new Guid("f1000000-0000-4000-8000-000000000003"),
+                            Code = "installment",
+                            IsActive = true,
+                            Name = "Installment",
+                            Version = 1L
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentMethodOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<Guid>("OptionGroupId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentMethodId");
+
+                    b.HasIndex("OptionGroupId", "Code")
+                        .IsUnique();
+
+                    b.HasIndex("OptionGroupId", "PaymentMethodId");
+
+                    b.ToTable("PaymentMethodOptions", "cfg");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f3000000-0000-4000-8000-000000000001"),
+                            Code = "KBANK",
+                            Name = "KBANK",
+                            OptionGroupId = new Guid("f2000000-0000-4000-8000-000000000001"),
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            Id = new Guid("f3000000-0000-4000-8000-000000000002"),
+                            Code = "SCB",
+                            Name = "SCB",
+                            OptionGroupId = new Guid("f2000000-0000-4000-8000-000000000001"),
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            Id = new Guid("f3000000-0000-4000-8000-000000000003"),
+                            Code = "KTC",
+                            Name = "KTC",
+                            OptionGroupId = new Guid("f2000000-0000-4000-8000-000000000001"),
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            Id = new Guid("f3000000-0000-4000-8000-000000000004"),
+                            Code = "BAY",
+                            Name = "BAY",
+                            OptionGroupId = new Guid("f2000000-0000-4000-8000-000000000001"),
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000003")
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentMethodOptionGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentMethodId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("PaymentMethodOptionGroups", "cfg");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f2000000-0000-4000-8000-000000000001"),
+                            Code = "BANK",
+                            Name = "Bank",
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000003")
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentProvider", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AdapterCode")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(32)");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AdapterCode")
+                        .IsUnique();
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("PaymentProviders", "cfg");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f4000000-0000-4000-8000-000000000001"),
+                            AdapterCode = 1,
+                            Code = "2c2p",
+                            IsEnabled = true,
+                            Name = "2C2P",
+                            Version = 1L
+                        },
+                        new
+                        {
+                            Id = new Guid("f4000000-0000-4000-8000-000000000002"),
+                            AdapterCode = 2,
+                            Code = "omise",
+                            IsEnabled = true,
+                            Name = "Omise",
+                            Version = 1L
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentProviderMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentMethodId");
+
+                    b.HasIndex("PaymentProviderId", "PaymentMethodId")
+                        .IsUnique();
+
+                    b.ToTable("PaymentProviderMethods", "cfg");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("f5000000-0000-4000-8000-000000000001"),
+                            CreatedAt = new DateTime(2026, 8, 17, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = new Guid("f9000000-0000-4000-8000-000000000002"),
+                            IsActive = true,
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000001"),
+                            PaymentProviderId = new Guid("f4000000-0000-4000-8000-000000000001"),
+                            Version = 1L
+                        },
+                        new
+                        {
+                            Id = new Guid("f5000000-0000-4000-8000-000000000002"),
+                            CreatedAt = new DateTime(2026, 8, 17, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = new Guid("f9000000-0000-4000-8000-000000000002"),
+                            IsActive = true,
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000002"),
+                            PaymentProviderId = new Guid("f4000000-0000-4000-8000-000000000001"),
+                            Version = 1L
+                        },
+                        new
+                        {
+                            Id = new Guid("f5000000-0000-4000-8000-000000000003"),
+                            CreatedAt = new DateTime(2026, 8, 17, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = new Guid("f9000000-0000-4000-8000-000000000002"),
+                            IsActive = true,
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000003"),
+                            PaymentProviderId = new Guid("f4000000-0000-4000-8000-000000000001"),
+                            Version = 1L
+                        },
+                        new
+                        {
+                            Id = new Guid("f5000000-0000-4000-8000-000000000004"),
+                            CreatedAt = new DateTime(2026, 8, 17, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CreatedBy = new Guid("f9000000-0000-4000-8000-000000000002"),
+                            IsActive = true,
+                            PaymentMethodId = new Guid("f1000000-0000-4000-8000-000000000001"),
+                            PaymentProviderId = new Guid("f4000000-0000-4000-8000-000000000002"),
+                            Version = 1L
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentProviderMethodOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentMethodOptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("PaymentProviderMethodId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentMethodOptionId", "PaymentMethodId");
+
+                    b.HasIndex("PaymentProviderMethodId", "PaymentMethodId");
+
+                    b.HasIndex("PaymentProviderMethodId", "PaymentMethodOptionId")
+                        .IsUnique();
+
+                    b.ToTable("PaymentProviderMethodOptions", "cfg");
                 });
 
             modelBuilder.Entity("Payments.Domain.InboundWebhookEvent", b =>
@@ -2901,6 +3552,9 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.Property<string>("Metadata")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("PaymentProviderId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("PendingApprovalId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2923,10 +3577,20 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("MerchantId", "ActiveSecretVersionId");
 
+                    b.HasIndex("MerchantId", "PaymentProviderId")
+                        .IsUnique()
+                        .HasFilter("[PaymentProviderId] IS NOT NULL");
+
                     b.HasIndex("MerchantId", "PendingSecretVersionId");
 
                     b.HasIndex("MerchantId", "Psp")
                         .IsUnique();
+
+                    b.HasIndex("PaymentProviderId", "Psp");
+
+                    b.HasIndex("Id", "MerchantId", "PaymentProviderId")
+                        .IsUnique()
+                        .HasFilter("[PaymentProviderId] IS NOT NULL");
 
                     b.ToTable("PspConnections", "txn");
                 });
@@ -3266,6 +3930,134 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantPaymentMethod", b =>
+                {
+                    b.HasOne("Merchants.Domain.Merchant", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantProviderAccountMethod", b =>
+                {
+                    b.HasOne("Merchants.Domain.Merchant", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Psp.Connection", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "PspConnectionId")
+                        .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentProviderMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentProviderMethodId", "PaymentProviderId", "PaymentMethodId")
+                        .HasPrincipalKey("Id", "PaymentProviderId", "PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantProviderAccountMethodOption", b =>
+                {
+                    b.HasOne("Payments.Domain.Capabilities.PaymentProviderMethodOption", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentProviderMethodOptionId", "PaymentProviderMethodId", "PaymentMethodId", "PaymentMethodOptionId")
+                        .HasPrincipalKey("Id", "PaymentProviderMethodId", "PaymentMethodId", "PaymentMethodOptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.MerchantProviderAccountMethod", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantProviderAccountMethodId", "MerchantId", "PspConnectionId", "PaymentProviderId", "PaymentProviderMethodId", "PaymentMethodId")
+                        .HasPrincipalKey("Id", "MerchantId", "PspConnectionId", "PaymentProviderId", "PaymentProviderMethodId", "PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.MerchantUserPaymentMethod", b =>
+                {
+                    b.HasOne("Payments.Domain.Capabilities.MerchantPaymentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId", "PaymentMethodId")
+                        .HasPrincipalKey("MerchantId", "PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentMethodOption", b =>
+                {
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethodOptionGroup", null)
+                        .WithMany()
+                        .HasForeignKey("OptionGroupId", "PaymentMethodId")
+                        .HasPrincipalKey("Id", "PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentMethodOptionGroup", b =>
+                {
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentProviderMethod", b =>
+                {
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentProvider", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentProviderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Payments.Domain.Capabilities.PaymentProviderMethodOption", b =>
+                {
+                    b.HasOne("Payments.Domain.Capabilities.PaymentMethodOption", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentMethodOptionId", "PaymentMethodId")
+                        .HasPrincipalKey("Id", "PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentProviderMethod", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentProviderMethodId", "PaymentMethodId")
+                        .HasPrincipalKey("Id", "PaymentMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Payments.Domain.InboundWebhookEvent", b =>
                 {
                     b.HasOne("Payments.Domain.Psp.Connection", null)
@@ -3278,6 +4070,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Payments.Domain.Psp.Connection", b =>
                 {
+                    b.HasOne("Merchants.Domain.Merchant", null)
+                        .WithMany()
+                        .HasForeignKey("MerchantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("BuildingBlocks.Infrastructure.Vault.VaultSecretVersion", null)
                         .WithMany()
                         .HasForeignKey("MerchantId", "ActiveSecretVersionId")
@@ -3288,6 +4086,12 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("MerchantId", "PendingSecretVersionId")
                         .HasPrincipalKey("MerchantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Payments.Domain.Capabilities.PaymentProvider", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentProviderId", "Psp")
+                        .HasPrincipalKey("Id", "AdapterCode")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

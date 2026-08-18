@@ -108,6 +108,20 @@ public sealed class Merchant : AggregateRoot<Guid>
         Version++;
     }
 
+    public void ProjectEnabledChannels(IEnumerable<string> channels)
+    {
+        ArgumentNullException.ThrowIfNull(channels);
+        var projected = string.Join(',', channels.Select(channel =>
+            string.IsNullOrWhiteSpace(channel)
+                ? throw new ArgumentException("Payment channel is required.", nameof(channels))
+                : channel.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+        if (string.Equals(EnabledChannels, projected, StringComparison.Ordinal))
+            return;
+        EnabledChannels = projected;
+        Version++;
+    }
+
     public void Suspend()
     {
         if (Status == MerchantStatus.Inactive)

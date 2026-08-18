@@ -29,17 +29,20 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
     private readonly IMerchantRepository _merchants;
     private readonly IProvisioningWriter _provisioningWriter;
     private readonly IPspSecretEnvelopeFactory _envelopeFactory;
+    private readonly IPspAdapterFactory _adapters;
     private readonly IClock _clock;
 
     public ProvisionMerchantHandler(
         IMerchantRepository merchants,
         IProvisioningWriter provisioningWriter,
         IPspSecretEnvelopeFactory envelopeFactory,
+        IPspAdapterFactory adapters,
         IClock clock)
     {
         _merchants = merchants;
         _provisioningWriter = provisioningWriter;
         _envelopeFactory = envelopeFactory;
+        _adapters = adapters;
         _clock = clock;
     }
 
@@ -64,7 +67,12 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
             // REQ-3.7: normalize through the ONE canonical vocabulary rather than merely trimming. A
             // connection provisioned as "Card"/"CC" would be accepted here and then have EVERY payment of
             // that merchant refused, because Connection.Supports compares the stored codes ordinally.
-            var methods = string.Join(',', (spec.EnabledMethods ?? []).Select(PaymentMethods.Normalize));
+            var canonicalMethods = (spec.EnabledMethods ?? []).Select(PaymentMethods.Normalize)
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            var adapter = _adapters.For(psp);
+            if (canonicalMethods.Any(method => !adapter.SupportedMethods.Contains(method)))
+                throw new ArgumentException($"Connection '{spec.Psp}' enables a method unsupported by its adapter.");
+            var methods = string.Join(',', canonicalMethods);
             if (methods.Length == 0)
                 throw new ArgumentException($"Connection '{spec.Psp}' must enable at least one method.");
 
@@ -75,6 +83,13 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
             prepared.Add(new PreparedConnection(psp, methods, envelope, metadata));
         }
 
+        var channels = command.Merchant.EnabledChannels.Select(PaymentMethods.Normalize)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        var accountMethods = prepared.SelectMany(x => x.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            .ToHashSet(StringComparer.Ordinal);
+        if (channels.Any(channel => !accountMethods.Contains(channel)))
+            throw new ArgumentException("Every merchant payment method requires a qualifying PSP connection.");
+
         // ---- idempotency fast-path pre-check (REQ-5.2): cheap, avoids the write path for the obvious-conflict
         // case. Not the sole guard — the coordinator's own operationKey ledger is authoritative under a race. ----
         if (await _merchants.ExistsByCodeAsync(code, cancellationToken))
@@ -84,7 +99,7 @@ public sealed class ProvisionMerchantHandler : ICommandHandler<ProvisionMerchant
 
         var provisionSpec = new ProvisionSpec(
             code, command.Merchant.Name, command.Merchant.Note, command.Merchant.Country,
-            command.Merchant.Currency, command.Merchant.EnabledChannels, merchantMetadata,
+            command.Merchant.Currency, channels, merchantMetadata,
             command.AdminSubject, command.CorrelationId,
             [.. prepared.Select(p => new ProvisionConnectionSpec(
                 p.Psp.ToCode(), p.EnabledMethods, p.Metadata, "psp/" + p.Psp.ToCode(),

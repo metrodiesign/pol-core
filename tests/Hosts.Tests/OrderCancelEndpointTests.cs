@@ -176,7 +176,8 @@ public sealed class OrderCancelEndpointTests
     private static Order NewOrder() => Order.Create(
         Merchant, Amount, DateTime.UtcNow.AddHours(-1),
         [new OrderItemInput(
-            1, Amount, "00098-69100/กธ/037677-10", "VMI", "ประกันรถยนต์")], orderNo: "ORD6900000001");
+            1, Amount, "00098-69100/กธ/037677-10", "VMI", "ประกันรถยนต์")],
+        orderNo: "ORD6900000001", paymentChannel: "card");
 
     /// <summary>A chargeless session for <paramref name="order"/>: never redirected, so the confirmation
     /// service can settle it on the clock alone. <paramref name="age"/> past the TTL makes it releasable.</summary>

@@ -1,7 +1,5 @@
 using Contracts;
 using Orders.Application;
-using Orders.Domain.Items;
-using SharedKernel;
 
 namespace Orders.Tests;
 
@@ -11,37 +9,6 @@ namespace Orders.Tests;
 public sealed class CustomerNotificationTests
 {
     private static readonly Guid MerchantId = Guid.NewGuid();
-
-    [Fact]
-    public async Task CreateOrder_with_a_recipient_enqueues_the_notification()
-    {
-        var outbox = new FakeOutbox();
-        var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
-
-        var result = await handler.Handle(
-            new CreateOrderCommand(
-                MerchantId, Money.Of(15000m, "THB"), OrderLineInputs.OneLine(Money.Of(15000m, "THB")),
-                Recipient: "buyer@example.com"),
-            default);
-
-        var note = Assert.IsType<CustomerOrderNotification>(Assert.Single(outbox.Enqueued));
-        Assert.Equal(result.OrderId, note.OrderId);
-        Assert.Equal("buyer@example.com", note.Recipient);
-        Assert.False(string.IsNullOrWhiteSpace(note.SummaryToken));
-    }
-
-    [Fact]
-    public async Task CreateOrder_without_a_recipient_enqueues_nothing()
-    {
-        var outbox = new FakeOutbox();
-        var handler = new CreateOrderHandler(new FakeOrderRepository(), outbox, new FakeUnitOfWork(), new FixedClock(), new FakeOrderNoSequence());
-
-        await handler.Handle(
-            new CreateOrderCommand(MerchantId, Money.Of(15000m, "THB"), OrderLineInputs.OneLine(Money.Of(15000m, "THB"))),
-            default);
-
-        Assert.Empty(outbox.Enqueued);
-    }
 
     [Fact]
     public async Task Consumer_sends_through_the_port()

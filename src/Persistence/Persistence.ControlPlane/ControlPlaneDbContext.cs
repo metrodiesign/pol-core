@@ -21,6 +21,8 @@ using Persistence.ControlPlane.Positions;
 using Persistence.ControlPlane.Governance;
 using Iam.Domain.ApiClients;
 using Notifications.Domain;
+using Payments.Domain.Capabilities;
+using Persistence.ControlPlane.Payments;
 
 namespace Persistence.ControlPlane;
 
@@ -74,6 +76,16 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
     public DbSet<DeliverySecretVersion> DeliverySecretVersions => Set<DeliverySecretVersion>();
 
+    public DbSet<PaymentMethod> PaymentMethods => Set<PaymentMethod>();
+    public DbSet<PaymentMethodOptionGroup> PaymentMethodOptionGroups => Set<PaymentMethodOptionGroup>();
+    public DbSet<PaymentMethodOption> PaymentMethodOptions => Set<PaymentMethodOption>();
+    public DbSet<PaymentProvider> PaymentProviders => Set<PaymentProvider>();
+    public DbSet<PaymentProviderMethod> PaymentProviderMethods => Set<PaymentProviderMethod>();
+    public DbSet<PaymentProviderMethodOption> PaymentProviderMethodOptions => Set<PaymentProviderMethodOption>();
+    public DbSet<PaymentAuthorizationState> PaymentAuthorizationStates => Set<PaymentAuthorizationState>();
+    public DbSet<PaymentCapabilityMigrationConflict> PaymentCapabilityMigrationConflicts =>
+        Set<PaymentCapabilityMigrationConflict>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfiguration(new UserConfiguration());
@@ -109,6 +121,14 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
         modelBuilder.ApplyConfiguration(new Notifications.NotificationRuleConfiguration());
         modelBuilder.ApplyConfiguration(new Notifications.NotificationDeliveryConfiguration());
         modelBuilder.ApplyConfiguration(new Notifications.DeliverySecretVersionConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentMethodConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentMethodOptionGroupConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentMethodOptionConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentProviderConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentProviderMethodConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentProviderMethodOptionConfiguration());
+        modelBuilder.ApplyConfiguration(new PaymentAuthorizationStateConfiguration(this));
+        modelBuilder.ApplyConfiguration(new PaymentCapabilityMigrationConflictConfiguration());
 
         base.OnModelCreating(modelBuilder);
     }

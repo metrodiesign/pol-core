@@ -168,7 +168,8 @@ def tracked_cs_files() -> list[Path]:
     # names are guarded by the fresh-DB gate instead). A NEW forward-rename migration only ever references
     # the retired name inside RenameTable/RenameColumn string arguments, which the string-stripper already
     # blanks, so this exclusion never hides a live-code violation in a migration added going forward.
-    return [Path(p) for p in res.stdout.splitlines() if p and "/Migrations/" not in p]
+    return [Path(p) for p in res.stdout.splitlines()
+            if p and "/Migrations/" not in p and Path(p).is_file()]
 
 
 def main() -> int:

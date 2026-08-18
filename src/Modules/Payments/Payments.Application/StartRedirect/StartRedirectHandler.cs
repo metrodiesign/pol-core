@@ -1,9 +1,11 @@
 using BuildingBlocks.Application;
 using Mediator;
+using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
 using Payments.Domain;
+using Payments.Domain.Psp;
 
 namespace Payments.Application.StartRedirect;
 
@@ -36,6 +38,9 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
     private readonly IUnitOfWork _unitOfWork;
     private readonly IClock _clock;
     private readonly PaymentConfirmationService _confirmation;
+    private readonly IPayableOrderReader _orders;
+    private readonly IPaymentAuthorizationLockManager _authorizationLocks;
+    private readonly IEffectivePaymentCapabilityResolver _capabilities;
 
     public StartRedirectHandler(
         ISessionRepository sessions,
@@ -44,7 +49,10 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         IVaultSecretStore vault,
         IUnitOfWork unitOfWork,
         IClock clock,
-        PaymentConfirmationService confirmation)
+        PaymentConfirmationService confirmation,
+        IPayableOrderReader orders,
+        IPaymentAuthorizationLockManager authorizationLocks,
+        IEffectivePaymentCapabilityResolver capabilities)
     {
         _sessions = sessions;
         _connections = connections;
@@ -53,6 +61,9 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         _unitOfWork = unitOfWork;
         _clock = clock;
         _confirmation = confirmation;
+        _orders = orders;
+        _authorizationLocks = authorizationLocks;
+        _capabilities = capabilities;
     }
 
     public async ValueTask<StartRedirectResult> Handle(
@@ -78,25 +89,13 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
             throw new InvalidOperationException(
                 $"PaymentSession {session.Id} cannot start a redirect from status {session.Status}.");
 
-        var connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
-                $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
-
+        Connection connection;
         if (!settlingClaim)
         {
-            // Eligibility is re-checked HERE, before the claim: the connection may have been disabled or its
-            // enabled methods narrowed between create-session and now (REQ-3.5), and a request refused for
-            // that must leave the session exactly as it found it (REQ-7.3). Refusing AFTER the claim — as this
-            // handler used to — stranded the session at Redirected with no URL, which is 409 forever. It gates
-            // NEW claims only: a settling call is finishing an attempt the PSP may already have taken.
-            connection.EnsureEligible(session.Method);
-
-            // Claim the redirect BEFORE touching the PSP. The rowversion token makes this save atomic, so a
-            // concurrent duplicate loses the claim here and never creates a charge.
-            session.BeginRedirect(_clock.UtcNow);
             try
             {
-                await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                connection = await _unitOfWork.ExecuteInTransactionAsync(
+                    ct => ClaimFirstRedirectAsync(session, ct), cancellationToken).ConfigureAwait(false);
             }
             catch (ConcurrencyConflictException)
             {
@@ -107,6 +106,15 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
                 throw new InvalidOperationException(
                     $"PaymentSession {command.PaymentSessionId} redirect is already in progress; retry shortly.");
             }
+        }
+        else
+        {
+            // Existing claim may already represent an external charge. Current authorization state cannot
+            // cancel it; load only routing material and settle under the same Session idempotency key.
+            connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new InvalidOperationException(
+                    $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
         }
 
         // Both failure paths below may only fail the session while `!settlingClaim`: on the settling path a
@@ -148,6 +156,60 @@ public sealed class StartRedirectHandler : ICommandHandler<StartRedirectCommand,
         await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return new StartRedirectResult(charge.RedirectUrl);
+    }
+
+    private async Task<Connection> ClaimFirstRedirectAsync(Session session, CancellationToken cancellationToken)
+    {
+        await _authorizationLocks.AcquireMerchantSharedAsync(session.MerchantId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var order = await _orders.GetForMintAsync(session.OrderId, cancellationToken).ConfigureAwait(false)
+            ?? throw new ConflictException(
+                "Payment Session has no trusted Order authorization context.",
+                "payment_authorization_context_missing");
+        if (order.MerchantId != session.MerchantId
+            || order.PaymentChannel is null
+            || !string.Equals(order.PaymentChannel, session.Method, StringComparison.Ordinal))
+            throw new ConflictException(
+                "Payment Session does not match its authoritative Order.", "payment_method_mismatch");
+        if (!order.CanOpenPaymentAttempt)
+            throw new ConflictException(
+                "Order cannot start a payment redirect from its current status.", "order_not_payable");
+
+        var connection = await _connections.GetAsync(session.MerchantId, session.Psp, cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                $"No PSP connection for merchant {session.MerchantId} and PSP {session.Psp}.");
+        connection.EnsureEligible(session.Method);
+
+        var subject = order.InitiatingAudience switch
+        {
+            PaymentAudience.User when order.InitiatingMerchantUserId is not null =>
+                new PaymentCapabilitySubject(order.MerchantId, PaymentAudience.User,
+                    order.InitiatingMerchantUserId),
+            PaymentAudience.PlatformAdmin when order.InitiatingMerchantUserId is null =>
+                new PaymentCapabilitySubject(order.MerchantId, PaymentAudience.PlatformAdmin, null),
+            _ => throw new ConflictException(
+                "Order has no trusted payment authorization context.",
+                "payment_authorization_context_missing"),
+        };
+        var decision = await _capabilities.ResolveMethodAsync(
+            new ResolvePaymentMethod(subject, session.Method, session.Psp.ToCode()), cancellationToken)
+            .ConfigureAwait(false);
+        if (!decision.Allowed)
+        {
+            if (decision.Denial is PaymentCapabilityDenial.UserNotActive or PaymentCapabilityDenial.UserPolicyDenied)
+                throw new AccessDeniedException(
+                    "Payment method is not allowed for this Merchant User.", "payment_method_not_allowed");
+            throw new ConflictException(
+                "Payment method capability is unavailable.", "payment_capability_unavailable");
+        }
+
+        // Transaction commits this claim before caller touches PSP. Exclusive revoke/status writers cannot
+        // commit between resolver decision and claim because they use the same authorization lock resource.
+        session.BeginRedirect(_clock.UtcNow);
+        await _unitOfWork.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        return connection;
     }
 
     /// <summary>

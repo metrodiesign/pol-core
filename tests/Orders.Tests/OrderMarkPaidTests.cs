@@ -16,7 +16,22 @@ public sealed class OrderMarkPaidTests
     private static readonly Guid PaymentSessionId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
     private static Order NewOrder(decimal amount = 15000m, string currency = "THB") =>
-        Order.Create(MerchantId, Money.Of(amount, currency), At, OrderLineInputs.OneLine(Money.Of(amount, currency)), orderNo: "ORD6900000001");
+        Order.Create(MerchantId, Money.Of(amount, currency), At,
+            OrderLineInputs.OneLine(Money.Of(amount, currency)), orderNo: "ORD6900000001",
+            paymentChannel: "card");
+
+    [Fact]
+    public void OrderPaymentMethodInvariant_rejects_settlement_method_mismatch_without_mutating_Order()
+    {
+        var order = NewOrder();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            order.MarkPaid(PaymentSessionId, "promptpay", Money.Of(15000, "THB"), At));
+
+        Assert.Equal(OrderStatus.Pending, order.Status);
+        Assert.Equal("card", order.PaymentChannel);
+        Assert.Null(order.PaymentSessionId);
+    }
 
     [Fact]
     public void MarkPaid_with_matching_amount_transitions_to_Paid_and_raises_event_once()

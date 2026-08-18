@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Orders.Application;
 using Governance.Application;
 using Payments.Application;
+using Payments.Application.Capabilities;
 using Payments.Application.AdminControlPlane;
 using Payments.Application.Ports;
 using Payments.Application.Ports.Psp;
@@ -20,6 +21,7 @@ using Persistence.MerchantRuntime.Orders.Items;
 using Persistence.MerchantRuntime.Outbox;
 using Persistence.MerchantRuntime.Payments;
 using Persistence.MerchantRuntime.Payments.Psp;
+using Persistence.MerchantRuntime.Payments.Capabilities;
 using Persistence.MerchantRuntime.Reporting;
 using Persistence.MerchantRuntime.Vault;
 using Persistence.MerchantRuntime.Webhooks;
@@ -70,7 +72,15 @@ public static class MerchantRuntimePersistenceRegistration
         services.AddScoped<InboundWebhookStore>();
         services.AddScoped<IInboundWebhookRecorder>(sp => sp.GetRequiredService<InboundWebhookStore>());
         services.AddScoped<IAdminInboundWebhookReader>(sp => sp.GetRequiredService<InboundWebhookStore>());
-        services.AddScoped<IAdminPaymentsControlStore, AdminPaymentsControlStore>();
+        services.AddScoped<PaymentAuthorizationSqlLockManager>();
+        services.AddScoped<IPaymentAuthorizationLockManager>(sp =>
+            sp.GetRequiredService<PaymentAuthorizationSqlLockManager>());
+        services.AddScoped<AdminPaymentsControlStore>();
+        services.AddScoped<IAdminPaymentsControlStore>(sp => sp.GetRequiredService<AdminPaymentsControlStore>());
+        services.AddScoped<IAccountPaymentCapabilityControlStore>(sp =>
+            sp.GetRequiredService<AdminPaymentsControlStore>());
+        services.AddScoped<IEffectivePaymentCapabilityResolver, EffectivePaymentCapabilityResolver>();
+        services.AddScoped<IPaymentCapabilityMigration, PaymentCapabilityMigrationService>();
         services.AddScoped<IApprovalDecisionExecutor, AdminPaymentsApprovalExecutor>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<AdminPaymentSessionReader>();

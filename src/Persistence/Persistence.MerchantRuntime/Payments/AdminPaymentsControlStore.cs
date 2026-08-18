@@ -6,11 +6,16 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Idempotency;
 using BuildingBlocks.Infrastructure.Outbox;
 using Contracts;
+using Merchants.Domain.Users;
 using Microsoft.EntityFrameworkCore;
 using Payments.Application.AdminControlPlane;
+using Payments.Application.Capabilities;
 using Payments.Application.Ports;
+using Payments.Domain;
+using Payments.Domain.Capabilities;
 using Payments.Domain.Psp;
 using Payments.Domain.Routing;
+using Persistence.MerchantRuntime.Payments.Capabilities;
 
 namespace Persistence.MerchantRuntime.Payments;
 
@@ -20,9 +25,16 @@ internal sealed class AdminPaymentsControlStore(
     IUnitOfWork unitOfWork,
     IVaultSecretStore vault,
     IPspSecretEnvelopeFactory envelopeFactory,
-    IPspAdapterFactory adapterFactory) : IAdminPaymentsControlStore
+    IPspAdapterFactory adapterFactory,
+    PaymentAuthorizationSqlLockManager? authorizationLocks = null,
+    IEffectivePaymentCapabilityResolver? effectiveResolver = null)
+    : IAdminPaymentsControlStore, IAccountPaymentCapabilityControlStore
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private PaymentAuthorizationSqlLockManager AuthorizationLocks { get; } =
+        authorizationLocks ?? new PaymentAuthorizationSqlLockManager(db);
+    private IEffectivePaymentCapabilityResolver EffectiveResolver => effectiveResolver
+        ?? new EffectivePaymentCapabilityResolver(db, unitOfWork, AuthorizationLocks, adapterFactory);
 
     public async Task<PagedResult<PspConnectionView>> ListConnectionsAsync(
         PspConnectionQuery query, CancellationToken cancellationToken)
@@ -71,14 +83,394 @@ internal sealed class AdminPaymentsControlStore(
             : await ProjectConnectionAsync(row, cancellationToken);
     }
 
+    public async Task<AccountPaymentCapabilityView?> GetAccountMethodAsync(
+        Guid connectionId, string method, AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        var code = NormalizeMethod(method);
+        var connection = await FindConnectionForAccessAsync(connectionId, access, tracking: false, cancellationToken);
+        if (connection?.PaymentProviderId is null)
+            return null;
+        var provider = await LoadProviderAsync(connection.Psp, cancellationToken);
+        var catalog = await LoadProviderMethodAsync(provider, code, cancellationToken);
+        if (catalog is null)
+            return null;
+        var row = await PlatformReadGuard.ReadAsync(ct => db.MerchantProviderAccountMethods
+            .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
+                x.PspConnectionId == connectionId && x.MerchantId == connection.MerchantId
+                && x.PaymentMethodId == catalog.PaymentMethodId, ct), cancellationToken);
+        return AccountMethodView(connection, provider, catalog, row);
+    }
+
+    public async Task<AccountPaymentCapabilityView?> GetAccountMethodOptionAsync(
+        Guid connectionId, string method, string option, AdminPaymentsAccess access,
+        CancellationToken cancellationToken)
+    {
+        var code = NormalizeMethod(method);
+        var optionCode = NormalizeOption(option);
+        var connection = await FindConnectionForAccessAsync(connectionId, access, tracking: false, cancellationToken);
+        if (connection?.PaymentProviderId is null)
+            return null;
+        var provider = await LoadProviderAsync(connection.Psp, cancellationToken);
+        var catalog = await LoadProviderMethodAsync(provider, code, cancellationToken);
+        if (catalog?.PaymentProviderMethodId is null)
+            return null;
+        var accountMethod = await PlatformReadGuard.ReadAsync(ct => db.MerchantProviderAccountMethods
+            .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
+                x.PspConnectionId == connectionId && x.MerchantId == connection.MerchantId
+                && x.PaymentMethodId == catalog.PaymentMethodId, ct), cancellationToken);
+        if (accountMethod is null)
+            return null;
+        var optionCatalog = await LoadProviderMethodOptionAsync(catalog, optionCode, cancellationToken);
+        if (optionCatalog is null)
+            return null;
+        var row = await PlatformReadGuard.ReadAsync(ct => db.MerchantProviderAccountMethodOptions
+            .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
+                x.MerchantProviderAccountMethodId == accountMethod.Id
+                && x.PaymentMethodOptionId == optionCatalog.PaymentMethodOptionId, ct), cancellationToken);
+        return AccountOptionView(connection, provider, catalog, optionCatalog, row);
+    }
+
+    public Task<PaymentCapabilityMutationResult<AccountPaymentCapabilityView>> SetAccountMethodAsync(
+        SetAccountPaymentCapabilityIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var method = NormalizeMethod(intent.Method);
+            var snapshot = await FindConnectionForAccessAsync(
+                intent.PspConnectionId, intent.Access, tracking: false, ct)
+                ?? throw new NotFoundException("PSP connection was not found.");
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(snapshot.MerchantId, ct);
+            var intentHash = Hash(new
+            {
+                intent.PspConnectionId, method, intent.Enabled, intent.ExpectedVersion,
+            });
+            var prior = await FindOperationAsync(snapshot.MerchantId, intent.Access.ActorId,
+                "payment.account-method.set", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return new PaymentCapabilityMutationResult<AccountPaymentCapabilityView>(
+                    Replay<AccountPaymentCapabilityView>(prior), true);
+
+            var connection = await LoadConnectionAsync(intent.PspConnectionId, snapshot.MerchantId, ct);
+            var provider = await LoadProviderAsync(connection.Psp, ct);
+            EnsureProviderBinding(connection, provider);
+            var catalog = await LoadProviderMethodAsync(provider, method, ct)
+                ?? throw new NotFoundException("Payment method was not found.");
+            var row = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+                .IgnoreQueryFilters().SingleOrDefaultAsync(x =>
+                    x.PspConnectionId == connection.Id && x.MerchantId == connection.MerchantId
+                    && x.PaymentMethodId == catalog.PaymentMethodId, token), ct);
+            EnsureVersion(row?.Version ?? 0, intent.ExpectedVersion);
+            EnsureAccountMethodCanEnable(connection, provider, catalog, intent.Enabled);
+            if (row is null)
+            {
+                if (intent.Enabled)
+                {
+                    row = MerchantProviderAccountMethod.Create(
+                        connection.MerchantId, connection.Id, provider.PaymentProviderId,
+                        catalog.PaymentProviderMethodId!.Value, catalog.PaymentMethodId,
+                        intent.Access.ActorId, clock.UtcNow);
+                    db.MerchantProviderAccountMethods.Add(row);
+                }
+            }
+            else
+            {
+                row.SetEnabled(intent.Enabled, intent.Access.ActorId, clock.UtcNow);
+            }
+
+            await ProjectAccountMethodsAsync(connection, method, intent.Enabled, ct);
+            var view = AccountMethodView(connection, provider, catalog, row);
+            var operation = BeginOperation(snapshot.MerchantId, intent.Access.ActorId,
+                "payment.account-method.set", intent.IdempotencyKey, intentHash);
+            operation.Succeed(200, JsonSerializer.Serialize(view, Json), connection.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return new PaymentCapabilityMutationResult<AccountPaymentCapabilityView>(view, false);
+        }, cancellationToken);
+
+    public Task<PaymentCapabilityMutationResult<AccountPaymentCapabilityView>> SetAccountMethodOptionAsync(
+        SetAccountPaymentCapabilityIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var method = NormalizeMethod(intent.Method);
+            var option = NormalizeOption(intent.Option ?? string.Empty);
+            var snapshot = await FindConnectionForAccessAsync(
+                intent.PspConnectionId, intent.Access, tracking: false, ct)
+                ?? throw new NotFoundException("PSP connection was not found.");
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(snapshot.MerchantId, ct);
+            var intentHash = Hash(new
+            {
+                intent.PspConnectionId, method, option, intent.Enabled, intent.ExpectedVersion,
+            });
+            var prior = await FindOperationAsync(snapshot.MerchantId, intent.Access.ActorId,
+                "payment.account-method-option.set", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return new PaymentCapabilityMutationResult<AccountPaymentCapabilityView>(
+                    Replay<AccountPaymentCapabilityView>(prior), true);
+
+            var connection = await LoadConnectionAsync(intent.PspConnectionId, snapshot.MerchantId, ct);
+            var provider = await LoadProviderAsync(connection.Psp, ct);
+            EnsureProviderBinding(connection, provider);
+            var catalog = await LoadProviderMethodAsync(provider, method, ct)
+                ?? throw new NotFoundException("Payment method was not found.");
+            var accountMethod = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+                .IgnoreQueryFilters().SingleOrDefaultAsync(x =>
+                    x.PspConnectionId == connection.Id && x.MerchantId == connection.MerchantId
+                    && x.PaymentMethodId == catalog.PaymentMethodId, token), ct)
+                ?? throw new PaymentCapabilityUnavailableException("Account method is not configured.");
+            var optionCatalog = await LoadProviderMethodOptionAsync(catalog, option, ct)
+                ?? throw new NotFoundException("Payment method option was not found.");
+            var row = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethodOptions
+                .IgnoreQueryFilters().SingleOrDefaultAsync(x =>
+                    x.MerchantProviderAccountMethodId == accountMethod.Id
+                    && x.PaymentMethodOptionId == optionCatalog.PaymentMethodOptionId, token), ct);
+            EnsureVersion(row?.Version ?? 0, intent.ExpectedVersion);
+            if (intent.Enabled && (!connection.IsEnabled || !provider.IsEnabled || !catalog.MethodIsActive
+                || !catalog.ProviderMethodIsActive || !accountMethod.IsEnabled
+                || !optionCatalog.ProviderMethodOptionIsActive
+                || !adapterFactory.For(connection.Psp).SupportedMethods.Contains(method)))
+                throw new PaymentCapabilityUnavailableException("Account option has an inactive parent capability.");
+            if (row is null)
+            {
+                if (intent.Enabled)
+                {
+                    row = MerchantProviderAccountMethodOption.Create(
+                        connection.MerchantId, accountMethod.Id, connection.Id, provider.PaymentProviderId,
+                        catalog.PaymentProviderMethodId!.Value, catalog.PaymentMethodId,
+                        optionCatalog.PaymentProviderMethodOptionId!.Value,
+                        optionCatalog.PaymentMethodOptionId, intent.Access.ActorId, clock.UtcNow);
+                    db.MerchantProviderAccountMethodOptions.Add(row);
+                }
+            }
+            else
+            {
+                row.SetEnabled(intent.Enabled, intent.Access.ActorId, clock.UtcNow);
+            }
+
+            var view = AccountOptionView(connection, provider, catalog, optionCatalog, row);
+            var operation = BeginOperation(snapshot.MerchantId, intent.Access.ActorId,
+                "payment.account-method-option.set", intent.IdempotencyKey, intentHash);
+            operation.Succeed(200, JsonSerializer.Serialize(view, Json), connection.Id.ToString("D"));
+            await unitOfWork.SaveChangesAsync(ct);
+            return new PaymentCapabilityMutationResult<AccountPaymentCapabilityView>(view, false);
+        }, cancellationToken);
+
+    public async Task<IReadOnlyList<EffectivePaymentMethod>?> ListMerchantMethodsAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        if (!await MerchantExistsForAccessAsync(merchantId, access, cancellationToken))
+            return null;
+        return await EffectiveResolver.ListMethodsAsync(
+            new PaymentCapabilitySubject(merchantId, PaymentAudience.PlatformAdmin, null), cancellationToken);
+    }
+
+    public async Task<MerchantPaymentMethodView?> GetMerchantMethodAsync(
+        Guid merchantId, string method, AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        var code = NormalizeMethod(method);
+        if (!await MerchantExistsForAccessAsync(merchantId, access, cancellationToken)
+            || await LoadPaymentMethodStateAsync(code, cancellationToken) is null)
+            return null;
+        var row = await PlatformReadGuard.ReadAsync(ct => db.MerchantPaymentMethods
+            .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x =>
+                x.MerchantId == merchantId && x.PaymentMethodId == MethodId(code), ct), cancellationToken);
+        var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+            new PaymentCapabilitySubject(merchantId, PaymentAudience.PlatformAdmin, null), code, null),
+            cancellationToken)).Allowed;
+        return MerchantPolicyView(merchantId, code, row, effective);
+    }
+
+    public Task<PaymentCapabilityMutationResult<MerchantPaymentMethodView>> SetMerchantMethodAsync(
+        SetMerchantPaymentCapabilityIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var method = NormalizeMethod(intent.Method);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            if (!await MerchantExistsForAccessAsync(intent.MerchantId, intent.Access, ct))
+                throw new NotFoundException("Merchant was not found.");
+            var methodState = await LoadPaymentMethodStateAsync(method, ct)
+                ?? throw new NotFoundException("Payment method was not found.");
+            var intentHash = Hash(new
+            {
+                intent.MerchantId, method, intent.Enabled, intent.ExpectedVersion,
+            });
+            var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+                "payment.merchant-method.set", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return new PaymentCapabilityMutationResult<MerchantPaymentMethodView>(
+                    Replay<MerchantPaymentMethodView>(prior), true);
+
+            var row = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
+                .IgnoreQueryFilters().SingleOrDefaultAsync(x => x.MerchantId == intent.MerchantId
+                    && x.PaymentMethodId == methodState.PaymentMethodId, token), ct);
+            EnsureVersion(row?.Version ?? 0, intent.ExpectedVersion);
+            if (intent.Enabled && (!methodState.IsActive
+                || !await HasQualifyingAccountAsync(intent.MerchantId, method, methodState.PaymentMethodId, ct)))
+                throw new PaymentCapabilityUnavailableException(
+                    "Merchant method requires an active qualifying provider account method.");
+
+            if (row is null)
+            {
+                if (intent.Enabled)
+                {
+                    row = MerchantPaymentMethod.Create(intent.MerchantId, methodState.PaymentMethodId,
+                        true, intent.Access.ActorId, clock.UtcNow);
+                    db.MerchantPaymentMethods.Add(row);
+                }
+            }
+            else
+            {
+                row.SetEnabled(intent.Enabled, intent.Access.ActorId, clock.UtcNow);
+            }
+
+            await ProjectMerchantMethodsAsync(
+                intent.MerchantId, method, intent.Enabled, ct);
+            await unitOfWork.SaveChangesAsync(ct);
+            var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+                new PaymentCapabilitySubject(intent.MerchantId, PaymentAudience.PlatformAdmin, null), method, null),
+                ct)).Allowed;
+            var view = MerchantPolicyView(intent.MerchantId, method, row, effective);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "payment.merchant-method.set", intent.IdempotencyKey, intentHash);
+            operation.Succeed(200, JsonSerializer.Serialize(view, Json), $"{intent.MerchantId:D}:{method}");
+            await unitOfWork.SaveChangesAsync(ct);
+            return new PaymentCapabilityMutationResult<MerchantPaymentMethodView>(view, false);
+        }, cancellationToken);
+
+    public async Task<IReadOnlyList<MerchantUserPaymentMethodView>?> ListMerchantUserMethodsAsync(
+        Guid merchantId, Guid merchantUserId, AdminPaymentsAccess access,
+        CancellationToken cancellationToken)
+    {
+        if (!await MerchantUserExistsForAccessAsync(merchantId, merchantUserId, access, cancellationToken))
+            return null;
+        var rows = await PlatformReadGuard.ReadAsync(ct => db.MerchantUserPaymentMethods
+            .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == merchantId
+                && x.MerchantUserId == merchantUserId).OrderBy(x => x.PaymentMethodId).ToListAsync(ct),
+            cancellationToken);
+        var result = new List<MerchantUserPaymentMethodView>(rows.Count);
+        foreach (var row in rows)
+        {
+            var method = MethodCode(row.PaymentMethodId)
+                ?? throw new InvalidOperationException("User policy references an unknown payment method.");
+            var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+                new PaymentCapabilitySubject(merchantId, PaymentAudience.User, merchantUserId),
+                method, null), cancellationToken)).Allowed;
+            result.Add(UserPolicyView(merchantUserId, merchantId, method, row, effective));
+        }
+        return result.OrderBy(x => x.Method, StringComparer.Ordinal).ToList();
+    }
+
+    public async Task<MerchantUserPaymentMethodView?> GetMerchantUserMethodAsync(
+        Guid merchantId, Guid merchantUserId, string method, AdminPaymentsAccess access,
+        CancellationToken cancellationToken)
+    {
+        var code = NormalizeMethod(method);
+        if (!await MerchantUserExistsForAccessAsync(merchantId, merchantUserId, access, cancellationToken)
+            || await LoadPaymentMethodStateAsync(code, cancellationToken) is null)
+            return null;
+        var row = await PlatformReadGuard.ReadAsync(ct => db.MerchantUserPaymentMethods
+            .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.MerchantId == merchantId
+                && x.MerchantUserId == merchantUserId && x.PaymentMethodId == MethodId(code), ct),
+            cancellationToken);
+        var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+            new PaymentCapabilitySubject(merchantId, PaymentAudience.User, merchantUserId), code, null),
+            cancellationToken)).Allowed;
+        return UserPolicyView(merchantUserId, merchantId, code, row, effective);
+    }
+
+    public Task<PaymentCapabilityMutationResult<MerchantUserPaymentMethodView>> SetMerchantUserMethodAsync(
+        SetMerchantUserPaymentCapabilityIntent intent, CancellationToken cancellationToken) =>
+        unitOfWork.ExecuteInTransactionAsync(async ct =>
+        {
+            var method = NormalizeMethod(intent.Method);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
+            if (!await MerchantUserExistsForAccessAsync(
+                    intent.MerchantId, intent.MerchantUserId, intent.Access, ct))
+                throw new NotFoundException("Merchant user was not found.");
+            var methodState = await LoadPaymentMethodStateAsync(method, ct)
+                ?? throw new NotFoundException("Payment method was not found.");
+            var intentHash = Hash(new
+            {
+                intent.MerchantId, intent.MerchantUserId, method, intent.Enabled, intent.ExpectedVersion,
+            });
+            var prior = await FindOperationAsync(intent.MerchantId, intent.Access.ActorId,
+                "payment.merchant-user-method.set", intent.IdempotencyKey, intentHash, ct);
+            if (prior is not null)
+                return new PaymentCapabilityMutationResult<MerchantUserPaymentMethodView>(
+                    Replay<MerchantUserPaymentMethodView>(prior), true);
+
+            var row = await PlatformReadGuard.ReadAsync(token => db.MerchantUserPaymentMethods
+                .IgnoreQueryFilters().SingleOrDefaultAsync(x => x.MerchantId == intent.MerchantId
+                    && x.MerchantUserId == intent.MerchantUserId
+                    && x.PaymentMethodId == methodState.PaymentMethodId, token), ct);
+            EnsureVersion(row?.Version ?? 0, intent.ExpectedVersion);
+            if (intent.Enabled && !await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
+                    .IgnoreQueryFilters().AsNoTracking().AnyAsync(x => x.MerchantId == intent.MerchantId
+                        && x.PaymentMethodId == methodState.PaymentMethodId && x.IsEnabled, token), ct))
+                throw new PaymentCapabilityUnavailableException(
+                    "User method requires an enabled Merchant payment method.");
+
+            if (row is null)
+            {
+                if (intent.Enabled)
+                {
+                    row = MerchantUserPaymentMethod.Create(intent.MerchantUserId, intent.MerchantId,
+                        methodState.PaymentMethodId, true, intent.Access.ActorId, clock.UtcNow);
+                    db.MerchantUserPaymentMethods.Add(row);
+                }
+            }
+            else
+            {
+                row.SetEnabled(intent.Enabled, intent.Access.ActorId, clock.UtcNow);
+            }
+
+            await unitOfWork.SaveChangesAsync(ct);
+            var effective = (await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+                new PaymentCapabilitySubject(intent.MerchantId, PaymentAudience.User,
+                    intent.MerchantUserId), method, null), ct)).Allowed;
+            var view = UserPolicyView(intent.MerchantUserId, intent.MerchantId, method, row, effective);
+            var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
+                "payment.merchant-user-method.set", intent.IdempotencyKey, intentHash);
+            operation.Succeed(200, JsonSerializer.Serialize(view, Json),
+                $"{intent.MerchantUserId:D}:{method}");
+            await unitOfWork.SaveChangesAsync(ct);
+            return new PaymentCapabilityMutationResult<MerchantUserPaymentMethodView>(view, false);
+        }, cancellationToken);
+
+    public async Task<UserPaymentMethodResolutionView?> ResolveMerchantUserMethodAsync(
+        Guid merchantId, Guid merchantUserId, string method, AdminPaymentsAccess access,
+        CancellationToken cancellationToken)
+    {
+        var code = NormalizeMethod(method);
+        if (!await MerchantUserExistsForAccessAsync(merchantId, merchantUserId, access, cancellationToken)
+            || await LoadPaymentMethodStateAsync(code, cancellationToken) is null)
+            return null;
+        var decision = await EffectiveResolver.ResolveMethodAsync(new ResolvePaymentMethod(
+            new PaymentCapabilitySubject(merchantId, PaymentAudience.User, merchantUserId), code, null),
+            cancellationToken);
+        return new UserPaymentMethodResolutionView(code, decision.Allowed ? "allowed" : "denied");
+    }
+
+    public async Task<IReadOnlyList<EffectivePaymentOption>?> ResolveMerchantUserOptionsAsync(
+        Guid merchantId, Guid merchantUserId, string method, string provider,
+        AdminPaymentsAccess access, CancellationToken cancellationToken)
+    {
+        var code = NormalizeMethod(method);
+        if (!await MerchantUserExistsForAccessAsync(merchantId, merchantUserId, access, cancellationToken)
+            || await LoadPaymentMethodStateAsync(code, cancellationToken) is null)
+            return null;
+        return await EffectiveResolver.ResolveOptionsAsync(new ResolvePaymentMethod(
+            new PaymentCapabilitySubject(merchantId, PaymentAudience.User, merchantUserId),
+            code, provider), cancellationToken);
+    }
+
     public Task<PspConnectionMutationResult> CreateConnectionAsync(
         CreatePspConnectionIntent intent, CancellationToken cancellationToken) =>
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
             await EnsureMerchantExistsAsync(intent.MerchantId, ct);
             var psp = ParsePsp(intent.Psp);
             var methods = ValidateMethods(psp, intent.EnabledMethods);
+            var provider = await LoadProviderAsync(psp, ct);
             ValidateConfig(intent.Config);
             var envelope = envelopeFactory.Build(new PspSecretInput(psp, intent.Secrets, intent.PspMerchantId));
             var intentHash = Hash(new
@@ -98,12 +490,14 @@ internal sealed class AdminPaymentsControlStore(
             var connection = Connection.Create(intent.MerchantId, psp, string.Join(',', methods),
                 $"psp-connection-{Guid.CreateVersion7():N}", clock.UtcNow,
                 ConnectionMetadata(intent.PspMerchantId, intent.Config, envelope.Hints));
+            connection.BindPaymentProvider(provider.PaymentProviderId);
             var secretName = $"psp-connection-{connection.Id:N}";
             var candidate = await vault.StageVersionAsync(intent.MerchantId, secretName,
                 envelope.EnvelopeJson, JsonSerializer.Serialize(envelope.Hints, Json), null, ct);
             await vault.ActivateVersionAsync(intent.MerchantId, candidate, ct);
             connection.SetInitialSecretVersion(candidate);
             db.PspConnections.Add(connection);
+            await SyncAccountMethodsAsync(connection, provider, methods, intent.Access.ActorId, ct);
             var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
                 "psp.create", intent.IdempotencyKey, intentHash);
             var view = await ProjectConnectionAsync(connection, ct);
@@ -117,8 +511,8 @@ internal sealed class AdminPaymentsControlStore(
         unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
             EnsureAccess(intent.Access, intent.MerchantId);
+            await AuthorizationLocks.AcquireMerchantExclusiveAsync(intent.MerchantId, ct);
             var connection = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, ct);
-            EnsureVersion(connection.Version, intent.ExpectedVersion);
             var methods = ValidateMethods(connection.Psp, intent.EnabledMethods);
             ValidateConfig(intent.Config);
             var intentHash = Hash(new
@@ -134,10 +528,14 @@ internal sealed class AdminPaymentsControlStore(
                 "psp.update", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return new PspConnectionMutationResult(await ReplayConnectionAsync(prior, ct), true);
+            EnsureVersion(connection.Version, intent.ExpectedVersion);
 
+            var provider = await LoadProviderAsync(connection.Psp, ct);
+            connection.BindPaymentProvider(provider.PaymentProviderId);
             var metadata = ReadMetadata(connection.Metadata);
             connection.Update(string.Join(',', methods),
                 ConnectionMetadata(metadata.PspMerchantId, intent.Config, metadata.Hints), intent.IsEnabled);
+            await SyncAccountMethodsAsync(connection, provider, methods, intent.Access.ActorId, ct);
             var operation = BeginOperation(intent.MerchantId, intent.Access.ActorId,
                 "psp.update", intent.IdempotencyKey, intentHash);
             var view = await ProjectConnectionAsync(connection, ct);
@@ -484,6 +882,363 @@ internal sealed class AdminPaymentsControlStore(
             throw new NotFoundException("Merchant was not found.");
     }
 
+    private Task<bool> MerchantExistsForAccessAsync(
+        Guid merchantId, AdminPaymentsAccess access, CancellationToken ct)
+    {
+        if (merchantId == Guid.Empty || !access.Allows(merchantId))
+            return Task.FromResult(false);
+        return PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters().AsNoTracking()
+            .AnyAsync(x => x.Id == merchantId, token), ct);
+    }
+
+    private async Task<bool> MerchantUserExistsForAccessAsync(
+        Guid merchantId, Guid merchantUserId, AdminPaymentsAccess access, CancellationToken ct)
+    {
+        if (merchantId == Guid.Empty || merchantUserId == Guid.Empty || !access.Allows(merchantId))
+            return false;
+        if (!await MerchantExistsForAccessAsync(merchantId, access, ct))
+            return false;
+        var query = db.Database.SqlQuery<int>($"""
+            SELECT COUNT(*) AS [Value]
+            FROM [merch].[Users]
+            WHERE [Id] = {merchantUserId} AND [MerchantId] = {merchantId}
+              AND [Status] IN ({(int)UserStatus.Active}, {(int)UserStatus.Suspended})
+            """);
+        var count = await PlatformReadGuard.ReadAsync(token => query.SingleAsync(token), ct);
+        return count == 1;
+    }
+
+    private async Task<PaymentMethodStateRow?> LoadPaymentMethodStateAsync(
+        string method, CancellationToken ct)
+    {
+        if (!db.Database.IsSqlServer())
+            return new PaymentMethodStateRow { PaymentMethodId = MethodId(method), IsActive = true };
+        var query = db.Database.SqlQuery<PaymentMethodStateRow>($"""
+            SELECT [Id] AS [PaymentMethodId], [IsActive]
+            FROM [cfg].[PaymentMethods]
+            WHERE [Code] = {method}
+            """);
+        return await PlatformReadGuard.ReadAsync(token => query.SingleOrDefaultAsync(token), ct);
+    }
+
+    private async Task<bool> HasQualifyingAccountAsync(
+        Guid merchantId, string method, Guid paymentMethodId, CancellationToken ct)
+    {
+        var accountMethods = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+            .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == merchantId
+                && x.PaymentMethodId == paymentMethodId && x.IsEnabled).ToListAsync(token), ct);
+        foreach (var accountMethod in accountMethods)
+        {
+            var connection = await PlatformReadGuard.ReadAsync(token => db.PspConnections
+                .IgnoreQueryFilters().AsNoTracking().SingleOrDefaultAsync(x => x.Id == accountMethod.PspConnectionId
+                    && x.MerchantId == merchantId && x.PaymentProviderId == accountMethod.PaymentProviderId
+                    && x.IsEnabled, token), ct);
+            if (connection is null)
+                continue;
+            var provider = await LoadProviderAsync(connection.Psp, ct);
+            var catalog = await LoadProviderMethodAsync(provider, method, ct);
+            if (provider.PaymentProviderId == accountMethod.PaymentProviderId && provider.IsEnabled
+                && catalog is { MethodIsActive: true, ProviderMethodIsActive: true }
+                && catalog.PaymentProviderMethodId == accountMethod.PaymentProviderMethodId
+                && adapterFactory.For(connection.Psp).SupportedMethods.Contains(method))
+                return true;
+        }
+        return false;
+    }
+
+    private async Task<Connection?> FindConnectionForAccessAsync(
+        Guid connectionId, AdminPaymentsAccess access, bool tracking, CancellationToken ct)
+    {
+        var source = db.PspConnections.IgnoreQueryFilters();
+        if (!tracking)
+            source = source.AsNoTracking();
+        var row = await PlatformReadGuard.ReadAsync(token =>
+            source.SingleOrDefaultAsync(x => x.Id == connectionId, token), ct);
+        return row is not null && access.Allows(row.MerchantId) ? row : null;
+    }
+
+    private async Task SyncAccountMethodsAsync(
+        Connection connection, ProviderCatalogRow provider, IReadOnlyList<string> methods,
+        Guid actorId, CancellationToken ct)
+    {
+        EnsureProviderBinding(connection, provider);
+        var catalogs = new List<ProviderMethodCatalogRow>(methods.Count);
+        foreach (var method in methods)
+        {
+            var catalog = await LoadProviderMethodAsync(provider, method, ct)
+                ?? throw new NotFoundException("Payment method was not found.");
+            EnsureAccountMethodCanEnable(connection, provider, catalog, enabled: true);
+            catalogs.Add(catalog);
+        }
+
+        var existing = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+            .IgnoreQueryFilters().Where(x => x.MerchantId == connection.MerchantId
+                && x.PspConnectionId == connection.Id).ToListAsync(token), ct);
+        var requested = catalogs.Select(x => x.PaymentMethodId).ToHashSet();
+        foreach (var catalog in catalogs)
+        {
+            var row = existing.SingleOrDefault(x => x.PaymentMethodId == catalog.PaymentMethodId);
+            if (row is null)
+            {
+                db.MerchantProviderAccountMethods.Add(MerchantProviderAccountMethod.Create(
+                    connection.MerchantId, connection.Id, provider.PaymentProviderId,
+                    catalog.PaymentProviderMethodId!.Value, catalog.PaymentMethodId,
+                    actorId, clock.UtcNow));
+            }
+            else
+            {
+                row.SetEnabled(true, actorId, clock.UtcNow);
+            }
+        }
+        foreach (var row in existing.Where(x => !requested.Contains(x.PaymentMethodId)))
+            row.SetEnabled(false, actorId, clock.UtcNow);
+        connection.ProjectEnabledMethods(methods);
+    }
+
+    private async Task ProjectAccountMethodsAsync(
+        Connection connection, string changedMethod, bool enabled, CancellationToken ct)
+    {
+        var methodIds = await PlatformReadGuard.ReadAsync(token => db.MerchantProviderAccountMethods
+            .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == connection.MerchantId
+                && x.PspConnectionId == connection.Id && x.IsEnabled)
+            .Select(x => x.PaymentMethodId).ToListAsync(token), ct);
+        var codes = await LoadMethodCodesAsync(methodIds, ct);
+        if (enabled)
+            codes.Add(changedMethod);
+        else
+            codes.Remove(changedMethod);
+        connection.ProjectEnabledMethods(codes);
+    }
+
+    private async Task ProjectMerchantMethodsAsync(
+        Guid merchantId,
+        string changedMethod,
+        bool enabled,
+        CancellationToken ct)
+    {
+        var methodIds = await PlatformReadGuard.ReadAsync(token => db.MerchantPaymentMethods
+            .IgnoreQueryFilters().AsNoTracking().Where(x => x.MerchantId == merchantId && x.IsEnabled)
+            .Select(x => x.PaymentMethodId).ToListAsync(token), ct);
+        var codes = await LoadMethodCodesAsync(methodIds, ct);
+        if (enabled)
+            codes.Add(changedMethod);
+        else
+            codes.Remove(changedMethod);
+        var merchant = await PlatformReadGuard.ReadAsync(token => db.Merchants.IgnoreQueryFilters()
+            .SingleAsync(x => x.Id == merchantId, token), ct);
+        merchant.ProjectEnabledChannels(codes);
+    }
+
+    private void EnsureAccountMethodCanEnable(
+        Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow catalog, bool enabled)
+    {
+        if (!enabled)
+            return;
+        if (!connection.IsEnabled || !provider.IsEnabled || !catalog.MethodIsActive
+            || catalog.PaymentProviderMethodId is null || !catalog.ProviderMethodIsActive
+            || !adapterFactory.For(connection.Psp).SupportedMethods.Contains(catalog.MethodCode))
+            throw new PaymentCapabilityUnavailableException(
+                "Account method has an inactive parent or exceeds adapter capability.");
+    }
+
+    private static void EnsureProviderBinding(Connection connection, ProviderCatalogRow provider)
+    {
+        if (connection.PaymentProviderId is { } bound && bound != provider.PaymentProviderId)
+            throw new PaymentCapabilityUnavailableException("PSP connection provider binding is invalid.");
+        connection.BindPaymentProvider(provider.PaymentProviderId);
+    }
+
+    private async Task<ProviderCatalogRow> LoadProviderAsync(Code psp, CancellationToken ct)
+    {
+        if (!db.Database.IsSqlServer())
+            return psp switch
+            {
+                Code.TwoCTwoP => new ProviderCatalogRow
+                {
+                    PaymentProviderId = PaymentCapabilityIds.TwoCTwoP,
+                    ProviderCode = "2c2p", AdapterCode = (int)psp, IsEnabled = true,
+                },
+                Code.Omise => new ProviderCatalogRow
+                {
+                    PaymentProviderId = PaymentCapabilityIds.Omise,
+                    ProviderCode = "omise", AdapterCode = (int)psp, IsEnabled = true,
+                },
+                _ => throw new PaymentCapabilityUnavailableException("Payment provider is not configured."),
+            };
+
+        var query = db.Database.SqlQuery<ProviderCatalogRow>($"""
+            SELECT [Id] AS [PaymentProviderId], [Code] AS [ProviderCode], [AdapterCode], [IsEnabled]
+            FROM [cfg].[PaymentProviders]
+            WHERE [AdapterCode] = {(int)psp}
+            """);
+        var row = await PlatformReadGuard.ReadAsync(token => query.SingleOrDefaultAsync(token), ct);
+        return row ?? throw new PaymentCapabilityUnavailableException("Payment provider is not configured.");
+    }
+
+    private async Task<ProviderMethodCatalogRow?> LoadProviderMethodAsync(
+        ProviderCatalogRow provider, string method, CancellationToken ct)
+    {
+        if (!db.Database.IsSqlServer())
+            return FallbackProviderMethod(provider, method);
+        var query = db.Database.SqlQuery<ProviderMethodCatalogRow>($"""
+            SELECT m.[Id] AS [PaymentMethodId], m.[Code] AS [MethodCode], m.[IsActive] AS [MethodIsActive],
+                   pm.[Id] AS [PaymentProviderMethodId],
+                   COALESCE(pm.[IsActive], CAST(0 AS bit)) AS [ProviderMethodIsActive]
+            FROM [cfg].[PaymentMethods] m
+            LEFT JOIN [cfg].[PaymentProviderMethods] pm
+              ON pm.[PaymentProviderId] = {provider.PaymentProviderId} AND pm.[PaymentMethodId] = m.[Id]
+            WHERE m.[Code] = {method}
+            """);
+        return await PlatformReadGuard.ReadAsync(token => query.SingleOrDefaultAsync(token), ct);
+    }
+
+    private async Task<ProviderMethodOptionCatalogRow?> LoadProviderMethodOptionAsync(
+        ProviderMethodCatalogRow method, string option, CancellationToken ct)
+    {
+        if (!db.Database.IsSqlServer())
+        {
+            var optionId = option switch
+            {
+                "KBANK" => PaymentCapabilityIds.Kbank,
+                "SCB" => PaymentCapabilityIds.Scb,
+                "KTC" => PaymentCapabilityIds.Ktc,
+                "BAY" => PaymentCapabilityIds.Bay,
+                _ => (Guid?)null,
+            };
+            return optionId is null ? null : new ProviderMethodOptionCatalogRow
+            {
+                PaymentMethodOptionId = optionId.Value,
+                OptionCode = option,
+                PaymentProviderMethodOptionId = null,
+                ProviderMethodOptionIsActive = false,
+            };
+        }
+        var query = db.Database.SqlQuery<ProviderMethodOptionCatalogRow>($"""
+            SELECT o.[Id] AS [PaymentMethodOptionId], o.[Code] AS [OptionCode],
+                   pmo.[Id] AS [PaymentProviderMethodOptionId],
+                   COALESCE(pmo.[IsActive], CAST(0 AS bit)) AS [ProviderMethodOptionIsActive]
+            FROM [cfg].[PaymentMethodOptions] o
+            LEFT JOIN [cfg].[PaymentProviderMethodOptions] pmo
+              ON pmo.[PaymentProviderMethodId] = {method.PaymentProviderMethodId}
+             AND pmo.[PaymentMethodOptionId] = o.[Id]
+            WHERE o.[PaymentMethodId] = {method.PaymentMethodId} AND o.[Code] = {option}
+            """);
+        return await PlatformReadGuard.ReadAsync(token => query.SingleOrDefaultAsync(token), ct);
+    }
+
+    private static Task<HashSet<string>> LoadMethodCodesAsync(
+        IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(ids.Select(MethodCode).Where(x => x is not null).Select(x => x!)
+            .ToHashSet(StringComparer.Ordinal));
+    }
+
+    private static ProviderMethodCatalogRow? FallbackProviderMethod(ProviderCatalogRow provider, string method)
+    {
+        var methodId = method switch
+        {
+            PaymentMethods.Card => PaymentCapabilityIds.Card,
+            PaymentMethods.PromptPay => PaymentCapabilityIds.PromptPay,
+            PaymentMethods.Installment => PaymentCapabilityIds.Installment,
+            _ => (Guid?)null,
+        };
+        if (methodId is null)
+            return null;
+        Guid? providerMethodId = (provider.PaymentProviderId, method) switch
+        {
+            var (p, m) when p == PaymentCapabilityIds.TwoCTwoP && m == PaymentMethods.Card =>
+                PaymentCapabilityIds.TwoCTwoPCard,
+            var (p, m) when p == PaymentCapabilityIds.TwoCTwoP && m == PaymentMethods.PromptPay =>
+                PaymentCapabilityIds.TwoCTwoPPromptPay,
+            var (p, m) when p == PaymentCapabilityIds.TwoCTwoP && m == PaymentMethods.Installment =>
+                PaymentCapabilityIds.TwoCTwoPInstallment,
+            var (p, m) when p == PaymentCapabilityIds.Omise && m == PaymentMethods.Card =>
+                PaymentCapabilityIds.OmiseCard,
+            _ => null,
+        };
+        return new ProviderMethodCatalogRow
+        {
+            PaymentMethodId = methodId.Value,
+            MethodCode = method,
+            MethodIsActive = true,
+            PaymentProviderMethodId = providerMethodId,
+            ProviderMethodIsActive = providerMethodId is not null,
+        };
+    }
+
+    private static string? MethodCode(Guid id) => id switch
+    {
+        var value when value == PaymentCapabilityIds.Card => PaymentMethods.Card,
+        var value when value == PaymentCapabilityIds.PromptPay => PaymentMethods.PromptPay,
+        var value when value == PaymentCapabilityIds.Installment => PaymentMethods.Installment,
+        _ => null,
+    };
+
+    private static Guid MethodId(string method) => method switch
+    {
+        PaymentMethods.Card => PaymentCapabilityIds.Card,
+        PaymentMethods.PromptPay => PaymentCapabilityIds.PromptPay,
+        PaymentMethods.Installment => PaymentCapabilityIds.Installment,
+        _ => throw new ArgumentOutOfRangeException(nameof(method)),
+    };
+
+    private static MerchantPaymentMethodView MerchantPolicyView(
+        Guid merchantId, string method, MerchantPaymentMethod? row, bool effective) => new(
+        merchantId, method, row?.IsEnabled == true, effective,
+        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+
+    private static MerchantUserPaymentMethodView UserPolicyView(
+        Guid merchantUserId, Guid merchantId, string method,
+        MerchantUserPaymentMethod? row, bool effective) => new(
+        merchantUserId, merchantId, method, row?.IsEnabled == true, effective,
+        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+
+    private static AccountPaymentCapabilityView AccountMethodView(
+        Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow method,
+        MerchantProviderAccountMethod? row) => new(
+        "account-method", connection.Id, connection.MerchantId, provider.ProviderCode,
+        method.MethodCode, null, row?.IsEnabled == true,
+        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+
+    private static AccountPaymentCapabilityView AccountOptionView(
+        Connection connection, ProviderCatalogRow provider, ProviderMethodCatalogRow method,
+        ProviderMethodOptionCatalogRow option, MerchantProviderAccountMethodOption? row) => new(
+        "account-method-option", connection.Id, connection.MerchantId, provider.ProviderCode,
+        method.MethodCode, option.OptionCode, row?.IsEnabled == true,
+        row?.UpdatedBy ?? row?.CreatedBy, row?.UpdatedAt ?? row?.CreatedAt, row?.Version ?? 0);
+
+    private sealed class ProviderCatalogRow
+    {
+        public Guid PaymentProviderId { get; set; }
+        public string ProviderCode { get; set; } = default!;
+        public int AdapterCode { get; set; }
+        public bool IsEnabled { get; set; }
+    }
+
+    private sealed class PaymentMethodStateRow
+    {
+        public Guid PaymentMethodId { get; set; }
+        public bool IsActive { get; set; }
+    }
+
+    private sealed class ProviderMethodCatalogRow
+    {
+        public Guid PaymentMethodId { get; set; }
+        public string MethodCode { get; set; } = default!;
+        public bool MethodIsActive { get; set; }
+        public Guid? PaymentProviderMethodId { get; set; }
+        public bool ProviderMethodIsActive { get; set; }
+    }
+
+    private sealed class ProviderMethodOptionCatalogRow
+    {
+        public Guid PaymentMethodOptionId { get; set; }
+        public string OptionCode { get; set; } = default!;
+        public Guid? PaymentProviderMethodOptionId { get; set; }
+        public bool ProviderMethodOptionIsActive { get; set; }
+    }
+
     private static IReadOnlyList<RoutingRuleSpec> Specs(IReadOnlyList<RoutingRuleInput> rules) =>
         rules.Select(x => new RoutingRuleSpec(x.Priority, x.Method, x.OriginatorId, x.MinAmount,
             x.MaxAmount, x.TargetConnectionId, x.FallbackConnectionId, x.Enabled)).ToList();
@@ -591,11 +1346,36 @@ internal sealed class AdminPaymentsControlStore(
     {
         if (values.Count == 0)
             throw new InvalidRequestException("At least one payment method is required.", "invalid_psp_config");
-        var methods = values.Select(x => x.Trim().ToLowerInvariant()).Distinct(StringComparer.Ordinal).ToList();
+        IReadOnlyList<string> methods;
+        try
+        {
+            methods = values.Select(PaymentMethods.Normalize).Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal).ToList();
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidRequestException(ex.Message, "validation_failed");
+        }
         var supported = adapterFactory.For(psp).SupportedMethods;
         if (methods.Any(x => !supported.Contains(x)))
             throw new InvalidRequestException("PSP method is not supported by the adapter.", "invalid_psp_config");
         return methods;
+    }
+
+    private static string NormalizeMethod(string value)
+    {
+        try { return PaymentMethods.Normalize(value); }
+        catch (ArgumentException ex) { throw new InvalidRequestException(ex.Message, "validation_failed"); }
+    }
+
+    private static string NormalizeOption(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidRequestException("Payment option code is required.", "validation_failed");
+        var normalized = value.Trim().ToUpperInvariant();
+        if (normalized.Length > 32 || normalized.Any(char.IsControl))
+            throw new InvalidRequestException("Payment option code is invalid.", "validation_failed");
+        return normalized;
     }
 
     private static Code ParsePsp(string value)

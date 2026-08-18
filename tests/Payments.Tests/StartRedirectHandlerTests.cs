@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using Payments.Application.Capabilities;
 using Payments.Application.Confirmation;
 using Payments.Application.CreateSession;
 using Payments.Application.Ports;
@@ -20,6 +21,7 @@ public sealed class StartRedirectHandlerTests
 {
     private static readonly Guid MerchantId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly Guid OrderId = Guid.Parse("22222222-2222-2222-2222-222222222222");
+    private static readonly Guid MerchantUserId = Guid.Parse("33333333-3333-3333-3333-333333333333");
     private static readonly Money OrderAmount = Money.Of(15000m, "THB");
     private static readonly DateTime Now = new(2026, 7, 26, 9, 0, 0, DateTimeKind.Utc);
 
@@ -43,7 +45,8 @@ public sealed class StartRedirectHandlerTests
         StartRedirectHandler Handler,
         Session Session,
         FakeVaultSecretStore Vault,
-        FakeUnitOfWork UnitOfWork)
+        FakeUnitOfWork UnitOfWork,
+        FakeEffectivePaymentCapabilities Capabilities)
     {
         public ValueTask<StartRedirectResult> Start() =>
             Handler.Handle(new StartRedirectCommand(Session.Id), default);
@@ -56,7 +59,8 @@ public sealed class StartRedirectHandlerTests
         Connection[]? connections = null,
         Func<Session, PspCharge>? onCharge = null,
         Func<int, Exception?>? saveFails = null,
-        Exception? vaultFails = null)
+        Exception? vaultFails = null,
+        PaymentCapabilityDenial capabilityDenial = PaymentCapabilityDenial.None)
     {
         var target = session ?? CreatedSession();
         var vault = new FakeVaultSecretStore { RevealFails = vaultFails };
@@ -65,6 +69,10 @@ public sealed class StartRedirectHandlerTests
         var adapterFactory = new FakePspAdapterFactory(
             new FakePspAdapter(Code.TwoCTwoP, PaymentMethods.Card) { OnCreateCharge = onCharge });
         var clock = new FixedClock { UtcNow = Now };
+        var orders = new FakePayableOrderReader(new PayableOrder(
+            OrderId, OrderAmount, PayableOrderStatus.Pending, target.Id, target.Method,
+            MerchantId, PaymentAudience.User, MerchantUserId));
+        var capabilities = new FakeEffectivePaymentCapabilities(capabilityDenial);
         var confirmation = new PaymentConfirmationService(
             connectionsRepository,
             adapterFactory,
@@ -82,9 +90,12 @@ public sealed class StartRedirectHandlerTests
             vault,
             unitOfWork,
             clock,
-            confirmation);
+            confirmation,
+            orders,
+            new FakePaymentAuthorizationLocks(),
+            capabilities);
 
-        return new Harness(handler, target, vault, unitOfWork);
+        return new Harness(handler, target, vault, unitOfWork, capabilities);
     }
 
     /// <summary>A refusal has to be free of side effects: no claim, no vault read, nothing to commit.</summary>
@@ -192,6 +203,34 @@ public sealed class StartRedirectHandlerTests
         AssertNothingWasClaimed(harness);
     }
 
+    [Fact]
+    public async Task FirstChargeAuthorization_revocation_denies_before_claim_and_PSP_call()
+    {
+        var harness = NewHarness(
+            onCharge: _ => throw new InvalidOperationException("PSP must not be called."),
+            capabilityDenial: PaymentCapabilityDenial.UserPolicyDenied);
+
+        var exception = await Assert.ThrowsAsync<AccessDeniedException>(async () => await harness.Start());
+
+        Assert.Equal("payment_method_not_allowed", exception.Code);
+        Assert.Equal(1, harness.Capabilities.ResolveCalls);
+        AssertNothingWasClaimed(harness);
+    }
+
+    [Fact]
+    public async Task FirstChargeAuthorization_persists_claim_before_PSP_call()
+    {
+        Harness? harness = null;
+        harness = NewHarness(onCharge: _ =>
+        {
+            Assert.Equal(SessionStatus.Redirected, harness!.Session.Status);
+            Assert.Equal(1, harness.UnitOfWork.SaveCount);
+            return new PspCharge("chg_claimed", "https://psp.example/hosted/claimed");
+        });
+
+        await harness!.Start();
+    }
+
     // --- step 5: the claim, and the concurrent loser ---
 
     [Fact]
@@ -293,7 +332,10 @@ public sealed class StartRedirectHandlerTests
         var clock = new FixedClock { UtcNow = Now };
 
         var create = new CreateSessionHandler(
-            new FakePayableOrderReader(new PayableOrder(OrderId, OrderAmount, PayableOrderStatus.Pending)),
+            new FakePayableOrderReader(new PayableOrder(
+                OrderId, OrderAmount, PayableOrderStatus.Pending, PaymentChannel: PaymentMethods.Card,
+                MerchantId: MerchantId, InitiatingAudience: Payments.Application.Capabilities.PaymentAudience.User,
+                InitiatingMerchantUserId: Guid.NewGuid())),
             connections,
             adapters,
             sessions,
@@ -308,7 +350,9 @@ public sealed class StartRedirectHandlerTests
                 new RecordingLogger<PaymentConfirmationService>()),
             new FakeDocumentSaleProbe(),
             unitOfWork,
-            clock);
+            clock,
+            new FakePaymentAuthorizationLocks(),
+            new FakeEffectivePaymentCapabilities());
         var redirectVault = new FakeVaultSecretStore();
         var redirectConfirmation = new PaymentConfirmationService(
             connections,
@@ -320,7 +364,12 @@ public sealed class StartRedirectHandlerTests
             clock,
             new RecordingLogger<PaymentConfirmationService>());
         var redirect = new StartRedirectHandler(
-            sessions, connections, adapters, redirectVault, unitOfWork, clock, redirectConfirmation);
+            sessions, connections, adapters, redirectVault, unitOfWork, clock, redirectConfirmation,
+            new FakePayableOrderReader(new PayableOrder(
+                OrderId, OrderAmount, PayableOrderStatus.Pending, PaymentSessionId: null,
+                PaymentChannel: PaymentMethods.Card, MerchantId: MerchantId,
+                InitiatingAudience: PaymentAudience.User, InitiatingMerchantUserId: Guid.NewGuid())),
+            new FakePaymentAuthorizationLocks(), new FakeEffectivePaymentCapabilities());
 
         var command = new CreateSessionCommand(OrderId, MerchantId, PaymentMethods.Card, Code.TwoCTwoP);
         var first = await create.Handle(command, default);
@@ -407,6 +456,24 @@ public sealed class StartRedirectHandlerTests
         Assert.Equal(1, harness.Vault.Reveals);
         // One save: the binding. A second BeginRedirect would have thrown outright, and a re-claim would have
         // saved twice.
+        Assert.Equal(1, harness.UnitOfWork.SaveCount);
+    }
+
+    [Fact]
+    public async Task PostClaimReconciliation_does_not_reauthorize_and_settles_same_claim()
+    {
+        var session = CreatedSession();
+        session.BeginRedirect(Now);
+        var harness = NewHarness(
+            session: session,
+            onCharge: _ => new PspCharge("chg_existing", "https://psp.example/hosted/existing"),
+            capabilityDenial: PaymentCapabilityDenial.UserPolicyDenied);
+
+        var result = await harness.Start();
+
+        Assert.Equal("https://psp.example/hosted/existing", result.RedirectUrl);
+        Assert.Equal(0, harness.Capabilities.ResolveCalls);
+        Assert.Equal("chg_existing", harness.Session.PspExternalChargeId);
         Assert.Equal(1, harness.UnitOfWork.SaveCount);
     }
 
