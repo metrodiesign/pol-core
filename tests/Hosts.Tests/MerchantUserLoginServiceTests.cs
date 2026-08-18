@@ -155,10 +155,10 @@ public sealed class MerchantUserLoginServiceTests
         }
     }
 
-    // Mirrors the admin SpaBaseUrl behavior: with the callback landing on the API origin, both the post-login
+    // Mirrors the admin WebAppBaseUrl behavior: with the callback landing on the API origin, both the post-login
     // returnTo and the error redirect must become absolute to the merchant-user SPA origin.
     [Fact]
-    public async Task With_SpaBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_spa_origin()
+    public async Task With_WebAppBaseUrl_the_returnTo_and_error_redirects_are_absolute_to_the_web_app_origin()
     {
         var (service, ctx) = Build(LoginResult.Active(
             new Resolution(UserId, "p@org.com", MerchantId, new HashSet<string>())), spaBaseUrl: "https://localhost:3002");
@@ -187,7 +187,7 @@ public sealed class MerchantUserLoginServiceTests
         var sessionOptions = Options.Create(new UserSessionOptions
         {
             ReturnUrlAllowlist = ["/", "/dashboard"],
-            SpaBaseUrl = spaBaseUrl,
+            WebAppBaseUrl = spaBaseUrl,
         });
         var oidcOptions = Options.Create(new UserOidcOptions { ErrorPath = "/login-error", RegisterUrl = registerUrl });
         var provider = new ServiceCollection()

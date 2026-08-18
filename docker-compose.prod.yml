@@ -118,14 +118,14 @@ services:
       MerchantAuth__Providers__Microsoft__ClientId: ${MERCHANT_ENTRA_CLIENT_ID:-}
       MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-}
       MERCHANT_ENTRA_CLIENT_SECRET_FILE: /run/secrets/merchant_entra_client_secret
-      Cors__AllowedOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
+      Cors__MerchantOrigins__0: ${MERCHANT_USER_FRONTEND_ORIGIN:?set MERCHANT_USER_FRONTEND_ORIGIN in .env}
       Cors__AdminOrigins__0: ${ADMIN_FRONTEND_ORIGIN:?set ADMIN_FRONTEND_ORIGIN in .env}
       # The IdP callback lands on the API origin (provider-scoped OIDC), so post-login/error/register
       # redirects must be made absolute to each SPA's origin — same values as the CORS origins above.
-      AdminSession__SpaBaseUrl: ${ADMIN_FRONTEND_ORIGIN}
-      MerchantUser__Session__SpaBaseUrl: ${MERCHANT_USER_FRONTEND_ORIGIN}
-      MerchantUser__Session__DefaultReturnPath: /dashboard
-      MerchantUser__Session__ReturnUrlAllowlist__1: /dashboard
+      AdminSession__WebAppBaseUrl: ${ADMIN_FRONTEND_ORIGIN}
+      MerchantSession__WebAppBaseUrl: ${MERCHANT_USER_FRONTEND_ORIGIN}
+      MerchantSession__DefaultReturnPath: /dashboard
+      MerchantSession__ReturnUrlAllowlist__1: /dashboard
       ForwardedHeaders__KnownNetworks__0: ${FORWARDED_HEADERS_KNOWN_NETWORK:?set trusted proxy CIDR in .env}
       MerchantUser__Invitation__Smtp__Host: ${MERCHANT_INVITATION_SMTP_HOST:?set SMTP host in .env}
       MerchantUser__Invitation__Smtp__Port: ${MERCHANT_INVITATION_SMTP_PORT:-587}

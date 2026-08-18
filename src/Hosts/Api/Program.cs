@@ -287,9 +287,9 @@ builder.Services.AddIamRoleManagement();
 // merchant-user login, fully isolated from the Admin ones — distinct "MerchantUser{Provider}" schemes + callbacks +
 // cookie names (REQ-8/9/14). Adds the schemes WITHOUT changing the default; a blank ClientId skips that provider's
 // scheme so a half-configured env does not fault the whole host (REQ-14.2). The merchant-user session lifetime +
-// cookie posture come from MerchantUser:Session.
+// cookie posture come from MerchantSession. Legacy MerchantUser:Session values are resolved once at startup.
 builder.Services.Configure<UserOidcOptions>(builder.Configuration.GetSection(UserOidcOptions.SectionName));
-builder.Services.Configure<UserSessionOptions>(builder.Configuration.GetSection(UserSessionOptions.SectionName));
+builder.Services.AddConsoleConfiguration(builder.Configuration, builder.Environment);
 builder.Services.AddMerchantUserOidcAuthentication(builder.Configuration, builder.Environment);
 
 // MerchantUser BFF session scheme: authenticate merchant-user requests via the __Host-mch_session cookie and register the
@@ -305,9 +305,6 @@ builder.Services.AddHostedService<PhotoStagingPruneService>();
 // Data Protection key ring for the admin OIDC handler (correlation/state/nonce cookies), persisted to the
 // control-plane DataProtectionKeys table via the keyed pol_admin context (REQ-8, Tech #5). Lazy — no SQL at boot.
 builder.Services.AddAdminDataProtection();
-
-// Admin BFF session lifetime + cookie posture (REQ-3/5/7).
-builder.Services.Configure<AdminSessionOptions>(builder.Configuration.GetSection(AdminSessionOptions.SectionName));
 
 // Merchant identity from the authenticated principal (never from the URL — PLAN #4).
 builder.Services.AddHttpContextAccessor();
@@ -343,7 +340,7 @@ builder.Services.AddConsoleSessionAuthentication();
 builder.Services.AddHostedService<SessionPruneService>();
 
 // CORS for the two credentialed console SPAs; the customer SPA uses a same-origin /api proxy.
-builder.Services.AddPolCors(builder.Configuration);
+builder.Services.AddPolCors();
 
 // OpenAPI document so the SPA teams have a machine-readable contract (served in Development only). The
 // document also declares the two auth schemes (merchant-user session cookie + admin session cookie) and tags

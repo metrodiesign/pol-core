@@ -42,11 +42,14 @@ file sealed class MicrosoftLoginFactory : WebApplicationFactory<ApiHost::Program
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.ConfigureAppConfiguration((_, config) =>
         {
+            config.IgnoreMachineLocalDevelopmentSettings();
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                ["AdminSession:ReturnUrlAllowlist:0"] = "/dashboard",
-                ["MerchantUser:Session:ReturnUrlAllowlist:0"] = "/dashboard",
+                ["AdminSession:ReturnUrlAllowlist:0"] = "/",
+                ["AdminSession:ReturnUrlAllowlist:1"] = "/dashboard",
+                ["MerchantSession:ReturnUrlAllowlist:0"] = "/",
+                ["MerchantSession:ReturnUrlAllowlist:1"] = "/dashboard",
             });
         });
         builder.ConfigureServices(services =>

@@ -39,7 +39,7 @@ internal sealed class AdminSessionOptions
     /// would otherwise resolve against the API host — a JSON 404, not the SPA. Blank = keep relative (same-origin
     /// deploy behind one host). The value is operator config, never request input — returnTo itself stays an
     /// allowlisted same-origin path, so this adds no open-redirect surface.</summary>
-    public string SpaBaseUrl { get; init; } = "";
+    public string WebAppBaseUrl { get; init; } = "";
     /// <summary>Absolute origin of the Development-only Scalar UI (e.g. <c>https://localhost:5001</c>).</summary>
     public string ScalarBaseUrl { get; init; } = "";
     /// <summary>Allowlisted post-login return paths (open-redirect prevention, REQ-1.3). Same-origin paths only.</summary>

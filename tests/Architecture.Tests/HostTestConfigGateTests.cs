@@ -37,7 +37,7 @@ public sealed class HostTestConfigGateTests
         "ProvisioningGuards.RequirePublicBaseUrl(builder.Configuration)", // non-Development only
         "AddMerchantUserOidcAuthentication(builder.Configuration", // eager; tests set MerchantAuth:* via UseSetting
         "AddAdminOidcAuthentication(builder.Configuration",        // eager; tests set AdminAuth:* via UseSetting
-        "AddPolCors(builder.Configuration)",                       // lazy — origins read inside policy builder
+        "AddConsoleConfiguration(builder.Configuration",           // lazy capture; resolves after Build (provider-stack test)
     ];
 
     private const string ProgramCs = "src/Hosts/Api/Program.cs";

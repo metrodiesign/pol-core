@@ -8,7 +8,7 @@
       "applicationUrl": "https://localhost:5001",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "MerchantUser__Session__SpaBaseUrl": "https://localhost:3002",
+        "MerchantSession__WebAppBaseUrl": "https://localhost:3002",
         "MerchantAuth__Providers__Microsoft__Authority": "https://vcpexternaldev.ciamlogin.com/2a6d4554-88f1-4089-a995-0bf31c622493/v2.0",
         "MerchantAuth__Providers__Microsoft__ClientId": "dd7d2f17-60dc-4bd9-99a4-e2a93077bc9a",
         "MerchantAuth__Providers__Microsoft__CallbackPath": "/api/v1/merchants/auth/microsoft/callback"

@@ -36,12 +36,16 @@ file sealed class CorsGuardFactory : WebApplicationFactory<ApiHost::Program>
         builder.UseSetting("ConnectionStrings:Migrator", "");
         builder.UseSetting("ConnectionStrings:App", "Server=(local);Database=pol_test;Trusted_Connection=True;");
         builder.UseSetting("ConnectionStrings:Admin", "Server=(local);Database=pol_test;Trusted_Connection=True;");
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+        builder.ConfigureAppConfiguration((_, config) =>
         {
-            ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-            ["Cors:AllowedOrigins:0"] = MerchantUserOrigin,
-            ["Cors:AdminOrigins:0"] = AdminOrigin,
-        }));
+            config.IgnoreMachineLocalDevelopmentSettings();
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Vault:MasterKeyBase64"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                ["Cors:MerchantOrigins:0"] = MerchantUserOrigin,
+                ["Cors:AdminOrigins:0"] = AdminOrigin,
+            });
+        });
     }
 }
 
