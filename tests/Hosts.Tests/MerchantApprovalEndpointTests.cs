@@ -200,7 +200,7 @@ public sealed class MerchantApprovalEndpointTests
         Assert.Equal(MerchantId, command.ValidatedMerchantId);
         Assert.Equal(PendingUserId, command.MerchantUserId);
         Assert.Equal(["merchant_manager"], command.RoleCodes);
-        Assert.Equal("admin-sub-1", command.ActingAdminSubject);
+        Assert.Equal("admin:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", command.ActingAdminSubject);
         Assert.Equal(new ApprovalBoundAdminScope().Current.AdminId, command.ActingAdminId);
     }
 

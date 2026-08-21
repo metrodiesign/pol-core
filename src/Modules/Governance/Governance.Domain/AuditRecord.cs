@@ -80,6 +80,8 @@ public sealed class AuditRecord : Entity<Guid>
     {
         if (sequence <= 0 || previousHash.Length != 32 || actorId == Guid.Empty)
             throw new ArgumentException("Valid sequence, previous hash, and actor are required.");
+        if (occurredAt.Kind != DateTimeKind.Utc)
+            throw new ArgumentException("Audit occurrence time must be UTC.", nameof(occurredAt));
         ApprovalRequest.ValidateScope(scopeKind, merchantId);
         var record = new AuditRecord
         {
@@ -120,7 +122,7 @@ public sealed class AuditRecord : Entity<Guid>
             record.ApprovalId?.ToString("D") ?? "",
             record.ResourceVersion ?? "",
             record.CorrelationId,
-            record.OccurredAt.ToUniversalTime().Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            record.OccurredAt.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
         var payload = Encoding.UTF8.GetBytes(fields);
         var buffer = new byte[4 + record.PreviousHash.Length + payload.Length];
         BinaryPrimitives.WriteInt32LittleEndian(buffer, record.PreviousHash.Length);

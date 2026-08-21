@@ -49,9 +49,10 @@ file sealed class TestAdminAuthHandler(
 
 file sealed class BoundAdminScope(IReadOnlySet<string> permissions, AccessibleMerchants accessible) : IAdminScope
 {
+    public static readonly Guid AdminId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     public bool IsBound => true;
     public Resolution Current { get; } =
-        new(Guid.NewGuid(), "admin@org.com", Tier.Super, accessible) { Permissions = permissions };
+        new(AdminId, "admin@org.com", Tier.Super, accessible) { Permissions = permissions };
     public AccessibleMerchants Accessible => accessible;
 }
 
@@ -91,7 +92,7 @@ file sealed class FakeHistoryReader : IRegistrationHistoryReader
 
 file sealed class FakeAuditWriter : IRegistrationAuditWriter
 {
-    public static readonly List<RegistrationAudit> Appended = [];
+    public readonly List<RegistrationAudit> Appended = [];
     public void Append(RegistrationAudit audit) => Appended.Add(audit);
 }
 
@@ -105,6 +106,8 @@ file sealed class NoOpUserUow : IUserUnitOfWork
 file sealed class HistoryFactory(bool grantViewKey, AccessibleMerchants? accessible = null)
     : WebApplicationFactory<ApiHost::Program>
 {
+    public FakeAuditWriter AuditWriter { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(Environments.Development);
@@ -132,7 +135,7 @@ file sealed class HistoryFactory(bool grantViewKey, AccessibleMerchants? accessi
             // Last-registered wins for these Scoped ports — the handler runs for real, no DB behind it.
             services.AddScoped<IAccountResolver, FakeResolver>();
             services.AddScoped<IRegistrationHistoryReader, FakeHistoryReader>();
-            services.AddScoped<IRegistrationAuditWriter, FakeAuditWriter>();
+            services.AddScoped<IRegistrationAuditWriter>(_ => AuditWriter);
             services.AddScoped<IUserUnitOfWork, NoOpUserUow>();
         });
     }
@@ -191,6 +194,19 @@ public sealed class RegistrationHistoryEndpointTests
         var attempt = body.RootElement.GetProperty("attempts")[0];
         Assert.Equal("PC-1", attempt.GetProperty("saleCode").GetString());        // full value, never masked
         Assert.False(attempt.TryGetProperty("producerCode", out _));
+    }
+
+    [Fact]
+    public async Task Reveal_audit_uses_internal_admin_actor_subject()
+    {
+        using var factory = new HistoryFactory(grantViewKey: true);
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync($"{Route}?reveal=true");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var audit = Assert.Single(factory.AuditWriter.Appended);
+        Assert.Equal($"admin:{BoundAdminScope.AdminId:D}", audit.ActorSubject);
     }
 
     [Fact]

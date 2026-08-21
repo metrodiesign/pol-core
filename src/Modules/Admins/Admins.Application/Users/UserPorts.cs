@@ -17,9 +17,13 @@ public interface IUserRepository
     void AddAssignment(MerchantAccess assignment);
     void RemoveAssignment(MerchantAccess assignment);
 
+    Task AcquireIdentityMutationLockAsync(CancellationToken cancellationToken);
     Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken);
     Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
+
+    Task VerifyActiveSuperAsync(
+        Guid callerId, long expectedAuthorizationVersion, CancellationToken cancellationToken);
 
     /// <summary>Cheap existence probe (<c>SELECT … EXISTS</c>) for the 404 gate on read/session handlers that
     /// need only to know the account exists, not its columns — avoids a full tracked-entity load.</summary>
@@ -43,4 +47,19 @@ public sealed record UserListItem(
 public interface IAuditWriter
 {
     void Append(Audit entry);
+}
+
+public sealed record AdminIdentityAuditEntry(
+    Guid ActorAdminId,
+    Guid TargetAdminId,
+    string Reason,
+    string IdentityFingerprint,
+    long ResourceVersion,
+    string CorrelationId,
+    DateTime OccurredAt);
+
+public interface IAdminIdentityAuditWriter
+{
+    Task AppendMicrosoftPreProvisionAsync(
+        AdminIdentityAuditEntry entry, CancellationToken cancellationToken);
 }

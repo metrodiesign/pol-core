@@ -89,7 +89,7 @@ public sealed class RevokeSessionHandler : ICommandHandler<RevokeSessionCommand,
             var result = new RevokeSessionResult(command.TargetAdminId, command.SessionId, session.FamilyId);
             _operations.AddSucceeded(
                 command.ActingAdminId, operation, command.IdempotencyKey, requestHash,
-                JsonSerializer.Serialize(result), _clock.UtcNow);
+                204, JsonSerializer.Serialize(result), _clock.UtcNow, _clock.UtcNow.AddHours(24));
             await _unitOfWork.SaveChangesAsync(ct);
             return result;
         }, cancellationToken);

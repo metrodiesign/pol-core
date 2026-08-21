@@ -24,6 +24,23 @@ namespace Persistence.ControlPlane.Admins;
 /// </summary>
 internal static class AuthorizationLease
 {
+    public static async Task VerifyActiveSuperAsync(
+        ControlPlaneDbContext db, Guid callerId, long expectedVersion, ISecurityTelemetry telemetry,
+        CancellationToken cancellationToken)
+    {
+        var caller = await db.Users.SingleOrDefaultAsync(u => u.Id == callerId, cancellationToken);
+        if (caller is null
+            || caller.Status != UserStatus.Active
+            || caller.Tier != Tier.Super
+            || caller.AuthorizationVersion != expectedVersion)
+        {
+            Emit(telemetry, callerId, "Authorization lease: active Super authorization is required.");
+            throw new AccessDeniedException("Active Super authorization is required.", "super_required");
+        }
+
+        Lease(db, caller);
+    }
+
     public static async Task VerifyAsync(
         ControlPlaneDbContext db, Guid callerId, long expectedVersion, ISecurityTelemetry telemetry,
         CancellationToken cancellationToken)
@@ -45,8 +62,11 @@ internal static class AuthorizationLease
 
         // A no-op assignment does not by itself make EF include the column in the UPDATE it emits — force it
         // so the concurrency-token WHERE clause actually runs at SaveChanges time (§2 above).
-        db.Entry(caller).Property(u => u.AuthorizationVersion).IsModified = true;
+        Lease(db, caller);
     }
+
+    private static void Lease(ControlPlaneDbContext db, User caller) =>
+        db.Entry(caller).Property(u => u.AuthorizationVersion).IsModified = true;
 
     private static void Emit(ISecurityTelemetry telemetry, Guid callerId, string reason) =>
         telemetry.Emit(new DenialEvent(

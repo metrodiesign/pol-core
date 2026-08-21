@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 
@@ -12,8 +13,8 @@ internal sealed class AdminOidcProviders : Dictionary<string, string>;
 /// The confidential OIDC clients for the admin BFF login (REQ-1/2), one scheme per configured provider
 /// (AdminAuth:Providers): "AdminGoogle", "AdminMicrosoft". The framework handler does the Authorization Code +
 /// PKCE + state + nonce + code-exchange + JWKS id_token validation; we only add the provider-specific gates
-/// (Google: <c>email_verified</c> + <c>hd</c>; Microsoft: tid-consistent issuer + AllowedTenants) and, on the
-/// canonical post-principal hook, establish the server session ourselves and short-circuit the framework sign-in
+/// (Google: <c>email_verified</c> + <c>hd</c>; Microsoft: pinned UUID <c>tid</c> + UUID <c>oid</c> + AllowedTenants),
+/// then, on the canonical post-principal hook, establish the server session and short-circuit the framework sign-in
 /// (<see cref="LoginService"/>). Schemes are ADDED here without changing the default.
 /// </summary>
 internal static class OidcAuthentication
@@ -45,6 +46,8 @@ internal static class OidcAuthentication
         this IServiceCollection services, IConfiguration configuration, IHostEnvironment environment)
     {
         var auth = configuration.GetSection(AdminAuthOptions.SectionName).Get<AdminAuthOptions>() ?? new AdminAuthOptions();
+        var microsoftTenant = AdminMicrosoftTenantSnapshot.Resolve(auth);
+        services.AddSingleton(microsoftTenant);
 
         services.AddScoped<ICallbackResolver, CallbackResolver>();
         services.AddScoped<LoginService>();
@@ -70,14 +73,15 @@ internal static class OidcAuthentication
 
             var scheme = SchemePrefix + name;
             providers[name.ToLowerInvariant()] = scheme;
-            builder.AddOpenIdConnect(scheme, options => Configure(options, name, oidc, environment));
+            builder.AddOpenIdConnect(scheme, options => Configure(options, name, oidc, environment, microsoftTenant));
         }
 
         return services;
     }
 
     private static void Configure(
-        OpenIdConnectOptions options, string name, OidcProviderOptions oidc, IHostEnvironment environment)
+        OpenIdConnectOptions options, string name, OidcProviderOptions oidc, IHostEnvironment environment,
+        AdminMicrosoftTenantSnapshot microsoftTenant)
     {
         var isMicrosoft = MicrosoftOidc.Is(name);
         var providerSlug = name.ToLowerInvariant();
@@ -113,15 +117,14 @@ internal static class OidcAuthentication
         options.Events = new OpenIdConnectEvents
         {
             // The provider-specific gates the JWKS/iss/aud/nonce checks don't cover. Google: verified-email +
-            // hosted-domain. Microsoft: the OPTIONAL AllowedTenants tid gate — active only when the allowlist is
-            // non-empty (tenant isolation already comes from issuer == metadata issuer; Entra emits NO
-            // email_verified, so the Google gate would reject every Entra login).
+            // hosted-domain. Admin Microsoft additionally requires canonical UUID tid/oid and the Authority tenant;
+            // AllowedTenants remains an optional extra restriction. Entra emits no email_verified.
             OnTokenValidated = context =>
             {
                 var principal = context.Principal;
                 if (isMicrosoft)
                 {
-                    if (MicrosoftOidc.TenantGate(principal, oidc.AllowedTenants) is { } reason)
+                    if (ValidateMicrosoftIdentity(principal, microsoftTenant.TenantId, oidc.AllowedTenants) is { } reason)
                         context.Fail(reason);
                 }
                 else if (principal?.FindFirst("email_verified")?.Value is not "true")
@@ -140,7 +143,7 @@ internal static class OidcAuthentication
                 await login.EstablishSessionAsync(
                     context.HttpContext,
                     providerSlug,
-                    isMicrosoft ? MicrosoftOidc.Subject(principal) : principal?.FindFirst("sub")?.Value,
+                    isMicrosoft ? CanonicalMicrosoftSubject(principal) : principal?.FindFirst("sub")?.Value,
                     isMicrosoft ? MicrosoftOidc.Email(principal) : principal?.FindFirst("email")?.Value,
                     // Google passed the email_verified gate above; Entra email/preferred_username are unverified,
                     // mutable claims -> display-only, never invite-binding (see CallbackResolver).
@@ -167,6 +170,48 @@ internal static class OidcAuthentication
             },
         };
     }
+
+    private static string? ValidateMicrosoftIdentity(
+        ClaimsPrincipal? principal, Guid? configuredTenant, string[] allowedTenants)
+    {
+        if (!TryCanonicalizeUuidClaim(principal, "tid", out var tid))
+            return "tid-required";
+        if (configuredTenant is null || tid != configuredTenant.Value)
+            return "tenant-not-allowed";
+        if (!TryCanonicalizeUuidClaim(principal, "oid", out _))
+            return "oid-required";
+        return MicrosoftOidc.TenantGate(principal, allowedTenants);
+    }
+
+    private static bool TryCanonicalizeUuidClaim(
+        ClaimsPrincipal? principal, string type, out Guid value)
+    {
+        value = Guid.Empty;
+        var claims = principal?.FindAll(type).ToArray();
+        if (claims is not { Length: 1 }
+            || !Guid.TryParse(claims[0].Value, out value)
+            || value == Guid.Empty
+            || claims[0].Subject is not { } identity)
+        {
+            return false;
+        }
+
+        var canonical = value.ToString("D").ToLowerInvariant();
+        if (claims[0].Value == canonical)
+            return true;
+
+        var claim = claims[0];
+        if (!identity.TryRemoveClaim(claim))
+            return false;
+        identity.AddClaim(new Claim(
+            claim.Type, canonical, claim.ValueType, claim.Issuer, claim.OriginalIssuer, identity));
+        return true;
+    }
+
+    private static string? CanonicalMicrosoftSubject(ClaimsPrincipal? principal) =>
+        Guid.TryParse(MicrosoftOidc.Subject(principal), out var oid) && oid != Guid.Empty
+            ? oid.ToString("D").ToLowerInvariant()
+            : null;
 
     private static string MapFailureReason(Exception? failure) => failure?.Message switch
     {

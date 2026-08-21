@@ -2,6 +2,7 @@ extern alias ApiHost;
 using ApiHost::Api;
 using ApiHost::Api.Admins;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Hosts.Tests;
 
@@ -28,6 +29,9 @@ public sealed class AdminCsrfFilterTests
     private static int StatusOf(object? result) =>
         Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? 0;
 
+    private static ProblemDetails ProblemOf(object? result) =>
+        Assert.IsType<ProblemDetails>(Assert.IsAssignableFrom<IValueHttpResult>(result).Value);
+
     [Fact]
     public async Task Matching_token_on_an_unsafe_method_passes() =>
         Assert.Same(Passed, await Run("POST", "tok-abc", "tok-abc"));
@@ -47,6 +51,15 @@ public sealed class AdminCsrfFilterTests
     [Fact]
     public async Task Missing_cookie_is_403() =>
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(await Run("POST", cookie: null, header: "tok-abc")));
+
+    [Fact]
+    public async Task Rejection_has_stable_code_and_trace_id()
+    {
+        var problem = ProblemOf(await Run("PUT", cookie: null, header: null));
+
+        Assert.Equal("csrf_failed", problem.Extensions["code"]);
+        Assert.NotNull(problem.Extensions["traceId"]);
+    }
 
     [Theory]
     [InlineData("GET")]

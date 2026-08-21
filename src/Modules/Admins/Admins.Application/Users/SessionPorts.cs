@@ -64,5 +64,5 @@ public interface IAdminOperationStore
         Guid actorId, string operation, string idempotencyKey, CancellationToken cancellationToken);
     void AddSucceeded(
         Guid actorId, string operation, string idempotencyKey, string requestHash,
-        string responseBody, DateTime now);
+        int responseStatus, string responseBody, DateTime now, DateTime expiresAt);
 }

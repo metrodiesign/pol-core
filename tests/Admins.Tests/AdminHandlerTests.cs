@@ -20,7 +20,9 @@ public sealed class AdminHandlerTests
     public async Task Resolve_returns_unrestricted_for_an_active_super()
     {
         var admins = new FakePlatformUserRepository();
-        admins.Add(User.SelfProvision("google", "super-1", "ops@org.com", Now));
+        var account = User.SelfProvision("google", "super-1", "ops@org.com", Now);
+        account.BumpAuthorizationVersion();
+        admins.Add(account);
         var handler = new ResolveHandler(admins, new FakeAdminRoleRepository());
 
         var result = await handler.Handle(new ResolveQuery(new ProviderIdentity("google", "super-1")), default);
@@ -28,6 +30,22 @@ public sealed class AdminHandlerTests
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.True(result.Resolution!.Accessible.IsUnrestricted);
         Assert.Equal(Tier.Super, result.Resolution.Tier);
+        Assert.Equal(account.AuthorizationVersion, result.Resolution.AuthorizationVersion);
+    }
+
+    [Fact]
+    public async Task Resolve_by_id_carries_the_current_authorization_version()
+    {
+        var admins = new FakePlatformUserRepository();
+        var account = User.SelfProvision("google", "super-by-id", "ops-by-id@org.com", Now);
+        account.BumpAuthorizationVersion();
+        admins.Add(account);
+
+        var result = await new ResolveByIdHandler(admins, new FakeAdminRoleRepository())
+            .Handle(new ResolveByIdQuery(account.Id), default);
+
+        Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
+        Assert.Equal(account.AuthorizationVersion, result.Resolution!.AuthorizationVersion);
     }
 
     [Fact]
@@ -81,22 +99,68 @@ public sealed class AdminHandlerTests
         Assert.Equal(AuditAction.SelfProvision, row.Action);
         Assert.Equal(account.Id, row.ActorId);
         Assert.Equal(account.Id, row.TargetAdminId);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     [Fact]
-    public async Task SelfProvision_is_idempotent_under_a_concurrent_race()
+    public async Task SelfProvision_reuses_identity_inserted_while_waiting_for_identity_lock()
     {
-        // The other request won the insert; the unit of work surfaces a ConflictException -> re-read existing.
-        var admins = new FakePlatformUserRepository();
         var existing = User.SelfProvision("google", "super-1", "ops@org.com", Now);
-        admins.Add(existing);
-        var handler = new SelfProvisionSuperHandler(admins, new FakeAdminRoleRepository(), new FakePlatformUserAuditWriter(), new ConflictingUnitOfWork(), new FixedClock());
+        var admins = new FakePlatformUserRepository
+        {
+            AfterIdentityMutationLockAcquired = repository => repository.Add(existing)
+        };
+        var audit = new FakePlatformUserAuditWriter();
+        var handler = new SelfProvisionSuperHandler(
+            admins, new FakeAdminRoleRepository(), audit, new FakeUnitOfWork(), new FixedClock());
 
-        var resolution = await handler.Handle(new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
+        var resolution = await handler.Handle(
+            new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default);
 
         Assert.Equal(existing.Id, resolution.AdminId);
-        Assert.True(resolution.Accessible.IsUnrestricted);
-        Assert.Single(admins.Accounts); // no duplicate row
+        Assert.Single(admins.Accounts);
+        Assert.Empty(audit.Appended);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
+    }
+
+    [Fact]
+    public async Task SelfProvision_rejects_a_suspended_identity_found_after_lock()
+    {
+        var existing = User.SelfProvision("google", "super-1", "ops@org.com", Now);
+        existing.Suspend(Guid.NewGuid());
+        var admins = new FakePlatformUserRepository
+        {
+            AfterIdentityMutationLockAcquired = repository => repository.Add(existing)
+        };
+        var audit = new FakePlatformUserAuditWriter();
+        var handler = new SelfProvisionSuperHandler(
+            admins, new FakeAdminRoleRepository(), audit, new FakeUnitOfWork(), new FixedClock());
+
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+            await handler.Handle(
+                new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default));
+
+        Assert.Single(admins.Accounts);
+        Assert.Empty(audit.Appended);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
+    }
+
+    [Fact]
+    public async Task SelfProvision_rejects_an_email_owned_by_another_identity_after_lock()
+    {
+        var admins = new FakePlatformUserRepository();
+        admins.Add(User.CreateScoped("ops@org.com", Now));
+        var audit = new FakePlatformUserAuditWriter();
+        var handler = new SelfProvisionSuperHandler(
+            admins, new FakeAdminRoleRepository(), audit, new FakeUnitOfWork(), new FixedClock());
+
+        await Assert.ThrowsAsync<ConflictException>(async () =>
+            await handler.Handle(
+                new SelfProvisionSuperCommand(new ProviderIdentity("google", "super-1"), "ops@org.com", "corr"), default));
+
+        Assert.Single(admins.Accounts);
+        Assert.Empty(audit.Appended);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     [Fact]
@@ -116,6 +180,7 @@ public sealed class AdminHandlerTests
         Assert.Equal(resolution.AdminId, assignment.AdminUserId);
         Assert.Equal(seed.Id, assignment.RoleId);
         Assert.Contains(audit.Appended, a => a.Action == AuditAction.RoleAssigned && a.TargetRoleId == seed.Id);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     // ---- BindInvitedAdmin ----
@@ -132,6 +197,7 @@ public sealed class AdminHandlerTests
         Assert.Equal(ResolveOutcome.Resolved, result.Outcome);
         Assert.Equal("scoped-1", admins.Accounts[0].Subject);
         Assert.Equal(Tier.Scoped, result.Resolution!.Tier);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     [Fact]
@@ -160,6 +226,7 @@ public sealed class AdminHandlerTests
 
         Assert.Equal(ResolveOutcome.Suspended, result.Outcome);
         Assert.Equal("scoped-1", admins.Accounts[0].Subject); // subject bound so future logins resolve by subject
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     // ---- CreateScopedAdmin ----
@@ -182,17 +249,24 @@ public sealed class AdminHandlerTests
         Assert.Equal(AuditAction.CreateScoped, row.Action);
         Assert.Equal(actingSuper, row.ActorId);
         Assert.Equal(account.Id, row.TargetAdminId);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     [Fact]
-    public async Task CreateScoped_rejects_a_duplicate_email()
+    public async Task CreateScoped_rejects_a_duplicate_email_found_after_identity_lock()
     {
-        var admins = new FakePlatformUserRepository();
-        admins.Add(User.CreateScoped("scoped@org.com", Now));
+        var admins = new FakePlatformUserRepository
+        {
+            AfterIdentityMutationLockAcquired = repository =>
+                repository.Add(User.CreateScoped("scoped@org.com", Now))
+        };
         var handler = new CreateScopedHandler(admins, new FakePlatformUserAuditWriter(), new FakeProfileLookup(), new FakeUnitOfWork(), new FixedClock());
 
         await Assert.ThrowsAsync<ConflictException>(async () =>
             await handler.Handle(new CreateScopedCommand("scoped@org.com", Guid.NewGuid(), "corr"), default));
+
+        Assert.Single(admins.Accounts);
+        Assert.Equal(1, admins.IdentityMutationLockCalls);
     }
 
     // ---- AssignMerchant ----

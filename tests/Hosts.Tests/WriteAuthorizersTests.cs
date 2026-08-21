@@ -17,6 +17,7 @@ using AdminAudit = Admins.Domain.Users.Audit;
 using AdminSession = Admins.Domain.Users.Session;
 using AdminAuthAudit = Admins.Domain.Users.AuthAudit;
 using AdminRoleAssignment = Admins.Domain.Roles.RoleAssignment;
+using WorkforceTenantBinding = Admins.Domain.Users.WorkforceTenantBinding;
 using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Role = Iam.Domain.Roles.Role;
 using OrderItem = Orders.Domain.Items.Item;
@@ -190,6 +191,24 @@ public sealed class WriteAuthorizersTests
         var bound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(true));
 
         Assert.False(bound.CanWrite(typeof(ProvisioningOperation), WriteOperation.Update, Guid.Empty));
+    }
+
+    [Fact]
+    public void Control_plane_admin_cannot_write_the_workforce_tenant_binding()
+    {
+        var bound = new ApiHost::Api.Persistence.ControlPlaneAdminWriteAuthorizer(new FakeScope(true));
+
+        Assert.False(bound.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Insert, Guid.Empty));
+    }
+
+    [Fact]
+    public void Control_plane_worker_can_only_insert_the_workforce_tenant_binding()
+    {
+        var worker = new ApiHost::Api.Persistence.ControlPlaneWorkerWriteAuthorizer();
+
+        Assert.True(worker.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Insert, Guid.Empty));
+        Assert.False(worker.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Update, Guid.Empty));
+        Assert.False(worker.CanWrite(typeof(WorkforceTenantBinding), WriteOperation.Delete, Guid.Empty));
     }
 
     private sealed class FakeActor(bool hasActor, Guid merchantId) : IActorContext

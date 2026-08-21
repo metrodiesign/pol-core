@@ -25,6 +25,9 @@ public sealed record Resolution(Guid AdminId, string Email, Tier Tier, Accessibl
     /// A non-positional init member with an empty default so the callback/bootstrap resolutions that do not carry
     /// permissions keep compiling against the four-argument positional ctor (B1).</summary>
     public IReadOnlySet<string> Permissions { get; init; } = NoPermissions;
+
+    /// <summary>Authorization snapshot revalidated inside privileged write transactions.</summary>
+    public long AuthorizationVersion { get; init; }
 }
 
 public sealed record ResolveResult(ResolveOutcome Outcome, Resolution? Resolution)
@@ -56,7 +59,11 @@ public sealed class ResolveHandler : IQueryHandler<ResolveQuery, ResolveResult>
         var accessible = await ResolveAccessibleAsync(account, _admins, cancellationToken);
         var permissions = await _roles.ListEffectivePermissionsAsync(account.Id, cancellationToken);
         return ResolveResult.Of(
-            new Resolution(account.Id, account.Email, account.Tier, accessible) { Permissions = permissions });
+            new Resolution(account.Id, account.Email, account.Tier, accessible)
+            {
+                Permissions = permissions,
+                AuthorizationVersion = account.AuthorizationVersion
+            });
     }
 
     /// <summary>Super = unrestricted; Scoped = exactly the assigned set (REQ-6.1/6.2). The design's

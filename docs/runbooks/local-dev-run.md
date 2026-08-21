@@ -163,10 +163,10 @@ dotnet ef migrations list --context PolDbContext \
   --startup-project src/Hosts/Api
 ```
 
-ปัจจุบันต้องมี 17 migrations และตัวสุดท้ายต้องเป็น:
+ปัจจุบันต้องมี 20 migrations และตัวสุดท้ายต้องเป็น:
 
 ```text
-20260816162306_MicrosoftOidcProviderDiscriminator
+20260819145219_WorkforceTenantBinding
 ```
 
 ตรวจ static migration guard โดยไม่ต้องมี `sqlcmd` บน host:

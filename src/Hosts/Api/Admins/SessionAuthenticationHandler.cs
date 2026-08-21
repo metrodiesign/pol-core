@@ -6,6 +6,7 @@ using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Mediator;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 namespace Api.Admins;
@@ -13,8 +14,8 @@ namespace Api.Admins;
 /// <summary>
 /// Authenticates every <c>/admin/*</c> request via the opaque <c>__Host-adm_session</c> cookie (REQ-4/5/9). It
 /// looks the session up by its SHA-256 hash, runs the decision table (REQ-5), re-resolves the admin's current
-/// Status/Tier/accessible set READ-ONLY (REQ-9), builds a principal carrying the <c>admin_tier</c> + <c>sub</c>
-/// claims the existing endpoints read, binds <see cref="IAdminScope"/>, and transparently rotates the cookie
+/// Status/Tier/accessible set READ-ONLY (REQ-9), builds a principal carrying internal admin identity and tier,
+/// binds <see cref="IAdminScope"/>, and transparently rotates the cookie
 /// past the rotation age (REQ-5.1). A Google id_token Bearer is never consulted on these routes (REQ-4.4): no
 /// cookie -&gt; NoResult, and the <c>admin</c> policy is pinned to this scheme only.
 /// </summary>
@@ -94,7 +95,7 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
                 break;
         }
 
-        // Per-request READ-ONLY resolution (REQ-9.1/9.4): fresh Status/Tier/accessible + Subject by account id.
+        // Per-request READ-ONLY resolution (REQ-9.1/9.4): fresh Status/Tier/accessible by account id.
         var resolved = await _resolver.ResolveByIdAsync(session.AdminUserId, ct);
         if (resolved.Outcome != ResolveOutcome.Resolved || resolved.Resolution is null)
             return AuthenticateResult.Fail("Admin is suspended or no longer exists."); // suspend -> next request 401 (REQ-6.3/9.2)
@@ -102,14 +103,11 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
         var resolution = resolved.Resolution;
         _scope.Set(resolution); // bind IAdminScope so endpoints read scope.Current
 
-        // The principal must carry the claims existing consumers read: admin_tier (the Super-only tier gate) and
-        // sub (the provisioning actor id on POST /admin/merchants). (REQ-4.3 / P1-2)
+        // External provider subjects stay out of the session principal. Internal account id is the actor identity.
         var identity = new ClaimsIdentity(SchemeName);
         identity.AddClaim(new Claim("admin_tier", resolution.Tier.ToString()));
-        if (!string.IsNullOrEmpty(resolved.Subject))
-            identity.AddClaim(new Claim("sub", resolved.Subject));
         identity.AddClaim(new Claim("email", resolution.Email));
-        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, resolution.AdminId.ToString()));
+        identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, resolution.AdminId.ToString("D")));
         var principal = new ClaimsPrincipal(identity);
 
         // Rotation + idle-slide apply only to a live Active session (a grace predecessor is already superseded).
@@ -122,6 +120,20 @@ internal sealed class SessionAuthenticationHandler : AuthenticationHandler<Authe
         }
 
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
+    }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        var details = new ProblemDetails
+        {
+            Status = StatusCodes.Status401Unauthorized,
+            Title = "Admin session is required",
+        };
+        details.Extensions["code"] = "admin_session_required";
+        details.Extensions["traceId"] = Context.TraceIdentifier;
+        return Context.Response.WriteAsJsonAsync(
+            details, options: null, contentType: "application/problem+json", cancellationToken: Context.RequestAborted);
     }
 
     private async Task TryRotateAsync(Session session, DateTime now, SessionPolicy policy, CancellationToken ct)

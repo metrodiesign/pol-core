@@ -76,7 +76,8 @@ public sealed class AdminLoginServiceTests
         Assert.Equal(Now.AddHours(24), session.IdleExpiresAt);
         Assert.Equal(Now.AddDays(7), session.AbsoluteExpiresAt);
         Assert.Equal(1, store.SaveCount);
-        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess && a.AdminUserId == AdminId);
+        Assert.Contains(audit.Appended, a =>
+            a.EventType == AuthEventType.LoginSuccess && a.AdminUserId == AdminId && a.Subject == "google-sub-1");
         Assert.Equal(StatusCodes.Status302Found, http.Response.StatusCode);
         Assert.Equal("/dashboard", http.Response.Headers.Location);
         Assert.Contains(http.Response.Headers.SetCookie, c => c!.Contains("adm_session", StringComparison.Ordinal));
@@ -117,6 +118,34 @@ public sealed class AdminLoginServiceTests
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
+    }
+
+    [Fact]
+    public async Task Microsoft_success_audit_omits_external_subject()
+    {
+        var (service, _, audit, http) = Build(
+            ResolveResult.Of(new Resolution(
+                AdminId, "ops@org.com", Tier.Scoped, AccessibleMerchants.Of(new HashSet<Guid>()))));
+
+        await service.EstablishSessionAsync(
+            http, User.MicrosoftProvider, "22222222-2222-4222-8222-222222222222", "ops@org.com",
+            emailVerified: false, "/dashboard", default);
+
+        var entry = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess);
+        Assert.Null(entry.Subject);
+    }
+
+    [Fact]
+    public async Task Microsoft_denial_audit_omits_external_subject()
+    {
+        var (service, _, audit, http) = Build(ResolveResult.NotFound);
+
+        await service.EstablishSessionAsync(
+            http, User.MicrosoftProvider, "22222222-2222-4222-8222-222222222222", "ops@org.com",
+            emailVerified: false, "/", default);
+
+        var entry = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.AuthDenied);
+        Assert.Null(entry.Subject);
     }
 
     // With the provider callback landing on the API origin (provider-scoped OIDC), a configured WebAppBaseUrl makes

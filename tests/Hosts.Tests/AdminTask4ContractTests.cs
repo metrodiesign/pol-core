@@ -181,6 +181,7 @@ public sealed class AdminTask4ContractTests
         Assert.DoesNotContain("Secrets", names);
         Assert.Contains("MaskedSecrets", names);
         Assert.Contains("Capabilities", names);
+        Assert.Contains("HasPendingCredentialChange", names);
     }
 
     [Fact]

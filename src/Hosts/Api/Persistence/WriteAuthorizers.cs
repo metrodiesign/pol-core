@@ -11,6 +11,7 @@ using AdminUser = Admins.Domain.Users.User;
 using AdminAudit = Admins.Domain.Users.Audit;
 using AdminSession = Admins.Domain.Users.Session;
 using AdminAuthAudit = Admins.Domain.Users.AuthAudit;
+using WorkforceTenantBinding = Admins.Domain.Users.WorkforceTenantBinding;
 using MerchantAccess = Admins.Domain.Users.MerchantAccess;
 using Iam.Domain.Permissions;
 using Iam.Domain.Roles;
@@ -348,6 +349,7 @@ internal sealed class ControlPlaneWorkerWriteAuthorizer : IWriteAuthorizer
         (typeof(WebhookDelivery), WriteOperation.Insert),
         (typeof(WebhookDelivery), WriteOperation.Update),
         (typeof(NotificationDelivery), WriteOperation.Insert),
+        (typeof(WorkforceTenantBinding), WriteOperation.Insert),
     ];
 
     public bool CanWrite(Type entityType, WriteOperation operation, Guid targetMerchant) =>

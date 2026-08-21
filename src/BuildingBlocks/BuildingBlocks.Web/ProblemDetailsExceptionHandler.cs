@@ -47,6 +47,7 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         var problem = new ProblemDetails { Status = status, Title = title, Detail = detail };
         var code = exception switch
         {
+            NotFoundException { Code: { } notFoundCode } => notFoundCode,
             ConcurrencyConflictException concurrency => concurrency.Code,
             ConflictException { Code: { } conflictCode } => conflictCode,
             InvalidRequestException invalidRequest => invalidRequest.Code,
@@ -55,6 +56,7 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         };
         if (code is not null)
             problem.Extensions["code"] = code;
+        problem.Extensions["traceId"] = httpContext.TraceIdentifier;
 
         httpContext.Response.StatusCode = status;
         return await _problemDetails.TryWriteAsync(new ProblemDetailsContext
@@ -103,7 +105,8 @@ public static class ProblemDetailsExtensions
 {
     public static IServiceCollection AddProblemDetailsHandling(this IServiceCollection services)
     {
-        services.AddProblemDetails();
+        services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
+            context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier);
         services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
         return services;
     }

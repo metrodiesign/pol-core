@@ -57,6 +57,7 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Admins/Admins.Application/Users/AssignMerchant.cs"] = 1,                         // row 1
         ["src/Modules/Admins/Admins.Application/Users/SetAdminRoles.cs"] = 1,                          // row 7
         ["src/Modules/Admins/Admins.Application/Users/ChangeAdminTier.cs"] = 1,                        // row 23 (task 4)
+        ["src/Modules/Admins/Admins.Application/Users/PreProvisionMicrosoftIdentity.cs"] = 1,         // Entra Scoped pre-provision
         ["src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs"] = 2,                    // rows 17+18
         ["src/Modules/Merchants/Merchants.Application/Users/SubmitRegistration.cs"] = 1,               // row 20
         ["src/Modules/Merchants/Merchants.Application/Users/SetUserRoles.cs"] = 1,                     // row 19
@@ -80,6 +81,7 @@ public sealed class TransactionInventoryTests
         ["src/Persistence/Persistence.ControlPlane/Iam/ApiClientApprovalExecutor.cs"] = 1, // row 42
         ["src/Persistence/Persistence.ControlPlane/Iam/ApiClientStore.cs"] = 1, // row 43
         ["src/Persistence/Persistence.ControlPlane/Notifications/DeliveryStore.cs"] = 2, // rows 44-45
+        ["src/Persistence/Persistence.ControlPlane/Admins/WorkforceTenantBindingStore.cs"] = 1, // boot-time tenant singleton
     };
 
     // The three IUnitOfWork implementations (task 8.5's "1 principal" collapse — one per runtime cluster) —

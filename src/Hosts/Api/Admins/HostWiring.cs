@@ -104,7 +104,12 @@ internal static class TierAuthorization
             IsTierAllowed(context.HttpContext.User.FindFirst("admin_tier")?.Value, allowedNames)
                 ? await next(context)
                 : Results.Problem(statusCode: StatusCodes.Status403Forbidden,
-                    title: "Your admin tier is not permitted for this action."));
+                    title: "Your admin tier is not permitted for this action.",
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = "super_required",
+                        ["traceId"] = context.HttpContext.TraceIdentifier,
+                    }));
     }
 
     internal static bool IsTierAllowed(string? tierClaim, string[] allowedTierNames) =>

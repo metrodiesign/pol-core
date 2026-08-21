@@ -40,7 +40,11 @@ public sealed class ResolveByIdHandler : IQueryHandler<ResolveByIdQuery, ByIdRes
         var accessible = await ResolveHandler.ResolveAccessibleAsync(account, _admins, cancellationToken);
         var permissions = await _roles.ListEffectivePermissionsAsync(account.Id, cancellationToken);
         return ByIdResult.Of(
-            new Resolution(account.Id, account.Email, account.Tier, accessible) { Permissions = permissions },
+            new Resolution(account.Id, account.Email, account.Tier, accessible)
+            {
+                Permissions = permissions,
+                AuthorizationVersion = account.AuthorizationVersion
+            },
             account.Subject);
     }
 }

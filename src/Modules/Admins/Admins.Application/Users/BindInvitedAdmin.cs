@@ -35,6 +35,7 @@ public sealed class BindInvitedHandler : ICommandHandler<BindInvitedCommand, Res
     {
         return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
+            await _admins.AcquireIdentityMutationLockAsync(ct);
             var account = await _admins.GetByEmailAsync(command.Email, ct);
             if (account is null || account.Subject is not null)
                 return ResolveResult.NotFound; // no invite, or already bound (resolved by subject, not here)
@@ -46,7 +47,10 @@ public sealed class BindInvitedHandler : ICommandHandler<BindInvitedCommand, Res
                 return ResolveResult.Suspended; // REQ-5.6
 
             var accessible = await ResolveHandler.ResolveAccessibleAsync(account, _admins, ct);
-            return ResolveResult.Of(new Resolution(account.Id, account.Email, account.Tier, accessible));
+            return ResolveResult.Of(new Resolution(account.Id, account.Email, account.Tier, accessible)
+            {
+                AuthorizationVersion = account.AuthorizationVersion
+            });
         }, cancellationToken);
     }
 }

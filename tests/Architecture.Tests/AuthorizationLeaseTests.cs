@@ -85,10 +85,71 @@ public sealed class AuthorizationLeaseTests : IDisposable
             () => AuthorizationLease.VerifyAsync(context, Guid.NewGuid(), expectedVersion: 0, NoOpSecurityTelemetry.Instance, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Active_Super_lease_accepts_only_matching_active_Super_snapshot()
+    {
+        var callerId = await SeedAdminAsync();
+
+        using var context = NewContext();
+        await AuthorizationLease.VerifyActiveSuperAsync(
+            context, callerId, expectedVersion: 0, NoOpSecurityTelemetry.Instance, CancellationToken.None);
+        await context.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Active_Super_lease_rejects_missing_Scoped_suspended_and_stale_callers()
+    {
+        var scopedId = await SeedAsync(User.CreateScoped("scoped@example.com", DateTime.UtcNow));
+        var suspended = User.SelfProvision("google", $"g-sub-{Guid.NewGuid():N}", "suspended@example.com", DateTime.UtcNow);
+        suspended.Suspend(Guid.NewGuid());
+        var suspendedId = await SeedAsync(suspended);
+        var activeId = await SeedAsync(
+            User.SelfProvision("google", $"g-sub-{Guid.NewGuid():N}", "active@example.com", DateTime.UtcNow));
+
+        using var context = NewContext();
+        foreach (var (callerId, version) in new[]
+        {
+            (Guid.NewGuid(), 0L),
+            (scopedId, 0L),
+            (suspendedId, suspended.AuthorizationVersion),
+            (activeId, 1L)
+        })
+        {
+            var error = await Assert.ThrowsAsync<AccessDeniedException>(() =>
+                AuthorizationLease.VerifyActiveSuperAsync(
+                    context, callerId, version, NoOpSecurityTelemetry.Instance, CancellationToken.None));
+            Assert.Equal("super_required", error.Code);
+            context.ChangeTracker.Clear();
+        }
+    }
+
+    [Fact]
+    public async Task Active_Super_lease_detects_a_mid_transaction_demotion_at_commit()
+    {
+        var callerId = await SeedAdminAsync();
+
+        using var leaseHolder = NewContext();
+        await AuthorizationLease.VerifyActiveSuperAsync(
+            leaseHolder, callerId, 0, NoOpSecurityTelemetry.Instance, CancellationToken.None);
+        using (var demoter = NewContext())
+        {
+            var caller = await demoter.Users.SingleAsync(u => u.Id == callerId);
+            caller.ChangeTier(Tier.Scoped, Guid.NewGuid());
+            await demoter.SaveChangesAsync();
+        }
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => leaseHolder.SaveChangesAsync());
+    }
+
     private async Task<Guid> SeedAdminAsync()
     {
-        using var writer = NewContext();
         var admin = User.SelfProvision("google", $"g-sub-{Guid.NewGuid():N}", "ops@example.com", DateTime.UtcNow);
+        return await SeedAsync(admin);
+    }
+
+    private async Task<Guid> SeedAsync(User admin)
+    {
+        using var writer = NewContext();
         writer.Users.Add(admin);
         await writer.SaveChangesAsync();
         return admin.Id;

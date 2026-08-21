@@ -78,7 +78,7 @@ Use isolated staging DB. Never point rehearsal at production.
 3. Record explicit reset approval.
 4. Stop application traffic and background dispatchers.
 5. DBA resets only approved staging `VCentralPay` target using organization procedure.
-6. Run all 17 migrations in timestamp order through `20260816162306_MicrosoftOidcProviderDiscriminator`.
+6. Run all 20 migrations in timestamp order through `20260819145219_WorkforceTenantBinding`.
 7. Run `docker/bootstrap/assert-fresh-db.sql`.
 8. Start API and run smoke path below.
 9. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.

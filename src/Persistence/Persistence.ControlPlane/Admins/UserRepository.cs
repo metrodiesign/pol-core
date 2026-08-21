@@ -3,6 +3,7 @@ using Admins.Domain.Users;
 using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Persistence.ControlPlane.Governance;
 using SharedKernel;
 
 namespace Persistence.ControlPlane.Admins;
@@ -14,16 +15,29 @@ internal sealed class UserRepository : IUserRepository
 {
     private readonly ControlPlaneDbContext _db;
     private readonly ILogger<UserRepository> _logger;
+    private readonly ISecurityTelemetry _telemetry;
+    private readonly GovernanceSqlLockManager _locks;
 
-    public UserRepository(ControlPlaneDbContext db, ILogger<UserRepository> logger)
+    public UserRepository(
+        ControlPlaneDbContext db,
+        ILogger<UserRepository> logger,
+        ISecurityTelemetry telemetry,
+        GovernanceSqlLockManager locks)
     {
         _db = db;
         _logger = logger;
+        _telemetry = telemetry;
+        _locks = locks;
     }
 
     public void Add(User account) => _db.Users.Add(account);
     public void AddAssignment(MerchantAccess assignment) => _db.MerchantAccess.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => _db.MerchantAccess.Remove(assignment);
+
+    // ponytail: global lock keeps rare admin identity/email mutations deterministic and prevents sensitive
+    // unique-key values reaching EF logs; split into hashed per-identity locks only if onboarding throughput matters.
+    public Task AcquireIdentityMutationLockAsync(CancellationToken cancellationToken) =>
+        _locks.AcquireAsync("admin-user-identity-mutation", cancellationToken);
 
     public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(x => x.Provider == identity.Provider && x.Subject == identity.Subject, cancellationToken);
@@ -33,6 +47,11 @@ internal sealed class UserRepository : IUserRepository
 
     public Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+    public Task VerifyActiveSuperAsync(
+        Guid callerId, long expectedAuthorizationVersion, CancellationToken cancellationToken) =>
+        AuthorizationLease.VerifyActiveSuperAsync(
+            _db, callerId, expectedAuthorizationVersion, _telemetry, cancellationToken);
 
     public Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken) =>
         _db.Users.AnyAsync(x => x.Id == id, cancellationToken);
