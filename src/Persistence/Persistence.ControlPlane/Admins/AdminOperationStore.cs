@@ -14,7 +14,9 @@ internal sealed class AdminOperationStore(
     public Task AcquireAsync(
         Guid actorId, string operation, string idempotencyKey, CancellationToken cancellationToken)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{actorId:D}\n{operation}\n{idempotencyKey}"));
+        // ponytail: serialize this rare operation per actor. This deliberately matches every database-collation
+        // equivalent idempotency key without reproducing SQL collation rules in application code.
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{actorId:D}\n{operation}"));
         return locks.AcquireAsync($"admin-operation:{Convert.ToHexString(bytes)}", cancellationToken);
     }
 
@@ -27,17 +29,17 @@ internal sealed class AdminOperationStore(
         return record is null
             ? null
             : new AdminOperationReplay(
-                record.RequestHash, record.ResponseBody, record.Status == OperationStatus.InProgress);
+                record.RequestHash, record.ResponseBody, record.Status != OperationStatus.Succeeded);
     }
 
     public void AddSucceeded(
         Guid actorId, string operation, string idempotencyKey, string requestHash,
-        string responseBody, DateTime now)
+        int responseStatus, string responseBody, DateTime now, DateTime expiresAt)
     {
         var record = OperationRecord.Create(
             actorId, operation, idempotencyKey, requestHash,
-            GovernanceScopeKind.Platform, merchantId: null, now, now.AddHours(24));
-        record.Complete(204, responseBody, succeeded: true, now);
+            GovernanceScopeKind.Platform, merchantId: null, now, expiresAt);
+        record.Complete(responseStatus, responseBody, succeeded: true, now);
         db.OperationRecords.Add(record);
     }
 }

@@ -41,6 +41,7 @@ public sealed record PspConnectionView(
     DateTime? LastTestedAt,
     string? LastTestResult,
     IReadOnlyDictionary<string, bool> Capabilities,
+    bool HasPendingCredentialChange,
     DateTime CreatedAt,
     long Version);
 

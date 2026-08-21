@@ -37,6 +37,8 @@ public sealed class PlatformUserTests
         admin.BindSubject("google", "g-sub-2");
 
         Assert.Equal("g-sub-2", admin.Subject);
+        Assert.Equal(2, admin.Version);
+        Assert.Equal(0, admin.AuthorizationVersion);
     }
 
     [Fact]
@@ -159,5 +161,25 @@ public sealed class PlatformUserTests
         Assert.ThrowsAny<ArgumentException>(() => Audit.For("", Guid.NewGuid(), "corr", Now));
         Assert.ThrowsAny<ArgumentException>(() => Audit.For(AuditAction.Suspend, Guid.NewGuid(), "", Now));
         Assert.Throws<ArgumentException>(() => Audit.For(AuditAction.Suspend, Guid.Empty, "corr", Now));
+    }
+}
+
+public sealed class WorkforceTenantBindingTests
+{
+    [Fact]
+    public void Create_sets_the_singleton_id_and_non_empty_tenant()
+    {
+        var tenantId = Guid.NewGuid();
+
+        var binding = WorkforceTenantBinding.Create(tenantId);
+
+        Assert.Equal(WorkforceTenantBinding.SingletonId, binding.Id);
+        Assert.Equal(tenantId, binding.TenantId);
+    }
+
+    [Fact]
+    public void Create_rejects_an_empty_tenant()
+    {
+        Assert.Throws<ArgumentException>(() => WorkforceTenantBinding.Create(Guid.Empty));
     }
 }

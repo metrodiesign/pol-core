@@ -1,4 +1,5 @@
 using BuildingBlocks.Infrastructure.Persistence;
+using Governance.Domain;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -35,6 +36,14 @@ public sealed class FreshBaselineMigrationIntegrationTests
                     connection, "SELECT OBJECT_ID(N'merch.RegistrationNotices', N'U');"));
                 Assert.NotNull(await IntegrationDb.ScalarAsync(
                     connection, "SELECT OBJECT_ID(N'shop.OrderNoSeq', N'SO');"));
+                Assert.NotNull(await IntegrationDb.ScalarAsync(
+                    connection, "SELECT OBJECT_ID(N'admin.WorkforceTenantBindings', N'U');"));
+                Assert.NotNull(await IntegrationDb.ScalarAsync(connection, """
+                    SELECT object_id FROM sys.check_constraints
+                    WHERE name = N'CK_WorkforceTenantBindings_Singleton';
+                    """));
+                Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(
+                    connection, "SELECT COUNT(*) FROM admin.WorkforceTenantBindings;")));
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
                     SELECT Status FROM merch.Merchants
                     WHERE Id = 'e1000000-0000-4000-8000-000000000001';
@@ -60,6 +69,21 @@ public sealed class FreshBaselineMigrationIntegrationTests
                 Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
                     EXECUTE AS USER = 'pol_app';
                     SELECT HAS_PERMS_BY_NAME(N'txn.AdminOperationRecords', N'OBJECT', N'UPDATE');
+                    REVERT;
+                    """)));
+                Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    EXECUTE AS USER = 'pol_app';
+                    SELECT HAS_PERMS_BY_NAME(N'admin.WorkforceTenantBindings', N'OBJECT', N'SELECT');
+                    REVERT;
+                    """)));
+                Assert.Equal(1, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    EXECUTE AS USER = 'pol_app';
+                    SELECT HAS_PERMS_BY_NAME(N'admin.WorkforceTenantBindings', N'OBJECT', N'INSERT');
+                    REVERT;
+                    """)));
+                Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
+                    EXECUTE AS USER = 'pol_app';
+                    SELECT HAS_PERMS_BY_NAME(N'admin.WorkforceTenantBindings', N'OBJECT', N'UPDATE');
                     REVERT;
                     """)));
                 Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(connection, """
@@ -89,6 +113,75 @@ public sealed class FreshBaselineMigrationIntegrationTests
                 """)));
             Assert.Equal(0, Convert.ToInt32(await IntegrationDb.ScalarAsync(
                 rolledBack, "SELECT COUNT(*) FROM dbo.__EFMigrationsHistory;")));
+        }
+        finally
+        {
+            await DropScratchDatabaseAsync(database);
+        }
+    }
+
+    [Fact]
+    public async Task Audit_hash_survives_sql_roundtrip_and_runtime_principal_cannot_rewrite_history()
+    {
+        var database = $"pol_audit_floor_{Guid.NewGuid():N}";
+        await CreateScratchDatabaseAsync(database);
+        try
+        {
+            await CreateRuntimePrincipalAsync(database);
+            await using var context = CreateContext(database);
+            await context.Database.MigrateAsync();
+
+            var now = new DateTime(2026, 8, 19, 12, 0, 0, DateTimeKind.Utc);
+            var audit = AuditRecord.Append(
+                "platform", GovernanceScopeKind.Platform, null, 1, AuditRecord.Genesis, Guid.NewGuid(),
+                "admin.microsoft-identity.preprovisioned", "admin", Guid.NewGuid().ToString("D"),
+                "succeeded", "{}", null, "v2", "corr-sql-roundtrip", now);
+
+            await using (var insert = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+                await IntegrationDb.ExecAsync(insert, """
+                    EXECUTE AS USER = 'pol_app';
+                    INSERT admin.AuditHeads
+                        (ScopeKey, ScopeKind, MerchantId, LastSequence, LastHash, UpdatedAt)
+                    VALUES
+                        (@scope, 1, NULL, 1, @hash, @occurredAt);
+                    INSERT admin.AuditRecords
+                        (Id, ScopeKey, ScopeKind, MerchantId, Sequence, ActorId, Action, ResourceType,
+                         ResourceId, Result, Changes, ApprovalId, ResourceVersion, CorrelationId,
+                         OccurredAt, PreviousHash, Hash)
+                    VALUES
+                        (@id, @scope, 1, NULL, 1, @actor, @action, @resourceType,
+                         @resourceId, @result, @changes, NULL, @resourceVersion, @correlationId,
+                         @occurredAt, @previousHash, @hash);
+                    REVERT;
+                    """,
+                    ("@scope", audit.ScopeKey), ("@hash", audit.Hash), ("@occurredAt", audit.OccurredAt),
+                    ("@id", audit.Id), ("@actor", audit.ActorId), ("@action", audit.Action),
+                    ("@resourceType", audit.ResourceType), ("@resourceId", audit.ResourceId),
+                    ("@result", audit.Result), ("@changes", audit.Changes),
+                    ("@resourceVersion", audit.ResourceVersion!), ("@correlationId", audit.CorrelationId),
+                    ("@previousHash", audit.PreviousHash));
+
+            context.ChangeTracker.Clear();
+            var loaded = await context.Set<AuditRecord>().AsNoTracking().SingleAsync(x => x.Id == audit.Id);
+            var head = await context.Set<AuditHead>().AsNoTracking().SingleAsync(x => x.Id == "platform");
+            Assert.Equal(DateTimeKind.Unspecified, loaded.OccurredAt.Kind);
+            Assert.True(loaded.HasValidHash());
+            Assert.Equal(loaded.Sequence, head.LastSequence);
+            Assert.Equal(loaded.Hash, head.LastHash);
+
+            await using (var update = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+                await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(update, """
+                    EXECUTE AS USER = 'pol_app';
+                    UPDATE admin.AuditRecords SET Result = N'tampered' WHERE Id = @id;
+                    REVERT;
+                    """, ("@id", audit.Id)));
+
+            await using (var delete = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))
+                await Assert.ThrowsAsync<SqlException>(() => IntegrationDb.ExecAsync(delete, """
+                    EXECUTE AS USER = 'pol_app';
+                    DELETE FROM admin.AuditRecords WHERE Id = @id;
+                    REVERT;
+                    """, ("@id", audit.Id)));
         }
         finally
         {

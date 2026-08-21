@@ -598,7 +598,6 @@ internal sealed class AdminPaymentsControlStore(
         {
             EnsureAccess(intent.Access, intent.MerchantId);
             var connection = await LoadConnectionAsync(intent.ConnectionId, intent.MerchantId, ct);
-            EnsureVersion(connection.Version, intent.ExpectedVersion);
             var envelope = envelopeFactory.Build(new PspSecretInput(connection.Psp, intent.Secrets, intent.PspMerchantId));
             var intentHash = Hash(new
             {
@@ -612,6 +611,7 @@ internal sealed class AdminPaymentsControlStore(
                 "psp.credential-change", intent.IdempotencyKey, intentHash, ct);
             if (prior is not null)
                 return Replay<PspCredentialChangeResult>(prior);
+            EnsureVersion(connection.Version, intent.ExpectedVersion);
 
             var secretName = $"psp-connection-{connection.Id:N}";
             var candidate = await vault.StageVersionAsync(intent.MerchantId, secretName,
@@ -823,7 +823,7 @@ internal sealed class AdminPaymentsControlStore(
             x.Id, x.MerchantId, x.Psp.ToCode(),
             x.EnabledMethods.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             metadata.Config, masked, x.IsEnabled, HealthCode(x.Health), x.LastTestedAt,
-            x.LastTestResult, capabilities, x.CreatedAt, x.Version);
+            x.LastTestResult, capabilities, x.PendingApprovalId is not null, x.CreatedAt, x.Version);
     }
 
     private async Task<PspConnectionView> ReplayConnectionAsync(AdminOperationRecord record, CancellationToken ct)

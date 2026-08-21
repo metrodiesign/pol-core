@@ -288,6 +288,22 @@ namespace BuildingBlocks.Infrastructure.Persistence.Migrations
                     b.ToTable("Users", "admin");
                 });
 
+            modelBuilder.Entity("Admins.Domain.Users.WorkforceTenantBinding", b =>
+                {
+                    b.Property<byte>("Id")
+                        .HasColumnType("tinyint");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("WorkforceTenantBindings", "admin", t =>
+                        {
+                            t.HasCheckConstraint("CK_WorkforceTenantBindings_Singleton", "[Id] = 1");
+                        });
+                });
+
             modelBuilder.Entity("BuildingBlocks.Infrastructure.DataProtection.DataProtectionKey", b =>
                 {
                     b.Property<int>("Id")

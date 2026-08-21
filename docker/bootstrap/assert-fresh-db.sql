@@ -42,9 +42,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260811024015_AdminDeliveryRuntimeGrants'),
     (N'20260816162306_MicrosoftOidcProviderDiscriminator'),
     (N'20260817170326_MerchantUserPaymentMethodAccessExpand'),
-    (N'20260817172338_MerchantPaymentCapabilityControlPlane');
+    (N'20260817172338_MerchantPaymentCapabilityControlPlane'),
+    (N'20260819145219_WorkforceTenantBinding');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 19
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 20
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -53,12 +54,18 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 19
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 19 expected migrations through MerchantPaymentCapabilityControlPlane; ';
+    SET @fail += N'migration history must contain exactly 20 expected migrations through WorkforceTenantBinding; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';
 IF OBJECT_ID(N'shop.OrderNoSeq', N'SO') IS NULL
     SET @fail += N'shop.OrderNoSeq missing; ';
+IF OBJECT_ID(N'admin.WorkforceTenantBindings', N'U') IS NULL
+   OR NOT EXISTS (SELECT 1 FROM sys.check_constraints
+                  WHERE name = N'CK_WorkforceTenantBindings_Singleton')
+    SET @fail += N'admin.WorkforceTenantBindings singleton missing; ';
+IF EXISTS (SELECT 1 FROM admin.WorkforceTenantBindings)
+    SET @fail += N'admin.WorkforceTenantBindings must be empty before runtime tenant pin initialization; ';
 
 IF OBJECT_ID(N'shop.CheckoutSessions', N'U') IS NOT NULL
    OR OBJECT_ID(N'shop.OrderItemPolicies', N'U') IS NOT NULL
@@ -117,12 +124,23 @@ IF NOT EXISTS (SELECT 1 FROM sys.database_permissions p
    OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
                   WHERE p.grantee_principal_id = USER_ID(N'pol_app')
                     AND p.major_id = OBJECT_ID(N'merch.RegistrationNotices') AND p.permission_name = N'INSERT' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'SELECT' AND p.state = N'G')
+   OR NOT EXISTS (SELECT 1 FROM sys.database_permissions p
+                  WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+                    AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings') AND p.permission_name = N'INSERT' AND p.state = N'G')
     SET @fail += N'pol_app required grant matrix incomplete; ';
 IF EXISTS (SELECT 1 FROM sys.database_permissions p
            WHERE p.grantee_principal_id = USER_ID(N'pol_app')
              AND p.major_id = OBJECT_ID(N'merch.VaultRevealAudits')
              AND p.permission_name IN (N'UPDATE', N'DELETE') AND p.state IN (N'G', N'W'))
     SET @fail += N'append-only vault audit grants widened; ';
+IF EXISTS (SELECT 1 FROM sys.database_permissions p
+           WHERE p.grantee_principal_id = USER_ID(N'pol_app')
+             AND p.major_id = OBJECT_ID(N'admin.WorkforceTenantBindings')
+             AND p.permission_name IN (N'UPDATE', N'DELETE') AND p.state IN (N'G', N'W'))
+    SET @fail += N'workforce tenant binding grants widened; ';
 
 IF (SELECT COUNT(*) FROM iam.PermissionGroups) <> 7
     SET @fail += N'iam.PermissionGroups expected 7 rows; ';

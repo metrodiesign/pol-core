@@ -18,7 +18,7 @@ using Microsoft.Extensions.Options;
 namespace Hosts.Tests;
 
 /// <summary>
-/// The Session cookie authentication handler (REQ-4/5/9): decision table + principal (admin_tier/sub) +
+/// The Session cookie authentication handler (REQ-4/5/9): decision table + internal principal +
 /// IAdminScope binding + transparent rotation + idle-slide + reuse-driven family revocation, all exercised with
 /// fakes (no DB, no mediator). The opaque token never appears in the session store — only its SHA-256 hash.
 /// </summary>
@@ -56,7 +56,7 @@ public sealed class AdminSessionAuthHandlerTests
     }
 
     [Fact]
-    public async Task Live_active_session_authenticates_with_tier_and_sub_claims_and_binds_scope()
+    public async Task Live_active_session_authenticates_with_tier_and_internal_id_without_external_subject()
     {
         var token = SessionTokens.NewOpaqueToken();
         var session = Session.Start(AdminId, SessionTokens.Hash(token), T0, Policy);
@@ -66,11 +66,29 @@ public sealed class AdminSessionAuthHandlerTests
 
         Assert.True(result.Succeeded);
         Assert.Equal("Super", result.Principal!.FindFirst("admin_tier")!.Value);
-        Assert.Equal("google-sub-1", result.Principal.FindFirst("sub")!.Value);
+        Assert.Null(result.Principal.FindFirst("sub"));
+        Assert.Equal(AdminId.ToString("D"), result.Principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
         Assert.True(scope.IsBound);
         Assert.Equal(AdminId, scope.Current.AdminId);
         Assert.Empty(store.Added);          // young -> no rotation
         Assert.Null(store.Slid);            // within the 1-minute slide throttle
+    }
+
+    [Fact]
+    public async Task Challenge_emits_stable_problem_code_and_trace_id()
+    {
+        var (handler, _, _, _, http) = await Make(T0, Resolved);
+        http.TraceIdentifier = "trace-admin-session";
+        http.Response.Body = new MemoryStream();
+
+        await handler.ChallengeAsync(new AuthenticationProperties());
+
+        http.Response.Body.Position = 0;
+        var body = await new StreamReader(http.Response.Body).ReadToEndAsync();
+        Assert.Equal(StatusCodes.Status401Unauthorized, http.Response.StatusCode);
+        Assert.Equal("application/problem+json", http.Response.ContentType);
+        Assert.Contains("\"code\":\"admin_session_required\"", body);
+        Assert.Contains("\"traceId\":\"trace-admin-session\"", body);
     }
 
     [Fact]

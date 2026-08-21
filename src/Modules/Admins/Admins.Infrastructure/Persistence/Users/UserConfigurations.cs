@@ -12,6 +12,18 @@ namespace Admins.Infrastructure.Persistence.Users;
 // EF mappings for the admin realm onto the admin schema (discovered via HostModuleAssemblies.All). These
 // are control-plane tables: NO merchant RLS predicate, granted to pol_admin only (see AddAdminIdentityTables).
 
+public sealed class WorkforceTenantBindingConfiguration : IEntityTypeConfiguration<WorkforceTenantBinding>
+{
+    public void Configure(EntityTypeBuilder<WorkforceTenantBinding> builder)
+    {
+        builder.ToTable("WorkforceTenantBindings", SchemaNames.Admin, table =>
+            table.HasCheckConstraint("CK_WorkforceTenantBindings_Singleton", "[Id] = 1"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.TenantId).IsRequired();
+    }
+}
+
 public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)

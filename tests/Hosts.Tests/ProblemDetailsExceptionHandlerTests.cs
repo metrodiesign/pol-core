@@ -134,6 +134,24 @@ public sealed class ProblemDetailsExceptionHandlerTests
         Assert.DoesNotContain("raw invitation detail", body);
     }
 
+    [Fact]
+    public async Task A_coded_not_found_emits_code_and_trace_id()
+    {
+        var (handler, context) = Build();
+        context.TraceIdentifier = "trace-not-found";
+
+        await handler.TryHandleAsync(
+            context,
+            new NotFoundException("raw admin id", "admin_not_found"),
+            CancellationToken.None);
+
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("\"code\":\"admin_not_found\"", body);
+        Assert.Contains("\"traceId\":\"trace-not-found\"", body);
+        Assert.DoesNotContain("raw admin id", body);
+    }
+
     private static (ProblemDetailsExceptionHandler Handler, DefaultHttpContext Context) Build()
     {
         var services = new ServiceCollection();

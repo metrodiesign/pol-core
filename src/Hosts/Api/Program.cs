@@ -433,6 +433,33 @@ Action<OpenApiOptions> configureOpenApi = options =>
             ConcurrencyOpenApi.Apply(operation, adminEtag);
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AdminIdempotencyMutationMarker>().Any())
             ConcurrencyOpenApi.Apply(operation, new AdminIdempotencyMutationMarker());
+        if (context.Description.HttpMethod is { } method
+            && !HttpMethods.IsGet(method)
+            && !HttpMethods.IsHead(method)
+            && !HttpMethods.IsOptions(method)
+            && !HttpMethods.IsTrace(method)
+            && context.Description.ActionDescriptor.EndpointMetadata.OfType<CsrfProtected>()
+                .Any(x => string.Equals(x.SchemeId, "AdminSession", StringComparison.Ordinal)))
+        {
+            var parameters = operation.Parameters ??= [];
+            var existing = parameters.FirstOrDefault(x => x.In == ParameterLocation.Header
+                && string.Equals(x.Name, CsrfFilter.HeaderName, StringComparison.OrdinalIgnoreCase));
+            if (existing is OpenApiParameter csrf)
+            {
+                csrf.Required = true;
+            }
+            else if (existing is null)
+            {
+                parameters.Add(new OpenApiParameter
+                {
+                    Name = CsrfFilter.HeaderName,
+                    In = ParameterLocation.Header,
+                    Required = true,
+                    Description = "CSRF token matching the AdminSession CSRF cookie.",
+                    Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+                });
+            }
+        }
         if (context.Description.ActionDescriptor.EndpointMetadata.OfType<AudienceRequestBodyMarker>().FirstOrDefault()
             is { } audienceRequest)
             await AudienceOpenApi.ApplyAsync(operation, context, audienceRequest, cancellationToken);
@@ -591,6 +618,14 @@ else if (app.Environment.IsDevelopment())
     app.Logger.LogWarning("ConnectionStrings:Migrator not set — skipping Development auto-migrate.");
 }
 
+var adminMicrosoftTenant = app.Services.GetRequiredService<Api.Admins.AdminMicrosoftTenantSnapshot>();
+if (adminMicrosoftTenant.TenantId is { } workforceTenantId)
+{
+    await using var tenantPinScope = app.Services.CreateAsyncScope();
+    await tenantPinScope.ServiceProvider.GetRequiredService<IWorkforceTenantBindingStore>()
+        .EnsureAsync(workforceTenantId, CancellationToken.None);
+}
+
 // Fail-fast: build the vault keyring now so a missing/short/invalid master key crash-loops the host at
 // boot instead of surfacing only on the first reveal. ValidateOnBuild does NOT run factory-registered
 // singletons, so this explicit resolve is what delivers the boot-time custody guarantee.
@@ -627,7 +662,9 @@ if (!app.Environment.IsDevelopment()
 // Both empty (the default) = loopback only.
 var forwardedHeaders = new ForwardedHeadersOptions
 {
-    ForwardedHeaders = ForwardedHeaders.XForwardedHost | ForwardedHeaders.XForwardedProto,
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor
+        | ForwardedHeaders.XForwardedHost
+        | ForwardedHeaders.XForwardedProto,
 };
 foreach (var cidr in app.Configuration.GetSection("ForwardedHeaders:KnownNetworks").Get<string[]>() ?? [])
 {
@@ -1884,7 +1921,7 @@ api.MapPost("/merchants", async (
                 p.Psp, p.EnabledMethods ?? [], p.MerchantId,
                 p.Secrets ?? new Dictionary<string, string>(), ToElement(p.Config));
         })],
-        http.User.FindFirst("sub")?.Value ?? "unknown",
+        $"admin:{adminScope.Current.AdminId:D}",
         http.TraceIdentifier,
         adminScope.Current.AdminId,
         caller.AuthorizationVersion);
@@ -2542,7 +2579,7 @@ admin.MapPost("/merchants/users/{merchantUserId:guid}/approve", async (
     using var binding = actorScope.Begin(merchant.Id, scope.Current.AdminId);
     var result = await mediator.Send(new ApproveCommand(
         merchantUserId, merchant.Id, body.RoleCodes ?? [],
-        http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier,
+        $"admin:{scope.Current.AdminId:D}", scope.Current.AdminId, http.TraceIdentifier,
         VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
     VersionEtags.Set(http, result.Version);
     return Results.Ok(new ApproveMerchantUserResponse(result.UserId, result.Status.ToString(), result.AlreadyActive));
@@ -2564,7 +2601,7 @@ admin.MapPost("/merchants/users/{merchantUserId:guid}/reject", async (
     IMediator mediator, CancellationToken ct) =>
 {
     var result = await mediator.Send(new RejectCommand(
-        merchantUserId, body.Reason, http.User.FindFirst("sub")?.Value ?? "unknown", http.TraceIdentifier,
+        merchantUserId, body.Reason, $"admin:{scope.Current.AdminId:D}", http.TraceIdentifier,
         scope.Current.AdminId, VersionEtags.Require(http), IdempotencyKeys.Require(http)), ct);
     VersionEtags.Set(http, result.Version);
     return Results.Ok(new RejectMerchantUserResponse(result.UserId, result.Status.ToString()));
@@ -2592,7 +2629,7 @@ admin.MapGet("/merchants/users/{merchantUserId:guid}/registrations", async (
     // Accessible-merchant floor (REQ-2.7): threaded as primitives —
     // a merchant-bound target outside the admin's scope reads as 404 inside the handler (no existence leak).
     var result = await mediator.Send(new GetRegistrationHistoryQuery(
-        merchantUserId, reveal, http.User.FindFirst("sub")?.Value ?? "unknown", scope.Current.AdminId, http.TraceIdentifier,
+        merchantUserId, reveal, $"admin:{scope.Current.AdminId:D}", scope.Current.AdminId, http.TraceIdentifier,
         scope.Accessible.IsUnrestricted, scope.Accessible.Merchants), ct);
     return result is null ? Results.NotFound() : Results.Ok(result);
 }).RequireAuthorization("admin").RequirePermission(Keys.MerchantUserView)
@@ -2675,6 +2712,32 @@ static Tier? WireToTier(string wire) => wire.ToLowerInvariant() switch
     _ => null,
 };
 static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
+
+static Guid RequireIdentityGuid(string? value, string code)
+{
+    if (!Guid.TryParse(value, out var parsed) || parsed == Guid.Empty)
+        throw new InvalidRequestException("A non-empty UUID is required.", code);
+    return parsed;
+}
+
+static string RequireIdentityBindingReason(string? value, Guid tenantId, Guid objectId)
+{
+    var reason = value?.Trim();
+    if (string.IsNullOrEmpty(reason)
+        || reason.Length > 1000
+        || reason.Contains('@')
+        || ContainsGuid(reason, tenantId)
+        || ContainsGuid(reason, objectId))
+    {
+        throw new InvalidRequestException("Reason contains prohibited identity data.", "invalid_reason");
+    }
+    return reason;
+
+    static bool ContainsGuid(string text, Guid id) =>
+        new[] { "D", "N", "B", "P", "X" }
+            .Any(format => text.Contains(id.ToString(format), StringComparison.OrdinalIgnoreCase));
+}
+
 static string SessionStatusToWire(SessionStatus s) => s switch
 {
     SessionStatus.Active => "active",
@@ -2759,6 +2822,48 @@ admin.MapGet("/{id:guid}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+// Super reserves one tenant-local Entra Object ID for an existing Scoped admin. The request carries no
+// authorization fields: caller identity/version come from the fresh Admin session scope and immutable tenant pin.
+admin.MapPut("/{id:guid}/microsoft-identity", async (
+    Guid id,
+    PreProvisionMicrosoftIdentityRequest body,
+    IAdminScope scope,
+    AdminMicrosoftTenantSnapshot tenant,
+    HttpContext http,
+    IMediator mediator,
+    CancellationToken ct) =>
+{
+    var workforceTenantId = RequireIdentityGuid(body.WorkforceTenantId, "invalid_entra_tenant_id");
+    var entraObjectId = RequireIdentityGuid(body.EntraObjectId, "invalid_entra_object_id");
+    var reason = RequireIdentityBindingReason(body.Reason, workforceTenantId, entraObjectId);
+    var result = await mediator.Send(new PreProvisionMicrosoftIdentityCommand(
+        id,
+        workforceTenantId,
+        entraObjectId,
+        reason,
+        scope.Current.AdminId,
+        scope.Current.AuthorizationVersion,
+        VersionEtags.Require(http),
+        http.TraceIdentifier,
+        IdempotencyKeys.Require(http),
+        tenant.TenantId), ct);
+    VersionEtags.Set(http, result.Version);
+    return Results.Ok(result);
+}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
+    .RequireAdminIdentityMutationRateLimit()
+    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
+    .WithTags("ผู้ดูแลระบบ")
+    .WithName("PreProvisionAdminMicrosoftIdentity")
+    .WithSummary("จอง Microsoft identity ให้ Scoped admin")
+    .WithDescription("เฉพาะ Active Super ผูก tenant-local Entra Object ID แบบ one-time พร้อม ETag, idempotency และ tamper-evident audit")
+    .Produces<PreProvisionMicrosoftIdentityResult>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status401Unauthorized)
+    .ProducesProblem(StatusCodes.Status403Forbidden)
+    .ProducesProblem(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
 admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>
@@ -3732,6 +3837,11 @@ internal sealed record CreateAdminRequest(
     string Email, Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
 internal sealed record AssignMerchantRequest(Guid MerchantId);
 internal sealed record ChangeAdminTierRequest(string Tier);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+internal sealed record PreProvisionMicrosoftIdentityRequest(
+    string? WorkforceTenantId,
+    string? EntraObjectId,
+    string? Reason);
 // Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
 // immutable thereafter; update only renames / toggles active.
 internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);

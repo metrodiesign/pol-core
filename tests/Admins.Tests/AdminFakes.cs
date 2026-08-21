@@ -14,10 +14,18 @@ internal sealed class FakePlatformUserRepository : IUserRepository
 {
     public readonly List<User> Accounts = [];
     public readonly List<MerchantAccess> Assignments = [];
+    public int IdentityMutationLockCalls { get; private set; }
+    public Action<FakePlatformUserRepository>? AfterIdentityMutationLockAcquired { get; init; }
 
     public void Add(User account) => Accounts.Add(account);
     public void AddAssignment(MerchantAccess assignment) => Assignments.Add(assignment);
     public void RemoveAssignment(MerchantAccess assignment) => Assignments.RemoveAll(a => a.Id == assignment.Id);
+    public Task AcquireIdentityMutationLockAsync(CancellationToken ct)
+    {
+        IdentityMutationLockCalls++;
+        AfterIdentityMutationLockAcquired?.Invoke(this);
+        return Task.CompletedTask;
+    }
 
     public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Provider == identity.Provider && a.Subject == identity.Subject));
@@ -25,6 +33,16 @@ internal sealed class FakePlatformUserRepository : IUserRepository
         Task.FromResult(Accounts.FirstOrDefault(a => a.Email == email));
     public Task<User?> GetByIdAsync(Guid id, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Id == id));
+    public Task VerifyActiveSuperAsync(Guid callerId, long expectedAuthorizationVersion, CancellationToken ct)
+    {
+        var caller = Accounts.FirstOrDefault(a => a.Id == callerId);
+        if (caller is null
+            || caller.Status != UserStatus.Active
+            || caller.Tier != Tier.Super
+            || caller.AuthorizationVersion != expectedAuthorizationVersion)
+            throw new AccessDeniedException("Active Super authorization is required.", "super_required");
+        return Task.CompletedTask;
+    }
     public Task<bool> ExistsAsync(Guid id, CancellationToken ct) => Task.FromResult(Accounts.Any(a => a.Id == id));
 
     public Task<IReadOnlySet<Guid>> ListAssignedMerchantIdsAsync(Guid adminAccountId, CancellationToken ct) =>
@@ -50,6 +68,17 @@ internal sealed class FakePlatformUserAuditWriter : IAuditWriter
 {
     public readonly List<Audit> Appended = [];
     public void Append(Audit entry) => Appended.Add(entry);
+}
+
+internal sealed class FakeAdminIdentityAuditWriter : IAdminIdentityAuditWriter
+{
+    public readonly List<AdminIdentityAuditEntry> Appended = [];
+
+    public Task AppendMicrosoftPreProvisionAsync(AdminIdentityAuditEntry entry, CancellationToken ct)
+    {
+        Appended.Add(entry);
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>In-memory admin session store for command-handler tests. Records revoke calls; a small seed list backs
@@ -81,6 +110,8 @@ internal sealed class FakeAdminOperationStore : IAdminOperationStore
 {
     private readonly Dictionary<(Guid ActorId, string Operation, string Key), AdminOperationReplay> _records = [];
     public int Count => _records.Count;
+    public int? LastResponseStatus { get; private set; }
+    public DateTime? LastExpiresAt { get; private set; }
 
     public Task AcquireAsync(Guid actorId, string operation, string idempotencyKey, CancellationToken ct) =>
         Task.CompletedTask;
@@ -89,10 +120,17 @@ internal sealed class FakeAdminOperationStore : IAdminOperationStore
         Guid actorId, string operation, string idempotencyKey, CancellationToken ct) =>
         Task.FromResult(_records.GetValueOrDefault((actorId, operation, idempotencyKey)));
 
+    public void Seed(Guid actorId, string operation, string idempotencyKey, AdminOperationReplay replay) =>
+        _records[(actorId, operation, idempotencyKey)] = replay;
+
     public void AddSucceeded(
         Guid actorId, string operation, string idempotencyKey, string requestHash,
-        string responseBody, DateTime now) =>
+        int responseStatus, string responseBody, DateTime now, DateTime expiresAt)
+    {
         _records.Add((actorId, operation, idempotencyKey), new AdminOperationReplay(requestHash, responseBody, false));
+        LastResponseStatus = responseStatus;
+        LastExpiresAt = expiresAt;
+    }
 }
 
 /// <summary>Stands in for the central iam.Roles catalog (rf2) — <see cref="Roles"/> holds
@@ -181,15 +219,6 @@ internal sealed class FakeUnitOfWork : IUnitOfWork
     public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(0);
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct) =>
         await operation(ct);
-}
-
-/// <summary>Simulates the admin unit of work translating a concurrent unique-violation into a
-/// <see cref="ConflictException"/> (REQ-5.2), so the self-provision re-read path can be exercised.</summary>
-internal sealed class ConflictingUnitOfWork : IUnitOfWork
-{
-    public Task<int> SaveChangesAsync(CancellationToken ct) => throw new ConflictException("duplicate key");
-    public Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> operation, CancellationToken ct) =>
-        throw new ConflictException("duplicate key");
 }
 
 internal sealed class FixedClock : IClock

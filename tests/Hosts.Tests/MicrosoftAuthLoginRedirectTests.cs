@@ -1,5 +1,6 @@
 extern alias ApiHost;
 using System.Net;
+using Admins.Application.Users;
 using BuildingBlocks.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
@@ -8,6 +9,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols;
@@ -24,6 +26,7 @@ file sealed class MicrosoftLoginFactory : WebApplicationFactory<ApiHost::Program
     public const string Tenant = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
     public const string AdminClientId = "11111111-aaaa-aaaa-aaaa-111111111111";
     public const string MerchantClientId = "22222222-bbbb-bbbb-bbbb-222222222222";
+    public TestWorkforceTenantBindingStore TenantBindingStore { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -55,6 +58,8 @@ file sealed class MicrosoftLoginFactory : WebApplicationFactory<ApiHost::Program
         builder.ConfigureServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
+            services.RemoveAll<IWorkforceTenantBindingStore>();
+            services.AddSingleton<IWorkforceTenantBindingStore>(TenantBindingStore);
 
             // Static config -> the challenge builds the redirect without fetching the Entra discovery document.
             // Set the ConfigurationManager itself (not just Configuration): this test's PostConfigure runs AFTER the
@@ -80,6 +85,31 @@ file sealed class MicrosoftLoginFactory : WebApplicationFactory<ApiHost::Program
 
 public sealed class MicrosoftAuthLoginRedirectTests
 {
+    [Fact]
+    public void Enabled_admin_microsoft_provider_pins_tenant_before_host_listens()
+    {
+        using var factory = new MicrosoftLoginFactory();
+
+        _ = factory.CreateClient();
+
+        Assert.Equal(Guid.Parse(MicrosoftLoginFactory.Tenant), factory.TenantBindingStore.EnsuredTenantId);
+        Assert.Equal(1, factory.TenantBindingStore.CallCount);
+    }
+
+    [Fact]
+    public void Tenant_binding_drift_aborts_host_startup_before_listening()
+    {
+        using var factory = new MicrosoftLoginFactory();
+        factory.TenantBindingStore.Failure = new InvalidOperationException(
+            "Admin Microsoft Authority does not match the persisted workforce tenant binding.");
+
+        var error = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+
+        Assert.Contains("does not match the persisted workforce tenant binding", error.ToString(),
+            StringComparison.Ordinal);
+        Assert.Equal(1, factory.TenantBindingStore.CallCount);
+    }
+
     [Theory]
     [InlineData("/api/v1/admins/auth/microsoft/login?returnTo=/dashboard",
         MicrosoftLoginFactory.AdminClientId, "/api/v1/admins/auth/microsoft/callback")]

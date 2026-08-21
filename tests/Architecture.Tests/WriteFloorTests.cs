@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Vault;
+using Governance.Domain;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Merchants.Domain.Users;
@@ -243,8 +244,37 @@ public sealed class WriteFloorTests : IDisposable
             new(new DbContextOptionsBuilder<ControlPlaneDbContext>().UseSqlite(connection).Options, authorizer,
                 NoOpSecurityTelemetry.Instance);
 
+        var now = new DateTime(2026, 8, 19, 12, 0, 0, DateTimeKind.Utc);
         using (var setup = NewContext(FakeWriteAuthorizer.AllowAll))
+        {
             await setup.Database.EnsureCreatedAsync();
+            var head = AuditHead.Create("platform", GovernanceScopeKind.Platform, null, now);
+            var audit = AuditRecord.Append(
+                "platform", GovernanceScopeKind.Platform, null, 1, AuditRecord.Genesis, Guid.NewGuid(),
+                "admin.microsoft-identity.preprovisioned", "admin", Guid.NewGuid().ToString("D"),
+                "succeeded", "{}", null, "v2", "corr-write-floor", now);
+            head.Advance(audit.Sequence, audit.PreviousHash, audit.Hash, now);
+            setup.AuditHeads.Add(head);
+            setup.AuditRecords.Add(audit);
+            await setup.SaveChangesAsync();
+        }
+
+        using (var modifier = NewContext(FakeWriteAuthorizer.AllowAll))
+        {
+            var audit = await modifier.AuditRecords.SingleAsync();
+            modifier.Entry(audit).Property(x => x.Result).CurrentValue = "tampered";
+
+            var error = await Assert.ThrowsAsync<WriteGuardException>(() => modifier.SaveChangesAsync());
+            Assert.Contains("append-only", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        using (var deleter = NewContext(FakeWriteAuthorizer.AllowAll))
+        {
+            deleter.AuditRecords.Remove(await deleter.AuditRecords.SingleAsync());
+
+            var error = await Assert.ThrowsAsync<WriteGuardException>(() => deleter.SaveChangesAsync());
+            Assert.Contains("append-only", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
 
         using (var denied = NewContext(FakeWriteAuthorizer.DenyAll))
         {

@@ -141,6 +141,8 @@ public sealed class PlatformUserSessionManagementTests
         Assert.Equal(session.FamilyId, result.FamilyId);
         Assert.Equal(admin.Id, result.AdminId);
         Assert.Equal(1, operations.Count);
+        Assert.Equal(204, operations.LastResponseStatus);
+        Assert.Equal(new FixedClock().UtcNow.AddHours(24), operations.LastExpiresAt);
     }
 
     [Fact]

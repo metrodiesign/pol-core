@@ -14,7 +14,8 @@ internal sealed class GovernanceStore(
     IUnitOfWork unitOfWork,
     IClock clock,
     IAuditAnchorStore auditAnchors,
-    GovernanceSqlLockManager locks)
+    GovernanceSqlLockManager locks,
+    GovernanceAuditAppender audits)
     : IGovernanceStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -126,11 +127,11 @@ internal sealed class GovernanceStore(
                 eventId, approval.ScopeKind, approval.MerchantId, ApprovalDecided.EventType,
                 ApprovalDecided.SchemaVersion, JsonSerializer.Serialize(notification, JsonOptions), clock.UtcNow));
 
-            await AppendAuditAsync(
+            await audits.AppendAsync(
                 approval.ScopeKind, approval.MerchantId, intent.Access.ActorId, "approval.decided",
                 "approval", approval.Id.ToString("D"), decision,
                 JsonSerializer.Serialize(new { decision, reason = approval.DecisionReason }, JsonOptions),
-                approval.Id, approval.TargetVersion, intent.CorrelationId, ct);
+                approval.Id, approval.TargetVersion, intent.CorrelationId, clock.UtcNow, ct);
 
             var operationRecord = OperationRecord.Create(
                 intent.Access.ActorId, operation, intent.IdempotencyKey, requestHash,
@@ -161,11 +162,11 @@ internal sealed class GovernanceStore(
             db.ApprovalEvents.Add(ApprovalEvent.Create(
                 message.EventId, message.ApprovalId, scopeKind, message.MerchantId, "requested",
                 message.MakerId, null, message.CorrelationId, message.OccurredAt));
-            await AppendAuditAsync(
+            await audits.AppendAsync(
                 scopeKind, message.MerchantId, message.MakerId, "approval.created", "approval",
                 message.ApprovalId.ToString("D"), "pending",
                 JsonSerializer.Serialize(new { message.Action, message.TargetType, message.TargetId }, JsonOptions),
-                message.ApprovalId, message.TargetVersion, message.CorrelationId, ct);
+                message.ApprovalId, message.TargetVersion, message.CorrelationId, clock.UtcNow, ct);
             await unitOfWork.SaveChangesAsync(ct);
             return true;
         }, cancellationToken);
@@ -184,11 +185,11 @@ internal sealed class GovernanceStore(
             db.ApprovalEvents.Add(ApprovalEvent.Create(
                 message.EventId, message.ApprovalId, approval.ScopeKind, approval.MerchantId, "executed",
                 message.ExecutorId, message.Outcome, message.CorrelationId, message.OccurredAt));
-            await AppendAuditAsync(
+            await audits.AppendAsync(
                 approval.ScopeKind, approval.MerchantId, message.ExecutorId, "approval.executed", "approval",
                 approval.Id.ToString("D"), approval.Status.ToString().ToLower(),
                 JsonSerializer.Serialize(new { message.Succeeded, message.Unknown, message.Outcome }, JsonOptions),
-                approval.Id, message.ResourceVersion, message.CorrelationId, ct);
+                approval.Id, message.ResourceVersion, message.CorrelationId, clock.UtcNow, ct);
             await unitOfWork.SaveChangesAsync(ct);
             return true;
         }, cancellationToken);
@@ -261,39 +262,6 @@ internal sealed class GovernanceStore(
             record.OccurredAt,
             Convert.ToHexString(record.PreviousHash).ToLowerInvariant(),
             Convert.ToHexString(record.Hash).ToLowerInvariant());
-    }
-
-    private async Task AppendAuditAsync(
-        GovernanceScopeKind scopeKind,
-        Guid? merchantId,
-        Guid actorId,
-        string action,
-        string resourceType,
-        string resourceId,
-        string result,
-        string changes,
-        Guid? approvalId,
-        string? resourceVersion,
-        string correlationId,
-        CancellationToken cancellationToken)
-    {
-        var scopeKey = ScopeKey(scopeKind, merchantId);
-        await locks.AcquireAsync($"audit:{scopeKey}", cancellationToken);
-        await locks.AcquireAuditHeadAsync(scopeKey, cancellationToken);
-
-        var head = await db.AuditHeads.SingleOrDefaultAsync(x => x.Id == scopeKey, cancellationToken);
-        if (head is null)
-        {
-            head = AuditHead.Create(scopeKey, scopeKind, merchantId, clock.UtcNow);
-            db.AuditHeads.Add(head);
-        }
-
-        var record = AuditRecord.Append(
-            scopeKey, scopeKind, merchantId, head.LastSequence + 1, head.LastHash, actorId,
-            action, resourceType, resourceId, result, AuditRedactor.RedactAndCanonicalize(changes),
-            approvalId, resourceVersion, correlationId, clock.UtcNow);
-        head.Advance(record.Sequence, record.PreviousHash, record.Hash, clock.UtcNow);
-        db.AuditRecords.Add(record);
     }
 
     private async Task VerifyAccessibleAsync(GovernanceAccess access, CancellationToken cancellationToken)
@@ -376,13 +344,6 @@ internal sealed class GovernanceStore(
         "platform" => GovernanceScopeKind.Platform,
         "merchant" => GovernanceScopeKind.Merchant,
         _ => throw new ArgumentException("Approval scope must be platform or merchant.", nameof(scope)),
-    };
-
-    private static string ScopeKey(GovernanceScopeKind scopeKind, Guid? merchantId) => scopeKind switch
-    {
-        GovernanceScopeKind.Platform => "platform",
-        GovernanceScopeKind.Merchant when merchantId.HasValue => $"merchant:{merchantId.Value:D}",
-        _ => throw new ArgumentException("Invalid governance scope."),
     };
 
     private static string EventLock(Guid eventId) => $"governance-event:{eventId:D}";

@@ -82,6 +82,19 @@ public sealed class GovernanceDomainTests
         Assert.Throws<InvalidOperationException>(() => head.Advance(3, first.Hash, second.Hash, Now));
     }
 
+    [Theory]
+    [InlineData(DateTimeKind.Unspecified)]
+    [InlineData(DateTimeKind.Local)]
+    public void Audit_record_rejects_non_utc_timestamp(DateTimeKind kind)
+    {
+        var error = Assert.Throws<ArgumentException>(() => AuditRecord.Append(
+            "platform", GovernanceScopeKind.Platform, null, 1, AuditRecord.Genesis, Guid.NewGuid(),
+            "approval.created", "approval", "a-1", "pending", "{}", null, "v1", "corr",
+            DateTime.SpecifyKind(Now, kind)));
+
+        Assert.Equal("occurredAt", error.ParamName);
+    }
+
     private static ApprovalRequest NewApproval(Guid maker) => ApprovalRequest.Create(
         Guid.NewGuid(), GovernanceScopeKind.Platform, null, "routing.activate", "settings.manage", maker,
         "routing-ruleset", "rules-1", "v7", "corr", Now.AddMinutes(-1));

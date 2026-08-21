@@ -25,7 +25,14 @@ internal sealed class CsrfFilter : IEndpointFilter
             var cookie = http.Request.Cookies[SessionCookies.CsrfCookieName];
             var header = http.Request.Headers[HeaderName].ToString();
             if (string.IsNullOrEmpty(cookie) || string.IsNullOrEmpty(header) || !FixedTimeEquals(cookie, header))
-                return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: "Missing or invalid CSRF token.");
+                return Results.Problem(
+                    statusCode: StatusCodes.Status403Forbidden,
+                    title: "Missing or invalid CSRF token.",
+                    extensions: new Dictionary<string, object?>
+                    {
+                        ["code"] = "csrf_failed",
+                        ["traceId"] = http.TraceIdentifier,
+                    });
         }
 
         return await next(context);

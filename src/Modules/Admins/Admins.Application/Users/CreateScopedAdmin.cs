@@ -7,8 +7,8 @@ namespace Admins.Application.Users;
 
 /// <summary>A Super invites a Scoped admin by verified email (REQ-3.4): an <see cref="User"/>
 /// (Tier=Scoped, unbound subject) is created and a <c>create-scoped</c> audit written. The subject is bound on
-/// the invitee's first login. A duplicate email is rejected (unique index -> <see cref="ConflictException"/>
-/// 409). Super-only authorization is enforced at the host (RequirePlatformUserTier).</summary>
+/// the invitee's first login. A duplicate email is rejected with <see cref="ConflictException"/> 409.
+/// Super-only authorization is enforced at the host (RequirePlatformUserTier).</summary>
 public sealed record CreateScopedCommand(
     string Email, Guid ActingAdminId, string CorrelationId,
     Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null)
@@ -42,9 +42,9 @@ public sealed class CreateScopedHandler : ICommandHandler<CreateScopedCommand, C
     {
         return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            // Pre-check for a clean 409 message (the unique Email index is the race-safe backstop).
+            await _admins.AcquireIdentityMutationLockAsync(ct);
             if (await _admins.GetByEmailAsync(command.Email.Trim(), ct) is not null)
-                throw new ConflictException($"An admin with email '{command.Email}' already exists.");
+                throw new ConflictException("An admin account already exists for the supplied identity details.");
 
             // Any supplied org-profile FK must reference an existing, active master (-> 400 otherwise).
             await _masters.ValidateProfileFksAsync(

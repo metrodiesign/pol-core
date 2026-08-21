@@ -42,6 +42,7 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
         : base(options, authorizer, telemetry) { }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<WorkforceTenantBinding> WorkforceTenantBindings => Set<WorkforceTenantBinding>();
     public DbSet<MerchantAccess> MerchantAccess => Set<MerchantAccess>();
     public DbSet<Audit> UserAudits => Set<Audit>();
     public DbSet<Session> Sessions => Set<Session>();
@@ -88,6 +89,7 @@ internal sealed class ControlPlaneDbContext : GuardedRuntimeDbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.ApplyConfiguration(new WorkforceTenantBindingConfiguration());
         modelBuilder.ApplyConfiguration(new UserConfiguration());
         modelBuilder.ApplyConfiguration(new MerchantAccessConfiguration());
         modelBuilder.ApplyConfiguration(new AuditConfiguration());

@@ -49,7 +49,10 @@ public static class ControlPlanePersistenceRegistration
         });
 
         services.AddScoped<IUserRepository>(sp => new UserRepository(
-            sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ILogger<UserRepository>>()));
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredService<ILogger<UserRepository>>(),
+            sp.GetRequiredService<ISecurityTelemetry>(),
+            sp.GetRequiredService<GovernanceSqlLockManager>()));
         services.AddScoped<IAuditWriter>(sp => new AuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<ISessionStore>(sp => new SessionStore(
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));
@@ -87,6 +90,10 @@ public static class ControlPlanePersistenceRegistration
         services.AddKeyedScoped<IUnitOfWork>("admin", (sp, _) =>
             new ControlPlaneUnitOfWork(
                 sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));
+        services.AddScoped<IWorkforceTenantBindingStore>(sp => new WorkforceTenantBindingStore(
+            sp.GetRequiredService<ControlPlaneDbContext>(),
+            sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
+            sp.GetRequiredService<GovernanceSqlLockManager>()));
 
         // The four reference-list stores commit through the keyed "admin" IUnitOfWork above, same discipline
         // as every other ControlPlane write seam (typed split of the retired generic store, masterdata-split).
@@ -106,6 +113,8 @@ public static class ControlPlanePersistenceRegistration
             new MerchantRoleReader(sp.GetRequiredService<ControlPlaneDbContext>()));
 
         services.AddScoped<GovernanceSqlLockManager>();
+        services.AddScoped<GovernanceAuditAppender>();
+        services.AddScoped<IAdminIdentityAuditWriter, AdminIdentityAuditWriter>();
         services.AddScoped<PaymentAuthorizationSqlLockManager>();
         services.AddScoped(sp => new ControlPlaneOperationExecutor(
             sp.GetRequiredService<ControlPlaneDbContext>(),
@@ -125,7 +134,8 @@ public static class ControlPlanePersistenceRegistration
             sp.GetRequiredKeyedService<IUnitOfWork>("admin"),
             sp.GetRequiredService<IClock>(),
             sp.GetRequiredService<IAuditAnchorStore>(),
-            sp.GetRequiredService<GovernanceSqlLockManager>()));
+            sp.GetRequiredService<GovernanceSqlLockManager>(),
+            sp.GetRequiredService<GovernanceAuditAppender>()));
 
         services.AddSingleton<EfCoreXmlRepository>();
         services.AddSingleton<IXmlRepository>(sp => sp.GetRequiredService<EfCoreXmlRepository>());

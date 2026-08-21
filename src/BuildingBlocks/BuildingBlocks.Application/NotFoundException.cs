@@ -8,5 +8,7 @@ namespace BuildingBlocks.Application;
 /// </summary>
 public sealed class NotFoundException : Exception
 {
-    public NotFoundException(string message) : base(message) { }
+    public NotFoundException(string message, string? code = null) : base(message) => Code = code;
+
+    public string? Code { get; }
 }

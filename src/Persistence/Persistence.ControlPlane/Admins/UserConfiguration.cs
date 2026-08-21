@@ -13,6 +13,19 @@ namespace Persistence.ControlPlane.Admins;
 // relationship isn't needed for ControlPlaneDbContext's own read/write paths and keeping every runtime
 // config scalar-only avoids re-deriving "same-cluster vs cross-cluster" per property.
 
+public sealed class WorkforceTenantBindingConfiguration : IEntityTypeConfiguration<WorkforceTenantBinding>
+{
+    public void Configure(EntityTypeBuilder<WorkforceTenantBinding> builder)
+    {
+        builder.ToTable("WorkforceTenantBindings", SchemaNames.Admin, table =>
+            table.HasCheckConstraint("CK_WorkforceTenantBindings_Singleton", "[Id] = 1"));
+        builder.HasKey(x => x.Id);
+        builder.Property(x => x.Id).ValueGeneratedNever();
+        builder.Property(x => x.TenantId).IsRequired();
+        AppendOnlyDescriptor.Mark(builder.Metadata);
+    }
+}
+
 public sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)

@@ -65,8 +65,17 @@ internal sealed class CallbackResolver : ICallbackResolver
         var (entryProvider, entrySubject) = separator < 0
             ? (User.GoogleProvider, entry)
             : (entry[..separator].ToLowerInvariant(), entry[(separator + 1)..]);
-        return string.Equals(entryProvider, identity.Provider, StringComparison.Ordinal)
-            && string.Equals(entrySubject, identity.Subject, StringComparison.Ordinal);
+        if (!string.Equals(entryProvider, identity.Provider, StringComparison.Ordinal))
+            return false;
+
+        if (entryProvider != User.MicrosoftProvider)
+            return string.Equals(entrySubject, identity.Subject, StringComparison.Ordinal);
+
+        return Guid.TryParse(entrySubject, out var allowlisted)
+            && allowlisted != Guid.Empty
+            && Guid.TryParse(identity.Subject, out var current)
+            && current != Guid.Empty
+            && allowlisted == current;
     }
 }
 
@@ -124,6 +133,7 @@ internal sealed class LoginService
     public async Task EstablishSessionAsync(
         HttpContext http, string provider, string? subject, string? email, bool emailVerified, string? returnTo, CancellationToken ct)
     {
+        var auditSubject = provider == User.MicrosoftProvider ? null : subject;
         if (string.IsNullOrEmpty(subject))
         {
             await DenyAsync(http, "missing-subject", null, ct);
@@ -140,13 +150,13 @@ internal sealed class LoginService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Admin resolution failed at callback.");
-            await DenyAsync(http, "resolve-failed", subject, ct);
+            await DenyAsync(http, "resolve-failed", auditSubject, ct);
             return;
         }
 
         if (result.Outcome != ResolveOutcome.Resolved)
         {
-            await DenyAsync(http, result.Outcome == ResolveOutcome.Suspended ? "suspended" : "not-provisioned", subject, ct);
+            await DenyAsync(http, result.Outcome == ResolveOutcome.Suspended ? "suspended" : "not-provisioned", auditSubject, ct);
             return;
         }
 
@@ -161,7 +171,7 @@ internal sealed class LoginService
 
             // session + login-success audit commit TOGETHER on the request's keyed pol_admin context (no partial).
             _sessions.Add(session);
-            _audit.Append(AuthAudit.For(AuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, subject));
+            _audit.Append(AuthAudit.For(AuthEventType.LoginSuccess, correlationId, _clock.UtcNow, resolution.AdminId, auditSubject));
             await _sessions.SaveChangesAsync(ct);
 
             _cookies.Write(http, sessionToken, csrfToken);
@@ -172,7 +182,7 @@ internal sealed class LoginService
             // REQ-2.7: any failure after resolution -> no partial session (the half-built session on THIS context
             // is never committed; the deny audit runs on a fresh scope), denied audit + error redirect, not 500.
             _logger.LogError(ex, "Admin session establishment failed for {AdminId}.", resolution.AdminId);
-            await DenyAsync(http, "session-write-failed", subject, ct);
+            await DenyAsync(http, "session-write-failed", auditSubject, ct);
         }
     }
 

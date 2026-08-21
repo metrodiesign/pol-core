@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Admins.Application.Users;
+using Admins.Domain.Users;
 using Merchants.Application.Users;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.DataProtection;
@@ -13,10 +14,15 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
+using AdminAuthAuditWriter = Admins.Application.Users.IAuthAuditWriter;
+using AdminResolution = Admins.Application.Users.Resolution;
+using AdminSessionStore = Admins.Application.Users.ISessionStore;
+using AdminSessionCookies = ApiHost::Api.Admins.SessionCookies;
 
 namespace Hosts.Tests;
 
@@ -24,8 +30,7 @@ namespace Hosts.Tests;
 // correlation cookies -> fake backchannel redeems the code for an id_token SIGNED with a test RSA key -> the
 // callback validates it (signature/aud/lifetime/nonce/ISSUER == the static metadata issuer — the framework
 // default that replaced the custom validator) and lands in the recording resolver or the deny redirect.
-// No network, no DB: resolvers answer NotFound (admin -> reason=not-provisioned redirect, merchant -> /register
-// ticket redirect), and the deny audit write fails silently on the DB-less host (DenyAsync catches it).
+// No network, no DB: resolvers default to NotFound; the Scoped-admin case records session/audit writes in memory.
 
 file static class TestOidc
 {
@@ -33,6 +38,7 @@ file static class TestOidc
     public static readonly RsaSecurityKey SigningKey = new(Rsa) { KeyId = "e2e-test-key" };
 
     public const string WorkforceTenant = "05ab044e-e2c5-47dc-bbfb-fd7ea077fa71";
+    public const string WorkforceOid = "abcdefab-cdef-4abc-8def-abcdefabcdef";
     public const string CiamTenant = "2a6d4554-88f1-4089-a995-0bf31c622493";
     public const string WorkforceIssuer = $"https://login.microsoftonline.com/{WorkforceTenant}/v2.0";
     public const string CiamIssuer = $"https://vcpexternaldev.ciamlogin.com/{CiamTenant}/v2.0";
@@ -73,12 +79,45 @@ file sealed record AdminResolved(string Provider, string Subject, string Email, 
 file sealed class RecordingAdminResolver : ApiHost::Api.Admins.ICallbackResolver
 {
     public AdminResolved? Resolved;
+    public ResolveResult Result { get; set; } = ResolveResult.NotFound;
+
     public Task<ResolveResult> ResolveAtCallbackAsync(
         SharedKernel.ProviderIdentity identity, string email, bool emailVerified, string correlationId, CancellationToken ct)
     {
         Resolved = new AdminResolved(identity.Provider, identity.Subject, email, emailVerified);
-        return Task.FromResult(ResolveResult.NotFound);
+        return Task.FromResult(Result);
     }
+}
+
+file sealed class RecordingAdminSessionStore : AdminSessionStore
+{
+    public List<Session> Added { get; } = [];
+    public int SaveCount { get; private set; }
+
+    public void Add(Session session) => Added.Add(session);
+    public Task<int> SaveChangesAsync(CancellationToken ct)
+    {
+        SaveCount++;
+        return Task.FromResult(1);
+    }
+
+    public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<Session?>(null);
+    public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
+    public Task<bool> TrySupersedeAsync(Guid id, Guid successorId, DateTime now, CancellationToken ct) => Task.FromResult(false);
+    public Task SlideIdleAsync(Guid id, DateTime idleExpiresAt, CancellationToken ct) => Task.CompletedTask;
+    public Task RevokeFamilyAsync(Guid familyId, CancellationToken ct) => Task.CompletedTask;
+    public Task RevokeAllForAdminAsync(Guid adminId, CancellationToken ct) => Task.CompletedTask;
+    public Task<int> PruneAsync(DateTime now, CancellationToken ct) => Task.FromResult(0);
+    public Task<IReadOnlyList<Session>> ListByAdminAsync(Guid adminId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Session>>([]);
+    public Task<Session?> FindByIdAsync(Guid sessionId, CancellationToken ct) => Task.FromResult<Session?>(null);
+}
+
+file sealed class RecordingAdminAuthAudit : AdminAuthAuditWriter
+{
+    public List<AuthAudit> Appended { get; } = [];
+    public void Append(AuthAudit entry) => Appended.Add(entry);
+    public Task<int> SaveChangesAsync(CancellationToken ct) => Task.FromResult(1);
 }
 
 file sealed class RecordingUserResolver : ApiHost::Api.Merchants.IUserCallbackResolver
@@ -101,6 +140,9 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
     public FakeBackchannel Backchannel { get; } = new();
     public RecordingAdminResolver AdminResolver { get; } = new();
     public RecordingUserResolver UserResolver { get; } = new();
+    public TestWorkforceTenantBindingStore TenantBindingStore { get; } = new();
+    public RecordingAdminSessionStore AdminSessions { get; } = new();
+    public RecordingAdminAuthAudit AdminAuthAudits { get; } = new();
 
     private readonly Dictionary<string, string?> _extraSettings;
 
@@ -148,6 +190,12 @@ file sealed class OidcE2EFactory : WebApplicationFactory<ApiHost::Program>
         builder.ConfigureServices(services =>
         {
             services.AddDataProtection().UseEphemeralDataProtectionProvider();
+            services.RemoveAll<IWorkforceTenantBindingStore>();
+            services.AddSingleton<IWorkforceTenantBindingStore>(TenantBindingStore);
+            services.RemoveAll<AdminSessionStore>();
+            services.AddSingleton<AdminSessionStore>(AdminSessions);
+            services.RemoveAll<AdminAuthAuditWriter>();
+            services.AddSingleton<AdminAuthAuditWriter>(AdminAuthAudits);
             services.AddScoped<ApiHost::Api.Admins.ICallbackResolver>(_ => AdminResolver);
             services.AddScoped<ApiHost::Api.Merchants.IUserCallbackResolver>(_ => UserResolver);
 
@@ -295,16 +343,62 @@ public sealed class OidcCallbackE2ETests
             using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
             var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
             factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-                challenge.Nonce, ("sub", "pairwise"), ("oid", "admin-entra-oid"), ("tid", TestOidc.WorkforceTenant),
+                challenge.Nonce, ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid.ToUpperInvariant()),
+                ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()),
                 ("email", "ops@example.com"));
 
             var response = await CallbackAsync(client, challenge);
 
             // REQ-2.2/6.3: the workforce tenant-pinned issuer passed; subject = oid; Entra email stays UNVERIFIED.
-            Assert.Equal(new AdminResolved("microsoft", "admin-entra-oid", "ops@example.com", EmailVerified: false),
+            Assert.Equal(new AdminResolved("microsoft", TestOidc.WorkforceOid, "ops@example.com", EmailVerified: false),
                 factory.AdminResolver.Resolved);
             Assert.Equal("not-provisioned", Reason(response));
         }
+    }
+
+    [Fact]
+    // REQ-6.12: valid Workforce tid/oid resolves the already-bound Scoped admin through the real callback pipeline.
+    public async Task Admin_microsoft_callback_resolves_a_preprovisioned_scoped_admin_and_creates_a_session()
+    {
+        var adminId = Guid.Parse("f5ebca84-4997-4a5d-b26b-6818f94f08f8");
+        var merchantId = Guid.Parse("12b19f6a-2020-4ad8-ae1d-9567ec0b0cf4");
+        const string pairwiseSubject = "pairwise-subject-must-not-be-audited";
+        using var factory = new OidcE2EFactory();
+        factory.AdminResolver.Result = ResolveResult.Of(new AdminResolution(
+            adminId, "employee@example.com", Tier.Scoped,
+            AccessibleMerchants.Of(new HashSet<Guid> { merchantId })));
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client,
+            "/api/v1/admins/auth/microsoft/login?returnTo=%2Fdashboard",
+            "/api/v1/admins/auth/microsoft/callback");
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(
+            TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+            ("sub", pairwiseSubject), ("oid", TestOidc.WorkforceOid.ToUpperInvariant()),
+            ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()), ("email", "employee@example.com"));
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        Assert.Equal("https://localhost:3001/dashboard", response.Headers.Location?.ToString());
+        Assert.Equal(new AdminResolved(
+            User.MicrosoftProvider, TestOidc.WorkforceOid, "employee@example.com", EmailVerified: false),
+            factory.AdminResolver.Resolved);
+        var session = Assert.Single(factory.AdminSessions.Added);
+        Assert.Equal(adminId, session.AdminUserId);
+        Assert.Equal(SessionStatus.Active, session.Status);
+        Assert.Equal(1, factory.AdminSessions.SaveCount);
+        Assert.Contains(response.Headers.GetValues("Set-Cookie"), value =>
+            value.StartsWith($"{AdminSessionCookies.SessionCookieNameDevHttp}=", StringComparison.Ordinal));
+
+        var audit = Assert.Single(factory.AdminAuthAudits.Appended);
+        Assert.Equal(AuthEventType.LoginSuccess, audit.EventType);
+        Assert.Equal(adminId, audit.AdminUserId);
+        Assert.Null(audit.Subject);
+        var safeAudit = string.Join('\n', audit.EventType, audit.Subject, audit.Reason, audit.CorrelationId);
+        Assert.DoesNotContain(TestOidc.WorkforceTenant, safeAudit, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(TestOidc.WorkforceOid, safeAudit, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(pairwiseSubject, safeAudit, StringComparison.Ordinal);
+        Assert.DoesNotContain("employee@example.com", safeAudit, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -326,35 +420,88 @@ public sealed class OidcCallbackE2ETests
     // ---- the AllowedTenants gate through the middleware (REQ-2.4, P1-1) ----
 
     [Fact]
-    public async Task An_empty_allowlist_admits_a_token_without_tid_after_issuer_validation()
+    public async Task Admin_microsoft_requires_tid_even_when_the_optional_allowlist_is_empty()
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("sub", "pairwise"), ("oid", "oid-no-tid"), ("email", "ops@example.com"));
+            challenge.Nonce, ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid), ("email", "ops@example.com"));
 
-        await CallbackAsync(client, challenge);
+        var response = await CallbackAsync(client, challenge);
 
-        Assert.Equal("oid-no-tid", factory.AdminResolver.Resolved?.Subject); // gate inactive -> login proceeds
+        Assert.Equal("tenant-missing", Reason(response));
+        Assert.Null(factory.AdminResolver.Resolved);
     }
 
     [Theory]
-    [InlineData(null, "tenant-missing")]                                   // allowlist set + tid absent
-    [InlineData("bbbbbbbb-0000-0000-0000-000000000000", "tenant-not-allowed")] // allowlist set + tid outside
-    public async Task A_non_empty_allowlist_gates_tid_with_the_specific_reason(string? tid, string expectedReason)
+    [InlineData(null, TestOidc.WorkforceTenant, "tenant-missing")]
+    [InlineData(TestOidc.WorkforceTenant, "bbbbbbbb-0000-0000-0000-000000000000", "tenant-not-allowed")]
+    public async Task A_non_empty_allowlist_remains_an_additional_tid_gate(
+        string? tid, string allowedTenant, string expectedReason)
     {
         using var factory = new OidcE2EFactory(new Dictionary<string, string?>
         {
-            ["AdminAuth:Providers:Microsoft:AllowedTenants:0"] = TestOidc.WorkforceTenant,
+            ["AdminAuth:Providers:Microsoft:AllowedTenants:0"] = allowedTenant,
         });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
-        var claims = new List<(string, string)> { ("sub", "pairwise"), ("oid", "gated-oid"), ("email", "ops@example.com") };
+        var claims = new List<(string, string)>
+        {
+            ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid), ("email", "ops@example.com"),
+        };
         if (tid is not null)
             claims.Add(("tid", tid));
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(
             TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce, [.. claims]);
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal(expectedReason, Reason(response));
+        Assert.Null(factory.AdminResolver.Resolved);
+    }
+
+    [Fact]
+    public async Task Admin_microsoft_rejects_tid_outside_the_pinned_tenant_with_an_empty_allowlist()
+    {
+        using var factory = new OidcE2EFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
+            challenge.Nonce, ("oid", TestOidc.WorkforceOid),
+            ("tid", "bbbbbbbb-0000-0000-0000-000000000000"), ("email", "ops@example.com"));
+
+        var response = await CallbackAsync(client, challenge);
+
+        Assert.Equal("tenant-not-allowed", Reason(response));
+        Assert.Null(factory.AdminResolver.Resolved);
+    }
+
+    [Theory]
+    [InlineData("tid", "not-a-uuid", "tenant-missing")]
+    [InlineData("tid", "00000000-0000-0000-0000-000000000000", "tenant-missing")]
+    [InlineData("oid", null, "auth-failed")]
+    [InlineData("oid", "not-a-uuid", "auth-failed")]
+    [InlineData("oid", "00000000-0000-0000-0000-000000000000", "auth-failed")]
+    public async Task Admin_microsoft_rejects_invalid_or_empty_uuid_claims(
+        string claimType, string? invalidValue, string expectedReason)
+    {
+        using var factory = new OidcE2EFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
+        var claims = new Dictionary<string, string>
+        {
+            ["tid"] = TestOidc.WorkforceTenant,
+            ["oid"] = TestOidc.WorkforceOid,
+            ["email"] = "ops@example.com",
+        };
+        if (invalidValue is null)
+            claims.Remove(claimType);
+        else
+            claims[claimType] = invalidValue;
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(
+            TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
+            [.. claims.Select(pair => (pair.Key, pair.Value))]);
 
         var response = await CallbackAsync(client, challenge);
 

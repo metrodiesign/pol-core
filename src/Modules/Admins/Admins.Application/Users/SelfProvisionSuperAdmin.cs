@@ -10,10 +10,9 @@ namespace Admins.Application.Users;
 
 /// <summary>
 /// Bootstrap path (REQ-5): an allowlisted Google subject with no <see cref="User"/> self-provisions as
-/// Super/Active on first login. Idempotent — a concurrent first-login race surfaces a unique-violation
-/// (translated to <see cref="ConflictException"/> by the admin unit of work) which is caught and re-read so
-/// exactly one row wins and both requests resolve (REQ-5.2). The allowlist gate itself is enforced by the
-/// host BEFORE this command is sent.
+/// Super/Active on first login. Idempotent — identity mutations serialize inside the admin transaction,
+/// then re-read so exactly one row wins and concurrent requests resolve it (REQ-5.2). The allowlist gate
+/// itself is enforced by the host BEFORE this command is sent.
 /// </summary>
 public sealed record SelfProvisionSuperCommand(ProviderIdentity Identity, string Email, string CorrelationId)
     : ICommand<Resolution>;
@@ -42,31 +41,41 @@ public sealed class SelfProvisionSuperHandler : ICommandHandler<SelfProvisionSup
 
     public async ValueTask<Resolution> Handle(SelfProvisionSuperCommand command, CancellationToken cancellationToken)
     {
-        try
+        return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
         {
-            return await _unitOfWork.ExecuteInTransactionAsync(async ct =>
+            await _admins.AcquireIdentityMutationLockAsync(ct);
+            var existing = await _admins.GetByIdentityAsync(command.Identity, ct);
+            if (existing is not null)
+                return await ResolveExistingAsync(existing, ct);
+            if (await _admins.GetByEmailAsync(command.Email, ct) is not null)
+                throw new ConflictException("An admin account already exists for the supplied identity details.");
+
+            var account = User.SelfProvision(command.Identity.Provider, command.Identity.Subject, command.Email, _clock.UtcNow);
+            _admins.Add(account);
+            _audit.Append(Audit.For(
+                AuditAction.SelfProvision, account.Id, command.CorrelationId, _clock.UtcNow, targetAdminId: account.Id));
+            // Bootstrap is usable immediately only if it also holds the super_admin role (orthogonal model has
+            // no Super-bypass — REQ-8.1). Assigned in the same transaction so the account never exists roleless.
+            await AssignSuperAdminRoleAsync(account.Id, command.CorrelationId, ct);
+            await _unitOfWork.SaveChangesAsync(ct);
+            return new Resolution(account.Id, account.Email, Tier.Super, AccessibleMerchants.All)
             {
-                var account = User.SelfProvision(command.Identity.Provider, command.Identity.Subject, command.Email, _clock.UtcNow);
-                _admins.Add(account);
-                _audit.Append(Audit.For(
-                    AuditAction.SelfProvision, account.Id, command.CorrelationId, _clock.UtcNow, targetAdminId: account.Id));
-                // Bootstrap is usable immediately only if it also holds the super_admin role (orthogonal model has
-                // no Super-bypass — REQ-8.1). Assigned in the same transaction so the account never exists roleless.
-                await AssignSuperAdminRoleAsync(account.Id, command.CorrelationId, ct);
-                await _unitOfWork.SaveChangesAsync(ct);
-                return new Resolution(account.Id, account.Email, Tier.Super, AccessibleMerchants.All);
-            }, cancellationToken);
-        }
-        catch (ConflictException)
+                AuthorizationVersion = account.AuthorizationVersion
+            };
+        }, cancellationToken);
+    }
+
+    private async Task<Resolution> ResolveExistingAsync(User existing, CancellationToken cancellationToken)
+    {
+        if (existing.Status != UserStatus.Active)
+            throw new ConflictException("The admin account is not active.");
+        var accessible = await ResolveHandler.ResolveAccessibleAsync(existing, _admins, cancellationToken);
+        var permissions = await _roles.ListEffectivePermissionsAsync(existing.Id, cancellationToken);
+        return new Resolution(existing.Id, existing.Email, existing.Tier, accessible)
         {
-            // Concurrent first-login race (REQ-5.2): the other request inserted the row first. Re-read it so
-            // both requests resolve the single winning account.
-            var existing = await _admins.GetByIdentityAsync(command.Identity, cancellationToken)
-                ?? throw new ConflictException("Self-provision raced but no admin account was found on re-read.");
-            var accessible = await ResolveHandler.ResolveAccessibleAsync(existing, _admins, cancellationToken);
-            var permissions = await _roles.ListEffectivePermissionsAsync(existing.Id, cancellationToken);
-            return new Resolution(existing.Id, existing.Email, existing.Tier, accessible) { Permissions = permissions };
-        }
+            Permissions = permissions,
+            AuthorizationVersion = existing.AuthorizationVersion
+        };
     }
 
     /// <summary>Idempotently binds the seed platform_admin role to the bootstrap account (REQ-8.1, rf2 —
