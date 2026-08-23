@@ -1,6 +1,6 @@
 # Admins Module — Identity, Session (OIDC BFF) & RBAC Reference
 
-> As-built 2026-08-13. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
+> As-built 2026-08-23. Source: `src/Hosts/Api/Admins/*.cs`, `Program.cs` (routes),
 > `CorsExtensions.cs`.
 > สัญญาสำหรับทีม **admin console frontend** ที่ต่อกับ API นี้. แก้ auth/route/CORS เมื่อไหร่ update ไฟล์นี้ตามด้วย.
 > ศัพท์/schema กลางดู [`ARCHITECTURE.md`](../../.ai/shared/ARCHITECTURE.md) ·
@@ -33,11 +33,16 @@ Flow login:
 1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/microsoft/login?returnTo=<path>`
 2. Server redirect ไป Microsoft Entra (Authorization Code + PKCE + state + nonce)
 3. ผู้ใช้ยืนยันกับ Microsoft -> Microsoft redirect กลับมาที่ `/api/v1/admins/auth/microsoft/callback` (server-side, ไม่มีหน้าให้ FE)
-4. Server แลก code เป็น token, ตรวจ tenant, `vcp.employee` และ exact workforce domain, resolve/JIT admin, แล้ว
+4. Server แลก code เป็น token, ตรวจ exact tenant และ canonical corporate email, resolve/bind/JIT admin, แล้ว
    **set cookie**: `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
 5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
 
 ไม่มี id_token ใน browser, ไม่มี GIS script, ไม่มี `Authorization` header.
+
+Tier 0 เลือก `email` ก่อนและ fallback ไป `preferred_username` เฉพาะเมื่อไม่มี `email`. ค่าที่เลือกถูก trim,
+ตรวจเป็น ASCII addr-spec ด้วย BCL, lowercase แบบ invariant และต้องอยู่ exact domain `viriyah.co.th`.
+Runtime ไม่อ่าน `roles` และไม่ใช้ `oid`; Microsoft subject คือ canonical email. Active Admin ที่ email ตรงและ
+ยัง unbound ถูก bind เข้าบัญชีเดิม ส่วน email ใหม่สร้าง roleless Scoped JIT account.
 
 > **สำคัญสุด:** `returnTo` ต้องเป็น path เดียวกับ origin (relative, ขึ้นต้น `/`) และอยู่ใน allowlist ฝั่ง server
 > (`AdminSession:ReturnUrlAllowlist`). ค่านอก allowlist จะถูกแทนด้วย default path (กัน open-redirect).

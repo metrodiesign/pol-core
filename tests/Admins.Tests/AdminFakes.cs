@@ -27,6 +27,15 @@ internal sealed class FakePlatformUserRepository : IUserRepository
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<User>> ListTier0CandidatesAsync(string canonicalEmail, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<User>>(Accounts
+            .Where(account =>
+                string.Equals(account.Provider, User.MicrosoftProvider, StringComparison.Ordinal)
+                    && string.Equals(account.Subject, canonicalEmail, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(account.WorkforceEmailKey, canonicalEmail, StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToList());
+
     public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken ct) =>
         Task.FromResult(Accounts.FirstOrDefault(a => a.Provider == identity.Provider && a.Subject == identity.Subject));
     public Task<User?> GetByEmailAsync(string email, CancellationToken ct) =>
@@ -68,17 +77,6 @@ internal sealed class FakePlatformUserAuditWriter : IAuditWriter
 {
     public readonly List<Audit> Appended = [];
     public void Append(Audit entry) => Appended.Add(entry);
-}
-
-internal sealed class FakeAdminIdentityAuditWriter : IAdminIdentityAuditWriter
-{
-    public readonly List<AdminIdentityAuditEntry> Appended = [];
-
-    public Task AppendMicrosoftPreProvisionAsync(AdminIdentityAuditEntry entry, CancellationToken ct)
-    {
-        Appended.Add(entry);
-        return Task.CompletedTask;
-    }
 }
 
 /// <summary>In-memory admin session store for command-handler tests. Records revoke calls; a small seed list backs

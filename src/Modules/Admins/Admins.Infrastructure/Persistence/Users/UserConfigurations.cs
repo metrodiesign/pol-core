@@ -35,6 +35,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
         builder.Property(x => x.Subject).HasMaxLength(256); // nullable until an invited Scoped account binds it
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.WorkforceEmailKey).HasMaxLength(WorkforceEmail.MaxLength);
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
@@ -48,6 +49,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         // exempt (REQ-3.1, B2 — SQL Server treats NULLs as equal in an unfiltered unique index).
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique(); // the invite key before a subject is bound
+        builder.HasIndex(x => x.WorkforceEmailKey).IsUnique().HasFilter("[WorkforceEmailKey] IS NOT NULL");
 
         // Org-profile FKs to the master lists. Nullable (unknown at invite); Restrict so a referenced master
         // can't be hard-deleted (soft-deactivate via IsActive instead). No back-navigation on the master side.

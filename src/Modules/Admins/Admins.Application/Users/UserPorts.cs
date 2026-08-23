@@ -18,6 +18,8 @@ public interface IUserRepository
     void RemoveAssignment(MerchantAccess assignment);
 
     Task AcquireIdentityMutationLockAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<User>> ListTier0CandidatesAsync(
+        string canonicalEmail, CancellationToken cancellationToken);
     Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken);
     Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken);
     Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
@@ -49,25 +51,10 @@ public interface IAuditWriter
     void Append(Audit entry);
 }
 
-public sealed record AdminIdentityAuditEntry(
-    Guid ActorAdminId,
-    Guid TargetAdminId,
-    string Reason,
-    string IdentityFingerprint,
-    long ResourceVersion,
-    string CorrelationId,
-    DateTime OccurredAt);
-
-public interface IAdminIdentityAuditWriter
-{
-    Task AppendMicrosoftPreProvisionAsync(
-        AdminIdentityAuditEntry entry, CancellationToken cancellationToken);
-}
-
 /// <summary>Re-resolves a Microsoft identity after a transaction-level unique conflict. Implementations must
 /// use a fresh persistence context; the context that observed the failed insert is not a valid read source.</summary>
 public interface IAdminIdentityRecoveryReader
 {
     Task<ResolveResult> ResolveAfterConflictAsync(
-        ProviderIdentity identity, CancellationToken cancellationToken);
+        string canonicalEmail, CancellationToken cancellationToken);
 }

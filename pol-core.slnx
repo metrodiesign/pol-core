@@ -11,6 +11,9 @@
   <Folder Name="/src/Hosts/">
     <Project Path="src/Hosts/Api/Api.csproj" />
   </Folder>
+  <Folder Name="/src/Tools/">
+    <Project Path="src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj" />
+  </Folder>
   <Folder Name="/src/Persistence/">
     <Project Path="src/Persistence/Persistence.ControlPlane/Persistence.ControlPlane.csproj" />
     <Project Path="src/Persistence/Persistence.MerchantUsers/Persistence.MerchantUsers.csproj" />

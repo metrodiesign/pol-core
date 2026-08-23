@@ -158,15 +158,17 @@ dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
   --startup-project src/Hosts/Api
 
+dotnet run --project src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj
+
 dotnet ef migrations list --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
   --startup-project src/Hosts/Api
 ```
 
-ปัจจุบันต้องมี 20 migrations และตัวสุดท้ายต้องเป็น:
+ปัจจุบันต้องมี 21 migrations และตัวสุดท้ายต้องเป็น:
 
 ```text
-20260819145219_WorkforceTenantBinding
+20260823132337_Tier0WorkforceEmailIdentity
 ```
 
 ตรวจ static migration guard โดยไม่ต้องมี `sqlcmd` บน host:
@@ -181,8 +183,10 @@ env -u POL_SA_PASSWORD bash docker/bootstrap/assert-fresh-db.test.sh
 bash docker/bootstrap/assert-fresh-db.test.sh
 ```
 
-ผลลัพธ์สุดท้ายต้องเป็น `assert-fresh-db.test: OK`. API จะ auto-migrate ใน Development เมื่อ
-`ConnectionStrings__Migrator` มีค่า; production ไม่ auto-migrate และต้องใช้ขั้นตอนใน
+ผลลัพธ์สุดท้ายต้องเป็น `assert-fresh-db.test: OK`. EF migration ใหม่สร้าง pending workforce identity state;
+ต้องรัน `WorkforceIdentityMigrator` ให้ exit `0` ก่อน start API. API จะ fail startup เมื่อ state pending หรือ
+subject/key invariant ไม่ผ่าน. Production ใช้ `docker/migrate-entrypoint.sh` ซึ่งรัน EF และ tool ตามลำดับ;
+ห้ามพึ่ง Development auto-migrate สำหรับ cutover นี้. ขั้นตอน production อยู่ใน
 [Self-host Deployment Runbook](deploy-self-host.md).
 
 ## 7. ตั้งค่า Microsoft Entra OIDC
@@ -358,7 +362,8 @@ Microsoft invitation start ยังไม่รองรับเพราะ E
 
 1. เปิด `https://localhost:5001/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
 2. ใช้ employee account จาก workforce tenant ที่ pin ไว้.
-3. Identity ใหม่ต้องผ่าน tenant, `vcp.employee` และ exact `viriyah.co.th` gate; ระบบสร้าง `Active + Scoped` แบบไม่มี role.
+3. Identity ใหม่ต้องผ่าน exact tenant และ canonical `viriyah.co.th` email gate; `email` มาก่อน
+   `preferred_username`, ไม่บังคับ `roles` และไม่ใช้ `oid`. ระบบสร้าง `Active + Scoped` แบบไม่มี role.
 4. Login สำเร็จต้อง redirect ไป `https://localhost:3001/dashboard` พร้อม admin session cookie.
 5. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
 

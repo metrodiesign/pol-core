@@ -21,6 +21,7 @@ public sealed class BypassPrimitiveTests
     private static readonly HashSet<string> AllowedPorts =
     [
         "src/Persistence/Persistence.ControlPlane/Admins/SessionStore.cs", // task 8.5.1 mirror of the old Admins.Infrastructure SessionStore (deleted)
+        "src/Persistence/Persistence.ControlPlane/Admins/WorkforceTenantBindingStore.cs", // Tier 0 startup: read-only singleton migration state query; user invariant reads remain normal filtered EF queries
         "src/Persistence/Persistence.ControlPlane/Governance/GovernanceSqlLockManager.cs", // admin-console Task 2: transaction-owned applock + audit-head row lock, both constrained by explicit resource/scope key
         "src/Persistence/Persistence.ControlPlane/Governance/GovernanceOutboxDispatcher.cs", // admin-console Task 2: READPAST/UPDLOCK lease of a bounded pending Governance outbox batch
         "src/Persistence/Persistence.MerchantRuntime/Outbox/OutboxDispatcher.cs", // task 8.5.3 mirror of the old BuildingBlocks.Infrastructure OutboxDispatcher (moved)

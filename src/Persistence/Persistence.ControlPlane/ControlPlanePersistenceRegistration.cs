@@ -121,7 +121,6 @@ public static class ControlPlanePersistenceRegistration
 
         services.AddScoped<GovernanceSqlLockManager>();
         services.AddScoped<GovernanceAuditAppender>();
-        services.AddScoped<IAdminIdentityAuditWriter, AdminIdentityAuditWriter>();
         services.AddScoped<PaymentAuthorizationSqlLockManager>();
         services.AddScoped(sp => new ControlPlaneOperationExecutor(
             sp.GetRequiredService<ControlPlaneDbContext>(),

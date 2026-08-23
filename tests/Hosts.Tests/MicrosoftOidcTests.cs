@@ -8,9 +8,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hosts.Tests;
 
-// The Entra deltas (OidcProviderOptions.cs): the OPTIONAL AllowedTenants tid gate (issuer validation itself is
-// the framework default against the tenant-pinned Authority's metadata issuer — no custom validator to test),
-// oid-as-subject, and the email -> preferred_username fallback.
+// Shared Microsoft provider helpers plus the Admin Tier 0 tenant/canonical-email gate.
 public sealed class MicrosoftOidcTests
 {
     private const string Tid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
@@ -60,55 +58,53 @@ public sealed class MicrosoftOidcTests
     }
 
     [Fact]
-    public void Workforce_claims_accept_mixed_case_domain_and_normalize_uuid_identity()
+    public void Workforce_claims_accept_mixed_case_email_and_create_canonical_identity()
     {
         var result = ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid.ToUpperInvariant()), ("oid", Oid.ToUpperInvariant()),
-                ("roles", "vcp.employee"), ("email", "Employee@VIRIYAH.CO.TH")),
+            Principal(("tid", Tid.ToUpperInvariant()), ("email", "  Employee@VIRIYAH.CO.TH  ")),
             Guid.Parse(Tid), out var claims);
 
         Assert.True(result);
         Assert.Equal(Guid.Parse(Tid), claims.TenantId);
-        Assert.Equal(Guid.Parse(Oid), claims.ObjectId);
-        Assert.Equal("Employee@VIRIYAH.CO.TH", claims.SelectedIdentifier);
+        Assert.Equal("employee@viriyah.co.th", claims.CanonicalEmail);
         Assert.Equal("microsoft", claims.Identity.Provider);
-        Assert.Equal(Oid, claims.Identity.Subject);
+        Assert.Equal("employee@viriyah.co.th", claims.Identity.Subject);
     }
 
     [Fact]
     public void Workforce_claims_fallback_to_one_preferred_username_only_when_email_is_absent()
     {
         var result = ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid), ("oid", Oid), ("roles", "vcp.employee"),
-                ("preferred_username", "employee@viriyah.co.th")),
+            Principal(("tid", Tid), ("preferred_username", "employee@viriyah.co.th")),
             Guid.Parse(Tid), out var claims);
 
         Assert.True(result);
-        Assert.Equal("employee@viriyah.co.th", claims.SelectedIdentifier);
+        Assert.Equal("employee@viriyah.co.th", claims.CanonicalEmail);
 
         Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid), ("oid", Oid), ("roles", "vcp.employee"),
+            Principal(("tid", Tid),
                 ("email", "external@example.com"), ("preferred_username", "employee@viriyah.co.th")),
             Guid.Parse(Tid), out _));
     }
 
     [Theory]
     [InlineData("tid")]
-    [InlineData("oid")]
     [InlineData("email")]
     [InlineData("preferred_username")]
     public void Workforce_claims_reject_ambiguous_scalar_claims(string duplicatedType)
     {
         var claims = new List<(string Type, string Value)>
         {
-            ("tid", Tid), ("oid", Oid), ("roles", "vcp.employee"), ("email", "employee@viriyah.co.th"),
+            ("tid", Tid), ("email", "employee@viriyah.co.th"),
         };
         if (duplicatedType == "preferred_username")
         {
             claims.RemoveAll(claim => claim.Type == "email");
             claims.Add(("preferred_username", "employee@viriyah.co.th"));
         }
-        claims.Add((duplicatedType, duplicatedType is "tid" or "oid" ? claims.First(c => c.Type == duplicatedType).Value : "other@viriyah.co.th"));
+        claims.Add((duplicatedType, duplicatedType == "tid"
+            ? claims.First(c => c.Type == duplicatedType).Value
+            : "other@viriyah.co.th"));
 
         Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
             Principal([.. claims]), Guid.Parse(Tid), out _));
@@ -121,35 +117,45 @@ public sealed class MicrosoftOidcTests
     [InlineData("external@sub.viriyah.co.th")]
     [InlineData("@viriyah.co.th")]
     [InlineData("employee@viriyah.co.th@other.example")]
+    [InlineData("Employee <employee@viriyah.co.th>")]
+    [InlineData("employee @viriyah.co.th")]
+    [InlineData("พนักงาน@viriyah.co.th")]
     public void Workforce_claims_reject_non_exact_workforce_domain_or_malformed_identifier(string identifier)
     {
         Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid), ("oid", Oid), ("roles", "vcp.employee"), ("email", identifier)),
+            Principal(("tid", Tid), ("email", identifier)),
             Guid.Parse(Tid), out _));
     }
 
     [Theory]
-    [InlineData("missing-role")]
-    [InlineData("VCP.EMPLOYEE")]
-    [InlineData("wrong-role")]
-    public void Workforce_claims_require_case_sensitive_employee_app_role(string role)
+    [InlineData(null, null)]
+    [InlineData("roles", "")]
+    [InlineData("roles", "unrelated")]
+    [InlineData("oid", "not-a-guid")]
+    public void Workforce_claims_ignore_roles_and_object_identifier(string? claimType, string? claimValue)
     {
-        Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid), ("oid", Oid), ("roles", role), ("email", "employee@viriyah.co.th")),
-            Guid.Parse(Tid), out _));
+        var claims = new List<(string Type, string Value)>
+        {
+            ("tid", Tid), ("email", "employee@viriyah.co.th"),
+        };
+        if (claimType is not null)
+            claims.Add((claimType, claimValue!));
+
+        Assert.True(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
+            Principal([.. claims]), Guid.Parse(Tid), out _));
     }
 
     [Fact]
-    public void Workforce_claims_require_exact_tenant_and_uuid_claims()
+    public void Workforce_claims_require_one_exact_non_empty_tenant()
     {
         Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Guid.NewGuid().ToString()), ("oid", Oid), ("roles", "vcp.employee"),
+            Principal(("tid", Guid.NewGuid().ToString()),
                 ("email", "employee@viriyah.co.th")), Guid.Parse(Tid), out _));
         Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid), ("oid", "not-a-guid"), ("roles", "vcp.employee"),
+            Principal(("tid", "not-a-guid"),
                 ("email", "employee@viriyah.co.th")), Guid.Parse(Tid), out _));
         Assert.False(ApiHost::Api.Admins.MicrosoftWorkforceClaimsValidator.TryValidate(
-            Principal(("tid", Tid), ("roles", "vcp.employee"), ("email", "employee@viriyah.co.th")),
+            Principal(("email", "employee@viriyah.co.th")),
             Guid.Parse(Tid), out _));
     }
 

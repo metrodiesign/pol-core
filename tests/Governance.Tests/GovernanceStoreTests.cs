@@ -150,65 +150,6 @@ public sealed class GovernanceStoreTests : IAsyncLifetime
             anchoredStore.GetAuditAsync(auditId, Access(Guid.NewGuid()), default));
     }
 
-    [Fact]
-    public async Task Microsoft_pre_provision_audit_stages_safe_platform_record_and_extends_hash_chain()
-    {
-        await _store.ReceiveAsync(NewPlatformRequest(Guid.NewGuid(), Guid.NewGuid()), default);
-        var first = await _db.AuditRecords.AsNoTracking().SingleAsync();
-        var target = Guid.NewGuid();
-        var actor = Guid.NewGuid();
-        var occurredAt = _clock.UtcNow.AddMinutes(1);
-        var fingerprint = $"sha256:{new string('a', 64)}";
-        var writer = new AdminIdentityAuditWriter(
-            new GovernanceAuditAppender(_db, new GovernanceSqlLockManager(_db)));
-
-        await writer.AppendMicrosoftPreProvisionAsync(new AdminIdentityAuditEntry(
-            actor, target, "HR ticket 42", fingerprint, 2, "corr-identity", occurredAt), default);
-
-        Assert.Equal(1, await _db.AuditRecords.CountAsync());
-        var staged = Assert.Single(
-            _db.ChangeTracker.Entries<AuditRecord>(), x => x.State == EntityState.Added).Entity;
-        Assert.True(staged.HasValidHash());
-
-        await _db.SaveChangesAsync();
-        _db.ChangeTracker.Clear();
-
-        var records = await _db.AuditRecords.AsNoTracking().OrderBy(x => x.Sequence).ToListAsync();
-        var identity = Assert.Single(records, x => x.Action == "admin.microsoft-identity.preprovisioned");
-        Assert.Equal(2, identity.Sequence);
-        Assert.Equal("platform", identity.ScopeKey);
-        Assert.Null(identity.MerchantId);
-        Assert.Equal(actor, identity.ActorId);
-        Assert.Equal("admin", identity.ResourceType);
-        Assert.Equal(target.ToString("D"), identity.ResourceId);
-        Assert.Equal("succeeded", identity.Result);
-        Assert.Equal("v2", identity.ResourceVersion);
-        Assert.Equal("corr-identity", identity.CorrelationId);
-        Assert.Equal(occurredAt, identity.OccurredAt);
-        Assert.Equal(DateTimeKind.Unspecified, identity.OccurredAt.Kind);
-        Assert.True(identity.HasValidHash());
-        Assert.Equal(
-            $"{{\"fingerprint\":\"{fingerprint}\",\"provider\":\"microsoft\",\"reason\":\"HR ticket 42\",\"subjectBoundAfter\":true,\"subjectBoundBefore\":false}}",
-            identity.Changes);
-        Assert.Equal(first.Hash, identity.PreviousHash);
-        Assert.NotNull(await _store.GetAuditAsync(identity.Id, Access(Guid.NewGuid()), default));
-
-        var anchors = new Dictionary<string, AuditAnchorCheckpoint>(StringComparer.Ordinal)
-        {
-            ["platform"] = new(
-                "platform", identity.Sequence, Convert.ToHexString(identity.Hash).ToLowerInvariant(), occurredAt),
-        };
-        var locks = new GovernanceSqlLockManager(_db);
-        var anchoredStore = new GovernanceStore(
-            _db,
-            new ControlPlaneUnitOfWork(_db, new NoopTelemetry()),
-            _clock,
-            new StaticAnchorStore(anchors),
-            locks,
-            new GovernanceAuditAppender(_db, locks));
-        Assert.NotNull(await anchoredStore.GetAuditAsync(identity.Id, Access(Guid.NewGuid()), default));
-    }
-
     private ApprovalRequested NewPlatformRequest(Guid approvalId, Guid maker) => new(
         Guid.NewGuid(), approvalId, "platform", null, "apikey.rotate", "settings.manage", maker,
         "api-client", "client-1", "v1", "corr", _clock.UtcNow);

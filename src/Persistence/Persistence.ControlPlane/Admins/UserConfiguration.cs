@@ -35,6 +35,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Provider).HasMaxLength(32).IsRequired().HasDefaultValue(User.GoogleProvider);
         builder.Property(x => x.Subject).HasMaxLength(256);
         builder.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        builder.Property(x => x.WorkforceEmailKey).HasMaxLength(WorkforceEmail.MaxLength);
         builder.Property(x => x.Tier).HasConversion<int>().IsRequired();
         builder.Property(x => x.Status).HasConversion<int>().IsRequired();
         builder.Property(x => x.CreatedAt).IsRequired();
@@ -50,6 +51,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.DivisionId);
         builder.HasIndex(x => new { x.Provider, x.Subject }).IsUnique().HasFilter("[Subject] IS NOT NULL");
         builder.HasIndex(x => x.Email).IsUnique();
+        builder.HasIndex(x => x.WorkforceEmailKey).IsUnique().HasFilter("[WorkforceEmailKey] IS NOT NULL");
     }
 }
 

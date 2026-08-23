@@ -251,7 +251,7 @@ public sealed class WriteFloorTests : IDisposable
             var head = AuditHead.Create("platform", GovernanceScopeKind.Platform, null, now);
             var audit = AuditRecord.Append(
                 "platform", GovernanceScopeKind.Platform, null, 1, AuditRecord.Genesis, Guid.NewGuid(),
-                "admin.microsoft-identity.preprovisioned", "admin", Guid.NewGuid().ToString("D"),
+                "admin.test.audit", "admin", Guid.NewGuid().ToString("D"),
                 "succeeded", "{}", null, "v2", "corr-write-floor", now);
             head.Advance(audit.Sequence, audit.PreviousHash, audit.Hash, now);
             setup.AuditHeads.Add(head);

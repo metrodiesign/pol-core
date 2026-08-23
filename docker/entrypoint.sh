@@ -72,20 +72,12 @@ if [ -n "${MAMMOTH_DB_SERVER:-}" ]; then
 fi
 unset DB_PW
 
-# The admin BFF login is a confidential Google OIDC client: export its client secret from the mounted file
-# secret so it never enters the image, the compose file, or `docker inspect` (REQ-8.1). The API fail-fasts at
-# boot (outside Development) when it is unset.
-if [ -n "${ADMIN_OIDC_CLIENT_SECRET_FILE:-}" ]; then
-    export AdminAuth__Providers__Google__ClientSecret="$(cat "$ADMIN_OIDC_CLIENT_SECRET_FILE")"
-fi
-
-# Same for the merchant-user BFF login (its own isolated confidential OIDC client, distinct scheme/cookie names
-# from admin — see UserOidcOptions). A blank ClientId skips the scheme rather than failing boot.
+# Merchant-user Google BFF uses its own confidential client. A blank ClientId skips the scheme.
 if [ -n "${MERCHANT_USER_OIDC_CLIENT_SECRET_FILE:-}" ]; then
     export MerchantAuth__Providers__Google__ClientSecret="$(cat "$MERCHANT_USER_OIDC_CLIENT_SECRET_FILE")"
 fi
 
-# Optional Microsoft Entra clients (provider-scoped OIDC): same mounted-file pattern per side.
+# Microsoft Entra clients use one mounted secret per plane; Admin is required in Production, Merchant is optional.
 if [ -n "${ADMIN_ENTRA_CLIENT_SECRET_FILE:-}" ]; then
     export AdminAuth__Providers__Microsoft__ClientSecret="$(cat "$ADMIN_ENTRA_CLIENT_SECRET_FILE")"
 fi

@@ -10,12 +10,13 @@ public sealed class PlatformUserTests
     [Fact]
     public void SelfProvision_creates_an_active_super_with_a_bound_subject()
     {
-        var admin = User.SelfProvision("google", "g-sub-1", "ops@org.com", Now);
+        var admin = User.SelfProvision("google", "g-sub-1", " Employee@VIRIYAH.CO.TH ", Now);
 
         Assert.Equal(Tier.Super, admin.Tier);
         Assert.Equal(UserStatus.Active, admin.Status);
         Assert.Equal("g-sub-1", admin.Subject);
-        Assert.Equal("ops@org.com", admin.Email);
+        Assert.Equal("Employee@VIRIYAH.CO.TH", admin.Email);
+        Assert.Equal("employee@viriyah.co.th", admin.WorkforceEmailKey);
     }
 
     [Fact]
@@ -27,6 +28,29 @@ public sealed class PlatformUserTests
         Assert.Equal(UserStatus.Active, admin.Status);
         Assert.Null(admin.Subject); // unbound until first login (REQ-3.1)
         Assert.Equal("scoped@org.com", admin.Email);
+        Assert.Null(admin.WorkforceEmailKey);
+    }
+
+    [Fact]
+    public void CreateScoped_derives_a_canonical_workforce_key_without_rewriting_stored_email()
+    {
+        var admin = User.CreateScoped(" Employee@VIRIYAH.CO.TH ", Now);
+
+        Assert.Equal("Employee@VIRIYAH.CO.TH", admin.Email);
+        Assert.Equal("employee@viriyah.co.th", admin.WorkforceEmailKey);
+    }
+
+    [Fact]
+    public void JitProvisionMicrosoft_uses_one_canonical_value_for_subject_email_and_key()
+    {
+        var admin = User.JitProvisionMicrosoft(" Employee@VIRIYAH.CO.TH ", Now);
+
+        Assert.Equal(User.MicrosoftProvider, admin.Provider);
+        Assert.Equal("employee@viriyah.co.th", admin.Subject);
+        Assert.Equal("employee@viriyah.co.th", admin.Email);
+        Assert.Equal("employee@viriyah.co.th", admin.WorkforceEmailKey);
+        Assert.Equal(Tier.Scoped, admin.Tier);
+        Assert.Equal(UserStatus.Active, admin.Status);
     }
 
     [Fact]

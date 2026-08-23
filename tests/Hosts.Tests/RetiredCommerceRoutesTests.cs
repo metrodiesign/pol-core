@@ -37,6 +37,7 @@ public sealed class RetiredCommerceRoutesTests
         { "GET", "/api/v1/reports/policies" },
         { "PUT", $"/api/v1/admins/orders/{Guid.NewGuid()}/items/{Guid.NewGuid()}/policy" },
         { "GET", "/api/v1/admins/reports/policies" },
+        { "PUT", $"/api/v1/admins/{Guid.NewGuid()}/microsoft-identity" },
     };
 
     [Theory]
@@ -67,5 +68,6 @@ public sealed class RetiredCommerceRoutesTests
         Assert.DoesNotContain(paths, path => path.Contains("/checkouts", StringComparison.Ordinal));
         Assert.DoesNotContain(paths, path => path.Contains("/reports/policies", StringComparison.Ordinal));
         Assert.DoesNotContain(paths, path => path.EndsWith("/policy", StringComparison.Ordinal));
+        Assert.DoesNotContain(paths, path => path.Contains("/microsoft-identity", StringComparison.Ordinal));
     }
 }

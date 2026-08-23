@@ -74,7 +74,7 @@ file sealed class FakeBackchannel : HttpMessageHandler
         });
 }
 
-file sealed record AdminResolved(string Provider, string Subject, string Email, bool EmailVerified);
+file sealed record AdminResolved(string Provider, string Subject);
 
 file sealed class RecordingAdminResolver : ApiHost::Api.Admins.ICallbackResolver
 {
@@ -82,9 +82,9 @@ file sealed class RecordingAdminResolver : ApiHost::Api.Admins.ICallbackResolver
     public ResolveResult Result { get; set; } = ResolveResult.NotFound;
 
     public Task<ResolveResult> ResolveAtCallbackAsync(
-        SharedKernel.ProviderIdentity identity, string email, bool emailVerified, string correlationId, CancellationToken ct)
+        SharedKernel.ProviderIdentity identity, string correlationId, CancellationToken ct)
     {
-        Resolved = new AdminResolved(identity.Provider, identity.Subject, email, emailVerified);
+        Resolved = new AdminResolved(identity.Provider, identity.Subject);
         return Task.FromResult(Result);
     }
 }
@@ -329,27 +329,26 @@ public sealed class OidcCallbackE2ETests
     }
 
     [Fact]
-    public async Task Admin_microsoft_callback_maps_oid_unverified()
+    public async Task Admin_microsoft_callback_maps_canonical_email_and_ignores_other_claims()
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid.ToUpperInvariant()),
-            ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()), ("roles", "vcp.employee"),
-            ("email", "ops@viriyah.co.th"));
+            challenge.Nonce, ("sub", "pairwise"), ("oid", "not-a-guid"),
+            ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()), ("roles", "unrelated"),
+            ("email", "  OPS@VIRIYAH.CO.TH  "));
 
         var response = await CallbackAsync(client, challenge);
 
-        // REQ-2.2/6.3: the workforce tenant-pinned issuer passed; subject = oid; Entra email stays UNVERIFIED.
-        Assert.Equal(new AdminResolved("microsoft", TestOidc.WorkforceOid, "ops@viriyah.co.th", EmailVerified: false),
+        Assert.Equal(new AdminResolved("microsoft", "ops@viriyah.co.th"),
             factory.AdminResolver.Resolved);
         Assert.Equal("not-provisioned", Reason(response));
     }
 
     [Fact]
-    // REQ-6.12: valid Workforce tid/oid resolves the already-bound Scoped admin through the real callback pipeline.
-    public async Task Admin_microsoft_callback_resolves_a_preprovisioned_scoped_admin_and_creates_a_session()
+    // Canonical workforce email resolves existing Scoped admin through real callback pipeline.
+    public async Task Admin_microsoft_callback_resolves_existing_scoped_admin_and_creates_a_session()
     {
         var adminId = Guid.Parse("f5ebca84-4997-4a5d-b26b-6818f94f08f8");
         var merchantId = Guid.Parse("12b19f6a-2020-4ad8-ae1d-9567ec0b0cf4");
@@ -364,8 +363,7 @@ public sealed class OidcCallbackE2ETests
             "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(
             TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient, challenge.Nonce,
-            ("sub", pairwiseSubject), ("oid", TestOidc.WorkforceOid.ToUpperInvariant()),
-            ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()), ("roles", "vcp.employee"),
+            ("sub", pairwiseSubject), ("tid", TestOidc.WorkforceTenant.ToUpperInvariant()),
             ("email", "employee@viriyah.co.th"));
 
         var response = await CallbackAsync(client, challenge);
@@ -373,7 +371,7 @@ public sealed class OidcCallbackE2ETests
         Assert.Equal(HttpStatusCode.Found, response.StatusCode);
         Assert.Equal("https://localhost:3001/dashboard", response.Headers.Location?.ToString());
         Assert.Equal(new AdminResolved(
-            User.MicrosoftProvider, TestOidc.WorkforceOid, "employee@viriyah.co.th", EmailVerified: false),
+            User.MicrosoftProvider, "employee@viriyah.co.th"),
             factory.AdminResolver.Resolved);
         var session = Assert.Single(factory.AdminSessions.Added);
         Assert.Equal(adminId, session.AdminUserId);
@@ -409,7 +407,7 @@ public sealed class OidcCallbackE2ETests
         Assert.Null(factory.UserResolver.Resolved); // hard-fail BEFORE any resolution
     }
 
-    // ---- the fixed workforce tenant/role/domain gate through the middleware ----
+    // ---- fixed workforce tenant/canonical-email gate through middleware ----
 
     [Fact]
     public async Task Admin_microsoft_requires_tid_even_when_the_optional_allowlist_is_empty()
@@ -418,8 +416,7 @@ public sealed class OidcCallbackE2ETests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("sub", "pairwise"), ("oid", TestOidc.WorkforceOid),
-            ("roles", "vcp.employee"), ("email", "ops@viriyah.co.th"));
+            challenge.Nonce, ("sub", "pairwise"), ("email", "ops@viriyah.co.th"));
 
         var response = await CallbackAsync(client, challenge);
 
@@ -434,8 +431,8 @@ public sealed class OidcCallbackE2ETests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("oid", TestOidc.WorkforceOid),
-            ("tid", "bbbbbbbb-0000-0000-0000-000000000000"), ("roles", "vcp.employee"),
+            challenge.Nonce,
+            ("tid", "bbbbbbbb-0000-0000-0000-000000000000"),
             ("email", "ops@viriyah.co.th"));
 
         var response = await CallbackAsync(client, challenge);
@@ -447,10 +444,7 @@ public sealed class OidcCallbackE2ETests
     [Theory]
     [InlineData("tid", "not-a-uuid")]
     [InlineData("tid", "00000000-0000-0000-0000-000000000000")]
-    [InlineData("oid", null)]
-    [InlineData("oid", "not-a-uuid")]
-    [InlineData("oid", "00000000-0000-0000-0000-000000000000")]
-    public async Task Admin_microsoft_rejects_invalid_or_empty_uuid_claims(
+    public async Task Admin_microsoft_rejects_invalid_or_empty_tenant_claim(
         string claimType, string? invalidValue)
     {
         using var factory = new OidcE2EFactory();
@@ -459,8 +453,6 @@ public sealed class OidcCallbackE2ETests
         var claims = new Dictionary<string, string>
         {
             ["tid"] = TestOidc.WorkforceTenant,
-            ["oid"] = TestOidc.WorkforceOid,
-            ["roles"] = "vcp.employee",
             ["email"] = "ops@viriyah.co.th",
         };
         if (invalidValue is null)
@@ -532,8 +524,7 @@ public sealed class OidcCallbackE2ETests
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
         factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("oid", TestOidc.WorkforceOid), ("tid", TestOidc.WorkforceTenant),
-            ("roles", "vcp.employee"), ("email", "x@example.com"));
+            challenge.Nonce, ("tid", TestOidc.WorkforceTenant), ("email", "x@example.com"));
 
         var response = await CallbackAsync(client, challenge);
 
@@ -541,19 +532,29 @@ public sealed class OidcCallbackE2ETests
         Assert.Null(factory.AdminResolver.Resolved);
     }
 
-    [Fact]
-    public async Task A_workforce_token_without_employee_role_maps_to_access_denied()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("unrelated")]
+    public async Task A_workforce_token_ignores_role_claim(string? role)
     {
         using var factory = new OidcE2EFactory();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var challenge = await StartAsync(client, "/api/v1/admins/auth/microsoft/login", "/api/v1/admins/auth/microsoft/callback");
-        factory.Backchannel.IdToken = TestOidc.CreateIdToken(TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
-            challenge.Nonce, ("oid", TestOidc.WorkforceOid), ("tid", TestOidc.WorkforceTenant),
-            ("email", "ops@viriyah.co.th"));
+        var claims = new List<(string Type, string Value)>
+        {
+            ("sub", "pairwise"), ("tid", TestOidc.WorkforceTenant),
+            ("email", "ops@viriyah.co.th"),
+        };
+        if (role is not null)
+            claims.Add(("roles", role));
+        factory.Backchannel.IdToken = TestOidc.CreateIdToken(
+            TestOidc.WorkforceIssuer, OidcE2EFactory.AdminMicrosoftClient,
+            challenge.Nonce, [.. claims]);
 
         var response = await CallbackAsync(client, challenge);
 
-        Assert.Equal("workforce-access-denied", Reason(response));
-        Assert.Null(factory.AdminResolver.Resolved);
+        Assert.Equal("not-provisioned", Reason(response));
+        Assert.Equal(new AdminResolved("microsoft", "ops@viriyah.co.th"), factory.AdminResolver.Resolved);
     }
 }

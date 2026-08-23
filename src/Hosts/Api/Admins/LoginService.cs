@@ -14,8 +14,7 @@ namespace Api.Admins;
 internal interface ICallbackResolver
 {
     Task<ResolveResult> ResolveAtCallbackAsync(
-        ProviderIdentity identity, string email, bool emailVerified, string correlationId,
-        CancellationToken cancellationToken);
+        ProviderIdentity identity, string correlationId, CancellationToken cancellationToken);
 }
 
 internal sealed class CallbackResolver : ICallbackResolver
@@ -25,18 +24,14 @@ internal sealed class CallbackResolver : ICallbackResolver
     public CallbackResolver(IMediator mediator) => _mediator = mediator;
 
     public async Task<ResolveResult> ResolveAtCallbackAsync(
-        ProviderIdentity identity, string email, bool emailVerified, string correlationId,
-        CancellationToken cancellationToken)
+        ProviderIdentity identity, string correlationId, CancellationToken cancellationToken)
     {
-        var result = await _mediator.Send(new ResolveQuery(identity), cancellationToken);
-        if (result.Outcome != ResolveOutcome.NotFound)
-            return result;
+        if (string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.Ordinal))
+            return await _mediator.Send(
+                new ResolveMicrosoftAdminCommand(identity.Subject, correlationId), cancellationToken);
 
-        // The OIDC workforce gate already proved tid/role/domain. Only Microsoft can enter this JIT path;
-        // Google invite-binding/bootstrap is intentionally retired.
-        return string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.Ordinal)
-            ? await _mediator.Send(new JitProvisionMicrosoftAdminCommand(identity, email, correlationId), cancellationToken)
-            : ResolveResult.NotFound;
+        var result = await _mediator.Send(new ResolveQuery(identity), cancellationToken);
+        return result;
     }
 }
 
@@ -88,11 +83,9 @@ internal sealed class LoginService
         TimeSpan.FromSeconds(_session.GraceSeconds));
 
     /// <summary>Establishes a session for a verified provider identity, or denies (REQ-2.5/2.6/2.7/3.1/12.1).
-    /// <paramref name="provider"/> = the lowercase provider slug ("google"/"microsoft") the identity came from.
-    /// <paramref name="emailVerified"/> = the provider attested the email (Google's email_verified gate); an
-    /// unverified email (Entra) is display-only and never binds an invite.</summary>
+    /// <paramref name="provider"/> = the lowercase provider slug ("google"/"microsoft") the identity came from.</summary>
     public async Task EstablishSessionAsync(
-        HttpContext http, string provider, string? subject, string? email, bool emailVerified, string? returnTo, CancellationToken ct)
+        HttpContext http, string provider, string? subject, string? returnTo, CancellationToken ct)
     {
         var auditSubject = provider == User.MicrosoftProvider ? null : subject;
         if (string.IsNullOrEmpty(subject))
@@ -106,11 +99,11 @@ internal sealed class LoginService
         try
         {
             result = await _resolver.ResolveAtCallbackAsync(
-                new ProviderIdentity(provider, subject), email ?? string.Empty, emailVerified, correlationId, ct);
+                new ProviderIdentity(provider, subject), correlationId, ct);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogError(ex, "Admin resolution failed at callback.");
+            _logger.LogError("Admin resolution failed at callback. CorrelationId {CorrelationId}.", correlationId);
             await DenyAsync(http, "resolve-failed", auditSubject, ct);
             return;
         }
@@ -144,11 +137,13 @@ internal sealed class LoginService
             _cookies.Write(http, sessionToken, csrfToken);
             http.Response.Redirect(SafeReturn(returnTo));
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // REQ-2.7: any failure after resolution -> no partial session (the half-built session on THIS context
             // is never committed; the deny audit runs on a fresh scope), denied audit + error redirect, not 500.
-            _logger.LogError(ex, "Admin session establishment failed for {AdminId}.", resolution.AdminId);
+            _logger.LogError(
+                "Admin session establishment failed for {AdminId}. CorrelationId {CorrelationId}.",
+                resolution.AdminId, correlationId);
             await DenyAsync(http, "session-write-failed", auditSubject, ct);
         }
     }
@@ -164,9 +159,11 @@ internal sealed class LoginService
             audit.Append(AuthAudit.For(AuthEventType.AuthDenied, http.TraceIdentifier, _clock.UtcNow, subject: subject, reason: reason));
             await audit.SaveChangesAsync(ct);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogError(ex, "Failed to record denied-auth audit ({Reason}).", reason);
+            _logger.LogError(
+                "Failed to record denied-auth audit. Reason {Reason}. CorrelationId {CorrelationId}.",
+                reason, http.TraceIdentifier);
         }
 
         if (!http.Response.HasStarted)

@@ -134,7 +134,7 @@ public sealed class FreshBaselineMigrationIntegrationTests
             var now = new DateTime(2026, 8, 19, 12, 0, 0, DateTimeKind.Utc);
             var audit = AuditRecord.Append(
                 "platform", GovernanceScopeKind.Platform, null, 1, AuditRecord.Genesis, Guid.NewGuid(),
-                "admin.microsoft-identity.preprovisioned", "admin", Guid.NewGuid().ToString("D"),
+                "admin.test.audit", "admin", Guid.NewGuid().ToString("D"),
                 "succeeded", "{}", null, "v2", "corr-sql-roundtrip", now);
 
             await using (var insert = await IntegrationDb.OpenAsync(IntegrationDb.SaConnFor(database)))

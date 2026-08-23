@@ -5,8 +5,8 @@ using SharedKernel;
 
 namespace Hosts.Tests;
 
-// Admin callback no longer binds invites or bootstraps Google identities. Eligible Microsoft identities enter the
-// application JIT command; eligibility itself is enforced before this resolver by MicrosoftWorkforceClaimsValidator.
+// Admin callback no longer binds invites or bootstraps Google identities. Eligible Microsoft identities enter one
+// canonical resolve/bind/JIT command; eligibility is enforced before this resolver.
 public sealed class AdminCallbackResolverInviteBindTests
 {
     [Fact]
@@ -16,8 +16,7 @@ public sealed class AdminCallbackResolverInviteBindTests
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
 
         var result = await resolver.ResolveAtCallbackAsync(
-            new ProviderIdentity("google", "google-sub-1"),
-            "victim-invite@org.com", emailVerified: true, "corr-1", default);
+            new ProviderIdentity("google", "google-sub-1"), "corr-1", default);
 
         Assert.Equal(ResolveOutcome.NotFound, result.Outcome);
         Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
@@ -25,17 +24,17 @@ public sealed class AdminCallbackResolverInviteBindTests
     }
 
     [Fact]
-    public async Task Microsoft_unknown_identity_dispatches_typed_jit_command_without_email_binding()
+    public async Task Microsoft_identity_dispatches_canonical_resolve_command_directly()
     {
         var mediator = new RecordingMediator();
         var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
 
         await resolver.ResolveAtCallbackAsync(
-            new ProviderIdentity("microsoft", "abcdefab-cdef-4abc-8def-abcdefabcdef"),
-            "invited@org.com", emailVerified: false, "corr-1", default);
+            new ProviderIdentity("microsoft", "employee@viriyah.co.th"), "corr-1", default);
 
-        var jit = Assert.Single(mediator.Sent.OfType<JitProvisionMicrosoftAdminCommand>());
-        Assert.Equal("invited@org.com", jit.Email);
+        var command = Assert.Single(mediator.Sent.OfType<ResolveMicrosoftAdminCommand>());
+        Assert.Equal("employee@viriyah.co.th", command.CanonicalEmail);
+        Assert.DoesNotContain(mediator.Sent, message => message is ResolveQuery);
         Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
     }
 

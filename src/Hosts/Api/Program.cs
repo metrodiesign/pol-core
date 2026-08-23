@@ -2702,31 +2702,6 @@ static Tier? WireToTier(string wire) => wire.ToLowerInvariant() switch
 };
 static string AccountStatusToWire(UserStatus s) => s == UserStatus.Active ? "active" : "suspended";
 
-static Guid RequireIdentityGuid(string? value, string code)
-{
-    if (!Guid.TryParse(value, out var parsed) || parsed == Guid.Empty)
-        throw new InvalidRequestException("A non-empty UUID is required.", code);
-    return parsed;
-}
-
-static string RequireIdentityBindingReason(string? value, Guid tenantId, Guid objectId)
-{
-    var reason = value?.Trim();
-    if (string.IsNullOrEmpty(reason)
-        || reason.Length > 1000
-        || reason.Contains('@')
-        || ContainsGuid(reason, tenantId)
-        || ContainsGuid(reason, objectId))
-    {
-        throw new InvalidRequestException("Reason contains prohibited identity data.", "invalid_reason");
-    }
-    return reason;
-
-    static bool ContainsGuid(string text, Guid id) =>
-        new[] { "D", "N", "B", "P", "X" }
-            .Any(format => text.Contains(id.ToString(format), StringComparison.OrdinalIgnoreCase));
-}
-
 static string SessionStatusToWire(SessionStatus s) => s switch
 {
     SessionStatus.Active => "active",
@@ -2811,48 +2786,6 @@ admin.MapGet("/{id:guid}", async (
     .ProducesProblem(StatusCodes.Status401Unauthorized)
     .ProducesProblem(StatusCodes.Status403Forbidden)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
-
-// Super reserves one tenant-local Entra Object ID for an existing Scoped admin. The request carries no
-// authorization fields: caller identity/version come from the fresh Admin session scope and immutable tenant pin.
-admin.MapPut("/{id:guid}/microsoft-identity", async (
-    Guid id,
-    PreProvisionMicrosoftIdentityRequest body,
-    IAdminScope scope,
-    AdminMicrosoftTenantSnapshot tenant,
-    HttpContext http,
-    IMediator mediator,
-    CancellationToken ct) =>
-{
-    var workforceTenantId = RequireIdentityGuid(body.WorkforceTenantId, "invalid_entra_tenant_id");
-    var entraObjectId = RequireIdentityGuid(body.EntraObjectId, "invalid_entra_object_id");
-    var reason = RequireIdentityBindingReason(body.Reason, workforceTenantId, entraObjectId);
-    var result = await mediator.Send(new PreProvisionMicrosoftIdentityCommand(
-        id,
-        workforceTenantId,
-        entraObjectId,
-        reason,
-        scope.Current.AdminId,
-        scope.Current.AuthorizationVersion,
-        VersionEtags.Require(http),
-        http.TraceIdentifier,
-        IdempotencyKeys.Require(http),
-        tenant.TenantId), ct);
-    VersionEtags.Set(http, result.Version);
-    return Results.Ok(result);
-}).RequireAuthorization("admin").RequirePlatformUserTier(Tier.Super)
-    .RequireAdminIdentityMutationRateLimit()
-    .WithMetadata(new IfMatchMutationMarker("200"), new IdempotencyMutationMarker())
-    .WithTags("ผู้ดูแลระบบ")
-    .WithName("PreProvisionAdminMicrosoftIdentity")
-    .WithSummary("จอง Microsoft identity ให้ Scoped admin")
-    .WithDescription("เฉพาะ Active Super ผูก tenant-local Entra Object ID แบบ one-time พร้อม ETag, idempotency และ tamper-evident audit")
-    .Produces<PreProvisionMicrosoftIdentityResult>(StatusCodes.Status200OK)
-    .ProducesProblem(StatusCodes.Status400BadRequest)
-    .ProducesProblem(StatusCodes.Status401Unauthorized)
-    .ProducesProblem(StatusCodes.Status403Forbidden)
-    .ProducesProblem(StatusCodes.Status404NotFound)
-    .ProducesProblem(StatusCodes.Status409Conflict)
-    .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // The admin's effective permissions = union over ACTIVE roles (REQ-6), the same rule as /me. Unknown id -> 404.
 admin.MapGet("/{id:guid}/effective-permissions", async (Guid id, IMediator mediator, CancellationToken ct) =>
@@ -3875,11 +3808,6 @@ internal sealed record CreateAdminRequest(
     string Email, Guid? PositionId = null, Guid? OfficeId = null, Guid? LevelId = null, Guid? DivisionId = null);
 internal sealed record AssignMerchantRequest(Guid MerchantId);
 internal sealed record ChangeAdminTierRequest(string Tier);
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-internal sealed record PreProvisionMicrosoftIdentityRequest(
-    string? WorkforceTenantId,
-    string? EntraObjectId,
-    string? Reason);
 // Org-profile edit + master-data CRUD (admin-account-management: profile FKs). Master code is set at create,
 // immutable thereafter; update only renames / toggles active.
 internal sealed record UpdateAdminProfileRequest(Guid? PositionId, Guid? OfficeId, Guid? LevelId, Guid? DivisionId);

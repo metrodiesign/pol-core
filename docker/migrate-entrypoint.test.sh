@@ -8,8 +8,8 @@
 # Approach: stub `sqlcmd` and `dotnet` first on PATH. The sqlcmd stub simulates a configurable
 # number of reachability-probe failures (network or TLS flavored, via env) before succeeding,
 # and always succeeds for the bootstrap (-i ...) invocation. The dotnet stub intercepts
-# `dotnet ef database update` and prints $POL_DESIGN_SQL so the connection string is observable
-# without a live SQL Server.
+# both EF update and workforce migration tool, logs their order, and prints $POL_DESIGN_SQL so
+# the connection string is observable without a live SQL Server.
 set -u
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/migrate-entrypoint.sh"
@@ -55,7 +55,11 @@ chmod +x "$STUB_BIN/sqlcmd"
 
 cat >"$STUB_BIN/dotnet" <<'EOF'
 #!/bin/sh
+echo "$*" >>"$DOTNET_LOG"
 echo "$POL_DESIGN_SQL"
+case "$*" in
+    *"WorkforceIdentityMigrator"*) exit "${WORKFORCE_TOOL_EXIT:-0}" ;;
+esac
 EOF
 chmod +x "$STUB_BIN/dotnet"
 
@@ -96,6 +100,7 @@ run_migrate() { # extra env assignments as $@
         HIPPO_APP_PASSWORD_FILE="$HIPPO_PW_FILE" \
         MAMMOTH_APP_PASSWORD_FILE="$MAMMOTH_PW_FILE" \
         SQLCMD_LOG="$TMPDIR/sqlcmd.log" \
+        DOTNET_LOG="$TMPDIR/dotnet.log" \
         SQLCMD_PROBE_COUNT_FILE="$TMPDIR/probe_count" \
         CA_TRUST_DIR="$CA_TRUST_DIR" \
         UPDATE_CA_LOG="$TMPDIR/update_ca.log" \
@@ -162,12 +167,24 @@ check_eq "production gate: complete evidence proceeds" "$rc_prod_ok" "0"
 check_contains "production gate: evidence validation logged" "$out_prod_ok" "production reset evidence validated"
 
 # --- reachable on first attempt: proceeds immediately, exits 0 ---
-rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
+rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log" "$TMPDIR/dotnet.log"
 out_ok="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 2>&1)"
 rc_ok=$?
 check_eq "reachable: exit 0" "$rc_ok" "0"
 check_contains "reachable: proceeds to migrations" "$out_ok" "[migrate] done."
 check_contains "reachable: single probe attempt (DB_SERVER)" "$(cat "$(probe_file dbhost.internal 1433)" 2>/dev/null)" "1"
+dotnet_log="$(cat "$TMPDIR/dotnet.log")"
+check_contains "workforce tool: invoked" "$dotnet_log" "src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj"
+check_eq "workforce tool: runs after EF update" \
+    "$([ "$(grep -n 'ef database update' "$TMPDIR/dotnet.log" | cut -d: -f1)" -lt "$(grep -n 'WorkforceIdentityMigrator' "$TMPDIR/dotnet.log" | cut -d: -f1)" ] && echo yes || echo no)" "yes"
+
+# --- workforce conversion failure is a hard deployment gate ---
+rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log" "$TMPDIR/dotnet.log"
+out_tool_failure="$(run_migrate DB_CONNECT_RETRIES=5 DB_CONNECT_RETRY_DELAY_SECONDS=0 WORKFORCE_TOOL_EXIT=23 2>&1)"
+rc_tool_failure=$?
+check_eq "workforce tool failure: non-zero exit" "$rc_tool_failure" "23"
+check_contains "workforce tool failure: reached conversion" "$out_tool_failure" "validating and converting workforce identities"
+check_not_contains "workforce tool failure: deploy not marked done" "$out_tool_failure" "[migrate] done."
 
 # --- unreachable for the whole bounded window: exits non-zero, attempts logged ---
 rm -f "$TMPDIR"/probe_count* "$TMPDIR/sqlcmd.log"
