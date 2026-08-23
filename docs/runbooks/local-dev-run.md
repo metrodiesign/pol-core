@@ -250,18 +250,16 @@ unset AdminAuth__Providers__Microsoft__ClientSecret
 `Run user flow` ใน Portal พิสูจน์ tenant UX เท่านั้น. การทดสอบ backend end-to-end ต้องเริ่มจาก application login path
 เพื่อให้ browser มี state, nonce และ correlation cookie ที่ backend สร้างไว้.
 
-### 7.4 ตั้งค่า Google OIDC
+### 7.4 ตั้งค่า Google OIDC สำหรับ Merchant
 
-Google ใช้ confidential Web application แยกระหว่าง Admin และ Merchant. ถ้าไม่ทดสอบ Google ให้ตั้ง Client ID ของ
-provider นั้นเป็นค่าว่าง; ถ้าทดสอบให้แทน placeholder ทั้ง Client ID และ secret ด้วยค่าจริงนอก tracked files.
+Google ยังใช้ได้เฉพาะ Merchant user. Admin Google login/callback ไม่ register และต้องตอบ `404`.
 
-| Tier | Configuration prefix | Login path | Google Web redirect URI |
-|---|---|---|---|
-| Admin | `AdminAuth__Providers__Google__` | `/api/v1/admins/auth/google/login` | `https://localhost:5001/api/v1/admins/auth/google/callback` |
-| Merchant | `MerchantAuth__Providers__Google__` | `/api/v1/merchants/auth/google/login` | `https://localhost:5001/api/v1/merchants/auth/google/callback` |
+| Configuration prefix | Login path | Google Web redirect URI |
+|---|---|---|
+| `MerchantAuth__Providers__Google__` | `/api/v1/merchants/auth/google/login` | `https://localhost:5001/api/v1/merchants/auth/google/callback` |
 
 Google callback ต้องมี verified `email`. ถ้าตั้ง `HostedDomain`, callback จะรับเฉพาะ claim `hd` ที่ตรงกัน. Merchant
-invitation start รองรับ Google เท่านั้น เพราะ flow นี้ใช้ provider-verified email เพื่อ bind invitation อย่างปลอดภัย.
+invitation start ใช้ provider-verified email เพื่อ bind invitation อย่างปลอดภัย.
 
 ## 8. รัน API
 
@@ -360,12 +358,9 @@ Microsoft invitation start ยังไม่รองรับเพราะ E
 
 1. เปิด `https://localhost:5001/api/v1/admins/auth/microsoft/login?returnTo=/dashboard`.
 2. ใช้ employee account จาก workforce tenant ที่ pin ไว้.
-3. Account ต้องมี admin record เดิมหรืออยู่ใน bootstrap allowlist.
-4. Microsoft allowlist entry ต้องเป็น `microsoft:<oid>`; bare subject หมายถึง Google เพื่อ backward compatibility.
-5. Login สำเร็จต้อง redirect ไป `https://localhost:3001/dashboard` พร้อม admin session cookie.
-
-Google และ Microsoft identity ไม่ถูก link อัตโนมัติ. ผู้ใช้คนเดิมที่เปลี่ยน provider อาจกลายเป็น identity คนละรายการ;
-ต้องวางแผน account linking แยกก่อนเปิด provider เพิ่มให้ production user เดิม.
+3. Identity ใหม่ต้องผ่าน tenant, `vcp.employee` และ exact `viriyah.co.th` gate; ระบบสร้าง `Active + Scoped` แบบไม่มี role.
+4. Login สำเร็จต้อง redirect ไป `https://localhost:3001/dashboard` พร้อม admin session cookie.
+5. ก่อน Production ต้อง promote corporate Super ผ่าน admin management API; ไม่มี Microsoft bootstrap allowlist.
 
 ## 11. Troubleshooting OIDC
 

@@ -98,6 +98,20 @@ public sealed class AdminLoginServiceTests
     }
 
     [Fact]
+    public async Task An_identity_conflict_gets_a_typed_error_without_a_session()
+    {
+        var (service, store, audit, http) = Build(ResolveResult.IdentityConflict);
+
+        await service.EstablishSessionAsync(
+            http, User.MicrosoftProvider, "22222222-2222-4222-8222-222222222222",
+            "employee@viriyah.co.th", emailVerified: false, "/dashboard", default);
+
+        Assert.Empty(store.Added);
+        Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "identity-conflict");
+        Assert.Equal("/login-error?reason=identity-conflict", http.Response.Headers.Location);
+    }
+
+    [Fact]
     public async Task An_unknown_not_allowlisted_caller_is_denied_not_provisioned()
     {
         // the resolver returns NotFound (not an existing admin, not invited, not allowlisted)

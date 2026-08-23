@@ -11,9 +11,9 @@
 > `/api/v1/merchants/auth/{provider}/…`, scheme `MerchantUser{Provider}`, cookie `__Host-mch_session` + `mch_csrf`,
 > config `MerchantAuth:Providers:*`. ไม่มี Bearer/`Authorization` header เหลือในระบบแล้ว.
 >
-> **multi-provider-oidc:** route เป็น provider-scoped แล้ว — `{provider}` ใน path ด้านล่างรับ `google` หรือ
-> `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section `AdminAuth:Providers:Microsoft`).
-> เอกสารนี้ตัวอย่างส่วนใหญ่ใช้ `google` ตาม scope เดิม — provider ที่ไม่รู้จัก/ไม่ได้ config -> 404.
+> **Admin workforce OIDC:** Admin รับเฉพาะ `microsoft` (Microsoft Entra ID, scheme `AdminMicrosoft`, config section
+> `AdminAuth:Providers:Microsoft`). Google Admin login/callback ไม่ register และคืน `404`. Merchant user ยังคง
+> รองรับ provider ของตัวเองแยกขาดผ่าน `MerchantAuth`.
 
 **Ports (dev):** API `https://localhost:5001` · Customer SPA `https://localhost:3000` · Admin Console
 `https://localhost:3001` · Merchant-user Console `https://localhost:3002` (`Cors:AdminOrigins` /
@@ -24,16 +24,16 @@
 
 ## หลักการ (อ่านก่อนเขียนโค้ด)
 
-Admin auth เป็น **server-side OIDC BFF** (Backend-for-Frontend). FE **ไม่** แตะ Google โดยตรง, **ไม่** ถือ
-id_token, **ไม่** แนบ Bearer header. แทนที่ด้วย **session cookie** ที่ server เป็นคนออกหลัง login กับ Google
+Admin auth เป็น **server-side OIDC BFF** (Backend-for-Frontend). FE **ไม่** แตะ Microsoft โดยตรง, **ไม่** ถือ
+id_token, **ไม่** แนบ Bearer header. แทนที่ด้วย **session cookie** ที่ server เป็นคนออกหลัง login กับ Microsoft
 ฝั่ง server.
 
 Flow login:
 
-1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/google/login?returnTo=<path>`
-2. Server redirect ไป Google (Authorization Code + PKCE + state + nonce, scope `openid email`)
-3. ผู้ใช้ยืนยันกับ Google -> Google redirect กลับมาที่ `/api/v1/admins/auth/google/callback` (server-side, ไม่มีหน้าให้ FE)
-4. Server แลก code เป็น token, ตรวจ `email_verified` + hosted domain, resolve/bind/self-provision admin, แล้ว
+1. FE นำ browser ไป (top-level navigation, **ไม่ใช่** XHR/fetch) ที่ `GET /api/v1/admins/auth/microsoft/login?returnTo=<path>`
+2. Server redirect ไป Microsoft Entra (Authorization Code + PKCE + state + nonce)
+3. ผู้ใช้ยืนยันกับ Microsoft -> Microsoft redirect กลับมาที่ `/api/v1/admins/auth/microsoft/callback` (server-side, ไม่มีหน้าให้ FE)
+4. Server แลก code เป็น token, ตรวจ tenant, `vcp.employee` และ exact workforce domain, resolve/JIT admin, แล้ว
    **set cookie**: `__Host-adm_session` (opaque, HttpOnly) + `adm_csrf` (JS-readable) → redirect กลับ `returnTo`
 5. จากนั้นทุก XHR ส่ง cookie อัตโนมัติ (`credentials: 'include'`) + แนบ `X-CSRF-Token` บน method ที่เปลี่ยน state
 
@@ -94,15 +94,15 @@ Next.js rewrites ส่ง `X-Forwarded-Host` ให้ backend เอง — ba
 
 ## Setup ฝั่ง FE
 
-- **ไม่** ต้องขอ Google OAuth client เอง, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
-  (confidential client, ฉีดผ่าน `AdminAuth__Providers__Google__ClientId` / `AdminAuth__Providers__Google__ClientSecret`)
-- ปุ่ม "Sign in with Google" = ลิงก์/redirect ไป `/api/v1/admins/auth/google/login?returnTo=${encodeURIComponent(path)}`
-  (top-level navigation — อย่าใช้ fetch; flow เด้งออกไป Google แล้วกลับมาที่ `returnTo`)
+- **ไม่** ต้องขอ Microsoft token ใน browser, **ไม่** ต้องโหลด GIS script. client id + secret เป็นของ server
+  (confidential client, ฉีดผ่าน `AdminAuth__Providers__Microsoft__ClientId` / `AdminAuth__Providers__Microsoft__ClientSecret`)
+- ปุ่ม "Sign in with Microsoft" = ลิงก์/redirect ไป `/api/v1/admins/auth/microsoft/login?returnTo=${encodeURIComponent(path)}`
+  (top-level navigation — อย่าใช้ fetch; flow เด้งออกไป Microsoft แล้วกลับมาที่ `returnTo`)
 - ทุก API call ตั้ง `credentials: 'include'` (ตรงข้ามกับโมเดลเดิม — ตอนนี้ auth = cookie)
 - admin SPA origin ต้องอยู่ใน `Cors__AdminOrigins` ฝั่ง server (เปิด `AllowCredentials` ให้เฉพาะ origin นี้)
 
 ```js
-window.location.href = '/api/v1/admins/auth/google/login?returnTo=' + encodeURIComponent('/dashboard')
+window.location.href = '/api/v1/admins/auth/microsoft/login?returnTo=' + encodeURIComponent('/dashboard')
 ```
 
 ## CSRF (double-submit) — บังคับบน POST/PUT/PATCH/DELETE
@@ -130,8 +130,8 @@ const api = (path, opts = {}) => fetch(path, {
 ## ขั้นแรกหลัง login: `GET /api/v1/admins/me`
 
 session cookie = httpOnly → JS อ่านไม่ได้ (ตั้งใจ กัน XSS). หลัง callback set cookie + redirect กลับ `returnTo`
-แล้ว, FE ยิง `/api/v1/admins/me` (พร้อม `credentials: 'include'`) เพื่ออ่าน identity/scope. First-login binding (bind
-invited Scoped by email / self-provision Super จาก allowlist) server จัดการตอน callback แล้ว — FE ไม่ต้องส่งอะไรพิเศษ.
+แล้ว, FE ยิง `/api/v1/admins/me` (พร้อม `credentials: 'include'`) เพื่ออ่าน identity/scope. First-login JIT server
+ตรวจ workforce claims แล้วสร้าง `Active + Scoped` แบบไม่มี role/merchant assignment — FE ไม่ต้องส่งอะไรพิเศษ.
 
 ```js
 async function bootstrap() {
@@ -193,7 +193,8 @@ Scoped ยิงโดน 403.
 
 | Method | Path | Tier | CSRF | Body | Success | Note |
 |---|---|---|---|---|---|---|
-| GET | `/api/v1/admins/auth/google/login` | — (anon) | — | — | 302 | redirect ไป Google; `?returnTo=<allowlisted path>`; rate-limited (ดูล่าง) -> 429 ถ้าเกิน |
+| GET | `/api/v1/admins/auth/microsoft/login` | — (anon) | — | — | 302 | redirect ไป Microsoft workforce; `?returnTo=<allowlisted path>`; rate-limited (ดูล่าง) -> 429 ถ้าเกิน |
+| GET | `/api/v1/admins/auth/google/login` | — | — | — | 404 | Admin Google ไม่รองรับ |
 | POST | `/api/v1/admins/auth/logout` | any | ต้อง | — | 204 | revoke session family ปัจจุบัน (อุปกรณ์นี้) + เคลียร์ cookie |
 | POST | `/api/v1/admins/auth/logout-all` | any | ต้อง | — | 204 | revoke ทุก session ของ admin นี้ (ทุกอุปกรณ์) |
 | GET | `/api/v1/admins/me` | any | — | — | 200 | bootstrap identity/scope |
@@ -304,7 +305,7 @@ path นอก list — และ absolute URL — ถูก fallback เป็�
 
 | Status | ความหมาย | FE ทำอะไร |
 |---|---|---|
-| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/google/login` |
+| 401 | ไม่มี session cookie / session หมด/ถูก revoke / ตรวจพบ replay (reuse) | redirect ไป `/api/v1/admins/auth/microsoft/login` |
 | 403 | session valid แต่: account suspended / ไม่ active / tier ไม่พอ / **CSRF token หาย/ไม่ตรง** | "ไม่มีสิทธิ์" หรือ refresh CSRF |
 | 404 | merchant นอก scope หรือไม่มีจริง (กัน existence leak) | not-found |
 | 409 | duplicate (code / assignment ซ้ำ) | conflict |
@@ -322,7 +323,7 @@ const cookie = (n) =>
   decodeURIComponent(document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]+)'))?.[1] ?? '')
 
 export function login(returnTo = '/dashboard') {
-  window.location.href = '/api/v1/admins/auth/google/login?returnTo=' + encodeURIComponent(returnTo)
+  window.location.href = '/api/v1/admins/auth/microsoft/login?returnTo=' + encodeURIComponent(returnTo)
 }
 
 export async function adminFetch(path, opts = {}) {
@@ -355,15 +356,15 @@ export const logout = () => adminFetch('/api/v1/admins/auth/logout', { method: '
 - XHR **ต้อง** `credentials: 'include'` ทั้งสองฝั่ง ถึงจะส่ง session cookie
 - dev-http (localhost http): cookie ถอด `Secure` + ใช้ชื่อไม่มี `__Host-` prefix อัตโนมัติ — FE อ่าน `adm_csrf`
   ได้เหมือนกัน
-- backend dev ต้องใส่ OIDC client id + secret จริงที่ `AdminAuth__Providers__Google__ClientId` / `AdminAuth__Providers__Google__ClientSecret`
-  (user-secrets) ถึงจะ login จริงได้; placeholder boot ได้แต่ login ไม่ผ่าน
-- bootstrap Super admin คนแรก: backend ใส่ Google `sub` ที่ `AdminAllowlist__Subjects__0`
+- backend dev ต้องใส่ Microsoft OIDC client id + secret จริงที่ `AdminAuth__Providers__Microsoft__ClientId` /
+  `AdminAuth__Providers__Microsoft__ClientSecret` (user-secrets) และ tenant-pinned Authority ถึงจะ login จริงได้.
+- bootstrap Super ไม่ใช้ external allowlist; promote corporate account ผ่าน admin management API ก่อน production.
 - OpenAPI document เปิดเฉพาะ Development (`/openapi/...`) — prod ไม่ publish
 
 **backend ทำให้แล้ว (FE ไม่ต้องแตะ):**
 - CORS allow `https://localhost:3001`
 - honor `X-Forwarded-Host` → `redirect_uri` ออกมาเป็น origin ของ FE
-- Google redirect URI registration (ฝั่ง ops/backend)
+- Microsoft redirect URI registration (ฝั่ง ops/backend)
 
 ## prod
 

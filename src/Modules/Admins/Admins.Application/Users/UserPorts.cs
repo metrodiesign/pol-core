@@ -63,3 +63,11 @@ public interface IAdminIdentityAuditWriter
     Task AppendMicrosoftPreProvisionAsync(
         AdminIdentityAuditEntry entry, CancellationToken cancellationToken);
 }
+
+/// <summary>Re-resolves a Microsoft identity after a transaction-level unique conflict. Implementations must
+/// use a fresh persistence context; the context that observed the failed insert is not a valid read source.</summary>
+public interface IAdminIdentityRecoveryReader
+{
+    Task<ResolveResult> ResolveAfterConflictAsync(
+        ProviderIdentity identity, CancellationToken cancellationToken);
+}

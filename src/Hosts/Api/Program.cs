@@ -208,12 +208,13 @@ builder.Services.AddMerchantsModule();
 if (!builder.Environment.IsDevelopment())
 {
     ProvisioningGuards.RequireInjectedCredential(appConnString, "App");
-    // The BFF logins are confidential OIDC clients (up to provider × side registrations). For EVERY configured
-    // provider (non-blank ClientId) the id must not be a committed placeholder and its secret MUST be injected —
-    // fail fast at boot rather than on the first login (REQ-8.1/8.2/14.1/14.2). Admin additionally requires at
-    // least ONE configured provider (an admin console with no login is a dead deploy); a merchant-user side with
-    // zero providers is allowed — that login may be intentionally disabled (the schemes are skipped, REQ-14.2).
-    ProvisioningGuards.RequireOidcProviders(builder.Configuration, "AdminAuth", requireAtLeastOne: true);
+    // Admin is Microsoft workforce-only. Production rejects missing/invalid Microsoft settings and any enabled
+    // Google provider before OIDC registration; Development/Staging may run with login disabled for local tests.
+    if (builder.Environment.IsProduction())
+        ProvisioningGuards.RequireWorkforceAdminProvider(builder.Configuration);
+
+    // Merchant-user providers remain independently configurable; zero providers is allowed when intentionally
+    // disabled (the schemes are skipped, REQ-14.2).
     ProvisioningGuards.RequireOidcProviders(builder.Configuration, "MerchantAuth", requireAtLeastOne: false);
     // The webhook URL each PSP charge calls back on is derived from this origin per connection
     // (captive-payment-alignment REQ-4.1/4.3) — a blank value ships charges whose confirmation never
@@ -638,17 +639,6 @@ _ = app.Services.GetRequiredService<DefaultPspSelection>();
 // framework's default ephemeral one (REQ-8.2). Assert it now so a misconfigured key store crash-loops at boot.
 if (!app.Environment.IsDevelopment())
     AdminDataProtection.RequirePersistentDataProtection(app.Services);
-
-// REQ-5.4 fail-closed signal: outside Development, an empty admin allowlist means Super-admin bootstrap is
-// disabled — the first-admin self-provision will be denied. Existing admins are unaffected (the allowlist is
-// a bootstrap-only gate, REQ-5.7), so this warns rather than crash-loops a healthy host.
-if (!app.Environment.IsDevelopment()
-    && (app.Configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? []).Length == 0)
-{
-    app.Logger.LogWarning(
-        "AdminAllowlist:Subjects is empty — Super-admin bootstrap is disabled (first-admin self-provision will " +
-        "be denied, fail-closed). Set AdminAllowlist__Subjects__0 to bootstrap the first Super admin.");
-}
 
 // Forwarded headers FIRST so every downstream middleware (auth, and the OIDC redirect_uri builder) sees the
 // browser-facing host/scheme, not this process's. The admin SPA dev server proxies /api/v1/admins/* here, so the OIDC
@@ -1812,7 +1802,7 @@ api.MapGet("/reports/reconciliation", async (
 var admin = api.MapGroup("/admins").RequireCsrf();
 
 // Top-level browser navigation (AllowAnonymous, rate-limited): validate the post-login returnTo against the
-// allowlist, then hand off to the {provider}'s OIDC handler, which builds the Authorization Code + PKCE + state
+// allowlist, then hand off to the Microsoft OIDC handler, which builds the Authorization Code + PKCE + state
 // + nonce redirect to the IdP. The callback (AdminAuth:Providers:{Provider}:CallbackPath) is handled by the OIDC
 // middleware itself, which establishes the session via OnTicketReceived — there is no mapped callback endpoint.
 // An unknown or unconfigured provider slug is simply absent from the registered map -> 404.
@@ -1824,7 +1814,7 @@ admin.MapGet("/auth/{provider}/login", (
     var returnTo = ReturnUrlPolicy.Resolve(
         http.Request.Query["returnTo"].ToString(), session.Value.ReturnUrlAllowlist, session.Value.DefaultReturnPath);
     return Results.Challenge(
-        OidcAuthentication.CreateLoginProperties(returnTo),
+        OidcAuthentication.CreateLoginProperties(returnTo, provider),
         [scheme]);
 })
 .AllowAnonymous()
@@ -1832,14 +1822,13 @@ admin.MapGet("/auth/{provider}/login", (
     .WithTags("การเข้าสู่ระบบ")
     .WithName("AdminLogin")
     .WithSummary("เริ่มเข้าสู่ระบบผู้ดูแลระบบ")
-    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง provider (google/microsoft; OIDC Authorization Code + PKCE) callback จะเป็นตัวสร้าง session cookie หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
+    .WithDescription("ตรวจสอบ returnTo กับ allowlist แล้ว redirect ไปยัง Microsoft workforce OIDC (Authorization Code + PKCE) callback จะเป็นตัวสร้าง session cookie หาก provider ไม่รู้จักหรือยังไม่ได้ตั้งค่า -> 404")
     .Produces(StatusCodes.Status302Found)
     .ProducesProblem(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status429TooManyRequests);
 
 // Logout = revoke the CURRENT session family (this device only); other devices stay signed in (REQ-6.1). The
-// presented cookie identifies the family. CSRF protection for these POSTs is added with the other /admin
-// mutations in Task 5's double-submit filter (REQ-7).
+// presented cookie identifies the family. CSRF protection remains mandatory for this authenticated mutation.
 admin.MapPost("/auth/logout", async (
     HttpContext http, ISessionStore sessions, SessionCookies cookies,
     IAuthAuditWriter audit, IClock clock, CancellationToken ct) =>
@@ -3765,6 +3754,55 @@ internal static class ProvisioningGuards
                 "Psp:PublicBaseUrl must be an absolute http(s) URI naming this API's public origin (e.g. " +
                 "https://api.example.com) — the per-connection PSP webhook URL is derived from it. " +
                 "Set Psp__PublicBaseUrl.");
+    }
+
+    /// <summary>Production guard for the fixed Microsoft workforce Admin provider. Google is not a supported
+    /// Admin provider, so enabling it is a deployment error rather than a fallback.</summary>
+    public static void RequireWorkforceAdminProvider(IConfiguration configuration)
+    {
+        var providers = configuration.GetSection("AdminAuth:Providers").GetChildren().ToArray();
+        var google = providers.FirstOrDefault(provider =>
+            string.Equals(provider.Key, "Google", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(google?["ClientId"]))
+            throw new InvalidOperationException(
+                "AdminAuth:Providers:Google is not supported. Disable the Admin Google provider and configure "
+                + "the Microsoft workforce provider.");
+
+        var microsoft = providers.Where(provider =>
+            string.Equals(provider.Key, "Microsoft", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (microsoft.Length != 1)
+            throw new InvalidOperationException(
+                "AdminAuth:Providers:Microsoft must be configured exactly once in Production.");
+
+        var provider = microsoft[0];
+        var clientId = provider["ClientId"];
+        if (string.IsNullOrWhiteSpace(clientId) || clientId.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "AdminAuth:Providers:Microsoft:ClientId is required in Production. Set "
+                + "AdminAuth__Providers__Microsoft__ClientId.");
+
+        var clientSecret = provider["ClientSecret"];
+        if (string.IsNullOrWhiteSpace(clientSecret) || clientSecret.StartsWith("REPLACE_WITH_", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "AdminAuth:Providers:Microsoft:ClientSecret is required in Production. Set "
+                + "AdminAuth__Providers__Microsoft__ClientSecret.");
+
+        var callbackPath = provider["CallbackPath"];
+        if (!string.Equals(callbackPath, "/api/v1/admins/auth/microsoft/callback", StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "AdminAuth:Providers:Microsoft:CallbackPath must be "
+                + "/api/v1/admins/auth/microsoft/callback in Production.");
+
+        try
+        {
+            // Parse enforces HTTPS public-cloud Authority with exactly one workforce tenant UUID and /v2.0.
+            _ = Api.Admins.AdminMicrosoftTenantSnapshot.Parse(clientId, provider["Authority"]);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new InvalidOperationException(
+                "AdminAuth:Providers:Microsoft:Authority must pin the workforce tenant UUID in Production.", ex);
+        }
     }
 
     /// <summary>Fails fast on a misconfigured BFF OIDC side (<paramref name="sectionName"/> = "AdminAuth" /

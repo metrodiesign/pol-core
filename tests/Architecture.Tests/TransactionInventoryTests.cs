@@ -58,6 +58,7 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Admins/Admins.Application/Users/SetAdminRoles.cs"] = 1,                          // row 7
         ["src/Modules/Admins/Admins.Application/Users/ChangeAdminTier.cs"] = 1,                        // row 23 (task 4)
         ["src/Modules/Admins/Admins.Application/Users/PreProvisionMicrosoftIdentity.cs"] = 1,         // Entra Scoped pre-provision
+        ["src/Modules/Admins/Admins.Application/Users/JitProvisionMicrosoftAdmin.cs"] = 1,          // Microsoft workforce JIT
         ["src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs"] = 2,                    // rows 17+18
         ["src/Modules/Merchants/Merchants.Application/Users/SubmitRegistration.cs"] = 1,               // row 20
         ["src/Modules/Merchants/Merchants.Application/Users/SetUserRoles.cs"] = 1,                     // row 19

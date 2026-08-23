@@ -1,26 +1,23 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 
 namespace Api.Admins;
 
-/// <summary>Provider slug ("google"/"microsoft") → registered scheme name for the CONFIGURED admin providers.
+/// <summary>Provider slug ("microsoft") → registered scheme name for the configured Admin provider.
 /// Registered in DI even when empty so the login endpoint can 404 an unknown/disabled provider instead of
 /// throwing at Challenge time.</summary>
 internal sealed class AdminOidcProviders : Dictionary<string, string>;
 
 /// <summary>
-/// The confidential OIDC clients for the admin BFF login (REQ-1/2), one scheme per configured provider
-/// (AdminAuth:Providers): "AdminGoogle", "AdminMicrosoft". The framework handler does the Authorization Code +
-/// PKCE + state + nonce + code-exchange + JWKS id_token validation; we only add the provider-specific gates
-/// (Google: <c>email_verified</c> + <c>hd</c>; Microsoft: pinned UUID <c>tid</c> + UUID <c>oid</c> + AllowedTenants),
-/// then, on the canonical post-principal hook, establish the server session and short-circuit the framework sign-in
-/// (<see cref="LoginService"/>). Schemes are ADDED here without changing the default.
+/// The confidential Microsoft OIDC client for the Admin BFF login. The framework handler does Authorization Code +
+/// PKCE + state + nonce + code-exchange + JWKS id_token validation; the Admin callback adds the fixed workforce
+/// policy gate, then establishes the server session and short-circuits framework sign-in (<see cref="LoginService"/>).
+/// The scheme is ADDED without changing the default.
 /// </summary>
 internal static class OidcAuthentication
 {
-    /// <summary>Scheme name prefix: provider "Google" registers as scheme "AdminGoogle" (REQ-1.1). The distinct
-    /// per-provider names also isolate the framework's correlation/nonce Data Protection purposes automatically.</summary>
+    /// <summary>Scheme name prefix: Microsoft registers as scheme "AdminMicrosoft". The distinct scheme name
+    /// isolates the framework's correlation/nonce Data Protection purpose.</summary>
     public const string SchemePrefix = "Admin";
 
     /// <summary>A throwaway cookie sign-in scheme (shared by every admin provider — it is never actually written):
@@ -29,10 +26,12 @@ internal static class OidcAuthentication
 
     internal const string ReturnToPropertyKey = ".admin.returnTo";
 
-    internal static AuthenticationProperties CreateLoginProperties(string returnTo)
+    internal static AuthenticationProperties CreateLoginProperties(string returnTo, string? provider = null)
     {
         var properties = new AuthenticationProperties { RedirectUri = returnTo };
         properties.Items[ReturnToPropertyKey] = returnTo;
+        if (MicrosoftOidc.Is(provider ?? string.Empty))
+            properties.Parameters["prompt"] = "select_account";
         return properties;
     }
 
@@ -58,11 +57,15 @@ internal static class OidcAuthentication
         AuthenticationBuilder? builder = null;
         foreach (var (name, oidc) in auth.Providers)
         {
+            // Admin authentication is deliberately Microsoft-only. MerchantAuth keeps its own provider map.
+            if (!MicrosoftOidc.Is(name))
+                continue;
+
             // The OIDC scheme is a per-request handler: AuthenticationMiddleware initializes — and VALIDATES — it on
             // EVERY request to detect the callback, and OpenIdConnectOptions.Validate() requires a non-empty ClientId.
             // A blank ClientId would therefore throw on every request and take the WHOLE API down (health, webhooks,
-            // merchant routes), not just admin login. Outside Development the boot guard already requires at least one
-            // configured provider; a blank one (tests, an unconfigured dev box) just skips its scheme so the rest of
+            // merchant routes), not just admin login. The Production boot guard already requires the Microsoft
+            // provider; a blank one (tests, an unconfigured dev box) just skips its scheme so the rest of
             // the API stays up — a login attempt for it then 404s at the login endpoint.
             if (string.IsNullOrWhiteSpace(oidc.ClientId))
                 continue;
@@ -83,7 +86,6 @@ internal static class OidcAuthentication
         OpenIdConnectOptions options, string name, OidcProviderOptions oidc, IHostEnvironment environment,
         AdminMicrosoftTenantSnapshot microsoftTenant)
     {
-        var isMicrosoft = MicrosoftOidc.Is(name);
         var providerSlug = name.ToLowerInvariant();
 
         options.Authority = oidc.Authority;
@@ -102,52 +104,52 @@ internal static class OidcAuthentication
         options.Scope.Clear();                   // default is {openid, profile}; keep the request minimal
         options.Scope.Add("openid");
         options.Scope.Add("email");
-        if (isMicrosoft)
-            options.Scope.Add("profile");        // Entra puts oid/tid behind profile; openid alone yields only the pairwise sub
+        options.Scope.Add("profile");            // Entra puts oid/tid behind profile; openid alone yields only the pairwise sub
 
         options.TokenValidationParameters.ValidateIssuer = true;
         // The library default skew (5 min) is generous for short-lived id_tokens; servers run NTP — 2 min covers real drift.
         options.TokenValidationParameters.ClockSkew = TimeSpan.FromMinutes(2);
         // Microsoft issuer validation is the FRAMEWORK DEFAULT: iss is compared to the tenant-pinned Authority's
         // discovery metadata issuer (multi-tenant Authorities are rejected at boot) — no custom IssuerValidator.
-        if (!isMicrosoft)
-            options.TokenValidationParameters.ValidIssuers = ["https://accounts.google.com", "accounts.google.com"];
         // aud is validated against ClientId by the handler; nonce + signature + lifetime too.
 
         options.Events = new OpenIdConnectEvents
         {
-            // The provider-specific gates the JWKS/iss/aud/nonce checks don't cover. Google: verified-email +
-            // hosted-domain. Admin Microsoft additionally requires canonical UUID tid/oid and the Authority tenant;
-            // AllowedTenants remains an optional extra restriction. Entra emits no email_verified.
+            // The workforce gate runs after signature/issuer/audience/nonce/lifetime validation. It stores one typed
+            // result in request state so the ticket hook never reparses mutable claims.
             OnTokenValidated = context =>
             {
-                var principal = context.Principal;
-                if (isMicrosoft)
+                if (!MicrosoftWorkforceClaimsValidator.TryValidate(
+                        context.Principal, microsoftTenant.TenantId, out var claims))
                 {
-                    if (ValidateMicrosoftIdentity(principal, microsoftTenant.TenantId, oidc.AllowedTenants) is { } reason)
-                        context.Fail(reason);
+                    MicrosoftOidcFailureClassifier.MarkPolicyFailure(context.HttpContext);
+                    context.Fail(new MicrosoftWorkforcePolicyException());
                 }
-                else if (principal?.FindFirst("email_verified")?.Value is not "true")
-                    context.Fail("email_verified-required");
-                else if (!string.IsNullOrEmpty(oidc.HostedDomain) && principal.FindFirst("hd")?.Value != oidc.HostedDomain)
-                    context.Fail("hd-not-allowed");
+                else
+                    context.HttpContext.Items[MicrosoftWorkforceClaimsValidator.ContextItemKey] = claims;
                 return Task.CompletedTask;
             },
 
             // Canonical post-principal hook: resolve the admin, establish the server session + cookies,
-            // and short-circuit the framework sign-in (REQ-2.5/3.1). Subject = Google sub / Entra oid.
+            // and short-circuit framework sign-in (REQ-2.5/3.1).
             OnTicketReceived = async context =>
             {
                 var login = context.HttpContext.RequestServices.GetRequiredService<LoginService>();
-                var principal = context.Principal;
+                if (context.HttpContext.Items[MicrosoftWorkforceClaimsValidator.ContextItemKey]
+                    is not MicrosoftWorkforceClaims claims)
+                {
+                    await login.DenyAsync(
+                        context.HttpContext, "auth-failed", null, context.HttpContext.RequestAborted);
+                    context.HandleResponse();
+                    return;
+                }
+
                 await login.EstablishSessionAsync(
                     context.HttpContext,
                     providerSlug,
-                    isMicrosoft ? CanonicalMicrosoftSubject(principal) : principal?.FindFirst("sub")?.Value,
-                    isMicrosoft ? MicrosoftOidc.Email(principal) : principal?.FindFirst("email")?.Value,
-                    // Google passed the email_verified gate above; Entra email/preferred_username are unverified,
-                    // mutable claims -> display-only, never invite-binding (see CallbackResolver).
-                    emailVerified: !isMicrosoft,
+                    claims.Identity.Subject,
+                    claims.SelectedIdentifier,
+                    emailVerified: false,
                     GetReturnTo(context.Properties),
                     context.HttpContext.RequestAborted);
                 context.HandleResponse();
@@ -165,60 +167,13 @@ internal static class OidcAuthentication
             OnRemoteFailure = async context =>
             {
                 var login = context.HttpContext.RequestServices.GetRequiredService<LoginService>();
-                await login.DenyAsync(context.HttpContext, MapFailureReason(context.Failure), null, context.HttpContext.RequestAborted);
+                await login.DenyAsync(
+                    context.HttpContext,
+                    MicrosoftOidcFailureClassifier.BrowserReason(context.HttpContext, context.Failure),
+                    null,
+                    context.HttpContext.RequestAborted);
                 context.HandleResponse();
             },
         };
     }
-
-    private static string? ValidateMicrosoftIdentity(
-        ClaimsPrincipal? principal, Guid? configuredTenant, string[] allowedTenants)
-    {
-        if (!TryCanonicalizeUuidClaim(principal, "tid", out var tid))
-            return "tid-required";
-        if (configuredTenant is null || tid != configuredTenant.Value)
-            return "tenant-not-allowed";
-        if (!TryCanonicalizeUuidClaim(principal, "oid", out _))
-            return "oid-required";
-        return MicrosoftOidc.TenantGate(principal, allowedTenants);
-    }
-
-    private static bool TryCanonicalizeUuidClaim(
-        ClaimsPrincipal? principal, string type, out Guid value)
-    {
-        value = Guid.Empty;
-        var claims = principal?.FindAll(type).ToArray();
-        if (claims is not { Length: 1 }
-            || !Guid.TryParse(claims[0].Value, out value)
-            || value == Guid.Empty
-            || claims[0].Subject is not { } identity)
-        {
-            return false;
-        }
-
-        var canonical = value.ToString("D").ToLowerInvariant();
-        if (claims[0].Value == canonical)
-            return true;
-
-        var claim = claims[0];
-        if (!identity.TryRemoveClaim(claim))
-            return false;
-        identity.AddClaim(new Claim(
-            claim.Type, canonical, claim.ValueType, claim.Issuer, claim.OriginalIssuer, identity));
-        return true;
-    }
-
-    private static string? CanonicalMicrosoftSubject(ClaimsPrincipal? principal) =>
-        Guid.TryParse(MicrosoftOidc.Subject(principal), out var oid) && oid != Guid.Empty
-            ? oid.ToString("D").ToLowerInvariant()
-            : null;
-
-    private static string MapFailureReason(Exception? failure) => failure?.Message switch
-    {
-        "email_verified-required" => "email-unverified",
-        "hd-not-allowed" => "hd-mismatch",
-        "tid-required" => "tenant-missing",
-        "tenant-not-allowed" => "tenant-not-allowed",
-        _ => "auth-failed",
-    };
 }

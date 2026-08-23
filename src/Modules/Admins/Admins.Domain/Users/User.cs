@@ -101,6 +101,20 @@ public sealed class User : AggregateRoot<Guid>
             positionId, officeId, levelId, divisionId);
     }
 
+    /// <summary>Creates the least-privileged account for an eligible Microsoft workforce identity.
+    /// The Entra object id is canonicalized before it becomes the provider-subject key; no role or merchant
+    /// assignment is implicit in this factory.</summary>
+    public static User JitProvisionMicrosoft(string subject, string email, DateTime createdAt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(email);
+        if (!Guid.TryParse(subject, out var objectId) || objectId == Guid.Empty)
+            throw new ArgumentException("A valid Microsoft object id is required.", nameof(subject));
+
+        return new User(Guid.NewGuid(), MicrosoftProvider, objectId.ToString("D").ToLowerInvariant(), email.Trim(),
+            Tier.Scoped, createdAt, positionId: null, officeId: null, levelId: null, divisionId: null);
+    }
+
     /// <summary>Binds the provider identity to an invited account on its first login (REQ-3.5). Idempotent
     /// re-binding is rejected — a bound account is resolved by (provider, subject), never re-bound.</summary>
     public void BindSubject(string provider, string subject)

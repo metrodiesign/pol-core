@@ -1,8 +1,7 @@
 namespace Api.Admins;
 
 /// <summary>
-/// The confidential OIDC clients for the admin BFF login (REQ-1/2/8), one <see cref="OidcProviderOptions"/> per
-/// provider keyed by name ("Google"/"Microsoft"). Secrets are injected via
+/// The confidential Microsoft OIDC client for the admin BFF login (REQ-1/2/8). Secrets are injected via
 /// <c>AdminAuth__Providers__{Provider}__ClientSecret</c> (env / user-secrets / Vault), never committed, never logged
 /// (REQ-8.1/8.3). The merchant-user side runs its own separate OIDC BFF (<c>UserOidcOptions</c>) —
 /// there is no shared Google id-token Bearer plumbing left (removed with T5's single-scheme session cookie).
