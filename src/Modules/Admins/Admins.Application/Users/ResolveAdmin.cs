@@ -8,13 +8,13 @@ namespace Admins.Application.Users;
 /// <summary>
 /// Runtime resolution of an authenticated admin provider identity <c>(Provider, Subject)</c> -> its ACTIVE <see cref="User"/> with
 /// the accessible-merchant set materialized (REQ-6). The outcome distinguishes <see cref="ResolveOutcome.NotFound"/>
-/// (no account — the host may bootstrap from the allowlist or bind an invite) from
-/// <see cref="ResolveOutcome.Suspended"/> (deny, never re-provision — REQ-5.6/5.7). Runs under the
-/// pol_admin (RLS-bypass) connection because admin tables are control-plane.
+/// (no matching identity — the callback may enter the approved Microsoft workforce JIT flow) from
+/// <see cref="ResolveOutcome.Suspended"/> (deny, never re-provision — REQ-5.6/5.7). Admin tables live in
+/// control-plane persistence without merchant query filters.
 /// </summary>
 public sealed record ResolveQuery(ProviderIdentity Identity) : IQuery<ResolveResult>;
 
-public enum ResolveOutcome { Resolved, Suspended, NotFound }
+public enum ResolveOutcome { Resolved, Suspended, NotFound, IdentityConflict }
 
 /// <summary>An active admin's identity + reach, materialized once per request into <c>IAdminScope</c>.</summary>
 public sealed record Resolution(Guid AdminId, string Email, Tier Tier, AccessibleMerchants Accessible)
@@ -34,6 +34,7 @@ public sealed record ResolveResult(ResolveOutcome Outcome, Resolution? Resolutio
 {
     public static readonly ResolveResult NotFound = new(ResolveOutcome.NotFound, null);
     public static readonly ResolveResult Suspended = new(ResolveOutcome.Suspended, null);
+    public static readonly ResolveResult IdentityConflict = new(ResolveOutcome.IdentityConflict, null);
     public static ResolveResult Of(Resolution resolution) => new(ResolveOutcome.Resolved, resolution);
 }
 

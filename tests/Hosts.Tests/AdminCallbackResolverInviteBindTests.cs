@@ -1,45 +1,43 @@
 extern alias ApiHost;
 using Admins.Application.Users;
 using Mediator;
-using Microsoft.Extensions.Configuration;
 using SharedKernel;
 
 namespace Hosts.Tests;
 
-// Codex review (PR #123) High #2: invite binding keys on the id_token email, and Entra's email/preferred_username
-// are MUTABLE, UNVERIFIED claims — an org user who sets their mail/UPN to an unbound invite's address must NOT be
-// able to bind that admin account to their own subject. The resolver may attempt BindInvited ONLY when the
-// provider attested the email (Google's email_verified gate); an unverified email is display-only.
+// Admin callback no longer binds invites or bootstraps Google identities. Eligible Microsoft identities enter the
+// application JIT command; eligibility itself is enforced before this resolver by MicrosoftWorkforceClaimsValidator.
 public sealed class AdminCallbackResolverInviteBindTests
 {
     [Fact]
-    public async Task An_unverified_email_never_reaches_the_invite_bind_path()
+    public async Task Google_identity_never_reaches_invite_bind_or_bootstrap_paths()
     {
         var mediator = new RecordingMediator();
-        var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator, EmptyConfig());
+        var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
 
         var result = await resolver.ResolveAtCallbackAsync(
-            new ProviderIdentity("microsoft", "abcdefab-cdef-4abc-8def-abcdefabcdef"),
-            "victim-invite@org.com", emailVerified: false, "corr-1", default);
+            new ProviderIdentity("google", "google-sub-1"),
+            "victim-invite@org.com", emailVerified: true, "corr-1", default);
 
-        Assert.Equal(ResolveOutcome.NotFound, result.Outcome); // no bind, no self-provision (empty allowlist)
+        Assert.Equal(ResolveOutcome.NotFound, result.Outcome);
         Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
+        Assert.DoesNotContain(mediator.Sent, m => m is SelfProvisionSuperCommand);
     }
 
     [Fact]
-    public async Task A_provider_verified_email_still_attempts_the_invite_bind()
+    public async Task Microsoft_unknown_identity_dispatches_typed_jit_command_without_email_binding()
     {
         var mediator = new RecordingMediator();
-        var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator, EmptyConfig());
+        var resolver = new ApiHost::Api.Admins.CallbackResolver(mediator);
 
         await resolver.ResolveAtCallbackAsync(
-            new ProviderIdentity("google", "google-sub-1"), "invited@org.com", emailVerified: true, "corr-1", default);
+            new ProviderIdentity("microsoft", "abcdefab-cdef-4abc-8def-abcdefabcdef"),
+            "invited@org.com", emailVerified: false, "corr-1", default);
 
-        var bind = Assert.Single(mediator.Sent.OfType<BindInvitedCommand>());
-        Assert.Equal("invited@org.com", bind.Email);
+        var jit = Assert.Single(mediator.Sent.OfType<JitProvisionMicrosoftAdminCommand>());
+        Assert.Equal("invited@org.com", jit.Email);
+        Assert.DoesNotContain(mediator.Sent, m => m is BindInvitedCommand);
     }
-
-    private static IConfiguration EmptyConfig() => new ConfigurationBuilder().Build();
 
     /// <summary>Records every Send and answers NotFound for both the subject lookup and the bind attempt.</summary>
     private sealed class RecordingMediator : AnsweringMediator

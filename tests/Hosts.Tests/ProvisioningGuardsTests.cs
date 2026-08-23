@@ -216,4 +216,70 @@ public sealed class ProvisioningGuardsTests
             ("AdminAuth:Providers:Microsoft:ClientId", "")); // blank = disabled, not an error (placeholder Authority ignored too)
         ApiHost::ProvisioningGuards.RequireOidcProviders(config, "AdminAuth", requireAtLeastOne: true); // does not throw
     }
+
+    private static IConfiguration Workforce(params (string Key, string? Value)[] overrides)
+    {
+        var pairs = new List<(string Key, string? Value)>
+        {
+            ("AdminAuth:Providers:Microsoft:Authority",
+                "https://login.microsoftonline.com/3f2504e0-4f89-41d3-9a0c-0305e82c3301/v2.0"),
+            ("AdminAuth:Providers:Microsoft:ClientId", "workforce-client"),
+            ("AdminAuth:Providers:Microsoft:ClientSecret", "injected-secret"),
+            ("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/microsoft/callback"),
+        };
+        pairs.AddRange(overrides);
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var pair in pairs)
+            values[pair.Key] = pair.Value;
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    [Fact]
+    public void Production_workforce_provider_guard_accepts_complete_microsoft_configuration()
+    {
+        ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(Workforce());
+    }
+
+    [Theory]
+    [InlineData("AdminAuth:Providers:Microsoft:ClientId")]
+    [InlineData("AdminAuth:Providers:Microsoft:ClientSecret")]
+    [InlineData("AdminAuth:Providers:Microsoft:Authority")]
+    [InlineData("AdminAuth:Providers:Microsoft:CallbackPath")]
+    public void Production_workforce_provider_guard_rejects_missing_required_settings(string missingKey)
+    {
+        var config = Workforce((missingKey, ""));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+    }
+
+    [Fact]
+    public void Production_workforce_provider_guard_rejects_enabled_google()
+    {
+        var config = Workforce(("AdminAuth:Providers:Google:ClientId", "google-client"));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+    }
+
+    [Theory]
+    [InlineData("https://login.microsoftonline.com/common/v2.0")]
+    [InlineData("https://login.microsoftonline.com/REPLACE_WITH_TENANT_ID/v2.0")]
+    [InlineData("https://accounts.google.com")]
+    public void Production_workforce_provider_guard_rejects_unpinned_or_wrong_authority(string authority)
+    {
+        var config = Workforce(("AdminAuth:Providers:Microsoft:Authority", authority));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+    }
+
+    [Fact]
+    public void Production_workforce_provider_guard_rejects_non_contract_callback_path()
+    {
+        var config = Workforce(("AdminAuth:Providers:Microsoft:CallbackPath", "/api/v1/admins/auth/callback"));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            ApiHost::ProvisioningGuards.RequireWorkforceAdminProvider(config));
+    }
 }

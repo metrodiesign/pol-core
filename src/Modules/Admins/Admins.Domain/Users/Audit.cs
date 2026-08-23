@@ -6,6 +6,7 @@ namespace Admins.Domain.Users;
 public static class AuditAction
 {
     public const string SelfProvision = "self-provision";
+    public const string JitProvision = "jit-provision";
     public const string CreateScoped = "create-scoped";
     public const string AssignMerchant = "assign-merchant";
     public const string UnassignMerchant = "unassign-merchant";

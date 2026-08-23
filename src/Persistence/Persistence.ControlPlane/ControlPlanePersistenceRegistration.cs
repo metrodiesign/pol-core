@@ -48,11 +48,18 @@ public static class ControlPlanePersistenceRegistration
             return new ControlPlaneDbContext(options, authorizerFactory(sp), sp.GetRequiredService<ISecurityTelemetry>());
         });
 
+        services.AddScoped<IDbContextFactory<ControlPlaneDbContext>>(sp =>
+            new RuntimeControlPlaneDbContextFactory(
+                connectionString,
+                sp,
+                sp.GetRequiredService<ISecurityTelemetry>()));
+
         services.AddScoped<IUserRepository>(sp => new UserRepository(
             sp.GetRequiredService<ControlPlaneDbContext>(),
             sp.GetRequiredService<ILogger<UserRepository>>(),
             sp.GetRequiredService<ISecurityTelemetry>(),
             sp.GetRequiredService<GovernanceSqlLockManager>()));
+        services.AddScoped<IAdminIdentityRecoveryReader, ControlPlaneIdentityRecoveryReader>();
         services.AddScoped<IAuditWriter>(sp => new AuditWriter(sp.GetRequiredService<ControlPlaneDbContext>()));
         services.AddScoped<ISessionStore>(sp => new SessionStore(
             sp.GetRequiredService<ControlPlaneDbContext>(), sp.GetRequiredService<ISecurityTelemetry>()));

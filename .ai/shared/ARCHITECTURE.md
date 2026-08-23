@@ -130,12 +130,12 @@ Orders → Paid. จบ ไม่มี issuance.
   explicit version check) — Architecture.Tests ห้าม handler อื่นส่ง cross-merchant query ตรง + leak/bypass test =
   compensating control ชั้นสอง
 - Credential vault — **envelope encryption (per-merchant KEK ใน KMS/HSM, DEK ต่อ secret)**, key id+version + rotation runbook; secret write-only, อ่านกลับ mask เสมอ
-- Identity — Google SSO ทำที่ชั้น auth, **ทั้ง 2 console โมเดลเดียวกันแล้ว (rf1 — ถอด Bearer ทิ้งทั้งระบบ)**: admin console และ
-  merchant-user (ตัวแทน) console ต่างมี **server-side OIDC BFF** ของตัวเอง (Authorization Code + PKCE, confidential client),
-  คนละ scheme/cookie/DP-purpose แยกขาด — ไม่มี Google id-token Bearer เหลือแล้ว (เดิม tenant SPA ใช้ Bearer audience `tenant`,
-  ถอดพร้อม policy `tenant` ทั้งก้อน). **multi-provider-oidc**: ทั้ง 2 ฝั่งรับ 2 provider — Google + Microsoft Entra
-  ID, provider-scoped login/callback (`/api/v1/{admins|merchants}/auth/{provider}/login|callback`, provider ไม่รู้จัก/
-  ไม่ได้ config -> 404). Admin: scheme `AdminGoogle`/`AdminMicrosoft` (เดิม scheme เดียว `Google`), opaque session
+- Identity — **ทั้ง 2 console ใช้ server-side OIDC BFF** ของตัวเอง (Authorization Code + PKCE, confidential client),
+  คนละ scheme/cookie/DP-purpose แยกขาด — ไม่มี id-token Bearer เหลือแล้ว (เดิม tenant SPA ใช้ Bearer audience `tenant`,
+  ถอดพร้อม policy `tenant` ทั้งก้อน). **provider split**: Admin รับเฉพาะ tenant-pinned Microsoft workforce และ JIT
+  eligible identity เป็น Active/Scoped/roleless; Admin Google/allowlist bootstrap ถูก retire. Merchant-user ยังรับ Google +
+  Microsoft Entra ID. ทั้งสองใช้ provider-scoped login/callback (`/api/v1/{admins|merchants}/auth/{provider}/login|callback`,
+  provider ไม่รู้จัก/ไม่ได้ config -> 404). Admin: scheme `AdminMicrosoft`, opaque session
   cookie `__Host-adm_session` (เก็บแค่ SHA-256 hash), rotation + reuse-detection + instant revoke, CSRF double-submit,
   RBAC resolve สดต่อ request (**retire id-token-as-bearer audience 2026-06-24**). Merchant-user: scheme
   `MerchantUserGoogle`/`MerchantUserMicrosoft` (เดิม `ProducerGoogle`), cookie `__Host-mch_session` + csrf `mch_csrf`

@@ -34,6 +34,7 @@ public sealed class HostTestConfigGateTests
         "AddSecurityTelemetry(builder.Configuration",              // Seq:IngestionUrl — eager, test-benign
         "builder.Configuration.GetConnectionString(\"App\")",      // the pinned trap (Fact 2)
         "ProvisioningGuards.RequireOidcProviders(builder.Configuration", // non-Development only
+        "ProvisioningGuards.RequireWorkforceAdminProvider(builder.Configuration)", // Production-only workforce Admin gate
         "ProvisioningGuards.RequirePublicBaseUrl(builder.Configuration)", // non-Development only
         "AddMerchantUserOidcAuthentication(builder.Configuration", // eager; tests set MerchantAuth:* via UseSetting
         "AddAdminOidcAuthentication(builder.Configuration",        // eager; tests set AdminAuth:* via UseSetting

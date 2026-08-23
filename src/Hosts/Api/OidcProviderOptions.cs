@@ -4,8 +4,8 @@ namespace Api;
 
 /// <summary>
 /// One confidential OIDC client registration (provider × app). Both BFF sides (AdminAuth / MerchantAuth) bind a
-/// <c>Providers</c> dictionary of these; the dictionary KEY ("Google"/"Microsoft") selects the provider-specific
-/// wiring in the side's Add*OidcAuthentication. <c>ClientSecret</c> is a real secret — injected via
+/// <c>Providers</c> dictionary of these. AdminAuth accepts Microsoft only; MerchantAuth accepts Google or Microsoft.
+/// The dictionary key selects the side's provider-specific wiring. <c>ClientSecret</c> is a real secret — injected via
 /// <c>{Side}__Providers__{Provider}__ClientSecret</c>, never committed, never logged. A blank <c>ClientId</c>
 /// disables the provider (its scheme is skipped) instead of faulting the host.
 /// </summary>

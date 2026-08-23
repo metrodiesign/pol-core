@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <!-- Host tests must not inherit operator credentials/config from the invoking shell.
+         Factories that exercise Admin Microsoft explicitly override these through UseSetting. -->
+    <EnvironmentVariables>
+      <AdminAuth__Providers__Microsoft__Authority></AdminAuth__Providers__Microsoft__Authority>
+      <AdminAuth__Providers__Microsoft__ClientId></AdminAuth__Providers__Microsoft__ClientId>
+      <AdminAuth__Providers__Microsoft__ClientSecret></AdminAuth__Providers__Microsoft__ClientSecret>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>

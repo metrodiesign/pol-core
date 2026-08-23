@@ -135,6 +135,11 @@ public sealed class MicrosoftAuthLoginRedirectTests
         Assert.False(string.IsNullOrEmpty(query["state"]));
         Assert.False(string.IsNullOrEmpty(query["nonce"]));
         Assert.EndsWith(callbackPath, query["redirect_uri"].ToString(), StringComparison.Ordinal);
+
+        if (loginPath.Contains("/admins/", StringComparison.Ordinal))
+            Assert.Equal("select_account", query["prompt"].ToString());
+        else
+            Assert.False(query.ContainsKey("prompt"));
     }
 
     [Fact]

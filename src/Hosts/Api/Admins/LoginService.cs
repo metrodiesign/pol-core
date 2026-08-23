@@ -8,9 +8,9 @@ using SharedKernel;
 
 namespace Api.Admins;
 
-/// <summary>Resolves the admin at callback time (REQ-2.5): an existing admin is a READ; first login binds an
-/// invited Scoped account by email, else allowlist self-provisions a Super (idempotent). The IMediator seam is
-/// behind this interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
+/// <summary>Resolves the admin at callback time (REQ-2.5): an existing admin is a READ; an eligible Microsoft
+/// workforce identity is JIT-provisioned as a least-privilege Scoped account. The IMediator seam is behind this
+/// interface so the session-establishment policy can be tested without the source-generated mediator.</summary>
 internal interface ICallbackResolver
 {
     Task<ResolveResult> ResolveAtCallbackAsync(
@@ -21,13 +21,8 @@ internal interface ICallbackResolver
 internal sealed class CallbackResolver : ICallbackResolver
 {
     private readonly IMediator _mediator;
-    private readonly IConfiguration _configuration;
 
-    public CallbackResolver(IMediator mediator, IConfiguration configuration)
-    {
-        _mediator = mediator;
-        _configuration = configuration;
-    }
+    public CallbackResolver(IMediator mediator) => _mediator = mediator;
 
     public async Task<ResolveResult> ResolveAtCallbackAsync(
         ProviderIdentity identity, string email, bool emailVerified, string correlationId,
@@ -37,45 +32,11 @@ internal sealed class CallbackResolver : ICallbackResolver
         if (result.Outcome != ResolveOutcome.NotFound)
             return result;
 
-        // Invite-bind FIRST so an invited email never collides with the unique Email index via self-provision —
-        // but ONLY on a PROVIDER-VERIFIED email. Entra's email/preferred_username are mutable, unverified claims
-        // (any org user who can set their mail/UPN to an unbound invite's address would otherwise bind that admin
-        // account to their own subject — privilege escalation). Google passes its email_verified gate upstream;
-        // Microsoft invites need a (tid, oid)-based bind flow (separate spec) and fail closed here.
-        if (!string.IsNullOrEmpty(email) && emailVerified)
-        {
-            var bound = await _mediator.Send(new BindInvitedCommand(identity, email, correlationId), cancellationToken);
-            if (bound.Outcome != ResolveOutcome.NotFound)
-                return bound;
-        }
-
-        // Allowlist entries are "provider:subject"; a bare entry (no prefix) means "google" for backward compat
-        // (REQ-4.3). The CURRENT login's provider must match the entry's prefix before self-provision (REQ-4.4).
-        var allowlist = _configuration.GetSection("AdminAllowlist:Subjects").Get<string[]>() ?? [];
-        if (allowlist.Any(entry => AllowlistEntryMatches(entry, identity)))
-            return ResolveResult.Of(await _mediator.Send(
-                new SelfProvisionSuperCommand(identity, email, correlationId), cancellationToken));
-
-        return ResolveResult.NotFound;
-    }
-
-    internal static bool AllowlistEntryMatches(string entry, ProviderIdentity identity)
-    {
-        var separator = entry.IndexOf(':');
-        var (entryProvider, entrySubject) = separator < 0
-            ? (User.GoogleProvider, entry)
-            : (entry[..separator].ToLowerInvariant(), entry[(separator + 1)..]);
-        if (!string.Equals(entryProvider, identity.Provider, StringComparison.Ordinal))
-            return false;
-
-        if (entryProvider != User.MicrosoftProvider)
-            return string.Equals(entrySubject, identity.Subject, StringComparison.Ordinal);
-
-        return Guid.TryParse(entrySubject, out var allowlisted)
-            && allowlisted != Guid.Empty
-            && Guid.TryParse(identity.Subject, out var current)
-            && current != Guid.Empty
-            && allowlisted == current;
+        // The OIDC workforce gate already proved tid/role/domain. Only Microsoft can enter this JIT path;
+        // Google invite-binding/bootstrap is intentionally retired.
+        return string.Equals(identity.Provider, User.MicrosoftProvider, StringComparison.Ordinal)
+            ? await _mediator.Send(new JitProvisionMicrosoftAdminCommand(identity, email, correlationId), cancellationToken)
+            : ResolveResult.NotFound;
     }
 }
 
@@ -156,7 +117,13 @@ internal sealed class LoginService
 
         if (result.Outcome != ResolveOutcome.Resolved)
         {
-            await DenyAsync(http, result.Outcome == ResolveOutcome.Suspended ? "suspended" : "not-provisioned", auditSubject, ct);
+            var reason = result.Outcome switch
+            {
+                ResolveOutcome.Suspended => "suspended",
+                ResolveOutcome.IdentityConflict => "identity-conflict",
+                _ => "not-provisioned",
+            };
+            await DenyAsync(http, reason, auditSubject, ct);
             return;
         }
 
