@@ -45,13 +45,13 @@ grep -qE 'COMPATIBILITY_LEVEL = 170' docker/bootstrap/01-principals.sql \
   || fail "bootstrap compatibility assignment missing"
 grep -qE 'iam\.PermissionGroups expected 7 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM group count missing"
-grep -qE 'migration history must contain exactly 20 expected migrations' docker/bootstrap/assert-fresh-db.sql \
+grep -qE 'migration history must contain exactly 21 expected migrations' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion migration set count missing"
 grep -qE 'iam\.Permissions expected 26 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM permission count missing"
 grep -qE 'iam\.RolePermissions expected 33 rows' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion IAM role-permission count missing"
-grep -qE '20260819145219_WorkforceTenantBinding' docker/bootstrap/assert-fresh-db.sql \
+grep -qE '20260823132337_Tier0WorkforceEmailIdentity' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion latest migration missing"
 grep -qE 'CK_WorkforceTenantBindings_Singleton' docker/bootstrap/assert-fresh-db.sql \
   || fail "fresh assertion workforce tenant singleton missing"
