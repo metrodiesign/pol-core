@@ -99,21 +99,14 @@ services:
       Vault__Keys__v1__KeyFile: /run/secrets/vault_master_key
       AuditAnchor__Path: /var/lib/pol-core/audit/anchors.jsonl
       AuditAnchor__SigningKeyFile: /run/secrets/audit_anchor_signing_key
-      # One API, two browser SPAs, BOTH server-side OIDC BFFs (T5 retired the Google id-token Bearer scheme
-      # entirely) — each its own CONFIDENTIAL client (id + secret, the secret via a mounted file secret),
-      # fully isolated scheme/cookie/callback names. CORS is split: merchant-user origin + admin origin, both
-      # credentialed cookie XHR.
+      # One API, two browser SPAs, both server-side OIDC BFFs. Merchant Google and Admin Microsoft use
+      # isolated confidential clients, schemes, cookies and callbacks. CORS is split by browser origin.
       MerchantAuth__Providers__Google__ClientId: ${MERCHANT_USER_OIDC_CLIENT_ID:?set MERCHANT_USER_OIDC_CLIENT_ID in .env}
       MERCHANT_USER_OIDC_CLIENT_SECRET_FILE: /run/secrets/merchant_user_oidc_client_secret
-      AdminAuth__Providers__Google__ClientId: ${ADMIN_OIDC_CLIENT_ID:?set ADMIN_OIDC_CLIENT_ID in .env}
-      ADMIN_OIDC_CLIENT_SECRET_FILE: /run/secrets/admin_oidc_client_secret
-      # Microsoft Entra (opt-in): a blank ClientId skips the scheme, the host boots Google-only. EVERY value
-      # comes from .env — nothing is baked into the image or compose file. BOTH authorities must be
-      # tenant-pinned v2.0 endpoints (the boot guard rejects any multi-tenant Authority): admin = the org's
-      # workforce tenant, merchant-user = the Entra External ID (CIAM) tenant.
-      # Secret files must exist even when Entra is off (empty placeholder) — same rule as db_ca_cert below.
-      AdminAuth__Providers__Microsoft__ClientId: ${ADMIN_ENTRA_CLIENT_ID:-}
-      AdminAuth__Providers__Microsoft__Authority: ${ADMIN_ENTRA_AUTHORITY:-}
+      # Admin Microsoft is required in Production. Merchant Microsoft remains opt-in. Every authority must be
+      # tenant-pinned v2.0; multi-tenant Authority values fail at boot.
+      AdminAuth__Providers__Microsoft__ClientId: ${ADMIN_ENTRA_CLIENT_ID:?set ADMIN_ENTRA_CLIENT_ID in .env}
+      AdminAuth__Providers__Microsoft__Authority: ${ADMIN_ENTRA_AUTHORITY:?set ADMIN_ENTRA_AUTHORITY in .env}
       ADMIN_ENTRA_CLIENT_SECRET_FILE: /run/secrets/admin_entra_client_secret
       MerchantAuth__Providers__Microsoft__ClientId: ${MERCHANT_ENTRA_CLIENT_ID:-}
       MerchantAuth__Providers__Microsoft__Authority: ${MERCHANT_ENTRA_AUTHORITY:-}
@@ -150,7 +143,7 @@ services:
       # REQ-13.4: not a secret (Seq ingestion is same-network only, no public exposure) — the sink degrades
       # to log-only (never blocks a request) if Seq is unreachable, so this is safe to default.
       Seq__IngestionUrl: ${SEQ_INGESTION_URL:-http://seq:80}
-    secrets: [pol_app_password, hippo_app_password, mammoth_app_password, vault_master_key, audit_anchor_signing_key, admin_oidc_client_secret, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, merchant_invitation_smtp_password, db_ca_cert]
+    secrets: [pol_app_password, hippo_app_password, mammoth_app_password, vault_master_key, audit_anchor_signing_key, merchant_user_oidc_client_secret, admin_entra_client_secret, merchant_entra_client_secret, merchant_invitation_smtp_password, db_ca_cert]
     # Codex review #191: without this, KYC/registration photos are written into the container's writable
     # layer (the default PhotoStoreRootPath, /app/merchant-user-photos) and are lost on every recreate —
     # this survives that for the single-host self-host target this compose file serves. A horizontally
@@ -199,8 +192,6 @@ secrets:
     file: ./secrets/vault_master_key
   audit_anchor_signing_key:
     file: ./secrets/audit_anchor_signing_key
-  admin_oidc_client_secret:
-    file: ./secrets/admin_oidc_client_secret
   merchant_user_oidc_client_secret:
     file: ./secrets/merchant_user_oidc_client_secret
   admin_entra_client_secret:

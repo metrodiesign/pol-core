@@ -39,6 +39,15 @@ internal sealed class UserRepository : IUserRepository
     public Task AcquireIdentityMutationLockAsync(CancellationToken cancellationToken) =>
         _locks.AcquireAsync("admin-user-identity-mutation", cancellationToken);
 
+    public async Task<IReadOnlyList<User>> ListTier0CandidatesAsync(
+        string canonicalEmail, CancellationToken cancellationToken) =>
+        await _db.Users
+            .Where(account =>
+                account.Provider == User.MicrosoftProvider && account.Subject == canonicalEmail
+                || account.WorkforceEmailKey == canonicalEmail)
+            .Take(2)
+            .ToListAsync(cancellationToken);
+
     public Task<User?> GetByIdentityAsync(ProviderIdentity identity, CancellationToken cancellationToken) =>
         _db.Users.FirstOrDefaultAsync(x => x.Provider == identity.Provider && x.Subject == identity.Subject, cancellationToken);
 

@@ -57,8 +57,7 @@ public sealed class TransactionInventoryTests
         ["src/Modules/Admins/Admins.Application/Users/AssignMerchant.cs"] = 1,                         // row 1
         ["src/Modules/Admins/Admins.Application/Users/SetAdminRoles.cs"] = 1,                          // row 7
         ["src/Modules/Admins/Admins.Application/Users/ChangeAdminTier.cs"] = 1,                        // row 23 (task 4)
-        ["src/Modules/Admins/Admins.Application/Users/PreProvisionMicrosoftIdentity.cs"] = 1,         // Entra Scoped pre-provision
-        ["src/Modules/Admins/Admins.Application/Users/JitProvisionMicrosoftAdmin.cs"] = 1,          // Microsoft workforce JIT
+        ["src/Modules/Admins/Admins.Application/Users/ResolveMicrosoftAdmin.cs"] = 1,                  // Tier 0 resolve/bind/JIT
         ["src/Modules/Merchants/Merchants.Application/Users/ApproveReject.cs"] = 2,                    // rows 17+18
         ["src/Modules/Merchants/Merchants.Application/Users/SubmitRegistration.cs"] = 1,               // row 20
         ["src/Modules/Merchants/Merchants.Application/Users/SetUserRoles.cs"] = 1,                     // row 19
@@ -108,6 +107,8 @@ public sealed class TransactionInventoryTests
         // is now the ONLY transaction this flow opens.
         ["src/Persistence/Persistence.Provisioning/ProvisioningCoordinator.cs"] = 1,
         ["src/Persistence/Persistence.ControlPlane/Notifications/WebhookDeliveryDispatcher.cs"] = 1, // row 46
+        // Tier 0 offline cutover tool: privileged serializable transaction, never referenced by API runtime.
+        ["src/Tools/WorkforceIdentityMigrator/Program.cs"] = 1,
     };
 
     private static readonly Regex ExecuteInTransactionAsyncCallSite = new(@"\.ExecuteInTransactionAsync\(", RegexOptions.Compiled);
@@ -126,14 +127,14 @@ public sealed class TransactionInventoryTests
     }
 
     [Fact]
-    public void The_only_raw_transaction_primitive_outside_the_shared_UnitOfWork_is_VaultRevealAuditWriter()
+    public void Every_raw_transaction_primitive_outside_shared_UnitOfWork_is_classified()
     {
         var actual = ScanCounts(RawTransactionPrimitive)
             .Where(kv => !KnownUnitOfWorkImplementations.Contains(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
         AssertMatches(ExpectedRawTransactionSites, actual,
-            "Raw transaction primitive (BeginTransaction/UseTransaction/TransactionScope) used OUTSIDE the four known "
-            + "IUnitOfWork implementations and outside VaultRevealAuditWriter (design row 22) — this is a NEW transaction "
+            "Raw transaction primitive (BeginTransaction/UseTransaction/TransactionScope) used OUTSIDE the known "
+            + "IUnitOfWork implementations and classified operator/background flows — this is a NEW transaction "
             + "flow bypassing the shared UoW; classify it in design.md's transaction inventory before adding it here.");
     }
 

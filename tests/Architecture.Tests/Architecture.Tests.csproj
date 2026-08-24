@@ -79,6 +79,7 @@
     <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantUsers\Persistence.MerchantUsers.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.MerchantRuntime\Persistence.MerchantRuntime.csproj" />
     <ProjectReference Include="..\..\src\Persistence\Persistence.Provisioning\Persistence.Provisioning.csproj" />
+    <ProjectReference Include="..\..\src\Tools\WorkforceIdentityMigrator\WorkforceIdentityMigrator.csproj" />
   </ItemGroup>
 
 </Project>

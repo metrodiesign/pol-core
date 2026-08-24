@@ -43,9 +43,10 @@ INSERT INTO @expectedMigrations (MigrationId) VALUES
     (N'20260816162306_MicrosoftOidcProviderDiscriminator'),
     (N'20260817170326_MerchantUserPaymentMethodAccessExpand'),
     (N'20260817172338_MerchantPaymentCapabilityControlPlane'),
-    (N'20260819145219_WorkforceTenantBinding');
+    (N'20260819145219_WorkforceTenantBinding'),
+    (N'20260823132337_Tier0WorkforceEmailIdentity');
 
-IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 20
+IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 21
    OR EXISTS (
        SELECT MigrationId FROM @expectedMigrations
        EXCEPT
@@ -54,7 +55,7 @@ IF (SELECT COUNT(*) FROM dbo.__EFMigrationsHistory) <> 20
        SELECT MigrationId FROM dbo.__EFMigrationsHistory
        EXCEPT
        SELECT MigrationId FROM @expectedMigrations)
-    SET @fail += N'migration history must contain exactly 20 expected migrations through WorkforceTenantBinding; ';
+    SET @fail += N'migration history must contain exactly 21 expected migrations through Tier0WorkforceEmailIdentity; ';
 
 IF OBJECT_ID(N'merch.RegistrationNotices', N'U') IS NULL
     SET @fail += N'merch.RegistrationNotices missing; ';

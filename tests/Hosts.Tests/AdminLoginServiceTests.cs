@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using SharedKernel;
@@ -29,6 +30,16 @@ public sealed class AdminLoginServiceTests
 {
     private static readonly DateTime Now = new(2026, 6, 24, 9, 0, 0, DateTimeKind.Utc);
     private static readonly Guid AdminId = Guid.Parse("a1111111-1111-1111-1111-111111111111");
+    private static readonly string[] SensitiveCanaries =
+    [
+        "privacy.canary@viriyah.co.th",
+        "22222222-2222-4222-8222-222222222222",
+        "authorization-code-canary",
+        "id-token-canary",
+        "access-token-canary",
+        "cookie-canary",
+        "session-token-canary",
+    ];
 
     [Fact]
     public void Login_properties_preserve_returnTo_in_a_dedicated_protected_state_item()
@@ -68,7 +79,7 @@ public sealed class AdminLoginServiceTests
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)));
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/dashboard", default);
 
         var session = Assert.Single(store.Added);
         Assert.Equal(AdminId, session.AdminUserId);
@@ -88,7 +99,7 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.Suspended);
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-2", "ops@org.com", emailVerified: true, "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-2", "/dashboard", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "suspended");
@@ -103,8 +114,7 @@ public sealed class AdminLoginServiceTests
         var (service, store, audit, http) = Build(ResolveResult.IdentityConflict);
 
         await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, "22222222-2222-4222-8222-222222222222",
-            "employee@viriyah.co.th", emailVerified: false, "/dashboard", default);
+            http, User.MicrosoftProvider, "employee@viriyah.co.th", "/dashboard", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "identity-conflict");
@@ -117,7 +127,7 @@ public sealed class AdminLoginServiceTests
         // the resolver returns NotFound (not an existing admin, not invited, not allowlisted)
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-3", "stranger@org.com", emailVerified: true, "/", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-3", "/", default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "not-provisioned");
@@ -128,7 +138,8 @@ public sealed class AdminLoginServiceTests
     {
         var (service, store, audit, http) = Build(ResolveResult.NotFound);
 
-        await service.EstablishSessionAsync(http, provider: "google", subject: null, email: "x@org.com", emailVerified: true, returnTo: "/", ct: default);
+        await service.EstablishSessionAsync(
+            http, provider: "google", subject: null, returnTo: "/", ct: default);
 
         Assert.Empty(store.Added);
         Assert.Contains(audit.Appended, a => a.EventType == AuthEventType.AuthDenied && a.Reason == "missing-subject");
@@ -142,8 +153,7 @@ public sealed class AdminLoginServiceTests
                 AdminId, "ops@org.com", Tier.Scoped, AccessibleMerchants.Of(new HashSet<Guid>()))));
 
         await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, "22222222-2222-4222-8222-222222222222", "ops@org.com",
-            emailVerified: false, "/dashboard", default);
+            http, User.MicrosoftProvider, "ops@viriyah.co.th", "/dashboard", default);
 
         var entry = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.LoginSuccess);
         Assert.Null(entry.Subject);
@@ -155,8 +165,7 @@ public sealed class AdminLoginServiceTests
         var (service, _, audit, http) = Build(ResolveResult.NotFound);
 
         await service.EstablishSessionAsync(
-            http, User.MicrosoftProvider, "22222222-2222-4222-8222-222222222222", "ops@org.com",
-            emailVerified: false, "/", default);
+            http, User.MicrosoftProvider, "ops@viriyah.co.th", "/", default);
 
         var entry = Assert.Single(audit.Appended, a => a.EventType == AuthEventType.AuthDenied);
         Assert.Null(entry.Subject);
@@ -172,11 +181,11 @@ public sealed class AdminLoginServiceTests
             new ResolveResult(ResolveOutcome.Resolved,
                 new Resolution(AdminId, "ops@org.com", Tier.Super, AccessibleMerchants.All)),
             spaBaseUrl: "https://localhost:3001");
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/dashboard", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/dashboard", default);
         Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
 
         var (denied, _, _, deniedHttp) = Build(ResolveResult.Suspended, spaBaseUrl: "https://localhost:3001");
-        await denied.EstablishSessionAsync(deniedHttp, "google", "google-sub-2", "ops@org.com", emailVerified: true, "/", default);
+        await denied.EstablishSessionAsync(deniedHttp, "google", "google-sub-2", "/", default);
         Assert.Equal("https://localhost:3001/login-error?reason=suspended", deniedHttp.Response.Headers.Location);
     }
 
@@ -191,7 +200,7 @@ public sealed class AdminLoginServiceTests
             allowlist: ["/", "/dashboard", "/scalar"],
             defaultReturnPath: "/dashboard");
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/scalar", default);
 
         Assert.Equal("https://localhost:5001/scalar", http.Response.Headers.Location);
     }
@@ -205,9 +214,55 @@ public sealed class AdminLoginServiceTests
             spaBaseUrl: "https://localhost:3001",
             defaultReturnPath: "/dashboard");
 
-        await service.EstablishSessionAsync(http, "google", "google-sub-1", "ops@org.com", emailVerified: true, "/scalar", default);
+        await service.EstablishSessionAsync(http, "google", "google-sub-1", "/scalar", default);
 
         Assert.Equal("https://localhost:3001/dashboard", http.Response.Headers.Location);
+    }
+
+    [Fact]
+    public async Task Resolution_exception_log_audit_and_browser_reason_omit_sensitive_values()
+    {
+        var logger = new CapturingLogger<LoginService>();
+        var resolver = new ThrowingResolver(new InvalidOperationException(string.Join('|', SensitiveCanaries)));
+        var (service, store, audit, http) = Build(
+            ResolveResult.NotFound, resolver: resolver, logger: logger);
+        http.TraceIdentifier = "safe-correlation";
+
+        await service.EstablishSessionAsync(
+            http, User.MicrosoftProvider, SensitiveCanaries[0], "/", default);
+
+        Assert.Empty(store.Added);
+        var denied = Assert.Single(audit.Appended, entry => entry.EventType == AuthEventType.AuthDenied);
+        Assert.Null(denied.Subject);
+        Assert.Equal("resolve-failed", denied.Reason);
+        Assert.Equal("/login-error?reason=resolve-failed", http.Response.Headers.Location);
+        Assert.Contains(logger.Entries, entry => entry.Message.Contains("safe-correlation", StringComparison.Ordinal));
+        Assert.All(logger.Entries, entry => Assert.Null(entry.Exception));
+        AssertNoCanaries(string.Join('\n', logger.Entries.Select(entry => entry.Message)));
+        AssertNoCanaries(string.Join('\n', denied.Subject, denied.Reason, http.Response.Headers.Location));
+    }
+
+    [Fact]
+    public async Task Session_write_exception_log_and_denied_audit_omit_sensitive_values()
+    {
+        var logger = new CapturingLogger<LoginService>();
+        var (service, store, audit, http) = Build(
+            ResolveResult.Of(new Resolution(
+                AdminId, "privacy.canary@viriyah.co.th", Tier.Scoped,
+                AccessibleMerchants.Of(new HashSet<Guid>()))),
+            logger: logger);
+        store.SaveFailure = new InvalidOperationException(string.Join('|', SensitiveCanaries));
+        http.TraceIdentifier = "safe-session-correlation";
+
+        await service.EstablishSessionAsync(
+            http, User.MicrosoftProvider, SensitiveCanaries[0], "/", default);
+
+        var denied = Assert.Single(audit.Appended, entry => entry.EventType == AuthEventType.AuthDenied);
+        Assert.Null(denied.Subject);
+        Assert.Equal("session-write-failed", denied.Reason);
+        Assert.Equal("/login-error?reason=session-write-failed", http.Response.Headers.Location);
+        Assert.All(logger.Entries, entry => Assert.Null(entry.Exception));
+        AssertNoCanaries(string.Join('\n', logger.Entries.Select(entry => entry.Message)));
     }
 
     // --- harness ---
@@ -217,7 +272,9 @@ public sealed class AdminLoginServiceTests
         string spaBaseUrl = "",
         string scalarBaseUrl = "",
         IReadOnlyCollection<string>? allowlist = null,
-        string defaultReturnPath = "/")
+        string defaultReturnPath = "/",
+        ICallbackResolver? resolver = null,
+        ILogger<LoginService>? logger = null)
     {
         var store = new FakeSessionStore();
         var audit = new FakeAuthAudit();
@@ -234,9 +291,9 @@ public sealed class AdminLoginServiceTests
             .AddScoped<IAuthAuditWriter>(_ => audit) // DenyAsync resolves the audit writer on a fresh scope
             .BuildServiceProvider();
 
-        var service = new LoginService(new FakeResolver(resolve), store, audit, cookies, new TestClock(Now),
+        var service = new LoginService(resolver ?? new FakeResolver(resolve), store, audit, cookies, new TestClock(Now),
             provider.GetRequiredService<IServiceScopeFactory>(), sessionOptions, oidcOptions,
-            NullLogger<LoginService>.Instance);
+            logger ?? NullLogger<LoginService>.Instance);
 
         var http = new DefaultHttpContext();
         http.Request.IsHttps = true;
@@ -245,16 +302,31 @@ public sealed class AdminLoginServiceTests
 
     private sealed class FakeResolver(ResolveResult result) : ICallbackResolver
     {
-        public Task<ResolveResult> ResolveAtCallbackAsync(ProviderIdentity identity, string email, bool emailVerified, string correlationId, CancellationToken ct) =>
+        public Task<ResolveResult> ResolveAtCallbackAsync(
+            ProviderIdentity identity, string correlationId, CancellationToken ct) =>
             Task.FromResult(result);
+    }
+
+    private sealed class ThrowingResolver(Exception error) : ICallbackResolver
+    {
+        public Task<ResolveResult> ResolveAtCallbackAsync(
+            ProviderIdentity identity, string correlationId, CancellationToken ct) =>
+            Task.FromException<ResolveResult>(error);
     }
 
     private sealed class FakeSessionStore : ISessionStore
     {
         public readonly List<Session> Added = [];
         public int SaveCount;
+        public Exception? SaveFailure;
         public void Add(Session session) => Added.Add(session);
-        public Task<int> SaveChangesAsync(CancellationToken ct) { SaveCount++; return Task.FromResult(1); }
+        public Task<int> SaveChangesAsync(CancellationToken ct)
+        {
+            if (SaveFailure is not null)
+                return Task.FromException<int>(SaveFailure);
+            SaveCount++;
+            return Task.FromResult(1);
+        }
         public Task<Session?> FindByTokenHashAsync(byte[] hash, CancellationToken ct) => Task.FromResult<Session?>(null);
         public Task<Guid?> GetFamilyActiveSessionIdAsync(Guid familyId, CancellationToken ct) => Task.FromResult<Guid?>(null);
         public Task<bool> TrySupersedeAsync(Guid id, Guid succ, DateTime now, CancellationToken ct) => Task.FromResult(false);
@@ -277,6 +349,27 @@ public sealed class AdminLoginServiceTests
     private sealed class TestClock(DateTime now) : IClock
     {
         public DateTime UtcNow { get; } = now;
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<(string Message, Exception? Exception)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((formatter(state, exception), exception));
+    }
+
+    private static void AssertNoCanaries(string value)
+    {
+        foreach (var canary in SensitiveCanaries)
+            Assert.DoesNotContain(canary, value, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class Env : IHostEnvironment

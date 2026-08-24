@@ -4,7 +4,6 @@ using BuildingBlocks.Application;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Persistence.ControlPlane.Governance;
-using SharedKernel;
 
 namespace Persistence.ControlPlane.Admins;
 
@@ -27,7 +26,7 @@ internal sealed class ControlPlaneIdentityRecoveryReader : IAdminIdentityRecover
     }
 
     public async Task<ResolveResult> ResolveAfterConflictAsync(
-        ProviderIdentity identity, CancellationToken cancellationToken)
+        string canonicalEmail, CancellationToken cancellationToken)
     {
         await using var db = await _contexts.CreateDbContextAsync(cancellationToken);
         var admins = new UserRepository(
@@ -36,9 +35,11 @@ internal sealed class ControlPlaneIdentityRecoveryReader : IAdminIdentityRecover
             _telemetry,
             new GovernanceSqlLockManager(db));
         var roles = new RoleRepository(db);
-        var account = await admins.GetByIdentityAsync(identity, cancellationToken);
-        if (account is null)
+        var candidates = await admins.ListTier0CandidatesAsync(canonicalEmail, cancellationToken);
+        if (candidates.Count != 1
+            || !Tier0CandidatePolicy.IsExactResolvedOwner(candidates[0], canonicalEmail))
             return ResolveResult.IdentityConflict;
+        var account = candidates[0];
         if (account.Status == UserStatus.Suspended)
             return ResolveResult.Suspended;
 

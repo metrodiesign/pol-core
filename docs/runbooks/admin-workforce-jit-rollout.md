@@ -1,119 +1,116 @@
-# Microsoft Workforce JIT Rollout Runbook
+# Tier 0 Microsoft Workforce Canonical Email Rollout
 
-คู่มือนี้ใช้เตรียม staging, cutover production และ rollback สำหรับ Admin workforce JIT ของ `pol-core` กับ `pol-admin` โดยไม่เพิ่ม schema, table หรือ migration และไม่เรียก Microsoft Graph.
+คู่มือนี้ใช้ deploy `Tier 0 : Microsoft Azure ID (สำหรับพนักงาน)` สำหรับ Admin ของ `pol-core`.
+ระบบใช้ canonical corporate email เป็น Microsoft subject และไม่ใช้ Microsoft Graph.
 
-## ขอบเขตความปลอดภัย
+## Contract ปัจจุบัน
 
-- Admin รับเฉพาะ Microsoft Entra ที่ผ่าน tenant เดียว, role `vcp.employee` และ exact domain `viriyah.co.th`.
-- ตรวจ domain แบบ case-insensitive แต่ role `vcp.employee` แบบ case-sensitive; subdomain, Hotmail และ `onmicrosoft.com` ไม่ผ่าน.
-- identity key คือ `(provider=microsoft, oid)`; ห้าม bind ด้วย email.
-- JIT account ใหม่เป็น `Active + Scoped`, ไม่มี role และไม่มี merchant assignment.
-- Guest เข้าได้เมื่อ claims ทั้งหมดผ่าน; Guest ไม่ข้าม workforce policy.
-- Admin Google login/callback ไม่ register และต้องคืน `404`; Merchant Google flow ไม่เปลี่ยน.
-- Conditional Access และ MFA บังคับใน Entra; runtime ไม่อ่าน Graph และไม่เก็บ token หรือ raw external identity ใน audit.
+- รับเฉพาะ issuer จาก tenant-pinned Authority และ claim `tid` หนึ่งค่าที่ตรง workforce tenant.
+- เลือก `email` เมื่อมีหนึ่งค่า. ใช้ `preferred_username` เฉพาะเมื่อไม่มี `email`.
+- ถ้า `email` มีแต่ใช้ไม่ได้ ระบบปฏิเสธและไม่ fallback.
+- canonicalizer trim ขอบ, รับเฉพาะ ASCII addr-spec ยาวไม่เกิน 254 ตัวอักษร, ใช้ BCL
+  `MailAddress`, reject display name/whitespace ภายใน และ lowercase แบบ invariant.
+- domain ต้องเท่ากับ `viriyah.co.th`; subdomain และ domain ภายนอกไม่ผ่าน.
+- identity key คือ `(provider=microsoft, subject=<canonical-email>)`.
+- Tier 0 ไม่อ่านหรือบังคับ `roles` และไม่ใช้ `oid` ใน runtime lookup/persistence.
+- Active Admin ที่ canonical email ตรงและยัง unbound ถูก bind เข้าบัญชีเดิม โดยคง tier, roles,
+  permissions และ MerchantAccess.
+- Suspended, bound-other, duplicate owner หรือ divergent identity fail closed.
+- email ใหม่ที่ไม่ match สร้าง `Active + Scoped` แบบไม่มี role และ MerchantAccess.
+- route `PUT /api/v1/admins/{id}/microsoft-identity` ถูก retire และตอบ normal `404`.
+
+Admin Google login/callback ยังไม่ register. Merchant Google/Microsoft flow ไม่เปลี่ยน.
 
 ## Staging preflight
 
 ### Entra application
 
-1. สร้าง App Role value `vcp.employee` ใน Admin App Registration และให้ role ออกใน ID token claim `roles`.
-2. เปิด `Assignment required` ใน Enterprise Application.
-3. Assign security group พนักงานแบบ direct membership ให้ Enterprise Application.
-4. ตั้ง Conditional Access/MFA ตาม policy องค์กร.
-5. ตั้ง Admin Web redirect URI ให้ตรงทุกตัวอักษร:
+1. ตั้ง Web redirect URI เป็น
+   `https://<api-origin>/api/v1/admins/auth/microsoft/callback` แบบ exact.
+2. ตั้ง Authority เป็น
+   `https://login.microsoftonline.com/<workforce-tenant-id>/v2.0`.
+3. เก็บ client secret `Value` ใน secret store; ห้าม commit หรือพิมพ์ใน log.
+4. ใช้ Conditional Access, MFA และ Enterprise Application assignment เป็น access policy ฝั่ง Entra.
+5. ไม่ต้องสร้าง App Role สำหรับ Tier 0 contract นี้.
+6. ตรวจว่า production เปิด Admin Microsoft provider เดียวและไม่เปิด Admin Google.
 
-   `https://<api-origin>/api/v1/admins/auth/microsoft/callback`
-
-6. ตั้ง Authority เป็น `https://login.microsoftonline.com/<workforce-tenant-id>/v2.0` และใช้ client secret Value จาก secret store เท่านั้น.
-7. ตรวจว่า Admin provider มี Microsoft เพียงตัวเดียว; ห้ามเปิด Google ใน production.
-
-### Application checks
-
-รันจาก `pol-core`:
+### Automated gates
 
 ```bash
-scripts/spec-trace.sh admin-workforce-jit
-dotnet test tests/Admins.Tests/Admins.Tests.csproj --no-restore
-dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --no-restore \
-  --filter "FullyQualifiedName~AdminLoginServiceTests|FullyQualifiedName~AdminCallbackResolverInviteBindTests|FullyQualifiedName~MicrosoftOidcTests|FullyQualifiedName~ProvisioningGuardsTests"
-dotnet test tests/Architecture.Tests/Architecture.Tests.csproj --no-restore --filter "Category!=Integration"
+dotnet build pol-core.slnx --no-restore -warnaserror
+dotnet test pol-core.slnx --no-build --filter "Category!=Integration"
+dotnet test pol-core.slnx --filter "Category=Integration"
+bash docker/migrate-entrypoint.test.sh
+scripts/spec-trace.sh tier-0-microsoft-canonical-email
 ```
 
-รันจาก `pol-admin`:
-
-```bash
-npm test
-npm run typecheck
-npm run lint
-npm run build
-```
-
-ห้ามพิมพ์ค่า secret ตรวจเพียงว่าค่าถูก inject และ file มี mode ที่เหมาะสม. ห้ามใช้ `.env` หรือ tracked config เก็บ secret.
+Staging smoke ต้องยืนยันว่า missing/empty/unrelated role claim และ missing/malformed `oid` ไม่ทำให้ถูกปฏิเสธ;
+พร้อมตรวจ email precedence, wrong tenant, malformed email, wrong domain, existing bind, Suspended และ roleless JIT.
 
 ## Production cutover
 
-### ลำดับ deploy
+ห้ามให้ binary แบบ legacy subject และ binary แบบ canonical-email รับ Tier 0 traffic พร้อมกัน.
 
-1. ผ่าน staging smoke และเก็บ release/image digest.
-2. เปิด maintenance window; deploy `pol-admin` แล้ว `pol-core` ตามขั้นตอน release ขององค์กร.
-3. ตรวจ health และ confirm ว่า production guard ไม่พบ Admin Google provider และพบ Microsoft tenant-pinned provider.
-4. ทดสอบ login ด้วย corporate Super ที่มี `vcp.employee`.
+1. ผ่าน staging และบันทึก image digest/test evidence.
+2. สร้าง verified database backup พร้อม artifact URI และ SHA-256 checksum.
+3. เปิด maintenance window, ปิด Tier 0 traffic และ drain API instance เก่าทั้งหมด.
+4. รัน migrate image. ลำดับบังคับคือ EF migration แล้ว
+   `WorkforceIdentityMigrator` ด้วย privileged `POL_DESIGN_SQL`.
+5. Require migrate service exit `0`. Tool ต้องรายงาน completed/verified counts โดยไม่มี identity value.
+6. ตรวจ `admin.WorkforceIdentityMigrations.CompletedAt` ไม่เป็น `NULL` และ counts ตรง manifest.
+7. Start เฉพาะ binary ใหม่. Startup gate ต้องผ่านก่อน readiness.
+8. รัน approved synthetic login: existing binding และ roleless JIT.
+9. เปิด traffic และแนบ timestamp, health, migration counts และ smoke evidence ใน release record.
 
-### Bootstrap corporate Super
+`WorkforceIdentityMigrator` ทำงานใน serializable transaction ภายใต้
+`admin-user-identity-mutation` applock. Invalid email, duplicate canonical owner, unknown subject หรือ drift
+ทำให้ conversion ทั้งชุด rollback และ migrate service exit non-zero.
 
-ใช้ Admin management API จาก session ของ Super ปัจจุบัน โดยรักษา role codes เดิม:
+## Verification หลัง cutover
 
-1. `GET /api/v1/admins?search=supachaip%40viriyah.co.th` แล้วตรวจ `status=active` และ `email` ตรง.
-2. `GET /api/v1/admins/{id}` เก็บ `ETag`, `roleCodes`, `tier` และ `version`; ตรวจว่าเป็น identity เดิม ไม่ใช้ email bind.
-3. `POST /api/v1/admins/{id}/tier` body `{ "tier": "super" }` พร้อม `If-Match`.
-4. `PUT /api/v1/admins/{id}/roles` body เป็น role codes เดิมรวม `platform_admin` พร้อม `If-Match`; ห้ามแทนที่ด้วยชุดใหม่ที่ตัด role เดิม.
-5. `GET /api/v1/admins/{id}/effective-permissions` ตรวจ permission ของ role เดิมและ `platform_admin`.
-6. Login ใหม่ผ่าน Microsoft และตรวจ `GET /api/v1/admins/me` คืน `tier=super` และ effective permissions ที่คาดไว้.
+- Existing Admin ID, status, tier, authorization/resource version, role assignments และ MerchantAccess ไม่เปลี่ยน.
+- UUID Microsoft subject เปลี่ยนเป็น canonical email ของ row เดิม.
+- Microsoft subject ที่เป็น canonical email ตรงอยู่แล้วเป็น no-op.
+- ทุก Admin มี `WorkforceEmailKey` ตรง canonicalizer หรือ `NULL` สำหรับ email นอก workforce contract.
+- `microsoft-email-bind` และ `jit-provision` audit ใช้เฉพาะ internal Admin ID; ไม่มี email หรือ legacy subject.
+- `/api/v1/admins/me`, RBAC, session rotation/revocation และ CSRF ยังทำงานเดิม.
+- retired pre-provision route ตอบ `404` และไม่เกิด identity mutation.
 
-ถ้าบัญชีถูก `suspended` ให้หยุด cutover และใช้ `POST /api/v1/admins/{id}/reactivate` ตาม approval ก่อน; ห้าม JIT ซ้ำหรือ bind ด้วย email.
+## Rollback boundary
 
-### Session enumeration และ revoke
+### ก่อนเปิด Tier 0 traffic
 
-ทำหลัง bootstrap และก่อน revoke session ของ operator:
+หยุด rollout. ใช้ verified backup restore เป็น production rollback หลัก แล้ว deploy prior binary.
+Migration `Down` มี guard และ restore legacy subjects จาก rollback manifest สำหรับ non-production proof;
+ถ้า row set, manifest หรือ current subject drift มันต้อง abort ก่อน DDL.
 
-1. `GET /api/v1/admins` ระบุบัญชีเป้าหมายทีละราย.
-2. `GET /api/v1/admins/{id}/sessions` ตรวจ `sessionId`, `familyId`, `isLive`; API ไม่คืน token.
-3. `DELETE /api/v1/admins/{id}/sessions/{sessionId}` พร้อม `Idempotency-Key` ที่ไม่ซ้ำต่อ operation; endpoint revoke ทั้ง rotation family.
-4. ตรวจ login ใหม่ของบัญชีเป้าหมาย และตรวจ session เก่าถูกปฏิเสธ.
-5. ทำ operator session เป็นรายการสุดท้าย แล้ว login ใหม่ด้วย corporate Super.
+ตรวจ health/readiness และ legacy authentication ก่อนเปิด trafficกลับ. เก็บ backup/checksum และ rollback
+evidence ไว้กับ release.
 
-ห้ามเรียก revoke production โดยไม่มี change approval และ operator owner. Logout ปัจจุบันใช้ `POST /api/v1/admins/auth/logout`; logout ทุกเครื่องของตัวเองใช้ `POST /api/v1/admins/auth/logout-all`.
+### หลังเปิด Tier 0 traffic
 
-## Browser acceptance matrix
+ห้าม restore legacy subjectsหรือ deploy binary ที่รู้จักเฉพาะ legacy subject. หลังเปิด trafficอาจมี canonical
+JIT identity, binding และ audit ใหม่แล้ว จึงต้องใช้ forward recovery เท่านั้น.
 
-ทดสอบบน production build ของ `pol-admin` และ backend staging เท่านั้น. ที่ 375, 768 และ 1440 ต้องยืนยัน `document.documentElement.clientWidth === target` และ `document.documentElement.scrollWidth <= window.innerWidth`.
+## Email rename และ reuse risk
 
-| Scenario | Expected result | Evidence status |
-|---|---|---|
-| Eligible new corporate Microsoft identity | JIT ครั้งเดียว, `Active + Scoped`, no role/merchant, session created | รอ staging Entra + SQL |
-| `/admin/me` หลัง JIT | `permissions=[]`, existing SPA 403 | รอ live backend |
-| Assign active role แล้ว refresh | effective permissions ใหม่แสดงและ route ใช้งานได้ | รอ live backend |
-| Existing identity | tier, roles, merchant assignments เดิมไม่เปลี่ยน | รอ staging data |
-| Collision / suspended | typed denial, no partial user/session/audit | รอ integration |
-| Hotmail / `onmicrosoft.com` / wrong tenant / missing role | `workforce-access-denied`, no user/session | รอ Entra negative test |
-| Admin Google login | `404` | backend unit/route contract ผ่าน, live route รอ staging |
-| Merchant Google login | behavior เดิม | frontend source/tests ผ่าน, live route รอ staging |
-| Logout and session revoke | cookie/session family revoked | รอ live backend |
+Corporate email เปลี่ยนและนำกลับมาใช้ซ้ำได้ จึงพิสูจน์ continuity ของบุคคลได้น้อยกว่า immutable directory ID.
 
-หลักฐาน frontend ที่มีแล้ว: production build มี employee card Microsoft ปุ่มเดียว, Merchant card มี Google/Microsoft, error copy provider-neutral และกลับหน้า login ได้. ตรวจ `clientWidth` จริง 375/768/1440 แล้ว โดย `scrollWidth` เท่ากับ viewport ทุกขนาด. หลักฐานนี้เป็น UI-only; ห้ามนับเป็น live JIT evidence.
+- Rename ไม่ transfer authorization. Email ใหม่ที่ไม่ match จะได้ roleless Scoped JIT account.
+- Reuse อาจชี้ account เดิม. Lifecycle owner ต้อง suspend Admin ของเจ้าของเดิมและ revoke sessions
+  ก่อนองค์กร assign email เดิมให้บุคคลใหม่.
+- ห้าม rebind หรือ overwrite identity เพื่อแก้ collision. ใช้ approved forward-recovery procedure.
+- ตรวจ orphan/renamed/reused email ตามรอบ access review และเก็บ internal Admin ID เป็น audit anchor.
 
-## Rollback
+## Troubleshooting
 
-1. หยุด rollout เมื่อ auth, authorization, health หรือ smoke gate ล้มเหลว.
-2. คืน image เดิมของ `pol-admin` และ `pol-core` ตาม release record; ไม่รัน migration `Down` และไม่แก้ schema.
-3. เก็บ JIT rows ไว้เพื่อ audit; rows ใหม่เป็น `Scoped`, ไม่มี role และไม่มี merchant assignment จึงไม่เพิ่มสิทธิ์เอง.
-4. ตรวจว่า old image ไม่สร้าง session จาก wrong domain, Hotmail, `onmicrosoft.com` หรือ Google Admin.
-5. หลัง restore ตรวจ health, `/api/v1/admins/me`, session revoke และ audit โดยใช้ synthetic account เท่านั้น.
+| อาการ | ตรวจ |
+|---|---|
+| `workforce-access-denied` | issuer/tenant, claim precedence, canonical format และ exact domain |
+| `identity-conflict` | duplicate email owner, bound-other หรือ identity/email divergence |
+| API ไม่ ready หลัง migration | completed state, `WorkforceEmailKey` และ Microsoft subject invariant |
+| migrate service exit non-zero | หยุด rollout; inspect fixed failure category และตรวจ data แบบ privileged โดยไม่ copy identity ลง ticket |
+| retired route `404` | expected behavior; ไม่มี replacement endpoint |
 
-Rollback evidence ต้องแนบ image digest, timestamp, health result และผล authorization negative controls. ห้ามลบ JIT account หรือ audit เพื่อ rollback.
-
-## Current gate status
-
-- Local unit, architecture, frontend test/typecheck/lint/build และ spec trace ผ่าน.
-- Integration gate ผ่าน: Integration.Tests 168/168 และ Architecture integration 4/4.
-- Live Entra, SQL race/rollback, browser JIT-to-403-to-role-refresh, session revoke และ rollback rehearsal ยังไม่มีหลักฐาน.
+ห้ามแนบ authorization code, ID/access token, cookie, session token, canonical email, legacy subject หรือ
+connection string ใน log, ticket หรือ rollout evidence.

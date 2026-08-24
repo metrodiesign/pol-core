@@ -78,11 +78,12 @@ Use isolated staging DB. Never point rehearsal at production.
 3. Record explicit reset approval.
 4. Stop application traffic and background dispatchers.
 5. DBA resets only approved staging `VCentralPay` target using organization procedure.
-6. Run all 20 migrations in timestamp order through `20260819145219_WorkforceTenantBinding`.
-7. Run `docker/bootstrap/assert-fresh-db.sql`.
-8. Start API and run smoke path below.
-9. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.
-10. Attach logs, catalog assertion, smoke result and rollback timing to `STAGING_EVIDENCE_URI`.
+6. Run all 21 migrations in timestamp order through `20260823132337_Tier0WorkforceEmailIdentity`.
+7. Run `WorkforceIdentityMigrator`; require exit `0` before API startup.
+8. Run `docker/bootstrap/assert-fresh-db.sql`.
+9. Start API and run smoke path below.
+10. Stop traffic, restore pre-reset backup, verify health/read contract, then reset/apply again for final staging state.
+11. Attach logs, catalog assertion, smoke result and rollback timing to `STAGING_EVIDENCE_URI`.
 
 Required staging smoke:
 
@@ -102,9 +103,8 @@ fresh environment-specific evidence URI; repository evidence is not substitute.
 
 ## 5. Microsoft Entra rollout preflight
 
-Microsoft Entra is opt-in in `docker-compose.prod.yml`. Current compose still requires both Google client IDs and
-Google secret files; enabling Microsoft adds a provider, it does not remove Google. Any provider removal needs a
-separate reviewed change and user-impact plan.
+Production compose requires Microsoft workforce OIDC for Admin and Google OIDC for Merchant user. Merchant Microsoft
+remains opt-in. Each plane uses separate client, secret, callback, scheme and cookie.
 
 ### 5.1 Identity and frontend contract
 
@@ -113,13 +113,14 @@ Complete these checks before changing production:
 1. Admin SPA approval, rejection and registration-history routes send internal `merchantUserId` GUID.
 2. Admin SPA does not send Entra `oid`, Google `sub` or raw `Subject` as `{merchantUserId}`.
 3. Existing Google identities remain Google identities; migration backfills `Provider=google`.
-4. Google and Microsoft identities are not linked automatically, even when email addresses match.
-5. First-admin Microsoft allowlist uses `microsoft:<oid>`; a bare allowlist value means Google.
-6. Tier 0 has an employee test account already provisioned or explicitly allowlisted.
-7. Tier 1 has a full test identity that can register, wait for approval, receive approval and login again.
+4. Tier 0 uses canonical `viriyah.co.th` email as Microsoft subject; it does not read `oid` or `roles`.
+5. Active unbound Admin with matching canonical email binds in place; bound-other, Suspended or ambiguous owner fails closed.
+6. New Tier 0 identity creates `Active + Scoped` Admin without role or MerchantAccess.
+7. Promote corporate Super through Admin management API before production; Microsoft bootstrap allowlist does not exist.
+8. Tier 1 has a full test identity that can register, wait for approval, receive approval and login again.
 
-Do not enable Microsoft for existing users until product/operations decides how duplicate cross-provider accounts are
-handled. Matching by email is intentionally not used because the Microsoft email claim is mutable and unverified.
+Corporate email can be renamed or reused. Lifecycle owner must suspend former owner and revoke sessions before reuse;
+authorization never transfers automatically. Follow `admin-workforce-jit-rollout.md` for cutover and recovery rules.
 
 ### 5.2 Runtime configuration
 
@@ -141,14 +142,15 @@ Secret rules:
 - Create each secret file with one value and no explanatory text.
 - Set file mode `0600`; never put secret value in `.env`, compose, image, log, ticket or release evidence.
 - Revoke any secret previously shown in chat, terminal transcript, screenshot or source history.
-- Secret files must exist even when Entra is disabled; empty placeholders are allowed only while matching Client ID is blank.
+- Admin Microsoft secret must be non-empty in Production. Optional Merchant Microsoft secret may be an empty
+  placeholder only while its Client ID is blank.
 
 Verify file presence without printing content:
 
 ```bash
-test -f secrets/admin_entra_client_secret
-test -f secrets/merchant_entra_client_secret
 test -s secrets/admin_entra_client_secret
+test -f secrets/merchant_entra_client_secret
+# เมื่อเปิด Merchant Microsoft เท่านั้น:
 test -s secrets/merchant_entra_client_secret
 ```
 
@@ -203,6 +205,10 @@ Both orphan counts must be `0`. The migration stops before completing if either 
 count to size the migration window; the migration backfills `TargetUserId` and `ActorAdminId`, changes identity indexes
 to `(Provider, Subject)`, then adds a foreign key.
 
+Tier 0 canonical-email cutover has an additional fail-closed preflight in `WorkforceIdentityMigrator`: invalid email,
+duplicate canonical owner, unknown subject or snapshot drift returns non-zero without partial conversion. Use
+`admin-workforce-jit-rollout.md` as the detailed backup, maintenance-window and rollback procedure.
+
 Rollout order:
 
 1. Prove the same migration and OIDC flow on a restored staging copy.
@@ -253,8 +259,9 @@ Deploy approved immutable release:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, checks engine/build/compatibility,
-applies baseline and exits. API never auto-migrates outside Development.
+Order is `migrate` successful completion, then `api`. Migrator bootstraps principals, applies EF migrations, runs
+`WorkforceIdentityMigrator`, then exits only after identity verification succeeds. API never auto-migrates outside
+Development.
 
 Verify:
 

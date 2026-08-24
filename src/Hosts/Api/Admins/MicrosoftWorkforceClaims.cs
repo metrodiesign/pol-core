@@ -7,19 +7,16 @@ namespace Api.Admins;
 /// <summary>Validated Microsoft workforce claims used only by the Admin callback.</summary>
 internal sealed record MicrosoftWorkforceClaims(
     Guid TenantId,
-    Guid ObjectId,
-    string SelectedIdentifier)
+    string CanonicalEmail)
 {
     public ProviderIdentity Identity =>
-        new(User.MicrosoftProvider, ObjectId.ToString("D").ToLowerInvariant());
+        new(User.MicrosoftProvider, CanonicalEmail);
 }
 
 /// <summary>Pure policy gate for the fixed Admin workforce contract.</summary>
 internal static class MicrosoftWorkforceClaimsValidator
 {
     internal const string ContextItemKey = "admin.microsoft.workforce-claims";
-    internal const string WorkforceDomain = "viriyah.co.th";
-    internal const string WorkforceRole = "vcp.employee";
 
     public static bool TryValidate(
         ClaimsPrincipal? principal,
@@ -32,15 +29,13 @@ internal static class MicrosoftWorkforceClaimsValidator
 
         if (!TrySingleUuid(principal, "tid", out var tokenTenant)
             || tokenTenant != tenant
-            || !TrySingleUuid(principal, "oid", out var objectId)
-            || !HasEmployeeRole(principal)
             || !TrySelectIdentifier(principal, out var identifier)
-            || !IsCorporateAddress(identifier))
+            || !WorkforceEmail.TryCanonicalize(identifier, out var canonicalEmail))
         {
             return false;
         }
 
-        claims = new MicrosoftWorkforceClaims(tokenTenant, objectId, identifier);
+        claims = new MicrosoftWorkforceClaims(tokenTenant, canonicalEmail);
         return true;
     }
 
@@ -51,14 +46,6 @@ internal static class MicrosoftWorkforceClaimsValidator
         return values.Length == 1
             && Guid.TryParse(values[0].Value, out value)
             && value != Guid.Empty;
-    }
-
-    private static bool HasEmployeeRole(ClaimsPrincipal principal)
-    {
-        var roles = principal.FindAll("roles").Select(claim => claim.Value).ToArray();
-        return roles.Length > 0
-            && roles.All(role => !string.IsNullOrWhiteSpace(role))
-            && roles.Contains(WorkforceRole, StringComparer.Ordinal);
     }
 
     private static bool TrySelectIdentifier(ClaimsPrincipal principal, out string identifier)
@@ -83,15 +70,6 @@ internal static class MicrosoftWorkforceClaimsValidator
         return true;
     }
 
-    private static bool IsCorporateAddress(string identifier)
-    {
-        var at = identifier.IndexOf('@');
-        return at > 0
-            && at == identifier.LastIndexOf('@')
-            && at < identifier.Length - 1
-            && !identifier.Any(char.IsWhiteSpace)
-            && string.Equals(identifier[(at + 1)..], WorkforceDomain, StringComparison.OrdinalIgnoreCase);
-    }
 }
 
 internal sealed class MicrosoftWorkforcePolicyException : Exception { }

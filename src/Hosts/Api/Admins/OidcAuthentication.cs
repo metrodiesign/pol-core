@@ -98,13 +98,13 @@ internal static class OidcAuthentication
         options.UsePkce = true;                  // S256 code_challenge (REQ-1.1)
         options.SaveTokens = false;              // we never call the provider's APIs (REQ-1.5)
         options.GetClaimsFromUserInfoEndpoint = false;
-        options.MapInboundClaims = false;        // keep raw claim names (sub/oid/email/hd/tid/email_verified)
+        options.MapInboundClaims = false;        // keep raw claim names
         options.RequireHttpsMetadata = !environment.IsDevelopment();
 
         options.Scope.Clear();                   // default is {openid, profile}; keep the request minimal
         options.Scope.Add("openid");
         options.Scope.Add("email");
-        options.Scope.Add("profile");            // Entra puts oid/tid behind profile; openid alone yields only the pairwise sub
+        options.Scope.Add("profile");            // required for tenant and preferred username claims
 
         options.TokenValidationParameters.ValidateIssuer = true;
         // The library default skew (5 min) is generous for short-lived id_tokens; servers run NTP — 2 min covers real drift.
@@ -148,8 +148,6 @@ internal static class OidcAuthentication
                     context.HttpContext,
                     providerSlug,
                     claims.Identity.Subject,
-                    claims.SelectedIdentifier,
-                    emailVerified: false,
                     GetReturnTo(context.Properties),
                     context.HttpContext.RequestAborted);
                 context.HandleResponse();

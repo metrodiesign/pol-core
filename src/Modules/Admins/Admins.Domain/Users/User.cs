@@ -22,12 +22,15 @@ public sealed class User : AggregateRoot<Guid>
     /// Defaults to "google" for rows created before the discriminator existed.</summary>
     public string Provider { get; private set; } = GoogleProvider;
 
-    /// <summary>The provider's stable subject (Google <c>sub</c> / Entra <c>oid</c>). NULL until an invited Scoped
-    /// account's first login binds it; unique per provider once set.</summary>
+    /// <summary>Provider subject: Google <c>sub</c> or canonical workforce email for Microsoft Tier 0. NULL until
+    /// an invited Scoped account's first login binds it; unique per provider once set.</summary>
     public string? Subject { get; private set; }
 
     /// <summary>Verified email. Unique — the invite key before a <see cref="Subject"/> is bound.</summary>
     public string Email { get; private set; } = default!;
+
+    /// <summary>Canonical corporate mailbox used for Tier 0 ownership lookup; NULL for other domains.</summary>
+    public string? WorkforceEmailKey { get; private set; }
 
     public Tier Tier { get; private set; }
 
@@ -68,6 +71,7 @@ public sealed class User : AggregateRoot<Guid>
         Provider = provider;
         Subject = subject;
         Email = email;
+        WorkforceEmailKey = WorkforceEmail.TryCanonicalize(email, out var key) ? key : null;
         Tier = tier;
         Status = UserStatus.Active;
         CreatedAt = createdAt;
@@ -101,18 +105,14 @@ public sealed class User : AggregateRoot<Guid>
             positionId, officeId, levelId, divisionId);
     }
 
-    /// <summary>Creates the least-privileged account for an eligible Microsoft workforce identity.
-    /// The Entra object id is canonicalized before it becomes the provider-subject key; no role or merchant
-    /// assignment is implicit in this factory.</summary>
-    public static User JitProvisionMicrosoft(string subject, string email, DateTime createdAt)
+    /// <summary>Creates a least-privileged account from one canonical Tier 0 email value.</summary>
+    public static User JitProvisionMicrosoft(string canonicalEmail, DateTime createdAt)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
-        ArgumentException.ThrowIfNullOrWhiteSpace(email);
-        if (!Guid.TryParse(subject, out var objectId) || objectId == Guid.Empty)
-            throw new ArgumentException("A valid Microsoft object id is required.", nameof(subject));
+        if (!WorkforceEmail.TryCanonicalize(canonicalEmail, out var canonical))
+            throw new ArgumentException("A valid corporate email is required.", nameof(canonicalEmail));
 
-        return new User(Guid.NewGuid(), MicrosoftProvider, objectId.ToString("D").ToLowerInvariant(), email.Trim(),
-            Tier.Scoped, createdAt, positionId: null, officeId: null, levelId: null, divisionId: null);
+        return new User(Guid.NewGuid(), MicrosoftProvider, canonical, canonical, Tier.Scoped, createdAt,
+            positionId: null, officeId: null, levelId: null, divisionId: null);
     }
 
     /// <summary>Binds the provider identity to an invited account on its first login (REQ-3.5). Idempotent

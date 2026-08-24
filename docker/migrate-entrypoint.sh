@@ -131,4 +131,8 @@ dotnet ef database update --context PolDbContext \
   --project src/BuildingBlocks/BuildingBlocks.Infrastructure \
   --startup-project src/Hosts/Api
 
+echo "[migrate] validating and converting workforce identities..."
+dotnet run --project src/Tools/WorkforceIdentityMigrator/WorkforceIdentityMigrator.csproj \
+  -c Release --no-build
+
 echo "[migrate] done."
