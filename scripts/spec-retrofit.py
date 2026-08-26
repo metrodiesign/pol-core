@@ -1760,7 +1760,13 @@ def run_apply_safe(batch_id: str) -> int:
         print(json.dumps({
             "diagnostics": [{"code": "MIGRATION_FILE_CHANGED",
                              "reason": "verification", "restored": restored_ok,
-                             "failedPaths": failures}],
+                             "failedPaths": failures,
+                             "remainingActions": len(remaining_actions),
+                             "remainingBlockers": len(remaining_blockers),
+                             "samples": [
+                                 {"path": a.path, "field": a.target_field}
+                                 for a in remaining_actions[:5]
+                             ]}],
             "schemaVersion": 1, "verdict": "engine-fail",
         }, sort_keys=True))
         return 2
