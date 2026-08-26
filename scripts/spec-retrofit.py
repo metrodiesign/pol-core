@@ -801,7 +801,7 @@ def plan_evidence_actions(batch_id: str, directory: Path) -> tuple[list[Retrofit
         owner_vp = next(((number, match.group(2)) for number, match in legacy_viewports
                          if "->" not in match.group(2)), None)
         if not viewport_ok:
-            if owner_vp is not None and not has_header:
+            if owner_vp is not None and has_header:
                 number, value = owner_vp
                 line_text = f"- viewports: {value}"
                 span = _line_byte_span(data, number)
@@ -827,7 +827,7 @@ def plan_evidence_actions(batch_id: str, directory: Path) -> tuple[list[Retrofit
         owner_dev = next(((number, match.group(2)) for number, match in legacy_deviations
                           if "->" not in match.group(2)), None)
         if not deviation_ok:
-            if owner_dev is not None and not has_header:
+            if owner_dev is not None and has_header:
                 number, value = owner_dev
                 line_text = f"- deviations: {value}"
                 span = _line_byte_span(data, number)
