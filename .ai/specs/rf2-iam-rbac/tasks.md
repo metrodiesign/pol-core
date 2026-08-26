@@ -39,6 +39,7 @@
          that assembles PolDbContext" instruction, even though the worker does not query `iam.*`
          yet (harmless, keeps the worker's model in sync with the migrated schema).
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 2. Catalog cutover สองฝั่ง — ย้าย role CRUD + permission catalog handlers จาก
      Admins/Merchants.Application → `Iam.Application` (handler เดียวต่อ operation รับ
      `RoleSideContext` จาก helper กลางจุดเดียว: IAdminScope→(Platform,null),
@@ -111,6 +112,8 @@
             `using Scope = Iam.Domain.Permissions.Scope;` — `Microsoft.OpenApi` also declares a
             `Scope` type, ambiguous at the two `GetPermissionCatalogQuery(Scope.X)` call sites.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 3. Unified enforcement + parity guard — `src/Hosts/Api/Iam/PermissionAuthorization.cs`:
      metadata `RequiredPermission` เดียว + extension `RequirePermission` เดียว + endpoint filter
      อ่าน scope ที่ bound (IAdminScope ก่อน, IUserScope, ไม่ bound = 403); parity guard เดียว
@@ -173,6 +176,8 @@
             unrelated pre-existing `IMerchantUserScope` naming in the same comments alone (not
             this task's symbol, not introduced or regressed by this change).
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 4. Migration chain regen + seed + grants — regenerate 3 migrations แบบ EF-native
      (`migrations remove` จนหมด chain → `migrations add` ใหม่: `InitialSchema` generated จาก
      model สุดท้าย — มี `iam.*` 4 ตาราง + assignment FK→`iam.Roles` + `AssignedById` rename,
@@ -223,6 +228,8 @@
             fresh big-bang reset (D13) has no pre-existing users to back-fill anyway. Carrying it would
             also re-introduce an `admin.RoleAssignments` INSERT coupled to the renamed column for no gain.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. Architecture tests — entity→schema allow-set test สร้างใหม่ (ครอบทุก module: schema ∈
      {shop, txn, admin, merch, iam} + named exceptions ของ rf1; entity `Iam` → `iam` เท่านั้น);
      module reference rules (`Iam.*` ไม่อ้าง module ใด, module อื่นอ้างได้แค่ `Iam.Domain`);
@@ -272,6 +279,8 @@
             found — the only existing dependents are the Iam store (`RoleStore`/`RoleSfs`/`RoleConfigurations`)
             and the two side resolution repositories, all already inside the carve-out namespaces.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 6. Integration suite — บน :11433 (bootstrap+migrate ก่อน): seed drift guard (iam rows
      SetEquals vocabulary + 4 roles + grants ต่อ role), grants matrix (pol_admin ตามตาราง /
      pol_app deny บน `iam.*`), no-RLS บน `iam.*` (sys.security_policies), FK bogus key reject,
@@ -356,6 +365,8 @@
             control-plane table — the existing provisioning integration tests leave rows the same way; DB is
             throwaway).
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 7. Canon + docs sync — อัปเดต `.ai/shared/CODING_STANDARDS.md` (canonical entities:
      Iam catalog แทน 2 ชุดเดิม, permission keys/roles ใหม่) + `.ai/shared/ARCHITECTURE.md`
      (identity/RBAC section: catalog กลาง iam, seed 4 roles) + `docs/reference/platform-modules.md`
@@ -415,3 +426,5 @@ Feature นี้ coupled หนัก (ทุก task แชร์ Iam primitiv
 model สุดท้าย) → **รัน ALL ใน session เดียว**: `scripts/pane-loop.sh rf2-iam-rbac all-in-one`
 หรือ `/spec-implement all`. ไม่ตั้ง `Batch:` tag — ไม่มี task เล็ก same-type ที่ควร group แยก.
 ลำดับจริง: 1 → 2 → 3 ขนานได้กับ 2 บางส่วน → 4 (ต้องเห็น model สุดท้าย) → 5, 6, 7.
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

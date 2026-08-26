@@ -13,6 +13,8 @@
   - Committed and ignored local JSON parse successfully and pin API/Scalar/PSP public origin to `https://localhost:5001`
   - API started from the committed launch profile and listened on loopback port `5001`
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 2. Align customer, admin and merchant local SPA origins across committed/local config, OIDC redirects, PSP browser returns, current docs and regression tests while preserving historical evidence
   Satisfies: REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4, REQ-2.5, REQ-2.6, REQ-2.7, REQ-2.8
   Verify: committed-config regression test, targeted login redirect tests, active-surface port audit, solution build and `scripts/spec-trace.sh local-api-port-5001`
@@ -29,3 +31,5 @@
 - Customer, admin and merchant origins are `https://localhost:3000`, `https://localhost:3001` and `https://localhost:3002`
 - Changed SPA behavior passed 3 direct checks; external terminal full non-integration suite passed 1756/1756
 - Spec trace passed 13/13 criteria
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

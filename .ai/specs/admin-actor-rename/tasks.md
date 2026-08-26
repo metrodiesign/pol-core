@@ -15,6 +15,7 @@
        - test: `dotnet test tests/Admin.Tests` -> Passed 29, Failed 0 (domain + handlers)
        - deviations: code in `Admin.Domain` (new module), not `Identity.Domain` (per user direction)
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 2. Admin.Application — ports, resolution, commands
      `AccessibleTenants`; `IAdminScope`; ports `IAdminAccountRepository`/`IAdminAccountAuditWriter`/`IAdminTenantDirectory`;
      `ResolveAdminQuery` (Resolved/Suspended/NotFound; folds accessible resolution); commands
@@ -28,6 +29,7 @@
        - deviations: `IAdminDirectory` (design) folded into `ResolveAdminHandler` (single caller); admin's own
          `IAdminTenantDirectory` port instead of reusing Identity's `ITenantDirectory` (module decoupling)
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 3. Admin.Infrastructure — EF configs + repos
      `AdminAccountConfiguration` (filtered unique Subject `[Subject] IS NOT NULL`, unique Email),
      `AdminTenantAssignmentConfiguration` (unique (AdminAccountId,TenantId)), `AdminAccountAuditConfiguration`;
@@ -39,6 +41,8 @@
        - build: `dotnet build pol-core.slnx -warnaserror` -> 44 projects, 0 errors, 0 warnings
        - wired into `ModuleAssemblies.Producer` (HostModuleAssemblies.All) so configs are discovered
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 4. Migration (additive) + control-plane leak test
      `20260623105857_AddAdminIdentityTables` (EF-scaffolded, additive-only): CREATE 3 tables + indexes, NO RLS
      predicate, NO touch of TenantUsers/TenantIsolationPolicy; grants pol_admin (SELECT/INSERT/UPDATE; +DELETE
@@ -57,6 +61,8 @@
          artifact (inserts 555 w/o cleanup -> 1665 after 3 local re-runs on a persistent DB; green on fresh/CI),
          unrelated to admin. Up/Down round-trip = CI.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. Host wiring + endpoints + SPA glue
      `AdminTenantDirectory` (IAdminTenantDirectory impl), `AdminScope` (IAdminScope holder), `IAdminQuery`+`AdminQuery`
      (seam), `AdminResolutionMiddleware` (allowlist self-provision idempotent / invite-bind / suspended->403 /
@@ -73,6 +79,8 @@
        - deviation: `IAdminScope` lives in Admin.Application (not BuildingBlocks) — it carries AdminResolution;
          `IAdminQuery` + impl in host (returns TenantView; ArchTest bans Identity/Admin->Tenant)
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 6. Architecture.Tests gate + canon + REQ-trace
      `AdminArchitectureTests` (Admin.Domain pure; Admin.Application not depend Tenant/Identity; layers not depend
      Host); `AdminSeamArchitectureTests` (REQ-7.2: only `AdminQuery` may send `GetTenantQuery`). Canon:
@@ -100,6 +108,8 @@ rename deferred) · REQ-13 -> GET /admin/me
 REQ-2 (producer `TenantUser*`->`ProducerAccount*` *rename in place*) is superseded by the removal below.
 The rename half of REQ-11/REQ-12 design is retained as the basis for the Producer rebuild.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [ ] D. (DEFERRED to the Producer rename PR — design retained, NOT implemented in this PR)
      Producer-side `TenantUser*` -> `ProducerAccount*` rename across the stack + the external HTTP contract
      surface. Tracked here so the criteria stay traceable; superseded in part by the Identity removal above.

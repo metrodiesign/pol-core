@@ -232,6 +232,7 @@
          - No live SQL Server integration test for the lease's true row-locking concurrency behavior — the real
            `:11433` database does not have the `AuthorizationVersion` column yet (same reason above), so genuine
            multi-connection SQL Server proof is deferred to task 8, once the column is real.
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. **User/session isolation — pre-bind read+write ports + per-owner outbox + escape-hatch ports**
      Owner-key isolation for merch (MerchantUser) + admin (ControlPlane) identity tables; pre-bind READ ports
      (`ISessionByTokenHash`/`IResolveMerchantLoginBySubject`/`IResolveAdminLoginBySubject`) vs WRITE ports
@@ -587,6 +588,8 @@
          - category 7 given proportionate (not exhaustive) treatment — see taxonomy note above; the 14-file
            bypass-primitive allowlist's other ~11 ports are pure reads with no affected-row signal to anomaly-check.
          - category 11 (RegistrationSentinelMisuse) has no distinct emission site by design — see taxonomy note.
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 10. **Canon supersede — docs**
      Update `.ai/shared/ARCHITECTURE.md` (amend the "one DbContext" invariant T1 → 1 migration-owner + 3 runtime),
      `SECURITY_RULES.md:178-184`, `CODING_STANDARDS.md`, `PROJECT_CONTEXT.md`; rewrite `docs/reference/db-connection-and-rls.md`;
@@ -649,3 +652,4 @@
 > is the only loosely-coupled task — safe to run last or in its own pass.
 > No `Batch:` groups — every task here is foundational or a distinct domain (batching is
 > for small same-type clusters, which this feature does not have).
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

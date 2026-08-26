@@ -20,3 +20,5 @@
   - Fresh DB: `./scripts/check-migration-lineage.sh` และ `docker/bootstrap/assert-fresh-db.sql` -> passed
   - Scope checks: scoped `dotnet format --verify-no-changes`, `git diff --check` และ `jq empty src/Hosts/Api/appsettings.json` -> passed
   - Format deviation: full-solution `dotnet format --verify-no-changes --no-restore` พบ whitespace baseline ในไฟล์นอก scope; scoped changed C# files ผ่าน
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

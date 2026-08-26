@@ -25,6 +25,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     `POL_APP_PASSWORD` is absent. Full-repo format remains red only on pre-existing whitespace
     outside scoped Task 1 files. Both blockers are recorded; no secret or unrelated formatting edit.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 2. Governance and immutable audit foundation — เพิ่ม approval/audit persistence,
   `admin.OperationRecords`, owner-request → decision → owner-execution outbox protocol,
   maker-checker/version checks, append-only hash/redaction, and query endpoints. Governance never
@@ -60,6 +62,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
   - `POL_APP_PASSWORD` and `POL_SA_PASSWORD` remain unset, so the credentialed integration harness was
     not run.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 3. Admin identity, roles, and organization masters — extend existing Admin/Iam/Office/
   Division/Position/Level handlers with one-page server pagination, detail, ETag, stable conflicts,
   idempotent session revoke, and unchanged operation IDs.
@@ -83,6 +87,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     `DateTimeKind.Unspecified`, so JSON omitted an offset and the strict frontend rejected a valid
     `200` page. One HTTP JSON converter now serializes persisted UTC timestamps with explicit `Z`.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 4. Tenant, Originator, PSP, and Routing control plane — add tenant list/update/status,
   five Originator kinds, PSP configuration/test, staged MerchantRuntime Vault versions, routing drafts,
   governed activation, active-ruleset selection, and `txn.AdminOperationRecords`.
@@ -108,6 +114,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     263/263, Hosts 481/481. EF reports no pending model changes; Core/Admin `git diff --check` pass.
     Frontend typecheck, lint, production build (114 routes), and tests 232/232 pass.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. Merchant users and merchant-owned roles — extend existing `ListMerchantUsers` and
   `GetMerchantUser` through Task 1 policy while preserving IDs/handlers; add Admin invitation/update
   and merchant-owned role APIs. Reuse canonical invitation aggregate/table/outbox and exact consume rules.
@@ -128,6 +136,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     `CaptureInvitationEmailSender`, so the test invitation sent no external email and exposed no token.
   - Gates: Hosts 482/482; Admin tests 240/240; lint, typecheck, and production build 114 routes pass.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 6. Admin policy-to-payment-link and Order lifecycle — add `/products/documents`; extend
   existing Cart/Order/PaymentSession operations through Task 1 policy with explicit merchant/originator,
   audience-aware request schemas, routing selection, durable operation state, hosted link, lifecycle,
@@ -149,6 +159,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     remove, Buy-now review, and cancel flows passed without mock fallback. Original action buttons and
     layout remain unchanged: 25 `ซื้อ … เลย` and 25 `เพิ่ม … ลงตะกร้า` actions are present.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 7. Dashboard, Transactions, Reconciliation, and Reports — add query-only dashboard,
   transaction projection/detail/capability, bounded transaction/order/report exports, and operations
   reports. Extend existing `Orders` reconciliation only; create no Transaction aggregate.
@@ -168,6 +180,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     `AdminTask7ContractTests`, Architecture 264/264, and Hosts 490/490 pass. Signed-in Browser renders
     `/transaction/list` and `/control/reconciliation` from the restarted live API without load errors.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 8. API clients, Webhooks, and Notifications — add API-client lifecycle and one-time reveal,
   inbound event query, SSRF-safe outbound endpoints/delivery/replay, notification rules/logs, and
   ControlPlane-owned `admin.DeliverySecretVersions`. Reuse Task 2 Governance protocol.
@@ -188,6 +202,8 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
     Rotation stays maker-checker-tested because the maker cannot approve its own request; replay stays
     automated because the local database has no eligible failed delivery.
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 9. Backend-wide contract and release verification — no feature code. Prove exact operation
   inventory, persisted behavior, owner boundaries, security, migrations, and cross-repository trace.
   - Satisfies: REQ-1.1–1.2, REQ-1.6–1.8, REQ-1.10, REQ-16.3, REQ-16.6, REQ-16.8, REQ-16.13.
@@ -210,3 +226,5 @@ Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub suc
 Run sequentially. Within each task: inspect owner/callers → add failing targeted test → minimum owner
 change → migration where required → targeted test → OpenAPI test → full affected solution gate →
 Evidence. Stop task incomplete on red gate or unavailable required credential and record exact blocker.
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

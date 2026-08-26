@@ -20,6 +20,8 @@
   - Review: code/security reviewพบ audience DTO leak ระหว่าง named documents; แก้ transformer ให้ generate เฉพาะ DTO ของ document แล้ว targeted contract testผ่าน
   - Live database integration: ไม่รัน เพราะ change อยู่ที่ Development-only OpenAPI generation; ไม่มี database path หรือ schema change
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 2. เติม summary/description ของ operation ให้ครบ และแก้ session security text ให้ตรง provider-scoped OIDC ปัจจุบัน โดยไม่เปลี่ยน API contract หรือ runtime behavior.
   Satisfies: REQ-4.1, REQ-4.2, REQ-4.3, REQ-4.4.
   Verify: `dotnet test tests/Hosts.Tests/Hosts.Tests.csproj --filter FullyQualifiedName~AudienceOpenApiDocumentTests`,
@@ -35,3 +37,5 @@
   - Compatibility: OpenAPI ก่อนและหลังเมื่อตัดเฉพาะ summary/description -> identical
   - Browser: Admin API selector, endpoint groups และคำอธิบาย `CreateApiClient` แสดง metadata ล่าสุด
   - Database integration: ไม่รัน เพราะเปลี่ยนเฉพาะ OpenAPI metadata; ไม่มี database path หรือ schema change
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

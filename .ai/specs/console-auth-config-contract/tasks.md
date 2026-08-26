@@ -78,3 +78,4 @@ git diff --check
 ```
 
 Task 5 ต้องบันทึกจำนวน pass/fail จริง, environment ของ SQL integration และ deviation ทุกข้อใน `Evidence:`
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

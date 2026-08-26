@@ -15,7 +15,7 @@
   - Evidence: `find src -maxdepth 3 -type d` + `ls tests` ยืนยันครบทุก project ตามผัง (SharedKernel,
     Contracts, BuildingBlocks.Application/Infrastructure, Modules/{Products,Cart,Checkout,Orders,
     Payments}/{Domain,Application,Infrastructure}, Hosts/{TenantConsole,AdminConsole}, tests×6).
-    Viewports: n/a (ไม่มี UI). Deviations: ไม่มี.
+       - viewports: n/a (ไม่มี UI). Deviations: ไม่มี.
 - [x] A2. Dependency direction + `-warnaserror` + nullable-clean (build เขียว 0 warning)
   · Satisfies: REQ-1.2, REQ-1.6
   - Evidence: brief ระบุ "shared spine ALREADY COMPILES GREEN" ภายใต้ TreatWarningsAsErrors; verify ด้วย
@@ -40,7 +40,7 @@
   key id+version, rotation) · Satisfies: REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5, REQ-7.4
   - Evidence: `find src/BuildingBlocks/BuildingBlocks.Infrastructure` แสดงโฟลเดอร์ Outbox/Idempotency/
     Vault/Persistence; brief ยืนยัน spine compile เขียว; verify `dotnet build -warnaserror`.
-    Viewports: n/a. Deviations: ไม่มี.
+       - viewports: n/a. Deviations: ไม่มี.
 
 ## กลุ่ม B — Architecture + naming guards
 

@@ -170,3 +170,4 @@
 > the shared Admin context (~30-40% more for coupled work) with no accuracy win here.
 > Task 1 is foundational (wire records + SFS + fakes scaffolding); 2/3/4 build on it;
 > 5 finalizes and documents. No task benefits from isolation, so no split is advised.
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

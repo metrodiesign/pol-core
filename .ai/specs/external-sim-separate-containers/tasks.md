@@ -36,6 +36,7 @@
          `-v POL_APP_PASSWORD` ครบ 8 จุด
        - deviations: ไม่มี
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 2. `.NET` config — ลบ `PostConfigure<SpDocumentOptions>` derive fallback ใน
   `src/Hosts/Api/Program.cs` + comment ใหม่อ้าง spec นี้ supersede REQ-3.4 เดิม + แก้ XML doc ของ
   `SpDocumentOptions.cs` (ตัดเรื่อง derive, คง REQ-5.7 rationale)
@@ -52,6 +53,7 @@
          458/458 (17 host boot จริงไม่ตั้ง `SpDocument:*`, ไม่มี `.ValidateOnStart()`)
        - deviations: ไม่มี
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 3. Integration test routing + cross-instance test ใหม่ — `tests/Integration.Tests/IntegrationDb.cs`
   เพิ่ม `SimServer(catalog)`/`SaForCatalog(catalog)`, `ForCatalog` route ผ่าน `SimServer` (signature
   เดิม, call site 3 จุดไม่แตะ) + `tests/Integration.Tests/SimCrossInstanceConsistencyTests.cs` ใหม่
@@ -73,6 +75,7 @@
          "integration routing")
        - deviations: ไม่มี
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 4. Prod plumbing — `docker-compose.prod.yml` env 4 ตัวใหม่ที่ `migrate`+`api` +
   `docker/entrypoint.sh` refactor `build_conn` helper + ประกอบ `SpDocument__*` conditional +
   `docker/migrate-entrypoint.sh` refactor `wait_for_db` helper (คง TLS classification เดิม) เรียก 3
@@ -98,6 +101,7 @@
          แล้ว) — รายละเอียดเต็มใน `changes.md` ("รอบแก้ #2"/"รอบแก้ #3") และ `review.md` (รอบตัดสิน
          สุดท้าย)
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 5. CI ทั้งสอง — `.github/workflows/ci.yml` เพิ่ม service `hippo`/`mammoth` + env + bootstrap
   step 2 คำสั่ง + docker-build render-check placeholder; `.gitlab-ci.yml` mirror ทั้งหมด (service
   alias, variables, wait-loop 3 servers, bootstrap 2 คำสั่ง, render-check export block)
@@ -118,6 +122,7 @@
          เทียบ pattern ของ service `sql` เดิมแทนตามที่ task ระบุไว้เอง
        - deviations: ไม่มี
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 6. Docs sweep — `docs/reference/products.md`, `docs/runbooks/local-dev-run.md`,
   `docs/runbooks/deploy-self-host.md`, `docs/reference/db-connection-and-rls.md` อัปเดตให้สะท้อน
   topology ใหม่
@@ -137,6 +142,7 @@
          ปิดครบในรอบ commit-hygiene นี้
        - deviations: ไม่มี
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 7. Definition of Done gate — spec artifacts ตัวเองต้อง trace ครบ + regression suite เขียวทั้งชุด
   + zero-reference cleanup
      Satisfies: REQ-9 (ทั้งหมด)
@@ -157,3 +163,4 @@
        - `audit.md`: PASS 0 BLOCKING (BLOCKING เดียวรอบแรกปิดแล้ว ยืนยันซ้ำ 2 รอบ); `review.md`:
          APPROVE WITH NITS (must-fix เดียวปิดจริงด้วย mutation red/green proof 4 แบบอิสระ)
        - deviations: ไม่มี
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

@@ -15,3 +15,5 @@
   - `.ai/bin/check-secrets.sh --all`, spec trace and whitespace checks passed
   - Viewports: n/a — backend OIDC configuration and callback behavior only; no frontend source changed
   - Deviations: the managed sandbox could not open VSTest sockets, so final test evidence came from the user's local terminal
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

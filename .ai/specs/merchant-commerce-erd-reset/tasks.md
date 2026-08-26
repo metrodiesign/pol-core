@@ -132,3 +132,4 @@
 > `scripts/pane-loop.sh merchant-commerce-erd-reset all-in-one` หรือ `/spec-implement all`.
 > ไม่กำหนด `Batch:` เพราะแต่ละ taskใหญ่และมี verification boundaryต่างกัน. Task 8 ต้องทำหลัง 1-7 เพื่อ scaffold
 > final modelครั้งเดียว; task 9เป็น assembly/release gateสุดท้าย.
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

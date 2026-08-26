@@ -14,3 +14,5 @@
   - Solution build passed with 0 warnings and 0 errors; secret scan, spec trace and whitespace checks passed
   - Viewports: n/a — backend configuration and redirect behavior only; no frontend source changed
   - Deviations: none
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

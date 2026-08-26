@@ -52,6 +52,7 @@
     - frontend: removed `NEXT_PUBLIC_SKIP_AUTH`/mock-user bypass; `npm run typecheck`, `npx vitest run src/lib/api/admin/auth.test.ts` (29/29), and `npm run lint` passed
     - deviations: full non-integration suite initially stalled because ambient Admin Microsoft configuration leaked into `Hosts.Tests`; `bugfix-host-test-tenant-pin` isolates the testhost, and the current full run passes 1,936/1,936. No production action performed
 
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [ ] 6. **Staging Entra release acceptance** — verify staging Entra/SQL/release-image prerequisites, JIT-to-403-to-role-refresh, negative controls, Super/session-revocation rehearsal, and rollback evidence without changing schema.
   Satisfies: REQ-1.1-1.8, REQ-2.1-2.26, REQ-6.1-6.10, REQ-8.1-8.8, REQ-9.1-9.7, REQ-10.1-10.9. Depends on: 5. Verify: staging browser verification of eligible, collision, suspended, Hotmail/onmicrosoft, zero-permission, role-refresh, Admin Google `404`, Merchant Google regression, session revoke, and rollback.
   Release gate: do not deploy to Production until this task has live Staging evidence with release/image digest, timestamp, redacted status/Location/correlation ID, and rollback result.

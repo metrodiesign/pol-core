@@ -213,6 +213,7 @@
          task. Ticket ISSUANCE (server RegistrationTickets row) is Task 5 (callback); Task 4 builds the consume side +
          the shared signer.
 
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. **OIDC login + callback (state machine)** — `ProducerOidcAuthentication` using the framework
      `AddOpenIdConnect` (scheme `ProducerGoogle` + `producer-oidc-noop` sign-in scheme, separate DP app-name +
      callback `/producer/auth/callback`, S2) with `OnTokenValidated` (email_verified/hd), `OnTicketReceived`
@@ -263,6 +264,7 @@
          (4) `RegisterUrl`/`HostedDomain` bound under `Producer:Oidc:*` (one login options object) rather than the
          design's flat `Producer:RegisterUrl`/`Producer:HostedDomain` — cleaner binding, same values.
 
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 6. **Session scheme + handler + ambient tenant + permission enforcement** — `ProducerSessionAuthenticationHandler`
      (scheme `ProducerSession`; per-request decision+rotate+READ-ONLY re-resolve; bind `IProducerScope` + claims
      `tenant_id`/`tenant_role`/permissions, **`tenant_id` claim = `HttpTenantContext` path**, no `ITenantScope.Begin`
@@ -323,6 +325,7 @@
          deferred photo-serving endpoint in Task 4. `ResolveProducerByIdHandler` (a simpler twin of the tested
          ResolveLoginHandler) is exercised via the session-handler FakeResolver, not its own unit test.
 
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 7. **Admin approve/reject (cross-plane) + Admin catalog extension** — `ApproveTenantUserCommand(subject,
      validatedTenantId, roleCodes)` / `RejectTenantUserCommand` in `Producer.Application`; host endpoints
      `POST /admin/tenant-users/{subject}/approve|reject` doing `RequirePermission(producer.approve|producer.reject)`
@@ -374,6 +377,7 @@
          already covered by AdminQueryScopeFloorTests; the DB-backed HTTP round-trip lands with the other Producer
          integration tests, consistent with Tasks 4/6.
 
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 8. **Enforce the 3 write endpoints + close the seams** — apply the dual-scheme `producer` policy; flip
      `Program.cs` `POST /products` (418) / `POST /payment-sessions` (562) / `POST /payment-sessions/{id}/redirect`
      (583) to `.RequireAuthorization("producer").RequireProducerPermission(product.create|payment.create|payment.redirect)`
@@ -407,6 +411,7 @@
          integration follow-up; the gate WIRING (which policy + permission each endpoint carries per flag) is proven here
          directly via endpoint metadata, and the fail-closed decision is unit-covered by ProducerPermissionAuthorizationTests.
 
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 9. **Canon reconciliation** [optional] — update `CODING_STANDARDS.md:53` (`ProducerAccount`→`TenantUser`) and
      the `ARCHITECTURE.md` Identity-rebuild note to match the shipped naming; add the new producer auth surface to
      `docs/reference/entity-fields.md` if present (mirrors `admin-oidc-session` REQ-13 canon reconciliation).
@@ -432,3 +437,4 @@
 > 1 is foundational (all depend on it). 2/3/4 are independent of each other (RBAC, session core, registration) once 1
 > lands. 5 needs 3+4 (session start + ticket signer). 6 needs 1/2/3. 7 needs 1/2/3. 8 needs 6. 9 is docs-only
 > (`Batch: B-docs`, run anytime after naming is final).
+      - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
