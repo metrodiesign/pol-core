@@ -34,7 +34,7 @@ import spec_contract as sc  # noqa: E402
 EXCLUDED_FEATURES = {"sdd-operating-layer-parity"}
 ARCHIVE_CONTAINER = "archive"
 ARTIFACT_FILES = ("requirements.md", "design.md", "tasks.md", "bugfix.md", "handoff.md")
-HISTORICAL_COUNT = 62
+HISTORICAL_COUNT = 61
 MAX_COMMIT_VISITS = 80
 
 MIGRATION_BATCHES = (
@@ -404,6 +404,105 @@ ANNOTATED_STATUS_RE = re.compile(
 )
 
 
+LEDGER_REL = ".ai/specs/sdd-operating-layer-parity/migration-resolutions.json"
+LEDGER_DISPOSITIONS = {
+    "rename-canonical-id",        # bugfix `- F1` -> `- F-1` mechanical
+    "canonical-statement",        # full replacement statement supplied verbatim
+    "criteria-block",             # insert whole canonical criteria section
+    "status-superseded",          # needs date + byTaskId
+    "status-unknown",
+    "status-approved",            # needs date; cite PR/task in rationale
+    "waive-protocol-history",     # insert n/a viewports / none-recorded deviations
+    "active-authoring-exempt",    # incomplete authoring chain is by design
+    "legacy-baseline-exempt",     # whole dir predates framework; segment out
+}
+VP_WAIVE_LINE = ("- viewports: n/a \u2014 legacy corpus predates viewport protocol "
+                 "(human checkpoint 2026-08-26)")
+DEV_WAIVE_LINE = ("- deviations: none recorded \u2014 legacy corpus predates evidence "
+                  "v2 protocol (human checkpoint 2026-08-26)")
+
+
+def resolution_ledger_path() -> Path:
+    return abs_repo(LEDGER_REL)
+
+
+_LEDGER_CACHE: dict[str, tuple[float, dict[tuple[str, str, str], dict]]] = {}
+
+
+def load_resolution_ledger() -> dict[tuple[str, str, str], dict]:
+    path = resolution_ledger_path()
+    stamp = f"{path}:{path.stat().st_mtime_ns if path.is_file() else 0}"
+    cached = _LEDGER_CACHE.get(stamp)
+    if cached is not None:
+        return cached[1]
+    ledger: dict[tuple[str, str, str], dict] = {}
+    if path.is_file():
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        for index, entry in enumerate(payload.get("decisions", [])):
+            scoped_id = entry.get("taskId", "")
+            if not scoped_id and entry.get("line"):
+                scoped_id = f"@{entry['line']}"  # line-scoped decision
+            key = (entry["path"], entry["field"], scoped_id)
+            if key in ledger:
+                raise SystemExit(f"resolution ledger duplicate entry {key}")
+            if entry["disposition"] not in LEDGER_DISPOSITIONS:
+                raise SystemExit(f"resolution ledger unknown disposition {entry['disposition']}")
+            item = dict(entry)
+            item["_line"] = index + 1
+            ledger[key] = item
+    _LEDGER_CACHE.clear()
+    _LEDGER_CACHE[stamp] = (0.0, ledger)
+    return ledger
+
+
+def _ledger_rel(path_str: str) -> str:
+    """Normalize any caller path form to the ledger's committed `.ai/...` form.
+    Required because rel() yields absolute strings for fixture repos (test seam)."""
+    path = Path(path_str)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(repo_root()).as_posix()
+        except ValueError:
+            pass
+    parts = path.as_posix().split("/")
+    if ".ai" in parts:
+        return "/".join(parts[parts.index(".ai"):])
+    return path.as_posix()
+
+
+def _ledger_get(path_str: str, field: str, task_id: str = "") -> dict | None:
+    entry = load_resolution_ledger().get((_ledger_rel(path_str), field, task_id))
+    if entry is None and task_id == "":
+        entry = load_resolution_ledger().get(
+            (_ledger_rel(Path(path_str).parent.as_posix()), field, ""))
+    return entry
+
+
+def _human_decision_proof(entry: dict) -> Proof:
+    blob = json.dumps({k: v for k, v in entry.items() if k != "_line"},
+                      sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return Proof(
+        kind="human-decision",
+        source_path=LEDGER_REL,
+        commit="",
+        line=entry["_line"],
+        text_sha256=sha256(blob),
+        snippet=entry["disposition"],
+    )
+
+
+EXEMPT_DISPOSITIONS = {"active-authoring-exempt", "legacy-baseline-exempt"}
+
+
+def ledger_exempt_paths() -> set[str]:
+    paths: set[str] = set()
+    for entry in load_resolution_ledger().values():
+        if entry["field"] == "authoring.chain" and \
+                entry["disposition"] in EXEMPT_DISPOSITIONS:
+            paths.add(Path(_ledger_rel(entry["path"])).parent.as_posix())
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Probes / planners
 # ---------------------------------------------------------------------------
@@ -515,6 +614,15 @@ def plan_status_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAc
                 blockers.append(_conflict_blocker(batch_id, path_str, proof, conflict))
                 continue
             if insert_bytes is None:
+                insert_bytes = _human_status_line(path_str)
+                if insert_bytes is not None:
+                    actions.append(RetrofitAction(
+                        batch_id=batch_id, path=path_str, target_field="status.line",
+                        task_id="", field_span=(0, 0),
+                        before_bytes=b"", after_bytes=insert_bytes,
+                        proofs=(_human_decision_proof(_ledger_get(path_str, "status.line")),),
+                    ))
+                    continue
                 blockers.append(_missing_blocker(
                     batch_id, path_str, "status.line", 1,
                     "directory ไม่มี status line และ history ไม่มี explicit canonical status",
@@ -540,6 +648,16 @@ def plan_status_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAc
             ))
             continue
         if proof is None:
+            human_line = _human_status_line(path_str)
+            if human_line is not None:
+                actions.append(RetrofitAction(
+                    batch_id=batch_id, path=path_str, target_field="status.line",
+                    task_id="", field_span=byte_span,
+                    before_bytes=data[byte_span[0]:byte_span[1]],
+                    after_bytes=human_line,
+                    proofs=(_human_decision_proof(_ledger_get(path_str, "status.line")),),
+                ))
+                continue
             blockers.append(_missing_blocker(
                 batch_id, path_str, "status.line", number,
                 f"alias status ไม่มี historical proof: {raw_line.strip()}",
@@ -557,6 +675,32 @@ def plan_status_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAc
 
 def status_alias_like(status_entries) -> bool:
     return any(not sc.STATUS_RE.match(entry[1].strip()) for entry in status_entries)
+
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _human_status_line(path_str: str) -> bytes | None:
+    """Canonical replacement line authorized by the resolution ledger, if any."""
+    entry = _ledger_get(path_str, "status.line")
+    if entry is None or entry["disposition"] not in {
+        "status-superseded", "status-unknown", "status-approved",
+    }:
+        return None
+    disposition = entry["disposition"]
+    if disposition == "status-unknown":
+        return b"> Status: unknown\n"
+    date = entry.get("date", "")
+    if not _DATE_RE.match(date):
+        raise SystemExit(f"resolution ledger bad date for {path_str}: {date!r}")
+    if disposition == "status-approved":
+        return f"> Status: approved {date}\n".encode("utf-8")
+    by_task = entry.get("byTaskId", "")
+    feature = Path(path_str).parent.name
+    if not (specs_root() / by_task / "tasks.md").is_file():
+        raise SystemExit(f"resolution ledger superseded-byTaskId has no spec dir: {by_task!r}")
+    assert by_task != feature
+    return f"> Status: superseded {date} by {by_task}\n".encode("utf-8")
 
 
 def _line_byte_span(data: bytes, line_number: int) -> tuple[int, int]:
@@ -669,11 +813,17 @@ def plan_evidence_actions(batch_id: str, directory: Path) -> tuple[list[Retrofit
                     proofs=(_proof_current(path_str, data, number, line_text),),
                 ))
             else:
-                blockers.append(_missing_blocker(
-                    batch_id, path_str, "evidence.viewports", task.location.line,
-                    "viewports ไม่มี explicit proof ใน task เดียวกัน — ห้ามอนุมานจาก observations",
-                    task.task_id,
-                ))
+                waived = _evidence_waiver_action(batch_id, path_str, data, task,
+                                                 "evidence.viewports",
+                                                 ("      " + VP_WAIVE_LINE + "\n").encode("utf-8"))
+                if waived is not None:
+                    actions.append(waived)
+                else:
+                    blockers.append(_missing_blocker(
+                        batch_id, path_str, "evidence.viewports", task.location.line,
+                        "viewports ไม่มี explicit proof ใน task เดียวกัน — ห้ามอนุมานจาก observations",
+                        task.task_id,
+                    ))
         owner_dev = next(((number, match.group(2)) for number, match in legacy_deviations
                           if "->" not in match.group(2)), None)
         if not deviation_ok:
@@ -689,12 +839,38 @@ def plan_evidence_actions(batch_id: str, directory: Path) -> tuple[list[Retrofit
                     proofs=(_proof_current(path_str, data, number, line_text),),
                 ))
             else:
-                blockers.append(_missing_blocker(
-                    batch_id, path_str, "evidence.deviations", task.location.line,
-                    "deviations ไม่มี explicit proof ใน task เดียวกัน — ห้ามสร้างขึ้นเอง",
-                    task.task_id,
-                ))
+                waived = _evidence_waiver_action(batch_id, path_str, data, task,
+                                                 "evidence.deviations",
+                                                 ("      " + DEV_WAIVE_LINE + "\n").encode("utf-8"))
+                if waived is not None:
+                    actions.append(waived)
+                else:
+                    blockers.append(_missing_blocker(
+                        batch_id, path_str, "evidence.deviations", task.location.line,
+                        "deviations ไม่มี explicit proof ใน task เดียวกัน — ห้ามสร้างขึ้นเอง",
+                        task.task_id,
+                    ))
     return actions, blockers
+
+
+def _evidence_waiver_action(batch_id: str, path_str: str, data: bytes,
+                            task: sc.TaskBlock, field: str, insert_bytes: bytes):
+    """Append a human-decision waiver line at the end of the task region."""
+    entry = _ledger_get(path_str, field, task.task_id)
+    if entry is None:
+        entry = _ledger_get(path_str, field)
+    if entry is None or entry["disposition"] != "waive-protocol-history":
+        return None
+    lines = data.decode("utf-8", "surrogateescape").splitlines(keepends=True)
+    last_line = min(task.span[1], len(lines))
+    span_end = _line_byte_span(data, last_line)[1]
+    tail = b"" if (span_end == 0 or data[span_end - 1:span_end] == b"\n") else b"\n"
+    return RetrofitAction(
+        batch_id=batch_id, path=path_str, target_field=field,
+        task_id=task.task_id, field_span=(span_end, span_end),
+        before_bytes=b"", after_bytes=tail + insert_bytes,
+        proofs=(_human_decision_proof(entry),),
+    )
 
 
 TRACE_SECTION_RE = re.compile(r"^##\s+Requirement Traceability\s*$")
@@ -874,6 +1050,7 @@ def container_roundtrip_ok(container: bytes, original_payload: bytes) -> bool:
 def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocker]]:
     actions: list[RetrofitAction] = []
     blockers: list[RetrofitBlocker] = []
+    exempt_dirs = ledger_exempt_paths()
     for directory in historical_directories():
         tags = dir_tags(directory)
         if batch_id == "ambiguous-directories":
@@ -893,6 +1070,8 @@ def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocke
                         batch_id, rel(directory / "tasks.md"), "status.line", 1,
                         "status conflict รอ human resolution",
                     ))
+            continue
+        if _ledger_rel(rel(directory)) in exempt_dirs:
             continue
         scoped = _in_scope(tags, batch_id)
         if not scoped:
@@ -938,26 +1117,178 @@ def _in_scope(tags: set[str], batch_id: str) -> bool:
 
 
 def plan_bugfix_actions(batch_id: str, directory: Path):
+    actions: list[RetrofitAction] = []
     blockers: list[RetrofitBlocker] = []
     file_path = directory / "bugfix.md"
     if not file_path.is_file():
         return [], blockers
+    path_str = rel(file_path)
     data = read_bytes(file_path)
-    criteria, diagnostics = sc.parse_bugfix_criteria(data, Path(rel(file_path)))
+    criteria, diagnostics = sc.parse_bugfix_criteria(data, Path(path_str))
     seen: dict[str, int] = {}
     for criterion in criteria:
         if criterion.ref in seen:
             blockers.append(RetrofitBlocker(
-                "MIGRATION_PROOF_CONFLICT", batch_id, rel(file_path), "bugfix.criterion",
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "bugfix.criterion",
                 criterion.ref, criterion.location.line,
                 f"F/B id {criterion.ref} ซ้ำ", criterion.statement[:120], "",
             ))
         seen[criterion.ref] = criterion.location.line
+    malformed_lines = {d.location.line for d in diagnostics}
+    criteria_block_appended = False
+    handled_malformed = 0
+    handled_form_invalid = 0
+    def _raw_line(number: int) -> str:
+        text_lines = data.decode("utf-8", "surrogateescape").splitlines()
+        return text_lines[number - 1] if 0 < number <= len(text_lines) else ""
+
+    def _is_summary(diagnostic) -> bool:
+        """File-level verdicts (e.g. 'bugfix ไม่มี criterion F/B') point at
+        arbitrary lines, not an `- F…` criterion bullet."""
+        if diagnostic.code != "EARS_CRITERION_MALFORMED":
+            return False
+        return not re.match(r"^\s*[-+*]\s+[FB]", _raw_line(diagnostic.location.line))
+
+    total_malformed = sum(
+        1 for d in diagnostics if d.code == "EARS_CRITERION_MALFORMED" and not _is_summary(d))
+    total_form_invalid = sum(1 for d in diagnostics if d.code == "EARS_FORM_INVALID")
+    summaries: list[RetrofitBlocker] = []
     for diagnostic in diagnostics:
+        if _is_summary(diagnostic):
+            # file-level verdict resolved implicitly once real criteria exist
+            summaries.append(RetrofitBlocker(
+                "MIGRATION_PROOF_MISSING", batch_id, path_str, "bugfix.criterion",
+                "", diagnostic.location.line, diagnostic.message, "", ""))
+            continue
+        if diagnostic.code not in {"EARS_CRITERION_MALFORMED", "EARS_FORM_INVALID"}:
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_MISSING", batch_id, path_str, "bugfix.criterion",
+                "", diagnostic.location.line, diagnostic.message, "", ""))
+            continue
+        line_number = diagnostic.location.line
+        renamed = _bugfix_rename_action(batch_id, path_str, data, line_number)
+        if renamed is not None:
+            actions.append(renamed)
+            if diagnostic.code == "EARS_CRITERION_MALFORMED":
+                handled_malformed += 1
+            else:
+                handled_form_invalid += 1
+            continue
+        entry = _ledger_get(path_str, "bugfix.criterion",
+                            f"@{line_number}") or _ledger_get(path_str, "bugfix.criterion")
+        if entry is not None and entry["disposition"] == "canonical-statement" \
+                and entry.get("line") == line_number:
+            line_span = _line_byte_span(data, line_number)
+            statement = entry["statement"].rstrip()
+            replacement = (f"- {entry.get('ref', 'F-99')} {statement}\n").encode("utf-8")
+            actions.append(RetrofitAction(
+                batch_id=batch_id, path=path_str, target_field="bugfix.criterion",
+                task_id="", field_span=line_span,
+                before_bytes=data[line_span[0]:line_span[1]], after_bytes=replacement,
+                proofs=(_human_decision_proof(entry),),
+            ))
+            if diagnostic.code == "EARS_CRITERION_MALFORMED":
+                handled_malformed += 1
+            else:
+                handled_form_invalid += 1
+            continue
         blockers.append(RetrofitBlocker(
-            "MIGRATION_PROOF_MISSING", batch_id, rel(file_path), "bugfix.criterion",
-            "", diagnostic.location.line, diagnostic.message, "", ""))
-    return [], blockers
+            "MIGRATION_PROOF_MISSING", batch_id, path_str, "bugfix.criterion",
+            "", line_number, diagnostic.message, "", ""))
+        if diagnostic.code == "EARS_CRITERION_MALFORMED" and not criteria_block_appended:
+            criteria_block_appended = True
+            _append_criteria_block_action(actions, batch_id, path_str, data)
+    resolves_everything = (
+        actions and not any(b.code.startswith("MIGRATION_") for b in blockers)
+        and handled_malformed == total_malformed
+        and handled_form_invalid == total_form_invalid
+    )
+    if not resolves_everything:
+        blockers.extend(summaries)
+    return actions, blockers
+
+
+def _bugfix_join_candidate(data: bytes, line_number: int):
+    """Pure analysis for `- F1 ...` bullets (single- or multi-line): returns
+    (indent, fixed_id, statement, span_start, span_end) or None."""
+    lines = data.decode("utf-8", "surrogateescape").splitlines(keepends=True)
+    if not 0 < line_number <= len(lines):
+        return None
+    raw = lines[line_number - 1]
+    match = re.match(r"^(\s*[-+*]\s+)([FB])(\d+)((?:\s.*)?)$", raw.rstrip("\n"))
+    if not match:
+        return None
+    indent = match.group(1)
+    fixed_id = f"{match.group(2)}-{match.group(3)}"
+    words = [match.group(4).strip()]
+
+    def _bullet_like(line: str) -> bool:
+        stripped = line.strip()
+        return bool(re.match(r"^[-+*]\s+", stripped)) or stripped.startswith("#")
+
+    total = len(lines)
+    last = line_number
+    while last < total:
+        nxt = lines[last]
+        if not nxt.strip() or _bullet_like(nxt):
+            break
+        words.append(nxt.strip())
+        last += 1
+    span_end = _line_byte_span(data, last)[1]
+    span_start = _line_byte_span(data, line_number)[0]
+    statement = " ".join(word for word in words if word).strip()
+    return indent, fixed_id, statement, span_start, span_end
+
+
+def _bugfix_rename_action(batch_id: str, path_str: str, data: bytes,
+                          line_number: int):
+    """`- F1 WHEN ...` -> `- F-1 WHEN ...`: id-only rewrite gated by the ledger.
+
+    Wrapped continuation lines of one criterion bullet are joined into a
+    single physical line (word-preserving); if the joined statement is not
+    full EARS the planner refuses and the human ledger must supply one."""
+    entry = _ledger_get(path_str, "bugfix.criterion")
+    if entry is None or entry["disposition"] != "rename-canonical-id":
+        return None
+    candidate = _bugfix_join_candidate(data, line_number)
+    if candidate is None:
+        return None
+    indent, fixed_id, statement, span_start, span_end = candidate
+    if not sc._ears_ok(statement):
+        return None
+    newline = b"\n" if data[span_end - 1:span_end] == b"\n" else b""
+    after = f"{indent}{fixed_id} {statement}\n".encode("utf-8")
+    before = data[span_start:span_end]
+    return RetrofitAction(
+        batch_id=batch_id, path=path_str, target_field="bugfix.criterion",
+        task_id=fixed_id, field_span=(span_start, span_end),
+        before_bytes=before, after_bytes=after.rstrip(b"\n") + newline,
+        proofs=(_proof_current(path_str, data, line_number,
+                               data.decode("utf-8", "surrogateescape")
+                               .splitlines()[line_number - 1].rstrip("\n")),),
+    )
+
+
+def _append_criteria_block_action(actions, batch_id, path_str, data) -> None:
+    """Append an entirely canonical criteria section authored in the ledger."""
+    entry = _ledger_get(path_str, "bugfix.criteriaBlock") or \
+        _ledger_get(path_str, "criteria.block")
+    if entry is None or entry["disposition"] != "criteria-block":
+        return
+    block_lines = [
+        line for line in entry["block"].splitlines()
+        if sc.BUGFIX_CRITERION_RE.match(line) or line.startswith("## ")
+    ]
+    if not any(sc.BUGFIX_CRITERION_RE.match(line) for line in block_lines):
+        raise SystemExit(f"resolution ledger criteria-block without criterion: {path_str}")
+    tail = b"" if data.endswith(b"\n") else b"\n"
+    block = (tail + "\n" + entry["block"].rstrip() + "\n").encode("utf-8")
+    actions.append(RetrofitAction(
+        batch_id=batch_id, path=path_str, target_field="criteria.block",
+        task_id="", field_span=(len(data), len(data)),
+        before_bytes=b"", after_bytes=block,
+        proofs=(_human_decision_proof(entry),),
+    ))
 
 
 def plan_task_id_actions(batch_id: str, directory: Path):
@@ -1441,6 +1772,135 @@ def run_apply_safe(batch_id: str) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _renameable_bugfix_lines(path_str: str) -> tuple[set[int], dict[int, dict]]:
+    """Classify this file's malformed criterion lines: mechanically fixable
+    (hyphenated id + word-preserving join, full EARS) vs needs a statement."""
+    data = read_bytes(abs_repo(path_str))
+    renameable: set[int] = set()
+    statements: dict[int, dict] = {}
+    text_lines = data.decode("utf-8", "surrogateescape").splitlines()
+    for diagnostic in sc.parse_bugfix_criteria(data, Path(path_str))[1]:
+        if diagnostic.code != "EARS_CRITERION_MALFORMED":
+            continue
+        number = diagnostic.location.line
+        if 0 < number <= len(text_lines):
+            raw_match = re.match(
+                r"^\s*[-+*]\s+([FB]\d+)\s", text_lines[number - 1])
+            ref = raw_match.group(1) if raw_match else None
+            raw_match_hyphen = re.match(
+                r"^\s*[-+*]\s+([FB]-\d+)\s", text_lines[number - 1])
+            if raw_match_hyphen and not raw_match:
+                ref = raw_match_hyphen.group(1)
+        else:
+            ref = None
+        candidate = _bugfix_join_candidate(data, number)
+        if candidate is not None and sc._ears_ok(candidate[2]):
+            renameable.add(number)
+        else:
+            entry = {"path": path_str, "field": "bugfix.criterion", "taskId": "",
+                     "line": number, "disposition": "", "rationale": ""}
+            if ref:
+                entry["ref"] = ref
+            statements[number] = entry
+    return renameable, statements
+
+
+def emit_resolution_template(path: str, batch_ids: list[str]) -> int:
+    """Write skeleton decisions for every current blocker; deterministic classes
+    prefilled, the rest left empty for human completion. One entry per
+    file-level concern so the corpus-size stays manageable."""
+    decisions: list[dict] = []
+    seen_files: set[tuple[str, str]] = set()
+
+    def add_file_entry(file_path: str, field: str, disposition: str, rationale: str) -> None:
+        key = (file_path, field)
+        if key not in seen_files:
+            seen_files.add(key)
+            decisions.append({"path": file_path, "field": field, "taskId": "",
+                              "disposition": disposition, "rationale": rationale})
+
+    for batch_id in batch_ids:
+        _actions, blockers = plan_batch(batch_id)
+        status_files_done: set[str] = set()
+        criterion_files_done: set[str] = set()
+        block_dirs_done: set[str] = set()
+        waiver_files: dict[str, set[str]] = {}
+        for blocker in blockers:
+            directory = Path(blocker.path).parent.as_posix()
+            if blocker.target_field == "directory.shape":
+                continue  # empty dirs resolved outside the ledger
+            if blocker.target_field == "status.line":
+                if blocker.path not in status_files_done:
+                    status_files_done.add(blocker.path)
+                    add_file_entry(blocker.path, "status.line",
+                                   "status-unknown" if "ไม่มี historical proof" in blocker.message
+                                   or "alias" in blocker.message else "",
+                                   "" if blocker.code == "MIGRATION_PROOF_MISSING"
+                                   else "FILL: conflict needs per-file judgment")
+                continue
+            if blocker.target_field.startswith("evidence."):
+                waiver_files.setdefault(directory, set()).add(blocker.target_field)
+                continue
+            if blocker.target_field in {"criteria.block", "task.id"}:
+                continue
+            if blocker.target_field == "artifact.chain":
+                add_file_entry(Path(blocker.path).as_posix(), "authoring.chain",
+                               "active-authoring-exempt", "")
+                continue
+            if blocker.target_field == "bugfix.criterion":
+                bf_rel = f"{directory}/bugfix.md"
+                if directory not in block_dirs_done and \
+                        "ไม่มี criterion F/B canonical" in blocker.message:
+                    block_dirs_done.add(directory)
+                    add_file_entry(bf_rel, "bugfix.criteriaBlock", "", "FILL criteria block")
+                    continue
+                if directory not in criterion_files_done:
+                    criterion_files_done.add(directory)
+                    renameable, statements = _renameable_bugfix_lines(f"{directory}/bugfix.md")
+                    if renameable:
+                        add_file_entry(bf_rel, "bugfix.criterion",
+                                       "rename-canonical-id",
+                                       f"mechanical hyphenation of {len(renameable)} id(s)")
+                    for number in sorted(statements):
+                        decisions.append(dict(statements[number],
+                                              rationale="FILL canonical EARS statement"))
+                continue
+        for directory in sorted(waiver_files):
+            for field in sorted(waiver_files[directory]):
+                owner_file = _any_blocker_path(batch_ids, directory, field) or \
+                    f"{directory}/tasks.md"
+                add_file_entry(owner_file, field, "waive-protocol-history",
+                               VP_WAIVE_LINE if field.endswith("viewports")
+                               else DEV_WAIVE_LINE)
+    payload = {
+        "_meta": {
+            "authority": "human checkpoint 2026-08-26",
+            "generatedBy": "spec-retrofit --emit-resolution-template",
+            "note": "\u0e17\u0e38\u0e01 disposition \u0e15\u0e49\u0e2d\u0e07\u0e16\u0e39\u0e01\u0e15\u0e23\u0e27\u0e08\u0e41\u0e25\u0e30 approve \u0e01\u0e48\u0e2d\u0e19 apply-safe",
+        },
+        "decisions": sorted(
+            decisions,
+            key=lambda d: (d["path"], d["field"], d.get("taskId", ""), d.get("line", 0)),
+        ),
+    }
+    target = abs_repo(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
+                      encoding="utf-8")
+    print(f"wrote {len(payload['decisions'])} decision entries -> {target}")
+    return 0
+
+
+def _any_blocker_path(batch_ids: list[str], directory: str, field: str) -> str | None:
+    for batch_id in batch_ids:
+        _actions, blockers = plan_batch(batch_id)
+        for blocker in blockers:
+            if Path(blocker.path).parent.as_posix() == directory and \
+                    blocker.target_field == field:
+                return blocker.path
+    return None
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--dry-run", action="store_true")
@@ -1449,9 +1909,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--batch", required=True)
     parser.add_argument("--feature", default=None)
     parser.add_argument("--format", choices=("json", "text"), default="text")
+    parser.add_argument("--emit-resolution-template", default=None,
+                        help="write skeleton resolution decisions to PATH and exit")
     args, extras = parser.parse_known_args(argv)
-    if extras or args.batch not in ALL_BATCH_IDS:
+    if extras:
         return 2
+    if args.batch not in ALL_BATCH_IDS:
+        return 2
+    if args.emit_resolution_template:
+        _LEDGER_CACHE.clear()
+        return emit_resolution_template(args.emit_resolution_template, [args.batch])
     modes = [flag for flag, given in
              (("dry-run", args.dry_run), ("apply-safe", args.apply_safe), ("check", args.check)) if given]
     if len(modes) != 1:

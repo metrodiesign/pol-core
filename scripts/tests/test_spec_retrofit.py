@@ -458,5 +458,134 @@ class GuardedWriterTest(RetrofitSandbox):
         self.assertIn("MIGRATION_HEAD_CHANGED", proc.stdout)
 
 
+class ResolutionLedgerTest(RetrofitSandbox):
+    """Human-decision ledger drives safe actions where history has no proof."""
+
+    def ledger(self, *decisions: dict) -> Path:
+        target = self.repo / ".ai" / "specs" / "sdd-operating-layer-parity" / \
+            "migration-resolutions.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(
+            {"_meta": {"authority": "human checkpoint"}, "decisions": list(decisions)},
+            ensure_ascii=False), encoding="utf-8")
+        return target
+
+    def _entries(self, payload: str) -> list[dict]:
+        return json.loads(payload).get("actions", [])
+
+    def test_rename_canonical_id_rewrites_hyphenless_bugfix_ids(self):
+        directory = self.feature("bugfix-hyphen-demo")
+        (directory / "bugfix.md").write_text(
+            "# Bugfix: demo\n\n- F1 WHEN the SDD task runs THE SYSTEM SHALL pass.\n"
+            "- B1 WHILE cache is warm THE SYSTEM SHALL reuse results.\n",
+            encoding="utf-8")
+        self.commit_all("seed alias-ish bugfix doc")
+        self.ledger({"path": ".ai/specs/bugfix-hyphen-demo/bugfix.md",
+                     "field": "bugfix.criterion", "disposition": "rename-canonical-id",
+                     "rationale": "mechanical"})
+        self.commit_all("record human resolution")
+        proc = run_cli(["--apply-safe", "--batch", "bugfix"], self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        text = (directory / "bugfix.md").read_text(encoding="utf-8")
+        self.assertIn("- F-1 WHEN the SDD task runs", text)
+        self.assertIn("- B-1 WHILE cache is warm", text)
+        self.assertNotIn("F1 WHEN", text)
+
+    def test_status_unknown_replaces_alias_without_history(self):
+        directory = self.feature("status-unknown-demo")
+        (directory / "tasks.md").write_text(
+            "# Legacy\n\n> Status: shipped-and-done 2024-01-01\n\n"
+            "- [x] A1. ship.\n\n     Evidence:\n     - test: `demo` -> ok\n",
+            encoding="utf-8")
+        self.commit_all("alias status without explicit approved line")
+        self.ledger({"path": ".ai/specs/status-unknown-demo/tasks.md",
+                     "field": "status.line", "disposition": "status-unknown",
+                     "rationale": "no owner recorded"})
+        self.commit_all("record human resolution")
+        proc = run_cli(["--apply-safe", "--batch", "approved-aliases"], self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        text = (directory / "tasks.md").read_text(encoding="utf-8")
+        self.assertIn("> Status: unknown", text)
+        self.assertNotIn("shipped-and-done", text)
+
+    def test_evidence_waiver_inserts_na_viewports_and_deviations(self):
+        directory = self.feature("evidence-waive-demo")
+        (directory / "tasks.md").write_text(
+            "# Feature\n\n> Status: approved 2024-02-02\n\n"
+            "- [x] V1. visible work.\n\n"
+            "     Evidence:\n"
+            "     - test: `pytest -q` -> 5 passed\n",
+            encoding="utf-8")
+        self.commit_all("seed evidence task missing vp/dev")
+        tasks_rel = ".ai/specs/evidence-waive-demo/tasks.md"
+        self.ledger(
+            {"path": tasks_rel, "field": "evidence.viewports",
+             "disposition": "waive-protocol-history", "rationale": "predates protocol"},
+            {"path": tasks_rel, "field": "evidence.deviations",
+             "disposition": "waive-protocol-history", "rationale": "predates protocol"},
+        )
+        self.commit_all("record human resolution")
+        dry = run_cli(["--dry-run", "--batch", "evidence", "--format", "json"], self.repo)
+        payload = json.loads(dry.stdout)
+        fields = {action["targetField"] for action in payload["actions"]}
+        self.assertIn("evidence.viewports", fields)
+        self.assertIn("evidence.deviations", fields)
+        proc = run_cli(["--apply-safe", "--batch", "evidence"], self.repo)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        import importlib.util as _ilu
+        sc_spec = _ilu.spec_from_file_location("sc_probe", SCRIPTS / "spec_contract.py")
+        sc = importlib.util.module_from_spec(sc_spec); sys.modules["sc_probe"] = sc
+        sc_spec.loader.exec_module(sc)
+        tasks, diags = sc.parse_task_blocks((directory / "tasks.md").read_bytes(),
+                                            Path(tasks_rel))
+        self.assertFalse(diags)
+        problems = {p.code for p in sc._task_evidence_problems(tasks[0])}
+        self.assertNotIn("EVIDENCE_VIEWPORTS_INVALID", problems)
+        self.assertNotIn("EVIDENCE_DEVIATIONS_MISSING", problems)
+        self.assertIn("n/a \u2014 legacy corpus predates viewport protocol",
+                      "\n".join(tasks[0].evidence))
+
+    def test_active_authoring_exempt_removes_chain_blocker(self):
+        directory = self.feature("active-chain-demo")
+        (directory / "requirements.md").write_text(
+            "# Req\n\n## REQ-1: Work\n\n- 1.1 WHEN x occurs THE SYSTEM SHALL y.\n",
+            encoding="utf-8")
+        (directory / "design.md").write_text("# Design\n\ndraft\n", encoding="utf-8")
+        (directory / "tasks.md").write_text(
+            "# Tasks\n\n> Status: draft\n\n- [ ] 1. pending work.\n", encoding="utf-8")
+        self.commit_all("seed incomplete authoring chain")
+        base = {"path": ".ai/specs/active-chain-demo/tasks.md",
+                "field": "authoring.chain"}
+        plain = run_cli(["--check", "--batch", "canonical-complete", "--format", "json"],
+                        self.repo)
+        self.assertNotEqual(plain.returncode, 0)
+        self.ledger({**base, "disposition": "active-authoring-exempt",
+                     "rationale": "incomplete by design"})
+        exempt = run_cli(["--check", "--batch", "canonical-complete", "--format", "json"],
+                         self.repo)
+        self.assertEqual(exempt.returncode, 0, exempt.stdout)
+        self.assertEqual(json.loads(exempt.stdout)["verdict"], "allow")
+
+    def test_emit_resolution_template_is_deterministic_and_prefilled(self):
+        directory = self.feature("template-demo")
+        (directory / "bugfix.md").write_text(
+            "# Bugfix: t\n\n- F9 WHEN k happens THEN finish.\n", encoding="utf-8")
+        self.commit_all("seed near-miss bugfix")
+        out_rel = ".pipeline/template-out.json"
+        first = run_cli(["--check", "--batch", "bugfix",
+                         "--emit-resolution-template", out_rel], self.repo)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        emitted = self.repo / out_rel
+        payload = json.loads(emitted.read_text(encoding="utf-8"))
+        kinds = {(d["path"].endswith("bugfix.md"), d["disposition"])
+                 for d in payload["decisions"]}
+        self.assertIn((True, ""), kinds)  # FILL entry: statement is not full EARS
+        snapshot = emitted.read_bytes()
+        second = run_cli(["--check", "--batch", "bugfix",
+                          "--emit-resolution-template", out_rel], self.repo)
+        self.assertEqual(second.returncode, 0)
+        self.assertEqual(emitted.read_bytes(), snapshot)
+
+
 if __name__ == "__main__":
     unittest.main()
