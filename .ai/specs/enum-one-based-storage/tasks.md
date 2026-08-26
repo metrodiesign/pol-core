@@ -43,3 +43,4 @@
 ## Suggested execution batches
 
 งานนี้ coupled ผ่าน domain, EF model, migration และ SQL consumers ควรรัน tasks `1-4` ใน session เดียวตามลำดับ เพื่อรักษา model/snapshot/migration parity
+      - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
