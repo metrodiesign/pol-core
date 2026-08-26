@@ -1776,22 +1776,35 @@ def run_apply_safe(batch_id: str) -> int:
         _fsync_write(journal_root(batch_id) / "manifest.json",
                      json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
 
-    # self re-dry-run must be a no-op, then per-file post-write contract check
+    # self re-dry-run must be a no-op, then per-file post-write contract check.
+    # Tolerance: follow-up actions derived purely from committed waiver
+    # decisions may surface AFTER an earlier transform created an Evidence
+    # header mid-batch (observations move) — they converge on the next
+    # invocation and are reported, never silently dropped.
     remaining_actions, remaining_blockers = plan_batch(batch_id)
     strict_rc = verify_written_files(plans, batch_id)
     decided_residuals = [b for b in remaining_blockers if _residual_is_decided(b)]
     undecided = [b for b in remaining_blockers if not _residual_is_decided(b)]
-    if remaining_actions or undecided or strict_rc:
+
+    def _waiver_followup(action) -> bool:
+        entry = (_ledger_get(action.path, action.target_field, action.task_id)
+                 or _ledger_get(action.path, action.target_field))
+        return (entry is not None
+                and entry.get("disposition") == "waive-protocol-history")
+
+    converging_actions = [a for a in remaining_actions if _waiver_followup(a)]
+    stray_actions = [a for a in remaining_actions if not _waiver_followup(a)]
+    if undecided or strict_rc or stray_actions:
         restored_ok, failures = restore_from_journal(batch_id)
         print(json.dumps({
             "diagnostics": [{"code": "MIGRATION_FILE_CHANGED",
                              "reason": "verification", "restored": restored_ok,
                              "failedPaths": failures,
-                             "remainingActions": len(remaining_actions),
+                             "remainingActions": len(stray_actions),
                              "remainingBlockers": len(undecided),
                              "samples": [
                                  {"path": a.path, "field": a.target_field}
-                                 for a in remaining_actions[:5]
+                                 for a in stray_actions[:5]
                              ]}],
             "schemaVersion": 1, "verdict": "engine-fail",
         }, sort_keys=True))
@@ -1804,6 +1817,10 @@ def run_apply_safe(batch_id: str) -> int:
             {"path": b.path, "field": b.target_field, "taskId": b.task_id,
              "message": b.message}
             for b in decided_residuals[:20]
+        ],
+        "followUpActionsNextPass": [
+            {"path": a.path, "field": a.target_field, "taskId": a.task_id}
+            for a in converging_actions[:20]
         ],
     }, sort_keys=True))
     return 0
