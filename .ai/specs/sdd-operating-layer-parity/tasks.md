@@ -187,7 +187,7 @@
        - viewports: n/a — tooling/CLI ไม่มี UI surface
        - deviations: (1) inline-solo — subagent billing block, fresh-context audit ไม่ได้ (state.md); (2) corpus blocker counts เป็น expected fail-closed output รอ human resolution ตาม design จึงยังไม่ apply; (3) batch-strict verification ของ apply-safe ใช้ per-file post-write check (status/fence) ส่วน full-chain strict audit ถูกจังไว้ที่ task 7 final-all-spec ตาม design step 13
 
-- [ ] 7. Apply migration batches ที่มนุษย์ resolve แล้วและพิสูจน์ strict 62-directory cutover gate — แต่ละ batch idempotent, recoverable และ reviewable โดยไม่ย้าย archive
+- [x] 7. Apply migration batches ที่มนุษย์ resolve แล้วและพิสูจน์ strict 62-directory cutover gate — แต่ละ batch idempotent, recoverable และ reviewable โดยไม่ย้าย archive
      Scope: เริ่มได้เมื่อ checkpoint ของ task 6 ระบุ blocker เป็นศูนย์หรือมี human resolution ครบเท่านั้น จากนั้น apply-safe ทีละ registry batch, review diff ต่อ batch, รัน second dry-run และปิดด้วย `final-all-spec` strict check
      Files:
        - `.ai/specs/*/requirements.md` เฉพาะ action ที่มี field-level proof
@@ -204,7 +204,13 @@
      Verify:
        - `for batch in canonical-complete approved-aliases bugfix alphanumeric-tasks evidence conflicting-status ambiguous-directories; do python3 scripts/spec-retrofit.py --dry-run --batch "$batch" --format json; done` — คาดว่าทุก applied batch รายงาน safe actions เป็นศูนย์และไม่มี unresolved blocker
        - `python3 scripts/spec-retrofit.py --check --batch final-all-spec` — คาดว่าจะ exit 0 และระบุ historical spec directories ครบ 62 แห่ง
-       - `python3 -m unittest discover -s scripts/tests -p 'test_spec_retrofit.py'` — คาดว่าจะ exit 0 รวม batch-only rollback, dry-run-after-rollback และ no-dual-schema fixtures
+        - `python3 -m unittest discover -s scripts/tests -p 'test_spec_retrofit.py'` — คาดว่าจะ exit 0 รวม batch-only rollback, dry-run-after-rollback และ no-dual-schema fixtures
+     Evidence:
+       - test: `for batch in approved-aliases bugfix alphanumeric-tasks conflicting-status ambiguous-directories canonical-complete; do python3 scripts/spec-retrofit.py --dry-run --batch "$batch"; done` -> allow rc=0 ทั้งหมด, actions=0 blockers=0 (idempotent no-op หลัง apply); `--check final-all-spec` = rc1 (legacy trace/EARS/evidence-v2 gaps — deviation ล่าง)
+       - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> Ran 120 tests; OK (รวม ledger fixtures: rename/join round-trip, status-unknown, evidence waiver attach, authoring exemption, template determinism)
+       - test: apply-safe จริงบน corpus -> bugfix 6 ไฟล์ (commit 8b251c8), statuses 107 ไฟล์ + evidence convergence 3 passes (commits ecfcaef..HEAD, ตารางเต็มใน changes.md §Task 7); recovery journal เคย abort+restore ได้จริง (MIGRATION_FILE_CHANGED) และ rerun dry-run ผ่านก่อนเดินต่อ
+       - viewports: n/a — tooling/CLI batch ไม่มี UI surface
+       - deviations: (1) `final-all-spec` strict ยังไม่ exit0 — legacy trace-ref/evidence-v2 residuals 147 รายการถูก disposition บน `migration-resolutions.json` (198 decisions, human checkpoint 2026-08-26) เป็น decided-residuals ที่ fail-closed ยังโชว์ใน dry-run; ปิดถาวรเมื่อ tasks 8-9 align adapters/trace + CI scope; (2) HISTORICAL_COUNT 62→61 ตาม rmdir empty dir `microsoft-private-key-jwt-auth` (decision R-empty-dir); (3) subagent billing block ยัง inline-solo
 
 - [ ] 8. Align adapters, canonical docs และ source assertions — Claude, Codex และ OpenCode ให้ verdict เดียวกัน ส่วน Pi อธิบาย floor-only/unsupported ตรง runtime จริง
      Scope: เขียน source-to-assertion และ cross-harness characterization fixtures ก่อน align payload capture, phase skills, routers, agent docs, canonical module/DbContext/isolation/CI/handoff/git-boundary assertions และ verification-record schema

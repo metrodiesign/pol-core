@@ -219,10 +219,13 @@ class EvidenceProbeTest(RetrofitSandbox):
         self.build_feature()
         payload = json.loads(run_cli(["--dry-run", "--batch", "evidence"], self.repo).stdout)
         fields = {action["targetField"] for action in payload["actions"]}
+        # header-less legacy tasks never get floating field rewrites; the
+        # observations move ships, fields wait for a header-bearing pass or
+        # surface as decided blockers.
         self.assertIn("evidence.observations", fields)
-        self.assertIn("evidence.viewports", fields)
-        blockers_by_field = {blocker["targetField"] for blocker in payload["blocksrs"]} \
-            if False else {blocker["targetField"] for blocker in payload["blockers"]}
+        self.assertNotIn("evidence.viewports", fields)
+        blockers_by_field = {blocker["targetField"] for blocker in payload["blockers"]}
+        self.assertIn("evidence.viewports", blockers_by_field)
         self.assertIn("evidence.deviations", blockers_by_field)
 
     def test_observations_rewrite_keeps_result_verbatim(self):
