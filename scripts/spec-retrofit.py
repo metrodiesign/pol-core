@@ -1071,7 +1071,10 @@ def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocke
                         "status conflict รอ human resolution",
                     ))
             continue
-        if _ledger_rel(rel(directory)) in exempt_dirs:
+        # authoring-chain exemption hides incomplete-by-design specs only from
+        # the completeness batch; field-level fix batches still apply ledger
+        # decisions (statuses/evidence) to them.
+        if batch_id == "canonical-complete" and _ledger_rel(rel(directory)) in exempt_dirs:
             continue
         scoped = _in_scope(tags, batch_id)
         if not scoped:
