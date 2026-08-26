@@ -1620,10 +1620,14 @@ def _working_tree_clean() -> bool:
 
 
 def build_apply_plan(batch_id: str):
-    """Returns (per-file composed plans, actions, blockers)."""
+    """Returns (per-file composed plans, actions, undecided blockers).
+
+    Ledger-decided blockers are not fatal: their mechanical payload either
+    ships with this batch or is a recorded header-less residual."""
     actions, blockers = plan_batch(batch_id)
     blockers.extend(validate_planned_actions(actions))
-    if blockers:
+    undecided = [b for b in blockers if not _residual_is_decided(b)]
+    if undecided:
         return [], actions, blockers
     grouped: dict[str, list[RetrofitAction]] = {}
     for action in actions:
@@ -1634,7 +1638,7 @@ def build_apply_plan(batch_id: str):
         before = read_bytes(target)
         planned = compose_file(before, grouped[path_str])
         plans.append((path_str, before, planned))
-    return plans, actions, blockers
+    return plans, actions, []
 
 
 def _fsync_path(path: Path) -> None:
