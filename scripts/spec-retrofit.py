@@ -1635,9 +1635,10 @@ def _fsync_path(path: Path) -> None:
         os.close(fd)
 
 
-def verify_written_files(plans) -> int:
-    """Batch-strict check: every written artifact parses clean and all its
-    visible status lines are canonical (full-chain audit = task 7 gate)."""
+def verify_written_files(plans, batch_id: str = "") -> int:
+    """Batch-strict check: every written artifact parses clean; status-line
+    canon is asserted only by the batch that OWNS status rewrites
+    (approved-aliases) — other batches must not veto pre-existing statuses."""
     failures = 0
     for path_str, _before, _planned in plans:
         data = read_bytes(abs_repo(path_str))
@@ -1646,12 +1647,13 @@ def verify_written_files(plans) -> int:
         if fence_diag:
             failures += 1
             continue
-        bad_status = [
-            line for _number, line in outside
-            if STATUS_ANY_RE.match(line) and not sc.STATUS_RE.match(line.strip())
-        ]
-        if bad_status:
-            failures += 1
+        if batch_id == "approved-aliases":
+            bad_status = [
+                line for _number, line in outside
+                if STATUS_ANY_RE.match(line) and not sc.STATUS_RE.match(line.strip())
+            ]
+            if bad_status:
+                failures += 1
     return failures
 
 
@@ -1749,7 +1751,7 @@ def run_apply_safe(batch_id: str) -> int:
 
     # self re-dry-run must be a no-op, then per-file post-write contract check
     remaining_actions, remaining_blockers = plan_batch(batch_id)
-    strict_rc = verify_written_files(plans)
+    strict_rc = verify_written_files(plans, batch_id)
     if remaining_actions or remaining_blockers or strict_rc:
         restored_ok, failures = restore_from_journal(batch_id)
         print(json.dumps({
