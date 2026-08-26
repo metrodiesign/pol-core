@@ -855,11 +855,18 @@ def plan_evidence_actions(batch_id: str, directory: Path) -> tuple[list[Retrofit
 
 def _evidence_waiver_action(batch_id: str, path_str: str, data: bytes,
                             task: sc.TaskBlock, field: str, insert_bytes: bytes):
-    """Append a human-decision waiver line at the end of the task region."""
+    """Append a human-decision waiver line inside the task's Evidence block.
+
+    Requires an existing `Evidence:` header — writing entries without one is
+    invisible to the validator (fabrication by another name). Header-less
+    legacy tasks keep their blocker as a recorded, decided residual."""
     entry = _ledger_get(path_str, field, task.task_id)
     if entry is None:
         entry = _ledger_get(path_str, field)
     if entry is None or entry["disposition"] != "waive-protocol-history":
+        return None
+    region = dict(_task_region_lines(data, task))
+    if not any(line.strip() == "Evidence:" for line in region.values()):
         return None
     lines = data.decode("utf-8", "surrogateescape").splitlines(keepends=True)
     last_line = min(task.span[1], len(lines))
@@ -1764,14 +1771,16 @@ def run_apply_safe(batch_id: str) -> int:
     # self re-dry-run must be a no-op, then per-file post-write contract check
     remaining_actions, remaining_blockers = plan_batch(batch_id)
     strict_rc = verify_written_files(plans, batch_id)
-    if remaining_actions or remaining_blockers or strict_rc:
+    decided_residuals = [b for b in remaining_blockers if _residual_is_decided(b)]
+    undecided = [b for b in remaining_blockers if not _residual_is_decided(b)]
+    if remaining_actions or undecided or strict_rc:
         restored_ok, failures = restore_from_journal(batch_id)
         print(json.dumps({
             "diagnostics": [{"code": "MIGRATION_FILE_CHANGED",
                              "reason": "verification", "restored": restored_ok,
                              "failedPaths": failures,
                              "remainingActions": len(remaining_actions),
-                             "remainingBlockers": len(remaining_blockers),
+                             "remainingBlockers": len(undecided),
                              "samples": [
                                  {"path": a.path, "field": a.target_field}
                                  for a in remaining_actions[:5]
@@ -1783,8 +1792,21 @@ def run_apply_safe(batch_id: str) -> int:
     print(json.dumps({
         "applied": [plan[0] for plan in plans],
         "batch": batch_id, "schemaVersion": 1, "verdict": "allow",
+        "decidedResidualBlockers": [
+            {"path": b.path, "field": b.target_field, "taskId": b.task_id,
+             "message": b.message}
+            for b in decided_residuals[:20]
+        ],
     }, sort_keys=True))
     return 0
+
+
+def _residual_is_decided(blocker) -> bool:
+    """A blocker with a committed ledger decision counts as resolved-by-record
+    even when no safe mechanical write exists (e.g. header-less legacy tasks)."""
+    entry = (_ledger_get(blocker.path, blocker.target_field, blocker.task_id)
+             or _ledger_get(blocker.path, blocker.target_field))
+    return entry is not None and bool(entry.get("disposition"))
 
 
 # ---------------------------------------------------------------------------
