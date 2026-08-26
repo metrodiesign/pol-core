@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 import stat
@@ -75,6 +76,7 @@ class TaskBlock:
     depends_on: tuple[str, ...]
     verify: tuple[str, ...]
     batch: tuple[str, ...]
+    evidence: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,14 +156,29 @@ def _fence_subject(line: str) -> str:
         return subject
 
 
+HTML_COMMENT_OPEN_RE = re.compile(r"^ {0,3}<!--")
+HTML_BLOCK_RE = re.compile(r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \t/>]|$)")
+
+
 def _outside_fence(lines: Iterable[str], path: Path) -> tuple[list[tuple[int, str]], tuple[Diagnostic, ...]]:
     visible: list[tuple[int, str]] = []
     marker: str | None = None
     opening_length = 0
     opening_line = 0
+    comment_line = 0
+    in_comment = False
     for number, line in enumerate(lines, 1):
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            continue
         subject = _fence_subject(line)
         if marker is None:
+            if HTML_COMMENT_OPEN_RE.match(line):
+                if "-->" not in line.split("<!--", 1)[1]:
+                    in_comment = True
+                    comment_line = number
+                continue
             opening = FENCE_OPEN_RE.match(subject)
             if opening:
                 marker = opening.group(1)[0]
@@ -176,6 +193,8 @@ def _outside_fence(lines: Iterable[str], path: Path) -> tuple[list[tuple[int, st
             opening_length = 0
     if marker is not None:
         return visible, (_diag("TRACE_FENCE_UNCLOSED", path, opening_line, "code fence ไม่ปิด"),)
+    if in_comment:
+        return visible, (_diag("TRACE_FENCE_UNCLOSED", path, comment_line, "HTML comment ไม่ปิด"),)
     return visible, ()
 
 
@@ -241,6 +260,22 @@ def _metadata_values(
     return tuple(values)
 
 
+def _evidence_lines(lines: Sequence[str], start: int, end: int, visible_numbers: set[int]) -> tuple[str, ...]:
+    """Collect all visible continuation lines after the Evidence: header of one task."""
+    collected: list[str] = []
+    open_ = False
+    for offset in range(start, end):
+        if offset + 1 not in visible_numbers:
+            continue
+        stripped = lines[offset].strip()
+        if open_:
+            collected.append(stripped)
+            continue
+        if stripped == "Evidence:":
+            open_ = True
+    return tuple(collected)
+
+
 def _looks_like_task_opening(line: str) -> bool:
     """จำแนก task-like opening เพื่อปิด metadata leakage โดยไม่ normalize task ID."""
     match = re.match(r"^\s*(?:[-+*]|[0-9]+[.)])", line)
@@ -293,6 +328,7 @@ def parse_task_blocks(data: bytes, path: Path) -> tuple[tuple[TaskBlock, ...], t
             depends_on=_metadata_values(lines, start + 1, end, "Depends on", visible_numbers),
             verify=_metadata_values(lines, start + 1, end, "Verify", visible_numbers),
             batch=_metadata_values(lines, start + 1, end, "Batch", visible_numbers),
+            evidence=_evidence_lines(lines, start + 1, end, visible_numbers),
         )
         if task.task_id in found:
             problems.append(_diag("TASK_ID_DUPLICATE", path, start + 1, "task ID ซ้ำ"))
@@ -433,8 +469,9 @@ def _looks_like_req_heading(line: str) -> bool:
 
 
 def _is_sibling_major_heading(line: str) -> bool:
-    # CommonMark: ATX heading รับ indent ได้ไม่เกิน 3 space; 4 space ขึ้นไปหรือ tab คือ indented code block
-    return bool(re.match(r"^ {0,3}#{1,2}(?:[ \t]|$)", line))
+    # boundary grammar ต้องเท่ากับ start grammar ของ engine (REQ_HEADING_RE และ design starts เป็น column 0 ทั้งคู่)
+    # บรรทัดที่เริ่ม section ไม่ได้ ต้องจบ section ไม่ได้ด้วย; indented heading จึงเป็น content เสมอ
+    return bool(re.match(r"^#{1,2}(?:[ \t]|$)", line))
 
 
 def parse_requirement_criteria(data: bytes, path: Path) -> tuple[tuple[RequirementCriterion, ...], tuple[Diagnostic, ...]]:
@@ -807,6 +844,17 @@ def _slice_mapping_diagnostic(path: Path, line: int, message: str) -> Diagnostic
     return _diag("SLICE_MAPPING_MISSING", path, line, message)
 
 
+def _raw_html_diagnostics(
+    visible: Sequence[tuple[int, str]], path: Path, start: int, end: int
+) -> tuple[Diagnostic, ...]:
+    """raw HTML block อยู่นอก grammar ที่ engine รองรับ จึงต้องดังแทนที่จะตัดเนื้อหาเงียบ ๆ"""
+    return tuple(
+        _slice_mapping_diagnostic(path, number, "block มี raw HTML ที่อยู่นอก grammar ให้ full-read artifact แทน")
+        for number, line in visible
+        if start <= number <= end and HTML_BLOCK_RE.match(line)
+    )
+
+
 def _verbatim_task_block(data: bytes, task: TaskBlock) -> str:
     lines = data.decode("utf-8").splitlines(keepends=True)
     return "".join(lines[task.span[0] - 1:task.span[1]])
@@ -835,17 +883,19 @@ def _feature_requirement_blocks(
             refs_by_heading.setdefault(criterion.heading, set()).add(criterion.ref)
     blocks: list[str] = []
     found: set[str] = set()
+    html_diagnostics: list[Diagnostic] = []
     for start, heading in headings:
         end = next((number - 1 for number in boundaries if number > start), len(raw_lines))
         heading_refs = refs_by_heading.get(heading, set())
         if refs & heading_refs:
             blocks.append("".join(raw_lines[start - 1:end]))
             found.update(refs & heading_refs)
+            html_diagnostics.extend(_raw_html_diagnostics(visible, path, start, end))
     missing = tuple(
         _slice_mapping_diagnostic(path, 1, f"ไม่พบ linked requirement {ref}")
         for ref in sorted(refs - found)
     )
-    return blocks, fence_diagnostics + criterion_diagnostics + missing
+    return blocks, fence_diagnostics + criterion_diagnostics + tuple(html_diagnostics) + missing
 
 
 def _bugfix_criterion_lines(
@@ -877,17 +927,19 @@ def _design_section_blocks(data: bytes, path: Path, headings: Sequence[str]) -> 
     wanted = set(headings)
     blocks: list[str] = []
     found: set[str] = set()
+    html_diagnostics: list[Diagnostic] = []
     for start, heading in starts:
         if heading not in wanted:
             continue
         end = next((number - 1 for number in boundaries if number > start), len(raw_lines))
         blocks.append("".join(raw_lines[start - 1:end]))
         found.add(heading)
+        html_diagnostics.extend(_raw_html_diagnostics(visible, path, start, end))
     missing = tuple(
         _slice_mapping_diagnostic(path, 1, f"ไม่พบ mapped design section {heading}")
         for heading in sorted(wanted - found)
     )
-    return blocks, fence_diagnostics + missing
+    return blocks, fence_diagnostics + tuple(html_diagnostics) + missing
 
 
 def _slice_refs(task: TaskBlock, known: set[str]) -> tuple[set[str], tuple[Diagnostic, ...]]:
@@ -1054,58 +1106,193 @@ def _contains_unfinished_marker(value: str) -> bool:
     return bool(re.search(r"(?i)(?:\bTODO\b|\bTBD\b|\bpending\b|\?\?\?)", value))
 
 
-def validate_evidence(tasks: Sequence[TaskBlock], data: bytes, path: Path) -> tuple[Diagnostic, ...]:
-    """Validate every completed task through the shared Evidence v2 seam."""
-    lines, diagnostics = _lines(data, path)
-    if diagnostics:
-        return diagnostics
-    visible, fence_diagnostics = _outside_fence(lines, path)
-    visible_numbers = {number for number, _ in visible}
-    problems: list[Diagnostic] = list(fence_diagnostics)
+_PLANNED_PHRASE_RE = re.compile(r"(?i)(?:คาดว่าจะ|จะรัน|will run|expected to run|going to run)")
+
+
+def _task_evidence_problems(task: TaskBlock) -> list[Diagnostic]:
+    problems: list[Diagnostic] = []
+    line = task.location.line
+    path = Path(task.location.path)
+    if not task.evidence:
+        return [_diag("EVIDENCE_MISSING", path, line, "completed task ไม่มี Evidence")]
+    joined = "\n".join(task.evidence)
+    if any(_contains_unfinished_marker(entry) for entry in task.evidence):
+        problems.append(_diag("EVIDENCE_UNFINISHED_MARKER", path, line, "Evidence มี marker ที่ยังไม่เสร็จ"))
+    test_openings = [index for index, entry in enumerate(task.evidence) if entry.startswith("- test:")]
+    if not test_openings:
+        problems.append(_diag("EVIDENCE_COMMAND_MISSING", path, line, "Evidence ไม่มี test observation"))
+    else:
+        for position, index in enumerate(test_openings):
+            stop = test_openings[position + 1] if position + 1 < len(test_openings) else len(task.evidence)
+            observation = task.evidence[index:stop]
+            payload = observation[0][len("- test:"):].strip()
+            tail_lines = [tail for tail in observation[1:] if tail and not tail.startswith(("- ",))]
+            has_command = "`" in payload or "`" in "\n".join(tail_lines) or bool(tail_lines)
+            arrow_tail = ""
+            for probe in (payload, *tail_lines):
+                if "->" in probe:
+                    arrow_tail = probe.split("->", 1)[1].strip()
+                    break
+            if not has_command:
+                problems.append(_diag("EVIDENCE_COMMAND_MISSING", path, line, "test observation ไม่มี command"))
+            if not arrow_tail:
+                problems.append(_diag("EVIDENCE_RESULT_MISSING", path, line, "test observation ไม่มี observed result"))
+        if not any("->" in entry for entry in task.evidence) and _PLANNED_PHRASE_RE.search(joined):
+            problems.append(_diag("EVIDENCE_PLANNED_ONLY", path, line, "Evidence ระบุเพียงแผนว่าจะรัน"))
+    viewports = next((entry for entry in task.evidence if entry.startswith("- viewports:")), "")
+    if not re.fullmatch(r"- viewports: (?:n/a — .+|(?:.*375.*768.*1440.*|.*1440.*768.*375.*))", viewports):
+        problems.append(_diag("EVIDENCE_VIEWPORTS_INVALID", path, line, "Evidence ไม่มี viewports ที่ valid"))
+    deviations = next((entry for entry in task.evidence if entry.startswith("- deviations:")), "")
+    if deviations != "- deviations: none" and not re.fullmatch(r"- deviations: (?!none$).+", deviations):
+        problems.append(_diag("EVIDENCE_DEVIATIONS_MISSING", path, line, "Evidence ไม่มี deviations ที่ valid"))
+    return problems
+
+
+def validate_evidence(tasks: Sequence[TaskBlock], selected_ids: Iterable[str]) -> tuple[Diagnostic, ...]:
+    """Validate Evidence v2 only inside the blocks of the selected completed tasks."""
+    selected = set(selected_ids)
+    problems: list[Diagnostic] = []
     for task in tasks:
+        if not task.completed or task.task_id not in selected:
+            continue
+        problems.extend(_task_evidence_problems(task))
+    return tuple(problems)
+
+
+GATE_SOURCES = frozenset({"claude-edit", "codex-edit", "opencode", "pre-commit", "ci"})
+
+
+@dataclass(frozen=True, slots=True)
+class ChangedByteRange:
+    before_start: int
+    before_end: int
+    after_start: int
+    after_end: int
+
+
+@dataclass(frozen=True, slots=True)
+class GateSelection:
+    path: str
+    before_exists: bool
+    before_bytes: bytes
+    after_bytes: bytes
+    changed_ranges: tuple[ChangedByteRange, ...]
+    source: str
+
+
+def canonical_changed_ranges(before: bytes, after: bytes) -> tuple[ChangedByteRange, ...]:
+    """Canonical non-equal opcode list of one snapshot pair as sorted byte ranges."""
+    before_lines = before.decode("utf-8", "surrogateescape").splitlines(keepends=True)
+    after_lines = after.decode("utf-8", "surrogateescape").splitlines(keepends=True)
+    before_offsets: list[int] = [0]
+    for line in before_lines:
+        before_offsets.append(before_offsets[-1] + len(line.encode("utf-8", "surrogateescape")))
+    after_offsets: list[int] = [0]
+    for line in after_lines:
+        after_offsets.append(after_offsets[-1] + len(line.encode("utf-8", "surrogateescape")))
+    matcher = difflib.SequenceMatcher(None, before_lines, after_lines, autojunk=False)
+    ranges: list[ChangedByteRange] = []
+    for tag, i0, i1, j0, j1 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        ranges.append(ChangedByteRange(
+            before_offsets[i0],
+            before_offsets[i1],
+            after_offsets[j0],
+            after_offsets[j1],
+        ))
+    return tuple(ranges)
+
+
+def _engine_diag(code: str, path: str, message: str) -> Diagnostic:
+    return Diagnostic(code=code, verdict="engine-fail", location=SourceLocation(path, 1), message=message)
+
+
+def _selection_transport_diagnostics(selection: GateSelection) -> list[Diagnostic]:
+    problems: list[Diagnostic] = []
+    if selection.source not in GATE_SOURCES:
+        return [_engine_diag("GATE_SELECTION_SOURCE_INVALID", selection.path, "source enum ไม่รู้จัก")]
+    if selection.before_exists and not selection.before_bytes and not selection.after_bytes:
+        pass
+    if not selection.before_exists and selection.before_bytes:
+        problems.append(_engine_diag(
+            "GATE_SNAPSHOT_MISSING",
+            selection.path,
+            "before_exists=false แต่มี before bytes ซึ่งขัดกับ existence state",
+        ))
+    if not selection.after_bytes:
+        problems.append(_engine_diag("GATE_SNAPSHOT_MISSING", selection.path, "after snapshot ว่าง"))
+    computed = canonical_changed_ranges(selection.before_bytes, selection.after_bytes)
+    if selection.changed_ranges != computed:
+        problems.append(_engine_diag(
+            "GATE_RANGE_INVALID",
+            selection.path,
+            "changed ranges ไม่เท่ากับ canonical diff opcodes ของ snapshot pair เดียวกัน",
+        ))
+    else:
+        for low in range(len(computed)):
+            current = computed[low]
+            bounds_valid = (
+                0 <= current.before_start <= current.before_end <= len(selection.before_bytes)
+                and 0 <= current.after_start <= current.after_end <= len(selection.after_bytes)
+                and (current.before_start < current.before_end or current.after_start < current.after_end)
+            )
+            if not bounds_valid:
+                problems.append(_engine_diag("GATE_RANGE_INVALID", selection.path, "changed range อยู่นอก bounds"))
+                break
+            if low + 1 < len(computed) and (
+                current.after_end > computed[low + 1].after_start or current.before_end > computed[low + 1].before_start
+            ):
+                problems.append(_engine_diag("GATE_RANGE_INVALID", selection.path, "changed ranges ซ้อนทับกัน"))
+                break
+    return problems
+
+
+def _line_boundaries(data: bytes) -> list[int]:
+    offsets: list[int] = [0]
+    for line in data.decode("utf-8", "surrogateescape").splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line.encode("utf-8", "surrogateescape")))
+    return offsets
+
+
+def _spans_overlap_offsets(span: tuple[int, int], boundaries: list[int], ranges: Sequence[ChangedByteRange]) -> bool:
+    start_offset = boundaries[span[0] - 1]
+    end_offset = boundaries[min(span[1], len(boundaries) - 1)]
+    return any(current.after_start < end_offset and start_offset < current.after_end for current in ranges)
+
+
+def discover_completed_tasks(selection: GateSelection) -> tuple[tuple[str, ...], tuple[Diagnostic, ...]]:
+    """Select newly-completed tasks from raw snapshots; callers never send task IDs."""
+    transport_problems = _selection_transport_diagnostics(selection)
+    _, before_problems = parse_task_blocks(selection.before_bytes, Path(selection.path)) if selection.before_exists else ((), ())
+    after_tasks, after_problems = parse_task_blocks(selection.after_bytes, Path(selection.path))
+    if transport_problems or after_problems or before_problems:
+        diagnostics = list(transport_problems)
+        code_by_prefix = {"TASK_"}
+        seen: set[tuple[str, int, str]] = set()
+        for diagnostic in (*after_problems, *before_problems):
+            if diagnostic.code.startswith(tuple(code_by_prefix)) and diagnostic.verdict == "policy-fail":
+                key = (diagnostic.location.path, diagnostic.location.line, diagnostic.code)
+                if key not in seen:
+                    seen.add(key)
+                    diagnostics.append(diagnostic)
+        return (), tuple(diagnostics)
+    before_tasks, _ = parse_task_blocks(selection.before_bytes, Path(selection.path))
+    before_state = {task.task_id: task.completed for task in before_tasks}
+    after_line_boundaries = _line_boundaries(selection.after_bytes)
+    selected: list[str] = []
+    for task in after_tasks:
         if not task.completed:
             continue
-        block_start = task.span[0] - 1
-        block = lines[block_start:task.span[1]]
-        try:
-            evidence_start = next(
-                index for index, line in enumerate(block)
-                if block_start + index + 1 in visible_numbers and line.strip() == "Evidence:"
-            )
-        except StopIteration:
-            problems.append(_diag("EVIDENCE_MISSING", path, task.location.line, "completed task ไม่มี Evidence"))
-            continue
-        evidence = block[evidence_start + 1:]
-        if any(_contains_unfinished_marker(line) for line in evidence):
-            problems.append(_diag("EVIDENCE_UNFINISHED_MARKER", path, task.location.line, "Evidence มี marker ที่ยังไม่เสร็จ"))
-        test_indexes = [
-            index for index, line in enumerate(evidence)
-            if block_start + evidence_start + index + 2 in visible_numbers and line.strip().startswith("- test:")
-        ]
-        if not test_indexes:
-            problems.append(_diag("EVIDENCE_MISSING", path, task.location.line, "Evidence ไม่มี test observation"))
-        for position, index in enumerate(test_indexes):
-            stop = test_indexes[position + 1] if position + 1 < len(test_indexes) else len(evidence)
-            observation = evidence[index:stop]
-            payload = observation[0].strip()[len("- test:"):].strip()
-            joined = "\n".join(observation)
-            has_command = "`" in payload or any(line.strip() and not line.strip().startswith(("- ", "->", "```")) for line in observation[1:])
-            has_result = "->" in joined and bool(joined.split("->", 1)[1].strip())
-            if not has_command or not has_result:
-                problems.append(_diag("EVIDENCE_MISSING", path, task.location.line, "Evidence มี test observation ที่ไม่ valid"))
-        viewports = next((
-            line.strip() for index, line in enumerate(evidence)
-            if block_start + evidence_start + index + 2 in visible_numbers and line.strip().startswith("- viewports:")
-        ), "")
-        if not re.fullmatch(r"- viewports: (?:n/a — .+|.*375.*768.*1440.*)", viewports):
-            problems.append(_diag("EVIDENCE_MISSING", path, task.location.line, "Evidence ไม่มี viewports ที่ valid"))
-        deviations = next((
-            line.strip() for index, line in enumerate(evidence)
-            if block_start + evidence_start + index + 2 in visible_numbers and line.strip().startswith("- deviations:")
-        ), "")
-        if deviations != "- deviations: none" and not re.fullmatch(r"- deviations: .+", deviations):
-            problems.append(_diag("EVIDENCE_MISSING", path, task.location.line, "Evidence ไม่มี deviations ที่ valid"))
-    return tuple(problems)
+        existed = task.task_id in before_state
+        transitioned = existed and not before_state[task.task_id]
+        after_only_opening_overlaps = (
+            not existed
+            and _spans_overlap_offsets(task.span, after_line_boundaries, selection.changed_ranges)
+        )
+        if transitioned or after_only_opening_overlaps:
+            selected.append(task.task_id)
+    return tuple(selected), ()
 
 
 def _is_canonical_archive_location(feature_dir: Path, specs_root: Path) -> bool:
@@ -1196,7 +1383,7 @@ def derive_spec_state(feature_dir: Path, canonical_specs_root: Path) -> tuple[st
             tasks, task_diagnostics = parse_task_blocks(task_data, task_path)
             problems.extend(task_diagnostics)
             problems.extend(validate_task_graph(tasks))
-            problems.extend(validate_evidence(tasks, task_data, task_path))
+            problems.extend(validate_evidence(tasks, (task.task_id for task in tasks if task.completed)))
     else:
         tasks = ()
     if problems:
@@ -1265,8 +1452,134 @@ def _print_diagnostics(diagnostics: Sequence[Diagnostic]) -> None:
         print(f"{diagnostic.code}: {diagnostic.message}", file=sys.stderr)
 
 
+def _print_gate_evidence_envelope(
+    path: str,
+    selected_ids: Sequence[str],
+    problems: list[Diagnostic],
+) -> int:
+    """Print the canonical gate evidence verdict envelope; returns the CLI exit code."""
+    del path
+    diagnostics = sorted(problems, key=lambda item: (item.location.path, item.location.line, item.location.column, item.code, item.message))
+    if any(diagnostic.verdict == "engine-fail" for diagnostic in diagnostics):
+        verdict = "engine-fail"
+        exit_code = 2
+    elif diagnostics:
+        verdict = "policy-fail"
+        exit_code = 1
+    else:
+        verdict = "allow"
+        exit_code = 0
+    payload = {
+        "schemaVersion": 1,
+        "verdict": verdict,
+        "diagnostics": [
+            {
+                "code": diagnostic.code,
+                "message": diagnostic.message,
+                "path": diagnostic.location.path,
+                "line": diagnostic.location.line,
+                "column": diagnostic.location.column,
+                "verdict": diagnostic.verdict,
+                "details": diagnostic.details,
+            }
+            for diagnostic in diagnostics
+        ],
+        "completedTaskIds": sorted(selected_ids),
+    }
+    print(json.dumps(payload, sort_keys=True))
+    return exit_code
+
+
 def _cli(argv: Sequence[str]) -> int:
     specs_dir = Path(__file__).resolve().parent.parent / ".ai" / "specs"
+    if len(argv) >= 1 and argv[0] == "diff-ranges":
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--before-file", required=True)
+        parser.add_argument("--after-file", required=True)
+        parser.add_argument("--format", choices=("json",), default="json")
+        args = parser.parse_args(argv[1:])
+        try:
+            before_bytes = Path(args.before_file).read_bytes()
+            after_bytes = Path(args.after_file).read_bytes()
+        except OSError as error:
+            print(f"ENGINE_INTERNAL: {error}", file=sys.stderr)
+            return 2
+        ranges = canonical_changed_ranges(before_bytes, after_bytes)
+        payload = {
+            "schemaVersion": 1,
+            "ranges": [
+                {
+                    "beforeStart": current.before_start,
+                    "beforeEnd": current.before_end,
+                    "afterStart": current.after_start,
+                    "afterEnd": current.after_end,
+                }
+                for current in ranges
+            ],
+        }
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+    if len(argv) >= 1 and argv[0] == "gate" and len(argv) >= 2 and argv[1] == "evidence":
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--path", required=True)
+        parser.add_argument("--after-file", required=True)
+        parser.add_argument("--ranges-file", required=True)
+        parser.add_argument("--before-file")
+        parser.add_argument("--before-missing", action="store_true")
+        parser.add_argument("--source", required=True, choices=sorted(GATE_SOURCES))
+        args = parser.parse_args(argv[2:])
+        problems: list[Diagnostic] = []
+        if bool(args.before_file) == args.before_missing:
+            problems.append(_engine_diag("GATE_SNAPSHOT_MISSING", args.path, "ต้องระบุ --before-file หรือ --before-missing อย่างใดอย่างหนึ่ง"))
+            return _print_gate_evidence_envelope(args.path, [], problems)
+        try:
+            after_bytes = Path(args.after_file).read_bytes()
+            ranges_payload = json.loads(Path(args.ranges_file).read_text(encoding="utf-8"))
+            before_bytes = b"" if args.before_missing else Path(args.before_file or "").read_bytes()
+        except (OSError, ValueError) as error:
+            print(f"ENGINE_INTERNAL: {error}", file=sys.stderr)
+            return 2
+        raw_ranges = ranges_payload.get("ranges") if isinstance(ranges_payload, dict) else ranges_payload
+        if not isinstance(raw_ranges, list):
+            print("ENGINE_INTERNAL: ranges file invalid", file=sys.stderr)
+            return 2
+        parsed_ranges: list[ChangedByteRange] = []
+        malformed_ranges = False
+        for entry in raw_ranges:
+            try:
+                if isinstance(entry, dict):
+                    values = (entry["beforeStart"], entry["beforeEnd"], entry["afterStart"], entry["afterEnd"])
+                else:
+                    values = tuple(entry)
+                first, second, third, fourth = (int(value) for value in values)
+            except (KeyError, TypeError, ValueError):
+                malformed_ranges = True
+                break
+            parsed_ranges.append(ChangedByteRange(first, second, third, fourth))
+        if malformed_ranges:
+            print("ENGINE_INTERNAL: ranges file invalid", file=sys.stderr)
+            return 2
+        selection = GateSelection(
+            path=args.path,
+            before_exists=not args.before_missing,
+            before_bytes=before_bytes,
+            after_bytes=after_bytes,
+            changed_ranges=tuple(parsed_ranges),
+            source=args.source,
+        )
+        selected_ids, discovery_problems = discover_completed_tasks(selection)
+        tasks, parse_problems = parse_task_blocks(after_bytes, Path(args.path))
+        diagnostics = (*discovery_problems, *parse_problems)
+        if any(diagnostic.verdict == "engine-fail" for diagnostic in diagnostics):
+            return _print_gate_evidence_envelope(args.path, selected_ids, list(diagnostics))
+        policy_problems = [
+            diagnostic for diagnostic in diagnostics
+            if diagnostic.code.startswith("TASK_")
+        ]
+        if policy_problems:
+            return _print_gate_evidence_envelope(args.path, selected_ids, list(policy_problems))
+        problems.extend(validate_evidence(tasks, selected_ids))
+        return _print_gate_evidence_envelope(args.path, selected_ids, list(problems))
     if len(argv) >= 2 and argv[0] == "gate" and argv[1] == "phase":
         parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument("--feature", required=True)

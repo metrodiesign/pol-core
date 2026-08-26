@@ -1,38 +1,58 @@
 #!/usr/bin/env bash
-# task-gate.sh — thin Claude adapter (PostToolUse: Edit|Write)
-# Keeps the Claude stdin-JSON parse + tasks.md path filter + FLIPPED detection here,
-# then delegates typecheck/test/Evidence to .ai/bin/gate-task.sh (GATE_FILE/GATE_NEW).
-# เขียว = เงียบ exit 0, แดง = exit 2 + stderr ให้แก้ก่อน mark เสร็จ
+# task-gate.sh — thin Claude adapter (PostToolUse: Edit|Write), Task 3 raw-selection.
+# Reads the pre-tool snapshot captured by .claude/hooks/task-snapshot.sh, reads the
+# post-tool bytes from disk, gets canonical ranges from spec_contract.py and lets
+# .ai/bin/gate-task.sh own Evidence + commands + cache + build/test verdicts.
+# เขียว = เงียบ exit 0, แดง = exit 2 (engine-fail หรือ policy-fail map เป็น block)
+set -uo pipefail
 
-INPUT=$(cat)
-FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+INPUT="$(cat)"
+[[ -z "$INPUT" ]] && exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+
+FILE="$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty')"
 case "$FILE" in
-  */.ai/specs/*/tasks.md) ;;
-  .ai/specs/*/tasks.md) ;;
-  */.claude/specs/*/tasks.md) ;;
-  .claude/specs/*/tasks.md) ;;
+  */.ai/specs/*/tasks.md|.ai/specs/*/tasks.md|*/.claude/specs/*/tasks.md|.claude/specs/*/tasks.md) ;;
   *) exit 0 ;;
 esac
 
-ENGINE="$(dirname "$0")/../../.ai/bin/gate-task.sh"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+if ROOT="$(git -C "$REPO" rev-parse --show-toplevel 2>/dev/null)"; then REPO="$ROOT"; fi
+ENGINE="$REPO/scripts/spec_contract.py"
+GATE="$REPO/.ai/bin/gate-task.sh"
+STORE="$REPO/.git/sdd-task-snapshots"
 
-TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
-if [ "$TOOL" = "Edit" ]; then
-  OLD=$(echo "$INPUT" | jq -r '.tool_input.old_string // empty')
-  NEW=$(echo "$INPUT" | jq -r '.tool_input.new_string // empty')
-  OLD_X=$(printf '%s\n' "$OLD" | grep -ci -- '- \[x\]')
-  NEW_X=$(printf '%s\n' "$NEW" | grep -ci -- '- \[x\]')
-  [ "$NEW_X" -gt "$OLD_X" ] || exit 0
-  # Edit flip: delegate with the real new_string. The engine scopes the Evidence check
-  # PER FLIPPED TASK over this hunk, so its verdict matches the other adapters.
-  exec "$ENGINE" "$FILE" "$NEW"
+KEY="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(os.path.abspath(sys.argv[1]).encode()).hexdigest())' "$FILE" 2>/dev/null)" || KEY=""
+SNAP="$STORE/$KEY"
+
+block() { printf '%s\n' "$1" >&2; exit 2; }
+
+[[ -f "$SNAP" ]] || block "GATE_SNAPSHOT_MISSING: ไม่มี pre-tool snapshot สำหรับ $FILE (task-snapshot hook ต้อง capture ก่อน Edit/Write)"
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/sdd-claude-gate.XXXXXX")" || block 'engine-fail: mktemp'
+trap 'rm -rf "$TMP"' EXIT
+
+python3 - "$SNAP" "$FILE" "$TMP/before.bin" "$TMP/after.bin" "$TMP/state" <<'PY' || block 'GATE_SNAPSHOT_MISSING: snapshot decode failed'
+import base64, json, sys
+payload = json.load(open(sys.argv[1]))
+before = base64.b64decode(payload.get("before_b64") or "")
+if payload.get("before_exists") is False:
+    before = b""
+open(sys.argv[3], "wb").write(before)
+open(sys.argv[4], "wb").write(open(sys.argv[2], "rb").read())
+open(sys.argv[5], "w").write("EXISTS" if payload.get("before_exists") else "MISSING")
+PY
+BEFORE_FLAG="-"
+if [[ "$(cat "$TMP/state")" == "EXISTS" ]]; then BEFORE_FLAG="$TMP/before.bin"; fi
+RANGES="$TMP/ranges.json"
+: >"$TMP/empty"
+if [[ "$BEFORE_FLAG" == "-" ]]; then
+  python3 "$ENGINE" diff-ranges --before-file "$TMP/empty" --after-file "$TMP/after.bin" >"$RANGES" \
+    || block 'engine-fail: diff-ranges'
 else
-  # Write ทับทั้งไฟล์ เทียบ count ก่อน/หลังไม่ได้ — ยอม trigger เมื่อ content มี [x] ใดๆ
-  CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
-  printf '%s\n' "$CONTENT" | grep -qi -- '- \[x\]' || exit 0
-  # Write path passes the REAL whole-file content (no synthetic Evidence injection).
-  # The engine scopes Evidence per [x] task over the same whole-file input, so a flip
-  # without its own real Evidence blocks here exactly as it does via OpenCode/Edit —
-  # one gate policy, identical verdict regardless of which tool wrote the file.
-  exec "$ENGINE" "$FILE" "$CONTENT"
+  python3 "$ENGINE" diff-ranges --before-file "$BEFORE_FLAG" --after-file "$TMP/after.bin" >"$RANGES" \
+    || block 'engine-fail: diff-ranges'
 fi
+
+rm -f "$SNAP"
+exec bash "$GATE" "$FILE" "$BEFORE_FLAG" "$TMP/after.bin" "$RANGES" claude-edit

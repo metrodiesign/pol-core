@@ -83,7 +83,7 @@
        - viewports: n/a — tooling-only slice/state และ SessionStart ไม่มี UI surface
        - deviations: Python `state --all` นับ historical 62 directories ที่ยังไม่ retrofit เป็น blocked ตาม staged migration contract; phase-skill full-read caller เป็น Task 8 scope
 
-- [ ] 3. ปิด task completion gate แบบ fail-closed — raw snapshot selection, Evidence v2, .NET defaults, safe cache, pre-commit และ CI range selector ใช้ contract เดียว
+- [x] 3. ปิด task completion gate แบบ fail-closed — raw snapshot selection, Evidence v2, .NET defaults, safe cache, pre-commit และ CI range selector ใช้ contract เดียว
      Scope: เขียน failing fixtures สำหรับ completed-task discovery จาก full before/after bytes, canonical changed ranges, sibling Evidence, command resolution, non-zero commands, zero tests และ cache semantics ก่อน wire enforcement floor และ adapters ที่ส่งเฉพาะ raw selection
      Files:
        - `scripts/spec_contract.py`
@@ -103,9 +103,18 @@
      TDD: ให้ invalid range, after-only task, pre-existing completed task, missing Evidence fields, command failure และ no-cache behavior เป็น red ก่อน implementation
      Satisfies: REQ-3.1-REQ-3.23
      Depends on: 1
-     Verify:
-       - `python3 -m unittest discover -s scripts/tests -p 'test_spec_contract.py'` — คาดว่าจะ exit 0 และ GateSelection/Evidence fixtures ครบทั้ง positive, negative และ mutation cases
-       - `for test_file in .claude/hooks/tests/check-evidence.test.sh .claude/hooks/tests/gate-task.test.sh .claude/hooks/tests/ci-evidence-scope.test.sh; do bash "$test_file"; done` — คาดว่าจะ exit 0 โดย defaults เป็น exact .NET commands, red command ถูก block และ cache hit ไม่ข้าม Evidence validation
+      Verify:
+        - `python3 -m unittest discover -s scripts/tests -p 'test_spec_contract.py'` — คาดว่าจะ exit 0 และ GateSelection/Evidence fixtures ครบทั้ง positive, negative และ mutation cases
+        - `for test_file in .claude/hooks/tests/check-evidence.test.sh .claude/hooks/tests/gate-task.test.sh .claude/hooks/tests/ci-evidence-scope.test.sh; do bash "$test_file"; done` — คาดว่าจะ exit 0 โดย defaults เป็น exact .NET commands, red command ถูก block และ cache hit ไม่ข้าม Evidence validation
+     Evidence:
+       - test: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_spec_contract.py'` -> Ran 71 tests; OK (เพิ่ม GateSelectionTest, EvidenceGateTest, GateEvidenceCliTest, GateMutationTest — canonical ranges splice-exact, transition/after-only/no-reselect, existence/source/range engine-fail, sibling-Evidence, distinct EVIDENCE_* codes, CLI envelope 0/1/2, mutation M1-M3)
+       - test: `bash .claude/hooks/tests/check-evidence.test.sh` -> pass=8 fail=0
+       - test: `bash .claude/hooks/tests/gate-task.test.sh` -> pass=11 fail=0 (exact default `dotnet build pol-core.slnx -warnaserror` + `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` ผ่าน shim, red rc2, zero-test rc honored, cache green-only, evidence re-validated on cache hit, SDD_GATE_NO_CACHE=1 forces real run x2)
+       - test: `bash .claude/hooks/tests/ci-evidence-scope.test.sh` -> pass=6 fail=0
+       - test: `bash .claude/hooks/tests/spec-slice.test.sh` -> PASS (no regress)
+       - test: `PYTHONDONTWRITEBYTECODE=1 python3 scripts/spec_contract.py check --feature sdd-operating-layer-parity --strict` -> OK เกณฑ์ 178; `gate phase implement requirements-first` -> exit 0; `scripts/spec-trace.sh merchant-commerce-erd-reset` -> OK 264
+       - viewports: n/a — tooling-only gate/CLI ไม่มี UI surface
+       - deviations: (1) เพิ่มไฟล์ `.claude/hooks/task-snapshot.sh` + PreToolUse(Edit|Write) wiring ใน `.claude/settings.json` เพื่อให้ Claude adapter จับ full pre-tool bytes ตาม design §Adapter Seams rule 1 — อยู่นอก Files list ของ task; (2) Codex runtime ไม่มี pre-write event จึง fail-closed เป็น GATE_SNAPSHOT_MISSING exit 2 เสมอสำหรับ tasks.md flip (durable floor ยังตรวจจริง) — Task 8 รีเปิดเมื่อ schema ยืนยัน; (3) `GATE_CAPTURE_STALE` ยังไม่ถูก emit (snapshot correlation พิสูจน์ด้วย store-existence + before_exists consistency) — upgrade path ผูก mtime/hash ต่อ tool_use_id
 
 - [ ] 4. รวม guard normalization และ bypass resistance — quote-aware command spans เป็น detection-only owner เดียวและทุก policy รักษา verdict corpus เดิม
      Scope: characterize existing destructive/bypass verdicts พร้อม benign quoted-data pairs แล้วสร้าง recursive shell span parser, thin bridge และ policy consumers ที่ normalize separators, substitutions, wrappers, env prefix, absolute binary path และ Git global options

@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -2199,7 +2200,7 @@ class SpecContractTest(unittest.TestCase):
                 )
                 self.assertEqual("blocked", module.derive_spec_state(directory, root)[0])
 
-        mutation = ("if any(_contains_unfinished_marker(line) for line in evidence):", "if False:")
+        mutation = ("if any(_contains_unfinished_marker(entry) for entry in task.evidence):", "if False:")
         self.assertEqual(1, source.count(mutation[0]))
         with self.assertRaises(AssertionError):
             blocks_evidence_marker(load(source.replace(*mutation)))
@@ -2273,7 +2274,7 @@ class SpecContractTest(unittest.TestCase):
             ("if feature == \"archive\" or not re.fullmatch(TASK_ID_PATTERN, feature):", "if False:", rejects_resolver_bypass),
             ("if feature == \"archive\" or not re.fullmatch(TASK_ID_PATTERN, feature):", "if not re.fullmatch(TASK_ID_PATTERN, feature):", rejects_archive_container),
             ("if highest_existing > earliest_missing:", "if True:", keeps_authoring_root_active),
-            ("if any(_contains_unfinished_marker(line) for line in evidence):", "if False:", rejects_mixed_evidence),
+            ("if any(_contains_unfinished_marker(entry) for entry in task.evidence):", "if False:", rejects_mixed_evidence),
         )
         for before, after, assertion in mutations:
             with self.subTest(before=before):
@@ -2361,8 +2362,15 @@ class SpecContractTest(unittest.TestCase):
         cases = (
             ("h2-col0", "## Notes", True),
             ("h1-col0", "# Notes", True),
-            ("h2-indent1", " ## Notes", True),
-            ("h2-indent3", "   ## Notes", True),
+            ("h2-indent1", " ## Notes", False),
+            ("h2-indent3", "   ## Notes", False),
+            ("h1-indent1", " # Notes", False),
+            ("html-comment", "<!--\n## Hidden inside comment\n-->", False),
+            ("html-comment-oneline", "<!-- hidden -->\n", False),
+            ("list-nested-h2", "- item\n  ## Notes", False),
+            ("list-nested-h1", "1. item\n   # Notes", False),
+            ("setext-h2", "Notes\n---", False),
+            ("setext-h1", "Notes\n===", False),
             ("h2-indent4", "    ## Notes", False),
             ("h2-indent8", "        ## Notes", False),
             ("h1-indent4", "    # Notes", False),
@@ -2407,6 +2415,12 @@ class SpecContractTest(unittest.TestCase):
             + "```\n"
             + "    # indented four spaces is code not heading\n"
             + "KEEP-AFTER-INDENTED-CODE\n"
+            + "<!--\n"
+            + "## commented out section\n"
+            + "-->\n"
+            + "KEEP-AFTER-COMMENT\n"
+            + "  ## indented heading is content by contract\n"
+            + "KEEP-AFTER-INDENTED-HEADING\n"
             + "# Appendix H1\n"
             + "DROP-H1-REQ\n"
             + "## Notes\n"
@@ -2438,6 +2452,8 @@ class SpecContractTest(unittest.TestCase):
                 self.assertIn("KEEP-FENCED", first)
                 self.assertIn("KEEP-DESIGN-BODY", first)
                 self.assertIn("KEEP-AFTER-INDENTED-CODE", first)
+                self.assertIn("KEEP-AFTER-COMMENT", first)
+                self.assertIn("KEEP-AFTER-INDENTED-HEADING", first)
                 self.assertIn("KEEP-DESIGN-AFTER-CODE", first)
                 for marker in dropped:
                     self.assertNotIn(marker, first)
@@ -2476,8 +2492,12 @@ class SpecContractTest(unittest.TestCase):
                 '    boundaries = [number for number, line in visible if line.startswith("## ")]',
             ),
             (
-                'return bool(re.match(r"^ {0,3}#{1,2}(?:[ \\t]|$)", line))',
-                'return bool(re.match(r"^\\s*#{1,2}(?:\\s|$)", line))',
+                'return bool(re.match(r"^#{1,2}(?:[ \\t]|$)", line))',
+                'return bool(line.startswith("#"))',
+            ),
+            (
+                '            if HTML_COMMENT_OPEN_RE.match(line):',
+                '            if False:',
             ),
         )
         for index, (before, after) in enumerate(mutations):
@@ -2571,3 +2591,391 @@ class SpecContractTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GateSelectionTest(unittest.TestCase):
+    """Task 3: raw snapshot selection, canonical ranges และ Evidence v2 gate."""
+
+    GOLDEN_TASK = (
+        "\n- [x] {id}. title.\n"
+        "     Satisfies: REQ-1.1\n"
+        "     Verify:\n"
+        "       - `cmd`\n"
+        "     Evidence:\n"
+        "       - test: `true` -> ran 1 tests; OK\n"
+        "       - viewports: n/a \u2014 tooling-only\n"
+        "       - deviations: none\n"
+    )
+    BARE_TASK = "\n- [ ] {id}. pending title.\n"
+
+    def _make(self, *tasks: str) -> bytes:
+        head = "# tasks\n\n## Implementation tasks\n"
+        return head.encode("utf-8") + "".join(tasks).encode("utf-8")
+
+    def _selection(self, before: bytes | None, after: bytes, *, source: str = "pre-commit",
+                   changed=None) -> object:
+        from spec_contract import GateSelection, canonical_changed_ranges
+
+        exists = before is not None
+        before_bytes = before or b""
+        if changed is None:
+            changed = canonical_changed_ranges(before_bytes, after) if exists else canonical_changed_ranges(b"", after)
+        return GateSelection(
+            path=".ai/specs/demo/tasks.md",
+            before_exists=exists,
+            before_bytes=before_bytes,
+            after_bytes=after,
+            changed_ranges=tuple(changed),
+            source=source,
+        )
+
+    def _splice(self, before: bytes, after: bytes, ranges) -> bytes:
+        out = bytearray()
+        cursor = 0
+        for item in ranges:
+            out.extend(before[cursor:item.before_start])
+            out.extend(after[item.after_start:item.after_end])
+            cursor = item.before_end
+        out.extend(before[cursor:])
+        return bytes(out)
+
+    def test_canonical_ranges_are_exact_sorted_and_non_overlapping(self):
+        from spec_contract import canonical_changed_ranges
+
+        self.assertEqual(canonical_changed_ranges(b"same", b"same"), ())
+        pairs = [
+            (b"aaa\nbbb\nccc\n", b"aaa\nXXX\nYYY\nccc\n"),
+            (b"a\nb\nc\nd\n", b"a\nX\nc\nd\nY\nZ\n"),
+            (b"", b"brand-new-file-content\n"),
+            (b"delete-me\nkeep\n", b"keep\n"),
+            ("แล้วก็ emoji 🎯 ด้วย\n".encode(), "emoji 🎯\nchanged\n".encode()),
+        ]
+        for before, after in pairs:
+            ranges = canonical_changed_ranges(before, after)
+            self.assertEqual(
+                [item.after_start for item in ranges],
+                sorted(item.after_start for item in ranges),
+            )
+            for low, item in enumerate(ranges):
+                self.assertTrue(0 <= item.before_start <= item.before_end <= len(before))
+                self.assertTrue(0 <= item.after_start <= item.after_end <= len(after))
+                for other in ranges[low + 1:]:
+                    self.assertTrue(item.after_end <= other.after_start)
+                    self.assertTrue(item.before_end <= other.before_start)
+            self.assertEqual(self._splice(before, after, ranges), after)
+
+    def test_transition_after_only_overlap_and_no_reselection(self):
+        from spec_contract import discover_completed_tasks
+
+        before = self._make(self.BARE_TASK.format(id="1"), self.BARE_TASK.format(id="2"))
+        done_before = self._make(self.GOLDEN_TASK.format(id="1"), self.BARE_TASK.format(id="2"))
+        both_done = self._make(self.GOLDEN_TASK.format(id="1"), self.GOLDEN_TASK.format(id="2"))
+        ids, diags = discover_completed_tasks(self._selection(done_before, both_done))
+        self.assertEqual((ids, diags), (("2",), ()))
+        fresh = both_done + self.GOLDEN_TASK.format(id="3").encode("utf-8") if False else \
+            self._make(self.GOLDEN_TASK.format(id="1"), self.BARE_TASK.format(id="2"), self.GOLDEN_TASK.format(id="3"))
+        ids_fresh, _ = discover_completed_tasks(self._selection(done_before, fresh))
+        self.assertEqual(ids_fresh, ("3",))
+        ids_same, _ = discover_completed_tasks(self._selection(both_done, both_done))
+        self.assertEqual(ids_same, ())
+        alphanumeric = self._make(self.BARE_TASK.format(id="A1"))
+        alphanumeric_done = self._make(self.GOLDEN_TASK.format(id="A1"))
+        ids_alpha, _ = discover_completed_tasks(self._selection(alphanumeric, alphanumeric_done))
+        self.assertEqual(ids_alpha, ("A1",))
+
+    def test_after_only_task_requires_opening_span_overlap(self):
+        from spec_contract import discover_completed_tasks
+
+        base = self._make(self.GOLDEN_TASK.format(id="1"))
+        grew = self._make(self.GOLDEN_TASK.format(id="1")) + self.GOLDEN_TASK.format(id="9").encode("utf-8")
+        ids_overlap, _ = discover_completed_tasks(self._selection(base, grew))
+        self.assertEqual(ids_overlap, ("9",))
+        appended_two = grew + self.GOLDEN_TASK.format(id="10").encode("utf-8")
+        ids_pair, _ = discover_completed_tasks(self._selection(grew, appended_two))
+        self.assertEqual(ids_pair, ("10",))
+
+    def test_existence_state_source_and_range_failures_are_engine_failures(self):
+        from spec_contract import discover_completed_tasks
+
+        done = self._make(self.GOLDEN_TASK.format(id="1"))
+        selection = self._selection(None, done)
+        selection = type(selection)(path=selection.path, before_exists=False,
+                                    before_bytes=b"ghost", after_bytes=selection.after_bytes,
+                                    changed_ranges=selection.changed_ranges, source="ci")
+        ids, diags = discover_completed_tasks(selection)
+        self.assertEqual(ids, ())
+        self.assertTrue(any(d.code == "GATE_SNAPSHOT_MISSING" and d.verdict == "engine-fail" for d in diags))
+        ids_src, diags_src = discover_completed_tasks(self._selection(done, done, source="totally-bogus"))
+        self.assertEqual((ids_src, diags_src[0].code), ((), "GATE_SELECTION_SOURCE_INVALID"))
+        bad_pair_done = self._make(self.GOLDEN_TASK.format(id="1"))
+        bad_pair_after = self._make(self.GOLDEN_TASK.format(id="1"), self.GOLDEN_TASK.format(id="2"))
+        bad_ranges, diags_bad = discover_completed_tasks(
+            self._selection(bad_pair_done, bad_pair_after, changed=[]))
+        self.assertEqual((bad_ranges, diags_bad[0].code), ((), "GATE_RANGE_INVALID"))
+
+    def test_created_file_without_before_bytes_is_valid_selection(self):
+        from spec_contract import discover_completed_tasks
+
+        made = self._make(self.GOLDEN_TASK.format(id="1"))
+        ids, diags = discover_completed_tasks(self._selection(None, made))
+        self.assertEqual((ids, diags), (("1",), ()))
+
+
+class EvidenceGateTest(unittest.TestCase):
+    """Evidence v2 validator: distinct stable codes per REQ-3 failure class."""
+
+    def _task_lines(self, evidence_block: str, *, complete: bool = True, task_id: str = "1") -> tuple[str, ...]:
+        checkbox = "- [x]" if complete else "- [ ]"
+        text = f"{checkbox} {task_id}. demo.\n{evidence_block}"
+        import spec_contract as sc
+
+        data = text.encode("utf-8")
+        return tuple(sc.parse_task_blocks(data, __import__("pathlib").Path("tasks.md"))[0])
+
+    def _ids_of(self, problems):
+        return [problem.code for problem in problems]
+
+    def test_golden_evidence_passes(self):
+        import spec_contract as sc
+
+        block = ("     Evidence:\n"
+                 "       - test: `python3 -m unittest` -> Ran 5 tests; OK\n"
+                 "       - viewports: n/a \u2014 tooling-only\n"
+                 "       - deviations: none\n")
+        tasks = self._task_lines(block)
+        self.assertEqual(sc.validate_evidence(tasks, ["1"]), ())
+
+    def test_sibling_evidence_cannot_satisfy_selected_task(self):
+        import spec_contract as sc
+        from pathlib import Path
+
+        text = ("- [x] 1. first.\n"
+                "     Evidence:\n"
+                "       - test: `a` -> ok\n"
+                "       - viewports: n/a \u2014 x\n"
+                "       - deviations: none\n"
+                "- [x] 2. second.\n")
+        tasks, _ = sc.parse_task_blocks(text.encode(), Path("t.md"))
+        problems = sc.validate_evidence(tasks, ["2"])
+        self.assertEqual(self._ids_of(problems), ["EVIDENCE_MISSING"])
+        self.assertEqual(sc.validate_evidence(tasks, []), ())
+
+    def test_each_failure_class_has_distinct_code(self):
+        import spec_contract as sc
+        from pathlib import Path
+
+        def build(evidence: str) -> str:
+            return f"- [x] 1. demo.\n     Verify:\n       - `c`\n{evidence}"
+
+        cases = {
+            "EVIDENCE_COMMAND_MISSING": build("     Evidence:\n       - test: just text here\n"),
+            "EVIDENCE_RESULT_MISSING": build("     Evidence:\n       - test: `cmd` with no arrow tail ->\n"),
+            "EVIDENCE_VIEWPORTS_INVALID": build("     Evidence:\n       - test: `c` -> ok\n       - viewports: n/a\n"),
+            "EVIDENCE_DEVIATIONS_MISSING": build("     Evidence:\n       - test: `c` -> ok\n       - viewports: n/a \u2014 x\n"),
+            "EVIDENCE_UNFINISHED_MARKER": build("     Evidence:\n       - test: `c` -> ok TODO\n       - viewports: n/a \u2014 x\n       - deviations: none\n"),
+            "EVIDENCE_PLANNED_ONLY": build("     Evidence:\n       - test: คาดว่าจะรัน c\n       - viewports: n/a \u2014 x\n       - deviations: none\n"),
+            "EVIDENCE_MISSING": build("     Notes: nothing here\n"),
+        }
+        for expected_code, body in cases.items():
+            tasks, parse_problems = sc.parse_task_blocks(body.encode(), Path("t.md"))
+            self.assertFalse(parse_problems, body)
+            problems = sc.validate_evidence(tasks, ["1"])
+            self.assertIn(expected_code, self._ids_of(problems), (expected_code, self._ids_of(problems)))
+
+    def test_ui_viewports_require_all_three_breakpoints(self):
+        import spec_contract as sc
+        from pathlib import Path
+
+        good = ("Evidence:\n"
+                "       - test: `c` -> ok\n"
+                "       - viewports: verified 375 / 768 / 1440\n"
+                "       - deviations: none\n")
+        tasks, _ = sc.parse_task_blocks(f"- [x] 1. d.\n     {good}".encode(), Path("t.md"))
+        self.assertEqual(sc.validate_evidence(tasks, ["1"]), ())
+        partial = good.replace("verified 375 / 768 / 1440", "verified 375 and 768 only")
+        tasks_partial, _ = sc.parse_task_blocks(f"- [x] 1. d.\n     Evidence:\n       - test: `c` -> ok\n       - viewports: {partial.split(chr(10))[0]}\n       - deviations: none".encode(), Path("t.md"))
+        # rebuild cleanly: viewports value comes from partial string minus prefix
+        line_value = "viewports: verified 375 and 768 only"
+        tasks_partial, _ = sc.parse_task_blocks(
+            f"- [x] 1. d.\n     Evidence:\n       - test: `c` -> ok\n       - {line_value}\n       - deviations: none".encode(),
+            Path("t.md"),
+        )
+        problems = sc.validate_evidence(tasks_partial, ["1"])
+        self.assertIn("EVIDENCE_VIEWPORTS_INVALID", self._ids_of(problems))
+
+
+class GateEvidenceCliTest(unittest.TestCase):
+    """Public CLI contract: gate evidence + diff-ranges envelopes และ exit mapping."""
+
+    def setUp(self):
+        self.module_root = Path(__file__).resolve().parents[1]
+        self.tmp = Path(tempfile.mkdtemp(prefix="gate-evidence-cli-"))
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, name: str, data: bytes) -> Path:
+        target = self.tmp / name
+        target.write_bytes(data)
+        return target
+
+    def _task_doc(self, tasks: tuple[str, ...]) -> bytes:
+        head = "# t\n\n## Implementation tasks\n"
+        return head.encode("utf-8") + "".join(tasks).encode("utf-8")
+
+    GOLDEN = (
+        "\n- [{mark}] 1. demo.\n"
+        "     Satisfies: REQ-1.1\n"
+        "     Verify:\n"
+        "       - `x`\n"
+        "     Evidence:\n"
+        "       - test: `true` -> ran 1 tests; OK\n"
+        "       - viewports: n/a \u2014 tooling-only\n"
+        "       - deviations: none\n"
+    )
+
+    def _run_cli(self, argv: list[str]) -> tuple[int, dict]:
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        proc = subprocess.run(
+            [sys.executable, str(self.module_root / "spec_contract.py"), *argv],
+            capture_output=True, text=True, cwd=self.tmp, env=env,
+        )
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            payload = {"_stdout": proc.stdout, "_stderr": proc.stderr}
+        return proc.returncode, payload
+
+    def _ranges_payload(self, before: bytes, after: bytes) -> Path:
+        b_file = self._write("before.bin", before)
+        a_file = self._write("after.bin", after)
+        code, payload = self._run_cli(["diff-ranges", "--before-file", str(b_file), "--after-file", str(a_file)])
+        self.assertEqual(code, 0, payload)
+        out = self.tmp / "ranges.json"
+        out.write_text(json.dumps({"ranges": payload["ranges"]}), encoding="utf-8")
+        return out
+
+    def test_allow_policy_and_engine_paths(self):
+        before = self._task_doc((self.GOLDEN.replace("{mark}", " "),))
+        after_ok = self._task_doc((self.GOLDEN.replace("{mark}", "x"),))
+        ranges_ok = self._ranges_payload(before, after_ok)
+        args = ["gate", "evidence", "--path", ".ai/specs/demo/tasks.md",
+                "--after-file", self._write("after-ok.bin", after_ok).as_posix(),
+                "--ranges-file", ranges_ok.as_posix(),
+                "--before-file", self.tmp.joinpath("before.bin").as_posix(),
+                "--source", "pre-commit"]
+        code, payload = self._run_cli(args)
+        self.assertEqual(code, 0, payload)
+        self.assertEqual(payload["verdict"], "allow")
+
+        bad_ev = self.GOLDEN.replace("- test: `true` -> ran 1 tests; OK", "- test: planned command only")
+        after_bad = self._task_doc((bad_ev.replace("{mark}", "x"),))
+        ranges_bad = self._ranges_payload(before, after_bad)
+        code_bad, payload_bad = self._run_cli([
+            "gate", "evidence", "--path", ".ai/specs/demo/tasks.md",
+            "--after-file", self._write("after-bad.bin", after_bad).as_posix(),
+            "--ranges-file", ranges_bad.as_posix(),
+            "--before-file", self.tmp.joinpath("before.bin").as_posix(),
+            "--source", "pre-commit"])
+        self.assertEqual(code_bad, 1, payload_bad)
+        codes = {diag["code"] for diag in payload_bad["diagnostics"]}
+        self.assertTrue(codes & {"EVIDENCE_PLANNED_ONLY", "EVIDENCE_RESULT_MISSING"}, codes)
+
+        stale = self.tmp / "stale-ranges.json"
+        stale.write_text(json.dumps({"ranges": []}), encoding="utf-8")
+        code_engine, payload_engine = self._run_cli([
+            "gate", "evidence", "--path", ".ai/specs/demo/tasks.md",
+            "--after-file", self._write("after-engine.bin", after_ok).as_posix(),
+            "--ranges-file", stale.as_posix(),
+            "--before-file", self.tmp.joinpath("before.bin").as_posix(),
+            "--source", "pre-commit"])
+        self.assertEqual(code_engine, 2, payload_engine)
+        self.assertEqual(payload_engine["verdict"], "engine-fail")
+        self.assertEqual(payload_engine["diagnostics"][0]["code"], "GATE_RANGE_INVALID")
+
+    def test_before_missing_flag_rules(self):
+        fresh = self._task_doc((self.GOLDEN.replace("{mark}", "x"),))
+        ranges_fresh = self._canonical_empty(fresh)
+        base = ["gate", "evidence", "--path", "p.md", "--after-file",
+                self._write("fresh.bin", fresh).as_posix(),
+                "--ranges-file", ranges_fresh.as_posix(), "--source", "ci"]
+        code_new, payload_new = self._run_cli([*base, "--before-missing"])
+        self.assertEqual(code_new, 0, payload_new)
+        code_both, payload_both = self._run_cli([*base, "--before-missing", "--before-file", "/dev/null"])
+        self.assertEqual(code_both, 2, payload_both)
+
+    def _canonical_empty(self, data: bytes) -> Path:
+        sys.path.insert(0, str(self.module_root))
+        from spec_contract import canonical_changed_ranges
+
+        ranges = [{"afterStart": r.after_start, "afterEnd": r.after_end,
+                   "beforeStart": r.before_start, "beforeEnd": r.before_end}
+                  for r in canonical_changed_ranges(b"", data)]
+        out = self.tmp / "empty-base.json"
+        out.write_text(json.dumps({"ranges": ranges}), encoding="utf-8")
+        return out
+
+
+class GateMutationTest(unittest.TestCase):
+    """Mutation floor: parser shortcuts ต้องตาย ไม่ fail-open."""
+
+    def load_module_with_mutated_source(self, replacements: list[tuple[str, str]]):
+        source_path = Path(__file__).resolve().parents[1] / "spec_contract.py"
+        mutated = source_path.read_text(encoding="utf-8")
+        for old, new in replacements:
+            self.assertIn(old, mutated, old)
+            mutated = mutated.replace(old, new)
+        namespace: dict[str, object] = {}
+        exec(compile(mutated, "<mutated>", "exec"), namespace)
+        return namespace
+
+    def test_required_gate_mutations_are_killed(self):
+        sample_before = b"# t\n\n- [ ] 1. demo.\n"
+        sample_after = b"# t\n\n- [x] 1. demo.\n     Evidence:\n       - test: `c` -> ok\n       - viewports: n/a \xe2\x80\x94 x\n       - deviations: none\n"
+
+        # M1: canonical diff ถูก disable -> range validation ต้อง block การเลือก
+        from spec_contract import canonical_changed_ranges as real_ranges
+        ns = self.load_module_with_mutated_source([
+            ("matcher = difflib.SequenceMatcher(None, before_lines, after_lines, autojunk=False)",
+             'matcher = type("M", (), {"get_opcodes": (lambda self: [("equal", 0, len(before_lines), 0, len(after_lines))])})()'),
+        ])
+        selection = ns["GateSelection"](path="t", before_exists=True, before_bytes=sample_before,
+                                        after_bytes=sample_after, changed_ranges=real_ranges(sample_before, sample_after),
+                                        source="pre-commit")
+        ids, diags = ns["discover_completed_tasks"](selection)
+        self.assertEqual(ids, (), "mutation must fail closed")
+        self.assertTrue(any(d.code == "GATE_RANGE_INVALID" for d in diags))
+
+        # M2: scan-all-completed shortcut -> pre-existing completions ต้องไม่ถูก reselect
+        ns2 = self.load_module_with_mutated_source([
+            ("if transitioned or after_only_opening_overlaps:",
+             "if task.completed:"),
+        ])
+        sel2 = ns2["GateSelection"](path="t", before_exists=True, before_bytes=sample_after, after_bytes=sample_after,
+                                    changed_ranges=(), source="ci")
+        ids2, _ = ns2["discover_completed_tasks"](sel2)
+        self.assertNotEqual(ids2, (), "sanity: mutation flips behavior visibly")
+        from spec_contract import discover_completed_tasks as real_discover
+        ids_real, _ = real_discover(sel2)
+        self.assertEqual(ids_real, (), "real engine stays closed where the mutant re-selected")
+
+        # M3: Evidence validator กลืน unfinished marker -> ต้องตายด้วย fixture TODO
+        ns3 = self.load_module_with_mutated_source([
+            ("return bool(re.search(r\"(?i)(?:\\bTODO\\b|\\bTBD\\b|\\bpending\\b|\\?\\?\\?)\", value))",
+             "return False"),
+        ])
+        evidence_text = ("- [x] 1. demo.\n"
+                         "     Evidence:\n"
+                         "       - test: `c` -> ok\n"
+                         "       - viewports: n/a \u2014 x\n"
+                         "       - deviations: none TODO\n")
+        import spec_contract as real_sc
+        tasks_real, _ = real_sc.parse_task_blocks(evidence_text.encode(), Path("t.md"))
+        self.assertEqual([p.code for p in real_sc.validate_evidence(tasks_real, ["1"])],
+                         ["EVIDENCE_UNFINISHED_MARKER"])
+        mutated_tasks, _ = ns3["parse_task_blocks"](evidence_text.encode(), Path("t.md"))
+        problems_mutated = ns3["validate_evidence"](mutated_tasks, ["1"])
+        self.assertEqual([], [problem.code for problem in problems_mutated],
+                         "sanity: mutation flips detection visibly")
