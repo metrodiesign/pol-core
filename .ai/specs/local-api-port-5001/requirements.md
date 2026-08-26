@@ -3,7 +3,7 @@
 กำหนด origin สำหรับ backend API และ SPA ทั้งสามตัวใน local development เพื่อให้ runtime,
 OIDC, PSP browser return, CORS, scripts และเอกสารอ้าง URL ตรงกัน
 
-> Status: approved 2026-08-17 (quick, no gates; amended SPA origins)
+> Status: unknown
 
 ## REQ-1: Canonical local API origin
 

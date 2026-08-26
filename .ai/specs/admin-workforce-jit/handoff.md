@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff Note: admin-workforce-jit
 
 งาน Microsoft Workforce JIT ปิด Tasks 1–5 สำหรับ implementation และ local acceptance แล้ว. Task 6 เป็น Staging release gate ที่ยังต้องใช้ Entra/SQL/browser จริง.

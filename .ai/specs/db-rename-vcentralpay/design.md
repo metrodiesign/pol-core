@@ -1,6 +1,7 @@
 # Design: Rename database `PaymentOrchestration` -> `VCentralPay`
 
-> Status: approved 2026-07-08, amended 2026-07-08
+> Status: approved 2026-07-08
+> Notes:, amended 2026-07-08
 > Mode: design-first (requirements.md derived 2026-07-08 — REQ IDs backfilled below)
 
 ## Architecture Overview

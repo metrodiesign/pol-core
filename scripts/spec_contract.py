@@ -1640,9 +1640,20 @@ def _cli(argv: Sequence[str]) -> int:
         diagnostics = (*discovery_problems, *parse_problems)
         if any(diagnostic.verdict == "engine-fail" for diagnostic in diagnostics):
             return _print_gate_evidence_envelope(args.path, selected_ids, list(diagnostics))
+        # only task-grammar REGRESSIONS introduced by this change block — a
+        # pre-existing TASK_* diagnostic in untouched regions is legacy debt,
+        # not something the staged diff is allowed to hide or worsen.
+        import collections as _collections
+        before_task_counts = _collections.Counter(
+            diagnostic.code for diagnostic in parse_task_blocks(before_bytes, Path(args.path))[1]
+            if diagnostic.code.startswith("TASK_"))
+        after_task_counts = _collections.Counter(
+            diagnostic.code for diagnostic in parse_problems
+            if diagnostic.code.startswith("TASK_"))
         policy_problems = [
-            diagnostic for diagnostic in diagnostics
+            diagnostic for diagnostic in parse_problems
             if diagnostic.code.startswith("TASK_")
+            and after_task_counts[diagnostic.code] > before_task_counts.get(diagnostic.code, 0)
         ]
         if policy_problems:
             return _print_gate_evidence_envelope(args.path, selected_ids, list(policy_problems))

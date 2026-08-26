@@ -13,7 +13,7 @@
 > `ProducerAccount` — a "tenant" is the company/app, not the person. Any `TenantUserProfile`/`ITenantUserProfileRepository`
 > prose below is superseded; the duplicate-registration guard is now the single UNIQUE `Subject` index on the account.
 
-> Status: approved 2026-06-25 (AFK-delegated per /goal directive; spec-architect critique B1–B3/S1–S10/N1–N3 applied)
+> Status: unknown
 
 Master inputs: approved `requirements.md` (23 REQs, findings F1–F10) + the approved plan
 `/Users/king_developer/.claude/plans/producer-google-sso-parsed-frost.md`. Strategy: **duplicate** the

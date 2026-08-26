@@ -1,3 +1,4 @@
+> Status: unknown
 # HANDOFF — policy-reference-record (orchestrated build)
 
 > Cross-task handoff log. Each teammate implements ONE task then appends a section

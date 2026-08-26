@@ -1,6 +1,6 @@
 # Requirements: ทำให้วันที่ของ sim seed เสถียร (integration suite ไม่แดงเพราะเวลาเดินไป)
 
-> Status: approved (2026-08-06) — ตัดสินแล้ว: D1 = A+C (Refresh อัตโนมัติก่อน suite เพื่อให้ anchor = วันนี้เสมอ + test เลิกใช้ `DateTime.Today` แล้วอ่าน anchor จากข้อมูล sim จริง), D2 = A (UTC ทุกฝั่ง), D3 = A (xUnit fixture เป็นคน re-seed — fail-safe ต่อคนรัน `dotnet test` ตรง ๆ ตาม REQ-4.4)
+> Status: unknown
 
 integration test ที่ยิง sim upstream (`hippodb`/`mammothdb`) แดงเองเมื่อ container เปิดค้างข้ามวัน
 เอกสารนี้กำหนดว่า "เสถียร" แปลว่าอะไร และอะไรห้ามหายไปพร้อมกับการแก้

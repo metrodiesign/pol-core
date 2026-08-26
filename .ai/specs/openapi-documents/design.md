@@ -1,6 +1,6 @@
 # Design: OpenAPI Documents by Audience
 
-> Status: approved 2026-08-12 (quick, no gates)
+> Status: unknown
 
 ใช้ multi-document support ที่มีใน `Microsoft.AspNetCore.OpenApi` และ Scalar อยู่แล้ว ไม่มี custom UI
 หรือ package ใหม่

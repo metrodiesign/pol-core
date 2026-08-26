@@ -1,5 +1,5 @@
 # Design: System Completion
-> Status: approved 2026-06-23 (autonomous, AFK)
+> Status: unknown
 
 ## Architecture Overview
 ต่อยอด 5 business module เดิม — ไม่มีโมดูลใหม่. ทุก command/query ผ่าน Mediator, ITenantScoped, RLS เดิม. Notification ขี่ transactional outbox (`IOutbox`/`OutboxDispatcher`) + Worker host ที่มีอยู่.

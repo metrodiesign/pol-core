@@ -1,6 +1,7 @@
 # Requirements: Insurance Policy-Reference Record
 
-> Status: approved 2026-07-22, amended 2026-07-23
+> Status: approved 2026-07-22
+> Notes:, amended 2026-07-23
 
 ## Overview
 

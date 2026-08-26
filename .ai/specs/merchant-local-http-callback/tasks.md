@@ -2,7 +2,7 @@
 
 หนึ่ง task ครบ config, regression guard และ live browser verification.
 
-> Status: superseded 2026-08-17 — task นี้ไม่ได้ implement. แนวทางสุดท้ายใช้ local API แบบ HTTPS-only
+> Status: unknown
 > และ canonical Merchant callback; ดู `.ai/specs/bugfix-merchant-tier1-dev-oidc/`.
 
 - Historical task (not implemented): Add the local HTTP callback listener, pin the Merchant Microsoft callback path and verify the generated authorization request

@@ -1,4 +1,4 @@
-> Status: approved (2026-08-06) — ตัดสินแล้ว: D1 = A (gate สแกนทั้ง `tests/`), D2 = B (คง `Program.cs` บังคับฝั่งเทสต์ + gate ตาม REQ-2.4) ดังนั้น REQ-1.5 ต้องกวาด 21 ไฟล์ และ REQ-2.4 มีผล (REQ-2.5 ไม่ใช้)
+> Status: unknown
 
 # Requirements: config ที่เทสต์ตั้งให้ host ต้องเป็นค่าที่ host ใช้จริง
 

@@ -1,6 +1,7 @@
 # Requirements: API Route Scheme (/api/v1/{area})
 
-> Status: approved 2026-07-05, amended 2026-07-05, amended 2026-07-12 (see below)
+> Status: approved 2026-07-05
+> Notes:, amended 2026-07-05, amended 2026-07-12 (see below)
 
 > **Historical vocabulary notice (2026-07-12, spec `hierarchical-naming` REQ-2.6-2.8).** This file was
 > written and shipped 2026-07-05, when the control-plane actors were three separate modules — Tenant,

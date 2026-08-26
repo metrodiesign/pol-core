@@ -1,6 +1,6 @@
 # Design: Admin Console Real API Backend Contract
 
-> Status: approved 2026-08-10 (mirror of approved source-reconciled Admin design)
+> Status: unknown
 
 `pol-core` extends current domain owners and area-first Minimal API routes. This mirror locks backend
 ownership; exact request/response/error inventory remains aligned with

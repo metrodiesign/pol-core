@@ -1,5 +1,5 @@
 # Implementation Tasks: System Completion
-> Status: approved 2026-06-23 (autonomous, AFK). Branch feat/system-completion (off develop). Commit per task; PR not merged.
+> Status: unknown
 
 - [x] 1. Cart management — `Cart.SetItemQuantity` (domain) + `GetCart` query (CartView), `RemoveItemCommand`, `SetItemQuantityCommand`, `ClearCartCommand` handlers + host endpoints (GET /carts/{id}, DELETE/PUT /carts/{id}/items/{productId}, POST /carts/{id}/clear, RequireAuthorization("tenant")). Done = domain + handler unit tests green; not-open -> 409, qty<=0 -> 400.
      Satisfies: REQ-1.1/1.2/1.3/1.4/1.5/1.6/1.7. Verify: `dotnet test tests/Cart.Tests`.

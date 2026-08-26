@@ -1,6 +1,6 @@
 # Implementation Tasks: Admin Identity Foundation + RBAC (slice of admin-actor-rename)
 
-> Status: implemented 2026-06-23 (unit-verified; integration + migration round-trip need live SQL Server / CI).
+> Status: unknown
 > Branch `feat/admin-identity-rbac`. Scope = admin-foundation slice only (REQ-3..10, REQ-11 additive, REQ-12
 > admin-parts, REQ-13 new). Producer rename (REQ-1/2 + rename-half of REQ-11) DEFERRED — see scope banner in
 > requirements.md. **Module decision:** admin code lives in a NEW `Admin` module (Admin.Domain/Application/

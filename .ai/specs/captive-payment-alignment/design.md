@@ -1,6 +1,6 @@
 # Design: Captive Intra-Group Payment Alignment
 
-> Status: approved-for-implementation 2026-07-26 (delegated autonomous run — PENDING HUMAN REVIEW
+> Status: unknown
 > 2026-07-27; see requirements.md "Gate note"); amended 2026-07-28 with D8a after a live 2C2P sandbox
 > E2E found a real money-path bug in the pre-existing webhook claim order (REQ-8.5)
 

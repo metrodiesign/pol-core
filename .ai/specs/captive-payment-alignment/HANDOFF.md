@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff: Captive Intra-Group Payment Alignment
 
 > Rolling handoff. **Lead appends the brief before each task; the teammate who finishes a task appends

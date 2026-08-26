@@ -1,6 +1,7 @@
 # Requirements: Merchant-Commerce ERD Reset
 
-> Status: approved 2026-08-07, amended 2026-08-07
+> Status: approved 2026-08-07
+> Notes:, amended 2026-08-07
 
 ## Overview
 

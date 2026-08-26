@@ -1,6 +1,6 @@
 # Implementation Tasks: Search / Filter / Sort (SFS) + Pagination
 
-> Status: approved 2026-07-02 (design-first; spec-architect + spec-trace 59/59 passed). For the TEAM to implement.
+> Status: unknown
 > Each task is a cohesive, independently verifiable slice — implement a whole task in one pass
 > (it may touch many files). Decompose into sub-steps at execution time; do NOT pre-split here.
 > Full reference implementation for every snippet: `docs/reference/search-filter-sort.md` (cited per task).

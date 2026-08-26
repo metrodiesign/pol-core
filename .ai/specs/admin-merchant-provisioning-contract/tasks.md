@@ -1,6 +1,6 @@
 # Implementation Tasks: Admin Merchant Provisioning Contract
 
-> Status: approved 2026-08-09 (quick, no gates)
+> Status: unknown
 
 - [x] 1. Document existing atomic Merchant provisioning/vault relationships and add HTTP approval-boundary regression tests for missing, inactive and active Merchants. Satisfies: REQ-1, REQ-2, REQ-3, REQ-4.
   Evidence:

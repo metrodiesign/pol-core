@@ -1,6 +1,7 @@
 # Design: products-sp-gateway
 
-> Status: approved 2026-07-31, amended 2026-08-01
+> Status: approved 2026-07-31
+> Notes:, amended 2026-08-01
 > Requirements: [requirements.md](requirements.md) (approved 2026-07-31, amended 2026-07-31) — 11 REQ / 73 criteria
 > Contract ต้นเรื่อง: `docs/reference/vcentralpay-sp-quick-reference.pdf` v1.0
 

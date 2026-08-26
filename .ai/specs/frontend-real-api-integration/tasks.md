@@ -1,6 +1,6 @@
 # Implementation Tasks: Merchant Frontend Real API Backend Contract
 
-> Status: approved 2026-08-10 (mirror of approved Merchant tasks)
+> Status: unknown
 
 แต่ละ task เป็น backend vertical slice. หมายเลข REQ อ้าง source spine เดียวกับ `pol-merchant`.
 

@@ -1,6 +1,6 @@
 # Design: Extended Login Session Lifetime
 
-> Status: approved 2026-08-09 (quick, no gates)
+> Status: unknown
 
 เปลี่ยนเฉพาะค่า config และ fallback default ที่ flow เดิมอ่านอยู่แล้ว ไม่มี schema, API หรือ cookie contract ใหม่
 

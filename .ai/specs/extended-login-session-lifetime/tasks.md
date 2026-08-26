@@ -1,6 +1,6 @@
 # Tasks: Extended Login Session Lifetime
 
-> Status: approved 2026-08-09 (quick, no gates)
+> Status: unknown
 
 หนึ่ง task ครอบ vertical slice ทั้ง Admin และ Merchant User เพราะใช้ configuration pattern เดียวกัน
 

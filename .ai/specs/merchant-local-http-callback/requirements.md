@@ -2,7 +2,7 @@
 
 เพิ่ม callback สำหรับทดสอบ Tier 1 ผ่าน HTTP localhost โดยไม่ถอด local HTTPS API และไม่กระทบ production.
 
-> Status: superseded 2026-08-17 — ไม่ได้ implement เพราะแนวทางสุดท้ายคง local API แบบ HTTPS-only ที่
+> Status: unknown
 > `https://localhost:5001` และใช้ canonical Merchant callback
 > `/api/v1/merchants/auth/microsoft/callback`. ดู `.ai/specs/bugfix-merchant-tier1-dev-oidc/`.
 > เอกสารนี้เก็บไว้เป็นประวัติของแนวทางทดสอบที่ถูกยกเลิก.

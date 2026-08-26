@@ -1,6 +1,6 @@
 # Design: Search / Filter / Sort (SFS) + Pagination
 
-> Status: draft 2026-07-02 (design-first; spec-architect adversarial audit applied — exemplar projection
+> Status: unknown
 > hazards, coercion/DoS/overflow/OpenAPI gaps resolved, see D10-D15). Full C# + SQL companion:
 > `docs/reference/search-filter-sort.md` (checked against repo + EF Core 10.0.9). This file is the spec-level
 > design; it cites that doc by section rather than duplicating code.

@@ -1,6 +1,7 @@
 # Design: rf1-schema-reset — Big-bang foundation ของ v5 restructure
 
-> Status: approved 2026-07-11, amended 2026-07-11 (backfill traceability หลัง derive requirements; sync ผล /spec-analyze F2 tier-based Super branch + F5/F6/F7 — ดู findings log ใน requirements.md)
+> Status: approved 2026-07-11
+> Notes:, amended 2026-07-11 (backfill traceability หลัง derive requirements; sync ผล /spec-analyze F2 tier-based Super branch + F5/F6/F7 — ดู findings log ใน requirements.md)
 > Mode: Design-First (requirements.md จะ derive จาก design นี้ทีหลัง)
 > Master plan: `~/.claude/plans/users-king-developer-downloads-payment-tidy-whale.md` (approved 2026-07-11)
 > Source design doc: `/Users/king_developer/Downloads/Payment_Orchestration_Schema_Design-v5.md`

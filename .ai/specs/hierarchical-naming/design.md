@@ -1,6 +1,7 @@
 # Design: Hierarchical Naming (namespace + route)
 
-> Status: approved 2026-07-12, amended 2026-07-12 (rev 2 — rewritten after spec-architect critique; 2 blockers + 5 majors folded in)
+> Status: approved 2026-07-12
+> Notes:, amended 2026-07-12 (rev 2 — rewritten after spec-architect critique; 2 blockers + 5 majors folded in)
 > Mode: Design-First. `requirements.md` was derived FROM this design on 2026-07-12; the traceability
 > table below was backfilled at that time. Design remains upstream — a requirement that conflicts with
 > it is the requirement that is wrong.

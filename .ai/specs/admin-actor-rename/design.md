@@ -1,6 +1,7 @@
 # Design: Admin Actor Rename + Admin Identity Foundation
 
-> Status: approved 2026-06-23, amended 2026-06-23
+> Status: approved 2026-06-23
+> Notes:, amended 2026-06-23
 
 > **Implementation note (PR `feat/admin-identity-rbac`, 2026-06-23):** PR แรกส่งมอบเฉพาะ **admin-identity
 > foundation** (Task B) + `GET /admin/me`. **Producer rename (Task A) DEFERRED** — design ด้านล่างคงไว้เป็น

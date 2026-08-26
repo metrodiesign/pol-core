@@ -1,3 +1,4 @@
+> Status: unknown
 # Tasks: production-hardening
 
 > Tracker for the production-grade push. Design + the Codex-reviewed RLS decisions live in design.md.

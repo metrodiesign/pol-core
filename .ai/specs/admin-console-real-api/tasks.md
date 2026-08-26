@@ -1,6 +1,6 @@
 # Implementation Tasks: Admin Console Real API Backend Contract
 
-> Status: approved 2026-08-10 (mirror of approved source-reconciled Admin tasks)
+> Status: unknown
 
 ทำตามลำดับ 1 → 9. แต่ละ task ต้องจบ owner code, migration, targeted tests, OpenAPI และ
 Evidence ก่อนเริ่ม task ถัดไป. ห้าม stub success, duplicate route/aggregate, หรือ coordinator ใหม่.

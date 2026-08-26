@@ -2,7 +2,7 @@
 
 สอง task ครอบ API และ SPA origin contracts พร้อม verification
 
-> Status: approved 2026-08-17 (quick, no gates; amended SPA origins)
+> Status: unknown
 
 - [x] 1. Make `https://localhost:5001` the canonical local API origin across launch configuration, active local examples, scripts, current docs and Scalar redirect tests while preserving production and historical values
   Satisfies: REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4, REQ-1.5

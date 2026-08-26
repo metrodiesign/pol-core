@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff: Console Auth Configuration Contract
 
 > From: Codex `/root`

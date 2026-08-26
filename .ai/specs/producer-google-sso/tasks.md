@@ -5,7 +5,7 @@
 > Also 2026-07-01: `TenantUserProfile` entity/table deleted — person/form fields moved onto `ProducerAccount`
 > (migration `AddProducerAccountDetailsDropProfile`); any `TenantUserProfile` task prose below is superseded.
 
-> Status: approved 2026-06-25 (AFK-delegated per /goal directive; spec-trace 110/110 criteria covered, EARS lint clean)
+> Status: unknown
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task in one pass (it may touch many
 > files). Decompose into sub-steps yourself at execution time — do NOT pre-split tasks here. Logic-first: pure-function

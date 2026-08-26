@@ -1,6 +1,6 @@
 # Implementation Tasks: external-sim-separate-containers
 
-> Status: approved 2026-08-04 (quick, no gates)
+> Status: unknown
 
 > แต่ละ task เป็นชิ้นที่ verify แยกได้ อ่าน `design.md` ก่อนเริ่มทุก task — การตัดสินใจเรื่อง SQL split,
 > `IntegrationDb.SimServer` routing, per-server probe counter, `.env*` git blob swap ถูกล็อกไว้แล้ว

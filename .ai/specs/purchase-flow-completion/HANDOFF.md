@@ -1,3 +1,4 @@
+> Status: unknown
 # HANDOFF — purchase-flow-completion (rolling, ห้าม commit ไฟล์นี้)
 
 > Lead: Fable orchestrator. Teammate ใหม่ 1 คน/task อ่านไฟล์นี้ก่อนเริ่มเสมอ

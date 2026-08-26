@@ -1,5 +1,5 @@
 # Implementation Tasks: Identity & RBAC — TenantUser realm
-> Status: approved 2026-06-23 (autonomous, AFK). Branch feat/identity-rbac (stacks on feat/tenant-provisioning).
+> Status: unknown
 > Cohesive slices; TDD (pure-domain first); commit per task; PR not merged.
 
 - [x] 1. Identity.Domain — `TenantUser` aggregate (`AggregateRoot<Guid>`; `Create` for a pending applicant: subject/email required, Status=PendingApproval, TenantId null, Role unset/default; `Approve(tenantId, role, now)` -> Active guarding non-pending; `Suspend()`), `TenantUserRole` {TenantAdmin,Finance,Viewer}, `TenantUserStatus` {PendingApproval,Active,Suspended}, `ExternalLogin` (Provider+Subject->TenantUserId), `TenantUserProfile`, `RegistrationTicket` (`Issue` + `Consume(now)` single-use/expiry guard). Done = pure-domain unit tests green.

@@ -1,6 +1,6 @@
 # Design: Identity & RBAC — TenantUser realm
 
-> Status: approved 2026-06-23 (autonomous, AFK). Derived from requirements.md (REQ-1..10) + reference 2.5.
+> Status: unknown
 > Mirrors the proven Tenant provisioning patterns (aggregate + allowlist-style validation, admin-scoped
 > keyed DI, central migration + RLS + grants, ProblemDetails mapping).
 

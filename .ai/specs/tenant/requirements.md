@@ -1,5 +1,6 @@
 # Requirements: Tenant Provisioning (control-plane)
-> Status: approved 2026-06-22, amended 2026-06-22
+> Status: approved 2026-06-22
+> Notes:, amended 2026-06-22
 
 ## Overview
 

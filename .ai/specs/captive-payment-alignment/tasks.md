@@ -1,6 +1,6 @@
 # Implementation Tasks: Captive Intra-Group Payment Alignment
 
-> Status: approved-for-implementation 2026-07-26 (delegated autonomous run — PENDING HUMAN REVIEW
+> Status: unknown
 > 2026-07-27; see requirements.md "Gate note")
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task in one pass (it may

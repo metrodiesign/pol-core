@@ -1,6 +1,7 @@
 # Requirements: External Sim Shared Agent/Broker/Branch Network
 
-> Status: approved 2026-08-02, amended 2026-08-02
+> Status: approved 2026-08-02
+> Notes:, amended 2026-08-02
 
 ## Overview
 

@@ -1,6 +1,6 @@
 # Tasks — demo-seed-data
 
-> Status: approved 2026-07-13 (quick, no gates)
+> Status: unknown
 
 4 task ตามลำดับ dependency — แต่ละ task ต่อยอด `docker/bootstrap/seed-demo.sql` ไฟล์เดียวกัน
 (T1 วางโครง, T2-T4 เติม dataset ทีละชั้นตาม FK). ทุก task จบด้วยการ **รัน `./scripts/seed-demo.sh`

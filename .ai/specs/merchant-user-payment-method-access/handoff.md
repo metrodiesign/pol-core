@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff Note: Merchant User Payment Method Access
 
 > Schema ตาม `.ai/shared/AGENT_HANDOFF_PROTOCOL.md`

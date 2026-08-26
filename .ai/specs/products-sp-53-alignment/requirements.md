@@ -1,6 +1,6 @@
 # Requirements: products-sp-53-alignment
 
-> Status: approved-for-implementation 2026-07-30 (อนุมัติผ่าน plan `~/.claude/plans/src-modules-products-vast-cookie.md` โดย user — โหมด quick ไม่มี gate ต่อ artifact)
+> Status: unknown
 > Scope: จัด `src/Modules/Products` ให้ตรงเอกสารต้นเรื่อง `docs/reference/vcentralpay-sp-quick-reference.pdf` v1.0 — input surface ตาม §2, item shape ตาม §5.2, error mapping ตาม §6
 
 ## บริบท

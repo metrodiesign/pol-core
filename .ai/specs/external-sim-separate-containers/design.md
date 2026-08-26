@@ -1,3 +1,4 @@
+> Status: unknown
 # Design: external-sim-separate-containers
 
 > อ้าง `requirements.md` ฉบับนี้ (REQ-1..9) — ไม่ออกแบบใหม่นอกเหนือจากที่ล็อกไว้ในนั้น

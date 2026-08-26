@@ -1,6 +1,7 @@
 # Design: Multi-Tier Deployment (App tier / DB tier split, PCI-DSS L1)
 
-> Status: approved 2026-07-22, amended 2026-07-22
+> Status: approved 2026-07-22
+> Notes:, amended 2026-07-22
 
 ## Scope note (from /spec-new answers)
 

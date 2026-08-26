@@ -1,3 +1,4 @@
+> Status: unknown
 # Handoff Note: Admin Merchant Provisioning Contract
 
 > From: Codex root session   To: human review   Date: 2026-08-09

@@ -1,6 +1,6 @@
 # Tasks — masterdata-module
 
-> Status: approved 2026-07-13 (quick, no gates)
+> Status: unknown
 
 3 task ตามลำดับ dependency: T1 (code move) -> T2 (DB) -> T3 (guard + canon).
 แต่ละ task จบด้วย build เขียว + test เขียว.

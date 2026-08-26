@@ -1,6 +1,7 @@
 # Requirements: Tier 0 : Microsoft Azure ID (สำหรับพนักงาน)
 
-> Status: approved 2026-08-23, amended 2026-08-23
+> Status: approved 2026-08-23
+> Notes:, amended 2026-08-23
 
 ## Overview
 

@@ -1,6 +1,6 @@
 # Implementation Tasks: checkout-chain-document-fields
 
-> Status: approved-for-implementation 2026-07-30
+> Status: unknown
 > Each task is a cohesive, independently verifiable slice. อ่าน `requirements.md` + `design.md` + `HANDOFF.md` ก่อนเริ่มทุกครั้ง
 > Branch: `feat/products-insurance-document` (PR #143). ห้าม push develop, ห้าม force push
 > Traps ทั้งหมดอยู่ใน design.md หัวข้อ "Traps" — อ่านก่อนเริ่มทุก task

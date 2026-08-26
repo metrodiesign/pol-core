@@ -1,6 +1,7 @@
 # Design: Purchase Flow Completion (ปิด flow ซื้อประกันภัย End-to-End)
 
-> Status: approved 2026-08-02, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166), amended 2026-08-03 (ปิด race มินต์ session แทรกระหว่าง cancel — REQ-3.6/4.7, review PR #167 ข้อ 1), amended 2026-08-03 (จำแนก ambiguous PSP ด้วย `PspAmbiguousException` + guard backfill truncation + แก้ claim migration ให้ตรงกลไก — review PR #168)
+> Status: approved 2026-08-02
+> Notes:, amended 2026-08-03 (ปิด freeze race ด้วย Cart.Version — review PR #166), amended 2026-08-03 (ปิด race มินต์ session แทรกระหว่าง cancel — REQ-3.6/4.7, review PR #167 ข้อ 1), amended 2026-08-03 (จำแนก ambiguous PSP ด้วย `PspAmbiguousException` + guard backfill truncation + แก้ claim migration ให้ตรงกลไก — review PR #168)
 
 ## Architecture Overview
 

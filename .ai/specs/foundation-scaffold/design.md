@@ -1,3 +1,4 @@
+> Status: unknown
 # Design — foundation-scaffold
 
 > HOW โครงสร้างถูกสร้าง. อ้าง PLAN.md (16 decisions), ARCHITECTURE.md, CODING_STANDARDS.md,

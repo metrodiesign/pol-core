@@ -1,6 +1,7 @@
 # Design: Registration Attempt History
 
-> Status: approved 2026-08-02, amended 2026-08-02 (REQ-2.7 accessible-merchant floor — review PR #161)
+> Status: approved 2026-08-02
+> Notes:, amended 2026-08-02 (REQ-2.7 accessible-merchant floor — review PR #161)
 
 ## Architecture Overview
 

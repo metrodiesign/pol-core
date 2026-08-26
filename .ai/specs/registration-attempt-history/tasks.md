@@ -1,6 +1,7 @@
 # Implementation Tasks: Registration Attempt History
 
-> Status: approved 2026-08-02, amended 2026-08-02 (REQ-2.7 — review PR #161)
+> Status: approved 2026-08-02
+> Notes:, amended 2026-08-02 (REQ-2.7 — review PR #161)
 
 > Each task is a cohesive, independently verifiable slice. Implement a whole task
 > in one pass (it may touch many files). Decompose into sub-steps yourself at

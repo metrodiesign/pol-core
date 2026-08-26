@@ -1,6 +1,6 @@
 # Implementation Tasks: products-sp-53-alignment
 
-> Status: approved-for-implementation 2026-07-30
+> Status: unknown
 > อ่าน `requirements.md` + `design.md` + `HANDOFF.md` ก่อนเริ่มทุกครั้ง. Traps ทั้งหมดอยู่ใน design.md หัวข้อ "Traps"
 > Branch: `feat/products-sp-53-alignment`. ห้าม push develop, ห้าม force push, ห้าม merge
 > ลำดับ task ตรงกับ T1-T9 ใน `HANDOFF.md` หนึ่งต่อหนึ่ง

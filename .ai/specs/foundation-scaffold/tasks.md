@@ -1,3 +1,4 @@
+> Status: unknown
 # Tasks — foundation-scaffold
 
 > Checklist. `[x]` = เขียวพิสูจน์ได้ (build `dotnet build -warnaserror` 0 warning + test ผ่าน +

@@ -1,5 +1,6 @@
 # Design: RLS → EF Core cluster-aligned runtime contexts (migration-owner + minimal cross-context)
-> Status: approved 2026-07-18, amended 2026-07-19
+> Status: approved 2026-07-18
+> Notes:, amended 2026-07-19
 
 > Design-First. v2 spec-architect · v3/v4 Codex R1/R2 (single-context) · v5 split-context (R3) · v6 hybrid (R4).
 > **v7 = Codex R5 convergence: runtime contexts partitioned along the ACTUAL co-commit clusters proven by the full

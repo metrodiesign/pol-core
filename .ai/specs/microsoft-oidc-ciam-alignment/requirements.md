@@ -1,6 +1,7 @@
 # Requirements: Microsoft OIDC CIAM Alignment
 
-> Status: approved 2026-08-16, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน; U2: จาก code review — reconcile รูป authority ให้ตรงผล curl จริง: ตัวบังคับคือ suffix `/v2.0` รูป domain ใช้ได้; U3: local API origin ย้ายเป็น `https://localhost:5001` ตาม `local-api-port-5001`)
+> Status: approved 2026-08-16
+> Notes:, amended 2026-08-16 (รอบสอง: B1/B3/H4 spec-architect critique; รอบสาม: R1-R5 design review; รอบสี่: P1-P2 design review — ทุกรอบ user สั่งแก้เอง = re-approve ในตัว, ดู findings log), amended 2026-08-17 (U1: user สั่งย้าย authority/tenant defaults ออกจาก appsettings ไป env ล้วน; U2: จาก code review — reconcile รูป authority ให้ตรงผล curl จริง: ตัวบังคับคือ suffix `/v2.0` รูป domain ใช้ได้; U3: local API origin ย้ายเป็น `https://localhost:5001` ตาม `local-api-port-5001`)
 
 ## Overview
 

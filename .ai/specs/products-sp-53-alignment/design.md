@@ -1,6 +1,6 @@
 # Design: products-sp-53-alignment
 
-> Status: approved-for-implementation 2026-07-30
+> Status: unknown
 > อ่าน `requirements.md` + `HANDOFF.md` ก่อน. branch `feat/products-sp-53-alignment`
 > เอกสารต้นเรื่อง: `docs/reference/vcentralpay-sp-quick-reference.pdf` (§2 หน้า 3, §3 หน้า 4, §4 หน้า 5, §5.1/§5.2 หน้า 6-7, §6 หน้า 8)
 

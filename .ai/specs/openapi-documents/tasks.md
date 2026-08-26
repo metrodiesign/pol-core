@@ -1,6 +1,6 @@
 # Tasks: OpenAPI Documents by Audience
 
-> Status: approved 2026-08-12 (quick, no gates)
+> Status: unknown
 
 - [x] 1. เพิ่ม audience classifier, register `v1`/`merchant`/`admin`/`integration`, จำกัด security scheme
   และสร้าง active `x-tagGroups`; ตั้ง Scalar selector เป็นสาม named documentsโดย `merchant` เป็น default.

@@ -1,6 +1,6 @@
 # Design — masterdata-module
 
-> Status: approved 2026-07-13 (quick, no gates)
+> Status: unknown
 
 ## 1. Shape
 
