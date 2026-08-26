@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 import contextlib
 import importlib.util
 import io
@@ -2979,3 +2980,77 @@ class GateMutationTest(unittest.TestCase):
         problems_mutated = ns3["validate_evidence"](mutated_tasks, ["1"])
         self.assertEqual([], [problem.code for problem in problems_mutated],
                          "sanity: mutation flips detection visibly")
+
+
+class Task5ConsumerTest(unittest.TestCase):
+    """REQ-4.1-4.6: shared consumers ใช้ exact string IDs + task graph verdict เดิม."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="task5-ids-"))
+        root = self.tmp / ".ai" / "specs" / "demo"
+        root.mkdir(parents=True)
+        (root / "tasks.md").write_text(
+            "> Status: approved 2026-08-25\n"
+            "\n"
+            "- [x] A1. first done.\n"
+            "     Satisfies: REQ-1.1\n"
+            "- [ ] migration-2. second pending.\n"
+            "     Satisfies: REQ-1.1\n"
+            "- [ ] zz. last pending.\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self):
+        import shutil
+
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, *argv: str) -> tuple[int, str]:
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "spec_contract.py"), *argv],
+            capture_output=True, text=True,
+        )
+        return proc.returncode, proc.stdout
+
+    def test_pending_lines_preserve_case_and_file_order(self):
+        rc, out = self._run("task-ids", "--feature", "demo", "--pending",
+                            "--specs-root", str(self.tmp / ".ai" / "specs"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.split(), ["migration-2", "zz"])
+
+    def test_all_includes_completed_exact_case(self):
+        rc, out = self._run("task-ids", "--feature", "demo",
+                            "--specs-root", str(self.tmp / ".ai" / "specs"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.split(), ["A1", "migration-2", "zz"])
+
+    def test_json_envelope_sorted_keys(self):
+        rc, out = self._run("task-ids", "--feature", "demo", "--pending", "--format", "json",
+                            "--specs-root", str(self.tmp / ".ai" / "specs"))
+        self.assertEqual(rc, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["schemaVersion"], 1)
+        self.assertEqual(payload["taskIds"], ["migration-2", "zz"])
+
+    def test_unknown_dependency_and_cycle_still_reject(self):
+        bad_cycle = self.tmp / ".ai" / "specs" / "cycle"
+        bad_cycle.mkdir()
+        (bad_cycle / "tasks.md").write_text(
+            "> Status: approved 2026-08-25\n"
+            "- [ ] a. x.\n     Depends on: b\n"
+            "- [ ] b. y.\n     Depends on: a\n",
+            encoding="utf-8",
+        )
+        rc, _out = self._run("task-ids", "--feature", "cycle",
+                             "--specs-root", str(self.tmp / ".ai" / "specs"))
+        self.assertEqual(rc, 1)
+
+    def test_cost_lib_widened_id_regex_is_string_safe(self):
+        sys.path.insert(0, str(SCRIPTS))
+        import cost_lib
+
+        row = "- [x] migration-2. migrated.\n"
+        match = re.match(cost_lib.TASKS_CHECKBOX_RE, row)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), "migration-2")
+        self.assertFalse(hasattr(cost_lib, "TASK_ID_NUMERIC"))

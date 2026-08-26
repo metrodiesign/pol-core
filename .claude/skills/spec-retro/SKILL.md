@@ -122,10 +122,10 @@ purpose to cut output cost.
    any path-scoped stack stub under `.claude/rules/` vs real paths. Fix any drift now,
    in the same commit.
 
-5. **Commit**: `git add retrospectives/ .ai/shared/ .claude/rules/ .claude/skills/spec-implement/references/ .claude/skills/spec-retro/references/ && git commit -m "docs: session retrospective YYYY-MM-DD"`
-   (`.ai/shared/` MUST be staged — promoted lessons in step 3 now land in
-   `.ai/shared/LESSONS.md` / a `<stack>.md` profile under `.ai/shared/stack/`, not the
-   `.claude/rules` stubs.)
+5. **Stop before commit** (Task 5 contract): stage nothing and do NOT run `git commit`.
+   Pane-loop treats the retro as complete when a `retrospectives/**/*.md` artifact is new
+   or its bytes changed — no commit is expected from this skill. Committing belongs to the
+   human-authorized Ship flow; leave staged changes for it.
 
 ## Critical requirements
 

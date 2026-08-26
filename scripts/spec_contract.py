@@ -1492,6 +1492,45 @@ def _print_gate_evidence_envelope(
 
 def _cli(argv: Sequence[str]) -> int:
     specs_dir = Path(__file__).resolve().parent.parent / ".ai" / "specs"
+    if len(argv) >= 1 and argv[0] == "task-ids":
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--feature", required=True)
+        parser.add_argument("--pending", action="store_true")
+        parser.add_argument("--all", action="store_true")
+        parser.add_argument("--selector")
+        parser.add_argument("--format", choices=("lines", "json"), default="lines")
+        parser.add_argument("--specs-root", default=None, help="test seam: alternate .ai/specs root")
+        args = parser.parse_args(argv[1:])
+        root_dir = Path(args.specs_root) if args.specs_root else specs_dir
+        feature_dir, resolver_diagnostics = resolve_feature_directory(root_dir, args.feature)
+        if resolver_diagnostics or feature_dir is None:
+            _print_diagnostics(resolver_diagnostics)
+            return 1
+        tasks_data = _read_canonical_artifact(feature_dir, "tasks.md", root_dir)[0]
+        if tasks_data is None:
+            print("TASK_ARTIFACT_MISSING: no tasks.md", file=sys.stderr)
+            return 1
+        tasks, parse_problems = parse_task_blocks(tasks_data, feature_dir / "tasks.md")
+        if parse_problems or validate_task_graph(tasks):
+            _print_diagnostics(tuple(parse_problems))
+            return 1
+        if args.selector:
+            resolved, selector_problems = resolve_task_selector(tasks, args.selector)
+            if selector_problems:
+                _print_diagnostics(selector_problems)
+                return 1
+            selected = set(resolved)
+        elif args.pending:
+            selected = {task.task_id for task in tasks if not task.completed}
+        else:
+            selected = {task.task_id for task in tasks}
+        ordered = [task.task_id for task in tasks if task.task_id in selected]
+        if args.format == "json":
+            print(json.dumps({"schemaVersion": 1, "taskIds": ordered}, sort_keys=True))
+        else:
+            for task_id in ordered:
+                print(task_id)
+        return 0
     if len(argv) >= 1 and argv[0] == "diff-ranges":
         parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument("--before-file", required=True)

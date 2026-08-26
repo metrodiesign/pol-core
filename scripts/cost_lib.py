@@ -11,9 +11,10 @@ import json, glob, os, re, sys
 # ===== workflow-coupled config (แก้ที่นี่ที่เดียวถ้า workflow เปลี่ยน) =====
 IMPLEMENT_CMD = "/spec-implement"   # command ที่สั่ง implement task (มองหาใน transcript)
 RETRO_CMD     = "/spec-retro"       # command ที่ยืนยัน session ทำ retro จบ
-TASK_ID_RE    = r"\d+"              # รูปแบบ task id; slug/ทศนิยม -> r"[\w.\-]+"
-TASK_ID_NUMERIC = True              # id เป็นเลขล้วน? (กำหนดการ cast + sort)
-# บรรทัด task ใน tasks.md เช่น "- [ ] 3." / "- [x] 3." (รองรับ -/* และ x/X)
+# Task 5 (REQ-4.2/4.4): task ID เป็น exact string case-sensitive ตาม canonical parser
+# (`scripts/spec_contract.py` TASK_ID_PATTERN: alphanumeric + `.`/`-`/`_`) — numeric-only
+# สมมติฐานถูกยุบ จึงไม่มี TASK_ID_NUMERIC cast/sort path แล้ว.
+TASK_ID_RE    = r"[A-Za-z0-9][A-Za-z0-9_\-]{0,63}"   # == spec_contract.TASK_ID_PATTERN
 TASKS_CHECKBOX_RE = r"^[-*] \[[ xX]\] (" + TASK_ID_RE + r")"
 
 # ===== derived (ไม่ผูก workflow) =====
@@ -139,7 +140,8 @@ _RETRO_INVOKE = "<command-name>" + RETRO_CMD + "</command-name>"
 
 
 def _cast(x):
-    return int(x) if TASK_ID_NUMERIC else x
+    """Task IDs are exact case-sensitive strings now (REQ-4.4) — no numeric cast."""
+    return x
 
 
 def session_tasks(sid):
