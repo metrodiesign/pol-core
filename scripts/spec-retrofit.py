@@ -1696,9 +1696,13 @@ def run_apply_safe(batch_id: str) -> int:
         print(json.dumps(envelope("apply-safe", batch_id, [], scope_blockers), sort_keys=True))
         return 1
     plans, _actions, blockers = build_apply_plan(batch_id)
-    if blockers:
-        blockers.sort(key=lambda item: (item.path, item.code, item.line))
-        print(json.dumps(envelope("apply-safe", batch_id, [], blockers), sort_keys=True))
+    # decisions committed on the ledger are authoritative: a blocker already
+    # dispositioned there cannot veto the batch (its mechanical payload either
+    # ships with this run or is recorded as a header-less residual).
+    undecided = [b for b in blockers if not _residual_is_decided(b)]
+    if undecided:
+        undecided.sort(key=lambda item: (item.path, item.code, item.line))
+        print(json.dumps(envelope("apply-safe", batch_id, [], undecided), sort_keys=True))
         return 1
     if not plans:
         print(json.dumps({"batch": batch_id, "schemaVersion": 1, "verdict": "allow"}, sort_keys=True))
