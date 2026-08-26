@@ -2201,7 +2201,7 @@ class SpecContractTest(unittest.TestCase):
                 )
                 self.assertEqual("blocked", module.derive_spec_state(directory, root)[0])
 
-        mutation = ("if any(_contains_unfinished_marker(entry) for entry in task.evidence):", "if False:")
+        mutation = ("if _marker_leads(_segments()):", "if False:")
         self.assertEqual(1, source.count(mutation[0]))
         with self.assertRaises(AssertionError):
             blocks_evidence_marker(load(source.replace(*mutation)))
@@ -2275,7 +2275,7 @@ class SpecContractTest(unittest.TestCase):
             ("if feature == \"archive\" or not re.fullmatch(TASK_ID_PATTERN, feature):", "if False:", rejects_resolver_bypass),
             ("if feature == \"archive\" or not re.fullmatch(TASK_ID_PATTERN, feature):", "if not re.fullmatch(TASK_ID_PATTERN, feature):", rejects_archive_container),
             ("if highest_existing > earliest_missing:", "if True:", keeps_authoring_root_active),
-            ("if any(_contains_unfinished_marker(entry) for entry in task.evidence):", "if False:", rejects_mixed_evidence),
+            ("if _marker_leads(_segments()):", "if False:", rejects_mixed_evidence),
         )
         for before, after, assertion in mutations:
             with self.subTest(before=before):
@@ -2964,7 +2964,7 @@ class GateMutationTest(unittest.TestCase):
 
         # M3: Evidence validator กลืน unfinished marker -> ต้องตายด้วย fixture TODO
         ns3 = self.load_module_with_mutated_source([
-            ("return bool(re.search(r\"(?i)(?:\\bTODO\\b|\\bTBD\\b|\\bpending\\b|\\?\\?\\?)\", value))",
+            ("return bool(_UNFINISHED_MARKER_RE.search(value))",
              "return False"),
         ])
         evidence_text = ("- [x] 1. demo.\n"
@@ -3054,3 +3054,54 @@ class Task5ConsumerTest(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match.group(1), "migration-2")
         self.assertFalse(hasattr(cost_lib, "TASK_ID_NUMERIC"))
+
+
+class Task5EvidenceMarkerBoundaryTest(unittest.TestCase):
+    """Real-use defect: CLI flags ใน Evidence ต้องไม่ trigger unfinished-marker."""
+
+    def _evidence_problems(self, observation: str):
+        import spec_contract as sc
+        from pathlib import Path
+
+        body = ("- [x] 1. demo.\n"
+                "     Evidence:\n"
+                f"       - test: {observation}\n"
+                "       - viewports: n/a \u2014 tooling-only\n"
+                "       - deviations: none\n")
+        tasks, _problems = sc.parse_task_blocks(body.encode(), Path("t.md"))
+        return [diag.code for diag in sc.validate_evidence(tasks, ["1"])]
+
+    def test_flags_with_markers_pass(self):
+        self.assertEqual(
+            self._evidence_problems("`x --pending` -> ran 5 tests; OK"),
+            [],
+        )
+
+    def test_bare_todos_still_blocked(self):
+        codes = self._evidence_problems("`x` -> TODO upstream")
+        self.assertIn("EVIDENCE_UNFINISHED_MARKER", codes)
+        codes2 = self._evidence_problems("`x` -> PENDING review")
+        self.assertIn("EVIDENCE_UNFINISHED_MARKER", codes2)
+
+
+class Task5EvidenceMarkerScopeTest(unittest.TestCase):
+    """Marker scanning covers result/value segments; command text is data."""
+
+    def _problems(self, observation: str):
+        import spec_contract as sc
+        from pathlib import Path
+
+        body = ("- [x] 1. demo.\n"
+                "     Evidence:\n"
+                f"       - test: {observation}\n"
+                "       - viewports: n/a \u2014 tooling-only\n"
+                "       - deviations: none\n")
+        tasks, _p = sc.parse_task_blocks(body.encode(), Path("t.md"))
+        return [d.code for d in sc.validate_evidence(tasks, ["1"])]
+
+    def test_pending_in_command_part_is_allowed(self):
+        self.assertEqual(self._problems("`run --pending x` -> 5 tests; OK"), [])
+
+    def test_todo_in_result_still_blocked(self):
+        codes = self._problems("`x` -> done later TODO")
+        self.assertIn("EVIDENCE_UNFINISHED_MARKER", codes)

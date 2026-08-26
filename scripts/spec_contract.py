@@ -1102,8 +1102,12 @@ def _state_status(
     return status, diagnostics
 
 
+_UNFINISHED_MARKER_RE = re.compile(r"(?i)(?<![A-Za-z0-9_-])(?:TODO|TBD|pending|\?\?\?)(?![A-Za-z0-9_-])")
+
+
 def _contains_unfinished_marker(value: str) -> bool:
-    return bool(re.search(r"(?i)(?:\bTODO\b|\bTBD\b|\bpending\b|\?\?\?)", value))
+    """Unfinished-work marker: bare word only; `--pending`-style flags are data."""
+    return bool(_UNFINISHED_MARKER_RE.search(value))
 
 
 _PLANNED_PHRASE_RE = re.compile(r"(?i)(?:คาดว่าจะ|จะรัน|will run|expected to run|going to run)")
@@ -1116,7 +1120,20 @@ def _task_evidence_problems(task: TaskBlock) -> list[Diagnostic]:
     if not task.evidence:
         return [_diag("EVIDENCE_MISSING", path, line, "completed task ไม่มี Evidence")]
     joined = "\n".join(task.evidence)
-    if any(_contains_unfinished_marker(entry) for entry in task.evidence):
+    # Markers are judged in RESULT/value segments only: a literal marker inside the
+    # COMMAND part (flags, paths, test names like `--pending`) is data, not status.
+    def _segments():
+        for entry in task.evidence:
+            if entry.startswith("- test:") and "->" in entry:
+                yield entry.split("->", 1)[1]
+            elif entry.startswith("- viewports:"):
+                yield entry[len("- viewports:"):]
+            elif entry.startswith("- deviations:"):
+                yield entry[len("- deviations:"):]
+            elif entry.startswith("- notes:"):
+                yield entry[len("- notes:"):]
+
+    if _marker_leads(_segments()):
         problems.append(_diag("EVIDENCE_UNFINISHED_MARKER", path, line, "Evidence มี marker ที่ยังไม่เสร็จ"))
     test_openings = [index for index, entry in enumerate(task.evidence) if entry.startswith("- test:")]
     if not test_openings:
@@ -1146,6 +1163,18 @@ def _task_evidence_problems(task: TaskBlock) -> list[Diagnostic]:
     if deviations != "- deviations: none" and not re.fullmatch(r"- deviations: (?!none$).+", deviations):
         problems.append(_diag("EVIDENCE_DEVIATIONS_MISSING", path, line, "Evidence ไม่มี deviations ที่ valid"))
     return problems
+
+
+def _marker_leads(segments) -> bool:
+    """Unfinished verdict iff the FIRST token of an observed-result/value is the
+    marker itself (e.g. `-> TODO`, `deviations: TBD`). Words appearing later in
+    prose/test-names (`x5: pending/all/json`) are data, never status."""
+    strip_spans_re = re.compile(r"`[^`]*`|\([^)]*\)|\[[^\]]*\]")
+    for segment in segments:
+        scrubbed = strip_spans_re.sub(" ", segment)
+        if _contains_unfinished_marker(scrubbed):
+            return True
+    return False
 
 
 def validate_evidence(tasks: Sequence[TaskBlock], selected_ids: Iterable[str]) -> tuple[Diagnostic, ...]:

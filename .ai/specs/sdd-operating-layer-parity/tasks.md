@@ -136,7 +136,7 @@
        - `python3 -m unittest discover -s scripts/tests -p 'test_guard_contract.py'` — คาดว่าจะ exit 0 และ normalized span tree ครบ quote, substitution, wrapper recursion กับ malformed input
        - `for test_file in .claude/hooks/tests/destructive-guard.test.sh .claude/hooks/tests/hook-bypass-guard.test.sh .claude/hooks/tests/codex-adapters.test.sh; do bash "$test_file"; done` — คาดว่าจะ exit 0 โดย destructive/bypass corpus เดิมไม่เปลี่ยนและ benign quoted data ยังคง allow
 
-- [ ] 5. ย้าย shared consumers ไปใช้ string task graph และ current repository binding — pane-loop, cost, spec-state และ GitHub sync เลิก numeric-only/hardcoded repository paths
+- [x] 5. ย้าย shared consumers ไปใช้ string task graph และ current repository binding — pane-loop, cost, spec-state และ GitHub sync เลิก numeric-only/hardcoded repository paths
      Scope: เพิ่ม consumer fixtures ก่อนแก้ caller ให้รับ exact string IDs ตาม file order, reject invalid graph, derive `owner/repo` จาก `origin`, ตรวจ manifest ก่อน I/O และเปลี่ยน retrospective completion จาก Git HEAD เป็น artifact bytes
      Files:
        - `scripts/pane-loop.sh`
@@ -155,6 +155,14 @@
      Verify:
        - `python3 -m unittest discover -s scripts/tests -p 'test_spec_contract.py'` — คาดว่าจะ exit 0 และ consumer subprocess fixtures รักษา alphanumeric IDs, dependency verdict และ repository-binding exit contract
        - `python3 scripts/spec_contract.py task-ids --feature sdd-operating-layer-parity --pending --format lines` — คาดว่าจะพิมพ์ numeric IDs `1` ถึง `10` ตาม file order โดยยังใช้ string representation
+     Evidence:
+       - test: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_spec_contract.py'` -> Ran 76 tests; OK (Task5ConsumerTest x5: pending/all/json = exact case-sensitive IDs `A1`,`migration-2`,`zz` file order, cycle reject rc1, cost_lib regex == engine TASK_ID_PATTERN)
+       - test: `python3 scripts/spec_contract.py task-ids --feature sdd-operating-layer-parity --pending` -> `4..10` (observed จริงหลัง Task 1-3 complete)
+       - test: `bash -n scripts/pane-loop.sh` -> OK; grouping เรียก engine task-ids + Batch tag canonical match
+       - change: pane-loop retro completion = sha256 inventory retrospectives/**/*.md (HEAD-read/auto-commit ลบ)
+       - change: spec-retro SKILL step5 stage-nothing/no-commit; sync-github SKILL (.claude+.agents) origin-resolve + manifest compare (`REPO_ORIGIN_MISSING` exit2 / `REPO_MANIFEST_MISMATCH` exit1), hardcode repo ลบ
+       - viewports: n/a — tooling/CLI ไม่มี UI surface
+       - deviations: repository-binding exit codes procedural ใน SKILL.md (scope นี้ไม่มี executable runtime ให้ fixture)
 
 - [ ] 6. สร้าง evidence-backed retrofit engine และจบที่ migration dry-run checkpoint — writer เดียววางแผน field-level action, blocker และ captured-byte recovery โดยไม่สร้างหลักฐานขึ้นเอง
      Scope: ทำ characterization จาก current/historical blobs แล้ว implement one-batch CLI, compatibility probe, deterministic reports, clean-tree/HEAD/hash gates, atomic replace, recovery journal และ field-specific no-fabrication checks จากนั้นรัน dry-run ทุก migration batch โดยยังไม่ apply
