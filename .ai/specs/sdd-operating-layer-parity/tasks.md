@@ -164,7 +164,7 @@
        - viewports: n/a — tooling/CLI ไม่มี UI surface
        - deviations: repository-binding exit codes procedural ใน SKILL.md (scope นี้ไม่มี executable runtime ให้ fixture)
 
-- [ ] 6. สร้าง evidence-backed retrofit engine และจบที่ migration dry-run checkpoint — writer เดียววางแผน field-level action, blocker และ captured-byte recovery โดยไม่สร้างหลักฐานขึ้นเอง
+- [x] 6. สร้าง evidence-backed retrofit engine และจบที่ migration dry-run checkpoint — writer เดียววางแผน field-level action, blocker และ captured-byte recovery โดยไม่สร้างหลักฐานขึ้นเอง
      Scope: ทำ characterization จาก current/historical blobs แล้ว implement one-batch CLI, compatibility probe, deterministic reports, clean-tree/HEAD/hash gates, atomic replace, recovery journal และ field-specific no-fabrication checks จากนั้นรัน dry-run ทุก migration batch โดยยังไม่ apply
      Files:
        - `scripts/spec-retrofit.py`
@@ -180,6 +180,12 @@
        - `python3 -m unittest discover -s scripts/tests -p 'test_spec_retrofit.py'` — คาดว่าจะ exit 0 และ fixtures พิสูจน์ deterministic planning, no-fabrication, atomic write กับ hash-guarded recovery
        - `for batch in canonical-complete approved-aliases bugfix alphanumeric-tasks evidence conflicting-status ambiguous-directories; do python3 scripts/spec-retrofit.py --dry-run --batch "$batch" --format json; done` — คาดว่าจะรายงาน sorted actions/blockers พร้อม proof ต่อ field โดยไม่เขียน target files; blocker exit ต้องถูกเก็บเพื่อ human decision ไม่ถูกตีความเป็นผ่าน
        - `git diff --exit-code -- .ai/specs` — คาดว่าจะไม่มี diff จาก dry-run
+     Evidence:
+       - test: `python3 -m unittest discover -s scripts/tests -p 'test_spec_retrofit.py'` -> Ran 21 tests; OK (ครอบ CLI mode/batch validation, deterministic sorted reports + never-write, alias action ประกอบ historical blob proof(commit,line,sha256), missing-history -> MIGRATION_PROOF_MISSING, duplicate canonical -> PROOF_CONFLICT, annotated canonical split status.line/status.note preserve bytes, pending-review annotation conflict, legacy same-task-owner field actions, sdd-legacy container round-trip lossless, overlap planner rejection + compose descending exact, dirty-tree gate, apply full cycle + journal cleanup, journal-present blocks modes w/ RECOVERY_REQUIRED, hash-guarded restore (planned->restore / foreign-edit->preserve+FAILED), HEAD-move fault injection exit 2)
+       - test: `for batch in canonical-complete approved-aliases bugfix alphanumeric-tasks evidence conflicting-status ambiguous-directories; do python3 scripts/spec-retrofit.py --dry-run --batch "$batch"; done` -> rc/verdict: canonical-complete 1 policy-fail (0a/51b) | approved-aliases 1 policy-fail (56a/79b) | bugfix 1 policy-fail (0a/82b) | alphanumeric-tasks 0 allow | evidence 1 policy-fail (10a/239b) | conflicting-status 0 allow | ambiguous-directories 1 policy-fail (0a/1b) — blocker exit codes เก็บไว้ทำ human decision
+       - test: `git diff --exit-code -- .ai/specs` -> exit 0 ไม่มี diff จาก dry-run
+       - viewports: n/a — tooling/CLI ไม่มี UI surface
+       - deviations: (1) inline-solo — subagent billing block, fresh-context audit ไม่ได้ (state.md); (2) corpus blocker counts เป็น expected fail-closed output รอ human resolution ตาม design จึงยังไม่ apply; (3) batch-strict verification ของ apply-safe ใช้ per-file post-write check (status/fence) ส่วน full-chain strict audit ถูกจังไว้ที่ task 7 final-all-spec ตาม design step 13
 
 - [ ] 7. Apply migration batches ที่มนุษย์ resolve แล้วและพิสูจน์ strict 62-directory cutover gate — แต่ละ batch idempotent, recoverable และ reviewable โดยไม่ย้าย archive
      Scope: เริ่มได้เมื่อ checkpoint ของ task 6 ระบุ blocker เป็นศูนย์หรือมี human resolution ครบเท่านั้น จากนั้น apply-safe ทีละ registry batch, review diff ต่อ batch, รัน second dry-run และปิดด้วย `final-all-spec` strict check

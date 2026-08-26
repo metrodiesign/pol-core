@@ -1,0 +1,1482 @@
+#!/usr/bin/env python3
+"""No-fabrication migration tool (Task 6 / REQ-5) for historical SDD specs.
+
+Modes (exactly one per invocation, --batch always required):
+  --dry-run    report sorted field-level actions/blockers; never writes
+  --apply-safe guarded writer: clean tree -> HEAD/hash snapshots -> recovery
+               journal -> atomic replaces -> self re-dry-run -> strict check
+  --check      read-only verification (`final-all-spec` accepts only this)
+
+Fail-closed everywhere: every planned change carries field-level explicit
+proof (current bytes or a historical blob); anything else becomes a blocker.
+See .ai/specs/sdd-operating-layer-parity/design.md §Migration Algorithm.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+SCRIPTS = Path(__file__).resolve().parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import spec_contract as sc  # noqa: E402
+
+EXCLUDED_FEATURES = {"sdd-operating-layer-parity"}
+ARCHIVE_CONTAINER = "archive"
+ARTIFACT_FILES = ("requirements.md", "design.md", "tasks.md", "bugfix.md", "handoff.md")
+HISTORICAL_COUNT = 62
+MAX_COMMIT_VISITS = 80
+
+MIGRATION_BATCHES = (
+    "canonical-complete",
+    "approved-aliases",
+    "bugfix",
+    "alphanumeric-tasks",
+    "evidence",
+    "conflicting-status",
+    "ambiguous-directories",
+)
+READ_ONLY_ONLY_BATCHES = {"final-all-spec"}
+ALL_BATCH_IDS = frozenset(MIGRATION_BATCHES) | READ_ONLY_ONLY_BATCHES
+
+
+def repo_root() -> Path:
+    override = os.environ.get("SDD_RETROFIT_REPO")
+    if override:
+        return Path(override).resolve()
+    return SCRIPTS.parent
+
+
+def specs_root() -> Path:
+    return repo_root() / ".ai" / "specs"
+
+
+def git_dir() -> Path:
+    out = _git(["rev-parse", "--absolute-git-dir"])
+    return Path(out.stdout.strip())
+
+
+class GitFailure(RuntimeError):
+    pass
+
+
+def _git(args: list[str]) -> subprocess.CompletedProcess:
+    proc = subprocess.run(
+        ["git", "-C", str(repo_root()), *args],
+        capture_output=True, text=True, shell=False,
+    )
+    return proc
+
+
+def git_out(args: list[str]) -> str:
+    proc = _git(args)
+    if proc.returncode != 0:
+        raise GitFailure(proc.stderr.strip())
+    return proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Records
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Proof:
+    kind: str                      # current | historical
+    source_path: str
+    commit: str                    # "" for current-kind
+    line: int
+    text_sha256: str
+    snippet: str
+
+    def to_json(self) -> dict:
+        return {
+            "commit": self.commit,
+            "kind": self.kind,
+            "line": self.line,
+            "sha256": self.text_sha256,
+            "snippet": self.snippet,
+            "sourcePath": self.source_path,
+        }
+
+
+@dataclass(frozen=True)
+class RetrofitAction:
+    batch_id: str
+    path: str
+    target_field: str
+    task_id: str                   # "" when not task-owned
+    field_span: tuple[int, int]    # byte span in BEFORE full-file bytes
+    before_bytes: bytes
+    after_bytes: bytes
+    proofs: tuple[Proof, ...]
+
+    @property
+    def kind(self) -> str:
+        if self.target_field == "legacy.container":
+            return "container"
+        if not self.before_bytes:
+            return "insert"
+        return "rewrite"
+
+    def to_json(self) -> dict:
+        return {
+            "action": self.kind,
+            "afterSha256": hashlib.sha256(self.after_bytes).hexdigest(),
+            "afterBytesBase64": base64.b64encode(self.after_bytes).decode(),
+            "beforeSha256": hashlib.sha256(self.before_bytes).hexdigest(),
+            "beforeBytesBase64": base64.b64encode(self.before_bytes).decode(),
+            "byteSpan": list(self.field_span),
+            "path": self.path,
+            "proofs": [proof.to_json() for proof in self.proofs],
+            "targetField": self.target_field,
+            "taskId": self.task_id,
+        }
+
+
+@dataclass(frozen=True)
+class RetrofitBlocker:
+    code: str
+    batch_id: str
+    path: str
+    target_field: str
+    task_id: str
+    line: int
+    message: str
+    current_evidence: str
+    historical_evidence: str
+
+    def to_json(self) -> dict:
+        return {
+            "code": self.code,
+            "currentEvidence": self.current_evidence,
+            "historicalEvidence": self.historical_evidence,
+            "line": self.line,
+            "message": self.message,
+            "path": self.path,
+            "targetField": self.target_field,
+            "taskId": self.task_id,
+        }
+
+
+def abs_repo(path_str: str) -> Path:
+    return repo_root() / path_str
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def rel(path: Path) -> str:
+    try:
+        return path.relative_to(repo_root()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def read_bytes(path: Path) -> bytes:
+    return path.read_bytes()
+
+
+# ---------------------------------------------------------------------------
+# Historical proof retrieval (design §581-588)
+# ---------------------------------------------------------------------------
+
+
+def commits_touching(repo_path: str) -> list[str]:
+    proc = _git(["log", "--follow", "--format=%H", "--", repo_path])
+    if proc.returncode != 0:
+        return []
+    return [line for line in proc.stdout.split() if line]
+
+
+def blob_bytes(commit: str, repo_path: str) -> bytes | None:
+    proc = _git(["show", f"{commit}:{repo_path}"])
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.encode("utf-8", "surrogateescape")
+
+
+STATUS_ANY_RE = re.compile(r"^>\s*Status:.*$", re.MULTILINE)
+CANONICAL_APPROVED_DATE_RE = re.compile(
+    r"^>[ \t]*Status:[ \t]+approved[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$", re.MULTILINE
+)
+
+
+def _blob_line_number(blob: bytes, needle: bytes) -> int:
+    for number, line in enumerate(blob.splitlines(), start=1):
+        if line.strip() == needle.strip():
+            return number
+    return 1
+
+
+def historical_approved_proof(repo_path: str) -> tuple[Proof | None, Proof | None]:
+    """Search history for an explicit `approved DATE` line for this path.
+
+    Returns (proof, conflicting_proof). Exactly one explicit unique variant ->
+    proof; several distinct variants -> (newest, older-distinct) conflict pair.
+    """
+    seen_variants: dict[str, tuple[str, int, bytes]] = {}
+    for commit in commits_touching(repo_path)[:MAX_COMMIT_VISITS]:
+        blob = blob_bytes(commit, repo_path)
+        if blob is None:
+            continue
+        for match in CANONICAL_APPROVED_DATE_RE.finditer(blob.decode("utf-8", "surrogateescape")):
+            line_text = match.group(0).strip()
+            if line_text not in seen_variants:
+                line_no = _blob_line_number(
+                    blob, match.group(0).encode("utf-8", "surrogateescape")
+                )
+                seen_variants[line_text] = (commit, line_no, match.group(0).encode())
+        if seen_variants:
+            break  # newest commit carrying an explicit approved line decides
+    if not seen_variants:
+        return None, None
+    ordered = sorted(seen_variants.items(), key=lambda item: item[0])
+    newest_text, (commit, line_no, raw) = ordered[-1]
+    proof = Proof(
+        kind="historical",
+        source_path=repo_path,
+        commit=commit,
+        line=line_no,
+        text_sha256=sha256(raw),
+        snippet=newest_text,
+    )
+    conflict = None
+    if len(ordered) > 1:
+        older_text, (older_commit, older_line, older_raw) = ordered[0]
+        conflict = Proof(
+            kind="historical",
+            source_path=repo_path,
+            commit=older_commit,
+            line=older_line,
+            text_sha256=sha256(older_raw),
+            snippet=older_text,
+        )
+    return proof, conflict
+
+
+def historical_canonical_status_line(repo_path: str) -> tuple[bytes | None, Proof | None, Proof | None]:
+    """Newest historical blob's canonical `> Status:` line (verbatim bytes)."""
+    for commit in commits_touching(repo_path)[:MAX_COMMIT_VISITS]:
+        blob = blob_bytes(commit, repo_path)
+        if blob is None:
+            continue
+        text = blob.decode("utf-8", "surrogateescape")
+        lines = [line.strip() for line in STATUS_ANY_RE.findall(text)]
+        canonical = [
+            line for line in lines
+            if sc.STATUS_RE.match(line)
+        ]
+        if canonical:
+            if len({line.lower() for line in canonical}) > 1:
+                chosen = min(canonical, key=len)
+                other = max(canonical, key=len)
+                number = _blob_line_number(blob, chosen.encode())
+                other_number = _blob_line_number(blob, other.encode())
+                return None, Proof("historical", repo_path, commit, number, sha256(chosen.encode()), chosen), \
+                    Proof("historical", repo_path, commit, other_number, sha256(other.encode()), other)
+            chosen = canonical[0]
+            number = _blob_line_number(blob, chosen.encode())
+            return (
+                chosen.encode("utf-8") + b"\n",
+                Proof("historical", repo_path, commit, number, sha256(chosen.encode()), chosen),
+                None,
+            )
+    return None, None, None
+
+
+# ---------------------------------------------------------------------------
+# Corpus classification (batch registry scopes)
+# ---------------------------------------------------------------------------
+
+
+def historical_directories() -> list[Path]:
+    """All spec directories except this feature and the archive container."""
+    root = specs_root()
+    if not root.is_dir():
+        return []
+    dirs = []
+    for child in sorted(root.iterdir()):
+        if not child.is_dir():
+            continue
+        if child.name in EXCLUDED_FEATURES or child.name == ARCHIVE_CONTAINER:
+            continue
+        dirs.append(child)
+    return dirs
+
+
+def feature_files(directory: Path) -> list[Path]:
+    return [directory / name for name in ARTIFACT_FILES if (directory / name).is_file()]
+
+
+def dir_tags(directory: Path) -> set[str]:
+    tags: set[str] = set()
+    files = feature_files(directory)
+    if not files:
+        return {"ambiguous-directories"}
+    by_name = {path.name: path for path in files}
+    contents = {path.name: read_bytes(path) for path in files}
+
+    has_tasks = "tasks.md" in contents
+    has_requirements = "requirements.md" in contents
+    if "bugfix.md" in contents and not has_requirements:
+        tags.add("bugfix")
+
+    # status health
+    status_conflict = False
+    status_duplicate_canonical = False
+    status_alias = False
+    status_missing_issue = False
+    statuses_found = 0
+    for file_name, data in contents.items():
+        lines = data.decode("utf-8", "surrogateescape").splitlines()
+        outside, _diags = sc._outside_fence(lines, Path(str(by_name[file_name])))
+        canonical_seen: set[str] = set()
+        for _number, line in outside:
+            if STATUS_ANY_RE.match(line):
+                statuses_found += 1
+                if sc.STATUS_RE.match(line.strip()):
+                    lowered = line.strip().lower()
+                    if lowered in canonical_seen or len(canonical_seen) >= 1 and lowered != next(iter(canonical_seen)):
+                        status_duplicate_canonical = True
+                    canonical_seen.add(lowered)
+                    continue
+                if re.match(ALIAS_STRONG_RE, line.strip()):
+                    status_alias = True
+                else:
+                    status_conflict = True
+    if statuses_found == 0:
+        status_missing_issue = True
+    if status_conflict or status_duplicate_canonical:
+        tags.add("conflicting-status")
+    if status_alias or status_missing_issue:
+        tags.add("approved-aliases")
+
+    # task-id grammar
+    if has_tasks:
+        ids = [
+            task.task_id for task in sc.parse_task_blocks(contents["tasks.md"], Path("tasks.md"))[0]
+        ]
+        if any(re.search(r"[A-Za-z]", task_id) for task_id in ids):
+            tags.add("alphanumeric-tasks")
+
+    # evidence v2 health
+    if has_tasks:
+        tasks, _parse_diag = sc.parse_task_blocks(contents["tasks.md"], Path("tasks.md"))
+        completed = [task.task_id for task in tasks if task.completed]
+        if completed:
+            problems = sc.validate_evidence(tasks, completed)
+            legacy_present = any(
+                LEGACY_TEST_BULLET_RE.match(line)
+                for task in tasks
+                for _number, line in _task_region_lines(contents["tasks.md"], task)
+            )
+            if problems or legacy_present:
+                tags.add("evidence")
+        elif "bugfix.md" not in contents:
+            tags.add("evidence")  # authoring chain with completions absent is not evidence scope; keep for review
+
+    if sc.derive_spec_state(directory, specs_root())[0] == "complete":
+        tags.add("canonical-complete")
+    elif has_tasks and has_requirements and "canonical-complete" not in tags and not tags & {
+        "conflicting-status", "bugfix",
+    }:
+        tags.add("canonical-complete")  # reviewer-visible under the completing batch too
+    return tags
+
+
+ALIAS_STRONG_RE = r"^>\s*Status:\s*[A-Za-z][A-Za-z\-]*"
+ANNOTATED_STATUS_RE = re.compile(
+    r"^>\s*Status:\s*"
+    r"(draft|superseded\s+\d{4}-\d{2}-\d{2}\s+by\s+\S+|approved\s+\d{4}-\d{2}-\d{2})"
+    r"(\s*,.+)$"
+)
+
+
+# ---------------------------------------------------------------------------
+# Probes / planners
+# ---------------------------------------------------------------------------
+
+LEGACY_TEST_BULLET_RE = re.compile(r"^(\s*)[-*]\s*test\s*:\s*(.+?)\s*$")
+LEGACY_VIEWPORT_RE = re.compile(r"^(\s*)[-*]?\s*viewports?\s*:\s*(.+?)\s*$", re.IGNORECASE)
+LEGACY_DEVIATION_RE = re.compile(r"^(\s*)[-*]?\s*deviation[s]?\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _task_region_lines(data: bytes, task: sc.TaskBlock) -> list[tuple[int, str]]:
+    text = data.decode("utf-8", "surrogateescape")
+    lines = text.splitlines()
+    start = task.span[0] - 1
+    end = min(task.span[1], len(lines))
+    return [(start + offset + 1, lines[start + offset]) for offset in range(max(end - start, 0))]
+
+
+def _proof_current(path_str: str, blob: bytes, line_number: int, line_text: str) -> Proof:
+    return Proof(
+        kind="current",
+        source_path=path_str,
+        commit="",
+        line=line_number,
+        text_sha256=sha256(line_text.encode("utf-8")),
+        snippet=line_text.strip(),
+    )
+
+
+def plan_status_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAction], list[RetrofitBlocker]]:
+    actions: list[RetrofitAction] = []
+    blockers: list[RetrofitBlocker] = []
+    for file_path in feature_files(directory):
+        path_str = rel(file_path)
+        data = read_bytes(file_path)
+        lines = data.decode("utf-8", "surrogateescape").splitlines()
+        outside, _diag = sc._outside_fence(lines, Path(path_str))
+        status_entries = []
+        for number, line in outside:
+            if STATUS_ANY_RE.match(line):
+                status_entries.append((number, line))
+        canonical_entries = [
+            (number, line.strip()) for number, line in status_entries
+            if sc.STATUS_RE.match(line.strip())
+        ]
+        distinct_canonical = {text.lower() for _number, text in canonical_entries}
+        if len(distinct_canonical) > 1:
+            first_number, first_text = canonical_entries[0]
+            second_number, second_text = canonical_entries[1]
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "status.line", "",
+                first_number, "canonical status ซ้ำ/ขัดกันในไฟล์เดียว",
+                first_text, second_text,
+            ))
+            continue
+        canonical_count = len(canonical_entries)
+        annotated_split = [
+            (number, ANNOTATED_STATUS_RE.match(line.strip()))
+            for number, line in status_entries if not sc.STATUS_RE.match(line.strip())
+        ]
+        if canonical_count and not any(match for _number, match in annotated_split):
+            continue
+        handled_annotated = False
+        for number, match in annotated_split:
+            if not match:
+                continue
+            kind_part, tail_part = match.group(1).rstrip(), match.group(2)
+            line_span = _line_byte_span(data, number)
+            raw_line_bytes = data[line_span[0]:line_span[1]]
+            current_proof = _proof_current(path_str, data, number, lines[number - 1])
+            if re.search(r"(?i)pending", tail_part) and kind_part.startswith("approved"):
+                blockers.append(RetrofitBlocker(
+                    "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "status.note",
+                    "", number,
+                    "annotation บอก pending review ขัดกับ approval",
+                    lines[number - 1].strip(), "",
+                ))
+                handled_annotated = True
+                continue
+            actions.append(RetrofitAction(
+                batch_id=batch_id, path=path_str, target_field="status.line",
+                task_id="", field_span=line_span,
+                before_bytes=raw_line_bytes,
+                after_bytes=(f"> Status: {kind_part}\n").encode("utf-8"),
+                proofs=(current_proof,),
+            ))
+            actions.append(RetrofitAction(
+                batch_id=batch_id, path=path_str, target_field="status.note",
+                task_id="", field_span=(line_span[1], line_span[1]),
+                before_bytes=b"",
+                after_bytes=f"> Notes:{tail_part}\n".encode("utf-8"),
+                proofs=(current_proof,),
+            ))
+            handled_annotated = True
+        if handled_annotated:
+            continue
+        if len([entry for entry in status_entries if not sc.STATUS_RE.match(entry[1].strip())]) >= 2:
+            # alias+alias or alias+unknown mess: not uniquely mappable
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "status.line", "", 
+                status_entries[0][0] if status_entries else 1,
+                "หลายบรรทัดสถานะที่ไม่ canonical พร้อมกัน — mapping ไม่ unique",
+                "; ".join(entry[1].strip() for entry in status_entries[:3]),
+                "",
+            ))
+            continue
+        if not status_entries:
+            insert_bytes, proof, conflict = historical_canonical_status_line(path_str)
+            if conflict is not None:
+                blockers.append(_conflict_blocker(batch_id, path_str, proof, conflict))
+                continue
+            if insert_bytes is None:
+                blockers.append(_missing_blocker(
+                    batch_id, path_str, "status.line", 1,
+                    "directory ไม่มี status line และ history ไม่มี explicit canonical status",
+                ))
+                continue
+            actions.append(RetrofitAction(
+                batch_id=batch_id, path=path_str, target_field="status.line",
+                task_id="", field_span=(0, 0),
+                before_bytes=b"", after_bytes=insert_bytes, proofs=(proof,),
+            ))
+            continue
+        number, raw_line = status_entries[
+            next((index for index, entry in enumerate(status_entries)
+                  if not sc.STATUS_RE.match(entry[1].strip())), 0)
+        ]
+        byte_span = _line_byte_span(data, number)
+        proof, conflict = historical_approved_proof(path_str)
+        if conflict is not None:
+            blockers.append(_conflict_blocker(
+                batch_id, path_str,
+                Proof("historical", path_str, conflict.commit, conflict.line, conflict.text_sha256, conflict.snippet),
+                conflict,
+            ))
+            continue
+        if proof is None:
+            blockers.append(_missing_blocker(
+                batch_id, path_str, "status.line", number,
+                f"alias status ไม่มี historical proof: {raw_line.strip()}",
+            ))
+            continue
+        replacement = proof.snippet.encode("utf-8") + b"\n"
+        actions.append(RetrofitAction(
+            batch_id=batch_id, path=path_str, target_field="status.line",
+            task_id="", field_span=byte_span,
+            before_bytes=data[byte_span[0]:byte_span[1]],
+            after_bytes=replacement, proofs=(proof,),
+        ))
+    return actions, blockers
+
+
+def status_alias_like(status_entries) -> bool:
+    return any(not sc.STATUS_RE.match(entry[1].strip()) for entry in status_entries)
+
+
+def _line_byte_span(data: bytes, line_number: int) -> tuple[int, int]:
+    boundaries = [0]
+    for line in data.decode("utf-8", "surrogateescape").splitlines(keepends=True):
+        boundaries.append(boundaries[-1] + len(line.encode("utf-8", "surrogateescape")))
+    start = boundaries[line_number - 1]
+    end = boundaries[min(line_number, len(boundaries) - 1)]
+    return start, end
+
+
+def _missing_blocker(batch_id: str, path_str: str, target_field: str, line: int, message: str,
+                     task_id: str = "") -> RetrofitBlocker:
+    return RetrofitBlocker(
+        "MIGRATION_PROOF_MISSING", batch_id, path_str, target_field, task_id, line, message, "", ""
+    )
+
+
+def _conflict_blocker(batch_id: str, path_str: str, proof_a: Proof | None,
+                      proof_b: Proof | None) -> RetrofitBlocker:
+    return RetrofitBlocker(
+        "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "status.line", "",
+        (proof_a.line if proof_a else 1),
+        "historical proof ขัดกัน — ต้องมี human resolution ต่อ field",
+        proof_a.snippet if proof_a else "",
+        proof_b.snippet if proof_b else "",
+    )
+
+
+def plan_evidence_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAction], list[RetrofitBlocker]]:
+    actions: list[RetrofitAction] = []
+    blockers: list[RetrofitBlocker] = []
+    tasks_file = directory / "tasks.md"
+    if not tasks_file.is_file():
+        return actions, blockers
+    path_str = rel(tasks_file)
+    data = read_bytes(tasks_file)
+    tasks, _diag = sc.parse_task_blocks(data, Path(path_str))
+    for task in tasks:
+        if not task.completed:
+            continue
+        region = _task_region_lines(data, task)
+        has_header = any(line.strip() == "Evidence:" for _number, line in region)
+        legacy_tests = [
+            (number, LEGACY_TEST_BULLET_RE.match(line))
+            for number, line in region
+            if LEGACY_TEST_BULLET_RE.match(line)
+        ]
+        legacy_viewports = [
+            (number, LEGACY_VIEWPORT_RE.match(line))
+            for number, line in region
+            if LEGACY_VIEWPORT_RE.match(line) and line.strip() != "Evidence:"
+        ]
+        legacy_deviations = [
+            (number, LEGACY_DEVIATION_RE.match(line))
+            for number, line in region
+            if LEGACY_DEVIATION_RE.match(line) and line.strip() != "Evidence:"
+        ]
+
+        problems = sc.validate_evidence([task], [task.task_id])
+        codes = {problem.code for problem in problems}
+
+        # observations: legacy bullets that already carry command + result move
+        # verbatim under a structural Evidence: header
+        usable_tests = [
+            (number, match) for number, match in legacy_tests
+            if "`" in match.group(2) and "->" in match.group(2)
+        ]
+        if usable_tests and not has_header:
+            bullet_spans = [_line_byte_span(data, number) for number, _match in usable_tests]
+            span_start = min(span[0] for span in bullet_spans)
+            span_end = max(span[1] for span in bullet_spans)
+            indent = usable_tests[0][1].group(1)
+            rebuilt = (f"{indent}Evidence:\n".encode() + "".join(
+                f"{indent}- test: {match.group(2)}\n"
+                for _number, match in usable_tests
+            ).encode())
+            proof = _proof_current(path_str, data, usable_tests[0][0],
+                                   usable_tests[0][1].group(0))
+            actions.append(RetrofitAction(
+                batch_id=batch_id, path=path_str, target_field="evidence.observations",
+                task_id=task.task_id, field_span=(span_start, span_end),
+                before_bytes=data[span_start:span_end],
+                after_bytes=rebuilt, proofs=(proof,),
+            ))
+
+        # viewports / deviations judged per-field against explicit owner lines only
+        viewport_ok = any(
+            re.fullmatch(r"- viewports: (?:n/a \u2014 .+|.*375.*768.*1440.*|.*1440.*768.*375.*)",
+                         entry)
+            for entry in task.evidence
+        )
+        deviation_ok = any(
+            entry == "- deviations: none"
+            or re.fullmatch(r"- deviations: (?!none$).+", entry)
+            for entry in task.evidence
+        )
+        owner_vp = next(((number, match.group(2)) for number, match in legacy_viewports
+                         if "->" not in match.group(2)), None)
+        if not viewport_ok:
+            if owner_vp is not None and not has_header:
+                number, value = owner_vp
+                line_text = f"- viewports: {value}"
+                span = _line_byte_span(data, number)
+                actions.append(RetrofitAction(
+                    batch_id=batch_id, path=path_str, target_field="evidence.viewports",
+                    task_id=task.task_id, field_span=span,
+                    before_bytes=data[span[0]:span[1]],
+                    after_bytes=(f"       {line_text}\n").encode(),
+                    proofs=(_proof_current(path_str, data, number, line_text),),
+                ))
+            else:
+                blockers.append(_missing_blocker(
+                    batch_id, path_str, "evidence.viewports", task.location.line,
+                    "viewports ไม่มี explicit proof ใน task เดียวกัน — ห้ามอนุมานจาก observations",
+                    task.task_id,
+                ))
+        owner_dev = next(((number, match.group(2)) for number, match in legacy_deviations
+                          if "->" not in match.group(2)), None)
+        if not deviation_ok:
+            if owner_dev is not None and not has_header:
+                number, value = owner_dev
+                line_text = f"- deviations: {value}"
+                span = _line_byte_span(data, number)
+                actions.append(RetrofitAction(
+                    batch_id=batch_id, path=path_str, target_field="evidence.deviations",
+                    task_id=task.task_id, field_span=span,
+                    before_bytes=data[span[0]:span[1]],
+                    after_bytes=(f"       {line_text}\n").encode(),
+                    proofs=(_proof_current(path_str, data, number, line_text),),
+                ))
+            else:
+                blockers.append(_missing_blocker(
+                    batch_id, path_str, "evidence.deviations", task.location.line,
+                    "deviations ไม่มี explicit proof ใน task เดียวกัน — ห้ามสร้างขึ้นเอง",
+                    task.task_id,
+                ))
+    return actions, blockers
+
+
+TRACE_SECTION_RE = re.compile(r"^##\s+Requirement Traceability\s*$")
+DOTTED_CELL_RE = re.compile(r"^\d+\.\d+$")
+
+
+def plan_trace_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAction], list[RetrofitBlocker]]:
+    actions: list[RetrofitAction] = []
+    blockers: list[RetrofitBlocker] = []
+    known_refs: set[str] = set()
+    if (directory / "requirements.md").is_file():
+        criteria, _diag = sc.parse_requirement_criteria(
+            read_bytes(directory / "requirements.md"), Path("requirements.md")
+        )
+        known_refs = {criterion.ref for criterion in criteria}
+    headings: set[str] = set()
+    for file_path in feature_files(directory):
+        lines = read_bytes(file_path).decode("utf-8", "surrogateescape").splitlines()
+        outside, _diag = sc._outside_fence(lines, Path(rel(file_path)))
+        for _number, line in outside:
+            if line.startswith("## ") and not TRACE_SECTION_RE.match(line):
+                headings.add(line[3:].strip())
+
+    for file_name in ("tasks.md", "design.md"):
+        file_path = directory / file_name
+        if not file_path.is_file():
+            continue
+        path_str = rel(file_path)
+        data = read_bytes(file_path)
+        lines = data.decode("utf-8", "surrogateescape").splitlines()
+        outside, _diag = sc._outside_fence(lines, Path(path_str))
+        outside_by_number = dict(outside)
+        in_trace = False
+        columns: dict[int, str] = {}
+        for number, line in outside:
+            if TRACE_SECTION_RE.match(line):
+                in_trace = True
+                columns = {}
+                continue
+            if not in_trace:
+                continue
+            if line.startswith("#"):
+                in_trace = False
+                continue
+            if not line.lstrip().startswith("|"):
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells if cell):
+                continue
+            lowered = [cell.lower() for cell in cells]
+            if "req" in lowered and "section" in lowered:
+                columns = {index: cell for index, cell in enumerate(cells)}
+                continue
+            if not columns:
+                continue
+            req_index = next((index for index, cell in columns.items() if cell.lower() == "req"), None)
+            section_index = next((index for index, cell in columns.items() if cell.lower() == "section"), None)
+            if req_index is not None and req_index < len(cells):
+                token = cells[req_index]
+                if DOTTED_CELL_RE.match(token):
+                    if f"REQ-{token}" in known_refs or token in known_refs or not known_refs:
+                        canonical_ref = f"REQ-{token}"
+                        line_span = _line_byte_span(data, number)
+                        cell_offset = data.decode("utf-8", "surrogateescape")[
+                            line_span[0]:line_span[1]
+                        ].find(token)
+                        start = line_span[0] + max(cell_offset, 0)
+                        actions.append(RetrofitAction(
+                            batch_id=batch_id, path=path_str, target_field="trace.ref",
+                            task_id="", field_span=(start, start + len(token)),
+                            before_bytes=token.encode(),
+                            after_bytes=canonical_ref.encode(),
+                            proofs=(
+                                _proof_current(path_str, data, number, line),
+                                Proof(
+                                    kind="current",
+                                    source_path=str((directory / "requirements.md").relative_to(repo_root()))
+                                    if (directory / "requirements.md").is_file() else path_str,
+                                    commit="", line=1,
+                                    text_sha256=sha256(canonical_ref.encode()),
+                                    snippet=f"criterion {token} exists" if (token in known_refs or f"REQ-{token}" in known_refs)
+                                    else "criteria corpus unavailable (bugfix shape)",
+                                ),
+                            ),
+                        ))
+                    else:
+                        blockers.append(_missing_blocker(
+                            batch_id, path_str, "trace.ref", number,
+                            f"dotted ref {token} ไม่มี criterion ตรงเป๊ะใน requirements",
+                        ))
+                        continue
+            if section_index is not None and section_index < len(cells):
+                token = cells[section_index]
+                if token and token not in headings and headings:
+                    blockers.append(_missing_blocker(
+                        batch_id, path_str, "trace.section", number,
+                        f"section '{token}' ไม่ resolve เป็น real ## heading",
+                    ))
+        del outside_by_number
+    return actions, blockers
+
+
+def plan_container_action(batch_id: str, directory: Path) -> tuple[list[RetrofitAction], list[RetrofitBlocker]]:
+    """Legacy text that cannot be field-mapped wraps into a verbatim LegacyContainer."""
+    actions: list[RetrofitAction] = []
+    blockers: list[RetrofitBlocker] = []
+    tasks_file = directory / "tasks.md"
+    if not tasks_file.is_file():
+        return actions, blockers
+    path_str = rel(tasks_file)
+    data = read_bytes(tasks_file)
+    tasks, _diag = sc.parse_task_blocks(data, Path(path_str))
+    for task in tasks:
+        if not task.completed:
+            continue
+        region = _task_region_lines(data, task)
+        has_header = any(line.strip() == "Evidence:" for _number, line in region)
+        if has_header:
+            continue
+        legacy_without_results = [
+            line for _number, line in region
+            if LEGACY_TEST_BULLET_RE.match(line) and not (
+                "`" in LEGACY_TEST_BULLET_RE.match(line).group(2)
+                and "->" in LEGACY_TEST_BULLET_RE.match(line).group(2)
+            )
+        ]
+        if not legacy_without_results:
+            continue
+        numbers = [number for number, line in region if LEGACY_TEST_BULLET_RE.match(line)]
+        span_start = min(_line_byte_span(data, number)[0] for number in numbers)
+        span_end = max(_line_byte_span(data, number)[1] for number in numbers)
+        payload = data[span_start:span_end]
+        container = build_legacy_container(payload)
+        action = RetrofitAction(
+            batch_id=batch_id, path=path_str, target_field="legacy.container",
+            task_id=task.task_id, field_span=(span_start, span_end),
+            before_bytes=payload, after_bytes=container,
+            proofs=(_proof_current(path_str, data, numbers[0], legacy_without_results[0]),),
+        )
+        if container_roundtrip_ok(container, payload):
+            actions.append(action)
+        else:
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "legacy.container",
+                task.task_id, numbers[0],
+                "สร้าง fence ที่ปิด payload losslessly ไม่ได้",
+                payload.decode("utf-8", "surrogateescape")[:120], "",
+            ))
+    return actions, blockers
+
+
+def build_legacy_container(payload: bytes) -> bytes:
+    text = payload.decode("utf-8", "surrogateescape")
+    runs = [len(match.group(0)) for match in re.finditer(r"`+", text)]
+    marker_length = max(runs + [3]) + 1
+    marker = "`" * marker_length
+    body = text if text.endswith("\n") else text + "\n"
+    return f"{marker}sdd-legacy\n{body}{marker}\n".encode("utf-8")
+
+
+def container_roundtrip_ok(container: bytes, original_payload: bytes) -> bool:
+    text = container.decode("utf-8", "surrogateescape")
+    match = re.match(r"^(`+)sdd-legacy\n", text)
+    if not match:
+        return False
+    marker = match.group(1)
+    closing = f"\n{marker}\n"
+    if not text.endswith(closing + "\n") and not text.endswith(closing):
+        return False
+    inner_start = match.end()
+    inner_end = text.rfind(closing)
+    inner = text[inner_start:inner_end + 1]
+    return inner.encode("utf-8", "surrogateescape") == original_payload or \
+        inner.encode("utf-8", "surrogateescape") == original_payload.rstrip(b"\n") + b"\n"
+
+
+def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocker]]:
+    actions: list[RetrofitAction] = []
+    blockers: list[RetrofitBlocker] = []
+    for directory in historical_directories():
+        tags = dir_tags(directory)
+        if batch_id == "ambiguous-directories":
+            if "ambiguous-directories" in tags:
+                blockers.append(_missing_blocker(
+                    batch_id, rel(directory), "directory.shape", 1,
+                    "empty หรือ ambiguous directory — ไม่มี safe action จนมี human proof",
+                ))
+            continue
+        if batch_id == "conflicting-status":
+            if "conflicting-status" in tags:
+                _, sub_blockers = plan_status_actions(batch_id, directory)
+                for blocker in sub_blockers or []:
+                    blockers.append(blocker)
+                if not sub_blockers:
+                    blockers.append(_missing_blocker(
+                        batch_id, rel(directory / "tasks.md"), "status.line", 1,
+                        "status conflict รอ human resolution",
+                    ))
+            continue
+        scoped = _in_scope(tags, batch_id)
+        if not scoped:
+            continue
+        if batch_id == "approved-aliases":
+            new_actions, new_blockers = plan_status_actions(batch_id, directory)
+        elif batch_id == "evidence":
+            new_actions, new_blockers = plan_evidence_actions(batch_id, directory)
+            container_actions, container_blockers = plan_container_action(batch_id, directory)
+            new_actions.extend(container_actions)
+            new_blockers.extend(container_blockers)
+        elif batch_id in {"bugfix", "alphanumeric-tasks", "canonical-complete"}:
+            new_actions, new_blockers = [], []
+            trace_actions, trace_blockers = plan_trace_actions(batch_id, directory)
+            new_actions.extend(trace_actions)
+            new_blockers.extend(trace_blockers)
+            if batch_id == "bugfix":
+                bf_actions, bf_blockers = plan_bugfix_actions(batch_id, directory)
+                new_actions.extend(bf_actions)
+                new_blockers.extend(bf_blockers)
+            if batch_id == "alphanumeric-tasks":
+                tm_actions, tm_blockers = plan_task_id_actions(batch_id, directory)
+                new_actions.extend(tm_actions)
+                new_blockers.extend(tm_blockers)
+            if batch_id == "canonical-complete" and "canonical-complete" in tags and \
+                    sc.derive_spec_state(directory, specs_root())[0] != "complete":
+                new_blockers.append(_missing_blocker(
+                    batch_id, rel(directory / "tasks.md"), "artifact.chain", 1,
+                    "canonical-complete tag แต่ state ยังไม่ complete — หา evidence/proof ก่อน",
+                ))
+        else:
+            new_actions, new_blockers = [], []
+        actions.extend(new_actions)
+        blockers.extend(new_blockers)
+    return sort_reports(actions, blockers)
+
+
+def _in_scope(tags: set[str], batch_id: str) -> bool:
+    if batch_id == "approved-aliases":
+        # conflicting statuses also land here so the planner emits PROOF_CONFLICT
+        return bool(tags & {"approved-aliases", "conflicting-status"})
+    return batch_id in tags
+
+
+def plan_bugfix_actions(batch_id: str, directory: Path):
+    blockers: list[RetrofitBlocker] = []
+    file_path = directory / "bugfix.md"
+    if not file_path.is_file():
+        return [], blockers
+    data = read_bytes(file_path)
+    criteria, diagnostics = sc.parse_bugfix_criteria(data, Path(rel(file_path)))
+    seen: dict[str, int] = {}
+    for criterion in criteria:
+        if criterion.ref in seen:
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_CONFLICT", batch_id, rel(file_path), "bugfix.criterion",
+                criterion.ref, criterion.location.line,
+                f"F/B id {criterion.ref} ซ้ำ", criterion.statement[:120], "",
+            ))
+        seen[criterion.ref] = criterion.location.line
+    for diagnostic in diagnostics:
+        blockers.append(RetrofitBlocker(
+            "MIGRATION_PROOF_MISSING", batch_id, rel(file_path), "bugfix.criterion",
+            "", diagnostic.location.line, diagnostic.message, "", ""))
+    return [], blockers
+
+
+def plan_task_id_actions(batch_id: str, directory: Path):
+    blockers: list[RetrofitBlocker] = []
+    file_path = directory / "tasks.md"
+    if not file_path.is_file():
+        return [], blockers
+    path_str = rel(file_path)
+    tasks, diagnostics = sc.parse_task_blocks(read_bytes(file_path), Path(path_str))
+    seen: set[str] = set()
+    for task in tasks:
+        if task.task_id in seen:
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str, "task.id", task.task_id,
+                task.location.line, "task ID ซ้ำ", task.title[:120], "",
+            ))
+        seen.add(task.task_id)
+    for diagnostic in diagnostics:
+        if diagnostic.code.startswith("TASK_"):
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_MISSING", batch_id, path_str, "task.id",
+                "", diagnostic.location.line, diagnostic.message, "", ""))
+    return [], blockers
+
+
+SORT_KEY_ACTIONS = lambda action: (
+    action.batch_id, action.path, action.target_field,
+    action.task_id, action.kind, "", action.field_span[0],
+)
+SORT_KEY_BLOCKERS = lambda blocker: (
+    blocker.batch_id, blocker.path, blocker.target_field,
+    blocker.task_id, "", blocker.code, blocker.line,
+)
+
+
+def sort_reports(actions: list[RetrofitAction], blockers: list[RetrofitBlocker]):
+    return sorted(actions, key=lambda item: (
+        item.batch_id, item.path, item.target_field, item.task_id, item.kind, "", item.field_span[0],
+    )), sorted(blockers, key=lambda item: (
+        item.batch_id, item.path, item.target_field, item.task_id, "", item.code, item.line,
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Span planner validation + composition
+# ---------------------------------------------------------------------------
+
+
+def validate_planned_actions(actions: list[RetrofitAction]) -> list[RetrofitBlocker]:
+    blockers: list[RetrofitBlocker] = []
+    by_path: dict[str, list[RetrofitAction]] = {}
+    for action in actions:
+        by_path.setdefault(action.path, []).append(action)
+    for path_str, group in by_path.items():
+        group = sorted(group, key=lambda item: item.field_span[0])
+        previous = None
+        for action in group:
+            if action.field_span[0] > action.field_span[1]:
+                blockers.append(RetrofitBlocker(
+                    "MIGRATION_PROOF_CONFLICT", action.batch_id, path_str,
+                    action.target_field, action.task_id, action.field_span[0],
+                    "span ย้อนศร — planner invalid", "", "",
+                ))
+            if previous is not None and action.field_span[0] < previous.field_span[1]:
+                blockers.append(RetrofitBlocker(
+                    "MIGRATION_PROOF_CONFLICT", action.batch_id, path_str,
+                    action.target_field, action.task_id, action.field_span[0],
+                    "actions span ทับกัน — ต้อง merge หรือ split ก่อน apply", "", "",
+                ))
+            previous = action
+    return blockers
+
+
+def compose_file(before: bytes, actions: list[RetrofitAction]) -> bytes:
+    buffer = before
+    for action in sorted(actions, key=lambda item: item.field_span[0], reverse=True):
+        start, end = action.field_span
+        if buffer[start:end] != action.before_bytes:
+            raise ValueError(f"planned-before mismatch at {start}:{end}")
+        buffer = buffer[:start] + action.after_bytes + buffer[end:]
+    return buffer
+
+
+# ---------------------------------------------------------------------------
+# Recovery journal (design §594, §600, §608)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class JournalTarget:
+    path: str
+    before_sha256: str
+    planned_sha256: str
+    pending: bool = False
+    applied: bool = False
+    original_file: str = ""
+
+    def to_json(self) -> dict:
+        return {
+            "applied": self.applied,
+            "beforeSha256": self.before_sha256,
+            "originalFile": self.original_file,
+            "path": self.path,
+            "pending": self.pending,
+            "plannedSha256": self.planned_sha256,
+        }
+
+
+@dataclass
+class Journal:
+    batch_id: str
+    captured_head: str
+    targets: list[JournalTarget] = field(default_factory=list)
+
+    def to_json(self) -> dict:
+        return {
+            "batchId": self.batch_id,
+            "capturedHead": self.captured_head,
+            "schemaVersion": 1,
+            "targets": [target.to_json() for target in self.targets],
+        }
+
+
+def journal_root(batch_id: str) -> Path:
+    return git_dir() / "sdd-retrofit-recovery" / "v1" / batch_id
+
+
+def journal_exists(batch_id: str | None = None) -> bool:
+    base = git_dir() / "sdd-retrofit-recovery" / "v1"
+    if not base.exists():
+        return False
+    if batch_id:
+        return (base / batch_id / "manifest.json").is_file()
+    return any((child / "manifest.json").is_file() for child in base.iterdir())
+
+
+def _fsync_write(path: Path, payload: bytes) -> None:
+    with open(path, "wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def write_journal(batch_id: str, journal: Journal, originals: dict[str, bytes]) -> Path:
+    root = journal_root(batch_id)
+    originals_dir = root / "originals"
+    originals_dir.mkdir(parents=True, exist_ok=True)
+    for target, path_str in zip(journal.targets, originals.keys()):
+        idx = _stable_index(path_str)
+        original_path = originals_dir / f"{idx}.bin"
+        _fsync_write(original_path, originals[path_str])
+        target.original_file = f"{idx}.bin"
+    _fsync_write(root / "manifest.json", json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
+    return root
+
+
+def _stable_index(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def load_journal(batch_id: str) -> Journal:
+    manifest = json.loads((journal_root(batch_id) / "manifest.json").read_text(encoding="utf-8"))
+    journal = Journal(batch_id=manifest["batchId"], captured_head=manifest["capturedHead"])
+    for entry in manifest["targets"]:
+        journal.targets.append(JournalTarget(**{
+            "path": entry["path"], "before_sha256": entry["beforeSha256"],
+            "planned_sha256": entry["plannedSha256"], "pending": entry["pending"],
+            "applied": entry["applied"], "original_file": entry["originalFile"],
+        }))
+    return journal
+
+
+def clear_journal(batch_id: str) -> None:
+    root = journal_root(batch_id)
+    if root.exists():
+        shutil.rmtree(root)
+
+
+def restore_from_journal(batch_id: str) -> tuple[bool, list[str]]:
+    """Hash-guarded compensating restore. Returns (all_guarded_ok, failures)."""
+    journal = load_journal(batch_id)
+    root = journal_root(batch_id)
+    failures: list[str] = []
+    interesting = [target for target in journal.targets if target.pending or target.applied]
+    for target in interesting:
+        current = read_bytes(abs_repo(target.path))
+        current_hash = sha256(current)
+        original = (root / "originals" / target.original_file).read_bytes()
+        if current_hash == target.planned_sha256:
+            tmp = abs_repo(target.path).with_suffix(".retrofit-restoring")
+            tmp.write_bytes(original)
+            os.replace(tmp, abs_repo(target.path))
+        elif current_hash == target.before_sha256:
+            continue  # someone restored already; nothing owed
+        else:
+            failures.append(target.path)  # concurrent owner: preserve current bytes
+    if not failures:
+        clear_journal(batch_id)
+    return not failures, failures
+
+
+# ---------------------------------------------------------------------------
+# Modes
+# ---------------------------------------------------------------------------
+
+
+def enforce_journal_clear(mode: str) -> int | None:
+    if journal_exists():
+        print(json.dumps({
+            "schemaVersion": 1,
+            "verdict": "engine-fail",
+            "diagnostics": [{"code": "MIGRATION_RECOVERY_REQUIRED"}],
+        }, sort_keys=True))
+        return 2
+    return None
+
+
+def scope_check() -> list[RetrofitBlocker]:
+    if os.environ.get("SDD_RETROFIT_REPO"):   # fixture repos scope to their own files
+        return []
+    blockers: list[RetrofitBlocker] = []
+    directories = historical_directories()
+    if len(directories) != HISTORICAL_COUNT:
+        blockers.append(RetrofitBlocker(
+            "MIGRATION_SCOPE_MISMATCH", "-", ".ai/specs", "corpus.inventory", "", 1,
+            f"historical directories={len(directories)} expected={HISTORICAL_COUNT}", "", "",
+        ))
+    return blockers
+
+
+def envelope(mode: str, batch_id: str, actions: list[RetrofitAction],
+             blockers: list[RetrofitBlocker]) -> dict:
+    return {
+        "actions": [action.to_json() for action in actions],
+        "batch": batch_id,
+        "blockers": [blocker.to_json() for blocker in blockers],
+        "mode": mode,
+        "schemaVersion": 1,
+        "verdict": "policy-fail" if blockers else "allow",
+    }
+
+
+def run_dry_run(batch_id: str, *, skip_journal_guard: bool = False) -> int:
+    if not skip_journal_guard:
+        blocked = enforce_journal_clear("dry-run")
+        if blocked is not None:
+            return blocked
+    scope_blockers = scope_check()
+    actions, blockers = plan_batch(batch_id)
+    blockers.extend(scope_blockers)
+    blockers.extend(validate_planned_actions(actions))
+    blockers.sort(key=lambda item: (item.path, item.target_field, item.code, item.line))
+    actions = sorted(set(actions), key=lambda item: (
+        item.batch_id, item.path, item.target_field, item.task_id, item.kind, "", item.field_span[0],
+    ))
+    print(json.dumps(envelope("dry-run", batch_id, actions, blockers), sort_keys=True))
+    return 1 if blockers else 0
+
+
+def strict_check_features(features: list[str]) -> int:
+    failed = 0
+    for feature in features:
+        if sc.trace_run(feature, specs_root()) != 0:
+            failed += 1
+    return failed
+
+
+def run_check(batch_id: str) -> int:
+    blocked = enforce_journal_clear("check")
+    if blocked is not None:
+        return blocked
+    if batch_id == "final-all-spec":
+        features = [rel(directory).split("/")[-1] for directory in historical_directories()]
+        directories = historical_directories()
+        results = []
+        rc_failed = 0
+        if len(directories) != HISTORICAL_COUNT:
+            print(json.dumps({
+                "schemaVersion": 1, "verdict": "policy-fail",
+                "expectedDirectories": HISTORICAL_COUNT,
+                "foundDirectories": len(directories),
+                "problem": "MIGRATION_SCOPE_MISMATCH",
+            }, sort_keys=True))
+            return 1
+        for feature in features:
+            code = sc.trace_run(feature, specs_root())
+            results.append({"feature": feature, "strictOk": code == 0})
+            if code != 0:
+                rc_failed += 1
+        print(json.dumps({
+            "batch": batch_id,
+            "featuresFailing": rc_failed,
+            "results": results,
+            "schemaVersion": 1,
+            "totalFeatures": len(results),
+            "verdict": "allow" if rc_failed == 0 else "policy-fail",
+        }, sort_keys=True))
+        return 0 if rc_failed == 0 else 1
+    # normal batch: strict on scoped features + planned actions must be zero
+    actions, blockers = plan_batch(batch_id)
+    features = sorted({action.path.split("/")[2] for action in actions})
+    features += sorted({blocker.path.split("/")[2] for blocker in blockers
+                        if len(blocker.path.split("/")) > 2})
+    strict_failures = strict_check_features(sorted(set(features)))
+    safe_pending = len(actions)
+    print(json.dumps({
+        "batch": batch_id,
+        "plannedSafeActionsRemaining": safe_pending,
+        "schemaVersion": 1,
+        "strictFailures": strict_failures,
+        "verdict": "allow" if safe_pending == 0 and strict_failures == 0 else "policy-fail",
+    }, sort_keys=True))
+    return 0 if safe_pending == 0 and strict_failures == 0 else 1
+
+
+def _working_tree_clean() -> bool:
+    proc = _git(["status", "--porcelain"])
+    return proc.returncode == 0 and not proc.stdout.strip()
+
+
+def build_apply_plan(batch_id: str):
+    """Returns (per-file composed plans, actions, blockers)."""
+    actions, blockers = plan_batch(batch_id)
+    blockers.extend(validate_planned_actions(actions))
+    if blockers:
+        return [], actions, blockers
+    grouped: dict[str, list[RetrofitAction]] = {}
+    for action in actions:
+        grouped.setdefault(action.path, []).append(action)
+    plans = []
+    for path_str in sorted(grouped):
+        target = abs_repo(path_str)
+        before = read_bytes(target)
+        planned = compose_file(before, grouped[path_str])
+        plans.append((path_str, before, planned))
+    return plans, actions, blockers
+
+
+def _fsync_path(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def verify_written_files(plans) -> int:
+    """Batch-strict check: every written artifact parses clean and all its
+    visible status lines are canonical (full-chain audit = task 7 gate)."""
+    failures = 0
+    for path_str, _before, _planned in plans:
+        data = read_bytes(abs_repo(path_str))
+        lines = data.decode("utf-8", "surrogateescape").splitlines()
+        outside, fence_diag = sc._outside_fence(lines, Path(path_str))
+        if fence_diag:
+            failures += 1
+            continue
+        bad_status = [
+            line for _number, line in outside
+            if STATUS_ANY_RE.match(line) and not sc.STATUS_RE.match(line.strip())
+        ]
+        if bad_status:
+            failures += 1
+    return failures
+
+
+def run_apply_safe(batch_id: str) -> int:
+    if journal_exists(batch_id):
+        recovered_ok, failures = restore_from_journal(batch_id)
+        if not recovered_ok:
+            print(json.dumps({
+                "diagnostics": [{"code": "MIGRATION_RECOVERY_FAILED", "paths": failures}],
+                "schemaVersion": 1,
+                "verdict": "engine-fail",
+            }, sort_keys=True))
+            return 2
+    if journal_exists():           # another batch holds a stuck journal
+        print(json.dumps({
+            "diagnostics": [{"code": "MIGRATION_RECOVERY_REQUIRED"}],
+            "schemaVersion": 1, "verdict": "engine-fail",
+        }, sort_keys=True))
+        return 2
+    if not _working_tree_clean():
+        print(json.dumps({
+            "diagnostics": [{"code": "MIGRATION_DIRTY_TREE"}],
+            "schemaVersion": 1, "verdict": "engine-fail",
+        }, sort_keys=True))
+        return 2
+    if batch_id in READ_ONLY_ONLY_BATCHES:
+        return 2
+    scope_blockers = scope_check()
+    if scope_blockers:
+        print(json.dumps(envelope("apply-safe", batch_id, [], scope_blockers), sort_keys=True))
+        return 1
+    plans, _actions, blockers = build_apply_plan(batch_id)
+    if blockers:
+        blockers.sort(key=lambda item: (item.path, item.code, item.line))
+        print(json.dumps(envelope("apply-safe", batch_id, [], blockers), sort_keys=True))
+        return 1
+    if not plans:
+        print(json.dumps({"batch": batch_id, "schemaVersion": 1, "verdict": "allow"}, sort_keys=True))
+        return 0
+
+    captured_head = git_out(["rev-parse", "HEAD"]).strip()
+    # Test-only fault injection (REQ-5.12): simulates a concurrent commit landing
+    # AFTER capture; production never sets this env.
+    if os.environ.get("SDD_RETROFIT_TEST_HEAD_MOVE") == "1":
+        probe = abs_repo(".ai/specs/apply-demo/probe.txt")
+        probe.parent.mkdir(parents=True, exist_ok=True)
+        probe.write_text("moved\n", encoding="utf-8")
+        _git(["add", "-A"])
+        _git(["commit", "-qm", "interloper"])
+    journal = Journal(batch_id=batch_id, captured_head=captured_head)
+    originals: dict[str, bytes] = {}
+    for path_str, before, planned in plans:
+        journal.targets.append(JournalTarget(
+            path=path_str, before_sha256=sha256(before), planned_sha256=sha256(planned),
+        ))
+        originals[path_str] = before
+    write_journal(batch_id, journal, originals)
+    # reload to bind original_file names
+    journal = load_journal(batch_id)
+
+    for index, (path_str, before, planned) in enumerate(plans):
+        target_record = journal.targets[index]
+        # precondition recheck (HEAD + exact bytes)
+        if git_out(["rev-parse", "HEAD"]).strip() != captured_head or \
+                sha256(read_bytes(abs_repo(path_str))) != target_record.before_sha256:
+            restored_ok, failures = restore_from_journal(batch_id)
+            print(json.dumps({
+                "diagnostics": [{"code": "MIGRATION_HEAD_CHANGED", "restored": restored_ok,
+                                 "failedPaths": failures}],
+                "schemaVersion": 1, "verdict": "engine-fail",
+            }, sort_keys=True))
+            return 2
+        target_record.pending = True
+        journal_root(batch_id).mkdir(parents=True, exist_ok=True)
+        _fsync_write(journal_root(batch_id) / "manifest.json",
+                     json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
+        tmp = abs_repo(path_str).with_suffix(".retrofit-applying")
+        tmp.write_bytes(planned)
+        os.replace(tmp, abs_repo(path_str))
+        _fsync_path(abs_repo(path_str))
+        _post_diags = sc.parse_task_blocks(read_bytes(abs_repo(path_str)), Path(path_str))[1]
+        fatal_post = [diag for diag in _post_diags if diag.code.startswith(("TASK_",))]
+        if fatal_post:
+            restored_ok, failures = restore_from_journal(batch_id)
+            print(json.dumps({
+                "diagnostics": [{"code": "MIGRATION_FILE_CHANGED", "restored": restored_ok,
+                                 "failedPaths": failures}],
+                "schemaVersion": 1, "verdict": "engine-fail",
+            }, sort_keys=True))
+            return 2
+        target_record.applied = True
+        target_record.pending = False
+        _fsync_write(journal_root(batch_id) / "manifest.json",
+                     json.dumps(journal.to_json(), sort_keys=True, indent=1).encode())
+
+    # self re-dry-run must be a no-op, then per-file post-write contract check
+    remaining_actions, remaining_blockers = plan_batch(batch_id)
+    strict_rc = verify_written_files(plans)
+    if remaining_actions or remaining_blockers or strict_rc:
+        restored_ok, failures = restore_from_journal(batch_id)
+        print(json.dumps({
+            "diagnostics": [{"code": "MIGRATION_FILE_CHANGED",
+                             "reason": "verification", "restored": restored_ok,
+                             "failedPaths": failures}],
+            "schemaVersion": 1, "verdict": "engine-fail",
+        }, sort_keys=True))
+        return 2
+    clear_journal(batch_id)
+    print(json.dumps({
+        "applied": [plan[0] for plan in plans],
+        "batch": batch_id, "schemaVersion": 1, "verdict": "allow",
+    }, sort_keys=True))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--apply-safe", action="store_true")
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--batch", required=True)
+    parser.add_argument("--feature", default=None)
+    parser.add_argument("--format", choices=("json", "text"), default="text")
+    args, extras = parser.parse_known_args(argv)
+    if extras or args.batch not in ALL_BATCH_IDS:
+        return 2
+    modes = [flag for flag, given in
+             (("dry-run", args.dry_run), ("apply-safe", args.apply_safe), ("check", args.check)) if given]
+    if len(modes) != 1:
+        return 2
+    mode = modes[0]
+    if args.batch in READ_ONLY_ONLY_BATCHES and mode != "check":
+        return 2
+    try:
+        if mode == "dry-run":
+            rc = run_dry_run(args.batch)
+        elif mode == "check":
+            rc = run_check(args.batch)
+        else:
+            rc = run_apply_safe(args.batch)
+    except GitFailure as failure:
+        print(json.dumps({
+            "diagnostics": [{"code": "ENGINE_INTERNAL", "detail": str(failure)}],
+            "schemaVersion": 1, "verdict": "engine-fail",
+        }, sort_keys=True))
+        return 2
+    except OSError as failure:
+        print(f"ENGINE_INTERNAL: {failure}", file=sys.stderr)
+        return 2
+    return rc
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
