@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import os
 import subprocess
 import sys
 import tempfile
@@ -227,12 +228,14 @@ class SpecContractTest(unittest.TestCase):
                 self.assertNotIn("EARS_CRITERION_MALFORMED", self.codes(diagnostics))
 
     def test_design_first_and_bugfix_phase_matrix_fail_closed(self):
+        approved = "> Status: approved 2026-08-25\n"
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
-            approved = "> Status: approved 2026-08-25\n"
             self.write(directory, "design.md", approved)
             _, diagnostics = check_phase_gate(directory, "requirements", "design-first")
             self.assertEqual(set(), self.codes(diagnostics))
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
             self.write(directory, "bugfix.md", approved + "## Fix\n- F-1 WHEN x THE SYSTEM SHALL y\n")
             self.write(directory, "tasks.md", approved + "- [ ] B. work\n  Satisfies: F-1\n")
             _, diagnostics = check_phase_gate(directory, "implement", "bugfix")
@@ -376,6 +379,8 @@ class SpecContractTest(unittest.TestCase):
             self.assertIn("PHASE_TRACE_INVALID", self.codes(diagnostics))
             self.assertIn("EARS_CRITERION_MALFORMED", self.codes(diagnostics))
 
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
             self.write(directory, "bugfix.md", approved + "- F1 THE SYSTEM SHALL fix\n")
             self.write(directory, "tasks.md", approved + "- [ ] B. work\n  Satisfies: F1\n")
             _, diagnostics = check_phase_gate(directory, "implement", "bugfix")
@@ -1622,6 +1627,946 @@ class SpecContractTest(unittest.TestCase):
                 self.assertEqual(1, source.count(before))
                 with self.assertRaises(AssertionError):
                     assertion(load(source.replace(before, after)))
+
+
+    def test_task_two_slice_golden_feature_bugfix_missing_and_unknown(self):
+        approved = "> Status: approved 2026-08-25\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            feature = root / "feature"; feature.mkdir()
+            self.feature_files(
+                feature,
+                requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                design=approved + "## Build\nBody\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                tasks=approved + "- [ ] A1. exact task\n  Satisfies: REQ-1.1\n",
+            )
+            text, diagnostics = spec_contract.build_spec_slice(feature, "A1")
+            self.assertEqual((), diagnostics)
+            self.assertEqual(
+                "requirements.md: approved\ndesign.md: approved\ntasks.md: approved\n\n"
+                "- [ ] A1. exact task\n  Satisfies: REQ-1.1\n\n"
+                "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n\n"
+                "## Build\nBody\n\n",
+                text,
+            )
+            self.write(feature, "design.md", approved + "## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Missing |\n")
+            text, diagnostics = spec_contract.build_spec_slice(feature, "A1")
+            self.assertIn("MISSING: TRACE_SECTION_UNKNOWN:", text)
+            self.assertIn("SLICE_MAPPING_MISSING", self.codes(diagnostics))
+            _, diagnostics = spec_contract.build_spec_slice(feature, "unknown")
+            self.assertIn("SLICE_TASK_UNKNOWN", self.codes(diagnostics))
+            self.assertIn("A1", diagnostics[0].message)
+
+            bugfix = root / "bugfix"; bugfix.mkdir()
+            self.write(bugfix, "bugfix.md", approved + "- F-1 THE SYSTEM SHALL fix\n- B-1 THE SYSTEM SHALL preserve\n")
+            self.write(bugfix, "tasks.md", approved + "- [ ] B1. exact bugfix task\n  Satisfies: F-1, B-1\n")
+            text, diagnostics = spec_contract.build_spec_slice(bugfix, "B1")
+            self.assertEqual((), diagnostics)
+            self.assertIn("bugfix.md: approved", text)
+            self.assertIn("- F-1 THE SYSTEM SHALL fix", text)
+            self.assertIn("- B-1 THE SYSTEM SHALL preserve", text)
+            self.assertNotIn("Requirement Traceability", text)
+
+    def test_task_two_state_precedence_archive_and_authoring_chain(self):
+        approved = "> Status: approved 2026-08-25\n"
+        evidence = "  Evidence:\n    - test: `python3 test.py` -> OK\n    - viewports: n/a — tooling only\n    - deviations: none\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / ".ai" / "specs"; root.mkdir(parents=True)
+            active = root / "active"; active.mkdir()
+            self.write(active, "requirements.md", approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n")
+            self.assertEqual("active", spec_contract.derive_spec_state(active, root)[0])
+            invalid_evidence = root / "invalid-evidence"; invalid_evidence.mkdir()
+            self.feature_files(
+                invalid_evidence,
+                requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                tasks=approved + "- [x] A. done\n  Satisfies: REQ-1.1\n",
+            )
+            self.assertEqual("blocked", spec_contract.derive_spec_state(invalid_evidence, root)[0])
+            invalid_graph = root / "invalid-graph"; invalid_graph.mkdir()
+            self.feature_files(
+                invalid_graph,
+                requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                tasks=approved + "- [ ] A. pending\n  Satisfies: REQ-1.1\n  Depends on: missing\n",
+            )
+            self.assertEqual("blocked", spec_contract.derive_spec_state(invalid_graph, root)[0])
+
+            complete = root / "complete"; complete.mkdir()
+            self.feature_files(
+                complete,
+                requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                tasks=approved + "- [x] A. done\n  Satisfies: REQ-1.1\n" + evidence,
+            )
+            self.assertEqual("complete", spec_contract.derive_spec_state(complete, root)[0])
+            self.write(
+                complete,
+                "tasks.md",
+                approved
+                + "- [x] A. done\n  Satisfies: REQ-1.1\n  Evidence:\n    - test:\n"
+                + "      ```bash\n      python3 test.py\n      ```\n      -> OK\n"
+                + "    - viewports: n/a — tooling only\n    - deviations: none\n",
+            )
+            self.assertEqual("complete", spec_contract.derive_spec_state(complete, root)[0])
+
+            superseded = root / "superseded"; superseded.mkdir()
+            target = root / "target"; target.mkdir()
+            superseded_status = "> Status: superseded 2026-08-25 by target\n"
+            self.feature_files(
+                superseded,
+                requirements=superseded_status + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                design=superseded_status + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                tasks=superseded_status + "- [x] A. done\n  Satisfies: REQ-1.1\n" + evidence,
+            )
+            self.assertEqual("superseded", spec_contract.derive_spec_state(superseded, root)[0])
+            self.write(
+                superseded,
+                "requirements.md",
+                "> Status: superseded 2026-08-25 by missing-target\n## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+            )
+            self.assertEqual("blocked", spec_contract.derive_spec_state(superseded, root)[0])
+
+            archived = root / "archive" / "same-bytes"; archived.mkdir(parents=True)
+            self.feature_files(
+                archived,
+                requirements=(complete / "requirements.md").read_text(encoding="utf-8"),
+                design=(complete / "design.md").read_text(encoding="utf-8"),
+                tasks=(complete / "tasks.md").read_text(encoding="utf-8"),
+            )
+            self.assertEqual("archived", spec_contract.derive_spec_state(archived, root)[0])
+            named_archive = root / "archive-like"; named_archive.mkdir()
+            self.feature_files(
+                named_archive,
+                requirements=(complete / "requirements.md").read_text(encoding="utf-8"),
+                design=(complete / "design.md").read_text(encoding="utf-8"),
+                tasks=(complete / "tasks.md").read_text(encoding="utf-8"),
+            )
+            self.assertEqual("complete", spec_contract.derive_spec_state(named_archive, root)[0])
+
+            empty = root / "empty"; empty.mkdir()
+            self.assertEqual("blocked", spec_contract.derive_spec_state(empty, root)[0])
+            ambiguous = root / "ambiguous"; ambiguous.mkdir()
+            self.write(ambiguous, "requirements.md", approved)
+            self.write(ambiguous, "bugfix.md", approved)
+            self.assertEqual("blocked", spec_contract.derive_spec_state(ambiguous, root)[0])
+
+    def test_task_two_active_summary_lexical_and_inactive_suppression(self):
+        approved = "> Status: approved 2026-08-25\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw) / ".ai" / "specs"; root.mkdir(parents=True)
+            for name in ("zeta", "alpha"):
+                directory = root / name; directory.mkdir()
+                self.write(directory, "requirements.md", approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n")
+            blocked = root / "broken"; blocked.mkdir()
+            complete = root / "complete"; complete.mkdir()
+            self.feature_files(
+                complete,
+                requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                tasks=(
+                    approved
+                    + "- [x] A. done\n  Satisfies: REQ-1.1\n"
+                    + "  Evidence:\n    - test: `python3 test.py` -> OK\n"
+                    + "    - viewports: n/a — tooling only\n    - deviations: none\n"
+                ),
+            )
+            summary, diagnostics = spec_contract.active_summary(root)
+            self.assertIn("STATE_EMPTY_DIRECTORY", self.codes(diagnostics))
+            self.assertEqual("Active specs: alpha zeta. Blocked specs: 1.\n", summary)
+            self.assertNotIn("complete", summary)
+            self.assertNotIn("archive", summary)
+
+    def test_task_two_mutations_are_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        approved = "> Status: approved 2026-08-25\n"
+
+        def load(mutant_source):
+            with tempfile.TemporaryDirectory() as raw:
+                path = Path(raw) / "spec_contract.py"
+                path.write_text(mutant_source, encoding="utf-8")
+                name = f"spec_contract_task_two_mutant_{len(sys.modules)}"
+                module_spec = importlib.util.spec_from_file_location(name, path)
+                module = importlib.util.module_from_spec(module_spec)
+                sys.modules[name] = module
+                module_spec.loader.exec_module(module)
+                return module
+
+        def rejects_unknown_task(module):
+            with tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw); directory.mkdir(exist_ok=True)
+                self.write(directory, "tasks.md", approved + "- [ ] A1. task\n")
+                try:
+                    text, diagnostics = module.build_spec_slice(directory, "unknown")
+                    self.assertEqual("", text)
+                    self.assertIn("SLICE_TASK_UNKNOWN", self.codes(diagnostics))
+                except Exception as error:
+                    raise AssertionError("unknown task must stay policy-fail") from error
+
+        def emits_missing_marker(module):
+            with tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                self.feature_files(
+                    directory,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Missing |\n",
+                    tasks=approved + "- [ ] A. task\n  Satisfies: REQ-1.1\n",
+                )
+                text, _ = module.build_spec_slice(directory, "A")
+                self.assertIn("MISSING:", text)
+
+        def archives_by_location_only(module):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / ".ai" / "specs"; root.mkdir(parents=True)
+                directory = root / "archive-like"; directory.mkdir()
+                self.feature_files(
+                    directory,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks=approved + "- [x] A. done\n  Satisfies: REQ-1.1\n  Evidence:\n    - test: `python3 test.py` -> OK\n    - viewports: n/a — tooling only\n    - deviations: none\n",
+                )
+                self.assertEqual("complete", module.derive_spec_state(directory, root)[0])
+
+        def suppresses_inactive(module):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / ".ai" / "specs"; root.mkdir(parents=True)
+                directory = root / "complete"; directory.mkdir()
+                self.feature_files(
+                    directory,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks=approved + "- [x] A. done\n  Satisfies: REQ-1.1\n  Evidence:\n    - test: `python3 test.py` -> OK\n    - viewports: n/a — tooling only\n    - deviations: none\n",
+                )
+                summary, _ = module.active_summary(root)
+                self.assertNotIn("complete", summary)
+
+        mutations = (
+            ("if task is None:", "if False:", rejects_unknown_task),
+            ("if mapping_diagnostics:", "if False:", emits_missing_marker),
+            ("if _is_canonical_archive_location(feature_dir, canonical_specs_root):", "if feature_dir.name.startswith(\"archive\"):", archives_by_location_only),
+            ('if state == "active":\n            active.append(directory.name)', 'if state in {"active", "complete"}:\n            active.append(directory.name)', suppresses_inactive),
+        )
+        for before, after, assertion in mutations:
+            with self.subTest(before=before):
+                self.assertEqual(1, source.count(before))
+                with self.assertRaises(AssertionError):
+                    assertion(load(source.replace(before, after)))
+
+    def test_task_two_rework_one_slice_snapshot_and_mapping_fail_closed(self):
+        approved = "> Status: approved 2026-08-25\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"
+            script.parent.mkdir()
+            script.write_text((SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"), encoding="utf-8")
+            specs = root / ".ai" / "specs"
+
+            def feature(name, *, requirements=None, design=None, tasks=None):
+                directory = specs / name
+                directory.mkdir(parents=True)
+                self.feature_files(
+                    directory,
+                    requirements=requirements or approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=design or approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks=tasks or approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n",
+                )
+                return directory
+
+            invalid_cases = {
+                "bad-status": (
+                    approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    "> Status: approved 2026-08-25, amended\n- [ ] A1. task\n  Satisfies: REQ-1.1\n",
+                    "STATUS_MALFORMED",
+                ),
+                "duplicate": (
+                    approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    approved + "- [ ] A1. one\n  Satisfies: REQ-1.1\n- [ ] A1. two\n  Satisfies: REQ-1.1\n",
+                    "TASK_ID_DUPLICATE",
+                ),
+                "bad-graph": (
+                    approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n  Depends on: missing\n",
+                    "TASK_DEPENDENCY_UNKNOWN",
+                ),
+                "unclosed": (
+                    approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n```\n",
+                    approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n",
+                    "TRACE_FENCE_UNCLOSED",
+                ),
+            }
+            for name, (requirements, design, tasks, expected) in invalid_cases.items():
+                with self.subTest(name=name):
+                    feature(name, requirements=requirements, design=design, tasks=tasks)
+                    completed = subprocess.run(
+                        [sys.executable, str(script), "slice", "--feature", name, "--task", "A1"],
+                        cwd=root, text=True, capture_output=True, check=False,
+                    )
+                    self.assertNotEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                    self.assertIn(expected, completed.stdout + completed.stderr)
+
+            no_satisfies = feature("no-satisfies", tasks=approved + "- [ ] A1. task\n")
+            text, diagnostics = spec_contract.build_spec_slice(no_satisfies, "A1")
+            self.assertIn("SLICE_MAPPING_MISSING", self.codes(diagnostics))
+            self.assertIn("MISSING: SLICE_MAPPING_MISSING:", text)
+
+            no_trace = feature("no-trace", design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n")
+            text, diagnostics = spec_contract.build_spec_slice(no_trace, "A1")
+            self.assertIn("SLICE_MAPPING_MISSING", self.codes(diagnostics))
+            self.assertIn("MISSING: SLICE_MAPPING_MISSING:", text)
+
+            bugfix = specs / "bug-no-satisfies"; bugfix.mkdir()
+            self.write(bugfix, "bugfix.md", approved + "- F-1 THE SYSTEM SHALL fix\n")
+            self.write(bugfix, "tasks.md", approved + "- [ ] A1. task\n")
+            text, diagnostics = spec_contract.build_spec_slice(bugfix, "A1")
+            self.assertIn("SLICE_MAPPING_MISSING", self.codes(diagnostics))
+            self.assertIn("MISSING: SLICE_MAPPING_MISSING:", text)
+
+    def test_task_two_rework_one_resolver_authoring_and_evidence_classes(self):
+        approved = "> Status: approved 2026-08-25\n"
+        valid_requirement = approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n"
+        valid_design = approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n"
+        valid_task = approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n"
+        evidence = "  Evidence:\n    - test: `python3 test.py` -> OK\n    - viewports: n/a — tooling only\n    - deviations: none\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            specs = root / ".ai" / "specs"; specs.mkdir(parents=True)
+            normal = specs / "normal"; normal.mkdir()
+            self.feature_files(normal, requirements=valid_requirement, design=valid_design, tasks=valid_task)
+            external = root / "outside"; external.mkdir()
+            self.feature_files(external, requirements=valid_requirement, design=valid_design, tasks=valid_task)
+            (specs / "link-out").symlink_to(external, target_is_directory=True)
+            for invalid_feature in ("../normal", "normal/child", "bad.slug", ""):
+                with self.subTest(invalid_feature=invalid_feature):
+                    resolved, diagnostics = spec_contract.resolve_feature_directory(specs, invalid_feature)
+                    self.assertIsNone(resolved)
+                    self.assertIn("SLICE_FEATURE_UNKNOWN", self.codes(diagnostics))
+            (normal / "requirements.md").unlink()
+            (normal / "requirements.md").symlink_to(external / "requirements.md")
+            self.assertEqual("blocked", spec_contract.derive_spec_state(normal, specs)[0])
+            self.assertNotIn(specs / "link-out", spec_contract._state_directories(specs))
+
+            archive = specs / "archive"; archive.mkdir()
+            archived = archive / "real"; archived.mkdir()
+            self.feature_files(archived, requirements=valid_requirement, design=valid_design, tasks=valid_task)
+            self.assertEqual("archived", spec_contract.derive_spec_state(archived, specs)[0])
+            archive_like = specs / "archive-like"; archive_like.mkdir()
+            self.feature_files(archive_like, requirements=valid_requirement, design=valid_design, tasks=valid_task)
+            self.assertEqual("active", spec_contract.derive_spec_state(archive_like, specs)[0])
+
+            design_first = specs / "design-first"; design_first.mkdir()
+            self.write(design_first, "design.md", approved + "## Design\n")
+            self.assertEqual("active", spec_contract.derive_spec_state(design_first, specs)[0])
+            bugfix = specs / "bugfix"; bugfix.mkdir()
+            self.write(bugfix, "bugfix.md", approved + "- F-1 THE SYSTEM SHALL fix\n")
+            self.assertEqual("active", spec_contract.derive_spec_state(bugfix, specs)[0])
+            skipped = specs / "skipped"; skipped.mkdir()
+            self.write(skipped, "requirements.md", valid_requirement)
+            self.write(skipped, "tasks.md", valid_task)
+            self.assertEqual("blocked", spec_contract.derive_spec_state(skipped, specs)[0])
+
+            for marker in ("TODO", "TBD", "pending", "???"):
+                with self.subTest(marker=marker):
+                    directory = specs / f"evidence-{marker.replace('?', 'question')}"; directory.mkdir()
+                    self.feature_files(
+                        directory,
+                        requirements=valid_requirement,
+                        design=valid_design,
+                        tasks=approved + "- [x] A1. done\n  Satisfies: REQ-1.1\n" + evidence.replace("OK", marker),
+                    )
+                    self.assertEqual("blocked", spec_contract.derive_spec_state(directory, specs)[0])
+            mixed = specs / "mixed"; mixed.mkdir()
+            self.feature_files(
+                mixed,
+                requirements=valid_requirement,
+                design=valid_design,
+                tasks=approved + "- [x] A1. done\n  Satisfies: REQ-1.1\n" + evidence.replace("    - viewports", "    - test: `python3 broken.py` -> pending\n    - viewports"),
+            )
+            self.assertEqual("blocked", spec_contract.derive_spec_state(mixed, specs)[0])
+
+            script = root / "scripts" / "spec_contract.py"
+            script.parent.mkdir()
+            script.write_text((SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"), encoding="utf-8")
+            for command in (
+                ("slice", "--feature", str(external), "--task", "A1"),
+                ("state", "--feature", str(external)),
+                ("gate", "phase", "--feature", str(external), "--phase", "implement", "--workflow", "requirements-first"),
+            ):
+                with self.subTest(command=command):
+                    completed = subprocess.run([sys.executable, str(script), *command], cwd=root, text=True, capture_output=True, check=False)
+                    self.assertNotEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                    self.assertNotIn("outside", completed.stdout)
+
+    def test_task_two_rework_one_rejects_archive_container_through_every_public_feature_entry(self):
+        approved = "> Status: approved 2026-08-25\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"
+            script.parent.mkdir()
+            script.write_text((SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"), encoding="utf-8")
+            archive = root / ".ai" / "specs" / "archive"
+            archive.mkdir(parents=True)
+            self.write(archive, "requirements.md", approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n")
+            for command in (
+                ("slice", "--feature", "archive", "--task", "A1"),
+                ("state", "--feature", "archive"),
+                ("gate", "phase", "--feature", "archive", "--phase", "design", "--workflow", "requirements-first"),
+            ):
+                with self.subTest(command=command):
+                    completed = subprocess.run(
+                        [sys.executable, str(script), *command],
+                        cwd=root,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                    self.assertIn("SLICE_FEATURE_UNKNOWN", completed.stdout + completed.stderr)
+
+    def test_task_two_rework_two_artifact_symlink_phase_gate_parity(self):
+        approved = "> Status: approved 2026-08-25\n"
+        requirement = approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n"
+        design = approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n"
+        tasks = approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n"
+        bugfix = approved + "- F-1 THE SYSTEM SHALL fix\n- B-1 THE SYSTEM SHALL preserve\n"
+        bugfix_tasks = approved + "- [ ] B1. task\n  Satisfies: F-1, B-1\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"
+            script.parent.mkdir()
+            script.write_text((SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"), encoding="utf-8")
+            specs = root / ".ai" / "specs"; specs.mkdir(parents=True)
+            external = root / "external"; external.mkdir()
+            self.write(external, "requirements.md", requirement)
+            self.write(external, "design.md", design)
+            self.write(external, "tasks.md", tasks)
+            self.write(external, "bugfix.md", bugfix)
+            self.write(external, "bugtasks.md", bugfix_tasks)
+            variants = (
+                ("rf-requirements", "requirements.md", "requirements.md", "design", "requirements-first", "A1"),
+                ("rf-design", "design.md", "design.md", "tasks", "requirements-first", "A1"),
+                ("rf-tasks", "tasks.md", "tasks.md", "implement", "requirements-first", "A1"),
+                ("df-design", "design.md", "design.md", "requirements", "design-first", "A1"),
+                ("bugfix-root", "bugfix.md", "bugfix.md", "tasks", "bugfix", "B1"),
+                ("bugfix-tasks", "tasks.md", "bugtasks.md", "implement", "bugfix", "B1"),
+            )
+            for feature, link_name, target_name, phase, workflow, task_id in variants:
+                with self.subTest(feature=feature):
+                    directory = specs / feature; directory.mkdir()
+                    if workflow == "bugfix":
+                        if link_name != "bugfix.md":
+                            self.write(directory, "bugfix.md", bugfix)
+                        if link_name != "tasks.md":
+                            self.write(directory, "tasks.md", bugfix_tasks)
+                    else:
+                        if link_name != "requirements.md":
+                            self.write(directory, "requirements.md", requirement)
+                        if link_name != "design.md":
+                            self.write(directory, "design.md", design)
+                        if link_name != "tasks.md":
+                            self.write(directory, "tasks.md", tasks)
+                    (directory / link_name).symlink_to(external / target_name)
+                    commands = (
+                        ("slice", "--feature", feature, "--task", task_id),
+                        ("state", "--feature", feature),
+                        ("gate", "phase", "--feature", feature, "--phase", phase, "--workflow", workflow),
+                    )
+                    for command in commands:
+                        completed = subprocess.run(
+                            [sys.executable, str(script), *command],
+                            cwd=root,
+                            text=True,
+                            capture_output=True,
+                            check=False,
+                        )
+                        self.assertNotEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                        self.assertIn("STATE_ARTIFACT_BLOCKED", completed.stdout + completed.stderr)
+
+    def test_task_two_rework_three_phase_gate_rejects_conflicting_workflow_shapes(self):
+        approved = "> Status: approved 2026-08-25\n"
+        requirement = approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n"
+        design = approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n"
+        tasks = approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n"
+        bugfix = approved + "- F-1 THE SYSTEM SHALL fix\n- B-1 THE SYSTEM SHALL preserve\n"
+        bugfix_tasks = approved + "- [ ] B1. task\n  Satisfies: F-1, B-1\n"
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"
+            script.parent.mkdir()
+            script.write_text((SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"), encoding="utf-8")
+            specs = root / ".ai" / "specs"; specs.mkdir(parents=True)
+            external = root / "external"; external.mkdir()
+            self.write(external, "bugfix.md", bugfix)
+            self.write(external, "requirements.md", requirement)
+            variants = (
+                ("requirements-first-design", "requirements-first", "design", "bugfix.md", bugfix),
+                ("requirements-first-tasks", "requirements-first", "tasks", "bugfix.md", bugfix),
+                ("requirements-first-implement", "requirements-first", "implement", "bugfix.md", bugfix),
+                ("design-first-requirements", "design-first", "requirements", "bugfix.md", bugfix),
+                ("design-first-tasks", "design-first", "tasks", "bugfix.md", bugfix),
+                ("design-first-implement", "design-first", "implement", "bugfix.md", bugfix),
+                ("bugfix-tasks", "bugfix", "tasks", "requirements.md", requirement),
+                ("bugfix-implement", "bugfix", "implement", "requirements.md", requirement),
+            )
+            for use_symlink in (False, True):
+                for feature, workflow, phase, conflict_name, conflict_data in variants:
+                    with self.subTest(feature=feature, symlink=use_symlink):
+                        directory = specs / f"{'symlink' if use_symlink else 'regular'}-{feature}"
+                        directory.mkdir()
+                        if workflow == "bugfix":
+                            self.write(directory, "bugfix.md", bugfix)
+                            if phase == "implement":
+                                self.write(directory, "tasks.md", bugfix_tasks)
+                        else:
+                            self.write(directory, "design.md", design)
+                            if workflow == "requirements-first" or phase != "requirements":
+                                self.write(directory, "requirements.md", requirement)
+                            if phase == "implement":
+                                self.write(directory, "tasks.md", tasks)
+                        if use_symlink:
+                            (directory / conflict_name).symlink_to(external / conflict_name)
+                        else:
+                            self.write(directory, conflict_name, conflict_data)
+                        completed = subprocess.run(
+                            [
+                                sys.executable,
+                                str(script),
+                                "gate",
+                                "phase",
+                                "--feature",
+                                directory.name,
+                                "--phase",
+                                phase,
+                                "--workflow",
+                                workflow,
+                            ],
+                            cwd=root,
+                            text=True,
+                            capture_output=True,
+                            check=False,
+                        )
+                        self.assertNotEqual(0, completed.returncode, completed.stdout + completed.stderr)
+                        self.assertIn("PHASE_WORKFLOW_AMBIGUOUS", completed.stdout + completed.stderr)
+
+    def test_task_two_rework_three_workflow_shape_mutation_is_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        before = "diagnostics: list[Diagnostic] = list(_workflow_shape_diagnostics(feature_dir, workflow, phase))"
+        after = "diagnostics: list[Diagnostic] = []"
+        self.assertEqual(1, source.count(before))
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "spec_contract.py"
+            path.write_text(source.replace(before, after), encoding="utf-8")
+            name = f"spec_contract_task_two_rework_three_mutant_{len(sys.modules)}"
+            module_spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(module_spec)
+            sys.modules[name] = module
+            module_spec.loader.exec_module(module)
+            specs = Path(raw) / "specs"; specs.mkdir()
+            feature = specs / "feature"; feature.mkdir()
+            approved = "> Status: approved 2026-08-25\n"
+            self.write(feature, "requirements.md", approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n")
+            self.write(feature, "bugfix.md", approved + "- F-1 THE SYSTEM SHALL fix\n")
+            with self.assertRaises(AssertionError):
+                _, diagnostics = module.check_phase_gate(feature, "design", "requirements-first", specs)
+                self.assertIn("PHASE_WORKFLOW_AMBIGUOUS", self.codes(diagnostics))
+
+    def test_task_two_rework_one_mutations_are_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+
+        def load(mutant_source):
+            with tempfile.TemporaryDirectory() as raw:
+                path = Path(raw) / "spec_contract.py"
+                path.write_text(mutant_source, encoding="utf-8")
+                name = f"spec_contract_task_two_rework_one_mutant_{len(sys.modules)}"
+                module_spec = importlib.util.spec_from_file_location(name, path)
+                module = importlib.util.module_from_spec(module_spec)
+                sys.modules[name] = module
+                module_spec.loader.exec_module(module)
+                return module
+
+        def blocks_evidence_marker(module):
+            approved = "> Status: approved 2026-08-25\n"
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw); directory = root / "spec"; directory.mkdir()
+                self.feature_files(
+                    directory,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks=approved + "- [x] A1. done\n  Satisfies: REQ-1.1\n  Evidence:\n    - test: `python3 test.py` -> TODO\n    - viewports: n/a — tooling only\n    - deviations: none\n",
+                )
+                self.assertEqual("blocked", module.derive_spec_state(directory, root)[0])
+
+        mutation = ("if any(_contains_unfinished_marker(line) for line in evidence):", "if False:")
+        self.assertEqual(1, source.count(mutation[0]))
+        with self.assertRaises(AssertionError):
+            blocks_evidence_marker(load(source.replace(*mutation)))
+
+
+    def test_task_two_rework_one_failure_class_mutations_are_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        approved = "> Status: approved 2026-08-25\n"
+
+        def load(mutant_source):
+            with tempfile.TemporaryDirectory() as raw:
+                path = Path(raw) / "spec_contract.py"
+                path.write_text(mutant_source, encoding="utf-8")
+                name = f"spec_contract_task_two_class_mutant_{len(sys.modules)}"
+                module_spec = importlib.util.spec_from_file_location(name, path)
+                module = importlib.util.module_from_spec(module_spec)
+                sys.modules[name] = module
+                module_spec.loader.exec_module(module)
+                return module
+
+        def rejects_invalid_snapshot(module):
+            with tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw); directory.mkdir(exist_ok=True)
+                self.feature_files(
+                    directory,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks="> Status: approved 2026-08-25, amended\n- [ ] A1. task\n  Satisfies: REQ-1.1\n",
+                )
+                text, diagnostics = module.build_spec_slice(directory, "A1")
+                self.assertEqual("", text)
+                self.assertIn("STATUS_MALFORMED", self.codes(diagnostics))
+
+        def rejects_resolver_bypass(module):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / "specs"; root.mkdir()
+                external = Path(raw) / "outside"; external.mkdir()
+                resolved, diagnostics = module.resolve_feature_directory(root, str(external))
+                self.assertIsNone(resolved)
+                self.assertIn("SLICE_FEATURE_UNKNOWN", self.codes(diagnostics))
+
+        def rejects_archive_container(module):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / "specs"; root.mkdir()
+                (root / "archive").mkdir()
+                resolved, diagnostics = module.resolve_feature_directory(root, "archive")
+                self.assertIsNone(resolved)
+                self.assertIn("SLICE_FEATURE_UNKNOWN", self.codes(diagnostics))
+
+        def keeps_authoring_root_active(module):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / "specs"; root.mkdir()
+                directory = root / "bugfix"; directory.mkdir()
+                self.write(directory, "bugfix.md", approved + "- F-1 THE SYSTEM SHALL fix\n")
+                self.assertEqual("active", module.derive_spec_state(directory, root)[0])
+
+        def rejects_mixed_evidence(module):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw) / "specs"; root.mkdir()
+                directory = root / "mixed"; directory.mkdir()
+                self.feature_files(
+                    directory,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks=approved + "- [x] A1. done\n  Satisfies: REQ-1.1\n  Evidence:\n    - test: `python3 good.py` -> OK\n    - test: `python3 bad.py` -> pending\n    - viewports: n/a — tooling only\n    - deviations: none\n",
+                )
+                self.assertEqual("blocked", module.derive_spec_state(directory, root)[0])
+
+        mutations = (
+            ("if snapshot_diagnostics:", "if False:", rejects_invalid_snapshot),
+            ("if feature == \"archive\" or not re.fullmatch(TASK_ID_PATTERN, feature):", "if False:", rejects_resolver_bypass),
+            ("if feature == \"archive\" or not re.fullmatch(TASK_ID_PATTERN, feature):", "if not re.fullmatch(TASK_ID_PATTERN, feature):", rejects_archive_container),
+            ("if highest_existing > earliest_missing:", "if True:", keeps_authoring_root_active),
+            ("if any(_contains_unfinished_marker(line) for line in evidence):", "if False:", rejects_mixed_evidence),
+        )
+        for before, after, assertion in mutations:
+            with self.subTest(before=before):
+                self.assertEqual(1, source.count(before))
+                with self.assertRaises(AssertionError):
+                    assertion(load(source.replace(before, after)))
+
+        state_before = '''        if args.feature:
+            feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, args.feature)
+            if resolver_diagnostics or feature_dir is None:
+                _print_diagnostics(resolver_diagnostics)
+                return 1
+            state, diagnostics = derive_spec_state(feature_dir, specs_dir)
+'''
+        state_after = '''        if args.feature:
+            feature_dir, resolver_diagnostics = resolve_feature_directory(specs_dir, args.feature)
+            if resolver_diagnostics or feature_dir is None:
+                _print_diagnostics(resolver_diagnostics)
+                return 0
+            state, diagnostics = derive_spec_state(feature_dir, specs_dir)
+'''
+        self.assertEqual(1, source.count(state_before))
+        with self.assertRaises(AssertionError):
+            module = load(source.replace(state_before, state_after))
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertNotEqual(0, module._cli(("state", "--feature", "missing")))
+
+
+    def test_task_two_rework_one_spec_state_wrapper_mutations_are_killed(self):
+        wrapper_source = (SCRIPTS / "spec-state.sh").read_text(encoding="utf-8")
+        engine_source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        approved = "> Status: approved 2026-08-25\n"
+
+        def assert_wrapper_contract(source):
+            with tempfile.TemporaryDirectory() as raw:
+                root = Path(raw)
+                scripts = root / "scripts"; scripts.mkdir()
+                wrapper = scripts / "spec-state.sh"
+                wrapper.write_text(source, encoding="utf-8")
+                wrapper.chmod(0o755)
+                (scripts / "spec_contract.py").write_text(engine_source, encoding="utf-8")
+                feature = root / ".ai" / "specs" / "feature"; feature.mkdir(parents=True)
+                self.feature_files(
+                    feature,
+                    requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n",
+                    design=approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n",
+                    tasks=approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n",
+                )
+                for command in (("git", "init", "-q"), ("git", "config", "user.email", "test@example.invalid"), ("git", "config", "user.name", "test"), ("git", "add", "."), ("git", "commit", "-qm", "fixture")):
+                    completed = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
+                    self.assertEqual(0, completed.returncode, completed.stderr)
+                headings = ("== [a] artifacts:", "== [b] checkboxes:", "== [c] git:", "== [d] disk artifacts ==", "== [e] derived state ==")
+                completed = subprocess.run([str(wrapper), "feature"], cwd=root, text=True, capture_output=True, check=False)
+                self.assertEqual(0, completed.returncode, completed.stderr)
+                for heading in headings:
+                    self.assertIn(heading, completed.stdout)
+                self.assertIn("pol-core.slnx: MISSING", completed.stdout)
+                missing = subprocess.run([str(wrapper), "missing"], cwd=root, text=True, capture_output=True, check=False)
+                self.assertNotEqual(0, missing.returncode)
+                blocked_dir = root / ".ai" / "specs" / "blocked"; blocked_dir.mkdir()
+                self.write(blocked_dir, "requirements.md", approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n")
+                self.write(blocked_dir, "bugfix.md", approved + "- F-1 THE SYSTEM SHALL fix\n")
+                blocked = subprocess.run([str(wrapper), "blocked"], cwd=root, text=True, capture_output=True, check=False)
+                self.assertNotEqual(0, blocked.returncode)
+                for heading in headings:
+                    self.assertIn(heading, blocked.stdout)
+
+        assert_wrapper_contract(wrapper_source)
+        mutations = (
+            ("== [a] artifacts:", "== [z] artifacts:"),
+            ('")" || STATE_RC=$?', '")"'),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation[0]):
+                self.assertEqual(1, wrapper_source.count(mutation[0]))
+                with self.assertRaises(AssertionError):
+                    assert_wrapper_contract(wrapper_source.replace(*mutation))
+
+
+    def test_task_two_rework_four_finite_boundary_grammar_sweep(self):
+        approved = "> Status: approved 2026-08-25\n"
+        design = approved + "## Build\nBody\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n"
+        tasks = approved + "- [ ] A1. first\n  Satisfies: REQ-1.1\n"
+        marker = "TAIL-MARKER"
+        cases = (
+            ("h2-col0", "## Notes", True),
+            ("h1-col0", "# Notes", True),
+            ("h2-indent1", " ## Notes", True),
+            ("h2-indent3", "   ## Notes", True),
+            ("h2-indent4", "    ## Notes", False),
+            ("h2-indent8", "        ## Notes", False),
+            ("h1-indent4", "    # Notes", False),
+            ("h1-tab", "\t# Notes", False),
+            ("h2-tab-indent", "\t## Notes", False),
+            ("h3", "### Notes", False),
+            ("h6", "###### Notes", False),
+            ("no-space", "##Notes", False),
+            ("hash-only-h1", "#", True),
+            ("hash-only-h2", "##", True),
+            ("h2-tab-after", "##\tNotes", True),
+            ("h2-trailing-space", "##   ", True),
+            ("blockquote-h2", "> ## Notes", False),
+            ("bullet-h2", "- ## Notes", False),
+            ("text-hash", "value # Notes", False),
+        )
+        for label, line, should_close in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as raw:
+                    feature = Path(raw) / "feature"; feature.mkdir()
+                    self.feature_files(
+                        feature,
+                        requirements=approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n" + line + "\n" + marker + "\n",
+                        design=design,
+                        tasks=tasks,
+                    )
+                    text, diagnostics = spec_contract.build_spec_slice(feature, "A1")
+                    self.assertEqual((), diagnostics)
+                    self.assertEqual(should_close, marker not in text)
+
+    def test_task_two_rework_four_section_blocks_end_at_next_major_heading(self):
+        approved = "> Status: approved 2026-08-25\n"
+        requirements = (
+            approved
+            + "## REQ-1: Capability\n"
+            + "- 1.1 THE SYSTEM SHALL work\n"
+            + "### Detail of REQ-1\n"
+            + "KEEP-SUBHEADING\n"
+            + "```text\n"
+            + "## Fenced heading\n"
+            + "KEEP-FENCED\n"
+            + "```\n"
+            + "    # indented four spaces is code not heading\n"
+            + "KEEP-AFTER-INDENTED-CODE\n"
+            + "# Appendix H1\n"
+            + "DROP-H1-REQ\n"
+            + "## Notes\n"
+            + "DROP-INTERVENING\n"
+            + "## REQ-2: Second\n"
+            + "- 2.1 THE SYSTEM SHALL also work\n"
+            + "## Appendix\n"
+            + "DROP-TRAILING\n"
+        )
+        design = (
+            approved
+            + "## Build\nKEEP-DESIGN-BODY\n"
+            + "\t# tab indented is code not heading\n"
+            + "KEEP-DESIGN-AFTER-CODE\n"
+            + "# Design appendix\nDROP-H1-DESIGN\n"
+            + "\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n"
+            + "| REQ-1.1 | Build |\n| REQ-2.1 | Build |\n"
+        )
+        tasks = approved + "- [ ] A1. first\n  Satisfies: REQ-1.1\n- [ ] A2. second\n  Satisfies: REQ-2.1\n"
+        dropped = ("DROP-H1-REQ", "DROP-INTERVENING", "DROP-TRAILING", "DROP-H1-DESIGN")
+
+        def assert_block_altitude(module):
+            with tempfile.TemporaryDirectory() as raw:
+                feature = Path(raw) / "feature"; feature.mkdir()
+                self.feature_files(feature, requirements=requirements, design=design, tasks=tasks)
+                first, first_diagnostics = module.build_spec_slice(feature, "A1")
+                self.assertEqual((), first_diagnostics)
+                self.assertIn("KEEP-SUBHEADING", first)
+                self.assertIn("KEEP-FENCED", first)
+                self.assertIn("KEEP-DESIGN-BODY", first)
+                self.assertIn("KEEP-AFTER-INDENTED-CODE", first)
+                self.assertIn("KEEP-DESIGN-AFTER-CODE", first)
+                for marker in dropped:
+                    self.assertNotIn(marker, first)
+                second, second_diagnostics = module.build_spec_slice(feature, "A2")
+                self.assertEqual((), second_diagnostics)
+                self.assertIn("- 2.1 THE SYSTEM SHALL also work", second)
+                for marker in dropped:
+                    self.assertNotIn(marker, second)
+
+        assert_block_altitude(spec_contract)
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"; script.parent.mkdir()
+            script.write_text((SCRIPTS / "spec_contract.py").read_text(encoding="utf-8"), encoding="utf-8")
+            specs = root / ".ai" / "specs"; specs.mkdir(parents=True)
+            feature = specs / "feature"; feature.mkdir()
+            self.feature_files(feature, requirements=requirements, design=design, tasks=tasks)
+            completed = subprocess.run(
+                [sys.executable, str(script), "slice", "--feature", "feature", "--task", "A1"],
+                cwd=root, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertIn("KEEP-FENCED", completed.stdout)
+            for marker in dropped:
+                self.assertNotIn(marker, completed.stdout)
+
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        mutations = (
+            (
+                "        if _is_sibling_major_heading(line):\n            boundaries.append(number)",
+                "        if REQ_HEADING_RE.match(line):\n            boundaries.append(number)",
+            ),
+            (
+                "    boundaries = [number for number, line in visible if _is_sibling_major_heading(line)]",
+                '    boundaries = [number for number, line in visible if line.startswith("## ")]',
+            ),
+            (
+                'return bool(re.match(r"^ {0,3}#{1,2}(?:[ \\t]|$)", line))',
+                'return bool(re.match(r"^\\s*#{1,2}(?:\\s|$)", line))',
+            ),
+        )
+        for index, (before, after) in enumerate(mutations):
+            with self.subTest(mutation=index):
+                self.assertEqual(1, source.count(before))
+            with tempfile.TemporaryDirectory() as raw:
+                path = Path(raw) / "spec_contract.py"
+                path.write_text(source.replace(before, after), encoding="utf-8")
+                name = f"spec_contract_rework_four_mutant_{index}_{len(sys.modules)}"
+                module_spec = importlib.util.spec_from_file_location(name, path)
+                module = importlib.util.module_from_spec(module_spec)
+                sys.modules[name] = module
+                module_spec.loader.exec_module(module)
+                with self.assertRaises(AssertionError):
+                    assert_block_altitude(module)
+
+    def test_task_two_rework_three_non_regular_artifacts_block_state_and_slice(self):
+        approved = "> Status: approved 2026-08-25\n"
+        requirement = approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n"
+        design = approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n"
+        tasks = approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n"
+
+        def assert_every_consumer_blocks(module_path, root, specs):
+            for representation in ("directory", "fifo", "broken-symlink"):
+                directory = specs / f"rf-{representation}"; directory.mkdir()
+                self.write(directory, "requirements.md", requirement)
+                self.write(directory, "design.md", design)
+                self.write(directory, "tasks.md", tasks)
+                conflict = directory / "bugfix.md"
+                if representation == "directory":
+                    conflict.mkdir()
+                elif representation == "fifo":
+                    os.mkfifo(conflict)
+                else:
+                    conflict.symlink_to(root / "no-such-target.md")
+                for command in (
+                    ["state", "--feature", directory.name],
+                    ["slice", "--feature", directory.name, "--task", "A1"],
+                    ["gate", "phase", "--feature", directory.name, "--phase", "implement", "--workflow", "requirements-first"],
+                ):
+                    completed = subprocess.run(
+                        [sys.executable, str(module_path)] + command,
+                        cwd=root, text=True, capture_output=True, check=False,
+                    )
+                    self.assertNotEqual(0, completed.returncode, [representation] + command + [completed.stdout])
+
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"; script.parent.mkdir()
+            script.write_text(source, encoding="utf-8")
+            specs = root / ".ai" / "specs"; specs.mkdir(parents=True)
+            assert_every_consumer_blocks(script, root, specs)
+
+        before = "if not entries[name].is_file()"
+        after = "if False"
+        self.assertEqual(1, source.count(before))
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            script = root / "scripts" / "spec_contract.py"; script.parent.mkdir()
+            script.write_text(source.replace(before, after), encoding="utf-8")
+            specs = root / ".ai" / "specs"; specs.mkdir(parents=True)
+            with self.assertRaises(AssertionError):
+                assert_every_consumer_blocks(script, root, specs)
+
+    def test_task_two_rework_two_canonical_reader_mutation_is_killed(self):
+        source = (SCRIPTS / "spec_contract.py").read_text(encoding="utf-8")
+        before = "if path.is_symlink() or not path.is_file() or not stat.S_ISREG(path.stat().st_mode):"
+        after = "if not path.is_file() or not stat.S_ISREG(path.stat().st_mode):"
+        self.assertEqual(1, source.count(before))
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "spec_contract.py"
+            path.write_text(source.replace(before, after), encoding="utf-8")
+            name = f"spec_contract_task_two_rework_two_mutant_{len(sys.modules)}"
+            module_spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(module_spec)
+            sys.modules[name] = module
+            module_spec.loader.exec_module(module)
+            specs = Path(raw) / "specs"; specs.mkdir()
+            feature = specs / "feature"; feature.mkdir()
+            external = Path(raw) / "external"; external.mkdir()
+            approved = "> Status: approved 2026-08-25\n"
+            self.write(external, "requirements.md", approved + "## REQ-1: Capability\n- 1.1 THE SYSTEM SHALL work\n")
+            self.write(feature, "design.md", approved + "## Build\n\n## Requirement Traceability\n| REQ | Section |\n| --- | --- |\n| REQ-1.1 | Build |\n")
+            self.write(feature, "tasks.md", approved + "- [ ] A1. task\n  Satisfies: REQ-1.1\n")
+            (feature / "requirements.md").symlink_to(external / "requirements.md")
+            with self.assertRaises(AssertionError):
+                _, diagnostics = module.check_phase_gate(feature, "design", "requirements-first", specs)
+                self.assertIn("STATE_ARTIFACT_BLOCKED", self.codes(diagnostics))
 
 
 if __name__ == "__main__":

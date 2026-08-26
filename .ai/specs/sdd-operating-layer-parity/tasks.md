@@ -52,7 +52,7 @@
        - test: `PYTHONDONTWRITEBYTECODE=1 python3 scripts/spec_contract.py gate phase --feature sdd-operating-layer-parity --phase implement --workflow requirements-first` -> exit `0`
        - test: `PYTHONDONTWRITEBYTECODE=1 scripts/spec-trace.sh merchant-commerce-erd-reset` -> exit `0`, criteria `264` ข้อ
 
-- [ ] 2. ส่งมอบ spec slice และ derived state end-to-end — slice, state wrappers และ SessionStart ใช้ engine เดียวพร้อม full-read fallback ที่ deterministic
+- [x] 2. ส่งมอบ spec slice และ derived state end-to-end — slice, state wrappers และ SessionStart ใช้ engine เดียวพร้อม full-read fallback ที่ deterministic
      Scope: เพิ่ม characterization สำหรับ ordered slice output, unknown task, `MISSING:`, five-state derivation, canonical archive location และ compact active summary แล้ว wire thin wrappers กับ SessionStart โดยไม่ parse Markdown ซ้ำ
      Files:
        - `scripts/spec_contract.py`
@@ -71,6 +71,17 @@
        - `python3 -m unittest discover -s scripts/tests -p 'test_spec_contract.py'` — คาดว่าจะ exit 0 และ slice/state cases รักษาลำดับ bytes, diagnostics และ five-state precedence
        - `bash .claude/hooks/tests/spec-slice.test.sh` — คาดว่าจะ exit 0 โดย known missing mapping แสดง `MISSING:` ส่วน unknown task คืน non-zero พร้อม available IDs ตาม file order
        - `python3 scripts/spec_contract.py state --all --format summary` — คาดว่าจะพิมพ์เฉพาะ active specs แบบ lexical order กับ blocked count โดยไม่ list complete, superseded หรือ archived specs
+     Evidence:
+       - test: `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> Ran 59 tests; OK
+       - test: `bash .claude/hooks/tests/spec-slice.test.sh` -> PASS: feature, bugfix, unknown, `MISSING:` และ blocked-feature raw evidence cases
+       - test: `python3 scripts/spec_contract.py state --all --format summary` -> Active specs: sdd-operating-layer-parity. Blocked specs: 62.
+       - test: `scripts/session-start-active-specs.sh` -> Active specs: sdd-operating-layer-parity. Blocked specs: 62.
+       - test: `python3 scripts/spec_contract.py check --feature sdd-operating-layer-parity --strict` -> OK 178 criteria
+       - test: `bash scripts/spec-trace.sh merchant-commerce-erd-reset` -> OK 264 criteria (compatibility corpus ไม่ regress)
+       - test: `dotnet build pol-core.slnx --no-restore -warnaserror` -> 0 Warning(s), 0 Error(s)
+       - test: `dotnet test pol-core.slnx --no-build --filter "Category!=Integration"` -> 1929 passed, 0 failed
+       - viewports: n/a — tooling-only slice/state และ SessionStart ไม่มี UI surface
+       - deviations: Python `state --all` นับ historical 62 directories ที่ยังไม่ retrofit เป็น blocked ตาม staged migration contract; phase-skill full-read caller เป็น Task 8 scope
 
 - [ ] 3. ปิด task completion gate แบบ fail-closed — raw snapshot selection, Evidence v2, .NET defaults, safe cache, pre-commit และ CI range selector ใช้ contract เดียว
      Scope: เขียน failing fixtures สำหรับ completed-task discovery จาก full before/after bytes, canonical changed ranges, sibling Evidence, command resolution, non-zero commands, zero tests และ cache semantics ก่อน wire enforcement floor และ adapters ที่ส่งเฉพาะ raw selection
