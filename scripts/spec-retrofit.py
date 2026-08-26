@@ -1738,7 +1738,16 @@ def run_apply_safe(batch_id: str) -> int:
         os.replace(tmp, abs_repo(path_str))
         _fsync_path(abs_repo(path_str))
         _post_diags = sc.parse_task_blocks(read_bytes(abs_repo(path_str)), Path(path_str))[1]
-        fatal_post = [diag for diag in _post_diags if diag.code.startswith(("TASK_",))]
+        # only regressions introduced by THIS write matter — legacy files may
+        # already carry non-canonical task bullets outside migration scope
+        import collections as _collections
+        _before_counts = _collections.Counter(
+            d.code for d in sc.parse_task_blocks(before, Path(path_str))[1]
+            if d.code.startswith(("TASK_",)))
+        _after_counts = _collections.Counter(
+            d.code for d in _post_diags if d.code.startswith(("TASK_",)))
+        fatal_post = [code for code, count in _after_counts.items()
+                      if count > _before_counts.get(code, 0)]
         if fatal_post:
             restored_ok, failures = restore_from_journal(batch_id)
             print(json.dumps({
