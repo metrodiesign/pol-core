@@ -1271,14 +1271,21 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
         region_numbers = list(range(task.span[0], min(task.span[1],
                                                       len(all_lines) + 1)))
         raw_lines = [all_lines[n - 1] for n in region_numbers]
+        def _has_unsplit_meta(raw: str) -> bool:
+            # canonical split lines start with exactly five spaces + Satisfies:
+            if re.match(r"^ {5}Satisfies:", raw):
+                return False
+            return bool(re.search(r"\bSatisfies:", raw))
+
         meta_offset = next((offset for offset, raw in enumerate(raw_lines)
-                            if re.search(r"\bSatisfies:", raw)), None)
+                            if _has_unsplit_meta(raw)), None)
         if meta_offset is None:
             continue
         pieces: list[str] = []
         meta_lines: list[str] = []
         for offset, raw in enumerate(raw_lines):
-            match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw)
+            match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw) \
+                if _has_unsplit_meta(raw) else None
             if match is not None:
                 left = match.group(1).rstrip(" ;,-")
                 if left.strip():
