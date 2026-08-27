@@ -1731,7 +1731,18 @@ def build_apply_plan(batch_id: str):
     for path_str in sorted(grouped):
         target = abs_repo(path_str)
         before = read_bytes(target)
-        planned = compose_file(before, grouped[path_str])
+        try:
+            planned = compose_file(before, grouped[path_str])
+        except ValueError as compose_error:
+            # cross-pass overlap (e.g. join consumed the span a ref edit
+            # targeted): not silently skippable — the next planner pass
+            # recomputes spans against real bytes.
+            blockers.append(RetrofitBlocker(
+                "MIGRATION_PROOF_CONFLICT", batch_id, path_str,
+                "compose.overlap", "", 1,
+                f"actions span ทับกันหลัง transform ก่อนหน้า — {compose_error}",
+                "", ""))
+            return [], actions, blockers
         plans.append((path_str, before, planned))
     return plans, actions, []
 
