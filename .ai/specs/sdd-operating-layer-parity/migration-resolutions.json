@@ -2,7 +2,8 @@
  "_meta": {
   "authority": "human checkpoint 2026-08-26",
   "generatedBy": "emit-resolution-template x4 + scripted fill",
-  "note": "conflict-class blockers remain hard-fail; unknown = ไม่แทน approval"
+  "note": "conflict-class blockers remain hard-fail; unknown = ไม่แทน approval",
+  "lastUpdate": "human checkpoint 2026-08-27 — trace-green sweep"
  },
  "decisions": [
   {
@@ -51,8 +52,9 @@
    "path": ".ai/specs/admin-console-real-api/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 546615ffa555 (feat(admin): add real API control plane cont) — human checkpoint 2026-08-27",
+   "date": "2026-08-12"
   },
   {
    "path": ".ai/specs/admin-console-real-api/handoff.md",
@@ -65,8 +67,9 @@
    "path": ".ai/specs/admin-console-real-api/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 546615ffa555 (feat(admin): add real API control plane cont) — human checkpoint 2026-08-27",
+   "date": "2026-08-12"
   },
   {
    "path": ".ai/specs/admin-console-real-api/tasks.md",
@@ -93,15 +96,17 @@
    "path": ".ai/specs/admin-console-real-api/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 546615ffa555 (feat(admin): add real API control plane cont) — human checkpoint 2026-08-27",
+   "date": "2026-08-12"
   },
   {
    "path": ".ai/specs/admin-merchant-provisioning-contract/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 5f9c36f399c6 (docs(merchants): define provisioning contrac) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/admin-merchant-provisioning-contract/handoff.md",
@@ -114,8 +119,9 @@
    "path": ".ai/specs/admin-merchant-provisioning-contract/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 5f9c36f399c6 (docs(merchants): define provisioning contrac) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/admin-merchant-provisioning-contract/tasks.md",
@@ -128,8 +134,9 @@
    "path": ".ai/specs/admin-merchant-provisioning-contract/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 5f9c36f399c6 (docs(merchants): define provisioning contrac) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/admin-oidc-session/tasks.md",
@@ -332,8 +339,9 @@
    "path": ".ai/specs/captive-payment-alignment/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/captive-payment-alignment/handoff.md",
@@ -346,8 +354,9 @@
    "path": ".ai/specs/captive-payment-alignment/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/captive-payment-alignment/tasks.md",
@@ -360,15 +369,17 @@
    "path": ".ai/specs/captive-payment-alignment/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/checkout-chain-document-fields/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 871c3519ce84 (feat(sfs): cap page size at 25 repo-wide and) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/checkout-chain-document-fields/handoff.md",
@@ -381,8 +392,9 @@
    "path": ".ai/specs/checkout-chain-document-fields/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 871c3519ce84 (feat(sfs): cap page size at 25 repo-wide and) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/checkout-chain-document-fields/tasks.md",
@@ -409,8 +421,9 @@
    "path": ".ai/specs/checkout-chain-document-fields/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 871c3519ce84 (feat(sfs): cap page size at 25 repo-wide and) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/console-auth-config-contract/handoff.md",
@@ -458,15 +471,17 @@
    "path": ".ai/specs/demo-seed-data/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 219d11bb11d1 (chore(seed): grow the demo document catalogu) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/demo-seed-data/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 219d11bb11d1 (chore(seed): grow the demo document catalogu) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/demo-seed-data/tasks.md",
@@ -479,8 +494,9 @@
    "path": ".ai/specs/demo-seed-data/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 219d11bb11d1 (chore(seed): grow the demo document catalogu) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/entra-scoped-preprovision/tasks.md",
@@ -507,8 +523,9 @@
    "path": ".ai/specs/extended-login-session-lifetime/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via e8e2b54fc773 (feat(auth): extend login session lifetime) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/extended-login-session-lifetime/handoff.md",
@@ -521,8 +538,9 @@
    "path": ".ai/specs/extended-login-session-lifetime/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via e8e2b54fc773 (feat(auth): extend login session lifetime) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/extended-login-session-lifetime/tasks.md",
@@ -549,8 +567,9 @@
    "path": ".ai/specs/extended-login-session-lifetime/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via e8e2b54fc773 (feat(auth): extend login session lifetime) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/external-sim-documentno-format/tasks.md",
@@ -584,15 +603,17 @@
    "path": ".ai/specs/external-sim-separate-containers/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "shipped via de616324d9e3 (refactor(sim): give hippodb/mammothdb their ) — human checkpoint 2026-08-27",
+   "date": "2026-08-05"
   },
   {
    "path": ".ai/specs/external-sim-separate-containers/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via de616324d9e3 (refactor(sim): give hippodb/mammothdb their ) — human checkpoint 2026-08-27",
+   "date": "2026-08-05"
   },
   {
    "path": ".ai/specs/external-sim-separate-containers/tasks.md",
@@ -612,8 +633,9 @@
    "path": ".ai/specs/external-sim-separate-containers/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via de616324d9e3 (refactor(sim): give hippodb/mammothdb their ) — human checkpoint 2026-08-27",
+   "date": "2026-08-05"
   },
   {
    "path": ".ai/specs/external-sim-shared-agent-network/handoff.md",
@@ -647,15 +669,17 @@
    "path": ".ai/specs/foundation-scaffold/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/foundation-scaffold/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/foundation-scaffold/tasks.md",
@@ -682,15 +706,17 @@
    "path": ".ai/specs/foundation-scaffold/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/frontend-real-api-integration/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 83c86cb7415c (feat: add merchant real API backend contract) — human checkpoint 2026-08-27",
+   "date": "2026-08-10"
   },
   {
    "path": ".ai/specs/frontend-real-api-integration/handoff.md",
@@ -703,8 +729,9 @@
    "path": ".ai/specs/frontend-real-api-integration/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 83c86cb7415c (feat: add merchant real API backend contract) — human checkpoint 2026-08-27",
+   "date": "2026-08-10"
   },
   {
    "path": ".ai/specs/frontend-real-api-integration/tasks.md",
@@ -731,8 +758,9 @@
    "path": ".ai/specs/frontend-real-api-integration/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 83c86cb7415c (feat: add merchant real API backend contract) — human checkpoint 2026-08-27",
+   "date": "2026-08-10"
   },
   {
    "path": ".ai/specs/hierarchical-naming/tasks.md",
@@ -759,15 +787,17 @@
    "path": ".ai/specs/identity-rbac/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/identity-rbac/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/identity-rbac/tasks.md",
@@ -794,8 +824,9 @@
    "path": ".ai/specs/identity-rbac/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/insurance-pivot/tasks.md",
@@ -808,8 +839,9 @@
    "path": ".ai/specs/local-api-port-5001/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 8be674276b14 (feat(auth): complete local Entra OIDC setup) — human checkpoint 2026-08-27",
+   "date": "2026-08-17"
   },
   {
    "path": ".ai/specs/local-api-port-5001/handoff.md",
@@ -822,8 +854,9 @@
    "path": ".ai/specs/local-api-port-5001/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 8be674276b14 (feat(auth): complete local Entra OIDC setup) — human checkpoint 2026-08-27",
+   "date": "2026-08-17"
   },
   {
    "path": ".ai/specs/local-api-port-5001/tasks.md",
@@ -850,22 +883,25 @@
    "path": ".ai/specs/local-api-port-5001/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 8be674276b14 (feat(auth): complete local Entra OIDC setup) — human checkpoint 2026-08-27",
+   "date": "2026-08-17"
   },
   {
    "path": ".ai/specs/masterdata-module/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via fb8df9779b5f (docs(masterdata-module): normalize spec head) — human checkpoint 2026-08-27",
+   "date": "2026-07-13"
   },
   {
    "path": ".ai/specs/masterdata-module/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via fb8df9779b5f (docs(masterdata-module): normalize spec head) — human checkpoint 2026-08-27",
+   "date": "2026-07-13"
   },
   {
    "path": ".ai/specs/masterdata-module/tasks.md",
@@ -878,8 +914,9 @@
    "path": ".ai/specs/masterdata-module/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via fb8df9779b5f (docs(masterdata-module): normalize spec head) — human checkpoint 2026-08-27",
+   "date": "2026-07-13"
   },
   {
    "path": ".ai/specs/masterdata-split/tasks.md",
@@ -913,15 +950,17 @@
    "path": ".ai/specs/merchant-local-http-callback/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 8be674276b14 (feat(auth): complete local Entra OIDC setup) — human checkpoint 2026-08-27",
+   "date": "2026-08-17"
   },
   {
    "path": ".ai/specs/merchant-local-http-callback/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 8be674276b14 (feat(auth): complete local Entra OIDC setup) — human checkpoint 2026-08-27",
+   "date": "2026-08-17"
   },
   {
    "path": ".ai/specs/merchant-local-http-callback/tasks.md",
@@ -934,8 +973,9 @@
    "path": ".ai/specs/merchant-local-http-callback/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 8be674276b14 (feat(auth): complete local Entra OIDC setup) — human checkpoint 2026-08-27",
+   "date": "2026-08-17"
   },
   {
    "path": ".ai/specs/merchant-user-payment-method-access/handoff.md",
@@ -997,15 +1037,17 @@
    "path": ".ai/specs/openapi-documents/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 546615ffa555 (feat(admin): add real API control plane cont) — human checkpoint 2026-08-27",
+   "date": "2026-08-12"
   },
   {
    "path": ".ai/specs/openapi-documents/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 546615ffa555 (feat(admin): add real API control plane cont) — human checkpoint 2026-08-27",
+   "date": "2026-08-12"
   },
   {
    "path": ".ai/specs/openapi-documents/tasks.md",
@@ -1032,8 +1074,9 @@
    "path": ".ai/specs/openapi-documents/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 546615ffa555 (feat(admin): add real API control plane cont) — human checkpoint 2026-08-27",
+   "date": "2026-08-12"
   },
   {
    "path": ".ai/specs/policy-reference-record/handoff.md",
@@ -1067,15 +1110,17 @@
    "path": ".ai/specs/producer-google-sso/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via e8e2b54fc773 (feat(auth): extend login session lifetime) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/producer-google-sso/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via e8e2b54fc773 (feat(auth): extend login session lifetime) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/producer-google-sso/tasks.md",
@@ -1102,22 +1147,25 @@
    "path": ".ai/specs/producer-google-sso/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via e8e2b54fc773 (feat(auth): extend login session lifetime) — human checkpoint 2026-08-27",
+   "date": "2026-08-09"
   },
   {
    "path": ".ai/specs/production-hardening/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "shipped via 245df966beeb (docs(production-hardening): log PR6 deploy-s) — human checkpoint 2026-08-27",
+   "date": "2026-07-13"
   },
   {
    "path": ".ai/specs/production-hardening/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "shipped via 245df966beeb (docs(production-hardening): log PR6 deploy-s) — human checkpoint 2026-08-27",
+   "date": "2026-07-13"
   },
   {
    "path": ".ai/specs/products-external-source-of-truth/tasks.md",
@@ -1130,8 +1178,9 @@
    "path": ".ai/specs/products-sp-53-alignment/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 2a48a687d650 (feat(products)!: make the document catalogue) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/products-sp-53-alignment/handoff.md",
@@ -1144,8 +1193,9 @@
    "path": ".ai/specs/products-sp-53-alignment/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 2a48a687d650 (feat(products)!: make the document catalogue) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/products-sp-53-alignment/tasks.md",
@@ -1172,8 +1222,9 @@
    "path": ".ai/specs/products-sp-53-alignment/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 2a48a687d650 (feat(products)!: make the document catalogue) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/products-sp-gateway/handoff.md",
@@ -1277,15 +1328,17 @@
    "path": ".ai/specs/search-filter-sort/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 871c3519ce84 (feat(sfs): cap page size at 25 repo-wide and) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/search-filter-sort/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 871c3519ce84 (feat(sfs): cap page size at 25 repo-wide and) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/search-filter-sort/tasks.md",
@@ -1312,8 +1365,9 @@
    "path": ".ai/specs/search-filter-sort/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 871c3519ce84 (feat(sfs): cap page size at 25 repo-wide and) — human checkpoint 2026-08-27",
+   "date": "2026-07-30"
   },
   {
    "path": ".ai/specs/sim-seed-date-stability/requirements.md",
@@ -1333,15 +1387,17 @@
    "path": ".ai/specs/system-completion/design.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/system-completion/requirements.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/system-completion/tasks.md",
@@ -1368,8 +1424,9 @@
    "path": ".ai/specs/system-completion/tasks.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": ""
+   "disposition": "status-approved",
+   "rationale": "shipped via 35d4db4a3f1b (docs: rename Tenant Console to Merchant Cons) — human checkpoint 2026-08-27",
+   "date": "2026-07-31"
   },
   {
    "path": ".ai/specs/tenant/tasks.md",
@@ -1405,6 +1462,32 @@
    "taskId": "",
    "disposition": "active-authoring-exempt",
    "rationale": ""
+  },
+  {
+   "path": ".ai/specs/production-hardening/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-07-13",
+   "rationale": "shipped via 245df966beeb (docs(production-hardening): log PR6 deploy-s) — human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/bugfix-producer-ticket-dedup/bugfix.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-superseded",
+   "date": "2026-07-01",
+   "byTaskId": "rf2-iam-rbac",
+   "rationale": "historical approved 2026-06-30 then mechanism superseded (body note cites dedup removal); human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/bugfix-producer-ticket-dedup/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-superseded",
+   "date": "2026-07-01",
+   "byTaskId": "rf2-iam-rbac",
+   "rationale": "historical approved 2026-06-30 then mechanism superseded (body note cites dedup removal); human checkpoint 2026-08-27"
   }
  ]
 }

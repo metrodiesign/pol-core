@@ -415,6 +415,8 @@ LEDGER_DISPOSITIONS = {
     "waive-protocol-history",     # insert n/a viewports / none-recorded deviations
     "active-authoring-exempt",    # incomplete authoring chain is by design
     "legacy-baseline-exempt",     # whole dir predates framework; segment out
+    "ears-join-wrap",             # join wrapped requirement criterion lines, no id change
+    "trace-header-canonical",     # rename legacy trace-table headers to Section/REQ
 }
 VP_WAIVE_LINE = ("- viewports: n/a \u2014 legacy corpus predates viewport protocol "
                  "(human checkpoint 2026-08-26)")
@@ -916,6 +918,42 @@ def plan_trace_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAct
             if TRACE_SECTION_RE.match(line):
                 in_trace = True
                 columns = {}
+                # ledger-authorized header rename: legacy tables speak
+                # "Design element | REQ" etc.; canonical grammar needs
+                # Section+REQ headers. Purely lexical, cell data untouched.
+                entry = _ledger_get(rel(directory / file_name), "trace.table")
+                if entry is not None and entry["disposition"] == "trace-header-canonical":
+                    next_pipe = next(
+                        (n for n, l in outside if n > number and l.lstrip().startswith("|")),
+                        None)
+                    if next_pipe is not None:
+                        cells = [c.strip() for c in
+                                 lines[next_pipe - 1].strip().strip("|").split("|")]
+                        lowered = [c.lower() for c in cells]
+                        if not ("req" in lowered and "section" in lowered):
+                            req_like = next((idx for idx, c in enumerate(lowered)
+                                             if c in {"req", "reqs satisfied",
+                                                      "satisfies", "satisfies req",
+                                                      "requirements", "req(s) satisfied",
+                                                      "requirement coverage",
+                                                      "req ที่ตอบ"}), None)
+                            if req_like is not None:
+                                new_cells = list(cells)
+                                new_cells[req_like] = "REQ"
+                                section_like = next((idx for idx in range(len(new_cells))
+                                                     if idx != req_like), None)
+                                if section_like is not None:
+                                    new_cells[section_like] = "Section"
+                                    header_span = _line_byte_span(data, next_pipe)
+                                    actions.append(RetrofitAction(
+                                        batch_id=batch_id, path=path_str,
+                                        target_field="trace.header",
+                                        task_id="", field_span=header_span,
+                                        before_bytes=data[header_span[0]:header_span[1]],
+                                        after_bytes=("| " + " | ".join(new_cells) +
+                                                     " |\n").encode("utf-8"),
+                                        proofs=(_human_decision_proof(entry),),
+                                    ))
                 continue
             if not in_trace:
                 continue
@@ -1098,6 +1136,9 @@ def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocke
             trace_actions, trace_blockers = plan_trace_actions(batch_id, directory)
             new_actions.extend(trace_actions)
             new_blockers.extend(trace_blockers)
+            ears_actions, ears_blockers = plan_ears_join_actions(batch_id, directory)
+            new_actions.extend(ears_actions)
+            new_blockers.extend(ears_blockers)
             if batch_id == "bugfix":
                 bf_actions, bf_blockers = plan_bugfix_actions(batch_id, directory)
                 new_actions.extend(bf_actions)
@@ -1124,6 +1165,59 @@ def _in_scope(tags: set[str], batch_id: str) -> bool:
         # conflicting statuses also land here so the planner emits PROOF_CONFLICT
         return bool(tags & {"approved-aliases", "conflicting-status"})
     return batch_id in tags
+
+
+def plan_ears_join_actions(batch_id: str, directory: Path):
+    """Ledger-gated mechanical closure: join wrapped `- N.M ...` criterion
+    continuation lines into one physical line so the full statement is
+    visible. Word-preserving; ids and text untouched."""
+    blockers: list[RetrofitBlocker] = []
+    file_path = directory / "requirements.md"
+    if not file_path.is_file():
+        return [], blockers
+    path_str = rel(file_path)
+    entry = _ledger_get(path_str, "requirements.criteria")
+    if entry is None or entry["disposition"] != "ears-join-wrap":
+        return [], []
+    data = read_bytes(file_path)
+    lines = data.decode("utf-8", "surrogateescape").splitlines(keepends=True)
+
+    def bullet_like(raw: str) -> bool:
+        stripped = raw.strip()
+        return bool(re.match(r"^(?:[-+*]|[0-9]+[.)])\s+", stripped)) or \
+            stripped.startswith("#") or stripped == ""
+
+    number = 0
+    while number < len(lines):
+        raw = lines[number]
+        match = re.match(r"^(\s*-\s+)(\d+\.\d+)\s+(.*)$", raw.rstrip("\n"))
+        if not match or not sc._ears_ok(match.group(3).strip()):
+            number += 1
+            continue
+        last = number
+        while last + 1 < len(lines) and not bullet_like(lines[last + 1]):
+            last += 1
+        if last == number:
+            number += 1
+            continue
+        span_start = _line_byte_span(data, number + 1)[0]
+        span_end = _line_byte_span(data, last + 1)[1]
+        statement = " ".join(
+            part.strip() for part in
+            [match.group(3)] + [l.strip() for l in lines[number + 1:last + 1]]
+        ).strip()
+        newline = b"\n" if data[span_end - 1:span_end] == b"\n" else b""
+        after = f"{match.group(1)}{match.group(2)} {statement}\n".encode("utf-8")
+        block_start = _line_byte_span(data, number + 1)[0]
+        actions.append(RetrofitAction(
+            batch_id=batch_id, path=path_str, target_field="requirement.criterion",
+            task_id=match.group(2), field_span=(block_start, span_end),
+            before_bytes=data[block_start:span_end],
+            after_bytes=after.rstrip(b"\n") + newline,
+            proofs=(_human_decision_proof(entry),),
+        ))
+        number = last + 1
+    return actions, blockers
 
 
 def plan_bugfix_actions(batch_id: str, directory: Path):
