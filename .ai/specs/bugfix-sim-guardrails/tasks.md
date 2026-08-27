@@ -48,6 +48,8 @@ T4-T7 อิสระต่อกัน ทำขนานได้หลัง 
     โดยไม่เรียก `build_conn` แล้ว suite ต้องแดง — ปัจจุบัน `pass=21 fail=0` ไม่ขยับ; คืนไฟล์แล้วต้องเขียว
      Satisfies: F-7, F-8
      Satisfies: F-7, F-8
+     Satisfies: F-7, F-8
+     Satisfies: F-7, F-8
 > ของ T4 เพราะ F5 core requirement ถูก T2/T3 satisfy ไปแล้ว รอบนี้คือการเสริม coverage ของ assertion เดิม ไม่ใช่ requirement ใหม่ (2) ตำแหน่งของ scenario ใหม่ (F8) วางไว้ในกลุ่ม external-sim เดิม (หลัง `out_mammoth`, ก่อนกลุ่ม comment D1) แทนที่จะต่อท้ายไฟล์ — spec ไม่ได้ระบุตำแหน่ง เลือกจุดนี้เพราะเนื้อหาเป็นเรื่อง connection-string assembly ของสาย sim เหมือนกลุ่มนั้น ไม่ใช่เรื่อง conflict/precedence ของ D1
 
 
