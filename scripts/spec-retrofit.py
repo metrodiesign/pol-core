@@ -979,10 +979,16 @@ def plan_trace_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAct
                     if f"REQ-{token}" in known_refs or token in known_refs or not known_refs:
                         canonical_ref = f"REQ-{token}"
                         line_span = _line_byte_span(data, number)
-                        cell_offset = data.decode("utf-8", "surrogateescape")[
-                            line_span[0]:line_span[1]
-                        ].find(token)
-                        start = line_span[0] + max(cell_offset, 0)
+                        segment = data[line_span[0]:line_span[1]].decode(
+                            "utf-8", "surrogateescape")
+                        cell_char = segment.find(token)
+                        if cell_char < 0:
+                            continue
+                        # byte index of the token inside this line (text may
+                        # contain multi-byte chars before the cells)
+                        cell_byte = len(segment[:cell_char].encode(
+                            "utf-8", "surrogateescape"))
+                        start = line_span[0] + cell_byte
                         actions.append(RetrofitAction(
                             batch_id=batch_id, path=path_str, target_field="trace.ref",
                             task_id="", field_span=(start, start + len(token)),
