@@ -914,6 +914,7 @@ def plan_trace_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAct
         outside_by_number = dict(outside)
         in_trace = False
         columns: dict[int, str] = {}
+        ref_actions_by_line: dict[int, list[tuple[int, int]]] = {}
         for number, line in outside:
             if TRACE_SECTION_RE.match(line):
                 in_trace = True
@@ -973,40 +974,39 @@ def plan_trace_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAct
                 continue
             req_index = next((index for index, cell in columns.items() if cell.lower() == "req"), None)
             section_index = next((index for index, cell in columns.items() if cell.lower() == "section"), None)
+            req_index = next((index for index, cell in columns.items() if cell.lower() == "req"), None)
+            section_index = next((index for index, cell in columns.items() if cell.lower() == "section"), None)
             if req_index is not None and req_index < len(cells):
-                token = cells[req_index]
-                if DOTTED_CELL_RE.match(token):
+                # one action per bare dotted token so multi-ref cells
+                # ("1.1, 1.2, 1.3") canonicalize deterministically; tokens that
+                # are already REQ-prefixed stay untouched.
+                dotted_tokens = re.findall(
+                    r"(?<![\w.-])(\d+\.\d+)(?![\w.-])", cells[req_index])
+                for token in dotted_tokens:
                     if f"REQ-{token}" in known_refs or token in known_refs or not known_refs:
                         canonical_ref = f"REQ-{token}"
                         line_span = _line_byte_span(data, number)
                         segment = data[line_span[0]:line_span[1]].decode(
                             "utf-8", "surrogateescape")
-                        cell_char = segment.find(token)
-                        if cell_char < 0:
+                        search_from = 0
+                        start = None
+                        while True:
+                            cand = segment.find(token, search_from)
+                            if cand < 0:
+                                break
+                            before_ok = not re.match(r"[\w.-]", segment[cand-1:cand])
+                            after_idx = cand + len(token)
+                            after_ok = after_idx >= len(segment) or \
+                                not re.match(r"[\w.-]", segment[after_idx:after_idx+1])
+                            if before_ok and after_ok:
+                                start = line_span[0] + len(segment[:cand].encode("utf-8", "surrogateescape"))
+                                break
+                            search_from = cand + 1
+                        if start is None:
                             continue
-                        # byte index of the token inside this line (text may
-                        # contain multi-byte chars before the cells)
-                        cell_byte = len(segment[:cell_char].encode(
-                            "utf-8", "surrogateescape"))
-                        start = line_span[0] + cell_byte
-                        actions.append(RetrofitAction(
-                            batch_id=batch_id, path=path_str, target_field="trace.ref",
-                            task_id="", field_span=(start, start + len(token)),
-                            before_bytes=token.encode(),
-                            after_bytes=canonical_ref.encode(),
-                            proofs=(
-                                _proof_current(path_str, data, number, line),
-                                Proof(
-                                    kind="current",
-                                    source_path=str((directory / "requirements.md").relative_to(repo_root()))
-                                    if (directory / "requirements.md").is_file() else path_str,
-                                    commit="", line=1,
-                                    text_sha256=sha256(canonical_ref.encode()),
-                                    snippet=f"criterion {token} exists" if (token in known_refs or f"REQ-{token}" in known_refs)
-                                    else "criteria corpus unavailable (bugfix shape)",
-                                ),
-                            ),
-                        ))
+                        span_end_tok = start + len(token.encode())
+                        ref_actions_by_line.setdefault(number, []).append((start, span_end_tok))
+                        continue  # combined below per line
                     else:
                         blockers.append(_missing_blocker(
                             batch_id, path_str, "trace.ref", number,
@@ -1020,6 +1020,24 @@ def plan_trace_actions(batch_id: str, directory: Path) -> tuple[list[RetrofitAct
                         batch_id, path_str, "trace.section", number,
                         f"section '{token}' ไม่ resolve เป็น real ## heading",
                     ))
+        for tok_number, spans in ref_actions_by_line.items():
+            spans.sort()
+            line_span = _line_byte_span(data, tok_number)
+            rebuilt_parts: list[bytes] = []
+            cursor = line_span[0]
+            for span_a, span_b in spans:
+                rebuilt_parts.append(data[cursor:span_a])
+                rebuilt_parts.append(b"REQ-" + data[span_a:span_b])
+                cursor = span_b
+            rebuilt_parts.append(data[cursor:line_span[1]])
+            actions.append(RetrofitAction(
+                batch_id=batch_id, path=path_str, target_field="trace.ref",
+                task_id="", field_span=(line_span[0], line_span[1]),
+                before_bytes=data[line_span[0]:line_span[1]],
+                after_bytes=b"".join(rebuilt_parts),
+                proofs=(_proof_current(path_str, data, tok_number,
+                                       lines[tok_number - 1].rstrip("\n")),),
+            ))
         del outside_by_number
     return actions, blockers
 

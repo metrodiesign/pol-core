@@ -277,7 +277,8 @@ class TraceAndContainerTest(RetrofitSandbox):
         refs = {(a["path"].endswith("design.md"),
                  base64.b64decode(a["afterBytesBase64"])) for a in payload["actions"]
                 if a["targetField"] == "trace.ref"}
-        self.assertIn((True, b"REQ-7.1"), refs)
+        # line-rewrite form: afterBytes keeps the full row with REQ- prefix
+        self.assertTrue(any(after == b"| REQ-7.1 | Build |\n" for _t, after in refs))
         sections = [b for b in payload["blockers"] if b["targetField"] == "trace.ref"]
         self.assertTrue(any("9.9" in b["message"] for b in sections))
 
