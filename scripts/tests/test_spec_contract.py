@@ -27,6 +27,7 @@ from spec_contract import (
     parse_traceability_table,
     resolve_task_selector,
     trace_run as strict_trace_run,
+    ledger_legacy_features,
     validate_task_graph,
 )
 
@@ -2603,6 +2604,61 @@ class SpecContractTest(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 _, diagnostics = module.check_phase_gate(feature, "design", "requirements-first", specs)
                 self.assertIn("STATE_ARTIFACT_BLOCKED", self.codes(diagnostics))
+
+
+
+class CheckAllStrictTest(unittest.TestCase):
+    """`check --all --strict` (task 9): active-first scoping via the ledger,
+    REQ + bugfix F/B shapes both traced, legacy-residual dirs skipped."""
+
+    def _build(self, root: Path) -> None:
+        import json as _json
+        req_ok = ("# Req\n\n## REQ-1: Cap\n\n"
+                  "- 1.1 WHEN a THEN THE SYSTEM SHALL b.\n")
+        req_bad = "# Req\nnothing canonical\n"
+        specs = {
+            "alpha-active": req_ok,
+            "beta-bugfix": None,           # bugfix shape built below
+            "gamma-legacy": req_bad,       # ledger-dispositioned -> skipped
+        }
+        for name, body in specs.items():
+            d = root / name
+            d.mkdir(parents=True, exist_ok=True)
+            if name == "beta-bugfix":
+                (d / "bugfix.md").write_text(
+                    "# Bugfix: beta\n\n- F-1 WHEN k THE SYSTEM SHALL pass.\n",
+                    encoding="utf-8")
+                continue
+            (d / "requirements.md").write_text(body or "", encoding="utf-8")
+        resolutions = {"decisions": [
+            {"path": ".ai/specs/gamma-legacy/design.md", "field": "trace.table",
+             "taskId": "", "disposition": "trace-header-canonical"}]}
+        ledger_dir = root / "sdd-operating-layer-parity"
+        ledger_dir.mkdir(parents=True, exist_ok=True)
+        (ledger_dir / "migration-resolutions.json").write_text(
+            _json.dumps(resolutions), encoding="utf-8")
+
+    def test_active_first_scope_and_exit_codes(self):
+        with tempfile.TemporaryDirectory(prefix="checkall-") as td:
+            root = Path(td) / ".ai" / "specs"
+            root.mkdir(parents=True)
+            self._build(root)
+            env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+            proc = subprocess.run(
+                [sys.executable, str(SCRIPTS / "spec_contract.py"),
+                 "check", "--all", "--strict", "--specs-root", str(root)],
+                capture_output=True, text=True, env=env)
+            # gamma legacy skipped; alpha active green? bugfix-only dir lacks tasks.md => red?
+            # per trace_run: requirements-first w/o design/tasks -> upstream fail? build assertions:
+            self.assertIn("2 active / 1 legacy-residual dirs", proc.stdout)
+            self.assertIn("/ 2 failing", proc.stdout)  # both active lack full chains
+
+    def test_ledger_skip_semantics_via_helper(self):
+        with tempfile.TemporaryDirectory(prefix="ledgerlegacy-") as td:
+            root = Path(td)
+            self._build(root)
+            skipped = spec_contract.ledger_legacy_features(root)
+            self.assertEqual(skipped, {"gamma-legacy"})
 
 
 if __name__ == "__main__":

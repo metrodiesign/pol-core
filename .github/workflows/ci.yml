@@ -20,6 +20,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # Task 9 cutover (sdd-operating-layer-parity REQ-7.6): full history so
+        # the workflow-preservation comparator can diff against merge-base.
+        with:
+          fetch-depth: 0
       - name: Guard regression tests
         # Tier 1 floor: the single check engine (.ai/bin/check-*.sh) is exercised by its
         # adversarial test suite here so it cannot drift / be weakened silently — a loosened
@@ -80,6 +84,55 @@ jobs:
             echo "::endgroup::"
           done
           exit "$status"
+      - name: SDD strict checks (task 9 cutover, REQ-7.1/7.5-7.9)
+        # Migration completed: flip the strict SDD layer on. Everything here is
+        # engine-owned — no checkbox greps, no private Evidence parsing:
+        #   1. Python unit tests of the shared contract + retrofit behavior.
+        #   2. Raw base/HEAD snapshots + diff ranges per changed tasks.md, then the
+        #      diff-aware Evidence scope check (REQ-7.5).
+        #   3. Strict all-spec trace through ONE engine covering both feature REQ
+        #      and bugfix F/B paths (REQ-7.6 + 7.7; active-first scoping per the
+        #      migration ledger's recorded human decisions).
+        #   4. Source-to-assertion alignment fixture and cross-harness conformance
+        #      fixture (REQ-7.8/7.9) — also picked up additively by the guard glob above.
+        if: runner.os != 'Windows'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+          SNAP="$(mktemp -d "${TMPDIR:-/tmp}/sdd-ci.XXXXXX")"
+          for f in $(git diff --name-only --diff-filter=d "$BASE_SHA"..HEAD | grep -E '(^|/)tasks\.md$' || true); do
+            git cat-file -e "HEAD:$f" 2>/dev/null || continue
+            if git cat-file -e "$BASE_SHA:$f" 2>/dev/null; then
+              git cat-file blob "$BASE_SHA:$f" > "$SNAP/before.md"
+            else
+              : > "$SNAP/before.md"
+            fi
+            git show "HEAD:$f" > "$SNAP/after.md"
+            python3 scripts/spec_contract.py diff-ranges \
+              --before-file "$SNAP/before.md" --after-file "$SNAP/after.md" > "$SNAP/ranges.json"
+            bash .ai/bin/check-evidence.sh "$f" "$SNAP/before.md" "$SNAP/after.md" \
+              "$SNAP/ranges.json" ci
+          done
+          rm -rf "$SNAP"
+          python3 scripts/spec_contract.py check --all --strict
+          bash .claude/hooks/tests/repo-policy-alignment.test.sh
+          bash .claude/hooks/tests/cross-harness-conformance.test.sh
+      - name: Protected workflow preservation (task 9, REQ-1.7-1.11 / 7.10)
+        # Byte-compare protected job blocks against the merge-base and prove the
+        # GitHub shell inventory is a superset of the base tokens. Fails closed on
+        # any parse ambiguity (tab indent, merge key, duplicate/missing key).
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          BASE_RESOLVED="$BASE_SHA"
+          if [ -z "$BASE_RESOLVED" ] || [ "$BASE_RESOLVED" = "0000000000000000000000000000000000000000" ]; then
+            BASE_RESOLVED="$(git rev-parse HEAD~1 2>/dev/null || echo '')"
+          fi
+          [ -n "$BASE_RESOLVED" ] || { echo "no base SHA resolvable" >&2; exit 2; }
+          python3 scripts/ci-workflow-preservation.py --base "$BASE_RESOLVED"
 
   dotnet:
     # The app's own gate (the framework job above noted downstream apps add this). Builds the

@@ -1718,13 +1718,71 @@ def _cli(argv: Sequence[str]) -> int:
     parser.add_argument("feature", nargs="?")
     parser.add_argument("--feature", dest="named_feature")
     parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--all", action="store_true",
+                        help="strict trace over the active spec corpus "
+                             "(ledger-dispositioned legacy chains skipped)")
+    parser.add_argument("--specs-root", default=None,
+                        help="test seam: alternate .ai/specs root")
     args = parser.parse_args(argv)
     if args.command == "check" and (args.named_feature or args.feature):
         return trace_run(args.named_feature or args.feature, specs_dir)
+    if args.command == "check" and args.all:
+        root_dir = Path(args.specs_root) if args.specs_root else specs_dir
+        return _check_all_strict(root_dir)
     if args.command and not args.feature and not args.named_feature:
         return trace_run(args.command, specs_dir)
-    print("ใช้: spec_contract.py check --feature FEATURE --strict", file=sys.stderr)
+    print("ใช้: spec_contract.py check --feature FEATURE --strict | check --all --strict", file=sys.stderr)
     return 2
+
+
+LEDGER_DISPOSITION_SKIP = {"trace-header-canonical", "active-authoring-exempt",
+                           "legacy-baseline-exempt"}
+LEDGER_REL = Path("sdd-operating-layer-parity") / "migration-resolutions.json"
+
+
+def ledger_legacy_features(specs_dir: Path) -> set[str]:
+    """Feature dirs whose trace tables / authoring chains carry a committed
+    human-checkpoint decision (option-K recorded residual). Strict all-spec
+    scope is active-first; these re-enter via the verify scope when tasks say
+    so. Reading the JSON directly keeps this module free of retrofit imports."""
+    path = specs_dir / LEDGER_REL
+    if not path.is_file():
+        return set()
+    import json as _json
+    try:
+        payload = _json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return set()
+    legacy: set[str] = set()
+    for entry in payload.get("decisions", []):
+        if entry.get("field") in ("trace.table", "authoring.chain") and \
+                entry.get("disposition") in LEDGER_DISPOSITION_SKIP:
+            parent = Path(entry.get("path", "")).parent
+            if parent.parent.name == ".ai" or len(parent.parts) >= 2:
+                name = parent.name if parent.name != ".ai" else ""
+                if name:
+                    legacy.add(name)
+    return legacy
+
+
+def _check_all_strict(specs_dir: Path) -> int:
+    """Strict trace across the ACTIVE corpus (option-K scoping)."""
+    features = sorted(path.name for path in specs_dir.iterdir()
+                      if path.is_dir() and (path / "requirements.md").is_file())
+    features += sorted(path.name for path in specs_dir.iterdir()
+                       if path.is_dir() and (path / "bugfix.md").is_file()
+                       and not (path / "requirements.md").is_file())
+    skipped = ledger_legacy_features(specs_dir)
+    active = [f for f in features if f not in skipped]
+    failures = 0
+    for feature in active:
+        print(f"::group::strict-trace {feature}")
+        if trace_run(feature, specs_dir) != 0:
+            failures += 1
+        print("::endgroup::")
+    print(f"check --all --strict: {len(active)} active / "
+          f"{len(skipped)} legacy-residual dirs / {failures} failing")
+    return 0 if failures == 0 else 1
 
 
 if __name__ == "__main__":

@@ -53,6 +53,37 @@ verify:
         scripts/spec-trace.sh "$feature" || status=1
       done
       exit "$status"
+    # Task 9 cutover (REQ-7.2/7.4-7.9): the same strict SDD checks GitHub verify
+    # runs. Engine-owned only — no checkbox greps, no private Evidence parsing.
+    # GitLab has no MR pipelines; branch pipelines carry CI_COMMIT_BEFORE_SHA.
+    - BASE_SHA="${CI_MERGE_REQUEST_DIFF_BASE_SHA:-${CI_COMMIT_BEFORE_SHA:-}}"
+    - |
+      set -euo pipefail
+      if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+        echo "CI_PROTECTED_JOB_PARSE_FAILED: no base SHA resolvable for preservation comparator" >&2
+        exit 2
+      fi
+      git fetch --no-tags origin "$BASE_SHA" || true
+      SNAP="$(mktemp -d /tmp/sdd-gitlab.XXXXXX)"
+      for f in $(git diff --name-only --diff-filter=d "$BASE_SHA"..HEAD | grep -E '(^|/)tasks\.md$' || true); do
+        git cat-file -e "HEAD:$f" 2>/dev/null || continue
+        if git cat-file -e "$BASE_SHA:$f" 2>/dev/null; then
+          git cat-file blob "$BASE_SHA:$f" > "$SNAP/before.md"
+        else
+          : > "$SNAP/before.md"
+        fi
+        git show "HEAD:$f" > "$SNAP/after.md"
+        python3 scripts/spec_contract.py diff-ranges \
+          --before-file "$SNAP/before.md" --after-file "$SNAP/after.md" > "$SNAP/ranges.json"
+        bash .ai/bin/check-evidence.sh "$f" "$SNAP/before.md" "$SNAP/after.md" \
+          "$SNAP/ranges.json" ci
+      done
+      rm -rf "$SNAP"
+      python3 -m unittest discover -s scripts/tests -p 'test_*.py'
+      python3 scripts/spec_contract.py check --all --strict
+      bash .claude/hooks/tests/repo-policy-alignment.test.sh
+      bash .claude/hooks/tests/cross-harness-conformance.test.sh
+      python3 scripts/ci-workflow-preservation.py --base "$BASE_SHA"
 
 dotnet:
   stage: test
