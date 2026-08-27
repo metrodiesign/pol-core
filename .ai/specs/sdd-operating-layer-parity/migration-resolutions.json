@@ -2186,6 +2186,279 @@
    "disposition": "status-approved",
    "date": "2026-08-23",
    "rationale": "legacy chain completed — shipped via bf4a6886c49b; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-account-management/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-actor-rename/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-console-real-api/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-merchant-provisioning-contract/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-role-rbac/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/captive-payment-alignment/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/checkout-chain-document-fields/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/db-rename-vcentralpay/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/demo-seed-data/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/extended-login-session-lifetime/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/external-sim-realistic-branch-codes/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/external-sim-separate-containers/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/external-sim-shared-agent-network/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/foundation-scaffold/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/frontend-real-api-integration/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/hierarchical-naming/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/host-test-config-precedence/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/identity-rbac/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/insurance-pivot/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/local-api-port-5001/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/masterdata-module/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/masterdata-split/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-local-http-callback/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/multi-tier-deployment/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/openapi-documents/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/probe-dependency-failure-mapping/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/producer-google-sso/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-external-source-of-truth/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-sp-53-alignment/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-sp-gateway/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/rf1-schema-reset/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/rf2-iam-rbac/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/rls-to-query-filter/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/sdd-operating-layer-parity/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/search-filter-sort/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/sim-seed-date-stability/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/system-completion/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/tenant/design.md",
+   "field": "trace.table",
+   "taskId": "",
+   "disposition": "trace-header-canonical",
+   "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
   }
  ]
 }
