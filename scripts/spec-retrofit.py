@@ -1314,10 +1314,10 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                 continue
             candidate_cut = _has_unsplit_meta(raw) and \
                 not raw.lstrip().startswith("Satisfies:`")
-            if candidate_cut and re.match(r"^\s*[-*+]\s", raw):
-                # list-comment lines quoting `Satisfies:` in backticks are prose
-                stub = re.sub(r"`[^`]*`", "", raw)
-                candidate_cut = bool(re.search(r"\bSatisfies:", stub))
+            if candidate_cut and re.match(r"^\s*[-+*]\s", raw):
+                # bullet continuation lines are prose: metadata lives only on
+                # the opening title or a canonical 5-space Satisfies line
+                candidate_cut = False
             match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw) \
                 if (match is None and candidate_cut) else None
             if match is not None:
