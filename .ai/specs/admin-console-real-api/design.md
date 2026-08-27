@@ -136,7 +136,7 @@ masked email, expiry, and status.
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 | --- | --- |
 | Real persisted/OpenAPI boundary and preserved owners | REQ-1.1–1.2, REQ-1.6–1.8, REQ-1.10 |
 | Admin session, scope, composite audience, public-surface split | REQ-2.1–2.2, REQ-2.7–2.11, REQ-2.13–2.16 |

@@ -171,7 +171,7 @@ sequenceDiagram
 
 ## Requirement Traceability
 
-| REQ | Design element |
+| REQ | Section |
 |---|---|
 | REQ-1 | SfsQueryParser + contract enums/records (D1); doc 2 |
 | REQ-2 | clamps in parser + `PagedResult<T>` + count-before-page (D8); doc 3 |

@@ -117,7 +117,7 @@ Reuse `ProblemDetailsExceptionHandler`: `ArgumentException` -> 400, `NotFoundExc
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | TenantUser aggregate + enums | REQ-1, REQ-7.1 |
 | ExternalLogin | REQ-2 |

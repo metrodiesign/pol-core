@@ -365,7 +365,7 @@ Logic-first: pure unit tests before wiring; integration with the SQL container; 
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | `TenantUser` aggregate + `TenantUserStatus` + transition guard | 1.1–1.6 |
 | `ExternalLogin` `(Provider,Subject)` unique + resolve | 2.1–2.4 |

@@ -282,7 +282,7 @@ resolve เป็น CLR type ใหม่ผ่าน usings ใหม่.
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |----------------|-----|
 | โครง 4 โมดูล x 3 project + slnx (Architecture Overview) | 1.1, 1.6 |
 | Entity standalone ต่อโมดูล (Data Models) | 1.2, 1.3, 2.1 |

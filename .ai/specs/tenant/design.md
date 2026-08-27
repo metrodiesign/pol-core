@@ -206,7 +206,7 @@ pure-logic-first (LESSONS.md). ทุก test map REQ.
 
 ## Requirement Traceability
 
-| design element | REQ |
+| Section | REQ |
 |---|---|
 | `Tenants` table + columns/Metadata + unique Code | 1.1, 1.2, 1.3, 1.4 |
 | `TenantStatus = { Active }` | 1.5 |

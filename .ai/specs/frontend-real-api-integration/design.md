@@ -84,7 +84,7 @@ sequenceDiagram
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 | --- | --- |
 | OIDC, session, proxy trust | REQ-2, REQ-3, REQ-12 |
 | Registration boundary | REQ-4, REQ-12 |

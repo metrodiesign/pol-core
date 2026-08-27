@@ -271,7 +271,7 @@ demo ไม่แตะ `iam.*`/`cfg.*` จึงไม่กระทบ).
 
 ## Requirement Traceability
 
-| REQ | ที่อยู่ |
+| REQ | Section |
 |-----|---------|
 | 1.1 | `docker/bootstrap/seed-demo.sql` (นอก EF migration chain — §1) |
 | 1.2 | `scripts/seed-demo.sh` (§1) |

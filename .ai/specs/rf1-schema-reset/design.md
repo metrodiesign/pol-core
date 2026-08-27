@@ -297,7 +297,7 @@ WHERE IS_ROLEMEMBER(N'pol_rls_bypass') = 1                                    --
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | Architecture Overview ข้อ 1-2 (PolDbContext, ToTable, 3 migrations) + T1-T3, T10 | REQ-1, REQ-7 |
 | Schema map + rename map (ตาราง) | REQ-1.2, REQ-2.1-2.6 |

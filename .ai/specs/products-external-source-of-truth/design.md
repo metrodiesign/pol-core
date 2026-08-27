@@ -560,7 +560,7 @@ port `IDoubleSellAuditor` แล้ว implement ใน `Persistence.MerchantRun
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | `ListProductsHandler` เลิกใช้ `IProductRepository` | REQ-1.1, REQ-1.2 |
 | `ProductPage` envelope คงรูปเดิม + ลำดับจาก SP | REQ-1.3, REQ-1.4, REQ-1.5 |

@@ -365,7 +365,7 @@ RBAC keys (`payment.create`/`payment.redirect` เดิมพอ), route paths,
 
 ## Requirement Traceability
 
-| REQ | เกณฑ์ | ปิดด้วย |
+| REQ | Section | ปิดด้วย |
 |---|---|---|
 | REQ-1 | 1.1, 1.4 | D4 (ตัด `Amount`, ใช้ `order.Amount`) |
 | REQ-1 | 1.2 | D1 (query filter -> null -> `NotFoundException` 404) |

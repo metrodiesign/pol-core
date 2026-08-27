@@ -51,7 +51,7 @@ Reuse `ProblemDetailsExceptionHandler`: ArgumentException->400, Conflict/Invalid
 - Integration ([Trait Integration]): summary-by-token read returns only the named order; reconciliation scoped to tenant.
 
 ## Requirement Traceability
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | Slice 1 Cart handlers + endpoints | REQ-1.1–1.7 |
 | Slice 2 Order summary token + TTL + GoneException | REQ-2.1–2.6 |

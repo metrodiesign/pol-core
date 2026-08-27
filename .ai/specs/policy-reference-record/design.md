@@ -355,7 +355,7 @@ masked ด้วย **copy ของ report query เอง** (mirror `GetOrders
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | `ItemPolicy` fields + enums + nullable + duplicate-allowed | REQ-1.1–1.11 |
 | `ItemPolicy.Apply` remittance + DeductedAt rules | REQ-2.1–2.6 |

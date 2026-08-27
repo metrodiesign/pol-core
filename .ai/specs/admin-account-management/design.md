@@ -360,7 +360,7 @@ revoke are both idempotent).
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | `ListAdminsQuery` + `AdminAccountRepository.ListAsync` + `AdminAccountSfs` | REQ-1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8 |
 | `GetAdminByIdQuery` + `AdminAccountDetail` + host code-mapping + `ListRoleCodesForAdminAsync` | REQ-2.1, 2.2 |

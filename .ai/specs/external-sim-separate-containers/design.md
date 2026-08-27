@@ -187,7 +187,7 @@ assertion เดิมที่ grep `02-external-sim.sql` เปลี่ยน
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | D1 — `02-hippo-sim.sql`/`03-mammoth-sim.sql` CREATE DATABASE + CREATE LOGIN + object + seed (byte-identical) | REQ-2.1, REQ-2.2, REQ-2.4, REQ-2.7 |
 | D1 — ลบ `02-external-sim.sql` | REQ-2.3 |

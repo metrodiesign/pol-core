@@ -454,7 +454,7 @@ Without this list an implementer will either rename the contract (wrong) or dilu
 
 ## Requirement Traceability
 
-| design element | REQ |
+| Section | REQ |
 |----------------|-----|
 | Architecture Overview — behavior-preserving bar; route table not silently rewritten by the host reorg | REQ-1 (all criteria), 16.4 |
 | L1-L8 written into `.ai/shared/ARCHITECTURE.md`; rf1 §149 amended; `api-route-scheme` REQ-2.1/2.8 amended and de-staled | REQ-2 (all criteria) |

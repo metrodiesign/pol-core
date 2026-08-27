@@ -433,7 +433,7 @@ detail `"Invalid request"` ของ handler เดิม — spec นี้ไ�
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | `02-external-sim.sql` — CREATE DATABASE + `dbo.Documents` + deviation ตารางเดียว + unique DocumentNo | REQ-1.1, REQ-1.2, REQ-1.3 |
 | `02-external-sim.sql` — seed (prefix แยกฝั่ง) + self-check | REQ-1.4, REQ-1.5 |

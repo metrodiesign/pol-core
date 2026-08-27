@@ -390,7 +390,7 @@ timeout, sentinel/Empty hit — fields actor/target/entity/op/reason/correlation
 external tamper-resistant sink + alerts + retention + redaction test; per-host `Application Name`.
 
 ## Requirement Traceability
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | Cluster-aligned runtime contexts + filters | REQ-1, REQ-11.5 |
 | Sealed guard ALL contexts + token/immutable | REQ-2 |

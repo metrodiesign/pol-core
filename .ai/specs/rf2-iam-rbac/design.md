@@ -275,7 +275,7 @@ idempotent-by-code + no-op เมื่อ seed role หาย ยกมาค�
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | Schema `iam` 4 ตาราง + FK/CHECK/UNIQUE (Data Models) | REQ-1.1, 2.6, 3.1, 3.2, 3.3 |
 | `Iam.Domain.Permissions.Keys` vocabulary เดียว + `KeySide` | REQ-1.2, 1.3, 2.1, 2.2 |

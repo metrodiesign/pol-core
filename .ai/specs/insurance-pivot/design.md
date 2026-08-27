@@ -508,7 +508,7 @@ happen.
 
 ## Requirement Traceability
 
-| REQ | Design element |
+| REQ | Section |
 |---|---|
 | 1.1-1.6 | `Product` +3 fields, `Create` validation, `ProductConfiguration` (both configs) |
 | 2.1-2.4 | `CreateProductRequest`/`Command`, `ProductListItem`/`ProductView`, unchanged Money wire/error contract |

@@ -86,7 +86,7 @@ Verify = fresh DB (`docker compose down -v` + bootstrap + `dotnet ef database up
 
 ## Requirement Traceability
 
-| REQ | ไฟล์ / จุดที่รับผิดชอบ |
+| REQ | Section |
 |-----|------------------------|
 | REQ-1.1 | `src/Modules/MasterData/{MasterData.Domain,MasterData.Application,MasterData.Infrastructure}/*.csproj` |
 | REQ-1.2 | ลบ `src/Modules/Admins/*/MasterData/` ทั้ง 3 ชั้น |
