@@ -47,6 +47,8 @@ T4-T7 อิสระต่อกัน ทำขนานได้หลัง 
   - Verify (mutation): แก้ `docker/entrypoint.sh:40` ให้ประกอบสตริงเองพร้อม `TrustServerCertificate=True`
     โดยไม่เรียก `build_conn` แล้ว suite ต้องแดง — ปัจจุบัน `pass=21 fail=0` ไม่ขยับ; คืนไฟล์แล้วต้องเขียว
      Satisfies: F-7, F-8
+     Satisfies:` ของ T4 เพราะ F5 core requirement ถูก T2/T3 satisfy ไปแล้ว รอบนี้คือการเสริม coverage ของ assertion เดิม ไม่ใช่ requirement ใหม่ (2) ตำแหน่งของ scenario ใหม่ (F8) วางไว้ในกลุ่ม external-sim เดิม (หลัง `out_mammoth`, ก่อนกลุ่ม comment D1) แทนที่จะต่อท้ายไฟล์ — spec ไม่ได้ระบุตำแหน่ง เลือกจุดนี้เพราะเนื้อหาเป็นเรื่อง connection-string assembly ของสาย sim เหมือนกลุ่มนั้น ไม่ใช่เรื่อง conflict/precedence ของ D1
+
   Evidence:
     - test: `sh docker/entrypoint.test.sh` -> pass=50 fail=0 (38 เดิม + 12 ใหม่: 8 จาก sim-strict scenario F8 + 2 จาก invariant expansion F7 + 2 จาก F5 coverage-gap fix, MAJOR ของ auditor); mutation C (F7 — hippo ประกอบเองไม่เรียก `build_conn` พร้อม `TrustServerCertificate=True`) -> pass=45 fail=5 (invariant: hippo branch + sim strict hippo x4); mutation strict (F8 — สาย sim ตกไป fallback branch ทั้งที่ตั้ง `DB_CA_CERTIFICATE_FILE`) -> pass=42 fail=8 (sim strict hippo x4 + mammoth x4); mutation DB_PW (F5 MAJOR — error message เรียก `build_conn` จริงจน `$DB_PW` หลุด stderr ตามหลักฐานของ auditor) -> pass=48 fail=2 (motor+nonmotor conflict "no real DB_PW secret"); ทุก mutation ทำบน `docker/entrypoint.sh` ชั่วคราวแล้ว restore จาก backup ใน scratch dir ทันที ยืนยันด้วย `diff` ตรงกับ backup ทุกรอบ และ `git diff --stat -- docker/entrypoint.sh` คงที่ที่ 8 insertions เดิมของ T3 ตลอด ไม่มีการเปลี่ยนแปลงหลงเหลือ
     - viewports: n/a — logic-only shell script, ไม่มี UI
