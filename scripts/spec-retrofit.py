@@ -1059,6 +1059,9 @@ def plan_container_action(batch_id: str, directory: Path) -> tuple[list[Retrofit
         has_header = any(line.strip() == "Evidence:" for _number, line in region)
         if has_header:
             continue
+        # already wrapped into a verbatim LegacyContainer: never re-wrap
+        if any("sdd-legacy" in line for _number, line in region):
+            continue
         legacy_without_results = [
             line for _number, line in region
             if LEGACY_TEST_BULLET_RE.match(line) and not (
