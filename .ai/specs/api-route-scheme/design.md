@@ -29,7 +29,7 @@ app
 
 ## Requirement Traceability
 
-| Design element | Satisfies REQ |
+| Section | REQ |
 |---|---|
 | `/api/v1` root group + version-first literal segment | REQ-1.1, 1.2, 1.3 |
 | 9 plural area subgroups (REQ-2.1 names), area-root empty pattern | REQ-1.4, 2.1 |

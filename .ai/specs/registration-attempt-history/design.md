@@ -216,7 +216,7 @@ admin.MapGet("/merchants/users/{subject}/registrations",
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |----------------|-----|
 | `RegistrationAttempt` entity + EF config 2 ฝั่ง | 1.2, 1.6 |
 | FK ประกาศทั้ง 2 config (DDL constraint + insert ordering) | 1.3 |

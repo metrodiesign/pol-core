@@ -32,15 +32,11 @@ filter ตอนนี้จะทำให้ `GET /products` คืนแถ�
 แทนที่จะดูเหมือน row index
 
 **Acceptance Criteria (EARS):**
-- 1.1 THE SYSTEM SHALL map `SaleCode` → `ReferenceBranch` ผ่าน `CROSS APPLY` CASE expression เหมือน
-  กลไกเดิม (ไม่เปลี่ยนโครงสร้าง query)
-- 1.2 THE SYSTEM SHALL ใช้ชุดค่า `ReferenceBranch` ใหม่ 5 ค่า: `301` (SaleCode `77001`,`77006`), `315`
-  (`77002`), `220` (`77003`), `335` (`77004`), `450` (`77005`)
+- 1.1 THE SYSTEM SHALL map `SaleCode` → `ReferenceBranch` ผ่าน `CROSS APPLY` CASE expression เหมือน กลไกเดิม (ไม่เปลี่ยนโครงสร้าง query)
+- 1.2 THE SYSTEM SHALL ใช้ชุดค่า `ReferenceBranch` ใหม่ 5 ค่า: `301` (SaleCode `77001`,`77006`), `315` (`77002`), `220` (`77003`), `335` (`77004`), `450` (`77005`)
 - 1.3 THE SYSTEM SHALL คงความยาว `ReferenceBranch` เป็น 3 หลักเสมอ (ตรง `varchar(3)` ใน §5.2)
-- 1.4 THE SYSTEM SHALL ใช้ CASE expression เดียวกัน byte-identical ระหว่าง hippodb block และ mammothdb
-  block ใน `docker/bootstrap/02-external-sim.sql`
-- 1.5 THE SYSTEM SHALL NOT เปลี่ยนค่า `PolicyBranch`/`SaleFullName`/`BrokerCode`/`BrokerName` ที่ผูกกับ
-  `SaleCode` เดียวกันใน `CROSS APPLY` เดียวกัน — เปลี่ยนเฉพาะค่า `ReferenceBranch` เท่านั้น
+- 1.4 THE SYSTEM SHALL ใช้ CASE expression เดียวกัน byte-identical ระหว่าง hippodb block และ mammothdb block ใน `docker/bootstrap/02-external-sim.sql`
+- 1.5 THE SYSTEM SHALL NOT เปลี่ยนค่า `PolicyBranch`/`SaleFullName`/`BrokerCode`/`BrokerName` ที่ผูกกับ `SaleCode` เดียวกันใน `CROSS APPLY` เดียวกัน — เปลี่ยนเฉพาะค่า `ReferenceBranch` เท่านั้น
 
 ## REQ-2: Non-collision กับ field อื่นในไฟล์เดียวกัน
 
@@ -48,20 +44,10 @@ filter ตอนนี้จะทำให้ `GET /products` คืนแถ�
 เดียวกัน, so that ไม่มีใครอ่าน seed แล้วสับสนว่าค่าตัวเลขหมายถึงอะไร
 
 **Acceptance Criteria (EARS):**
-- 2.1 THE SYSTEM SHALL เลือกค่า `ReferenceBranch` ที่ไม่ชนกับ `ReferencePre = '900'` (marker คงที่เฉพาะ
-  `DocumentType = 'ENDORSEMENT'`, คนละ field คนละความหมาย)
-- 2.2 THE SYSTEM SHALL เลือกค่าที่ไม่ชนกับ `SaleCode` 5 หลัก (`77xxx`) หรือ `PolicyYear` 2 หลัก
-  (`69`/`26`)
-- 2.3 WHERE คอลัมน์ `BranchCode` เดิมถูกลบตาม REQ-4, THE SYSTEM SHALL ไม่ต้องหลีกเลี่ยงค่าเดิมของมัน
-  (`100/200/300/400`) อีกต่อไปเพราะไม่มีคอลัมน์นั้นเหลืออยู่แล้ว
-- 2.4 THE SYSTEM SHALL เลือกค่า `ReferenceBranch` ที่ไม่ทำให้ `PolicyYear + ReferenceBranch` (`'69'`/`'26'`
-  ต่อด้วยค่าใหม่ เช่น `'69301'`) เกิด substring `'91'` หรือ `'80'` — ค่า marker ที่
-  `external-sim-documentno-format` ฝังไว้ใน `PolicySequenceNo` ของ axis row จริงบน hippodb
-  (`SpDocumentContractTests.The_search_window_is_evaluated_per_row_when_the_document_type_is_ALL`
-  ใช้ `@SearchText = '91'` แยกแยะ row ผ่าน `DocumentNo LIKE`) — พบจาก implementation-time test failure:
-  `101`/`115` (ขึ้นต้นด้วย `1`) ต่อท้าย `'69'` กลายเป็น `'691xx'` ซึ่งมี `'91'` ทำให้ทุก row ของ SaleCode
-  นั้นๆ false-match แทนที่จะ match เฉพาะ 4 axis row ที่ตั้งใจ; ค่าที่เลือกจริง (`301`/`315`/`220`/`335`/
-  `450`) ผ่านเกณฑ์นี้แล้ว (verify สดว่า `SearchText='91'` กลับมาแค่ 4 sequence ที่ตั้งใจก่อน mark task 2)
+- 2.1 THE SYSTEM SHALL เลือกค่า `ReferenceBranch` ที่ไม่ชนกับ `ReferencePre = '900'` (marker คงที่เฉพาะ `DocumentType = 'ENDORSEMENT'`, คนละ field คนละความหมาย)
+- 2.2 THE SYSTEM SHALL เลือกค่าที่ไม่ชนกับ `SaleCode` 5 หลัก (`77xxx`) หรือ `PolicyYear` 2 หลัก (`69`/`26`)
+- 2.3 WHERE คอลัมน์ `BranchCode` เดิมถูกลบตาม REQ-4, THE SYSTEM SHALL ไม่ต้องหลีกเลี่ยงค่าเดิมของมัน (`100/200/300/400`) อีกต่อไปเพราะไม่มีคอลัมน์นั้นเหลืออยู่แล้ว
+- 2.4 THE SYSTEM SHALL เลือกค่า `ReferenceBranch` ที่ไม่ทำให้ `PolicyYear + ReferenceBranch` (`'69'`/`'26'` ต่อด้วยค่าใหม่ เช่น `'69301'`) เกิด substring `'91'` หรือ `'80'` — ค่า marker ที่ `external-sim-documentno-format` ฝังไว้ใน `PolicySequenceNo` ของ axis row จริงบน hippodb (`SpDocumentContractTests.The_search_window_is_evaluated_per_row_when_the_document_type_is_ALL` ใช้ `@SearchText = '91'` แยกแยะ row ผ่าน `DocumentNo LIKE`) — พบจาก implementation-time test failure: `101`/`115` (ขึ้นต้นด้วย `1`) ต่อท้าย `'69'` กลายเป็น `'691xx'` ซึ่งมี `'91'` ทำให้ทุก row ของ SaleCode นั้นๆ false-match แทนที่จะ match เฉพาะ 4 axis row ที่ตั้งใจ; ค่าที่เลือกจริง (`301`/`315`/`220`/`335`/ `450`) ผ่านเกณฑ์นี้แล้ว (verify สดว่า `SearchText='91'` กลับมาแค่ 4 sequence ที่ตั้งใจก่อน mark task 2)
 
 ## REQ-3: DocumentNo/PolicyNumber formula ไม่เปลี่ยนโครงสร้าง
 
@@ -70,9 +56,7 @@ PreviousPolicyNumber ยัง compute-forward จาก field เดิมเ�
 `ReferenceBranch` ไม่ทำให้ formula เพี้ยน
 
 **Acceptance Criteria (EARS):**
-- 3.1 THE SYSTEM SHALL คง formula `CONCAT(PolicyYear, rb.ReferenceBranch, '/', ab.Abbrev,
-  '/', d.PolicySequenceNo)` (และ formula พี่น้องที่ใช้ `ReferenceBranch` เดียวกัน) โดยแทนที่แค่ตัวเลข
-  `ReferenceBranch` ที่ไหลเข้ามา ไม่แก้โครงสร้าง concatenation
+- 3.1 THE SYSTEM SHALL คง formula `CONCAT(PolicyYear, rb.ReferenceBranch, '/', ab.Abbrev, '/', d.PolicySequenceNo)` (และ formula พี่น้องที่ใช้ `ReferenceBranch` เดียวกัน) โดยแทนที่แค่ตัวเลข `ReferenceBranch` ที่ไหลเข้ามา ไม่แก้โครงสร้าง concatenation
 
 ## REQ-4: ลบคอลัมน์ BranchCode ออกจาก dbo.Documents
 
@@ -80,16 +64,10 @@ PreviousPolicyNumber ยัง compute-forward จาก field เดิมเ�
 จำลอง, so that seed ไม่มี dead artifact ที่ทำให้คนอ่านเข้าใจผิดว่ามี field นี้จริงในระบบต้นทาง
 
 **Acceptance Criteria (EARS):**
-- 4.1 THE SYSTEM SHALL ลบ column definition `BranchCode varchar(3) NULL` ออกจาก `CREATE TABLE
-  dbo.Documents` ทั้ง hippodb และ mammothdb block
-- 4.2 THE SYSTEM SHALL ลบ `BranchCode` ออกจาก column list และ value expression ที่คู่กันใน axis-row
-  `INSERT ... VALUES` และ generated-row `INSERT ... SELECT` ทั้งสองฝั่ง
-- 4.3 THE SYSTEM SHALL เขียนใหม่ header comment "DELIBERATE DEVIATIONS" #2 (บรรทัด ~29-35) ให้สะท้อน
-  ความจริงใหม่: `@BranchCode` parameter ยัง required+validate ตาม PDF §2 แต่ไม่มีคอลัมน์ backing เพราะ
-  output จริง (§5.2) ไม่มี field นี้ — ถ้าต้อง filter จริงในอนาคตให้ target `ReferenceBranch`
-- 4.4 THE SYSTEM SHALL ระบุใน spec นี้ว่า supersede `products-sp-gateway` REQ-2.11 ("BranchCode
-  validate-only เป็น assumption") ด้วยเหตุผลที่ยืนยันแล้วจาก PDF §5.2 — โดยไม่แก้ไฟล์
-  `products-sp-gateway/requirements.md` ย้อนหลัง (closed spec = historical record ตาม convention repo)
+- 4.1 THE SYSTEM SHALL ลบ column definition `BranchCode varchar(3) NULL` ออกจาก `CREATE TABLE dbo.Documents` ทั้ง hippodb และ mammothdb block
+- 4.2 THE SYSTEM SHALL ลบ `BranchCode` ออกจาก column list และ value expression ที่คู่กันใน axis-row `INSERT ... VALUES` และ generated-row `INSERT ... SELECT` ทั้งสองฝั่ง
+- 4.3 THE SYSTEM SHALL เขียนใหม่ header comment "DELIBERATE DEVIATIONS" #2 (บรรทัด ~29-35) ให้สะท้อน ความจริงใหม่: `@BranchCode` parameter ยัง required+validate ตาม PDF §2 แต่ไม่มีคอลัมน์ backing เพราะ output จริง (§5.2) ไม่มี field นี้ — ถ้าต้อง filter จริงในอนาคตให้ target `ReferenceBranch`
+- 4.4 THE SYSTEM SHALL ระบุใน spec นี้ว่า supersede `products-sp-gateway` REQ-2.11 ("BranchCode validate-only เป็น assumption") ด้วยเหตุผลที่ยืนยันแล้วจาก PDF §5.2 — โดยไม่แก้ไฟล์ `products-sp-gateway/requirements.md` ย้อนหลัง (closed spec = historical record ตาม convention repo)
 - 4.5 IF migration/schema tool อื่นอ้างถึง `dbo.Documents.BranchCode` ของ simulated DB (คนละคอลัมน์กับ
   `shop.Products.BranchCode` ที่ถูกลบไปแล้วใน `products-sp-53-alignment`) THEN THE SYSTEM SHALL รายงาน
   เป็น edge case ก่อนลบ — จาก grep เบื้องต้นยืนยันแล้วว่าไม่มี
@@ -100,11 +78,9 @@ PreviousPolicyNumber ยัง compute-forward จาก field เดิมเ�
 validate เหมือนเดิมทุกประการ, so that contract ฝั่ง input ยังตรง PDF §2 แม้คอลัมน์ output ถูกลบ
 
 **Acceptance Criteria (EARS):**
-- 5.1 THE SYSTEM SHALL คง `@BranchCode` parameter declaration ใน `usp_Motor_SearchDocument` และ
-  `usp_NonMotor_SearchDocument` โดยไม่เปลี่ยน type/nullability
+- 5.1 THE SYSTEM SHALL คง `@BranchCode` parameter declaration ใน `usp_Motor_SearchDocument` และ `usp_NonMotor_SearchDocument` โดยไม่เปลี่ยน type/nullability
 - 5.2 THE SYSTEM SHALL คง trim logic ของ `@BranchCode` ไม่เปลี่ยน
-- 5.3 IF `@BranchCode` เป็นค่าว่าง THEN THE SYSTEM SHALL `THROW 50004` เหมือนเดิมทุกประการ (ข้อความ
-  error ไม่เปลี่ยน)
+- 5.3 IF `@BranchCode` เป็นค่าว่าง THEN THE SYSTEM SHALL `THROW 50004` เหมือนเดิมทุกประการ (ข้อความ error ไม่เปลี่ยน)
 
 ## REQ-6: ห้ามเพิ่ม filter semantics ให้ @BranchCode (out of scope)
 
@@ -113,10 +89,8 @@ validate เหมือนเดิมทุกประการ, so that cont
 ไม่ตรง `ReferenceBranch` ค่าไหนเลย)
 
 **Acceptance Criteria (EARS):**
-- 6.1 THE SYSTEM SHALL NOT เพิ่ม `WHERE ... ReferenceBranch = @BranchCode` หรือ predicate ใด ๆ ที่ทำให้
-  `@BranchCode` มีผลต่อผลค้นหา ใน scope งานนี้
-- 6.2 THE SYSTEM SHALL คงพฤติกรรม validate-only ของ `@BranchCode` ไว้จนกว่าจะมี spec แยกที่ wiring
-  "actor's branch claim" เข้ากับ auth ก่อน
+- 6.1 THE SYSTEM SHALL NOT เพิ่ม `WHERE ... ReferenceBranch = @BranchCode` หรือ predicate ใด ๆ ที่ทำให้ `@BranchCode` มีผลต่อผลค้นหา ใน scope งานนี้
+- 6.2 THE SYSTEM SHALL คงพฤติกรรม validate-only ของ `@BranchCode` ไว้จนกว่าจะมี spec แยกที่ wiring "actor's branch claim" เข้ากับ auth ก่อน
 
 ## REQ-7: Self-check ทั้งสองฝั่งผ่านโดยไม่ต้องแก้ logic
 
@@ -124,10 +98,8 @@ validate เหมือนเดิมทุกประการ, so that cont
 roster-completeness self-check ยังผ่านหลังเปลี่ยนค่า, so that ยืนยันว่า hippodb/mammothdb ยัง sync กัน
 
 **Acceptance Criteria (EARS):**
-- 7.1 THE SYSTEM SHALL ผ่าน cross-database identity self-check โดยไม่ต้องแก้ query ของ self-check เอง
-  (เพราะเทียบสดจากทั้งสอง database ไม่มี hardcoded ค่าเดิม)
-- 7.2 THE SYSTEM SHALL ผ่าน roster-completeness/`ShowName`→`SaleCode` invariant self-check โดยไม่ต้อง
-  แก้ query ของ self-check เอง
+- 7.1 THE SYSTEM SHALL ผ่าน cross-database identity self-check โดยไม่ต้องแก้ query ของ self-check เอง (เพราะเทียบสดจากทั้งสอง database ไม่มี hardcoded ค่าเดิม)
+- 7.2 THE SYSTEM SHALL ผ่าน roster-completeness/`ShowName`→`SaleCode` invariant self-check โดยไม่ต้อง แก้ query ของ self-check เอง
 
 ## REQ-8: Re-pin test literal จาก live query เท่านั้น
 
@@ -136,20 +108,10 @@ roster-completeness self-check ยังผ่านหลังเปลี่�
 that ไม่มี hand-derived value ผิดหลุดเข้า test
 
 **Acceptance Criteria (EARS):**
-- 8.1 THE SYSTEM SHALL re-pin `SpDocumentContractTests.cs`'s `MotorSide.PolicyYearBranch` และ
-  `NonMotorSide.PolicyYearBranch` จากค่าที่ query ได้จริงหลัง reseed (ไม่ hand-derive จากตาราง REQ-1)
-- 8.2 THE SYSTEM SHALL re-pin `SpDocumentGatewayIntegrationTests.cs`'s `AxisReferenceBranch`,
-  `AxisPolicyNumber`, `AxisDocumentNo`, `PaidPolicyNumber` (และ comment ที่อธิบายค่าเหล่านี้) จาก live
-  query เท่านั้น
-- 8.3 THE SYSTEM SHALL NOT เปลี่ยน `TotalRows`/`TotalPages`/`LastPageRows` (ReferenceBranch ไม่กระทบ
-  predicate การมองเห็นแถว)
-- 8.4 THE SYSTEM SHALL แก้ comment ใน `SpDocumentContractTests.cs`
-  (`Branch_code_is_validated_but_never_filters`, บรรทัด ~392-393) และ
-  `SpDocumentGatewayIntegrationTests.cs`
-  (`The_branch_code_is_sent_from_options_and_only_validates`, บรรทัด ~199) ให้สะท้อนว่าไม่มีคอลัมน์
-  `BranchCode` แล้ว โดยไม่เปลี่ยน assertion logic (ยังส่ง `@BranchCode` เป็น arbitrary string
-  `"100"`/`"400"`/`"999"` เหมือนเดิม — พิสูจน์ validate-only ได้แน่นขึ้นเพราะไม่มี column ให้ match แม้แต่
-  ทางทฤษฎี)
+- 8.1 THE SYSTEM SHALL re-pin `SpDocumentContractTests.cs`'s `MotorSide.PolicyYearBranch` และ `NonMotorSide.PolicyYearBranch` จากค่าที่ query ได้จริงหลัง reseed (ไม่ hand-derive จากตาราง REQ-1)
+- 8.2 THE SYSTEM SHALL re-pin `SpDocumentGatewayIntegrationTests.cs`'s `AxisReferenceBranch`, `AxisPolicyNumber`, `AxisDocumentNo`, `PaidPolicyNumber` (และ comment ที่อธิบายค่าเหล่านี้) จาก live query เท่านั้น
+- 8.3 THE SYSTEM SHALL NOT เปลี่ยน `TotalRows`/`TotalPages`/`LastPageRows` (ReferenceBranch ไม่กระทบ predicate การมองเห็นแถว)
+- 8.4 THE SYSTEM SHALL แก้ comment ใน `SpDocumentContractTests.cs` (`Branch_code_is_validated_but_never_filters`, บรรทัด ~392-393) และ `SpDocumentGatewayIntegrationTests.cs` (`The_branch_code_is_sent_from_options_and_only_validates`, บรรทัด ~199) ให้สะท้อนว่าไม่มีคอลัมน์ `BranchCode` แล้ว โดยไม่เปลี่ยน assertion logic (ยังส่ง `@BranchCode` เป็น arbitrary string `"100"`/`"400"`/`"999"` เหมือนเดิม — พิสูจน์ validate-only ได้แน่นขึ้นเพราะไม่มี column ให้ match แม้แต่ ทางทฤษฎี)
 
 ## REQ-9: อัปเดตเอกสารประกอบ (append-only บน closed spec)
 
@@ -157,12 +119,8 @@ that ไม่มี hand-derived value ผิดหลุดเข้า test
 `products-sp-gateway/HANDOFF.md` สะท้อนค่าใหม่, so that เอกสารไม่ตกยุคเหมือนที่เคยเกิดกับ PR #160
 
 **Acceptance Criteria (EARS):**
-- 9.1 THE SYSTEM SHALL อัปเดตตัวอย่าง `DocumentNo` ใน `docs/reference/products.md` (บรรทัด ~160) และ
-  ตัวอย่าง `ReferenceBranch` แถวเดี่ยว ๆ (บรรทัด ~162, ปัจจุบัน `001` ซึ่งผิดอยู่แล้วตั้งแต่ก่อนงานนี้ ไม่
-  ตรงทั้ง scheme เดิม/ใหม่) ให้ตรงค่าที่ query ได้จริงหลัง reseed ทั้งคู่
-- 9.2 WHERE `products-sp-gateway/HANDOFF.md` เป็น closed spec's HANDOFF, THE SYSTEM SHALL เพิ่ม footnote
-  ใหม่ (append เท่านั้น ไม่ rewrite ของเดิม ตาม pattern commit `9868cf4`) ชี้ไปยัง
-  `external-sim-realistic-branch-codes/` เป็น current-state reference
+- 9.1 THE SYSTEM SHALL อัปเดตตัวอย่าง `DocumentNo` ใน `docs/reference/products.md` (บรรทัด ~160) และ ตัวอย่าง `ReferenceBranch` แถวเดี่ยว ๆ (บรรทัด ~162, ปัจจุบัน `001` ซึ่งผิดอยู่แล้วตั้งแต่ก่อนงานนี้ ไม่ ตรงทั้ง scheme เดิม/ใหม่) ให้ตรงค่าที่ query ได้จริงหลัง reseed ทั้งคู่
+- 9.2 WHERE `products-sp-gateway/HANDOFF.md` เป็น closed spec's HANDOFF, THE SYSTEM SHALL เพิ่ม footnote ใหม่ (append เท่านั้น ไม่ rewrite ของเดิม ตาม pattern commit `9868cf4`) ชี้ไปยัง `external-sim-realistic-branch-codes/` เป็น current-state reference
 - 9.3 THE SYSTEM SHALL NOT แก้ `products-sp-gateway/requirements.md`, `design.md`, หรือ `tasks.md`
 
 ## REQ-10: Definition of Done gate
@@ -178,8 +136,7 @@ REQ-11.x), so that การเปลี่ยนแปลงไม่หลุ�
 - 10.3 WHEN งานทั้ง spec เสร็จ, `dotnet test pol-core.slnx` (full solution) SHALL เขียวทั้งหมด
 - 10.4 WHEN งานทั้ง spec เสร็จ, `bash scripts/spec-trace.sh external-sim-realistic-branch-codes` SHALL
   พิมพ์บรรทัด `OK:`
-- 10.5 WHEN `docker compose up pol-db-init` รันหลัง reseed, THE SYSTEM SHALL ผ่านโดยไม่มี `THROW`
-  (รวม self-check ตาม REQ-7)
+- 10.5 WHEN `docker compose up pol-db-init` รันหลัง reseed, THE SYSTEM SHALL ผ่านโดยไม่มี `THROW` (รวม self-check ตาม REQ-7)
 
 ### Findings log — /spec-analyze รอบ 1 (anchor: HEAD `9868cf4`, ไฟล์ยังไม่เคย commit; audit 2026-08-02)
 

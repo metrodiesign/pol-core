@@ -153,7 +153,7 @@ Migration must run against a backup/staging-verified database before production 
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 | --- | --- |
 | Explicit persisted enum contract table and domain assignments | REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4, REQ-1.5, REQ-1.6, REQ-1.7, REQ-1.8, REQ-1.9, REQ-1.10, REQ-1.11, REQ-1.12, REQ-1.13, REQ-1.14, REQ-1.15, REQ-1.16, REQ-1.17, REQ-1.18, REQ-1.19, REQ-1.20, REQ-1.21, REQ-1.22 |
 | EF mappings, SQL predicates and non-target boundary | REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4 |

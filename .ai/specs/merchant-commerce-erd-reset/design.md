@@ -733,7 +733,7 @@ Unicode, canonical serialization และ raw invalid insert. Release testส�
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | ERD canon copy + deviation appendix + retain allowlist | REQ-1.1-1.14 |
 | Schema delta matrix + dual configuration parity | REQ-2.1-2.23 |

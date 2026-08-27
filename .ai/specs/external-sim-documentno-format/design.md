@@ -245,7 +245,7 @@ method (re-pinned), or the one replaced test above — no REQ is left unverified
 
 ## Requirement Traceability
 
-| Design element | REQ(s) satisfied |
+| Section | REQ |
 |---|---|
 | `Abbrev(SourceSystem, DocumentType)` formula | REQ-2.1–2.7 |
 | `RunningWidth(SourceSystem)` + INSERT-time `PolicySequenceNo` | REQ-3.1–3.4 |

@@ -18,19 +18,14 @@ identity-rbac (ภายหลัง). ขอบเขตนี้ครอบ�
 ที่อ้าง `TenantId` มี record ต้นทางจริง และอ่าน config ต่อ tenant ได้.
 
 **Acceptance Criteria (EARS):**
-- 1.1 THE SYSTEM SHALL เก็บ `Tenant` เป็น aggregate ในตาราง `producer.Tenants` โดย PK `Id`
-  (uniqueidentifier) เป็นตัวแทน tenant identity
-- 1.2 THE SYSTEM SHALL เก็บเป็น column: `Code`, `DisplayName`, `LegalEntityId`, `Status`, `Country`,
-  `Currency`, `EnabledChannels`, `CreatedAtUtc`
-- 1.3 THE SYSTEM SHALL เก็บ `branding` / `routing` / `session` / `timezone` / `locale` /
-  `createdByAdmin` ใน `Metadata` (json) ไม่เป็น column แยก
+- 1.1 THE SYSTEM SHALL เก็บ `Tenant` เป็น aggregate ในตาราง `producer.Tenants` โดย PK `Id` (uniqueidentifier) เป็นตัวแทน tenant identity
+- 1.2 THE SYSTEM SHALL เก็บเป็น column: `Code`, `DisplayName`, `LegalEntityId`, `Status`, `Country`, `Currency`, `EnabledChannels`, `CreatedAtUtc`
+- 1.3 THE SYSTEM SHALL เก็บ `branding` / `routing` / `session` / `timezone` / `locale` / `createdByAdmin` ใน `Metadata` (json) ไม่เป็น column แยก
 - 1.4 THE SYSTEM SHALL บังคับ `Code` ไม่ซ้ำ (unique index)
-- 1.5 THE SYSTEM SHALL จำกัด `Status` อยู่ในเซ็ต `{ Active }` ใน scope นี้ (provisioning เซ็ต `Active`
-  ตรง; เพิ่ม state เมื่อมี suspend/saga — finding F1)
+- 1.5 THE SYSTEM SHALL จำกัด `Status` อยู่ในเซ็ต `{ Active }` ใน scope นี้ (provisioning เซ็ต `Active` ตรง; เพิ่ม state เมื่อมี suspend/saga — finding F1)
 - 1.6 IF `Code` (หลัง normalize ตาม 1.7) ไม่อยู่ใน allowlist `{ vprivilege, vcommerce, vsouvenir }` THEN
   THE SYSTEM SHALL ปฏิเสธการสร้าง `Tenant` (HTTP 400)
-- 1.7 THE SYSTEM SHALL normalize `Code` เป็น lowercase ตอนรับ input ก่อน validate / เทียบ allowlist /
-  เขียน DB; unique index และ lookup ใช้ค่า normalized (finding F2)
+- 1.7 THE SYSTEM SHALL normalize `Code` เป็น lowercase ตอนรับ input ก่อน validate / เทียบ allowlist / เขียน DB; unique index และ lookup ใช้ค่า normalized (finding F2)
 
 ## REQ-2: Admin-driven provisioning
 
@@ -55,12 +50,9 @@ input ที่ใช้ไม่ได้.
 - 3.1 THE SYSTEM SHALL validate config ครบก่อนเขียน DB ใดๆ (ปฏิเสธก่อนเกิด side-effect)
 - 3.2 IF psp code ไม่รู้จัก (`PspCodes.FromCode` ไม่ผ่าน) THEN THE SYSTEM SHALL ปฏิเสธทั้ง request (400)
 - 3.3 IF `currency` ไม่ถูกรองรับใน `Iso4217` THEN THE SYSTEM SHALL ปฏิเสธทั้ง request (400)
-- 3.4 THE SYSTEM SHALL เก็บ `enabledChannels` / `routing` / `branding` / `session` แบบ verbatim โดย
-  ไม่ validate semantics ภายใน (scope นี้)
-- 3.5 IF `pspConnections[]` ว่าง THEN THE SYSTEM SHALL ปฏิเสธ (400) — tenant ต้องมี PSP connection
-  อย่างน้อย 1 (finding F5)
-- 3.6 IF `pspConnections[]` มี psp code ซ้ำกัน THEN THE SYSTEM SHALL ปฏิเสธ (400) ก่อนเขียน (กันชน
-  unique `(TenantId, Psp)`) (finding F6)
+- 3.4 THE SYSTEM SHALL เก็บ `enabledChannels` / `routing` / `branding` / `session` แบบ verbatim โดย ไม่ validate semantics ภายใน (scope นี้)
+- 3.5 IF `pspConnections[]` ว่าง THEN THE SYSTEM SHALL ปฏิเสธ (400) — tenant ต้องมี PSP connection อย่างน้อย 1 (finding F5)
+- 3.6 IF `pspConnections[]` มี psp code ซ้ำกัน THEN THE SYSTEM SHALL ปฏิเสธ (400) ก่อนเขียน (กันชน unique `(TenantId, Psp)`) (finding F6)
 - 3.7 IF connection ใดขาด secret key ที่ "จำเป็น" ต่อ psp นั้น (ขั้นต่ำ: ทั้ง 2C2P และ Omise ต้องมี
   `secretKey`) THEN THE SYSTEM SHALL ปฏิเสธ (400); secret field อื่นที่ส่งมา (เช่น Omise `publicKey` /
   `webhookSecret`) THE SYSTEM SHALL เก็บตามที่ส่ง (store-as-provided). validation นี้อยู่หลัง Payments
@@ -73,14 +65,10 @@ input ที่ใช้ไม่ได้.
 config แต่ไม่มี secret (หรือกลับกัน).
 
 **Acceptance Criteria (EARS):**
-- 4.1 THE SYSTEM SHALL เขียน `Tenant` + `PspConnection`(s) + `VaultSecret`(s) + ตั้ง `Active` ภายใน
-  transaction เดียว
-- 4.2 IF ขั้นใดขั้นหนึ่งใน provisioning ล้มเหลว THEN THE SYSTEM SHALL rollback ทั้งหมด (ไม่เหลือ
-  `Tenant` / `PspConnection` / `VaultSecret` บางส่วน)
+- 4.1 THE SYSTEM SHALL เขียน `Tenant` + `PspConnection`(s) + `VaultSecret`(s) + ตั้ง `Active` ภายใน transaction เดียว
+- 4.2 IF ขั้นใดขั้นหนึ่งใน provisioning ล้มเหลว THEN THE SYSTEM SHALL rollback ทั้งหมด (ไม่เหลือ `Tenant` / `PspConnection` / `VaultSecret` บางส่วน)
 - 4.3 WHILE provisioning ยังไม่ commit THE SYSTEM SHALL ไม่เปิดเผย tenant ที่ค้างให้ runtime path เห็น
-- 4.4 THE SYSTEM SHALL ดำเนินการเขียนทั้งหมดของ provisioning (`Tenant` + `PspConnection` +
-  `VaultSecret` + audit) บน DbContext/connection เดียว (`pol_admin`-scoped) เพราะ atomic transaction
-  ข้าม connection ไม่ได้ (finding F4)
+- 4.4 THE SYSTEM SHALL ดำเนินการเขียนทั้งหมดของ provisioning (`Tenant` + `PspConnection` + `VaultSecret` + audit) บน DbContext/connection เดียว (`pol_admin`-scoped) เพราะ atomic transaction ข้าม connection ไม่ได้ (finding F4)
 
 ## REQ-5: Idempotency by tenant code
 
@@ -88,10 +76,8 @@ config แต่ไม่มี secret (หรือกลับกัน).
 
 **Acceptance Criteria (EARS):**
 - 5.1 THE SYSTEM SHALL ใช้ `Tenant.Code` (unique index) เป็น idempotency key ของ provisioning
-- 5.2 IF submit ด้วย `Code` ที่ provision แล้ว THEN THE SYSTEM SHALL ตอบ 409 Conflict โดยไม่ overwrite
-  record เดิม
-- 5.3 IF สอง request `Code` เดียวกันเข้ามาพร้อมกัน (race) THEN THE SYSTEM SHALL ให้สำเร็จได้เพียง 1 และ
-  อีก request ได้ 409 (unique index เป็น backstop)
+- 5.2 IF submit ด้วย `Code` ที่ provision แล้ว THEN THE SYSTEM SHALL ตอบ 409 Conflict โดยไม่ overwrite record เดิม
+- 5.3 IF สอง request `Code` เดียวกันเข้ามาพร้อมกัน (race) THEN THE SYSTEM SHALL ให้สำเร็จได้เพียง 1 และ อีก request ได้ 409 (unique index เป็น backstop)
 
 ## REQ-6: Secret confidentiality
 
@@ -99,16 +85,11 @@ config แต่ไม่มี secret (หรือกลับกัน).
 ทุก tenant ปลอดภัย.
 
 **Acceptance Criteria (EARS):**
-- 6.1 THE SYSTEM SHALL เก็บ secret เป็น ciphertext ใน vault เท่านั้น (ไม่เก็บ plaintext ใน
-  `Tenants` / `PspConnections`)
+- 6.1 THE SYSTEM SHALL เก็บ secret เป็น ciphertext ใน vault เท่านั้น (ไม่เก็บ plaintext ใน `Tenants` / `PspConnections`)
 - 6.2 WHEN API ตอบกลับข้อมูลที่มี secret THE SYSTEM SHALL mask เสมอ (เช่น `****hint`) ไม่คืน plaintext
 - 6.3 THE SYSTEM SHALL ไม่ log ค่า secret หรือ provisioning payload ที่มี secret
 - 6.4 IF เกิด error ระหว่าง provisioning THEN THE SYSTEM SHALL ไม่ใส่ secret ลงใน error response/detail
-- 6.5 WHEN provisioning THE SYSTEM SHALL คำนวณ masked hint จาก input ใน memory แล้วเก็บ hint (last-4 ต่อ
-  secret field) ไว้กับ `PspConnection` (non-secret data); WHEN read-back (REQ-9) THE SYSTEM SHALL อ่าน
-  hint จาก `PspConnection` ไม่อ่าน vault — `pol_admin` ได้สิทธิ์ INSERT-only บน `VaultSecrets`
-  (write-only, ไม่มี SELECT) (finding F3; amended จาก design review B3 — เดิมจะ `MaskedAsync` ซึ่ง
-  materialize ciphertext column ที่ pol_admin ไม่ได้ grant)
+- 6.5 WHEN provisioning THE SYSTEM SHALL คำนวณ masked hint จาก input ใน memory แล้วเก็บ hint (last-4 ต่อ secret field) ไว้กับ `PspConnection` (non-secret data); WHEN read-back (REQ-9) THE SYSTEM SHALL อ่าน hint จาก `PspConnection` ไม่อ่าน vault — `pol_admin` ได้สิทธิ์ INSERT-only บน `VaultSecrets` (write-only, ไม่มี SELECT) (finding F3; amended จาก design review B3 — เดิมจะ `MaskedAsync` ซึ่ง materialize ciphertext column ที่ pol_admin ไม่ได้ grant)
 
 ## REQ-7: Admin-only authorization
 
@@ -119,10 +100,8 @@ control-plane ไม่ได้.
 - 7.1 THE SYSTEM SHALL จำกัด endpoint provisioning + read-back ให้เฉพาะ principal ที่มี role `admin`
 - 7.2 IF request มาด้วย token role `tenant` THEN THE SYSTEM SHALL ตอบ 403
 - 7.3 IF request ไม่มี auth THEN THE SYSTEM SHALL ตอบ 401
-- 7.4 THE SYSTEM SHALL ไม่ทำ provisioning command เป็น `ITenantScoped` (เป็น cross-tenant ไม่ผูก
-  tenant context)
-- 7.5 THE SYSTEM SHALL อาศัย Google OAuth audience ของ role `admin` ที่ถูก config ไว้ (prerequisite:
-  เพิ่ม admin client ใน `Google:Audiences` + appsettings — เป็น task ใน design/tasks) (finding F9)
+- 7.4 THE SYSTEM SHALL ไม่ทำ provisioning command เป็น `ITenantScoped` (เป็น cross-tenant ไม่ผูก tenant context)
+- 7.5 THE SYSTEM SHALL อาศัย Google OAuth audience ของ role `admin` ที่ถูก config ไว้ (prerequisite: เพิ่ม admin client ใน `Google:Audiences` + appsettings — เป็น task ใน design/tasks) (finding F9)
 
 ## REQ-8: RLS isolation for the Tenants table
 
@@ -130,14 +109,11 @@ control-plane ไม่ได้.
 tenant อื่นไม่ได้แม้ app เผลอ.
 
 **Acceptance Criteria (EARS):**
-- 8.1 THE SYSTEM SHALL ใส่ RLS FILTER + BLOCK predicate บน `producer.Tenants` ด้วย
-  `producer.fn_tenant_predicate(Id)`
-- 8.2 WHILE connection ผูก `SESSION_CONTEXT('TenantId') = T` THE SYSTEM SHALL ให้อ่าน `Tenants` ได้
-  เฉพาะแถวที่ `Id = T`
+- 8.1 THE SYSTEM SHALL ใส่ RLS FILTER + BLOCK predicate บน `producer.Tenants` ด้วย `producer.fn_tenant_predicate(Id)`
+- 8.2 WHILE connection ผูก `SESSION_CONTEXT('TenantId') = T` THE SYSTEM SHALL ให้อ่าน `Tenants` ได้ เฉพาะแถวที่ `Id = T`
 - 8.3 IF tenant principal (`pol_app`) พยายาม INSERT/UPDATE `Tenants` ด้วย `Id` ที่ไม่ตรง session THEN
   THE SYSTEM SHALL block การเขียนนั้น
-- 8.4 WHERE principal เป็นสมาชิก `pol_rls_bypass` (`pol_admin`) THE SYSTEM SHALL อนุญาตอ่าน/เขียน
-  cross-tenant
+- 8.4 WHERE principal เป็นสมาชิก `pol_rls_bypass` (`pol_admin`) THE SYSTEM SHALL อนุญาตอ่าน/เขียน cross-tenant
 - 8.5 THE SYSTEM SHALL รัน provisioning ใต้ `pol_admin` connection (แยกจาก `pol_app`)
 
 ## REQ-9: Masked read-back
@@ -146,8 +122,7 @@ tenant อื่นไม่ได้แม้ app เผลอ.
 เห็น secret ดิบ.
 
 **Acceptance Criteria (EARS):**
-- 9.1 WHEN admin เรียก `GET /admin/tenants/{code}` THE SYSTEM SHALL คืน config + secret แบบ mask
-  (lookup ด้วย code ที่ normalize ตาม REQ-1.7)
+- 9.1 WHEN admin เรียก `GET /admin/tenants/{code}` THE SYSTEM SHALL คืน config + secret แบบ mask (lookup ด้วย code ที่ normalize ตาม REQ-1.7)
 - 9.2 IF ไม่พบ tenant ตาม `code` THEN THE SYSTEM SHALL ตอบ 404
 - 9.3 THE SYSTEM SHALL ไม่คืน plaintext secret ใน read-back ทุกกรณี
 
@@ -157,8 +132,7 @@ tenant อื่นไม่ได้แม้ app เผลอ.
 router ใช้ branding/routing/session ได้.
 
 **Acceptance Criteria (EARS):**
-- 10.1 WHEN runtime path (tenant-scoped) อ่าน config ของ tenant ตัวเอง THE SYSTEM SHALL คืนแถว `Tenant`
-  ของ tenant นั้น
+- 10.1 WHEN runtime path (tenant-scoped) อ่าน config ของ tenant ตัวเอง THE SYSTEM SHALL คืนแถว `Tenant` ของ tenant นั้น
 - 10.2 THE SYSTEM SHALL ไม่ให้ tenant หนึ่งอ่านแถว `Tenant` ของ tenant อื่น (บังคับด้วย RLS ตาม REQ-8)
 
 ## REQ-11: Provisioning audit (bypass accountability)
@@ -167,10 +141,8 @@ router ใช้ branding/routing/session ได้.
 bypass, so that ตรวจย้อนได้ว่าใครสร้าง tenant ใด เมื่อไร.
 
 **Acceptance Criteria (EARS):**
-- 11.1 WHEN provisioning สำเร็จ THE SYSTEM SHALL เขียน audit row 1 แถว (admin identity จาก principal,
-  tenant `Code`, `TenantId`, timestamp UTC, correlation id)
-- 11.2 THE SYSTEM SHALL เขียน audit row ใน transaction เดียวกับ provisioning (REQ-4.1) เพื่อ commit/
-  rollback พร้อมกัน
+- 11.1 WHEN provisioning สำเร็จ THE SYSTEM SHALL เขียน audit row 1 แถว (admin identity จาก principal, tenant `Code`, `TenantId`, timestamp UTC, correlation id)
+- 11.2 THE SYSTEM SHALL เขียน audit row ใน transaction เดียวกับ provisioning (REQ-4.1) เพื่อ commit/ rollback พร้อมกัน
 - 11.3 THE SYSTEM SHALL ไม่ใส่ secret ใดๆ ลงใน audit row
 
 ## Edge Cases & Open Questions

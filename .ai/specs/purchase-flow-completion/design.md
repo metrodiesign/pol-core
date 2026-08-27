@@ -246,7 +246,7 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | `ValueGeneratedNever` 2 mirror + empty migration + regression 2-scope | REQ-1.1, 1.4 (1.2, 1.3 พฤติกรรมเดิม + test) |
 | Endpoint orchestration Start→MarkCheckedOut + cart Open check | REQ-2.1, 2.2 |

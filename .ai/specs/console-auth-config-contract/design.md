@@ -356,7 +356,7 @@ git diff --check
 
 ## Requirement Traceability
 
-| Design element | Requirements |
+| Section | REQ |
 |---|---|
 | canonical option shapes, section roots และ alias map | REQ-1.1–REQ-1.12 |
 | provider-aware field merge และ source classification | REQ-2.1–REQ-2.8, REQ-2.14 |

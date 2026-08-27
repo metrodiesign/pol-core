@@ -224,7 +224,7 @@ Integration/E2E (Hosts.Tests + WebApplicationFactory):
 
 ## Requirement Traceability
 
-| Design element | Satisfies |
+| Section | REQ |
 |---|---|
 | appsettings CIAM authority + compose mapping | REQ-1.1, 3.2, 3.3 |
 | framework default issuer validation (ลบ custom validator) | REQ-1.3, 1.4, 2.2, 2.5 |

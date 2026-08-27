@@ -367,7 +367,7 @@ secret/token/code/raw-session-id (REQ-8.3).
 
 ## Requirement Traceability
 
-| Design element | REQ |
+| Section | REQ |
 |---|---|
 | OIDC login challenge + PKCE/state/nonce + returnTo allowlist + rate limit + scope/no-offline | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 |
 | login-while-authed → new family (multi-session); correlation cookie per attempt | 1.7 |
