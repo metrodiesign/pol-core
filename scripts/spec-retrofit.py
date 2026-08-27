@@ -1290,6 +1290,13 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
             meta_only = re.match(r"^( {5}Satisfies:\s*)(.*)$", raw)
             match = None
             meta_only_handled = False
+            if meta_only is not None and not re.match(
+                    r"^[FB]-?\d+(\s*,\s*[FB]-?\d+)*[.]?(\s|$)", meta_only.group(2)):
+                pieces.append(raw)  # prose mentions, not a metadata payload
+                continue
+            if meta_only is not None and not re.match(
+                    r"^[FB]-?\d+", meta_only.group(2)):
+                continue
             if meta_only is not None:
                 body = meta_only.group(2)
                 ver = re.search(r"\s+(Verify:)\s*", body)
@@ -1305,8 +1312,14 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                     pieces.append(raw)
             if meta_only_handled:
                 continue
+            candidate_cut = _has_unsplit_meta(raw) and \
+                not raw.lstrip().startswith("Satisfies:`")
+            if candidate_cut and re.match(r"^\s*[-*+]\s", raw):
+                # list-comment lines quoting `Satisfies:` in backticks are prose
+                stub = re.sub(r"`[^`]*`", "", raw)
+                candidate_cut = bool(re.search(r"\bSatisfies:", stub))
             match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw) \
-                if (match is None and _has_unsplit_meta(raw)) else None
+                if (match is None and candidate_cut) else None
             if match is not None:
                 left = match.group(1).rstrip(" ;,-")
                 if left.strip():
