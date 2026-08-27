@@ -2459,6 +2459,13 @@
    "taskId": "",
    "disposition": "trace-header-canonical",
    "rationale": "legacy trace header renamed to canonical Section/REQ; body rows unchanged; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/production-hardening/tasks.md",
+   "field": "authoring.chain",
+   "taskId": "",
+   "disposition": "active-authoring-exempt",
+   "rationale": "design-first tracker without requirements by documented intent — human checkpoint 2026-08-27"
   }
  ]
 }
