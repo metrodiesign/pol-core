@@ -1938,10 +1938,14 @@ def _residual_is_decided(blocker) -> bool:
         return load_resolution_ledger_decided_statuses(
             Path(blocker.path).parent.as_posix())
     if blocker.target_field == "trace.section":
-        table_entry = _ledger_get(Path(blocker.path).parent.as_posix(),
-                                  "trace.table")
-        return (table_entry is not None
-                and table_entry.get("disposition") == "trace-header-canonical")
+        ledger = load_resolution_ledger()
+        directory = Path(blocker.path).parent
+        for (path_str, field, _scoped), entry in ledger.items():
+            if field == "trace.table" and \
+                    Path(path_str).parent == directory and \
+                    entry.get("disposition") == "trace-header-canonical":
+                return True
+        return False
     return False
 
 
