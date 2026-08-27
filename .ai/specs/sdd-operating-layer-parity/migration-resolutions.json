@@ -1930,6 +1930,254 @@
    "disposition": "status-approved",
    "date": "2026-07-08",
    "rationale": "legacy chain completed — shipped via 49ccdf6a18ce; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-workforce-jit/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-23",
+   "rationale": "legacy chain completed — shipped via cffa6c15c02e; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-workforce-jit/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-23",
+   "rationale": "legacy chain completed — shipped via cffa6c15c02e; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-workforce-jit/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-23",
+   "rationale": "legacy chain completed — shipped via cffa6c15c02e; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/console-auth-config-contract/HANDOFF.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via 8ae8e9abc5f7; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/console-auth-config-contract/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via 8ae8e9abc5f7; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/console-auth-config-contract/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via 8ae8e9abc5f7; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/console-auth-config-contract/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via 8ae8e9abc5f7; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/FE-MIGRATION.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-07",
+   "rationale": "legacy chain completed — shipped via 33c3a926cb20; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/HANDOFF.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-07",
+   "rationale": "legacy chain completed — shipped via 33c3a926cb20; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/STAGING-EVIDENCE.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-07",
+   "rationale": "legacy chain completed — shipped via 33c3a926cb20; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-07",
+   "rationale": "legacy chain completed — shipped via 33c3a926cb20; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-07",
+   "rationale": "legacy chain completed — shipped via 33c3a926cb20; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-07",
+   "rationale": "legacy chain completed — shipped via 33c3a926cb20; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-user-payment-method-access/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via d57ee5d50b9d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-user-payment-method-access/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via d57ee5d50b9d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/merchant-user-payment-method-access/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-18",
+   "rationale": "legacy chain completed — shipped via d57ee5d50b9d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/HANDOFF.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-07-24",
+   "rationale": "legacy chain completed — shipped via 940889f182d9; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-07-24",
+   "rationale": "legacy chain completed — shipped via 940889f182d9; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-07-24",
+   "rationale": "legacy chain completed — shipped via 940889f182d9; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-07-24",
+   "rationale": "legacy chain completed — shipped via 940889f182d9; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-sp-gateway/HANDOFF.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-05",
+   "rationale": "legacy chain completed — shipped via a51dca1ae8c1; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-sp-gateway/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-05",
+   "rationale": "legacy chain completed — shipped via a51dca1ae8c1; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-sp-gateway/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-05",
+   "rationale": "legacy chain completed — shipped via a51dca1ae8c1; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/products-sp-gateway/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-05",
+   "rationale": "legacy chain completed — shipped via a51dca1ae8c1; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/purchase-flow-completion/HANDOFF.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-03",
+   "rationale": "legacy chain completed — shipped via 6c0ce2e7f01d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/purchase-flow-completion/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-03",
+   "rationale": "legacy chain completed — shipped via 6c0ce2e7f01d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/purchase-flow-completion/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-03",
+   "rationale": "legacy chain completed — shipped via 6c0ce2e7f01d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/purchase-flow-completion/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-03",
+   "rationale": "legacy chain completed — shipped via 6c0ce2e7f01d; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/tier-0-microsoft-canonical-email/design.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-23",
+   "rationale": "legacy chain completed — shipped via bf4a6886c49b; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/tier-0-microsoft-canonical-email/requirements.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-23",
+   "rationale": "legacy chain completed — shipped via bf4a6886c49b; human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/tier-0-microsoft-canonical-email/tasks.md",
+   "field": "status.line",
+   "taskId": "",
+   "disposition": "status-approved",
+   "date": "2026-08-23",
+   "rationale": "legacy chain completed — shipped via bf4a6886c49b; human checkpoint 2026-08-27"
   }
  ]
 }
