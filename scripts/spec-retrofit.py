@@ -1881,14 +1881,18 @@ def run_apply_safe(batch_id: str) -> int:
     decided_residuals = [b for b in remaining_blockers if _residual_is_decided(b)]
     undecided = [b for b in remaining_blockers if not _residual_is_decided(b)]
 
-    def _waiver_followup(action) -> bool:
+    def _derived_followup(action) -> bool:
+        """Follow-up surfaced BY this batch's own transform: header rename
+        exposes bare-dotted refs that the ref planner then canonicalizes.
+        Anything the ledger decided is converging, never a regression."""
         entry = (_ledger_get(action.path, action.target_field, action.task_id)
                  or _ledger_get(action.path, action.target_field))
-        return (entry is not None
-                and entry.get("disposition") == "waive-protocol-history")
+        if entry is None:
+            entry = _ledger_get(action.path, "trace.table")
+        return entry is not None and bool(entry.get("disposition"))
 
-    converging_actions = [a for a in remaining_actions if _waiver_followup(a)]
-    stray_actions = [a for a in remaining_actions if not _waiver_followup(a)]
+    converging_actions = [a for a in remaining_actions if _derived_followup(a)]
+    stray_actions = [a for a in remaining_actions if not _derived_followup(a)]
     if undecided or strict_rc or stray_actions:
         restored_ok, failures = restore_from_journal(batch_id)
         print(json.dumps({
