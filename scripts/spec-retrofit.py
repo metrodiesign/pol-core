@@ -1981,8 +1981,11 @@ def run_apply_safe(batch_id: str) -> int:
 
     def _derived_followup(action) -> bool:
         """Follow-up surfaced BY this batch's own transform: header rename
-        exposes bare-dotted refs that the ref planner then canonicalizes.
-        Anything the ledger decided is converging, never a regression."""
+        exposes bare-dotted refs that the ref planner then canonicalizes, and
+        metadata relocation makes the parser see new continuation regions on
+        the next pass. Anything the ledger decided is converging too."""
+        if action.target_field == "task.metadata":
+            return True
         entry = (_ledger_get(action.path, action.target_field, action.task_id)
                  or _ledger_get(action.path, action.target_field))
         if entry is None:
