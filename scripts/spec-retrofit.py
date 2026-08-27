@@ -1163,13 +1163,15 @@ def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocke
             ears_actions, ears_blockers = plan_ears_join_actions(batch_id, directory)
             new_actions.extend(ears_actions)
             new_blockers.extend(ears_blockers)
-            split_actions, split_blockers = plan_task_metadata_split_actions(batch_id, directory)
-            new_actions.extend(split_actions)
-            new_blockers.extend(split_blockers)
             if batch_id == "bugfix":
                 bf_actions, bf_blockers = plan_bugfix_actions(batch_id, directory)
                 new_actions.extend(bf_actions)
                 new_blockers.extend(bf_blockers)
+            if batch_id in {"bugfix", "canonical-complete"}:
+                split_actions, split_blockers = \
+                    plan_task_metadata_split_actions(batch_id, directory)
+                new_actions.extend(split_actions)
+                new_blockers.extend(split_blockers)
             if batch_id == "alphanumeric-tasks":
                 tm_actions, tm_blockers = plan_task_id_actions(batch_id, directory)
                 new_actions.extend(tm_actions)
