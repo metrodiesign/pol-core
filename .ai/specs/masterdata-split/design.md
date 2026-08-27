@@ -286,28 +286,28 @@ resolve เป็น CLR type ใหม่ผ่าน usings ใหม่.
 |----------------|-----|
 | โครง 4 โมดูล x 3 project + slnx (Architecture Overview) | 1.1, 1.6 |
 | Entity standalone ต่อโมดูล (Data Models) | 1.2, 1.3, 2.1 |
-| ลบ `src/Modules/MasterData/` + กวาด reference (ของที่ตาย) | 1.4 |
-| `DesignTimeDbContextFactories` 1 -> 4 assemblies | 1.5 |
+| ลบ `src/Modules/MasterData/` + กวาด reference (ของที่ตาย) | REQ-1.4 |
+| `DesignTimeDbContextFactories` 1 -> 4 assemblies | REQ-1.5 |
 | `ToTable` ชื่อเดิม + `SchemaNames.Cfg` (config ต่อโมดูล) | 2.2, 7.1 |
 | Retired tokens ใน rename gate | 2.3, 2.4 |
 | `IXStore` + `XItem` ต่อโมดูล | 3.1, 3.2 |
 | Store impl x4 ใน Persistence.ControlPlane + DI | 3.3, 3.4, 3.6 |
-| Entity ctor validation -> 400 (Error Handling) | 3.5 |
+| Entity ctor validation -> 400 (Error Handling) | REQ-3.5 |
 | `IProfileLookup`/`ProfileRef`/`ProfileField` + `ProfileValidation` | 4.1, 4.2 |
 | Admins.Application ตัด ref ทุกโมดูล; Admins.Infrastructure ref 4 Domain | 4.3, 4.4 |
-| `Persistence.ControlPlane/Admins/ProfileLookup.cs` | 4.5 |
-| Profile FK validation flow (Sequence Diagrams) | 4.6 |
+| `Persistence.ControlPlane/Admins/ProfileLookup.cs` | REQ-4.5 |
+| Profile FK validation flow (Sequence Diagrams) | REQ-4.6 |
 | Arch test Theory ไฟล์เดียว fail-closed | 5.1, 5.2, 5.3, 5.4 |
 | Endpoint helper + call sites + wire คงเดิม | 6.1, 6.3, 6.5 |
-| Gate `admin` + `user.manage` คงเดิม | 6.2 |
-| Entity logic ยกจาก `MasterDataItem` คำต่อคำ | 6.4 |
-| `BoundOnlyTypes` คง 4 type | 6.6 |
+| Gate `admin` + `user.manage` คงเดิม | REQ-6.2 |
+| Entity logic ยกจาก `MasterDataItem` คำต่อคำ | REQ-6.4 |
+| `BoundOnlyTypes` คง 4 type | REQ-6.6 |
 | Designer surgery procedure (ไม่แตะ Up/Down, ไม่มี migration ใหม่) | 7.2, 7.3 |
-| Temp migration ว่าง = machine proof | 7.4 |
+| Temp migration ว่าง = machine proof | REQ-7.4 |
 | Fresh-DB + `assert-fresh-db.sql` + lineage | 7.5, 7.6 |
-| `ControlPlaneDbContext` map 4 entity ใหม่ (atomic cutover) | 7.7 |
-| Test project ใหม่ x4 | 8.1 |
-| `FakeProfileLookup` + Admins.Tests เขียว | 8.2 |
+| `ControlPlaneDbContext` map 4 entity ใหม่ (atomic cutover) | REQ-7.7 |
+| Test project ใหม่ x4 | REQ-8.1 |
+| `FakeProfileLookup` + Admins.Tests เขียว | REQ-8.2 |
 | Assembly list 3 ไฟล์ + transaction inventory | 8.3, 8.4 |
 | Build -warnaserror + unit + integration suites | 8.5, 8.6 |
 | Canon: ARCHITECTURE.md, platform-modules.md, stack/dotnet.md, SchemaNames XML doc, transaction inventory ใน rls spec | 9.1, 9.2, 9.3, 9.4, 9.5 |

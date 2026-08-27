@@ -473,10 +473,10 @@ Without this list an implementer will either rename the contract (wrong) or dilu
 | §10 Integration events out of scope (L8) | REQ-13 (all criteria) |
 | Technology Decisions #2 + Sequence Diagrams — reset-only cutover, migrations rewritten in place, no-production-data precondition | REQ-14 (all criteria) |
 | Error Handling Strategy — no guard fails open; grep gate + its exception list | REQ-15 (all criteria) |
-| Technology Decisions #1 (`git mv`) | 3.4 |
-| Technology Decisions #3 (keep path-based CORS) | 8.1 |
-| Technology Decisions #5 (no `GlobalUsings` aliases) | 5.2 |
-| Technology Decisions #7 (law into the canon) | 2.1 |
+| Technology Decisions #1 (`git mv`) | REQ-3.4 |
+| Technology Decisions #3 (keep path-based CORS) | REQ-8.1 |
+| Technology Decisions #5 (no `GlobalUsings` aliases) | REQ-5.2 |
+| Technology Decisions #7 (law into the canon) | REQ-2.1 |
 
 ## Resolved questions (user, 2026-07-12 — do not re-litigate)
 

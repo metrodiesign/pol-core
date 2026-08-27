@@ -209,19 +209,19 @@ pure-logic-first (LESSONS.md). ทุก test map REQ.
 | Section | REQ |
 |---|---|
 | `Tenants` table + columns/Metadata + unique Code | 1.1, 1.2, 1.3, 1.4 |
-| `TenantStatus = { Active }` | 1.5 |
+| `TenantStatus = { Active }` | REQ-1.5 |
 | `TenantCode.IsAllowed` / `.Normalize` | 1.6, 1.7 |
 | handler happy path (Tenant+PspConnection+vault+Active) | 2.1, 2.2, 2.3, 2.4 |
-| 201 + Location + masked result (จาก input) | 2.5 |
-| create-only | 2.6 |
+| 201 + Location + masked result (จาก input) | REQ-2.5 |
+| create-only | REQ-2.6 |
 | validate-before-write; psp/currency/empty/dup/secretKey ผ่าน envelope factory | 3.1–3.7 |
 | `ExecuteInTransactionAsync` single tx + rollback + idempotent-under-retry | 4.1, 4.2, 4.3 |
-| keyed admin `ProducerDbContext` share instance | 4.4 |
+| keyed admin `ProducerDbContext` share instance | REQ-4.4 |
 | `GetByCodeAsync` + unique index + `ConflictException` | 5.1, 5.2, 5.3 |
 | vault ciphertext (INSERT-only) + masked + no-log + no-leak | 6.1, 6.2, 6.3, 6.4 |
-| hint จาก input เก็บที่ `PspConnection`; read-back จากที่นั่น | 6.5 |
+| hint จาก input เก็บที่ `PspConnection`; read-back จากที่นั่น | REQ-6.5 |
 | `RequireAuthorization("admin")` + not `ITenantScoped` + admin no-tenant-claim invariant | 7.1, 7.2, 7.3, 7.4 |
-| admin OAuth audience config (prerequisite task) | 7.5 |
+| admin OAuth audience config (prerequisite task) | REQ-7.5 |
 | RLS FILTER+BLOCK `fn_tenant_predicate(Id)` + pol_admin connection | 8.1–8.5 |
 | `GetTenantHandler` masked read-back (จาก PspConnection) + 404 | 9.1, 9.2, 9.3 |
 | runtime own-row read (RLS) | 10.1, 10.2 |
