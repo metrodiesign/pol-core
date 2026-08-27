@@ -400,7 +400,7 @@ scoped-admin. floor ย้ายมา app, บังคับด้วย **3 c
 
 ## Requirement Traceability
 
-| design element | REQ |
+| Section | REQ |
 |---|---|
 | §C# + EF rename map; §Renamed tables/columns | REQ-1 |
 | §External HTTP contract changes | REQ-2.1, 2.2, 2.4 |
