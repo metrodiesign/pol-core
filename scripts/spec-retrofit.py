@@ -1290,7 +1290,15 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                 left = match.group(1).rstrip(" ;,-")
                 if left.strip():
                     pieces.append(left)
-                meta_lines.append("     " + match.group(2).strip())
+                # further split trailing `Verify:` fragments onto their own
+                # lines so comma-parsing never swallows them into refs
+                rest_meta = match.group(2).strip()
+                ver = re.search(r"\s+(Verify:)\s*", rest_meta)
+                if ver is not None:
+                    meta_lines.append("     " + rest_meta[:ver.start()].strip())
+                    meta_lines.append("     " + rest_meta[ver.start():].strip())
+                else:
+                    meta_lines.append("     " + rest_meta)
             elif meta_lines:
                 break  # keep the relocation minimal: rest stays untouched
             else:
@@ -1776,7 +1784,9 @@ def run_check(batch_id: str) -> int:
             return 1
         ledger_paths = load_resolution_ledger()
         legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s)
-                       in ledger_paths if field == "trace.table"}
+                       in ledger_paths if field in {"trace.table", "authoring.chain"}
+                       and ledger_paths[(path_str, field, _s)]["disposition"]
+                       in {"trace-header-canonical", "active-authoring-exempt"}}
         for feature in features:
             # Option-K (human checkpoint): legacy chains whose trace tables are
             # ledger-dispositioned are recorded residuals — excluded from the
