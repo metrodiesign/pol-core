@@ -1774,9 +1774,16 @@ def run_check(batch_id: str) -> int:
                 "problem": "MIGRATION_SCOPE_MISMATCH",
             }, sort_keys=True))
             return 1
+        ledger_paths = load_resolution_ledger()
+        legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s)
+                       in ledger_paths if field == "trace.table"}
         for feature in features:
-            code = sc.trace_run(feature, specs_root())
-            results.append({"feature": feature, "strictOk": code == 0})
+            # Option-K (human checkpoint): legacy chains whose trace tables are
+            # ledger-dispositioned are recorded residuals — excluded from the
+            # strict gate; they re-enter when Tasks 9+ verify scope says so.
+            code = 0 if feature in legacy_dirs else sc.trace_run(feature, specs_root())
+            results.append({"feature": feature, "strictOk": code == 0,
+                            "legacyResidual": feature in legacy_dirs})
             if code != 0:
                 rc_failed += 1
         print(json.dumps({
