@@ -314,14 +314,14 @@
        - `BASE_SHA="$(git merge-base HEAD origin/develop)"; git diff --exit-code "$BASE_SHA"...HEAD -- src tests docker pol-core.slnx Directory.Packages.props` — คาดว่าจะ exit 0 และไม่มี product/runtime diff
        Evidence:
          - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> exit 0, Ran 165 tests; OK
-         - test: shell inventory loop (.claude/hooks/tests/*.test.sh x12 + docker/entrypoint.test.sh + docker/migrate-entrypoint.test.sh + scripts/check-release-evidence.test.sh) -> 15/15 suites OK rc=0
+         - test: `for f in .claude/hooks/tests/*.test.sh docker/entrypoint.test.sh docker/migrate-entrypoint.test.sh scripts/check-release-evidence.test.sh; do bash "$f"; done` -> 15/15 suites OK rc=0
          - test: `python3 scripts/repo_policy_alignment.py --check` -> exit 0 OK ทุก row
          - test: `python3 scripts/ci-workflow-preservation.py --base <merge-base>` -> allow diagnostics []
          - test: `python3 scripts/spec-retrofit.py --check --batch final-all-spec` -> exit 0 allow (61 dirs, 0 failing)
          - test: `python3 scripts/spec_contract.py check --all --strict` -> exit 0 (8 active / 54 legacy-residual / 0 failing)
          - test: `dotnet restore pol-core.slnx` -> exit 0; `dotnet build pol-core.slnx --no-restore -warnaserror` -> Build succeeded 0 Warning(s)/0 Error(s); `dotnet test ... Category!=Integration` -> 1929 passed / 0 failed across 17 test hosts
-         - test: e2e SDD fixture cross-harness-conformance.test.sh -> passed=18 failed=0
-         - test: no-product-diff git diff --exit-code merge-base...HEAD -- src tests docker pol-core.slnx Directory.Packages.props -> exit 0
+         - test: `bash .claude/hooks/tests/cross-harness-conformance.test.sh` -> passed=18 failed=0
+         - test: `git diff --exit-code <merge-base>...HEAD -- src tests docker pol-core.slnx Directory.Packages.props` -> exit 0 (no product/runtime diff)
          - viewports: n/a — CLI/CI scope ไม่มี UI surface
          - deviations: rollback rehearsal = apply-safe re-run idempotent + second dry-run no-op; integration/live-SQL tier + remote required-check/GitLab pipeline = unverified records (7) ใน .pipeline/sdd-operating-layer-parity/verification-records.json — unverified; must not be claimed as pass
 
