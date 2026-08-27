@@ -30,7 +30,7 @@
      `IWriteAuthorizer` (operation/owner/tenant-aware); tenant/owner key = concurrency token + immutable after insert
      (one-time NULL→value carve-out for pending merch.Users); DB `CHECK(<>Empty)` + `CHECK(<>sentinel)`; ban
      `ExecuteUpdate`/`ExecuteDelete` on all runtime entities + bypass primitives outside named op ports.
-     Satisfies: REQ-2 (2.1-2.11), REQ-3.5, REQ-5.2, REQ-11.3, REQ-11.4. Depends on: 1. Verify: unit — forged detached
+     REQ-2 (2.1-2.11), REQ-3.5, REQ-5.2, REQ-11.3, REQ-11.4. Depends on: 1.
          builds without `TenantKeyDescriptor.Require` throwing.
 - [x] 4. **Admin cross-merchant seam — Super/Scoped + authorization lease + invalidation matrix + merchant-role capability**
      `IAdminQuery` accessible-set floor authoritative (Super=all, Scoped=`admin.MerchantAccess`, fail-closed);
@@ -39,7 +39,7 @@
      affected user in-tx for Status/Tier/Session/MerchantAccess incl Unassign/RoleAssignment/RolePermission);
      `IMerchantRoleWriter` (own-only) vs `IMerchantRoleReader` (shared+own) vs admin (unrestricted), none returning
      `IQueryable`.
-     Satisfies: REQ-4. Depends on: 1, 3. Verify: unit + SQL — lease exactly-one-or-deny while business revoke hits
+     REQ-4. Depends on: 1, 3.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. **User/session isolation — pre-bind read+write ports + per-owner outbox + escape-hatch ports**
      Owner-key isolation for merch (MerchantUser) + admin (ControlPlane) identity tables; pre-bind READ ports
@@ -49,7 +49,7 @@
      `MerchantRuntimeOutbox`→`txn.OutboxMessages`) + drain per owner; suppressed-op narrow ports
      (`IWebhookMerchantResolver`/`IOrderSummaryReader`/`IOutboxDrain`/`IVaultAuditAppender`/`IRoleAssignmentCounter`) +
      `IgnoreQueryFilters`/raw-SQL allowlist; no `Find`/`FindAsync` on merchant-scoped entities.
-     Satisfies: REQ-9, REQ-5 (5.1/5.3/5.4/5.5/5.6), REQ-1.6. Depends on: 1, 2, 3. Verify: pre-bind lookups resolve +
+     REQ-9, REQ-5 (5.1/5.3/5.4/5.5/5.6), REQ-1.6. Depends on: 1, 2, 3.
          reimplemented here.
          **[Superseded 2026-07-26 — bugfix-merchant-prebind-wiring]** task 8 never actually performed the
          merchant-user DI flip: the handlers stayed on the FILTERED `IUserRepository`, so every pre-bind
@@ -64,7 +64,7 @@
      Applock-based serialization (`sp_getapplock` Exclusive, transaction-owned, check return code) inside a single
      transaction via a narrow per-operation port, replacing `usp_vault_audit_head`; keep unique `(MerchantId, Seq)`
      backstop; payment path stays working on SQL Server.
-     Satisfies: REQ-7. Depends on: 1, 3. Verify: concurrent-N-writer integration test — Seq contiguous, no fork/drop,
+     REQ-7. Depends on: 1, 3.
          narrow port" clause is now fully satisfied (task 5 already satisfied the clause's read-filter half).
 - [x] 7. **Provisioning Super-only UoW — the ONE cross-context write**
      `IProvisioningWriter.ProvisionAsync(spec, callerAdminId, expectedAuthorizationVersion, operationKey)` →
@@ -74,7 +74,7 @@
      (`Tier=Super AND Status=Active AND AuthorizationVersion=@expected`, `WITH(UPDLOCK,HOLDLOCK)` after the table),
      caller-bound idempotency ledger `admin.ProvisioningOperations` (immediate parameterized INSERT on a named unique
      index; duplicate/commit-unknown match CallerAdminId + canonical hash), `SaveChanges(false)`→commit→AcceptAllChanges.
-     Satisfies: REQ-10, REQ-2.12. Depends on: 1, 3, 4. Verify: integration — failpoint after each context save ⇒ atomic
+     REQ-10, REQ-2.12. Depends on: 1, 3, 4.
          ledger table exists.
 - [x] 8. **RLS teardown + single forward migration + 1 principal + deployment cutover**
      Rewrite `20260712185646_SecurityObjects.cs` to DROP RLS objects (policy/predicate fns/EXECUTE-AS procs/bypass role)
@@ -85,18 +85,18 @@
      `txn.OutboxMessages`→`merch.UserOutbox` (preserve Id/state) then forbid sentinel on `txn.OutboxMessages`; collapse
      to 1 runtime principal across every deployment file (compose/prod/entrypoint/migrate-entrypoint/01-principals/
      .env.example/CI/worker/assert-fresh-db) with a CI assertion that no legacy principal/RLS/bypass object survives.
-     Satisfies: REQ-8. Depends on: 1, 2, 3, 4, 5, 6, 7 (needs the final model). Verify: `down -v` recreate + boot;
+     REQ-8. Depends on: 1, 2, 3, 4, 5, 6, 7 (needs the final model).
          capability over those ports.
 - [x] 9. **Observability — denial/rollback/authz taxonomy + tamper-resistant sink**
      Structured taxonomy (guard/`CanWrite`/owner denial, concurrency exception, CHECK/FK violation, provisioning
      rollback, revoke deny, Super-recheck fail, merchant-role denial, applock timeout, sentinel/Empty hit) with
      actor/target/entity/op/reason/correlation (redacted); durable non-blocking transport → external tamper-resistant
      sink + alerts + retention; per-host `Application Name`.
-     Satisfies: REQ-13. Depends on: 3, 4, 7. Verify: each denial path emits its event; redaction test (no PII/secret in
+     REQ-13. Depends on: 3, 4, 7.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 10. **Canon supersede — docs**
      Update `.ai/shared/ARCHITECTURE.md` (amend the "one DbContext" invariant T1 → 1 migration-owner + 3 runtime),
      `SECURITY_RULES.md:178-184`, `CODING_STANDARDS.md`, `PROJECT_CONTEXT.md`; rewrite `docs/reference/db-connection-and-rls.md`;
      record supersede of rf1 REQ-3.2/3.3/3.7/3.8 + admin-actor-rename REQ-7.4.
-     Satisfies: REQ-12. Depends on: 8. Verify: grep shows no stale RLS-as-floor canon; supersede notes in the named specs.
+     REQ-12. Depends on: 8.
       - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

@@ -17,7 +17,7 @@
      `FakeAdminAccountRepository` (`AdminFakes.cs`). Done = list returns paged/
      filtered/sorted rows, bad enum value 400s, stable paging under a colliding
      sort key.
-     Satisfies: REQ-1. Verify: `dotnet test` — new `AdminAccountSfsTests`
+     REQ-1.
 
 - [x] 2. Admin detail + effective-permissions (id reads) — `GET /api/v1/admins/{id:guid}`
      and `GET /api/v1/admins/{id:guid}/effective-permissions`, both gated
@@ -31,7 +31,7 @@
      unordered set). Wire record for detail (reuse `AdminAccessibleResponse`); update
      `FakeAdminRoleRepository`. Done = detail shows tenants+roles, 404 on unknown;
      effective-perms is a sorted array, 404 on unknown, works for a suspended target.
-     Satisfies: REQ-2, REQ-6. Depends on: 1. Verify: `dotnet test` — handler tests
+     REQ-2, REQ-6. Depends on: 1.
 
 - [x] 3. Reactivate (lifecycle write) — `POST /api/v1/admins/{id:guid}/reactivate`,
      Super-gated. New `AdminAccount.Reactivate()` domain method (idempotent) +
@@ -42,7 +42,7 @@
      appends the audit on every accepted call, `SaveChangesAsync`; 204; 404 unknown;
      idempotent already-Active. Done = suspend→reactivate re-activates and revokes
      sessions atomically; already-Active is a no-revoke 204.
-     Satisfies: REQ-3. Depends on: 1. Verify: `dotnet test` — domain idempotence +
+     REQ-3. Depends on: 1.
 
 - [x] 4. Sessions: list + revoke — `GET /api/v1/admins/{id:guid}/sessions` and
      `DELETE /api/v1/admins/{id:guid}/sessions/{sessionId:guid}`, Super-gated. New
@@ -56,7 +56,7 @@
      idempotent 204. Update the two existing session-store fakes + add one to
      `AdminFakes.cs`. Done = sessions list hides hashes, revoke kills the family and
      404s cross-owner, idempotent re-revoke.
-     Satisfies: REQ-4, REQ-5. Depends on: 1. Verify: `dotnet test` — handler
+     REQ-4, REQ-5. Depends on: 1.
 
 - [x] 5. Cross-surface conventions + as-built docs — verify the whole six-endpoint
      surface conforms and record it. Confirm all six sit under `/api/v1/admins` with
@@ -69,7 +69,7 @@
      `docs/reference/admin-module.md`, including the role-composition note (a role
      granting `user.roles` should also grant `user.view` so an operator can both see
      the directory and assign roles — the gate is single-key, not an OR).
-     Satisfies: REQ-7. Depends on: 1, 2, 3, 4. Verify: `dotnet test` (route-scheme +
+     REQ-7. Depends on: 1, 2, 3, 4.
 
 - [x] 6. **Increment 2** — Org profile fields as FK to four master lists, end-to-end.
      New `Admin.Domain/MasterData.cs` (abstract `MasterData` base + `Position`/`Office`/
@@ -87,7 +87,7 @@
      in `AdminFakes.cs`. Done = create/edit sets validated FKs, detail returns
      `{id,code,name}`, masters CRUD works, migration applies on real SQL with the FK
      enforced.
-     Satisfies: REQ-8, REQ-9, REQ-10. Depends on: 1, 2. Verify: `dotnet test` +
+     REQ-8, REQ-9, REQ-10. Depends on: 1, 2.
 
 - [x] 7. **Increment 2 (seed)** — Baseline HR org master data.
      Data-only migration `20260706123457_AddAdminMasterDataSeed` seeds the four master

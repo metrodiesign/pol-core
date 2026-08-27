@@ -6,7 +6,7 @@
 > Decompose micro-steps internally; do not split tasks here.
 
 - [x] 1. **Microsoft Admin OIDC workforce gate** — register Microsoft-only Admin authentication, validate typed workforce claims, classify policy/protocol failures, and add Production configuration guard.
-     Satisfies: REQ-1.1-1.8, REQ-2.1-2.26, REQ-9.1-9.7, REQ-10.4, REQ-10.7. Verify: backend OIDC claim/route/config tests plus `dotnet test pol-core.slnx --filter "Category!=Integration"`.
+     REQ-1.1-1.8, REQ-2.1-2.26, REQ-9.1-9.7, REQ-10.4, REQ-10.7.
 
 - [x] 2. **Atomic Microsoft JIT identity provisioning** — add Microsoft-bound Active Scoped factory, typed identity outcomes, lock/unique-conflict recovery, existing-state preservation, and `AuditAction.JitProvision` without schema changes.
      Satisfies: REQ-3.1-3.12, REQ-4.1-4.12, REQ-5.1-5.13, REQ-7.1-7.10.
@@ -15,7 +15,7 @@
      Satisfies: REQ-6.1-6.10, REQ-10.1-10.3, REQ-10.9.
 
 - [x] 4. **Admin SPA Microsoft-only experience** — remove Admin Google helper/UI/tests, preserve Merchant login and logout behavior, add provider-neutral denial copy, and render authenticated `permissions=[]` as the existing `403` screen.
-     Satisfies: REQ-8.1-8.8, REQ-10.8. Depends on: 3. Verify: `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`, and frontend auth/browser tests.
+     REQ-8.1-8.8, REQ-10.8. Depends on: 3.
 
 - [x] 5. **Local cross-repo acceptance** — verify Microsoft Entra login, callback session, session-family revocation, stale-session rejection, and local Admin auth guard without changing schema.
   Covers local verification for: REQ-1.1-1.8, REQ-2.1-2.26, REQ-6.1-6.10, REQ-8.1-8.8, REQ-9.1-9.7, REQ-10.1-10.9. Depends on: 1-4. Staging release acceptance moves to Task 6.

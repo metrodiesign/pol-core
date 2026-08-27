@@ -23,7 +23,7 @@
      `docs/runbooks/deploy-self-host.md:76-77`.
      (b) Confirm no production deployment holds real data. Task 9 destroys the database volume; if this
      is false, STOP — the spec needs a transfer migration instead of a reset.
-     Satisfies: REQ-9.3, 9.4, 9.5, 14.0. Verify: bugfix PR merged to develop; a test asserts which
+     REQ-9.3, 9.4, 9.5, 14.0.
 
 - [x] 1. **Detectors, written against the code as it stands today.**
      Every one of these must be **green on the pre-rename, pre-move code** — a detector authored after
@@ -46,7 +46,7 @@
      (`merchants` in, the compound area out), REQ-2.8's enumeration of literal `admins` sub-resources
      (add `merchants/users` and the four master lists), and its pre-rf1 vocabulary (`producers`,
      `tenant`) which no longer names anything in the codebase.
-     Satisfies: REQ-2 (all criteria). Verify: no two canon files state contradictory naming rules;
+     REQ-2 (all criteria).
 
 - [x] 3. **Module projects pluralised; solution and dead folders cleaned.**
      `Admin.*` -> `Admins.*`, `Cart.*` -> `Carts.*`, `Checkout.*` -> `Checkouts.*` across Domain,

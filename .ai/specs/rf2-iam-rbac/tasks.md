@@ -15,7 +15,7 @@
      assembly เข้า `ModuleAssemblies` ทุกจุดที่ประกอบ `PolDbContext` (API/Worker/test harnesses),
      unit test project `tests/Iam.Tests` (vocabulary pins 20/8/KeySide ชุด literal เต็ม + Role
      invariants). ยังไม่แตะ catalog เดิม — build เขียวคู่กันได้
-     Satisfies: REQ-1.1, 1.2, 1.3, 2.4, 3.1, 3.2, 3.3, 6.3, 10.1. Verify: `dotnet build
+     REQ-1.1, 1.2, 1.3, 2.4, 3.1, 3.2, 3.3, 6.3, 10.1.
       - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)
 - [x] 2. Catalog cutover สองฝั่ง — ย้าย role CRUD + permission catalog handlers จาก
      Admins/Merchants.Application → `Iam.Application` (handler เดียวต่อ operation รับ
@@ -52,13 +52,13 @@
      4 roles stable GUIDs + role-permission grants ตาม design matrix, ไม่มี invoice.*/
      settlement.run/finance) — Designer + `PolDbContextModelSnapshot` regen อัตโนมัติ;
      model-consistency test `HasPendingModelChanges() == false`
-     Satisfies: REQ-1.4, 2.1, 2.2, 2.3, 2.5, 2.6, 7.1, 9.1, 9.3. Depends on: 2. Verify: fresh
+     REQ-1.4, 2.1, 2.2, 2.3, 2.5, 2.6, 7.1, 9.1, 9.3. Depends on: 2.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. Architecture tests — entity→schema allow-set test สร้างใหม่ (ครอบทุก module: schema ∈
      {shop, txn, admin, merch, iam} + named exceptions ของ rf1; entity `Iam` → `iam` เท่านั้น);
      module reference rules (`Iam.*` ไม่อ้าง module ใด, module อื่นอ้างได้แค่ `Iam.Domain`);
      confinement: ห้าม query `iam.Roles` นอก Iam store + resolution repositories
-     Satisfies: REQ-1.6. Depends on: 2. Verify: `dotnet test --filter Architecture.Tests`.
+     REQ-1.6. Depends on: 2.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 6. Integration suite — บน :11433 (bootstrap+migrate ก่อน): seed drift guard (iam rows
      SetEquals vocabulary + 4 roles + grants ต่อ role), grants matrix (pol_admin ตามตาราง /
@@ -78,5 +78,5 @@
      (สถานะ RBAC); grep gates ปิดท้าย: `ponytail: DUPLICATE` (RBAC) = 0, `PermissionParity`/
      `UserPermissionParity`/`Admins.Domain.Permissions`/`Merchants.Domain.Users.Permissions` = 0
      ใน src/; `scripts/spec-trace.sh rf2-iam-rbac` เขียว
-     Satisfies: REQ-1.5. Depends on: 2, 3. Verify: grep = 0 + spec-trace exit 0.
+     REQ-1.5. Depends on: 2, 3.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)

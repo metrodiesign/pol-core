@@ -63,7 +63,7 @@
      (unique TenantUserId) granted `pol_worker`+`pol_admin` (S5) + least-privilege grants; add **`ProducerArchitectureTests`**
      asserting `Producer.* ⇏ Admin.*` and `Admin.* ⇏ Producer.*` (B2). Done = projects build, migration applies, RLS
      integration test green.
-     Satisfies: REQ-1, REQ-2, REQ-19, REQ-23. Verify: `dotnet test tests/Producer.Tests tests/Integration.Tests`
+     REQ-1, REQ-2, REQ-19, REQ-23.
 
 - [x] 2. **RBAC catalog + roles** — `ProducerPermissions` (vocab + `AllKeys` frozen), `ProducerRole` (immutable
      `Code` `^[a-z0-9_]+$`, `SetPermissions` catalog-subset), `ProducerRolePermission`, `ProducerRoleAssignment`
@@ -71,7 +71,7 @@
      keys, undeletable anchor) and `tenant_member` (`product.*`+`payment.*` only — default approve choice, S7);
      `IProducerRoleRepository.ListEffectivePermissionsAsync` (union over ACTIVE roles); role CRUD. Done = catalog
      seeded, roles enforce subset + anchor rules.
-     Satisfies: REQ-15, REQ-16. Depends on: 1. Verify: `dotnet test` (catalog/DB parity == `ProducerPermissions.All`;
+     REQ-15, REQ-16. Depends on: 1.
 
 - [x] 3. **BFF session core** `[DUP→Admin session]` — `ProducerSession` aggregate (owner `TenantUserId`),
      `ProducerSessionDecision` (pure decision table — the heart), `ProducerSessionTokens` (opaque + SHA-256,
@@ -79,7 +79,7 @@
      `RevokeFamily`, `RevokeAllForUserAsync`, prune) + `ProducerSessionPorts`; migration `AddProducerSessionTables`
      (control-plane `ProducerSessions`+`ProducerAuthAudits`, `pol_admin` only). Done = decision table + store
      invariants proven.
-     Satisfies: REQ-10, REQ-11. Depends on: 1. Verify: `dotnet test` (decision table incl. grace/reuse; rotation
+     REQ-10, REQ-11. Depends on: 1.
 
 - [x] 4. **Registration endpoint + photo + outbox event** — `OpaqueTicket` signer (DataProtection, distinct
      purpose); `POST /producer/register` (anonymous, ticket-gated, multipart; **size bound before buffering** N3);
@@ -90,7 +90,7 @@
      + `OutboxDispatcher.EventTypes` registration; Admin consumer → idempotent `ProducerRegistrationNotices` (no
      tenant-scoped table, S5); reject→correction→resubmit path (Rejected→Pending). Done = register + resubmit work
      end-to-end, event published.
-     Satisfies: REQ-3, REQ-4, REQ-5, REQ-7, REQ-20, REQ-21. Depends on: 1. Verify: `dotnet test tests/Hosts.Tests`
+     REQ-3, REQ-4, REQ-5, REQ-7, REQ-20, REQ-21. Depends on: 1.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 5. **OIDC login + callback (state machine)** — `ProducerOidcAuthentication` using the framework
      `AddOpenIdConnect` (scheme `ProducerGoogle` + `producer-oidc-noop` sign-in scheme, separate DP app-name +
@@ -100,7 +100,7 @@
      ticket+redirect) + `ProducerCallbackResolver` (mint ticket, **NO self-provision**); `ReturnUrlPolicy` allowlist;
      `GET /producer/auth/login`; boot guards (secret fail-fast, blank ClientId→skip scheme). Done = login redirects
      to Google; each callback branch behaves.
-     Satisfies: REQ-8, REQ-9, REQ-14. Depends on: 1, 3, 4. Verify: `dotnet test tests/Hosts.Tests`
+     REQ-8, REQ-9, REQ-14. Depends on: 1, 3, 4.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 6. **Session scheme + handler + ambient tenant + permission enforcement** — `ProducerSessionAuthenticationHandler`
      (scheme `ProducerSession`; per-request decision+rotate+READ-ONLY re-resolve; bind `IProducerScope` + claims
@@ -113,7 +113,7 @@
      `POST /producer/auth/logout|logout-all`; `GET /producer/me`; `GET /producer/permissions` + role/assignment
      endpoints with the gating matrix (reads authenticated, mutate `roles.manage`, assign `user.roles` S8). Done =
      authenticated producer resolves scope, rotation/revoke/CSRF enforced.
-     Satisfies: REQ-12, REQ-13, REQ-14, REQ-15, REQ-17, REQ-21. Depends on: 1, 2, 3. Verify: `dotnet test tests/Hosts.Tests`
+     REQ-12, REQ-13, REQ-14, REQ-15, REQ-17, REQ-21. Depends on: 1, 2, 3.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 7. **Admin approve/reject (cross-plane) + Admin catalog extension** — `ApproveTenantUserCommand(subject,
      validatedTenantId, roleCodes)` / `RejectTenantUserCommand` in `Producer.Application`; host endpoints
@@ -124,17 +124,17 @@
      grant + `AdminPermissions.cs` consts/`All`/`GroupKeys`); update `AdminRoleTests`/`AdminRoleRbacGrantsTests`
      counts (14→16 perms, 5→6 groups — declared, S1); registration audit on each action. Done = approve/reject
      end-to-end with the Admin gate.
-     Satisfies: REQ-6, REQ-18, REQ-21. Depends on: 1, 2, 3. Verify: `dotnet test`
+     REQ-6, REQ-18, REQ-21. Depends on: 1, 2, 3.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 8. **Enforce the 3 write endpoints + close the seams** — apply the dual-scheme `producer` policy; flip
      `Program.cs` `POST /products` (418) / `POST /payment-sessions` (562) / `POST /payment-sessions/{id}/redirect`
      (583) to `.RequireAuthorization("producer").RequireProducerPermission(product.create|payment.create|payment.redirect)`
      behind `Producer:EnforcePermissionsOnWrites`; remove the three `TODO(producer)` markers + the 346-348 resolver
      TODO. Done = flag off → existing tenant-Bearer flows unchanged; flag on → permission enforced.
-     Satisfies: REQ-17, REQ-22, REQ-23. Depends on: 6. Verify: `dotnet test tests/Hosts.Tests`
+     REQ-17, REQ-22, REQ-23. Depends on: 6.
       - deviations: none recorded — legacy corpus predates evidence v2 protocol (human checkpoint 2026-08-26)
 - [x] 9. **Canon reconciliation** [optional] — update `CODING_STANDARDS.md:53` (`ProducerAccount`→`TenantUser`) and
      the `ARCHITECTURE.md` Identity-rebuild note to match the shipped naming; add the new producer auth surface to
      `docs/reference/entity-fields.md` if present (mirrors `admin-oidc-session` REQ-13 canon reconciliation).
-     Satisfies: REQ-23 (canon-accuracy). Batch: B-docs. Verify: docs match the shipped entity/module names.
+     REQ-23 (canon-accuracy). Batch: B-docs.
       - viewports: n/a — legacy corpus predates viewport protocol (human checkpoint 2026-08-26)

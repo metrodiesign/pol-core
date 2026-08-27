@@ -10,7 +10,7 @@
      `SortDirection` (`"ASC"`/`"DESC"`), records `FilterOption` (`JsonElement? Value`, `JsonElement[]? Values`),
      `SortOption`, `SearchOption`, `abstract record PagedQuery` (Page=1/Limit=25/Filters=[]/Sort=[]/Search=null),
      `record PagedResult<T>` (+`TotalPages`). No ASP.NET reference. Ref: doc 2.3.
-     Satisfies: REQ-9, REQ-1.3, REQ-1.4, REQ-2.7, REQ-11. Verify: unit — deserialize `{"operator":"not_in"}`
+     REQ-9, REQ-1.3, REQ-1.4, REQ-2.7, REQ-11.
 
 - [x] 2. `SfsQueryParser` in `Hosts/Api` + parser unit tests — static parser returning the named tuple
      `(Page, Limit, Filters, Sort, Search)`: `page` clamp `>=1` (`Math.Max`) AND clamp to an offset ceiling so
@@ -32,7 +32,7 @@
      `ArgumentException` (->400) on type mismatch (REQ-8.5, avoids 409/500). Log each whitelist-dropped
      field/operator at debug level, names only (REQ-8.6). Field matching is case-sensitive exact camelCase
      (REQ-6.7); multiple filters AND-combine (REQ-3.7). Ref: doc 4, 5, 6, 4.1.
-     Satisfies: REQ-2.5, REQ-3, REQ-4, REQ-5, REQ-6, REQ-8.5, REQ-8.6. Depends on: 1. Verify: unit —
+     REQ-2.5, REQ-3, REQ-4, REQ-5, REQ-6, REQ-8.5, REQ-8.6. Depends on: 1.
 
 - [x] 4. Wire `GET /admin/roles` to SFS (control-plane exemplar, NOT `ITenantScoped`) — `ListRolesQuery :
      PagedQuery, IQuery<PagedResult<AdminRoleListItem>>`; handler delegates to repo; `AdminRoleRepository.
@@ -44,7 +44,7 @@
      `long` (REQ-2.6). Endpoint parses via `SfsQueryParser`, maps items to `RoleResponse` via a
      `new PagedResult<RoleResponse>(...)` (with{} cannot change T), declares SFS query params via
      `.WithOpenApi(...)` (REQ-13), `Produces<PagedResult<RoleResponse>>` + `ProducesProblem(400)`. Ref: doc 12.1.
-     Satisfies: REQ-1.1, REQ-2.4, REQ-8, REQ-12.1, REQ-12.2, REQ-13. Depends on: 2, 3. Verify: host tests —
+     REQ-1.1, REQ-2.4, REQ-8, REQ-12.1, REQ-12.2, REQ-13. Depends on: 2, 3.
 
 - [x] 5. Tenant-scoped exemplar `GET /products` + typed filter DTO + RLS non-widening
      **[หมายเหตุ 2026-07-30 — บันทึกประวัติ, ถูก supersede โดย spec `products-sp-53-alignment` (§5.2 field parity
@@ -79,5 +79,5 @@
      intact); run `scripts/spec-trace.sh search-filter-sort` (every REQ referenced, EARS lint pass); ensure
      `docs/reference/search-filter-sort.md` is linked from `docs/README.md` (already is) and reflects any
      deviations made during implementation.
-     Satisfies: REQ-11, REQ-12.3. Depends on: 4, 5. Verify: `dotnet test` full suite green; spec-trace OK;
+     REQ-11, REQ-12.3. Depends on: 4, 5.
 > tasks 3-4 as the template.

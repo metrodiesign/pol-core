@@ -47,7 +47,7 @@
      `IPspAdapter.SupportedMethods` (`IReadOnlySet<string>`) ที่ทั้ง 2 adapter คืน `{ PaymentMethods.Card }`
      ตามความสามารถจริงวันนี้ (design D2). **ยังไม่แก้ handler ใด ๆ ใน task นี้.**
      **Done** = domain/ports ล้วน + unit tests ครบทุก branch, solution build เขียว, suite เดิมไม่ถอย.
-     Satisfies: REQ-3 (3.6), REQ-6 (6.1). Verify: `dotnet test tests/Payments.Tests` — case:
+     REQ-3 (3.6), REQ-6 (6.1).
 
 - [x] 2. **Create-session ตั้งราคาจาก Order + eligibility + capability + idempotent** — port
      `Payments.Application/Ports/IPayableOrderReader.cs` (+ record `PayableOrder`) และ impl
@@ -85,7 +85,7 @@
      ใบที่สอง (open) ของ order เดิมแล้วได้ `ConflictException` ผ่าน translator เดิมใน
      `MerchantRuntimeUnitOfWork`; ยืนยันว่า session `Failed`/`Expired` ไม่ติด filter (retry เปิดใบใหม่ได้).
      **Done** = double-charge ปิดทั้งชั้น handler และชั้น DB โดยไม่ล็อก retry.
-     Satisfies: REQ-2 (2.4, 2.5, 2.6). Depends on: 3. Verify: `dotnet test tests/Architecture.Tests` +
+     REQ-2 (2.4, 2.5, 2.6). Depends on: 3.
 
 - [x] 5. **Webhook callback URL ต่อ connection + paymentChannel จาก method + config surface** —
      `PspOptions` เพิ่ม `PublicBaseUrl` และ **ลบ** `TwoCTwoPOptions.BackendReturnUrl`;
@@ -147,7 +147,7 @@
      เส้นทาง definitive; เปลี่ยน re-entry ที่หัว handler ให้ `Redirected` + `RedirectUrl == null` เดินขั้น
      reveal->create->bind **ซ้ำ** โดยไม่ `BeginRedirect` ใหม่. **Done** = ผลกำกวมไม่เคยกลายเป็น `Failed`,
      และ claim ที่ค้างสะสางได้เองด้วย idempotency key เดิม ไม่มี charge ใบที่สอง.
-     Satisfies: REQ-7 (7.5, 7.6). Depends on: 3, 4, 5. Verify: `dotnet test tests/Payments.Tests` — case:
+     REQ-7 (7.5, 7.6). Depends on: 3, 4, 5.
 
 - [x] 9. **migration สะสางแถวซ้ำก่อนสร้าง unique index** — `CreateIndex` เปล่าใน
      `20260726151538_OneOpenPaymentSessionPerOrder` จะ **fail กลาง migration chain** บนฐานข้อมูลที่มี open
@@ -160,5 +160,5 @@
      ห้ามแตะแถวที่มี charge ผูกไว้. `Down` คง `DropIndex` เดิมพร้อมคอมเมนต์ว่าทำไมไม่ย้อน `Expired`.
      **Done** = migration รันผ่านบน DB ที่มีแถวซ้ำแบบไม่มี charge, และหยุดพร้อมข้อความที่ใช้งานได้จริงบน DB
      ที่มีแถวซ้ำแบบมี charge.
-     Satisfies: REQ-2 (2.7). Depends on: 4. Verify: สร้างสถานการณ์จริงบน `pol-db` `:11433` — (ก) เพาะ 2 open
+     REQ-2 (2.7). Depends on: 4.
          (`assert-fresh-db.sql` ไม่นับแถวของตารางนี้) และไม่มี order จริงผูกอยู่.
