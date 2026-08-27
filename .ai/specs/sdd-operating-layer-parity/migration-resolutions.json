@@ -158,8 +158,9 @@
    "path": ".ai/specs/admin-workforce-jit/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-23"
   },
   {
    "path": ".ai/specs/admin-workforce-jit/tasks.md",
@@ -377,8 +378,9 @@
    "path": ".ai/specs/console-auth-config-contract/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-18"
   },
   {
    "path": ".ai/specs/console-auth-config-contract/tasks.md",
@@ -761,8 +763,9 @@
    "path": ".ai/specs/merchant-commerce-erd-reset/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-07"
   },
   {
    "path": ".ai/specs/merchant-commerce-erd-reset/tasks.md",
@@ -799,8 +802,9 @@
    "path": ".ai/specs/merchant-user-payment-method-access/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-18"
   },
   {
    "path": ".ai/specs/merchant-user-payment-method-access/tasks.md",
@@ -879,8 +883,9 @@
    "path": ".ai/specs/policy-reference-record/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-07-24"
   },
   {
    "path": ".ai/specs/probe-dependency-failure-mapping/requirements.md",
@@ -1000,8 +1005,9 @@
    "path": ".ai/specs/products-sp-gateway/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-05"
   },
   {
    "path": ".ai/specs/products-sp-gateway/tasks.md",
@@ -1021,8 +1027,9 @@
    "path": ".ai/specs/purchase-flow-completion/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-03"
   },
   {
    "path": ".ai/specs/rf2-iam-rbac/tasks.md",
@@ -1160,8 +1167,9 @@
    "path": ".ai/specs/tier-0-microsoft-canonical-email/handoff.md",
    "field": "status.line",
    "taskId": "",
-   "disposition": "status-unknown",
-   "rationale": "missing-status — human checkpoint 2026-08-26"
+   "disposition": "status-approved",
+   "rationale": "missing-status — human checkpoint 2026-08-26 | aligned to shipped chain — human checkpoint 2026-08-27",
+   "date": "2026-08-23"
   },
   {
    "path": ".ai/specs/production-hardening/requirements.md",
