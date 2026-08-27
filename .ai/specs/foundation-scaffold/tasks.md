@@ -11,38 +11,32 @@
 ## กลุ่ม A — Scaffold + spine (เสร็จแล้ว)
 
 - [x] A1. Solution graph + project references wired (SharedKernel, Contracts, BuildingBlocks×2,
-  Modules×5×3, Hosts×2, tests×6) · Satisfies: REQ-1.1, REQ-1.3, REQ-1.4
-  - Evidence: `find src -maxdepth 3 -type d` + `ls tests` ยืนยันครบทุก project ตามผัง (SharedKernel,
-    Contracts, BuildingBlocks.Application/Infrastructure, Modules/{Products,Cart,Checkout,Orders,
-    Payments}/{Domain,Application,Infrastructure}, Hosts/{TenantConsole,AdminConsole}, tests×6).
+  Modules×5×3, Hosts×2, tests×6) ·
+     Satisfies: REQ-1.1, REQ-1.3, REQ-1.4
        - viewports: n/a (ไม่มี UI). Deviations: ไม่มี.
 - [x] A2. Dependency direction + `-warnaserror` + nullable-clean (build เขียว 0 warning)
-  · Satisfies: REQ-1.2, REQ-1.6
-  - Evidence: brief ระบุ "shared spine ALREADY COMPILES GREEN" ภายใต้ TreatWarningsAsErrors; verify ด้วย
+  ·
+     Satisfies: REQ-1.2, REQ-1.6
     `dotnet build -warnaserror` (0 warning). Viewports: n/a. Deviations: ไม่มี.
 - [x] A3. SharedKernel spine — `Money`/`Money.Of`/`Add`/`Zero`/`SameCurrencyAs`, `Iso4217`
   (THB/USD/JPY), `IDomainEvent`, `Entity<TId>`, `AggregateRoot<TId>`, `MoneyJsonConverter`
-  · Satisfies: REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5
-  - Evidence: spine public API ใน brief ยืนยันทุก type มีอยู่และ compile เขียว; verify
+  ·
+     Satisfies: REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5
     `dotnet test tests/SharedKernel.Tests`. Viewports: n/a. Deviations: ไม่มี.
 - [x] A4. Contracts spine — `PaymentPaid : INotification` + `SchemaVersion = "v1"`
-  · Satisfies: REQ-2.2
-  - Evidence: brief ยืนยัน `PaymentPaid` record + `SchemaVersion="v1"` compile เขียวใน Contracts; verify
+  ·
+     Satisfies: REQ-2.2
     `dotnet build -warnaserror`. Viewports: n/a. Deviations: ไม่มี.
 - [x] A5. BuildingBlocks.Application abstractions — `ITenantContext`, `IClock`, `IUnitOfWork`,
-  `IIdempotencyStore`, `IOutbox`, `IVaultSecretStore`, `ITenantScoped` · Satisfies: REQ-4.1
-  - Evidence: brief ยืนยัน interface ทั้งเจ็ด compile เขียวใน BuildingBlocks.Application; verify
+  `IIdempotencyStore`, `IOutbox`, `IVaultSecretStore`, `ITenantScoped` ·
+     Satisfies: REQ-4.1
     `dotnet build -warnaserror`. Viewports: n/a. Deviations: ไม่มี.
 - [x] A6. BuildingBlocks.Infrastructure spine — `ProducerDbContext`/`AdminDbContext`,
   `ModuleAssemblies`, `AddBuildingBlocksInfrastructure()` (clock, RLS interceptor, UoW, idempotency,
   vault, outbox, dispatcher), Outbox/Idempotency/Vault tables, model discovery จาก
   `ModuleAssemblies.Producer`; vault provider ออกแบบรองรับ envelope encryption (per-tenant KEK, DEK/secret,
-  key id+version, rotation) · Satisfies: REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5, REQ-7.4
-  - Evidence: `find src/BuildingBlocks/BuildingBlocks.Infrastructure` แสดงโฟลเดอร์ Outbox/Idempotency/
-    Vault/Persistence; brief ยืนยัน spine compile เขียว; verify `dotnet build -warnaserror`.
-       - viewports: n/a. Deviations: ไม่มี.
-
-## กลุ่ม B — Architecture + naming guards
+  key id+version, rotation) ·
+     Satisfies: REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5, REQ-7.4
 
 - [ ] B1. `Architecture.Tests` — บังคับทิศ dependency + ห้าม cross-module `*.Domain`/`*.Infrastructure`
   reference + Domain ไม่อ้าง EF/ASP.NET · Satisfies: REQ-1.2, REQ-1.5, REQ-11.2
