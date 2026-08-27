@@ -70,8 +70,7 @@ any reference-data module, so that Admins.Application is fully decoupled.
 - 4.3 THE SYSTEM SHALL NOT ให้ `Admins.Domain` และ `Admins.Application` reference project ของโมดูลใดเลย (รวมทั้ง 4 โมดูลใหม่).
 - 4.4 THE SYSTEM SHALL ให้ `Admins.Infrastructure` reference เฉพาะ `X.Domain` ของ 4 โมดูล (เพื่อ FK config `HasOne<X>()` ใน `UserConfigurations.cs`) และ SHALL NOT reference `X.Application`/`X.Infrastructure`.
 - 4.5 THE SYSTEM SHALL implement `IProfileLookup` ใน `Persistence.ControlPlane/Admins/ProfileLookup.cs` query จาก DbSet ทั้ง 4 ตาม enum.
-- 4.6 WHEN a create/update-profile request อ้าง FK ที่ไม่มีอยู่จริงหรือ inactive, THE
-  SYSTEM SHALL ตอบ 400 เหมือนเดิม.
+- 4.6 WHEN a create/update-profile request อ้าง FK ที่ไม่มีอยู่จริงหรือ inactive, THE SYSTEM SHALL ตอบ 400 เหมือนเดิม.
 
 ## REQ-5: Module boundaries
 

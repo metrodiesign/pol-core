@@ -23,21 +23,14 @@ instead of reading the database.
 
 **Acceptance Criteria (EARS):**
 
-- 1.1 WHEN `GET /api/v1/admins` is called by an authorized admin THE SYSTEM SHALL
-  return a paged result (`items`, `page`, `limit`, `total`) following the SFS
-  convention (`page`, `limit`, `filters`, `sort`, `search` per
-  `docs/reference/search-filter-sort.md`).
+- 1.1 WHEN `GET /api/v1/admins` is called by an authorized admin THE SYSTEM SHALL return a paged result (`items`, `page`, `limit`, `total`) following the SFS convention (`page`, `limit`, `filters`, `sort`, `search` per `docs/reference/search-filter-sort.md`).
 - 1.2 THE SYSTEM SHALL include for each list item: `adminId`, `email`, `tier`, `status`, `createdAt`, and a flag indicating whether a Google subject is bound (invite still pending = not bound).
 - 1.3 THE SYSTEM SHALL accept filter/sort fields only from a deny-by-default whitelist (filter: `email`, `tier`, `status`; sort: `email`, `createdAt`), SHALL append the account id as a final tiebreak to EVERY sort ordering (not only the default) so paging is stable when a sorted column collides, and SHALL apply a deterministic default sort (`createdAt` descending, id tiebreak) when no sort is given.
 - 1.4 THE SYSTEM SHALL apply `search` as an escaped substring match on `email`.
-- 1.5 IF the SFS query parameters are malformed (invalid `filters`/`sort` JSON, or
-  values the parser rejects) THEN THE SYSTEM SHALL respond 400 ProblemDetails.
+- 1.5 IF the SFS query parameters are malformed (invalid `filters`/`sort` JSON, or values the parser rejects) THEN THE SYSTEM SHALL respond 400 ProblemDetails.
 - 1.8 THE SYSTEM SHALL silently drop (and log by field name at debug level) any filter or sort entry referencing a non-whitelisted field or a disallowed operator, per the SFS convention (`docs/reference/search-filter-sort.md` — unknown structure is dropped; invalid VALUES are 400 per REQ-1.5/1.7).
 - 1.6 THE SYSTEM SHALL project `tier` and `status` to the wire as stable lowercase strings (`"super"`/`"scoped"`, `"active"`/`"suspended"`) via explicit projection (no global enum converter).
-- 1.7 IF a `tier` or `status` filter value is outside its lowercase wire domain
-  (`"super"`/`"scoped"`, `"active"`/`"suspended"`), or any filter value is not a
-  JSON string, THEN THE SYSTEM SHALL respond 400 ProblemDetails (strict parse — no
-  silent default, mirroring the existing role-status filter).
+- 1.7 IF a `tier` or `status` filter value is outside its lowercase wire domain (`"super"`/`"scoped"`, `"active"`/`"suspended"`), or any filter value is not a JSON string, THEN THE SYSTEM SHALL respond 400 ProblemDetails (strict parse — no silent default, mirroring the existing role-status filter).
 
 ## REQ-2: View one admin account
 
@@ -47,12 +40,7 @@ one place.
 
 **Acceptance Criteria (EARS):**
 
-- 2.1 WHEN `GET /api/v1/admins/{id}` is called for an existing account THE SYSTEM
-  SHALL return `adminId`, `email`, `tier`, `status`, `createdAt`, the subject-bound
-  flag, the accessible tenants mirroring the `GET /api/v1/admins/me` shape
-  (`isUnrestricted` true for a Super with no tenant list; otherwise the assigned
-  `{tenantId, code}` pairs), and the account's role codes — every assigned role,
-  including roles whose status is currently Inactive.
+- 2.1 WHEN `GET /api/v1/admins/{id}` is called for an existing account THE SYSTEM SHALL return `adminId`, `email`, `tier`, `status`, `createdAt`, the subject-bound flag, the accessible tenants mirroring the `GET /api/v1/admins/me` shape (`isUnrestricted` true for a Super with no tenant list; otherwise the assigned `{tenantId, code}` pairs), and the account's role codes — every assigned role, including roles whose status is currently Inactive.
 - 2.2 IF the id is unknown THEN THE SYSTEM SHALL respond 404 ProblemDetails.
 
 ## REQ-3: Reactivate a suspended admin
@@ -62,23 +50,12 @@ API, so that restoring access does not require manual database edits.
 
 **Acceptance Criteria (EARS):**
 
-- 3.1 WHEN `POST /api/v1/admins/{id}/reactivate` is called for a Suspended account
-  THE SYSTEM SHALL set the account status to Active and respond 204.
-- 3.2 WHEN a reactivate call is accepted (including the idempotent already-Active
-  case) THE SYSTEM SHALL append an append-only `AdminAccountAudit` entry
-  (reactivate action, acting admin id, correlation id, target admin id) in the
-  same transaction as the status change — mirroring suspend, which audits every
-  accepted call.
-- 3.3 WHEN `POST /api/v1/admins/{id}/reactivate` is called for an already-Active
-  account THE SYSTEM SHALL respond 204 without error (idempotent, mirroring the
-  existing suspend semantics).
+- 3.1 WHEN `POST /api/v1/admins/{id}/reactivate` is called for a Suspended account THE SYSTEM SHALL set the account status to Active and respond 204.
+- 3.2 WHEN a reactivate call is accepted (including the idempotent already-Active case) THE SYSTEM SHALL append an append-only `AdminAccountAudit` entry (reactivate action, acting admin id, correlation id, target admin id) in the same transaction as the status change — mirroring suspend, which audits every accepted call.
+- 3.3 WHEN `POST /api/v1/admins/{id}/reactivate` is called for an already-Active account THE SYSTEM SHALL respond 204 without error (idempotent, mirroring the existing suspend semantics).
 - 3.4 IF the id is unknown THEN THE SYSTEM SHALL respond 404 ProblemDetails.
-- 3.5 WHEN a reactivate call transitions an account from Suspended to Active THE
-  SYSTEM SHALL first revoke every non-revoked session of that account, so no
-  session issued before or during the suspension survives reactivation (a fresh
-  login is required).
-- 3.6 WHEN a reactivate call finds the account already Active (the idempotent case,
-  3.3) THE SYSTEM SHALL NOT revoke any session.
+- 3.5 WHEN a reactivate call transitions an account from Suspended to Active THE SYSTEM SHALL first revoke every non-revoked session of that account, so no session issued before or during the suspension survives reactivation (a fresh login is required).
+- 3.6 WHEN a reactivate call finds the account already Active (the idempotent case, 3.3) THE SYSTEM SHALL NOT revoke any session.
 
 ## REQ-4: List an admin's sessions
 
@@ -87,10 +64,7 @@ that I can audit device access and decide what to revoke.
 
 **Acceptance Criteria (EARS):**
 
-- 4.1 WHEN `GET /api/v1/admins/{id}/sessions` is called for an existing account THE
-  SYSTEM SHALL return ALL of that account's stored sessions as an unpaged list
-  ordered by `issuedAt` descending with session id as a deterministic tiebreak
-  (the store's prune job bounds the set).
+- 4.1 WHEN `GET /api/v1/admins/{id}/sessions` is called for an existing account THE SYSTEM SHALL return ALL of that account's stored sessions as an unpaged list ordered by `issuedAt` descending with session id as a deterministic tiebreak (the store's prune job bounds the set).
 - 4.2 THE SYSTEM SHALL include for each session: `sessionId`, `familyId`, `status` (`"active"`/`"superseded"`/`"revoked"`), `issuedAt`, `idleExpiresAt`, `absoluteExpiresAt`, `createdIp`, `userAgent`, and a read-time `isLive` flag (Active AND within both idle and absolute windows at the time of the read).
 - 4.3 THE SYSTEM SHALL never expose session token material or token hashes on the wire.
 - 4.4 IF the admin id is unknown THEN THE SYSTEM SHALL respond 404 ProblemDetails.
@@ -104,18 +78,11 @@ whole account.
 
 **Acceptance Criteria (EARS):**
 
-- 5.1 WHEN `DELETE /api/v1/admins/{id}/sessions/{sessionId}` is called for a session
-  belonging to that admin THE SYSTEM SHALL revoke every non-revoked session in that
-  session's rotation family and respond 204.
-- 5.2 WHEN a revoke call is accepted (including the idempotent already-revoked
-  case) THE SYSTEM SHALL append an append-only `AdminAccountAudit` entry
-  (session-revoke action, acting admin id, correlation id, target admin id) in the
-  same transaction as the revocation.
+- 5.1 WHEN `DELETE /api/v1/admins/{id}/sessions/{sessionId}` is called for a session belonging to that admin THE SYSTEM SHALL revoke every non-revoked session in that session's rotation family and respond 204.
+- 5.2 WHEN a revoke call is accepted (including the idempotent already-revoked case) THE SYSTEM SHALL append an append-only `AdminAccountAudit` entry (session-revoke action, acting admin id, correlation id, target admin id) in the same transaction as the revocation.
 - 5.3 WHILE a session family is revoked THE SYSTEM SHALL reject subsequent requests presenting any cookie of that family (existing per-request session validation), with the same guarantee level as the existing logout family revocation — a rotation racing the revoke in a narrow window is an inherited platform semantic, not widened by this feature.
-- 5.4 IF the session id is unknown, or the session does not belong to the admin in
-  the route, THEN THE SYSTEM SHALL respond 404 ProblemDetails.
-- 5.5 WHEN `DELETE` is called again for an already fully-revoked family THE SYSTEM
-  SHALL respond 204 without error (idempotent).
+- 5.4 IF the session id is unknown, or the session does not belong to the admin in the route, THEN THE SYSTEM SHALL respond 404 ProblemDetails.
+- 5.5 WHEN `DELETE` is called again for an already fully-revoked family THE SYSTEM SHALL respond 204 without error (idempotent).
 
 ## REQ-6: View an admin's effective permissions
 
@@ -125,10 +92,7 @@ actually do before/after changing their roles.
 
 **Acceptance Criteria (EARS):**
 
-- 6.1 WHEN `GET /api/v1/admins/{id}/effective-permissions` is called for an existing
-  account THE SYSTEM SHALL return the distinct union of permission keys granted
-  through the account's assigned roles whose role status is Active — the same
-  resolution rule the sign-in pipeline uses for `GET /api/v1/admins/me`.
+- 6.1 WHEN `GET /api/v1/admins/{id}/effective-permissions` is called for an existing account THE SYSTEM SHALL return the distinct union of permission keys granted through the account's assigned roles whose role status is Active — the same resolution rule the sign-in pipeline uses for `GET /api/v1/admins/me`.
 - 6.2 THE SYSTEM SHALL return the keys as a flat array sorted ascending (ordinal) so the response is deterministic.
 - 6.3 IF the admin id is unknown THEN THE SYSTEM SHALL respond 404 ProblemDetails.
 - 6.4 WHILE the target account is Suspended THE SYSTEM SHALL still return its current role-derived permission set (suspension blocks sign-in, not role grants).
@@ -235,10 +199,7 @@ directory is consistent and the values are controlled.
 
 - 8.1 THE SYSTEM SHALL let each `AdminAccount` carry four OPTIONAL org-profile references — `position` (ตำแหน่ง), `office` (สถานที่ปฏิบัติงาน), `level` (ระดับ), `division` (ฝ่าย/ภาค) — each a nullable FK to its own master table (`Positions`/`Offices`/`Levels`/`Divisions`). NULL means "not set" (an invited account has no known profile yet).
 - 8.2 WHEN `POST /api/v1/admins` is called THE SYSTEM SHALL accept optional `positionId`/`officeId`/`levelId`/`divisionId`; each supplied id MUST reference an existing, ACTIVE master, else 400 ProblemDetails.
-- 8.3 WHEN `PUT /api/v1/admins/{id}/profile` is called for an existing account THE
-  SYSTEM SHALL replace ALL four references (a null field clears that dimension) and
-  respond 204; IF the id is unknown THEN 404; IF a supplied master id does not
-  reference an existing ACTIVE master THEN 400.
+- 8.3 WHEN `PUT /api/v1/admins/{id}/profile` is called for an existing account THE SYSTEM SHALL replace ALL four references (a null field clears that dimension) and respond 204; IF the id is unknown THEN 404; IF a supplied master id does not reference an existing ACTIVE master THEN 400.
 - 8.4 WHEN a `PUT .../profile` call is accepted THE SYSTEM SHALL append an append-only `AdminAccountAudit` entry (`update-profile` action, acting admin id, correlation id, target admin id) in the same keyed `"admin"` transaction as the update.
 - 8.5 WHEN `GET /api/v1/admins/{id}` is called THE SYSTEM SHALL include, per dimension, either `null` (unset) or a resolved `{id, code, name}` reference.
 - 8.6 THE SYSTEM SHALL gate `PUT .../profile` on the existing `user.manage` permission (fail-closed → 403); `POST /admins` keeps its existing `Super` gate, so supplying profile ids at invite is Super-only.

@@ -78,9 +78,7 @@ duration and insurer, so a customer can see what they are buying before paying t
 - 1.2 THE SYSTEM SHALL ตีความ `Product.Price` เดิม (field ที่มีอยู่แล้ว) เป็นเบี้ยประกัน (premium) ของแผนนั้น — ไม่เพิ่ม field ใหม่แยกสำหรับเบี้ย.
 - 1.3 WHEN สร้าง `Product` ใหม่ (`Product.Create`), THE SYSTEM SHALL validate `SumInsured.Amount > 0`, `CoverageDurationDays > 0`, และ `Insurer` ไม่เป็นค่าว่าง/whitespace-only — ระดับความเข้มเดียวกับ validation ที่ `Name`/`Price` มีอยู่แล้ววันนี้.
 - 1.4 THE SYSTEM SHALL เก็บ `SumInsured` เป็น `Money` มาตรฐาน (`DECIMAL(19,4)` + currency ISO 4217) เหมือน `Price` ทุกชั้น (domain/persistence/wire) — ห้าม float/double, ห้าม minor units.
-- 1.5 IF `SumInsured.Currency` ของ `Product` ไม่เท่ากับ `Price.Currency` ของ `Product` เดียวกัน THEN
-  THE SYSTEM SHALL reject การสร้าง/แก้ไขนั้นด้วย validation error (`ArgumentException` ระดับเดียวกับ
-  validation อื่นของ entity นี้).
+- 1.5 IF `SumInsured.Currency` ของ `Product` ไม่เท่ากับ `Price.Currency` ของ `Product` เดียวกัน THEN THE SYSTEM SHALL reject การสร้าง/แก้ไขนั้นด้วย validation error (`ArgumentException` ระดับเดียวกับ validation อื่นของ entity นี้).
 - 1.6 THE SYSTEM SHALL NOT สร้าง entity `Policy`/`InsurancePlan`/`Insurer` แยกออกจาก `Product` — `Insurer` เป็น column string บน `products` ตรง (เช่น `InsurerName`) ไม่ใช่ master-data/reference table ใหม่ (locked decision).
 
 ## REQ-2: Catalog API surfaces insurance fields
@@ -92,8 +90,7 @@ insurance fields, so the console can show plan details without a separate lookup
 - 2.1 THE SYSTEM SHALL extend `CreateProductRequest`/`CreateProductCommand` ที่ผูกกับ `POST /api/v1/products` ให้รับ `sumInsured`, `coverageDurationDays`, `insurer` เพิ่มจาก `name`/`price` เดิม (endpoint เดิม ไม่สร้าง route ใหม่).
 - 2.2 THE SYSTEM SHALL extend `ProductListItem` (response ของ `GET /api/v1/products`) ให้คืน `sumInsured`, `coverageDurationDays`, `insurer` เพิ่มจาก field เดิม.
 - 2.3 THE SYSTEM SHALL ส่ง `sumInsured` บน wire ตาม Money JSON convention เดิมของแพลตฟอร์ม (object `{ "amount": "<string ทศนิยม 4 ตำแหน่ง>", "currency": "<ISO4217>" }`) เหมือน `price` — ห้าม float/double บน wire.
-- 2.4 IF request สร้าง `Product` ขาด field บังคับใหม่ (`sumInsured`/`coverageDurationDays`/`insurer`) THEN
-  THE SYSTEM SHALL ตอบตาม error contract เดิมของ endpoint นี้ (ProblemDetails, ไม่เปลี่ยนรูปแบบ error).
+- 2.4 IF request สร้าง `Product` ขาด field บังคับใหม่ (`sumInsured`/`coverageDurationDays`/`insurer`) THEN THE SYSTEM SHALL ตอบตาม error contract เดิมของ endpoint นี้ (ProblemDetails, ไม่เปลี่ยนรูปแบบ error).
 
 ## REQ-3: Order lifecycle & Payment flow reused unmodified
 
@@ -150,16 +147,8 @@ itself.
 - 7.1 THE SYSTEM SHALL capture insured-person data **per `OrderLine`** (1 คน/line, ไม่ใช่ 1 คน/checkout — locked decision): `FirstName`, `LastName`, `IdNumber` (เลขบัตรประชาชน), `DateOfBirth` — baseline field set; field ชุดสุดท้ายยืนยันตอน design (ล็อกเฉพาะว่า "ต้องเก็บต่อ line" ไม่ได้ล็อก field ทุกตัว).
 - 7.2 WHEN ยืนยัน checkout, THE SYSTEM SHALL validate ต่อ line: `FirstName`/`LastName`/`IdNumber` ไม่เป็น ค่าว่าง/whitespace-only และ `DateOfBirth` ไม่เป็นวันที่ในอนาคต.
 - 7.3 THE SYSTEM SHALL NOT log ค่า `FirstName`/`LastName`/`IdNumber`/`DateOfBirth` ในที่ใดๆ (request log, response log, error log, trace/span attribute) — ตาม `SECURITY_RULES.md` "ห้าม log sensitive data (PII)" (standing rule ของแพลตฟอร์ม ไม่ใช่ตัวเลือกของสเปกนี้).
-- 7.4 WHEN insured-person data ปรากฏบน list/summary response (เช่น order list, order-line overview), THE
-  SYSTEM SHALL mask `IdNumber` (รูปแบบเดียวกับ mask ของ secret ที่มีอยู่แล้วในระบบ — โชว์ 4 ตัวสุดท้าย เช่น
-  `••••3a9f`; ค่าสั้นกว่า 4 ตัวมาสก์เต็ม); WHEN request คือ detail read (order/order-line รายตัว), THE
-  SYSTEM SHALL คืนค่าเต็มของ `IdNumber` (locked decision — override รอบก่อนที่บอกว่า "คืนเต็มทุกที่"). Mask
-  format นี้เป็นแค่ convention เดียวกัน ไม่ใช่การ reuse shared helper ข้ามโมดูล (`PspSecretEnvelopeFactory`
-  ของ Payments เป็น private ต่อไฟล์ ไม่มี masking utility กลางให้เรียกวันนี้ — implement ของตัวเองที่ชั้น
-  Orders/Checkouts).
-- 7.5 WHEN admin/producer เรียก detail read ที่คืนค่าเต็มของ insured-person data (ตาม 7.4), THE SYSTEM
-  SHALL เขียน audit entry (actor, target, timestamp) — มิเรอร์ pattern reveal-audit ที่มีอยู่แล้วของ vault
-  secret (`VaultRevealAudits`/`IVaultRevealAuditWriter`).
+- 7.4 WHEN insured-person data ปรากฏบน list/summary response (เช่น order list, order-line overview), THE SYSTEM SHALL mask `IdNumber` (รูปแบบเดียวกับ mask ของ secret ที่มีอยู่แล้วในระบบ — โชว์ 4 ตัวสุดท้าย เช่น `••••3a9f`; ค่าสั้นกว่า 4 ตัวมาสก์เต็ม); WHEN request คือ detail read (order/order-line รายตัว), THE SYSTEM SHALL คืนค่าเต็มของ `IdNumber` (locked decision — override รอบก่อนที่บอกว่า "คืนเต็มทุกที่"). Mask format นี้เป็นแค่ convention เดียวกัน ไม่ใช่การ reuse shared helper ข้ามโมดูล (`PspSecretEnvelopeFactory` ของ Payments เป็น private ต่อไฟล์ ไม่มี masking utility กลางให้เรียกวันนี้ — implement ของตัวเองที่ชั้น Orders/Checkouts).
+- 7.5 WHEN admin/producer เรียก detail read ที่คืนค่าเต็มของ insured-person data (ตาม 7.4), THE SYSTEM SHALL เขียน audit entry (actor, target, timestamp) — มิเรอร์ pattern reveal-audit ที่มีอยู่แล้วของ vault secret (`VaultRevealAudits`/`IVaultRevealAuditWriter`).
 - 7.6 THE SYSTEM SHALL NOT implement encryption-at-rest mechanism ใหม่สำหรับ field เหล่านี้ตอนนี้ (ไม่มี app-layer encryption หรือ SQL Always Encrypted เพิ่ม) — floor เดิม (app-layer merchant isolation + RBAC) พอสำหรับสเปกนี้ (locked decision — ดู hardening TODO ด้านล่าง).
 
 > **TODO (deferred — ไม่ block requirements approval):**

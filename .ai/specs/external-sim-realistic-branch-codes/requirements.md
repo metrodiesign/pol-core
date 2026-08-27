@@ -68,9 +68,7 @@ PreviousPolicyNumber ยัง compute-forward จาก field เดิมเ�
 - 4.2 THE SYSTEM SHALL ลบ `BranchCode` ออกจาก column list และ value expression ที่คู่กันใน axis-row `INSERT ... VALUES` และ generated-row `INSERT ... SELECT` ทั้งสองฝั่ง
 - 4.3 THE SYSTEM SHALL เขียนใหม่ header comment "DELIBERATE DEVIATIONS" #2 (บรรทัด ~29-35) ให้สะท้อน ความจริงใหม่: `@BranchCode` parameter ยัง required+validate ตาม PDF §2 แต่ไม่มีคอลัมน์ backing เพราะ output จริง (§5.2) ไม่มี field นี้ — ถ้าต้อง filter จริงในอนาคตให้ target `ReferenceBranch`
 - 4.4 THE SYSTEM SHALL ระบุใน spec นี้ว่า supersede `products-sp-gateway` REQ-2.11 ("BranchCode validate-only เป็น assumption") ด้วยเหตุผลที่ยืนยันแล้วจาก PDF §5.2 — โดยไม่แก้ไฟล์ `products-sp-gateway/requirements.md` ย้อนหลัง (closed spec = historical record ตาม convention repo)
-- 4.5 IF migration/schema tool อื่นอ้างถึง `dbo.Documents.BranchCode` ของ simulated DB (คนละคอลัมน์กับ
-  `shop.Products.BranchCode` ที่ถูกลบไปแล้วใน `products-sp-53-alignment`) THEN THE SYSTEM SHALL รายงาน
-  เป็น edge case ก่อนลบ — จาก grep เบื้องต้นยืนยันแล้วว่าไม่มี
+- 4.5 IF migration/schema tool อื่นอ้างถึง `dbo.Documents.BranchCode` ของ simulated DB (คนละคอลัมน์กับ `shop.Products.BranchCode` ที่ถูกลบไปแล้วใน `products-sp-53-alignment`) THEN THE SYSTEM SHALL รายงาน เป็น edge case ก่อนลบ — จาก grep เบื้องต้นยืนยันแล้วว่าไม่มี
 
 ## REQ-5: @BranchCode SP parameter ไม่เปลี่ยน (non-regression)
 

@@ -41,8 +41,7 @@ so that ไม่มี dead permission ที่ชนกับ Non-Goals แ�
 - 2.2 THE SYSTEM SHALL ไม่ seed keys เดิม `invoice.view`, `invoice.manage`, `settlement.run` และ group `finance` — เหตุผล 2 เงื่อนไขประกอบ: ungated (ไม่ gate endpoint ใด) **และ** ชน Non-Goals ห้าม billing/settlement; ส่วน `product.update`/`roles.view` ที่ ungated เช่นกัน ให้คงไว้เพราะ reserved ใช้งานใกล้ (rf5 PUT /products, FE visibility toggle)
 - 2.3 THE SYSTEM SHALL seed 4 roles: `platform_admin` (Scope=Platform — ทุก platform key 13 ตัว), `platform_auditor` (Scope=Platform — txn.view, merchant.view, user.view, audit.view), `merchant_manager` (Scope=Merchant — ทุก merchant key 7 ตัว), `merchant_staff` (Scope=Merchant — product.create, product.update, payment.create, payment.redirect)
 - 2.4 THE SYSTEM SHALL ให้ `platform_admin` และ `merchant_manager` เป็น seed anchor: deactivate หรือ delete SHALL ถูกปฏิเสธ (409/throw) — แทน anchor เดิม `super_admin`/`merchant_owner`
-- 2.5 WHEN สร้าง DB จากศูนย์ (docker bootstrap → `dotnet ef database update`) THE SYSTEM SHALL
-  ได้ catalog + seed ครบโดยไม่พึ่ง manual step
+- 2.5 WHEN สร้าง DB จากศูนย์ (docker bootstrap → `dotnet ef database update`) THE SYSTEM SHALL ได้ catalog + seed ครบโดยไม่พึ่ง manual step
 - 2.6 IF insert `iam.RolePermissions` อ้าง key ที่ไม่อยู่ใน `iam.Permissions` THEN DB SHALL reject (FK)
 
 ## REQ-3: Role scoping — Scope + merchant visibility
@@ -55,12 +54,10 @@ so that ไม่มี dead permission ที่ชนกับ Non-Goals แ�
 - 3.2 THE SYSTEM SHALL มีคอลัมน์ `MerchantId uniqueidentifier NULL` บน `iam.Roles` — NULL = shared/seed role, มีค่า = custom role ของ merchant นั้น
 - 3.3 IF role มี `Scope = Platform` และ `MerchantId` ไม่เป็น NULL THEN THE SYSTEM SHALL reject (invariant — enforce ที่ domain + CHECK constraint)
 - 3.4 WHEN assign role ให้ PlatformUser IF `role.Scope != Platform` THEN THE SYSTEM SHALL ตอบ 400
-- 3.5 WHEN assign role ให้ MerchantUser IF `role.Scope != Merchant` หรือ (`role.MerchantId` ไม่เป็น
-  NULL และไม่เท่ากับ MerchantId ของ target) THEN THE SYSTEM SHALL ตอบ 400
+- 3.5 WHEN assign role ให้ MerchantUser IF `role.Scope != Merchant` หรือ (`role.MerchantId` ไม่เป็น NULL และไม่เท่ากับ MerchantId ของ target) THEN THE SYSTEM SHALL ตอบ 400
 - 3.6 THE SYSTEM SHALL ให้ merchant-side role list/read เห็นเฉพาะ role ที่ `Scope = Merchant` และ (`MerchantId` IS NULL หรือ = merchant ของ caller)
 - 3.7 WHEN merchant-side สร้าง role THE SYSTEM SHALL ตั้ง `MerchantId` = merchant ของ caller เสมอ
-- 3.8 IF merchant-side update/delete role ที่ `MerchantId` ไม่ใช่ของ caller (รวม shared seed)
-  THEN THE SYSTEM SHALL ตอบ 409
+- 3.8 IF merchant-side update/delete role ที่ `MerchantId` ไม่ใช่ของ caller (รวม shared seed) THEN THE SYSTEM SHALL ตอบ 409
 - 3.9 THE SYSTEM SHALL ให้ admin-side role CRUD สร้าง/จัดการเฉพาะ role ที่ `Scope = Platform` (`MerchantId` NULL ตาม invariant 3.3) — ไม่มี Scope input ตอน create; shared Merchant-scope roles (`merchant_manager`/`merchant_staff`) เกิดจาก seed migration เท่านั้น
 
 ## REQ-4: Unified permission enforcement
@@ -71,9 +68,7 @@ merchant endpoints, so that fail-closed semantics เขียนที่เด
 **Acceptance Criteria (EARS):**
 - 4.1 THE SYSTEM SHALL มี `RequirePermission` extension + metadata type เดียว แทนคู่เดิม (`RequirePermission`/`RequireMerchantUserPermission`)
 - 4.2 THE SYSTEM SHALL resolve permission set ตอน authenticate ต่อ request จาก DB — union ของ `iam.RolePermissions` ของ roles ที่ assigned และ `Status = Active`; ฝั่ง merchant นับเฉพาะแถว assignment ที่ `MerchantId` ตรงกับ merchant ของ session — ไม่ cache ข้าม request, ไม่ใช้ claims
-- 4.3 IF request ไม่มี actor scope ที่ bound (`IAdminScope`/`IUserScope` ต่อ request) หรือ
-  permission set ไม่มี key ที่ endpoint ต้องการ THEN THE SYSTEM SHALL ตอบ 403
-  (fail-closed — ไม่ throw 500)
+- 4.3 IF request ไม่มี actor scope ที่ bound (`IAdminScope`/`IUserScope` ต่อ request) หรือ permission set ไม่มี key ที่ endpoint ต้องการ THEN THE SYSTEM SHALL ตอบ 403 (fail-closed — ไม่ throw 500)
 - 4.4 WHEN role ถูก deactivate หรือ assignment ถูกถอน THE SYSTEM SHALL ให้ผล enforcement เปลี่ยนภายใน request ถัดไป
 - 4.5 THE SYSTEM SHALL คง gate site เดิมทั้ง 20 จุด (admin 13 + merchant 7) ด้วย key literal เดิม และ SHALL NOT เพิ่ม gate ใหม่บน funnel endpoints ใน rf2 (carts/checkouts/orders คง policy `merchant-user` ล้วน — gating ใหม่เป็นงาน rf5/rf6)
 - 4.6 WHILE role มี `Status = Inactive` THE SYSTEM SHALL ไม่นับ permissions ของ role นั้น ใน effective set
@@ -102,11 +97,8 @@ catalog ใหม่, so that console ทั้งสองใช้งานไ
 - 6.2 THE SYSTEM SHALL ให้ endpoints ฝั่ง merchant เดิมทำงานบน `iam` catalog ด้วย gate key เดิม: GET `/merchants/users/permissions|roles|roles/{code}` (auth เท่านั้น), POST/PUT/DELETE `.../roles*` (gate `roles.manage`), PUT `/merchants/users/{id}/roles` (gate `users.roles`)
 - 6.3 THE SYSTEM SHALL คงกฎ role เดิมทุกข้อ: code slug `^[a-z0-9_]+$` ยาว ≤64 + immutable, status parse แบบ strict (ค่าแปลก = 400), dup code = 409, delete role ที่ยังมี assignment = 409, grant key นอก catalog = 400, unknown role = 404
 - 6.4 THE SYSTEM SHALL ให้ GET permissions ของแต่ละ console คืนเฉพาะ vocabulary ฝั่งตน (filter ด้วย group `Scope`): admin console = Platform keys (13/5 groups), merchant console = Merchant keys (7/3 groups) — wire shape เดิม
-- 6.5 IF deactivate หรือ delete `platform_admin` หรือ `merchant_manager` THEN THE SYSTEM SHALL
-  ตอบ 409 (seed anchor ตาม REQ-2.4)
-- 6.6 IF grant key ให้ role โดย group `Scope` ของ key ไม่ตรงกับ `role.Scope` THEN THE SYSTEM
-  SHALL ตอบ 400 (cross-side grant เป็นไปไม่ได้ — ทดแทน fail-closed เชิงโครงสร้างของ
-  2 catalog เดิม)
+- 6.5 IF deactivate หรือ delete `platform_admin` หรือ `merchant_manager` THEN THE SYSTEM SHALL ตอบ 409 (seed anchor ตาม REQ-2.4)
+- 6.6 IF grant key ให้ role โดย group `Scope` ของ key ไม่ตรงกับ `role.Scope` THEN THE SYSTEM SHALL ตอบ 400 (cross-side grant เป็นไปไม่ได้ — ทดแทน fail-closed เชิงโครงสร้างของ 2 catalog เดิม)
 
 ## REQ-7: Assignment flows
 

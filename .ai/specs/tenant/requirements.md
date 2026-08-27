@@ -23,8 +23,7 @@ identity-rbac (ภายหลัง). ขอบเขตนี้ครอบ�
 - 1.3 THE SYSTEM SHALL เก็บ `branding` / `routing` / `session` / `timezone` / `locale` / `createdByAdmin` ใน `Metadata` (json) ไม่เป็น column แยก
 - 1.4 THE SYSTEM SHALL บังคับ `Code` ไม่ซ้ำ (unique index)
 - 1.5 THE SYSTEM SHALL จำกัด `Status` อยู่ในเซ็ต `{ Active }` ใน scope นี้ (provisioning เซ็ต `Active` ตรง; เพิ่ม state เมื่อมี suspend/saga — finding F1)
-- 1.6 IF `Code` (หลัง normalize ตาม 1.7) ไม่อยู่ใน allowlist `{ vprivilege, vcommerce, vsouvenir }` THEN
-  THE SYSTEM SHALL ปฏิเสธการสร้าง `Tenant` (HTTP 400)
+- 1.6 IF `Code` (หลัง normalize ตาม 1.7) ไม่อยู่ใน allowlist `{ vprivilege, vcommerce, vsouvenir }` THEN THE SYSTEM SHALL ปฏิเสธการสร้าง `Tenant` (HTTP 400)
 - 1.7 THE SYSTEM SHALL normalize `Code` เป็น lowercase ตอนรับ input ก่อน validate / เทียบ allowlist / เขียน DB; unique index และ lookup ใช้ค่า normalized (finding F2)
 
 ## REQ-2: Admin-driven provisioning
@@ -53,11 +52,7 @@ input ที่ใช้ไม่ได้.
 - 3.4 THE SYSTEM SHALL เก็บ `enabledChannels` / `routing` / `branding` / `session` แบบ verbatim โดย ไม่ validate semantics ภายใน (scope นี้)
 - 3.5 IF `pspConnections[]` ว่าง THEN THE SYSTEM SHALL ปฏิเสธ (400) — tenant ต้องมี PSP connection อย่างน้อย 1 (finding F5)
 - 3.6 IF `pspConnections[]` มี psp code ซ้ำกัน THEN THE SYSTEM SHALL ปฏิเสธ (400) ก่อนเขียน (กันชน unique `(TenantId, Psp)`) (finding F6)
-- 3.7 IF connection ใดขาด secret key ที่ "จำเป็น" ต่อ psp นั้น (ขั้นต่ำ: ทั้ง 2C2P และ Omise ต้องมี
-  `secretKey`) THEN THE SYSTEM SHALL ปฏิเสธ (400); secret field อื่นที่ส่งมา (เช่น Omise `publicKey` /
-  `webhookSecret`) THE SYSTEM SHALL เก็บตามที่ส่ง (store-as-provided). validation นี้อยู่หลัง Payments
-  secret-envelope port ซึ่งเป็นเจ้าของ shape (finding F7; amended จาก design review S1/S7 — เดิมระบุ shape
-  ที่ขัด envelope จริง)
+- 3.7 IF connection ใดขาด secret key ที่ "จำเป็น" ต่อ psp นั้น (ขั้นต่ำ: ทั้ง 2C2P และ Omise ต้องมี `secretKey`) THEN THE SYSTEM SHALL ปฏิเสธ (400); secret field อื่นที่ส่งมา (เช่น Omise `publicKey` / `webhookSecret`) THE SYSTEM SHALL เก็บตามที่ส่ง (store-as-provided). validation นี้อยู่หลัง Payments secret-envelope port ซึ่งเป็นเจ้าของ shape (finding F7; amended จาก design review S1/S7 — เดิมระบุ shape ที่ขัด envelope จริง)
 
 ## REQ-4: Atomicity — no partial provision
 
@@ -111,8 +106,7 @@ tenant อื่นไม่ได้แม้ app เผลอ.
 **Acceptance Criteria (EARS):**
 - 8.1 THE SYSTEM SHALL ใส่ RLS FILTER + BLOCK predicate บน `producer.Tenants` ด้วย `producer.fn_tenant_predicate(Id)`
 - 8.2 WHILE connection ผูก `SESSION_CONTEXT('TenantId') = T` THE SYSTEM SHALL ให้อ่าน `Tenants` ได้ เฉพาะแถวที่ `Id = T`
-- 8.3 IF tenant principal (`pol_app`) พยายาม INSERT/UPDATE `Tenants` ด้วย `Id` ที่ไม่ตรง session THEN
-  THE SYSTEM SHALL block การเขียนนั้น
+- 8.3 IF tenant principal (`pol_app`) พยายาม INSERT/UPDATE `Tenants` ด้วย `Id` ที่ไม่ตรง session THEN THE SYSTEM SHALL block การเขียนนั้น
 - 8.4 WHERE principal เป็นสมาชิก `pol_rls_bypass` (`pol_admin`) THE SYSTEM SHALL อนุญาตอ่าน/เขียน cross-tenant
 - 8.5 THE SYSTEM SHALL รัน provisioning ใต้ `pol_admin` connection (แยกจาก `pol_app`)
 

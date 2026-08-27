@@ -64,8 +64,7 @@ the insurer, so the report reflects settlement status independently of the custo
 **Acceptance Criteria (EARS):**
 - 2.1 THE SYSTEM SHALL เก็บ `PremiumRemittanceStatus` เป็น enum ค่า `NotApplicable` (N/A) หรือ `Deducted` (ตัดชำระเบี้ยแล้ว), ค่าเริ่มต้น = `NotApplicable`.
 - 2.2 WHEN ตั้ง `PremiumRemittanceStatus` = `Deducted`, THE SYSTEM SHALL บันทึก `DeductedAt` — **วันที่ตัด ชำระจริงจากระบบ insurer ภายนอก (client-supplied date, ไม่ใช่ server timestamp)** — ที่มากับค่านั้น.
-- 2.3 IF ตั้ง `PremiumRemittanceStatus` = `Deducted` โดยไม่มี `DeductedAt`, THEN THE SYSTEM SHALL
-  ปฏิเสธคำขอด้วย 400 (Bad Request).
+- 2.3 IF ตั้ง `PremiumRemittanceStatus` = `Deducted` โดยไม่มี `DeductedAt`, THEN THE SYSTEM SHALL ปฏิเสธคำขอด้วย 400 (Bad Request).
 - 2.4 WHERE `PremiumRemittanceStatus` = `NotApplicable`, THE SYSTEM SHALL ไม่บังคับให้มี `DeductedAt`.
 - 2.5 IF `DeductedAt` เป็นวันในอนาคต (> วันปัจจุบัน), THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (mirror invariant `InsuredDateOfBirth > nowUtc` ที่ `Line.cs`).
 - 2.6 WHEN `PremiumRemittanceStatus` เปลี่ยนจาก `Deducted` → `NotApplicable`, THE SYSTEM SHALL clear `DeductedAt` และเขียน audit record ของการเปลี่ยนแปลงนี้ (ตาม REQ-3.5 — ไม่ใช่ silent side-effect).
@@ -76,8 +75,7 @@ the insurer, so the report reflects settlement status independently of the custo
 so the record matches the insurer's system.
 
 **Acceptance Criteria (EARS):**
-- 3.1 WHEN actor ที่ได้รับอนุญาตส่งข้อมูล insurance-reference สำหรับ line ที่มีอยู่, THE SYSTEM SHALL
-  persist ค่านั้นและตอบสำเร็จ.
+- 3.1 WHEN actor ที่ได้รับอนุญาตส่งข้อมูล insurance-reference สำหรับ line ที่มีอยู่, THE SYSTEM SHALL persist ค่านั้นและตอบสำเร็จ.
 - 3.2 THE SYSTEM SHALL อนุญาตทั้ง **Admin** (ผ่าน Admin plane) และ **Producer/Merchant** (ผ่าน MerchantUser plane) ให้เขียนข้อมูลนี้ได้ ภายใต้ permission แยกของแต่ละ plane.
 - 3.3 WHILE actor เป็น Producer/Merchant, THE SYSTEM SHALL อนุญาตให้เขียนได้เฉพาะ line ที่อยู่ภายใต้ merchant ของตนเท่านั้น.
 - 3.4 THE SYSTEM SHALL อนุญาตให้เขียนได้ **หลังจาก Order ถูกสร้างแล้ว** และให้ **แก้ซ้ำได้ (mutable)** โดยไม่ผูกกับสถานะ `Order.Paid` (ป้อนได้ทั้งก่อน/หลังชำระ) และ **ทุกสถานะ order รวม `Cancelled`** — write path SHALL NOT gate on `Order.Status`.
@@ -87,11 +85,8 @@ so the record matches the insurer's system.
 - 3.8 IF `NetPremium` หรือ `GrossPremium` มี currency ไม่ใช่ `THB`, THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (subsumes การบังคับให้สองค่าสกุลเงินตรงกัน).
 - 3.9 IF `ReferenceNumber` ว่างแต่มีการตั้ง `ReferenceNumberType`, THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (type กับ value ต้องมาคู่กัน).
 - 3.10 IF `ReferenceNumber` มีค่าแต่ `ReferenceNumberType` ว่าง, THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (คู่กันสองทิศ — symmetric กับ 3.9; ไม่ default type เองเพราะทุกค่า external-sourced).
-- 3.11 IF `EndorsementNumber` หรือ `RenewalReminderNumber` มีค่าโดยไม่มี `ReferenceNumber` (+
-  `ReferenceNumberType`), THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (สลักหลัง/ใบเตือนต่ออายุต้องแนบกรมธรรม์
-  ที่มีอยู่).
-- 3.12 IF ตั้ง `NetPremium` หรือ `GrossPremium` เพียงตัวเดียว (ไม่มาเป็นคู่), THEN THE SYSTEM SHALL
-  ปฏิเสธด้วย 400 (both-or-neither — ทำให้ invariant `Net <= Gross` ใน 3.7 enforce ได้ทุกครั้ง).
+- 3.11 IF `EndorsementNumber` หรือ `RenewalReminderNumber` มีค่าโดยไม่มี `ReferenceNumber` (+ `ReferenceNumberType`), THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (สลักหลัง/ใบเตือนต่ออายุต้องแนบกรมธรรม์ ที่มีอยู่).
+- 3.12 IF ตั้ง `NetPremium` หรือ `GrossPremium` เพียงตัวเดียว (ไม่มาเป็นคู่), THEN THE SYSTEM SHALL ปฏิเสธด้วย 400 (both-or-neither — ทำให้ invariant `Net <= Gross` ใน 3.7 enforce ได้ทุกครั้ง).
 - 3.13 WHEN Admin และ Producer เขียน line เดียวกันพร้อมกัน, THE SYSTEM SHALL ใช้ last-write-wins (ไม่มี optimistic concurrency/row-version) โดยทุก write ถูก audit (REQ-3.5) — recovery ผ่าน audit trail.
 
 ## REQ-4: Policy report read model (the table)
@@ -141,8 +136,7 @@ regulatory/product thesis stays intact.
 - 7.3 THE SYSTEM SHALL rename sibling checkout: `Checkouts.Domain.Lines.Line` -> `Checkouts.Domain.Items.Item`, table `shop.CheckoutSessionLines` -> `shop.CheckoutSessionItems`, `CheckoutLineInput` -> `CheckoutItemInput`.
 - 7.4 THE SYSTEM SHALL NOT เปลี่ยน behavior/state-machine/verify-logic ใด ๆ — pure rename; route ที่มี `/lines/` segment (ถ้ามี) เปลี่ยนเป็น `/items/` เป็น deliberate contract change (route flat, big-bang ไม่ alias).
 - 7.5 THE SYSTEM SHALL retire identifier เก่า (`OrderLine`, order-line `Line`, `CheckoutSessionLine`, `CheckoutLineInput`, `OrderLineId`) ใน rename gate (`scripts/check-rename-identifiers.sh`) กันชื่อเก่าโผล่กลับ.
-- 7.6 WHERE เป็น L8 external contract (integration-event `Contracts.CheckoutConfirmedLine`, config key,
-  OpenAPI scheme id), THE SYSTEM SHALL rename เฉพาะเมื่อ deliberate + review แยก — ไม่ใช่ผลพลอยได้จาก sweep.
+- 7.6 WHERE เป็น L8 external contract (integration-event `Contracts.CheckoutConfirmedLine`, config key, OpenAPI scheme id), THE SYSTEM SHALL rename เฉพาะเมื่อ deliberate + review แยก — ไม่ใช่ผลพลอยได้จาก sweep.
 - 7.7 THE SYSTEM SHALL ให้ artifact ใหม่ของ REQ-1..4 ใช้ชื่อ OrderItem: entity `ItemPolicy`, table `OrderItemPolicies`/`OrderItemPolicyAudits`, endpoint `/orders/{orderId}/items/{itemId}/policy` (rename REQ ต้องเสร็จ ก่อน/พร้อมกับ feature เพราะ `ItemPolicy` ผูกกับ `OrderItem`).
 
 ## Edge Cases & Open Questions

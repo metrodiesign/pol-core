@@ -34,11 +34,8 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 - 1.3 THE SYSTEM SHALL คงรูปแบบ response envelope `ProductPage` (§5.1: `totalRows`, `totalPages`, `pageNo`, `pageSize`, `hasNextPage`, `hasPreviousPage`, `countMode`, `searchWindowMonths`) ตามเดิม
 - 1.4 THE SYSTEM SHALL คงลำดับแถวตามที่ procedure คืนมา โดยไม่จัดเรียงใหม่
 - 1.5 THE SYSTEM SHALL คงค่า `totalRows`/`totalPages` ตามที่ procedure รายงาน โดยไม่นับใหม่เอง
-- 1.6 IF แถวจากต้นทางขาดฟิลด์บังคับ (`DocumentNo` ว่าง, `SaleCode` ว่าง, `TotalPremium` ไม่มากกว่า 0,
-  หรือค่า enum นอกสัญญา) THEN THE SYSTEM SHALL ข้ามแถวนั้นออกจากผลลัพธ์และบันทึก log ระดับ warning
-  พร้อมเหตุผล
-- 1.7 IF แถวสองแถวในหน้าเดียวกันมี `DocumentNo` ซ้ำกัน (เทียบตาม REQ-2.3) THEN THE SYSTEM SHALL
-  คงไว้แถวแรกและข้ามแถวถัดมาพร้อม log ระดับ warning
+- 1.6 IF แถวจากต้นทางขาดฟิลด์บังคับ (`DocumentNo` ว่าง, `SaleCode` ว่าง, `TotalPremium` ไม่มากกว่า 0, หรือค่า enum นอกสัญญา) THEN THE SYSTEM SHALL ข้ามแถวนั้นออกจากผลลัพธ์และบันทึก log ระดับ warning พร้อมเหตุผล
+- 1.7 IF แถวสองแถวในหน้าเดียวกันมี `DocumentNo` ซ้ำกัน (เทียบตาม REQ-2.3) THEN THE SYSTEM SHALL คงไว้แถวแรกและข้ามแถวถัดมาพร้อม log ระดับ warning
 - 1.8 THE SYSTEM SHALL ไม่มีฟิลด์ `id` ชนิด `Guid` ในแต่ละรายการของผลลัพธ์
 
 ---
@@ -54,8 +51,7 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 - 2.2 THE SYSTEM SHALL เก็บ `DocumentNo` แทนคอลัมน์ `ProductId` ในตารางรายการของตะกร้า, checkout session และ order
 - 2.3 THE SYSTEM SHALL เทียบ `DocumentNo` สองค่าว่าเป็นเอกสารเดียวกัน เมื่อตรงกันทั้งสตริงหลังตัดช่องว่าง หัวท้าย โดยไม่สนตัวพิมพ์ใหญ่เล็ก
 - 2.4 THE SYSTEM SHALL ไม่มี endpoint หรือ payload ใดที่ยังรับหรือคืน `productId` ชนิด `Guid`
-- 2.5 IF request อ้าง `documentNo` ที่ว่าง เป็นช่องว่างล้วน หรือยาวเกิน 150 ตัวอักษร THEN THE SYSTEM SHALL
-  ตอบ 400
+- 2.5 IF request อ้าง `documentNo` ที่ว่าง เป็นช่องว่างล้วน หรือยาวเกิน 150 ตัวอักษร THEN THE SYSTEM SHALL ตอบ 400
 - 2.6 THE SYSTEM SHALL บันทึก `DocumentNo` ตามที่ต้นทางสะกดมา หลังตัดช่องว่างหัวท้าย โดยไม่แปลงตัวพิมพ์
 - 2.7 THE SYSTEM SHALL ให้คอลัมน์ `DocumentNo` ทุกตารางใน VCentralPay ใช้ collation ที่เทียบแบบไม่สน ตัวพิมพ์และรองรับอักษรไทย เหมือนกันทุกตาราง เพื่อให้การเทียบฝั่ง SQL ให้ผลตรงกับ REQ-2.3
 
@@ -95,8 +91,7 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 - 4.7 THE SYSTEM SHALL เก็บ `DocumentNo`, `SaleCode` และ `ProductGroup` ของแต่ละรายการในตะกร้า ด้วยค่าที่ต้นทางคืนกลับมา ไม่ใช่ค่าที่ client ส่งมา
 - 4.8 THE SYSTEM SHALL กำหนด `saleCode` ที่ใช้ค้นต้นทางจากฟิลด์ `SaleCode` ของ merchant user ที่ยืนยัน ตัวตนแล้ว โดย client เลือก `saleCode` เองไม่ได้
 - 4.9 IF merchant user ที่เรียกไม่มี `SaleCode` ผูกอยู่ THEN THE SYSTEM SHALL ปฏิเสธคำขอที่ต้องใช้ แคตตาล็อกด้วย 403
-- 4.10 IF ค่า `SaleCode` ที่ส่งมากับฟอร์มสมัครยาวเกิน 20 ตัวอักษรหลังตัดช่องว่างหัวท้าย หรือมีอักขระ
-  นอกช่วง ASCII ที่พิมพ์ได้ THEN THE SYSTEM SHALL ตอบ 400 และไม่บันทึกค่านั้น
+- 4.10 IF ค่า `SaleCode` ที่ส่งมากับฟอร์มสมัครยาวเกิน 20 ตัวอักษรหลังตัดช่องว่างหัวท้าย หรือมีอักขระ นอกช่วง ASCII ที่พิมพ์ได้ THEN THE SYSTEM SHALL ตอบ 400 และไม่บันทึกค่านั้น
 - 4.11 THE SYSTEM SHALL ไม่ส่งค่า `saleCode` ที่ถูกตัดทอนหรือถูกแปลงอักขระไปยังต้นทาง — ค่าที่ผูกกับ พารามิเตอร์ต้องเท่ากับค่าที่เก็บไว้ทุกตัวอักษร มิฉะนั้นต้องปฏิเสธคำขอ ไม่ใช่ค้นด้วยค่าที่เพี้ยน
 
 ---
@@ -115,14 +110,10 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 - 5.5 WHEN เริ่ม checkout แล้วมีบรรทัดที่เอกสารขายไม่ได้ THE SYSTEM SHALL ตอบ 409 และไม่สร้าง checkout session
 - 5.6 WHEN สร้าง payment session THE SYSTEM SHALL ตรวจเงื่อนไข 5.1 อีกครั้งกับทุกรายการของ order นั้น และตอบ 409 ก่อนสร้างรายการเรียกเก็บเงินกับ PSP หากพบว่ามีเอกสารที่ถูกขายไปแล้วโดย order อื่น
 - 5.7 THE SYSTEM SHALL ไม่เปิดเผยรหัสหรือชื่อ merchant อื่นในข้อความตอบกลับของ 5.4-5.6
-- 5.8 WHEN `GET /products` ถูกเรียกด้วย `paymentStatus` เป็น `UNPAID` (รวมกรณีไม่ระบุ) THE SYSTEM SHALL
-  ตัดเอกสารที่ขายไม่ได้ตาม 5.1 ออกจากรายการที่ตอบกลับ
+- 5.8 WHEN `GET /products` ถูกเรียกด้วย `paymentStatus` เป็น `UNPAID` (รวมกรณีไม่ระบุ) THE SYSTEM SHALL ตัดเอกสารที่ขายไม่ได้ตาม 5.1 ออกจากรายการที่ตอบกลับ
 - 5.9 THE SYSTEM SHALL ระบุในผลลัพธ์ของ `GET /products` ว่าเอกสารแต่ละใบถูกขายผ่านแพลตฟอร์มนี้แล้วหรือไม่ โดยไม่แก้ค่า `paymentStatus` ที่ต้นทางรายงาน
-- 5.10 WHILE order มี payment session ที่ยังชำระได้ (ยังไม่ถึงสถานะสิ้นสุดแบบไม่มีการชำระ และอายุยังไม่ครบ
-  ตามที่ระบบกำหนด) หรือมี payment session ที่ผู้ให้บริการชำระเงินยืนยันแล้ว THE SYSTEM SHALL ถือว่าเอกสาร
-  ในนั้นขายไม่ได้
-- 5.11 WHILE order อยู่ในสถานะ `AwaitingPayment` โดยไม่มี payment session ตาม 5.10 THE SYSTEM SHALL
-  ถือว่าเอกสารในนั้นขายได้
+- 5.10 WHILE order มี payment session ที่ยังชำระได้ (ยังไม่ถึงสถานะสิ้นสุดแบบไม่มีการชำระ และอายุยังไม่ครบ ตามที่ระบบกำหนด) หรือมี payment session ที่ผู้ให้บริการชำระเงินยืนยันแล้ว THE SYSTEM SHALL ถือว่าเอกสาร ในนั้นขายไม่ได้
+- 5.11 WHILE order อยู่ในสถานะ `AwaitingPayment` โดยไม่มี payment session ตาม 5.10 THE SYSTEM SHALL ถือว่าเอกสารในนั้นขายได้
 - 5.12 WHILE order อยู่ในสถานะ `Cancelled` และไม่มี payment session ตาม 5.10 THE SYSTEM SHALL ถือว่า เอกสารในนั้นขายได้
 - 5.13 THE SYSTEM SHALL ให้การล็อกตาม 5.10 หมดฤทธิ์เองเมื่อ payment session พ้นอายุ โดยไม่ต้องรอให้มี คำขอใดมาแก้สถานะของแถวนั้นก่อน
 - 5.14 THE SYSTEM SHALL ให้การตรวจสถานะขายแล้วคืนเลขเอกสาร, รหัส order และเหตุผลของการล็อก (ขายแล้ว หรือกำลังอยู่ระหว่างชำระเงิน) ไม่ใช่ค่าจริง/เท็จ
@@ -157,12 +148,10 @@ VCentralPay เพื่อมินต์ `Guid` ให้แต่ละเอ
 
 **Acceptance Criteria (EARS):**
 
-- 7.1 IF การเรียกต้นทางล้มเหลวด้วยเหตุ transport (ต่อไม่ติด, timeout, ผิดพลาดที่ไม่ใช่ §6) THEN
-  THE SYSTEM SHALL ตอบ 503 ทั้งกรณีค้นรายการและกรณีอ่านเอกสารรายใบ
+- 7.1 IF การเรียกต้นทางล้มเหลวด้วยเหตุ transport (ต่อไม่ติด, timeout, ผิดพลาดที่ไม่ใช่ §6) THEN THE SYSTEM SHALL ตอบ 503 ทั้งกรณีค้นรายการและกรณีอ่านเอกสารรายใบ
 - 7.2 IF ต้นทาง raise ข้อผิดพลาดตามสัญญา §6 (50001-50009) THEN THE SYSTEM SHALL ตอบ 400 พร้อมสาระเดิม
 - 7.3 THE SYSTEM SHALL ไม่เปิดเผยรายละเอียด SQL, ชื่อ procedure หรือ connection string ใน response โดยบันทึกรายละเอียดไว้ฝั่ง server เท่านั้น
-- 7.4 IF อ่านเอกสารตอนเริ่ม checkout ไม่พบ (รวมกรณีเอกสารหลุดออกนอกหน้าต่างค้นหาของต้นทาง) THEN
-  THE SYSTEM SHALL ตอบ 409 และไม่สร้าง checkout session
+- 7.4 IF อ่านเอกสารตอนเริ่ม checkout ไม่พบ (รวมกรณีเอกสารหลุดออกนอกหน้าต่างค้นหาของต้นทาง) THEN THE SYSTEM SHALL ตอบ 409 และไม่สร้าง checkout session
 - 7.5 IF การเรียกต้นทางตอนเริ่ม checkout ล้มเหลวด้วยเหตุ transport THEN THE SYSTEM SHALL ตอบ 503 และไม่สร้าง checkout session
 
 ---
