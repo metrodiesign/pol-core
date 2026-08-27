@@ -22,7 +22,7 @@ ENGINE="$REPO/scripts/spec_contract.py"
 GATE="$REPO/.ai/bin/gate-task.sh"
 STORE="$REPO/.git/sdd-task-snapshots"
 
-KEY="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(os.path.abspath(sys.argv[1]).encode()).hexdigest())' "$FILE" 2>/dev/null)" || KEY=""
+KEY="$(python3 -c 'import hashlib,os,sys; print(hashlib.sha256(os.path.abspath(sys.argv[1]).encode()).hexdigest())' "$FILE" 2>/dev/null)" || KEY=""
 SNAP="$STORE/$KEY"
 
 block() { printf '%s\n' "$1" >&2; exit 2; }

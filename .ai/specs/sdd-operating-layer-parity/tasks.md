@@ -206,13 +206,12 @@
        - `python3 scripts/spec-retrofit.py --check --batch final-all-spec` — คาดว่าจะ exit 0 และระบุ historical spec directories ครบ 62 แห่ง
         - `python3 -m unittest discover -s scripts/tests -p 'test_spec_retrofit.py'` — คาดว่าจะ exit 0 รวม batch-only rollback, dry-run-after-rollback และ no-dual-schema fixtures
      Evidence:
-       - test: `for batch in approved-aliases bugfix alphanumeric-tasks conflicting-status ambiguous-directories canonical-complete; do python3 scripts/spec-retrofit.py --dry-run --batch "$batch"; done` -> allow rc=0 ทั้งหมด, actions=0 blockers=0 (idempotent no-op หลัง apply); `--check final-all-spec` = rc1 (legacy trace/EARS/evidence-v2 gaps — deviation ล่าง)
-       - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> Ran 120 tests; OK (รวม ledger fixtures: rename/join round-trip, status-unknown, evidence waiver attach, authoring exemption, template determinism)
-       - test: apply-safe จริงบน corpus -> bugfix 6 ไฟล์ (commit 8b251c8), statuses 107 ไฟล์ + evidence convergence 3 passes (commits ecfcaef..HEAD, ตารางเต็มใน changes.md §Task 7); recovery journal เคย abort+restore ได้จริง (MIGRATION_FILE_CHANGED) และ rerun dry-run ผ่านก่อนเดินต่อ
+       - test: `python3 scripts/spec-retrofit.py --dry-run --batch approved-aliases --format json` -> verdict allow actions=0 blockers=0; ยอดรวม 6 batch registry จาก changes.md §Task 7 ผ่านหมด idempotent
+       - test: `python3 scripts/repo_policy_alignment.py --check` -> exit 0 ตรงทุก row (Task 8 fixture ยืนยัน real tree)
+       - test: `bash .claude/hooks/tests/cross-harness-conformance.test.sh` -> passed=18 failed=0
        - viewports: n/a — tooling/CLI batch ไม่มี UI surface
-       - deviations: (1) `final-all-spec` strict ยังไม่ exit0 — legacy trace-ref/evidence-v2 residuals 147 รายการถูก disposition บน `migration-resolutions.json` (198 decisions, human checkpoint 2026-08-26) เป็น decided-residuals ที่ fail-closed ยังโชว์ใน dry-run; ปิดถาวรเมื่อ tasks 8-9 align adapters/trace + CI scope; (2) HISTORICAL_COUNT 62→61 ตาม rmdir empty dir `microsoft-private-key-jwt-auth` (decision R-empty-dir); (3) subagent billing block ยัง inline-solo
-
-- [ ] 8. Align adapters, canonical docs และ source assertions — Claude, Codex และ OpenCode ให้ verdict เดียวกัน ส่วน Pi อธิบาย floor-only/unsupported ตรง runtime จริง
+       - deviations: apply-safe สถิติจริง 6 ไฟล์ bugfix + statuses 107 ไฟล์ + evidence converge (commits 8b251c8..85e0aa2) ย้ายไปเก็บ full narrative ใน changes.md §Task 7; final-all-spec strict rc1 ยังเปิด = legacy trace/v2 gaps ของ tasks 8-9; HISTORICAL_COUNT 62→61; inline-solo
+- [x] 8. Align adapters, canonical docs และ source assertions — Claude, Codex และ OpenCode ให้ verdict เดียวกัน ส่วน Pi อธิบาย floor-only/unsupported ตรง runtime จริง
      Scope: เขียน source-to-assertion และ cross-harness characterization fixtures ก่อน align payload capture, phase skills, routers, agent docs, canonical module/DbContext/isolation/CI/handoff/git-boundary assertions และ verification-record schema
      Files:
        - `scripts/repo_policy_alignment.py`
@@ -253,6 +252,13 @@
        - `python3 scripts/repo_policy_alignment.py --check` — คาดว่าจะ exit 0 โดย source-to-assertion rows ตรง filesystem/config จริงและ negative fixtures ใช้ stable diagnostics
        - `for test_file in .claude/hooks/tests/cross-harness-conformance.test.sh .claude/hooks/tests/repo-policy-alignment.test.sh; do bash "$test_file"; done` — คาดว่าจะ exit 0 และ Claude/Codex/OpenCode คืน allow, policy-fail หรือ engine-fail ตรงกันทุก normalized fixture
        - `test ! -d .pi/extensions` — คาดว่าจะ exit 0 และไม่มี Pi extension ถูกเพิ่ม
+     Evidence:
+       - test: `python3 scripts/repo_policy_alignment.py --check` -> exit 0 — source-to-assertion ตรง 8 rows กับ registry ใหม่ใน ARCHITECTURE.md §As-built registry
+       - test: `bash .claude/hooks/tests/repo-policy-alignment.test.sh` -> passed=8 failed=0 รวม negative fixtures ALIGN_MODULES_MISMATCH + ALIGN_CI_JOBS_MISMATCH + Pi floor-only needles
+       - test: `bash .claude/hooks/tests/cross-harness-conformance.test.sh` -> passed=18 failed=0 — F0 verdict parity 5 labels, Claude allow/block, Codex fail-closed, OpenCode plugin missing/red/green parity
+       - test: `test ! -d .pi/extensions` -> exit 0
+       - viewports: n/a — tooling/CLI fixture ไม่มี UI surface
+       - deviations: (1) defect แท้พบระหว่าง fixture: task-gate.sh python one-liner ขาด import os → snapshot KEY resolve ล้มมาตั้งแต่ T3 (adapter latent-broken); fix อยู่ใน commit นี้; (2) conformance sandbox copy scripts + seam SDD_GATE_REPO/TYPECHECK/TEST shims กัน dotnet จริง; (3) spec-slice.test.sh เคย FAIL เพราะ Evidence T7 format เกิน observation grammar — normalize แล้ว
 
 - [ ] 9. Cut over strict checks เฉพาะ GitHub/GitLab verify paths — protected workflow comparator กัน product/package/deploy jobs ทุก byte และ rollback CI เป็น layer แรก
      Scope: เขียน comparator/negative fixtures ก่อนแก้ workflow จากนั้นเพิ่ม Python, shell, diff-aware Evidence, strict all-spec, REQ/F/B trace และ parity/alignment checks เฉพาะ verify jobs หลัง task 7 strict check กับ task 8 conformance ผ่าน

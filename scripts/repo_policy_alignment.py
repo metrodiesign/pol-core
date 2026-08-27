@@ -1,0 +1,466 @@
+#!/usr/bin/env python3
+"""repo_policy_alignment.py — source-to-assertion alignment engine (task 8).
+
+Every row reads REAL filesystem/config as source of truth and compares it to a
+machine-readable assertion in canonical docs (.ai/shared/ARCHITECTURE.md
+"As-built registry", AGENT_HANDOFF_PROTOCOL.md schema, boundary docs). There are
+no hardcoded pass flags: the registry lives in docs, drift either way fails
+with a stable diagnostic code. Negative fixtures mutate copies in temporary
+trees (SDD_ALIGNMENT_REPO test seam) and must fail with the documented codes.
+
+Exit: 0 aligned · 1 misaligned · 2 usage error.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass
+class Diag:
+    code: str
+    message: str
+
+
+def repo_root() -> Path:
+    override = os.environ.get("SDD_ALIGNMENT_REPO")
+    if override:
+        return Path(override).resolve()
+    return Path(__file__).resolve().parent.parent
+
+
+# ---------------------------------------------------------------------------
+# Canonical-doc registry parsing (ARCHITECTURE.md "As-built registry")
+# ---------------------------------------------------------------------------
+
+REGISTRY_HEADING = "## As-built registry"
+
+
+def _registry_text(root: Path) -> str:
+    arch = root / ".ai/shared/ARCHITECTURE.md"
+    if not arch.is_file():
+        raise FileNotFoundError(f"missing {arch}")
+    text = arch.read_text(encoding="utf-8")
+    start = text.find(REGISTRY_HEADING)
+    if start < 0:
+        raise ValueError("ARCHITECTURE.md missing '## As-built registry'")
+    rest = text[start + len(REGISTRY_HEADING):]
+    nxt = re.search(r"^## ", rest, re.MULTILINE)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def registry_entries(root: Path, subsection: str) -> list[str]:
+    """First-cell backticked tokens of the table under a `### <subsection>`."""
+    section = _registry_text(root)
+    match = re.search(rf"^### {re.escape(subsection)}\s*$", section, re.MULTILINE)
+    if not match:
+        raise ValueError(f"registry subsection missing: {subsection}")
+    tail = section[match.end():]
+    stop = re.search(r"^### ", tail, re.MULTILINE)
+    tail = tail[: stop.start()] if stop else tail
+    rows = []
+    for line in tail.splitlines():
+        row = re.match(r"^\|\s*`([^`]+)`", line)
+        if row:
+            rows.append(row.group(1))
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Filesystem extractors (source of truth)
+# ---------------------------------------------------------------------------
+
+def fs_modules(root: Path) -> list[str]:
+    """First-level src/Modules/<name> dirs carrying at least one *.csproj."""
+    base = root / "src/Modules"
+    if not base.is_dir():
+        return []
+    mods = []
+    for entry in sorted(base.iterdir()):
+        if entry.is_dir() and any(entry.rglob("*.csproj")):
+            mods.append(entry.name)
+    return mods
+
+
+def fs_runtime_dbcontexts(root: Path) -> list[str]:
+    """Class declarations *DbContext.cs under src/Persistence/** (runtime only —
+    BuildingBlocks' migration-owner PolDbContext lives outside this tree)."""
+    base = root / "src/Persistence"
+    contexts = []
+    if not base.is_dir():
+        return contexts
+    for path in sorted(base.rglob("*DbContext.cs")):
+        name = path.stem
+        if re.search(rf"\bclass {name}\b", path.read_text(encoding="utf-8",
+                                                          errors="replace")):
+            contexts.append(name)
+    return contexts
+
+
+# ---------------------------------------------------------------------------
+# Alignment rows
+# ---------------------------------------------------------------------------
+
+MISSING = "negative-guard: extractor ศูนย์รายการ (source grammar/path drift)"
+
+
+def diff_sets(actual: list[str], declared: list[str]) -> tuple[list[str], list[str]]:
+    a, d = set(actual), set(declared)
+    return sorted(d - a), sorted(a - d)
+
+
+def check_modules(root: Path) -> list[Diag]:
+    # NOTE: an "empty retired container" re-entering module-hood by gaining a
+    # *.csproj MUST surface here — that is the documented negative fixture.
+    actual = fs_modules(root)
+    declared = registry_entries(root, "Modules")
+    problems: list[Diag] = []
+    if not actual or not declared:
+        return [Diag("ALIGN_MODULES_MISMATCH", MISSING)]
+    missing, extra = diff_sets(actual, declared)
+    for name in missing:
+        problems.append(Diag("ALIGN_MODULES_MISMATCH",
+                             f"module {name} มีใน docs แต่ไม่มีใน src/Modules"))
+    for name in extra:
+        problems.append(Diag("ALIGN_MODULES_MISMATCH",
+                             f"module {name} มีใน src/Modules แต่ไม่มีใน docs"))
+    return problems
+
+
+def check_dbcontexts(root: Path) -> list[Diag]:
+    actual = fs_runtime_dbcontexts(root)
+    declared = registry_entries(root, "Runtime DbContexts")
+    if not actual or not declared:
+        return [Diag("ALIGN_DBCONTEXTS_MISMATCH", MISSING)]
+    missing, extra = diff_sets(actual, declared)
+    return [
+        Diag("ALIGN_DBCONTEXTS_MISMATCH",
+             f"context {name} {'อยู่ใน docs แต่ไม่พบใน src/Persistence' if name in missing else 'พบใน runtime แต่ไม่อยู่ใน docs'}")
+        for name in sorted(set(missing) | set(extra))
+    ]
+
+
+_PERSISTENCE_BASE = Path("src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence")
+
+
+def check_migration_owner(root: Path) -> list[Diag]:
+    owner = root / _PERSISTENCE_BASE / "PolDbContext.cs"
+    snapshot = root / _PERSISTENCE_BASE / "Migrations/PolDbContextModelSnapshot.cs"
+    problems: list[Diag] = []
+    if not owner.is_file():
+        problems.append(Diag("ALIGN_MIGRATION_OWNER_MISMATCH",
+                             f"owner class หาย: {owner}"))
+    if not snapshot.is_file():
+        problems.append(Diag("ALIGN_MIGRATION_OWNER_MISMATCH",
+                             f"model snapshot หาย: {snapshot}"))
+    src = root / "src"
+    if src.is_dir():
+        needle = "AddDbContext<PolDbContext>"
+        for path in src.rglob("*.cs"):
+            try:
+                if needle in path.read_text(encoding="utf-8", errors="replace"):
+                    problems.append(Diag(
+                        "ALIGN_MIGRATION_OWNER_MISMATCH",
+                        f"PolDbContext ถูก register เป็น request runtime context ที่ {path}"))
+                    break
+            except OSError:
+                continue
+    return problems
+
+
+def check_isolation(root: Path) -> list[Diag]:
+    guard = root / _PERSISTENCE_BASE / "GuardedRuntimeDbContext.cs"
+    problems: list[Diag] = []
+    if not guard.is_file():
+        problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
+                             f"sealed write floor หาย: {guard}"))
+    contexts = {
+        "ControlPlane": root / "src/Persistence/Persistence.ControlPlane/ControlPlaneDbContext.cs",
+        "MerchantUsers": root / "src/Persistence/Persistence.MerchantUsers/MerchantUserDbContext.cs",
+        "MerchantRuntime": root / "src/Persistence/Persistence.MerchantRuntime/MerchantRuntimeDbContext.cs",
+    }
+    for cluster, path in contexts.items():
+        if not path.is_file():
+            problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
+                                 f"{cluster} context หาย: {path}"))
+            continue
+        body = path.read_text(encoding="utf-8", errors="replace")
+        if "GuardedRuntimeDbContext" not in body:
+            problems.append(Diag(
+                "ALIGN_ISOLATION_MISMATCH",
+                f"{cluster} ไม่ inherit sealed write floor (GuardedRuntimeDbContext)"))
+        if cluster != "ControlPlane":
+            has_filter = any("HasQueryFilter" in cfg.read_text(encoding="utf-8",
+                                                             errors="replace")
+                             for cfg in path.parent.rglob("*.cs")
+                             if cfg.name != path.name)
+            if not has_filter:
+                problems.append(Diag(
+                    "ALIGN_ISOLATION_MISMATCH",
+                    f"{cluster} ไม่มี deny-default query filter เลย"))
+    disjoint = root / "tests/Architecture.Tests/ModelDisjointnessTests.cs"
+    if not disjoint.is_file():
+        problems.append(Diag("ALIGN_ISOLATION_MISMATCH",
+                             f"model ownership test หาย: {disjoint}"))
+    return problems
+
+
+_JOB_LINE = re.compile(r"^  ([a-z][a-z0-9_-]*):\s*$")
+_GITLAB_JOB = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):\s*$")
+_GITLAB_META = {"stages", "workflow", "include", "default", "variables", "image",
+                "before_script", "after_script", "cache", "retry", "timeout"}
+
+
+def _github_jobs(root: Path) -> list[str]:
+    path = root / ".github/workflows/ci.yml"
+    if not path.is_file():
+        return []
+    jobs, inside = [], False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() == "jobs:":
+            inside = True
+            continue
+        if inside:
+            if line.startswith(("  ", "\t")) and (match := _JOB_LINE.match(line)):
+                jobs.append(match.group(1))
+            elif line and not line.startswith((" ", "#")):
+                break
+    return jobs
+
+
+def _gitlab_jobs(root: Path) -> list[str]:
+    path = root / ".gitlab-ci.yml"
+    if not path.is_file():
+        return []
+    jobs = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = _GITLAB_JOB.match(line)
+        if match and match.group(1) not in _GITLAB_META:
+            jobs.append(match.group(1))
+    return jobs
+
+
+def check_ci_jobs(root: Path) -> list[Diag]:
+    declared = registry_entries(root, "CI topology")
+    github_declared = [j for j in declared if j.startswith("github:")]
+    gitlab_declared = [j.split(":", 1)[1] for j in declared
+                       if j.startswith("gitlab:")]
+    github_actual = _github_jobs(root)
+    gitlab_actual = _gitlab_jobs(root)
+    if not github_actual or not gitlab_actual or not declared:
+        return [Diag("ALIGN_CI_JOBS_MISMATCH", MISSING)]
+    problems: list[Diag] = []
+    for kind, actual, expect in (
+            ("github", github_actual,
+             [j.split(":", 1)[1] for j in github_declared]),
+            ("gitlab", gitlab_actual, gitlab_declared)):
+        missing, extra = diff_sets(actual, expect)
+        for name in missing:
+            problems.append(Diag("ALIGN_CI_JOBS_MISMATCH",
+                                 f"{kind} job {name} ประกาศใน docs แต่ workflow ไม่มี"))
+        for name in extra:
+            problems.append(Diag("ALIGN_CI_JOBS_MISMATCH",
+                                 f"{kind} job {name} มีใน workflow แต่ docs ไม่ประกาศ"))
+    return problems
+
+
+def _h2_sequence(text: str) -> list[str]:
+    return re.findall(r"^## (.+?)\s*$", text, re.MULTILINE)
+
+
+def check_handoff_schema(root: Path) -> list[Diag]:
+    protocol = root / ".ai/shared/AGENT_HANDOFF_PROTOCOL.md"
+    template = root / ".ai/templates/handoff-note-template.md"
+    problems: list[Diag] = []
+    if not protocol.is_file() or not template.is_file():
+        return [Diag("ALIGN_HANDOFF_SCHEMA_MISMATCH", MISSING)]
+    proto_text = protocol.read_text(encoding="utf-8")
+    schema_at = proto_text.find("## Schema")
+    fence = proto_text.find("```", proto_text.find("```", schema_at) + 3)
+    block_start = proto_text.find("```", schema_at) + 3
+    if schema_at < 0 or fence <= block_start - 1:
+        return [Diag("ALIGN_HANDOFF_SCHEMA_MISMATCH", "protocol ไม่มี schema block")]
+    schema_block = proto_text[block_start:fence]
+    proto_headings = _h2_sequence(schema_block)
+    template_headings = _h2_sequence(template.read_text(encoding="utf-8"))
+    if not proto_headings or not template_headings:
+        return [Diag("ALIGN_HANDOFF_SCHEMA_MISMATCH", MISSING)]
+    if proto_headings != template_headings:
+        problems.append(Diag(
+            "ALIGN_HANDOFF_SCHEMA_MISMATCH",
+            f"H2 order/cardinality ต่างกัน: protocol={proto_headings} vs "
+            f"template={template_headings}"))
+    return problems
+
+
+def check_git_boundary(root: Path) -> list[Diag]:
+    pre_push = root / ".githooks/pre-push"
+    task_protocol = root / ".ai/shared/TASK_PROTOCOL.md"
+    security_rules = root / ".ai/shared/SECURITY_RULES.md"
+    destructive = root / ".ai/bin/check-destructive.sh"
+    problems: list[Diag] = []
+    if not all(p.is_file() for p in (pre_push, task_protocol, security_rules,
+                                     destructive)):
+        return [Diag("ALIGN_GIT_BOUNDARY_MISMATCH", MISSING)]
+    hooks = pre_push.read_text(encoding="utf-8")
+    for ref in ("refs/heads/main", "refs/heads/develop"):
+        if ref not in hooks:
+            problems.append(Diag("ALIGN_GIT_BOUNDARY_MISMATCH",
+                                 f"pre-push ขาด protected ref {ref}"))
+    if "non-fast-forward" not in hooks:
+        problems.append(Diag("ALIGN_GIT_BOUNDARY_MISMATCH",
+                             "pre-push ไม่ block force/non-fast-forward push"))
+    rules = security_rules.read_text(encoding="utf-8")
+    if "Tier 1" not in rules:
+        problems.append(Diag("ALIGN_GIT_BOUNDARY_MISMATCH",
+                             "SECURITY_RULES ไม่ประกาศ Tier 1 floor"))
+    protocol = task_protocol.read_text(encoding="utf-8")
+    if "`main`" not in protocol or "`develop`" not in protocol:
+        problems.append(Diag("ALIGN_GIT_BOUNDARY_MISMATCH",
+                             "TASK_PROTOCOL ไม่ระบุ protected branches"))
+    if "destructive" not in destructive.read_text(encoding="utf-8").lower():
+        problems.append(Diag("ALIGN_GIT_BOUNDARY_MISMATCH",
+                             "check-destructive.sh lost its policy vocabulary"))
+    return problems
+
+
+_PI_NEEDLES = ("no pre-tool hook", "floor-only", "No built-in subagents")
+
+
+def check_pi_floor_only(root: Path) -> list[Diag]:
+    agent_doc = root / ".ai/agents/pi/AGENT.md"
+    problems: list[Diag] = []
+    if not agent_doc.is_file():
+        return [Diag("ALIGN_PI_DOCS_MISMATCH", MISSING)]
+    text = agent_doc.read_text(encoding="utf-8")
+    for needle in _PI_NEEDLES:
+        if needle.lower() not in text.lower():
+            problems.append(Diag(
+                "ALIGN_PI_DOCS_MISMATCH",
+                f"Pi adapter doc ขาด capability claim '{needle}' (REQ-6.5-6.8)"))
+    if (root / ".pi/extensions").is_dir():
+        problems.append(Diag("ALIGN_PI_DOCS_MISMATCH",
+                             ".pi/extensions/** ต้องไม่เกิดขึ้น (REQ-6.9)"))
+    return problems
+
+
+ALL_ROWS = (
+    ("modules", check_modules),
+    ("dbcontexts", check_dbcontexts),
+    ("migration_owner", check_migration_owner),
+    ("isolation", check_isolation),
+    ("ci_jobs", check_ci_jobs),
+    ("handoff_schema", check_handoff_schema),
+    ("git_boundary", check_git_boundary),
+    ("pi_floor_only", check_pi_floor_only),
+)
+
+
+# ---------------------------------------------------------------------------
+# Verification records (REQ-8.13): unverified-because-environment schema
+# ---------------------------------------------------------------------------
+
+VERIFY_SCOPES = {"temporary-static-workflow", "temporary-local-ci-equivalent"}
+UNVERIFIED_MESSAGE = "unverified; must not be claimed as pass"
+
+
+def build_unverified_record(check_id: str, command: str, reason: str,
+                            constraint: str, substitute: str = "none",
+                            scope: str = "temporary-static-workflow") -> dict:
+    return {
+        "check_id": check_id,
+        "command": command,
+        "exit_code": None,
+        "observed_result": "not-run",
+        "reason": reason,
+        "environment_constraint": constraint,
+        "substitute_evidence": substitute,
+        "scope_label": scope,
+        "message": UNVERIFIED_MESSAGE,
+    }
+
+
+def validate_unverified_record(record: dict) -> list[Diag]:
+    required = ("check_id", "command", "exit_code", "observed_result", "reason",
+                "environment_constraint", "substitute_evidence", "scope_label",
+                "message")
+    problems: list[Diag] = []
+    for field in required:
+        if field not in record:
+            problems.append(Diag("VERIFY_UNVERIFIED_FIELDS_MISSING",
+                                 f"record ขาด field '{field}'"))
+    if problems:
+        return problems
+    scope = record.get("scope_label")
+    if scope not in VERIFY_SCOPES:
+        problems.append(Diag("VERIFY_SCOPE_INVALID",
+                             f"scope '{scope}' อยู่นอก closed set {sorted(VERIFY_SCOPES)}"))
+    observed = record.get("observed_result")
+    exit_code = record.get("exit_code")
+    message = str(record.get("message", ""))
+    if observed == "pass" or record.get("claimed") == "pass" or \
+            (observed != "not-run" and exit_code == 0) or \
+            UNVERIFIED_MESSAGE not in message:
+        problems.append(Diag(
+            "VERIFY_PASS_CLAIM_FORBIDDEN",
+            "unverified record ห้ามอ้าง pass และต้องมีข้อความ '" +
+            UNVERIFIED_MESSAGE + "'"))
+    if observed != "not-run" or exit_code is not None:
+        if Diag("VERIFY_SCOPE_INVALID", "") not in []:
+            already_scope_failed = any(p.code == "VERIFY_SCOPE_INVALID"
+                                       for p in problems)
+            if not already_scope_failed:
+                problems.insert(0, Diag(
+                    "VERIFY_UNVERIFIED_FIELDS_MISSING",
+                    "exit_code ต้องเป็น null และ observed_result ต้องเป็น not-run"))
+    return problems
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def run_check(root: Path | None = None) -> list[tuple[str, Diag]]:
+    root = repo_root()
+    results: list[tuple[str, Diag]] = []
+    for row_name, checker in ALL_ROWS:
+        try:
+            for problem in checker(root):
+                results.append((row_name, problem))
+        except (FileNotFoundError, ValueError) as error:
+            results.append((row_name, Diag("ALIGN_ENGINE_INTERNAL", str(error))))
+    return results
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--check", action="store_true")
+    parser.add_argument("--json", action="store_true")
+    args, extras = parser.parse_known_args(argv)
+    if extras or (not args.check):
+        parser.print_usage(sys.stderr)
+        return 2
+    results = run_check()
+    if args.json:
+        print(json.dumps({
+            "schemaVersion": 1,
+            "verdict": "allow" if not results else "policy-fail",
+            "diagnostics": [{"row": row, "code": diag.code,
+                             "message": diag.message}
+                            for row, diag in results],
+        }, sort_keys=True))
+    else:
+        for row, diag in results:
+            print(f"[{row}] {diag.code}: {diag.message}")
+        if not results:
+            print("OK: source-to-assertion alignment ตรงทุก row")
+    return 0 if not results else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
