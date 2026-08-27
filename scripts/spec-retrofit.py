@@ -1284,6 +1284,10 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                             if _has_unsplit_meta(raw)), None)
         if meta_offset is None:
             continue
+        # split-complete guard: any canonical metadata line in the region
+        # means this task was already processed — leave it alone forever
+        if any(re.match(r"^ {5}Satisfies:", raw) for raw in raw_lines):
+            continue
         pieces: list[str] = []
         meta_lines: list[str] = []
         for offset, raw in enumerate(raw_lines):
