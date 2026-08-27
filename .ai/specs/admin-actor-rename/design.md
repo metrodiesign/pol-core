@@ -403,7 +403,7 @@ scoped-admin. floor ย้ายมา app, บังคับด้วย **3 c
 | Section | REQ |
 |---|---|
 | §C# + EF rename map; §Renamed tables/columns | REQ-1 |
-| §External HTTP contract changes | REQ-2.1, 2.2, 2.4 |
+| §External HTTP contract changes | REQ-2.1, REQ-2.2, REQ-2.4 |
 | §Audience-role key `tenant` — RETAINED (descoped) | REQ-2.3 |
 | §Data Models — AdminAccounts; New interfaces — AdminAccount | REQ-3 |
 | §Data Models — AdminTenantAssignments; seq "Super creates Scoped" | REQ-4 |
