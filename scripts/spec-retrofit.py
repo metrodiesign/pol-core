@@ -1290,10 +1290,15 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
             meta_only = re.match(r"^( {5}Satisfies:\s*)(.*)$", raw)
             match = None
             if meta_only is not None:
-                ver = re.search(r"\s+(Verify:)\s*", meta_only.group(2))
+                body = meta_only.group(2)
+                ver = re.search(r"\s+(Verify:)\s*", body)
                 if ver is not None:
-                    pieces.append("     " + meta_only.group(2)[:ver.start()].strip())
-                    meta_lines.append("     " + meta_only.group(2)[ver.start():].strip())
+                    pieces.append("     " + body[:ver.start()].strip())
+                    meta_lines.append("     " + body[ver.start():].strip())
+                elif re.search(r"(?<=[A-Z0-9])\.$", body):
+                    # sentence period trailing the final ref breaks exact
+                    # matching; deterministic one-char removal
+                    pieces.append("     " + re.sub(r"\.$", "", body))
                 else:
                     pieces.append(raw)
             match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw) \
@@ -1307,7 +1312,11 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                 rest_meta = match.group(2).strip()
                 ver = re.search(r"\s+(Verify:)\s*", rest_meta)
                 if ver is not None:
-                    meta_lines.append("     " + rest_meta[:ver.start()].strip())
+                    sat_text = rest_meta[:ver.start()].strip()
+                    # terminal sentence period on the last ref breaks exact
+                    # matching; strip one dot (never part of an ID)
+                    sat_text = re.sub(r"(?<=[A-Z0-9])\.$", "", sat_text)
+                    meta_lines.append("     " + sat_text)
                     meta_lines.append("     " + rest_meta[ver.start():].strip())
                 else:
                     meta_lines.append("     " + rest_meta)
