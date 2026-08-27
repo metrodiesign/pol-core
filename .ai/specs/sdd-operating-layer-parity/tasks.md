@@ -116,7 +116,7 @@
        - viewports: n/a — tooling-only gate/CLI ไม่มี UI surface
        - deviations: (1) เพิ่มไฟล์ `.claude/hooks/task-snapshot.sh` + PreToolUse(Edit|Write) wiring ใน `.claude/settings.json` เพื่อให้ Claude adapter จับ full pre-tool bytes ตาม design §Adapter Seams rule 1 — อยู่นอก Files list ของ task; (2) Codex runtime ไม่มี pre-write event จึง fail-closed เป็น GATE_SNAPSHOT_MISSING exit 2 เสมอสำหรับ tasks.md flip (durable floor ยังตรวจจริง) — Task 8 รีเปิดเมื่อ schema ยืนยัน; (3) `GATE_CAPTURE_STALE` ยังไม่ถูก emit (snapshot correlation พิสูจน์ด้วย store-existence + before_exists consistency) — upgrade path ผูก mtime/hash ต่อ tool_use_id
 
-- [ ] 4. รวม guard normalization และ bypass resistance — quote-aware command spans เป็น detection-only owner เดียวและทุก policy รักษา verdict corpus เดิม
+- [x] 4. รวม guard normalization และ bypass resistance — quote-aware command spans เป็น detection-only owner เดียวและทุก policy รักษา verdict corpus เดิม
      Scope: characterize existing destructive/bypass verdicts พร้อม benign quoted-data pairs แล้วสร้าง recursive shell span parser, thin bridge และ policy consumers ที่ normalize separators, substitutions, wrappers, env prefix, absolute binary path และ Git global options
      Files:
        - `scripts/guard_contract.py`
@@ -135,6 +135,13 @@
      Verify:
        - `python3 -m unittest discover -s scripts/tests -p 'test_guard_contract.py'` — คาดว่าจะ exit 0 และ normalized span tree ครบ quote, substitution, wrapper recursion กับ malformed input
        - `for test_file in .claude/hooks/tests/destructive-guard.test.sh .claude/hooks/tests/hook-bypass-guard.test.sh .claude/hooks/tests/codex-adapters.test.sh; do bash "$test_file"; done` — คาดว่าจะ exit 0 โดย destructive/bypass corpus เดิมไม่เปลี่ยนและ benign quoted data ยังคง allow
+       Evidence:
+         - test: `python3 -m unittest discover -s scripts/tests -p 'test_guard_contract.py'` -> Ran 14 tests; OK (span tree: quote/substitution/funsub recursion, offsets+escapes, prefix+git peeling, malformed limits, CLI envelopes; mutations: peel-disabled detectable, MAX_DEPTH=0 -> GUARD_RECURSION_LIMIT)
+         - test: `python3 -m unittest discover -s scripts/tests -p 'test_guard_policy.py'` -> Ran 16 tests; OK — legacy destructive/bypass corpora preserved verbatim (rm forms incl. \rm/quote/wrapper/env-prefix/absolute-path, git reset --hard/clean -f/find -delete, restore/checkout whole-tree vs staged/file/branch, force-push family, SQL DROP/TRUNCATE/DELETE-no-WHERE + benign WHERE/truncate-s counterparts, floor tamper/copy-destination/redirect/hookspath writes/no-verify-style skip flags/SECRET_GUARD_SKIP) + REQ-9.8 quoted-separator-is-value allow + REQ-9.2 engine-fail closed + REQ-9.3 mutations (flat side-path disagrees, peel-disabled changes verdict, depth-limit red)
+         - test: `bash .claude/hooks/tests/destructive-guard.test.sh` -> pass=190 fail=0 skip=0 · hook-bypass-guard.test.sh -> pass=84 fail=0 skip=0 · codex-adapters.test.sh -> pass=7 fail=0
+         - test: full tree `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> Ran 181 tests; OK
+         - viewports: n/a — guard CLI scope
+         - deviations: corpus deltas ที่ตั้งใจตาม REQ-9.8 = echo "...rm -rf..." quoted text now ALLOW (เคย block fail-safe) และ SECRET_GUARD_SKIP=<env> prefix now BLOCK (env-prefix normalization REQ-9.7); engines check-destructive/check-bypass เป็น thin adapters เรียก scripts/guard_policy.py — policy spans single-owner เสร็จ, git branch -D gap ยัง intentionally-open ตาม header เดิม
 
 - [x] 5. ย้าย shared consumers ไปใช้ string task graph และ current repository binding — pane-loop, cost, spec-state และ GitHub sync เลิก numeric-only/hardcoded repository paths
      Scope: เพิ่ม consumer fixtures ก่อนแก้ caller ให้รับ exact string IDs ตาม file order, reject invalid graph, derive `owner/repo` จาก `origin`, ตรวจ manifest ก่อน I/O และเปลี่ยน retrospective completion จาก Git HEAD เป็น artifact bytes
