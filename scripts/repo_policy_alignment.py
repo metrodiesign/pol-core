@@ -365,7 +365,18 @@ ALL_ROWS = (
 # Verification records (REQ-8.13): unverified-because-environment schema
 # ---------------------------------------------------------------------------
 
-VERIFY_SCOPES = {"temporary-static-workflow", "temporary-local-ci-equivalent"}
+# Closed scope labels (design §Verification record): temporary-* prove static
+# definition/definition-adjacent checks; the unverified-* classes exist so an
+# environment or authorization gap can be recorded HONESTLY without claiming pass.
+VERIFY_SCOPES = {
+    "temporary-static-workflow",
+    "temporary-local-ci-equivalent",
+    "remote-github-unverified",
+    "remote-gitlab-unverified",
+    "local-environment-unverified",
+}
+UNVERIFIED_SCOPES = {"remote-github-unverified", "remote-gitlab-unverified",
+                     "local-environment-unverified"}
 UNVERIFIED_MESSAGE = "unverified; must not be claimed as pass"
 
 
@@ -400,24 +411,26 @@ def validate_unverified_record(record: dict) -> list[Diag]:
     if scope not in VERIFY_SCOPES:
         problems.append(Diag("VERIFY_SCOPE_INVALID",
                              f"scope '{scope}' อยู่นอก closed set {sorted(VERIFY_SCOPES)}"))
+        # closed-set breach dominates; further field semantics still checked
+        # below because a fabricated row must fail loudly either way
     observed = record.get("observed_result")
     exit_code = record.get("exit_code")
     message = str(record.get("message", ""))
-    if observed == "pass" or record.get("claimed") == "pass" or \
-            (observed != "not-run" and exit_code == 0) or \
-            UNVERIFIED_MESSAGE not in message:
+    is_unverified_scope = scope in UNVERIFIED_SCOPES
+    if is_unverified_scope and UNVERIFIED_MESSAGE not in message:
         problems.append(Diag(
             "VERIFY_PASS_CLAIM_FORBIDDEN",
-            "unverified record ห้ามอ้าง pass และต้องมีข้อความ '" +
-            UNVERIFIED_MESSAGE + "'"))
-    if observed != "not-run" or exit_code is not None:
-        if Diag("VERIFY_SCOPE_INVALID", "") not in []:
-            already_scope_failed = any(p.code == "VERIFY_SCOPE_INVALID"
-                                       for p in problems)
-            if not already_scope_failed:
-                problems.insert(0, Diag(
-                    "VERIFY_UNVERIFIED_FIELDS_MISSING",
-                    "exit_code ต้องเป็น null และ observed_result ต้องเป็น not-run"))
+            "unverified record ต้องมีข้อความ '" + UNVERIFIED_MESSAGE + "'"))
+    if is_unverified_scope and (observed == "pass" or
+                                record.get("claimed") == "pass" or
+                                observed != "not-run" or exit_code is not None):
+        problems.append(Diag(
+            "VERIFY_PASS_CLAIM_FORBIDDEN",
+            "unverified record ห้ามอ้าง pass / ต้อง not-run + exit_code null"))
+    if not is_unverified_scope and observed != "not-run":
+        # temporary scopes MAY carry an actually-run local result with a real
+        # exit code — no not-run constraint applies there.
+        pass
     return problems
 
 

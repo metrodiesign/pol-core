@@ -401,7 +401,7 @@ class VerificationRecordTest(unittest.TestCase):
             command="docker build -t pol-core-check .",
             reason="docker daemon unavailable in this environment",
             constraint="no docker socket inside sandbox",
-        )
+            scope="local-environment-unverified")
 
     def test_valid_records_accept_scope_variants(self):
         rec = self._valid_docker()
@@ -429,6 +429,14 @@ class VerificationRecordTest(unittest.TestCase):
         codes = {d.code for d in rpa.validate_unverified_record(rec)}
         self.assertIn("VERIFY_SCOPE_INVALID", codes)
 
+    def test_new_scope_labels_accepted(self):
+        for scope in ("remote-github-unverified", "remote-gitlab-unverified",
+                      "local-environment-unverified"):
+            rec = rpa.build_unverified_record(
+                "x", "cmd", reason="r", constraint="c", scope=scope)
+            self.assertEqual([], rpa.validate_unverified_record(rec),
+                             msg=scope)
+
     def test_pass_claim_forbidden(self):
         rec = self._valid_docker()
         rec["observed_result"] = "pass"
@@ -442,9 +450,9 @@ class VerificationRecordTest(unittest.TestCase):
 
     def test_exit_null_violation_flagged(self):
         rec = self._valid_docker()
-        rec["exit_code"] = 0
+        rec["exit_code"] = 0   # a run that exited cannot be an honest not-run record
         codes = [d.code for d in rpa.validate_unverified_record(rec)]
-        self.assertIn("VERIFY_UNVERIFIED_FIELDS_MISSING", codes)
+        self.assertIn("VERIFY_PASS_CLAIM_FORBIDDEN", codes)
 
 
 if __name__ == "__main__":
