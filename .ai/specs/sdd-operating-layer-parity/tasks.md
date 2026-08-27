@@ -260,7 +260,7 @@
        - viewports: n/a — tooling/CLI fixture ไม่มี UI surface
        - deviations: (1) defect แท้พบระหว่าง fixture: task-gate.sh python one-liner ขาด import os → snapshot KEY resolve ล้มมาตั้งแต่ T3 (adapter latent-broken); fix อยู่ใน commit นี้; (2) conformance sandbox copy scripts + seam SDD_GATE_REPO/TYPECHECK/TEST shims กัน dotnet จริง; (3) spec-slice.test.sh เคย FAIL เพราะ Evidence T7 format เกิน observation grammar — normalize แล้ว
 
-- [ ] 9. Cut over strict checks เฉพาะ GitHub/GitLab verify paths — protected workflow comparator กัน product/package/deploy jobs ทุก byte และ rollback CI เป็น layer แรก
+- [x] 9. Cut over strict checks เฉพาะ GitHub/GitLab verify paths — protected workflow comparator กัน product/package/deploy jobs ทุก byte และ rollback CI เป็น layer แรก
      Scope: เขียน comparator/negative fixtures ก่อนแก้ workflow จากนั้นเพิ่ม Python, shell, diff-aware Evidence, strict all-spec, REQ/F/B trace และ parity/alignment checks เฉพาะ verify jobs หลัง task 7 strict check กับ task 8 conformance ผ่าน
      Files:
        - `scripts/ci-workflow-preservation.py`
@@ -276,6 +276,12 @@
        - `python3 -m unittest discover -s scripts/tests -p 'test_ci_workflow_preservation.py'` — คาดว่าจะ exit 0 และ comparator แยก policy-fail กับ engine-fail ตาม diagnostic contract
        - `BASE_SHA="$(git merge-base HEAD origin/develop)"; python3 scripts/ci-workflow-preservation.py --base "$BASE_SHA"` — คาดว่าจะ exit 0 โดย protected GitHub/GitLab job blocks byte-identical และ existing shell inventory เป็น subset ของ verify inventory ใหม่
        - `python3 scripts/spec_contract.py check --all --strict` — คาดว่าจะ exit 0 หลัง migration และ workflow cutover โดยตรวจทั้ง feature REQ กับ bugfix F/B paths
+     Evidence:
+       - test: `python3 -m unittest discover -s scripts/tests -p 'test_ci_workflow_preservation.py'` -> Ran 13 tests; OK ครบ negative fixtures ตาม TDD list
+       - test: `BASE_SHA="$(git merge-base HEAD origin/develop)"; python3 scripts/ci-workflow-preservation.py --base "$BASE_SHA"` -> verdict allow diagnostics [] — protected blocks byte-identical, inventory superset
+       - test: `python3 scripts/spec_contract.py check --all --strict` -> exit 0 — 8 active / 54 legacy-residual / 0 failing (option-K scoping)
+       - viewports: n/a — CI workflow/CLI ไม่มี UI surface
+       - deviations: workflow edits เฉพาะ verify paths (7.10); remote required-check/GitLab runner = unverified records ตาม REQ-8.13 ส่งต่อ task 10
 
 - [ ] 10. ปิด final verification, rollback record และ no-product-diff proof — เก็บ observed outputs จริงครบทุก local/remote scope โดยไม่ยกระดับ unverified เป็น pass
      Scope: รัน full Python/shell/retrofit/.NET/end-to-end checks, ตรวจ protected paths/runtime manifests, บันทึก verification records ตาม closed scope labels และ rehearse rollback units โดยไม่มี implementation เพิ่มนอก defect ที่ gate ตรวจพบ
