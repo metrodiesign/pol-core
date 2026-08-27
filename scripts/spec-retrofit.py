@@ -1272,9 +1272,12 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                                                       len(all_lines) + 1)))
         raw_lines = [all_lines[n - 1] for n in region_numbers]
         def _has_unsplit_meta(raw: str) -> bool:
-            # canonical split lines start with exactly five spaces + Satisfies:
+            # fully-split lines: `     Satisfies:` with NO trailing Verify on
+            # the same physical line; those are done.
+            if re.match(r"^ {5}Satisfises:", raw):
+                return True
             if re.match(r"^ {5}Satisfies:", raw):
-                return False
+                return bool(re.search(r"\s+Verify:\s", raw))
             return bool(re.search(r"\bSatisfies:", raw))
 
         meta_offset = next((offset for offset, raw in enumerate(raw_lines)
@@ -1284,8 +1287,17 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
         pieces: list[str] = []
         meta_lines: list[str] = []
         for offset, raw in enumerate(raw_lines):
+            meta_only = re.match(r"^( {5}Satisfies:\s*)(.*)$", raw)
+            match = None
+            if meta_only is not None:
+                ver = re.search(r"\s+(Verify:)\s*", meta_only.group(2))
+                if ver is not None:
+                    pieces.append("     " + meta_only.group(2)[:ver.start()].strip())
+                    meta_lines.append("     " + meta_only.group(2)[ver.start():].strip())
+                else:
+                    pieces.append(raw)
             match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw) \
-                if _has_unsplit_meta(raw) else None
+                if (match is None and _has_unsplit_meta(raw)) else None
             if match is not None:
                 left = match.group(1).rstrip(" ;,-")
                 if left.strip():
