@@ -1198,21 +1198,23 @@ def plan_ears_join_actions(batch_id: str, directory: Path):
     while number < len(lines):
         raw = lines[number]
         match = re.match(r"^(\s*-\s+)(\d+\.\d+)\s+(.*)$", raw.rstrip("\n"))
-        if not match or not sc._ears_ok(match.group(3).strip()):
+        if not match or sc._ears_ok(match.group(3).strip()):
             number += 1
-            continue
+            continue  # single-line-complete or not a criterion bullet
         last = number
         while last + 1 < len(lines) and not bullet_like(lines[last + 1]):
             last += 1
         if last == number:
             number += 1
             continue
-        span_start = _line_byte_span(data, number + 1)[0]
-        span_end = _line_byte_span(data, last + 1)[1]
         statement = " ".join(
             part.strip() for part in
             [match.group(3)] + [l.strip() for l in lines[number + 1:last + 1]]
         ).strip()
+        if not sc._ears_ok(statement):
+            number += 1
+            continue  # joined text still not EARS: leave for human, never guess
+        span_end = _line_byte_span(data, last + 1)[1]
         newline = b"\n" if data[span_end - 1:span_end] == b"\n" else b""
         after = f"{match.group(1)}{match.group(2)} {statement}\n".encode("utf-8")
         block_start = _line_byte_span(data, number + 1)[0]
