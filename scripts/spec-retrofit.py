@@ -1813,9 +1813,9 @@ def strict_check_features(features: list[str]) -> int:
     carrying a dispositioned trace-table / authoring-chain decision are
     recorded residuals and re-enter only via the Tasks-9+ verify scope."""
     ledger = load_resolution_ledger()
-    legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s)
+    legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s), entry
                    in ledger.items() if field in {"trace.table", "authoring.chain"}
-                   and ledger[(path_str, field, _s)]["disposition"]
+                   and entry["disposition"]
                    in {"trace-header-canonical", "active-authoring-exempt",
                        "legacy-baseline-exempt"}}
     failed = 0
@@ -1845,9 +1845,9 @@ def run_check(batch_id: str) -> int:
             }, sort_keys=True))
             return 1
         ledger_paths = load_resolution_ledger()
-        legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s)
-                       in ledger_paths if field in {"trace.table", "authoring.chain"}
-                       and ledger_paths[(path_str, field, _s)]["disposition"]
+        legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s), entry
+                       in ledger_paths.items() if field in {"trace.table", "authoring.chain"}
+                       and entry["disposition"]
                        in {"trace-header-canonical", "active-authoring-exempt",
                            "legacy-baseline-exempt"}}
         for feature in features:
@@ -1878,6 +1878,7 @@ def run_check(batch_id: str) -> int:
     safe_pending = len([a for a in actions if not _residual_is_decided(a)]
                        ) + len([b for b in blockers
                                 if not _residual_is_decided(b)])
+    safe_pending = max(safe_pending, 0)
     print(json.dumps({
         "batch": batch_id,
         "plannedSafeActionsRemaining": safe_pending,
