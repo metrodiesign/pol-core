@@ -370,7 +370,7 @@ secret/token/code/raw-session-id (REQ-8.3).
 | Section | REQ |
 |---|---|
 | OIDC login challenge + PKCE/state/nonce + returnTo allowlist + rate limit + scope/no-offline | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 |
-| login-while-authed → new family (multi-session); correlation cookie per attempt | 1.7 |
+| login-while-authed → new family (multi-session); correlation cookie per attempt | REQ-1.7 |
 | OIDC callback: state verify, code exchange, id_token validate, email_verified/hd, derive sub/email | 2.1, 2.2, 2.3, 2.4, 2.7 |
 | `OnTicketReceived` → ResolveAdmin bind/self-provision; deny suspended/uninvited; OAuth error; DB-failure handling | 2.5, 2.6, 2.8 |
 | `AdminSessions` record + cookie attrs + dev-http shim + idle/absolute lifetime + Google-independent | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 |

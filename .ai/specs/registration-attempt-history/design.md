@@ -219,14 +219,14 @@ admin.MapGet("/merchants/users/{subject}/registrations",
 | Section | REQ |
 |----------------|-----|
 | `RegistrationAttempt` entity + EF config 2 ฝั่ง | 1.2, 1.6 |
-| FK ประกาศทั้ง 2 config (DDL constraint + insert ordering) | 1.3 |
+| FK ประกาศทั้ง 2 config (DDL constraint + insert ordering) | REQ-1.3 |
 | เขียน attempt ใน `SubmitRegistrationHandler` (โค้ดร่วมหลัง 2 branch, tx เดิม) + `OwnedTypes` เพิ่ม type | 1.1, 1.8 |
 | `NextAttemptNoAsync` max+1 + unique index `(MerchantUserId, AttemptNo)` | 1.4, 1.5, 1.9 |
-| `AppendOnlyDescriptor` + GRANT `SELECT,INSERT` (2 ชั้น) | 1.7 |
+| `AppendOnlyDescriptor` + GRANT `SELECT,INSERT` (2 ชั้น) | REQ-1.7 |
 | `GetRegistrationHistoryQuery`/handler + `IRegistrationHistoryReader` (ตัด `revealed` จาก timeline) | 2.1, 2.2, 2.3, 2.6 |
 | `IAccountResolver` ใน handler (filter-free) | 2.4, 2.5 |
-| accessible-merchant floor ใน handler (primitives จาก `IAdminScope.Accessible`) | 2.7 |
+| accessible-merchant floor ใน handler (primitives จาก `IAdminScope.Accessible`) | REQ-2.7 |
 | `PiiMask` + `Reveal` flag; ชื่อเต็มผ่าน `AttemptView.FirstName/LastName` | 3.1, 3.2, 3.3, 3.4 |
 | audit `revealed` persist ผ่าน `IUserUnitOfWork` ก่อนประกอบ DTO (precedent `GetOrderDetailHandler`) | 3.5, 3.6, 3.7 |
 | `Keys.MerchantUserView` + seed migration (SortOrder 25) + `RequirePermission` | 4.1, 4.2, 4.3 |
-| `assert-fresh-db.sql` + `IamCatalogGrantsTests` + pins (KeysTests/GateSites) update | 4.4 |
+| `assert-fresh-db.sql` + `IamCatalogGrantsTests` + pins (KeysTests/GateSites) update | REQ-4.4 |
