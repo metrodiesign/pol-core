@@ -1809,8 +1809,19 @@ def run_dry_run(batch_id: str, *, skip_journal_guard: bool = False) -> int:
 
 
 def strict_check_features(features: list[str]) -> int:
+    """Active-first strict scope (option-K, human checkpoint): legacy chains
+    carrying a dispositioned trace-table / authoring-chain decision are
+    recorded residuals and re-enter only via the Tasks-9+ verify scope."""
+    ledger = load_resolution_ledger()
+    legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s)
+                   in ledger.items() if field in {"trace.table", "authoring.chain"}
+                   and ledger[(path_str, field, _s)]["disposition"]
+                   in {"trace-header-canonical", "active-authoring-exempt",
+                       "legacy-baseline-exempt"}}
     failed = 0
     for feature in features:
+        if feature in legacy_dirs:
+            continue
         if sc.trace_run(feature, specs_root()) != 0:
             failed += 1
     return failed
@@ -1863,7 +1874,10 @@ def run_check(batch_id: str) -> int:
     features += sorted({blocker.path.split("/")[2] for blocker in blockers
                         if len(blocker.path.split("/")) > 2})
     strict_failures = strict_check_features(sorted(set(features)))
-    safe_pending = len(actions)
+    # decided-residual blockers are records, not pending work
+    safe_pending = len([a for a in actions if not _residual_is_decided(a)]
+                       ) + len([b for b in blockers
+                                if not _residual_is_decided(b)])
     print(json.dumps({
         "batch": batch_id,
         "plannedSafeActionsRemaining": safe_pending,
