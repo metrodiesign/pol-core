@@ -369,18 +369,18 @@ secret/token/code/raw-session-id (REQ-8.3).
 
 | Section | REQ |
 |---|---|
-| OIDC login challenge + PKCE/state/nonce + returnTo allowlist + rate limit + scope/no-offline | 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 |
+| OIDC login challenge + PKCE/state/nonce + returnTo allowlist + rate limit + scope/no-offline | REQ-1.1, REQ-1.2, REQ-1.3, REQ-1.4, REQ-1.5, REQ-1.6 |
 | login-while-authed → new family (multi-session); correlation cookie per attempt | REQ-1.7 |
-| OIDC callback: state verify, code exchange, id_token validate, email_verified/hd, derive sub/email | 2.1, 2.2, 2.3, 2.4, 2.7 |
-| `OnTicketReceived` → ResolveAdmin bind/self-provision; deny suspended/uninvited; OAuth error; DB-failure handling | 2.5, 2.6, 2.8 |
-| `AdminSessions` record + cookie attrs + dev-http shim + idle/absolute lifetime + Google-independent | 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 |
-| `AdminSessionAuthenticationHandler` (load/validate, 401, `/admin/me`, bearer retired, CORS creds, principal claims) | 4.1, 4.2, 4.3, 4.4, 4.5 |
-| decision table + `Rotate` + immediate-predecessor grace + reuse→`RevokeFamily` + Revoked→401 + ExecuteUpdate supersede | 5.1, 5.2, 5.3, 5.4, 5.5 |
-| logout / logout-all endpoints + suspend-via-per-request + revoke-next-request | 6.1, 6.2, 6.3, 6.4 |
-| `adm_csrf` double-submit filter (skip GET/auth endpoints) + SameSite Lax/None | 7.1, 7.2, 7.3, 7.4 |
-| client_secret + DP key-ring from config/Vault + boot fail-fast + no-log | 8.1, 8.2, 8.3 |
-| per-request read-only resolution Status/Tier/accessible into `IAdminScope` + `admin_tier` claim | 9.1, 9.2, 9.3, 9.4 |
-| policy `admin` redefine + 2 schemes + retire `admin` audience + tenant unchanged + 2 CORS policy | 10.1, 10.2, 10.3, 10.4, 10.5, 10.6 |
-| `AdminSessions` control-plane grant (S/I/U/D) + hash-only + migration + indexes + prune | 11.1, 11.2, 11.3, 11.4, 11.5 |
-| `AdminAuthAudits` (S/I only) append-only (login/rotate/logout/family-revoke/denied) + no-secret | 12.1, 12.2, 12.3, 12.4 |
-| rewrite `admin-google-sso.md` + `entity-fields.md` + canon (`CODING_STANDARDS.md` Identity bullet, `ARCHITECTURE.md` cross-cutting Identity bullet) | 13.1, 13.2, 13.3 |
+| OIDC callback: state verify, code exchange, id_token validate, email_verified/hd, derive sub/email | REQ-2.1, REQ-2.2, REQ-2.3, REQ-2.4, REQ-2.7 |
+| `OnTicketReceived` → ResolveAdmin bind/self-provision; deny suspended/uninvited; OAuth error; DB-failure handling | REQ-2.5, REQ-2.6, REQ-2.8 |
+| `AdminSessions` record + cookie attrs + dev-http shim + idle/absolute lifetime + Google-independent | REQ-3.1, REQ-3.2, REQ-3.3, REQ-3.4, REQ-3.5, REQ-3.6 |
+| `AdminSessionAuthenticationHandler` (load/validate, 401, `/admin/me`, bearer retired, CORS creds, principal claims) | REQ-4.1, REQ-4.2, REQ-4.3, REQ-4.4, REQ-4.5 |
+| decision table + `Rotate` + immediate-predecessor grace + reuse→`RevokeFamily` + Revoked→401 + ExecuteUpdate supersede | REQ-5.1, REQ-5.2, REQ-5.3, REQ-5.4, REQ-5.5 |
+| logout / logout-all endpoints + suspend-via-per-request + revoke-next-request | REQ-6.1, REQ-6.2, REQ-6.3, REQ-6.4 |
+| `adm_csrf` double-submit filter (skip GET/auth endpoints) + SameSite Lax/None | REQ-7.1, REQ-7.2, REQ-7.3, REQ-7.4 |
+| client_secret + DP key-ring from config/Vault + boot fail-fast + no-log | REQ-8.1, REQ-8.2, REQ-8.3 |
+| per-request read-only resolution Status/Tier/accessible into `IAdminScope` + `admin_tier` claim | REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4 |
+| policy `admin` redefine + 2 schemes + retire `admin` audience + tenant unchanged + 2 CORS policy | REQ-10.1, REQ-10.2, REQ-10.3, REQ-10.4, REQ-10.5, REQ-10.6 |
+| `AdminSessions` control-plane grant (S/I/U/D) + hash-only + migration + indexes + prune | REQ-11.1, REQ-11.2, REQ-11.3, REQ-11.4, REQ-11.5 |
+| `AdminAuthAudits` (S/I only) append-only (login/rotate/logout/family-revoke/denied) + no-secret | REQ-12.1, REQ-12.2, REQ-12.3, REQ-12.4 |
+| rewrite `admin-google-sso.md` + `entity-fields.md` + canon (`CODING_STANDARDS.md` Identity bullet, `ARCHITECTURE.md` cross-cutting Identity bullet) | REQ-13.1, REQ-13.2, REQ-13.3 |

@@ -248,25 +248,25 @@ Rate limiting: policy ใหม่ `customer-payment` — partition ด้วย
 
 | Section | REQ |
 |---|---|
-| `ValueGeneratedNever` 2 mirror + empty migration + regression 2-scope | REQ-1.1, 1.4 (1.2, 1.3 พฤติกรรมเดิม + test) |
-| Endpoint orchestration Start→MarkCheckedOut + cart Open check | REQ-2.1, 2.2 |
-| `GetOpenForCartAsync` (port ใหม่) + `IX_CheckoutSessions_CartId_Open` | REQ-2.3, 2.4 |
-| `AbandonCheckoutCommand` + `Session.Abandon` no-op fix + `ReopenCartCommand` + gate | REQ-2.5, 2.6, 2.8, 2.9 |
+| `ValueGeneratedNever` 2 mirror + empty migration + regression 2-scope | REQ-1.1, REQ-1.4 (REQ-1.2, REQ-1.3 พฤติกรรมเดิม + test) |
+| Endpoint orchestration Start→MarkCheckedOut + cart Open check | REQ-2.1, REQ-2.2 |
+| `GetOpenForCartAsync` (port ใหม่) + `IX_CheckoutSessions_CartId_Open` | REQ-2.3, REQ-2.4 |
+| `AbandonCheckoutCommand` + `Session.Abandon` no-op fix + `ReopenCartCommand` + gate | REQ-2.5, REQ-2.6, REQ-2.8, REQ-2.9 |
 | Domain guard เดิม + endpoint 409 map + test | REQ-2.7 |
-| `Session.OpenTtl`/`IsExpiredAt` + lazy expire verify-first + 2-phase save | REQ-3.1, 3.2, 3.3 |
-| `PaymentConfirmationService` outcome `Conflicted` + LogCritical | REQ-3.4, 3.5 |
+| `Session.OpenTtl`/`IsExpiredAt` + lazy expire verify-first + 2-phase save | REQ-3.1, REQ-3.2, REQ-3.3 |
+| `PaymentConfirmationService` outcome `Conflicted` + LogCritical | REQ-3.4, REQ-3.5 |
 | `ReleaseOpenSessionCommand` (verify-first) + `CancelOrderCommand` + endpoint | REQ-4.1-4.6 |
 | `GetForMintAsync` UPDLOCK re-read ก่อน mint ทุก path (transaction ที่สองของ `CreateSessionHandler`) | REQ-3.6 |
 | `CancelOrderHandler` flip+re-check ใน transaction เดียว + port `IPaymentSessionProbe` (นับ Paid ด้วย) | REQ-4.7 |
 | post-filter + `SoldOrderId`/`OrderPaid.OrderId` signal | REQ-5.1-5.4 |
 | `Session.Start` validation + endpoint amount/eligibility check | REQ-6.1-6.7 |
-| `CheckoutConfirmed` additive + `NotificationRecipient` derivation | REQ-6.8, 7.5 |
+| `CheckoutConfirmed` additive + `NotificationRecipient` derivation | REQ-6.8, REQ-7.5 |
 | `IOrderNoSequence` + consumer mint + read surfaces + SFS filter | REQ-7.1-7.4 |
-| `POST {token}/pay` composition + guards + resume เดิม | REQ-8.1-8.4, 8.10, 8.11 |
-| `ConfirmPaymentStatusCommand` 4 ค่า + `PaymentConfirmationService` | REQ-8.5-8.7, 8.12, 8.13 |
+| `POST {token}/pay` composition + guards + resume เดิม | REQ-8.1-8.4, REQ-8.10, REQ-8.11 |
+| `ConfirmPaymentStatusCommand` 4 ค่า + `PaymentConfirmationService` | REQ-8.5-8.7, REQ-8.12, REQ-8.13 |
 | `GetSessionQuery` route + `NotFoundException` | REQ-8.8 |
-| `OrderSummary` contract change (−paymentSessionId, ห้าม leak merchantId) | REQ-8.9, 8.4 |
-| `TwoCTwoPAdapter` CC/QR/IPP + connection ops step | REQ-6.1, 8.1 |
+| `OrderSummary` contract change (−paymentSessionId, ห้าม leak merchantId) | REQ-8.9, REQ-8.4 |
+| `TwoCTwoPAdapter` CC/QR/IPP + connection ops step | REQ-6.1, REQ-8.1 |
 
 ## Design review log (spec-architect critique — ตัดสินครบ 16 ข้อ)
 

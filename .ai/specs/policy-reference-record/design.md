@@ -357,11 +357,11 @@ masked ด้วย **copy ของ report query เอง** (mirror `GetOrders
 
 | Section | REQ |
 |---|---|
-| `ItemPolicy` fields + enums + nullable + duplicate-allowed | REQ-1.1–1.11 |
-| `ItemPolicy.Apply` remittance + DeductedAt rules | REQ-2.1–2.6 |
-| Upsert commands/handlers + escape-hatch + write guard + permissions + audit + Cancelled-ok | REQ-3.1–3.13 |
-| `ListPolicyReport[Admin]Query` + endpoints + SFS + derive payment status + masking + empty-column | REQ-4.1–4.7 |
-| seed `OrderItemPolicies` demo rows | REQ-5.1–5.2 |
-| ไม่แตะ MarkPaid/Payments/PSP; ไม่ gen เลข/ออกเอกสาร; ไม่ claims/commission; ไม่ bulk import | REQ-6.1–6.5 |
+| `ItemPolicy` fields + enums + nullable + duplicate-allowed | REQ-1.1–REQ-1.11 |
+| `ItemPolicy.Apply` remittance + DeductedAt rules | REQ-2.1–REQ-2.6 |
+| Upsert commands/handlers + escape-hatch + write guard + permissions + audit + Cancelled-ok | REQ-3.1–REQ-3.13 |
+| `ListPolicyReport[Admin]Query` + endpoints + SFS + derive payment status + masking + empty-column | REQ-4.1–REQ-4.7 |
+| seed `OrderItemPolicies` demo rows | REQ-5.1–REQ-5.2 |
+| ไม่แตะ MarkPaid/Payments/PSP; ไม่ gen เลข/ออกเอกสาร; ไม่ claims/commission; ไม่ bulk import | REQ-6.1–REQ-6.5 |
 | dual EF config + migration + GRANT + query filter + tenant key | REQ-1.9, REQ-3.3 |
-| §Rename: OrderLine->OrderItem (code+DB table+CheckoutLine) + gate + L8 | REQ-7.1–7.7 |
+| §Rename: OrderLine->OrderItem (code+DB table+CheckoutLine) + gate + L8 | REQ-7.1–REQ-7.7 |

@@ -314,4 +314,4 @@ WHERE IS_ROLEMEMBER(N'pol_rls_bypass') = 1                                    --
 | API surface renames + Scalar/OpenAPI + dev fallback | REQ-8 |
 | Registration flow (unbound keyed writes, MerchantBoundFilter) + T14 | REQ-9 |
 | Non-Functional Considerations (canon docs, runbook, stale banner, FE mapping, operator note) | REQ-10 |
-| Error Handling ตาราง | REQ-3.4-3.7, REQ-4.2-4.3, REQ-6.2/6.5, REQ-7.6, REQ-9.3 |
+| Error Handling ตาราง | REQ-3.4-3.7, REQ-4.2-4.3, REQ-6.2/REQ-6.5, REQ-7.6, REQ-9.3 |

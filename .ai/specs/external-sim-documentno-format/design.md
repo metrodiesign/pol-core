@@ -247,14 +247,14 @@ method (re-pinned), or the one replaced test above — no REQ is left unverified
 
 | Section | REQ |
 |---|---|
-| `Abbrev(SourceSystem, DocumentType)` formula | REQ-2.1–2.7 |
-| `RunningWidth(SourceSystem)` + INSERT-time `PolicySequenceNo` | REQ-3.1–3.4 |
-| `PolicyYear` literals (`'69'`/`'26'`) | REQ-4.1–4.3 |
-| Single shared `UPDATE` pass, no `DocumentNo` parsing anywhere | REQ-5.1–5.3 |
+| `Abbrev(SourceSystem, DocumentType)` formula | REQ-2.1–REQ-2.7 |
+| `RunningWidth(SourceSystem)` + INSERT-time `PolicySequenceNo` | REQ-3.1–REQ-3.4 |
+| `PolicyYear` literals (`'69'`/`'26'`) | REQ-4.1–REQ-4.3 |
+| Single shared `UPDATE` pass, no `DocumentNo` parsing anywhere | REQ-5.1–REQ-5.3 |
 | Self-check prefix check replacement + uniqueness reasoning | REQ-6.1, REQ-6.2, REQ-6.4 |
 | Self-check Thai round-trip retarget (mammothdb) | REQ-6.5 |
-| `DocumentNo(row)` composition formula (REQ-1.1/1.2/1.3) | REQ-1.1–1.5 |
-| Axis-row INSERT shape change + generated-row SELECT shape change, applied to both sides | REQ-7.1–7.4 |
-| Regression-preserving assertions untouched by this feature (SaleCode/Broker/Branch/ShowName pairing, row/visible counts) | REQ-8.1–8.4 |
+| `DocumentNo(row)` composition formula (REQ-1.1/1.2/1.3) | REQ-1.1–REQ-1.5 |
+| Axis-row INSERT shape change + generated-row SELECT shape change, applied to both sides | REQ-7.1–REQ-7.4 |
+| Regression-preserving assertions untouched by this feature (SaleCode/Broker/Branch/ShowName pairing, row/visible counts) | REQ-8.1–REQ-8.4 |
 | Replaced ordering test (grouping property, not tail-count) | REQ-8.5 |
-| `PolicyNumber`/`ApplicationNumber`/`PreviousPolicyNumber`/`EndorsementNumber` formulas | REQ-9.1–9.3 |
+| `PolicyNumber`/`ApplicationNumber`/`PreviousPolicyNumber`/`EndorsementNumber` formulas | REQ-9.1–REQ-9.3 |

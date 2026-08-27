@@ -456,13 +456,13 @@ Without this list an implementer will either rename the contract (wrong) or dilu
 
 | Section | REQ |
 |----------------|-----|
-| Architecture Overview — behavior-preserving bar; route table not silently rewritten by the host reorg | REQ-1 (all criteria), 16.4 |
+| Architecture Overview — behavior-preserving bar; route table not silently rewritten by the host reorg | REQ-1 (all criteria), REQ-16.4 |
 | L1-L8 written into `.ai/shared/ARCHITECTURE.md`; rf1 §149 amended; `api-route-scheme` REQ-2.1/2.8 amended and de-staled | REQ-2 (all criteria) |
 | §1 Module projects (`Admin`→`Admins`, `Cart`→`Carts`, `Checkout`→`Checkouts`); `pol-core.slnx`; `git mv`; schema stays `admin`; dead `Identity`/`Producer`/`Tenant` folders deleted | REQ-3 (all criteria) |
 | Component map — `src/Hosts/Api` grouped into `Api/<Area>/`, namespace `Api.<Area>`, prefix drop applied (D7) | REQ-16 (all criteria) |
 | §2 Domain type nesting + prefix drop; `Platform*` dissolved; L2 root-stays; `MasterDataItem`; L5 depth cap | REQ-4 (all criteria) |
 | L6 alias discipline (fixed form, no `GlobalUsings`, no re-prefixing, no partial qualification, applies to `tests/`) | REQ-5 (all criteria) |
-| §3 Application/Infrastructure derived from L4, with L4's illegibility floor | 4.2, 4.3 |
+| §3 Application/Infrastructure derived from L4, with L4's illegibility floor | REQ-4.2, REQ-4.3 |
 | §4 Routes: merchants/users, provision-merchant, approve/reject, master-data wrapper dropped, `{code}` unconstrained, `Location` headers, area guard | REQ-6 (all criteria) |
 | §5 Four controls re-attached on the moved endpoints; detectors written first | REQ-7 (all criteria) |
 | §5 CORS stays path-based; admin-plane table; fail-closed endpoint guard written before the move; preflight preserved | REQ-8 (all criteria) |

@@ -367,29 +367,29 @@ Logic-first: pure unit tests before wiring; integration with the SQL container; 
 
 | Section | REQ |
 |---|---|
-| `TenantUser` aggregate + `TenantUserStatus` + transition guard | 1.1–1.6 |
-| `ExternalLogin` `(Provider,Subject)` unique + resolve | 2.1–2.4 |
-| `RegistrationTicket` (signed token + server row, Purpose, `Consume`) | 3.1–3.6 |
-| `SubmitRegistrationCommand` (ticket-gated, one pol_admin tx, identity-from-ticket; form FirstName/LastName -> DisplayName) | 4.1–4.7 |
-| Reject→Correction ticket→Resubmit (`Resubmit`, Flow A Rejected branch) | 5.1–5.5 |
-| `ApproveTenantUserCommand` (tenant+role+accessible+idempotent+audit) | 6.1–6.6 |
-| `TenantUserProfile` + `IPhotoStore`/`LocalPhotoStore` + validation | 7.1–7.5 |
-| `ProducerOidcAuthentication` login (`GET /producer/auth/login`, PKCE, returnTo, rate-limit) | 8.1–8.4 |
-| `ProducerCallbackResolver` + `ProducerLoginService` (verify + branch) | 9.1–9.6 |
-| `ProducerSession` + `ProducerSessionCookies` (only-when-Active, lifetime) | 10.1–10.4 |
-| `ProducerSessionDecision` + handler rotation/grace/reuse | 11.1–11.5 |
-| logout/logout-all + `RevokeAllForUserAsync` + per-request re-resolve | 12.1–12.4 |
-| `ProducerCsrfFilter` + ticket-as-capability for register | 13.1–13.4 |
-| `ProducerOidcOptions` secret custody + `ProducerDataProtection` + distinct scheme/cookies + CORS | 14.1–14.5 |
-| `ProducerPermissions` catalog + `GET /producer/permissions` + `ProducerPermissionParity` | 15.1–15.5 |
-| `ProducerRole`/`ProducerRolePermission`/`ProducerRoleAssignment` + effective union + anchor | 16.1–16.5 |
-| `ProducerSessionAuthenticationHandler` resolve+bind + `RequireProducerPermission` + dual-scheme + flag + `/producer/me` | 17.1–17.6 |
-| `AddProducerApprovePermissionToAdminCatalog` + Admin-gated approve + dual parity | 18.1–18.3 |
-| `AddProducerIdentityTables` RLS/grants + pol_admin Pending insert | 19.1–19.5 |
-| `TenantUserRegistrationSubmitted` Contract + **`ProducerOutboxWriter`** (keyed pol_admin, same tx) + sentinel tenant + `OutboxDispatcher.EventTypes` (BuildingBlocks) + Admin consumer → `ProducerRegistrationNotices` (pol_worker grant) | 20.1–20.4 |
-| `RegistrationAudit`/`ProducerAuthAudit` append-only | 21.1–21.3 |
-| ProblemDetails mapping (Error Handling table) | 22.1–22.5 |
-| Duplicate strategy (design choice, not test-forced) + tenant-Bearer retained + **new `ProducerArchitectureTests`** (real boundary) + Admin touch = group+keys+EventTypes+test-count updates + backend-only | 23.1–23.4 |
+| `TenantUser` aggregate + `TenantUserStatus` + transition guard | REQ-1.1–REQ-1.6 |
+| `ExternalLogin` `(Provider,Subject)` unique + resolve | REQ-2.1–REQ-2.4 |
+| `RegistrationTicket` (signed token + server row, Purpose, `Consume`) | REQ-3.1–REQ-3.6 |
+| `SubmitRegistrationCommand` (ticket-gated, one pol_admin tx, identity-from-ticket; form FirstName/LastName -> DisplayName) | REQ-4.1–REQ-4.7 |
+| Reject→Correction ticket→Resubmit (`Resubmit`, Flow A Rejected branch) | REQ-5.1–REQ-5.5 |
+| `ApproveTenantUserCommand` (tenant+role+accessible+idempotent+audit) | REQ-6.1–REQ-6.6 |
+| `TenantUserProfile` + `IPhotoStore`/`LocalPhotoStore` + validation | REQ-7.1–REQ-7.5 |
+| `ProducerOidcAuthentication` login (`GET /producer/auth/login`, PKCE, returnTo, rate-limit) | REQ-8.1–REQ-8.4 |
+| `ProducerCallbackResolver` + `ProducerLoginService` (verify + branch) | REQ-9.1–REQ-9.6 |
+| `ProducerSession` + `ProducerSessionCookies` (only-when-Active, lifetime) | REQ-10.1–REQ-10.4 |
+| `ProducerSessionDecision` + handler rotation/grace/reuse | REQ-11.1–REQ-11.5 |
+| logout/logout-all + `RevokeAllForUserAsync` + per-request re-resolve | REQ-12.1–REQ-12.4 |
+| `ProducerCsrfFilter` + ticket-as-capability for register | REQ-13.1–REQ-13.4 |
+| `ProducerOidcOptions` secret custody + `ProducerDataProtection` + distinct scheme/cookies + CORS | REQ-14.1–REQ-14.5 |
+| `ProducerPermissions` catalog + `GET /producer/permissions` + `ProducerPermissionParity` | REQ-15.1–REQ-15.5 |
+| `ProducerRole`/`ProducerRolePermission`/`ProducerRoleAssignment` + effective union + anchor | REQ-16.1–REQ-16.5 |
+| `ProducerSessionAuthenticationHandler` resolve+bind + `RequireProducerPermission` + dual-scheme + flag + `/producer/me` | REQ-17.1–REQ-17.6 |
+| `AddProducerApprovePermissionToAdminCatalog` + Admin-gated approve + dual parity | REQ-18.1–REQ-18.3 |
+| `AddProducerIdentityTables` RLS/grants + pol_admin Pending insert | REQ-19.1–REQ-19.5 |
+| `TenantUserRegistrationSubmitted` Contract + **`ProducerOutboxWriter`** (keyed pol_admin, same tx) + sentinel tenant + `OutboxDispatcher.EventTypes` (BuildingBlocks) + Admin consumer → `ProducerRegistrationNotices` (pol_worker grant) | REQ-20.1–REQ-20.4 |
+| `RegistrationAudit`/`ProducerAuthAudit` append-only | REQ-21.1–REQ-21.3 |
+| ProblemDetails mapping (Error Handling table) | REQ-22.1–REQ-22.5 |
+| Duplicate strategy (design choice, not test-forced) + tenant-Bearer retained + **new `ProducerArchitectureTests`** (real boundary) + Admin touch = group+keys+EventTypes+test-count updates + backend-only | REQ-23.1–REQ-23.4 |
 
 ## Open design items (carried from requirements; resolve in tasks/PR)
 `EnforcePermissionsOnWrites` default per env; exact producer detail-field set + required/optional; prod register

@@ -31,21 +31,21 @@ app
 
 | Section | REQ |
 |---|---|
-| `/api/v1` root group + version-first literal segment | REQ-1.1, 1.2, 1.3 |
-| 9 plural area subgroups (REQ-2.1 names), area-root empty pattern | REQ-1.4, 2.1 |
-| Full old→new route table (below) | REQ-2.2, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9 |
+| `/api/v1` root group + version-first literal segment | REQ-1.1, REQ-1.2, REQ-1.3 |
+| 9 plural area subgroups (REQ-2.1 names), area-root empty pattern | REQ-1.4, REQ-2.1 |
+| Full old→new route table (below) | REQ-2.2, REQ-2.4, REQ-2.5, REQ-2.6, REQ-2.7, REQ-2.8, REQ-2.9 |
 | tenant/identity ไม่มี segment | REQ-2.3 |
-| Path prefix change only; policy/tags/body/status/method/query คงเดิม (incl. products write=producer/read=tenant split) | REQ-3.1, 3.2, 3.5, 5.4 |
-| admin single filtered group; producer 2-tier (unfiltered anon + filtered console); filter membership preserved | REQ-3.3, 3.4, 3.7, 6.1, 6.3 |
+| Path prefix change only; policy/tags/body/status/method/query คงเดิม (incl. products write=producer/read=tenant split) | REQ-3.1, REQ-3.2, REQ-3.5, REQ-5.4 |
+| admin single filtered group; producer 2-tier (unfiltered anon + filtered console); filter membership preserved | REQ-3.3, REQ-3.4, REQ-3.7, REQ-6.1, REQ-6.3 |
 | Webhook auth คงเดิม, HMAC out-of-scope | REQ-3.6 |
-| Infra endpoints นอก `/api/v1` | REQ-4.1, 4.2, 4.4 |
-| `RouteSchemeConventionTests` + INFRA_ALLOWLIST + **literal `/api/v1`** regex | REQ-1.5, 4.3 |
-| Remove legacy routes -> 404 (ทุก method+path + 2 callback) | REQ-5.1, 5.2, 5.3 |
+| Infra endpoints นอก `/api/v1` | REQ-4.1, REQ-4.2, REQ-4.4 |
+| `RouteSchemeConventionTests` + INFRA_ALLOWLIST + **literal `/api/v1`** regex | REQ-1.5, REQ-4.3 |
+| Remove legacy routes -> 404 (ทุก method+path + 2 callback) | REQ-5.1, REQ-5.2, REQ-5.3 |
 | OIDC callback via config (`CallbackPath`), not routing | REQ-6.2 |
-| OpenAPI regen จาก routes + แก้ hardcoded description strings | REQ-7.1, 7.2 |
+| OpenAPI regen จาก routes + แก้ hardcoded description strings | REQ-7.1, REQ-7.2 |
 | อัปเดต route-asserting tests | REQ-7.3 |
-| CORS selector -> new prefixes; `Location` headers -> new paths; targeted integration tests | REQ-9.1, 9.2, 9.3, 9.4 |
-| Cutover coordination (SPA/PSP/Google) — /spec-tasks DoD | REQ-8.1, 8.2, 8.3 |
+| CORS selector -> new prefixes; `Location` headers -> new paths; targeted integration tests | REQ-9.1, REQ-9.2, REQ-9.3, REQ-9.4 |
+| Cutover coordination (SPA/PSP/Google) — /spec-tasks DoD | REQ-8.1, REQ-8.2, REQ-8.3 |
 
 ## Data Models & Interfaces
 

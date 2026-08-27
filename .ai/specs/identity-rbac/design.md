@@ -123,7 +123,7 @@ Reuse `ProblemDetailsExceptionHandler`: `ArgumentException` -> 400, `NotFoundExc
 | ExternalLogin | REQ-2 |
 | RegistrationTicket entity + store | REQ-3 |
 | IssueRegistrationTicket / CompleteRegistration handlers | REQ-4, REQ-3 |
-| ApproveTenantUser handler + ITenantDirectory | REQ-5, REQ-10.2/10.3 |
+| ApproveTenantUser handler + ITenantDirectory | REQ-5, REQ-10.2/REQ-10.3 |
 | TenantUserContext (runtime resolver) + AmbientTenant bind | REQ-6 |
 | RequireTenantRole gating | REQ-7 |
 | AddIdentityTables migration + RLS + grants | REQ-8 |

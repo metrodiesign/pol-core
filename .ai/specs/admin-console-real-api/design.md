@@ -138,16 +138,16 @@ masked email, expiry, and status.
 
 | Section | REQ |
 | --- | --- |
-| Real persisted/OpenAPI boundary and preserved owners | REQ-1.1–1.2, REQ-1.6–1.8, REQ-1.10 |
-| Admin session, scope, composite audience, public-surface split | REQ-2.1–2.2, REQ-2.7–2.11, REQ-2.13–2.16 |
-| Reporting aggregates | REQ-3.1–3.4, REQ-13.1–13.7 |
-| Admin commerce and Orders | REQ-4.1–4.6, REQ-4.8–4.10, REQ-4.14–4.16, REQ-5.1–5.7, REQ-5.9–5.14 |
-| Transaction projection and financial operation state | REQ-6.1–6.14 |
-| Admin identity and organization | REQ-7.1–7.11, REQ-9.1–9.6, REQ-9.8 |
-| Merchant users, invitation, and roles | REQ-8.1–8.14 |
-| PSP and routing | REQ-10.1–10.12 |
-| API clients and webhooks | REQ-11.1–11.12 |
-| Governance, audit, and notifications | REQ-12.1–12.14 |
-| Tenant and originator control plane | REQ-14.1–14.8 |
-| Shared money/error/idempotency/concurrency contract | REQ-15.9–15.15 |
+| Real persisted/OpenAPI boundary and preserved owners | REQ-1.1–REQ-1.2, REQ-1.6–REQ-1.8, REQ-1.10 |
+| Admin session, scope, composite audience, public-surface split | REQ-2.1–REQ-2.2, REQ-2.7–REQ-2.11, REQ-2.13–REQ-2.16 |
+| Reporting aggregates | REQ-3.1–REQ-3.4, REQ-13.1–REQ-13.7 |
+| Admin commerce and Orders | REQ-4.1–REQ-4.6, REQ-4.8–REQ-4.10, REQ-4.14–REQ-4.16, REQ-5.1–REQ-5.7, REQ-5.9–REQ-5.14 |
+| Transaction projection and financial operation state | REQ-6.1–REQ-6.14 |
+| Admin identity and organization | REQ-7.1–REQ-7.11, REQ-9.1–REQ-9.6, REQ-9.8 |
+| Merchant users, invitation, and roles | REQ-8.1–REQ-8.14 |
+| PSP and routing | REQ-10.1–REQ-10.12 |
+| API clients and webhooks | REQ-11.1–REQ-11.12 |
+| Governance, audit, and notifications | REQ-12.1–REQ-12.14 |
+| Tenant and originator control plane | REQ-14.1–REQ-14.8 |
+| Shared money/error/idempotency/concurrency contract | REQ-15.9–REQ-15.15 |
 | Backend verification | REQ-16.3, REQ-16.6, REQ-16.8, REQ-16.13 |
