@@ -1,7 +1,7 @@
 # Tasks: bugfix-merchant-prebind-wiring
 > Status: approved 2026-07-26
 
-- [x] T1 — RED repro tests (ต้องแดงก่อนแก้ ทุก assertion เช็ค observable behavior)
+- [x] T1. RED repro tests (ต้องแดงก่อนแก้ ทุก assertion เช็ค observable behavior)
   - lifecycle test ใหม่ใน `tests/Architecture.Tests/` (SQLite in-memory + real
     `MerchantUserDbContext`/adapters + real `MerchantRequestWriteAuthorizer`, actor
     `HasActor=false` — pattern จาก `MerchantRegistrationWriterTests` /
@@ -14,14 +14,14 @@
     — วันนี้แดง (ctor snapshot)
   - pin (เขียวตั้งแต่วันนี้ — บันทึกเหตุผลของ seam split): filtered
     `MerchantUserRepository.FindBySubjectAsync` คืน null สำหรับแถว pending ใต้ unbound actor
-  - Satisfies: F1, F2, F3, F5, F6
+     Satisfies: F-1, F-2, F-3, F-5, F-6
   Evidence:
     - test: `dotnet test tests/Architecture.Tests --filter "FullyQualifiedName~MerchantIdentityLifecycleTests"` -> RED ตามคาด 7 failed / 1 passed (pin เขียว): resolve คืน NotFound แทน PendingApproval/Rejected, approve/reject โดน NotFoundException, correction โดน InvalidOperationException
     - test: `dotnet test tests/Hosts.Tests --filter "FullyQualifiedName~HttpActorContextTests|FullyQualifiedName~MerchantRequestWriteAuthorizerTests"` -> RED ตามคาด 2 failed (claim หลัง construct มองไม่เห็น = D3) / 4 passed (ambient precedence, dev fallback, D2 boundary pins ของ MerchantRequestWriteAuthorizer จริง)
     - viewports: n/a — logic-only
     - deviations: lifecycle test ใช้ floor mirror ของ `MerchantRequestWriteAuthorizer` แทน class จริง เพราะ class เป็น internal ของ Api (InternalsVisibleTo เฉพาะ Hosts.Tests โดย design) — class จริงถูก pin ตรง ๆ ใน Hosts.Tests แทน (ไฟล์เดียวกับ HttpActorContextTests)
 
-- [x] T2 — D1 fix: port surface + adapters + DI flip
+- [x] T2. D1 fix: port surface + adapters + DI flip
   - `Merchants.Application/Users/UserPorts.cs`: เพิ่ม `AccountSnapshot` record +
     `IAccountResolver` (FindBySubjectAsync/FindByIdAsync, AsNoTracking, filter-free) +
     `IAccountStore` (tracked filter-free FindBySubjectAsync + Add); อัปเดต doc comment
@@ -36,7 +36,7 @@
     `PreBindWritePortTests`); register ports ใหม่ใน `MerchantUserPersistenceRegistration.cs`
   - `tests/Architecture.Tests/BypassPrimitiveTests.cs` allowlist: +`MerchantAccountStore.cs`
     −writer 2 ไฟล์; `tests/Merchants.Tests/` fakes implement interface ใหม่ (mechanical)
-  - Satisfies: F1, F2, F4, F6, B1, B2, B7
+     Satisfies: F-1, F-2, F-4, F-6, B-1, B-2, B-7
   Evidence:
     - test: `dotnet build` -> ok 64 projects, 0 errors, 0 warnings
     - test: `dotnet test tests/Architecture.Tests --filter "FullyQualifiedName~MerchantIdentityLifecycleTests|FullyQualifiedName~PreBindReadPortTests|FullyQualifiedName~PreBindWritePortTests|FullyQualifiedName~BypassPrimitiveTests"` -> 21 passed / 0 failed (lifecycle resolve/correction/reject/by-id เขียวหลัง DI flip)
@@ -44,7 +44,7 @@
     - viewports: n/a — logic-only
     - deviations: แทนที่จะ extend `MerchantResolveLoginBySubject.cs` ตามแผน — ลบไฟล์แล้วสร้าง `MerchantAccountResolver.cs` แทน (ชื่อ class ตรงกับ member ใหม่ by-subject + by-id); allowlist สุทธิ -3 +2
 
-- [x] T3 — D2 fix: admin approval write capability
+- [x] T3. D2 fix: admin approval write capability
   - `src/Hosts/Api/Persistence/WriteAuthorizers.cs`: `AdminApprovalWriteAuthorizer(IAdminScope)`
     — allowlist แคบ (User, Update) / (RoleAssignment, Insert) / (RegistrationAudit, Insert)
     เมื่อ `targetMerchant == Guid.Empty || scope.Accessible.Allows(targetMerchant)`;
@@ -53,25 +53,25 @@
     background scope = Worker / HTTP + `IAdminScope.IsBound` = AdminApproval / else = MerchantRequest
   - unit tests: deny product-plane types, deny merchant นอก accessible set, allow ชุด approve
     ใน scope; composition-root pin เลือก authorizer ถูกตัวทั้ง 3 ทาง
-  - Satisfies: F3, B3, B4
+     Satisfies: F-3, B-3, B-4
   Evidence:
     - test: `dotnet test tests/Hosts.Tests` -> 341 passed / 0 failed (รวม `AdminApprovalWriteAuthorizerTests` 3 ข้อ: allow ชุด approve ใน scope / confine Scoped admin / deny นอกชุด + `HttpMerchantWriteAuthorizerSelectionTests` 3 ข้อ + boot/composition tests เดิมทั้งหมด)
     - test: lifecycle `An_admin_approve_activates_binds_the_merchant_and_assigns_the_role` + `Full_lifecycle_...` เขียว (approve ผ่าน write floor แล้ว)
     - viewports: n/a — logic-only
     - deviations: การเลือก admin-vs-merchant ทำต่อ write ผ่าน `HttpMerchantWriteAuthorizer` (per-call, อ่าน `IAdminScope.IsBound` ตอน CanWrite) แทน three-way ตอน construct — กัน construction-order hazard แบบเดียวกับ D3; composition-root pin ทำผ่าน `HttpMerchantWriteAuthorizerSelectionTests` + boot tests เดิม (static local function ใน Program.cs address ตรงไม่ได้)
 
-- [x] T4 — D3 fix: `HttpActorContext` lazy claims
+- [x] T4. D3 fix: `HttpActorContext` lazy claims
   - `src/Hosts/Api/HttpActorContext.cs`: ย้าย `FindFirstValue` จาก constructor ไป property
     getter (อ่านสดทุกครั้ง); precedence คงเดิม `AmbientActor` > claims > `Merchant:DevMerchantId`
   - `tests/Hosts.Tests/`: laziness test จาก T1 เขียว + precedence tests (ambient ชนะ claim,
     dev fallback เมื่อไม่มี claim)
-  - Satisfies: F5, B10, B11
+     Satisfies: F-5, B-10, B-11
   Evidence:
     - test: `dotnet test tests/Hosts.Tests` -> 341 passed / 0 failed — `HttpActorContextTests` เขียวครบ 4: claim หลัง construct มองเห็นแล้ว (F5, แดงใน T1), ambient ชนะ claim (B10), dev fallback เมื่อไม่มี claim + claim ชนะ fallback (B11)
     - viewports: n/a — logic-only
     - deviations: none
 
-- [x] T5 — GREEN + B-coverage sweep + docs + full gate
+- [x] T5. GREEN + B-coverage sweep + docs + full gate
   - lifecycle test T1 เขียวครบทุก step; suite เดิมยืนยัน B:
     `MerchantUserLoginServiceTests` (B5 suspended, B6 awaiting-approval),
     `SubmitRegistrationHandlerTests` (B7 correction non-rejected refused),
@@ -84,7 +84,7 @@
     task 8; `docs/reference/merchant-user-module.md` ถ้าอ้าง writer ports ที่ลบ
   - gate: `dotnet build -warnaserror` 0 warning; `dotnet test` ทุก suite green;
     integration local (source `.env.integration` ใน Bash call เดียวกับ `dotnet test`)
-  - Satisfies: F1, F2, F3, F4, F5, F6, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11
+     Satisfies: F-1, F-2, F-3, F-4, F-5, F-6, B-1, B-2, B-3, B-4, B-5, B-6, B-7, B-8, B-9, B-10, B-11
   Evidence:
     - test: `dotnet build -warnaserror` -> ok 64 projects, 0 errors, 0 warnings
     - test: `dotnet test tests/Architecture.Tests` -> 213 passed / 0 failed (8m59s — รวม lifecycle 8, PreBindRead 6, PreBindWrite 5, BypassPrimitive 2)

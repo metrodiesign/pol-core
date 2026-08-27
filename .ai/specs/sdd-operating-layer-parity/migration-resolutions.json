@@ -2466,6 +2466,13 @@
    "taskId": "",
    "disposition": "active-authoring-exempt",
    "rationale": "design-first tracker without requirements by documented intent — human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/bugfix-producer-ticket-dedup/bugfix.md",
+   "field": "authoring.chain",
+   "taskId": "",
+   "disposition": "legacy-baseline-exempt",
+   "rationale": "self-declared history-only spec (superseded by producer-google-sso) — excluded from active-implement strict gate per human checkpoint 2026-08-27"
   }
  ]
 }

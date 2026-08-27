@@ -1289,6 +1289,7 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
         for offset, raw in enumerate(raw_lines):
             meta_only = re.match(r"^( {5}Satisfies:\s*)(.*)$", raw)
             match = None
+            meta_only_handled = False
             if meta_only is not None:
                 body = meta_only.group(2)
                 ver = re.search(r"\s+(Verify:)\s*", body)
@@ -1299,8 +1300,11 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                     # sentence period trailing the final ref breaks exact
                     # matching; deterministic one-char removal
                     pieces.append("     " + re.sub(r"\.$", "", body))
+                    meta_only_handled = True
                 else:
                     pieces.append(raw)
+            if meta_only_handled:
+                continue
             match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw) \
                 if (match is None and _has_unsplit_meta(raw)) else None
             if match is not None:
@@ -1324,11 +1328,16 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                 break  # keep the relocation minimal: rest stays untouched
             else:
                 pieces.append(raw)
-        if not meta_lines:
-            continue
+        in_place_only = not meta_lines
+        if not meta_lines and not any(
+                piece != raw for piece, raw in zip(pieces, raw_lines)) and \
+                len(pieces) == len(raw_lines):
+            continue  # nothing to relocate or clean
         head_lines = [line for line in pieces if line.strip() != "" or False]
-        rebuilt = "\n".join(pieces).rstrip("\n")
-        out = rebuilt + "\n" + "\n".join(meta_lines) + "\n"
+        if evidence_at is None or not meta_lines:
+            rebuilt = "\n".join(pieces).rstrip("\n")
+            out = rebuilt + "\n"
+        del in_place_only
         span_start = _line_byte_span(data, region_numbers[0])[0]
         last_index = min(region_numbers[-1], len(all_lines))
         span_end = _line_byte_span(data, last_index)[1]
@@ -1807,7 +1816,8 @@ def run_check(batch_id: str) -> int:
         legacy_dirs = {Path(path_str).parent.name for (path_str, field, _s)
                        in ledger_paths if field in {"trace.table", "authoring.chain"}
                        and ledger_paths[(path_str, field, _s)]["disposition"]
-                       in {"trace-header-canonical", "active-authoring-exempt"}}
+                       in {"trace-header-canonical", "active-authoring-exempt",
+                           "legacy-baseline-exempt"}}
         for feature in features:
             # Option-K (human checkpoint): legacy chains whose trace tables are
             # ledger-dispositioned are recorded residuals — excluded from the

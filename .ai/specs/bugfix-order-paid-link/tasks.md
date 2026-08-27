@@ -2,7 +2,8 @@
 
 > Status: approved 2026-07-04
 
-- [x] T1 — repro + regression tests (RED ก่อนแก้)
+- [x] T1. repro + regression tests (RED ก่อนแก้)
+     Satisfies: F-1, F-2, F-3, F-4, B-1, B-2, B-3, B-5
   Evidence:
     - test: `dotnet test tests/Orders.Tests` (ก่อนแก้ T2) -> Failed: 3, Passed: 22 — repro RED ตามเป้า:
       F1 `It_marks_the_order_paid_by_the_events_OrderId` fail "Expected: Paid / Actual: AwaitingPayment";
@@ -38,9 +39,8 @@
   - B5: ตรวจ `tests/Orders.Tests/OutboxSerializerTests.cs` — ต้องมี assertion round-trip
     `PaymentPaid` ครอบ `OrderId` + `Money` (amount+currency); ขาดให้เติม assertion
   - รัน `dotnet test tests/Orders.Tests` → test ใหม่ F1-F4 ต้องแดง (repro ยืนยัน defect), ที่เหลือเขียว
-  - Satisfies: F1, F2, F3, F4, B1, B2, B3, B5
 
-- [x] T2 — แก้ consumer ให้ resolve ด้วย OrderId + เก็บกวาด orphan ของการแก้
+- [x] T2. แก้ consumer ให้ resolve ด้วย OrderId + เก็บกวาด orphan ของการแก้
   Evidence:
     - test: `dotnet test tests/Orders.Tests` -> Passed: 25 / Failed: 0 — F1-F4 จาก T1 พลิก RED->GREEN ครบ
     - แก้: `OrderPaidConsumer.cs` lookup -> `GetAsync(notification.OrderId)` + doc comment ตรงความจริง;
@@ -65,8 +65,9 @@
     ไม่มี schema change ใน fix นี้)
   - ห้ามแตะฝั่ง Payments / webhook / outbox dispatcher (B4)
   - รัน `dotnet test tests/Orders.Tests` → F1-F4 จาก T1 ต้องเขียว (RED→GREEN ครบ)
-  - Satisfies: F1, F2, F3, F4, B2
-- [x] T3 — verify ทั้งระบบ
+     Satisfies: F-1, F-2, F-3, F-4, B-2
+- [x] T3. verify ทั้งระบบ
+     Satisfies: B-4, B-6
   Evidence:
     - test: `dotnet build -warnaserror` -> 0 Warning / 0 Error
     - test: `dotnet test` (ทั้ง solution, env :11434 sourced) -> ทุก suite เขียว: SharedKernel 39,
@@ -86,4 +87,3 @@
   - integration tests (B6): `source .env.integration` + container :11434 →
     `dotnet test tests/Integration.Tests` — `OrdersReconciliationIntegrationTests` เขียว
     (หมายเหตุ: OrdersReconciliation flaky ตอน re-run บน DB ค้าง — เขียวบน fresh/CI ตาม memory)
-  - Satisfies: B4, B6
