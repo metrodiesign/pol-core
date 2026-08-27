@@ -1163,6 +1163,9 @@ def plan_batch(batch_id: str) -> tuple[list[RetrofitAction], list[RetrofitBlocke
             ears_actions, ears_blockers = plan_ears_join_actions(batch_id, directory)
             new_actions.extend(ears_actions)
             new_blockers.extend(ears_blockers)
+            split_actions, split_blockers = plan_task_metadata_split_actions(batch_id, directory)
+            new_actions.extend(split_actions)
+            new_blockers.extend(split_blockers)
             if batch_id == "bugfix":
                 bf_actions, bf_blockers = plan_bugfix_actions(batch_id, directory)
                 new_actions.extend(bf_actions)
@@ -1244,6 +1247,64 @@ def plan_ears_join_actions(batch_id: str, directory: Path):
             proofs=(_human_decision_proof(entry),),
         ))
         number = last + 1
+    return actions, blockers
+
+
+def plan_task_metadata_split_actions(batch_id: str, directory: Path):
+    """Ledger-free mechanical split: legacy tasks embed `Satisfies:` / `Verify:`
+    inside prose. Canonical shape = metadata as its own continuation lines under
+    the task opening. Word-preserving relocation; refuses when ambiguous."""
+    actions: list[RetrofitAction] = []
+    blockers: list[RetrofitBlocker] = []
+    file_path = directory / "tasks.md"
+    if not file_path.is_file():
+        return actions, blockers
+    path_str = rel(file_path)
+    data = read_bytes(file_path)
+    all_lines = data.decode("utf-8", "surrogateescape").splitlines()
+    tasks, _diag = sc.parse_task_blocks(data, Path(path_str))
+    for task in tasks:
+        if not task.completed:
+            continue
+        region_numbers = list(range(task.span[0], min(task.span[1],
+                                                      len(all_lines) + 1)))
+        raw_lines = [all_lines[n - 1] for n in region_numbers]
+        meta_offset = next((offset for offset, raw in enumerate(raw_lines)
+                            if re.search(r"\bSatisfies:", raw)), None)
+        if meta_offset is None:
+            continue
+        pieces: list[str] = []
+        meta_lines: list[str] = []
+        for offset, raw in enumerate(raw_lines):
+            match = re.search(r"^(.*?)(\bSatisfies:\s*.*)$", raw)
+            if match is not None:
+                left = match.group(1).rstrip(" ;,-")
+                if left.strip():
+                    pieces.append(left)
+                meta_lines.append("     " + match.group(2).strip())
+            elif meta_lines:
+                break  # keep the relocation minimal: rest stays untouched
+            else:
+                pieces.append(raw)
+        if not meta_lines:
+            continue
+        head_lines = [line for line in pieces if line.strip() != "" or False]
+        rebuilt = "\n".join(pieces).rstrip("\n")
+        out = rebuilt + "\n" + "\n".join(meta_lines) + "\n"
+        span_start = _line_byte_span(data, region_numbers[0])[0]
+        last_index = min(region_numbers[-1], len(all_lines))
+        span_end = _line_byte_span(data, last_index)[1]
+        before = data[span_start:span_end]
+        if not before:
+            continue
+        actions.append(RetrofitAction(
+            batch_id=batch_id, path=path_str, target_field="task.metadata",
+            task_id=task.task_id, field_span=(span_start, span_end),
+            before_bytes=before,
+            after_bytes=out.encode("utf-8"),
+            proofs=(_proof_current(path_str, data, region_numbers[0],
+                                   raw_lines[0].rstrip("\n")),),
+        ))
     return actions, blockers
 
 
