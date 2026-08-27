@@ -1333,11 +1333,15 @@ def plan_task_metadata_split_actions(batch_id: str, directory: Path):
                 piece != raw for piece, raw in zip(pieces, raw_lines)) and \
                 len(pieces) == len(raw_lines):
             continue  # nothing to relocate or clean
-        head_lines = [line for line in pieces if line.strip() != "" or False]
-        if evidence_at is None or not meta_lines:
-            rebuilt = "\n".join(pieces).rstrip("\n")
-            out = rebuilt + "\n"
-        del in_place_only
+        # canonical order: metadata continuation precedes the Evidence block
+        evidence_at = next((index for index, raw in enumerate(raw_lines)
+                            if raw.strip() == "Evidence:"), None)
+        if evidence_at is not None and meta_lines:
+            head = raw_lines[:evidence_at]
+            tail = raw_lines[evidence_at:]
+            out = "\n".join(head + meta_lines + [""] + tail).rstrip("\n") + "\n"
+        else:
+            out = "\n".join(pieces).rstrip("\n") + "\n"
         span_start = _line_byte_span(data, region_numbers[0])[0]
         last_index = min(region_numbers[-1], len(all_lines))
         span_end = _line_byte_span(data, last_index)[1]
