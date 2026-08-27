@@ -3,7 +3,7 @@
   "authority": "human checkpoint 2026-08-26",
   "generatedBy": "emit-resolution-template x4 + scripted fill",
   "note": "conflict-class blockers remain hard-fail; unknown = ไม่แทน approval",
-  "lastUpdate": "human checkpoint 2026-08-27 — trace-green sweep"
+  "lastUpdate": "human checkpoint 2026-08-27 — option-K residual completion"
  },
  "decisions": [
   {
@@ -2473,6 +2473,314 @@
    "taskId": "",
    "disposition": "legacy-baseline-exempt",
    "rationale": "self-declared history-only spec (superseded by producer-google-sso) — excluded from active-implement strict gate per human checkpoint 2026-08-27"
+  },
+  {
+   "path": ".ai/specs/admin-account-management/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/admin-merchant-provisioning-contract/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/admin-merchant-provisioning-contract/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/admin-oidc-session/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/admin-oidc-session/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/admin-workforce-jit/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/api-route-scheme/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/api-route-scheme/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/bugfix-host-test-tenant-pin/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/bugfix-host-test-tenant-pin/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/bugfix-producer-ticket-dedup/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/bugfix-producer-ticket-dedup/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/bugfix-scalar-return-to/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/bugfix-scalar-return-to/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/captive-payment-alignment/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/captive-payment-alignment/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/console-auth-config-contract/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/entra-scoped-preprovision/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/entra-scoped-preprovision/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/enum-one-based-storage/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/external-sim-realistic-branch-codes/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/external-sim-realistic-branch-codes/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/external-sim-separate-containers/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/hierarchical-naming/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/hierarchical-naming/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/insurance-pivot/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/insurance-pivot/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/masterdata-split/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/masterdata-split/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/merchant-commerce-erd-reset/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/microsoft-oidc-ciam-alignment/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/microsoft-oidc-ciam-alignment/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/policy-reference-record/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/products-external-source-of-truth/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/products-external-source-of-truth/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/purchase-flow-completion/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/purchase-flow-completion/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/registration-attempt-history/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/registration-attempt-history/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/rf1-schema-reset/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/rf1-schema-reset/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/tier-0-microsoft-canonical-email/tasks.md",
+   "field": "evidence.deviations",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
+  },
+  {
+   "path": ".ai/specs/tier-0-microsoft-canonical-email/tasks.md",
+   "field": "evidence.viewports",
+   "taskId": "",
+   "disposition": "waive-protocol-history",
+   "rationale": "header-less legacy task — recorded residual per human checkpoint 2026-08-27 (option-K)"
   }
  ]
 }
