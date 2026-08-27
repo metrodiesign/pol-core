@@ -24,11 +24,26 @@
     - deviations: ไม่มี
     - environment: shell fixture inventory รอบแรกใน sandbox ได้ `Operation not permitted`; retry คำสั่งเดิมนอก sandbox แล้วผ่าน `12/12` — เป็นข้อจำกัด environment ไม่ใช่ deviation ของ behavior
 
-- [ ] 2. Wire phase gate และ feature slice ใน canonical spec skills
+- [x] 2. Wire phase gate และ feature slice ใน canonical spec skills
   - **Scope**: ให้ requirement/design/tasks skills เรียก phase gate ก่อน advance; implementation เรียก slice และ full-read เมื่อพบ `MISSING:`; แก้ status ของ quick workflow ให้ใช้ grammar canonical
   - **Files**: `.claude/skills/spec-*/SKILL.md`, source assertions และ fixtures ที่เกี่ยวข้อง
   Satisfies: F-2, F-3, B-2
   - **Verify**: source-to-assertion matrix ครบทุก canonical phase; malformed, unapproved และ missing upstream ถูก block ก่อน write
+  Evidence:
+    - test: `python3 -m unittest scripts.tests.test_repo_policy_alignment.PhaseSkillsRowTest` ก่อนแก้ source รอบ rework 3 -> `Ran 14 tests`; exit `1`; failures `57/57` ตรง command `9` occurrences และ semantic/status `10` spans ภายใต้ wrapper `3` classes
+    - test: `python3 -m unittest scripts.tests.test_repo_policy_alignment.PhaseSkillsRowTest` -> `Ran 15 tests`; outer wrapper mutations `57/57` ถูก reject และ unclosed backtick/tilde/HTML comment ทั้ง `3/3` ถูก reject; `OK`
+    - test: `python3 -m unittest discover -s scripts/tests -p 'test_repo_policy_alignment.py'` -> `Ran 45 tests`; `OK`
+    - test: selector family บน approved bugfix จริง -> exact `2` exit `0`; range `1-2` exit `0`; all ผ่าน `--pending` คืน `3,4,5,6,7`; unknown exit `1` ด้วย `TASK_SELECTOR_AMBIGUOUS`
+    - test: `python3 -m unittest discover -s scripts/tests -p 'test_*.py'` -> `Ran 199 tests`; `OK`
+    - test: shell fixture inventory -> sandbox exit `1` จาก `mktemp: Operation not permitted`; retry คำสั่งเดียวกันนอก sandboxได้ `fixture_count=12 aggregate_exit=0`; slice fixture แสดง `PASS`
+    - test: `python3 scripts/repo_policy_alignment.py --check` -> `OK: source-to-assertion alignment ตรงทุก row`
+    - test: `python3 scripts/spec_contract.py check --all --strict` -> `9 active / 54 legacy-residual dirs / 0 failing`
+    - test: `python3 scripts/spec_contract.py gate phase --feature bugfix-sdd-operating-layer-parity-review --phase implement --workflow bugfix` -> phase `implement` ผ่าน workflow `bugfix`
+    - test: `.ai/bin/check-secrets.sh --all` -> exit `0`; ไม่มี output
+    - test: `git diff --check` -> exit `0`; ไม่มี output
+    - viewports: n/a — tooling-only ไม่มี UI surface
+    - deviations: ไม่มี
+    - environment: shell fixture inventory ใช้ unsandboxed retry ตามข้อจำกัด `mktemp` ที่บันทึกใน pipeline state แล้ว
 
 - [ ] 3. ทำ strict all-spec coverage และ historical inventory ให้ซื่อสัตย์
   - **Scope**: ใช้ canonical historical inventory 61 directory, แยก current feature, และห้าม directory ที่ไม่ตรวจจริงมี `strictOk=true`

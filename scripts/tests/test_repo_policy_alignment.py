@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -382,6 +383,396 @@ class GitBoundaryRowTest(AlignmentFixtureBase):
         SandboxBuilder(self.root).boundary_docs(develop_in_hooks=False)
         diags = rpa.check_git_boundary(self.root)
         self.assertTrue(any("refs/heads/develop" in d.message for d in diags))
+
+
+class PhaseSkillsRowTest(AlignmentFixtureBase):
+    SKILLS = (
+        "spec-requirements",
+        "spec-design",
+        "spec-tasks",
+        "spec-implement",
+        "spec-quick",
+    )
+    IMPLEMENT_GATE = (
+        "python3 scripts/spec_contract.py gate phase --feature <feature> "
+        "--phase implement --workflow <workflow>")
+    TASK_IDS_SELECTOR = (
+        "python3 scripts/spec_contract.py task-ids --feature <feature> "
+        "--selector \"$ARGUMENTS\" --format lines")
+    TASK_IDS_PENDING = (
+        "python3 scripts/spec_contract.py task-ids --feature <feature> "
+        "--pending --format lines")
+    COMMAND_PATHS = (
+        ("spec-requirements",
+         "python3 scripts/spec_contract.py gate phase --feature <feature> "
+         "--phase requirements --workflow design-first"),
+        ("spec-design",
+         "python3 scripts/spec_contract.py gate phase --feature <feature> "
+         "--phase design --workflow requirements-first"),
+        ("spec-design",
+         "python3 scripts/spec_contract.py gate phase --feature <feature> "
+         "--phase design --workflow design-first"),
+        ("spec-tasks",
+         "python3 scripts/spec_contract.py gate phase --feature <feature> "
+         "--phase tasks --workflow <workflow>"),
+        ("spec-implement", IMPLEMENT_GATE),
+        ("spec-implement", "scripts/spec-slice.sh <feature> <task-id>"),
+    )
+    EXECUTABLE_OCCURRENCES = (
+        (*COMMAND_PATHS[0], 0),
+        (*COMMAND_PATHS[1], 0),
+        (*COMMAND_PATHS[2], 0),
+        (*COMMAND_PATHS[3], 0),
+        ("spec-implement", IMPLEMENT_GATE, 0),
+        ("spec-implement", IMPLEMENT_GATE, 1),
+        ("spec-implement", TASK_IDS_PENDING, 0),
+        ("spec-implement", TASK_IDS_SELECTOR, 0),
+        (*COMMAND_PATHS[5], 0),
+    )
+    SEMANTIC_SPANS = (
+        ("spec-requirements",
+         "`> Status: approved <original date>` พร้อมเพิ่ม annotation แยกบรรทัดเป็น\n"
+         "`> Status-Note: amended <YYYY-MM-DD>`"),
+        ("spec-design",
+         "`> Status: approved <original date>` and add the amendment separately as\n"
+         "`> Status-Note: amended <YYYY-MM-DD>`"),
+        ("spec-tasks",
+         "approved, keep its canonical header as `> Status: approved <original date>` and add\n"
+         "`> Status-Note: amended <YYYY-MM-DD>` separately."),
+        ("spec-quick",
+         "> Status: approved <YYYY-MM-DD>\n"
+         "> Status-Note: quick, no approval gates"),
+        ("spec-tasks",
+         "เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:\n\n"
+         "- มี `bugfix.md` และไม่มี `requirements.md`/`design.md` → `bugfix`\n"
+         "- มี `requirements.md` กับ `design.md` และไม่มี `bugfix.md` → feature shape ที่\n"
+         "  Requirements-First และ Design-First converge แล้ว (`requirements-first` กับ\n"
+         "  `design-first` ใช้ phase contract เดียวกันสำหรับ tasks); ใช้\n"
+         "  `requirements-first` เป็น canonical label ของ shape นี้โดยไม่เดาประวัติจาก prose\n"
+         "- shape อื่น → หยุด เพราะ missing หรือ ambiguous"),
+        ("spec-implement",
+         "เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:\n\n"
+         "- มี `bugfix.md` และไม่มี `requirements.md`/`design.md` → `bugfix`\n"
+         "- มี `requirements.md` กับ `design.md` และไม่มี `bugfix.md` → feature shape ที่\n"
+         "  Requirements-First และ Design-First converge แล้ว (`requirements-first` กับ\n"
+         "  `design-first` ใช้ phase contract เดียวกันสำหรับ implement); ใช้\n"
+         "  `requirements-first` เป็น canonical label ของ shape นี้โดยไม่เดาประวัติจาก prose\n"
+         "- shape อื่น → หยุด เพราะ missing หรือ ambiguous"),
+        ("spec-implement", "หาก `$ARGUMENTS == all` ให้เลือกเฉพาะ pending task IDs:"),
+        ("spec-implement",
+         "ทั้งสอง branch ต้องคืน exit `0` ก่อนเข้า loop; selector unknown หรือคำสั่งคืน non-zero ให้หยุด\n"
+         "ตาม diagnostic ทันที. นำทุก ID ที่ CLI คืนเข้า loop ด้านล่างตาม file order โดยไม่ข้าม ID."),
+        ("spec-implement",
+         "ถ้า `spec-slice.sh` คืน non-zero ให้หยุดทันที ใช้ output ที่ exit `0` เป็น initial slice\n"
+         "   และห้ามแทนด้วย grep หรือ parser ใน skill."),
+        ("spec-implement", "หาก output มี `MISSING:` ให้ full-read upstream artifacts ทั้งหมดตาม workflow:"),
+    )
+    OUTER_WRAPPERS = (
+        ("````markdown", "````"),
+        ("~~~~markdown", "~~~~"),
+        ("<!--", "-->"),
+    )
+    AMENDED_STATUS_SKILLS = (
+        "spec-requirements",
+        "spec-design",
+        "spec-tasks",
+    )
+
+    def copy_skills(self):
+        for skill in self.SKILLS:
+            self.copy_rel(f".claude/skills/{skill}/SKILL.md")
+
+    def mutate_skill(self, skill: str, needle: str, replacement: str) -> None:
+        self.copy_skills()
+        path = self.root / f".claude/skills/{skill}/SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn(needle, text)
+        path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+    def mutate_command_block(self, skill: str, command: str, occurrence: int,
+                             prefix: str, suffix: str | None = None) -> None:
+        self.copy_skills()
+        path = self.root / f".claude/skills/{skill}/SKILL.md"
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        matches = [index for index, line in enumerate(lines)
+                   if line.strip() == command]
+        self.assertGreater(len(matches), occurrence)
+        index = matches[occurrence]
+        indent = lines[index][:len(lines[index]) - len(lines[index].lstrip())]
+        inserted = [f"{indent}{prefix}\n", lines[index]]
+        if suffix is not None:
+            inserted.append(f"{indent}{suffix}\n")
+        lines[index:index + 1] = inserted
+        path.write_text("".join(lines), encoding="utf-8")
+
+    def wrap_fenced_block(self, skill: str, needle: str, occurrence: int,
+                          opening: str, wrapper: tuple[str, str]) -> None:
+        self.copy_skills()
+        path = self.root / f".claude/skills/{skill}/SKILL.md"
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        matches = [index for index, line in enumerate(lines)
+                   if line.strip() == needle]
+        self.assertGreater(len(matches), occurrence)
+        match = matches[occurrence]
+        start = max(index for index in range(match + 1)
+                    if lines[index].strip() == opening)
+        end = next(index for index in range(match + 1, len(lines))
+                   if lines[index].strip() == "```")
+        prefix, suffix = wrapper
+        lines[start:end + 1] = [prefix + "\n", *lines[start:end + 1], suffix + "\n"]
+        path.write_text("".join(lines), encoding="utf-8")
+
+    def wrap_semantic_span(self, skill: str, needle: str,
+                           wrapper: tuple[str, str]) -> None:
+        self.copy_skills()
+        path = self.root / f".claude/skills/{skill}/SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn(needle, text)
+        start = text.rfind("\n", 0, text.index(needle)) + 1
+        end = text.find("\n", text.index(needle) + len(needle))
+        if end < 0:
+            end = len(text)
+        prefix, suffix = wrapper
+        mutated = text[:start] + prefix + "\n" + text[start:end] + "\n" + suffix + text[end:]
+        path.write_text(mutated, encoding="utf-8")
+
+    def assert_alignment_failure(self, label: str) -> None:
+        diags = rpa.check_phase_skills(self.root)
+        self.assertTrue(any(
+            diag.code == "ALIGN_PHASE_SKILLS_MISMATCH" for diag in diags
+        ), msg=f"mutation remained green: {label}")
+
+    def test_real_canonical_phase_skills_are_aligned(self):
+        self.assertEqual(rpa.check_phase_skills(REPO), [])
+
+    def test_required_phase_behavior_mutations_fail(self):
+        mutations = (
+            ("spec-implement", "MISSING:", "full-read fallback removed"),
+            ("spec-quick", "> Status-Note:", "quick status note removed"),
+        )
+        for skill, needle, replacement in mutations:
+            with self.subTest(skill=skill, needle=needle):
+                self.mutate_skill(skill, needle, replacement)
+                self.assert_alignment_failure(f"{skill} {needle}")
+
+    def test_noop_command_mutations_fail_across_all_six_paths(self):
+        replacements = (
+            lambda command: "command removed",
+            lambda command: f"true # {command}",
+            lambda command: f"printf '%s\\n' '{command}'",
+            lambda command: f"{command} || true",
+        )
+        for skill, command in self.COMMAND_PATHS:
+            for replacement in replacements:
+                with self.subTest(skill=skill, command=command,
+                                  replacement=replacement(command)):
+                    self.mutate_skill(skill, command, replacement(command))
+                    self.assert_alignment_failure(f"{skill} no-op command")
+
+    def test_control_flow_noop_mutations_fail_across_all_nine_occurrences(self):
+        wrappers = (
+            ("if false; then", "fi"),
+            ("false &&", None),
+        )
+        self.assertEqual(9, len(self.EXECUTABLE_OCCURRENCES))
+        for skill, command, occurrence in self.EXECUTABLE_OCCURRENCES:
+            for prefix, suffix in wrappers:
+                with self.subTest(skill=skill, command=command,
+                                  occurrence=occurrence, prefix=prefix):
+                    self.mutate_command_block(
+                        skill, command, occurrence, prefix, suffix)
+                    self.assert_alignment_failure(
+                        f"{skill} control-flow no-op occurrence {occurrence}")
+
+    def test_outer_wrappers_hide_all_command_and_semantic_assertions(self):
+        self.assertEqual(9, len(self.EXECUTABLE_OCCURRENCES))
+        self.assertEqual(10, len(self.SEMANTIC_SPANS))
+        for wrapper in self.OUTER_WRAPPERS:
+            for skill, command, occurrence in self.EXECUTABLE_OCCURRENCES:
+                with self.subTest(kind="command", wrapper=wrapper[0],
+                                  skill=skill, occurrence=occurrence):
+                    self.wrap_fenced_block(
+                        skill, command, occurrence, "```bash", wrapper)
+                    self.assert_alignment_failure(
+                        f"{skill} hidden command occurrence {occurrence}")
+            for skill, needle in self.SEMANTIC_SPANS:
+                with self.subTest(kind="semantic", wrapper=wrapper[0],
+                                  skill=skill, needle=needle):
+                    if skill == "spec-quick":
+                        self.wrap_fenced_block(
+                            skill, "> Status: approved <YYYY-MM-DD>", 0,
+                            "```text", wrapper)
+                    else:
+                        self.wrap_semantic_span(skill, needle, wrapper)
+                    self.assert_alignment_failure(
+                        f"{skill} hidden semantic span")
+
+    def test_unclosed_outer_wrappers_fail_via_shared_scanner_contract(self):
+        skill, command, occurrence = self.EXECUTABLE_OCCURRENCES[0]
+        for opening in ("````markdown", "~~~~markdown", "<!--"):
+            with self.subTest(opening=opening):
+                self.copy_skills()
+                path = self.root / f".claude/skills/{skill}/SKILL.md"
+                text = path.read_text(encoding="utf-8")
+                fenced = f"```bash\n{command}\n```"
+                self.assertIn(fenced, text)
+                path.write_text(text.replace(fenced, opening + "\n" + fenced, 1),
+                                encoding="utf-8")
+                self.assert_alignment_failure(
+                    f"unclosed shared scanner wrapper {opening}")
+
+    def test_selector_family_routes_and_stops_before_each_id_enters_slice_loop(self):
+        feature = self.root / ".ai/specs/demo"
+        feature.mkdir(parents=True)
+        (feature / "tasks.md").write_text(
+            "> Status: approved 2026-08-27\n"
+            "- [x] 1. done\n"
+            "- [ ] 2. pending\n"
+            "- [ ] 3. pending\n",
+            encoding="utf-8",
+        )
+
+        def run(*arguments: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [sys.executable, str(REPO / "scripts/spec_contract.py"),
+                 "task-ids", "--feature", "demo", *arguments, "--format", "lines",
+                 "--specs-root", str(self.root / ".ai/specs")],
+                text=True, capture_output=True, check=False,
+            )
+
+        exact = run("--selector", "2")
+        numeric_range = run("--selector", "1-3")
+        pending = run("--pending")
+        unknown = run("--selector", "unknown")
+        self.assertEqual((0, ["2"]), (exact.returncode, exact.stdout.splitlines()))
+        self.assertEqual((0, ["1", "2", "3"]),
+                         (numeric_range.returncode, numeric_range.stdout.splitlines()))
+        self.assertEqual((0, ["2", "3"]),
+                         (pending.returncode, pending.stdout.splitlines()))
+        self.assertNotEqual(0, unknown.returncode)
+        self.assertIn("TASK_SELECTOR_AMBIGUOUS", unknown.stdout + unknown.stderr)
+
+        text = (REPO / ".claude/skills/spec-implement/SKILL.md").read_text(
+            encoding="utf-8")
+        all_branch = text.find("`$ARGUMENTS == all`")
+        pending_command = text.find(self.TASK_IDS_PENDING)
+        exact_range_branch = text.find("exact ID หรือ numeric range")
+        selector_command = text.find(self.TASK_IDS_SELECTOR)
+        loop = text.find("For EACH exact task ID:")
+        slice_command = text.find("scripts/spec-slice.sh <feature> <task-id>")
+        self.assertTrue(
+            0 <= all_branch < pending_command < exact_range_branch
+            < selector_command < loop < slice_command)
+        self.assertIn("คืน non-zero ให้หยุด", text[pending_command:loop])
+        self.assertIn("ทุก ID ที่ CLI คืนเข้า loop", text[pending_command:loop])
+
+    def test_pending_selector_command_mutations_fail(self):
+        mutations = (
+            ("pending command removed", None),
+            ("if false; then", "fi"),
+            ("false &&", None),
+        )
+        for prefix, suffix in mutations:
+            with self.subTest(prefix=prefix):
+                if prefix == "pending command removed":
+                    self.mutate_skill(
+                        "spec-implement", self.TASK_IDS_PENDING, prefix)
+                else:
+                    self.mutate_command_block(
+                        "spec-implement", self.TASK_IDS_PENDING, 0, prefix, suffix)
+                self.assert_alignment_failure("pending selector command")
+
+    def test_wrong_workflow_mutations_fail_across_all_five_gate_paths(self):
+        for skill, command in self.COMMAND_PATHS[:-1]:
+            workflow = command.rsplit("--workflow ", 1)[1]
+            mutated = command.replace(
+                f"--workflow {workflow}", "--workflow wrong-workflow", 1)
+            with self.subTest(skill=skill, command=command):
+                self.mutate_skill(skill, command, mutated)
+                self.assert_alignment_failure(f"{skill} wrong workflow")
+
+    def test_command_after_write_or_work_mutations_fail_across_all_six_paths(self):
+        anchors = (
+            "Write `.ai/specs/<feature>/requirements.md`",
+            "Then write `.ai/specs/<feature>/design.md`",
+            "Then write `.ai/specs/<feature>/design.md`",
+            "Then write\n`.ai/specs/<feature>/tasks.md`",
+            "2. Plan the task",
+            "2. Plan the task",
+        )
+        for (skill, command), anchor in zip(self.COMMAND_PATHS, anchors):
+            with self.subTest(skill=skill, command=command):
+                self.copy_skills()
+                path = self.root / f".claude/skills/{skill}/SKILL.md"
+                text = path.read_text(encoding="utf-8")
+                self.assertIn(command, text)
+                self.assertIn(anchor, text)
+                mutated = text.replace(command, "command moved", 1)
+                mutated += f"\n{anchor}\n{command}\n"
+                path.write_text(mutated, encoding="utf-8")
+                self.assert_alignment_failure(f"{skill} command after work")
+
+    def test_spec_implement_slice_precedes_state_and_reconciliation(self):
+        text = (REPO / ".claude/skills/spec-implement/SKILL.md").read_text(
+            encoding="utf-8")
+        self.assertLess(text.find("scripts/spec-slice.sh <feature> <task-id>"),
+                        text.find("scripts/spec-state.sh <feature>"))
+        self.assertLess(text.find("scripts/spec-state.sh <feature>"),
+                        text.find("2. Plan the task"))
+
+    def test_state_before_slice_or_repeated_gate_mutations_fail(self):
+        state = "scripts/spec-state.sh <feature>"
+        for anchor in ("For EACH exact task ID:",
+                       "หลัง full-read ให้รัน gate ซ้ำด้วย workflow เดิม:"):
+            with self.subTest(anchor=anchor):
+                self.copy_skills()
+                path = self.root / ".claude/skills/spec-implement/SKILL.md"
+                text = path.read_text(encoding="utf-8")
+                self.assertIn(state, text)
+                self.assertIn(anchor, text)
+                mutated = text.replace(state, "state moved", 1)
+                mutated = mutated.replace(anchor, f"`{state}`\n\n{anchor}", 1)
+                path.write_text(mutated, encoding="utf-8")
+                self.assert_alignment_failure(f"state before {anchor}")
+
+    def test_removing_repeated_implement_gate_fails(self):
+        self.copy_skills()
+        path = self.root / ".claude/skills/spec-implement/SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        command = self.COMMAND_PATHS[-2][1]
+        before, separator, after = text.rpartition(command)
+        self.assertTrue(separator)
+        path.write_text(before + "repeated gate removed" + after,
+                        encoding="utf-8")
+        self.assert_alignment_failure("repeated implement gate removed")
+
+    def test_amended_status_mutations_fail_across_all_three_sync_paths(self):
+        canonical = "> Status: approved <original date>"
+        note = "> Status-Note: amended <YYYY-MM-DD>"
+        malformed = "> Status: approved <original date>, amended <YYYY-MM-DD>"
+        for skill in self.AMENDED_STATUS_SKILLS:
+            with self.subTest(skill=skill):
+                self.copy_skills()
+                path = self.root / f".claude/skills/{skill}/SKILL.md"
+                text = path.read_text(encoding="utf-8")
+                self.assertIn(canonical, text)
+                self.assertIn(note, text)
+                mutated = text.replace(canonical, malformed, 1).replace(note, "", 1)
+                path.write_text(mutated, encoding="utf-8")
+                self.assert_alignment_failure(f"{skill} malformed amended status")
+
+    def test_legacy_quick_status_grammar_fails(self):
+        self.copy_skills()
+        path = self.root / ".claude/skills/spec-quick/SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        canonical = "> Status: approved <YYYY-MM-DD>"
+        self.assertIn(canonical, text)
+        path.write_text(
+            text.replace(canonical,
+                         "> Status: approved <YYYY-MM-DD> (quick, no gates)", 1),
+            encoding="utf-8",
+        )
+        self.assert_alignment_failure("spec-quick legacy status")
 
 
 class RealRepoCheckTest(unittest.TestCase):

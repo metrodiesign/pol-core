@@ -20,6 +20,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+SCRIPTS = Path(__file__).resolve().parent
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+import spec_contract as sc  # noqa: E402
+
 
 @dataclass
 class Diag:
@@ -329,6 +335,254 @@ def check_git_boundary(root: Path) -> list[Diag]:
     return problems
 
 
+_PHASE_SKILL_EXPECTATIONS = {
+    "spec-requirements": (),
+    "spec-design": (),
+    "spec-tasks": (
+        "เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:",
+        "requirements-first",
+        "design-first",
+        "bugfix",
+    ),
+    "spec-implement": (
+        "เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:",
+        "หาก output มี `MISSING:` ให้ full-read upstream artifacts ทั้งหมดตาม workflow",
+        "ถ้า `spec-slice.sh` คืน non-zero ให้หยุดทันที",
+        "คืน non-zero ให้หยุด",
+        "ทุก ID ที่ CLI คืนเข้า loop",
+        "requirements.md",
+        "design.md",
+        "bugfix.md",
+        "tasks.md",
+    ),
+    "spec-quick": (
+        "> Status: approved <YYYY-MM-DD>",
+        "> Status-Note:",
+    ),
+}
+
+_REQUIREMENTS_GATE = (
+    "python3 scripts/spec_contract.py gate phase --feature <feature> "
+    "--phase requirements --workflow design-first")
+_DESIGN_RF_GATE = (
+    "python3 scripts/spec_contract.py gate phase --feature <feature> "
+    "--phase design --workflow requirements-first")
+_DESIGN_DF_GATE = (
+    "python3 scripts/spec_contract.py gate phase --feature <feature> "
+    "--phase design --workflow design-first")
+_TASKS_GATE = (
+    "python3 scripts/spec_contract.py gate phase --feature <feature> "
+    "--phase tasks --workflow <workflow>")
+_IMPLEMENT_GATE = (
+    "python3 scripts/spec_contract.py gate phase --feature <feature> "
+    "--phase implement --workflow <workflow>")
+_TASK_IDS_COMMAND = (
+    "python3 scripts/spec_contract.py task-ids --feature <feature> "
+    "--selector \"$ARGUMENTS\" --format lines")
+_PENDING_TASK_IDS_COMMAND = (
+    "python3 scripts/spec_contract.py task-ids --feature <feature> "
+    "--pending --format lines")
+_SLICE_COMMAND = "scripts/spec-slice.sh <feature> <task-id>"
+
+_PHASE_SKILL_COMMANDS = (
+    ("spec-requirements", _REQUIREMENTS_GATE, 1),
+    ("spec-design", _DESIGN_RF_GATE, 1),
+    ("spec-design", _DESIGN_DF_GATE, 1),
+    ("spec-tasks", _TASKS_GATE, 1),
+    ("spec-implement", _IMPLEMENT_GATE, 2),
+    ("spec-implement", _PENDING_TASK_IDS_COMMAND, 1),
+    ("spec-implement", _TASK_IDS_COMMAND, 1),
+    ("spec-implement", _SLICE_COMMAND, 1),
+)
+
+_AMENDED_STATUS_SKILLS = (
+    "spec-requirements",
+    "spec-design",
+    "spec-tasks",
+)
+_AMENDED_STATUS = "> Status: approved <original date>"
+_AMENDED_STATUS_NOTE = "> Status-Note: amended <YYYY-MM-DD>"
+
+
+def _phase_skill_text(root: Path, name: str) -> tuple[Path, str | None]:
+    path = root / ".claude/skills" / name / "SKILL.md"
+    if not path.is_file():
+        return path, None
+    return path, path.read_text(encoding="utf-8", errors="replace")
+
+
+def _top_level_fenced_content_lines(text: str, path: Path,
+                                    opening: str) -> set[int]:
+    """คืน content lines ของ exact fence ที่ opener อยู่ top-level ตาม shared scanner."""
+    raw_lines = text.splitlines(keepends=True)
+    plain_lines = text.splitlines()
+    content: set[int] = set()
+    block_start: int | None = None
+    for index, raw_line in enumerate(raw_lines):
+        line = raw_line.strip()
+        if block_start is None:
+            if line != opening:
+                continue
+            _, prefix_diagnostics = sc._outside_fence(plain_lines[:index], path)
+            if not prefix_diagnostics:
+                block_start = index
+        elif line == "```":
+            content.update(range(block_start + 2, index + 1))
+            block_start = None
+    return content
+
+
+def _visible_phase_skill_text(text: str, path: Path) -> tuple[str, tuple[object, ...]]:
+    """Mask content hidden by shared Markdown visibility while preserving offsets."""
+    raw_lines = text.splitlines(keepends=True)
+    visible, diagnostics = sc._outside_fence(text.splitlines(), path)
+    active_lines = {number for number, _ in visible}
+    active_lines.update(_top_level_fenced_content_lines(text, path, "```text"))
+    masked = "".join(
+        raw_line if number in active_lines else re.sub(r"[^\r\n]", " ", raw_line)
+        for number, raw_line in enumerate(raw_lines, 1)
+    )
+    return masked, diagnostics
+
+
+def _standalone_command_offsets(text: str, path: Path,
+                                command: str) -> tuple[int, ...]:
+    """หา top-level fenced bash block ที่มี exact command เพียงคำสั่งเดียว."""
+    raw_lines = text.splitlines(keepends=True)
+    top_level_content = _top_level_fenced_content_lines(text, path, "```bash")
+    offsets: list[int] = []
+    block: list[tuple[str, int]] | None = None
+    cursor = 0
+    for number, raw_line in enumerate(raw_lines, 1):
+        line = raw_line.strip()
+        if block is None:
+            if line == "```bash" and number + 1 in top_level_content:
+                block = []
+        elif line == "```":
+            executable = [(value, offset) for value, offset in block if value]
+            if len(executable) == 1 and executable[0][0] == command:
+                offsets.append(executable[0][1])
+            block = None
+        else:
+            block.append((line, cursor + raw_line.find(line)))
+        cursor += len(raw_line)
+    return tuple(offsets)
+
+
+def _add_ordering_problem(problems: list[Diag], name: str,
+                          first_at: int, second_at: int,
+                          first: str, second: str) -> None:
+    if first_at < 0 or second_at < 0 or first_at >= second_at:
+        problems.append(Diag(
+            "ALIGN_PHASE_SKILLS_MISMATCH",
+            f"{name} ต้องวาง {first!r} ก่อน {second!r}"))
+
+
+def check_phase_skills(root: Path) -> list[Diag]:
+    problems: list[Diag] = []
+    texts: dict[str, str] = {}
+    raw_texts: dict[str, str] = {}
+    paths: dict[str, Path] = {}
+    command_offsets: dict[tuple[str, str], tuple[int, ...]] = {}
+    for name, tokens in _PHASE_SKILL_EXPECTATIONS.items():
+        path, raw_text = _phase_skill_text(root, name)
+        if raw_text is None:
+            problems.append(Diag("ALIGN_PHASE_SKILLS_MISMATCH",
+                                 f"canonical skill หาย: {path}"))
+            continue
+        text, visibility_diagnostics = _visible_phase_skill_text(raw_text, path)
+        texts[name] = text
+        raw_texts[name] = raw_text
+        paths[name] = path
+        for diagnostic in visibility_diagnostics:
+            problems.append(Diag(
+                "ALIGN_PHASE_SKILLS_MISMATCH",
+                f"{name} Markdown visibility ไม่ valid: {diagnostic.code}"))
+        for token in tokens:
+            if token not in text:
+                problems.append(Diag(
+                    "ALIGN_PHASE_SKILLS_MISMATCH",
+                    f"{name} ขาด required phase token {token!r}"))
+    for name, command, expected_count in _PHASE_SKILL_COMMANDS:
+        raw_text = raw_texts.get(name)
+        path = paths.get(name)
+        if raw_text is None or path is None:
+            continue
+        offsets = _standalone_command_offsets(raw_text, path, command)
+        command_offsets[(name, command)] = offsets
+        if len(offsets) != expected_count:
+            problems.append(Diag(
+                "ALIGN_PHASE_SKILLS_MISMATCH",
+                f"{name} ต้องมี executable command line {command!r} "
+                f"จำนวน {expected_count} จุด แต่พบ {len(offsets)}"))
+
+    authoring_order = (
+        ("spec-requirements", _REQUIREMENTS_GATE,
+         "Write `.ai/specs/<feature>/requirements.md`"),
+        ("spec-design", _DESIGN_RF_GATE,
+         "Then write `.ai/specs/<feature>/design.md`"),
+        ("spec-design", _DESIGN_DF_GATE,
+         "Then write `.ai/specs/<feature>/design.md`"),
+        ("spec-tasks", _TASKS_GATE,
+         "Then write\n`.ai/specs/<feature>/tasks.md`"),
+    )
+    for name, command, anchor in authoring_order:
+        text = texts.get(name)
+        offsets = command_offsets.get((name, command), ())
+        if text is not None:
+            _add_ordering_problem(
+                problems, name, offsets[0] if offsets else -1,
+                text.find(anchor), command, anchor)
+
+    implement = texts.get("spec-implement")
+    if implement is not None:
+        gates = command_offsets.get(("spec-implement", _IMPLEMENT_GATE), ())
+        pending_task_id_offsets = command_offsets.get(
+            ("spec-implement", _PENDING_TASK_IDS_COMMAND), ())
+        task_id_offsets = command_offsets.get(
+            ("spec-implement", _TASK_IDS_COMMAND), ())
+        slices = command_offsets.get(("spec-implement", _SLICE_COMMAND), ())
+        sequence = (
+            (gates[0] if len(gates) > 0 else -1, "initial implement gate"),
+            (implement.find("`$ARGUMENTS == all`"), "all selector branch"),
+            (pending_task_id_offsets[0] if pending_task_id_offsets else -1,
+             "pending task-ids resolver"),
+            (implement.find("exact ID หรือ numeric range"), "exact/range selector branch"),
+            (task_id_offsets[0] if task_id_offsets else -1, "selector task-ids resolver"),
+            (implement.find("For EACH exact task ID:"), "per-ID loop"),
+            (slices[0] if slices else -1, "spec-slice"),
+            (implement.find("หาก output มี `MISSING:`"), "MISSING fallback"),
+            (gates[1] if len(gates) > 1 else -1, "repeated implement gate"),
+            (implement.find("scripts/spec-state.sh <feature>"), "spec-state/reconciliation"),
+            (implement.find("2. Plan the task"), "implementation work"),
+        )
+        for (first_at, first), (second_at, second) in zip(sequence, sequence[1:]):
+            _add_ordering_problem(
+                problems, "spec-implement", first_at, second_at, first, second)
+
+    for name in _AMENDED_STATUS_SKILLS:
+        text = texts.get(name)
+        if text is None:
+            continue
+        if _AMENDED_STATUS not in text or _AMENDED_STATUS_NOTE not in text:
+            problems.append(Diag(
+                "ALIGN_PHASE_SKILLS_MISMATCH",
+                f"{name} ต้องแยก canonical approved Status กับ amendment Status-Note"))
+        if "> Status: approved <original date>, amended" in text:
+            problems.append(Diag(
+                "ALIGN_PHASE_SKILLS_MISMATCH",
+                f"{name} ใส่ amendment ปน canonical Status line"))
+
+    quick = texts.get("spec-quick")
+    if quick is not None and re.search(
+            r"^\s*> Status: approved <YYYY-MM-DD>\s*\([^\n]*quick",
+            quick, re.MULTILINE | re.IGNORECASE):
+        problems.append(Diag(
+            "ALIGN_PHASE_SKILLS_MISMATCH",
+            "spec-quick ใช้ annotation ใน canonical Status line"))
+    return problems
+
+
 _PI_NEEDLES = ("no pre-tool hook", "floor-only", "No built-in subagents")
 
 
@@ -357,6 +611,7 @@ ALL_ROWS = (
     ("ci_jobs", check_ci_jobs),
     ("handoff_schema", check_handoff_schema),
     ("git_boundary", check_git_boundary),
+    ("phase_skills", check_phase_skills),
     ("pi_floor_only", check_pi_floor_only),
 )
 

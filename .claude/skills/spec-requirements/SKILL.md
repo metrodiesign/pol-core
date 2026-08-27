@@ -10,24 +10,26 @@ Resolve the target spec folder: use $ARGUMENTS if given; otherwise use the
 feature folder created by /spec-new in this conversation. If neither identifies
 one and `.ai/specs/` holds several features, list them and ask — never guess.
 
-Derive mode (Design-First): trigger when the folder has a design.md but no
-requirements.md. If that design.md is still `> Status: draft`, warn in Thai and
-ask for confirmation first — and if I confirm, flip it to
-`> Status: approved <YYYY-MM-DD>` before deriving. Then derive the requirements
-FROM the design — each REQ cites the design section it comes from. While
-deriving, sync is one-way: design is upstream; if a derived requirement
-conflicts with the design, fix the requirement — or stop and ask if the design
-itself looks wrong. (Once both artifacts exist, normal two-way sync resumes per
-the constitution.) The derivation already maps each REQ to its design section,
-so backfill design.md AS PART OF WRITING the draft requirements — do NOT defer
-to approval: add the `## Requirement Traceability` table (design element →
-REQ-x.y), update `## Testing Strategy` to cite the new REQ IDs, and re-stamp
-design.md's header `> Status: approved <original date>, amended <YYYY-MM-DD>`.
-Backfilling at draft time (not approval) guarantees that a downstream
-`/spec-tasks` — which may be the skill that flips requirements.md to approved —
-finds the table so `scripts/spec-trace.sh` passes; otherwise it hard-fails with
-no skill authorized to create it. If the derived requirements change during
-review, update the table to match before approval.
+โหมด derive (Design-First) ใช้เมื่อ folder มี `design.md` แต่ยังไม่มี
+`requirements.md` เท่านั้น หลัง resolve feature แล้วต้องรัน shared phase gate นี้ก่อน
+เขียนหรือ advance `requirements.md` รวมถึงก่อน backfill `design.md`:
+
+```bash
+python3 scripts/spec_contract.py gate phase --feature <feature> --phase requirements --workflow design-first
+```
+
+คำสั่งต้องคืน exit `0` ก่อนจึงทำต่อได้ หาก `design.md` missing, malformed, unknown
+หรือไม่ approved ให้หยุดตาม diagnostic ของ engine ทันที ห้ามใช้ conversation,
+checkbox หรือ code existence แทน approval และห้ามแก้ status ของ upstream เพื่อข้าม gate.
+
+เมื่อ gate ผ่าน ให้ derive requirements จาก design โดยแต่ละ REQ อ้าง section ต้นทาง
+ระหว่าง derive ให้ sync ทางเดียว: design เป็น upstream; ถ้า requirement ที่ derive มา
+ขัดกับ design ให้แก้ requirement หรือหยุดถามหาก design เองผิด การ derive นี้ต้อง backfill
+`## Requirement Traceability` (design element → REQ-x.y), ปรับ `## Testing Strategy`
+ให้ cite REQ IDs ใหม่ และคง canonical header ของ design เป็น
+`> Status: approved <original date>` พร้อมเพิ่ม annotation แยกบรรทัดเป็น
+`> Status-Note: amended <YYYY-MM-DD>` ในการเขียน draft รอบเดียวกัน ห้ามเลื่อนไปทำตอน
+approval หาก requirements เปลี่ยนระหว่าง review ให้ปรับ table ให้ตรงก่อน approval.
 
 Write `.ai/specs/<feature>/requirements.md` with this structure:
 

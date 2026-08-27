@@ -25,8 +25,15 @@ STOP and switch to the gated flow (`/spec-requirements` → `/spec-analyze` →
    batched message (in Thai), wait for the answers, then run steps 1-6 in one
    uninterrupted pass — this single Q&A round replaces every approval gate.
 1. Create the spec folder `.ai/specs/<kebab-case-name>/`. Every artifact
-   written below gets the header `> Status: approved <YYYY-MM-DD> (quick, no
-   gates)` immediately — the constitution exempts this flow from gates.
+   written belowต้องใช้ canonical status line แยกจาก quick annotation เสมอ:
+
+   ```text
+   > Status: approved <YYYY-MM-DD>
+   > Status-Note: quick, no approval gates
+   ```
+
+   ห้ามเติม `(quick, no gates)` หรือ annotation อื่นท้าย `> Status:` เพราะ status
+   grammar มีรูป canonical เดียว ส่วน quick flow ยังคงเป็นข้อยกเว้นที่ไม่หยุดรอ approval.
 2. `requirements.md` — EARS notation, atomic/testable, stable IDs (REQ-N). Keep it tight.
    Then self-check it inline against the FIVE /spec-analyze categories (logical
    inconsistencies, ambiguities, conflicting constraints, gaps, unstated

@@ -9,11 +9,26 @@ argument-hint: <feature folder name (optional)>
 Resolve the target spec: use $ARGUMENTS if given; if `.ai/specs/` holds more
 than one feature and none was named, list them and ask — never guess.
 
-Read the active spec's design.md and requirements.md. If either upstream
-artifact is still `> Status: draft` (design.md always; requirements.md too when
-it exists — e.g. derived in design-first), warn in Thai and ask for
-confirmation first — and if I confirm, flip the draft one(s) to
-`> Status: approved <YYYY-MM-DD>`. Then write
+เลือก workflow จาก canonical artifact shape บน disk เท่านั้น:
+
+- มี `bugfix.md` และไม่มี `requirements.md`/`design.md` → `bugfix`
+- มี `requirements.md` กับ `design.md` และไม่มี `bugfix.md` → feature shape ที่
+  Requirements-First และ Design-First converge แล้ว (`requirements-first` กับ
+  `design-first` ใช้ phase contract เดียวกันสำหรับ tasks); ใช้
+  `requirements-first` เป็น canonical label ของ shape นี้โดยไม่เดาประวัติจาก prose
+- shape อื่น → หยุด เพราะ missing หรือ ambiguous
+
+จากนั้นรัน shared phase gate ก่อนเขียนหรือ advance `tasks.md`:
+
+```bash
+python3 scripts/spec_contract.py gate phase --feature <feature> --phase tasks --workflow <workflow>
+```
+
+คำสั่งต้องคืน exit `0` ก่อนจึงอ่าน upstream เพื่อสร้าง tasks ต่อได้ หาก artifact
+missing, malformed, unknown หรือไม่ approved ให้หยุดตาม diagnostic ของ engine ทันที
+ห้ามใช้ conversation, checkbox หรือ code existence แทน approval และห้าม flip upstream
+status เพื่อข้าม gate. สำหรับ feature ให้อ่าน `requirements.md` กับ `design.md`; สำหรับ
+bugfix ให้อ่าน `bugfix.md`. Then write
 `.ai/specs/<feature>/tasks.md`. Size tasks for a large-context, high-effort
 model: each task is a COHESIVE, INDEPENDENTLY VERIFIABLE slice that you can
 implement end-to-end in one pass, even if it spans many files.
@@ -54,12 +69,12 @@ Rules:
 - Each task is ONE coherent behavior / vertical slice (e.g. "user registration
   end-to-end: model → endpoint → validation → tests"), never a horizontal layer
   ("create the model", "create the repository") that does nothing alone.
-- Map each task to a whole REQ or a tightly-related group; list the REQ IDs.
-- Before STOP, run a reverse coverage check: every REQ-N in requirements.md must
-  appear on the Satisfies: line of at least one task — run `scripts/spec-trace.sh
-  <feature>` to verify deterministically. List any uncovered REQ loudly as a
-  blocker; never skip silently. A REQ may stay uncovered only if explicitly
-  declared out of scope and approved.
+- Map each task to a whole REQ หรือ tightly-related group สำหรับ feature; สำหรับ
+  bugfix ให้ map `F-*` และ `B-*` ที่ task รับผิดชอบลง `Satisfies:` โดยตรง.
+- Before STOP, run `scripts/spec-trace.sh <feature>` เป็น reverse coverage check:
+  feature ต้องครอบทุก REQ-N และ bugfix ต้องครอบทุก F/B criterion ใน `Satisfies:`
+  ของอย่างน้อยหนึ่ง task. List criterion ที่ไม่ครอบเป็น blocker; never skip silently.
+  Criterion อาจอยู่นอก scope ได้เฉพาะเมื่อประกาศและ approved ไว้ชัดเจน.
 - Do NOT write 1.1/1.2 sub-tasks — the implementing model handles micro-sequencing
   internally with its own TODO list.
 - Order coarsely: shared/foundational tasks first. Note a dependency only when real.
@@ -75,8 +90,8 @@ Sync mode: if tasks.md already exists and requirements.md or design.md changed
 after it was written, do NOT regenerate — patch only the affected tasks,
 preserving completed `- [x]` entries and their notes (including any appended
 `Evidence:` block — never strip it). If tasks.md was already
-approved, re-stamp its header: `> Status: approved <original date>, amended
-<YYYY-MM-DD>`.
+approved, keep its canonical header as `> Status: approved <original date>` and add
+`> Status-Note: amended <YYYY-MM-DD>` separately.
 
 When done: STOP for my review. Then ask whether to implement a specific task
 (`/spec-implement <n>`), a range (`/spec-implement 1-3`), or everything
