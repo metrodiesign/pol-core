@@ -106,6 +106,17 @@ class BypassPolicyTest(unittest.TestCase):
                     "mv /tmp/x .ai/bin/gate-task.sh"):
             self.assertTrue(self.v(cmd).blocked, cmd)
 
+    def test_source_owner_tamper_blocks(self):
+        for cmd in ("chmod 000 scripts/guard_policy.py",
+                    "mv /tmp/x scripts/guard_contract.py"):
+            self.assertTrue(self.v(cmd).blocked, cmd)
+
+    def test_source_owner_copy_out_and_lookalike_allow(self):
+        self.assertFalse(
+            self.v("cp scripts/guard_policy.py /tmp/backup-policy").blocked)
+        self.assertFalse(
+            self.v("chmod 000 scripts/guard_policy.py.bak").blocked)
+
     def test_copy_destination_rule(self):
         self.assertTrue(self.v("cp /tmp/evil .ai/bin/check-bypass.sh").blocked)
         self.assertFalse(self.v("cp .githooks/pre-commit /tmp/backup-hook").blocked)
@@ -121,6 +132,9 @@ class BypassPolicyTest(unittest.TestCase):
         self.assertTrue(self.v("git config --unset core.hooksPath").blocked)
         self.assertFalse(self.v("git config --get core.hooksPath").blocked)
         self.assertFalse(self.v("git config core.hooksPath").blocked)
+
+    def test_malformed_input_engine_fails_closed(self):
+        self.assertTrue(self.v("echo 'unclosed").engine_fail)
 
     def test_skip_flags(self):
         self.assertTrue(self.v("git commit --no-verify -m x").blocked)

@@ -17,6 +17,7 @@ never a flat-regex fallback (REQ-9.2/9.3).
 from __future__ import annotations
 
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -239,8 +240,8 @@ def check_destructive(command: str, current_branch: str | None = None) -> Verdic
 # --- bypass policy -----------------------------------------------------------
 
 GUARD_PATH = re.compile(
-    r"(\.githooks(/[\w./-]*)?|\.ai/bin(/check-[\w.-]*\.sh|/gate-task\.sh|/?))"
-    r"(\s|$)")
+    r"(\.githooks(/[\w./-]*)?|\.ai/bin(/check-[\w.-]*\.sh|/gate-task\.sh|/?)|"
+    r"scripts/guard_(policy|contract)\.py)(\s|$)")
 _COPY_VERBS = {"cp", "ln", "install"}
 _TAMPER_VERBS = {"chmod", "chown", "rm", "truncate", "tee", "mv"}
 
@@ -328,12 +329,18 @@ POLICIES = {"destructive": check_destructive, "bypass": check_bypass}
 def main(argv: list[str]) -> int:
     import argparse
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("policy", choices=sorted(POLICIES))
-    parser.add_argument("--branch", default=None)
-    parser.add_argument("command", nargs="+")
+    policies = parser.add_subparsers(dest="policy", required=True)
+    for policy in sorted(POLICIES):
+        policy_parser = policies.add_parser(policy, add_help=False)
+        policy_parser.add_argument("--branch", default=None)
+        policy_parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    command_argv = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command_argv:
+        parser.error("the following arguments are required: command")
+    command = command_argv[0] if len(command_argv) == 1 else shlex.join(command_argv)
     try:
-        verdict = POLICIES[args.policy](" ".join(args.command), args.branch)
+        verdict = POLICIES[args.policy](command, args.branch)
     except gc.LexError as err:
         print(f"ENGINE_INTERNAL: {err.code}", file=sys.stderr)
         return 2

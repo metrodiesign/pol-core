@@ -9,6 +9,7 @@ set -u
 
 HOOK="$(cd "$(dirname "$0")/.." && pwd)/hook-bypass-guard.sh"
 ENGINE="$(cd "$(dirname "$0")/../../../.ai/bin" && pwd)/check-bypass.sh"
+POLICY="$(cd "$(dirname "$0")/../../.." && pwd)/scripts/guard_policy.py"
 pass=0
 fail=0
 
@@ -36,6 +37,51 @@ check() { # $1=expect(block|allow) $2=desc $3=command-string
     echo "FAIL [engine][$1] $2 -> exit $rc_engine (want $want) :: $3"
   fi
 }
+
+check_multi_argv() { # $1=expect(block|allow) $2=desc $3...=command vector
+  local expect="$1"
+  local desc="$2"
+  shift 2
+
+  local surface output rc
+  for surface in engine policy; do
+    if [ "$surface" = engine ]; then
+      output=$("$ENGINE" "$@" 2>&1)
+    else
+      output=$(python3 "$POLICY" bypass "$@" 2>&1)
+    fi
+    rc=$?
+
+    if [ "$expect" = allow ] && [ "$rc" -eq 0 ]; then
+      pass=$((pass + 1))
+    elif [ "$expect" = block ] && [ "$rc" -eq 2 ] && [[ "$output" == Blocked:* ]]; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1))
+      echo "FAIL [$surface][multi-argv][$expect] $desc -> exit $rc :: $output"
+    fi
+  done
+}
+
+check_stdin() { # $1=expect(block|allow) $2=desc $3=command-string
+  local want=2
+  [ "$1" = allow ] && want=0
+  printf '%s' "$3" | "$ENGINE" >/dev/null 2>&1
+  local rc_engine=$?
+  if [ "$rc_engine" -eq "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    echo "FAIL [engine-stdin][$1] $2 -> exit $rc_engine (want $want) :: $3"
+  fi
+}
+
+check_multi_argv allow "read hooksPath --get" git config --get core.hooksPath
+check_multi_argv allow "quoted -n data" git commit -m 'fix -n flag handling'
+check_multi_argv allow "copy protected source out" cp scripts/guard_policy.py /tmp/backup-policy
+check_multi_argv block "source owner target" chmod 000 scripts/guard_policy.py
+check_stdin block "stdin block contract" 'git commit -n -m x'
+check_stdin allow "stdin allow contract" 'git status'
 
 # --- MUST BLOCK: bypass attempts ---
 check block "long --no-verify"          'git commit --no-verify -m x'

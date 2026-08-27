@@ -9,7 +9,10 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 POLICY="$REPO_ROOT/scripts/guard_policy.py"
 
-C="${1:-$(cat)}"
-[ -n "$C" ] || exit 0
+if [ "$#" -gt 0 ]; then
+  exec python3 "$POLICY" bypass "$@"
+fi
 
+C="$(cat)"
+[ -n "$C" ] || exit 0
 exec python3 "$POLICY" bypass "$C"
