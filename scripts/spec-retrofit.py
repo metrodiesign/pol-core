@@ -1171,6 +1171,7 @@ def plan_ears_join_actions(batch_id: str, directory: Path):
     """Ledger-gated mechanical closure: join wrapped `- N.M ...` criterion
     continuation lines into one physical line so the full statement is
     visible. Word-preserving; ids and text untouched."""
+    actions: list[RetrofitAction] = []
     blockers: list[RetrofitBlocker] = []
     file_path = directory / "requirements.md"
     if not file_path.is_file():
@@ -1922,10 +1923,32 @@ def run_apply_safe(batch_id: str) -> int:
 
 def _residual_is_decided(blocker) -> bool:
     """A blocker with a committed ledger decision counts as resolved-by-record
-    even when no safe mechanical write exists (e.g. header-less legacy tasks)."""
+    even when no safe mechanical write exists (e.g. header-less legacy tasks).
+    Chain/state summary blockers follow their directory's per-file status
+    decisions — once statuses are dispositioned, completeness re-derives."""
     entry = (_ledger_get(blocker.path, blocker.target_field, blocker.task_id)
              or _ledger_get(blocker.path, blocker.target_field))
-    return entry is not None and bool(entry.get("disposition"))
+    if entry is not None and bool(entry.get("disposition")):
+        return True
+    if blocker.target_field in {"artifact.chain", "authoring.chain"}:
+        return load_resolution_ledger_decided_statuses(
+            Path(blocker.path).parent.as_posix())
+    return False
+
+
+def load_resolution_ledger_decided_statuses(directory: str) -> bool:
+    """True iff every markdown artifact of `directory` carries a status.line
+    decision with a closing disposition (approved/superseded)."""
+    ledger = load_resolution_ledger()
+    by_dir = {}
+    for (path_str, field, scoped), entry in ledger.items():
+        if field == "status.line":
+            by_dir.setdefault(Path(path_str).parent.as_posix(), {})[path_str] = entry
+    entries = by_dir.get(directory)
+    if not entries:
+        return False
+    return all(entry.get("disposition") in {"status-approved", "status-superseded"}
+               for entry in entries.values())
 
 
 # ---------------------------------------------------------------------------
