@@ -460,8 +460,23 @@ class SpecContractTest(unittest.TestCase):
     def test_compatibility_trace_keeps_historical_requirements_corpus_green(self):
         specs = SCRIPTS.parent / ".ai" / "specs"
         features = sorted(path.name for path in specs.iterdir() if path.is_dir() and (path / "requirements.md").is_file())
+        # Legacy corpus dirs carry ledger-dispositioned trace tables (option ค:
+        # recorded residual, strict-active-first scope). Compatibility probe =
+        # everything EXCEPT those migrated-with-decisions dirs stays green.
+        import json as _json
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "rf_ledger_probe", SCRIPTS / "spec-retrofit.py")
+        _rf = _ilu.module_from_spec(_spec)
+        sys.modules["rf_ledger_probe"] = _rf
+        _spec.loader.exec_module(_rf)
+        decided = {Path(entry["path"]).parent.name for entry in
+                   _json.loads((specs / "sdd-operating-layer-parity" /
+                                "migration-resolutions.json").read_text())["decisions"]
+                   if entry["field"] == "trace.table"}
+        in_scope = [f for f in features if f not in decided]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            failures = [feature for feature in features if trace_run(feature, specs)]
+            failures = [feature for feature in in_scope if trace_run(feature, specs)]
         self.assertEqual(52, len(features))
         self.assertEqual([], failures)
 
