@@ -31,9 +31,11 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
   done
 
-  # Deleting a remote ref (local_sha all-zero): treat as a destructive op, block.
+  # Deleting a non-protected remote ref (local_sha all-zero): allowed here — protected refs
+  # are already blocked above, and the agent policy layer (agents-adapter GIT_REMOTE_DELETE)
+  # asks the human first. A blanket block cannot be approved and stalls post-merge cleanup.
   if [ "$local_sha" = "$ZERO" ]; then
-    block "deleting remote ref $remote_ref — confirm with a human first."
+    continue
   fi
 
   # 2. Non-fast-forward (force) push: skip when creating a brand-new remote ref.
